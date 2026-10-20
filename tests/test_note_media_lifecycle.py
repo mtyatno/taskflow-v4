@@ -2,8 +2,10 @@
 import os
 import time
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 import webapp
 from conftest import db
@@ -163,7 +165,7 @@ def test_purge_survives_file_delete_failure(client, monkeypatch):
 
 
 def _utc_iso(hours_ago):
-    return (datetime.utcnow() - timedelta(hours=hours_ago)).isoformat()
+    return (webapp._media_utcnow() - timedelta(hours=hours_ago)).isoformat()
 
 
 def test_stuck_upload_cleanup(client, monkeypatch):
@@ -184,7 +186,7 @@ def test_stuck_upload_cleanup(client, monkeypatch):
     assert part_old.exists() and part_fresh.exists()
     c = db()
     try:
-        n = webapp._cleanup_stuck_media_uploads(c, datetime.utcnow())
+        n = webapp._cleanup_stuck_media_uploads(c, webapp._media_utcnow())
         c.commit()
     finally:
         c.close()
@@ -205,7 +207,7 @@ def test_orphan_part_older_than_limit_removed(client):
     os.utime(orphan_old, (past, past))
     c = db()
     try:
-        n = webapp._cleanup_stuck_media_uploads(c, datetime.utcnow())
+        n = webapp._cleanup_stuck_media_uploads(c, webapp._media_utcnow())
     finally:
         c.close()
     assert n == 0
@@ -222,7 +224,7 @@ def test_old_part_with_processing_row_kept(client, monkeypatch):
     os.utime(part, (past, past))
     c = db()
     try:
-        webapp._cleanup_stuck_media_uploads(c, datetime.utcnow())
+        webapp._cleanup_stuck_media_uploads(c, webapp._media_utcnow())
     finally:
         c.close()
     assert part.exists()
@@ -232,7 +234,7 @@ def test_cleanup_never_raises(client):
     class Bad:
         def execute(self, *a, **k):
             raise RuntimeError("db")
-    assert webapp._cleanup_stuck_media_uploads(Bad(), datetime.utcnow()) == 0
+    assert webapp._cleanup_stuck_media_uploads(Bad(), webapp._media_utcnow()) == 0
 
 
 def test_restored_processing_row_requeued(client, monkeypatch):
@@ -249,3 +251,69 @@ def test_restored_processing_row_requeued(client, monkeypatch):
     assert webapp.media_worker.requeue_processing() >= 1
     webapp.media_worker.run_pending()
     assert att in seen
+
+
+def test_restore_enqueues_processing_rows_without_requeue(client, monkeypatch):
+    """Temuan akhir #1: pulihkan dari Sampah langsung mengantrekan baris 'processing' (tanpa restart)."""
+    h, nid, att, key, poster = _make(client, monkeypatch, status="processing")
+    h2, nid2, ready_att, _k, _p = _make(client, monkeypatch, user=h, status="ready")
+    client.delete(f"/api/scratchpad/{nid}", headers=h)
+    client.delete(f"/api/scratchpad/{nid2}", headers=h)
+    calls = []
+    monkeypatch.setattr(webapp.media_worker, "enqueue", lambda i: calls.append(i))
+    monkeypatch.setattr(webapp.media_worker, "requeue_processing",
+                        lambda: pytest.fail("restore tidak boleh bergantung pada requeue_processing"))
+    assert client.post(f"/api/scratchpad/trash/{nid}/restore", headers=h).status_code == 200
+    assert calls == [att]
+    assert client.post(f"/api/scratchpad/trash/{nid2}/restore", headers=h).status_code == 200
+    assert calls == [att]  # baris 'ready' tidak diantrekan
+
+
+def _run_startup(monkeypatch, ffmpeg, ffprobe):
+    import asyncio
+    monkeypatch.setattr(webapp.media_worker, "_ffmpeg", ffmpeg)
+    monkeypatch.setattr(webapp.media_worker, "_ffprobe", ffprobe)
+    monkeypatch.setattr(webapp.media_worker, "start", lambda: None)
+    monkeypatch.setattr(webapp.media_worker, "requeue_processing", lambda: 0)
+    asyncio.run(webapp.startup())
+
+
+def test_startup_warns_when_ffmpeg_or_ffprobe_missing(monkeypatch, caplog):
+    """Temuan akhir #4 (spec §5.2): biner yang hilang dicatat saat start beserta akibatnya."""
+    caplog.set_level("WARNING", logger="alurik.webapp")
+    _run_startup(monkeypatch, None, None)
+    text = " | ".join(r.getMessage() for r in caplog.records if r.levelname == "WARNING")
+    assert "ffprobe tidak ditemukan" in text and "metadata" in text and "format" in text
+    assert "ffmpeg tidak ditemukan" in text and "faststart" in text and "poster" in text
+    caplog.clear()
+    _run_startup(monkeypatch, "/usr/bin/ffmpeg", None)
+    text = " | ".join(r.getMessage() for r in caplog.records if r.levelname == "WARNING")
+    assert "ffprobe tidak ditemukan" in text and "ffmpeg tidak ditemukan" not in text
+    caplog.clear()
+    _run_startup(monkeypatch, "/usr/bin/ffmpeg", "/usr/bin/ffprobe")
+    assert not any("tidak ditemukan" in r.getMessage() for r in caplog.records)
+
+
+def test_media_code_paths_emit_no_utcnow_deprecation(client, monkeypatch):
+    """Temuan akhir #11: kode media memakai _media_utcnow() (naive UTC), bukan datetime.utcnow()."""
+    import warnings
+    monkeypatch.setattr(webapp.media_worker, "enqueue", lambda i: None)
+    h = auth(client, _uniq("dw"))  # create_token (lama) memakai utcnow: di luar blok yang diperiksa
+    nid = make_note(client, h, "n", "c")["id"]
+    with warnings.catch_warnings(record=True) as rec:
+        warnings.simplefilter("always")
+        att = client.post(f"/api/scratchpad/{nid}/media", headers=h,
+                          json={"client_id": _uniq("c"), "filename": "a.mp4", "size": len(MP4)}).json()["id"]
+        assert client.patch(f"/api/media/{att}/upload", headers={**h, "Upload-Offset": "0"},
+                            content=MP4).status_code == 200
+        assert client.post(f"/api/media/{att}/complete", headers=h).status_code == 200
+        with webapp.get_db() as c:
+            webapp._purge_expired_trashed_notes(c)
+            webapp._cleanup_stuck_media_uploads(c, webapp._media_utcnow())
+        iso = webapp._media_now_iso()
+    bad = [str(w.message) for w in rec if issubclass(w.category, DeprecationWarning) and "utcnow" in str(w.message)]
+    assert bad == []
+    now = webapp._media_utcnow()
+    assert now.tzinfo is None
+    assert abs((datetime.now(timezone.utc).replace(tzinfo=None) - now).total_seconds()) < 5
+    assert "T" in iso and "+" not in iso and not iso.endswith("Z")  # format naive-UTC lama tetap

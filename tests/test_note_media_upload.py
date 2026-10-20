@@ -280,3 +280,177 @@ def test_filename_never_used_as_path(client, monkeypatch):
     long_name = ("é" * 300) + ".mp3"
     r = _init(client, h, nid, 5, filename=long_name, mime="")
     assert r.status_code == 200 and len(r.json()["original_name"]) == 255
+
+
+def _delete_row(att_id):
+    c = db()
+    try:
+        c.execute("DELETE FROM note_attachments WHERE id=?", (att_id,))
+        c.commit()
+    finally:
+        c.close()
+
+
+def test_patch_row_deleted_during_write_404(client, monkeypatch):
+    """Temuan akhir #3: note dibuang/dihapus saat PATCH menulis → 404, bukan 500."""
+    h, nid, _ = _setup(client)
+    att = _init(client, h, nid, 12).json()["id"]
+    orig = webapp._media_write_chunk
+
+    def write_then_delete(path, offset, data):
+        orig(path, offset, data)
+        _delete_row(att)
+    monkeypatch.setattr(webapp, "_media_write_chunk", write_then_delete)
+    r = _patch(client, h, att, 0, b"hello")
+    assert r.status_code == 404 and r.json()["detail"] == "Media tidak ditemukan"
+    assert att not in webapp._media_upload_locks
+
+
+def test_complete_row_deleted_during_complete_404_no_orphan(client, monkeypatch):
+    """Temuan akhir #3: baris hilang saat complete → 404 dan file yang sudah dipindah dihapus."""
+    calls, keys = [], []
+    monkeypatch.setattr(webapp.media_worker, "enqueue", lambda i: calls.append(i))
+    orig_key = webapp.new_key
+    monkeypatch.setattr(webapp, "new_key", lambda ext, now: keys.append(orig_key(ext, now)) or keys[-1])
+    h, nid, _ = _setup(client)
+    att = _init(client, h, nid, len(MP4)).json()["id"]
+    assert _patch(client, h, att, 0, MP4).status_code == 200
+    orig_head = webapp._media_read_head
+
+    def head_then_delete(path):
+        head = orig_head(path)
+        _delete_row(att)
+        return head
+    monkeypatch.setattr(webapp, "_media_read_head", head_then_delete)
+    r = client.post(f"/api/media/{att}/complete", headers=h)
+    assert r.status_code == 404 and r.json()["detail"] == "Media tidak ditemukan"
+    assert len(keys) == 1 and not (Path(webapp.MEDIA_ROOT) / keys[0]).exists()
+    assert not _part(att).exists()
+    assert calls == []
+
+
+def test_init_strips_control_chars_from_filename_and_docx_export_ok(client):
+    """Temuan akhir #5: karakter kontrol C0/C1 dibuang dari nama (python-docx menolaknya → ekspor 500)."""
+    import io
+    import docx
+    h = auth(client, _uniq("cc"))
+    cid = _uniq("c")
+    nid = make_note(client, h, "n", f"::media[{cid}]")["id"]
+    dirty = "ra\x00pat\x07\x1b\x7f\x85\x9f\tfinal\n.mp3"
+    r = _init(client, h, nid, 5, cid=cid, filename=dirty, mime="audio/mpeg")
+    assert r.status_code == 200, r.text
+    assert r.json()["original_name"] == "rapatfinal.mp3"
+    assert _row(r.json()["id"])["original_name"] == "rapatfinal.mp3"
+    # ekstensi dicek dari nama yang sudah bersih
+    assert _init(client, h, nid, 5, filename="\x01\x02.mp3", mime="").json()["original_name"] == ".mp3"
+    assert _init(client, h, nid, 5, filename="a.mp\x003", mime="").json()["original_name"] == "a.mp3"
+    # karakter non-XML lain (U+FFFE/U+FFFF, surrogate tunggal dari JSON "\\ud800") juga dibuang
+    assert _init(client, h, nid, 5, filename="b\ufffe\uffff.mp3", mime="").json()["original_name"] == "b.mp3"
+    raw = '{"client_id": "%s", "filename": "s\\ud800x.mp3", "size": 5, "mime": ""}' % _uniq("c")
+    r2 = client.post(f"/api/scratchpad/{nid}/media", headers={**h, "Content-Type": "application/json"}, content=raw)
+    assert r2.status_code == 200 and r2.json()["original_name"] == "sx.mp3"
+    c = db()
+    try:
+        c.execute("UPDATE note_attachments SET status='ready', storage_key=?, media_type='audio' WHERE id=?",
+                  ("2026/10/12345678-1234-1234-1234-123456789abc.mp3", r.json()["id"]))
+        c.commit()
+    finally:
+        c.close()
+    d = client.get(f"/api/scratchpad/{nid}/export/docx", headers=h)
+    assert d.status_code == 200
+    text = "\n".join(p.text for p in docx.Document(io.BytesIO(d.content)).paragraphs)
+    assert "rapatfinal.mp3" in text
+
+
+@pytest.mark.parametrize("err,code,detail", [
+    (errno.ENOSPC, 507, "Penyimpanan server penuh"),
+    (errno.EACCES, 503, "Penyimpanan media tidak tersedia"),
+    (errno.EROFS, 503, "Penyimpanan media tidak tersedia"),
+])
+def test_init_tmp_not_writable_no_row(client, monkeypatch, err, code, detail):
+    """Temuan akhir #6: .part dibuat sebelum baris di-commit; gagal → 507/503 tanpa baris."""
+    h, nid, _ = _setup(client)
+
+    def boom(att_id):
+        raise OSError(err, "tidak bisa menulis")
+    monkeypatch.setattr(webapp.media_storage, "temp_path", boom)
+    cid = _uniq("c")
+    r = _init(client, h, nid, 10, cid=cid)
+    assert r.status_code == code and r.json()["detail"] == detail
+    c = db()
+    try:
+        assert c.execute("SELECT COUNT(*) FROM note_attachments WHERE note_id=?", (nid,)).fetchone()[0] == 0
+    finally:
+        c.close()
+    monkeypatch.undo()
+    r = _init(client, h, nid, 10, cid=cid)  # client_id yang sama bisa dipakai lagi
+    assert r.status_code == 200 and _part(r.json()["id"]).exists()
+
+
+def test_patch_missing_part_resets_to_zero_409_no_sparse_file(client, monkeypatch):
+    """Temuan akhir #7: .part hilang saat offset > 0 → received_bytes 0 + 409, tanpa file sparse."""
+    h, nid, _ = _setup(client)
+    att = _init(client, h, nid, 12).json()["id"]
+    assert _patch(client, h, att, 0, b"hello").status_code == 200
+    _part(att).unlink()
+    r = _patch(client, h, att, 5, b"-world!")
+    assert r.status_code == 409 and r.json()["received_bytes"] == 0
+    assert _row(att)["received_bytes"] == 0
+    assert not _part(att).exists()
+    assert client.get(f"/api/media/{att}/upload", headers=h).json()["received_bytes"] == 0
+    # klien mengulang dari 0
+    assert _patch(client, h, att, 0, b"hello").status_code == 200
+    assert _patch(client, h, att, 5, b"-world!").status_code == 200
+    assert _part(att).read_bytes() == b"hello-world!"
+    # .part hilang di antara cek dan tulis: tetap tidak membuat file sparse
+    att2 = _init(client, h, nid, 12).json()["id"]
+    assert _patch(client, h, att2, 0, b"hello").status_code == 200
+    orig = webapp._media_write_chunk
+
+    def unlink_then_write(path, offset, data):
+        path.unlink()
+        orig(path, offset, data)
+    monkeypatch.setattr(webapp, "_media_write_chunk", unlink_then_write)
+    r = _patch(client, h, att2, 5, b"-world!")
+    assert r.status_code == 409 and r.json()["received_bytes"] == 0
+    assert _row(att2)["received_bytes"] == 0 and not _part(att2).exists()
+
+
+def test_init_concurrent_same_client_id_integrity_error(client, monkeypatch):
+    """Temuan akhir #8: init lain menyisipkan client_id yang sama di antara cek dan INSERT →
+    aturan idempoten yang sama (note sama → baris itu, note lain → 409), bukan 500."""
+    h, nid, name = _setup(client)
+    n2 = make_note(client, h, "n2", "c")["id"]
+    uid = uid_of(name)
+    inserted = []
+
+    def racer(target_note, cid):
+        def quota(conn, u, size):
+            c = db()
+            try:
+                cur = c.execute(
+                    "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, file_size, "
+                    "mime_type, created_at, kind, client_id, storage, status, received_bytes, updated_at) "
+                    "VALUES (?, ?, '', 'a.mp4', 10, 'application/octet-stream', '2026-10-20T00:00:00', "
+                    "'media', ?, 'local', 'uploading', 0, '2026-10-20T00:00:00')", (target_note, uid, cid))
+                c.commit()
+                inserted.append(cur.lastrowid)
+            finally:
+                c.close()
+        return quota
+
+    cid = _uniq("c")
+    monkeypatch.setattr(webapp, "_media_quota_check", racer(nid, cid))
+    r = _init(client, h, nid, 10, cid=cid)
+    assert r.status_code == 200, r.text
+    assert r.json()["id"] == inserted[-1] and r.json()["status"] == "uploading"
+    cid2 = _uniq("c")
+    monkeypatch.setattr(webapp, "_media_quota_check", racer(n2, cid2))
+    r = _init(client, h, nid, 10, cid=cid2)
+    assert r.status_code == 409 and r.json()["detail"] == "client_id sudah dipakai"
+    c = db()
+    try:
+        assert c.execute("SELECT COUNT(*) FROM note_attachments WHERE client_id IN (?, ?)",
+                         (cid, cid2)).fetchone()[0] == 2
+    finally:
+        c.close()

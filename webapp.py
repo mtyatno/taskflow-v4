@@ -172,6 +172,11 @@ from media_worker import MediaWorker
 from config import MEDIA_STORAGE
 
 
+def _media_utcnow() -> datetime:
+    """Waktu UTC naif (format lama `datetime.utcnow()`), tanpa API yang deprecated."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
 def _media_db_connect():
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -1592,9 +1597,15 @@ async def startup():
         logger.warning("MEDIA_ROOT tidak bisa dibuat (%s): %s", MEDIA_ROOT, e)
     if not _MEDIA_URL_SECRET_CFG:
         logger.warning("MEDIA_URL_SECRET kosong; secret URL media diturunkan dari WEB_SECRET_KEY")
+    if not media_worker.ffprobe:
+        logger.warning("ffprobe tidak ditemukan di PATH: media ditandai ready tanpa metadata (durasi/ukuran), "
+                       "tanpa cek format dan tanpa poster; pasang dengan `sudo apt install ffmpeg`")
+    if not media_worker.ffmpeg:
+        logger.warning("ffmpeg tidak ditemukan di PATH: media diproses tanpa faststart dan tanpa poster; "
+                       "pasang dengan `sudo apt install ffmpeg`")
     try:
         with get_db() as _c:
-            _cleanup_stuck_media_uploads(_c, datetime.utcnow())
+            _cleanup_stuck_media_uploads(_c, _media_utcnow())
     except Exception:
         logger.warning("pembersihan unggahan macet saat start gagal", exc_info=True)
     media_worker.requeue_processing()
@@ -5301,7 +5312,7 @@ def _purge_expired_trashed_notes(conn) -> None:
         conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
     except Exception:
         pass
-    _cleanup_stuck_media_uploads(conn, datetime.utcnow())
+    _cleanup_stuck_media_uploads(conn, _media_utcnow())
 
 def _trash_preview(content: str, limit: int = 120) -> str:
     # Potong dulu: regex link di bawah bisa kuadratik pada content panjang (mis. 'a[' * 50000 ≈ 18 dtk,
@@ -5564,6 +5575,10 @@ async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
         _sync_linked_mindmap(conn, note_id)
         sync = _note_with_drawing_sync(conn, note_id, uid, datetime.now(_TZ_JKT).isoformat(), move=False)
         conn.commit()
+        # Media yang dibuang saat masih 'processing' diantrekan lagi sekarang, bukan menunggu restart.
+        for r in conn.execute("SELECT id FROM note_attachments WHERE note_id = ? AND status = 'processing'",
+                              (note_id,)).fetchall():
+            media_worker.enqueue(r["id"])
         restored = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(restored, conn, uid, sync)
 
@@ -5982,6 +5997,8 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user_sse)):
 # Kontrak 409 pada PATCH: JSONResponse {"detail": "...", "received_bytes": N} (bukan HTTPException)
 # supaya klien bisa melanjutkan dari received_bytes tanpa GET tambahan.
 _MEDIA_CLIENT_ID_RE = re.compile(r"^[0-9a-zA-Z_-]{1,64}$")
+# C0/C1 + karakter yang bukan XML (surrogate tunggal, U+FFFE/U+FFFF): python-docx/SQLite menolaknya.
+_MEDIA_CTRL_CHARS_RE = re.compile(r"[\x00-\x1f\x7f-\x9f\ud800-\udfff\ufffe\uffff]")
 _media_upload_locks: dict[int, asyncio.Lock] = {}
 
 
@@ -6040,11 +6057,12 @@ def _media_payload(conn, row, now: int) -> dict:
 
 
 def _media_now_iso() -> str:
-    return datetime.utcnow().isoformat()
+    return _media_utcnow().isoformat()
 
 
 def _media_write_chunk(path: Path, offset: int, data: bytes) -> None:
-    mode = "r+b" if path.exists() else "w+b"
+    # offset > 0 hanya ke .part yang ada (FileNotFoundError bila hilang): jangan pernah membuat file sparse.
+    mode = "r+b" if offset > 0 or path.exists() else "w+b"
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, mode) as f:
         f.seek(offset)
@@ -6064,6 +6082,7 @@ async def init_note_media(note_id: int, body: dict = Body(...), user=Depends(get
     if not isinstance(client_id, str) or not _MEDIA_CLIENT_ID_RE.fullmatch(client_id):
         raise HTTPException(status_code=400, detail="client_id tidak valid")
     filename = body.get("filename") if isinstance(body.get("filename"), str) else ""
+    filename = _MEDIA_CTRL_CHARS_RE.sub("", filename)  # nama kotor → ekspor DOCX 500
     size = body.get("size")
     mime = body.get("mime") if isinstance(body.get("mime"), str) else ""
     with get_db() as conn:
@@ -6079,24 +6098,44 @@ async def init_note_media(note_id: int, body: dict = Body(...), user=Depends(get
         m = mime.strip().lower()
         if m and m != "application/octet-stream" and not (m.startswith("audio/") or m.startswith("video/")):
             raise HTTPException(status_code=415, detail="Format file tidak didukung")
-        existing = conn.execute(
-            "SELECT * FROM note_attachments WHERE user_id = ? AND client_id = ?",
-            (uid, client_id)).fetchone()
-        if existing:
+        def _existing_row():
+            return conn.execute("SELECT * FROM note_attachments WHERE user_id = ? AND client_id = ?",
+                                (uid, client_id)).fetchone()
+
+        def _reuse(existing):
             if existing["note_id"] != note_id:
                 raise HTTPException(status_code=409, detail="client_id sudah dipakai")
             return _media_payload(conn, existing, int(_time.time()))
+
+        existing = _existing_row()
+        if existing:
+            return _reuse(existing)
         _media_quota_check(conn, uid, size)
         now_iso = _media_now_iso()
-        cur = conn.execute(
-            "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, "
-            "file_size, mime_type, created_at, kind, client_id, storage, status, received_bytes, updated_at) "
-            "VALUES (?, ?, '', ?, ?, 'application/octet-stream', ?, 'media', ?, 'local', 'uploading', 0, ?)",
-            (note_id, uid, (filename[:255] or "media"), size, now_iso, client_id, now_iso))
+        try:
+            cur = conn.execute(
+                "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, "
+                "file_size, mime_type, created_at, kind, client_id, storage, status, received_bytes, updated_at) "
+                "VALUES (?, ?, '', ?, ?, 'application/octet-stream', ?, 'media', ?, 'local', 'uploading', 0, ?)",
+                (note_id, uid, (filename[:255] or "media"), size, now_iso, client_id, now_iso))
+        except sqlite3.IntegrityError:
+            # init bersamaan dengan client_id sama (dua tab/ulang kirim): pakai baris pemenang
+            conn.rollback()
+            existing = _existing_row()
+            if not existing:
+                raise
+            return _reuse(existing)
         att_id = cur.lastrowid
+        # .part dibuat SEBELUM commit: MEDIA_ROOT tak bisa ditulis → tidak ada baris yatim.
+        try:
+            media_storage.temp_path(att_id).touch()
+        except OSError as e:
+            conn.rollback()
+            if e.errno == errno.ENOSPC:
+                raise HTTPException(status_code=507, detail="Penyimpanan server penuh")
+            logger.warning("MEDIA_ROOT/.tmp tidak bisa ditulis: %s", e)
+            raise HTTPException(status_code=503, detail="Penyimpanan media tidak tersedia")
         conn.commit()
-        part = media_storage.temp_path(att_id)
-        part.touch()
         row = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
         return _media_payload(conn, row, int(_time.time()))
 
@@ -6120,6 +6159,14 @@ async def get_media_upload(att_id: int, user=Depends(get_current_user)):
 def _media_busy(received: int) -> JSONResponse:
     return JSONResponse(status_code=409, content={
         "detail": "Unggahan sedang diproses", "received_bytes": received})
+
+
+def _media_reset_upload(conn, att_id: int) -> int:
+    """`.part` hilang: setel received_bytes ke 0 supaya klien mengulang unggahan dari awal."""
+    conn.execute("UPDATE note_attachments SET received_bytes = 0, updated_at = ? "
+                 "WHERE id = ? AND status = 'uploading'", (_media_now_iso(), att_id))
+    conn.commit()
+    return 0
 
 
 @app.patch("/api/media/{att_id}/upload")
@@ -6150,6 +6197,9 @@ async def patch_media_upload(att_id: int, request: Request, user=Depends(get_cur
             if row["status"] != "uploading":
                 raise HTTPException(status_code=409, detail="Media tidak sedang diunggah")
             received = row["received_bytes"]
+            part = media_storage.temp_path(att_id)
+            if received > 0 and not part.exists():
+                received = _media_reset_upload(conn, att_id)  # .part hilang: klien mulai lagi dari 0
             if offset != received:
                 return _media_busy(received)
             max_body = MEDIA_CHUNK_BYTES + 1024 * 1024
@@ -6161,15 +6211,19 @@ async def patch_media_upload(att_id: int, request: Request, user=Depends(get_cur
                 chunks.append(piece)
             data = b"".join(chunks)
             try:
-                await run_in_threadpool(_media_write_chunk, media_storage.temp_path(att_id), offset, data)
+                await run_in_threadpool(_media_write_chunk, part, offset, data)
+            except FileNotFoundError:
+                return _media_busy(_media_reset_upload(conn, att_id))
             except OSError as e:
                 if e.errno == errno.ENOSPC:
                     raise HTTPException(status_code=507, detail="Penyimpanan server penuh")
                 raise
-            conn.execute("UPDATE note_attachments SET received_bytes = ?, updated_at = ? WHERE id = ?",
-                         (offset + len(data), _media_now_iso(), att_id))
+            cur = conn.execute("UPDATE note_attachments SET received_bytes = ?, updated_at = ? WHERE id = ?",
+                               (offset + len(data), _media_now_iso(), att_id))
             conn.commit()
             row = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+            if cur.rowcount == 0 or row is None:
+                raise _media_not_found()  # note dibuang/dihapus selama menulis; .part disapu pembersihan
             return _media_payload(conn, row, int(_time.time()))
     finally:
         lock.release()
@@ -6210,15 +6264,18 @@ async def complete_media_upload(att_id: int, user=Depends(get_current_user)):
                              ("Format file tidak didukung", _media_now_iso(), att_id))
                 conn.commit()  # get_db me-rollback bila exception, jadi commit dulu
                 raise HTTPException(status_code=415, detail="Format file tidak didukung")
-            now = datetime.utcnow()
+            now = _media_utcnow()
             key = new_key(sniff.ext, now)
             media_storage.commit(key, part)
-            conn.execute(
+            cur = conn.execute(
                 "UPDATE note_attachments SET storage_key=?, mime_type=?, media_type=?, "
                 "status='processing', updated_at=? WHERE id=?",
                 (key, final_mime(sniff, sniff.default_media_type), sniff.default_media_type,
                  now.isoformat(), att_id))
             conn.commit()
+            if cur.rowcount == 0:
+                media_storage.delete(key)  # baris hilang (note dibuang/dihapus): jangan tinggalkan file yatim
+                raise _media_not_found()
             media_worker.enqueue(att_id)
             row = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
             return _media_payload(conn, row, int(_time.time()))
