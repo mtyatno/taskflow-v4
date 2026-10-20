@@ -42,25 +42,34 @@ def _is_single_emoji(s: str) -> bool:
     # Keycap: [0-9#*] VS16? U+20E3
     if cps[-1] == _KEYCAP and chr(cps[0]) in "0123456789#*" and len(cps) in (2, 3):
         return len(cps) == 2 or cps[1] == _VS16
+    # ZWJ tidak boleh di awal/akhir atau berurutan; keycap hanya bentuk [0-9#*] VS16? U+20E3 (di atas).
+    if cps[0] == _ZWJ or cps[-1] == _ZWJ:
+        return False
     bases = 0
     regional_run = 0
     prev = None
     for cp in cps:
-        if cp in (_ZWJ, _VS16, _KEYCAP):
-            regional_run = 0
+        if cp == _ZWJ:
+            if prev == _ZWJ:
+                return False
+        elif cp == _KEYCAP:
+            return False
+        elif cp == _VS16:
+            pass
         elif _in_emoji_range(cp):
             if _is_regional(cp):
                 regional_run += 1
                 if regional_run % 2 == 1:  # pasangan regional indicator dihitung satu
                     bases += 1
             else:
+                if regional_run % 2:
+                    return False  # regional indicator tunggal
                 regional_run = 0
                 if not _is_skin_modifier(cp) and prev != _ZWJ:
                     bases += 1
         else:
             return False
         prev = cp
-    # Regional indicator tunggal (jumlah ganjil) bukan bendera.
     return bases == 1 and regional_run % 2 == 0
 
 
@@ -73,8 +82,9 @@ def normalize_avatar(value: Optional[str]) -> Optional[str]:
     v = value.strip()
     if not v:
         return None
-    if len(v) <= 2 and v.isalnum():
-        return v.upper()
+    u = v.upper()  # upper() bisa memanjang ("ß" -> "SS"): batas 2 karakter diperiksa setelahnya
+    if len(u) <= 2 and u.isalnum():
+        return u
     if _is_single_emoji(v):
         return v
     raise ValueError(AVATAR_ERROR)

@@ -48,8 +48,9 @@ def _item(u, lid):
 
 
 OK = [(None, None), ("", None), ("  ", None), ("ab", "AB"), ("x", "X"), ("7", "7"), ("é", "É"),
-      ("🔥", "🔥"), ("👨‍👩‍👧", "👨‍👩‍👧"), ("🇮🇩", "🇮🇩"), ("👍🏽", "👍🏽"), ("❤️", "❤️"), ("1️⃣", "1️⃣")]
-BAD = ["abc", "a b", "🔥🔥", "A🔥", "a-", "<b>", "​", "🇮🇩🇮🇩"]
+      ("🔥", "🔥"), ("👨‍👩‍👧", "👨‍👩‍👧"), ("🇮🇩", "🇮🇩"), ("👍🏽", "👍🏽"), ("❤️", "❤️"), ("1️⃣", "1️⃣"), ("ß", "SS"), ("ﬀ", "FF")]
+BAD = ["abc", "a b", "🔥🔥", "A🔥", "a-", "<b>", "​", "🇮🇩🇮🇩",
+       "ßß", "🇮️", "🇮‍", "🔥‍", "‍🔥", "🔥‍‍👍", "🔥⃣"]
 
 
 @pytest.mark.parametrize("raw,expected", OK)
@@ -61,14 +62,6 @@ def test_avatar_ok(raw, expected):
 def test_avatar_bad(raw):
     with pytest.raises(ValueError, match="Avatar harus 1–2 huruf/angka atau satu emoji"):
         wi.normalize_avatar(raw)
-
-
-def test_avatar_validation_cases():
-    for raw, expected in OK:
-        assert wi.normalize_avatar(raw) == expected
-    for raw in BAD:
-        with pytest.raises(ValueError):
-            wi.normalize_avatar(raw)
 
 
 def test_description_and_color():
