@@ -268,6 +268,26 @@
     [data-theme="dark"] .ws-danger-zone { border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.06); }
     [data-theme="dark"] .ws-danger-zone .ws-manage-section-title { color: #fca5a5; }
     .ws-danger-zone-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    /* Kelola Workspace Fase 1 Task 6: halaman daftar (seksi Di sidebar + Semua workspace) */
+    .ws-pin-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .ws-pin-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); touch-action: manipulation; user-select: none; -webkit-user-select: none; position: relative; transition: border-color 0.15s, box-shadow 0.15s; }
+    .ws-pin-row.is-draggable { cursor: grab; }
+    .ws-pin-row.is-dragging { cursor: grabbing; z-index: 2; opacity: 0.92; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); transition: none; }
+    .ws-pin-row.is-drop-target { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .ws-pin-grip { display: inline-flex; color: var(--text-light); flex: 0 0 auto; }
+    .ws-pin-name { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ws-pin-actions { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+    .ws-pin-move { padding-left: 8px; padding-right: 8px; display: inline-flex; align-items: center; }
+    .ws-card { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; min-width: 0; }
+    .ws-card-main { display: flex; align-items: center; gap: 10px; flex: 1 1 240px; min-width: 0; }
+    .ws-card-name { font-weight: 600; overflow-wrap: anywhere; }
+    .ws-card-desc { font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ws-card-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 0 0 auto; }
+    @media (max-width: 480px) {
+      .ws-pin-row { flex-wrap: wrap; }
+      .ws-pin-actions { margin-left: auto; }
+    }
+    /* /Kelola Workspace Fase 1 Task 6 */
     .ws-color-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .ws-color-swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer; box-shadow: 0 0 0 1px var(--border); font-family: inherit; }
     .ws-color-swatch.ws-color-auto { width: auto; height: 28px; padding: 0 10px; border-radius: 14px; background: var(--bg-subtle); color: var(--text-secondary); font-size: 12px; font-weight: 600; }

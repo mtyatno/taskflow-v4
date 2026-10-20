@@ -147,10 +147,11 @@ test("anggota: owner pertama, galat + Coba lagi, dialog Keluarkan, undangan owne
   assert.match(members, /`Keluarkan \$\{[^`]+\} dari workspace ini\?`/);
   assert.ok(members.includes("Generate Invite Link"));
   assert.ok(members.includes("Undang via Username"));
-  // SharedListsManager memakai komponen yang sama (tanpa duplikasi)
+  // Fase 1 Task 6: panel anggota di kartu SharedListsManager dihapus — satu-satunya pemakai adalah halaman detail
   const mgr = sliceFn("SharedListsManager");
-  assert.ok(mgr.includes("React.createElement(WorkspaceMembersSection"));
+  assert.ok(!mgr.includes("WorkspaceMembersSection"));
   assert.ok(page.includes("React.createElement(WorkspaceMembersSection"));
+  assert.equal((html.match(/React\.createElement\(WorkspaceMembersSection/g) || []).length, 1);
   assert.equal((html.match(/\/generate-link`/g) || []).length, 1);
 });
 

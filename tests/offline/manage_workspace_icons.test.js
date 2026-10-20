@@ -13,7 +13,8 @@ function sliceFn(name) {
   assert.ok(e > s, name + " slice");
   return indexHtml.slice(s, e);
 }
-// Fase 1: daftar anggota + undangan diekstrak ke WorkspaceMembersSection (dipakai SharedListsManager).
+// Fase 1: daftar anggota + undangan diekstrak ke WorkspaceMembersSection (dipakai WorkspaceManagePage);
+// halaman daftar SharedListsManager tetap memuat glyph judul/gabung, sliceFn digabung supaya cek ikon tetap utuh.
 const manager = sliceFn("SharedListsManager") + sliceFn("WorkspaceMembersSection");
 const chip = sliceFn("TopBarPomodoroChip");
 // Teks toast bukan ikon UI.
@@ -40,11 +41,11 @@ test("SharedListsManager memakai ViewGlyph di semua tempat", () => {
   for (const [k, s] of [["mSettings", 22], ["mLink", 16], ["mXCircle", 14], ["wsTasks", 16], ["mUser", 16], ["mLink", 14]]) {
     assert.match(manager, new RegExp('name:\\s*"' + k + '",\\s*size:\\s*' + s + "\\b"), k + " " + s);
   }
-  assert.match(manager, /name:\s*l\.role === "owner" \? "wsTasks" : "mUsers",\s*size:\s*22/);
+  // Fase 1 Task 6: ikon peran 40×40 di kartu diganti WorkspaceAvatar 40 px; peran tetap tertulis (Owner/Member).
+  assert.match(manager, /React\.createElement\(WorkspaceAvatar, \{\s*list: l,\s*size: 40/);
+  assert.match(manager, /l\.role === "owner" \? "Owner" : "Member", " \\xB7 ", l\.member_count, " anggota"/);
   assert.match(manager, /Kelola Workspace/);
   assert.match(manager, /className: "wsf-title-ico"/);
-  assert.match(manager, /width: 40,\s*height: 40/);
-  assert.match(manager, /title: l\.role === "owner" \? "Owner" : "Member"/);
   assert.match(manager, /"\.\.\." : \/\*#__PURE__\*\/React\.createElement\(|"\.\.\." :/);
   assert.match(manager, /Generate Invite Link/);
 });

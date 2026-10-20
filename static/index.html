@@ -2177,24 +2177,192 @@ function JoinListModal({
 function SharedListsManager({
   sharedLists,
   onRefresh,
-  showToast
+  showToast,
+  onPin,
+  onPinOrder,
+  onOpen,
+  onManage
 }) {
+  // Fase 1: kartu tanpa panel/Hapus/Keluar — anggota, undangan, dan Danger Zone ada di halaman ws_manage_<id>.
+  const WP = window.TF && window.TF.workspacepins;
+  const WSM = window.TF && window.TF.wsmanage;
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
-  const [expandedList, setExpandedList] = useState(null);
-  const [deleteTarget, setDeleteTarget] = useState(null);
   const [showJoinForm, setShowJoinForm] = useState(false);
   const [joinCode, setJoinCode] = useState("");
   const [joinPreview, setJoinPreview] = useState(null);
   const [joinError, setJoinError] = useState("");
   const [joining, setJoining] = useState(false);
-  const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
-  const toggleExpand = listId => {
-    if (expandedList === listId) {
-      setExpandedList(null);
-      return;
+  const [query, setQuery] = useState("");
+  const [pinBusy, setPinBusy] = useState(null);
+  const [ordering, setOrdering] = useState(false);
+  const [drag, setDrag] = useState(null); // { from, over, dy } selama drag baris pin
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine !== false);
+  useEffect(() => {
+    const upd = () => setOnline(navigator.onLine !== false);
+    window.addEventListener("online", upd);
+    window.addEventListener("offline", upd);
+    return () => {
+      window.removeEventListener("online", upd);
+      window.removeEventListener("offline", upd);
+    };
+  }, []);
+  const offlineTitle = online ? undefined : "Butuh koneksi internet";
+  const pinned = WP ? WP.pinnedForRail(sharedLists) : [];
+  const canPin = WP ? WP.canPinMore(sharedLists) : false;
+  const showSearch = sharedLists.length >= 6;
+  const shown = showSearch && WSM ? WSM.filterWorkspaces(sharedLists, query) : sharedLists;
+  const pinRootRef = useRef(null);
+  const dragRef = useRef(null);
+  const focusMoveRef = useRef(null);
+  const latest = useRef(null);
+  const runPin = (id, fn) => {
+    if (!online || pinBusy != null) return;
+    setPinBusy(id);
+    Promise.resolve(fn()).catch(() => {}).finally(() => setPinBusy(null));
+  };
+  // Urutan pin: optimistis di App (handleWorkspacePinOrder); satu permintaan sekaligus.
+  const movePin = (from, to) => {
+    if (!online || ordering || !WP || !onPinOrder) return;
+    const ids = pinned.map(l => l.id);
+    const next = WP.pinOrderAfterMove(ids, from, to);
+    if (next.join(",") === ids.join(",")) return;
+    setOrdering(true);
+    Promise.resolve(onPinOrder(next)).catch(() => {}).finally(() => setOrdering(false));
+  };
+  latest.current = { movePin };
+  // Fokus tetap di tombol ↑/↓ baris yang dipindah (tombol arah sebaliknya bila sudah di ujung).
+  const pinnedKey = pinned.map(l => l.id).join(",");
+  useEffect(() => {
+    const f = focusMoveRef.current;
+    if (!f) return;
+    focusMoveRef.current = null;
+    const root = pinRootRef.current;
+    if (!root) return;
+    let b = root.querySelector(`[data-pin-move="${f.id}:${f.dir}"]`);
+    if (b && b.disabled) b = root.querySelector(`[data-pin-move="${f.id}:${f.dir === "up" ? "down" : "up"}"]`);
+    if (b && !b.disabled) b.focus();
+  }, [pinnedKey]);
+  useEffect(() => {
+    // Listener touchmove non-pasif dipasang saat mount (pola papan Kanban): setelah tekan-tahan, scroll diblokir.
+    const el = pinRootRef.current;
+    const h = ev => {
+      const d = dragRef.current;
+      if (d && d.began && !d.cancelled && ev.cancelable) ev.preventDefault();
+    };
+    if (el) el.addEventListener("touchmove", h, {
+      passive: false
+    });
+    return () => {
+      if (el) el.removeEventListener("touchmove", h, {
+        passive: false
+      });
+      const s = dragRef.current;
+      if (s) s.teardown();
+    };
+  }, []);
+  // Drag baris pin (Pointer Events): mouse mulai setelah 6 px, sentuh setelah tekan-tahan 250 ms.
+  const handlePinPointerDown = (e, i) => {
+    if (!online || ordering || dragRef.current) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    if (e.target && e.target.closest && e.target.closest("button,input,a")) return;
+    const el = e.currentTarget;
+    const start = kanbanDragStart(e, Date.now());
+    const s = {
+      pointerId: e.pointerId,
+      from: i,
+      over: i,
+      x: e.clientX,
+      y: e.clientY,
+      began: false,
+      cancelled: false,
+      timer: null,
+      bands: []
+    };
+    dragRef.current = s;
+    const preventMenu = ev => ev.preventDefault();
+    const show = () => setDrag({
+      from: s.from,
+      over: s.over,
+      dy: s.y - start.y
+    });
+    const begin = () => {
+      if (s.began || s.cancelled) return;
+      s.began = true;
+      const root = pinRootRef.current;
+      s.bands = Array.from(root ? root.querySelectorAll("[data-pin-row]") : []).map(r => {
+        const b = r.getBoundingClientRect();
+        return {
+          top: b.top,
+          bottom: b.bottom
+        };
+      });
+      try {
+        el.setPointerCapture(s.pointerId);
+      } catch (_) {}
+      document.addEventListener("contextmenu", preventMenu);
+      show();
+    };
+    const onMove = ev => {
+      if (ev.pointerId !== s.pointerId || s.cancelled) return;
+      if (ev.pointerType !== "touch" && ev.buttons === 0) {
+        s.teardown(); // pointerup hilang sebelum/selama drag
+        return;
+      }
+      s.x = ev.clientX;
+      s.y = ev.clientY;
+      if (!s.began) {
+        if (kanbanDragShouldStart(start, ev, Date.now())) begin();else if (start.pointerType === "touch" && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) >= 6) s.teardown(); // sentuh bergeser sebelum 250 ms → scroll
+        return;
+      }
+      const idx = WSM ? WSM.pinDropIndex(s.bands, s.y) : -1;
+      if (idx >= 0) s.over = idx;
+      show();
+    };
+    const onUp = ev => {
+      if (ev.pointerId !== s.pointerId) return;
+      const ok = s.began && !s.cancelled;
+      const from = s.from,
+        to = s.over;
+      s.teardown();
+      if (ok && to !== from) latest.current.movePin(from, to);
+    };
+    const onCancel = ev => {
+      if (ev.pointerId !== s.pointerId) return;
+      s.teardown();
+    };
+    const onKey = ev => {
+      if (ev.key !== "Escape" || !s.began) return;
+      s.cancelled = true;
+      s.teardown();
+    };
+    s.teardown = () => {
+      if (s.timer) {
+        clearTimeout(s.timer);
+        s.timer = null;
+      }
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("contextmenu", preventMenu);
+      if (s.began) setDrag(null);
+      if (dragRef.current === s) dragRef.current = null;
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onCancel);
+    document.addEventListener("keydown", onKey);
+    if (start.pointerType === "touch") {
+      s.timer = setTimeout(() => {
+        s.timer = null;
+        const now = Math.max(Date.now(), start.t + 250);
+        if (kanbanDragShouldStart(start, {
+          clientX: s.x,
+          clientY: s.y
+        }, now)) begin();
+      }, 250);
     }
-    setExpandedList(listId);
   };
   const handleCheckCode = async () => {
     setJoinError("");
@@ -2240,40 +2408,133 @@ function SharedListsManager({
     }
     setCreating(false);
   };
-  // PR 3 Task 5: leave-impact → dialog salin drawing ke pribadi; gagal/offline → konfirmasi (dialog Alurik).
-  const handleLeave = async (listId, listName) => {
-    const left = await leaveWorkspaceWithDrawings({
-      listId,
-      listName,
-      api,
-      TF: window.TF,
-      ask: askDrawingScope,
-      showToast,
-      confirmFn: msg => askDrawingScope({
-        title: msg,
-        note: "Task belum selesai yang ditugaskan kepadamu di workspace ini akan dilepas penanggung jawabnya.",
-        actions: [{ value: "cancel", label: "Batal" }, { value: "ok", label: "Keluar", primary: true }]
-      }).then(v => v === "ok")
-    });
-    if (left) onRefresh();
-  };
-  // Hapus → dialog dengan ringkasan dampak + ketik nama (WorkspaceDeleteDialog).
-  const handleDelete = list => setDeleteTarget(list);
+  const sectionTitle = (id, text) => /*#__PURE__*/React.createElement("h3", {
+    id: id,
+    className: "ws-manage-section-title"
+  }, text);
+  const pinRows = pinned.map((l, i) => /*#__PURE__*/React.createElement("li", {
+    key: l.id,
+    "data-pin-row": l.id,
+    className: "ws-pin-row" + (drag && drag.from === i ? " is-dragging" : "") + (drag && drag.over === i && drag.from !== i ? " is-drop-target" : "") + (online ? " is-draggable" : ""),
+    style: drag && drag.from === i ? {
+      transform: `translateY(${drag.dy}px)`
+    } : undefined,
+    onPointerDown: e => handlePinPointerDown(e, i)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "ws-pin-grip",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "menu",
+    size: 14
+  })), /*#__PURE__*/React.createElement(WorkspaceAvatar, {
+    list: l,
+    size: 28
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "ws-pin-name"
+  }, l.name), /*#__PURE__*/React.createElement("span", {
+    className: "ws-pin-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm ws-pin-move",
+    "data-pin-move": l.id + ":up",
+    "aria-label": `Naikkan ${l.name}`,
+    title: offlineTitle || `Naikkan ${l.name}`,
+    disabled: !online || i === 0,
+    onClick: () => {
+      focusMoveRef.current = {
+        id: l.id,
+        dir: "up"
+      };
+      movePin(i, i - 1);
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevron-up",
+    size: 14
+  })), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm ws-pin-move",
+    "data-pin-move": l.id + ":down",
+    "aria-label": `Turunkan ${l.name}`,
+    title: offlineTitle || `Turunkan ${l.name}`,
+    disabled: !online || i === pinned.length - 1,
+    onClick: () => {
+      focusMoveRef.current = {
+        id: l.id,
+        dir: "down"
+      };
+      movePin(i, i + 1);
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "chevron-down",
+    size: 14
+  })), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm",
+    disabled: !online || pinBusy != null,
+    title: offlineTitle,
+    onClick: () => runPin(l.id, () => onPin(l.id, false))
+  }, "Lepas pin"))));
+  const cards = shown.map(l => {
+    const pinFull = !l.pinned && !canPin;
+    return /*#__PURE__*/React.createElement("div", {
+      key: l.id,
+      className: "ws-card",
+      "data-ws-card": l.id
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "ws-card-main"
+    }, /*#__PURE__*/React.createElement(WorkspaceAvatar, {
+      list: l,
+      size: 40
+    }), /*#__PURE__*/React.createElement("div", {
+      style: {
+        flex: "1 1 auto",
+        minWidth: 0
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "ws-card-name"
+    }, l.name), l.description && /*#__PURE__*/React.createElement("div", {
+      className: "ws-card-desc",
+      title: l.description
+    }, l.description), /*#__PURE__*/React.createElement("div", {
+      style: {
+        fontSize: 12,
+        color: "var(--text-light)"
+      }
+    }, l.role === "owner" ? "Owner" : "Member", " \xB7 ", l.member_count, " anggota"))), /*#__PURE__*/React.createElement("div", {
+      className: "ws-card-actions"
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "btn btn-secondary btn-sm",
+      "aria-pressed": l.pinned ? "true" : "false",
+      disabled: !online || pinBusy != null || pinFull,
+      title: !online ? "Butuh koneksi internet" : pinFull ? "Maksimal 5 workspace di sidebar" : l.pinned ? "Lepas pin dari sidebar" : "Pin ke sidebar",
+      onClick: () => runPin(l.id, () => onPin(l.id, !l.pinned)),
+      style: {
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5
+      }
+    }, /*#__PURE__*/React.createElement(Icon, {
+      name: "pin",
+      size: 14
+    }), l.pinned ? "Di-pin" : "Pin"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "btn btn-secondary btn-sm",
+      onClick: () => onOpen(l.id)
+    }, "Buka"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "btn btn-primary btn-sm",
+      onClick: () => onManage(l.id)
+    }, "Kelola")));
+  });
   return /*#__PURE__*/React.createElement("div", {
+    className: "ws-list-page",
     style: {
       maxWidth: 600,
       margin: "0 auto",
       padding: "0 0 40px"
     }
-  }, drawingScopeDialogEl, deleteTarget && /*#__PURE__*/React.createElement(WorkspaceDeleteDialog, {
-    list: deleteTarget,
-    showToast,
-    onClose: () => setDeleteTarget(null),
-    onDeleted: () => {
-      setDeleteTarget(null);
-      onRefresh();
-    }
-  }), /*#__PURE__*/React.createElement("h2", {
+  }, /*#__PURE__*/React.createElement("h2", {
     style: {
       fontSize: 20,
       fontWeight: 700,
@@ -2305,7 +2566,9 @@ function SharedListsManager({
     style: {
       display: "flex",
       justifyContent: "space-between",
-      alignItems: "center"
+      alignItems: "center",
+      gap: 8,
+      flexWrap: "wrap"
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2349,7 +2612,8 @@ function SharedListsManager({
     onChange: e => setJoinCode(e.target.value),
     placeholder: "Paste kode invite...",
     style: {
-      flex: 1
+      flex: 1,
+      minWidth: 0
     },
     onKeyDown: e => {
       if (e.key === "Enter") handleCheckCode();
@@ -2373,6 +2637,7 @@ function SharedListsManager({
     name: "mXCircle",
     size: 14
   }), joinError))) : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    className: "ws-join-preview",
     style: {
       background: "var(--bg-card)",
       borderRadius: 8,
@@ -2382,7 +2647,8 @@ function SharedListsManager({
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontWeight: 600
+      fontWeight: 600,
+      overflowWrap: "anywhere"
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
@@ -2393,7 +2659,14 @@ function SharedListsManager({
   }, /*#__PURE__*/React.createElement(ViewGlyph, {
     name: "wsTasks",
     size: 16
-  }), joinPreview.list_name)), /*#__PURE__*/React.createElement("div", {
+  }), joinPreview.list_name)), joinPreview.owner_name != null && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-secondary)",
+      marginTop: 4,
+      overflowWrap: "anywhere"
+    }
+  }, `Owner: ${joinPreview.owner_name} · ${joinPreview.member_count} anggota`), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: "var(--text-light)",
@@ -2455,104 +2728,60 @@ function SharedListsManager({
     onChange: e => setNewName(e.target.value),
     placeholder: "Nama workspace...",
     style: {
-      flex: 1
+      flex: 1,
+      minWidth: 0
     }
   }), /*#__PURE__*/React.createElement("button", {
     type: "submit",
     className: "btn btn-primary",
     disabled: creating || !newName.trim()
-  }, creating ? "..." : "＋ Buat"))), sharedLists.length === 0 ? /*#__PURE__*/React.createElement("div", {
+  }, creating ? "..." : "＋ Buat"))), /*#__PURE__*/React.createElement("section", {
+    ref: pinRootRef,
+    className: "ws-manage-section ws-pin-section",
+    "aria-labelledby": "ws-sec-sidebar",
+    style: {
+      marginBottom: 16
+    }
+  }, sectionTitle("ws-sec-sidebar", "Di sidebar"), pinned.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-light)"
+    }
+  }, "Belum ada workspace di sidebar. Pin dari daftar di bawah.") : /*#__PURE__*/React.createElement("ol", {
+    className: "ws-pin-list"
+  }, pinRows)), /*#__PURE__*/React.createElement("section", {
+    className: "ws-all-section",
+    "aria-labelledby": "ws-sec-all"
+  }, sectionTitle("ws-sec-all", "Semua workspace"), showSearch && /*#__PURE__*/React.createElement("input", {
+    type: "search",
+    className: "input",
+    value: query,
+    onChange: e => setQuery(e.target.value),
+    placeholder: "Cari workspace…",
+    "aria-label": "Cari workspace",
+    style: {
+      width: "100%",
+      marginBottom: 12
+    }
+  }), sharedLists.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
       color: "var(--text-light)",
       padding: "40px 0",
       fontSize: 15
     }
-  }, "Belum ada workspace. Buat yang pertama di atas!") : sharedLists.map(l => /*#__PURE__*/React.createElement("div", {
-    key: l.id,
+  }, "Belum ada workspace. Buat yang pertama di atas!") : shown.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    role: "status",
     style: {
-      background: "var(--bg-primary)",
-      borderRadius: 12,
-      padding: 16,
-      marginBottom: 12,
-      border: "1px solid var(--border)"
+      textAlign: "center",
+      color: "var(--text-light)",
+      padding: "24px 0",
+      fontSize: 14
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    title: l.role === "owner" ? "Owner" : "Member",
-    className: l.role === "owner" ? "wsf-title-ico" : undefined,
-    style: {
-      width: 40,
-      height: 40,
-      borderRadius: 10,
-      background: "var(--bg-subtle)",
-      border: "1px solid var(--border)",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      flexShrink: 0,
-      color: l.role === "owner" ? undefined : "#2563eb"
-    }
-  }, /*#__PURE__*/React.createElement(ViewGlyph, {
-    name: l.role === "owner" ? "wsTasks" : "mUsers",
-    size: 22
-  })), /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontWeight: 600
-    }
-  }, l.name), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)"
-    }
-  }, l.role === "owner" ? "Owner" : "Member", " \xB7 ", l.member_count, " anggota")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 6
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    "aria-expanded": expandedList === l.id,
-    "aria-controls": "ws-panel-" + l.id,
-    onClick: () => toggleExpand(l.id)
-  }, expandedList === l.id ? "Tutup" : "Kelola"), l.role === "owner" ? /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "btn btn-sm btn-danger-soft",
-    onClick: () => handleDelete(l)
-  }, "Hapus") : /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "btn btn-sm btn-warn-soft",
-    onClick: () => handleLeave(l.id, l.name)
-  }, "Keluar"))), expandedList === l.id && /*#__PURE__*/React.createElement("div", {
-    id: "ws-panel-" + l.id,
-    style: {
-      marginTop: 14,
-      borderTop: "1px solid var(--border)",
-      paddingTop: 12
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      fontWeight: 600,
-      marginBottom: 8
-    }
-  }, "Anggota:"), /*#__PURE__*/React.createElement(WorkspaceMembersSection, {
-    list: l,
-    showToast: showToast,
-    onRefresh: onRefresh
-  })))));
+  }, "Tidak ada workspace yang cocok.") : cards));
 }
 // Kelola Workspace: daftar anggota (owner pertama, "bergabung {tanggal}") + undangan (owner saja).
-// Dipakai panel SharedListsManager dan seksi Anggota WorkspaceManagePage. Detail diambil saat mount dan setelah
+// Dipakai seksi Anggota WorkspaceManagePage (Fase 1: panel di SharedListsManager dihapus). Detail diambil saat mount dan setelah
 // undang/keluarkan. Tanpa network:true: SW network-first + fallback cache → offline tetap menampilkan anggota terakhir.
 // online=false → aksi tulis (Undang, Generate, Keluarkan) nonaktif dengan "Butuh koneksi internet".
 function WorkspaceMembersSection({
@@ -37503,6 +37732,44 @@ function App() {
     try { if (LS && LS.setLocalPin) await LS.setLocalPin(listId, pinned, pinPos); } catch (_) {}
     queueListPull();
   }, [showToast, queueListPull]);
+  // Urutan pin workspace (halaman daftar, seksi "Di sidebar") — hanya online. Optimistis: pin_position di
+  // sharedLists + cache "lists" + record list lokal langsung berubah; gagal → posisi sebelumnya dikembalikan.
+  // 409 PIN_ORDER_MISMATCH (pin berubah di perangkat lain) → pull daftar di antrean sync.
+  const sharedListsRef = useRef(sharedLists);
+  sharedListsRef.current = sharedLists;
+  const handleWorkspacePinOrder = useCallback(async ids => {
+    if (!navigator.onLine) return;
+    const order = (ids || []).slice();
+    const posOf = new Map(order.map((id, i) => [id, i]));
+    const before = (sharedListsRef.current || []).filter(l => l && posOf.has(l.id));
+    const prevPos = new Map(before.map(l => [l.id, l.pin_position ?? null]));
+    const prevOrder = before.slice().sort((a, b) => (a.pin_position ?? Infinity) - (b.pin_position ?? Infinity)).map(l => l.id);
+    const applyPositions = pos => setSharedLists(ls => {
+      const next = (ls || []).map(l => l && pos.has(l.id) ? { ...l, pin_position: pos.get(l.id) } : l);
+      try { OfflineDB.cacheSet("lists", next)?.catch?.(() => {}); } catch (_) {}
+      return next;
+    });
+    const LS = window.TF && window.TF.listsync;
+    applyPositions(posOf);
+    try { if (LS && LS.setLocalPinOrder) await LS.setLocalPinOrder(order); } catch (_) {}
+    try {
+      await api.fetch("/api/lists/pins/order", {
+        method: "PUT",
+        body: JSON.stringify({ list_ids: order }),
+        network: true
+      });
+    } catch (err) {
+      applyPositions(prevPos);
+      try { if (LS && LS.setLocalPinOrder) await LS.setLocalPinOrder(prevOrder); } catch (_) {}
+      const code = err && err.body && err.body.detail && err.body.detail.code;
+      if (err && err.status === 409 && code === "PIN_ORDER_MISMATCH") {
+        showToast("Urutan pin sudah berubah di perangkat lain", "error");
+        queueListPull().then(() => { try { window.__refreshTasks?.(); } catch (_) {} });
+      } else showToast("Gagal menyimpan urutan", "error");
+      return;
+    }
+    queueListPull();
+  }, [showToast, queueListPull]);
   // Identitas workspace disimpan (PATCH /api/lists/{id}, halaman ws_manage_<id>) — pola handleWorkspacePin:
   // ganti item di sharedLists + cache "lists", record list lokal (IndexedDB), lalu pull di antrean sync.
   const handleWorkspaceUpdated = useCallback(async list => {
@@ -38863,7 +39130,11 @@ function App() {
       return /*#__PURE__*/React.createElement(SharedListsManager, {
         sharedLists: sharedLists,
         onRefresh: fetchAll,
-        showToast: showToast
+        showToast: showToast,
+        onPin: handleWorkspacePin,
+        onPinOrder: handleWorkspacePinOrder,
+        onOpen: id => setPage("slist_" + id),
+        onManage: id => setPage("ws_manage_" + id)
       });
     }
     if (page === "calendar") {

@@ -49,7 +49,7 @@ test("teks persis dialog hapus, keluarkan, daftar anggota dan toast", () => {
     "\"Keluarkan\"",
     "\"Owner\"",
     "\"Belum ada anggota lain.\"",
-    "\"Anggota:\"",
+    "\"ws-sec-anggota-\" + list.id, \"Anggota\"",
     "\"Workspace dibuat ✅\"",
     "\"Workspace dihapus\"",
     "ditambahkan ke workspace ✅`",
@@ -60,10 +60,18 @@ test("teks persis dialog hapus, keluarkan, daftar anggota dan toast", () => {
   assert.match(block, /`Keluarkan \$\{[^`]+\} dari workspace ini\?`/);
 });
 
-test("aksesibilitas: aria-expanded, aria-controls, aria-label keluarkan, dialog modal", () => {
-  assert.ok(block.includes("\"aria-expanded\""));
-  assert.ok(block.includes("\"aria-controls\""));
-  assert.ok(block.includes("\"ws-panel-\""));
+test("aksesibilitas: seksi berlabel, aria-label keluarkan, dialog modal", () => {
+  // Fase 1 Task 6: panel lipat (aria-expanded/aria-controls "ws-panel-") di kartu daftar dihapus; anggota dan
+  // dialog hapus pindah ke halaman detail — seksinya <section aria-labelledby> dengan judul berid.
+  const mgr = sliceBetween("\nfunction SharedListsManager(", "\nfunction WorkspaceMembersSection(");
+  const page = sliceBetween("\nfunction WorkspaceManagePage(", "\nfunction WorkspaceIdentityView(");
+  assert.ok(!mgr.includes("\"ws-panel-\""));
+  assert.ok(!mgr.includes("WorkspaceDeleteDialog"), "kartu daftar tidak lagi membuka dialog hapus");
+  assert.match(page, /React\.createElement\(WorkspaceDeleteDialog, \{/);
+  assert.match(page, /"aria-labelledby": id/);
+  assert.match(page, /section\("ws-sec-anggota-" \+ list\.id, "Anggota", \/\*#__PURE__\*\/React\.createElement\(WorkspaceMembersSection/);
+  assert.ok(mgr.includes("`Naikkan ${"));
+  assert.ok(mgr.includes("`Turunkan ${"));
   assert.ok(block.includes("`Keluarkan ${"));
   assert.ok(block.includes("\"aria-label\""));
   assert.ok(dialog.includes("role: \"dialog\""));

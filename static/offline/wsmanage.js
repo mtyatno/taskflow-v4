@@ -137,7 +137,32 @@
     return isNaN(d.getTime()) ? null : d;
   }
 
-  const exported = { nameMatches, impactLines, memberRows, identityDiff, joinedDate };
+  // Cari workspace di halaman daftar: cocok nama atau deskripsi (case-insensitive, query di-trim).
+  // Query kosong → semua (salinan). Urutan asli dipertahankan.
+  function filterWorkspaces(lists, query) {
+    const arr = (Array.isArray(lists) ? lists : []).filter((l) => l && typeof l === "object");
+    const q = trimStr(query).toLowerCase();
+    if (!q) return arr.slice();
+    return arr.filter((l) =>
+      trimStr(l.name).toLowerCase().indexOf(q) >= 0 || trimStr(l.description).toLowerCase().indexOf(q) >= 0);
+  }
+
+  // Indeks baris tujuan drag pin: baris yang memuat y; di atas semua → 0; di bawah semua → terakhir;
+  // celah antar baris → baris terdekat. bands = [{top, bottom}] urut dari atas. Kosong → -1.
+  function pinDropIndex(bands, y) {
+    const b = Array.isArray(bands) ? bands : [];
+    if (!b.length) return -1;
+    let best = 0, bestDist = Infinity;
+    for (let i = 0; i < b.length; i++) {
+      const top = num(b[i] && b[i].top), bottom = num(b[i] && b[i].bottom);
+      const dist = y < top ? top - y : y > bottom ? y - bottom : 0;
+      if (dist < bestDist) { best = i; bestDist = dist; }
+      if (dist === 0) break;
+    }
+    return best;
+  }
+
+  const exported = { nameMatches, impactLines, memberRows, identityDiff, joinedDate, filterWorkspaces, pinDropIndex };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.wsmanage = exported; }
   return exported;
 });
