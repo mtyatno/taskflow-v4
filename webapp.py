@@ -1234,6 +1234,9 @@ class TaskUpdate(BaseModel):
 class SharedListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
+class PinOrderReq(BaseModel):
+    list_ids: list[int]
+
 class WorkspacePatch(BaseModel):
     """Semua opsional; field yang tidak dikirim (model_fields_set) tidak diubah."""
     name: Optional[str] = None
@@ -3433,6 +3436,14 @@ async def join_list_by_code(req: JoinListReq, user=Depends(get_current_user)):
         except Exception:
             pass
     return {"ok": True, "list_id": list_id, "list_name": lst["name"]}
+
+
+@app.put("/api/lists/pins/order")
+async def reorder_workspace_pins(req: PinOrderReq, user=Depends(get_current_user)):
+    if not TaskRepository(DB_PATH).reorder_workspace_pins(user["sub"], req.list_ids):
+        raise HTTPException(status_code=409, detail={
+            "code": "PIN_ORDER_MISMATCH", "message": "Urutan pin sudah berubah di perangkat lain"})
+    return {"ok": True, "list_ids": req.list_ids}
 
 
 @app.get("/api/lists/preview/{code}")

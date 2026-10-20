@@ -1774,6 +1774,27 @@ class TaskRepository:
             )
             return mx + 1
 
+    def reorder_workspace_pins(self, user_id: int, list_ids: list[int]) -> bool:
+        """Tulis ulang posisi pin 0..n-1 sesuai `list_ids`. False (tanpa menulis) bila himpunan
+        berbeda dari pin user saat ini atau ada duplikat. Satu transaksi BEGIN IMMEDIATE."""
+        if len(set(list_ids)) != len(list_ids):
+            return False
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = {
+                r["list_id"] for r in conn.execute(
+                    "SELECT list_id FROM workspace_pins WHERE user_id = ?", (user_id,)
+                ).fetchall()
+            }
+            if current != set(list_ids):
+                return False
+            for pos, lid in enumerate(list_ids):
+                conn.execute(
+                    "UPDATE workspace_pins SET position = ? WHERE user_id = ? AND list_id = ?",
+                    (pos, user_id, lid),
+                )
+            return True
+
     def unpin_workspace(self, user_id: int, list_id: int) -> bool:
         with self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
