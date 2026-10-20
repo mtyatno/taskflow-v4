@@ -178,3 +178,21 @@ def test_delete_workspace_cascades_pins(repo, conn):
     repo.pin_workspace(owner, w)
     assert repo.delete_shared_list(w, owner) is True
     assert conn.execute("SELECT COUNT(*) FROM workspace_pins WHERE list_id = ?", (w,)).fetchone()[0] == 0
+
+
+def test_seed_skipped_when_db_locked_then_retried(repo, conn):
+    import sqlite3
+    u = _user(conn)
+    w = _ws(conn, u)
+    blocker = sqlite3.connect(os.environ["DB_PATH"], timeout=1)
+    blocker.execute("BEGIN IMMEDIATE")
+    try:
+        items = repo.get_lists_for_user(u)
+    finally:
+        blocker.rollback()
+        blocker.close()
+    assert [i["id"] for i in items] == [w]
+    assert items[0]["pinned"] is False and items[0]["pin_position"] is None
+    assert _seeded(conn, u) == 0
+    assert repo.get_lists_for_user(u)[0]["pinned"] is True
+    assert _seeded(conn, u) == 1

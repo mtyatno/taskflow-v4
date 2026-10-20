@@ -1597,9 +1597,18 @@ class TaskRepository:
                     "SELECT workspace_pins_seeded FROM users WHERE id = ?", (user_id,)
                 ).fetchone()
                 if flag is not None and not flag[0]:
-                    conn.execute("BEGIN IMMEDIATE")  # seed + flag atomik, tanpa kunci tulis di jalur umum
-                    seed_workspace_pins(conn, user_id)
-                    conn.commit()
+                    # Seed + flag atomik. Bila penulis lain memegang kunci, lewati (dicoba lagi
+                    # pada panggilan berikutnya) -- jangan sampai daftar list gagal (500).
+                    conn.execute("PRAGMA busy_timeout=1000")
+                    try:
+                        conn.execute("BEGIN IMMEDIATE")
+                        seed_workspace_pins(conn, user_id)
+                        conn.commit()
+                    except sqlite3.OperationalError as e:
+                        conn.rollback()
+                        _log.warning("seed pin workspace user %s dilewati: %s", user_id, e)
+                    finally:
+                        conn.execute("PRAGMA busy_timeout=5000")
             pins = {
                 r["list_id"]: r["position"]
                 for r in conn.execute(
