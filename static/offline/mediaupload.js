@@ -62,7 +62,9 @@
 
     // ── state ──
     function snapshot(ctx) {
-      return { cid: ctx.cid, attId: ctx.attId, phase: ctx.phase, sent: ctx.sent, size: ctx.size, error: ctx.error };
+      const s = { cid: ctx.cid, attId: ctx.attId, phase: ctx.phase, sent: ctx.sent, size: ctx.size, error: ctx.error };
+      if (ctx.retryable) s.retryable = true; // hanya untuk "file berbeda": UI boleh menawarkan pilih file lagi
+      return s;
     }
     function emit(ctx) {
       const s = snapshot(ctx);
@@ -82,7 +84,7 @@
       if (extra && extra.body !== undefined) init.body = extra.body;
       let res;
       try { res = await deps.fetch(deps.apiUrl(path), init); } catch (e) { if (ctx.canceled) throw CANCELED; throw RETRY; }
-      if (ctx.canceled) throw CANCELED;
+      if (ctx.canceled && !(extra && extra.passCancel)) throw CANCELED;
       let data = {};
       try { data = (await res.json()) || {}; } catch (e) { data = {}; }
       return { status: res.status, data };
@@ -118,7 +120,16 @@
       const r = await call(ctx, "POST", "/api/scratchpad/" + encodeURIComponent(ctx.noteId) + "/media", {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ client_id: ctx.cid, filename: f.name, size: f.size, mime: f.type || "application/octet-stream" }),
+        passCancel: true,
       });
+      if (ctx.canceled) {
+        // Dibatalkan saat init berjalan: baris di server jangan yatim.
+        if ((r.status === 200 || r.status === 201) && r.data.id != null) {
+          ctx.attId = r.data.id;
+          if (!ctx.deleted) { ctx.deleted = true; await sendDelete(ctx); }
+        }
+        throw CANCELED;
+      }
       if (r.status !== 200 && r.status !== 201) throw classify(r);
       ctx.attId = r.data.id;
       saveEntry({ cid: ctx.cid, noteId: ctx.noteId, attId: ctx.attId, name: f.name, size: f.size, lastModified: f.lastModified });
@@ -127,7 +138,8 @@
     // Menyalin received_bytes dari payload; status selain 'uploading' berarti sudah selesai diunggah.
     function applyStatus(ctx, d) {
       if (typeof d.received_bytes === "number") ctx.sent = Math.max(0, Math.min(d.received_bytes, ctx.size));
-      if (d.status && d.status !== "uploading") throw DONE;
+      if (d.status === "failed") throw Fail(typeof d.error === "string" && d.error ? d.error : MSG_GENERIC);
+      if (d.status && d.status !== "uploading") throw DONE; // processing / ready
     }
     async function stepStatus(ctx) {
       const r = await call(ctx, "GET", "/api/media/" + ctx.attId + "/upload");
@@ -169,6 +181,8 @@
       setPhase(ctx, "completing");
       const r = await call(ctx, "POST", "/api/media/" + ctx.attId + "/complete");
       if (r.status === 200) throw DONE;
+      // 409 + received_bytes = server sibuk (kunci dipegang permintaan complete sebelumnya) → jeda lalu ulang.
+      if (r.status === 409 && typeof r.data.received_bytes === "number") throw RETRY;
       if (r.status === 409) { ctx.needStatus = true; ctx.sent = Math.min(ctx.sent, ctx.size); ctx.confirm = true; return; }
       if (r.status === 404) throw Fail(detailOf(r) === MSG_GENERIC ? MSG_NOT_FOUND : detailOf(r));
       throw classify(r);
@@ -232,7 +246,8 @@
       return { cid, file, noteId, attId: attId == null ? null : attId, sent: 0, size: file.size, phase: "uploading", error: null,
         attempt: 0, wake: null, canceled: false, needStatus: attId != null, deleted: false, confirm: false, promise: null };
     }
-    function failNow(ctx, msg) {
+    function failNow(ctx, msg, retryable) {
+      if (retryable) ctx.retryable = true;
       ctx.promise = Promise.resolve(null);
       setPhase(ctx, "failed", msg);
       return Promise.resolve(snapshot(ctx));
@@ -265,7 +280,7 @@
       const ctx = newCtx(cid, file, e.noteId, e.attId);
       ctx.size = e.size;
       ctxs.set(cid, ctx);
-      if (file.name !== e.name || file.size !== e.size || file.lastModified !== e.lastModified) return failNow(ctx, MSG_MISMATCH);
+      if (file.name !== e.name || file.size !== e.size || file.lastModified !== e.lastModified) return failNow(ctx, MSG_MISMATCH, true);
       emit(ctx);
       ctx.promise = drive(ctx);
       return ctx.promise;

@@ -316,6 +316,76 @@ describe('TF.mediaupload', () => {
     assert.equal(seen.length, n);
   });
 
+  it('status server failed (init/resume GET) → failed dengan error server, entri dihapus; processing/ready → done', async () => {
+    const t = setup({ over: (req) => { if (req.method === 'POST' && /media$/.test(req.path)) return jres(200, { id: 77, status: 'failed', error: 'Transkode gagal', received_bytes: 0 }); } });
+    const st = await t.mgr.start({ file: fakeFile(MiB), noteId: 5, cid: 'f1' });
+    assert.equal(st.phase, 'failed');
+    assert.equal(st.error, 'Transkode gagal');
+    assert.equal(t.mgr.pending().length, 0);
+    assert.equal(t.patches().length, 0);
+    const entry = { cid: 'f2', noteId: 5, attId: 77, name: 'rapat.m4a', size: MiB, lastModified: 1700000000000 };
+    const t2 = setup({ storage: memStorage({ tf_media_uploads: JSON.stringify({ f2: entry }) }),
+      over: (req) => { if (req.method === 'GET') return jres(200, { received_bytes: 0, size: MiB, status: 'failed' }); } });
+    const s2 = await t2.mgr.resume('f2', fakeFile(MiB));
+    assert.equal(s2.phase, 'failed');
+    assert.ok(s2.error && s2.error.length > 5);
+    assert.equal(t2.mgr.pending().length, 0);
+    const t3 = setup({ over: (req) => { if (req.method === 'POST' && /media$/.test(req.path)) return jres(200, { id: 77, status: 'ready', received_bytes: MiB }); } });
+    assert.equal((await t3.mgr.start({ file: fakeFile(MiB), noteId: 5, cid: 'f3' })).phase, 'done');
+  });
+
+  it('complete 409 dengan received_bytes (lock sibuk) → backoff lalu coba lagi; entri dihapus hanya saat done', async () => {
+    let n = 0; let entryDuring = null;
+    const t = setup({ over: (req, s) => {
+      if (/complete$/.test(req.path) && ++n === 1) return jres(409, { detail: 'sibuk', received_bytes: MiB });
+      if (/complete$/.test(req.path)) entryDuring = t.storage.getItem('tf_media_uploads');
+    } });
+    const p = t.mgr.start({ file: fakeFile(MiB), noteId: 5, cid: 'k1' });
+    await flush();
+    assert.equal(t.mgr.get('k1').phase, 'waiting');
+    assert.equal(t.timers[0].ms, 1000);
+    assert.notEqual(t.storage.getItem('tf_media_uploads'), null);
+    t.timers[0].fn();
+    const st = await p;
+    assert.equal(st.phase, 'done');
+    assert.equal(n, 2);
+    assert.ok(entryDuring && entryDuring.includes('k1'));
+    assert.equal(t.mgr.pending().length, 0);
+    assert.equal(t.calls.filter((c) => c.method === 'GET').length, 0);
+  });
+
+  it('resume file berbeda → state retryable: true; state lain tidak punya retryable', async () => {
+    const entry = { cid: 'm1', noteId: 5, attId: 77, name: 'rapat.m4a', size: MiB, lastModified: 1700000000000 };
+    const t = setup({ storage: memStorage({ tf_media_uploads: JSON.stringify({ m1: entry }) }) });
+    const st = await t.mgr.resume('m1', fakeFile(MiB + 1));
+    assert.equal(st.retryable, true);
+    assert.equal(t.mgr.get('m1').retryable, true);
+    const t2 = setup();
+    const bad = await t2.mgr.start({ file: fakeFile(1 * MiB, 'x.pdf'), noteId: 5, cid: 'm2' });
+    assert.ok(!('retryable' in bad));
+    const ok = await t2.mgr.start({ file: fakeFile(MiB), noteId: 5, cid: 'm3' });
+    assert.ok(!('retryable' in ok));
+  });
+
+  it('cancel saat init masih berjalan → respons init dengan id memicu DELETE sekali, tanpa PATCH', async () => {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    const t = setup({ over: (req) => { if (req.method === 'POST' && /media$/.test(req.path)) return gate.then(() => jres(200, { id: 91, status: 'uploading', received_bytes: 0 })); } });
+    const p = t.mgr.start({ file: fakeFile(MiB), noteId: 5, cid: 'i1' });
+    await flush();
+    const c = t.mgr.cancel('i1');
+    release();
+    await c;
+    const st = await p;
+    await flush();
+    assert.equal(st.phase, 'canceled');
+    const del = t.calls.filter((x) => x.method === 'DELETE');
+    assert.equal(del.length, 1);
+    assert.equal(del[0].path, '/api/scratchpad/attachments/91');
+    assert.equal(t.patches().length, 0);
+    assert.equal(t.mgr.pending().length, 0);
+  });
+
   it('Blob asli juga berfungsi', async () => {
     const t = setup();
     const blob = new Blob([new Uint8Array(100)]);
