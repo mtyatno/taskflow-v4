@@ -12806,12 +12806,28 @@ function KanbanCard({
     onMove,
     onHoverColumn
   };
-  React.useEffect(() => () => {
-    const s = dragRef.current;
-    if (s) s.teardown();
+  React.useEffect(() => {
+    // Listener non-passive dipasang saat mount (browser memutuskan bisa-tidaknya scroll diblokir saat touchstart).
+    const el = cardRef.current;
+    const h = ev => {
+      const d = dragRef.current;
+      if (d && d.began && !d.cancelled && ev.cancelable) ev.preventDefault();
+    };
+    if (el) el.addEventListener("touchmove", h, {
+      passive: false
+    });
+    return () => {
+      if (el) el.removeEventListener("touchmove", h, {
+        passive: false
+      });
+      const s = dragRef.current;
+      if (s) s.teardown();
+    };
   }, []);
   const handlePointerDown = e => {
-    if (!canDrag || dragRef.current) return;
+    if (!canDrag) return;
+    suppressClickRef.current = false;
+    if (dragRef.current) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     // Checkbox, tombol "⋯" dan menu tidak pernah memulai drag.
     if (e.target && e.target.closest && e.target.closest("input,button,[role=menu]")) return;
@@ -12851,9 +12867,6 @@ function KanbanCard({
       }
       s.raf = requestAnimationFrame(tick);
     };
-    const preventTouchMove = ev => {
-      if (ev.cancelable) ev.preventDefault();
-    };
     const preventMenu = ev => ev.preventDefault();
     const endVisuals = () => {
       if (s.timer) {
@@ -12869,9 +12882,6 @@ function KanbanCard({
         s.ghost = null;
       }
       if (s.began) {
-        document.removeEventListener("touchmove", preventTouchMove, {
-          passive: false
-        });
         document.removeEventListener("contextmenu", preventMenu);
         const cb = latest.current.onHoverColumn;
         if (cb) cb(null);
@@ -12889,20 +12899,21 @@ function KanbanCard({
       s.dy = s.y - r.top;
       const g = el.cloneNode(true);
       g.removeAttribute("data-kanban-task");
-      g.style.cssText = `position:fixed;z-index:2000;pointer-events:none;width:${Math.round(r.width)}px;margin:0;opacity:0.9;box-shadow:0 8px 24px rgba(0,0,0,0.25);transform:rotate(1.5deg);cursor:grabbing`;
+      g.style.cssText += `;position:fixed;z-index:2000;pointer-events:none;width:${Math.round(r.width)}px;margin:0;opacity:0.9;box-shadow:0 8px 24px rgba(0,0,0,0.25);transform:rotate(1.5deg);cursor:grabbing`;
       document.body.appendChild(g);
       s.ghost = g;
       placeGhost();
       setDragging(true);
-      document.addEventListener("touchmove", preventTouchMove, {
-        passive: false
-      });
       document.addEventListener("contextmenu", preventMenu);
       hover();
       s.raf = requestAnimationFrame(tick);
     };
     const onMove = ev => {
       if (ev.pointerId !== s.pointerId || s.cancelled) return;
+      if (ev.pointerType !== "touch" && ev.buttons === 0) {
+        s.teardown(); // pointerup hilang sebelum drag mulai
+        return;
+      }
       s.x = ev.clientX;
       s.y = ev.clientY;
       if (!s.began) {
@@ -12940,10 +12951,7 @@ function KanbanCard({
       document.removeEventListener("pointercancel", onCancel);
       document.removeEventListener("keydown", onKey);
       if (s.began) {
-        suppressClickRef.current = true;
-        setTimeout(() => {
-          suppressClickRef.current = false;
-        }, 50);
+        suppressClickRef.current = true; // meredam tepat satu klik berikutnya
       }
       if (dragRef.current === s) dragRef.current = null;
     };
@@ -12968,7 +12976,10 @@ function KanbanCard({
     tabIndex: 0,
     onPointerDown: canDrag ? handlePointerDown : undefined,
     onClick: () => {
-      if (suppressClickRef.current) return;
+      if (suppressClickRef.current) {
+        suppressClickRef.current = false;
+        return;
+      }
       onTaskClick(task);
     },
     onKeyDown: e => {

@@ -102,3 +102,12 @@ test("sumber: blok Kanban tanpa HTML5 drag; memakai pointer events", () => {
   assert.doesNotMatch(block, /parseInt\(/);
   assert.doesNotMatch(indexHtml, /dragSourceRef/);
 });
+
+test("sumber: touchmove non-passive di kartu saat mount; tidak ada listener document terlambat", () => {
+  const card = sliceFn("function KanbanCard({", "\nfunction ");
+  assert.match(card, /el\.addEventListener\("touchmove", h, \{\s*passive: false\s*\}\)/);
+  assert.doesNotMatch(card, /document\.addEventListener\("touchmove"/);
+  assert.match(card, /ev\.buttons === 0/);
+  assert.doesNotMatch(card, /setTimeout\(\(\) => \{\s*suppressClickRef/);
+  assert.match(card, /cssText \+= /);
+});
