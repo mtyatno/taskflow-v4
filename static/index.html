@@ -12713,6 +12713,39 @@ function kanbanCheckAction(m) {
 function kanbanTint(color, alpha) {
   return typeof color === "string" && /^#[0-9a-fA-F]{6}$/.test(color) ? color + alpha : null;
 }
+// ── Drag Kanban dengan Pointer Events (mouse + sentuh) ────
+// Helper murni (diuji tanpa DOM).
+function kanbanDragStart(e, now) {
+  return {
+    pointerType: e.pointerType || "mouse",
+    x: e.clientX,
+    y: e.clientY,
+    t: now
+  };
+}
+// mouse/pen: mulai setelah bergeser >= 6 px. Sentuh: mulai bila tetap di tempat (< 6 px) >= 250 ms;
+// sentuh yang bergeser >= 6 px tidak pernah mulai (biarkan scroll).
+function kanbanDragShouldStart(start, e, now) {
+  const dist = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+  if (start.pointerType === "touch") return dist < 6 && now - start.t >= 250;
+  return dist >= 6;
+}
+// Auto-scroll horizontal papan: negatif di 40 px dari tepi kiri, positif di tepi kanan, 0 selain itu (maks 16 px/frame).
+function kanbanAutoScrollDelta(pointerX, rect) {
+  const EDGE = 40,
+    MAX = 16;
+  const fromLeft = pointerX - rect.left;
+  const fromRight = rect.right - pointerX;
+  if (fromLeft < EDGE) return -Math.min(MAX, Math.max(1, Math.round(MAX * (EDGE - fromLeft) / EDGE)));
+  if (fromRight < EDGE) return Math.min(MAX, Math.max(1, Math.round(MAX * (EDGE - fromRight) / EDGE)));
+  return 0;
+}
+// Key kolom di bawah titik (atribut data-kanban-col), atau null.
+function kanbanColumnAt(x, y) {
+  const el = document.elementFromPoint(x, y);
+  const col = el && el.closest ? el.closest("[data-kanban-col]") : null;
+  return col ? col.getAttribute("data-kanban-col") : null;
+}
 function KanbanCard({
   task,
   columnKey,
@@ -12724,7 +12757,7 @@ function KanbanCard({
   onTaskClick,
   onCheck,
   onMove,
-  onCardDragStart
+  onHoverColumn
 }) {
   // Menu "Pindah ke…": null = tertutup, selain itu posisi tetap (fixed) di bawah tombol agar tidak terpotong kolom.
   const [menuPos, setMenuPos] = React.useState(null);
@@ -12761,23 +12794,186 @@ function KanbanCard({
       document.removeEventListener("keydown", onKey);
     };
   }, [menuOpen]);
-  const handleDragStart = e => {
-    e.dataTransfer.setData("text/plain", String(task.id));
-    e.dataTransfer.effectAllowed = "move";
-    if (onCardDragStart) onCardDragStart();
-    setTimeout(() => {
-      e.target.style.opacity = "0.4";
-    }, 0);
+  // ── Drag (Pointer Events) ──
+  const cardRef = React.useRef(null);
+  const dragRef = React.useRef(null);
+  const suppressClickRef = React.useRef(false);
+  const [dragging, setDragging] = React.useState(false);
+  const latest = React.useRef(null);
+  latest.current = {
+    task,
+    columnKey,
+    onMove,
+    onHoverColumn
   };
-  const handleDragEnd = e => {
-    e.target.style.opacity = isDone ? "0.6" : "1";
+  React.useEffect(() => () => {
+    const s = dragRef.current;
+    if (s) s.teardown();
+  }, []);
+  const handlePointerDown = e => {
+    if (!canDrag || dragRef.current) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    // Checkbox, tombol "⋯" dan menu tidak pernah memulai drag.
+    if (e.target && e.target.closest && e.target.closest("input,button,[role=menu]")) return;
+    const el = e.currentTarget;
+    const start = kanbanDragStart(e, Date.now());
+    const s = {
+      start,
+      pointerId: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      began: false,
+      cancelled: false,
+      timer: null,
+      raf: 0,
+      ghost: null
+    };
+    dragRef.current = s;
+    const hover = () => {
+      const key = kanbanColumnAt(s.x, s.y);
+      const cb = latest.current.onHoverColumn;
+      if (cb) cb(key);
+    };
+    const placeGhost = () => {
+      if (!s.ghost) return;
+      s.ghost.style.left = s.x - s.dx + "px";
+      s.ghost.style.top = s.y - s.dy + "px";
+    };
+    const tick = () => {
+      if (!s.began || s.cancelled) return;
+      const board = el.closest("[data-kanban-board]");
+      if (board) {
+        const delta = kanbanAutoScrollDelta(s.x, board.getBoundingClientRect());
+        if (delta) {
+          board.scrollLeft += delta;
+          hover();
+        }
+      }
+      s.raf = requestAnimationFrame(tick);
+    };
+    const preventTouchMove = ev => {
+      if (ev.cancelable) ev.preventDefault();
+    };
+    const preventMenu = ev => ev.preventDefault();
+    const endVisuals = () => {
+      if (s.timer) {
+        clearTimeout(s.timer);
+        s.timer = null;
+      }
+      if (s.raf) {
+        cancelAnimationFrame(s.raf);
+        s.raf = 0;
+      }
+      if (s.ghost) {
+        s.ghost.remove();
+        s.ghost = null;
+      }
+      if (s.began) {
+        document.removeEventListener("touchmove", preventTouchMove, {
+          passive: false
+        });
+        document.removeEventListener("contextmenu", preventMenu);
+        const cb = latest.current.onHoverColumn;
+        if (cb) cb(null);
+        setDragging(false);
+      }
+    };
+    const begin = () => {
+      if (s.began || s.cancelled) return;
+      s.began = true;
+      try {
+        el.setPointerCapture(s.pointerId);
+      } catch (_) {}
+      const r = el.getBoundingClientRect();
+      s.dx = s.x - r.left;
+      s.dy = s.y - r.top;
+      const g = el.cloneNode(true);
+      g.removeAttribute("data-kanban-task");
+      g.style.cssText = `position:fixed;z-index:2000;pointer-events:none;width:${Math.round(r.width)}px;margin:0;opacity:0.9;box-shadow:0 8px 24px rgba(0,0,0,0.25);transform:rotate(1.5deg);cursor:grabbing`;
+      document.body.appendChild(g);
+      s.ghost = g;
+      placeGhost();
+      setDragging(true);
+      document.addEventListener("touchmove", preventTouchMove, {
+        passive: false
+      });
+      document.addEventListener("contextmenu", preventMenu);
+      hover();
+      s.raf = requestAnimationFrame(tick);
+    };
+    const onMove = ev => {
+      if (ev.pointerId !== s.pointerId || s.cancelled) return;
+      s.x = ev.clientX;
+      s.y = ev.clientY;
+      if (!s.began) {
+        if (kanbanDragShouldStart(start, ev, Date.now())) begin();else if (start.pointerType === "touch" && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) >= 6) s.teardown(); // sentuh bergeser sebelum 250 ms → scroll
+        return;
+      }
+      placeGhost();
+      hover();
+    };
+    const onUp = ev => {
+      if (ev.pointerId !== s.pointerId) return;
+      const wasBegan = s.began && !s.cancelled;
+      const key = wasBegan ? kanbanColumnAt(ev.clientX, ev.clientY) : null;
+      const {
+        task: tk,
+        columnKey: from,
+        onMove: mv
+      } = latest.current;
+      s.teardown();
+      if (wasBegan && key != null && String(key) !== String(from) && mv) mv(tk.id, key, from);
+    };
+    const onCancel = ev => {
+      if (ev.pointerId !== s.pointerId) return;
+      s.teardown();
+    };
+    const onKey = ev => {
+      if (ev.key !== "Escape" || !s.began || s.cancelled) return;
+      s.cancelled = true; // klik susulan setelah pointerup tetap diredam
+      endVisuals();
+    };
+    s.teardown = () => {
+      endVisuals();
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("keydown", onKey);
+      if (s.began) {
+        suppressClickRef.current = true;
+        setTimeout(() => {
+          suppressClickRef.current = false;
+        }, 50);
+      }
+      if (dragRef.current === s) dragRef.current = null;
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onCancel);
+    document.addEventListener("keydown", onKey);
+    if (start.pointerType === "touch") {
+      s.timer = setTimeout(() => {
+        s.timer = null;
+        const now = Math.max(Date.now(), start.t + 250);
+        if (kanbanDragShouldStart(start, {
+          clientX: s.x,
+          clientY: s.y
+        }, now)) begin();
+      }, 250);
+    }
   };
   const targets = moveTargets || [];
   return /*#__PURE__*/React.createElement("div", {
-    draggable: canDrag,
-    onDragStart: canDrag ? handleDragStart : undefined,
-    onDragEnd: canDrag ? handleDragEnd : undefined,
-    onClick: () => onTaskClick(task),
+    ref: cardRef,
+    tabIndex: 0,
+    onPointerDown: canDrag ? handlePointerDown : undefined,
+    onClick: () => {
+      if (suppressClickRef.current) return;
+      onTaskClick(task);
+    },
+    onKeyDown: e => {
+      if (e.key === "Enter" && e.target === e.currentTarget) onTaskClick(task);
+    },
     "data-kanban-task": String(task.id),
     style: {
       position: "relative",
@@ -12788,7 +12984,9 @@ function KanbanCard({
       cursor: canDrag ? "grab" : "pointer",
       transition: "border-color 0.15s, box-shadow 0.15s",
       userSelect: "none",
-      opacity: isDone ? 0.6 : 1
+      touchAction: "pan-y",
+      opacity: isDone ? 0.6 : 1,
+      filter: dragging ? "opacity(0.4)" : "none"
     },
     onMouseEnter: e => {
       e.currentTarget.style.borderColor = "var(--accent)";
@@ -12841,7 +13039,6 @@ function KanbanCard({
     "aria-haspopup": "menu",
     "aria-expanded": menuOpen,
     title: "Pindah ke…",
-    draggable: false,
     onClick: e => {
       e.stopPropagation();
       if (menuPos) {
@@ -12964,7 +13161,8 @@ function KanbanCard({
 function KanbanColumn({
   column,
   groupBy,
-  dragSourceRef,
+  isOver,
+  onHoverColumn,
   targets,
   todayIso,
   currentUser,
@@ -12980,8 +13178,8 @@ function KanbanColumn({
     badge,
     tasks
   } = column;
-  const [isDragOver, setIsDragOver] = React.useState(false);
   const canDrop = groupBy !== "quadrant" && kind !== "orphan";
+  const isDragOver = canDrop && !!isOver;
   const COL_COLORS = {
     "🔴 P1 Critical": "#ef4444",
     "🟠 P2 High": "#f97316",
@@ -12994,30 +13192,8 @@ function KanbanColumn({
   const borderTint = isNeutral ? null : kanbanTint(accentColor, "44");
   const pillTint = isNeutral ? null : kanbanTint(accentColor, "22");
   const labelColor = kind === "orphan" ? "var(--text-light)" : isNeutral ? "var(--text-secondary)" : accentColor;
-  const handleDragOver = e => {
-    if (!canDrop) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    setIsDragOver(true);
-  };
-  const handleDragLeave = e => {
-    if (!e.currentTarget.contains(e.relatedTarget)) setIsDragOver(false);
-  };
-  const handleDrop = e => {
-    e.preventDefault();
-    setIsDragOver(false);
-    if (!canDrop) return;
-    // Id dibawa apa adanya (angka server atau cid) — tanpa konversi angka.
-    const taskId = e.dataTransfer.getData("text/plain");
-    if (!taskId) return;
-    const fromKey = dragSourceRef.current;
-    if (fromKey == null || fromKey === groupKey) return;
-    onMoveTask(taskId, groupKey, fromKey);
-  };
   return /*#__PURE__*/React.createElement("div", {
-    onDragOver: handleDragOver,
-    onDragLeave: handleDragLeave,
-    onDrop: handleDrop,
+    "data-kanban-col": canDrop ? String(groupKey) : undefined,
     "data-kanban-column": groupKey,
     style: {
       width: 280,
@@ -13088,9 +13264,7 @@ function KanbanColumn({
     onTaskClick: onTaskClick,
     onCheck: onCheck,
     onMove: onMoveTask,
-    onCardDragStart: () => {
-      dragSourceRef.current = groupKey;
-    }
+    onHoverColumn: onHoverColumn
   })), isDragOver && /*#__PURE__*/React.createElement("div", {
     style: {
       height: 48,
@@ -13110,7 +13284,6 @@ function KanbanColumn({
 function KanbanView({
   columns,
   groupBy,
-  dragSourceRef,
   todayIso,
   currentUser,
   collaborators,
@@ -13118,7 +13291,9 @@ function KanbanView({
   onCheck,
   onMoveTask
 }) {
+  const [overKey, setOverKey] = React.useState(null);
   return /*#__PURE__*/React.createElement("div", {
+    "data-kanban-board": "1",
     style: {
       display: "flex",
       gap: 12,
@@ -13130,7 +13305,8 @@ function KanbanView({
     key: col.key,
     column: col,
     groupBy: groupBy,
-    dragSourceRef: dragSourceRef,
+    isOver: overKey != null && String(overKey) === String(col.key),
+    onHoverColumn: setOverKey,
     targets: window.TF.kanbanboard.moveTargets(columns, col.key),
     todayIso: todayIso,
     currentUser: currentUser,
@@ -13577,7 +13753,6 @@ function TaskListView({
       localStorage.setItem(kanbanScopeKey(page), val);
     } catch (_) {}
   };
-  const dragSourceRef = React.useRef(null);
   // groupBy "project": kunci grup → { value: nama, listId } (kunci memuat scope, bukan teks project)
   const projGroupMetaRef = React.useRef({});
   const toggle = (setter, current, val) => setter(current === val ? "" : val);
@@ -14118,7 +14293,6 @@ function TaskListView({
   }, `${kanbanHidden} task dari scope lain tidak ditampilkan`), /*#__PURE__*/React.createElement(KanbanView, {
     columns: kanbanBoard ? kanbanBoard.columns : [],
     groupBy: groupBy,
-    dragSourceRef: dragSourceRef,
     todayIso: kanbanToday,
     currentUser: currentUser,
     collaborators: collaborators,
