@@ -215,9 +215,12 @@ def test_task_in_deleted_workspace_is_personal(client):
     name = _n()
     r = u.put(f"/api/tasks/{t['id']}", json={"project": name})
     assert r.status_code == 200, r.text
+    # Migrasi task yatim (repository init) sudah mengembalikan task ke pribadi; bila project
+    # sempat terpasang, ia harus pribadi — tidak pernah project workspace.
+    assert _row("SELECT list_id FROM tasks WHERE id=?", t["id"])["list_id"] is None
     p = _row("SELECT p.user_id, p.list_id FROM tasks t JOIN projects p ON p.id=t.project_id "
              "WHERE t.id=?", t["id"])
-    assert p["user_id"] == u.id and p["list_id"] is None
+    assert p is None or (p["user_id"] == u.id and p["list_id"] is None)
 
 
 def _remove_member(list_id, user_id):

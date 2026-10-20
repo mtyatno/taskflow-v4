@@ -5,6 +5,7 @@ Multi-user: all task queries filter by user_id.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 import secrets
 import hashlib
@@ -20,9 +21,20 @@ def _today_jkt() -> date:
     return datetime.now(_TZ_JKT).date()
 
 from models import Task, GTDStatus, Priority, Quadrant
-from config import DB_PATH
+from config import DB_PATH, UPLOAD_DIR
 
 _log = logging.getLogger(__name__)
+
+
+def _return_tasks_to_creator(conn, where_sql: str, args: tuple = ()) -> int:
+    """Kembalikan task workspace ke pembuatnya (pribadi): lepas list/assignee/project/context.
+    Mengembalikan jumlah baris. Idempoten bila where_sql hanya mencocokkan task yang masih terikat."""
+    cur = conn.execute(
+        "UPDATE tasks SET list_id = NULL, assigned_to = NULL, project_id = NULL, project = '', "
+        "context_id = NULL, context = '', updated_at = ? WHERE " + where_sql,
+        (datetime.now().isoformat(), *args),
+    )
+    return cur.rowcount
 
 
 def ensure_projects_schema(conn) -> None:
@@ -1010,6 +1022,9 @@ class TaskRepository:
             ensure_projects_schema(conn)
             ensure_contexts_schema(conn)
             ensure_workspace_pins_schema(conn)
+            # Migrate: task yatim (list_id menunjuk workspace yang sudah dihapus) kembali pribadi.
+            _return_tasks_to_creator(
+                conn, "list_id IS NOT NULL AND list_id NOT IN (SELECT id FROM shared_lists)")
 
     # ── Row to Task mapping ────────────────────────────────────────────────
 
@@ -1549,7 +1564,20 @@ class TaskRepository:
             return cur.rowcount > 0
 
     def delete_shared_list(self, list_id: int, owner_id: int) -> bool:
+        files_to_unlink: list[str] = []
         with self._connect() as conn:
+            if conn.execute(
+                "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
+            ).fetchone():
+                try:
+                    files_to_unlink = [r[0] for r in conn.execute(
+                        "SELECT DISTINCT filename FROM workspace_files WHERE list_id = ? AND is_deleted = 0 "
+                        "AND filename NOT IN (SELECT filename FROM task_attachments)", (list_id,)
+                    ).fetchall()]
+                except sqlite3.OperationalError:
+                    pass  # tabel workspace_files belum ada
+                # list_id tanpa FK: tanpa ini task tertinggal menunjuk workspace yang hilang.
+                _return_tasks_to_creator(conn, "list_id = ?", (list_id,))
             # Petakan: catatan kehilangan list_id lewat FK SET NULL; peta tertaut (tanpa FK) harus ikut NULL.
             try:
                 if conn.execute(
@@ -1576,7 +1604,14 @@ class TaskRepository:
             cur = conn.execute(
                 "DELETE FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
             )
-            return cur.rowcount > 0
+            deleted = cur.rowcount > 0
+        if deleted:
+            for fn in files_to_unlink:
+                try:
+                    os.unlink(os.path.join(UPLOAD_DIR, fn))
+                except OSError as e:
+                    logging.warning("Gagal menghapus berkas workspace %s: %s", fn, e)
+        return deleted
 
     def get_lists_for_user(self, user_id: int) -> list[dict]:
         """All lists where user is owner OR member, with role and member_count."""
