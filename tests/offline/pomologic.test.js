@@ -44,6 +44,55 @@ test("sessionClientId", () => {
 test("isOverEstimate", () => {
   assert.equal(pl.isOverEstimate(4, 2), true); assert.equal(pl.isOverEstimate(2, 2), false);
 });
+test("overtimeSeconds", () => {
+  assert.equal(pl.overtimeSeconds({ accumSec: 30, runStartedAt: 1000, now: 61000 }), 90);
+  assert.equal(pl.overtimeSeconds({ accumSec: 30, runStartedAt: null, now: 61000 }), 30);
+  assert.equal(pl.overtimeSeconds({ accumSec: 30, runStartedAt: 1000, now: 1000 + 10 * 3600 * 1000 }), 7200);
+});
+test("overtimePomodoros, formatOvertime, overtimeProgress", () => {
+  assert.equal(pl.overtimePomodoros(1499), 0);
+  assert.equal(pl.overtimePomodoros(1500), 1);
+  assert.equal(pl.overtimePomodoros(7200), 4);
+  assert.equal(pl.formatOvertime(0), "+00:00");
+  assert.equal(pl.formatOvertime(725), "+12:05");
+  assert.equal(pl.formatOvertime(3909), "+1:05:09");
+  assert.equal(pl.overtimeProgress(1800), 0.2);
+});
+test("overtimeClientId", () => {
+  assert.equal(pl.overtimeClientId(7, 1760000000000), "pomo-7-1760000000000-o");
+});
+test("breakAfter", () => {
+  assert.equal(pl.breakAfter(3, 4), "longBreak");
+  assert.equal(pl.breakAfter(3, 5), "longBreak");
+  assert.equal(pl.breakAfter(1, 2), "shortBreak");
+  assert.equal(pl.breakAfter(4, 5), "shortBreak");
+});
+test("overtimeLogEntry", () => {
+  assert.equal(pl.overtimeLogEntry({ sec: 59, workStartedAt: 5, userId: 7, logDate: "2026-10-20", endedAt: "x" }), null);
+  assert.deepEqual(pl.overtimeLogEntry({ sec: 3100, workStartedAt: 5, userId: 7, logDate: "2026-10-20", endedAt: "x" }),
+    { client_id: "pomo-7-5-o", kind: "overtime", pomodoros: 2, focus_seconds: 3100, log_date: "2026-10-20", ended_at: "x" });
+});
+test("staleSessionLogs", () => {
+  const now = Date.parse("2026-10-20T08:00:00Z");
+  const toLocalISO = (ms) => new Date(ms).toISOString().slice(0, 10);
+  const ctx = { todayISO: "2026-10-20", now, userId: 7, toLocalISO };
+  const base = { mode: "work", focusTaskId: 3, sessionTaskId: 9, date: "2026-10-19" };
+  const end = Date.parse("2026-10-19T23:00:00Z");
+  const r = pl.staleSessionLogs({ ...base, isRunning: true, targetEndTime: end, workStartedAt: end - 1500000 }, ctx);
+  assert.equal(r.length, 1);
+  assert.equal(r[0].taskId, 9);
+  assert.deepEqual(r[0].entry, { client_id: "pomo-7-" + (end - 1500000) + "-s", kind: "session", pomodoros: 1,
+    focus_seconds: 1500, log_date: "2026-10-19", ended_at: new Date(end).toISOString() });
+  const ot = pl.staleSessionLogs({ ...base, phase: "overtime", otAccumSec: 0, otRunStartedAt: now - 3 * 3600 * 1000, workStartedAt: 5 }, ctx);
+  assert.equal(ot.length, 1);
+  assert.equal(ot[0].entry.kind, "overtime");
+  assert.equal(ot[0].entry.pomodoros, 4);
+  assert.equal(ot[0].entry.focus_seconds, 7200);
+  assert.equal(ot[0].entry.client_id, "pomo-7-5-o");
+  assert.deepEqual(pl.staleSessionLogs({ ...base, phase: "awaiting", isRunning: false }, ctx), []);
+  assert.deepEqual(pl.staleSessionLogs({ ...base, date: "2026-10-20", phase: "overtime", otAccumSec: 900 }, ctx), []);
+  assert.deepEqual(pl.staleSessionLogs({ mode: "work", phase: "overtime", otAccumSec: 900, date: "2026-10-19" }, ctx), []);
+});
 test("index.html memuat pomologic.js setelah focuspage.js", () => {
   const a = indexHtml.indexOf('src="/static/offline/focuspage.js"');
   const b = indexHtml.indexOf('src="/static/offline/pomologic.js"');
