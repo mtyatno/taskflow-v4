@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=334">
+  <link rel="stylesheet" href="/static/app.css?v=335">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -3806,6 +3806,35 @@ function useScopeLists(listId, sharedLists) {
     };
   }, [needFetch, listId]);
   return sharedLists || lists;
+}
+// ═══ Tombol Pin workspace (baris workspace-nav-tabs) ═══
+// Hover lokal di komponen kecil ini supaya App tidak re-render tiap mouseenter.
+const WORKSPACE_PIN_FULL_TEXT = "Maksimal 5 workspace di-pin. Lepas salah satu dulu.";
+function WorkspacePinButton({ pinned, canPin, online, onToggle }) {
+  const [hover, setHover] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const disabled = busy || !online || (!pinned && !canPin);
+  const title = !online ? "Butuh koneksi internet"
+    : (!pinned && !canPin) ? WORKSPACE_PIN_FULL_TEXT
+    : pinned ? "Lepas pin dari sidebar" : "Pin ke sidebar";
+  return React.createElement("button", {
+    type: "button",
+    className: "btn btn-sm btn-secondary workspace-pin-btn",
+    "data-testid": "workspace-pin-btn",
+    "aria-pressed": pinned ? "true" : "false",
+    disabled,
+    title,
+    onMouseEnter: () => setHover(true),
+    onMouseLeave: () => setHover(false),
+    onFocus: () => setHover(true),
+    onBlur: () => setHover(false),
+    onClick: () => {
+      if (disabled) return;
+      setBusy(true);
+      Promise.resolve(onToggle(!pinned)).finally(() => setBusy(false));
+    },
+    style: { marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }
+  }, React.createElement(Icon, { name: pinned && hover && !disabled ? "pin-off" : "pin", size: 14 }), pinned ? "Di-pin" : "Pin");
 }
 // ═══ Kelola project (online) ═══
 // Helper murni (dites di tests/offline/project_manager.test.js).
@@ -20969,7 +20998,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v424-xss-hardening"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v425-workspace-pins"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -33538,6 +33567,26 @@ function App() {
     type,
     action
   }), []);
+  // Pin/unpin workspace — hanya online, tanpa outbox. State berubah hanya setelah respons OK.
+  const handleWorkspacePin = useCallback(async (listId, pin) => {
+    if (!navigator.onLine) return;
+    const url = `/api/lists/${listId}/pin`;
+    let r;
+    try {
+      r = await api.fetch(url, pin ? { method: "PUT", body: "{}", network: true } : { method: "DELETE", network: true });
+    } catch (err) {
+      const code = err && err.body && err.body.detail && err.body.detail.code;
+      if (err && err.status === 409 && code === "PIN_LIMIT") showToast("Maksimal 5 workspace di-pin. Lepas salah satu dulu.", "error");
+      else showToast("Gagal menyimpan pin", "error");
+      return;
+    }
+    const WP = window.TF && window.TF.workspacepins;
+    if (WP && r) setSharedLists(ls => WP.applyPinChange(ls, listId, !!r.pinned, r.pin_position ?? null));
+    try {
+      const p = window.TF?.listsync?.pullAndReconcileLists?.(window.__syncRawFetch);
+      if (p && p.catch) p.catch(() => {});
+    } catch (_) {}
+  }, [showToast]);
   const handleStartFocus = useCallback(task => {
     if (focusTask?.id === task?.id) {
       setFocusTaskId(null);
@@ -34858,12 +34907,16 @@ function App() {
           gap: 6,
           fontWeight: workspaceTab === "files" ? 600 : 400
         }
-      }, "📁 Files"), /*#__PURE__*/React.createElement("button", {
+      }, "📁 Files"), /*#__PURE__*/React.createElement(WorkspacePinButton, {
+        pinned: !!currentList.pinned,
+        canPin: !!(window.TF && window.TF.workspacepins && window.TF.workspacepins.canPinMore(sharedLists)),
+        online: isOnline,
+        onToggle: pin => handleWorkspacePin(listId, pin)
+      }), /*#__PURE__*/React.createElement("button", {
         type: "button",
         className: "btn btn-sm btn-secondary",
         onClick: () => setProjectManager({ listId: listId, listName: currentList.name }),
         style: {
-          marginLeft: "auto",
           display: "inline-flex",
           alignItems: "center",
           gap: 6
@@ -34943,7 +34996,8 @@ function App() {
     collapsed: sidebarCollapsed,
     onToggleCollapse: () => setSidebarCollapsed(!sidebarCollapsed),
     sharedLists: sharedLists,
-    onManageProjects: () => setProjectManager({ listId: null, listName: null })
+    onManageProjects: () => setProjectManager({ listId: null, listName: null }),
+    onUnpinWorkspace: id => handleWorkspacePin(id, false)
   }), /*#__PURE__*/React.createElement("div", {
     className: `main-content ${sidebarCollapsed ? "sidebar-rail-visible" : "sidebar-visible"}`
   }, !isOnline && /*#__PURE__*/React.createElement("div", {
@@ -35455,7 +35509,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v424-xss-hardening";
+    window.__SW_VERSION = "taskflow-v425-workspace-pins";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

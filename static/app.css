@@ -147,6 +147,8 @@
     .sidebar-rail-ctx button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border: none; background: none; border-radius: 7px; color: #0f172a; font-family: inherit; font-size: 13px; text-align: left; cursor: pointer; }
     .sidebar-rail-ctx button:hover:not(:disabled), .sidebar-rail-ctx button:focus-visible { background: rgba(0,0,0,0.06); outline: none; }
     .sidebar-rail-ctx button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .workspace-pin-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .workspace-pin-btn:disabled:hover { background: #F0F0E8; }
     [data-theme="dark"] .sidebar-rail-ctx { background: #262626; border-color: rgba(255,255,255,0.1); box-shadow: 0 8px 24px rgba(0,0,0,0.5); }
     [data-theme="dark"] .sidebar-rail-ctx button { color: #e5e5e5; }
     [data-theme="dark"] .sidebar-rail-ctx button:hover:not(:disabled), [data-theme="dark"] .sidebar-rail-ctx button:focus-visible { background: rgba(255,255,255,0.08); }
