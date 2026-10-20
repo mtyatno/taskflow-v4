@@ -3564,3 +3564,10 @@
 - **Files Touch:** `static/sw.js`, `static/index.html`, `webapp.py`, `src-tauri/tauri.conf.json`, `tests/offline/*` (versi), `tests/test_version.py`, `tests/offline/sw_media.test.js`, `temporary_files/e2e_note_media.py`, `.gitignore`, `.agents/*`
 - **Verifikasi:** inline OK, JS 2066/2067 (pra-ada `draw_local_reactive`), pytest 815, E2E 45/45.
 - **Status:** Needs Review (draft PR; deploy statis, restart `taskflow-web` agar `/api/version` v427).
+
+## 2026-10-20 12:08 WIB — Claude — PR frontend audio/video di note: gelombang perbaikan review akhir
+- **Task:** perbaiki 9 temuan review akhir seluruh branch `claude/note-media-ui` (`.superpowers/sdd/2026-10-20-note-media-ui/final-findings.md`), TDD per item.
+- **Changes:** hak hapus daftar lampiran `uploaded_by ?? user_id`; sisip node media langsung + `remarkMediaPlugin` toleran atribut terpecah; bridge pytest 7 file; `abortAll()` + logout + `tf_media_uploads`; unduhan native lewat `tf-open-attachment`; refresh URL `stalled`/jam lokal/30 dtk; kartu Gagal/`safeHref`/ukuran; manajer: file tak terbaca, reset `attempt`, batas exception; E2E alur 9.
+- **Files Touch:** `static/index.html`, `static/app.css` (tanpa naik versi), `static/offline/{mediadirective,mediaupload,mediacard}.js`, `tests/offline/{mediadirective,mediaupload,mediacard,note_media_editor,note_media_attachments,render_markdown_media}.test.js`, `tests/test_note_media_ui_node.py`, `temporary_files/e2e_note_media.py`, `.agents/*`
+- **Verifikasi:** inline OK, JS 2089/2090 (pra-ada `draw_local_reactive`), pytest 816, E2E 54/54.
+- **Status:** Needs Review (draft PR; SW v427 / app.css v336 tetap).
