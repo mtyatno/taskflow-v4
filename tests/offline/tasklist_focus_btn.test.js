@@ -76,14 +76,14 @@ test("CSS: label tombol fokus disembunyikan di layar sempit", () => {
   assert.match(appCss, /@media \(max-width: 768px\) \{[\s\S]*?\.task-row-badges \.dash-focus-label \{ display: none; \}/);
 });
 
-test("cache bust v432 + app.css?v=341", () => {
+test("cache bust v432 + app.css?v=342", () => {
   const sw = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.resolve(__dirname, "../../webapp.py"), "utf8");
-  assert.match(sw, /^const CACHE = "taskflow-v433-manage-workspace-icons";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v433-manage-workspace-icons";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v433-manage-workspace-icons"/);
-  assert.match(py, /sw_cache = "taskflow-v433-manage-workspace-icons"/);
-  assert.match(indexHtml, /app\.css\?v=341/);
+  assert.match(sw, /^const CACHE = "taskflow-v434-focus-park-zen";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v434-focus-park-zen";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v434-focus-park-zen"/);
+  assert.match(py, /sw_cache = "taskflow-v434-focus-park-zen"/);
+  assert.match(indexHtml, /app\.css\?v=342/);
 });
 
 test("Sidebar: badge Today ikut menghitung task fokus aktif", () => {
