@@ -240,6 +240,8 @@ dm_subscribers: dict[int, set[tuple[int, asyncio.Queue]]] = defaultdict(set)
 # Mindmap bersama: mindmap_id → {(user_id, queue)}. Hanya sinyal (tanpa isi peta);
 # akses tiap pelanggan dicek ulang saat broadcast (lihat _mindmap_broadcast).
 mindmap_subscribers: dict[int, set[tuple[int, asyncio.Queue]]] = defaultdict(set)
+# Komentar note: note_id → {(user_id, queue)}. Hanya sinyal (tanpa isi komentar); akses dicek ulang saat broadcast.
+note_comment_subscribers: dict[int, set[tuple[int, asyncio.Queue]]] = defaultdict(set)
 
 # ── Database helpers ───────────────────────────────────────────────────────────
 
@@ -7829,7 +7831,8 @@ async def create_note_comment(note_id: int, req: CommentCreate, background_tasks
             (note_id, note["list_id"], uid, parent_id, req.body, quote, req.client_id, now, now))
         out = _comment_out(conn, cur.lastrowid)
         _schedule_comment_notify(background_tasks, conn, note, out, uid, "create")
-        return out
+    await _note_comment_broadcast(note_id, {"type": "comments_changed", "note_id": note_id})
+    return out
 
 
 @app.post("/api/scratchpad/{note_id}/comments/read")
@@ -7873,7 +7876,10 @@ async def patch_note_comment(cid: int, req: CommentPatch, background_tasks: Back
             else:
                 conn.execute("UPDATE note_comments SET resolved_at = NULL, resolved_by = NULL, updated_at = ? WHERE id = ?",
                              (now, cid))
-        return _comment_out(conn, cid)
+        out = _comment_out(conn, cid)
+        note_id = c["note_id"]
+    await _note_comment_broadcast(note_id, {"type": "comments_changed", "note_id": note_id})
+    return out
 
 
 @app.delete("/api/note-comments/{cid}")
@@ -7887,10 +7893,87 @@ async def delete_note_comment(cid: int, user=Depends(get_current_user)):
         if uid not in (c["user_id"], c["note_owner_id"]):
             raise HTTPException(status_code=403, detail="Tidak berhak menghapus komentar ini")
         # Hapus thread -> semua balasannya ikut; tombstone yang sudah ada tidak disentuh lagi.
-        conn.execute(
+        cur = conn.execute(
             "UPDATE note_comments SET deleted_at = ?, body = '', updated_at = ? "
             "WHERE (id = ? OR parent_id = ?) AND deleted_at IS NULL", (now, now, cid, cid))
-        return {"ok": True}
+        changed = cur.rowcount > 0
+        note_id = c["note_id"]
+    if changed:
+        await _note_comment_broadcast(note_id, {"type": "comments_changed", "note_id": note_id})
+    return {"ok": True}
+
+
+def _note_comment_push(note_id: int, uid: int, q: asyncio.Queue, event: dict) -> None:
+    """Antrean dibatasi (100): bila penuh pelanggan dilepas; klien menyambung ulang dan menarik delta."""
+    try:
+        q.put_nowait(event)
+    except asyncio.QueueFull:
+        note_comment_subscribers.get(note_id, set()).discard((uid, q))
+
+
+async def _note_comment_broadcast(note_id: int, event: dict) -> None:
+    """Kirim sinyal ke pelanggan stream komentar note. Pelanggan yang tak lagi bisa melihat note
+    (atau note-nya kembali pribadi) menerima 'comments_access_lost' dan dilepas.
+    Dipanggil setelah commit: kegagalan hanya dicatat."""
+    try:
+        subs = list(note_comment_subscribers.get(note_id, set()))
+        if not subs:
+            return
+        verdicts = []
+        with get_db() as conn:
+            for uid, q in subs:
+                n = note_comments.visible_note(conn, uid, note_id)
+                verdicts.append((uid, q, bool(n) and n["list_id"] is not None))
+        for uid, q, ok in verdicts:
+            if ok:
+                _note_comment_push(note_id, uid, q, event)
+            else:
+                _note_comment_push(note_id, uid, q, {"type": "comments_access_lost", "note_id": note_id})
+                note_comment_subscribers.get(note_id, set()).discard((uid, q))
+    except Exception:
+        logging.getLogger(__name__).exception("note comment broadcast gagal (note_id=%s)", note_id)
+
+
+@app.get("/api/scratchpad/{note_id}/comments/stream")
+async def note_comments_stream(note_id: int, request: Request, user=Depends(get_current_user_sse)):
+    uid = user["sub"]
+    with get_db() as conn:
+        note = note_comments.visible_note(conn, uid, note_id)
+        if not note or note["list_id"] is None:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+
+    terminal = ("comments_access_lost",)
+
+    async def event_generator():
+        q: asyncio.Queue = asyncio.Queue(maxsize=100)
+        entry = (uid, q)
+        note_comment_subscribers[note_id].add(entry)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                if entry not in note_comment_subscribers.get(note_id, ()):
+                    while not q.empty():
+                        msg = q.get_nowait()
+                        if msg.get("type") in terminal:
+                            yield {"data": json.dumps(msg)}
+                            break
+                    break
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=20.0)
+                    yield {"data": json.dumps(msg)}
+                    if msg.get("type") in terminal:
+                        break
+                except asyncio.TimeoutError:
+                    if not _session_still_valid(user):
+                        break
+                    yield {"data": json.dumps({"type": "ping"})}
+        finally:
+            note_comment_subscribers[note_id].discard(entry)
+            if not note_comment_subscribers.get(note_id):
+                note_comment_subscribers.pop(note_id, None)
+
+    return EventSourceResponse(event_generator())
 
 
 # ── Public publish pages (/pub/*) ──────────────────────────────────────────────
