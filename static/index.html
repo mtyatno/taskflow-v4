@@ -8916,6 +8916,69 @@ function PomoControls({
   timer,
   compact
 }) {
+  const stopBtn = React.createElement("button", {
+    key: "stop",
+    type: "button",
+    className: "pomo-btn",
+    onClick: timer.stop,
+    disabled: !timer.canStop,
+    "aria-label": "Stop",
+    title: "Stop (kembali ke awal)"
+  }, React.createElement(FocusGlyph, {
+    name: "stop",
+    size: compact ? 14 : 16
+  }), !compact && React.createElement("span", null, "Stop"));
+  const breakBtn = (key, className) => React.createElement("button", {
+    key: key,
+    type: "button",
+    className: className,
+    onClick: timer.takeBreak,
+    "aria-label": "Ambil Istirahat",
+    title: "Ambil Istirahat"
+  }, React.createElement(ViewGlyph, {
+    name: "pomoBreak",
+    size: compact ? 16 : 18
+  }), React.createElement("span", null, compact ? "Istirahat" : "Ambil Istirahat"));
+  if (timer.phase === "awaiting") {
+    return React.createElement("div", {
+      className: `pomo-controls is-awaiting${compact ? " is-compact" : ""}`
+    }, breakBtn("break", "pomo-btn pomo-btn-break"), React.createElement("button", {
+      key: "overtime",
+      type: "button",
+      className: "pomo-btn pomo-btn-overtime",
+      onClick: timer.continueOvertime,
+      "aria-label": "Lanjut Fokus (Overtime)",
+      title: "Lanjut Fokus (Overtime)"
+    }, React.createElement(FocusGlyph, {
+      name: "play",
+      size: compact ? 16 : 18
+    }), React.createElement("span", null, compact ? "Lanjut" : "Lanjut Fokus"), !compact && React.createElement("small", null, "Overtime")), stopBtn);
+  }
+  if (timer.phase === "overtime") {
+    return React.createElement("div", {
+      className: `pomo-controls is-overtime${compact ? " is-compact" : ""}`
+    }, timer.isRunning ? React.createElement("button", {
+      key: "toggle",
+      type: "button",
+      className: "pomo-btn pomo-btn-main is-pause",
+      onClick: timer.pause,
+      "aria-label": "Jeda",
+      title: "Jeda"
+    }, React.createElement(FocusGlyph, {
+      name: "pause",
+      size: compact ? 16 : 18
+    }), !compact && React.createElement("span", null, "Jeda")) : React.createElement("button", {
+      key: "toggle",
+      type: "button",
+      className: "pomo-btn pomo-btn-main",
+      onClick: timer.start,
+      "aria-label": "Lanjutkan",
+      title: "Lanjutkan"
+    }, React.createElement(FocusGlyph, {
+      name: "play",
+      size: compact ? 16 : 18
+    }), !compact && React.createElement("span", null, "Lanjutkan")), stopBtn, breakBtn("break", "pomo-btn pomo-btn-break"));
+  }
   return React.createElement("div", {
     className: `pomo-controls${compact ? " is-compact" : ""}`
   }, timer.isRunning ? React.createElement("button", {
@@ -8936,17 +8999,7 @@ function PomoControls({
   }, React.createElement(FocusGlyph, {
     name: "play",
     size: compact ? 16 : 18
-  }), !compact && React.createElement("span", null, "Mulai")), React.createElement("button", {
-    type: "button",
-    className: "pomo-btn",
-    onClick: timer.stop,
-    disabled: !timer.canStop,
-    "aria-label": "Stop",
-    title: "Stop (kembali ke awal)"
-  }, React.createElement(FocusGlyph, {
-    name: "stop",
-    size: compact ? 14 : 16
-  }), !compact && React.createElement("span", null, "Stop")), !compact && React.createElement("button", {
+  }), !compact && React.createElement("span", null, "Mulai")), stopBtn, !compact && React.createElement("button", {
     type: "button",
     className: "pomo-btn",
     onClick: timer.skip,
@@ -9041,7 +9094,7 @@ function PomodoroTimer({
   const t = timer;
   return React.createElement("section", {
     ref: cardRef,
-    className: `focus-pomo scale-in${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}`,
+    className: `focus-pomo scale-in${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}${t.phase === "overtime" ? " is-overtime" : ""}${t.phase === "awaiting" ? " is-awaiting" : ""}`,
     "aria-label": "Pomodoro"
   }, React.createElement("div", {
     className: "focus-pomo-ring"
@@ -9068,7 +9121,7 @@ function PomodoroTimer({
     size: 18
   }), "Pomodoro"), React.createElement("p", {
     className: "focus-pomo-sub"
-  }, t.isBreak ? "Istirahat sebentar..." : "Fokus pada satu task")), React.createElement("div", {
+  }, t.isBreak ? "Istirahat sebentar..." : t.phase === "awaiting" ? "Lanjut fokus atau istirahat?" : t.phase === "overtime" ? "Overtime — tetap di flow" : "Fokus pada satu task")), React.createElement("div", {
     className: "focus-pomo-head-tools"
   }, onToggleZen && React.createElement("button", {
     type: "button",
@@ -9104,8 +9157,8 @@ function PomodoroTimer({
     name: "pomoTomato",
     size: 14
   }), " ", React.createElement("span", {
-    className: `focus-pomo-task-done${window.TF.pomologic.isOverEstimate(focusTask.pomodoros_done || 0, window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros)) ? " is-over" : ""}`
-  }, focusTask.pomodoros_done || 0), " / ", window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros))) : React.createElement("div", {
+    className: `focus-pomo-task-done${window.TF.pomologic.isOverEstimate((focusTask.pomodoros_done || 0) + (t.overtimePomodoros || 0), window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros)) ? " is-over" : ""}`
+  }, (focusTask.pomodoros_done || 0) + (t.overtimePomodoros || 0)), " / ", window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros))) : React.createElement("div", {
     className: "focus-pomo-hint"
   }, "Pilih task di bawah lalu klik ", React.createElement("strong", null, "Fokus"), " untuk menjadikannya task aktif."), React.createElement("div", {
     className: "focus-pomo-stats"
@@ -9113,7 +9166,7 @@ function PomodoroTimer({
     className: "focus-pomo-stat"
   }, React.createElement("span", {
     className: "focus-pomo-stat-value is-red"
-  }, t.sessionCount), React.createElement("span", {
+  }, t.pomodorosToday), React.createElement("span", {
     className: "focus-pomo-stat-label"
   }, "Pomodoro")), React.createElement("div", {
     className: "focus-pomo-stat"
@@ -9125,7 +9178,7 @@ function PomodoroTimer({
     className: "focus-pomo-stat"
   }, React.createElement("span", {
     className: "focus-pomo-stat-value is-lime"
-  }, Math.floor(t.sessionCount / 4)), React.createElement("span", {
+  }, Math.floor(t.pomodorosToday / 4)), React.createElement("span", {
     className: "focus-pomo-stat-label"
   }, "Set lengkap")))));
 }
@@ -9145,7 +9198,7 @@ function PomodoroMiniBar({
       top
     }
   }, React.createElement("div", {
-    className: `focus-mini${visible ? " is-visible" : ""}${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}`,
+    className: `focus-mini${visible ? " is-visible" : ""}${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}${t.phase === "overtime" ? " is-overtime" : ""}${t.phase === "awaiting" ? " is-awaiting" : ""}`,
     role: "region",
     "aria-label": "Pomodoro ringkas",
     "aria-hidden": !visible
@@ -9182,11 +9235,11 @@ function TopBarPomodoroChip({
 }) {
   if (!focusTask) return null;
   return React.createElement("div", {
-    className: `topbar-pomo-chip${timer.isRunning ? " is-running" : " is-paused"}${timer.isBreak ? " is-break" : ""}`,
+    className: `topbar-pomo-chip${timer.isRunning ? " is-running" : " is-paused"}${timer.isBreak ? " is-break" : ""}${timer.phase === "overtime" ? " is-overtime" : ""}${timer.phase === "awaiting" ? " is-awaiting" : ""}`,
     onClick: onNavigateToday,
     role: "button",
     tabIndex: 0,
-    title: `Fokus: ${focusTask.title} (${timer.timeDisplay}) — Klik untuk buka Fokus Hari Ini`
+    title: timer.phase === "awaiting" ? "Pomodoro selesai — klik untuk memilih istirahat atau lanjut" : `Fokus: ${focusTask.title} (${timer.timeDisplay}) — Klik untuk buka Fokus Hari Ini`
   }, React.createElement("span", {
     className: "topbar-pomo-icon"
   }, React.createElement(ViewGlyph, {
@@ -9196,7 +9249,7 @@ function TopBarPomodoroChip({
     className: "topbar-pomo-time"
   }, timer.timeDisplay), React.createElement("span", {
     className: "topbar-pomo-task"
-  }, focusTask.title), React.createElement("button", {
+  }, focusTask.title), timer.phase !== "awaiting" && React.createElement("button", {
     type: "button",
     className: "topbar-pomo-btn",
     onClick: e => {
@@ -9619,6 +9672,12 @@ function TodayFocusView({
     isRunning: false,
     sessionCount: 0,
     totalFocusTime: 0,
+    phase: "countdown",
+    pomodorosToday: 0,
+    overtimeSeconds: 0,
+    overtimePomodoros: 0,
+    continueOvertime() {},
+    takeBreak() {},
     start: () => false,
     pause: () => {},
     stop: () => {},
@@ -9761,7 +9820,7 @@ function TodayFocusView({
   }, (() => {
     const hs = window.TF.pomologic.headerSummary({
       count: sortedTasks.length,
-      done: timer.sessionCount,
+      done: timer.pomodorosToday,
       estimate: sortedTasks.reduce((sum, t) => sum + window.TF.pomologic.clampEstimate(t.estimated_pomodoros), 0)
     });
     return [hs.tasksText, " • ", hs.pomoText, " ", React.createElement(ViewGlyph, {
@@ -9873,7 +9932,7 @@ function TodayFocusView({
   })))), React.createElement("p", {
     className: `focus-tip${zenClass}`,
     "aria-hidden": zenOn ? true : undefined
-  }, "💡 25 menit fokus, istirahat 5 menit. Setelah 4 pomodoro, istirahat panjang 15 menit."));
+  }, "💡 25 menit fokus, lalu pilih istirahat atau lanjut overtime. Setelah 4 pomodoro, istirahat panjang 15 menit."));
 }
 
 // ── Mindmap list item ─────────────────────────────────────────
