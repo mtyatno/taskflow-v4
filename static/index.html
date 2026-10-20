@@ -8484,21 +8484,26 @@ function usePomodoro({
       setSessionCount(newSessionCount);
 
       // Catat sesi ke log Pomodoro task (offline-first, idempoten lewat client_id)
-      const loggedTaskId = focusTask?.id ?? sessionTaskId;
-      if (loggedTaskId != null) {
-        let uid = "0";
-        try {
-          uid = localStorage.getItem("tf_user_id") || "0";
-        } catch (e) {}
-        const startedAt = workStartedAt ?? Date.now() - 1500000;
-        api.post("/api/tasks/" + loggedTaskId + "/pomodoros", {
-          client_id: window.TF.pomologic.sessionClientId(uid, startedAt),
-          kind: "session",
-          pomodoros: 1,
-          focus_seconds: 1500,
-          log_date: window.TF.tasklogic.todayLocalISO(),
-          ended_at: new Date().toISOString()
-        }).then(() => window.__refreshTasks?.()).catch(err => console.warn("Gagal mencatat Pomodoro:", err));
+      // Kegagalan pencatatan tidak boleh menghalangi timer (mode, suara, notifikasi tetap jalan).
+      try {
+        const loggedTaskId = focusTask?.id ?? sessionTaskId;
+        if (loggedTaskId != null) {
+          let uid = "0";
+          try {
+            uid = localStorage.getItem("tf_user_id") || "0";
+          } catch (e) {}
+          const startedAt = workStartedAt ?? Date.now() - 1500000;
+          api.post("/api/tasks/" + loggedTaskId + "/pomodoros", {
+            client_id: window.TF.pomologic.sessionClientId(uid, startedAt),
+            kind: "session",
+            pomodoros: 1,
+            focus_seconds: 1500,
+            log_date: window.TF.tasklogic.todayLocalISO(),
+            ended_at: new Date().toISOString()
+          }).then(() => window.__refreshTasks?.()).catch(err => console.warn("Gagal mencatat Pomodoro:", err));
+        }
+      } catch (err) {
+        console.warn("Gagal mencatat Pomodoro:", err);
       }
       setWorkStartedAt(null);
       playNotificationSound("work");
