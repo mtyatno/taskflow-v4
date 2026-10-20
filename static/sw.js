@@ -1,4 +1,6 @@
 const CACHE = "taskflow-v438-focus-overtime";
+// Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
+const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -153,7 +155,7 @@ self.addEventListener("install", e => {
 self.addEventListener("activate", e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE && !k.startsWith("alurik-ambient-")).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
       .catch(() => self.clients.claim())
   );
@@ -183,6 +185,23 @@ self.addEventListener("fetch", e => {
       ))
     );
     return;
+  }
+
+  // Suara latar (/static/sounds/): cache-first dari AMBIENT_CACHE. Pemutar memakai fetch biasa (tanpa Range),
+  // jadi hanya respons 200 penuh yang disimpan; 206/lainnya diteruskan tanpa disimpan.
+  if (request.method === "GET" && url.pathname.startsWith("/static/sounds/")) {
+    e.respondWith(
+      caches.open(AMBIENT_CACHE).then(cache =>
+        cache.match(request).then(cached => {
+          if (cached) return cached
+          return fetch(request).then(res => {
+            if (res.ok && res.status === 200) cache.put(request, res.clone())
+            return res
+          })
+        })
+      ).catch(() => new Response("Offline", { status: 503 }))
+    )
+    return
   }
 
   // /api/habit-templates — network-first + cache fallback for offline
