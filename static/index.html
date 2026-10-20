@@ -2145,6 +2145,7 @@ function SharedListsManager({
   const [invitingListId, setInvitingListId] = useState(null);
   const [expandedList, setExpandedList] = useState(null);
   const [details, setDetails] = useState({});
+  const [memberErrors, setMemberErrors] = useState({});
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [generatedLinks, setGeneratedLinks] = useState({});
   const [generatingFor, setGeneratingFor] = useState(null);
@@ -2154,10 +2155,15 @@ function SharedListsManager({
   const [joinError, setJoinError] = useState("");
   const [joining, setJoining] = useState(false);
   const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
-  // Detail (owner + anggota) selalu diambil ulang dari server: saat panel dibuka dan setelah undang/keluarkan.
+  // Detail (owner + anggota) diambil ulang saat panel dibuka dan setelah undang/keluarkan. Tanpa network:true:
+  // SW network-first + fallback cache → offline tetap menampilkan anggota terakhir yang diketahui.
   const loadMembers = async listId => {
+    setMemberErrors(m => ({
+      ...m,
+      [listId]: false
+    }));
     try {
-      const data = await api.get(`/api/lists/${listId}`, { network: true });
+      const data = await api.get(`/api/lists/${listId}`);
       setDetails(d => ({
         ...d,
         [listId]: {
@@ -2165,7 +2171,13 @@ function SharedListsManager({
           members: data.members || []
         }
       }));
-    } catch (e) {}
+    } catch (e) {
+      console.warn("[ws-manage] gagal memuat anggota", listId, e);
+      setMemberErrors(m => ({
+        ...m,
+        [listId]: true
+      }));
+    }
   };
   const toggleExpand = listId => {
     if (expandedList === listId) {
@@ -2568,7 +2580,23 @@ function SharedListsManager({
       fontWeight: 600,
       marginBottom: 8
     }
-  }, "Anggota:"), !details[l.id] ? /*#__PURE__*/React.createElement("div", {
+  }, "Anggota:"), !details[l.id] && memberErrors[l.id] ? /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      flexWrap: "wrap",
+      fontSize: 13,
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "ws-danger-text"
+  }, "Gagal memuat anggota."), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm",
+    onClick: () => loadMembers(l.id)
+  }, "Coba lagi")) : !details[l.id] ? /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: "var(--text-light)",

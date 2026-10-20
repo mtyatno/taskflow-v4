@@ -82,7 +82,13 @@ test("memakai helper wsmanage, delete-impact lewat jaringan, dan kelas tema", ()
   assert.ok(dialog.includes("btn-danger-soft"));
   assert.ok(block.includes("btn-warn-soft"));
   assert.ok(block.includes("ws-invite-link"));
-  assert.match(block, /api\.get\(`\/api\/lists\/\$\{listId\}`, \{ network: true \}\)/);
+  // detail anggota TIDAK network:true → SW network-first + fallback cache melayani anggota terakhir saat offline
+  assert.match(block, /api\.get\(`\/api\/lists\/\$\{listId\}`\)/);
+  assert.doesNotMatch(block, /api\.get\(`\/api\/lists\/\$\{listId\}`, \{ network: true \}\)/);
+  // gagal memuat anggota tanpa data → pesan + Coba lagi (bukan "Memuat…" selamanya)
+  assert.ok(block.includes("\"Gagal memuat anggota.\""));
+  assert.match(block, /memberErrors\[l\.id\][\s\S]{0,800}"Coba lagi"/);
+  assert.match(block, /catch \(e\) \{\n\s*console\.warn\([^)]*\);\n\s*setMemberErrors/);
   // detail selalu diambil ulang (guard cache lama dihapus)
   assert.ok(!/if \(members\[listId\]\) return;/.test(block));
   // keluar memakai dialog Alurik sebagai confirmFn
