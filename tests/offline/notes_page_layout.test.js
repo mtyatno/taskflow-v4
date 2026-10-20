@@ -64,7 +64,7 @@ test("NotesPage Tablet and Desktop Layout Redesign", async (t) => {
     // Title with notes count
     assert.match(
       notesPageCode,
-      /📝 Catatan|Catatan\s*\(\$\{allNotes\.length\}\)/,
+      /Catatan\s*\(\$\{(?:allNotes|sortedNotes)\.length\}\)/,
       "Header should display Catatan title"
     );
 

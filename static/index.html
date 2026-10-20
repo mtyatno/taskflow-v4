@@ -8303,7 +8303,16 @@ const VIEW_GLYPHS = {
   mUsers: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" fill="currentColor" fill-opacity=".22"/><circle cx="9" cy="7" r="4" fill="currentColor" fill-opacity=".22"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   mUser: '<circle cx="12" cy="8" r="5" fill="currentColor" fill-opacity=".22"/><path d="M20 21a8 8 0 0 0-16 0"/>',
   pomoTomato: '<circle cx="12" cy="13.5" r="7.5" fill="currentColor" fill-opacity=".22"/><path d="M12 8V4.5"/><path d="M8.5 6.5 12 8l3.5-1.5"/>',
-  pomoBreak: '<path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" fill="currentColor" fill-opacity=".22"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3"/><path d="M12 2v3"/>'
+  pomoBreak: '<path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" fill="currentColor" fill-opacity=".22"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3"/><path d="M12 2v3"/>',
+  nNote: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" fill="currentColor" fill-opacity=".22"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M8 9h2"/>',
+  nTag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" fill="currentColor" fill-opacity=".22"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/>',
+  nTagOff: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" stroke-dasharray="3 3"/><path d="m3 3 18 18"/>',
+  nStar: '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z" fill="currentColor" fill-opacity=".22"/>',
+  nChevronDown: '<path d="m6 9 6 6 6-6"/>',
+  nChevronUp: '<path d="m18 15-6-6-6 6"/>',
+  nBacklink: '<path d="M19 12H5"/><path d="m12 19-7-7 7-7"/>',
+  nPin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" fill="currentColor" fill-opacity=".22"/>',
+  nBrain: '<path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" fill="currentColor" fill-opacity=".22"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" fill="currentColor" fill-opacity=".22"/><path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"/><path d="M17.599 6.5a3 3 0 0 0 .399-1.375"/><path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"/><path d="M6 18a4 4 0 0 1-1.967-.516"/><path d="M19.967 17.484A4 4 0 0 1 18 18"/>'
 };
 function ViewGlyph({
   name,
@@ -10166,7 +10175,7 @@ function useLinkedMapId(noteId) {
   return mapId;
 }
 
-// Tombol "🧠 Petakan" / "🧠 Buka peta" — keduanya memicu tf:petakan (rute POST idempoten per catatan).
+// Tombol Petakan / Buka peta — keduanya memicu tf:petakan (rute POST idempoten per catatan).
 function PetakanButton({ noteId, variant = "panel" }) {
   const linkedId = useLinkedMapId(noteId);
   const pill = variant === "pill";
@@ -10182,7 +10191,10 @@ function PetakanButton({ noteId, variant = "panel" }) {
       color: "var(--accent)",
       fontWeight: 700,
       padding: "2px 10px",
-      lineHeight: 1.5
+      lineHeight: 1.5,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 5
     } : {
       background: linkedId != null ? "rgba(168,197,0,0.10)" : "none",
       border: linkedId != null ? "1.5px solid var(--accent)" : "1px solid var(--border)",
@@ -10194,9 +10206,9 @@ function PetakanButton({ noteId, variant = "panel" }) {
       padding: "4px 10px",
       display: "flex",
       alignItems: "center",
-      gap: 3
+      gap: 5
     }
-  }, linkedId != null ? "🧠 Buka peta" : "🧠 Petakan");
+  }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nBrain", size: 14 }), linkedId != null ? "Buka peta" : "Petakan");
 }
 
 function MindmapListItem({
@@ -23442,7 +23454,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v439-account-fase0a"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v440-notes-list-icons"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -31718,8 +31730,9 @@ function NotePanel({
       flexWrap: "wrap"
     }
   }, note.list_id && /*#__PURE__*/React.createElement("span", {
-    className: "note-shared-badge"
-  }, "\uD83D\uDC65 Bersama"), isEditingTitle ? /*#__PURE__*/React.createElement("input", {
+    className: "note-shared-badge",
+    style: { display: "inline-flex", alignItems: "center", gap: 4 }
+  }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "mUsers", size: 12 }), "Bersama"), isEditingTitle ? /*#__PURE__*/React.createElement("input", {
     type: "text",
     className: "note-title-inline-input",
     value: titleDraft,
@@ -31845,6 +31858,8 @@ function NotePanel({
   }, "Batal berbagi"))), /*#__PURE__*/React.createElement("button", {
     onClick: () => onPin(note.id),
     title: note.pinned ? "Unpin" : "Pin",
+    "aria-label": note.pinned ? "Unpin" : "Pin",
+    "aria-pressed": !!note.pinned,
     style: {
       background: note.pinned ? "rgba(168,197,0,0.15)" : "none",
       border: "1px solid var(--border)",
@@ -31857,7 +31872,7 @@ function NotePanel({
       display: "flex",
       alignItems: "center"
     }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "pin", size: 15 })), note.id != null && /*#__PURE__*/React.createElement(PetakanButton, {
+  }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nPin", size: 15 })), note.id != null && /*#__PURE__*/React.createElement(PetakanButton, {
     noteId: note.id
   }), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
@@ -33238,8 +33253,8 @@ function NotesPage({
       }
     },
       /*#__PURE__*/React.createElement("span", {
-        style: { fontWeight: 700, fontSize: 14, color: "var(--text-primary)" }
-      }, `📝 Catatan (${sortedNotes.length})`),
+        style: { fontWeight: 700, fontSize: 14, color: "var(--text-primary)", display: "inline-flex", alignItems: "center", gap: 8 }
+      }, /*#__PURE__*/React.createElement("span", { className: "wsf-title-ico", style: { display: "inline-flex" } }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nNote", size: 20 })), `Catatan (${sortedNotes.length})`),
       /*#__PURE__*/React.createElement("div", {
         style: { display: "flex", alignItems: "center", gap: 6 }
       },
@@ -33266,21 +33281,21 @@ function NotesPage({
           onClick: toggleViewMode,
           title: viewMode === "card" ? "Beralih ke Tampilan Ringkas (Compact)" : "Beralih ke Tampilan Kartu (Card)",
           "aria-label": "Toggle view mode",
-          style: { height: 28, width: 28, fontSize: 13 }
-        }, viewMode === "card" ? "☰" : "▤"),
+          style: { height: 28, width: 28, fontSize: 13, padding: 0, justifyContent: "center" }
+        }, /*#__PURE__*/React.createElement(ViewGlyph, { name: viewMode === "card" ? "compact" : "normal", size: 15 })),
         /*#__PURE__*/React.createElement("button", {
           className: "btn btn-icon btn-sm notes-trash-btn",
           onClick: () => setTrashOpen(true),
           title: "Sampah",
           "aria-label": "Sampah",
-          style: { height: 28, width: 28 }
-        }, /*#__PURE__*/React.createElement(Icon, { name: "trash", size: 15 })),
+          style: { height: 28, width: 28, padding: 0, justifyContent: "center" }
+        }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "fTrash", size: 15 })),
         /*#__PURE__*/React.createElement("button", {
           className: "btn btn-icon btn-sm",
           onClick: () => setSidebarCollapsed(true),
           title: "Sembunyikan sidebar (Layar penuh)",
-          style: { height: 28, width: 28 }
-        }, "✕")
+          style: { height: 28, width: 28, padding: 0, justifyContent: "center" }
+        }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "fX", size: 15 }))
       )
     ),
     /*#__PURE__*/React.createElement("div", {
@@ -33310,7 +33325,7 @@ function NotesPage({
           flexShrink: 0
         }
       },
-        /*#__PURE__*/React.createElement("span", { style: { fontSize: 12, opacity: 0.6 } }, "🔍"),
+        /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", color: "var(--text-light)" } }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "fSearch", size: 15 })),
         /*#__PURE__*/React.createElement("input", {
           type: "text",
           className: "scratchpad-search-input",
@@ -33340,9 +33355,10 @@ function NotesPage({
             fontSize: 13,
             padding: '0 2px',
             lineHeight: 1,
-            opacity: 0.8
+            display: "inline-flex",
+            alignItems: "center"
           }
-        }, "⭐"),
+        }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nStar", size: 14 })),
         q && /*#__PURE__*/React.createElement("button", {
           onClick: () => {
             setQ("");
@@ -33355,9 +33371,11 @@ function NotesPage({
             cursor: 'pointer',
             fontSize: 14,
             padding: "0 0 0 4px",
-            lineHeight: 1
+            lineHeight: 1,
+            display: "inline-flex",
+            alignItems: "center"
           }
-        }, "✕"),
+        }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "fX", size: 13 })),
         /*#__PURE__*/React.createElement("button", {
           type: "button",
           onClick: () => setShowSearchDropdown(!showSearchDropdown),
@@ -33369,9 +33387,11 @@ function NotesPage({
             fontSize: 11,
             color: "var(--text-secondary)",
             padding: "0 2px",
-            lineHeight: 1
+            lineHeight: 1,
+            display: "inline-flex",
+            alignItems: "center"
           }
-        }, showSearchDropdown ? "▴" : "▾"),
+        }, showSearchDropdown ? /*#__PURE__*/React.createElement(ViewGlyph, { name: "nChevronUp", size: 14 }) : /*#__PURE__*/React.createElement(ViewGlyph, { name: "nChevronDown", size: 14 })),
         showSearchDropdown && /*#__PURE__*/React.createElement("div", {
           className: "scratchpad-search-dropdown",
           style: {
@@ -33425,8 +33445,8 @@ function NotesPage({
                 style: { display: "flex", flexDirection: "column", minWidth: 0, flex: 1 }
               },
                 /*#__PURE__*/React.createElement("span", {
-                  style: { fontSize: 12, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
-                }, `⭐ ${s.name}`),
+                  style: { fontSize: 12, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 6 }
+                }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nStar", size: 13 }), s.name),
                 /*#__PURE__*/React.createElement("span", {
                   style: { fontSize: 11, color: "var(--text-secondary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
                 }, s.query)
@@ -33464,7 +33484,7 @@ function NotesPage({
               alignItems: "center",
               gap: 4
             }
-          }, `⭐ Simpan pencarian "${q.trim()}"`)
+          }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nStar", size: 13 }), `Simpan pencarian "${q.trim()}"`)
         )
       ),
       (() => {
@@ -33510,9 +33530,12 @@ function NotesPage({
                 flexShrink: 0,
                 background: allTagsPopoverOpen ? 'var(--accent)' : undefined,
                 color: allTagsPopoverOpen ? '#111' : undefined,
-                border: '1px solid var(--border)'
+                border: '1px solid var(--border)',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5
               }
-            }, `🏷️ +${remainingTags.length} Tags ▾`)
+            }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nTag", size: 14 }), `+${remainingTags.length} Tags`, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nChevronDown", size: 12 }))
           ),
           allTagsPopoverOpen && /*#__PURE__*/React.createElement("div", {
             ref: tagPopoverRef,
@@ -33583,7 +33606,7 @@ function NotesPage({
                     fontStyle: 'italic'
                   } : {})
                 }
-              }, `⬜ Tanpa Tag`, /*#__PURE__*/React.createElement("span", {
+              }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nTagOff", size: 13 }), `Tanpa Tag`, /*#__PURE__*/React.createElement("span", {
                 className: "tag-count"
               }, untaggedCount))
             )
@@ -33642,18 +33665,24 @@ function NotesPage({
                 className: "note-card-title"
               },
                 n.pinned && /*#__PURE__*/React.createElement("span", {
+                  className: "wsf-title-ico",
                   style: {
-                    fontSize: 11,
-                    marginRight: 4,
-                    opacity: 0.8
-                  }
-                }, "📌"),
-                n.list_id && /*#__PURE__*/React.createElement("span", {
-                  className: "note-shared-badge",
-                  style: {
+                    display: "inline-flex",
+                    verticalAlign: "middle",
                     marginRight: 4
                   }
-                }, "👥"),
+                }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nPin", size: 12 })),
+                n.list_id && /*#__PURE__*/React.createElement("span", {
+                  className: "note-shared-badge",
+                  title: "Dibagikan ke workspace",
+                  "aria-label": "Dibagikan ke workspace",
+                  style: {
+                    marginRight: 4,
+                    display: "inline-flex",
+                    verticalAlign: "middle",
+                    color: "#2563eb"
+                  }
+                }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "mUsers", size: 12 })),
                 n.title || n.content.slice(0, 60)
               ),
               /*#__PURE__*/React.createElement("span", {
@@ -33697,16 +33726,21 @@ function NotesPage({
                 className: "note-tag-untagged",
                 style: filterUntagged ? {
                   borderColor: 'var(--accent)',
-                  color: 'var(--accent)'
-                } : undefined,
+                  color: 'var(--accent)',
+                  display: "inline-flex", alignItems: "center", gap: 4
+                } : { display: "inline-flex", alignItems: "center", gap: 4 },
                 onClick: e => {
                   e.stopPropagation();
                   handleUntaggedFilter();
                 }
-              }, "⬜ tanpa tag"),
+              }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nTagOff", size: 11 }), "tanpa tag"),
               (outCount > 0 || inCount > 0) && /*#__PURE__*/React.createElement("span", {
                 className: "note-conn"
-              }, outCount > 0 && `🔗${outCount}`, outCount > 0 && inCount > 0 && " ", inCount > 0 && `←${inCount}`)
+              }, outCount > 0 && /*#__PURE__*/React.createElement("span", {
+                style: { display: "inline-flex", alignItems: "center", gap: 2 }
+              }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "mLink", size: 11 }), outCount), outCount > 0 && inCount > 0 && " ", inCount > 0 && /*#__PURE__*/React.createElement("span", {
+                style: { display: "inline-flex", alignItems: "center", gap: 2 }
+              }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nBacklink", size: 11 }), inCount))
             )
           );
         })
@@ -33760,10 +33794,10 @@ function NotesPage({
         "data-tour": "notes-new"
       }, /*#__PURE__*/React.createElement("span", {
         style: {
-          fontSize: 40,
-          opacity: 0.3
+          display: "inline-flex",
+          color: "var(--text-light)"
         }
-      }, "\uD83D\uDCDD"), /*#__PURE__*/React.createElement("span", {
+      }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nNote", size: 44 })), /*#__PURE__*/React.createElement("span", {
         style: {
           fontSize: 13
         }
@@ -38955,7 +38989,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v439-account-fase0a";
+    window.__SW_VERSION = "taskflow-v440-notes-list-icons";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
