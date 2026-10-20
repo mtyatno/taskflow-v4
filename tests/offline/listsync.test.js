@@ -54,5 +54,22 @@ test("pullLists deletes a local list whose server_id vanished", async () => {
 test("getLocalLists returns the server-shaped array (id = server_id)", async () => {
   await pullLists([srv({ id: 5, name: "Team", role: "owner", member_count: 4 })]);
   const out = await getLocalLists();
-  assert.deepEqual(out, [{ id: 5, name: "Team", owner_id: 1, role: "owner", member_count: 4 }]);
+  assert.deepEqual(out, [{ id: 5, name: "Team", owner_id: 1, role: "owner", member_count: 4, pinned: false, pin_position: null }]);
+});
+
+test("pullLists stores pinned and pin_position", async () => {
+  await pullLists([srv({ id: 5, pinned: true, pin_position: 2 })]);
+  const rows = await allLists();
+  assert.equal(rows[0].pinned, true);
+  assert.equal(rows[0].pin_position, 2);
+  const out = await getLocalLists();
+  assert.equal(out[0].pinned, true);
+  assert.equal(out[0].pin_position, 2);
+});
+
+test("getLocalLists defaults pin fields", async () => {
+  await pullLists([srv({ id: 6 })]);
+  const out = await getLocalLists();
+  assert.equal(out[0].pinned, false);
+  assert.equal(out[0].pin_position, null);
 });

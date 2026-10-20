@@ -51,6 +51,7 @@
       cid: cid, server_id: s.id, name: s.name,
       owner_id: s.owner_id != null ? s.owner_id : null,
       role: s.role, member_count: s.member_count != null ? s.member_count : 0, dirty: 0,
+      pinned: s.pinned === true, pin_position: s.pin_position != null ? s.pin_position : null,
     };
   }
 
@@ -83,6 +84,7 @@
     return getAllLists().then((rows) => rows.map((r) => ({
       id: r.server_id != null ? r.server_id : r.cid,
       name: r.name, owner_id: r.owner_id, role: r.role, member_count: r.member_count,
+      pinned: r.pinned === true, pin_position: r.pin_position != null ? r.pin_position : null,
     })));
   }
 
