@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=337">
+  <link rel="stylesheet" href="/static/app.css?v=338">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -7723,9 +7723,12 @@ function TaskRow({
   onClick,
   onDone,
   onToggleFocus,
+  focusTask,
+  onStartFocus,
   isInbox,
   onUpdateGtdStatus
 }) {
+  const isFocusing = focusTask?.id === task.id;
   return /*#__PURE__*/React.createElement("div", {
     className: "task-row fade-in",
     "data-tour": "task-list",
@@ -7796,7 +7799,22 @@ function TaskRow({
     title: "Pindahkan ke Someday / Maybe"
   }, "☁️ Someday")), /*#__PURE__*/React.createElement("div", {
     className: "task-row-badges"
-  }, onToggleFocus && task.gtd_status !== "done" && /*#__PURE__*/React.createElement("span", {
+  }, onStartFocus && task.gtd_status !== "done" && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "dash-focus-btn" + (isFocusing ? " is-active" : ""),
+    onClick: e => {
+      e.stopPropagation();
+      onStartFocus(task);
+    },
+    title: isFocusing ? "Sedang fokus (klik untuk jeda & lepas fokus)" : "Fokuskan tugas & mulai Pomodoro",
+    "aria-label": isFocusing ? "Sedang fokus" : "Fokuskan tugas",
+    "aria-pressed": isFocusing
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "target",
+    size: 13
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "dash-focus-label"
+  }, isFocusing ? "Aktif" : "Fokus")), onToggleFocus && task.gtd_status !== "done" && /*#__PURE__*/React.createElement("span", {
     onClick: e => {
       e.stopPropagation();
       onToggleFocus(task.id);
@@ -7807,7 +7825,7 @@ function TaskRow({
       opacity: task.is_focused ? 1 : 0.3,
       transition: "opacity 0.15s"
     },
-    title: task.is_focused ? "Hapus dari Fokus" : "Tambah ke Fokus Hari Ini"
+    title: task.is_focused ? "Hapus dari daftar Fokus Hari Ini" : "Tambah ke daftar Fokus Hari Ini (\u2B50)"
   }, /*#__PURE__*/React.createElement(Icon, { name: "star", size: 15, style: { fill: task.is_focused ? "currentColor" : "none" } })), /*#__PURE__*/React.createElement(PriBadge, {
     p: task.priority
   }), /*#__PURE__*/React.createElement(QuadBadge, {
@@ -9087,7 +9105,7 @@ function TodayFocusView({
     const exc = excs.find(e => e.occurrence_date === todayStr);
     return !exc || exc.status !== "done" && exc.status !== "skipped";
   });
-  const todayTasks = tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && t.gtd_status !== "done" && t.gtd_status !== "archived");
+  const todayTasks = tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused || (focusTask && t.id === focusTask.id)) && t.gtd_status !== "done" && t.gtd_status !== "archived");
   const sortedTasks = [...todayTasks].sort((a, b) => {
     if (focusTask) {
       if (a.id === focusTask.id) return -1;
@@ -14553,6 +14571,8 @@ function TaskListView({
   onTaskClick,
   onDone,
   onToggleFocus,
+  focusTask,
+  onStartFocus,
   loading,
   projects,
   contexts,
@@ -15206,6 +15226,8 @@ function TaskListView({
     onClick: onTaskClick,
     onDone: onDone,
     onToggleFocus: onToggleFocus,
+    focusTask: focusTask,
+    onStartFocus: onStartFocus,
     isInbox: isInbox,
     onUpdateGtdStatus: onUpdateGtdStatus
   }))) : /*#__PURE__*/React.createElement("div", {
@@ -15253,6 +15275,8 @@ function TaskListView({
       onClick: onTaskClick,
       onDone: onDone,
       onToggleFocus: onToggleFocus,
+      focusTask: focusTask,
+      onStartFocus: onStartFocus,
       isInbox: isInbox,
       onUpdateGtdStatus: onUpdateGtdStatus
     }))));
@@ -22308,7 +22332,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v429-note-media"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v430-tasklist-focus"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -37170,6 +37194,8 @@ function App() {
         onTaskClick: setSelectedTask,
         onDone: handleDone,
         onToggleFocus: handleToggleFocus,
+        focusTask: focusTask,
+        onStartFocus: handleStartFocus,
         loading: loading,
         projects: projects,
         contexts: contexts,
@@ -37192,6 +37218,8 @@ function App() {
       onTaskClick: setSelectedTask,
       onDone: handleDone,
       onToggleFocus: handleToggleFocus,
+      focusTask: focusTask,
+      onStartFocus: handleStartFocus,
       loading: loading,
       projects: projects,
       contexts: contexts,
@@ -37753,7 +37781,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v429-note-media";
+    window.__SW_VERSION = "taskflow-v430-tasklist-focus";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
