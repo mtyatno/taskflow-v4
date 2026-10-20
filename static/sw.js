@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v424-xss-hardening";
+const CACHE = "taskflow-v425-workspace-pins";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -21,6 +21,7 @@ const STATIC = [
   "/static/offline/syncpull.js",
   "/static/offline/syncconflict.js",
   "/static/offline/listsync.js",
+  "/static/offline/workspacepins.js",
   "/static/review/digest.js",
   "/static/offline/voicedictate.js",
   "/static/offline/drawdirective.js",
