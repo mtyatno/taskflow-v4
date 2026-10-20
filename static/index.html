@@ -8155,11 +8155,15 @@ function FocusTaskItem({
   onOpenDetail,
   onDone,
   onStartFocus,
+  onEstimate,
   isFocusing,
   hasFocusTask,
   zenHidden,
   zenShown
 }) {
+  const pomoDone = task.pomodoros_done || 0;
+  const pomoEst = window.TF.pomologic.clampEstimate(task.estimated_pomodoros);
+  const pomoShown = Math.min(pomoEst, 5);
   const isOtherFocused = hasFocusTask && !isFocusing;
   const c = counts || {};
   const panelId = `ftask-panel-${task.id}`;
@@ -8246,7 +8250,13 @@ function FocusTaskItem({
       name: t.glyph,
       size: 12
     }), label);
-  }))), React.createElement("button", {
+  }), (pomoDone > 0 || pomoEst !== 1) && React.createElement("span", {
+    className: `ftask-count is-pomo${window.TF.pomologic.isOverEstimate(pomoDone, pomoEst) ? " is-over" : ""}`,
+    title: "Realisasi / estimasi pomodoro"
+  }, React.createElement(ViewGlyph, {
+    name: "pomoTomato",
+    size: 12
+  }), pomoDone, "/", pomoEst))), React.createElement("button", {
     type: "button",
     "data-tour": "today-focus-btn",
     className: `ftask-focus-btn ${isFocusing ? "is-active" : isOtherFocused ? "is-disabled" : ""}`,
@@ -8291,7 +8301,26 @@ function FocusTaskItem({
     }), React.createElement("span", null, t.label), label && React.createElement("span", {
       className: "ftask-tab-count"
     }, label));
-  }), React.createElement("button", {
+  }), React.createElement("div", {
+    className: "ftask-estimate",
+    role: "radiogroup",
+    "aria-label": "Estimasi pomodoro"
+  }, [1, 2, 3, 4, 5].map(i => React.createElement("button", {
+    key: i,
+    type: "button",
+    role: "radio",
+    "aria-checked": i === pomoShown,
+    "aria-label": `Estimasi ${i} pomodoro`,
+    className: `ftask-est-btn${i <= pomoShown ? " is-filled" : ""}`,
+    onClick: () => onEstimate && onEstimate(task, window.TF.pomologic.nextEstimate(pomoEst, i))
+  }, React.createElement(ViewGlyph, {
+    name: "pomoTomato",
+    size: 16
+  }), i === 5 && React.createElement("span", {
+    className: "ftask-est-plus"
+  }, "5+"), i === 5 && pomoEst >= 5 && React.createElement("span", {
+    className: "ftask-est-badge"
+  }, "×", pomoEst)))), React.createElement("button", {
     type: "button",
     className: "ftask-detail-link",
     onClick: () => onOpenDetail(task),
@@ -8834,8 +8863,13 @@ function PomodoroTimer({
     className: "focus-pomo-task-title"
   }, focusTask.title)), React.createElement("div", {
     className: "focus-pomo-task-count",
-    title: "Pomodoro task ini"
-  }, "🍅 ", focusTask.pomodoros_done || 0)) : React.createElement("div", {
+    title: "Realisasi / estimasi pomodoro"
+  }, React.createElement(ViewGlyph, {
+    name: "pomoTomato",
+    size: 14
+  }), " ", React.createElement("span", {
+    className: `focus-pomo-task-done${window.TF.pomologic.isOverEstimate(focusTask.pomodoros_done || 0, window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros)) ? " is-over" : ""}`
+  }, focusTask.pomodoros_done || 0), " / ", window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros))) : React.createElement("div", {
     className: "focus-pomo-hint"
   }, "Pilih task di bawah lalu klik ", React.createElement("strong", null, "Fokus"), " untuk menjadikannya task aktif."), React.createElement("div", {
     className: "focus-pomo-stats"
@@ -9435,6 +9469,11 @@ function TodayFocusView({
       window.removeEventListener("resize", schedule);
     };
   }, []);
+  const handleEstimate = (task, n) => {
+    api.put("/api/tasks/" + task.id, {
+      estimated_pomodoros: n
+    }).then(() => window.__refreshTasks?.()).catch(() => window.__showToast?.("Gagal menyimpan estimasi", "error"));
+  };
   const handleStartFocus = task => {
     if (focusTask?.id === task.id) {
       setFocusTask(null);
@@ -9483,7 +9522,18 @@ function TodayFocusView({
     size: 22
   }), "Fokus Hari Ini"), React.createElement("span", {
     className: "focus-page-summary"
-  }, sortedTasks.length, " tugas • ", timer.sessionCount, " 🍅 hari ini"))), React.createElement(PomodoroTimer, {
+  }, (() => {
+    const hs = window.TF.pomologic.headerSummary({
+      count: sortedTasks.length,
+      done: timer.sessionCount,
+      estimate: sortedTasks.reduce((sum, t) => sum + window.TF.pomologic.clampEstimate(t.estimated_pomodoros), 0)
+    });
+    return [hs.tasksText, " • ", hs.pomoText, " ", React.createElement(ViewGlyph, {
+      key: "g",
+      name: "pomoTomato",
+      size: 14
+    }), " hari ini", hs.hoursText ? " (" + hs.hoursText + ")" : ""];
+  })()))), React.createElement(PomodoroTimer, {
     timer: timer,
     focusTask: focusTask,
     cardRef: pomoRef,
@@ -9581,6 +9631,7 @@ function TodayFocusView({
     onOpenDetail: onTaskClick,
     onDone: handleTaskDone,
     onStartFocus: handleStartFocus,
+    onEstimate: handleEstimate,
     isFocusing: focusTask?.id === task.id,
     hasFocusTask: !!focusTask
   })))), React.createElement("p", {
