@@ -328,7 +328,7 @@ def main():
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             ctx, a = open_app(browser, base, A)
-            check("0 SW mengontrol halaman (v427)", a.evaluate("() => window.__SW_VERSION") == "taskflow-v427-note-media"
+            check("0 SW mengontrol halaman (v428)", a.evaluate("() => window.__SW_VERSION") == "taskflow-v428-note-media"
                   and a.evaluate("() => !!navigator.serviceWorker.controller"))
 
             # ── 1. unggah mp4 + mp3 dari editor → progres → ready ──────────────────────────

@@ -3565,9 +3565,24 @@
 - **Verifikasi:** inline OK, JS 2066/2067 (pra-ada `draw_local_reactive`), pytest 815, E2E 45/45.
 - **Status:** Needs Review (draft PR; deploy statis, restart `taskflow-web` agar `/api/version` v427).
 
+## 2026-10-20 11:20 WIB — Claude — ikon tampilan halaman Tasks + tab workspace
+- Bapak minta ikon Normal / Compact / Kanban dibuat lebih indah; dari 3 opsi memilih "B · Duotone" + tombol tergabung, lalu minta ikon tab Tasks / Files workspace diganti dengan gaya yang sama.
+- SDD 2 task (implementer sonnet), review akhir opus → siap merge, tanpa temuan Critical/Important. Branch `claude/tasklist-view-icons`, SW v427 (renumber: v426 dipakai Kanban #54), `app.css?v=336`.
+- **Verifikasi:** pytest 814, JS 1866/1867 (pra-ada `draw_local_reactive`), E2E 52/52. **Status:** Needs Review (draft PR; restart `taskflow-web`).
+
+## 2026-10-20 11:20 WIB — Claude — merge ikon duotone (#55)
+- Bapak: "merge". #55 di-merge (0c4ed23); CI Tests dan Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek toggle Normal / Compact / Kanban dan tab Tasks / Files workspace (SW v427).
+
 ## 2026-10-20 12:08 WIB — Claude — PR frontend audio/video di note: gelombang perbaikan review akhir
 - **Task:** perbaiki 9 temuan review akhir seluruh branch `claude/note-media-ui` (`.superpowers/sdd/2026-10-20-note-media-ui/final-findings.md`), TDD per item.
 - **Changes:** hak hapus daftar lampiran `uploaded_by ?? user_id`; sisip node media langsung + `remarkMediaPlugin` toleran atribut terpecah; bridge pytest 7 file; `abortAll()` + logout + `tf_media_uploads`; unduhan native lewat `tf-open-attachment`; refresh URL `stalled`/jam lokal/30 dtk; kartu Gagal/`safeHref`/ukuran; manajer: file tak terbaca, reset `attempt`, batas exception; E2E alur 9.
 - **Files Touch:** `static/index.html`, `static/app.css` (tanpa naik versi), `static/offline/{mediadirective,mediaupload,mediacard}.js`, `tests/offline/{mediadirective,mediaupload,mediacard,note_media_editor,note_media_attachments,render_markdown_media}.test.js`, `tests/test_note_media_ui_node.py`, `temporary_files/e2e_note_media.py`, `.agents/*`
 - **Verifikasi:** inline OK, JS 2089/2090 (pra-ada `draw_local_reactive`), pytest 816, E2E 54/54.
-- **Status:** Needs Review (draft PR; SW v427 / app.css v336 tetap).
+- **Status:** Needs Review (draft PR; SW v427 / app.css v336 tetap — kemudian v428/337 saat merge main #55).
+
+## 2026-10-20 12:13 WIB — Claude — merge main (#55 ikon tampilan Tasks) ke `claude/note-media-ui`
+- Konflik hanya string versi (SW v427 dipakai #55) + `.gitignore` (gabungan) + `.agents/*` (kedua entri dipertahankan). Kode kedua sisi utuh.
+- SW naik ke `taskflow-v428-note-media`, `app.css?v=337` di `static/sw.js`, `static/index.html`, `webapp.py`, `tests/test_version.py`, semua tes node yang menambatkan versi, `temporary_files/e2e_note_media.py`.
+- **Verifikasi:** inline OK, JS 2110/2111 (pra-ada `draw_local_reactive`), pytest 816, E2E `e2e_note_media.py` 54/54.
+- **Status:** Needs Review (draft PR; deploy statis, restart `taskflow-web` agar `/api/version` v428).

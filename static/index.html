@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=336">
+  <link rel="stylesheet" href="/static/app.css?v=337">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -7939,6 +7939,33 @@ function FocusGlyph({
   });
 }
 
+// ── Glyph toggle tampilan Tasks (inline: tidak bergantung pada ui-components.js yang mungkin masih cache lama; duotone = garis + isian lembut)
+const VIEW_GLYPHS = {
+  normal: '<rect x="3" y="4" width="18" height="7" rx="2" fill="currentColor" fill-opacity=".22"/><rect x="3" y="13" width="18" height="7" rx="2" fill="currentColor" fill-opacity=".22"/><path d="M7 7.5h6"/><path d="M7 16.5h6"/>',
+  compact: '<rect x="2" y="2.5" width="20" height="4" rx="1.6" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M8.5 4.5H21"/><path d="M8.5 9.5H21"/><path d="M8.5 14.5H21"/><path d="M8.5 19.5H21"/><path d="M4 4.5h.01"/><path d="M4 9.5h.01"/><path d="M4 14.5h.01"/><path d="M4 19.5h.01"/>',
+  kanban: '<rect x="3" y="3" width="5" height="12" rx="1.5" fill="currentColor" fill-opacity=".22"/><rect x="9.5" y="3" width="5" height="18" rx="1.5" fill="currentColor" fill-opacity=".22"/><rect x="16" y="3" width="5" height="8" rx="1.5" fill="currentColor" fill-opacity=".22"/>',
+  wsTasks: '<rect x="4" y="4" width="16" height="18" rx="2" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M8.5 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2.5"/><rect x="8.5" y="2" width="7" height="4" rx="1"/><path d="m8.5 13.5 2.5 2.5 4.5-4.5"/>',
+  wsFiles: '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" fill="currentColor" fill-opacity=".22"/><path d="M2 10h20"/>'
+};
+function ViewGlyph({
+  name,
+  size = 16
+}) {
+  return React.createElement("svg", {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 1.9,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true",
+    focusable: "false",
+    dangerouslySetInnerHTML: { __html: VIEW_GLYPHS[name] || "" }
+  });
+}
+
 // ── Task item for the Today page: ringkas, detail dibuka per task ─────────
 //   Baris: centang, judul, meta (prioritas, kuadran Eisenhower, status GTD, project, deadline,
 //   jumlah subtask/catatan/lampiran), tombol Fokus. Klik baris → buka panel ber-tab
@@ -14929,49 +14956,38 @@ function TaskListView({
     onClick: () => onManageStages(kanbanScope),
     title: "Kelola tahap papan ini"
   }, "Kelola tahap"), /*#__PURE__*/React.createElement("div", {
+    className: "tl-view-seg",
+    role: "group",
+    "aria-label": "Tampilan task",
     style: {
-      marginLeft: "auto",
-      display: "flex",
-      gap: 4
+      marginLeft: "auto"
     }
-  }, [["normal", "▦", "Normal"], ["compact", "▤", "Compact"]].map(([mode, ico, label]) => /*#__PURE__*/React.createElement("button", {
+  }, [["normal", "Normal"], ["compact", "Compact"]].map(([mode, label]) => /*#__PURE__*/React.createElement("button", {
     type: "button",
     key: mode,
+    className: "tl-view-btn",
     onClick: () => handleViewMode(mode),
     title: label,
-    style: {
-      padding: "4px 10px",
-      borderRadius: 6,
-      border: "1px solid var(--border)",
-      cursor: "pointer",
-      fontSize: 14,
-      lineHeight: 1,
-      background: viewMode === mode ? "var(--accent)" : "var(--bg-card)",
-      color: viewMode === mode ? "#1a2a00" : "var(--text-secondary)",
-      fontWeight: viewMode === mode ? 700 : 400,
-      transition: "all 0.15s"
-    }
-  }, ico)), (() => {
+    "aria-label": label,
+    "aria-pressed": viewMode === mode
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: mode,
+    size: 16
+  }))), (() => {
     const kanbanDisabled = groupBy === "none" || groupBy === "tag" || groupBy === "quadrant";
     const kanbanTitle = kanbanDisabled ? "Pilih Group by terlebih dahulu" : "Kanban view";
     return /*#__PURE__*/React.createElement("button", {
       type: "button",
+      className: "tl-view-btn",
       onClick: () => !kanbanDisabled && handleViewMode("kanban"),
       title: kanbanTitle,
-      style: {
-        padding: "4px 10px",
-        borderRadius: 6,
-        border: "1px solid var(--border)",
-        cursor: kanbanDisabled ? "not-allowed" : "pointer",
-        fontSize: 14,
-        lineHeight: 1,
-        background: viewMode === "kanban" ? "var(--accent)" : "var(--bg-card)",
-        color: kanbanDisabled ? "var(--text-light)" : viewMode === "kanban" ? "#1a2a00" : "var(--text-secondary)",
-        fontWeight: viewMode === "kanban" ? 700 : 400,
-        transition: "all 0.15s",
-        opacity: kanbanDisabled ? 0.45 : 1
-      }
-    }, "\u229E");
+      "aria-label": "Kanban",
+      "aria-pressed": viewMode === "kanban",
+      "aria-disabled": kanbanDisabled ? "true" : undefined
+    }, /*#__PURE__*/React.createElement(ViewGlyph, {
+      name: "kanban",
+      size: 16
+    }));
   })())), showFilters !== false && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 12
@@ -22292,7 +22308,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v427-note-media"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v428-note-media"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -37089,23 +37105,31 @@ function App() {
         type: "button",
         className: `btn btn-sm ${workspaceTab === "tasks" ? "btn-primary" : "btn-secondary"}`,
         onClick: () => setWorkspaceTab("tasks"),
+        "aria-pressed": workspaceTab === "tasks",
         style: {
           display: "inline-flex",
           alignItems: "center",
           gap: 6,
           fontWeight: workspaceTab === "tasks" ? 600 : 400
         }
-      }, "📋 Tasks"), /*#__PURE__*/React.createElement("button", {
+      }, /*#__PURE__*/React.createElement(ViewGlyph, {
+        name: "wsTasks",
+        size: 15
+      }), "Tasks"), /*#__PURE__*/React.createElement("button", {
         type: "button",
         className: `btn btn-sm ${workspaceTab === "files" ? "btn-primary" : "btn-secondary"}`,
         onClick: () => setWorkspaceTab("files"),
+        "aria-pressed": workspaceTab === "files",
         style: {
           display: "inline-flex",
           alignItems: "center",
           gap: 6,
           fontWeight: workspaceTab === "files" ? 600 : 400
         }
-      }, "📁 Files"), /*#__PURE__*/React.createElement(WorkspacePinButton, {
+      }, /*#__PURE__*/React.createElement(ViewGlyph, {
+        name: "wsFiles",
+        size: 15
+      }), "Files"), /*#__PURE__*/React.createElement(WorkspacePinButton, {
         key: listId,
         pinned: !!currentList.pinned,
         canPin: !!(window.TF && window.TF.workspacepins && window.TF.workspacepins.canPinMore(sharedLists)),
@@ -37728,7 +37752,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v427-note-media";
+    window.__SW_VERSION = "taskflow-v428-note-media";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
