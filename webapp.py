@@ -2371,7 +2371,7 @@ async def delete_task(task_id: int, user=Depends(get_current_user)):
     return {"ok": True, "id": task_id}
 
 
-# ── Pomodoro log (ADR-020) ────────────────────────────────────────────────────
+# ── Pomodoro log (ADR-021) ────────────────────────────────────────────────────
 
 class PomodoroLogIn(BaseModel):
     client_id: str = Field(min_length=1, max_length=64)
@@ -4328,7 +4328,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v435-focus-target"
+    sw_cache = "taskflow-v436-focus-target"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

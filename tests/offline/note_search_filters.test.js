@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v401", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v435-focus-target";/m,
-      "sw.js CACHE must be taskflow-v435-focus-target"
+      /^const CACHE = "taskflow-v436-focus-target";/m,
+      "sw.js CACHE must be taskflow-v436-focus-target"
     );
   });
 });

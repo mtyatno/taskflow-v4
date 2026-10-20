@@ -357,7 +357,7 @@ def ensure_workspace_pins_schema(conn) -> None:
 
 
 def ensure_pomodoro_schema(conn) -> None:
-    """Kolom estimasi/realisasi di `tasks` + log Pomodoro append-only (idempoten, ADR-020)."""
+    """Kolom estimasi/realisasi di `tasks` + log Pomodoro append-only (idempoten, ADR-021)."""
     cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
     if "estimated_pomodoros" not in cols:
         conn.execute("ALTER TABLE tasks ADD COLUMN estimated_pomodoros INTEGER NOT NULL DEFAULT 1")

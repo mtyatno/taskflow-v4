@@ -21,7 +21,7 @@
 - Oranye bila realisasi > estimasi: `#fb923c` di kartu gelap, `var(--p2)` di chip daftar. Timer tidak pernah diblokir.
 - Tanggal "hari ini" Pomodoro = tanggal lokal (`TF.tasklogic.todayLocalISO()`), bukan `toISOString().slice(0,10)`.
 - React.createElement tanpa JSX; setiap akses `localStorage` dalam try/catch.
-- Rilis: SW + `app.css?v=` ke nomor kosong berikutnya di atas `main` (sekarang v434 / 342 → **v435 `taskflow-v435-focus-target`, `?v=343`**), di `static/sw.js` `CACHE`, `static/index.html` (`__SW_VERSION` + fallback Settings + link css), `webapp.py` `sw_cache`, dan tes yang mengunci versi. Modul JS baru masuk `STATIC` di `sw.js` dan tag `<script>` di index.html.
+- Rilis: SW + `app.css?v=` ke nomor kosong berikutnya di atas `main` (sekarang v434 / 342 → **v436 `taskflow-v436-focus-target`, `?v=344`** (v435 / 343 dipakai draft PR #63 Kelola Workspace)), di `static/sw.js` `CACHE`, `static/index.html` (`__SW_VERSION` + fallback Settings + link css), `webapp.py` `sw_cache`, dan tes yang mengunci versi. Modul JS baru masuk `STATIC` di `sw.js` dan tag `<script>` di index.html.
 - Deploy: ada migrasi → restart `taskflow-web` **dan** `taskflow`.
 
 ## Review Focus
@@ -34,12 +34,12 @@
 
 ---
 
-### Task 1: Server — skema, endpoint log, estimasi di create/update, ADR-020
+### Task 1: Server — skema, endpoint log, estimasi di create/update, ADR-021
 
 **Files:**
 - Modify: `repository.py` (blok migrasi `tasks` ~550–560: dua `ALTER TABLE` bila kolom belum ada; `CREATE TABLE IF NOT EXISTS pomodoro_log` + indeks di `_init_db` dekat tabel lain)
 - Modify: `webapp.py`: `TaskCreate` (~1145) tambah `estimated_pomodoros: int = Field(default=1, ge=1, le=20)`; `TaskUpdate` (~1172) tambah `estimated_pomodoros: Optional[int] = Field(default=None, ge=1, le=20)`; INSERT di `create_task` (~2082) menyertakan kolom itu; `update_task` (~2238) `if req.estimated_pomodoros is not None: updates["estimated_pomodoros"] = req.estimated_pomodoros`; model baru `PomodoroLogIn` + endpoint `POST /api/tasks/{task_id}/pomodoros` (dekat `mark_occurrence`, ~2371).
-- Modify: `.agents/DECISIONS.md` (ADR-020, teks dari spec §12)
+- Modify: `.agents/DECISIONS.md` (ADR-021, teks dari spec §12)
 - Test: `tests/test_pomodoro_log.py` (fixture `client`, `register_user`, `db()` dari `tests/conftest.py`; workspace + anggota mengikuti helper di `tests/test_contexts_tasks.py`)
 
 **Interfaces:**
@@ -58,9 +58,9 @@
   - `test_workspace_member_adds_to_shared_task` — anggota workspace mencatat pada task milik owner → `pomodoros_done` naik; owner melihat nilai yang sama di `GET /api/tasks/{id}`.
   - `test_delete_task_keeps_log_with_null_task` — hapus task (DELETE API) → baris log tetap, `task_id IS NULL` (koneksi memakai `PRAGMA foreign_keys=ON`; bila DELETE API melakukan soft-delete, uji hard delete lewat SQL dengan foreign_keys ON).
 - [ ] **Step 2: Jalankan → FAIL** — `python -m pytest tests/test_pomodoro_log.py -q`
-- [ ] **Step 3: Implementasi** skema, model, endpoint (`INSERT OR IGNORE`, baca baris lewat `(user_id, client_id)`, `UPDATE tasks SET pomodoros_done = pomodoros_done + ?` hanya bila `rowcount == 1`, dalam satu `with get_db()`), field estimasi. Parse `ended_at` dengan `datetime.fromisoformat` (terima akhiran `Z`). Tulis ADR-020.
+- [ ] **Step 3: Implementasi** skema, model, endpoint (`INSERT OR IGNORE`, baca baris lewat `(user_id, client_id)`, `UPDATE tasks SET pomodoros_done = pomodoros_done + ?` hanya bila `rowcount == 1`, dalam satu `with get_db()`), field estimasi. Parse `ended_at` dengan `datetime.fromisoformat` (terima akhiran `Z`). Tulis ADR-021.
 - [ ] **Step 4: Jalankan → PASS**, lalu `python -m pytest tests/ -q` (baseline 816 + tes baru).
-- [ ] **Step 5: Commit** — `feat(pomodoro): log realisasi + estimasi task di server (ADR-020)`
+- [ ] **Step 5: Commit** — `feat(pomodoro): log realisasi + estimasi task di server (ADR-021)`
 
 ---
 

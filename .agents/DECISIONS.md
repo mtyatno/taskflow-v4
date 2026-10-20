@@ -185,7 +185,7 @@
 
 ---
 
-### ADR-020: Realisasi Pomodoro = log append-only `pomodoro_log` + kolom turunan `tasks.pomodoros_done`
+### ADR-021: Realisasi Pomodoro = log append-only `pomodoro_log` + kolom turunan `tasks.pomodoros_done`
 - **Date:** 2026-10-20
 - **Agent:** Claude
 - **Context:** Spec `docs/superpowers/specs/2026-10-20-fokus-hari-ini-enhancement-design.md` (§4, §5, §12): Target 🍅 per task butuh estimasi dan realisasi yang sinkron antar perangkat/anggota workspace, tanpa mengganggu sinkron task (`updated_at`).

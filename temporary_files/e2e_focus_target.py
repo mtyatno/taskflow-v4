@@ -16,6 +16,7 @@ import shutil
 import subprocess
 import tempfile
 import time
+from datetime import datetime
 
 from playwright.sync_api import sync_playwright
 
@@ -33,7 +34,8 @@ def open_app(browser, base, user, theme="light", viewport=(1280, 860)):
     """Seperti harness PR A, tetapi jam Playwright dipasang sebelum halaman dimuat."""
     ctx = browser.new_context(service_workers="block", viewport={"width": viewport[0], "height": viewport[1]})
     ctx.add_cookies([{"name": "token", "value": user["token"], "url": base, "httpOnly": True, "sameSite": "Lax"}])
-    ctx.clock.install()
+    # Jam palsu dipatok ke tengah hari lokal: total majunya ±3 jam, jadi tidak pernah melewati tengah malam.
+    ctx.clock.install(time=datetime.now().replace(hour=12, minute=0, second=0, microsecond=0))
     p = ctx.new_page()
     p.goto(base + "/manifest.json")
     p.evaluate("""([t, u, tours, theme]) => {
@@ -117,6 +119,13 @@ def log_rows(db, task_id=None, client_id=None):
         return conn.execute(q, a).fetchall()
     finally:
         conn.close()
+
+
+SPY_ENQUEUE = """() => {
+    window.__pomoEnq = [];
+    const pl = window.TF.pomolog, real = pl.enqueue;
+    pl.enqueue = (taskCid, e) => { window.__pomoEnq.push(e && e.client_id); return real(taskCid, e); };
+}"""
 
 
 def sync(p):
@@ -241,6 +250,8 @@ def run_flow(ctx, p, base, user, ids, db):
     s = summary(p)
     check("b1 header '3 tugas • 0 / 9 … hari ini (~4 jam)'",
           re.fullmatch(r"3 tugas • 0 / 9 ?hari ini \(~4 jam\)", s) is not None, repr(s))
+    p.locator(".focus-page-summary").scroll_into_view_if_needed()
+    h.shot(p, "header_light_desktop.png")
 
     # c. satu sesi 25 menit
     focus(p, t1)
@@ -306,11 +317,19 @@ def run_flow(ctx, p, base, user, ids, db):
     st2 = pomo_state(p2)
     check("e0 tab kedua memuat state timer yang sama (workStartedAt)",
           st2.get("workStartedAt") == st.get("workStartedAt") and st2.get("isRunning") is True, repr(st2))
+    for pg in (p, p2):
+        pg.evaluate(SPY_ENQUEUE)
     p.clock.fast_forward("25:00")
     p.clock.run_for(2000)
     for pg in (p, p2):
         pg.wait_for_selector(".focus-pomo .pomo-btn-main:not(.is-pause)", timeout=5000)
     p.wait_for_timeout(1000)
+    enq1, enq2 = p.evaluate("window.__pomoEnq"), p2.evaluate("window.__pomoEnq")
+    check("e0b kedua tab sendiri mencatat sesi yang sama (enqueue client_id sama)",
+          enq1 == [cid] and enq2 == [cid], "tab1 %r, tab2 %r" % (enq1, enq2))
+    st2b = pomo_state(p2)
+    check("e0c tab kedua menyelesaikan sesi (workStartedAt direset, mode break)",
+          st2b.get("workStartedAt") is None and st2b.get("mode") in ("shortBreak", "longBreak"), repr(st2b))
     sync(p)
     sync(p2)
     wait_for(lambda: server_task(base, user, ids[t1]).get("pomodoros_done") == before + 1)

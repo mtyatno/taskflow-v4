@@ -62,12 +62,12 @@ test("CSS ikon chip Pomodoro", () => {
   assert.match(appCss, /\.topbar-pomo-chip\.is-break \.topbar-pomo-icon\s*\{\s*color:\s*var\(--break\);\s*\}/);
 });
 
-test("cache bust v435 + app.css?v=343", () => {
+test("cache bust v436 + app.css?v=344", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v435-focus-target";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v435-focus-target";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v435-focus-target"/);
-  assert.match(py, /sw_cache = "taskflow-v435-focus-target"/);
-  assert.match(indexHtml, /app\.css\?v=343/);
+  assert.match(swJs, /^const CACHE = "taskflow-v436-focus-target";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v436-focus-target";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v436-focus-target"/);
+  assert.match(py, /sw_cache = "taskflow-v436-focus-target"/);
+  assert.match(indexHtml, /app\.css\?v=344/);
 });
