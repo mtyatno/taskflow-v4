@@ -167,6 +167,7 @@ import errno
 from starlette.concurrency import run_in_threadpool
 from media_probe import sniff_media, final_mime, ALLOWED_INIT_EXTS
 from media_storage import get_storage, new_key
+import media_serve
 from media_worker import MediaWorker
 from config import MEDIA_STORAGE
 
@@ -5863,10 +5864,23 @@ def _media_quota_check(conn, uid: int, size: int) -> None:
     return None
 
 
+def _media_urls(att_id: int, has_poster: bool, now: int) -> dict:
+    exp = now + MEDIA_URL_TTL_SEC
+
+    def _u(variant: str) -> str:
+        return "/media/" + media_serve.sign_token(att_id, variant, exp, MEDIA_URL_SECRET_BYTES)
+
+    return {"play_url": _u("play"), "poster_url": _u("poster") if has_poster else None,
+            "download_url": _u("download"), "expires_at": exp}
+
+
 def _media_payload(conn, row, now: int) -> dict:
     u = conn.execute("SELECT display_name, username FROM users WHERE id = ?",
                      (row["user_id"],)).fetchone()
     name = (u["display_name"] or u["username"]) if u else None
+    urls = {"play_url": None, "poster_url": None, "download_url": None, "expires_at": None}
+    if row["status"] == "ready":
+        urls = _media_urls(row["id"], bool(row["poster_key"]), now)
     return {
         "id": row["id"], "client_id": row["client_id"], "note_id": row["note_id"],
         "original_name": row["original_name"], "media_type": row["media_type"],
@@ -5875,7 +5889,7 @@ def _media_payload(conn, row, now: int) -> dict:
         "status": row["status"], "error": row["error"],
         "received_bytes": row["received_bytes"],
         "uploaded_by": row["user_id"], "uploaded_by_name": name,
-        "play_url": None, "poster_url": None, "download_url": None, "expires_at": None,
+        **urls,
     }
 
 
@@ -6066,6 +6080,97 @@ async def complete_media_upload(att_id: int, user=Depends(get_current_user)):
         lock.release()
         if _media_upload_locks.get(att_id) is lock:
             _media_upload_locks.pop(att_id, None)
+
+
+@app.get("/api/media/{att_id}")
+async def get_media_meta(att_id: int, user=Depends(get_current_user)):
+    with get_db() as conn:
+        row = _accessible_attachment(conn, user["sub"], att_id)
+        if not row or row["kind"] != "media":
+            raise _media_not_found()
+        return _media_payload(conn, row, int(_time.time()))
+
+
+@app.get("/api/scratchpad/{note_id}/media/by-client/{client_id}")
+async def get_media_by_client(note_id: int, client_id: str, user=Depends(get_current_user)):
+    if not _MEDIA_CLIENT_ID_RE.fullmatch(client_id):
+        raise _media_not_found()
+    with get_db() as conn:
+        if not _accessible_note(conn, user["sub"], note_id):
+            raise _media_not_found()
+        row = conn.execute(
+            "SELECT * FROM note_attachments WHERE note_id = ? AND client_id = ? AND kind = 'media'",
+            (note_id, client_id)).fetchone()
+        if not row:
+            raise _media_not_found()
+        return _media_payload(conn, row, int(_time.time()))
+
+
+_MEDIA_BLOCK = 256 * 1024
+
+
+def _media_iter(path: Path, start: int, length: int):
+    with open(path, "rb") as f:
+        f.seek(start)
+        left = length
+        while left > 0:
+            chunk = f.read(min(_MEDIA_BLOCK, left))
+            if not chunk:
+                break
+            left -= len(chunk)
+            yield chunk
+
+
+@app.get("/media/{token}")
+async def serve_media(token: str, request: Request):
+    now = int(_time.time())
+    parsed = media_serve.verify_token(token, MEDIA_URL_SECRET_BYTES, now)
+    if not parsed:
+        raise _media_not_found()
+    att_id, variant, exp = parsed
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM note_attachments WHERE id = ?", (att_id,)).fetchone()
+    if (not row or row["kind"] != "media" or row["status"] != "ready"
+            or row["storage"] != "local"):
+        raise _media_not_found()
+    key = row["poster_key"] if variant == "poster" else row["storage_key"]
+    if not key:
+        raise _media_not_found()
+    try:
+        path = media_storage.path(key)
+        size = os.stat(path).st_size
+    except (OSError, ValueError):
+        raise _media_not_found()
+    name = row["original_name"] or "media"
+    if variant == "poster":
+        mime = "image/jpeg"
+        name = name.rsplit(".", 1)[0] + ".jpg" if "." in name else name + ".jpg"
+    else:
+        mime = row["mime_type"] or "application/octet-stream"
+    headers = {
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox; default-src 'none'",
+        "Cache-Control": f"private, max-age={max(0, exp - now)}",
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": media_serve.content_disposition(
+            "attachment" if variant == "download" else "inline", name),
+    }
+    if MEDIA_ACCEL:
+        headers["X-Accel-Redirect"] = media_storage.accel_uri(key)
+        return Response(status_code=200, content=b"", headers=headers, media_type=mime)
+    rng = media_serve.parse_range(request.headers.get("range"), size)
+    if rng == "invalid":
+        headers["Content-Range"] = f"bytes */{size}"
+        return Response(status_code=416, content=b"", headers=headers, media_type=mime)
+    if rng is None:
+        start, end, code = 0, size - 1, 200
+    else:
+        (start, end), code = rng, 206
+        headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+    length = end - start + 1
+    headers["Content-Length"] = str(length)
+    return StreamingResponse(_media_iter(path, start, length), status_code=code,
+                             headers=headers, media_type=mime)
 
 
 @app.get("/api/export/download")
