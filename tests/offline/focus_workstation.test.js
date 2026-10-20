@@ -60,7 +60,8 @@ test("Kontrol Pomodoro: Mulai/Jeda, Stop, Work/Short/Long", () => {
   assert.match(ctrl, /"aria-label": "Stop"/);
   assert.match(indexHtml, /\{ key: "work", label: "Work" \},\s*\{ key: "shortBreak", label: "Short" \},\s*\{ key: "longBreak", label: "Long" \}/);
   const hook = fnSource("usePomodoro");
-  assert.match(hook, /const stop = \(\) => \{\s*setIsRunning\(false\);\s*setTimeLeft\(POMO_DURATIONS\[mode\]\);/);
+  // PR C: awaiting/overtime → Work 25:00 diam; countdown tetap reset ke durasi penuh mode saat ini
+  assert.match(hook, /const stop = \(\) => \{\s*if \(phase !== "countdown"\) \{[\s\S]*?setMode\("work"\);\s*setTimeLeft\(POMO_DURATIONS\.work\);[\s\S]*?\}\s*setIsRunning\(false\);\s*setTimeLeft\(POMO_DURATIONS\[mode\]\);/);
 });
 
 test("Daftar task: detail hanya untuk task yang dibuka, sebagai tab", () => {
@@ -100,9 +101,9 @@ test("TodayFocusView: membatalkan fokus atau menyelesaikan task menjeda Pomodoro
   assert.match(view, /Task selesai/, "harus memberi toast saat task selesai");
 });
 
-test("sw.js CACHE = taskflow-v438-account-fase0a", () => {
+test("sw.js CACHE = taskflow-v439-account-fase0a", () => {
   const swJs = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v438-account-fase0a";/m);
+  assert.match(swJs, /^const CACHE = "taskflow-v439-account-fase0a";/m);
 });
 
 test("App: mengelola timer Pomodoro dan focusTask di level App", () => {
@@ -122,7 +123,7 @@ test("TopBarPomodoroChip: didefinisikan dan dirender di top bar saat page !== 't
 
 test("TopBarPomodoroChip: navigasi ke today saat diklik dan memiliki tombol play/pause", () => {
   const chipSrc = fnSource("TopBarPomodoroChip");
-  assert.match(chipSrc, /timer\.isRunning \? timer\.pause : timer\.start/, "chip harus memiliki tombol play/pause");
+  assert.match(chipSrc, /if \(timer\.isRunning\) timer\.pause\(\);else timer\.start\(\);/, "chip harus memiliki tombol play/pause");
   assert.match(chipSrc, /onNavigateToday/, "chip harus memanggil onNavigateToday");
 });
 
@@ -163,7 +164,7 @@ test("Dashboard: tombol fokus (.dash-focus-btn) didefinisikan di CSS dan dirende
 test("usePomodoro: start(explicitTask) menerima explicit task dan memulai timer meski focusTask di closure awalnya null", () => {
   const hookSrc = fnSource("usePomodoro");
   assert.match(hookSrc, /start\s*=\s*\(\s*explicitTask\s*=\s*null\s*\)\s*=>/);
-  assert.match(hookSrc, /const activeTask = explicitTask \|\| focusTask;/);
+  assert.match(hookSrc, /const activeTask = \(explicitTask && explicitTask\.id != null \? explicitTask : null\) \|\| focusTask;/);
 
   const states = [
     "work",
@@ -178,6 +179,7 @@ test("usePomodoro: start(explicitTask) menerima explicit task dan memulai timer 
   let hookIdx = 0;
   const fakeUseState = (init) => {
     const idx = hookIdx++;
+    if (!(idx in states)) states[idx] = typeof init === "function" ? init() : init;
     const setVal = (updater) => {
       states[idx] = typeof updater === "function" ? updater(states[idx]) : updater;
     };

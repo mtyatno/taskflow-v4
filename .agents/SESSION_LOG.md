@@ -3711,3 +3711,17 @@
 - **Changes:** lihat entri CURRENT_STATE `claude/email-fase0a`; commit b7637448, 853af6a6, 43b53b42, 45053354.
 - **Files Touch:** webapp.py, repository.py, static/index.html, static/app.css, static/sw.js, static/offline/accountbanner.js, tests/test_account_profile.py, tests/test_auth_session.py, tests/test_version.py, tests/offline/*.test.js, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (draft PR; deploy = migrasi → restart `taskflow-web`, lalu `taskflow`)
+## 2026-10-21 00:20 WIB — Claude — Fokus Hari Ini PR C (Overtime): Task 4
+- **Task:** Task 4 PR C: merge `origin/main` (57560c2, #63) ke `claude/focus-overtime`, naik versi SW v438 `taskflow-v438-focus-overtime` / `app.css?v=346`, E2E, handover.
+- **Changes:** merge main (tanpa konflik); versi di `sw.js`, `index.html`, `webapp.py` + tes yang mengunci versi; kicker bar ringkas tanpa " · dijeda" saat awaiting; E2E menemukan judul bar ringkas terjepit di 375 px saat Overtime → `.focus-mini-task` min-width (commit fix + tes); E2E baru `temporary_files/e2e_focus_overtime.py` 79/79; `e2e_focus_target.py` disesuaikan ke awaiting (41/41); `e2e_focus_page.py` 35/35; pytest 850; JS 2295/2296 (pra-ada `draw_local_reactive`); inline OK.
+- **Files Touch:** static/sw.js, static/index.html, static/app.css, webapp.py, tests/, .gitignore, temporary_files/e2e_focus_overtime.py, temporary_files/e2e_focus_target.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push; deploy = file statis + restart `taskflow-web` saja)
+
+## 2026-10-21 01:00 WIB — Claude — Fokus Hari Ini PR C: perbaikan review akhir
+- **Changes:** `timer.start` tanpa event (Mulai/Lanjutkan/chip) + `start` mengabaikan argumen tanpa `id`; urutan setState Overtime aman tanpa batch (pause, finishOvertime, leaveAfterSession, continueOvertime, takeBreak); toast `handleStartFocus` per fase; `completedSessionRef` diisi saat pulih; E2E bar ringkas countdown 375 px + a6 `sessionTaskId`. Engine 26/26, JS 2303/2304 (pra-ada), pytest 850, E2E 98/98 · 41/41 · 35/35.
+- **Files Touch:** static/index.html, tests/offline/focus_overtime_engine.test.js, tests/offline/focus_workstation.test.js, temporary_files/e2e_focus_overtime.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push)
+
+## 2026-10-21 01:57 WIB — Claude — merge Fokus Hari Ini PR C (#65)
+- Bapak: "merge". #65 di-merge (b20b0d8); CI Tests hijau. SW v438 / `app.css?v=346`.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` (tanpa migrasi); cek Overtime di halaman Fokus Hari Ini. Berikutnya: plan PR D (Suara latar).

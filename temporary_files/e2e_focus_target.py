@@ -154,11 +154,23 @@ def start(p):
     p.wait_for_selector(".focus-pomo .pomo-btn-main.is-pause", timeout=3000)
 
 
+def wait_awaiting(p):
+    """PR C: Work 00:00 tidak lagi langsung ke istirahat, tetapi menunggu pilihan (awaiting)."""
+    p.wait_for_selector(".focus-pomo .pomo-controls.is-awaiting .pomo-btn-break", timeout=5000)
+
+
+def stop_awaiting(p):
+    """Stop saat awaiting -> Work 25:00 diam (sesi sudah tercatat di 00:00)."""
+    p.locator(".focus-pomo .pomo-controls.is-awaiting button[aria-label=Stop]").first.click()
+    p.wait_for_selector(".focus-pomo .pomo-btn-main:not(.is-pause)", timeout=5000)
+
+
 def finish_session(p):
     p.clock.fast_forward("25:00")
     p.clock.run_for(2000)
-    p.wait_for_selector(".focus-pomo .pomo-btn-main:not(.is-pause)", timeout=5000)
+    wait_awaiting(p)
     p.wait_for_timeout(800)
+    stop_awaiting(p)
 
 
 def pomo_state(p):
@@ -322,14 +334,15 @@ def run_flow(ctx, p, base, user, ids, db):
     p.clock.fast_forward("25:00")
     p.clock.run_for(2000)
     for pg in (p, p2):
-        pg.wait_for_selector(".focus-pomo .pomo-btn-main:not(.is-pause)", timeout=5000)
+        wait_awaiting(pg)
     p.wait_for_timeout(1000)
     enq1, enq2 = p.evaluate("window.__pomoEnq"), p2.evaluate("window.__pomoEnq")
     check("e0b kedua tab sendiri mencatat sesi yang sama (enqueue client_id sama)",
           enq1 == [cid] and enq2 == [cid], "tab1 %r, tab2 %r" % (enq1, enq2))
     st2b = pomo_state(p2)
-    check("e0c tab kedua menyelesaikan sesi (workStartedAt direset, mode break)",
-          st2b.get("workStartedAt") is None and st2b.get("mode") in ("shortBreak", "longBreak"), repr(st2b))
+    check("e0c tab kedua menyelesaikan sesi (PR C: awaiting di 00:00, mode work)",
+          st2b.get("phase") == "awaiting" and st2b.get("mode") == "work" and st2b.get("timeLeft") == 0, repr(st2b))
+    stop_awaiting(p)
     sync(p)
     sync(p2)
     wait_for(lambda: server_task(base, user, ids[t1]).get("pomodoros_done") == before + 1)

@@ -4490,7 +4490,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v438-account-fase0a"
+    sw_cache = "taskflow-v439-account-fase0a"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

@@ -3471,6 +3471,7 @@
   background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #fff;
   border-radius: 20px; padding: 24px 28px; margin-bottom: 24px; position: relative; overflow: hidden;
 }
+.focus-pomo.is-overtime, .focus-mini.is-overtime { --pomo-ink: #8b5cf6; --pomo-ink-soft: rgba(139,92,246,0.18); --pomo-ink-text: #c4b5fd; }
 .focus-pomo.is-break, .focus-mini.is-break { --pomo-ink: #22c55e; --pomo-ink-soft: rgba(34,197,94,0.18); --pomo-ink-text: #86efac; }
 .focus-pomo::before { content: ''; position: absolute; top: -60%; right: -40%; width: 90%; height: 160%; background: radial-gradient(circle, var(--pomo-ink-soft) 0%, transparent 65%); opacity: .55; pointer-events: none; }
 .focus-pomo > * { position: relative; }
@@ -3504,6 +3505,16 @@
 .pomo-btn-main.is-pause { background: #f59e0b; color: #1f1300; }
 .pomo-controls.is-compact { gap: 6px; flex-wrap: nowrap; }
 .pomo-controls.is-compact .pomo-btn { width: 34px; height: 34px; padding: 0; }
+.pomo-btn-break { background: var(--break); color: #052e16; }
+.pomo-btn-break:hover:not(:disabled) { background: var(--break); filter: brightness(1.08); }
+.pomo-btn-overtime { background: #8b5cf6; color: #fff; flex-direction: row; }
+.pomo-btn-overtime:hover:not(:disabled) { background: #8b5cf6; filter: brightness(1.1); }
+.pomo-btn-overtime small { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; padding: 2px 6px; border-radius: 999px; background: rgba(255,255,255,0.22); }
+.pomo-controls.is-compact .pomo-btn-break, .pomo-controls.is-compact .pomo-btn-overtime { width: auto; padding: 0 12px; font-size: 12px; gap: 5px; }
+@media (max-width: 768px) {
+  .pomo-controls.is-awaiting, .pomo-controls.is-overtime { gap: 6px; }
+  .pomo-controls.is-awaiting .pomo-btn, .pomo-controls.is-overtime .pomo-btn { padding: 0 12px; font-size: 13px; }
+}
 
 .focus-pomo-task { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: rgba(255,255,255,0.08); border-radius: 12px; }
 .focus-pomo-task-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; background: var(--pomo-ink-soft); color: var(--pomo-ink-text); flex-shrink: 0; }
@@ -3679,7 +3690,8 @@
   .ftask-estimate { order: 5; flex: 1 1 100%; margin-left: 0; }
   .focus-mini { flex-wrap: wrap; gap: 6px 10px; padding: 8px 8px 8px 10px; top: 6px; }
   .focus-mini-time { font-size: 20px; }
-  .focus-mini-task { flex: 1 1 0; }
+  /* min-width: kontrol Overtime (Jeda · Stop · Istirahat) pindah baris alih-alih menjepit judul task */
+  .focus-mini-task { flex: 1 1 0; min-width: 96px; }
   .focus-mini .pomo-modes { order: 3; flex: 1 1 100%; justify-content: stretch; }
   .focus-mini .pomo-modes .pomo-mode { flex: 1; }
   .ftask-row { gap: 10px; padding: 10px 10px 10px 12px; align-items: flex-start; }
@@ -3718,6 +3730,14 @@
   border-color: var(--primary);
   box-shadow: 0 0 0 1px var(--primary-light, rgba(239, 68, 68, 0.2));
 }
+.topbar-pomo-chip.is-overtime { border-color: #8b5cf6; box-shadow: 0 0 0 1px rgba(139,92,246,0.3); }
+.topbar-pomo-chip.is-overtime .topbar-pomo-time { color: #8b5cf6; }
+.topbar-pomo-chip.is-awaiting { border-color: var(--break); animation: pomoChipPulse 1.6s ease-in-out infinite; }
+@keyframes pomoChipPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.45); }
+  50% { box-shadow: 0 0 0 5px rgba(34,197,94,0); }
+}
+@media (prefers-reduced-motion: reduce) { .topbar-pomo-chip.is-awaiting { animation: none; } }
 .topbar-pomo-icon {
   font-size: 13px;
   line-height: 1;
