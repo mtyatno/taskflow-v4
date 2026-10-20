@@ -3664,3 +3664,9 @@
 ## 2026-10-20 20:30 WIB — Claude — merge ikon Kelola Workspace + chip Pomodoro (#61)
 - Bapak: "merge". #61 di-merge (5bd9b69); CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek Kelola Workspace dan chip Pomodoro (SW v433, `app.css?v=341`).
+
+## 2026-10-20 21:10 WIB — Claude — spec halaman Fokus Hari Ini
+- **Task:** brainstorming + spec lima enhancement halaman Fokus Hari Ini dari Bapak (Parkir Distraksi, Target 🍅 estimasi vs realisasi, Mode Zen, suara latar, Overtime/Flow).
+- **Changes:** spec baru (pendekatan A: log `pomodoro_log` + `tasks.pomodoros_done`); handover.
+- **Files Touch:** `docs/superpowers/specs/2026-10-20-fokus-hari-ini-enhancement-design.md`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md`
+- **Status:** Needs Review (spec; belum ada kode)
