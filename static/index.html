@@ -9369,7 +9369,7 @@ function PomodoroMiniBar({
     className: "focus-mini-task"
   }, React.createElement("span", {
     className: "focus-mini-kicker"
-  }, t.labelText, t.isRunning ? "" : " · dijeda"), React.createElement("span", {
+  }, t.labelText, t.isRunning || t.phase === "awaiting" ? "" : " · dijeda"), React.createElement("span", {
     className: "focus-mini-title"
   }, focusTask ? focusTask.title : "Belum ada task aktif")), React.createElement(PomoModeSwitch, {
     timer: t,

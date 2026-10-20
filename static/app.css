@@ -3683,7 +3683,8 @@
   .ftask-estimate { order: 5; flex: 1 1 100%; margin-left: 0; }
   .focus-mini { flex-wrap: wrap; gap: 6px 10px; padding: 8px 8px 8px 10px; top: 6px; }
   .focus-mini-time { font-size: 20px; }
-  .focus-mini-task { flex: 1 1 0; }
+  /* min-width: kontrol Overtime (Jeda · Stop · Istirahat) pindah baris alih-alih menjepit judul task */
+  .focus-mini-task { flex: 1 1 0; min-width: 96px; }
   .focus-mini .pomo-modes { order: 3; flex: 1 1 100%; justify-content: stretch; }
   .focus-mini .pomo-modes .pomo-mode { flex: 1; }
   .ftask-row { gap: 10px; padding: 10px 10px 10px 12px; align-items: flex-start; }

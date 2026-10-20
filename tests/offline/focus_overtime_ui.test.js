@@ -47,6 +47,8 @@ test("PomodoroMiniBar: kelas fase", () => {
   assert.ok(src.includes(" is-overtime"));
   assert.ok(src.includes(" is-awaiting"));
   assert.ok(src.includes("t.labelText"));
+  // Kicker awaiting: "Selesai" saja, tanpa akhiran " · dijeda".
+  assert.ok(src.includes('t.isRunning || t.phase === "awaiting" ? "" : " · dijeda"'));
 });
 
 test("TopBarPomodoroChip: awaiting tanpa tombol, tooltip persis", () => {
@@ -77,4 +79,6 @@ test("CSS: ungu overtime, tombol, chip berdenyut + reduced-motion", () => {
   assert.ok(appCss.includes(".topbar-pomo-chip.is-awaiting"));
   assert.ok(appCss.includes("@keyframes pomoChipPulse"));
   assert.match(appCss, /prefers-reduced-motion: reduce\)\s*\{[^}]*topbar-pomo-chip\.is-awaiting[^}]*animation: none/);
+  // 375 px: judul task bar ringkas punya lebar minimum agar kontrol Overtime pindah baris.
+  assert.match(appCss, /\.focus-mini-task \{ flex: 1 1 0; min-width: 96px; \}/);
 });
