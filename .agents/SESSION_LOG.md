@@ -3729,3 +3729,6 @@
 ## 2026-10-21 05:37 WIB — Claude — merge Email Fase 0a (#66)
 - Bapak: "merge". #66 di-merge (50d0e24) setelah merge main (#65) + SW v439 / `app.css?v=347`; CI Tests hijau di head PR, Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** ada migrasi (`users.password_set`) — `sudo systemctl restart taskflow-web`, lalu `sudo systemctl restart taskflow` (satu per satu). Semua sesi web/aplikasi tetap berjalan (token lama tanpa ganti password tetap sah). Lalu Fase 0b (upgrade mailer) → spec + plan.
+
+## 2026-10-21 07:10 WIB — Claude — ikon daftar Catatan, pin, Petakan
+- Bapak minta ikon di panel Catatan (catatan, tanpa tag, share, tag, trash) lalu juga pin dan otak (Petakan) diganti gaya Alurik. Implementer subagent + review terpisah (siap merge). SW v440. **Status:** Needs Review (draft PR; restart `taskflow-web`).
