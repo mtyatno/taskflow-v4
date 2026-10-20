@@ -162,6 +162,24 @@ MEDIA_URL_SECRET_BYTES = (
 )
 JWT_ALGORITHM = "HS256"
 
+import shutil
+from media_storage import get_storage
+from media_worker import MediaWorker
+from config import MEDIA_STORAGE
+
+
+def _media_db_connect():
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=ON")
+    return conn
+
+
+media_storage = get_storage(MEDIA_STORAGE, MEDIA_ROOT)
+media_worker = MediaWorker(connect=_media_db_connect, storage=media_storage,
+                           ffmpeg=shutil.which("ffmpeg"), ffprobe=shutil.which("ffprobe"))
+
 # ── Cookie signing (for published note unlock) ─────────────────────────────────
 def _sign_cookie(slug: str) -> str:
     """Sign a slug with HMAC-SHA256 for tamper-proof cookie."""
@@ -1570,6 +1588,8 @@ async def startup():
         logger.warning("MEDIA_ROOT tidak bisa dibuat (%s): %s", MEDIA_ROOT, e)
     if not _MEDIA_URL_SECRET_CFG:
         logger.warning("MEDIA_URL_SECRET kosong; secret URL media diturunkan dari WEB_SECRET_KEY")
+    media_worker.requeue_processing()
+    media_worker.start()
     if TELEGRAM_BOT_TOKEN:
         try:
             from telegram import Bot as TelegramBot

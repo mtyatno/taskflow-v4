@@ -1,5 +1,14 @@
 """Sniff format media dari byte awal. Modul murni: tidak mengimpor webapp."""
+import json
+import logging
+import os
+import struct
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+_log = logging.getLogger("alurik.media_probe")
 
 ALLOWED_INIT_EXTS = frozenset(
     "mp3 m4a m4b aac wav ogg oga opus webm flac amr 3gp 3g2 mp4 m4v mov mkv".split())
@@ -77,3 +86,127 @@ def final_mime(s: Sniff, media_type: str, format_name: str = "") -> str:
     if f == "amr":
         return "audio/amr"
     raise ValueError(f"keluarga tidak dikenal: {f}")
+
+
+# ── ffprobe / ffmpeg (Task 3) ────────────────────────────────────────────────
+
+@dataclass
+class ProbeInfo:
+    media_type: str
+    duration_ms: Optional[int]
+    video_codec: Optional[str]
+    audio_codec: Optional[str]
+    width: Optional[int]
+    height: Optional[int]
+    format_name: str
+
+
+def _num(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f >= 0 and f == f and f != float("inf") else None
+
+
+def parse_probe(data: dict):
+    """Ubah keluaran `ffprobe -print_format json` jadi ProbeInfo; None bila tanpa stream audio/video."""
+    if not isinstance(data, dict):
+        return None
+    streams = [s for s in (data.get("streams") or []) if isinstance(s, dict)]
+    video = next((s for s in streams if s.get("codec_type") == "video"
+                  and not (s.get("disposition") or {}).get("attached_pic")), None)
+    audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
+    if video is None and audio is None:
+        return None
+    fmt = data.get("format") or {}
+    dur = _num(fmt.get("duration"))
+    if dur is None:
+        dur = next((d for d in (_num(s.get("duration")) for s in (video, audio) if s) if d is not None), None)
+
+    def _int(v):
+        return int(v) if isinstance(v, (int, float)) and v > 0 else None
+
+    return ProbeInfo(
+        media_type="video" if video else "audio",
+        duration_ms=int(round(dur * 1000)) if dur is not None else None,
+        video_codec=(video or {}).get("codec_name"),
+        audio_codec=(audio or {}).get("codec_name"),
+        width=_int((video or {}).get("width")),
+        height=_int((video or {}).get("height")),
+        format_name=str(fmt.get("format_name") or ""),
+    )
+
+
+def needs_faststart(path) -> bool:
+    """True bila atom `mdat` muncul sebelum `moov` (scan atom top-level ISO-BMFF)."""
+    seen_mdat = False
+    try:
+        with open(path, "rb") as f:
+            size_total = os.fstat(f.fileno()).st_size
+            pos = 0
+            while pos + 8 <= size_total:
+                f.seek(pos)
+                hdr = f.read(8)
+                if len(hdr) < 8:
+                    break
+                size, kind = struct.unpack(">I4s", hdr)
+                if size == 1:
+                    ext = f.read(8)
+                    if len(ext) < 8:
+                        break
+                    size = struct.unpack(">Q", ext)[0]
+                elif size == 0:
+                    size = size_total - pos
+                if kind == b"moov":
+                    return seen_mdat
+                if kind == b"mdat":
+                    seen_mdat = True
+                if size < 8:
+                    break
+                pos += size
+    except OSError:
+        return False
+    return False
+
+
+def _run(cmd, timeout):
+    return subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout, check=False)
+
+
+def run_ffprobe(path, bin="ffprobe", timeout=60):
+    cmd = [bin, "-v", "error", "-print_format", "json", "-show_format", "-show_streams", str(path)]
+    try:
+        r = _run(cmd, timeout)
+    except (OSError, subprocess.SubprocessError) as e:
+        _log.warning("ffprobe gagal dijalankan: %s", e)
+        return None
+    if r.returncode != 0:
+        return None
+    try:
+        data = json.loads(r.stdout.decode("utf-8", "replace"))
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def remux_faststart(src, dst, bin="ffmpeg", timeout=600) -> bool:
+    cmd = [bin, "-y", "-v", "error", "-i", str(src), "-c", "copy", "-map", "0",
+           "-movflags", "+faststart", str(dst)]
+    try:
+        r = _run(cmd, timeout)
+    except (OSError, subprocess.SubprocessError) as e:
+        _log.warning("ffmpeg faststart gagal: %s", e)
+        return False
+    return r.returncode == 0 and Path(dst).exists() and Path(dst).stat().st_size > 0
+
+
+def make_poster(src, dst, at_sec: float, bin="ffmpeg", timeout=60) -> bool:
+    cmd = [bin, "-y", "-v", "error", "-ss", f"{at_sec:.3f}", "-i", str(src), "-frames:v", "1",
+           "-vf", "scale=640:-2", "-f", "image2", "-c:v", "mjpeg", str(dst)]
+    try:
+        r = _run(cmd, timeout)
+    except (OSError, subprocess.SubprocessError) as e:
+        _log.warning("ffmpeg poster gagal: %s", e)
+        return False
+    return r.returncode == 0 and Path(dst).exists() and Path(dst).stat().st_size > 0
