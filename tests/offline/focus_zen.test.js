@@ -52,7 +52,7 @@ test("TodayFocusView: state, catatan, dan task aktif dipaksa terbuka", () => {
   assert.ok(!src.includes("writeZenPref(window.localStorage"));
   // reveal tetap fade-in saat Zen dimatikan ketika aktif
   assert.ok(src.includes("zenWasActive"));
-  assert.ok(src.includes("zenShown: zenReveal"));
+  assert.ok(src.includes("zenShown: zenReveal && task.id !== focusTask?.id"), "task aktif tidak memutar ulang fade-in");
   // efek samping tidak di dalam updater setState
   assert.ok(!/setZenEnabled\(prev =>/.test(src));
 });
@@ -72,4 +72,13 @@ test("app.css: animasi Zen dan reduced-motion", () => {
   assert.ok(appCss.includes(".focus-zen-btn"));
   const m = appCss.match(/@media \(prefers-reduced-motion: reduce\) \{\s*\.is-zen-hidden[^}]*display: none/);
   assert.ok(m, "reduced-motion rule for .is-zen-hidden with display: none");
+});
+
+test("Zen: note hanya bila ada task tersembunyi; item tersembunyi tidak memakai ruang", () => {
+  const src = fnSource("TodayFocusView");
+  assert.ok(src.includes("zenOn && zenHiddenCount > 0 && React.createElement"));
+  assert.ok(appCss.includes("@keyframes zen-collapse"));
+  assert.ok(/\.focus-page\.is-zen \.ftask-list \{ gap: 0; \}/.test(appCss));
+  const out = appCss.match(/@keyframes zen-fade-out \{[^}]*\}[^}]*\}/)[0];
+  assert.ok(!/height/.test(out), "fade-out hanya opacity (tanpa lompatan height)");
 });

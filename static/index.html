@@ -9526,7 +9526,7 @@ function TodayFocusView({
     glyph: "target",
     title: "Task hari ini",
     count: sortedTasks.length
-  }), zenOn && React.createElement("div", {
+  }), zenOn && zenHiddenCount > 0 && React.createElement("div", {
     className: "focus-zen-note"
   }, `Mode Zen · ${zenHiddenCount} task lain disembunyikan sampai istirahat`), loading ? React.createElement("div", {
     className: "focus-empty"
@@ -9555,7 +9555,7 @@ function TodayFocusView({
     task: task,
     open: openId === task.id || zenOn && focusTask?.id === task.id,
     zenHidden: zenOn && task.id !== focusTask?.id,
-    zenShown: zenReveal,
+    zenShown: zenReveal && task.id !== focusTask?.id,
     onToggle: () => toggleOpen(task.id),
     tab: openTab,
     onTab: setOpenTab,

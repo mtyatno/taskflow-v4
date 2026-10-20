@@ -329,6 +329,11 @@ def run_flow(browser, ctx, p, base, user, titles):
     p.wait_for_timeout(400)
     check("e1b 'Berulang hari ini' ada, tidak terlihat, aria-hidden",
           rec_sec.count() == 1 and not rec_sec.first.is_visible() and rec_sec.first.get_attribute("aria-hidden") == "true")
+    p.wait_for_timeout(500)
+    list_h = p.evaluate("document.querySelector('.focus-section[data-tour=today-list] .ftask-list').getBoundingClientRect().height")
+    act_h = p.locator(".ftask.is-focusing").bounding_box()["height"]
+    check("e1a Zen: hanya task aktif yang terlihat dan tinggi daftar ~ tinggi item aktif",
+          visible_titles(p) == [first_title] and abs(list_h - act_h) <= 4, "daftar %.1f vs item %.1f" % (list_h, act_h))
     check("e1c task tersembunyi aria-hidden", p.locator(".ftask.is-zen-hidden[aria-hidden='true']").count() == 2)
     check("e2 .focus-zen-note tampil", p.locator(".focus-zen-note").is_visible(), p.locator(".focus-zen-note").inner_text())
     check("e3 panel task aktif terbuka", p.locator(".ftask.is-focusing.is-open .ftask-panel").is_visible())
@@ -340,6 +345,8 @@ def run_flow(browser, ctx, p, base, user, titles):
     check("e4 centang subtask berfungsi", p.locator(".ftask.is-focusing .ftask-sub.is-done").count() == 1)
     p.locator(".focus-pomo .pomo-btn-main.is-pause").first.click()
     p.wait_for_timeout(500)
+    check("e5a task aktif tidak memutar ulang fade-in saat Jeda",
+          "zen-fade-in" not in p.evaluate("getComputedStyle(document.querySelector('.ftask.is-focusing')).animationName"))
     check("e5b Jeda -> 'Berulang hari ini' terlihat lagi", rec_sec.first.is_visible())
     check("e5 Jeda -> semua task terlihat lagi",
           len(visible_titles(p)) == 3 and p.locator(".focus-page.is-zen").count() == 0, repr(visible_titles(p)))
