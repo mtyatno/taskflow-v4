@@ -66,12 +66,12 @@ test("CSS wsf-title-ico terang + gelap", () => {
   assert.match(appCss, /\[data-theme="dark"\]\s*\.wsf-title-ico\s*\{\s*color:\s*var\(--accent\);\s*\}/);
 });
 
-test("cache bust v432 + app.css?v=348", () => {
+test("cache bust v432 + app.css?v=349", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v440-note-list-tags";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v440-note-list-tags";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v440-note-list-tags"/);
-  assert.match(py, /sw_cache = "taskflow-v440-note-list-tags"/);
-  assert.match(indexHtml, /app\.css\?v=348/);
+  assert.match(swJs, /^const CACHE = "taskflow-v441-note-list-tags";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v441-note-list-tags";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v441-note-list-tags"/);
+  assert.match(py, /sw_cache = "taskflow-v441-note-list-tags"/);
+  assert.match(indexHtml, /app\.css\?v=349/);
 });

@@ -3732,6 +3732,6 @@
 
 ## 2026-10-21 06:50 WIB — Claude — bug note list tag basi setelah autosave
 - **Task:** laporan Bapak: tag yang ditambahkan lewat editor note tidak tampil di note list sampai pindah halaman.
-- **Changes:** `NoteModal` memancarkan `noteSaved` saat ditutup bila autosave sempat menulis tanpa diumumkan (`unannouncedWriteRef`); SW v440 / `app.css?v=348`; tes sumber `note_editor_sync.test.js`; E2E `temporary_files/e2e_note_list_tags.py` 5/5 (kode lama gagal a, c).
+- **Changes:** `NoteModal` memancarkan `noteSaved` saat ditutup bila autosave sempat menulis tanpa diumumkan (`unannouncedWriteRef`); SW v440 / `app.css?v=349`; tes sumber `note_editor_sync.test.js`; E2E `temporary_files/e2e_note_list_tags.py` 5/5 (kode lama gagal a, c).
 - **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/test_version.py, tests/offline/*.test.js, temporary_files/e2e_note_list_tags.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (draft PR; deploy = file statis + restart `taskflow-web` saja)
