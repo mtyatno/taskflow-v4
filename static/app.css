@@ -4401,3 +4401,5 @@
 
 .wsf-title-ico { color: #7E9400; }
 [data-theme="dark"] .wsf-title-ico { color: var(--accent); }
+.topbar-pomo-icon { display: inline-flex; color: var(--pomodoro); }
+.topbar-pomo-chip.is-break .topbar-pomo-icon { color: var(--break); }

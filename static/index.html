@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=340">
+  <link rel="stylesheet" href="/static/app.css?v=341">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -2306,7 +2306,21 @@ function SharedListsManager({
       fontWeight: 700,
       marginBottom: 20
     }
-  }, "\u2699\uFE0F Kelola Workspace"), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "wsf-title-ico",
+    style: {
+      display: "inline-flex"
+    }
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "mSettings",
+    size: 22
+  })), "Kelola Workspace")), /*#__PURE__*/React.createElement("div", {
     style: {
       background: "var(--bg-primary)",
       borderRadius: 12,
@@ -2325,7 +2339,21 @@ function SharedListsManager({
       fontSize: 14,
       fontWeight: 600
     }
-  }, "\uD83D\uDD17 Gabung ke Workspace Orang Lain"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      color: "var(--text-secondary)"
+    }
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "mLink",
+    size: 16
+  })), "Gabung ke Workspace Orang Lain")), /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     onClick: () => {
       setShowJoinForm(!showJoinForm);
@@ -2362,7 +2390,16 @@ function SharedListsManager({
       color: "#ef4444",
       fontSize: 13
     }
-  }, "\u274C ", joinError)) : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "mXCircle",
+    size: 14
+  }), joinError))) : /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
       background: "var(--bg-card)",
       borderRadius: 8,
@@ -2374,7 +2411,16 @@ function SharedListsManager({
     style: {
       fontWeight: 600
     }
-  }, "\uD83D\uDCCB ", joinPreview.list_name), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "wsTasks",
+    size: 16
+  }), joinPreview.list_name)), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: "var(--text-light)",
@@ -2401,7 +2447,16 @@ function SharedListsManager({
       fontSize: 13,
       marginTop: 6
     }
-  }, "\u274C ", joinError)))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "mXCircle",
+    size: 14
+  }), joinError))))), /*#__PURE__*/React.createElement("div", {
     style: {
       background: "var(--bg-primary)",
       borderRadius: 12,
@@ -2456,10 +2511,24 @@ function SharedListsManager({
       gap: 10
     }
   }, /*#__PURE__*/React.createElement("span", {
+    title: l.role === "owner" ? "Owner" : "Member",
+    className: l.role === "owner" ? "wsf-title-ico" : undefined,
     style: {
-      fontSize: 20
+      width: 40,
+      height: 40,
+      borderRadius: 10,
+      background: "var(--bg-subtle)",
+      border: "1px solid var(--border)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      flexShrink: 0,
+      color: l.role === "owner" ? undefined : "#2563eb"
     }
-  }, l.role === "owner" ? "📋" : "👥"), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: l.role === "owner" ? "wsTasks" : "mUsers",
+    size: 22
+  })), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1
     }
@@ -2532,9 +2601,13 @@ function SharedListsManager({
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
-      fontSize: 14
+      display: "inline-flex",
+      color: "var(--text-secondary)"
     }
-  }, "\uD83D\uDC64"), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "mUser",
+    size: 16
+  })), /*#__PURE__*/React.createElement("span", {
     style: {
       flex: 1,
       fontSize: 13
@@ -2604,7 +2677,16 @@ function SharedListsManager({
     className: "btn btn-secondary btn-sm",
     onClick: () => handleGenerateLink(l.id),
     disabled: generatingFor === l.id
-  }, generatingFor === l.id ? "..." : "🔗 Generate Invite Link")), generatedLinks[l.id] && /*#__PURE__*/React.createElement("div", {
+  }, generatingFor === l.id ? "..." : /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "mLink",
+    size: 14
+  }), "Generate Invite Link"))), generatedLinks[l.id] && /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 10,
       background: "var(--bg-card)",
@@ -8022,7 +8104,14 @@ const VIEW_GLYPHS = {
   fChat: '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>',
   fPin: '<path d="M12 17v5"/><path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z"/>',
   fTrash: '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
-  fX: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>'
+  fX: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
+  mSettings: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" fill="currentColor" fill-opacity=".22"/><circle cx="12" cy="12" r="3"/>',
+  mLink: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  mXCircle: '<circle cx="12" cy="12" r="10" fill="currentColor" fill-opacity=".22"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+  mUsers: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" fill="currentColor" fill-opacity=".22"/><circle cx="9" cy="7" r="4" fill="currentColor" fill-opacity=".22"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+  mUser: '<circle cx="12" cy="8" r="5" fill="currentColor" fill-opacity=".22"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+  pomoTomato: '<circle cx="12" cy="13.5" r="7.5" fill="currentColor" fill-opacity=".22"/><path d="M12 8V4.5"/><path d="M8.5 6.5 12 8l3.5-1.5"/>',
+  pomoBreak: '<path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" fill="currentColor" fill-opacity=".22"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3"/><path d="M12 2v3"/>'
 };
 function ViewGlyph({
   name,
@@ -8715,14 +8804,17 @@ function TopBarPomodoroChip({
 }) {
   if (!focusTask) return null;
   return React.createElement("div", {
-    className: `topbar-pomo-chip${timer.isRunning ? " is-running" : " is-paused"}`,
+    className: `topbar-pomo-chip${timer.isRunning ? " is-running" : " is-paused"}${timer.isBreak ? " is-break" : ""}`,
     onClick: onNavigateToday,
     role: "button",
     tabIndex: 0,
     title: `Fokus: ${focusTask.title} (${timer.timeDisplay}) — Klik untuk buka Fokus Hari Ini`
   }, React.createElement("span", {
     className: "topbar-pomo-icon"
-  }, timer.isBreak ? "☕" : "🍅"), React.createElement("span", {
+  }, React.createElement(ViewGlyph, {
+    name: timer.isBreak ? "pomoBreak" : "pomoTomato",
+    size: 14
+  })), React.createElement("span", {
     className: "topbar-pomo-time"
   }, timer.timeDisplay), React.createElement("span", {
     className: "topbar-pomo-task"
@@ -22563,7 +22655,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v432-workspace-files-icons"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v433-manage-workspace-icons"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -38019,7 +38111,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v432-workspace-files-icons";
+    window.__SW_VERSION = "taskflow-v433-manage-workspace-icons";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

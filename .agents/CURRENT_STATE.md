@@ -12,6 +12,12 @@
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
 
+## 🟠 Ikon gaya Alurik di Kelola Workspace + chip Pomodoro mini — `claude/manage-workspace-icons` — 2026-10-20 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+- **Status:** frontend saja. SW **v433** `taskflow-v433-manage-workspace-icons`, `app.css?v=341`. Setelah deploy: restart `taskflow-web`.
+- **Isi:** `SharedListsManager`: ⚙️ 🔗 ❌ 📋 👥 👤 diganti glyph `VIEW_GLYPHS` (`mSettings`, `mLink`, `mXCircle`, `wsTasks`, `mUsers`, `mUser`); ikon baris workspace dalam ubin 40×40 (owner lime, member biru). `TopBarPomodoroChip`: 🍅/☕ diganti `pomoTomato` (merah `--pomodoro`) / `pomoBreak` (hijau `--break`, kelas `is-break`). Toast tidak diubah.
+- **Verifikasi:** pytest 816, JS 2179/2180 (pra-ada `draw_local_reactive`), E2E `temporary_files/e2e_tasklist_view_icons.py` 106/106 terang + gelap. Review: siap merge.
+- **Sisa:** kartu task masih menampilkan "🍅" di samping jumlah pomodoro (`ftask-count is-pomo`) — di luar cakupan PR ini.
+
 ## 🟠 Ikon gaya Alurik di tampilan Berkas Workspace — `claude/workspace-files-icons` — 2026-10-20 (Claude) — DI-MERGE (#60, ff0822d) 19:53 WIB, DEPLOY WORKFLOW SUKSES; TUNGGU RESTART `taskflow-web`
 - **Status:** frontend saja. SW **v432** `taskflow-v432-workspace-files-icons` (v431 = PR #59, sudah di-merge), `app.css?v=340`. Setelah deploy: restart `taskflow-web`.
 - **Isi:** semua emoji UI di `WorkspaceFilesView` (judul, cari, chip filter, kartu berkas, kosong/tanpa hasil, asal berkas, tombol aksi) diganti glyph inline `VIEW_GLYPHS` (`fFolder`, `fPdf`, `fSheet`, `fImage`, `fFile`, `fSearch`, `fUpload`, `fDownload`, `fEye`, `fChat`, `fPin`, `fTrash`, `fX`). Ikon kartu dalam ubin 40×40 berwarna per kategori. Teks toast dan isi pesan chat `📎` tidak diubah.

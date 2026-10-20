@@ -385,6 +385,106 @@ def run_files_view(browser, base, user, theme, ws_name, populated):
         ctx.close()
 
 
+EMOJI_MANAGE = "⚙🔗❌📋👥👤☕🍅"
+
+
+def nav_to(p, label):
+    link = p.locator(".sidebar-link").filter(has_text=label).first
+    if not link.is_visible():
+        p.locator("button[aria-label='Tampilkan semua menu']").first.click()
+    link.click()
+
+
+def run_manage_page(browser, base, user, theme):
+    tag = "terang" if theme == "light" else "gelap"
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        nav_to(p, "Kelola Workspace")
+        h2 = p.locator("h2").filter(has_text="Kelola Workspace")
+        h2.wait_for(state="visible", timeout=15000)
+        page_el = h2.locator("xpath=..")
+        page_el.locator("text=Tim Beta").first.wait_for(state="visible", timeout=10000)
+        text = page_el.inner_text()
+        bad = [c for c in EMOJI_MANAGE if c in text]
+        check("[%s] 14a tanpa emoji di halaman Kelola Workspace" % tag, not bad, repr(bad))
+        check("[%s] 14b judul: wsf-title-ico svg 22px" % tag, h2.locator(".wsf-title-ico svg[width='22']").count() == 1)
+        check("[%s] 14c header Gabung: svg 16px" % tag, page_el.locator("div", has_text="Gabung ke Workspace Orang Lain").locator("svg[width='16']").count() >= 1)
+        tiles = page_el.locator("span[title='Owner'], span[title='Member']")
+        check("[%s] 14d tile workspace 40px: 1 Owner + 1 Member, tiap tile bersvg 22px" % tag,
+              page_el.locator("span[title='Owner']").count() == 1 and page_el.locator("span[title='Member']").count() == 1
+              and tiles.locator("svg[width='22']").count() == 2)
+        sizes = tiles.evaluate_all("els => els.map(e => [e.offsetWidth, e.offsetHeight])")
+        check("[%s] 14e ukuran tile 40x40" % tag, sizes and all(s == [40, 40] for s in sizes), repr(sizes))
+        colors = tiles.evaluate_all("els => els.map(e => getComputedStyle(e).color)")
+        check("[%s] 14f warna tile Owner != Member" % tag, len(set(colors)) == 2, repr(colors))
+        p.mouse.move(5, 5)
+        shot_page(p, "%s_14_kelola_daftar.png" % tag)
+        # Gabung: kode salah -> pesan error bersvg
+        page_el.locator("button", has_text="Masukkan Kode").click()
+        page_el.locator("input").first.fill("KODE-SALAH")
+        page_el.locator("button", has_text="Cek").click()
+        err = page_el.locator("div", has_text="Kode tidak valid").last
+        err.wait_for(state="visible", timeout=10000)
+        check("[%s] 14g error gabung: svg 14px, tanpa emoji" % tag,
+              page_el.locator("svg[width='14']").count() >= 1 and "❌" not in page_el.inner_text())
+        shot_page(p, "%s_14_kelola_gabung_error.png" % tag)
+        page_el.locator("button", has_text="Tutup").first.click()
+        # Expand workspace milik sendiri: anggota + tombol undang
+        btn_link = page_el.locator("button", has_text="Generate Invite Link")
+        for i in range(page_el.get_by_role("button", name="Kelola", exact=True).count()):
+            page_el.get_by_role("button", name="Kelola", exact=True).nth(i).click()  # urutan baris tidak dijamin
+            p.wait_for_timeout(300)
+            if btn_link.count():
+                break
+            page_el.get_by_role("button", name="Tutup", exact=True).first.click()
+        btn_link.wait_for(state="visible", timeout=10000)
+        check("[%s] 14h tombol Generate Invite Link bersvg 14px" % tag, btn_link.locator("svg[width='14']").count() == 1)
+        check("[%s] 14i baris anggota: svg 16px (mUser)" % tag, page_el.locator("svg[width='16']").count() >= 2)
+        text = page_el.inner_text()
+        check("[%s] 14j tanpa emoji setelah expand" % tag, not [c for c in EMOJI_MANAGE if c in text])
+        p.mouse.move(5, 5)
+        shot_page(p, "%s_14_kelola_expand.png" % tag)
+        page_el.screenshot(path=os.path.join(SHOTS, "%s_14_kelola_expand_view.png" % tag))
+    finally:
+        ctx.close()
+
+
+def run_pomo_chip(browser, base, user, theme):
+    tag = "terang" if theme == "light" else "gelap"
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        nav_to(p, "Fokus Hari Ini")
+        p.locator(".ftask-focus-btn").first.wait_for(state="visible", timeout=15000)
+        p.locator(".ftask-focus-btn").first.click()
+        nav_to(p, "Semua Task")
+        chip = p.locator(".topbar-pomo-chip:visible").first
+        chip.wait_for(state="visible", timeout=10000)
+        p.mouse.move(5, 5)
+        icon = chip.locator(".topbar-pomo-icon")
+        check("[%s] 15a chip fokus: svg 14px, tanpa emoji, tanpa is-break" % tag,
+              icon.locator("svg[width='14']").count() == 1 and not [c for c in "☕🍅" if c in chip.inner_text()]
+              and "is-break" not in (chip.get_attribute("class") or ""))
+        col = icon.evaluate("e => getComputedStyle(e).color")
+        check("[%s] 15b warna ikon fokus = --pomodoro (#ef4444)" % tag, col == "rgb(239, 68, 68)", col)
+        shot_el(p, chip, "%s_15_chip_fokus.png" % tag)
+        shot_page(p, "%s_15_chip_fokus_halaman.png" % tag)
+        # mode istirahat dari halaman Fokus Hari Ini
+        nav_to(p, "Fokus Hari Ini")
+        p.locator(".pomo-mode.is-break:visible").first.click()
+        nav_to(p, "Semua Task")
+        chip = p.locator(".topbar-pomo-chip:visible").first
+        chip.wait_for(state="visible", timeout=10000)
+        p.mouse.move(5, 5)
+        icon = chip.locator(".topbar-pomo-icon")
+        col = icon.evaluate("e => getComputedStyle(e).color")
+        check("[%s] 15c chip istirahat: is-break, svg 14px, warna --break (#22c55e)" % tag,
+              "is-break" in (chip.get_attribute("class") or "") and icon.locator("svg[width='14']").count() == 1
+              and col == "rgb(34, 197, 94)", col)
+        shot_el(p, chip, "%s_15_chip_istirahat.png" % tag)
+    finally:
+        ctx.close()
+
+
 def main():
     os.makedirs(SHOTS, exist_ok=True)
     for f in os.listdir(SHOTS):
@@ -400,6 +500,16 @@ def main():
         ws_name = "Tim Alfa"
         _, lst = api(base, user, "POST", "/api/lists", json={"name": ws_name})
         list_id = lst.get("id") or lst.get("list", {}).get("id")
+        # Kelola Workspace: tina owner "Tim Alfa" (+ budi anggota) dan anggota "Tim Beta" milik budi
+        budi = register(base, "budi")
+        api(base, budi, "POST", "/api/lists", json={"name": "Tim Beta"})
+        _, lb = api(base, budi, "GET", "/api/lists")
+        beta = [x for x in (lb if isinstance(lb, list) else lb.get("lists", [])) if x.get("name") == "Tim Beta"][0]
+        api(base, budi, "POST", "/api/lists/%d/invite" % beta["id"], json={"username": user["username"]})
+        api(base, user, "POST", "/api/lists/%d/invite" % list_id, json={"username": budi["username"]})
+        _, tasks = api(base, user, "GET", "/api/tasks")
+        tl = tasks if isinstance(tasks, list) else tasks.get("tasks", [])
+        api(base, user, "POST", "/api/tasks/%d/focus" % tl[0]["id"])
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for theme in ("light", "dark"):
@@ -413,6 +523,9 @@ def main():
                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             for theme in ("light", "dark"):
                 run_files_view(browser, base, user, theme, ws_name, True)
+            for theme in ("light", "dark"):
+                run_manage_page(browser, base, user, theme)
+                run_pomo_chip(browser, base, user, theme)
             browser.close()
     except Exception as e:
         check("exception", False, "%s: %s" % (type(e).__name__, e))
