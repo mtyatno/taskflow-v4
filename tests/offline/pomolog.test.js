@@ -90,6 +90,47 @@ test("ackPushed on a locally deleted (or missing) task still removes the op with
   assert.equal((await outboxAll()).length, 0);
 });
 
+test("ackPushed rejects (does not hang) when the transaction aborts; the op stays queued", async () => {
+  await putTask({ cid: "t1", server_id: 10, pomodoros_done: 2 });
+  await pomolog.enqueue("t1", entry("c1"));
+  const [op] = await outboxAll();
+  const proto = Object.getPrototypeOf((await openDB()).transaction("tasks", "readonly").objectStore("tasks"));
+  const realPut = proto.put;
+  proto.put = function () { this.transaction.abort(); };
+  let outcome;
+  try {
+    outcome = await Promise.race([
+      pomolog.ackPushed(op.qid, "t1", 5).then(() => "resolved", (e) => "rejected:" + (e && e.message)),
+      new Promise((r) => setTimeout(() => r("hang"), 500)),
+    ]);
+  } finally {
+    proto.put = realPut;
+  }
+  assert.match(outcome, /^rejected:/);
+  assert.equal((await outboxAll()).length, 1, "op tetap antre setelah abort");
+  assert.equal((await getTask("t1")).pomodoros_done, 2);
+});
+
+test("ackPushed rejects on an abort event alone (no bubbling request error)", async () => {
+  const dbmod = require("../../static/offline/db.js");
+  const realOpen = dbmod.openDB;
+  const fakeTx = {
+    objectStore: () => ({ get: () => ({}), put: () => {}, delete: () => {} }),
+    error: null,
+  };
+  dbmod.openDB = () => Promise.resolve({ transaction: () => { setTimeout(() => fakeTx.onabort && fakeTx.onabort(), 10); return fakeTx; } });
+  let outcome;
+  try {
+    outcome = await Promise.race([
+      pomolog.ackPushed(1, "t1", 5).then(() => "resolved", (e) => "rejected:" + (e && e.message)),
+      new Promise((r) => setTimeout(() => r("hang"), 300)),
+    ]);
+  } finally {
+    dbmod.openDB = realOpen;
+  }
+  assert.equal(outcome, "rejected:aborted");
+});
+
 test("index.html loads pomolog.js right after pomologic.js; sw.js caches it", () => {
   const html = fs.readFileSync(path.join(__dirname, "../../static/index.html"), "utf8");
   const a = html.indexOf('<script src="/static/offline/pomologic.js"></script>');

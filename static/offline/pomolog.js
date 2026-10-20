@@ -81,6 +81,8 @@
       tx.objectStore("_outbox").delete(qid);
       tx.oncomplete = () => resolve();
       tx.onerror = () => reject(tx.error);
+      // Abort tanpa request error yang menggelembung (mis. kuota) tidak memicu onerror → jangan menggantung.
+      tx.onabort = () => reject(tx.error || new Error("aborted"));
     }));
   }
 
