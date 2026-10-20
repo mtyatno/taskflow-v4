@@ -3698,3 +3698,6 @@
 
 ## 2026-10-20 23:45 WIB — Claude — merge main (#64) ke kelola-workspace-fase0, SW v437
 - `main` maju (#64 Target 🍅, SW v436 / `app.css?v=344`, ADR-021). Main di-merge ke branch; konflik hanya string versi + `.agents` (kedua sisi dipertahankan). SW naik ke **v437** `taskflow-v437-kelola-workspace-fase0`, `app.css?v=345`. pytest 850; JS 2265/2266 (pra-ada `draw_local_reactive`); inline OK; E2E kelola workspace 63/63, focus target 41/41, focus page 35/35.
+## 2026-10-20 23:27 WIB — Claude — merge Fokus Hari Ini PR B (#64)
+- Bapak: "merge". #64 di-merge (571ff1a); CI Tests hijau. SW v436 / `app.css?v=344`, ADR-021.
+- **Berikutnya (di server, oleh Bapak):** ada migrasi — `sudo systemctl restart taskflow-web`, lalu `sudo systemctl restart taskflow` (satu per satu). Draft #63 (Kelola Workspace, v435/ADR-020) kini akan konflik kecil di versi + `.agents` saat di-merge. Berikutnya: plan PR C (Overtime).
