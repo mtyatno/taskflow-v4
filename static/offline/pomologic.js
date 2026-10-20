@@ -110,7 +110,7 @@
       const sec = overtimeSeconds({ accumSec: saved.otAccumSec || 0, runStartedAt: saved.otRunStartedAt ?? null, now: ctx.now });
       const entry = overtimeLogEntry({
         sec, workStartedAt: start, userId: ctx.userId,
-        logDate: saved.date, endedAt: new Date(ctx.now).toISOString()
+        logDate: ctx.toLocalISO(ctx.now), endedAt: new Date(ctx.now).toISOString()
       });
       return entry ? [{ taskId, entry }] : [];
     }

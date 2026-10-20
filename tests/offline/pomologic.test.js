@@ -89,6 +89,7 @@ test("staleSessionLogs", () => {
   assert.equal(ot[0].entry.pomodoros, 4);
   assert.equal(ot[0].entry.focus_seconds, 7200);
   assert.equal(ot[0].entry.client_id, "pomo-7-5-o");
+  assert.equal(ot[0].entry.log_date, "2026-10-20");
   assert.deepEqual(pl.staleSessionLogs({ ...base, phase: "awaiting", isRunning: false }, ctx), []);
   assert.deepEqual(pl.staleSessionLogs({ ...base, date: "2026-10-20", phase: "overtime", otAccumSec: 900 }, ctx), []);
   assert.deepEqual(pl.staleSessionLogs({ mode: "work", phase: "overtime", otAccumSec: 900, date: "2026-10-19" }, ctx), []);
