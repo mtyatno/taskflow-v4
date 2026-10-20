@@ -16,6 +16,8 @@
   const TFtagrepo = isNode ? require("./tagrepo.js") : root.TF.tagrepo;
   // dimuat malas (siklus: projectcache → taskquery → taskrepo)
   const TFprojects = () => (isNode ? require("./projectcache.js") : (root.TF && root.TF.projectcache));
+  // Kanban tahap: contextcache juga dimuat malas (sama seperti projectcache).
+  const TFcontexts = () => (isNode ? require("./contextcache.js") : (root.TF && root.TF.contextcache));
 
   // ASCII-only lowercase (SQLite NOCASE), sama dengan projectcache.nocaseKey (tanpa require: siklus).
   function nocaseKey(s) {
@@ -30,6 +32,16 @@
     const pc = TFprojects();
     if (!pc || !pc.idFor) return Promise.resolve(null);
     return pc.idFor(listId, project).catch(() => null);
+  }
+
+  // Kanban tahap: context_id eksplisit (termasuk null / cid pending) menang; selain itu id tahap bernama sama
+  // (NOCASE) di scope task dari cache (server + pending), atau null. Cache tak tersedia/gagal dibaca → null.
+  function resolveContextId(listId, context, explicit) {
+    if (explicit !== undefined) return Promise.resolve(explicit != null ? explicit : null);
+    if (context == null || context === "") return Promise.resolve(null);
+    const cc = TFcontexts();
+    if (!cc || !cc.allItems || !cc.findId) return Promise.resolve(null);
+    return cc.allItems().then((items) => cc.findId(items, listId, context)).catch(() => null);
   }
 
   // today (YYYY-MM-DD) + 90 days, UTC-stable.
@@ -112,7 +124,10 @@
     const deadline = input.deadline || null;
     const rc = normRecurrence(input.recurrence_type, input.recurrence_days);
     const listId = input.list_id != null ? input.list_id : null;
-    return resolveProjectId(listId, input.project, input.project_id).then((projectId) => {
+    return Promise.all([
+      resolveProjectId(listId, input.project, input.project_id),
+      resolveContextId(listId, input.context, input.context_id),
+    ]).then(([projectId, contextId]) => {
       const rec = {
         cid: TFids.newCid(),
         server_id: null,
@@ -125,6 +140,8 @@
         project_id: projectId,
         project_ref_name: projectId != null ? (input.project != null ? input.project : "") : null,
         context: input.context != null ? input.context : "",
+        context_id: contextId,
+        context_ref_name: contextId != null ? (input.context != null ? input.context : "") : null,
         deadline: deadline,
         waiting_for: input.waiting_for != null ? input.waiting_for : "",
         list_cid: input.list_cid != null ? input.list_cid : null,
@@ -161,7 +178,11 @@
     const needLookup = patch.project != null && !("project_id" in patch);
     const pc = needLookup ? TFprojects() : null;
     const itemsP = (pc && pc.allItems) ? pc.allItems().catch(() => []) : Promise.resolve([]);
-    return Promise.all([getRaw(cid), itemsP]).then(([rec, projectItems]) => {
+    // Kanban tahap: sama untuk `context` (tanpa `context_id`) → id dari cache context (server + pending).
+    const needCtxLookup = patch.context != null && !("context_id" in patch);
+    const cc = needCtxLookup ? TFcontexts() : null;
+    const ctxItemsP = (cc && cc.allItems) ? cc.allItems().catch(() => []) : Promise.resolve([]);
+    return Promise.all([getRaw(cid), itemsP, ctxItemsP]).then(([rec, projectItems, contextItems]) => {
       if (!rec || rec.deleted) {
         return Promise.reject(new Error("Task not found"));
       }
@@ -186,7 +207,17 @@
         next.project_id = pc ? pc.findId(projectItems, next.list_id, patch.project) : null;
         next.project_ref_name = next.project_id != null ? next.project : null;
       }
+      const sameContextText = patch.context != null && rec.context_id != null
+        && nocaseKey(patch.context) === nocaseKey(rec.context);
       if (patch.context != null) next.context = patch.context;
+      if ("context_id" in patch) {
+        next.context_id = patch.context_id != null ? patch.context_id : null;
+        next.context_ref_name = next.context_id != null ? (next.context != null ? next.context : "") : null;
+      } else if (needCtxLookup && !sameContextText) {
+        const found = cc && cc.findId ? cc.findId(contextItems, next.list_id, patch.context) : null;
+        next.context_id = found != null ? found : null;
+        next.context_ref_name = next.context_id != null ? next.context : null;
+      }
       if (patch.waiting_for != null) next.waiting_for = patch.waiting_for;
       if (patch.gtd_status != null) {
         next.gtd_status = patch.gtd_status;

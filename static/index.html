@@ -1037,6 +1037,8 @@ function sync() {
   const pending = runSyncExclusive(() => { __syncPending = null; return window.TF.syncpull.pullAndReconcile(__syncRawFetch).then((res) => {
       // PR 5: pull task sukses → cache project sudah disegarkan (syncpull) → dropdown & sidebar memuat ulang
       window.dispatchEvent(new CustomEvent("tf:projects-changed", { detail: { source: "sync" } }));
+      // Kanban tahap: cache context juga disegarkan di pullAndReconcile → papan & dropdown memuat ulang
+      window.dispatchEvent(new CustomEvent("tf:contexts-changed", { detail: { source: "sync" } }));
       return res;
     }).catch(stepFailed)
     // T8: penanda occurrence task berulang (jendela ±60 hari) — setelah tasks supaya idmap task sudah terisi
