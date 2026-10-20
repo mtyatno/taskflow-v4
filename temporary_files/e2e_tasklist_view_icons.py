@@ -9,6 +9,9 @@ Langkah (satu akun, beberapa task via API; halaman "Semua Task"):
   6  halaman workspace (list dibuat via API): tab Tasks / Files memakai svg duotone (bukan emoji), aria-pressed
      mengikuti tab aktif; screenshot .workspace-nav-tabs dengan Tasks aktif dan Files aktif, terang + gelap
 
+  7  tampilan Files workspace: tanpa emoji (innerText), glyph svg di header/tombol/chip/kartu; screenshot kosong,
+     berisi (PDF + PNG + xlsx) dan tanpa hasil pencarian, terang + gelap
+
 Server lokal dijalankan sendiri (uvicorn webapp:app, DB sementara; Python server = $E2E_PYTHON, atau venv repo). Screenshot:
 temporary_files/e2e_tasklist_view_icons/. Keluar non-zero bila ada langkah gagal.
 
@@ -309,6 +312,79 @@ def run_workspace_tabs(browser, base, user, theme, ws_name):
         ctx.close()
 
 
+EMOJI = "📁📄📊🖼🔍➕👁⬇💬🗑📌✕"
+# PNG 1x1 valid, PDF minimal, dan xlsx kosong (zip valid) cukup untuk kartu berkas
+PNG = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d49444154789c6360f8cfc0f01f0005000201a52ff0a40000000049454e44ae426082")
+PDF = b"%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 200 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n"
+
+
+def make_xlsx():
+    import io
+    import zipfile
+    b = io.BytesIO()
+    with zipfile.ZipFile(b, "w") as z:
+        z.writestr("[Content_Types].xml", "<Types xmlns='http://schemas.openxmlformats.org/package/2006/content-types'/>")
+    return b.getvalue()
+
+
+def upload(base, user, list_id, name, data, mime):
+    r = requests.post("%s/api/lists/%s/files" % (base, list_id), headers={"Authorization": "Bearer " + user["token"]},
+                      files={"file": (name, data, mime)}, data={"source": "direct"}, timeout=15)
+    r.raise_for_status()
+
+
+def run_files_view(browser, base, user, theme, ws_name, populated):
+    tag = "terang" if theme == "light" else "gelap"
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        if not p.locator(".sidebar-link").first.is_visible():
+            p.locator("button[aria-label='Tampilkan semua menu']").first.click()
+        p.locator(".sidebar-link").filter(has=p.locator("span", has_text=ws_name)).first.click()
+        tabs = p.locator(".workspace-nav-tabs")
+        tabs.wait_for(state="visible", timeout=15000)
+        tabs.locator("button").filter(has_text="Files").first.click()
+        view = p.locator(".workspace-files-view")
+        view.wait_for(state="visible", timeout=15000)
+        p.wait_for_timeout(600)
+        st = "isi" if populated else "kosong"
+        if populated:
+            p.locator(".workspace-file-card").first.wait_for(state="visible", timeout=10000)
+        text = view.inner_text()
+        bad = [c for c in EMOJI if c in text]
+        check("[%s/%s] 7a tidak ada emoji di Files view" % (tag, st), not bad, repr(bad))
+        check("[%s/%s] 7b header: svg 22px (wsf-title-ico) + tombol Unggah bersvg" % (tag, st),
+              view.locator(".wsf-title-ico svg[width='22']").count() == 1
+              and view.locator("button", has_text="Unggah Berkas").first.locator("svg").count() == 1)
+        check("[%s/%s] 7c search: svg 16px + placeholder tanpa emoji" % (tag, st),
+              view.locator("input.chat-input").locator("xpath=..").locator("svg[width='16']").count() == 1
+              and view.locator("input.chat-input").get_attribute("placeholder") == "Cari nama berkas...")
+        check("[%s/%s] 7d 4 chip filter bersvg 14px" % (tag, st),
+              view.evaluate("v => [...v.querySelectorAll('button.btn-xs')].filter(b => !b.closest('.workspace-file-card') && b.querySelector(\"svg[width='14']\")).length") == 4)
+        if populated:
+            check("[%s/%s] 7e 3 kartu, tiap kartu: tile 40px + svg 22px" % (tag, st),
+                  view.locator(".workspace-file-card").count() == 3
+                  and view.locator(".workspace-file-card svg[width='22']").count() == 3)
+            cols = view.locator(".workspace-file-card").evaluate_all(
+                "els => els.map(e => getComputedStyle(e.querySelector('svg[width=\"22\"]').parentElement).color)")
+            check("[%s/%s] 7f warna tile berbeda per kategori" % (tag, st), len(set(cols)) == 3, repr(cols))
+            check("[%s/%s] 7g tombol aksi bersvg (Pratinjau/Unduh/Bagikan/Hapus)" % (tag, st),
+                  view.locator(".workspace-file-card").first.locator("a svg, button svg").count() >= 3)
+        else:
+            check("[%s/%s] 7e state kosong: lingkaran 64px berisi svg 30px" % (tag, st),
+                  view.locator("div[style*='width: 64px'] svg[width='30']").count() == 1)
+        shot_page(p, "%s_13_files_%s.png" % (tag, st))
+        view.screenshot(path=os.path.join(SHOTS, "%s_13_files_%s_view.png" % (tag, st)))
+        if populated:
+            view.locator("input.chat-input").fill("zzz-tidak-ada")
+            p.wait_for_timeout(300)
+            text = view.inner_text()
+            check("[%s] 7h tanpa hasil: lingkaran 56px + svg 26px, tanpa emoji" % tag,
+                  view.locator("div[style*='width: 56px'] svg[width='26']").count() == 1 and not [c for c in EMOJI if c in text])
+            shot_page(p, "%s_13_files_tanpa_hasil.png" % tag)
+    finally:
+        ctx.close()
+
+
 def main():
     os.makedirs(SHOTS, exist_ok=True)
     for f in os.listdir(SHOTS):
@@ -322,12 +398,21 @@ def main():
         for i, pr in enumerate(["P1", "P2", "P3", "P1"], 1):
             api(base, user, "POST", "/api/tasks", json={"title": "Task contoh %d" % i, "priority": pr, "gtd_status": "next"})
         ws_name = "Tim Alfa"
-        api(base, user, "POST", "/api/lists", json={"name": ws_name})
+        _, lst = api(base, user, "POST", "/api/lists", json={"name": ws_name})
+        list_id = lst.get("id") or lst.get("list", {}).get("id")
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for theme in ("light", "dark"):
                 run_theme(browser, base, user, theme)
                 run_workspace_tabs(browser, base, user, theme, ws_name)
+            for theme in ("light", "dark"):
+                run_files_view(browser, base, user, theme, ws_name, False)
+            upload(base, user, list_id, "Laporan Q3.pdf", PDF, "application/pdf")
+            upload(base, user, list_id, "foto-rapat.png", PNG, "image/png")
+            upload(base, user, list_id, "anggaran.xlsx", make_xlsx(),
+                   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            for theme in ("light", "dark"):
+                run_files_view(browser, base, user, theme, ws_name, True)
             browser.close()
     except Exception as e:
         check("exception", False, "%s: %s" % (type(e).__name__, e))
