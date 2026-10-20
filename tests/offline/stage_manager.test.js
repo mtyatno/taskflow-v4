@@ -28,7 +28,7 @@ function loadHelpers(env) {
   const api = e.api || {};
   const CE = e.CustomEvent || function CE(type, init) { this.type = type; this.detail = init && init.detail; };
   return new Function("window", "navigator", "isOfflineErr", "api", "CustomEvent",
-    `${PROJECT_COLOR_SRC()}\n${HELPERS_SRC()}; return { stageManagerUrl, stageMenuActions, stageActionDisabled, stageDeleteConfirmText, stageErrorText, stageAfterChange, stageRun, STAGE_OFFLINE_TEXT };`)(
+    `${PROJECT_COLOR_SRC()}\n${HELPERS_SRC()}; return { stageManagerUrl, stageMenuActions, stageActionDisabled, stageDeleteConfirmText, stageErrorText, stageAfterChange, stageRun, stagePatchChangesTasks, STAGE_OFFLINE_TEXT };`)(
     win, nav, isOfflineErr, api, CE);
 }
 
@@ -237,4 +237,55 @@ test("contextKeyOrder (urutan posisi mode daftar): nama item dulu (pribadi per p
   const keys = ["Zeta", "doing", "Alpha", "Todo", "WS"];
   assert.deepEqual(fn(keys, items), ["Todo", "doing", "WS", "Alpha", "Zeta"]);
   assert.deepEqual(fn(["b", "A"], []), ["A", "b"]);
+});
+
+test("stagePatchChangesTasks: hanya bila body memuat name", () => {
+  const { stagePatchChangesTasks } = loadHelpers();
+  assert.equal(stagePatchChangesTasks({ name: "x" }), true);
+  assert.equal(stagePatchChangesTasks({ name: "x", color: "#aaaaaa" }), true);
+  assert.equal(stagePatchChangesTasks({ color: "#aaaaaa" }), false);
+  assert.equal(stagePatchChangesTasks({ archived: true }), false);
+  assert.equal(stagePatchChangesTasks(null), false);
+});
+
+test("sumber: modal dan papan memakai stagePatchChangesTasks; input nama maxLength 50; contexts dimuat ulang", () => {
+  const modal = sliceFn("function StageManagerModal(", "\nfunction ");
+  const tlv = sliceFn("function TaskListView(", "\nfunction ");
+  assert.match(modal, /"Tahap disimpan", stagePatchChangesTasks\(body\)/);
+  assert.match(tlv, /"Tahap disimpan", stagePatchChangesTasks\(body\)/);
+  assert.equal((modal.match(/maxLength: 50/g) || []).length, 1);
+  assert.match(sliceFn("function KanbanView(", "\nfunction "), /maxLength: 50/);
+  assert.match(sliceFn("function KanbanColumn(", "\nfunction "), /maxLength: 50/);
+  const reload = sliceFn("const reloadContextItems = ", "\n    };");
+  assert.match(reload, /api\.get\("\/api\/contexts"\)/);
+  assert.match(reload, /setContexts\(/);
+  assert.match(tlv, /contextKeyOrder\(normalKeys, contextItems, page\)/);
+});
+
+test("stageErrorText: 422 / detail array → batas 50 karakter", () => {
+  const { stageErrorText } = loadHelpers();
+  assert.equal(stageErrorText(Object.assign(new Error("x"), { status: 422, body: { detail: [{ msg: "too long" }] } })), "Nama tahap maksimal 50 karakter");
+  assert.equal(stageErrorText(Object.assign(new Error("x"), { status: 422 })), "Nama tahap maksimal 50 karakter");
+  assert.equal(stageErrorText(Object.assign(new Error("x"), { body: { detail: [{ msg: "m" }] } })), "Nama tahap maksimal 50 karakter");
+});
+
+test("contextKeyOrder: scope halaman — slist_W pakai posisi W; selain itu pribadi dulu, workspace urut numerik", () => {
+  const src = sliceFn("function contextKeyOrder(", "\n}") + "\n}";
+  const ctxcache = require("../../static/offline/contextcache.js");
+  const projcache = require("../../static/offline/projectcache.js");
+  const fn = new Function("window", `${src}; return contextKeyOrder;`)({ TF: { contextcache: ctxcache, projectcache: projcache } });
+  const items = [
+    { id: 1, name: "Todo", list_id: null, position: 5 },
+    { id: 2, name: "Review", list_id: null, position: 6 },
+    { id: 3, name: "Todo", list_id: 10, position: 0 },
+    { id: 4, name: "Deploy", list_id: 10, position: 1 },
+    { id: 5, name: "Review", list_id: 10, position: 2 },
+    { id: 6, name: "Qa", list_id: 9, position: 0 },
+  ];
+  const keys = ["Qa", "Deploy", "Review", "Todo", "Zed"];
+  // bukan halaman workspace: nama ganda mengikuti posisi pribadi (Todo 5, Review 6), lalu ws 9 (Qa), lalu ws 10 (Deploy)
+  assert.deepEqual(fn(keys, items, "next"), ["Todo", "Review", "Qa", "Deploy", "Zed"]);
+  assert.deepEqual(fn(keys, items), ["Todo", "Review", "Qa", "Deploy", "Zed"]);
+  // slist_10: hanya posisi workspace 10; Qa tidak punya tahap di W → alfabet di belakang
+  assert.deepEqual(fn(keys, items, "slist_10"), ["Todo", "Deploy", "Review", "Qa", "Zed"]);
 });

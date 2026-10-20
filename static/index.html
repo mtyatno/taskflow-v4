@@ -3899,6 +3899,10 @@ function stageMenuActions(item, online) {
 function stageActionDisabled(action, online) {
   return !online;
 }
+// Rename mengubah teks context task di server → task perlu ditarik ulang; warna/arsip/urutan tidak.
+function stagePatchChangesTasks(body) {
+  return !!body && typeof body === "object" && "name" in body;
+}
 function stageDeleteConfirmText(item) {
   const n = item && item.task_count != null ? item.task_count : 0;
   return n + " task akan pindah ke Belum ada tahap";
@@ -3909,6 +3913,7 @@ function stageErrorText(err) {
   if (code === "CONTEXT_NAME_TAKEN") return "Nama tahap sudah dipakai";
   if (code === "CONTEXT_ORDER_STALE") return "Urutan tahap sudah berubah, muat ulang";
   if (err && err.status === 404) return "Tahap sudah tidak ada";
+  if (err && (err.status === 422 || Array.isArray(d))) return "Nama tahap maksimal 50 karakter";
   if (isOfflineErr(err)) return STAGE_OFFLINE_TEXT;
   return d && typeof d === "object" && d.message || err && err.message || "Gagal menyimpan";
 }
@@ -4020,7 +4025,7 @@ function StageManagerModal({
       setEdit(null);
       return;
     }
-    run(c, () => api.patch(url(c), body), "Tahap disimpan", false);
+    run(c, () => api.patch(url(c), body), "Tahap disimpan", stagePatchChangesTasks(body));
   };
   const toggleArchive = c => run(c, () => api.patch(url(c), { archived: !c.archived }), c.archived ? "Tahap diaktifkan" : "Tahap diarsipkan", false);
   const remove = c => {
@@ -4049,7 +4054,7 @@ function StageManagerModal({
       return h("div", { key: c.id, style: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, padding: "10px 0", borderBottom: "1px solid var(--border)" } },
         h("input", { type: "color", value: projectColorValid(edit.color) ? edit.color : "#888888", onChange: e => setEdit({ ...edit, color: e.target.value }), "aria-label": "Warna tahap", style: { width: 36, height: 32, padding: 0, border: "none", background: "none", cursor: "pointer" } }),
         h("input", { className: "input", value: edit.color, onChange: e => setEdit({ ...edit, color: e.target.value }), placeholder: "#rrggbb", "aria-label": "Kode warna", maxLength: 7, style: { width: 96 } }),
-        h("input", { className: "input", value: edit.name, onChange: e => setEdit({ ...edit, name: e.target.value }), onKeyDown: e => { if (e.key === "Enter") saveEdit(c); }, "aria-label": "Nama tahap", autoFocus: true, style: { flex: "1 1 140px", minWidth: 0 } }),
+        h("input", { className: "input", value: edit.name, onChange: e => setEdit({ ...edit, name: e.target.value }), onKeyDown: e => { if (e.key === "Enter") saveEdit(c); }, "aria-label": "Nama tahap", maxLength: 50, autoFocus: true, style: { flex: "1 1 140px", minWidth: 0 } }),
         h("button", { type: "button", className: "btn btn-sm btn-primary", disabled: busy, onClick: () => saveEdit(c) }, busy ? "Menyimpan..." : "Simpan"),
         h("button", { type: "button", className: "btn btn-sm btn-secondary", disabled: busy, onClick: () => { setEdit(null); setRowError(null); } }, "Batal"),
         errLine);
@@ -13527,6 +13532,7 @@ function KanbanColumn({
     autoFocus: true,
     value: stageDraft,
     "aria-label": "Nama tahap",
+    maxLength: 50,
     onChange: e => setStageDraft(e.target.value),
     onKeyDown: e => {
       if (e.key === "Enter") {
@@ -13688,6 +13694,7 @@ function KanbanView({
     disabled: addBusy,
     placeholder: "Nama tahap",
     "aria-label": "Nama tahap baru",
+    maxLength: 50,
     onChange: e => setStageName(e.target.value),
     onKeyDown: e => {
       if (e.key === "Enter") {
@@ -14141,11 +14148,21 @@ function GtdInboxWizardModal({
 
 // Urutan kunci context mode daftar: nama tahap (pribadi per posisi, lalu workspace per posisi; aktif sebelum
 // arsip) mengikuti urutan itu; nama yang tidak punya tahap (ad-hoc) menyusul alfabet NOCASE.
-function contextKeyOrder(keys, items) {
+function contextKeyOrder(keys, items, page) {
   const cc = window.TF.contextcache, pc = window.TF.projectcache;
   const sc = i => i.list_id == null || i.list_id === "" ? "" : String(i.list_id);
-  const all = Array.isArray(items) ? items.filter(Boolean) : [];
-  const scopes = Array.from(new Set(all.map(sc))).sort((a, b) => a === b ? 0 : a === "" ? -1 : b === "" ? 1 : a < b ? -1 : 1);
+  const wsOnly = typeof page === "string" && page.startsWith("slist_") ? page.slice(6) : null;
+  let all = Array.isArray(items) ? items.filter(Boolean) : [];
+  if (wsOnly != null) all = all.filter(i => sc(i) === wsOnly);
+  const num = v => /^\d+$/.test(v) ? Number(v) : NaN;
+  const scopes = Array.from(new Set(all.map(sc))).sort((a, b) => {
+    if (a === b) return 0;
+    if (a === "") return -1;
+    if (b === "") return 1;
+    const na = num(a), nb = num(b);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return a < b ? -1 : 1;
+  });
   const ordered = [];
   for (const archived of [false, true]) for (const s of scopes) ordered.push(...cc.sortItems(all.filter(i => sc(i) === s && !!i.archived === archived)));
   const rank = new Map();
@@ -14391,7 +14408,7 @@ function TaskListView({
     const allKeys = Object.keys(map);
     const tanpaKeys = allKeys.filter(k => k.startsWith("(Tanpa"));
     const normalKeys = allKeys.filter(k => !k.startsWith("(Tanpa"));
-    if (groupBy === "priority") normalKeys.sort((a, b) => PRI_ORDER_MAP.indexOf(a) - PRI_ORDER_MAP.indexOf(b));else if (groupBy === "quadrant") normalKeys.sort((a, b) => QUAD_ORDER_MAP.indexOf(a) - QUAD_ORDER_MAP.indexOf(b));else if (groupBy === "context") normalKeys.splice(0, normalKeys.length, ...contextKeyOrder(normalKeys, contextItems));else normalKeys.sort();
+    if (groupBy === "priority") normalKeys.sort((a, b) => PRI_ORDER_MAP.indexOf(a) - PRI_ORDER_MAP.indexOf(b));else if (groupBy === "quadrant") normalKeys.sort((a, b) => QUAD_ORDER_MAP.indexOf(a) - QUAD_ORDER_MAP.indexOf(b));else if (groupBy === "context") normalKeys.splice(0, normalKeys.length, ...contextKeyOrder(normalKeys, contextItems, page));else normalKeys.sort();
     return [...normalKeys, ...tanpaKeys].map(key => ({
       key,
       tasks: map[key]
@@ -14461,14 +14478,16 @@ function TaskListView({
         return Promise.resolve(false);
       }
       if (n === item.name) return Promise.resolve(true);
-      return runStageOp(() => api.patch(stageUrl(item), { name: n }), "Tahap disimpan", false);
+      const body = { name: n };
+      return runStageOp(() => api.patch(stageUrl(item), body), "Tahap disimpan", stagePatchChangesTasks(body));
     },
     color: (item, color) => {
       if (!projectColorValid(color)) {
         stageToast("Warna harus format #rrggbb", "error");
         return Promise.resolve(false);
       }
-      return runStageOp(() => api.patch(stageUrl(item), { color: color }), "Tahap disimpan", false);
+      const body = { color: color };
+      return runStageOp(() => api.patch(stageUrl(item), body), "Tahap disimpan", stagePatchChangesTasks(body));
     },
     move: (item, dir) => {
       const ids = window.TF.kanbanboard.reorderIds(contextItems || [], kanbanScope, item.id, dir);
@@ -34965,6 +34984,10 @@ function App() {
     const reloadContextItems = () => {
       api.get("/api/contexts?format=full&scope=all&include_archived=1").then(r => {
         if (alive && Array.isArray(r)) setContextItems(r);
+      }).catch(() => {});
+      // daftar nama (filter / pilihan context) ikut segar setelah arsip / aktifkan / ganti nama tahap
+      api.get("/api/contexts").then(r => {
+        if (alive && Array.isArray(r)) setContexts(prev => sameStringList(prev, r) ? prev : r);
       }).catch(() => {});
     };
     reloadContextItems();
