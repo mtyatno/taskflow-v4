@@ -3607,3 +3607,13 @@
 - **Changes:** rencana 4 task (introgate.js, sync() penanda + status, Dashboard kartu status, rilis SW v430 + E2E).
 - **Files Touch:** docs/superpowers/plans/2026-10-20-dashboard-welcome-sync-gate.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (menunggu persetujuan rencana)
+## 2026-10-20 15:45 WIB — Claude — tombol Fokus 🎯 (Pomodoro) di tasklist GTD + workspace
+- **Task:** Bapak minta fokus Pomodoro bisa diaktifkan dari task di halaman GTD dan workspace, sama persis dengan kartu "Prioritas Hari Ini" (chip mini di top menu). Brainstorming bounded; pilihan Bapak: tombol hanya di tampilan Normal, task aktif selalu tampil di Fokus Hari Ini.
+- **Changes:** App → `TaskListView` (2 tempat) → `TaskRow` meneruskan `focusTask`/`onStartFocus`; tombol `.dash-focus-btn` di `TaskRow`; `todayTasks` + `todayCount` sidebar menyertakan task aktif; CSS mobile; SW v430, `app.css?v=338`.
+- **Files Touch:** `static/index.html`, `static/app.css`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/tasklist_focus_btn.test.js` (baru) + 14 tes yang menambatkan versi, `temporary_files/e2e_tasklist_focus.py`, `.gitignore`, `.agents/*`
+- **Verifikasi:** JS 2120/2121 (pra-ada `draw_local_reactive`), pytest 816, E2E 39/39. Implementer sonnet + review opus (siap merge; temuan badge sidebar & tinggi mobile sudah diperbaiki).
+- **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy).
+
+## 2026-10-20 15:34 WIB — Claude — merge tombol Fokus 🎯 tasklist (#58)
+- Bapak: "merge". #58 di-merge (5841f5d); CI Tests (PR) sukses, Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek tombol 🎯 di halaman GTD/workspace dan chip Pomodoro di top menu (SW v430).

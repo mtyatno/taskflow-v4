@@ -10,6 +10,12 @@
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
 
+## 🟠 Tombol Fokus 🎯 (Pomodoro) di tasklist GTD + workspace — `claude/tasklist-focus-pomodoro` — 2026-10-20 (Claude) — DI-MERGE (#58, 5841f5d) 15:34 WIB, DEPLOY WORKFLOW SUKSES; TUNGGU RESTART `taskflow-web`
+- **Status:** frontend saja. SW **v430** `taskflow-v430-tasklist-focus`, `app.css?v=338` (main: v429 / 337 setelah #57). Setelah deploy: restart `taskflow-web` (`sw_cache`). Bila `main` memakai v430 lebih dulu, naikkan ke nomor kosong berikutnya.
+- **Isi:** App meneruskan `focusTask` + `handleStartFocus` (handler yang sama dengan kartu "Prioritas Hari Ini" dashboard) ke kedua `TaskListView` (GTD default + workspace `slist_*`) → `TaskRow` (tampilan Normal saja; Compact/Kanban tidak) menampilkan `.dash-focus-btn` 🎯 sebelum ⭐ untuk task belum selesai. Klik → task aktif, Pomodoro mulai, chip `TopBarPomodoroChip` di top bar; klik lagi → lepas + jeda; pindah task → timer tidak di-reset. `TodayFocusView` dan badge Hari Ini di sidebar (`todayCount`, prop `focusTaskId`) selalu menyertakan task fokus aktif (tampilan saja). Tooltip ⭐ diubah "… daftar Fokus Hari Ini". Mobile ≤768px: label disembunyikan, tinggi 22px. Pilihan Bapak: hanya tampilan Normal; task aktif selalu tampil di Fokus Hari Ini.
+- **Verifikasi:** `tests/offline/tasklist_focus_btn.test.js` 9/9; JS 2120/2121 (pra-ada `draw_local_reactive`); pytest 816; E2E `temporary_files/e2e_tasklist_focus.py` 39/39 (terang + gelap + mobile 375px; screenshot lokal di-.gitignore). Review opus: siap merge.
+- **Sisa diketahui (minor):** task offline (`_pending`, id sementara) kehilangan fokus setelah sync mengganti id — sama dengan kartu dashboard yang sudah ada.
+
 ## 🟠 Audio & video di note — PR frontend `claude/note-media-ui` — 2026-10-20 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
 - **Status:** SW **v429** `taskflow-v429-note-media`, `app.css?v=337` (v427 dipakai #55 ikon Tasks, v428 dipakai #56 jeda tab workspace). Backend #51 sudah aktif di produksi. Deploy = file statis saja (tanpa migrasi/endpoint baru); **restart `taskflow-web` disarankan** hanya agar `/api/version` melaporkan v429 (`sw_cache` di `webapp.py`). Bila `main` maju (SW v429 terpakai) sebelum merge, naikkan ke nomor kosong berikutnya.
 - **Merge main (#56 jeda tab workspace) → SW v429** (`taskflow-v429-note-media`, `app.css?v=337`), 2026-10-20 WIB; konflik hanya string versi/log.
