@@ -60,7 +60,8 @@ test("Kontrol Pomodoro: Mulai/Jeda, Stop, Work/Short/Long", () => {
   assert.match(ctrl, /"aria-label": "Stop"/);
   assert.match(indexHtml, /\{ key: "work", label: "Work" \},\s*\{ key: "shortBreak", label: "Short" \},\s*\{ key: "longBreak", label: "Long" \}/);
   const hook = fnSource("usePomodoro");
-  assert.match(hook, /const stop = \(\) => \{\s*setIsRunning\(false\);\s*setTimeLeft\(POMO_DURATIONS\[mode\]\);/);
+  // PR C: awaiting/overtime → Work 25:00 diam; countdown tetap reset ke durasi penuh mode saat ini
+  assert.match(hook, /const stop = \(\) => \{\s*if \(phase !== "countdown"\) \{[\s\S]*?setMode\("work"\);\s*setTimeLeft\(POMO_DURATIONS\.work\);[\s\S]*?\}\s*setIsRunning\(false\);\s*setTimeLeft\(POMO_DURATIONS\[mode\]\);/);
 });
 
 test("Daftar task: detail hanya untuk task yang dibuka, sebagai tab", () => {
@@ -178,6 +179,7 @@ test("usePomodoro: start(explicitTask) menerima explicit task dan memulai timer 
   let hookIdx = 0;
   const fakeUseState = (init) => {
     const idx = hookIdx++;
+    if (!(idx in states)) states[idx] = typeof init === "function" ? init() : init;
     const setVal = (updater) => {
       states[idx] = typeof updater === "function" ? updater(states[idx]) : updater;
     };

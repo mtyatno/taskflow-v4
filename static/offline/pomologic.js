@@ -99,6 +99,13 @@
     };
   }
 
+  // Tanggal lokal YYYY-MM-DD dari epoch ms (pasangan tasklogic.todayLocalISO untuk waktu tertentu).
+  function localDateISO(ms) {
+    const d = new Date(ms);
+    const p2 = (n) => (n < 10 ? "0" : "") + n;
+    return d.getFullYear() + "-" + p2(d.getMonth() + 1) + "-" + p2(d.getDate());
+  }
+
   // Log untuk sesi yang tertinggal di tf_pomo_state hari sebelumnya.
   function staleSessionLogs(saved, ctx) {
     if (!saved || saved.date === ctx.todayISO) return [];
@@ -135,5 +142,5 @@
   return { POMO_SECONDS, EST_MIN, EST_MAX, clampEstimate, nextEstimate, estimateHoursLabel,
     headerSummary, sessionClientId, isOverEstimate,
     OVERTIME_CAP, OVERTIME_MIN_LOG, overtimeSeconds, overtimePomodoros, formatOvertime,
-    overtimeProgress, overtimeClientId, breakAfter, overtimeLogEntry, staleSessionLogs };
+    overtimeProgress, overtimeClientId, breakAfter, overtimeLogEntry, staleSessionLogs, localDateISO };
 });
