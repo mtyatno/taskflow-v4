@@ -156,8 +156,9 @@
   // PR 5: project/project_id ikut — backfill server menautkan project_id (dan mengkanonkan nama) tanpa
   // menaikkan updated_at. Kanban tahap: context/context_id ikut (server melepas/mengganti tahap tanpa bump).
   const TASK_DERIVED = ["quadrant", "recurrence_end_date", "recurrence_notif_level", "completed_at", "project", "project_id",
-    "context", "context_id"];
-  const ONLY_IF_SENT = ["project", "project_id", "context", "context_id"];
+    "context", "context_id", "pomodoros_done"];
+  // pomodoros_done: milik server (tanpa bump updated_at) → diadopsi tiap pull bila server mengirimnya.
+  const ONLY_IF_SENT = ["project", "project_id", "context", "context_id", "pomodoros_done"];
   // context: null dan "" setara (record lama/lokal memakai "", server bisa null) → tanpa tulis ulang massal.
   function derivedVal(k, v) { return v != null ? v : (k === "context" ? "" : null); }
   function derivedDiffers(k, s, local) {

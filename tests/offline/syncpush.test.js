@@ -732,3 +732,16 @@ test("a task created then deleted offline is never POSTed (create op dropped, de
   assert.equal(tr.calls.length, 0);
   assert.equal(r.remaining, 0);
 });
+
+test("task payloads carry estimated_pomodoros only when set, never pomodoros_done", () => {
+  const rec = task({ cid: "a", estimated_pomodoros: 4, pomodoros_done: 9 });
+  for (const p of [taskToCreatePayload(rec, []), taskToUpdatePayload(rec, [])]) {
+    assert.equal(p.estimated_pomodoros, 4);
+    assert.equal("pomodoros_done" in p, false);
+  }
+  const old = task({ cid: "b", pomodoros_done: 2 });
+  for (const p of [taskToCreatePayload(old, []), taskToUpdatePayload(old, [])]) {
+    assert.equal("estimated_pomodoros" in p, false);
+    assert.equal("pomodoros_done" in p, false);
+  }
+});

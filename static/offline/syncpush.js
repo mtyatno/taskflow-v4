@@ -89,8 +89,14 @@
     }).then((saved) => saved || kept);
   }
 
+  // estimated_pomodoros hanya bila record punya nilai (record lama tidak menimpa server); pomodoros_done milik server, tak pernah dikirim.
+  function withEstimate(payload, record) {
+    if (record.estimated_pomodoros != null) payload.estimated_pomodoros = record.estimated_pomodoros;
+    return payload;
+  }
+
   function taskToCreatePayload(record, tagNames, parentServerId, projects, contexts) {
-    return withContextId(withProjectId({
+    return withContextId(withProjectId(withEstimate({
       title: titleWithTags(record, tagNames),
       description: record.description != null ? record.description : "",
       priority: record.priority || "P3",
@@ -105,7 +111,7 @@
       recurrence_type: record.recurrence_type != null ? record.recurrence_type : null,
       recurrence_days: record.recurrence_days ? JSON.parse(record.recurrence_days) : null,
       client_id: clientIdOf(record),
-    }, record, projects), record, contexts);
+    }, record), record, projects), record, contexts);
   }
 
   function taskToUpdatePayload(record, tagNames, projects, contexts) {
@@ -128,7 +134,7 @@
     };
     // T12: "Perpanjang" hanya berlaku di server lewat flag; flag dibersihkan setelah PUT sukses (CAS)
     if (record.recurrence_renew_pending) p.recurrence_renew = true;
-    return withContextId(withProjectId(p, record, projects), record, contexts);
+    return withContextId(withProjectId(withEstimate(p, record), record, projects), record, contexts);
   }
 
   function markPayload(record) {
