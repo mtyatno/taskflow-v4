@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v426-kanban-stages", () => {
-    assert.match(swJs, /taskflow-v426-kanban-stages/);
+  await t.test("sw.js bumped to taskflow-v427-tasklist-view-icons", () => {
+    assert.match(swJs, /taskflow-v427-tasklist-view-icons/);
   });
 });

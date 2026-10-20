@@ -3557,3 +3557,8 @@
 - SDD 9 task. Temuan review yang diperbaiki: scope=all + include_archived, strict read pending, tautan cid pending saat pull, Selesai bocor lintas scope, task done ganda di kolom tahap, listener touchmove non-pasif harus sejak mount, rename tidak menarik ulang task. Review akhir opus: touch-action manipulation (swipe papan dari kartu), "+ Tahap" nama yang sudah ada/diarsip, 2xx tanpa id → retry, dll.
 - main maju dua kali (media #51 → ADR-017; workspace pins #52/#53 → SW v425 + ADR-018): branch di-merge main, SW jadi v426, ADR jadi ADR-019.
 - **Verifikasi:** npm 1968/1969 (+1 pra-ada), pytest 814, E2E 51/0. **Status:** Needs Review (draft PR; restart `taskflow-web`).
+
+## 2026-10-20 11:20 WIB — Claude — ikon tampilan halaman Tasks + tab workspace
+- Bapak minta ikon Normal / Compact / Kanban dibuat lebih indah; dari 3 opsi memilih "B · Duotone" + tombol tergabung, lalu minta ikon tab Tasks / Files workspace diganti dengan gaya yang sama.
+- SDD 2 task (implementer sonnet), review akhir opus → siap merge, tanpa temuan Critical/Important. Branch `claude/tasklist-view-icons`, SW v427 (renumber: v426 dipakai Kanban #54), `app.css?v=336`.
+- **Verifikasi:** pytest 814, JS 1866/1867 (pra-ada `draw_local_reactive`), E2E 52/52. **Status:** Needs Review (draft PR; restart `taskflow-web`).
