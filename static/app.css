@@ -193,6 +193,13 @@
     .app-banner-close { background: none; border: none; cursor: pointer; color: var(--text-secondary); flex-shrink: 0; padding: 4px; display: flex; border-radius: 6px; }
     .app-banner-close:hover { background: var(--bg-primary); }
     @media (max-width: 768px) { .app-banner { margin-top: 12px; } }
+    /* Pengingat akun (fase 0a): ikon kunci memakai warna peringatan lembut, bukan garis tepi */
+    .account-banner .app-banner-icon { background: rgba(234,179,8,0.16); color: #a16207; }
+    [data-theme="dark"] .account-banner .app-banner-icon { background: rgba(234,179,8,0.18); color: #facc15; }
+
+    /* Pengaturan akun: hint di bawah input + kartu "Lengkapi akun" */
+    .settings-field-hint { margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--text-secondary); }
+    .account-setup-desc { margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
 
     /* Cards */
     .card { background: var(--bg-card); border-radius: 14px; border: 1px solid rgba(0,0,0,0.06); padding: 20px; min-width: 0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 8px -2px rgba(0,0,0,0.03); }

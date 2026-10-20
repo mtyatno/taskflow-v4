@@ -116,8 +116,8 @@ def test_refresh_refused_after_password_change(client):
     r = client.post("/api/auth/refresh", headers=_bearer(tok))
     assert r.status_code == 401
     assert "Password sudah diganti" in r.json()["detail"]
-    # Tanpa revokasi: token lama tetap berlaku sampai exp (perilaku saat ini)
-    assert client.get("/api/auth/me", headers=_bearer(tok)).status_code == 200
+    # pwv diperiksa di setiap request (ADR-022): token lama langsung gugur
+    assert client.get("/api/auth/me", headers=_bearer(tok)).status_code == 401
 
 
 def test_refresh_refused_for_ext_token(client):

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v438-focus-overtime";
+const CACHE = "taskflow-v439-account-fase0a";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
@@ -28,6 +28,7 @@ const STATIC = [
   "/static/offline/workspacepins.js",
   "/static/offline/wsmanage.js",
   "/static/offline/introgate.js",
+  "/static/offline/accountbanner.js",
   "/static/offline/focuspage.js",
   "/static/offline/pomologic.js",
   "/static/offline/pomolog.js",
