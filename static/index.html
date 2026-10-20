@@ -3581,6 +3581,11 @@ function projectScopeLabel(listId, sharedLists) {
   const hit = (sharedLists || []).find(l => l && String(l.id) === String(listId));
   return "Project · " + (hit && hit.name ? hit.name : "Workspace");
 }
+function contextScopeLabel(listId, sharedLists) {
+  if (listId == null || listId === "") return "Tahap/Context · Pribadi";
+  const hit = (sharedLists || []).find(l => l && String(l.id) === String(listId));
+  return "Tahap/Context · " + (hit && hit.name ? hit.name : "Pribadi");
+}
 function projectScopeOptionLabel(list) {
   return list ? "👥 " + list.name : "Pribadi";
 }
@@ -3670,6 +3675,9 @@ function mergeProjectNames(a, b) {
 function fetchScopeProjects(listId) {
   return api.get(listId ? "/api/projects?list_id=" + encodeURIComponent(listId) : "/api/projects").then(r => Array.isArray(r) ? r : []);
 }
+function fetchScopeContexts(listId) {
+  return api.get(listId ? "/api/contexts?list_id=" + encodeURIComponent(listId) : "/api/contexts").then(r => Array.isArray(r) ? r : []);
+}
 window.projectAfterScopeChange = projectAfterScopeChange;
 window.projectScopeLabel = projectScopeLabel;
 // Daftar nama project untuk satu scope; muat ulang saat scope berubah atau saat
@@ -3687,6 +3695,25 @@ function useScopeProjects(listId) {
     return () => {
       alive = false;
       window.removeEventListener("tf:projects-changed", load);
+    };
+  }, [listId]);
+  return names;
+}
+// Daftar nama tahap/context untuk satu scope; muat ulang saat scope berubah atau saat
+// tahap berubah (event "tf:contexts-changed"). Gagal (offline) → daftar tetap.
+function useScopeContexts(listId) {
+  const [names, setNames] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    setNames([]);
+    const load = () => fetchScopeContexts(listId).then(r => {
+      if (alive) setNames(r);
+    }).catch(() => {});
+    load();
+    window.addEventListener("tf:contexts-changed", load);
+    return () => {
+      alive = false;
+      window.removeEventListener("tf:contexts-changed", load);
     };
   }, [listId]);
   return names;
@@ -4307,6 +4334,7 @@ function TaskFormModal({
   }));
   // Scope task (Pribadi / workspace) menentukan daftar project.
   const scopeProjects = useScopeProjects(form.list_id);
+  const scopeContexts = useScopeContexts(form.list_id);
   const hasScopeChoice = !!(sharedLists && sharedLists.length > 0);
   const changeScope = raw => {
     const listId = raw ? parseInt(raw) : null;
@@ -4318,6 +4346,10 @@ function TaskFormModal({
     fetchScopeProjects(listId).then(names => setForm(f => f.list_id === listId ? {
       ...f,
       project: projectAfterScopeChange(f.project, names)
+    } : f)).catch(() => {});
+    fetchScopeContexts(listId).then(ctxNames => setForm(f => f.list_id === listId ? {
+      ...f,
+      context: projectAfterScopeChange(f.context, ctxNames)
     } : f)).catch(() => {});
   };
   const [listMembers, setListMembers] = useState([]);
@@ -5695,10 +5727,10 @@ function TaskFormModal({
     value: "done"
   }, "\u2705 Done"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
-  }, "Context"), /*#__PURE__*/React.createElement(ComboSelect, {
+  }, contextScopeLabel(form.list_id, sharedLists)), /*#__PURE__*/React.createElement(ComboSelect, {
     value: form.context,
     onChange: v => set("context", v),
-    options: contexts,
+    options: scopeContexts,
     placeholder: "\u2014 Pilih Context \u2014",
     icon: "\uD83C\uDFF7\uFE0F"
   }))), form.gtd_status === "waiting" && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", {
@@ -6447,6 +6479,7 @@ function TaskDetailModal({
   const [saving, setSaving] = useState(false);
   // Scope task tetap (dari task.list_id); opsi project mengikuti scope itu.
   const scopeProjects = useScopeProjects(task.list_id);
+  const scopeContexts = useScopeContexts(task.list_id);
   const scopeLists = useScopeLists(task.list_id, sharedLists);
   const setF = (k, v) => setForm(f => ({
     ...f,
@@ -6721,10 +6754,10 @@ function TaskDetailModal({
     icon: "\uD83D\uDCC1"
   })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
-  }, "Context"), /*#__PURE__*/React.createElement(ComboSelect, {
+  }, contextScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
     value: form.context,
     onChange: v => setF("context", v),
-    options: contexts,
+    options: scopeContexts,
     placeholder: "\u2014 Context \u2014",
     icon: "\uD83C\uDFF7\uFE0F"
   }))), /*#__PURE__*/React.createElement("div", {
