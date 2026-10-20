@@ -246,8 +246,8 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v430-tasklist-focus (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v430-tasklist-focus";/m);
+test("sw.js CACHE = taskflow-v431-dashboard-intro (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v431-dashboard-intro";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════
@@ -349,7 +349,7 @@ test("runSyncExclusive: tugas berjalan berurutan, gagal tidak mengunci antrian, 
 
 test("index.html: sync(), push terjadwal & __pushNow lewat runSyncExclusive; drawingSaved juga saat merged > 0", () => {
   const sync = indexHtml.match(/function sync\(\) \{[\s\S]*?\n\}/)[0];
-  assert.match(sync, /const pending = runSyncExclusive\(\(\) => \{ __syncPending = null; return window\.TF\.syncpull\.pullAndReconcile/);
+  assert.match(sync, /const pending = runSyncExclusive\(\(\) => \{ __syncPending = null; tasksOk = false; notesOk = false; emitState\(true\); return window\.TF\.syncpull\.pullAndReconcile/);
   assert.match(sync, /drawRes\.merged > 0/);
   const sp = indexHtml.match(/function schedulePush\(\) \{[\s\S]*?\n\}/)[0];
   assert.match(sp, /runSyncExclusive\(\(\) => window\.TF\.syncpush\.pushOutbox\(__syncTransport\)\)/);
