@@ -112,12 +112,16 @@ def test_delete_impact_counts(client):
                  "VALUES (?,?,?,?,?,?)", (a.id, "n", "c", w, now, now))
     conn.execute("INSERT INTO drawings (user_id,title,list_id,created_at,updated_at) VALUES (?,?,?,?,?)",
                  (a.id, "d", w, now, now))
+    for i in range(2):
+        conn.execute("INSERT INTO mindmaps (user_id,title,list_id,created_at,updated_at) VALUES (?,?,?,?,?)",
+                     (b.id, f"mm{i}", w, now, now))
     conn.commit()
     conn.close()
     r = a.get(f"/api/lists/{w}/delete-impact")
     assert r.status_code == 200, r.text
     assert r.json() == {"tasks_total": 3, "tasks_active": 2, "files": 1, "messages": 2,
-                        "projects": 1, "stages": 1, "notes_to_personal": 1, "drawings_to_personal": 1}
+                        "projects": 1, "stages": 1, "notes_to_personal": 1, "drawings_to_personal": 1,
+                        "mindmaps_to_personal": 2}
 
 
 def test_delete_impact_forbidden_and_missing(client):

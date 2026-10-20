@@ -304,7 +304,7 @@ def _upsert_tags_for_entity(conn, entity_id: int, user_id: int, entity_type: str
 def migrate_db():
     """Ensure all tables exist via repository init."""
     from repository import TaskRepository
-    TaskRepository(DB_PATH).heal_orphan_workspace_tasks()
+    TaskRepository(DB_PATH).heal_orphan_workspace_items()
 
     # Ensure telegram_link_tokens table exists
     conn = sqlite3.connect(DB_PATH)

@@ -21,6 +21,12 @@
     return a === String(name == null ? "" : name).trim().toLowerCase();
   }
 
+  // ["a"] -> "a"; ["a","b"] -> "a dan b"; ["a","b","c"] -> "a, b dan c".
+  function joinParts(parts) {
+    if (parts.length <= 1) return parts.join("");
+    return `${parts.slice(0, -1).join(", ")} dan ${parts[parts.length - 1]}`;
+  }
+
   // Ringkasan dampak penghapusan workspace, dalam bahasa Indonesia.
   // Baris bernilai 0 dihilangkan; semua 0 -> satu baris "kosong".
   function impactLines(impact) {
@@ -33,6 +39,7 @@
     const stages = num(i.stages);
     const notes = num(i.notes_to_personal);
     const drawings = num(i.drawings_to_personal);
+    const mindmaps = num(i.mindmaps_to_personal);
 
     const lines = [];
 
@@ -54,7 +61,8 @@
     const returned = [];
     if (notes > 0) returned.push(`${notes} catatan`);
     if (drawings > 0) returned.push(`${drawings} drawing`);
-    if (returned.length) lines.push(`${returned.join(" dan ")} kembali menjadi pribadi`);
+    if (mindmaps > 0) returned.push(`${mindmaps} mindmap`);
+    if (returned.length) lines.push(`${joinParts(returned)} kembali menjadi pribadi`);
 
     return lines.length ? lines : ["Workspace ini kosong."];
   }

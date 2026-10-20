@@ -1030,12 +1030,21 @@ class TaskRepository:
             ensure_contexts_schema(conn)
             ensure_workspace_pins_schema(conn)
 
-    def heal_orphan_workspace_tasks(self) -> int:
-        """Task yang list_id-nya menunjuk workspace yang sudah dihapus kembali pribadi (idempoten).
+    def heal_orphan_workspace_items(self) -> int:
+        """Task dan mindmap yang list_id-nya menunjuk workspace yang sudah dihapus kembali pribadi
+        (idempoten: hanya baris yang masih yatim yang disentuh). Mengembalikan jumlah baris.
         Dipanggil sekali saat startup lewat webapp.migrate_db, bukan di _init_db (per request)."""
+        orphan = "list_id IS NOT NULL AND list_id NOT IN (SELECT id FROM shared_lists)"
         with self._connect() as conn:
-            return _return_tasks_to_creator(
-                conn, "list_id IS NOT NULL AND list_id NOT IN (SELECT id FROM shared_lists)")
+            n = _return_tasks_to_creator(conn, orphan)
+            try:
+                n += conn.execute(
+                    "UPDATE mindmaps SET list_id = NULL, updated_at = ? WHERE " + orphan,
+                    (datetime.now(_TZ_JKT).isoformat(),),
+                ).rowcount
+            except sqlite3.OperationalError:
+                pass  # tabel/kolom mindmaps belum dimigrasi
+            return n
 
     # ── Row to Task mapping ────────────────────────────────────────────────
 
@@ -1589,14 +1598,14 @@ class TaskRepository:
                     pass  # tabel workspace_files belum ada
                 # list_id tanpa FK: tanpa ini task tertinggal menunjuk workspace yang hilang.
                 _return_tasks_to_creator(conn, "list_id = ?", (list_id,))
-            # Petakan: catatan kehilangan list_id lewat FK SET NULL; peta tertaut (tanpa FK) harus ikut NULL.
+            # Mindmap (tertaut catatan maupun mandiri) kembali pribadi pemiliknya: mindmaps.list_id
+            # tanpa FK, jadi tanpa ini list_id tertinggal menunjuk workspace yang hilang.
             try:
                 if conn.execute(
                     "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
                 ).fetchone():
                     conn.execute(
-                        "UPDATE mindmaps SET list_id = NULL, updated_at = ? "
-                        "WHERE list_id = ? AND source_note_id IS NOT NULL",
+                        "UPDATE mindmaps SET list_id = NULL, updated_at = ? WHERE list_id = ?",
                         (datetime.now(_TZ_JKT).isoformat(), list_id),
                     )
             except sqlite3.OperationalError:
@@ -1756,6 +1765,7 @@ class TaskRepository:
                 "stages": count(conn, "SELECT COUNT(*) FROM contexts WHERE list_id = ?"),
                 "notes_to_personal": count(conn, "SELECT COUNT(*) FROM scratchpad_notes WHERE list_id = ?"),
                 "drawings_to_personal": count(conn, "SELECT COUNT(*) FROM drawings WHERE list_id = ?"),
+                "mindmaps_to_personal": count(conn, "SELECT COUNT(*) FROM mindmaps WHERE list_id = ?"),
             }
 
     def get_list_members(self, list_id: int) -> list[dict]:

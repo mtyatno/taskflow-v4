@@ -153,3 +153,61 @@ def test_orphan_migration_fixes_and_idempotent(client):
     snap2 = {r["id"]: r["updated_at"] for r in conn.execute("SELECT id, updated_at FROM tasks")}
     conn.close()
     assert snap == snap2
+
+
+def _mindmap(owner_id, list_id, source_note_id=None, updated_at="2026-01-01T00:00:00"):
+    conn = db()
+    cur = conn.execute(
+        "INSERT INTO mindmaps (user_id, title, list_id, source_note_id, created_at, updated_at) "
+        "VALUES (?, 'MM', ?, ?, ?, ?)", (owner_id, list_id, source_note_id, updated_at, updated_at))
+    conn.commit()
+    mid = cur.lastrowid
+    conn.close()
+    return mid
+
+
+def _mm_row(mid):
+    conn = db()
+    row = conn.execute("SELECT * FROM mindmaps WHERE id=?", (mid,)).fetchone()
+    conn.close()
+    return row
+
+
+def test_delete_returns_standalone_mindmap_to_owner(client):
+    a, b = U(client), U(client)
+    w = _workspace(a)
+    _add_member(w, b.id)
+    mid = _mindmap(b.id, w)
+    assert b.get(f"/api/mindmaps/{mid}").status_code == 200
+    assert a.get(f"/api/mindmaps/{mid}").status_code == 200
+    assert a.delete(f"/api/lists/{w}").status_code == 200
+    row = _mm_row(mid)
+    assert row["list_id"] is None
+    assert row["user_id"] == b.id
+    assert row["updated_at"] > "2026-01-01T00:00:00"
+    # pembuat tetap melihatnya sebagai pribadi; owner workspace kehilangan akses
+    assert any(m["id"] == mid and m["list_id"] is None for m in b.get("/api/mindmaps").json())
+    assert all(m["id"] != mid for m in a.get("/api/mindmaps").json())
+    assert a.get(f"/api/mindmaps/{mid}").status_code in (403, 404)
+
+
+def test_orphan_heal_covers_mindmaps_and_idempotent(client):
+    import webapp
+    u = U(client)
+    orphan = _mindmap(u.id, 999998)
+    w = _workspace(u)
+    live = _mindmap(u.id, w)
+    webapp.migrate_db()
+    row = _mm_row(orphan)
+    assert row["list_id"] is None and row["user_id"] == u.id
+    assert row["updated_at"] > "2026-01-01T00:00:00"
+    assert _mm_row(live)["list_id"] == w
+    assert _mm_row(live)["updated_at"] == "2026-01-01T00:00:00"
+    def snap():
+        conn = db()
+        out = {r["id"]: r["updated_at"] for r in conn.execute("SELECT id, updated_at FROM mindmaps")}
+        conn.close()
+        return out
+    before = snap()
+    assert repository.TaskRepository(DB_PATH).heal_orphan_workspace_items() == 0
+    assert snap() == before

@@ -34,8 +34,19 @@ test("impactLines omits zero rows", () => {
   );
 });
 
+test("impactLines joins notes, drawings and mindmaps returned to personal", () => {
+  const base = { tasks_total: 0, tasks_active: 0, files: 0, messages: 0, projects: 0, stages: 0 };
+  const line = (n, d, m) => wm.impactLines(Object.assign({}, base,
+    { notes_to_personal: n, drawings_to_personal: d, mindmaps_to_personal: m }));
+  assert.deepEqual(line(5, 1, 2), ["5 catatan, 1 drawing dan 2 mindmap kembali menjadi pribadi"]);
+  assert.deepEqual(line(5, 0, 2), ["5 catatan dan 2 mindmap kembali menjadi pribadi"]);
+  assert.deepEqual(line(0, 1, 2), ["1 drawing dan 2 mindmap kembali menjadi pribadi"]);
+  assert.deepEqual(line(0, 0, 2), ["2 mindmap kembali menjadi pribadi"]);
+  assert.deepEqual(line(5, 1, 0), ["5 catatan dan 1 drawing kembali menjadi pribadi"]);
+});
+
 test("impactLines returns the empty-workspace line when all zero or {}", () => {
-  assert.deepEqual(wm.impactLines({ tasks_total: 0, tasks_active: 0, files: 0, messages: 0, projects: 0, stages: 0, notes_to_personal: 0, drawings_to_personal: 0 }), ["Workspace ini kosong."]);
+  assert.deepEqual(wm.impactLines({ tasks_total: 0, tasks_active: 0, files: 0, messages: 0, projects: 0, stages: 0, notes_to_personal: 0, drawings_to_personal: 0, mindmaps_to_personal: 0 }), ["Workspace ini kosong."]);
   assert.deepEqual(wm.impactLines({}), ["Workspace ini kosong."]);
 });
 
