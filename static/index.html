@@ -1093,6 +1093,32 @@ function endLogoutGuard() {
   __logoutInProgress = false;
 }
 window.__maybeRenewToken = maybeRenewToken;
+// ── Magic link Telegram (/auth/magic → /?magic=1) ──
+// Server hanya memasang cookie httpOnly; SPA web tanpa token di localStorage menukarnya jadi token lewat
+// POST /api/auth/refresh (cookie terkirim same-origin). Tauri/API lintas origin tidak memakai cookie.
+function wantsMagicLogin(search, apiBase, hasToken) {
+  if (hasToken || apiBase) return false;
+  try {
+    return new URLSearchParams(search || "").get("magic") === "1";
+  } catch (_) {
+    return false;
+  }
+}
+function exchangeCookieSession() {
+  return window.fetch("/api/auth/refresh", { method: "POST", credentials: "same-origin" })
+    .then(r => (r && r.ok ? r.json() : null))
+    .then(d => (d && d.token ? d.token : null))
+    .catch(() => null);
+}
+// Buang ?magic dari URL (parameter lain seperti reset_token/join dipertahankan)
+function stripMagicParam() {
+  try {
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has("magic")) return;
+    url.searchParams.delete("magic");
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  } catch (_) {}
+}
 // Token baru dari server setelah profil berubah (ganti password/username, lengkapi akun): token lama tab ini
 // gugur (pwv), jadi wajib dipakai. localStorage ikut diperbarui → tab lain akun sama mengadopsinya lewat
 // event storage (onSharedTokenChanged → sharedTokenAction "none") atau saat 401 (handleAuthExpired, akun sama).
@@ -36706,7 +36732,13 @@ function App() {
   window.showToast = showToast;
 
   // Check existing session on mount
-  const [authChecked, setAuthChecked] = useState(!tokenStore.get());
+  // Datang dari magic link Telegram tanpa token tersimpan: tahan form login sampai cookie ditukar token
+  const [magicLogin] = useState(() => wantsMagicLogin(window.location.search, API_BASE, !!tokenStore.get()));
+  const magicTriedRef = useRef(false);
+  const [authChecked, setAuthChecked] = useState(!tokenStore.get() && !magicLogin);
+  useEffect(() => {
+    stripMagicParam();
+  }, []);
   // K1: dipanggil handleAuthExpired (401 api.fetch / tryAuth / transport sinkron, token masih token tersimpan):
   // kembali ke form login TANPA menghapus data lokal; toast menjelaskan bahwa perubahan offline aman.
   const onAuthExpired = useCallback(() => {
@@ -36726,6 +36758,15 @@ function App() {
       if (!token && API_BASE && window.__TAURI__?.core?.invoke) {
         try { token = await window.__TAURI__.core.invoke("get_token"); } catch (_) {}
         if (token) tokenStore.set(token);
+      }
+      if (!token && magicLogin && !magicTriedRef.current) {
+        magicTriedRef.current = true;
+        token = await exchangeCookieSession();
+        if (token) tokenStore.set(token);
+        if (!token) {
+          setAuthChecked(true);
+          return;
+        }
       }
       if (token) {
         api.get("/api/auth/me").then(async u => {

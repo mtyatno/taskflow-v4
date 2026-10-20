@@ -384,3 +384,31 @@ def test_complete_account_validation_is_atomic(client):
     assert row["username"] == tg_name and row["email"] is None
     assert row["password_hash"] == before and row["password_set"] == 0
     assert _device().get("/api/auth/me", headers=_h(tok)).status_code == 200
+
+
+# ── Magic link Telegram → sesi SPA (cookie ditukar token lewat /api/auth/refresh) ──
+
+def test_magic_link_redirects_with_flag_and_cookie_exchanges_for_token():
+    uid, username, _ = _tg_user()
+    magic = repository.TaskRepository(os.environ["DB_PATH"]).create_magic_token(uid)
+    c = _device()
+    r = c.get(f"/auth/magic?token={magic}", follow_redirects=False)
+    assert r.status_code == 302
+    assert r.headers["location"] == "/?magic=1"
+    cookie_tok = c.cookies.get("token")
+    assert cookie_tok, "cookie token harus diset"
+    # SPA belum punya token di localStorage: tukar cookie (tanpa header Authorization) jadi token
+    r2 = c.post("/api/auth/refresh")
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert body["renewed"] is True and body["token"]
+    me = _device().get("/api/auth/me", headers=_h(body["token"]))
+    assert me.status_code == 200
+    assert me.json()["id"] == uid and me.json()["password_set"] is False
+    # link sekali pakai
+    r3 = _device().get(f"/auth/magic?token={magic}", follow_redirects=False)
+    assert r3.status_code == 400
+
+
+def test_refresh_without_cookie_or_header_is_401():
+    assert _device().post("/api/auth/refresh").status_code == 401

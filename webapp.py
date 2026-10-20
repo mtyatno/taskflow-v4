@@ -2052,7 +2052,9 @@ async def magic_login(token: str):
     if not row:
         return _HTML("<html><body>User tidak ditemukan.</body></html>", status_code=400)
     jwt_token = create_token(user_id, row["username"], pwv=_pw_fingerprint(row["password_hash"]))
-    response = RedirectResponse(url="/", status_code=302)
+    # ?magic=1: SPA tanpa token di localStorage menukar cookie httpOnly ini jadi token
+    # lewat POST /api/auth/refresh (cookie terkirim same-origin), lalu menghapus parameter.
+    response = RedirectResponse(url="/?magic=1", status_code=302)
     response.set_cookie("token", jwt_token, httponly=True, max_age=JWT_EXPIRE_HOURS * 3600, samesite="lax")
     return response
 
