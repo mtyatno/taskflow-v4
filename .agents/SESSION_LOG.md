@@ -3595,3 +3595,10 @@
 
 ## 2026-10-20 12:17 WIB — Claude — merge main (#56) ke claude/note-media-ui
 - Merge `origin/main` (#56 jeda tab workspace, SW v428) ke cabang media UI; konflik hanya string versi + log. SW final `taskflow-v429-note-media`, `app.css?v=337` (main 336). **Status:** Needs Review.
+
+## 2026-10-20 15:45 WIB — Claude — tombol Fokus 🎯 (Pomodoro) di tasklist GTD + workspace
+- **Task:** Bapak minta fokus Pomodoro bisa diaktifkan dari task di halaman GTD dan workspace, sama persis dengan kartu "Prioritas Hari Ini" (chip mini di top menu). Brainstorming bounded; pilihan Bapak: tombol hanya di tampilan Normal, task aktif selalu tampil di Fokus Hari Ini.
+- **Changes:** App → `TaskListView` (2 tempat) → `TaskRow` meneruskan `focusTask`/`onStartFocus`; tombol `.dash-focus-btn` di `TaskRow`; `todayTasks` + `todayCount` sidebar menyertakan task aktif; CSS mobile; SW v430, `app.css?v=338`.
+- **Files Touch:** `static/index.html`, `static/app.css`, `static/sw.js`, `webapp.py`, `tests/test_version.py`, `tests/offline/tasklist_focus_btn.test.js` (baru) + 14 tes yang menambatkan versi, `temporary_files/e2e_tasklist_focus.py`, `.gitignore`, `.agents/*`
+- **Verifikasi:** JS 2120/2121 (pra-ada `draw_local_reactive`), pytest 816, E2E 39/39. Implementer sonnet + review opus (siap merge; temuan badge sidebar & tinggi mobile sudah diperbaiki).
+- **Status:** Needs Review (draft PR; restart `taskflow-web` setelah deploy).
