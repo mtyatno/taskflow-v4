@@ -3729,3 +3729,9 @@
 ## 2026-10-21 05:37 WIB — Claude — merge Email Fase 0a (#66)
 - Bapak: "merge". #66 di-merge (50d0e24) setelah merge main (#65) + SW v439 / `app.css?v=347`; CI Tests hijau di head PR, Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** ada migrasi (`users.password_set`) — `sudo systemctl restart taskflow-web`, lalu `sudo systemctl restart taskflow` (satu per satu). Semua sesi web/aplikasi tetap berjalan (token lama tanpa ganti password tetap sah). Lalu Fase 0b (upgrade mailer) → spec + plan.
+
+## 2026-10-21 — Claude — Komentar Note PR 1 (backend)
+- **Task:** komentar level halaman untuk note workspace, bagian backend (PR 1 dari 3): skema, endpoint, delta pull, notifikasi, SSE, siklus hidup.
+- **Changes:** lihat entri CURRENT_STATE `claude/komentar-note`; commit 93647bf..b3de0f9 + `docs(agents): komentar note PR 1 backend`. ADR-023.
+- **Files Touch:** note_comments.py, repository.py, webapp.py, tests/note_comment_helpers.py, tests/test_note_comments_*.py, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push; deploy = migrasi -> restart `taskflow-web`, lalu `taskflow`; SW tetap v439). pytest 952, JS 2331/2332 (pra-ada `draw_local_reactive`).
