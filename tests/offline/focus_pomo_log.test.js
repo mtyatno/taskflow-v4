@@ -65,6 +65,8 @@ function runWorkComplete({ focusTask, tf, saved = {}, fires = 1 }) {
   let idx = 0;
   const fakeUseState = (init) => {
     const i = idx++;
+    // Slot state baru (phase, Overtime, …) memakai nilai awal hook.
+    if (!(i in states)) states[i] = typeof init === "function" ? init() : init;
     const set = (v) => { states[i] = typeof v === "function" ? v(states[i]) : v; };
     return [states[i], set];
   };
@@ -109,8 +111,11 @@ test("handleTimerComplete: payload log sesi (focusTask)", () => {
   assert.equal(b.focus_seconds, 1500);
   assert.equal(b.log_date, "2026-10-20");
   assert.ok(!Number.isNaN(Date.parse(b.ended_at)));
-  assert.equal(states[0], "shortBreak");
-  assert.equal(states[6], null, "workStartedAt direset");
+  // PR C: tetap di Work 00:00 menunggu pilihan (awaiting), workStartedAt dipertahankan untuk Overtime
+  assert.equal(states[0], "work");
+  assert.equal(states[8], "awaiting");
+  assert.equal(states[1], 0);
+  assert.equal(states[6], 123456, "workStartedAt dipertahankan");
   assert.equal(calls.sound, 1);
 });
 
@@ -121,17 +126,18 @@ test("handleTimerComplete: fallback sessionTaskId saat focusTask null", () => {
   assert.equal(posts[0].body.client_id, "pomo-7-99-s");
 });
 
-test("handleTimerComplete: tanpa task tidak mencatat tapi tetap pindah mode", () => {
+test("handleTimerComplete: tanpa task tidak mencatat tapi tetap masuk awaiting", () => {
   const { posts, states } = runWorkComplete({ focusTask: null, tf: goodTf });
   assert.equal(posts.length, 0);
-  assert.equal(states[0], "shortBreak");
+  assert.equal(states[0], "work");
+  assert.equal(states[8], "awaiting");
 });
 
 test("handleTimerComplete: kegagalan pencatatan tidak memblokir timer", () => {
   for (const tf of [{ tasklogic: goodTf.tasklogic }, { pomologic: { sessionClientId: () => { throw new Error("boom"); } }, tasklogic: goodTf.tasklogic }]) {
     const { states, calls, posts } = runWorkComplete({ focusTask: { id: 5 }, tf });
     assert.equal(posts.length, 0);
-    assert.equal(states[0], "shortBreak", "mode tetap pindah ke break");
+    assert.equal(states[8], "awaiting", "fase tetap pindah ke awaiting");
     assert.equal(states[2], false);
     assert.equal(calls.sound, 1);
     assert.equal(calls.notif, 1);

@@ -3705,3 +3705,14 @@
 ## 2026-10-20 23:58 WIB — Claude — merge Kelola Workspace Fase 0 (#63)
 - Bapak: "merge". #63 di-merge (b3d100b) setelah merge main (#64) + SW v437; CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** cek task/mindmap yatim (query di PR) → `sudo systemctl restart taskflow-web taskflow` → query lagi harus 0. Lalu brainstorming Fase 1 (halaman Kelola per workspace).
+
+## 2026-10-21 00:20 WIB — Claude — Fokus Hari Ini PR C (Overtime): Task 4
+- **Task:** Task 4 PR C: merge `origin/main` (57560c2, #63) ke `claude/focus-overtime`, naik versi SW v438 `taskflow-v438-focus-overtime` / `app.css?v=346`, E2E, handover.
+- **Changes:** merge main (tanpa konflik); versi di `sw.js`, `index.html`, `webapp.py` + tes yang mengunci versi; kicker bar ringkas tanpa " · dijeda" saat awaiting; E2E menemukan judul bar ringkas terjepit di 375 px saat Overtime → `.focus-mini-task` min-width (commit fix + tes); E2E baru `temporary_files/e2e_focus_overtime.py` 79/79; `e2e_focus_target.py` disesuaikan ke awaiting (41/41); `e2e_focus_page.py` 35/35; pytest 850; JS 2295/2296 (pra-ada `draw_local_reactive`); inline OK.
+- **Files Touch:** static/sw.js, static/index.html, static/app.css, webapp.py, tests/, .gitignore, temporary_files/e2e_focus_overtime.py, temporary_files/e2e_focus_target.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push; deploy = file statis + restart `taskflow-web` saja)
+
+## 2026-10-21 01:00 WIB — Claude — Fokus Hari Ini PR C: perbaikan review akhir
+- **Changes:** `timer.start` tanpa event (Mulai/Lanjutkan/chip) + `start` mengabaikan argumen tanpa `id`; urutan setState Overtime aman tanpa batch (pause, finishOvertime, leaveAfterSession, continueOvertime, takeBreak); toast `handleStartFocus` per fase; `completedSessionRef` diisi saat pulih; E2E bar ringkas countdown 375 px + a6 `sessionTaskId`. Engine 26/26, JS 2303/2304 (pra-ada), pytest 850, E2E 98/98 · 41/41 · 35/35.
+- **Files Touch:** static/index.html, tests/offline/focus_overtime_engine.test.js, tests/offline/focus_workstation.test.js, temporary_files/e2e_focus_overtime.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push)

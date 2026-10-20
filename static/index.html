@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=345">
+  <link rel="stylesheet" href="/static/app.css?v=346">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -8567,20 +8567,23 @@ function usePomodoro({
   focusTask
 }) {
   const todayStr = window.TF.tasklogic.todayLocalISO();
-  const savedState = (() => {
+  // Snapshot mentah (hari apa pun); state hari lain dibuang, tetapi sesinya yang belum tercatat dicatat saat mount.
+  const rawSavedState = (() => {
     try {
       const raw = localStorage.getItem("tf_pomo_state");
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.date === todayStr) {
-        return parsed;
-      }
+      if (parsed && typeof parsed === "object") return parsed;
     } catch (e) {}
     return null;
   })();
+  const savedState = rawSavedState && rawSavedState.date === todayStr ? rawSavedState : null;
+  // Fase: countdown (hitung mundur biasa) | awaiting (Work 00:00, menunggu pilihan) | overtime (hitung maju).
+  const savedPhase = savedState && (savedState.phase === "awaiting" || savedState.phase === "overtime") ? savedState.phase : "countdown";
 
   const [mode, setMode] = useState(() => savedState?.mode || "work");
   const [timeLeft, setTimeLeft] = useState(() => {
+    if (savedPhase !== "countdown") return 0;
     if (savedState) {
       if (savedState.isRunning && savedState.targetEndTime) {
         const remaining = Math.max(0, Math.round((savedState.targetEndTime - Date.now()) / 1000));
@@ -8593,23 +8596,51 @@ function usePomodoro({
     return POMO_DURATIONS.work;
   });
   const [isRunning, setIsRunning] = useState(() => {
+    if (savedPhase === "overtime") return savedState.otRunStartedAt != null;
+    if (savedPhase === "awaiting") return false;
     if (savedState?.isRunning && savedState.targetEndTime) {
       return savedState.targetEndTime > Date.now();
     }
     return false;
   });
-  const [targetEndTime, setTargetEndTime] = useState(() => savedState?.targetEndTime || null);
+  const [targetEndTime, setTargetEndTime] = useState(() => savedPhase === "countdown" ? savedState?.targetEndTime || null : null);
   const [sessionCount, setSessionCount] = useState(() => savedState?.sessionCount || 0);
   const [totalFocusTime, setTotalFocusTime] = useState(() => savedState?.totalFocusTime || 0);
   // Awal sesi Work (ms) + task sesi: dasar client_id idempoten untuk log Pomodoro.
   const [workStartedAt, setWorkStartedAt] = useState(() => typeof savedState?.workStartedAt === "number" ? savedState.workStartedAt : null);
   const [sessionTaskId, setSessionTaskId] = useState(() => savedState?.sessionTaskId ?? null);
+  const [phase, setPhase] = useState(savedPhase);
+  // Overtime: akumulasi detik + waktu mulai putaran berjalan (null saat jeda). Detik selalu dari jam dinding.
+  const [otAccumSec, setOtAccumSec] = useState(() => savedPhase === "overtime" && typeof savedState.otAccumSec === "number" ? savedState.otAccumSec : 0);
+  const [otRunStartedAt, setOtRunStartedAt] = useState(() => savedPhase === "overtime" && typeof savedState.otRunStartedAt === "number" ? savedState.otRunStartedAt : null);
+  // sessionCount sebelum sesi Work ini — dasar aturan istirahat panjang (breakAfter).
+  const [countBeforeSession, setCountBeforeSession] = useState(() => typeof savedState?.countBeforeSession === "number" ? savedState.countBeforeSession : null);
+  // Hanya memicu render ulang tiap detik selama Overtime berjalan.
+  const [, setOvertimeTick] = useState(0);
   const intervalRef = useRef(null);
   // Kunci sesi Work yang sudah diselesaikan: handleTimerComplete bisa terpicu dua kali di 0 (ReactDOM.render
   // legacy, closure basi) → sesi yang sama tidak boleh dicatat/dihitung/dibunyikan dua kali.
-  const completedSessionRef = useRef(null);
+  // Saat pulih ke awaiting/overtime, sesi utama itu sudah diselesaikan sebelum reload.
+  const completedSessionRef = useRef(savedPhase !== "countdown" ? savedState.workStartedAt ?? null : null);
+  // Kunci Overtime yang sudah diselesaikan (per workStartedAt) → tidak dicatat/ditambah dua kali.
+  const finishedOvertimeRef = useRef(null);
+  // Sisa detik pada tick countdown terakhir: Waktu fokus bertambah sebesar penurunannya (tab latar belakang).
+  const lastRemainingRef = useRef(null);
   // Cadangan awal sesi bila workStartedAt dan targetEndTime sama-sama kosong; stabil selama sesi ini.
   const fallbackStartRef = useRef(null);
+  const otSec = phase === "overtime" ? window.TF.pomologic.overtimeSeconds({
+    accumSec: otAccumSec,
+    runStartedAt: otRunStartedAt,
+    now: Date.now()
+  }) : 0;
+  const otCapped = phase === "overtime" && otSec >= window.TF.pomologic.OVERTIME_CAP;
+  const pomoUserId = () => {
+    try {
+      return localStorage.getItem("tf_user_id") || "0";
+    } catch (e) {
+      return "0";
+    }
+  };
 
   // Request notification permission on mount
   useEffect(() => {
@@ -8631,21 +8662,74 @@ function usePomodoro({
         totalFocusTime,
         workStartedAt,
         sessionTaskId,
+        phase,
+        otAccumSec,
+        otRunStartedAt,
+        countBeforeSession,
         date: todayStr
       };
       localStorage.setItem("tf_pomo_state", JSON.stringify(stateToSave));
     } catch (e) {}
-  }, [mode, timeLeft, isRunning, targetEndTime, focusTask?.id, sessionCount, totalFocusTime, workStartedAt, sessionTaskId]);
+  }, [mode, timeLeft, isRunning, targetEndTime, focusTask?.id, sessionCount, totalFocusTime, workStartedAt, sessionTaskId, phase, otAccumSec, otRunStartedAt, countBeforeSession]);
 
-  // Timer logic with drift correction
+  // Pemulihan saat mount: sesi hari sebelumnya yang belum tercatat dicatat (tanpa mengubah statistik hari ini);
+  // countdown Work hari ini yang habis selama halaman tertutup diselesaikan sekali → awaiting.
   useEffect(() => {
+    if (rawSavedState && rawSavedState.date !== todayStr) {
+      try {
+        const stale = window.TF.pomologic.staleSessionLogs(rawSavedState, {
+          todayISO: todayStr,
+          now: Date.now(),
+          userId: pomoUserId(),
+          toLocalISO: window.TF.pomologic.localDateISO
+        });
+        stale.forEach(({
+          taskId,
+          entry
+        }) => {
+          try {
+            api.post("/api/tasks/" + taskId + "/pomodoros", entry).then(() => window.__refreshTasks?.()).catch(err => console.warn("Gagal mencatat Pomodoro:", err));
+          } catch (err) {
+            console.warn("Gagal mencatat Pomodoro:", err);
+          }
+        });
+      } catch (err) {
+        console.warn("Gagal mencatat Pomodoro:", err);
+      }
+    }
+    if (savedState && savedPhase === "countdown" && savedState.mode === "work" && savedState.isRunning && savedState.targetEndTime && savedState.targetEndTime <= Date.now()) {
+      handleTimerComplete();
+    }
+  }, []);
+
+  // Overtime berjalan: tick 1 dtk hanya untuk render ulang (detik dihitung dari jam dinding).
+  useEffect(() => {
+    if (phase !== "overtime" || !isRunning) return;
+    const id = setInterval(() => setOvertimeTick(n => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [phase, isRunning]);
+
+  // Batas Overtime (juga saat mount setelah laptop tidur / tab ditutup lama).
+  useEffect(() => {
+    if (otCapped) finishOvertime({
+      startBreak: false,
+      auto: true
+    });
+  }, [otCapped]);
+
+  // Timer logic with drift correction (hanya fase countdown)
+  useEffect(() => {
+    if (phase !== "countdown") return;
     if (isRunning && timeLeft > 0) {
       intervalRef.current = setInterval(() => {
         if (targetEndTime) {
           const remaining = Math.max(0, Math.round((targetEndTime - Date.now()) / 1000));
+          const prevRemaining = lastRemainingRef.current ?? timeLeft;
+          lastRemainingRef.current = remaining;
           setTimeLeft(remaining);
           if (mode === "work") {
-            setTotalFocusTime(t => t + 1);
+            const dropped = Math.max(0, prevRemaining - remaining);
+            if (dropped > 0) setTotalFocusTime(t => t + dropped);
           }
           if (remaining <= 0) {
             handleTimerComplete();
@@ -8661,7 +8745,7 @@ function usePomodoro({
       handleTimerComplete();
     }
     return () => clearInterval(intervalRef.current);
-  }, [isRunning, timeLeft, targetEndTime, mode]);
+  }, [isRunning, timeLeft, targetEndTime, mode, phase]);
   const handleTimerComplete = () => {
     // Ditangkap sebelum dikosongkan: dasar client_id deterministik bila workStartedAt hilang.
     const endedTarget = targetEndTime;
@@ -8677,20 +8761,16 @@ function usePomodoro({
       if (completedSessionRef.current === startedAt) return;
       completedSessionRef.current = startedAt;
       // Work session completed
-      const newSessionCount = sessionCount + 1;
-      setSessionCount(newSessionCount);
+      setCountBeforeSession(sessionCount);
+      setSessionCount(sessionCount + 1);
 
       // Catat sesi ke log Pomodoro task (offline-first, idempoten lewat client_id)
       // Kegagalan pencatatan tidak boleh menghalangi timer (mode, suara, notifikasi tetap jalan).
       try {
         const loggedTaskId = focusTask?.id ?? sessionTaskId;
         if (loggedTaskId != null) {
-          let uid = "0";
-          try {
-            uid = localStorage.getItem("tf_user_id") || "0";
-          } catch (e) {}
           api.post("/api/tasks/" + loggedTaskId + "/pomodoros", {
-            client_id: window.TF.pomologic.sessionClientId(uid, startedAt),
+            client_id: window.TF.pomologic.sessionClientId(pomoUserId(), startedAt),
             kind: "session",
             pomodoros: 1,
             focus_seconds: 1500,
@@ -8701,18 +8781,12 @@ function usePomodoro({
       } catch (err) {
         console.warn("Gagal mencatat Pomodoro:", err);
       }
-      setWorkStartedAt(null);
+      // Tetap di Work 00:00 menunggu pilihan; workStartedAt dipertahankan untuk client_id Overtime.
+      setWorkStartedAt(startedAt);
+      setTimeLeft(0);
+      setPhase("awaiting");
       playNotificationSound("work");
-      sendBrowserNotification("🍅 Pomodoro Selesai!", "Saatnya istirahat sebentar.");
-
-      // Determine next break type
-      if (newSessionCount % 4 === 0) {
-        setMode("longBreak");
-        setTimeLeft(POMO_DURATIONS.longBreak);
-      } else {
-        setMode("shortBreak");
-        setTimeLeft(POMO_DURATIONS.shortBreak);
-      }
+      sendBrowserNotification("🍅 Pomodoro Selesai!", "Pomodoro selesai — lanjut fokus atau istirahat?");
     } else {
       // Break completed
       playNotificationSound("break");
@@ -8721,8 +8795,114 @@ function usePomodoro({
       setTimeLeft(POMO_DURATIONS.work);
     }
   };
+  // Akhiri Overtime: catat (≥ 60 dtk), kreditkan 🍅 + Waktu fokus, lalu masuk mode istirahat (berjalan / diam).
+  // Mengembalikan false bila Overtime ini sudah diselesaikan (pemanggilan ganda).
+  const finishOvertime = ({
+    startBreak,
+    auto
+  }) => {
+    const otKey = workStartedAt ?? otRunStartedAt ?? 0;
+    if (finishedOvertimeRef.current === otKey) return false;
+    finishedOvertimeRef.current = otKey;
+    const pl = window.TF.pomologic;
+    const sec = pl.overtimeSeconds({
+      accumSec: otAccumSec,
+      runStartedAt: otRunStartedAt,
+      now: Date.now()
+    });
+    try {
+      const loggedTaskId = focusTask?.id ?? sessionTaskId;
+      const entry = pl.overtimeLogEntry({
+        sec,
+        workStartedAt: otKey,
+        userId: pomoUserId(),
+        logDate: window.TF.tasklogic.todayLocalISO(),
+        endedAt: new Date().toISOString()
+      });
+      if (entry && loggedTaskId != null) {
+        api.post("/api/tasks/" + loggedTaskId + "/pomodoros", entry).then(() => window.__refreshTasks?.()).catch(err => console.warn("Gagal mencatat Overtime:", err));
+      }
+    } catch (err) {
+      console.warn("Gagal mencatat Overtime:", err);
+    }
+    const newCount = sessionCount + pl.overtimePomodoros(sec);
+    const breakMode = pl.breakAfter(countBeforeSession ?? Math.max(0, sessionCount - 1), newCount);
+    // Urutan aman untuk pemanggil tanpa batch (setiap setState merender): berhenti dulu, lalu nolkan Overtime,
+    // pindah ke mode istirahat (sisa > 0) sebelum fase countdown, baru kreditkan 🍅 + Waktu fokus.
+    // Bila fase countdown lebih dulu dengan Work 00:00 masih berjalan, efek countdown memicu penyelesaian sesi lagi.
+    setIsRunning(false);
+    setTargetEndTime(null);
+    setOtRunStartedAt(null);
+    setOtAccumSec(0);
+    setMode(breakMode);
+    setTimeLeft(POMO_DURATIONS[breakMode]);
+    setWorkStartedAt(null);
+    setPhase("countdown");
+    setSessionCount(newCount);
+    setTotalFocusTime(t => t + sec);
+    if (startBreak) {
+      lastRemainingRef.current = POMO_DURATIONS[breakMode];
+      setTargetEndTime(Date.now() + POMO_DURATIONS[breakMode] * 1000);
+      setIsRunning(true);
+    }
+    if (auto) {
+      playNotificationSound("work");
+      sendBrowserNotification("⏱️ Overtime selesai", "Overtime dihentikan otomatis setelah 2 jam");
+    }
+    return true;
+  };
+  // Keluar dari awaiting/overtime tanpa menjalankan timer (Overtime dicatat dulu bila ada).
+  const leaveAfterSession = () => {
+    if (phase === "overtime") {
+      finishOvertime({
+        startBreak: false,
+        auto: false
+      });
+    }
+    setIsRunning(false);
+    setTargetEndTime(null);
+    setWorkStartedAt(null);
+    setPhase("countdown");
+  };
+  const awaitingBreakMode = () => window.TF.pomologic.breakAfter(countBeforeSession ?? Math.max(0, sessionCount - 1), sessionCount);
+  const continueOvertime = () => {
+    if (phase !== "awaiting") return;
+    setOtAccumSec(0);
+    setOtRunStartedAt(Date.now());
+    setTargetEndTime(null);
+    setPhase("overtime");
+    setIsRunning(true);
+  };
+  const takeBreak = () => {
+    if (phase === "overtime") {
+      finishOvertime({
+        startBreak: true,
+        auto: false
+      });
+      return;
+    }
+    if (phase !== "awaiting") return;
+    const breakMode = awaitingBreakMode();
+    setMode(breakMode);
+    setTimeLeft(POMO_DURATIONS[breakMode]);
+    setWorkStartedAt(null);
+    setPhase("countdown");
+    lastRemainingRef.current = POMO_DURATIONS[breakMode];
+    setTargetEndTime(Date.now() + POMO_DURATIONS[breakMode] * 1000);
+    setIsRunning(true);
+  };
   const start = (explicitTask = null) => {
-    const activeTask = explicitTask || focusTask;
+    if (phase === "overtime") {
+      // Lanjutkan Overtime yang dijeda; tidak butuh task (dikreditkan ke sessionTaskId bila fokus dilepas).
+      if (!isRunning) {
+        setOtRunStartedAt(Date.now());
+        setIsRunning(true);
+      }
+      return true;
+    }
+    if (phase === "awaiting") return false;
+    // Hanya task sungguhan (punya id); event klik yang diteruskan onClick diabaikan.
+    const activeTask = (explicitTask && explicitTask.id != null ? explicitTask : null) || focusTask;
     if (!activeTask) {
       window.__showToast?.("Pilih satu task terlebih dahulu untuk memulai Pomodoro!", "warning");
       return false;
@@ -8732,23 +8912,56 @@ function usePomodoro({
       fallbackStartRef.current = null;
     }
     setSessionTaskId(activeTask.id);
+    lastRemainingRef.current = timeLeft;
     const end = Date.now() + timeLeft * 1000;
     setTargetEndTime(end);
     setIsRunning(true);
     return true;
   };
   const pause = () => {
+    if (phase === "overtime") {
+      if (isRunning) {
+        const sec = window.TF.pomologic.overtimeSeconds({
+          accumSec: otAccumSec,
+          runStartedAt: otRunStartedAt,
+          now: Date.now()
+        });
+        // Putaran dihentikan dulu, baru akumulasi: render antara (tanpa batch) tidak boleh menghitung dua kali.
+        setOtRunStartedAt(null);
+        setOtAccumSec(sec);
+      }
+      setIsRunning(false);
+      return;
+    }
     setIsRunning(false);
     setTargetEndTime(null);
   };
-  // Stop = berhenti & kembali ke durasi penuh mode saat ini
+  // Stop = berhenti & kembali ke durasi penuh mode saat ini (awaiting/overtime → Work 25:00 diam)
   const stop = () => {
+    if (phase !== "countdown") {
+      leaveAfterSession();
+      setMode("work");
+      setTimeLeft(POMO_DURATIONS.work);
+      return;
+    }
     setIsRunning(false);
     setTimeLeft(POMO_DURATIONS[mode]);
     setTargetEndTime(null);
     if (mode === "work") setWorkStartedAt(null);
   };
   const skip = () => {
+    if (phase !== "countdown") {
+      if (phase === "overtime") {
+        // finishOvertime sudah memilih Short/Long (diam)
+        leaveAfterSession();
+        return;
+      }
+      const breakMode = awaitingBreakMode();
+      leaveAfterSession();
+      setMode(breakMode);
+      setTimeLeft(POMO_DURATIONS[breakMode]);
+      return;
+    }
     if (mode === "work") setWorkStartedAt(null);
     setIsRunning(false);
     setTargetEndTime(null);
@@ -8768,7 +8981,8 @@ function usePomodoro({
     }
   };
   const switchMode = m => {
-    if (mode === "work") setWorkStartedAt(null);
+    if (phase !== "countdown") leaveAfterSession();
+    else if (mode === "work") setWorkStartedAt(null);
     setMode(m);
     setTimeLeft(POMO_DURATIONS[m]);
     setIsRunning(false);
@@ -8777,6 +8991,9 @@ function usePomodoro({
   const minutes = Math.floor(timeLeft / 60);
   const seconds = timeLeft % 60;
   const isBreak = mode !== "work";
+  const isOvertime = phase === "overtime";
+  const isAwaiting = phase === "awaiting";
+  const overtimePomodoros = isOvertime ? window.TF.pomologic.overtimePomodoros(otSec) : 0;
   return {
     mode,
     timeLeft,
@@ -8788,14 +9005,23 @@ function usePomodoro({
     stop,
     skip,
     switchMode,
+    continueOvertime,
+    takeBreak,
     isBreak,
-    timeDisplay: `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`,
-    progress: (POMO_DURATIONS[mode] - timeLeft) / POMO_DURATIONS[mode],
-    labelText: mode === "work" ? "Fokus" : mode === "shortBreak" ? "Istirahat" : "Istirahat panjang",
-    // Stop hanya berarti bila timer sedang jalan atau sudah berkurang dari durasi penuh
-    canStop: isRunning || timeLeft !== POMO_DURATIONS[mode]
+    phase,
+    isOvertime,
+    isAwaiting,
+    overtimeSeconds: otSec,
+    overtimePomodoros,
+    pomodorosToday: sessionCount + overtimePomodoros,
+    timeDisplay: isOvertime ? window.TF.pomologic.formatOvertime(otSec) : `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`,
+    progress: isOvertime ? window.TF.pomologic.overtimeProgress(otSec) : (POMO_DURATIONS[mode] - timeLeft) / POMO_DURATIONS[mode],
+    labelText: isAwaiting ? "Selesai" : isOvertime ? "Overtime" : mode === "work" ? "Fokus" : mode === "shortBreak" ? "Istirahat" : "Istirahat panjang",
+    // Stop berarti bila timer jalan, sudah berkurang dari durasi penuh, atau sesi menunggu pilihan / Overtime
+    canStop: phase !== "countdown" || isRunning || timeLeft !== POMO_DURATIONS[mode]
   };
 }
+
 function PomoModeSwitch({
   timer,
   small
@@ -8848,6 +9074,69 @@ function PomoControls({
   timer,
   compact
 }) {
+  const stopBtn = React.createElement("button", {
+    key: "stop",
+    type: "button",
+    className: "pomo-btn",
+    onClick: timer.stop,
+    disabled: !timer.canStop,
+    "aria-label": "Stop",
+    title: "Stop (kembali ke awal)"
+  }, React.createElement(FocusGlyph, {
+    name: "stop",
+    size: compact ? 14 : 16
+  }), !compact && React.createElement("span", null, "Stop"));
+  const breakBtn = (key, className) => React.createElement("button", {
+    key: key,
+    type: "button",
+    className: className,
+    onClick: timer.takeBreak,
+    "aria-label": "Ambil Istirahat",
+    title: "Ambil Istirahat"
+  }, React.createElement(ViewGlyph, {
+    name: "pomoBreak",
+    size: compact ? 16 : 18
+  }), React.createElement("span", null, compact ? "Istirahat" : "Ambil Istirahat"));
+  if (timer.phase === "awaiting") {
+    return React.createElement("div", {
+      className: `pomo-controls is-awaiting${compact ? " is-compact" : ""}`
+    }, breakBtn("break", "pomo-btn pomo-btn-break"), React.createElement("button", {
+      key: "overtime",
+      type: "button",
+      className: "pomo-btn pomo-btn-overtime",
+      onClick: timer.continueOvertime,
+      "aria-label": "Lanjut Fokus (Overtime)",
+      title: "Lanjut Fokus (Overtime)"
+    }, React.createElement(FocusGlyph, {
+      name: "play",
+      size: compact ? 16 : 18
+    }), React.createElement("span", null, compact ? "Lanjut" : "Lanjut Fokus"), !compact && React.createElement("small", null, "Overtime")), stopBtn);
+  }
+  if (timer.phase === "overtime") {
+    return React.createElement("div", {
+      className: `pomo-controls is-overtime${compact ? " is-compact" : ""}`
+    }, timer.isRunning ? React.createElement("button", {
+      key: "toggle",
+      type: "button",
+      className: "pomo-btn pomo-btn-main is-pause",
+      onClick: timer.pause,
+      "aria-label": "Jeda",
+      title: "Jeda"
+    }, React.createElement(FocusGlyph, {
+      name: "pause",
+      size: compact ? 16 : 18
+    }), !compact && React.createElement("span", null, "Jeda")) : React.createElement("button", {
+      key: "toggle",
+      type: "button",
+      className: "pomo-btn pomo-btn-main",
+      onClick: () => timer.start(),
+      "aria-label": "Lanjutkan",
+      title: "Lanjutkan"
+    }, React.createElement(FocusGlyph, {
+      name: "play",
+      size: compact ? 16 : 18
+    }), !compact && React.createElement("span", null, "Lanjutkan")), stopBtn, breakBtn("break", "pomo-btn pomo-btn-break"));
+  }
   return React.createElement("div", {
     className: `pomo-controls${compact ? " is-compact" : ""}`
   }, timer.isRunning ? React.createElement("button", {
@@ -8862,23 +9151,13 @@ function PomoControls({
   }), !compact && React.createElement("span", null, "Jeda")) : React.createElement("button", {
     type: "button",
     className: "pomo-btn pomo-btn-main",
-    onClick: timer.start,
+    onClick: () => timer.start(),
     "aria-label": "Mulai",
     title: "Mulai"
   }, React.createElement(FocusGlyph, {
     name: "play",
     size: compact ? 16 : 18
-  }), !compact && React.createElement("span", null, "Mulai")), React.createElement("button", {
-    type: "button",
-    className: "pomo-btn",
-    onClick: timer.stop,
-    disabled: !timer.canStop,
-    "aria-label": "Stop",
-    title: "Stop (kembali ke awal)"
-  }, React.createElement(FocusGlyph, {
-    name: "stop",
-    size: compact ? 14 : 16
-  }), !compact && React.createElement("span", null, "Stop")), !compact && React.createElement("button", {
+  }), !compact && React.createElement("span", null, "Mulai")), stopBtn, !compact && React.createElement("button", {
     type: "button",
     className: "pomo-btn",
     onClick: timer.skip,
@@ -8973,7 +9252,7 @@ function PomodoroTimer({
   const t = timer;
   return React.createElement("section", {
     ref: cardRef,
-    className: `focus-pomo scale-in${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}`,
+    className: `focus-pomo scale-in${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}${t.phase === "overtime" ? " is-overtime" : ""}${t.phase === "awaiting" ? " is-awaiting" : ""}`,
     "aria-label": "Pomodoro"
   }, React.createElement("div", {
     className: "focus-pomo-ring"
@@ -9000,7 +9279,7 @@ function PomodoroTimer({
     size: 18
   }), "Pomodoro"), React.createElement("p", {
     className: "focus-pomo-sub"
-  }, t.isBreak ? "Istirahat sebentar..." : "Fokus pada satu task")), React.createElement("div", {
+  }, t.isBreak ? "Istirahat sebentar..." : t.phase === "awaiting" ? "Lanjut fokus atau istirahat?" : t.phase === "overtime" ? "Overtime — tetap di flow" : "Fokus pada satu task")), React.createElement("div", {
     className: "focus-pomo-head-tools"
   }, onToggleZen && React.createElement("button", {
     type: "button",
@@ -9036,8 +9315,8 @@ function PomodoroTimer({
     name: "pomoTomato",
     size: 14
   }), " ", React.createElement("span", {
-    className: `focus-pomo-task-done${window.TF.pomologic.isOverEstimate(focusTask.pomodoros_done || 0, window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros)) ? " is-over" : ""}`
-  }, focusTask.pomodoros_done || 0), " / ", window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros))) : React.createElement("div", {
+    className: `focus-pomo-task-done${window.TF.pomologic.isOverEstimate((focusTask.pomodoros_done || 0) + (t.overtimePomodoros || 0), window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros)) ? " is-over" : ""}`
+  }, (focusTask.pomodoros_done || 0) + (t.overtimePomodoros || 0)), " / ", window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros))) : React.createElement("div", {
     className: "focus-pomo-hint"
   }, "Pilih task di bawah lalu klik ", React.createElement("strong", null, "Fokus"), " untuk menjadikannya task aktif."), React.createElement("div", {
     className: "focus-pomo-stats"
@@ -9045,7 +9324,7 @@ function PomodoroTimer({
     className: "focus-pomo-stat"
   }, React.createElement("span", {
     className: "focus-pomo-stat-value is-red"
-  }, t.sessionCount), React.createElement("span", {
+  }, t.pomodorosToday), React.createElement("span", {
     className: "focus-pomo-stat-label"
   }, "Pomodoro")), React.createElement("div", {
     className: "focus-pomo-stat"
@@ -9057,7 +9336,7 @@ function PomodoroTimer({
     className: "focus-pomo-stat"
   }, React.createElement("span", {
     className: "focus-pomo-stat-value is-lime"
-  }, Math.floor(t.sessionCount / 4)), React.createElement("span", {
+  }, Math.floor(t.pomodorosToday / 4)), React.createElement("span", {
     className: "focus-pomo-stat-label"
   }, "Set lengkap")))));
 }
@@ -9077,7 +9356,7 @@ function PomodoroMiniBar({
       top
     }
   }, React.createElement("div", {
-    className: `focus-mini${visible ? " is-visible" : ""}${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}`,
+    className: `focus-mini${visible ? " is-visible" : ""}${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}${t.phase === "overtime" ? " is-overtime" : ""}${t.phase === "awaiting" ? " is-awaiting" : ""}`,
     role: "region",
     "aria-label": "Pomodoro ringkas",
     "aria-hidden": !visible
@@ -9096,7 +9375,7 @@ function PomodoroMiniBar({
     className: "focus-mini-task"
   }, React.createElement("span", {
     className: "focus-mini-kicker"
-  }, t.labelText, t.isRunning ? "" : " · dijeda"), React.createElement("span", {
+  }, t.labelText, t.isRunning || t.phase === "awaiting" ? "" : " · dijeda"), React.createElement("span", {
     className: "focus-mini-title"
   }, focusTask ? focusTask.title : "Belum ada task aktif")), React.createElement(PomoModeSwitch, {
     timer: t,
@@ -9114,11 +9393,11 @@ function TopBarPomodoroChip({
 }) {
   if (!focusTask) return null;
   return React.createElement("div", {
-    className: `topbar-pomo-chip${timer.isRunning ? " is-running" : " is-paused"}${timer.isBreak ? " is-break" : ""}`,
+    className: `topbar-pomo-chip${timer.isRunning ? " is-running" : " is-paused"}${timer.isBreak ? " is-break" : ""}${timer.phase === "overtime" ? " is-overtime" : ""}${timer.phase === "awaiting" ? " is-awaiting" : ""}`,
     onClick: onNavigateToday,
     role: "button",
     tabIndex: 0,
-    title: `Fokus: ${focusTask.title} (${timer.timeDisplay}) — Klik untuk buka Fokus Hari Ini`
+    title: timer.phase === "awaiting" ? "Pomodoro selesai — klik untuk memilih istirahat atau lanjut" : `Fokus: ${focusTask.title} (${timer.timeDisplay}) — Klik untuk buka Fokus Hari Ini`
   }, React.createElement("span", {
     className: "topbar-pomo-icon"
   }, React.createElement(ViewGlyph, {
@@ -9128,12 +9407,12 @@ function TopBarPomodoroChip({
     className: "topbar-pomo-time"
   }, timer.timeDisplay), React.createElement("span", {
     className: "topbar-pomo-task"
-  }, focusTask.title), React.createElement("button", {
+  }, focusTask.title), timer.phase !== "awaiting" && React.createElement("button", {
     type: "button",
     className: "topbar-pomo-btn",
     onClick: e => {
       e.stopPropagation();
-      (timer.isRunning ? timer.pause : timer.start)();
+      if (timer.isRunning) timer.pause();else timer.start();
     },
     title: timer.isRunning ? "Jeda Pomodoro" : "Lanjutkan Pomodoro",
     "aria-label": timer.isRunning ? "Jeda Pomodoro" : "Lanjutkan Pomodoro"
@@ -9551,6 +9830,12 @@ function TodayFocusView({
     isRunning: false,
     sessionCount: 0,
     totalFocusTime: 0,
+    phase: "countdown",
+    pomodorosToday: 0,
+    overtimeSeconds: 0,
+    overtimePomodoros: 0,
+    continueOvertime() {},
+    takeBreak() {},
     start: () => false,
     pause: () => {},
     stop: () => {},
@@ -9693,7 +9978,7 @@ function TodayFocusView({
   }, (() => {
     const hs = window.TF.pomologic.headerSummary({
       count: sortedTasks.length,
-      done: timer.sessionCount,
+      done: timer.pomodorosToday,
       estimate: sortedTasks.reduce((sum, t) => sum + window.TF.pomologic.clampEstimate(t.estimated_pomodoros), 0)
     });
     return [hs.tasksText, " • ", hs.pomoText, " ", React.createElement(ViewGlyph, {
@@ -9805,7 +10090,7 @@ function TodayFocusView({
   })))), React.createElement("p", {
     className: `focus-tip${zenClass}`,
     "aria-hidden": zenOn ? true : undefined
-  }, "💡 25 menit fokus, istirahat 5 menit. Setelah 4 pomodoro, istirahat panjang 15 menit."));
+  }, "💡 25 menit fokus, lalu pilih istirahat atau lanjut overtime. Setelah 4 pomodoro, istirahat panjang 15 menit."));
 }
 
 // ── Mindmap list item ─────────────────────────────────────────
@@ -23008,7 +23293,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v437-kelola-workspace-fase0"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v438-focus-overtime"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -36470,10 +36755,19 @@ function App() {
       return;
     }
     setFocusTaskId(task.id);
-    if (!timer.isRunning) {
-      timer.start(task);
+    if (timer.phase === "awaiting") {
+      // Work 00:00 menunggu pilihan: timer tidak dimulai otomatis.
+      showToast(`🎯 Fokus aktif: ${task.title} — Pomodoro selesai — pilih istirahat atau lanjut`, "info");
+      return;
     }
-    showToast(`🎯 Fokus aktif: ${task.title} — Pomodoro dimulai`, "success");
+    if (timer.isRunning) {
+      showToast(`🎯 Fokus aktif: ${task.title}`, "success");
+      return;
+    }
+    const resumingOvertime = timer.phase === "overtime";
+    const started = timer.start(task);
+    if (!started) return;
+    showToast(`🎯 Fokus aktif: ${task.title} — ${resumingOvertime ? "Overtime dilanjutkan" : "Pomodoro dimulai"}`, "success");
   }, [focusTask, timer, showToast]);
   const logout = useCallback(async () => {
     if (!tokenStore.get()) return;
@@ -38458,7 +38752,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v437-kelola-workspace-fase0";
+    window.__SW_VERSION = "taskflow-v438-focus-overtime";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
