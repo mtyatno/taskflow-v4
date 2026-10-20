@@ -135,7 +135,7 @@ Prioritas jenis bila seseorang memenuhi beberapa syarat: menyebut > mengomentari
 
 ### 6.2 Modul baru (UMD, `window.TF.*` + `module.exports`)
 
-- `static/offline/commentrepo.js`: `listForNote(noteCid)`, `threads(records, {tab})` (thread + balasan urut `created_at`, tab `open`/`done`), `counts(records, uid, lastReadAt)`, `create/reply/edit/resolve/remove` (tulis lokal + outbox), `mergePulled(items)`, `parts(body)` (pecah @mention).
+- `static/offline/commentrepo.js`: `listForNote(noteCid, noteListId)` (hanya record dengan `list_id` sama dengan `list_id` note saat ini, supaya cache komentar workspace lama tidak tampil setelah note dipindah), `threads(records, {tab})` (thread + balasan urut `created_at`, tab `open`/`done`), `counts(records, uid, lastReadAt)`, `create/reply/edit/resolve/remove` (tulis lokal + outbox), `mergePulled(items)`, `parts(body)` (pecah @mention).
 - `static/offline/commentanchor.js`: `findQuote(docText, quote) -> {from, to} | null` — cocok persis; kalau gagal, cocok setelah normalisasi (spasi beruntun jadi satu, kutip lengkung → lurus, trim). Banyak kecocokan → yang pertama. Murni, tanpa DOM.
 - `static/offline/commentroutes.js`: daftarkan endpoint §4 di router lokal (`GET` per note dan `POST/PATCH/DELETE`), membalas dari repo lokal.
 
