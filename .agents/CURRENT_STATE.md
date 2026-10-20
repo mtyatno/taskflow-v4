@@ -4,7 +4,7 @@
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
 
-## 🟠 Jeda tab workspace di bawah header — `claude/workspace-tabs-gap` — 2026-10-20 (Claude) — DRAFT PR, TUNGGU "MERGE DAN DEPLOY"
+## 🟠 Jeda tab workspace di bawah header — `claude/workspace-tabs-gap` — 2026-10-20 (Claude) — DI-MERGE (#56, 7de8276) 12:14 WIB, DEPLOY WORKFLOW SUKSES; TUNGGU RESTART `taskflow-web`
 - **Status:** frontend saja. SW **v428** `taskflow-v428-workspace-tabs-gap` (`app.css` tidak berubah, `?v=336`). Setelah deploy: restart `taskflow-web`.
 - **Isi:** baris tab Tasks / Files halaman workspace menempel ke garis bawah `.desktop-topbar`; ditambah `marginTop: 16` pada `.workspace-nav-tabs` (setara margin judul `h1` di halaman lain).
 - **Verifikasi:** pytest 814, JS 1990/1991 (pra-ada `draw_local_reactive`), E2E `temporary_files/e2e_tasklist_view_icons.py` lulus termasuk ukur jeda 16px terang + gelap.

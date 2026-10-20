@@ -3569,3 +3569,7 @@
 
 ## 2026-10-20 11:55 WIB — Claude — jeda tab workspace di bawah header
 - Bapak: tombol Tasks menempel ke garis top menu. Penyebab: halaman lain dibuka `h1` (margin atas bawaan), halaman workspace dibuka baris tab tanpa margin atas. Fix `marginTop: 16`, SW v428. **Status:** Needs Review (draft PR; restart `taskflow-web`).
+
+## 2026-10-20 12:15 WIB — Claude — merge jeda tab workspace (#56)
+- Bapak: "merge". #56 di-merge (7de8276); CI Tests dan Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek jeda di bawah header halaman workspace (SW v428).
