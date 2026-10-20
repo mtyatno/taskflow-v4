@@ -2744,9 +2744,12 @@ async def reorder_contexts(body: ContextOrder, user=Depends(get_current_user)):
             if not _project_can_manage(conn, by_id[cid], uid):
                 raise HTTPException(404, _CTX_404)
         now = datetime.now().isoformat()
+        moved = set(changed)
         for i, cid in enumerate(body.ids):
-            if old_pos[cid] != i or by_id[cid]["position"] != i:
+            if cid in moved:
                 conn.execute("UPDATE contexts SET position = ?, updated_at = ? WHERE id = ?", (i, now, cid))
+            elif by_id[cid]["position"] != i:  # renormalisasi padat saja; updated_at tak disentuh
+                conn.execute("UPDATE contexts SET position = ? WHERE id = ?", (i, cid))
         out = conn.execute(
             f"SELECT * FROM contexts WHERE {scope_sql} AND archived = 0 {_CTX_ORDER}", args).fetchall()
         return {"ok": True, "contexts": [_context_full(conn, r, uid) for r in out]}

@@ -301,3 +301,26 @@ def test_workspace_delete_cascades(client):
         conn.execute("DELETE FROM tasks WHERE id=?", (t["id"],))
         conn.commit()
         conn.close()
+
+
+def test_order_renormalizes_gaps_without_touching_others(client):
+    a, c = U(client), U(client)
+    ws = _workspace(a)
+    _add_member(ws, c.id)
+    ids = [_ctx(a, _n(x), ws)["id"] for x in "XYZ"]
+    conn = db()
+    for cid, pos in zip(ids, (0, 5, 9)):
+        conn.execute("UPDATE contexts SET position=? WHERE id=?", (pos, cid))
+    conn.commit(); conn.close()
+    before = {i: _row("SELECT updated_at FROM contexts WHERE id=?", i)["updated_at"] for i in ids}
+    r = c.put("/api/contexts/order", json={"list_id": ws, "ids": ids})
+    assert r.status_code == 200, r.text
+    assert [(x["id"], x["position"]) for x in r.json()["contexts"]] == list(zip(ids, (0, 1, 2)))
+    for i in ids:
+        assert _row("SELECT updated_at FROM contexts WHERE id=?", i)["updated_at"] == before[i]
+    # C menggeser context milik A tetap 404 dan tidak mengubah apa pun
+    r = c.put("/api/contexts/order", json={"list_id": ws, "ids": ids[::-1]})
+    assert r.status_code == 404
+    assert [(x["id"], x["position"]) for x in _full(a, list_id=ws)] == list(zip(ids, (0, 1, 2)))
+    for i in ids:
+        assert _row("SELECT updated_at FROM contexts WHERE id=?", i)["updated_at"] == before[i]
