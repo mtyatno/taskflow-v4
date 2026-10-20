@@ -90,7 +90,7 @@
 
   // PR 5: nama `project` task aktif di satu scope (list_id terisi → workspace itu; null → pribadi).
   // Belum dedup/urut NOCASE — projectcache.names menggabungkannya dengan cache project.
-  function getProjectsInScope(listId) {
+  function fieldInScope(field, listId) {
     const want = (listId == null || listId === "") ? null : String(listId);
     return getAllRaw().then((all) => {
       const out = [];
@@ -98,11 +98,14 @@
         if (r.deleted || !isActive(r)) continue;
         const have = r.list_id == null || r.list_id === "" ? null : String(r.list_id);
         if (have !== want) continue;
-        if (r.project != null && r.project !== "") out.push(r.project);
+        if (r[field] != null && r[field] !== "") out.push(r[field]);
       }
       return out;
     });
   }
+  function getProjectsInScope(listId) { return fieldInScope("project", listId); }
+  // Kanban tahap: nama `context` task aktif di satu scope (contextcache.names menggabungkannya dengan cache).
+  function getContextsInScope(listId) { return fieldInScope("context", listId); }
   function getContexts() { return distinctActiveField("context"); }
 
   function todayLocalISO() {
@@ -158,7 +161,7 @@
     });
   }
 
-  const exported = { listTasks, getProjects, getProjectsInScope, getContexts, getSummary };
+  const exported = { listTasks, getProjects, getProjectsInScope, getContexts, getContextsInScope, getSummary };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskquery = exported; }
   return exported;
 });

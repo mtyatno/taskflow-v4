@@ -23,6 +23,8 @@
   const TFmindmaproutes = req("./mindmaproutes.js", root.TF && root.TF.mindmaproutes);
   const TFchatroutes = req("./chatroutes.js", root.TF && root.TF.chatroutes);
   const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
+  const TFcontexts = req("./contextcache.js", root.TF && root.TF.contextcache);
+  const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
 
   function todayISO() {
     const n = new Date();
@@ -39,6 +41,25 @@
 
   function displayIdOf(rec) {
     return rec.server_id != null ? rec.server_id : rec.cid;
+  }
+
+  // Semua item tahap: pribadi dulu, lalu per list_id (angka naik), masing-masing urut contextcache.sortItems.
+  function sortAllScopes(items) {
+    const groups = new Map();
+    for (const c of items) {
+      const k = c.list_id == null || c.list_id === "" ? "" : String(c.list_id);
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(c);
+    }
+    const keys = Array.from(groups.keys()).sort((a, b) => {
+      if (a === "" || b === "") return a === "" ? (b === "" ? 0 : -1) : 1;
+      const na = Number(a), nb = Number(b);
+      if (!isNaN(na) && !isNaN(nb) && na !== nb) return na < nb ? -1 : 1;
+      return a < b ? -1 : (a > b ? 1 : 0);
+    });
+    let out = [];
+    for (const k of keys) out = out.concat(TFcontexts.sortItems(groups.get(k)));
+    return out;
   }
 
   function withId(row) {
@@ -201,7 +222,32 @@
       }
       return TFprojects.names(listId);
     });
-    router.register("GET", "/api/contexts", () => TFquery.getContexts());
+    // Kanban tahap: tanpa query → nama (pribadi / ?list_id=W); ?format=full → item cache per scope;
+    // ?format=full&scope=all → semua scope (pribadi dulu, lalu per list_id). POST membuat tahap pending + satu
+    // op outbox; PATCH/DELETE/PUT order sengaja tidak lokal (butuh jaringan).
+    router.register("GET", "/api/contexts", ({ query }) => {
+      const q = query || {};
+      const listId = (q.list_id != null && q.list_id !== "") ? q.list_id : null;
+      if (q.format === "full") {
+        const includeArchived = q.include_archived === "1" || q.include_archived === "true";
+        if (q.scope === "all") {
+          // sama dengan server: arsip hanya bila include_archived
+          return TFcontexts.allItems().then((items) =>
+            sortAllScopes(includeArchived ? items : items.filter((c) => !c.archived)));
+        }
+        return TFcontexts.list(listId, { includeArchived });
+      }
+      return TFcontexts.names(listId);
+    });
+    // Respons = item + `created` (false = nama sudah ada di scope: aktif, pending, atau diarsip — `archived`
+    // ikut di item) supaya "+ Tahap" bisa memberi tahu / mengaktifkan lagi, bukan diam.
+    router.register("POST", "/api/contexts", ({ body }) => {
+      const b = body || {};
+      return TFcontexts.addPending(b.list_id, b.name).then(({ item, created }) =>
+        (created
+          ? TFoutbox.outboxAdd({ op: "create", entity_type: "context", cid: item.cid, payload: { cid: item.cid } })
+          : Promise.resolve()).then(() => Object.assign({}, item, { archived: !!item.archived, created: !!created })));
+    });
 
     router.register("GET", "/api/tasks/:id/tags", ({ params }) =>
       resolveCid(params.id).then((cid) => (cid ? TFtag.getEntityTags("task", cid) : notFound())));

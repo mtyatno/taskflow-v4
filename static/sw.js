@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v425-workspace-pins";
+const CACHE = "taskflow-v426-kanban-stages";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -14,6 +14,8 @@ const STATIC = [
   "/static/offline/taskrepo.js",
   "/static/offline/taskquery.js",
   "/static/offline/projectcache.js",
+  "/static/offline/contextcache.js",
+  "/static/offline/kanbanboard.js",
   "/static/offline/recurrence.js",
   "/static/offline/taskroutes.js",
   "/static/offline/hydrate.js",
