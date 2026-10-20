@@ -13,6 +13,7 @@ import re
 import socket
 import subprocess
 import sys
+import shutil
 import tempfile
 import time
 
@@ -23,10 +24,6 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHOTS = os.path.join(ROOT, "temporary_files", "e2e_focus_page")
 PW = "rahasia123"
 SECRET = "e2e-focus-page-secret"
-T_GTD = "Tugas biasa E2E"
-T_WS = "Tugas workspace E2E"
-T_DONE = "Tugas selesai E2E"
-WS_NAME = "Tim Fokus"
 TOURS = ['dashboard', 'tasks', 'today', 'calendar', 'kanban', 'notes', 'mindmap', 'chat', 'habits', 'habit',
          'settings', 'draw', 'goals', 'review', 'focus', 'workspace', 'slist', 'all', 'inbox',
          'done', 'overdue', 'next', 'waiting', 'someday']
@@ -102,19 +99,6 @@ def shot(page, name):
     print("  screenshot", os.path.relpath(path, ROOT), flush=True)
 
 
-def shot_clip(page, name, boxes, pad=12):
-    """Screenshot satu kotak yang membungkus semua bounding box (top bar + baris, dsb.)."""
-    page.mouse.move(5, 5)
-    page.wait_for_timeout(300)
-    x0 = min(b["x"] for b in boxes) - pad
-    y0 = min(b["y"] for b in boxes) - pad
-    x1 = max(b["x"] + b["width"] for b in boxes) + pad
-    y1 = max(b["y"] + b["height"] for b in boxes) + pad
-    path = os.path.join(SHOTS, name)
-    page.screenshot(path=path, scale="css", clip={"x": max(x0, 0), "y": max(y0, 0), "width": x1 - max(x0, 0), "height": y1 - max(y0, 0)})
-    print("  screenshot", os.path.relpath(path, ROOT), flush=True)
-
-
 def open_app(browser, base, user, theme="light"):
     ctx = browser.new_context(service_workers="block", viewport={"width": 1280, "height": 860})
     ctx.add_cookies([{"name": "token", "value": user["token"], "url": base, "httpOnly": True, "sameSite": "Lax"}])
@@ -141,6 +125,9 @@ def nav(page, label):
     link.click()
     page.wait_for_timeout(500)
 
+
+
+REC_TITLE = "Minum obat harian"
 
 
 def today_iso():
@@ -177,6 +164,19 @@ def visible_titles(p):
     return p.locator(".ftask:not(.is-zen-hidden):not(.ftask--recurring) .ftask-title").all_inner_texts()
 
 
+def local_count(p, title):
+    """Jumlah task hidup berjudul `title` di IndexedDB lokal (store tasks)."""
+    return p.evaluate("""(title) => new Promise((res, rej) => {
+        const r = indexedDB.open('taskflow-offline');
+        r.onerror = () => rej(r.error);
+        r.onsuccess = () => {
+            const q = r.result.transaction('tasks').objectStore('tasks').getAll();
+            q.onsuccess = () => { r.result.close(); res(q.result.filter(t => t.title === title && !t.deleted).length); };
+            q.onerror = () => rej(q.error);
+        };
+    })""", title)
+
+
 def park(p, text, enter=1):
     inp = p.locator(".pomo-park-input")
     inp.click()
@@ -203,7 +203,12 @@ def main():
             ids.append(r["id"])
         for s in ("Subtask satu", "Subtask dua"):
             api(base, user, "POST", "/api/tasks/%d/subtasks" % ids[0], json={"title": s}, ok_codes=(200, 201))
-        check("0 seed: 3 task Q1 hari ini + 2 subtask", len(ids) == 3)
+        end = time.strftime("%Y-%m-%d", time.localtime(time.time() + 30 * 86400))
+        _, rec = api(base, user, "POST", "/api/tasks",
+                     json={"title": REC_TITLE, "priority": "P3", "gtd_status": "next", "recurrence_type": "daily",
+                           "recurrence_end_date": end, "deadline": today_iso()})
+        check("0 seed: 3 task Q1 hari ini + 2 subtask + 1 task harian",
+              len(ids) == 3 and rec.get("recurrence_type") == "daily", repr(rec.get("recurrence_type")))
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             ctx, p = open_app(browser, base, user, "light")
@@ -222,15 +227,13 @@ def main():
             proc.wait(10)
         except subprocess.TimeoutExpired:
             proc.kill()
-        print("server log:", os.path.join(tmp, "server.log"))
+        shutil.rmtree(tmp, ignore_errors=True)
     failed = [r for r in results if not r[1]]
     print("\n%d langkah, %d gagal" % (len(results), len(failed)))
     sys.exit(1 if failed else 0)
 
 
 def run_flow(browser, ctx, p, base, user, titles):
-    posts = []
-    p.on("request", lambda r: posts.append(r.url) if r.method == "POST" and r.url.rstrip("/").endswith("/api/tasks") else None)
     nav(p, "Fokus Hari Ini")
     p.locator(".ftask").first.wait_for(state="visible", timeout=20000)
     p.locator(".pomo-park-input").wait_for(state="visible", timeout=10000)
@@ -251,17 +254,37 @@ def run_flow(browser, ctx, p, base, user, titles):
     check("a5 server memuat 'ide baru' gtd_status=inbox", len(got) == 1 and got[0].get("gtd_status") == "inbox",
           repr([(t.get("gtd_status")) for t in got]))
 
-    park(p, "dobel", enter=2)
+    # b: dua keydown Enter dalam satu tick JS (sebelum request pertama selesai) -> busy guard
+    inp = p.locator(".pomo-park-input")
+    inp.click()
+    inp.fill("dobel")
+    p.evaluate("""() => { const el = document.querySelector('.pomo-park-input');
+        for (let i = 0; i < 2; i++) el.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', keyCode: 13, bubbles: true, cancelable: true})); }""")
     p.wait_for_timeout(1500)
+    check("b1 dua Enter serentak -> tepat satu task lokal", local_count(p, "dobel") == 1, "n=%d" % local_count(p, "dobel"))
     wait_server(base, user, "dobel")
     time.sleep(3)
     got = tasks_by_title(base, user, "dobel")
-    check("b Enter dua kali cepat -> tepat satu task di server", len(got) == 1, "n=%d" % len(got))
+    check("b2 tepat satu task di server", len(got) == 1, "n=%d" % len(got))
 
-    before = len(posts)
+    # c: penghitung = jumlah task lokal (IndexedDB) + server; park valid menaikkannya, spasi tidak
+    all_local = lambda: p.evaluate("""() => new Promise((res) => { const r = indexedDB.open('taskflow-offline');
+        r.onsuccess = () => { const q = r.result.transaction('tasks').objectStore('tasks').getAll();
+            q.onsuccess = () => { r.result.close(); res(q.result.filter(t => !t.deleted).length); }; }; })""")
+    before_local, before_srv = all_local(), len(api(base, user, "GET", "/api/tasks?limit=500")[1])
     park(p, "   ")
-    p.wait_for_timeout(800)
-    check("c spasi saja + Enter -> tanpa POST /api/tasks", len(posts) == before, "%d -> %d" % (before, len(posts)))
+    p.wait_for_timeout(1500)
+    time.sleep(2)
+    check("c1 spasi saja + Enter -> tak ada task baru (lokal maupun server)",
+          all_local() == before_local and len(api(base, user, "GET", "/api/tasks?limit=500")[1]) == before_srv,
+          "lokal %d -> %d" % (before_local, all_local()))
+    park(p, "kontrol-c")
+    p.wait_for_selector(".pomo-park.is-ok", timeout=3000)
+    check("c2 kontrol: park valid menaikkan penghitung lokal +1", all_local() == before_local + 1,
+          "lokal %d -> %d" % (before_local, all_local()))
+    wait_server(base, user, "kontrol-c")
+    check("c3 kontrol: park valid menaikkan penghitung server +1",
+          len(api(base, user, "GET", "/api/tasks?limit=500")[1]) == before_srv + 1)
 
     url0 = p.url
     sel = "[role='dialog'], .modal-overlay, .modal-backdrop"
@@ -287,6 +310,10 @@ def run_flow(browser, ctx, p, base, user, titles):
     check("d2 online lagi -> task sampai ke server sebagai inbox", len(got) == 1 and got[0].get("gtd_status") == "inbox",
           repr(got[:1]))
 
+    rec_sec = p.locator(".focus-section").filter(has_text="Berulang hari ini")
+    rec_sec.first.wait_for(state="visible", timeout=10000)
+    check("e00 'Berulang hari ini' tampil dengan task harian (Zen mati)",
+          rec_sec.first.is_visible() and REC_TITLE in rec_sec.first.inner_text())
     p.locator(".focus-zen-btn").click()
     check("e0 Zen aria-pressed=true", p.locator(".focus-zen-btn").get_attribute("aria-pressed") == "true")
     check("e0b Zen aktif tapi timer belum jalan -> semua task terlihat",
@@ -299,8 +326,9 @@ def run_flow(browser, ctx, p, base, user, titles):
     p.wait_for_timeout(500)
     vis = visible_titles(p)
     check("e1 task lain tersembunyi, hanya task aktif terlihat", vis == [first_title], repr(vis))
-    rec = p.locator(".focus-section", has_text="Berulang hari ini")
-    check("e1b 'Berulang hari ini' tidak terlihat", rec.count() == 0 or not rec.first.is_visible())
+    p.wait_for_timeout(400)
+    check("e1b 'Berulang hari ini' ada, tidak terlihat, aria-hidden",
+          rec_sec.count() == 1 and not rec_sec.first.is_visible() and rec_sec.first.get_attribute("aria-hidden") == "true")
     check("e1c task tersembunyi aria-hidden", p.locator(".ftask.is-zen-hidden[aria-hidden='true']").count() == 2)
     check("e2 .focus-zen-note tampil", p.locator(".focus-zen-note").is_visible(), p.locator(".focus-zen-note").inner_text())
     check("e3 panel task aktif terbuka", p.locator(".ftask.is-focusing.is-open .ftask-panel").is_visible())
@@ -312,6 +340,7 @@ def run_flow(browser, ctx, p, base, user, titles):
     check("e4 centang subtask berfungsi", p.locator(".ftask.is-focusing .ftask-sub.is-done").count() == 1)
     p.locator(".focus-pomo .pomo-btn-main.is-pause").first.click()
     p.wait_for_timeout(500)
+    check("e5b Jeda -> 'Berulang hari ini' terlihat lagi", rec_sec.first.is_visible())
     check("e5 Jeda -> semua task terlihat lagi",
           len(visible_titles(p)) == 3 and p.locator(".focus-page.is-zen").count() == 0, repr(visible_titles(p)))
     p.locator(".focus-pomo .pomo-btn-main").first.click()
