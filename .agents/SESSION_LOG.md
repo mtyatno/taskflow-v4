@@ -3505,3 +3505,8 @@
 - **Verifikasi:** pytest 556, JS 1833/1834, E2E 41/41.
 - **Status:** Needs Review (draft PR; restart `taskflow-web` + `taskflow`).
 
+## [2026-10-20 12:00] - Claude (media note: halaman publik, DOCX, ADR, handover — Task 8/8)
+- **Task:** Task terakhir PR backend audio/video di note (SDD, branch `claude/note-media-backend`).
+- **Changes:** `MEDIA_DIRECTIVE_RE` + `format_duration` di `media_probe.py`; kartu pemutar `/pub` (placeholder ber-nonce, hanya lampiran note itu, status ready); lampiran media dikeluarkan dari daftar "Attachments" publik dan deskripsi meta; `/pub/attachments/{id}` media → 302 unduhan; DOCX `media_resolver` (`_make_media_resolver`); `_trash_preview` membuang direktif; ADR-016; handover deploy.
+- **Files Touch:** `webapp.py`, `media_probe.py`, `docx_exporter.py`, `tests/test_note_media_public.py`, `tests/test_docx_export.py`, `.agents/*`
+- **Status:** Needs Review (draft PR; deploy: ffmpeg, MEDIA_ROOT, MEDIA_URL_SECRET, nginx, restart `taskflow-web`).

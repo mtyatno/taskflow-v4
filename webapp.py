@@ -165,7 +165,7 @@ JWT_ALGORITHM = "HS256"
 import shutil
 import errno
 from starlette.concurrency import run_in_threadpool
-from media_probe import sniff_media, final_mime, ALLOWED_INIT_EXTS
+from media_probe import sniff_media, final_mime, ALLOWED_INIT_EXTS, MEDIA_DIRECTIVE_RE, format_duration
 from media_storage import get_storage, new_key
 import media_serve
 from media_worker import MediaWorker
@@ -4643,7 +4643,7 @@ def _fill_pub_placeholders(rendered: str, cards: dict, fallback: dict, nonce: st
         return rendered
     # semua kunci berbentuk TFM(WIKI|DRAWBLK)<nonce>X<n>END (nonce hex per render); pola umum + lookup dict
     # (bukan alternation semua kunci, yang lambat untuk note dengan ribuan wikilink)
-    key_pat = rf'TFM(?:WIKI|DRAWBLK){re.escape(nonce)}X\d+END'
+    key_pat = rf'TFM(?:WIKI|DRAWBLK|MEDIA){re.escape(nonce)}X\d+END'
     key_re = re.compile(key_pat)
 
     def _card(key):
@@ -4652,7 +4652,7 @@ def _fill_pub_placeholders(rendered: str, cards: dict, fallback: dict, nonce: st
     def _sub(m):
         if m.group(1):
             key = m.group(1)
-            return _card(key) if key.startswith('TFMDRAWBLK') else f'<p>{_card(key)}</p>'
+            return _card(key) if key.startswith(('TFMDRAWBLK', 'TFMMEDIA')) else f'<p>{_card(key)}</p>'
         if m.group(2):
             return key_re.sub(lambda k: fallback.get(k.group(0), ''), m.group(2))
         return _card(m.group(3))
@@ -4769,7 +4769,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
     att_map = {}
     if note_id:
         try:
-            for a in conn.execute("SELECT id, original_name FROM note_attachments WHERE note_id = ?", (note_id,)).fetchall():
+            for a in conn.execute("SELECT id, original_name FROM note_attachments WHERE note_id = ? AND kind != 'media'", (note_id,)).fetchall():
                 name = a["original_name"] if isinstance(a, sqlite3.Row) or isinstance(a, dict) else a[1]
                 aid = a["id"] if isinstance(a, sqlite3.Row) or isinstance(a, dict) else a[0]
                 if name:
@@ -4852,6 +4852,42 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
     # 6. Checklist [ ] / [x] → read-only
     content = _re.sub(r'^(\s*)- \[ \]', r'\1- ☐', content, flags=_re.MULTILINE)
     content = _re.sub(r'^(\s*)- \[[xX]\]', r'\1- ☑', content, flags=_re.MULTILINE)
+
+    # 6.4. ::media[client_id]{name="..."} -> kartu pemutar. Hanya lampiran media milik note yang sedang dirender
+    # (note_id + client_id + kind='media') dan berstatus ready; selain itu kartu "tidak tersedia" tanpa nama file.
+    def _replace_media(m):
+        key = f"TFMMEDIA{ph_nonce}X{len(cards)}END"
+        card_fallback[key] = ""
+        cid = m.group(1)
+        attr_name = ""
+        if m.group(2):
+            nm = _re.search(r'\bname\s*=\s*(?:\\?"([^"\\]*)\\?"|\\?\'([^\'\\]*)\\?\')', m.group(2))
+            if nm:
+                attr_name = nm.group(1) or nm.group(2) or ""
+        row = None
+        if note_id is not None:
+            row = conn.execute(
+                "SELECT id, original_name, media_type, duration_ms, poster_key, status FROM note_attachments "
+                "WHERE note_id = ? AND client_id = ? AND kind = 'media'", (note_id, cid)).fetchone()
+        if not row or row["status"] != "ready":
+            cards[key] = '<figure class="pub-media pub-media-missing">Media tidak tersedia</figure>'
+            return key
+        urls = _media_urls(row["id"], bool(row["poster_key"]), int(_time.time()))
+        src = safehtml.escape_attr(urls["play_url"])
+        if row["media_type"] == "video":
+            poster = f' poster="{safehtml.escape_attr(urls["poster_url"])}"' if urls["poster_url"] else ""
+            player = f'<video controls preload="metadata" playsinline src="{src}"{poster}></video>'
+        else:
+            player = f'<audio controls preload="metadata" src="{src}"></audio>'
+        caption = safehtml.escape_html(row["original_name"] or attr_name)
+        dur = format_duration(row["duration_ms"])
+        if dur:
+            caption += f" · {dur}"
+        cards[key] = (f'<figure class="pub-media">{player}<figcaption>{caption}</figcaption>'
+                      f'<a href="{safehtml.escape_attr(urls["download_url"])}">Unduh</a></figure>')
+        return key
+
+    content = MEDIA_DIRECTIVE_RE.sub(_replace_media, content)
 
     # 6.5. Process ::draw[id]{...} tokens → extract and replace with placeholder
     def _replace_draw(m):
@@ -5272,6 +5308,7 @@ def _trash_preview(content: str, limit: int = 120) -> str:
     # memblokir event loop); preview hanya memakai ≤limit char pertama.
     s = (content or "")[:2000]
     s = re.sub(r"::draw\[[^\]]*\]", " ", s, flags=re.IGNORECASE)
+    s = MEDIA_DIRECTIVE_RE.sub(" ", s)
     s = re.sub(r"!?\[([^\]]*)\]\([^)]*\)", r"\1", s)               # [teks](url) -> teks
     s = re.sub(r"(?:\\?\[){2}([^\[\]\\|]*)(?:\|[^\[\]\\]*)?(?:\\?\]){2}", r"\1", s)  # [[Judul|alias]] -> Judul
     s = re.sub(r"[#*_`~>|\[\]\\]", "", s)
@@ -6592,6 +6629,23 @@ def _make_image_resolver(uid: int, note_id: int = None):
     return _resolve_image
 
 
+def _make_media_resolver(uid: int, note_id):
+    """Resolver media untuk DOCX: hanya lampiran media dari note yang bisa diakses uid (note_id wajib)."""
+    def _resolve(client_id: str):
+        if note_id is None:
+            return None
+        with get_db() as conn:
+            if not _accessible_note(conn, uid, note_id):
+                return None
+            row = conn.execute(
+                "SELECT original_name, media_type, duration_ms, status FROM note_attachments "
+                "WHERE note_id = ? AND client_id = ? AND kind = 'media'", (note_id, client_id)).fetchone()
+        if not row or row["status"] != "ready":
+            return None
+        return {"name": row["original_name"], "media_type": row["media_type"], "duration_ms": row["duration_ms"]}
+    return _resolve
+
+
 @app.get("/api/scratchpad/{note_id}/export/docx")
 async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
     """Export note as Microsoft Word (.docx) document."""
@@ -6616,7 +6670,8 @@ async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
     drawing_res = _make_drawing_resolver(uid)
     image_res = _make_image_resolver(uid, note_id=note_id)
     try:
-        doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res)
+        doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res,
+                                 media_resolver=_make_media_resolver(uid, note_id))
         safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
         return Response(
             content=doc_io.getvalue(),
@@ -6709,7 +6764,8 @@ async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(g
         return db_img_res(src, alt=alt)
 
     try:
-        doc_io = markdown_to_docx(title, content, drawing_resolver=combined_drawing_res, image_resolver=combined_image_res)
+        doc_io = markdown_to_docx(title, content, drawing_resolver=combined_drawing_res, image_resolver=combined_image_res,
+                                 media_resolver=_make_media_resolver(uid, req.note_id))
         safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
         return Response(
             content=doc_io.getvalue(),
@@ -7380,6 +7436,11 @@ _PUBLIC_CSS = """<style>
   html.dark mark.search-highlight { background: #ffeb3b; color: #000; }
 
   /* Attachments */
+  .pub-media { margin: 16px 0; }
+  .pub-media video, .pub-media audio { display: block; width: 100%; max-width: 100%; border-radius: 8px; }
+  .pub-media figcaption { font-size: 13px; color: var(--text-muted, #64748b); margin-top: 6px; }
+  .pub-media a { font-size: 13px; }
+  .pub-media-missing { padding: 12px 14px; border: 1px dashed var(--border); border-radius: 8px; color: var(--text-muted, #64748b); }
   .pub-attachments {
     margin-top: 32px;
     padding: 20px;
@@ -7927,6 +7988,13 @@ async def view_published_attachment(att_id: str, request: Request):
         if not att or not _pub_note_unlocked(request, att["slug"], att["password_hash"]):
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
 
+        if att["kind"] == "media":
+            if att["status"] != "ready":
+                raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
+            return RedirectResponse(
+                _media_urls(att["id"], bool(att["poster_key"]), int(_time.time()))["download_url"],
+                status_code=302)
+
         safe_name = (att["original_name"] or "file").replace('"', '_').replace('\r', '').replace('\n', '')
         mime_type = att["mime_type"] or "application/octet-stream"
         nc_path = att["nextcloud_path"] or ""
@@ -8025,6 +8093,7 @@ async def view_published_note(username: str, slug: str, request: Request):
 
         raw_content = row["content"] or ""
         desc_clean = _re.sub(r'\\?::draw\\?\[[^\]]*\](?:\s*\\?\{[^}]*\\?\})?', '', raw_content, flags=_re.IGNORECASE)
+        desc_clean = MEDIA_DIRECTIVE_RE.sub('', desc_clean)
         desc_clean = _re.sub(r'\\?\[tasklink:[^\]]*\]', '', desc_clean)
         desc_clean = _re.sub(r'==([^=\n]+)==', r'\1', desc_clean)
         desc_clean = _re.sub(r'\[\[([^\]|]+)(?:\|[^\]]+)?\]\]', r'\1', desc_clean)
@@ -8068,7 +8137,7 @@ async def view_published_note(username: str, slug: str, request: Request):
         # Attachments
         attachments_html = ""
         atts = conn.execute(
-            "SELECT id, original_name, mime_type FROM note_attachments WHERE note_id = ?",
+            "SELECT id, original_name, mime_type FROM note_attachments WHERE note_id = ? AND kind != 'media'",
             (row["note_id"],)
         ).fetchall()
         if atts:

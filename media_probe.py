@@ -2,6 +2,7 @@
 import json
 import logging
 import os
+import re
 import struct
 import subprocess
 from dataclasses import dataclass
@@ -12,6 +13,24 @@ _log = logging.getLogger("alurik.media_probe")
 
 ALLOWED_INIT_EXTS = frozenset(
     "mp3 m4a m4b aac wav ogg oga opus webm flac amr 3gp 3g2 mp4 m4v mov mkv".split())
+
+# Direktif ::media[client_id]{name="..."} di isi note (juga bentuk ter-escape serializer markdown).
+MEDIA_DIRECTIVE_RE = re.compile(
+    r'\\?::media\\?\[([0-9a-zA-Z_-]{1,64})\\?\](?:\s*\\?\{([^}]*)\\?\})?', re.IGNORECASE)
+
+
+def format_duration(ms) -> Optional[str]:
+    """m:ss, atau h:mm:ss bila >= 1 jam; None bila tidak diketahui."""
+    try:
+        total = int(ms) // 1000
+    except (TypeError, ValueError):
+        return None
+    if total <= 0:
+        return None
+    h, rem = divmod(total, 3600)
+    m, s = divmod(rem, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+
 
 _VIDEO_EXTS = {".mov", ".mp4", ".webm", ".mkv", ".3gp"}
 _MP4_BRANDS = {"isom", "iso2", "iso4", "iso5", "iso6", "mp41", "mp42", "avc1", "dash", "MSNV", "M4V "}

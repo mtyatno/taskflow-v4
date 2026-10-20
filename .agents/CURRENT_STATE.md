@@ -3,6 +3,19 @@
 **YOU MUST NOT REPEAT THIS.**
 1. Read the Superpowers skills (`subagent-driven-development`, `requesting-code-review`, etc.).
 2. Delegate implementation and review tasks to SUBAGENTS.
+## 🟠 Audio & video di note — PR backend — 2026-10-20 (Claude) — DRAFT, TUNGGU "MERGE DAN DEPLOY"
+- **Status:** branch `claude/note-media-backend` (draft PR). Backend saja, **tanpa** kenaikan SW. ADR-016. Rencana: `claude/plan-note-media-backend-2026-10-20.md` di Project claude.ai.
+- **Isi:** kolom media di `note_attachments` (`migrate_db`); unggah bertahap `POST /api/scratchpad/{id}/media` + `PATCH /api/media/{id}/upload` + `POST …/complete`; `media_storage.py`, `media_probe.py`, `media_worker.py` (ffprobe/faststart/poster), `media_serve.py` (token HMAC + `/media/{token}` dengan `X-Accel-Redirect`/Range); akses lampiran bersama workspace; hapus media + bersihkan unggahan macet; halaman publik `/pub` memutar `::media[...]` (lampiran note itu saja), `/pub/attachments/{id}` media → 302 ke unduhan; DOCX satu baris teks; pratinjau Sampah membuang direktif; blok nginx di `nginx-taskflow.conf`.
+- **Verifikasi:** pytest 696 (baseline 679), JS tidak disentuh (tak ada file JS berubah); smoke uvicorn lokal `MEDIA_ACCEL=0` (init → PATCH → complete mp4 ffmpeg → worker ready → `Range` → 206).
+- **DEPLOY (setelah merge, urut):**
+  1. `sudo apt install ffmpeg`
+  2. `sudo mkdir -p /var/lib/alurik/media && sudo chown <user service taskflow-web> /var/lib/alurik/media` (folder harus bisa dibaca user nginx)
+  3. Set `MEDIA_URL_SECRET` (`openssl rand -hex 32`) di environment service `taskflow-web`
+  4. Tambahkan blok nginx dari `nginx-taskflow.conf` (`/_alurik_media/` internal + lokasi `PATCH …/upload`), lalu `sudo nginx -t && sudo systemctl reload nginx`
+  5. `sudo systemctl restart taskflow-web`
+  6. Verifikasi: `curl -sI -H 'Range: bytes=0-99' https://<host>/media/<token>` → **206** dengan `Content-Type` sesuai media.
+- **Berikutnya:** PR frontend (pemutar + unggah di editor, naik SW), setelah PR XSS (1b) di-merge.
+
 ## 🟠 Temuan mindmap #4 — PR B `claude/mindmap-findings-b` — 2026-10-19 (Claude) — DI-MERGE (#46, 5cc231e) 2026-10-19; TUNGGU RESTART `taskflow-web` DI SERVER
 - **Status:** B1–B6 selesai di branch (dibangun di atas PR A, ruling R3). **PR #44 (PR A) harus di-merge lebih dulu**. Sudah merge PR A terbaru (yang sudah memuat `origin/main` ee5b8d3 / #45) → SW naik ke **v423** `taskflow-v423-mindmap-live`, ADR jadi 015; iframe mind-elixir `?v=145` (`mindmapops.js?v=7` di iframe); `app.css` tidak berubah (`?v=334`). **Deploy wajib `sudo systemctl restart taskflow-web`** (endpoint `GET /api/mindmaps/{mid}/stream` + broadcast di `webapp.py`). ADR-015. PR **#46** di-merge ke `main` (5cc231e) setelah #44.
 - **Isi:** merge tiga arah per node di klien `static/offline/mindmapmerge.js` (push 409, pull, router lokal `base_data_json`; konflik field sama di node sama → versi server + salinan "(konflik)" + notice `merge_conflict`); SSE sinyal saja (`mindmap_changed`/`mindmap_deleted`/`mindmap_access_lost`) + `pullMindmapOne`; `static/offline/mindmaplive.js` + `remoteUpdate` iframe (dilewati saat mengetik), "🟢 Langsung"; stream hanya untuk tab mindmap aktif; undo dikosongkan setelah pembaruan jarak jauh; salinan konflik dipakai ulang per `session_id` tab; peta tertaut tidak di-merge/tidak berlangganan.
@@ -46,7 +59,7 @@
 - **Berikutnya (urutan Bapak):** PR 2–3 (drawing workspace), lalu PR XSS (1b).
 
 ## 🟠 Project sebagai entitas pribadi/workspace — PR 4 backend — 2026-10-19 (Claude) — DI-MERGE, DEPLOY & AKTIF (restart + cek data 13:19 WIB: 14 pribadi, 1 workspace, 7 arsip, 0 belum tertaut)
-## 🔵 Audio & video di note — spec — 2026-10-19 (Claude) — SPEC MENUNGGU REVIEW, BELUM ADA KODE
+## 🔵 Audio & video di note — spec — 2026-10-19 (Claude) — SPEC DISETUJUI; BACKEND = PR `claude/note-media-backend` (lihat entri di atas), frontend belum
 - **Status:** spec `docs/superpowers/specs/2026-10-19-note-media-audio-video-design.md` (salinan di Project claude.ai "alurik" `claude/spec-note-media-audio-video-2026-10-19.md`), draft PR dari `claude/note-media-spec`. Setelah Bapak menyetujui: rencana di `docs/superpowers/plans/` lalu implementasi (SDD).
 - **Keputusan Bapak (brainstorming 2026-10-19):** semua jenis media (suara pendek s.d. video ratusan MB); kuota per paket di sesi terpisah (v1 hanya `MEDIA_MAX_FILE_MB`); penyimpanan `local`/`r2` mulai dari disk VPS, disajikan endpoint Alurik + nginx `X-Accel-Redirect` (Range oleh nginx) dengan URL bertanda tangan HMAC; pemrosesan ringan (ffprobe, faststart, poster, tanpa konversi); unggah hanya online, bertahap & bisa dilanjutkan; belum ada rekam langsung; halaman publik bisa putar + unduh mengikuti password note; media = lampiran milik satu note (`note_attachments` + kolom baru); **semua lampiran note bersama dibuka untuk siapa pun yang bisa membuka note** (hapus: pengunggah/pemilik note); player dari direktif `::media[<client_id>]`, HTML mentah tetap di-escape (PR 1b XSS sesi lain); pemutaran butuh koneksi.
 - **Urutan:** PR backend (butuh `apt install ffmpeg`, `MEDIA_ROOT`, `MEDIA_URL_SECRET`, blok nginx, restart `taskflow-web`) → PR frontend (naik SW) setelah PR 1b XSS di-merge.

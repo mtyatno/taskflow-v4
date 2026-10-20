@@ -182,3 +182,75 @@ Berikut adalah lampiran gambar resolver:
     assert len(image_parts) >= 1
 
 
+
+
+def _media_docx_setup(client, content_tpl, **kw):
+    import uuid
+    from conftest import db
+    from drawing_ws_helpers import auth
+    uname = f"dm_{uuid.uuid4().hex[:8]}"
+    h = auth(client, uname)
+    c = db()
+    try:
+        uid = c.execute("SELECT id FROM users WHERE username=?", (uname,)).fetchone()["id"]
+    finally:
+        c.close()
+    cid = f"c{uuid.uuid4().hex[:8]}"
+    nid = client.post("/api/scratchpad", json={"title": "D", "content": content_tpl.format(cid=cid)},
+                      headers=h).json()["id"]
+    return h, uid, nid, cid
+
+
+def _insert_media(note_id, uid, cid, name, media_type, duration_ms, status="ready"):
+    from conftest import db
+    c = db()
+    try:
+        c.execute(
+            "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, file_size, "
+            "mime_type, kind, storage, client_id, storage_key, status, media_type, duration_ms) "
+            "VALUES (?, ?, '', ?, 10, 'video/mp4', 'media', 'local', ?, '2026/10/x.mp4', ?, ?, ?)",
+            (note_id, uid, name, cid, status, media_type, duration_ms))
+        c.commit()
+    finally:
+        c.close()
+
+
+def _docx_text(content):
+    d = docx.Document(io.BytesIO(content))
+    return "\n".join(p.text for p in d.paragraphs)
+
+
+def test_docx_media_line_and_foreign_media_unavailable(client):
+    h, uid, nid, cid = _media_docx_setup(client, "::media[{cid}]{{name=\"x\"}}\n\n::media[nope]")
+    _insert_media(nid, uid, cid, "rapat.mp4", "video", 62000)
+    # klien lain: media milik note lain tidak boleh bocor lewat client_id
+    other = client.post("/api/scratchpad", json={"title": "o", "content": "x"}, headers=h).json()["id"]
+    ocid = "foreign" + cid
+    _insert_media(other, uid, ocid, "rahasia.mp3", "audio", 5000)
+    r = client.get(f"/api/scratchpad/{nid}/export/docx", headers=h)
+    text = _docx_text(r.content)
+    assert "🎬 rapat.mp4 (1:02)" in text
+    assert "Media tidak tersedia" in text
+
+    live = client.post("/api/scratchpad/export/docx", headers=h, json={
+        "title": "L", "note_id": nid, "content": f"::media[{cid}]\n::media[{ocid}]\n::media[{cid}]"})
+    t2 = _docx_text(live.content)
+    assert "🎬 rapat.mp4 (1:02)" in t2
+    assert "rahasia" not in t2
+    assert "Media tidak tersedia" in t2
+
+
+def test_docx_live_without_note_id_all_unavailable(client):
+    h, uid, nid, cid = _media_docx_setup(client, "x")
+    _insert_media(nid, uid, cid, "rapat.mp4", "video", 62000)
+    live = client.post("/api/scratchpad/export/docx", headers=h,
+                       json={"title": "L", "content": f"::media[{cid}]"})
+    t = _docx_text(live.content)
+    assert "rapat" not in t and "Media tidak tersedia" in t
+
+
+def test_docx_audio_line_without_duration():
+    from docx_exporter import markdown_to_docx
+    res = lambda cid: {"name": "lagu.mp3", "media_type": "audio", "duration_ms": None}
+    t = _docx_text(markdown_to_docx("T", "::media[a]", media_resolver=res).getvalue())
+    assert "🎵 lagu.mp3" in t and "(" not in t.split("🎵")[1]
