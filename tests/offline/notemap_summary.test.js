@@ -49,3 +49,12 @@ test("bounded patterns still clean ordinary markup", () => {
   assert.equal(s.excerpt, "Lihat tebal Wiki teks akhir.");
   assert.equal(s.counts.images, 2); assert.equal(s.counts.tables, 1);
 });
+test("notemap: ringkasan membuang ::media (juga bentuk ter-escape), tidak dihitung gambar", () => {
+  const s = NM.summarizeSection('::media[abc]{name="rekaman.m4a"} Rapat pagi ini penting.\n- \\::media\\[x\\]{name="v"} butir\n- ::media[y] dua\n');
+  assert.equal(s.excerpt, "Rapat pagi ini penting.");
+  assert.deepEqual(s.items, ["butir", "dua"]);
+  assert.equal(s.counts.images, 0);
+  const t0 = performance.now();
+  NM.summarizeSection("::media[".repeat(12000) + "::media[]{".repeat(10000));
+  assert.ok(performance.now() - t0 < 200);
+});

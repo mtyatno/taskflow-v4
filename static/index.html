@@ -21305,8 +21305,25 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
     return key;
   });
 
+  // Pre-process ::media[cid]{name="…"} → kartu audio/video (isi dari TF.mediacard; dihidrasi pemanggil lewat
+  // window.hydrateMediaCards, butuh noteId). Di dalam blok/inline kode tetap teks literal (Ruling R2).
+  const mediaMap = {};
+  let mdi = 0;
+  const MDIR = tfMediaDirective();
+  const mediaRe = new RegExp(MDIR && MDIR.MEDIA_REGEX ? MDIR.MEDIA_REGEX.source : MEDIA_DIRECTIVE_RE_SRC, 'gi');
+  const mediaCode = /::media/i.test(processed4) ? markdownCodeRanges(processed4) : [];
+  const processed4m = processed4.replace(mediaRe, (rawMatch, cid, attrRaw, offset) => {
+    if (mediaCode.some(r => offset >= r[0] && offset < r[1])) return rawMatch;
+    const key = `MEDIABLK${phNonce}X${mdi++}MEDIABLKEND`;
+    rawMap[key] = rawMatch;
+    let name = '';
+    try { name = MDIR && MDIR.parseMediaDirective ? ((MDIR.parseMediaDirective(rawMatch) || {}).name || '') : mediaDirectiveName(attrRaw); } catch (_) { name = mediaDirectiveName(attrRaw); }
+    mediaMap[key] = mediaCardPlaceholderHtml(cid, name, SH);
+    return key;
+  });
+
   // Unescape markdown image syntax
-  let processed5 = processed4.replace(/\\?!\s*\\?\[\s*(.*?)\s*\\?\]\s*\\?\(\s*(.*?)\s*\\?\)/g, (m, alt, url) => {
+  let processed5 = processed4m.replace(/\\?!\s*\\?\[\s*(.*?)\s*\\?\]\s*\\?\(\s*(.*?)\s*\\?\)/g, (m, alt, url) => {
     return '![' + alt.replace(/\\\]/g, ']').replace(/\\\[/g, '[').trim() + '](' + url.replace(/\\\)/g, ')').replace(/\\\(/g, '(').trim() + ')';
   });
 
@@ -21348,7 +21365,89 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
   }
   const cleanMd = cleanLines.join('\n');
 
-  return { text: cleanMd, rawMap, mathMap, wikiMap, taskMap, hlMap, drawMap, keyRe: markdownPlaceholderKeyRe(phNonce) };
+  return { text: cleanMd, rawMap, mathMap, wikiMap, taskMap, hlMap, drawMap, mediaMap, keyRe: markdownPlaceholderKeyRe(phNonce) };
+}
+
+// Salinan pola TF.mediadirective.MEDIA_REGEX untuk saat modul belum dimuat (cache SW basi): kartu tetap muncul.
+const MEDIA_DIRECTIVE_RE_SRC = '\\\\?::media\\\\?\\[([0-9a-zA-Z_-]{1,64})\\\\?\\](?:\\s*\\\\?\\{([^}]*)\\\\?\\})?';
+function mediaDirectiveName(attrRaw) {
+  if (!attrRaw) return '';
+  const m = /(?:^|[\s,])name\s*=\s*"((?:[^"\\]|\\.)*)"/.exec(attrRaw);
+  return m ? m[1].replace(/\\(["\\])/g, '$1') : '';
+}
+function tfMediaDirective() {
+  const g = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : null);
+  return g && g.TF && g.TF.mediadirective ? g.TF.mediadirective : null;
+}
+function tfMediaCard() {
+  const g = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : null);
+  return g && g.TF && g.TF.mediacard ? g.TF.mediacard : null;
+}
+// HTML kartu sebelum hidrasi: deterministik (tanpa nonce/jaringan/status online) supaya innerHTML React tidak
+// diganti tiap render. Isi = TF.mediacard.cardHtml(view 'loading'); tanpa modul → baris "Memuat…" statis.
+function mediaCardPlaceholderHtml(cid, name, SH) {
+  const ea = SH ? SH.escapeAttr : escapeAttr;
+  const eh = SH ? SH.escapeHtml : escapeHtml;
+  const MC = tfMediaCard();
+  let inner = '';
+  try { inner = MC ? MC.cardHtml(MC.viewFor({ meta: null, online: true, nameAttr: name })) : ''; } catch (_) { inner = ''; }
+  if (!inner) inner = `<div class="note-media-caption"><span class="note-media-icon">📎</span> <span class="note-media-name">${eh(name || 'Media')}</span></div><div class="note-media-status">Memuat…</div>`;
+  return `<div class="note-media-card" data-media-card data-media-cid="${ea(cid)}" data-media-name="${ea(name || '')}">${inner}</div>`;
+}
+// Rentang [awal, akhir) kode di teks markdown: blok berpagar ``` / ~~~ (tak tertutup → sampai akhir dokumen) dan
+// kode inline (run backtick pembuka = penutup, tidak melewati baris kosong). Hanya dipakai untuk ::media.
+function markdownCodeRanges(text) {
+  const ranges = [];
+  const outside = [];
+  const lines = text.split('\n');
+  let pos = 0, fence = null, fenceStart = 0, segStart = 0;
+  for (const line of lines) {
+    const lineEnd = pos + line.length;
+    if (fence) {
+      const m = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(line);
+      if (m && m[1][0] === fence[0] && m[1].length >= fence.length) {
+        ranges.push([fenceStart, lineEnd]);
+        fence = null;
+        segStart = lineEnd + 1;
+      }
+    } else {
+      const m = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+      if (m && !(m[1][0] === '`' && line.slice(m[0].length).indexOf('`') !== -1)) {
+        outside.push([segStart, pos]);
+        fence = m[1];
+        fenceStart = pos;
+      }
+    }
+    pos = lineEnd + 1;
+  }
+  if (fence) ranges.push([fenceStart, text.length]);
+  else outside.push([segStart, text.length]);
+  for (const [a, b] of outside) {
+    const seg = text.slice(a, b);
+    const paraRe = /\n[ \t]*\n/g;
+    let pStart = 0;
+    const paras = [];
+    let pm;
+    while ((pm = paraRe.exec(seg))) { paras.push([pStart, pm.index]); pStart = pm.index + pm[0].length; }
+    paras.push([pStart, seg.length]);
+    for (const [ps, pe] of paras) {
+      const para = seg.slice(ps, pe);
+      if (para.indexOf('`') === -1) continue;
+      // run backtick per panjang → indeks kemunculan, supaya pencarian penutup linear
+      const runs = [];
+      const runRe = /`+/g;
+      let rm;
+      while ((rm = runRe.exec(para))) runs.push([rm.index, rm[0].length]);
+      for (let i = 0; i < runs.length; i++) {
+        let j = i + 1;
+        while (j < runs.length && runs[j][1] !== runs[i][1]) j++;
+        if (j >= runs.length) continue; // tanpa penutup → backtick literal
+        ranges.push([a + ps + runs[i][0], a + ps + runs[j][0] + runs[j][1]]);
+        i = j;
+      }
+    }
+  }
+  return ranges;
 }
 
 // Fungsi aman-HTML bersama (static/offline/safehtml.js). Diambil SAAT DIPANGGIL, bukan saat skrip dimuat:
@@ -21369,7 +21468,7 @@ function markdownPlaceholderNonce() {
   return Math.floor(Math.random() * 0x100000000).toString(16) + Math.floor(Math.random() * 0x100000000).toString(16);
 }
 function markdownPlaceholderKeyRe(nonce) {
-  return '(?:MATH|WKLN|TKLNK|HLMK|DRWBLK)' + nonce + 'X\\d+(?:MATH|WKLN|TKLNK|HLMK|DRWBLK)END';
+  return '(?:MATH|WKLN|TKLNK|HLMK|DRWBLK|MEDIABLK)' + nonce + 'X\\d+(?:MATH|WKLN|TKLNK|HLMK|DRWBLK|MEDIABLK)END';
 }
 // Ganti placeholder kartu Alurik. Di teks → HTML kartu (diulang supaya kartu bersarang, mis. math di dalam
 // ==highlight==, ikut terganti). Di dalam tag (alt gambar, title link, atribut kartu) → sumber mentahnya sebagai
@@ -21408,7 +21507,7 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
     return `<div class="note-plain-fallback" style="white-space:pre-wrap">${escapeHtml(text)}</div>`;
   }
   _markedHIdx = 0;
-  const { text: cleanMd, rawMap, mathMap, wikiMap, taskMap, hlMap, drawMap, keyRe } = prepMarkdownBlocks(text, noteTitles, allNotes, tasks);
+  const { text: cleanMd, rawMap, mathMap, wikiMap, taskMap, hlMap, drawMap, mediaMap, keyRe } = prepMarkdownBlocks(text, noteTitles, allNotes, tasks);
 
   let html = marked.parse(cleanMd);
   const ALERT_TYPES = NOTE_CALLOUT_TYPES;
@@ -21444,7 +21543,9 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
   // allowlist dikembalikan sekali di sini (tidak di dalam <code>/<pre> maupun atribut) → baru placeholder kartu
   // Alurik diganti, supaya HTML kartu tidak ikut disentuh allowlist.
   html = SH.restoreAllowedTags(html);
-  html = fillMarkdownPlaceholders(html, [wikiMap, taskMap, hlMap, mathMap, drawMap], rawMap, keyRe, SH);
+  html = fillMarkdownPlaceholders(html, [wikiMap, taskMap, hlMap, mathMap, drawMap, mediaMap], rawMap, keyRe, SH);
+  // Kartu ::media TIDAK dihidrasi di sini: hidrasi butuh noteId dari pemanggil (NotePanel/editor memanggil
+  // window.hydrateMediaCards); keluaran cetak/ekspor tetap kartu statis tanpa player.
   if (typeof window !== 'undefined' && Object.keys(drawMap).length > 0) {
     setTimeout(() => { if (typeof window.hydrateDrawingPreviews === 'function') window.hydrateDrawingPreviews(); }, 60);
   }
@@ -22025,6 +22126,404 @@ window.hydrateDrawingPreviews = function(root, force) {
     } catch (err) { console.warn('[drawing] hydrate pratinjau gagal', err); }
   });
 };
+// ── Kartu media note (::media) — helper murni (dites di tests/offline/render_markdown_media.test.js) ──
+const MEDIA_META_REUSE_MARGIN_S = 60;   // meta 'ready' di cache dipakai ulang sampai 60 dtk sebelum expires_at
+const MEDIA_URL_REFRESH_MARGIN_S = 30;  // error player saat >= expires_at - 30 → minta URL baru
+const MEDIA_RECHECK_MS = 5000;          // 'processing' (dan unggahan orang lain) dicek ulang tiap 5 dtk
+function mediaMetaCacheFresh(entry, nowSec) {
+  const meta = entry && entry.meta;
+  if (!meta || meta.status !== 'ready') return false;
+  const exp = Number(meta.expires_at);
+  if (meta.expires_at == null || !isFinite(exp) || exp <= 0) return false;
+  return nowSec < exp - MEDIA_META_REUSE_MARGIN_S;
+}
+function mediaUrlExpired(meta, nowSec) {
+  if (!meta || meta.expires_at == null) return false;
+  const exp = Number(meta.expires_at);
+  return isFinite(exp) && exp > 0 && nowSec >= exp - MEDIA_URL_REFRESH_MARGIN_S;
+}
+// Id note server (bilangan bulat positif). Id lokal (note dibuat offline) → null: kartu tidak meminta meta.
+function mediaNumericNoteId(id) {
+  if (typeof id === 'number') return Number.isInteger(id) && id > 0 ? id : null;
+  if (typeof id === 'string' && /^[1-9]\d{0,15}$/.test(id)) return Number(id);
+  return null;
+}
+// ── Hidrasi kartu media: window.hydrateMediaCards(root, {noteId, noteOwnerId}) ──
+// Idempoten per kartu (data-media-bound). Dipakai mode baca (NotePanel) dan editor (Task 5) dengan argumen sama.
+// Semua akses window.TF.* dijaga: modul bisa absen (cache SW basi) → kartu tetap placeholder, tanpa throw.
+(function () {
+  if (typeof window === 'undefined') return;
+  const cardState = new WeakMap();
+  const boundRoots = new WeakSet();
+  const offlineCards = new Set();
+  let io = null;
+  let onlineBound = false;
+
+  function metaCache() {
+    if (!(window.__mediaMetaCache instanceof Map)) window.__mediaMetaCache = new Map();
+    return window.__mediaMetaCache;
+  }
+  function mc() { return window.TF && window.TF.mediacard ? window.TF.mediacard : null; }
+  function uploads() {
+    const m = window.__mediaUploads;
+    return m && typeof m.get === 'function' && typeof m.subscribe === 'function' ? m : null;
+  }
+  function nowSec() { return Date.now() / 1000; }
+  function isOnline() { return typeof navigator === 'undefined' || navigator.onLine !== false; }
+  function currentUid() {
+    try {
+      const n = Number(localStorage.getItem('tf_user_id'));
+      return isFinite(n) && n > 0 ? n : null;
+    } catch (_) { return null; }
+  }
+  function authHeaders() {
+    const h = {};
+    try { if (typeof __token !== 'undefined' && __token) h.Authorization = 'Bearer ' + __token; } catch (_) {}
+    return h;
+  }
+  function toastErr(msg) { try { if (typeof showToast === 'function') showToast(msg, 'error'); } catch (_) {} }
+  function cacheKey(st) { return st.noteId + ':' + st.cid; }
+
+  // → {meta, status:200} | {status:404} | {offline:true}
+  async function fetchMeta(st, force) {
+    const cache = metaCache();
+    const key = cacheKey(st);
+    if (!force) {
+      const hit = cache.get(key);
+      if (mediaMetaCacheFresh(hit, nowSec())) return { meta: hit.meta, status: 200 };
+    }
+    let res;
+    try {
+      res = await fetch(apiUrl('/api/scratchpad/' + st.noteId + '/media/by-client/' + encodeURIComponent(st.cid)), {
+        headers: authHeaders(), cache: 'no-store'
+      });
+    } catch (_) { return { offline: true }; }
+    if (res.status === 404) { cache.delete(key); return { status: 404 }; }
+    if (!res.ok) return { offline: true };
+    let meta = null;
+    try { meta = await res.json(); } catch (_) { return { offline: true }; }
+    if (!meta || typeof meta !== 'object') return { offline: true };
+    if (meta.status === 'ready') cache.set(key, { meta, at: Date.now() });
+    else cache.delete(key);
+    return { meta, status: 200 };
+  }
+
+  function canPlayFor(meta) {
+    return function (mime) {
+      if (!mime) return 'maybe';
+      try {
+        const el = document.createElement(meta && meta.media_type === 'audio' ? 'audio' : 'video');
+        return typeof el.canPlayType === 'function' ? el.canPlayType(mime) : 'maybe';
+      } catch (_) { return 'maybe'; }
+    };
+  }
+
+  function stopPlayer(st) {
+    const p = st.player;
+    st.player = null;
+    if (!p) return;
+    try { p.pause(); p.removeAttribute('src'); p.load(); } catch (_) {}
+  }
+
+  function createPlayer(card, st, a) {
+    if (!a || !a.src) return null;
+    const el = document.createElement(a.tag === 'audio' ? 'audio' : 'video');
+    el.className = 'note-media-el';
+    el.controls = true;
+    el.setAttribute('controls', '');
+    el.preload = 'metadata';
+    el.setAttribute('preload', 'metadata');
+    if (a.tag !== 'audio') {
+      el.setAttribute('playsinline', '');
+      el.playsInline = true;
+      if (a.poster) el.poster = apiUrl(a.poster);
+    }
+    st.wantPlay = false;
+    st.lastTime = 0;
+    el.addEventListener('play', () => { st.wantPlay = true; });
+    el.addEventListener('pause', () => { if (!st.refreshing) st.wantPlay = false; });
+    el.addEventListener('timeupdate', () => { if (!st.refreshing && el.currentTime > 0) st.lastTime = el.currentTime; });
+    el.addEventListener('error', () => { refreshUrl(card, st, el); });
+    el.src = apiUrl(a.src);
+    return el;
+  }
+
+  // Token URL kedaluwarsa (mis. video dijeda > 6 jam): minta meta baru (tanpa cache), ganti src, pulihkan
+  // posisi + status putar saat loadedmetadata. Elemen player tetap sama.
+  async function refreshUrl(card, st, el) {
+    if (st.refreshing || st.player !== el) return;
+    if (!st.meta || !mediaUrlExpired(st.meta, nowSec())) return;
+    st.refreshing = true;
+    const t = Math.max(Number(el.currentTime) || 0, Number(st.lastTime) || 0);
+    const wasPlaying = !!st.wantPlay;
+    try {
+      const r = await fetchMeta(st, true);
+      if (!card.isConnected || st.player !== el) return;
+      if (r.meta && r.meta.status === 'ready' && r.meta.play_url) {
+        st.meta = r.meta;
+        const restore = () => {
+          el.removeEventListener('loadedmetadata', restore);
+          try { if (t > 0) el.currentTime = t; } catch (_) {}
+          if (wasPlaying) { try { const p = el.play(); if (p && p.catch) p.catch(() => {}); } catch (_) {} }
+        };
+        el.addEventListener('loadedmetadata', restore);
+        if (el.tagName === 'VIDEO' && r.meta.poster_url) el.poster = apiUrl(r.meta.poster_url);
+        el.src = apiUrl(r.meta.play_url);
+        render(card, st); // tautan Unduh ikut diperbarui; player dipertahankan
+      } else {
+        apply(card, st, r);
+      }
+    } finally {
+      st.refreshing = false;
+    }
+  }
+
+  const RETRY_HTML = '<div class="note-media-actions"><button type="button" class="note-media-btn" data-media-action="retry">Coba lagi</button></div>';
+
+  function render(card, st) {
+    const MC = mc();
+    if (!MC) return; // modul absen → placeholder statis tetap
+    let view;
+    try {
+      const up = uploads();
+      view = MC.viewFor({
+        meta: st.meta,
+        httpStatus: st.httpStatus,
+        online: st.offline ? false : isOnline(),
+        upload: up ? up.get(st.cid) : null,
+        uid: currentUid(),
+        noteOwnerId: st.noteOwnerId,
+        nameAttr: st.name,
+        canPlay: canPlayFor(st.meta)
+      });
+      if (view.downloadUrl) view.downloadUrl = apiUrl(view.downloadUrl);
+    } catch (err) { console.warn('[media] viewFor gagal', err); return; }
+    st.view = view;
+    const retry = view.state === 'offline' && st.noteId != null;
+    const key = JSON.stringify(view) + (retry ? '|r' : '');
+    if (key === st.viewKey && card.firstChild) return;
+    st.viewKey = key;
+
+    let tag = 'video';
+    let attrs = null;
+    if (view.state === 'ready') {
+      try { attrs = MC.playerAttrs(view); tag = attrs.tag; } catch (_) { attrs = null; }
+    }
+    // Player lama dipertahankan (lepas lalu pasang lagi secara sinkron → tidak terjeda) bila jenisnya sama.
+    const keep = attrs && st.player && st.player.tagName.toLowerCase() === tag ? st.player : null;
+    if (!keep) stopPlayer(st);
+    else if (keep.parentNode) keep.parentNode.removeChild(keep);
+
+    card.innerHTML = MC.cardHtml(view) + (retry ? RETRY_HTML : '');
+    card.setAttribute('data-media-state', view.state);
+    if (attrs) {
+      const slot = card.querySelector('[data-media-player]');
+      if (slot) {
+        if (keep) slot.appendChild(keep);
+        else {
+          st.player = createPlayer(card, st, attrs);
+          if (st.player) slot.appendChild(st.player);
+        }
+      }
+    }
+  }
+
+  function cleanup(card, st) {
+    if (st.timer) { clearTimeout(st.timer); st.timer = null; }
+    if (st.unsub) { try { st.unsub(); } catch (_) {} st.unsub = null; }
+    offlineCards.delete(card);
+  }
+
+  function ensureSub(card, st) {
+    const up = uploads();
+    if (!up || st.unsub) return;
+    st.unsub = up.subscribe((cid, s) => {
+      if (cid !== st.cid) return;
+      if (!card.isConnected) { cleanup(card, st); return; }
+      if (s && (s.phase === 'done' || s.phase === 'canceled')) load(card, st, true);
+      else render(card, st);
+    });
+  }
+
+  function schedule(card, st) {
+    if (st.timer) { clearTimeout(st.timer); st.timer = null; }
+    const state = st.view ? st.view.state : '';
+    if (state === 'processing' || state === 'uploading-other') {
+      st.timer = setTimeout(() => {
+        st.timer = null;
+        if (card.isConnected) load(card, st, true);
+        else cleanup(card, st);
+      }, MEDIA_RECHECK_MS);
+    }
+    const uploadingRow = st.meta && st.meta.status === 'uploading';
+    if (uploadingRow || (state && state.indexOf('uploading') === 0)) ensureSub(card, st);
+    else if (st.unsub) { try { st.unsub(); } catch (_) {} st.unsub = null; }
+  }
+
+  function apply(card, st, r) {
+    st.offline = !!r.offline;
+    st.httpStatus = r.status === 404 ? 404 : null;
+    if (r.meta) st.meta = r.meta;
+    else if (r.status === 404) st.meta = null;
+    if (st.offline) offlineCards.add(card); else offlineCards.delete(card);
+    render(card, st);
+    schedule(card, st);
+  }
+
+  async function load(card, st, force) {
+    if (!card.isConnected) { cleanup(card, st); return; }
+    const seq = ++st.seq;
+    if (st.noteId == null) { st.offline = !isOnline(); render(card, st); return; }
+    if (!isOnline()) { apply(card, st, { offline: true }); return; }
+    let r;
+    try { r = await fetchMeta(st, force); } catch (_) { r = { offline: true }; }
+    if (seq !== st.seq) return;
+    if (!card.isConnected) { cleanup(card, st); return; }
+    apply(card, st, r);
+  }
+
+  function observe(card, st) {
+    if (typeof IntersectionObserver !== 'function') { load(card, st, false); return; }
+    if (!io) {
+      io = new IntersectionObserver((entries) => {
+        entries.forEach((en) => {
+          if (!en.isIntersecting) return;
+          io.unobserve(en.target);
+          const s = cardState.get(en.target);
+          if (s) load(en.target, s, false);
+        });
+      }, { rootMargin: '200px 0px' });
+    }
+    io.observe(card);
+  }
+
+  function pickAndResume(card, st) {
+    const up = uploads();
+    if (!up || typeof up.resume !== 'function') { toastErr('Unggahan tidak bisa dilanjutkan sekarang. Muat ulang halaman.'); return; }
+    const input = document.createElement('input');
+    input.type = 'file';
+    const MD = window.TF && window.TF.mediadirective;
+    const exts = MD && Array.isArray(MD.MEDIA_EXTS) ? MD.MEDIA_EXTS : [];
+    if (exts.length) input.accept = exts.map((x) => '.' + x).join(',');
+    input.style.display = 'none';
+    input.addEventListener('change', () => {
+      const f = input.files && input.files[0];
+      if (input.parentNode) input.parentNode.removeChild(input);
+      if (!f) return;
+      ensureSub(card, st);
+      try {
+        const p = up.resume(st.cid, f);
+        if (p && p.catch) p.catch(() => {});
+      } catch (err) { console.warn('[media] resume gagal', err); }
+      render(card, st);
+    });
+    document.body.appendChild(input);
+    input.click();
+  }
+
+  async function deleteAttachment(attId) {
+    try {
+      const res = await fetch(apiUrl('/api/scratchpad/attachments/' + encodeURIComponent(attId)), {
+        method: 'DELETE', headers: authHeaders()
+      });
+      return res.ok || res.status === 404;
+    } catch (_) { return false; }
+  }
+
+  async function onAction(card, st, act) {
+    if (act === 'retry') { load(card, st, true); return; }
+    if (act === 'resume') { pickAndResume(card, st); return; }
+    if (act === 'cancel') {
+      const up = uploads();
+      let handled = false;
+      try {
+        handled = !!(up && (up.get(st.cid) ||
+          (typeof up.pending === 'function' && (up.pending() || []).some((p) => p && p.cid === st.cid))));
+      } catch (_) {}
+      if (handled) {
+        try { await up.cancel(st.cid); } catch (err) { console.warn('[media] batal gagal', err); }
+      } else if (st.meta && st.meta.id != null) {
+        if (!(await deleteAttachment(st.meta.id))) { toastErr('Gagal membatalkan unggahan'); return; }
+      }
+      metaCache().delete(cacheKey(st));
+      load(card, st, true);
+      return;
+    }
+    if (act === 'delete') {
+      if (!st.meta || st.meta.id == null) return;
+      if (typeof confirm === 'function' && !confirm('Hapus media ini?')) return;
+      if (!(await deleteAttachment(st.meta.id))) { toastErr('Gagal menghapus media'); return; }
+      metaCache().delete(cacheKey(st));
+      stopPlayer(st);
+      apply(card, st, { status: 404 });
+    }
+  }
+
+  function onRootClick(e) {
+    const t = e.target && e.target.nodeType === 3 ? e.target.parentElement : e.target;
+    const btn = t && t.closest ? t.closest('[data-media-action]') : null;
+    if (!btn) return;
+    const card = btn.closest('[data-media-card]');
+    if (!card || !e.currentTarget.contains(card)) return;
+    const st = cardState.get(card);
+    if (!st) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onAction(card, st, btn.getAttribute('data-media-action'));
+  }
+
+  function bindOnline() {
+    if (onlineBound) return;
+    onlineBound = true;
+    window.addEventListener('online', () => {
+      Array.from(offlineCards).forEach((card) => {
+        offlineCards.delete(card);
+        const st = cardState.get(card);
+        if (st && card.isConnected) load(card, st, true);
+      });
+    });
+  }
+
+  window.hydrateMediaCards = function (root, opts) {
+    if (typeof document === 'undefined') return;
+    const r = root || document;
+    if (!r || typeof r.querySelectorAll !== 'function') return;
+    opts = opts || {};
+    const noteId = mediaNumericNoteId(opts.noteId);
+    const ownerNum = Number(opts.noteOwnerId);
+    const owner = opts.noteOwnerId != null && isFinite(ownerNum) ? ownerNum : null;
+    bindOnline();
+    if (!boundRoots.has(r) && typeof r.addEventListener === 'function') {
+      boundRoots.add(r);
+      r.addEventListener('click', onRootClick);
+    }
+    r.querySelectorAll('[data-media-card]').forEach((card) => {
+      const cid = card.getAttribute('data-media-cid') || '';
+      if (!/^[0-9a-zA-Z_-]{1,64}$/.test(cid)) return;
+      let st = cardState.get(card);
+      if (st && card.getAttribute('data-media-bound') === '1') {
+        // note yang sama dengan id baru (mis. id lokal → id server setelah sinkron) → muat ulang
+        if (st.noteId !== noteId || st.noteOwnerId !== owner) {
+          const idChanged = st.noteId !== noteId;
+          st.noteId = noteId;
+          st.noteOwnerId = owner;
+          if (idChanged) { st.meta = null; st.httpStatus = null; load(card, st, false); } else render(card, st);
+        }
+        return;
+      }
+      st = {
+        cid, name: card.getAttribute('data-media-name') || '', noteId, noteOwnerId: owner,
+        meta: null, httpStatus: null, offline: false, player: null, timer: null, unsub: null,
+        seq: 0, view: null, viewKey: '', refreshing: false, wantPlay: false, lastTime: 0
+      };
+      cardState.set(card, st);
+      card.setAttribute('data-media-bound', '1');
+      if (noteId == null) { load(card, st, false); return; }
+      observe(card, st);
+    });
+  };
+})();
+// ── Akhir kartu media note ──
 // Cetak note: pratinjau drawing d ke container c lewat <img src=data:> (spec XSS §3). Hasil: Promise yang selesai
 // saat gambar termuat/gagal (maks 5 dtk) — pemanggil menunggunya sebelum window.print() — atau null bila isi
 // bukan SVG; saat itu c berisi kartu teks "Gambar tidak tersedia" (tanpa kelas drawing-preview-placeholder,
@@ -28120,6 +28619,13 @@ function NotePanel({
     return () => window.removeEventListener("drawingSaved", handler);
   }, [note?.id, note?.content]);
 
+  // Kartu ::media: hidrasi tiap render (idempoten per kartu) — innerHTML bisa diganti React saat isi/tautan berubah.
+  useEffect(() => {
+    if (typeof window.hydrateMediaCards === 'function' && tocSpyRef.current && note) {
+      window.hydrateMediaCards(tocSpyRef.current, { noteId: note.id, noteOwnerId: note.user_id });
+    }
+  });
+
   const renderedNoteEl = /*#__PURE__*/React.createElement("div", {
     className: "note-rendered",
     ref: tocSpyRef,
@@ -28129,7 +28635,7 @@ function NotePanel({
     },
     onClick: handlePreviewClick,
     onDoubleClick: e => {
-      if (e.target && e.target.closest && e.target.closest('input, a, button, [data-tasklink], [data-wiki-id], [data-wiki-title], [data-drawing-preview]')) return;
+      if (e.target && e.target.closest && e.target.closest('input, a, button, [data-tasklink], [data-wiki-id], [data-wiki-title], [data-drawing-preview], [data-media-card]')) return;
       const container = e.currentTarget;
       const blockEl = e.target && e.target.closest ? e.target.closest('p, h1, h2, h3, h4, h5, h6, li, blockquote, pre, tr, td, th') : null;
       let blockTarget = null;
