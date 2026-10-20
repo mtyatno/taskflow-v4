@@ -1016,6 +1016,14 @@ class TaskRepository:
             # Migrate: add email to users if missing (forgot-password / SaaS)
             if "email" not in user_cols:
                 conn.execute("ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL")
+            # Migrate: password_set — 0 = akun Telegram otomatis yang password-nya belum
+            # pernah diatur pengguna. Penandaan awal hanya saat kolom baru ditambahkan.
+            if "password_set" not in user_cols:
+                conn.execute("ALTER TABLE users ADD COLUMN password_set INTEGER NOT NULL DEFAULT 1")
+                conn.execute(
+                    "UPDATE users SET password_set = 0 "
+                    "WHERE telegram_id IS NOT NULL AND username = 'tg_' || telegram_id"
+                )
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email "
                 "ON users(lower(email)) WHERE email IS NOT NULL"
@@ -1124,7 +1132,8 @@ class TaskRepository:
 
             now = datetime.now().isoformat()
             cur = conn.execute(
-                "INSERT INTO users (username, password_hash, display_name, telegram_id, created_at) VALUES (?,?,?,?,?)",
+                "INSERT INTO users (username, password_hash, display_name, telegram_id, created_at, password_set) "
+                "VALUES (?,?,?,?,?,0)",
                 (username, password_hash, display_name, telegram_id, now),
             )
             return cur.lastrowid
