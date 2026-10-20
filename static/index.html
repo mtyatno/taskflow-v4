@@ -17704,58 +17704,55 @@ if (typeof window !== "undefined") {
 }
 function useIntroState(tasks) {
   const tasksLen = tasks.length;
-  const [localHas, setLocalHas] = useState(null);
-  const [syncDone, setSyncDone] = useState(false);
+  // localHas (null = belum tahu) dan syncDone selalu di-commit BERSAMA dari satu pembacaan gabungan,
+  // supaya syncDone=true tidak pernah berpasangan dengan localHas basi (cegah kilatan welcome).
+  const [read, setRead] = useState({ localHas: null, syncDone: false });
+  const { localHas, syncDone } = read;
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine !== false);
   const [syncState, setSyncState] = useState(() => (typeof window !== "undefined" && window.__syncState) || { running: false, lastFailed: false });
   const seq = useRef(0);
+  const aliveRef = useRef(true);
   const gate = typeof window !== "undefined" && window.TF && window.TF.introgate;
   const tasksLenRef = useRef(tasksLen);
   tasksLenRef.current = tasksLen;
+  const readAll = refresh => {
+    if (!gate) return;
+    const my = ++seq.current;
+    Promise.all([
+      gate.hasLocalData(),
+      Promise.resolve().then(() => gate.readInitialSync(gate.currentUserId()))
+    ]).then(([has, done]) => {
+      if (!aliveRef.current || my !== seq.current) return;
+      setRead({ localHas: has === true, syncDone: !!done });
+      // Segarkan state App hanya bila store lokal punya data yang belum dimuat (tasks masih kosong).
+      if (refresh && has === true && tasksLenRef.current === 0 && window.__refreshTasks) window.__refreshTasks();
+    }).catch(() => {
+      if (aliveRef.current && my === seq.current) setRead({ localHas: false, syncDone: false });
+    });
+  };
+  const readAllRef = useRef(readAll);
+  readAllRef.current = readAll;
   useEffect(() => {
     if (!gate) return undefined;
-    let alive = true;
-    const markerSeq = { n: 0 };
-    const readMarker = () => {
-      const my = ++markerSeq.n;
-      Promise.resolve(gate.readInitialSync(gate.currentUserId())).then(v => {
-        if (alive && my === markerSeq.n) setSyncDone(!!v);
-      }).catch(() => {});
-    };
-    const readLocal = refresh => {
-      const my = ++seq.current;
-      gate.hasLocalData().then(v => {
-        if (alive && my === seq.current) {
-          setLocalHas(!!v);
-          // Segarkan state App hanya bila store lokal punya data yang belum dimuat (tasks masih kosong).
-          if (refresh && v === true && tasksLenRef.current === 0 && window.__refreshTasks) window.__refreshTasks();
-        }
-      }).catch(() => {
-        if (alive && my === seq.current) setLocalHas(false);
-      });
-    };
-    const onInitial = () => {
-      readMarker();
-      readLocal(true);
-    };
+    aliveRef.current = true;
+    const onInitial = () => readAllRef.current(true);
     const onSyncState = e => {
       const d = (e && e.detail) || window.__syncState || {};
       setSyncState({ running: !!d.running, lastFailed: !!d.lastFailed });
     };
     const onNote = () => {
-      if (tasksLenRef.current === 0) readLocal();
+      if (tasksLenRef.current === 0) readAllRef.current(false);
     };
     const onOnline = () => setOnline(true);
     const onOffline = () => setOnline(false);
-    readMarker();
-    readLocal(true);
+    readAllRef.current(true);
     window.addEventListener("tf:initial-sync", onInitial);
     window.addEventListener("tf:sync-state", onSyncState);
     window.addEventListener("noteSaved", onNote);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
     return () => {
-      alive = false;
+      aliveRef.current = false;
       window.removeEventListener("tf:initial-sync", onInitial);
       window.removeEventListener("tf:sync-state", onSyncState);
       window.removeEventListener("noteSaved", onNote);
@@ -17765,12 +17762,7 @@ function useIntroState(tasks) {
   }, []);
   useEffect(() => {
     if (!gate || tasksLen !== 0) return;
-    const my = ++seq.current;
-    gate.hasLocalData().then(v => {
-      if (my === seq.current) setLocalHas(!!v);
-    }).catch(() => {
-      if (my === seq.current) setLocalHas(false);
-    });
+    readAllRef.current(false);
   }, [tasksLen]);
   if (!gate) return tasksLen > 0 ? "dashboard" : "welcome";
   if (tasksLen === 0 && localHas === null) return "syncing";
