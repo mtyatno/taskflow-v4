@@ -3557,3 +3557,10 @@
 - SDD 9 task. Temuan review yang diperbaiki: scope=all + include_archived, strict read pending, tautan cid pending saat pull, Selesai bocor lintas scope, task done ganda di kolom tahap, listener touchmove non-pasif harus sejak mount, rename tidak menarik ulang task. Review akhir opus: touch-action manipulation (swipe papan dari kartu), "+ Tahap" nama yang sudah ada/diarsip, 2xx tanpa id → retry, dll.
 - main maju dua kali (media #51 → ADR-017; workspace pins #52/#53 → SW v425 + ADR-018): branch di-merge main, SW jadi v426, ADR jadi ADR-019.
 - **Verifikasi:** npm 1968/1969 (+1 pra-ada), pytest 814, E2E 51/0. **Status:** Needs Review (draft PR; restart `taskflow-web`).
+
+## 2026-10-20 — Claude — PR frontend audio/video di note (Task 7/7)
+- **Task:** Task terakhir SDD `docs/superpowers/plans/2026-10-20-note-media-ui.md` (branch `claude/note-media-ui`, setelah merge `main` a2d407b).
+- **Changes:** SW: `/media/` tidak di-intercept; `/api/media/…` dan `/api/scratchpad/<id>/media…` network-only (offline → 503 `OFFLINE`, tanpa cache); naik SW `taskflow-v427-note-media` + `app.css?v=336` di semua tempat; CSP Tauri `media-src` + `https://todo.yatno.web.id`; tes `tests/offline/sw_media.test.js` (TDD RED 5/6 → GREEN 6/6); E2E `temporary_files/e2e_note_media.py` 45/45 dengan SW aktif; status backend #51 → aktif di produksi.
+- **Files Touch:** `static/sw.js`, `static/index.html`, `webapp.py`, `src-tauri/tauri.conf.json`, `tests/offline/*` (versi), `tests/test_version.py`, `tests/offline/sw_media.test.js`, `temporary_files/e2e_note_media.py`, `.gitignore`, `.agents/*`
+- **Verifikasi:** inline OK, JS 2066/2067 (pra-ada `draw_local_reactive`), pytest 815, E2E 45/45.
+- **Status:** Needs Review (draft PR; deploy statis, restart `taskflow-web` agar `/api/version` v427).
