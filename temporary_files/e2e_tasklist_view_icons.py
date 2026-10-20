@@ -289,6 +289,17 @@ def run_workspace_tabs(browser, base, user, theme, ws_name):
         check("[%s] 6c Tasks aktif: aria-pressed true/false" % tag,
               bt.get_attribute("aria-pressed") == "true" and bf.get_attribute("aria-pressed") == "false")
         shot_el(p, tabs, "%s_10_workspace_tab_tasks_aktif.png" % tag)
+        # 12: jeda antara border bawah header sticky (.desktop-topbar) dan baris tab
+        hb = p.locator(".desktop-topbar").first.bounding_box()
+        tb = tabs.bounding_box()
+        gap = tb["y"] - (hb["y"] + hb["height"])
+        check("[%s] 6e ada jeda >= 16px antara bawah header dan tab (%.1fpx)" % (tag, gap), gap >= 16 - 0.5, "%.1f" % gap)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(300)
+        p.screenshot(path=os.path.join(SHOTS, "%s_12_workspace_jeda_header.png" % tag), scale="css",
+                     clip={"x": 0, "y": max(hb["y"], 0), "width": p.viewport_size["width"],
+                           "height": tb["y"] + tb["height"] + 24 - max(hb["y"], 0)})
+        print("  screenshot %s_12_workspace_jeda_header.png" % tag, flush=True)
         bf.click()
         p.wait_for_timeout(400)
         check("[%s] 6d klik Files: aria-pressed berpindah" % tag,
