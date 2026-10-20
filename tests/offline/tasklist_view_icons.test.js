@@ -25,14 +25,14 @@ test("VIEW_GLYPHS + ViewGlyph (inline, meniru FocusGlyph)", async (t) => {
   const mapSrc = between(indexHtml, "const VIEW_GLYPHS = {", "};");
   const fnSrc = between(indexHtml, "function ViewGlyph(", "\n}\n");
 
-  await t.test("VIEW_GLYPHS punya tepat tiga kunci: normal, compact, kanban", () => {
+  await t.test("VIEW_GLYPHS punya kunci: normal, compact, kanban, wsTasks, wsFiles", () => {
     const keys = [...mapSrc.matchAll(/^\s{2}(\w+):\s*'/gm)].map(m => m[1]);
-    assert.deepEqual(keys, ["normal", "compact", "kanban"]);
+    assert.deepEqual(keys, ["normal", "compact", "kanban", "wsTasks", "wsFiles"]);
   });
 
   await t.test("VIEW_GLYPHS bisa dievaluasi dan setiap glyph berisi markup SVG", () => {
     const glyphs = new Function(mapSrc + "}; return VIEW_GLYPHS;")();
-    for (const k of ["normal", "compact", "kanban"]) {
+    for (const k of ["normal", "compact", "kanban", "wsTasks", "wsFiles"]) {
       assert.match(glyphs[k], /^<(rect|path)\b/, k + " harus markup SVG");
       assert.match(glyphs[k], /fill-opacity="\.22"/, k + " harus duotone (isian lembut)");
     }
@@ -103,6 +103,25 @@ test("Toggle tampilan di toolbar task list", async (t) => {
     assert.ok(!/fontWeight/.test(toggle));
     assert.ok(!/var\(--accent\)/.test(toggle));
     assert.ok(!/padding:/.test(toggle));
+  });
+});
+
+test("Tab workspace Tasks / Files memakai glyph duotone", async (t) => {
+  const tabs = between(indexHtml, 'className: "workspace-nav-tabs"', "WorkspacePinButton");
+
+  await t.test("emoji lama hilang dari tab", () => {
+    assert.ok(!tabs.includes("📋 Tasks") && !tabs.includes("📁 Files"));
+    assert.ok(!/📋|📁/.test(tabs));
+  });
+
+  await t.test("tombol tab merender ViewGlyph wsTasks / wsFiles ukuran 15 + teks", () => {
+    assert.match(tabs, /React\.createElement\(ViewGlyph,\s*\{\s*name:\s*"wsTasks",\s*size:\s*15\s*\}\),\s*"Tasks"/);
+    assert.match(tabs, /React\.createElement\(ViewGlyph,\s*\{\s*name:\s*"wsFiles",\s*size:\s*15\s*\}\),\s*"Files"/);
+  });
+
+  await t.test("aria-pressed mengikuti tab aktif", () => {
+    assert.match(tabs, /"aria-pressed":\s*workspaceTab\s*===\s*"tasks"/);
+    assert.match(tabs, /"aria-pressed":\s*workspaceTab\s*===\s*"files"/);
   });
 });
 

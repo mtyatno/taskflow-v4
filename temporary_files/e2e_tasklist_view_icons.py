@@ -6,6 +6,8 @@ Langkah (satu akun, beberapa task via API; halaman "Semua Task"):
   3  klik Normal / Compact → aria-pressed berpindah
   4  Group by = Priority → Kanban aktif (tanpa aria-disabled), klik → aria-pressed=true, papan Kanban tampil
   5  tema terang DAN gelap: screenshot .tl-view-seg di tiap keadaan + satu screenshot toolbar yang lebih lebar
+  6  halaman workspace (list dibuat via API): tab Tasks / Files memakai svg duotone (bukan emoji), aria-pressed
+     mengikuti tab aktif; screenshot .workspace-nav-tabs dengan Tasks aktif dan Files aktif, terang + gelap
 
 Server lokal dijalankan sendiri (uvicorn webapp:app, DB sementara; Python server = $E2E_PYTHON, atau venv repo). Screenshot:
 temporary_files/e2e_tasklist_view_icons/. Keluar non-zero bila ada langkah gagal.
@@ -269,6 +271,33 @@ def run_theme(browser, base, user, theme):
         ctx.close()
 
 
+def run_workspace_tabs(browser, base, user, theme, ws_name):
+    tag = "terang" if theme == "light" else "gelap"
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        if not p.locator(".sidebar-link").first.is_visible():
+            p.locator("button[aria-label='Tampilkan semua menu']").first.click()
+        p.locator(".sidebar-link").filter(has=p.locator("span", has_text=ws_name)).first.click()
+        tabs = p.locator(".workspace-nav-tabs")
+        tabs.wait_for(state="visible", timeout=15000)
+        bt = tabs.locator("button").filter(has_text="Tasks").first
+        bf = tabs.locator("button").filter(has_text="Files").first
+        text = tabs.inner_text()
+        check("[%s] 6a emoji 📋/📁 tidak ada di tab" % tag, "📋" not in text and "📁" not in text, repr(text))
+        check("[%s] 6b tab Tasks dan Files masing-masing satu svg aria-hidden 15px" % tag,
+              all(b.locator("svg[aria-hidden='true'][width='15'][height='15']").count() == 1 for b in (bt, bf)))
+        check("[%s] 6c Tasks aktif: aria-pressed true/false" % tag,
+              bt.get_attribute("aria-pressed") == "true" and bf.get_attribute("aria-pressed") == "false")
+        shot_el(p, tabs, "%s_10_workspace_tab_tasks_aktif.png" % tag)
+        bf.click()
+        p.wait_for_timeout(400)
+        check("[%s] 6d klik Files: aria-pressed berpindah" % tag,
+              bf.get_attribute("aria-pressed") == "true" and bt.get_attribute("aria-pressed") == "false")
+        shot_el(p, tabs, "%s_11_workspace_tab_files_aktif.png" % tag)
+    finally:
+        ctx.close()
+
+
 def main():
     os.makedirs(SHOTS, exist_ok=True)
     for f in os.listdir(SHOTS):
@@ -281,10 +310,13 @@ def main():
         user = register(base, "tina")
         for i, pr in enumerate(["P1", "P2", "P3", "P1"], 1):
             api(base, user, "POST", "/api/tasks", json={"title": "Task contoh %d" % i, "priority": pr, "gtd_status": "next"})
+        ws_name = "Tim Alfa"
+        api(base, user, "POST", "/api/lists", json={"name": ws_name})
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for theme in ("light", "dark"):
                 run_theme(browser, base, user, theme)
+                run_workspace_tabs(browser, base, user, theme, ws_name)
             browser.close()
     except Exception as e:
         check("exception", False, "%s: %s" % (type(e).__name__, e))
