@@ -358,7 +358,7 @@ test("hydrateMediaCards: aksi hapus/batal lewat delegasi root", async () => {
   const canceled = [];
   let sub = null;
   sb2.__mediaUploads = { get: (cid) => ({ cid, phase: "uploading", sent: 50, size: 100 }), subscribe: (fn) => { sub = fn; return () => {}; },
-    cancel: async (cid) => { canceled.push(cid); }, pending: () => [] };
+    cancel: async (cid) => { canceled.push(cid); sb2.__mediaUploads.get = (c) => ({ cid: c, phase: "canceled", sent: 80, size: 100 }); }, pending: () => [] };
   sb2.responses.push({ status: 200, body: READY({ status: "uploading", play_url: null, download_url: null, poster_url: null, expires_at: null }) });
   const r2 = mkRoot(["c1"]);
   sb2.hydrateMediaCards(r2.root, { noteId: 7, noteOwnerId: 1 });
@@ -374,4 +374,46 @@ test("hydrateMediaCards: aksi hapus/batal lewat delegasi root", async () => {
   await flush();
   assert.deepEqual(canceled, ["c1"]);
   assert.ok(r2.cards[0].innerHTML.includes("Media tidak tersedia untukmu"));
+});
+
+test("hydrateMediaCards (editor, Task 5): 404 sebelum init unggah lokal selesai → bukan missing; muat ulang saat attId ada", async () => {
+  const sb = hydCtx();
+  let snap = { cid: "c1", phase: "uploading", attId: null, sent: 0, size: 100 };
+  let sub = null;
+  sb.__mediaUploads = { get: () => snap, subscribe: (fn) => { sub = fn; return () => {}; }, cancel: async () => {}, pending: () => [] };
+  sb.responses.push({ status: 404 });
+  const { root, cards } = mkRoot(["c1"]);
+  sb.hydrateMediaCards(root, { noteId: 7, noteOwnerId: 5 });
+  await flush();
+  assert.equal(sb.fetchCalls.length, 1);
+  assert.notEqual(cards[0].getAttribute("data-media-state"), "missing", cards[0].innerHTML);
+  assert.ok(!cards[0].innerHTML.includes("Media tidak tersedia untukmu"));
+  assert.ok(sub, "berlangganan ke manajer sambil menunggu init");
+  // progres tanpa attId → tidak memicu fetch
+  sub("c1", snap);
+  await flush();
+  assert.equal(sb.fetchCalls.length, 1);
+  // init selesai (attId) → meta diambil ulang → uploading-local dengan progres
+  snap = { cid: "c1", phase: "uploading", attId: 9, sent: 10, size: 100 };
+  sb.responses.push({ status: 200, body: READY({ status: "uploading", play_url: null, download_url: null, poster_url: null, expires_at: null }) });
+  sub("c1", snap);
+  await flush();
+  assert.equal(sb.fetchCalls.length, 2);
+  assert.equal(cards[0].getAttribute("data-media-state"), "uploading-local");
+  assert.ok(cards[0].innerHTML.includes("Mengunggah… 10%"), cards[0].innerHTML);
+
+  // init gagal permanen (tanpa baris server) → 404 lagi → missing
+  const sb2 = hydCtx();
+  let snap2 = { cid: "c2", phase: "uploading", attId: null, sent: 0, size: 100 };
+  let sub2 = null;
+  sb2.__mediaUploads = { get: () => snap2, subscribe: (fn) => { sub2 = fn; return () => {}; }, cancel: async () => {}, pending: () => [] };
+  sb2.responses.push({ status: 404 }, { status: 404 });
+  const r2 = mkRoot(["c2"]);
+  sb2.hydrateMediaCards(r2.root, { noteId: 7, noteOwnerId: 5 });
+  await flush();
+  snap2 = { cid: "c2", phase: "failed", attId: null, error: "Kuota penuh", sent: 0, size: 100 };
+  sub2("c2", snap2);
+  await flush();
+  assert.equal(sb2.fetchCalls.length, 2);
+  assert.equal(r2.cards[0].getAttribute("data-media-state"), "missing");
 });

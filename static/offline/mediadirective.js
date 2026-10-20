@@ -11,12 +11,13 @@
 
   const MEDIA_EXTS = ['mp3', 'm4a', 'm4b', 'aac', 'wav', 'ogg', 'oga', 'opus', 'webm', 'flac', 'amr', '3gp', '3g2', 'mp4', 'm4v', 'mov', 'mkv'];
 
-  // Hanya atribut name="..." yang dikenali (\" dan \\ di dalam nilai di-unescape).
+  // Hanya atribut name="..." yang dikenali. Backslash di depan tanda baca ASCII di-unescape: \" dan \\ dari
+  // formatMediaDirective, juga escape markdown dari editor (remark-stringify menyimpan klip_uji sebagai klip\_uji).
   function parseName(attrRaw) {
     if (!attrRaw) return '';
     const m = /(?:^|[\s,])name\s*=\s*"((?:[^"\\]|\\.)*)"/.exec(attrRaw);
     if (!m) return '';
-    return m[1].replace(/\\(["\\])/g, '$1');
+    return m[1].replace(/\\([!-\/:-@\[-`{-~])/g, '$1');
   }
 
   function fromMatch(m) {

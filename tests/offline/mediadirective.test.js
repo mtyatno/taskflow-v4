@@ -31,6 +31,11 @@ describe('Media Directive Module', () => {
     assert.deepEqual(parseMediaDirective(s), { cid: 'c1', name: 'a "b" \\ c.mp3' });
   });
 
+  it('escape markdown dari editor (remark-stringify: \\_ \\* \\# ...) dibuang dari nama', () => {
+    // Isi yang disimpan editor Milkdown: ::media\[cid]{name="klip\_uji \*1\*.mp4"}
+    assert.deepEqual(parseMediaDirective('::media\\[c3]{name="klip\\_uji \\*1\\*.mp4"}'), { cid: 'c3', name: 'klip_uji *1*.mp4' });
+  });
+
   it('nama dengan } atau baris baru tidak merusak direktif', () => {
     const s = formatMediaDirective({ cid: 'c2', name: 'a}b\nc.mp3' });
     assert.equal(parseMediaDirective(s).cid, 'c2');

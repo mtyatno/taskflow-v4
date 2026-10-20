@@ -21373,7 +21373,7 @@ const MEDIA_DIRECTIVE_RE_SRC = '\\\\?::media\\\\?\\[([0-9a-zA-Z_-]{1,64})\\\\?\\
 function mediaDirectiveName(attrRaw) {
   if (!attrRaw) return '';
   const m = /(?:^|[\s,])name\s*=\s*"((?:[^"\\]|\\.)*)"/.exec(attrRaw);
-  return m ? m[1].replace(/\\(["\\])/g, '$1') : '';
+  return m ? m[1].replace(/\\([!-\/:-@\[-`{-~])/g, '$1') : '';
 }
 function tfMediaDirective() {
   const g = typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : null);
@@ -22340,9 +22340,20 @@ function mediaNumericNoteId(id) {
     st.unsub = up.subscribe((cid, s) => {
       if (cid !== st.cid) return;
       if (!card.isConnected) { cleanup(card, st); return; }
+      // Kartu editor yang dimuat sebelum init unggah selesai (404): ambil meta lagi begitu baris server ada
+      // (attId) atau unggahan berhenti.
+      if (st.awaitInit && s && (s.attId != null || !LIVE_UPLOAD[s.phase])) { st.awaitInit = false; load(card, st, true); return; }
       if (s && (s.phase === 'done' || s.phase === 'canceled')) load(card, st, true);
       else render(card, st);
     });
+  }
+  // Unggahan lokal tab ini untuk cid kartu yang masih berjalan → snapshot, selain itu null.
+  const LIVE_UPLOAD = { uploading: 1, waiting: 1, completing: 1 };
+  function liveUpload(st) {
+    const up = uploads();
+    let s = null;
+    try { s = up ? up.get(st.cid) : null; } catch (_) { s = null; }
+    return s && LIVE_UPLOAD[s.phase] ? s : null;
   }
 
   function schedule(card, st) {
@@ -22361,6 +22372,20 @@ function mediaNumericNoteId(id) {
   }
 
   function apply(card, st, r) {
+    // 404 karena direktif baru disisipkan dan init unggah (POST) belum selesai → tunggu, bukan "missing".
+    const lu = r.status === 404 ? liveUpload(st) : null;
+    if (lu) {
+      if (lu.attId != null && !st.initRefetched) { st.initRefetched = true; load(card, st, true); return; }
+      st.awaitInit = true;
+      st.offline = false;
+      st.httpStatus = null;
+      st.meta = null;
+      offlineCards.delete(card);
+      render(card, st);
+      ensureSub(card, st);
+      return;
+    }
+    st.awaitInit = false;
     st.offline = !!r.offline;
     st.httpStatus = r.status === 404 ? 404 : null;
     if (r.meta) st.meta = r.meta;
@@ -22524,6 +22549,91 @@ function mediaNumericNoteId(id) {
   };
 })();
 // ── Akhir kartu media note ──
+// ── Unggah media dari editor note ──
+// Manajer unggah tunggal (window.__mediaUploads), resolusi id server note, dan alur sisip direktif + unggah.
+const MEDIA_PUSH_TIMEOUT_MS = 5000;
+const MEDIA_MAX_BYTES = 2048 * 1024 * 1024;
+// id note (angka server / cid lokal) → id server (number) atau null. cid lokal: dorong outbox dulu (maks 5 dtk),
+// lalu idmap / server_id baris lokal (seperti noteSharePushNow).
+async function ensureServerNoteId(noteId) {
+  if (noteId == null || noteId === '') return null;
+  const s = String(noteId);
+  if (/^\d+$/.test(s)) return Number(s) > 0 ? Number(s) : null;
+  const w = typeof window !== 'undefined' ? window : {};
+  if (typeof w.__pushNow === 'function') {
+    let timer = null;
+    await Promise.race([
+      Promise.resolve().then(() => w.__pushNow()).catch(() => null),
+      new Promise(res => { timer = setTimeout(res, MEDIA_PUSH_TIMEOUT_MS); })
+    ]);
+    clearTimeout(timer);
+  }
+  const TF = w.TF || {};
+  let sid = null;
+  try { if (TF.idmap && typeof TF.idmap.serverIdOf === 'function') sid = await TF.idmap.serverIdOf(s); } catch (_) { sid = null; }
+  if (sid == null) {
+    try {
+      const repo = TF.noterepo;
+      const raw = repo && typeof repo.getNoteRaw === 'function' ? await repo.getNoteRaw(s) : null;
+      if (raw && raw.server_id != null) sid = raw.server_id;
+    } catch (_) {}
+  }
+  const n = Number(sid);
+  return sid != null && sid !== '' && Number.isInteger(n) && n > 0 ? n : null;
+}
+// Alur sisip: validasi → id server (null → toast, TANPA direktif) → direktif ke editor → mulai unggah.
+// insert(md) harus mengembalikan true bila direktif benar-benar masuk; selain itu unggahan tidak dimulai.
+// Hasil: cid yang diunggah, atau null.
+async function beginNoteMediaUpload({ file, noteId, MD, toast, ensureId, insert, manager, onServerId }) {
+  if (!file || !MD) return null;
+  const say = m => { try { if (typeof toast === 'function') toast(m); } catch (_) {} };
+  if (!MD.isMediaFileName(file.name)) { say('Format tidak didukung'); return null; }
+  if (!(Number(file.size) <= MEDIA_MAX_BYTES)) { say('File terlalu besar (maks 2 GB)'); return null; }
+  const sid = await (ensureId || ensureServerNoteId)(noteId);
+  if (sid == null) { say('Simpan catatan dulu, lalu lampirkan media'); return null; }
+  if (typeof onServerId === 'function') onServerId(sid);
+  if (!manager || typeof manager.start !== 'function') { say('Unggahan tidak bisa dimulai sekarang. Muat ulang halaman.'); return null; }
+  const cid = MD.newClientId();
+  if (!insert('\n\n' + MD.formatMediaDirective({ cid, name: file.name }) + '\n\n')) return null;
+  try {
+    const p = manager.start({ file, noteId: sid, cid });
+    if (p && typeof p.catch === 'function') p.catch(err => console.warn('[media] unggah gagal', err));
+  } catch (err) { console.warn('[media] unggah gagal', err); }
+  return cid;
+}
+// Satu manajer per tab (dipanggil App; juga sebagai cadangan oleh alur sisip). Modul absen → null.
+function ensureMediaUploadManager() {
+  if (typeof window === 'undefined') return null;
+  if (window.__mediaUploads) return window.__mediaUploads;
+  const MU = window.TF && window.TF.mediaupload;
+  if (!MU || typeof MU.createManager !== 'function') return null;
+  let storage = null;
+  try { storage = window.localStorage || null; } catch (_) { storage = null; }
+  const mgr = MU.createManager({
+    fetch: window.fetch.bind(window),
+    apiUrl,
+    getToken: () => __token,
+    storage,
+    now: () => Date.now(),
+    setTimeout: (fn, ms) => setTimeout(fn, ms),
+    clearTimeout: t => clearTimeout(t),
+    isOnline: () => typeof navigator === 'undefined' || navigator.onLine !== false
+  });
+  window.__mediaUploads = mgr;
+  window.addEventListener('online', () => mgr.kick());
+  window.addEventListener('beforeunload', e => {
+    if (mgr.hasActive()) { e.preventDefault(); e.returnValue = ''; }
+  });
+  // Gagal permanen (bukan "file berbeda" yang bisa dipilih ulang di kartu) → toast sekali per cid.
+  const toasted = new Set();
+  mgr.subscribe((cid, s) => {
+    if (!s || s.phase !== 'failed' || s.retryable || toasted.has(cid)) return;
+    toasted.add(cid);
+    try { window.__showToast?.(s.error || 'Unggahan gagal. Coba lagi.', 'error'); } catch (_) {}
+  });
+  return mgr;
+}
+// ── Akhir unggah media dari editor note ──
 // Cetak note: pratinjau drawing d ke container c lewat <img src=data:> (spec XSS §3). Hasil: Promise yang selesai
 // saat gambar termuat/gagal (maks 5 dtk) — pemanggil menunggunya sebelum window.print() — atau null bila isi
 // bukan SVG; saat itu c berisi kartu teks "Gambar tidak tersedia" (tanpa kelas drawing-preview-placeholder,
@@ -22618,12 +22728,29 @@ function NoteToolbar({
   onApplyTemplate,
   onInsertTask,
   onInsertDrawing,
+  onInsertMedia,
   voiceState,
   onToggleVoice,
 paperConfig,
 onPaperConfigChange
 }) {
   const [hOpen, setHOpen] = React.useState(false);
+  // 🎬 Audio/Video: input sendiri (accept = ekstensi media), nonaktif saat offline / note belum tersimpan.
+  const mediaInputRef = React.useRef(null);
+  const [mediaOnline, setMediaOnline] = React.useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
+  React.useEffect(() => {
+    const upd = () => setMediaOnline(navigator.onLine !== false);
+    window.addEventListener('online', upd);
+    window.addEventListener('offline', upd);
+    return () => {
+      window.removeEventListener('online', upd);
+      window.removeEventListener('offline', upd);
+    };
+  }, []);
+  const mediaAccept = React.useMemo(() => {
+    const MD = window.TF && window.TF.mediadirective;
+    return MD && Array.isArray(MD.MEDIA_EXTS) ? MD.MEDIA_EXTS.map(x => '.' + x).join(',') : '';
+  }, []);
   const hRef = React.useRef(null);
   const [moreOpen, setMoreOpen] = React.useState(false);
   const moreRef = React.useRef(null);
@@ -23113,7 +23240,37 @@ onPaperConfigChange
     style: {
       opacity: noteId ? 1 : 0.4
     }
-  }, React.createElement(Icon, { name: "paperclip", size: 14 })), voiceState && voiceState !== 'unsupported' ? /*#__PURE__*/React.createElement("button", {
+  }, React.createElement(Icon, { name: "paperclip", size: 14 })), onInsertMedia ? React.createElement("input", {
+    ref: mediaInputRef,
+    type: "file",
+    accept: mediaAccept,
+    style: {
+      display: 'none'
+    },
+    onChange: e => {
+      const f = e.target.files && e.target.files[0];
+      e.target.value = '';
+      if (f) onInsertMedia(f);
+    }
+  }) : null, onInsertMedia ? React.createElement("button", {
+    type: "button",
+    className: "note-media-insert-btn",
+    onMouseDown: e => {
+      e.preventDefault();
+      if (noteId && mediaOnline) mediaInputRef.current?.click();
+    },
+    onClick: e => {
+      // aktivasi keyboard (Enter/Spasi) tidak lewat mousedown
+      if (e.detail === 0 && noteId && mediaOnline) mediaInputRef.current?.click();
+    },
+    title: !mediaOnline ? 'Butuh koneksi internet untuk mengunggah audio/video' : noteId ? 'Lampirkan audio/video' : 'Simpan note dulu',
+    disabled: !mediaOnline || !noteId,
+    style: {
+      opacity: mediaOnline && noteId ? 1 : 0.4,
+      fontSize: 12,
+      whiteSpace: 'nowrap'
+    }
+  }, "🎬 Audio/Video") : null, voiceState && voiceState !== 'unsupported' ? /*#__PURE__*/React.createElement("button", {
     type: "button",
     onPointerDown: function(e) { e.preventDefault(); if (onToggleVoice) onToggleVoice(); },
     className: "note-mic-btn" + (voiceState === 'listening' ? ' listening' : '') + (voiceState === 'paused' ? ' paused' : ''),
@@ -23186,7 +23343,9 @@ function MilkdownEditor({
   onImagePaste,
   onInsertDrawing,
   onInsertTask,
-  noteListId = null
+  noteListId = null,
+  mediaNoteId = null,
+  mediaNoteOwnerId = null
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
@@ -23857,7 +24016,7 @@ function MilkdownEditor({
           }
         });
       }
-    }).use(MB.commonmark).use(MB.gfm).use(MB.columnResizingPlugin || []).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(blockHandleEnabled ? touchGuardPlugin : []).use(blockHandleEnabled ? MB.block : []).use(dropCursorPlugin || []).use(MB.trailing).use(createTrailingEmptyBlockPlugin(MB) || []).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).use(createCalloutBlockquotePlugin()).use(createDrawingPlugin(MB)).create().then(editor => {
+    }).use(MB.commonmark).use(MB.gfm).use(MB.columnResizingPlugin || []).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(blockHandleEnabled ? touchGuardPlugin : []).use(blockHandleEnabled ? MB.block : []).use(dropCursorPlugin || []).use(MB.trailing).use(createTrailingEmptyBlockPlugin(MB) || []).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).use(createCalloutBlockquotePlugin()).use(createDrawingPlugin(MB)).use(createMediaPlugin(MB)).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;
@@ -23987,6 +24146,9 @@ function MilkdownEditor({
       onTasklinkClick(rawId.includes('-') ? rawId : Number(rawId));
       return;
     }
+    // kartu media: aksi (Batal/Lanjutkan/Hapus/Coba lagi) sudah didelegasikan hydrateMediaCards di container;
+    // klik lain di kartu (player, tautan Unduh) dibiarkan ke browser — jangan dianggap klik area kosong.
+    if (e.target.closest && e.target.closest('.editor-media-card')) return;
     // drawing card actions (S/M/L size buttons, ✏️ Edit, ↗️ Buka, or preview click)
     const drawCard = e.target.closest('.editor-draw-card');
     if (drawCard) {
@@ -24196,6 +24358,35 @@ function MilkdownEditor({
       window.removeEventListener('drawingSaved', hydrate);
     };
   }, [value, ready]);
+
+  // Kartu media di editor: hidrasi (idempoten per elemen). ProseMirror bisa membuat ulang DOM node `media`
+  // (mis. setelah undo/ganti dokumen) → MutationObserver memicu hidrasi ulang untuk kartu yang belum terikat.
+  React.useEffect(() => {
+    if (!ready || !containerRef.current) return;
+    const hydrateMedia = () => {
+      if (typeof window.hydrateMediaCards === 'function' && containerRef.current) {
+        window.hydrateMediaCards(containerRef.current, { noteId: mediaNoteId, noteOwnerId: mediaNoteOwnerId });
+      }
+    };
+    hydrateMedia();
+    let raf = null;
+    let mo = null;
+    if (typeof MutationObserver === 'function') {
+      mo = new MutationObserver(() => {
+        if (raf != null) return;
+        raf = requestAnimationFrame(() => {
+          raf = null;
+          const root = containerRef.current;
+          if (root && root.querySelector('[data-media-card]:not([data-media-bound])')) hydrateMedia();
+        });
+      });
+      mo.observe(containerRef.current, { childList: true, subtree: true });
+    }
+    return () => {
+      if (mo) mo.disconnect();
+      if (raf != null) cancelAnimationFrame(raf);
+    };
+  }, [ready, mediaNoteId, mediaNoteOwnerId]);
   const saveMathEdit = React.useCallback(() => {
     if (!mathEdit) return;
     const newLatex = (mathTaRef.current?.value || '').trim();
@@ -24619,6 +24810,51 @@ function createDrawingPlugin(MB) {
 
   const drawingRemark = MB.$remark('drawing-remark', () => DD.remarkDrawPlugin);
   return [drawingRemark, drawingNode];
+}
+// ::media[cid]{name="…"} di editor: node atom inline (remarkMediaPlugin memecah teks di dalam paragraf, sama
+// seperti ::draw). Isi kartu diisi window.hydrateMediaCards (efek MilkdownEditor); toDOM hanya kerangka.
+function createMediaPlugin(MB) {
+  if (!MB || !MB.$node || !MB.$remark) return [];
+  const MD = window.TF && window.TF.mediadirective ? window.TF.mediadirective : null;
+  if (!MD) return [];
+  const mediaNode = MB.$node('media', () => ({
+    group: 'inline',
+    inline: true,
+    atom: true,
+    selectable: true,
+    attrs: {
+      cid: { default: '' },
+      name: { default: '' }
+    },
+    toDOM: node => ['div', {
+      class: 'note-media-card editor-media-card',
+      'data-media-card': '',
+      'data-media-cid': node.attrs.cid || '',
+      'data-media-name': node.attrs.name || '',
+      contenteditable: 'false'
+    }, ['div', { class: 'note-media-status' }, 'Memuat…']],
+    parseDOM: [{
+      tag: 'div[data-media-card]',
+      getAttrs: dom => ({
+        cid: dom.getAttribute('data-media-cid') || '',
+        name: dom.getAttribute('data-media-name') || ''
+      })
+    }],
+    parseMarkdown: {
+      match: node => node.type === 'mediaDirective',
+      runner: (state, node, type) => {
+        state.addNode(type, { cid: node.cid, name: node.name });
+      }
+    },
+    toMarkdown: {
+      match: node => node.type.name === 'media',
+      runner: (state, node) => {
+        state.addNode('text', undefined, MD.formatMediaDirective({ cid: node.attrs.cid, name: node.attrs.name }));
+      }
+    }
+  }));
+  const mediaRemark = MB.$remark('media-remark', () => MD.remarkMediaPlugin);
+  return [mediaRemark, mediaNode];
 }
 function remarkHighlightPlugin() {
   return function transformer(tree) {
@@ -25840,19 +26076,41 @@ function NoteModal({
     } catch (_) {}
   };
   // Parse markdown string and insert as ProseMirror nodes (not raw text)
+  // Hasil: true bila isi benar-benar disisipkan (dipakai alur unggah media agar tidak ada unggahan tanpa direktif).
   const insertMarkdown = md => {
     const editor = milkdownEditorRef?.current;
-    if (!editor) return;
+    if (!editor) return false;
     const MB = window.MilkdownBundle;
-    editor.action(ctx => {
-      const view = ctx.get(MB.editorViewCtx);
-      let doc;
-      try { doc = ctx.get(MB.parserCtx)(md); } catch (_) { return; }
-      if (!doc || !doc.content || doc.content.size === 0) return;
-      const slice = doc.slice(0, doc.content.size);
-      view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
-      view.focus();
-    });
+    let ok = false;
+    try {
+      editor.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        let doc;
+        try { doc = ctx.get(MB.parserCtx)(md); } catch (_) { return; }
+        if (!doc || !doc.content || doc.content.size === 0) return;
+        const slice = doc.slice(0, doc.content.size);
+        view.dispatch(view.state.tr.replaceSelection(slice).scrollIntoView());
+        ok = true;
+        view.focus();
+      });
+    } catch (_) {}
+    return ok;
+  };
+  // 🎬 Audio/Video: id server note (cid lokal → push dulu), direktif ::media, lalu unggah lewat __mediaUploads.
+  const [mediaServerNoteId, setMediaServerNoteId] = React.useState(null);
+  const mediaNoteIdForCards = savedNoteId != null && /^\d+$/.test(String(savedNoteId)) ? Number(savedNoteId) : mediaServerNoteId;
+  const mediaNoteOwnerId = note?.user_id != null ? note.user_id : (currentUserId != null ? currentUserId : (Number(localStorage.getItem('tf_user_id')) || null));
+  const handleInsertMedia = file => {
+    beginNoteMediaUpload({
+      file,
+      noteId: savedNoteId,
+      MD: window.TF && window.TF.mediadirective,
+      toast: m => (showToast ? showToast(m, "error") : window.__showToast?.(m, "error")),
+      ensureId: ensureServerNoteId,
+      insert: insertMarkdown,
+      manager: ensureMediaUploadManager(),
+      onServerId: setMediaServerNoteId
+    }).catch(err => console.warn('[media] sisip gagal', err));
   };
   const insertImageMd = md => {
     const editor = milkdownEditorRef?.current;
@@ -27127,6 +27385,7 @@ function NoteModal({
     onApplyTemplate: function(tpl) { return setContent(tpl); },
     onInsertTask: openTaskDropdown,
     onInsertDrawing: handleOpenInsertDrawing,
+    onInsertMedia: handleInsertMedia,
     voiceState: voiceState,
     onToggleVoice: handleToggleVoice,
     paperConfig: paperConfig,
@@ -27179,6 +27438,8 @@ function NoteModal({
   }, /*#__PURE__*/React.createElement(MilkdownEditor, {
     value: content,
     noteListId: noteListId,
+    mediaNoteId: mediaNoteIdForCards,
+    mediaNoteOwnerId: mediaNoteOwnerId,
     onChange: handleEditorChange,
     minHeight: focusMode ? 'calc(100vh - 100px)' : 'calc(100vh - 320px)',
     editorRef: milkdownEditorRef,
@@ -33848,6 +34109,9 @@ function App() {
     }
     return () => window.removeEventListener("appupdateavailable", onUpdateAvailable);
   }, []);
+  // Manajer unggah audio/video note: satu per tab (penjaga di ensureMediaUploadManager), plus online→kick,
+  // peringatan beforeunload saat unggah aktif, toast gagal permanen.
+  useEffect(() => { ensureMediaUploadManager(); }, []);
   const [user, setUser] = useState(null);
   // dibaca handler token antar-tab (window.__onSharedTokenChanged); lastUserIdRef = id terakhir yang masuk di tab ini
   const userRef = useRef(null);
