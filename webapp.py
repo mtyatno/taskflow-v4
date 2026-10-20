@@ -144,6 +144,7 @@ from datehelper import parse_date
 from repository import TaskRepository
 import repository
 import drawing_scope
+import note_comments
 import safehtml
 import bookmark
 import ai_review
@@ -938,6 +939,9 @@ def migrate_db():
         # Drawing milik workspace: kolom list_id/last_edited_by + backfill sekali jalan dari note workspace.
         drawing_scope.ensure_drawing_scope_schema(conn)
         drawing_scope.backfill_drawing_lists(conn, datetime.now(_TZ_JKT).isoformat())
+        # Komentar note workspace: skema + bersihkan tombstone > 30 hari.
+        note_comments.ensure_note_comments_schema(conn)
+        note_comments.purge_old_tombstones(conn, datetime.now(_TZ_JKT).isoformat())
         conn.commit()
     finally:
         conn.close()
