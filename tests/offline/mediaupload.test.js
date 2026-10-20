@@ -401,4 +401,106 @@ describe('TF.mediaupload', () => {
     assert.equal(st.phase, 'done');
     assert.ok(calls.find((c) => c.method === 'PATCH').body instanceof Blob);
   });
+  // ── fix wave: item 8 (file tidak terbaca, reset attempt, batas exception tak dikenal) ──
+  it('slice tidak bisa dibaca (NotReadableError) → failed retryable dengan teks jelas, tanpa retry, entri tetap', async () => {
+    const t = setup();
+    const f = fakeFile(8 * MiB);
+    let reads = 0;
+    f.slice = (a, b) => ({ a, b, size: b - a, arrayBuffer: () => { reads++; const e = new Error('changed'); e.name = 'NotReadableError'; return Promise.reject(e); } });
+    const seen = [];
+    t.mgr.subscribe((cid, s) => seen.push(s.phase));
+    const st = await t.mgr.start({ file: f, noteId: 5, cid: 'nr1' });
+    assert.equal(st.phase, 'failed');
+    assert.equal(st.error, 'File tidak bisa dibaca — pilih ulang file');
+    assert.equal(st.retryable, true);
+    assert.equal(reads, 1);
+    assert.equal(t.patches().length, 0, 'PATCH tidak dikirim bila slice gagal dibaca');
+    assert.equal(t.timers.length, 0, 'tidak ada jeda ulang');
+    assert.equal(t.mgr.pending().length, 1, 'entri tetap agar bisa dilanjutkan');
+  });
+
+  it('slice terbaca → body Blob berisi byte potongan', async () => {
+    const t = setup({ over: (req, s) => { if (req.method === 'PATCH') { s.received = Number(req.headers['Upload-Offset']) + req.body.size; return jres(200, { received_bytes: s.received }); } } });
+    const f = fakeFile(6);
+    f.slice = (a, b) => ({ size: b - a, arrayBuffer: async () => new Uint8Array(b - a).buffer });
+    const st = await t.mgr.start({ file: f, noteId: 5, cid: 'nr2' });
+    assert.equal(st.phase, 'done');
+    assert.ok(t.patches()[0].body instanceof Blob);
+    assert.equal(t.patches()[0].body.size, 6);
+  });
+
+  it('attempt direset setelah langkah apa pun yang berhasil (init gagal 2x, lalu PATCH gagal → jeda 1 dtk lagi)', async () => {
+    let initFails = 0; let patchFails = 0;
+    const t = setup({ over: (req) => {
+      if (req.method === 'POST' && /\/media$/.test(req.path) && initFails < 2) { initFails++; throw new TypeError('net'); }
+      if (req.method === 'PATCH' && patchFails < 1) { patchFails++; throw new TypeError('net'); }
+    } });
+    const p = t.mgr.start({ file: fakeFile(1 * MiB), noteId: 5, cid: 'ar1' });
+    await flush(); t.timers[0].fn(); await flush(); t.timers[1].fn(); await flush();
+    assert.deepEqual(t.timers.map((x) => x.ms), [1000, 2000, 1000]);
+    t.timers[2].fn();
+    assert.equal((await p).phase, 'done');
+  });
+
+  it('exception tak dikenal (bukan sinyal/jaringan) tidak dicoba ulang tanpa batas', async () => {
+    const t = { timers: [] };
+    // respons PATCH null → TypeError di dalam call (bukan error fetch)
+    const mgr = createManager({
+      fetch: async (u, i) => (i.method === 'PATCH' ? null : jres(200, { id: 1, status: 'uploading', received_bytes: 0 })),
+      apiUrl: (x) => x, getToken: () => 't', storage: memStorage(), isOnline: () => true,
+      setTimeout: (fn, ms) => { t.timers.push({ fn, ms }); return null; }, clearTimeout: () => {},
+    });
+    const p = mgr.start({ file: fakeFile(1 * MiB), noteId: 1, cid: 'ux1' });
+    for (let i = 0; i < 20; i++) { await flush(); if (t.timers[i]) t.timers[i].fn(); else break; }
+    await flush();
+    const st = await p;
+    assert.equal(st.phase, 'failed');
+    assert.ok(t.timers.length <= 5, 'jeda ulang dibatasi, dapat ' + t.timers.length);
+  });
+
+  // ── fix wave: item 4 (logout → abortAll) ──
+  it('abortAll saat waiting: loop & timer berhenti, tanpa DELETE, tanpa failed, hasActive false', async () => {
+    const t = setup({ over: (req) => { if (req.method === 'PATCH') throw new TypeError('net'); } });
+    const seen = [];
+    t.mgr.subscribe((cid, s) => seen.push(s.phase));
+    const p = t.mgr.start({ file: fakeFile(1 * MiB), noteId: 5, cid: 'ab1' });
+    await flush();
+    assert.equal(t.mgr.get('ab1').phase, 'waiting');
+    const n = t.calls.length;
+    seen.length = 0;
+    t.mgr.abortAll();
+    assert.equal(t.timers[0].on, false, 'timer jeda dibersihkan');
+    await p;
+    await flush();
+    t.mgr.kick(); t.timers.forEach((x) => x.fn()); await flush();
+    assert.equal(t.calls.length, n, 'tidak ada request setelah abortAll');
+    assert.equal(t.calls.filter((c) => c.method === 'DELETE').length, 0);
+    assert.ok(!seen.includes('failed'), 'tanpa failed: ' + seen);
+    assert.equal(t.mgr.hasActive(), false);
+    assert.equal(t.mgr.get('ab1'), null);
+  });
+
+  it('abortAll saat PATCH/init sedang berjalan: respons yang datang kemudian diabaikan, tanpa DELETE/entri baru', async () => {
+    let releasePatch; let releaseInit;
+    const t = setup({ over: (req, s) => {
+      if (req.method === 'PATCH') return new Promise((r) => { releasePatch = () => r(jres(200, { received_bytes: req.body.b })); });
+      if (req.method === 'POST' && req.path === '/api/scratchpad/6/media') return new Promise((r) => { releaseInit = () => r(jres(201, { id: 99, status: 'uploading', received_bytes: 0 })); });
+    } });
+    const seen = [];
+    t.mgr.subscribe((cid, s) => seen.push(cid + ':' + s.phase));
+    const p1 = t.mgr.start({ file: fakeFile(8 * MiB), noteId: 5, cid: 'ab2' });
+    const p2 = t.mgr.start({ file: fakeFile(8 * MiB), noteId: 6, cid: 'ab3' });
+    await flush();
+    const n = t.calls.length;
+    seen.length = 0;
+    t.mgr.abortAll();
+    releasePatch(); releaseInit();
+    await Promise.all([p1, p2]);
+    await flush();
+    assert.equal(t.calls.length, n);
+    assert.equal(t.calls.filter((c) => c.method === 'DELETE').length, 0);
+    assert.deepEqual(seen, []);
+    assert.equal(t.storage._m.has('tf_media_uploads') ? Object.keys(JSON.parse(t.storage._m.get('tf_media_uploads'))).includes('ab3') : false, false, 'init yang tiba setelah abort tidak disimpan');
+    assert.equal(t.mgr.hasActive(), false);
+  });
 });

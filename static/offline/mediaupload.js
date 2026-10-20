@@ -25,12 +25,16 @@
   const MSG_GENERIC = "Unggahan gagal. Coba lagi.";
   const MSG_NOT_FOUND = "Unggahan tidak ditemukan di server";
   const MSG_NO_ENTRY = "Data unggahan tidak ditemukan";
+  const MSG_UNREADABLE = "File tidak bisa dibaca — pilih ulang file";
+  // Exception tak dikenal (bukan sinyal/jaringan) berturut-turut sebelum menyerah.
+  const MAX_UNKNOWN_ERRORS = 3;
 
   // Sinyal kontrol di dalam loop.
-  function Fail(msg, drop) { return { kind: "fail", msg, drop: drop !== false }; }
+  function Fail(msg, drop, retryable) { return { kind: "fail", msg, drop: drop !== false, retryable: !!retryable }; }
   const RETRY = { kind: "retry" };
   const DONE = { kind: "done" };
   const CANCELED = { kind: "canceled" };
+  const ABORTED = { kind: "aborted" }; // abortAll (logout): berhenti diam-diam, tanpa DELETE/toast
 
   function createManager(deps) {
     const chunkSize = deps.chunkSize || 5 * MiB;
@@ -63,7 +67,7 @@
     // ── state ──
     function snapshot(ctx) {
       const s = { cid: ctx.cid, attId: ctx.attId, phase: ctx.phase, sent: ctx.sent, size: ctx.size, error: ctx.error };
-      if (ctx.retryable) s.retryable = true; // hanya untuk "file berbeda": UI boleh menawarkan pilih file lagi
+      if (ctx.retryable) s.retryable = true; // "file berbeda"/"tidak bisa dibaca": UI boleh menawarkan pilih file lagi
       return s;
     }
     function emit(ctx) {
@@ -71,6 +75,7 @@
       subs.forEach((fn) => { try { fn(ctx.cid, s); } catch (e) { /* pelanggan tidak boleh mematahkan loop */ } });
     }
     function setPhase(ctx, phase, error) {
+      if (ctx.aborted) return;
       ctx.phase = phase;
       ctx.error = error || null;
       emit(ctx);
@@ -83,7 +88,8 @@
       const init = { method, headers };
       if (extra && extra.body !== undefined) init.body = extra.body;
       let res;
-      try { res = await deps.fetch(deps.apiUrl(path), init); } catch (e) { if (ctx.canceled) throw CANCELED; throw RETRY; }
+      try { res = await deps.fetch(deps.apiUrl(path), init); } catch (e) { if (ctx.aborted) throw ABORTED; if (ctx.canceled) throw CANCELED; throw RETRY; }
+      if (ctx.aborted) throw ABORTED;
       if (ctx.canceled && !(extra && extra.passCancel)) throw CANCELED;
       let data = {};
       try { data = (await res.json()) || {}; } catch (e) { data = {}; }
@@ -154,7 +160,7 @@
       setPhase(ctx, "uploading");
       const r = await call(ctx, "PATCH", "/api/media/" + ctx.attId + "/upload", {
         headers: { "Upload-Offset": String(a), "Content-Type": "application/offset+octet-stream" },
-        body: ctx.file.slice(a, b),
+        body: await readSlice(ctx, a, b),
       });
       if (r.status === 200) {
         ctx.sent = typeof r.data.received_bytes === "number" ? Math.min(r.data.received_bytes, ctx.size) : b;
@@ -177,6 +183,23 @@
       if (r.status === 404) throw Fail(detailOf(r) === MSG_GENERIC ? MSG_NOT_FOUND : detailOf(r));
       throw classify(r);
     }
+    // Potongan dibaca dulu (bukan Blob lazy ke fetch): file yang berubah/hilang di disk melempar NotReadableError
+    // di sini, bukan sebagai error fetch yang tak bisa dibedakan dari gangguan jaringan.
+    async function readSlice(ctx, a, b) {
+      let part;
+      try {
+        part = ctx.file.slice(a, b);
+        if (part && typeof part.arrayBuffer === "function") {
+          const buf = await part.arrayBuffer();
+          part = typeof Blob === "function" ? new Blob([buf]) : buf;
+        }
+      } catch (e) {
+        throw Fail(MSG_UNREADABLE, false, true);
+      }
+      if (ctx.aborted) throw ABORTED;
+      if (ctx.canceled) throw CANCELED;
+      return part;
+    }
     async function stepComplete(ctx) {
       setPhase(ctx, "completing");
       const r = await call(ctx, "POST", "/api/media/" + ctx.attId + "/complete");
@@ -190,6 +213,7 @@
 
     async function drive(ctx) {
       for (;;) {
+        if (ctx.aborted) return finish(ctx, ABORTED);
         if (ctx.canceled) return finish(ctx, CANCELED);
         if (!online()) { await wait(ctx, null); continue; }
         try {
@@ -202,7 +226,12 @@
           } else if (ctx.sent < ctx.size) await stepPatch(ctx);
           else await stepComplete(ctx);
         } catch (sig) {
-          if (!sig || !sig.kind) { sig = RETRY; }
+          if (ctx.aborted) return finish(ctx, ABORTED);
+          if (!sig || !sig.kind) {
+            // Exception tak dikenal: coba ulang dengan jeda, tetapi tidak tanpa batas.
+            ctx.unknownErrors = (ctx.unknownErrors || 0) + 1;
+            sig = ctx.unknownErrors >= MAX_UNKNOWN_ERRORS ? Fail(MSG_GENERIC, false, true) : RETRY;
+          }
           if (sig === RETRY) {
             if (ctx.canceled) return finish(ctx, CANCELED);
             const ms = BACKOFF_MS[Math.min(ctx.attempt, BACKOFF_MS.length - 1)];
@@ -212,6 +241,10 @@
           }
           return finish(ctx, sig);
         }
+        // Langkah berhasil → jeda ulang mulai lagi dari 1 dtk.
+        ctx.attempt = 0;
+        ctx.unknownErrors = 0;
+        if (ctx.aborted) return finish(ctx, ABORTED);
         // Init berhasil di tengah pembatalan → hapus lampiran yatim di server.
         if (ctx.canceled) return finish(ctx, CANCELED);
       }
@@ -219,12 +252,18 @@
 
     function finish(ctx, sig) {
       ctx.wake = null;
+      if (sig.kind === "aborted" || ctx.aborted) {
+        // Logout: tanpa DELETE, tanpa emit (tidak ada toast), storage dibersihkan pemanggil.
+        ctx.phase = "aborted";
+        return snapshot(ctx);
+      }
       if (sig.kind === "done") {
         ctx.sent = ctx.size;
         dropEntry(ctx.cid);
         setPhase(ctx, "done");
       } else if (sig.kind === "fail") {
         if (sig.drop) dropEntry(ctx.cid);
+        if (sig.retryable) ctx.retryable = true;
         setPhase(ctx, "failed", sig.msg);
       } else {
         // canceled: cancel() sudah menangani DELETE, storage, dan state.
@@ -244,7 +283,7 @@
 
     function newCtx(cid, file, noteId, attId) {
       return { cid, file, noteId, attId: attId == null ? null : attId, sent: 0, size: file.size, phase: "uploading", error: null,
-        attempt: 0, wake: null, canceled: false, needStatus: attId != null, deleted: false, confirm: false, promise: null };
+        attempt: 0, unknownErrors: 0, wake: null, canceled: false, aborted: false, needStatus: attId != null, deleted: false, confirm: false, promise: null };
     }
     function failNow(ctx, msg, retryable) {
       if (retryable) ctx.retryable = true;
@@ -322,12 +361,21 @@
     function kick() {
       Array.from(ctxs.values()).forEach((c) => { if (c.wake) c.wake(); });
     }
+    // Logout: hentikan semua loop dan timer jeda tanpa DELETE dan tanpa event (tidak ada toast gagal).
+    // Respons yang masih dalam perjalanan diabaikan. Storage tidak disentuh (dibersihkan clearLocalUserData).
+    function abortAll() {
+      Array.from(ctxs.values()).forEach((c) => {
+        c.aborted = true;
+        if (c.wake) c.wake();
+      });
+      ctxs.clear();
+    }
     function hasActive() {
       for (const c of ctxs.values()) if (isLive(c)) return true;
       return false;
     }
 
-    return { start, resume, cancel, get, pending, subscribe, kick, hasActive };
+    return { start, resume, cancel, get, pending, subscribe, kick, hasActive, abortAll };
   }
 
   return { createManager, STORAGE_KEY };

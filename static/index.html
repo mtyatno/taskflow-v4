@@ -469,6 +469,8 @@ const OfflineDB = (() => {
 window.OfflineDB = OfflineDB;
 
 async function clearLocalUserData() {
+  // Unggahan media berjalan milik akun ini: hentikan tanpa DELETE/toast sebelum data & token dibuang.
+  try { window.__mediaUploads?.abortAll?.(); } catch (_) {}
   try {
     if (window.TF?.db?.clearAll) {
       await window.TF.db.clearAll();
@@ -502,7 +504,8 @@ async function clearLocalUserData() {
       "tf_last_backup",
       "tf_backup_snooze",
       "tf_dismiss_onboarding",
-      "tf_ai_review_optin"
+      "tf_ai_review_optin",
+      "tf_media_uploads"
     ];
     for (const k of userKeys) {
       try { localStorage.removeItem(k); } catch (_) {}
@@ -35713,6 +35716,8 @@ function App() {
     }
     // C2: mulai di sini (setelah semua konfirmasi) — tunggu perpanjangan in-flight, tandai tf_logout_at untuk tab lain
     try { await beginLogoutGuard(); } catch (_) {}
+    // Unggahan media: berhenti sebelum token dicabut (tanpa DELETE, tanpa toast gagal 401).
+    try { window.__mediaUploads?.abortAll?.(); } catch (_) {}
     try {
       try {
         await api.post("/api/auth/logout", {});

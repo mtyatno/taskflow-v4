@@ -324,3 +324,33 @@ test("App: manajer unggah dibuat lewat ensureMediaUploadManager (sekali, penjaga
   assert.ok(/if \(window\.__mediaUploads\) return window\.__mediaUploads;/.test(blk), "penjaga sekali");
   assert.ok(blk.indexOf(UPLOAD_BLOCK_START) === 0 && html.indexOf(UPLOAD_BLOCK_START) > html.indexOf("// ── Akhir kartu media note ──"));
 });
+
+// ── fix wave item 4: logout menghentikan unggahan media ──
+test("clearLocalUserData: abortAll manajer unggah + hapus tf_media_uploads", async () => {
+  const blk = slice("async function clearLocalUserData() {", "window.clearLocalUserData = clearLocalUserData;");
+  const removed = [];
+  let aborted = 0;
+  const sandbox = {
+    window: { __mediaUploads: { abortAll() { aborted++; } } },
+    localStorage: { removeItem(k) { removed.push(k); } },
+    Promise, URL,
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(blk + "\nthis.clearLocalUserData = clearLocalUserData;", sandbox);
+  await sandbox.clearLocalUserData();
+  assert.equal(aborted, 1);
+  assert.ok(removed.includes("tf_media_uploads"), removed.join(","));
+  // manajer absen / abortAll melempar → tidak mematahkan logout
+  sandbox.window.__mediaUploads = { abortAll() { throw new Error("x"); } };
+  await sandbox.clearLocalUserData();
+  sandbox.window.__mediaUploads = null;
+  await sandbox.clearLocalUserData();
+});
+
+test("logout manual: abortAll dipanggil sebelum POST /api/auth/logout dan sebelum token dihapus", () => {
+  const blk = slice("const logout = useCallback(async () => {", "initialLoad.current = true;");
+  const iAbort = blk.indexOf("__mediaUploads?.abortAll");
+  assert.ok(iAbort > 0, "abortAll tidak dipanggil di logout");
+  assert.ok(iAbort < blk.indexOf('api.post("/api/auth/logout"'));
+  assert.ok(iAbort < blk.indexOf("tokenStore.clear()"));
+});
