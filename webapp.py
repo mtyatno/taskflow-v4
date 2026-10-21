@@ -1235,7 +1235,7 @@ class SharedListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
 class PinOrderReq(BaseModel):
-    list_ids: list[int]
+    list_ids: list[int] = Field(max_length=50)
 
 class WorkspacePatch(BaseModel):
     """Semua opsional; field yang tidak dikirim (model_fields_set) tidak diubah."""
@@ -3512,7 +3512,10 @@ async def patch_list(list_id: int, req: WorkspacePatch, user=Depends(get_current
         raise HTTPException(status_code=422, detail=str(e))
     if repo.update_workspace_identity(list_id, uid, fields) is None:
         raise HTTPException(status_code=403, detail="Hanya owner yang bisa mengubah workspace.")
-    return next(x for x in repo.get_lists_for_user(uid) if x["id"] == list_id)
+    row = next((x for x in repo.get_lists_for_user(uid) if x["id"] == list_id), None)
+    if row is None:  # workspace terhapus di tengah permintaan
+        raise HTTPException(status_code=404, detail="Workspace tidak ditemukan")
+    return row
 
 
 @app.get("/api/lists/{list_id}/members")

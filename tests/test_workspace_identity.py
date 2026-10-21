@@ -161,3 +161,12 @@ def test_identity_migration_idempotent():
     conn.close()
     for c in ("description", "color_idx", "avatar", "updated_at"):
         assert c in cols
+
+
+def test_patch_workspace_vanishes_mid_request_404(client, monkeypatch):
+    """Workspace terhapus setelah update tetapi sebelum dibaca ulang → 404, bukan 500 (StopIteration)."""
+    u = U(client)
+    lid = _workspace(u)
+    monkeypatch.setattr(webapp.TaskRepository, "get_lists_for_user", lambda self, uid: [])
+    r = u.patch(f"/api/lists/{lid}", json={"description": "x"})
+    assert r.status_code == 404, r.text

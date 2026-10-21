@@ -162,7 +162,31 @@
     return best;
   }
 
-  const exported = { nameMatches, impactLines, memberRows, identityDiff, joinedDate, filterWorkspaces, pinDropIndex };
+  // Identitas berubah dari luar (sync / perangkat lain) saat form owner sedang diedit: gabung per field.
+  // Field yang draft-nya masih sama dengan nilai asli sebelumnya mengikuti nilai asli baru; field yang
+  // sudah diubah pengguna dipertahankan. Avatar (avatarMode/initials/emoji) diperlakukan sebagai satu field.
+  // Semua argumen berbentuk draft form (name, description, color_idx, avatarMode, initials, emoji).
+  const AVATAR_KEYS = ["avatarMode", "initials", "emoji"];
+  function mergeIdentityDraft(prevOriginal, nextOriginal, draft) {
+    const p = prevOriginal || {};
+    const n = nextOriginal || {};
+    const d = draft || {};
+    const out = Object.assign({}, d);
+    const groups = [];
+    let avatarSeen = false;
+    Object.keys(n).forEach((k) => {
+      if (AVATAR_KEYS.indexOf(k) >= 0) {
+        if (!avatarSeen) { avatarSeen = true; groups.push(AVATAR_KEYS.filter((a) => Object.prototype.hasOwnProperty.call(n, a))); }
+      } else groups.push([k]);
+    });
+    groups.forEach((keys) => {
+      const untouched = keys.every((k) => d[k] === p[k]);
+      if (untouched) keys.forEach((k) => { out[k] = n[k]; });
+    });
+    return out;
+  }
+
+  const exported = { nameMatches, impactLines, memberRows, identityDiff, joinedDate, filterWorkspaces, pinDropIndex, mergeIdentityDraft };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.wsmanage = exported; }
   return exported;
 });

@@ -2210,39 +2210,50 @@ function SharedListsManager({
   const offlineTitle = online ? undefined : "Butuh koneksi internet";
   const pinned = WP ? WP.pinnedForRail(sharedLists) : [];
   const canPin = WP ? WP.canPinMore(sharedLists) : false;
-  const showSearch = sharedLists.length >= 6;
-  const shown = showSearch && WSM ? WSM.filterWorkspaces(sharedLists, query) : sharedLists;
+  // Helper baru Fase 1 selalu dicek typeof: saat update SW, index.html baru bisa berjalan dengan modul offline lama.
+  const canFilter = !!(WSM && typeof WSM.filterWorkspaces === "function");
+  const showSearch = sharedLists.length >= 6 && canFilter;
+  const shown = showSearch ? WSM.filterWorkspaces(sharedLists, query) : sharedLists;
   const pinRootRef = useRef(null);
   const dragRef = useRef(null);
   const focusMoveRef = useRef(null);
   const latest = useRef(null);
   const runPin = (id, fn) => {
-    if (!online || pinBusy != null) return;
+    if (!online || pinBusy != null || ordering) return;
     setPinBusy(id);
     Promise.resolve(fn()).catch(() => {}).finally(() => setPinBusy(null));
   };
   // Urutan pin: optimistis di App (handleWorkspacePinOrder); satu permintaan sekaligus.
-  const movePin = (from, to) => {
-    if (!online || ordering || !WP || !onPinOrder) return;
+  // focus (opsional, dari tombol ↑/↓) dicatat hanya bila pemindahan diterima → tidak ada lompatan fokus nyasar.
+  const movePin = (from, to, focus) => {
+    if (!online || ordering || pinBusy != null || !onPinOrder) return false;
     const ids = pinned.map(l => l.id);
-    const next = WP.pinOrderAfterMove(ids, from, to);
-    if (next.join(",") === ids.join(",")) return;
+    const next = WP && typeof WP.pinOrderAfterMove === "function" ? WP.pinOrderAfterMove(ids, from, to) : (() => {
+      const out = ids.slice();
+      if (from < 0 || from >= out.length || to < 0 || to >= out.length) return out;
+      out.splice(to, 0, out.splice(from, 1)[0]);
+      return out;
+    })();
+    if (next.join(",") === ids.join(",")) return false;
+    focusMoveRef.current = focus || null;
     setOrdering(true);
     Promise.resolve(onPinOrder(next)).catch(() => {}).finally(() => setOrdering(false));
+    return true;
   };
   latest.current = { movePin };
   // Fokus tetap di tombol ↑/↓ baris yang dipindah (tombol arah sebaliknya bila sudah di ujung).
+  // Selama menyimpan (ordering) tombol nonaktif → fokus dipulihkan setelah penyimpanan selesai.
   const pinnedKey = pinned.map(l => l.id).join(",");
   useEffect(() => {
     const f = focusMoveRef.current;
-    if (!f) return;
+    if (!f || ordering) return;
     focusMoveRef.current = null;
     const root = pinRootRef.current;
     if (!root) return;
     let b = root.querySelector(`[data-pin-move="${f.id}:${f.dir}"]`);
     if (b && b.disabled) b = root.querySelector(`[data-pin-move="${f.id}:${f.dir === "up" ? "down" : "up"}"]`);
     if (b && !b.disabled) b.focus();
-  }, [pinnedKey]);
+  }, [pinnedKey, ordering]);
   useEffect(() => {
     // Listener touchmove non-pasif dipasang saat mount (pola papan Kanban): setelah tekan-tahan, scroll diblokir.
     const el = pinRootRef.current;
@@ -2315,7 +2326,7 @@ function SharedListsManager({
         if (kanbanDragShouldStart(start, ev, Date.now())) begin();else if (start.pointerType === "touch" && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) >= 6) s.teardown(); // sentuh bergeser sebelum 250 ms → scroll
         return;
       }
-      const idx = WSM ? WSM.pinDropIndex(s.bands, s.y) : -1;
+      const idx = WSM && typeof WSM.pinDropIndex === "function" ? WSM.pinDropIndex(s.bands, s.y) : s.bands.findIndex(b => s.y >= b.top && s.y <= b.bottom);
       if (idx >= 0) s.over = idx;
       show();
     };
@@ -2439,13 +2450,12 @@ function SharedListsManager({
     "data-pin-move": l.id + ":up",
     "aria-label": `Naikkan ${l.name}`,
     title: offlineTitle || `Naikkan ${l.name}`,
-    disabled: !online || i === 0,
+    disabled: !online || ordering || pinBusy != null || i === 0,
     onClick: () => {
-      focusMoveRef.current = {
+      movePin(i, i - 1, {
         id: l.id,
         dir: "up"
-      };
-      movePin(i, i - 1);
+      });
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "chevron-up",
@@ -2456,13 +2466,12 @@ function SharedListsManager({
     "data-pin-move": l.id + ":down",
     "aria-label": `Turunkan ${l.name}`,
     title: offlineTitle || `Turunkan ${l.name}`,
-    disabled: !online || i === pinned.length - 1,
+    disabled: !online || ordering || pinBusy != null || i === pinned.length - 1,
     onClick: () => {
-      focusMoveRef.current = {
+      movePin(i, i + 1, {
         id: l.id,
         dir: "down"
-      };
-      movePin(i, i + 1);
+      });
     }
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "chevron-down",
@@ -2470,7 +2479,7 @@ function SharedListsManager({
   })), /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "btn btn-secondary btn-sm",
-    disabled: !online || pinBusy != null,
+    disabled: !online || pinBusy != null || ordering,
     title: offlineTitle,
     onClick: () => runPin(l.id, () => onPin(l.id, false))
   }, "Lepas pin"))));
@@ -2506,7 +2515,7 @@ function SharedListsManager({
       type: "button",
       className: "btn btn-secondary btn-sm",
       "aria-pressed": l.pinned ? "true" : "false",
-      disabled: !online || pinBusy != null || pinFull,
+      disabled: !online || pinBusy != null || ordering || pinFull,
       title: !online ? "Butuh koneksi internet" : pinFull ? "Maksimal 5 workspace di sidebar" : l.pinned ? "Lepas pin dari sidebar" : "Pin ke sidebar",
       onClick: () => runPin(l.id, () => onPin(l.id, !l.pinned)),
       style: {
@@ -2749,7 +2758,10 @@ function SharedListsManager({
     }
   }, "Belum ada workspace di sidebar. Pin dari daftar di bawah.") : /*#__PURE__*/React.createElement("ol", {
     className: "ws-pin-list"
-  }, pinRows)), /*#__PURE__*/React.createElement("section", {
+  }, pinRows), pinned.length >= 5 && /*#__PURE__*/React.createElement("div", {
+    className: "ws-pin-full-hint",
+    role: "status"
+  }, "Sidebar penuh (5/5). Lepas salah satu untuk menambah.")),/*#__PURE__*/React.createElement("section", {
     className: "ws-all-section",
     "aria-labelledby": "ws-sec-all"
   }, sectionTitle("ws-sec-all", "Semua workspace"), showSearch && /*#__PURE__*/React.createElement("input", {
@@ -2896,7 +2908,7 @@ function WorkspaceMembersSection({
   } else {
     listEl = /*#__PURE__*/React.createElement(React.Fragment, null, rows.map(m => {
       const name = m.display_name || m.username;
-      const joined = m.joined_at && WSM && WSM.joinedDate ? WSM.joinedDate(m.joined_at) : null;
+      const joined = m.joined_at && WSM && typeof WSM.joinedDate === "function" ? WSM.joinedDate(m.joined_at) : null;
       return /*#__PURE__*/React.createElement("div", {
         key: m.role + ":" + m.id,
         style: {
@@ -3424,6 +3436,19 @@ function wsIdentityDraft(l) {
     emoji: mode === "emoji" ? a : ""
   };
 }
+const WS_AVATAR_EMPTY_TEXT = "Isi inisial atau emoji, atau pilih Otomatis.";
+// Cadangan bila wsmanage.js lama (tanpa identityDiff) masih dari cache SW: field yang berbeda dari aslinya.
+function wsIdentityDiffFallback(o, d) {
+  const t = v => typeof v === "string" ? v.trim() : "";
+  const c = v => Number.isInteger(v) && v >= 0 && v <= 7 ? v : null;
+  const a = v => typeof v === "string" && v.trim() ? v.trim() : null;
+  const out = {};
+  if (t(d.name) !== t(o.name)) out.name = t(d.name);
+  if (t(d.description) !== t(o.description)) out.description = t(d.description);
+  if (c(d.color_idx) !== c(o.color_idx)) out.color_idx = c(d.color_idx);
+  if (a(d.avatar) !== a(o.avatar)) out.avatar = a(d.avatar);
+  return out;
+}
 // Seksi Umum untuk owner: Nama, Deskripsi (n/300), Warna (radiogroup), Avatar (Otomatis/Inisial/Emoji) + pratinjau.
 function WorkspaceIdentityForm({
   list,
@@ -3443,7 +3468,7 @@ function WorkspaceIdentityForm({
     color_idx: Number.isInteger(list.color_idx) ? list.color_idx : null,
     avatar: list.avatar || null
   };
-  // Identitas berubah dari luar (sync / perangkat lain) dan draft belum disentuh → ikuti nilai baru.
+  // Identitas berubah dari luar (sync / perangkat lain) → field draft yang belum disentuh ikuti nilai baru.
   const originalKey = JSON.stringify(original);
   const prevKeyRef = React.useRef(originalKey);
   const draftRef = React.useRef(draft);
@@ -3452,7 +3477,12 @@ function WorkspaceIdentityForm({
     if (prevKeyRef.current === originalKey) return;
     const prev = JSON.parse(prevKeyRef.current);
     prevKeyRef.current = originalKey;
-    if (JSON.stringify(wsIdentityDraft(prev)) === JSON.stringify(draftRef.current)) setDraft(wsIdentityDraft(list));
+    const prevDraft = wsIdentityDraft(prev);
+    const nextDraft = wsIdentityDraft(list);
+    if (WSM && typeof WSM.mergeIdentityDraft === "function") {
+      // gabung per field: field yang belum disentuh mengikuti nilai baru, editan pengguna dipertahankan
+      setDraft(d => WSM.mergeIdentityDraft(prevDraft, nextDraft, d));
+    } else if (JSON.stringify(prevDraft) === JSON.stringify(draftRef.current)) setDraft(nextDraft);
   }, [originalKey]);
   const set = patch => {
     setDraft(d => ({
@@ -3462,19 +3492,22 @@ function WorkspaceIdentityForm({
     setError("");
   };
   const avatarInput = draft.avatarMode === "initials" ? draft.initials : draft.avatarMode === "emoji" ? draft.emoji : null;
-  const av = WP ? WP.validateAvatar(avatarInput) : {
+  const av = WP && typeof WP.validateAvatar === "function" ? WP.validateAvatar(avatarInput) : {
     ok: true,
     value: avatarInput ? String(avatarInput).trim() || null : null
   };
+  // Inisial/Emoji dipilih tapi isian kosong → jangan diam-diam disimpan sebagai Otomatis.
+  const avatarEmpty = draft.avatarMode !== "auto" && !String(avatarInput || "").trim();
   const nameLen = Array.from(draft.name.trim()).length;
   const descLen = Array.from(draft.description.trim()).length;
-  const clientError = nameLen < 1 || nameLen > 100 ? "Nama harus 1–100 karakter" : descLen > 300 ? "Deskripsi maksimal 300 karakter" : !av.ok ? av.error : "";
-  const diff = WSM ? WSM.identityDiff(original, {
+  const clientError = nameLen < 1 || nameLen > 100 ? "Nama harus 1–100 karakter" : descLen > 300 ? "Deskripsi maksimal 300 karakter" : avatarEmpty ? WS_AVATAR_EMPTY_TEXT : !av.ok ? av.error : "";
+  const diffDraft = {
     name: draft.name,
     description: draft.description,
     color_idx: draft.color_idx,
     avatar: av.ok ? av.value : original.avatar
-  }) : {};
+  };
+  const diff = WSM && typeof WSM.identityDiff === "function" ? WSM.identityDiff(original, diffDraft) : wsIdentityDiffFallback(original, diffDraft);
   const dirty = JSON.stringify(draft) !== JSON.stringify(wsIdentityDraft(list));
   const canSave = online && !saving && !clientError && Object.keys(diff).length > 0;
   const preview = {
@@ -5066,7 +5099,12 @@ function useScopeLists(listId, sharedLists) {
 // ═══ Avatar workspace (rail, sidebar, judul halaman; teks selalu sebagai child React) ═══
 function WorkspaceAvatar({ list, size = 20, className = "" }) {
   const WPa = window.TF && window.TF.workspacepins;
-  const a = WPa ? WPa.avatarFor(list) : { text: String((list && list.name) || "?").trim().charAt(0).toUpperCase() || "?", colorIdx: 0, isEmoji: false };
+  // typeof: saat update SW, index.html baru bisa berjalan dengan workspacepins.js lama (tanpa avatarFor).
+  const a = WPa && typeof WPa.avatarFor === "function" ? WPa.avatarFor(list) : {
+    text: WPa && typeof WPa.avatarInitial === "function" ? WPa.avatarInitial(list && list.name) : String((list && list.name) || "?").trim().charAt(0).toUpperCase() || "?",
+    colorIdx: WPa && typeof WPa.avatarColorIndex === "function" ? WPa.avatarColorIndex(list && list.id) : 0,
+    isEmoji: false
+  };
   return React.createElement("span", {
     className: `ws-avatar ws-c${a.colorIdx}${a.isEmoji ? " ws-avatar-emoji" : ""}${className ? " " + className : ""}`,
     style: { "--sz": size + "px" },
@@ -37756,7 +37794,7 @@ function App() {
     const LS = window.TF && window.TF.listsync;
     listsMutationSeq.current++;
     applyPositions(posOf);
-    try { if (LS && LS.setLocalPinOrder) await LS.setLocalPinOrder(order); } catch (_) {}
+    try { if (LS && typeof LS.setLocalPinOrder === "function") await LS.setLocalPinOrder(order); } catch (_) {}
     try {
       await api.fetch("/api/lists/pins/order", {
         method: "PUT",
@@ -37764,10 +37802,13 @@ function App() {
         network: true
       });
       listsMutationSeq.current++; // GET yang terkirim selagi PUT berjalan bisa membawa urutan lama
+      // fetchAll yang mulai setelah update optimistis dan selesai sebelum PUT bisa sudah menulis urutan lama
+      // ke state/cache → terapkan ulang posisi yang diminta setelah server menerima.
+      applyPositions(posOf);
     } catch (err) {
       listsMutationSeq.current++;
       applyPositions(prevPos);
-      try { if (LS && LS.setLocalPinOrder) await LS.setLocalPinOrder(prevOrder); } catch (_) {}
+      try { if (LS && typeof LS.setLocalPinOrder === "function") await LS.setLocalPinOrder(prevOrder); } catch (_) {}
       const code = err && err.body && err.body.detail && err.body.detail.code;
       if (err && err.status === 409 && code === "PIN_ORDER_MISMATCH") {
         showToast("Urutan pin sudah berubah di perangkat lain", "error");
@@ -37789,7 +37830,7 @@ function App() {
     });
     const LS = window.TF && window.TF.listsync;
     try {
-      if (LS && LS.setLocalIdentity) await LS.setLocalIdentity(list.id, { name: list.name, description: list.description, color_idx: list.color_idx, avatar: list.avatar, updated_at: list.updated_at });
+      if (LS && typeof LS.setLocalIdentity === "function") await LS.setLocalIdentity(list.id, { name: list.name, description: list.description, color_idx: list.color_idx, avatar: list.avatar, updated_at: list.updated_at });
     } catch (_) {}
     queueListPull();
   }, [queueListPull]);
@@ -38988,7 +39029,8 @@ function App() {
       done: "Done",
       all: "Semua Task",
       settings: "Pengaturan",
-      admin: "Admin"
+      admin: "Admin",
+      manage_lists: "Kelola Workspace"
     };
     return titles[page] || "Tasks";
   };
@@ -39212,6 +39254,18 @@ function App() {
         online: isOnline,
         onToggle: pin => handleWorkspacePin(listId, pin)
       }), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "btn btn-sm btn-secondary workspace-manage-btn",
+        "data-testid": "workspace-manage-btn",
+        "aria-label": `Kelola workspace ${currentList.name}`,
+        title: `Kelola workspace ${currentList.name}`,
+        onClick: () => setPage("ws_manage_" + listId),
+        style: {
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 6
+        }
+      }, /*#__PURE__*/React.createElement(Icon, { name: "settings", size: 14 }), "Kelola"), /*#__PURE__*/React.createElement("button", {
         type: "button",
         className: "btn btn-sm btn-secondary",
         onClick: () => setProjectManager({ listId: listId, listName: currentList.name }),

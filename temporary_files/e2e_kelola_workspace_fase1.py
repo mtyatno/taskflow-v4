@@ -50,6 +50,8 @@ LONG_NAME = "Workspace" + "X" * 91  # 100 karakter tanpa spasi
 B_WS = "Kebun Budi"
 OFF = "Butuh koneksi internet"
 ORDER_409 = "Urutan pin sudah berubah di perangkat lain"
+AVATAR_EMPTY = "Isi inisial atau emoji, atau pilih Otomatis."
+FULL_HINT = "Sidebar penuh (5/5). Lepas salah satu untuk menambah."
 
 
 # ── helper ──────────────────────────────────────────────────────────────────────────────────────
@@ -151,6 +153,16 @@ IDB_LIST = """(sid) => new Promise((res) => { const r = indexedDB.open('taskflow
 
 def idb_list(p, sid):
     return p.evaluate(IDB_LIST, sid)
+
+
+# PUT urutan pin ditahan 2,5 dtk SEBELUM dikirim → GET fetchAll yang mulai sesudah update optimistis selesai
+# lebih dulu dengan urutan lama (server belum menerima PUT).
+SLOW_PIN_PUT = """() => { if (window.__origFetch2) return; const of = window.fetch; window.__origFetch2 = of;
+    window.fetch = function (u, o) { const url = String((u && u.url) || u); const m = ((o && o.method) || 'GET').toUpperCase();
+      const args = arguments, self = this;
+      if (m === 'PUT' && /\\/api\\/lists\\/pins\\/order/.test(url)) { window.__slowPinPuts = (window.__slowPinPuts || 0) + 1;
+        return new Promise(res => setTimeout(res, 2500)).then(() => of.apply(self, args)); }
+      return of.apply(this, arguments); }; }"""
 
 
 SLOW_LISTS_GET = """() => { if (window.__origFetch) return; const of = window.fetch; window.__origFetch = of;
@@ -263,6 +275,15 @@ def avatar_validation(p, ids, tag):
     umum.get_by_role("button", name="Batal", exact=True).click()
     check("[%s] 3e Batal → pratinjau kembali 🔥, Simpan nonaktif" % tag,
           wait_until(lambda: prev.inner_text().strip() == "🔥" and save.is_disabled(), 3))
+    # Inisial dipilih tapi kosong (+ nama diubah) → pesan, Simpan tetap nonaktif (tidak diam-diam jadi Otomatis)
+    umum.get_by_role("button", name="Inisial", exact=True).click()
+    umum.get_by_label("Inisial", exact=True).fill("")
+    umum.get_by_label("Nama", exact=True).fill(W_NEW + " x")
+    check("[%s] 3f Inisial kosong → '%s', Simpan nonaktif" % (tag, AVATAR_EMPTY),
+          wait_until(lambda: alert.count() == 1 and alert.inner_text() == AVATAR_EMPTY and save.is_disabled(), 3),
+          repr(alert.all_inner_texts()))
+    umum.get_by_role("button", name="Batal", exact=True).click()
+    check("[%s] 3g Batal → kembali 🔥" % tag, wait_until(lambda: prev.inner_text().strip() == "🔥" and save.is_disabled(), 3))
 
 
 # ── main ────────────────────────────────────────────────────────────────────────────────────────
@@ -342,6 +363,18 @@ def main():
             ctxad.close()
             ctxbd.close()
 
+            # ── 11. tombol Kelola di baris workspace-nav-tabs ──────────────────────────────────
+            go_list(a)
+            card(a, W).get_by_role("button", name="Buka", exact=True).click()
+            kel = a.get_by_role("button", name="Kelola workspace %s" % W_NEW, exact=True)
+            kel.wait_for(timeout=8000)
+            check("11a tombol Kelola di workspace-nav-tabs (teks 'Kelola')",
+                  a.locator(".workspace-nav-tabs [data-testid='workspace-manage-btn']").count() == 1
+                  and kel.inner_text().strip() == "Kelola", repr(kel.inner_text()))
+            kel.click()
+            check("11b Kelola → halaman detail W",
+                  wait_until(lambda: a.locator("section[aria-labelledby='ws-sec-anggota-%d']" % W).count() == 1, 8))
+
             # ── 4. pin + urutan ────────────────────────────────────────────────────────────────
             api(base, A, "DELETE", "/api/lists/%d/pin" % W)
             a.reload()
@@ -409,6 +442,29 @@ def main():
             a.get_by_role("button", name="Naikkan %s" % W3_NAME, exact=True).click()
             check("4k kembali [W3, W, W2]",
                   wait_until(lambda: pinned_names(a) == exp and server_pins(base, A) == exp, 10), repr(pinned_names(a)))
+            wait_until(lambda: a.get_by_role("button", name="Turunkan %s" % W3_NAME, exact=True).is_enabled(), 5)
+            # Race kebalikan: PUT ditahan; fetchAll mulai SESUDAH update optimistis dan selesai SEBELUM PUT
+            # (membawa urutan lama) → setelah PUT sukses urutan yang diminta diterapkan ulang.
+            a.evaluate(SLOW_PIN_PUT)
+            a.get_by_role("button", name="Turunkan %s" % W3_NAME, exact=True).click()
+            check("4l selama menyimpan: ↑/↓ + Lepas pin + Pin kartu nonaktif",
+                  wait_until(lambda: all(x.is_disabled() for x in a.locator(".ws-pin-move").all())
+                             and all(x.is_disabled() for x in a.get_by_role("button", name="Lepas pin").all())
+                             and card(a, W2).locator("button[aria-pressed]").is_disabled(), 2))
+            a.evaluate("() => window.__refreshTasks && window.__refreshTasks()")
+            wait_fetch_idle(a)
+            print("INFO 4m urutan setelah GET lama (sebelum PUT selesai): %r" % (pinned_names(a),), flush=True)
+            check("4m server menerima urutan baru (PUT tertahan)", wait_until(lambda: server_pins(base, A) == exp2, 8),
+                  repr(server_pins(base, A)))
+            check("4m' setelah PUT sukses urutan diminta diterapkan ulang (daftar + rail)",
+                  wait_until(lambda: pinned_names(a) == exp2 and rail_names(a) == exp2, 5),
+                  repr((pinned_names(a), rail_names(a))))
+            a.evaluate("() => { if (window.__origFetch2) { window.fetch = window.__origFetch2; window.__origFetch2 = null; } }")
+            wait_until(lambda: a.get_by_role("button", name="Naikkan %s" % W3_NAME, exact=True).is_enabled(), 5)
+            a.get_by_role("button", name="Naikkan %s" % W3_NAME, exact=True).click()
+            check("4n kembali [W3, W, W2]",
+                  wait_until(lambda: pinned_names(a) == exp and server_pins(base, A) == exp, 10), repr(pinned_names(a)))
+            wait_until(lambda: a.get_by_role("button", name="Turunkan %s" % W3_NAME, exact=True).is_enabled(), 5)
 
             # ── 5. 409 urutan ──────────────────────────────────────────────────────────────────
             api(base, A, "DELETE", "/api/lists/%d/pin" % W2)  # perangkat lain
@@ -430,6 +486,9 @@ def main():
             check("8a offline: ↑/↓ nonaktif + title",
                   wait_until(lambda: moves.count() > 0 and all(x.is_disabled() and x.get_attribute("title") == OFF
                                                                 for x in moves.all()), 5))
+            op = moves.first.evaluate("el => ({ o: parseFloat(getComputedStyle(el).opacity), c: getComputedStyle(el).cursor })")
+            check("8a' tombol nonaktif tampak nonaktif (opacity < 1, cursor not-allowed)",
+                  op["o"] < 1 and op["c"] == "not-allowed", repr(op))
             lp = a.get_by_role("button", name="Lepas pin")
             check("8b offline: Lepas pin nonaktif", lp.count() > 0 and all(x.is_disabled() for x in lp.all()))
             pb = card(a, W2).locator("button[aria-pressed]")
@@ -512,6 +571,10 @@ def main():
 
             # ── 10. 375 px nama 100 karakter ───────────────────────────────────────────────────
             api(base, A, "PUT", "/api/lists/%d/pin" % WL, json={})
+            for i in range(3):  # 5 pin: W3, WL, F1..F3 → petunjuk "Sidebar penuh"
+                fid = api(base, A, "POST", "/api/lists", json={"name": "Penuh %d" % (i + 1)})["id"]
+                api(base, A, "PUT", "/api/lists/%d/pin" % fid, json={})
+            check("setup 10: 5 pin", len(server_pins(base, A)) == 5, repr(server_pins(base, A)))
             api(base, A, "PATCH", "/api/lists/%d" % WL, json={"description": "D" * 300})
             for theme in ("light", "dark"):
                 tag = "terang" if theme == "light" else "gelap"
@@ -522,6 +585,9 @@ def main():
                 sw = no_hscroll(m)
                 check("[%s] 10a 375 px daftar (nama 100 char): tanpa scroll horizontal" % tag, sw["sw"] <= sw["iw"], repr(sw))
                 check("[%s] 10a' Di sidebar memuat nama panjang" % tag, LONG_NAME in pinned_names(m))
+                hint = m.locator(".ws-pin-section").get_by_text(FULL_HINT, exact=True)
+                check("[%s] 10a'' 5 pin → petunjuk '%s'" % (tag, FULL_HINT),
+                      wait_until(lambda: hint.count() == 1 and hint.is_visible(), 5))
                 shot(m, "10a_375_daftar_%s.png" % tag)
                 card(m, WL).get_by_role("button", name="Kelola", exact=True).click()
                 m.locator("section[aria-labelledby='ws-sec-anggota-%d']" % WL).wait_for(timeout=8000)

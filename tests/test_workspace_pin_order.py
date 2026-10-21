@@ -102,3 +102,12 @@ def test_pin_order_bad_body_422(client):
     u = U(client)
     assert u.put("/api/lists/pins/order", json={"list_ids": "x"}).status_code == 422
     assert u.put("/api/lists/pins/order", json={}).status_code == 422
+
+
+def test_pin_order_list_ids_capped_at_50(client):
+    u = U(client)
+    r = u.put("/api/lists/pins/order", json={"list_ids": list(range(1, 52))})
+    assert r.status_code == 422, r.text
+    # 50 id masih lolos validasi body (lalu ditolak 409 karena tidak cocok dengan pin pengguna)
+    r = u.put("/api/lists/pins/order", json={"list_ids": list(range(1, 51))})
+    assert r.status_code != 422, r.text

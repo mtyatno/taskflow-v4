@@ -112,7 +112,7 @@ test("teks persis seksi, tombol, kosong, cari, pratinjau kode", () => {
 });
 
 test("cari hanya dirender bila sharedLists.length >= 6, memakai filterWorkspaces", () => {
-  assert.ok(mgr.includes("const showSearch = sharedLists.length >= 6;"));
+  assert.ok(mgr.includes("const showSearch = sharedLists.length >= 6 && canFilter;"));
   assert.match(mgr, /showSearch && \/\*#__PURE__\*\/React\.createElement\("input"/);
   assert.ok(mgr.includes("WSM.filterWorkspaces(sharedLists, query)"));
   assert.ok(mgr.includes("type: \"search\""));
@@ -124,8 +124,8 @@ test("seksi Di sidebar: pinnedForRail, ↑/↓ nonaktif di ujung, pinOrderAfterM
   assert.ok(mgr.includes("WP.canPinMore(sharedLists)"));
   assert.ok(mgr.includes("WP.pinOrderAfterMove("));
   assert.match(mgr, /onPinOrder\(next\)/);
-  assert.match(mgr, /disabled: !online \|\| i === 0/);
-  assert.match(mgr, /disabled: !online \|\| i === pinned\.length - 1/);
+  assert.match(mgr, /disabled: !online \|\| ordering \|\| pinBusy != null \|\| i === 0/);
+  assert.match(mgr, /disabled: !online \|\| ordering \|\| pinBusy != null \|\| i === pinned\.length - 1/);
   assert.match(mgr, /name: "chevron-up"/);
   assert.match(mgr, /name: "chevron-down"/);
   assert.ok(mgr.includes("className: \"ws-pin-row"));
