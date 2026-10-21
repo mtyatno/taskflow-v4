@@ -5,6 +5,8 @@ Alur:
   b  screenshot terang + gelap; 375×740 → tanpa scroll, menu utuh di dalam viewport (dijepit middleware)
   c  klik Wikilink → "/" hilang, paragraf berisi "[[", dropdown autocomplete wikilink tampil
   d  "and/" → klik Wikilink → "and/" tetap ("/" di tengah teks bukan pemicu)
+  k  emulasi keyboard HP (visualViewport 330px) → menu dibatasi + scroll di dalam, Wikilink bisa diklik
+  f  Wikilink di dalam `kode` → "[[" tidak ikut mark code
   e  klik Task → "/" hilang, dropdown task tampil; klik Gambar → "/" hilang, modal Sisipkan Gambar tampil
 
     python temporary_files/e2e_slash_menu_grid.py
@@ -214,6 +216,7 @@ def main():
                   (m["wlW"], m["gW"], m["hint"]))
             title_attr = p.locator(MENU + " .milkdown-slash-item[title='Tugas / Task (/task, /tasks)']").count()
             check("a6 title deskriptif ada (Task)", title_attr == 1)
+            check("a7 listbox punya aria-label", p.locator(MENU).get_attribute("aria-label") == "Sisipkan blok")
 
             # b: screenshot terang + gelap, lalu 375 px
             p.screenshot(path=os.path.join(SHOTS, "e2e_slash_menu_light.png"))
@@ -239,6 +242,48 @@ def main():
             p.wait_for_timeout(200)
             p.screenshot(path=os.path.join(SHOTS, "e2e_slash_menu_375_dark.png"))
             p.evaluate("() => document.documentElement.setAttribute('data-theme', 'light')")
+            p.keyboard.press("Backspace")
+            p.wait_for_timeout(300)
+
+            # k: keyboard HP terbuka — emulasi visualViewport setinggi 330px (layout tetap 375×740)
+            p.evaluate("""() => {
+              const fake = { width: 375, height: 330, offsetTop: 0, offsetLeft: 0, scale: 1,
+                get pageTop() { return window.scrollY; }, get pageLeft() { return window.scrollX; },
+                addEventListener() {}, removeEventListener() {} };
+              Object.defineProperty(window, 'visualViewport', { value: fake, configurable: true });
+            }""")
+            check("k0 emulasi visualViewport aktif", p.evaluate("() => window.visualViewport.height") == 330)
+            open_menu(p)
+            p.wait_for_timeout(300)
+            k = p.evaluate("""() => {
+              const m = document.querySelector(".milkdown-slash-menu[data-show='true']");
+              const r = m.getBoundingClientRect();
+              const wl = [...m.querySelectorAll('.milkdown-slash-item')].find(e => e.textContent.includes('Wikilink'));
+              const before = wl.getBoundingClientRect().bottom;
+              wl.scrollIntoView({ block: 'nearest' });
+              const w = wl.getBoundingClientRect();
+              return { top: r.top, bottom: r.bottom, sh: m.scrollHeight, ch: m.clientHeight, mh: m.style.maxHeight,
+                       wlBefore: before, wlTop: w.top, wlBottom: w.bottom, st: m.scrollTop };
+            }""")
+            check("k1 menu utuh di area terlihat 330px", k["top"] >= 0 and k["bottom"] <= 330, (k["top"], k["bottom"], k["mh"]))
+            check("k2 menu bisa di-scroll di dalam (max-height dibatasi)", k["sh"] > k["ch"] and k["mh"] == "314px", (k["sh"], k["ch"], k["mh"]))
+            check("k3 Wikilink awalnya di bawah area terlihat, setelah scroll menu terlihat",
+                  k["wlBefore"] > 330 and k["st"] > 0 and k["wlTop"] >= k["top"] and k["wlBottom"] <= min(k["bottom"], 330),
+                  (k["wlBefore"], k["st"], k["wlTop"], k["wlBottom"]))
+            p.screenshot(path=os.path.join(SHOTS, "e2e_slash_menu_375_keyboard.png"))
+            click_item(p, "Wikilink")
+            p.wait_for_timeout(300)
+            blk = p.evaluate(CUR_BLOCK_JS)
+            check("k4 klik Wikilink (keyboard) → '[[' disisipkan", blk is not None and blk.strip() == "[[", repr(blk))
+            p.keyboard.press("Escape")
+            p.keyboard.press("Backspace")
+            p.keyboard.press("Backspace")
+            p.evaluate("() => { delete window.visualViewport; }")
+            p.wait_for_timeout(400)
+            open_menu(p)
+            p.wait_for_timeout(300)
+            mh = p.evaluate("() => document.querySelector(\".milkdown-slash-menu[data-show='true']\").style.maxHeight")
+            check("k5 keyboard tertutup → max-height inline dikosongkan", mh == "", repr(mh))
             p.keyboard.press("Backspace")
             p.set_viewport_size({"width": 1280, "height": 800})
             p.wait_for_timeout(500)
@@ -274,6 +319,34 @@ def main():
             p.keyboard.press("Backspace")  # buang "[[" agar dropdown wikilink tidak aktif di langkah berikut
             p.wait_for_timeout(400)
             check("d2 dropdown wikilink tertutup setelah '[[' dihapus", p.locator(".wiki-autocomplete").count() == 0)
+
+            # f: Wikilink di dalam `kode` tidak mewarisi mark inline code
+            new_line_and(p, "`kode x`")
+            p.wait_for_timeout(300)
+            p.keyboard.press("ArrowLeft")  # kursor di dalam span kode, sebelum "x" (sesudah spasi)
+            p.keyboard.type("/", delay=40)
+            p.wait_for_timeout(300)
+            code_before = p.evaluate("() => [...document.querySelectorAll('.ProseMirror code')].map(e => e.textContent)")
+            shown = p.locator(MENU).count() > 0
+            if shown and any("/" in t for t in code_before):
+                click_item(p, "Wikilink")
+                p.wait_for_timeout(400)
+                code_txt = p.evaluate("() => [...document.querySelectorAll('.ProseMirror code')].map(e => e.textContent)")
+                blk = p.evaluate(CUR_BLOCK_JS)
+                check("f1 '[[' di dalam kode tidak ikut mark code", blk is not None and "[[" in blk and not any("[[" in t for t in code_txt),
+                      (repr(blk), code_before, code_txt))
+                ok, txt = wiki_dropdown_visible(p)
+                check("f2 dropdown wikilink tampil", ok, txt.replace("\n", " | "))
+                p.keyboard.press("Escape")
+                p.keyboard.press("Backspace")
+                p.keyboard.press("Backspace")
+                p.wait_for_timeout(400)
+                check("f3 dropdown wikilink tertutup", p.locator(".wiki-autocomplete").count() == 0)
+            else:
+                print("SKIP f menu slash tidak tampil di dalam inline code", shown, code_before, flush=True)
+                if shown:
+                    p.keyboard.press("Backspace")
+            p.keyboard.press("End")
 
             # e: Task + Gambar
             open_menu(p)

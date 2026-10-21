@@ -27071,6 +27071,7 @@ function MilkdownEditor({
     const slashMenu = document.createElement('div');
     slashMenu.className = 'milkdown-slash-menu';
     slashMenu.setAttribute('role', 'listbox');
+    slashMenu.setAttribute('aria-label', 'Sisipkan blok');
     const doSlashAction = (type, payload) => {
       const inst = instanceRef.current;
       if (!inst) return;
@@ -27208,6 +27209,10 @@ function MilkdownEditor({
               // "/" pemicu sudah dihapus jalur generik di atas (state di sini sudah segar).
               // Sisipkan "[[" seperti tombol toolbar Wiki → markdownUpdated → onChange host
               // mendeteksi /\[\[([^\]]*)$/ dan membuka dropdown autocomplete wikilink.
+              // Jangan mewarisi mark inline code (mis. "/" diketik di dalam `kode`): "[[" dan
+              // query sesudahnya harus teks biasa agar jadi wikilink. Mark lain (bold, dll.) tetap.
+              const wlMarks = (state.storedMarks || state.selection.$from.marks()).filter(mk => !mk.type.spec.code);
+              tr.setStoredMarks(wlMarks);
               tr = tr.insertText('[[', from, to);
             }
             break;
@@ -27336,21 +27341,35 @@ function MilkdownEditor({
       slashMenu.appendChild(grid);
     });
 
-    // Middleware floating-ui: jepit posisi menu ke dalam viewport. Menu grid selebar 340px keluar
-    // layar HP bila kursor jauh di kanan, dan di layar pendek tidak muat di atas maupun di bawah
-    // kursor (flip bawaan tak menolong) → geser hingga utuh terlihat (boleh menutupi baris "/").
-    // Koordinat absolut relatif dokumen (root = body) → ikut scroll halaman.
+    // Middleware floating-ui: jepit posisi menu ke dalam area yang terlihat. Menu grid selebar
+    // 340px keluar layar HP bila kursor jauh di kanan, dan di layar pendek tidak muat di atas
+    // maupun di bawah kursor (flip bawaan tak menolong) → geser hingga utuh terlihat (boleh
+    // menutupi baris "/"). Saat keyboard HP terbuka, visualViewport jauh lebih pendek dari 70vh:
+    // max-height dibatasi ke tinggi area terlihat agar menu bisa di-scroll di dalam (Wikilink
+    // tidak tertutup keyboard); bila ruang cukup lagi, kembali ke max-height CSS.
+    // Koordinat absolut relatif dokumen (root = body); visualViewport (pageLeft/pageTop) dipakai
+    // untuk kedua sumbu bila ada.
     const slashClampToViewport = {
       name: 'slashClampToViewport',
-      fn: ({ x, y, rects }) => {
-        const vw = document.documentElement.clientWidth || window.innerWidth;
+      fn: ({ x, y, rects, elements }) => {
         const vv = window.visualViewport;
+        const left = vv ? (vv.pageLeft || 0) : (window.scrollX || 0);
+        const top = vv ? (vv.pageTop || 0) : (window.scrollY || 0);
+        const vw = vv ? vv.width : (document.documentElement.clientWidth || window.innerWidth);
         const vh = vv ? vv.height : window.innerHeight;
-        const sx = window.scrollX || 0;
-        const sy = (window.scrollY || 0) + (vv ? vv.offsetTop || 0 : 0);
-        const maxX = sx + vw - rects.floating.width - 8;
-        const maxY = sy + vh - rects.floating.height - 8;
-        return { x: Math.max(sx + 8, Math.min(x, maxX)), y: Math.max(sy + 8, Math.min(y, maxY)) };
+        const floatingEl = elements && elements.floating;
+        if (floatingEl && floatingEl.style) {
+          const cssMax = Math.min(440, Math.floor(window.innerHeight * 0.7));
+          const avail = Math.floor(vh - 16);
+          const want = avail >= cssMax ? '' : Math.max(120, avail) + 'px';
+          if (floatingEl.style.maxHeight !== want) {
+            floatingEl.style.maxHeight = want;
+            return { reset: { rects: true } };
+          }
+        }
+        const maxX = left + vw - rects.floating.width - 8;
+        const maxY = top + vh - rects.floating.height - 8;
+        return { x: Math.max(left + 8, Math.min(x, maxX)), y: Math.max(top + 8, Math.min(y, maxY)) };
       }
     };
 

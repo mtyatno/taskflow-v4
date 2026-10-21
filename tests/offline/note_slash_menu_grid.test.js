@@ -82,6 +82,10 @@ test("slash menu: grup dan item sesuai urutan", async (t) => {
   });
 });
 
+test("slash menu: listbox punya nama aksesibel", () => {
+  assert.match(indexHtml, /slashMenu\.setAttribute\('role', 'listbox'\);\s*slashMenu\.setAttribute\('aria-label', 'Sisipkan blok'\);/);
+});
+
 test("slash menu: konstruksi DOM aman (tanpa innerHTML)", async (t) => {
   const start = indexHtml.indexOf("const makeSlashItem = (");
   const end = indexHtml.indexOf("// ── Tooltip DOM", start);
@@ -115,27 +119,66 @@ test("slash menu: aksi wikilink menyisipkan [[ dari state segar", () => {
   const m = indexHtml.match(/case 'wikilink':\s*\{([\s\S]*?)\}\s*break;/);
   assert.ok(m, "case 'wikilink' harus ada di doSlashAction");
   assert.match(m[1], /tr = tr\.insertText\('\[\[', from, to\);/);
+  // tidak mewarisi mark inline code (wikilink di dalam `kode` tidak jadi kode)
+  assert.match(m[1], /tr\.setStoredMarks\(/);
+  assert.match(m[1], /spec\.code/);
+  assert.ok(m[1].indexOf("setStoredMarks") < m[1].indexOf("insertText('[['"), "stored marks diatur sebelum insertText");
   // "/" pemicu dihapus oleh jalur generik (bukan pengecualian draw/task)
   assert.match(indexHtml, /if \(type !== 'draw' && type !== 'task'\) \{\s*const sel0 = view\.state\.selection;\s*if \(sel0\.empty && isSlashTriggerBefore\(sel0\.\$from\)\)/);
 });
 
-test("slash menu: posisi dijepit ke dalam viewport (HP)", () => {
+test("slash menu: posisi dijepit ke dalam viewport (HP)", async (t) => {
   assert.match(indexHtml, /new MB\.SlashProvider\(\{ content: slashMenu, root: document\.body, middleware: \[slashClampToViewport\] \}\)/);
   const m = indexHtml.match(/const slashClampToViewport = \{[\s\S]*?\n    \};/);
   assert.ok(m, "middleware slashClampToViewport harus ada");
-  const mk = (scrollY = 0) => new Function("window", "document", m[0] + "\nreturn slashClampToViewport;")(
-    { innerWidth: 375, innerHeight: 740, scrollX: 0, scrollY }, { documentElement: { clientWidth: 375 } });
-  const clamp = mk();
-  const fl = { rects: { floating: { width: 340, height: 426 } } };
-  // horizontal
-  assert.deepEqual(clamp.fn({ x: 98, y: 10, ...fl }), { x: 375 - 340 - 8, y: 10 });
-  assert.deepEqual(clamp.fn({ x: 2, y: 10, ...fl }), { x: 8, y: 10 });
-  assert.deepEqual(clamp.fn({ x: 20, y: 10, ...fl }), { x: 20, y: 10 });
-  // vertikal: bawah menu tidak melewati viewport
-  assert.deepEqual(clamp.fn({ x: 20, y: 340, ...fl }), { x: 20, y: 740 - 426 - 8 });
-  assert.deepEqual(clamp.fn({ x: 20, y: -30, ...fl }), { x: 20, y: 8 });
-  // koordinat dokumen: ikut scroll halaman
-  assert.deepEqual(mk(100).fn({ x: 20, y: 500, ...fl }), { x: 20, y: 100 + 740 - 426 - 8 });
+  const mk = (win) => new Function("window", "document", m[0] + "\nreturn slashClampToViewport;")(
+    Object.assign({ innerWidth: 375, innerHeight: 740, scrollX: 0, scrollY: 0 }, win),
+    { documentElement: { clientWidth: 375 } });
+  const el = (maxHeight = "") => ({ style: { maxHeight } });
+  const st = (x, y, h, floating = el()) => ({ x, y, rects: { floating: { width: 340, height: h } }, elements: { floating } });
+
+  await t.test("tanpa visualViewport: horizontal + vertikal", () => {
+    const c = mk();
+    assert.deepEqual(c.fn(st(98, 10, 426)), { x: 375 - 340 - 8, y: 10 });
+    assert.deepEqual(c.fn(st(2, 10, 426)), { x: 8, y: 10 });
+    assert.deepEqual(c.fn(st(20, 10, 426)), { x: 20, y: 10 });
+    assert.deepEqual(c.fn(st(20, 340, 426)), { x: 20, y: 740 - 426 - 8 });
+    assert.deepEqual(c.fn(st(20, -30, 426)), { x: 20, y: 8 });
+    // koordinat dokumen: ikut scroll halaman
+    assert.deepEqual(mk({ scrollY: 100 }).fn(st(20, 500, 426)), { x: 20, y: 100 + 740 - 426 - 8 });
+    // tanpa elements (aman)
+    assert.deepEqual(c.fn({ x: 20, y: 10, rects: { floating: { width: 340, height: 426 } } }), { x: 20, y: 10 });
+  });
+
+  await t.test("keyboard HP terbuka (visualViewport 330px): max-height dibatasi, lalu posisi pas", () => {
+    const vv = { width: 375, height: 330, pageLeft: 0, pageTop: 0, offsetTop: 0, offsetLeft: 0 };
+    const c = mk({ visualViewport: vv });
+    const f = el();
+    // panggilan pertama: tinggi dibatasi → minta floating-ui mengukur ulang
+    assert.deepEqual(c.fn(st(20, 340, 426, f)), { reset: { rects: true } });
+    assert.equal(f.style.maxHeight, (330 - 16) + "px");
+    // setelah diukur ulang (tinggi = 314): menu utuh di area terlihat
+    assert.deepEqual(c.fn(st(20, 340, 314, f)), { x: 20, y: 330 - 314 - 8 });
+    assert.equal(f.style.maxHeight, "314px", "tidak berubah lagi → tidak reset berulang");
+  });
+
+  await t.test("visualViewport ter-scroll/zoom: kedua sumbu memakai pageLeft/pageTop/width", () => {
+    const vv = { width: 300, height: 600, pageLeft: 50, pageTop: 200, offsetTop: 0, offsetLeft: 0 };
+    const c = mk({ visualViewport: vv, scrollX: 0, scrollY: 0 });
+    // x: [50 + 8, 50 + 300 - 280 - 8]; y: [200 + 8, 200 + 600 - 400 - 8]
+    const s2 = (x, y) => ({ x, y, rects: { floating: { width: 280, height: 400 } }, elements: { floating: el() } });
+    assert.deepEqual(c.fn(s2(0, 0)), { x: 58, y: 208 });
+    assert.deepEqual(c.fn(s2(500, 900)), { x: 62, y: 392 });
+  });
+
+  await t.test("ruang cukup lagi: max-height inline dikosongkan (kembali ke CSS)", () => {
+    const vv = { width: 375, height: 740, pageLeft: 0, pageTop: 0, offsetTop: 0, offsetLeft: 0 };
+    const c = mk({ visualViewport: vv });
+    const f = el("314px");
+    assert.deepEqual(c.fn(st(20, 10, 314, f)), { reset: { rects: true } });
+    assert.equal(f.style.maxHeight, "");
+    assert.deepEqual(c.fn(st(20, 10, 426, f)), { x: 20, y: 10 });
+  });
 });
 
 test("CSS slash menu grid", async (t) => {

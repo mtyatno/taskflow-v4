@@ -3803,3 +3803,9 @@
 - **Changes:** `SLASH_MENU_GROUPS` + `makeSlashItem` opsi `{ wide, hint, title }`, `case 'wikilink'`, middleware `slashClampToViewport`; CSS slash menu baru; SW v446 / `app.css?v=352` (tes versi ikut). Tes baru `note_slash_menu_grid.test.js`, `note_slash_task.test.js` disesuaikan; E2E `temporary_files/e2e_slash_menu_grid.py` 26/26.
 - **Files Touch:** static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/*.test.js (versi), tests/offline/note_slash_menu_grid.test.js, tests/test_version.py, temporary_files/e2e_slash_menu_grid.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (commit lokal, belum di-push)
+
+## 2026-10-21 20:15 WIB — Claude — slash menu: perbaikan review
+- **Task:** temuan review 6ff769a (keyboard HP menutupi baris bawah menu, sistem koordinat campur, wikilink di dalam inline code mewarisi mark code, listbox tanpa nama).
+- **Changes:** `slashClampToViewport` (visualViewport kedua sumbu, max-height dinamis + reset rects), `case 'wikilink'` buang mark `spec.code`, `aria-label` listbox; tes unit + E2E (k, f, a7) 36/36.
+- **Files Touch:** static/index.html, tests/offline/note_slash_menu_grid.test.js, temporary_files/e2e_slash_menu_grid.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (commit lokal, belum di-push)
