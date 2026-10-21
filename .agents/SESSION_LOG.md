@@ -3872,3 +3872,7 @@
 - **Changes:** merge commit (tanpa rebase); konflik hanya baris versi SW (index.html: `__SW_VERSION` kini di skrip awal `<body>` dari `main`, About modal fallback; sw.js, webapp.py, tes versi) + `.agents` (kedua sisi dipertahankan). SW → v452 `taskflow-v452-slash-menu-dismiss` di semua lokasi; `app.css?v=356` dari `main`.
 - **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/offline/*.test.js (versi), tests/test_version.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review
+
+## 2026-10-21 22:05 WIB — Claude — merge Kelola Workspace Fase 2a (#76)
+- Bapak: "merge". #76 di-merge (cb9ed2b) setelah merge main (#74) + SW v451; CI Tests dan Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` lalu `sudo systemctl restart taskflow` (migrasi undangan + bot). Lalu Fase 2b (transfer ownership, arsip, ekspor) bila diminta.
