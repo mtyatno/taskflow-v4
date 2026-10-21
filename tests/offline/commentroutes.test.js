@@ -133,3 +133,28 @@ test("stream and delta-pull stay network-only", () => {
   assert.equal(R.hasRoute("GET", "/api/scratchpad/10/comments/stream"), false);
   assert.equal(R.hasRoute("GET", "/api/scratchpad/10/comments"), true);
 });
+
+test("non-array or failing fetch keeps cached synced comments", async () => {
+  const commentrepo = require("../../static/offline/commentrepo.js");
+  await commentrepo.mergePulled([srv()], {});
+  const R = buildTaskRouter();
+  chatrepo.configureFetcher(() => Promise.resolve({ detail: "x" }));
+  assert.equal((await R.dispatch("GET", "/api/scratchpad/10/comments")).length, 1);
+  chatrepo.configureFetcher(() => Promise.reject(new Error("net")));
+  assert.equal((await R.dispatch("GET", "/api/scratchpad/10/comments")).length, 1);
+});
+
+test("note list and detail survive decorateNotes failure", async () => {
+  const commentrepo = require("../../static/offline/commentrepo.js");
+  const orig = commentrepo.decorateNotes;
+  commentrepo.decorateNotes = () => Promise.reject(new Error("boom"));
+  try {
+    const R = buildTaskRouter();
+    const list = await R.dispatch("GET", "/api/scratchpad", {});
+    assert.ok(list.find((n) => n.cid === "n1"));
+    const one = await R.dispatch("GET", "/api/scratchpad/10");
+    assert.equal(one.cid, "n1");
+    commentrepo.decorateNotes = undefined;
+    assert.equal((await R.dispatch("GET", "/api/scratchpad/10")).cid, "n1");
+  } finally { commentrepo.decorateNotes = orig; }
+});

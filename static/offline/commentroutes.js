@@ -44,7 +44,8 @@
         return getNote(cid).then((note) => {
           if (!note || note.server_id == null) return local();
           return Promise.resolve(fetcher("/api/scratchpad/" + note.server_id + "/comments"))
-            .then((items) => TFcomment.mergePulled(Array.isArray(items) ? items : [], { replaceForNoteId: note.server_id }))
+            .then((items) => (Array.isArray(items)
+              ? TFcomment.mergePulled(items, { replaceForNoteId: note.server_id }) : undefined))
             .then(local, local);
         });
       }));

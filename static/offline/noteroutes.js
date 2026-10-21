@@ -13,7 +13,15 @@
   const TFdb = req("./db.js", root.TF && root.TF.db);
   const TFrepo = req("./noterepo.js", root.TF && root.TF.noterepo);
   const TFquery = req("./notequery.js", root.TF && root.TF.notequery);
-  const TFcomment = req("./commentrepo.js", root.TF && root.TF.commentrepo);
+  // Dekorasi badge komentar bersifat best-effort: modul dicari saat dipanggil.
+  function commentRepo() {
+    try { return isNode ? require("./commentrepo.js") : (root.TF && root.TF.commentrepo); } catch (e) { return null; }
+  }
+  function decorate(rows) {
+    const repo = commentRepo();
+    if (!repo || typeof repo.decorateNotes !== "function") return Promise.resolve(rows);
+    return Promise.resolve().then(() => repo.decorateNotes(rows)).catch(() => rows);
+  }
 
   function allNotes() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -35,7 +43,7 @@
 
   function registerNoteRoutes(router) {
     router.register("GET", "/api/scratchpad", ({ query }) =>
-      TFquery.getNotes(query || {}).then((rows) => TFcomment.decorateNotes(rows)));
+      TFquery.getNotes(query || {}).then(decorate));
     router.register("GET", "/api/scratchpad/recent", () => TFquery.getRecent());
     router.register("GET", "/api/scratchpad/pinned", () => TFquery.getPinned());
     router.register("GET", "/api/scratchpad/titles", () => TFquery.getTitles());
@@ -43,7 +51,7 @@
       resolveNoteCid(params.id).then((cid) => (cid ? TFquery.getBacklinks(cid) : notFound())));
     router.register("GET", "/api/scratchpad/:id", ({ params }) =>
       resolveNoteCid(params.id).then((cid) => (cid ? TFquery.getNote(cid) : notFound()))
-        .then((row) => (row ? TFcomment.decorateNotes([row]).then((r) => r[0]) : row)));
+        .then((row) => (row ? decorate([row]).then((r) => r[0]) : row)));
     router.register("POST", "/api/scratchpad", ({ body }) =>
       TFrepo.createNote(body || {}, {}).then((rec) => TFquery.getNote(rec.cid)));
     router.register("PUT", "/api/scratchpad/:id", ({ params, body }) =>
