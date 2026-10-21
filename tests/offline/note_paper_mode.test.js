@@ -184,11 +184,11 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
   const webappPath = path.resolve(__dirname, "../../webapp.py");
   const webappPy = fs.readFileSync(webappPath, "utf8");
 
-  await t.test("Service Worker and cache version is taskflow-v445-pages-icons", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v445-pages-icons";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v445-pages-icons";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v445-pages-icons"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v445-pages-icons"/);
+  await t.test("Service Worker and cache version is taskflow-v447-kelola-workspace-fase2a", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v447-kelola-workspace-fase2a";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v447-kelola-workspace-fase2a";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v447-kelola-workspace-fase2a"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v447-kelola-workspace-fase2a"/);
   });
 
   const notePanelMatch = indexHtml.match(/function NotePanel\([\s\S]*?^function /m);

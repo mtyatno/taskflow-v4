@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v445-pages-icons", () => {
-    assert.match(swJs, /taskflow-v445-pages-icons/);
+  await t.test("sw.js bumped to taskflow-v447-kelola-workspace-fase2a", () => {
+    assert.match(swJs, /taskflow-v447-kelola-workspace-fase2a/);
   });
 });
