@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v440-notes-list-icons/,
-      "sw.js should be bumped to taskflow-v440-notes-list-icons"
+      /taskflow-v443-notes-list-icons/,
+      "sw.js should be bumped to taskflow-v443-notes-list-icons"
     );
   });
 

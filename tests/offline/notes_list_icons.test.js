@@ -51,9 +51,9 @@ test("NotesPage memakai glyph yang ditentukan", () => {
 });
 
 test("versi SW di-bump", () => {
-  assert.match(sw, /taskflow-v440-notes-list-icons/);
-  assert.match(indexHtml, /taskflow-v440-notes-list-icons/);
-  assert.ok(!/taskflow-v439/.test(indexHtml));
+  assert.match(sw, /taskflow-v443-notes-list-icons/);
+  assert.match(indexHtml, /taskflow-v443-notes-list-icons/);
+  assert.ok(!/taskflow-v44[01]-/.test(indexHtml));
 });
 
 test("PetakanButton: ViewGlyph nBrain, tanpa emoji", () => {

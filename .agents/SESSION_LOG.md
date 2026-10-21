@@ -3730,5 +3730,15 @@
 - Bapak: "merge". #66 di-merge (50d0e24) setelah merge main (#65) + SW v439 / `app.css?v=347`; CI Tests hijau di head PR, Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** ada migrasi (`users.password_set`) — `sudo systemctl restart taskflow-web`, lalu `sudo systemctl restart taskflow` (satu per satu). Semua sesi web/aplikasi tetap berjalan (token lama tanpa ganti password tetap sah). Lalu Fase 0b (upgrade mailer) → spec + plan.
 
+## 2026-10-21 06:50 WIB — Claude — bug note list tag basi setelah autosave
+- **Task:** laporan Bapak: tag yang ditambahkan lewat editor note tidak tampil di note list sampai pindah halaman.
+- **Changes:** `NoteModal` memancarkan `noteSaved` saat ditutup bila autosave sempat menulis tanpa diumumkan (`unannouncedWriteRef`); SW v440 / `app.css?v=349`; tes sumber `note_editor_sync.test.js`; E2E `temporary_files/e2e_note_list_tags.py` 5/5 (kode lama gagal a, c).
+- **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/test_version.py, tests/offline/*.test.js, temporary_files/e2e_note_list_tags.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR; deploy = file statis + restart `taskflow-web` saja)
+
+## 2026-10-21 07:55 WIB — Claude — merge bug note list tag (#68)
+- Bapak: "merge". #68 di-merge (19a87cc); CI Tests hijau di head PR (b68e3ea). SW v441 / `app.css?v=349` (v440 / 348 tetap untuk draft #67 Suara latar — #67 perlu naik nomor saat di-merge).
+- **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web` saja. Cek: edit note → tambah `#tag` → tunggu beberapa detik → Simpan → kartu di note list langsung menampilkan tag.
+
 ## 2026-10-21 07:10 WIB — Claude — ikon daftar Catatan, pin, Petakan
-- Bapak minta ikon di panel Catatan (catatan, tanpa tag, share, tag, trash) lalu juga pin dan otak (Petakan) diganti gaya Alurik. Implementer subagent + review terpisah (siap merge). SW v440. **Status:** Needs Review (draft PR; restart `taskflow-web`).
+- Bapak minta ikon di panel Catatan (catatan, tanpa tag, share, tag, trash) lalu juga pin dan otak (Petakan) diganti gaya Alurik. Implementer subagent + review terpisah (siap merge). SW v443 / `app.css?v=349`. **Status:** Needs Review (draft PR; restart `taskflow-web`).

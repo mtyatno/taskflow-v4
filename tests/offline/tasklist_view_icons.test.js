@@ -150,15 +150,15 @@ test("CSS segmented toggle", async (t) => {
   });
 });
 
-test("cache bust v432 + app.css?v=347", async (t) => {
+test("cache bust v432 + app.css?v=349", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html, sw_cache webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v440-notes-list-icons";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v440-notes-list-icons";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v440-notes-list-icons"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v440-notes-list-icons"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v443-notes-list-icons";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v443-notes-list-icons";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v443-notes-list-icons"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v443-notes-list-icons"/);
   });
 
-  await t.test("index.html memuat app.css?v=347", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=347">/);
+  await t.test("index.html memuat app.css?v=349", () => {
+    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=349">/);
   });
 });
