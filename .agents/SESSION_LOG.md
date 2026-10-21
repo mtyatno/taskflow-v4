@@ -3758,3 +3758,6 @@
 ## 2026-10-21 10:15 WIB — Claude — merge Komentar Note PR 1 (backend)
 - Merge `origin/main` (#68 note list tag, #70 Kelola Workspace fase 1) ke `claude/komentar-note`: konflik hanya di `.agents/*`; ADR komentar dinomori ulang ADR-024. pytest 1004 passed, JS 2421/2422 (pra-ada `draw_local_reactive`).
 - PR dibuat dan di-merge ke `main` atas instruksi Bapak ("merge"). Deploy workflow berjalan otomatis; perlu restart `taskflow-web` lalu `taskflow` (migrasi `note_comments`, `note_comment_reads`, `notifications.note_id`).
+
+## 2026-10-21 07:10 WIB — Claude — ikon daftar Catatan, pin, Petakan
+- Bapak minta ikon di panel Catatan (catatan, tanpa tag, share, tag, trash) lalu juga pin dan otak (Petakan) diganti gaya Alurik. Implementer subagent + review terpisah (siap merge). SW v443 / `app.css?v=350`. **Status:** Needs Review (draft PR; restart `taskflow-web`).

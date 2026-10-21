@@ -64,12 +64,12 @@ test("CSS ikon chip Pomodoro", () => {
   assert.match(appCss, /\.topbar-pomo-chip\.is-break \.topbar-pomo-icon\s*\{\s*color:\s*var\(--break\);\s*\}/);
 });
 
-test("cache bust v441 + app.css?v=350", () => {
+test("cache bust v443 + app.css?v=350", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v442-kelola-workspace-fase1";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v442-kelola-workspace-fase1";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v442-kelola-workspace-fase1"/);
-  assert.match(py, /sw_cache = "taskflow-v442-kelola-workspace-fase1"/);
+  assert.match(swJs, /^const CACHE = "taskflow-v443-notes-list-icons";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v443-notes-list-icons";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v443-notes-list-icons"/);
+  assert.match(py, /sw_cache = "taskflow-v443-notes-list-icons"/);
   assert.match(indexHtml, /app\.css\?v=350/);
 });

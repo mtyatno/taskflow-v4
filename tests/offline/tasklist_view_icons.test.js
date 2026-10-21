@@ -29,7 +29,8 @@ test("VIEW_GLYPHS + ViewGlyph (inline, meniru FocusGlyph)", async (t) => {
     const keys = [...mapSrc.matchAll(/^\s{2}(\w+):\s*'/gm)].map(m => m[1]);
     assert.deepEqual(keys, ["normal", "compact", "kanban", "wsTasks", "wsFiles",
       "fFolder", "fPdf", "fSheet", "fImage", "fFile", "fSearch", "fUpload", "fDownload", "fEye", "fChat", "fPin", "fTrash", "fX",
-      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "pomoTomato", "pomoBreak"]);
+      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "pomoTomato", "pomoBreak",
+      "nNote", "nTag", "nTagOff", "nStar", "nChevronDown", "nChevronUp", "nBacklink", "nPin", "nBrain"]);
   });
 
   await t.test("VIEW_GLYPHS bisa dievaluasi dan setiap glyph berisi markup SVG", () => {
@@ -151,10 +152,10 @@ test("CSS segmented toggle", async (t) => {
 
 test("cache bust v432 + app.css?v=350", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html, sw_cache webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v442-kelola-workspace-fase1";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v442-kelola-workspace-fase1";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v442-kelola-workspace-fase1"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v442-kelola-workspace-fase1"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v443-notes-list-icons";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v443-notes-list-icons";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v443-notes-list-icons"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v443-notes-list-icons"/);
   });
 
   await t.test("index.html memuat app.css?v=350", () => {

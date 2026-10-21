@@ -79,10 +79,10 @@ test("CSS: label tombol fokus disembunyikan di layar sempit", () => {
 test("cache bust v432 + app.css?v=350", () => {
   const sw = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.resolve(__dirname, "../../webapp.py"), "utf8");
-  assert.match(sw, /^const CACHE = "taskflow-v442-kelola-workspace-fase1";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v442-kelola-workspace-fase1";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v442-kelola-workspace-fase1"/);
-  assert.match(py, /sw_cache = "taskflow-v442-kelola-workspace-fase1"/);
+  assert.match(sw, /^const CACHE = "taskflow-v443-notes-list-icons";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v443-notes-list-icons";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v443-notes-list-icons"/);
+  assert.match(py, /sw_cache = "taskflow-v443-notes-list-icons"/);
   assert.match(indexHtml, /app\.css\?v=350/);
 });
 
