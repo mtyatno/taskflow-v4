@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v445-pages-icons', () => {
+  test('Service Worker cache version is bumped to taskflow-v447-android-notif-fix', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v445-pages-icons";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v447-android-notif-fix";/m);
   });
 });
 
