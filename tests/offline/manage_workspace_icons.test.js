@@ -65,12 +65,12 @@ test("CSS ikon chip Pomodoro", () => {
   assert.match(appCss, /\.topbar-pomo-chip\.is-break \.topbar-pomo-icon\s*\{\s*color:\s*var\(--break\);\s*\}/);
 });
 
-test("cache bust v452 + app.css?v=357", () => {
+test("cache bust v453 + app.css?v=357", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v452-email-mailer";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v452-email-mailer";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v452-email-mailer"/);
-  assert.match(py, /sw_cache = "taskflow-v452-email-mailer"/);
+  assert.match(swJs, /^const CACHE = "taskflow-v453-email-mailer";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v453-email-mailer";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v453-email-mailer"/);
+  assert.match(py, /sw_cache = "taskflow-v453-email-mailer"/);
   assert.match(indexHtml, /app\.css\?v=357/);
 });

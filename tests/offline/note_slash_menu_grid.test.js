@@ -178,7 +178,7 @@ test("slash menu: aksi wikilink menyisipkan [[ dari state segar", () => {
 });
 
 test("slash menu: posisi dijepit ke dalam viewport (HP)", async (t) => {
-  assert.match(indexHtml, /new MB\.SlashProvider\(\{ content: slashMenu, root: document\.body, middleware: \[slashClampToViewport\] \}\)/);
+  assert.match(indexHtml, /new MB\.SlashProvider\(\{ content: slashMenu, root: document\.body, middleware: \[slashClampToViewport\](?:, shouldShow: [^\n]*)? \}\)/);
   const m = indexHtml.match(/const slashClampToViewport = \{[\s\S]*?\n    \};/);
   assert.ok(m, "middleware slashClampToViewport harus ada");
   const mk = (win) => new Function("window", "document", m[0] + "\nreturn slashClampToViewport;")(
@@ -257,10 +257,10 @@ test("CSS slash menu grid", async (t) => {
   });
 });
 
-test("cache bust v452 + app.css?v=357", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v452-email-mailer";/m);
-  assert.match(webappPy, /sw_cache = "taskflow-v452-email-mailer"/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v452-email-mailer";/);
+test("cache bust v453 + app.css?v=357", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v453-email-mailer";/m);
+  assert.match(webappPy, /sw_cache = "taskflow-v453-email-mailer"/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v453-email-mailer";/);
   assert.match(indexHtml, /app\.css\?v=357/);
   assert.equal(/app\.css\?v=352/.test(indexHtml), false);
 });

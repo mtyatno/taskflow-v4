@@ -3858,6 +3858,29 @@
 
 ## 2026-10-21 21:55 WIB — Claude — merge main (#74) ke kelola-workspace-fase2a, SW v451
 - `main` maju (#74 layar putih Android, SW v450 / `app.css?v=355`, `__SW_VERSION` pindah ke skrip awal `<body>`). Main di-merge (sisi main untuk hunk itu); SW naik ke **v451** `taskflow-v451-kelola-workspace-fase2a`, `app.css?v=356`. pytest 1072; JS 2682/2683 (pra-ada `draw_local_reactive`); inline OK; E2E 2a 78/78.
+## [2026-10-21 21:10] - Claude
+- **Task:** Bug: slash menu dari tombol "+" tidak bisa ditutup (Esc / klik di luar), "/" tertinggal.
+- **Changes:** Repro Playwright → akar masalah: SlashProvider hanya dievaluasi saat view update, blur tanpa transaksi, Esc tak ditangani. Fix: plugin `note-slash-dismiss` (state posisi "/" sisipan "+", flag dismissed, Esc + stopPropagation), `shouldShow` kustom, listener pointerdown capture document (dilepas saat destroy), `onBlockAdd` mencatat posisi & membuang "/" lama. SW v449. Tes node baru + E2E 44/44.
+- **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/offline/note_slash_menu_dismiss.test.js (baru), tests/offline/*.test.js (versi; regex SlashProvider di note_slash_menu_grid), tests/test_version.py, temporary_files/e2e_slash_menu_dismiss.py (baru), .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (branch `claude/slash-menu-dismiss` di-push, PR belum dibuat)
+
+## [2026-10-21 21:45] - Claude
+- **Task:** Review fix slash menu dismiss (review independen eccbb5d).
+- **Changes:** Batal "+" menghapus paragraf "/" utuh (tanpa `<br />` tersimpan) + kursor ke akhir blok asal; Esc dalam debounce ditangani; autocomplete NoteModal `preventDefault` saat Esc + plugin slash lewati `defaultPrevented`; klik ⋮⋮ = di luar (hanya `addBtn` dikecualikan). Tes node 21/21, E2E 56/56 + grid 39/39.
+- **Files Touch:** static/index.html, tests/offline/note_slash_menu_dismiss.test.js, temporary_files/e2e_slash_menu_dismiss.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (di-push ke `claude/slash-menu-dismiss`, PR belum dibuat)
+
+## [2026-10-21 22:30] - Claude
+- **Task:** Re-review fix slash menu dismiss (9db3981): batal "+" di paragraf trailing kosong & di item list masih meninggalkan sampah.
+- **Changes:** state plugin menyimpan `orig` (doc sebelum "+"); batal → pulihkan persis via `docRestoreRange` (diff) + `tr.replace`; `orig` dibuang bila ada suntingan non-appendTransaction. Tes node 28/28; E2E 74/74 (seksi list/trailing), grid 39/39.
+- **Files Touch:** static/index.html, tests/offline/note_slash_menu_dismiss.test.js, temporary_files/e2e_slash_menu_dismiss.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (di-push ke `claude/slash-menu-dismiss`, PR belum dibuat)
+
+## [2026-10-21 23:00] - Claude
+- **Task:** Merge `origin/main` cb9ed2b (#74, #75, #76) ke `claude/slash-menu-dismiss` + bump versi.
+- **Changes:** merge commit (tanpa rebase); konflik hanya baris versi SW (index.html: `__SW_VERSION` kini di skrip awal `<body>` dari `main`, About modal fallback; sw.js, webapp.py, tes versi) + `.agents` (kedua sisi dipertahankan). SW → v452 `taskflow-v452-slash-menu-dismiss` di semua lokasi; `app.css?v=356` dari `main`.
+- **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/offline/*.test.js (versi), tests/test_version.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review
 
 ## 2026-10-21 22:05 WIB — Claude — merge Kelola Workspace Fase 2a (#76)
 - Bapak: "merge". #76 di-merge (cb9ed2b) setelah merge main (#74) + SW v451; CI Tests dan Deploy Taskflow V4 sukses.
@@ -3865,3 +3888,8 @@
 
 ## 2026-10-21 22:20 WIB — Claude — Email Fase 0b: merge main (#74–#76)
 - `main` maju ke v451 / `app.css?v=356` dan memakai ADR-025 (undangan workspace) → di-merge; ADR email jadi **ADR-026**, SW **v452** `taskflow-v452-email-mailer`, `app.css?v=357`.
+## [2026-10-22 05:25] - Claude
+- **Task:** Merge PR #78 (slash menu: tutup dengan Esc / klik di luar, batal "+" memulihkan note) atas instruksi Bapak.
+- **Changes:** CI hijau di 55460fd, tanpa konflik; PR di-merge (8724d3f), workflow Deploy Taskflow V4 sukses. SW v452, app.css tetap 356.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — tinggal restart `taskflow-web` di server.
