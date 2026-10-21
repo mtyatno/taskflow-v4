@@ -11,8 +11,8 @@ test("Service Worker and stylesheet versions are synchronized for v396", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v447-slash-menu-icons/);
-  assert.match(html, /taskflow-v447-slash-menu-icons/);
+  assert.match(sw, /taskflow-v448-komentar-offline/);
+  assert.match(html, /taskflow-v448-komentar-offline/);
   assert.match(html, /app\.css\?v=353/);
 });
 

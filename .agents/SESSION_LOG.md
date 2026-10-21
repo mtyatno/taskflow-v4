@@ -3798,6 +3798,13 @@
 - Bapak: "merge". #72 di-merge (8d9dfe0); CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek Mindmap, Diskusi, Gambar, Habit, Kalender, hero Dashboard (SW v445).
 
+## 2026-10-21 — Claude — Komentar Note PR 2 (offline)
+- SDD 7 task (store IndexedDB v6, `commentanchor`/`commentrepo`/`commentroutes`, push op `comment`, delta pull di `fullSync`, SW v446, dokumentasi) + review per task. Spec §4 baris delta (kursor) dan §6.5 diperbarui. pytest 1018, JS 2592/2593 (pra-ada `draw_local_reactive`), inline OK.
+- **Status:** Needs Review (belum di-push; deploy = file statis, restart `taskflow-web` saja). **Berikutnya:** PR 3 UI.
+
+## 2026-10-21 — Claude — Komentar Note PR 2: perbaikan review akhir
+- I1 `commentrepo` membaca `chatrepo` saat `user()` dipanggil (tes vm urutan `index.html`); I2 record `sync_error`-saja diperlakukan tersinkron (pull/tombstone/reset/replace); I3 penanda baca maju bila server melapor `comment_unread` false; I4 `replaceSince` (awal request − 5 menit) di GET per note; M1 validasi lokal 422. Spec §6.1/§6.5 + CURRENT_STATE diperbarui. JS 2601/2602 (pra-ada `draw_local_reactive`), komentar 97, pytest 1018, inline OK.
+- **Status:** Needs Review (belum di-push).
 ## 2026-10-21 19:58 WIB — Claude — slash menu note grid 2 kolom + Wikilink
 - **Task:** slash menu editor note terlalu panjang (perlu scroll ke Gambar/Task) → grid 2 kolom dengan label grup + item Wikilink (disetujui Bapak).
 - **Changes:** `SLASH_MENU_GROUPS` + `makeSlashItem` opsi `{ wide, hint, title }`, `case 'wikilink'`, middleware `slashClampToViewport`; CSS slash menu baru; SW v446 / `app.css?v=352` (tes versi ikut). Tes baru `note_slash_menu_grid.test.js`, `note_slash_task.test.js` disesuaikan; E2E `temporary_files/e2e_slash_menu_grid.py` 26/26.
@@ -3821,3 +3828,7 @@
 - **Changes:** Review ulang commit ikon (247770f) oleh subagen: siap merge; CI hijau; PR di-merge (131e5c8), workflow Deploy Taskflow V4 sukses. SW v447 / app.css 353.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
+
+## 2026-10-21 21:05 WIB — Claude — merge Komentar Note PR 2 (offline)
+- Merge `origin/main` (#73 slash menu, SW v447) ke `claude/komentar-note-offline`: konflik hanya string versi + `.agents/*`; SW dinaikkan ke **v448** `taskflow-v448-komentar-offline` (app.css tetap ?v=353). npm 2628/2629 (pra-ada `draw_local_reactive`), pytest 1018, inline OK.
+- PR dibuat dan di-merge ke `main` atas instruksi Bapak ("merge dan deploy"). Deploy: file statis saja → restart `taskflow-web`.

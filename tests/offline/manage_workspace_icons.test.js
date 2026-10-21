@@ -67,9 +67,9 @@ test("CSS ikon chip Pomodoro", () => {
 test("cache bust v447 + app.css?v=353", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v447-slash-menu-icons";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v447-slash-menu-icons";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v447-slash-menu-icons"/);
-  assert.match(py, /sw_cache = "taskflow-v447-slash-menu-icons"/);
+  assert.match(swJs, /^const CACHE = "taskflow-v448-komentar-offline";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v448-komentar-offline";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v448-komentar-offline"/);
+  assert.match(py, /sw_cache = "taskflow-v448-komentar-offline"/);
   assert.match(indexHtml, /app\.css\?v=353/);
 });

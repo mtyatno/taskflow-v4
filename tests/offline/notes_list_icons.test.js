@@ -51,8 +51,8 @@ test("NotesPage memakai glyph yang ditentukan", () => {
 });
 
 test("versi SW di-bump", () => {
-  assert.match(sw, /taskflow-v447-slash-menu-icons/);
-  assert.match(indexHtml, /taskflow-v447-slash-menu-icons/);
+  assert.match(sw, /taskflow-v448-komentar-offline/);
+  assert.match(indexHtml, /taskflow-v448-komentar-offline/);
   assert.ok(!/taskflow-v44[0-3]-/.test(indexHtml));
 });
 
