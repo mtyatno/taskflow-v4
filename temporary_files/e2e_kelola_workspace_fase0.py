@@ -333,7 +333,9 @@ def main():
         for k, name in (("W", W_NAME), ("W2", W2_NAME), ("W3", W3_NAME)):
             ids[k] = api(base, A, "POST", "/api/lists", json={"name": name})["id"]
         for k in ("W", "W3"):
-            api(base, A, "POST", "/api/lists/%d/invite" % ids[k], json={"username": B["username"]})
+            # Fase 2a: undang = menunggu persetujuan → B menerima agar menjadi anggota (setup sama seperti dulu)
+            inv = api(base, A, "POST", "/api/lists/%d/invite" % ids[k], json={"username": B["username"]})
+            api(base, B, "POST", "/api/invitations/%d/accept" % inv["invitation"]["id"], json={})
         a_task = api(base, A, "POST", "/api/tasks", json={"title": A_TASK, "list_id": ids["W"]})
         b_task = api(base, B, "POST", "/api/tasks", json={"title": B_TASK, "list_id": ids["W"]})
         w3_active = api(base, A, "POST", "/api/tasks", json={"title": "Aktif B W3", "list_id": ids["W3"],

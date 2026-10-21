@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v450-android-notif-fix', () => {
+  test('Service Worker cache version is bumped to taskflow-v451-kelola-workspace-fase2a', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v450-android-notif-fix";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v451-kelola-workspace-fase2a";/m);
   });
 });
 

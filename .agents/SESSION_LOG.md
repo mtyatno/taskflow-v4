@@ -3839,7 +3839,13 @@
 - Merge `origin/main` (#73 slash menu, SW v447) ke `claude/komentar-note-offline`: konflik hanya string versi + `.agents/*`; SW dinaikkan ke **v448** `taskflow-v448-komentar-offline` (app.css tetap ?v=353). npm 2628/2629 (pra-ada `draw_local_reactive`), pytest 1018, inline OK.
 - PR dibuat dan di-merge ke `main` atas instruksi Bapak ("merge dan deploy"). Deploy: file statis saja → restart `taskflow-web`.
 
+## 2026-10-21 23:30 WIB — Claude — Kelola Workspace Fase 2a (undangan & akses gabung)
+- Brainstorming → spec + rencana disetujui; SDD 7 task + review per task + review akhir opus → 1 gelombang perbaikan + re-review bersih. Merge main (#73, #75) → SW v449, `app.css?v=355`, ADR-025. pytest 1072, JS 2657/2658 (pra-ada), E2E 2a 78/78 + Fase 1/0 + tasklist icons lulus.
+- **Status:** Needs Review (draft PR; setelah merge restart `taskflow-web` lalu `taskflow`).
 ## 2026-10-21 21:46 WIB — Claude — merge perbaikan layar putih Chrome Android (#74)
 - Bapak: "merge PR#74". #74 di-merge (1cf0447); CI Tests hijau. SW v450 / `app.css?v=355`.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` (tanpa migrasi); buka ulang aplikasi di HP (tutup penuh, buka lagi) lalu coba Fokus. Timer yang macet pulih sendiri saat Fokus ditekan.
 - Brainstorming fitur pemilihan task di halaman Fokus berjalan (mockup di visual companion).
+
+## 2026-10-21 21:55 WIB — Claude — merge main (#74) ke kelola-workspace-fase2a, SW v451
+- `main` maju (#74 layar putih Android, SW v450 / `app.css?v=355`, `__SW_VERSION` pindah ke skrip awal `<body>`). Main di-merge (sisi main untuk hunk itu); SW naik ke **v451** `taskflow-v451-kelola-workspace-fase2a`, `app.css?v=356`. pytest 1072; JS 2682/2683 (pra-ada `draw_local_reactive`); inline OK; E2E 2a 78/78.
