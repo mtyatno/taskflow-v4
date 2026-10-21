@@ -29,7 +29,7 @@ test("VIEW_GLYPHS + ViewGlyph (inline, meniru FocusGlyph)", async (t) => {
     const keys = [...mapSrc.matchAll(/^\s{2}(\w+):\s*'/gm)].map(m => m[1]);
     assert.deepEqual(keys, ["normal", "compact", "kanban", "wsTasks", "wsFiles",
       "fFolder", "fPdf", "fSheet", "fImage", "fFile", "fSearch", "fUpload", "fDownload", "fEye", "fChat", "fPin", "fTrash", "fX",
-      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "pomoTomato", "pomoBreak",
+      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "mMail", "pomoTomato", "pomoBreak",
       "nNote", "nTag", "nTagOff", "nStar", "nChevronDown", "nChevronUp", "nBacklink", "nPin", "nBrain", "headphones",
       "pPalette", "pChat", "pCalendar", "pRepeat", "pDot", "pTarget", "pFlame", "pHourglass", "pSprout", "pZap", "pCheckCircle", "pPencil",
       "sQuote", "sLightbulb", "sToggle", "sCode", "sListBullet", "sListOrdered", "sChecklist", "sTable", "sDivider"]);
@@ -152,15 +152,15 @@ test("CSS segmented toggle", async (t) => {
   });
 });
 
-test("cache bust v432 + app.css?v=357", async (t) => {
+test("cache bust v432 + app.css?v=358", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html, sw_cache webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v453-komentar-ui";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v453-komentar-ui";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v453-komentar-ui"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v453-komentar-ui"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v454-komentar-ui";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v454-komentar-ui";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v454-komentar-ui"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v454-komentar-ui"/);
   });
 
-  await t.test("index.html memuat app.css?v=357", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=357">/);
+  await t.test("index.html memuat app.css?v=358", () => {
+    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=358">/);
   });
 });

@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=357">
+  <link rel="stylesheet" href="/static/app.css?v=358">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v453-komentar-ui";
+    window.__SW_VERSION = "taskflow-v454-komentar-ui";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -308,6 +308,7 @@
   <script src="/static/offline/wsmanage.js"></script>
   <script src="/static/offline/introgate.js"></script>
   <script src="/static/offline/accountbanner.js"></script>
+  <script src="/static/offline/emailadmin.js"></script>
   <script src="/static/offline/focuspage.js"></script>
   <script src="/static/offline/pomologic.js"></script>
   <script src="/static/offline/pomolog.js"></script>
@@ -9539,6 +9540,7 @@ const VIEW_GLYPHS = {
   mXCircle: '<circle cx="12" cy="12" r="10" fill="currentColor" fill-opacity=".22"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
   mUsers: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" fill="currentColor" fill-opacity=".22"/><circle cx="9" cy="7" r="4" fill="currentColor" fill-opacity=".22"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   mUser: '<circle cx="12" cy="8" r="5" fill="currentColor" fill-opacity=".22"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+  mMail: '<rect x="2" y="4" width="20" height="16" rx="2" fill="currentColor" fill-opacity=".22"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
   pomoTomato: '<circle cx="12" cy="13.5" r="7.5" fill="currentColor" fill-opacity=".22"/><path d="M12 8V4.5"/><path d="M8.5 6.5 12 8l3.5-1.5"/>',
   pomoBreak: '<path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" fill="currentColor" fill-opacity=".22"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3"/><path d="M12 2v3"/>',
   nNote: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" fill="currentColor" fill-opacity=".22"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M8 9h2"/>',
@@ -24926,7 +24928,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v453-komentar-ui"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v454-komentar-ui"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -38691,6 +38693,193 @@ function AdminTemplateModal({
     disabled: saving
   }, saving ? 'Menyimpan...' : 'Simpan')))));
 }
+// ─── Kartu "Email" halaman Admin (fase 0b): mode SMTP, ringkasan 7 hari, email tes + polling,
+// riwayat 20 email, "Coba lagi" untuk yang gagal. Logika murni di TF.emailadmin (static/offline/emailadmin.js).
+function AdminEmailCard({
+  user,
+  showToast
+}) {
+  const EA = window.TF && window.TF.emailadmin;
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState(false);
+  const [to, setTo] = React.useState("");
+  const [sending, setSending] = React.useState(false);
+  const [pollingId, setPollingId] = React.useState(null);
+  const [retryingId, setRetryingId] = React.useState(null);
+  const mountedRef = React.useRef(true);
+  const pollRef = React.useRef(null);
+  const fetchStatus = () => api.get("/api/admin/email/status", { network: true });
+  const load = React.useCallback(() => {
+    setLoading(true);
+    return fetchStatus().then(d => {
+      if (!mountedRef.current) return;
+      setData(d);
+      setLoadError(false);
+      setLoading(false);
+    }).catch(() => {
+      if (!mountedRef.current) return;
+      setLoadError(true);
+      setLoading(false);
+    });
+  }, []);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    load();
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    };
+  }, [load]);
+  if (!EA) return null;
+  // Polling status tiap POLL_MS sampai baris email tes selesai, atau POLL_MAX_MS habis.
+  const startPoll = id => {
+    clearTimeout(pollRef.current);
+    const started = Date.now();
+    setPollingId(id);
+    const finish = out => {
+      pollRef.current = null;
+      if (!mountedRef.current) return;
+      setPollingId(null);
+      showToast(out.text, out.type);
+    };
+    const next = () => {
+      if (!mountedRef.current) return;
+      if (Date.now() - started >= EA.POLL_MAX_MS) return finish(EA.TIMEOUT_OUTCOME);
+      pollRef.current = setTimeout(tick, EA.POLL_MS);
+    };
+    const tick = () => {
+      pollRef.current = null;
+      if (!mountedRef.current) return;
+      fetchStatus().then(d => {
+        if (!mountedRef.current) return;
+        setData(d);
+        setLoadError(false);
+        const out = EA.testOutcome(EA.findRow(d, id));
+        if (out) finish(out);else next();
+      }).catch(() => next());
+    };
+    next();
+  };
+  const sendTest = async e => {
+    e.preventDefault();
+    if (sending || pollingId != null) return;
+    setSending(true);
+    try {
+      const addr = to.trim();
+      const r = await api.post("/api/admin/email/test", addr ? { to: addr } : {});
+      if (!mountedRef.current) return;
+      setSending(false);
+      fetchStatus().then(d => { if (mountedRef.current) setData(d); }).catch(() => {});
+      startPoll(r.id);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setSending(false);
+      showToast(err.message || "Gagal mengirim email tes", "error");
+    }
+  };
+  const retry = async row => {
+    if (retryingId != null) return;
+    setRetryingId(row.id);
+    try {
+      await api.post("/api/admin/email/" + row.id + "/retry", {});
+      if (!mountedRef.current) return;
+      showToast("Email dimasukkan ke antrean lagi");
+      load();
+    } catch (err) {
+      if (mountedRef.current) showToast(err.message || "Gagal mencoba lagi", "error");
+    } finally {
+      if (mountedRef.current) setRetryingId(null);
+    }
+  };
+  const fmtTime = iso => {
+    const d = EA.parseUtc(iso);
+    return d ? d.toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "-";
+  };
+  const chip = status => React.createElement("span", {
+    className: "admin-email-chip admin-email-chip-" + EA.badgeFor(status)
+  }, EA.statusLabel(status));
+  const errCell = row => row.last_error ? React.createElement("span", {
+    className: "admin-email-err",
+    title: row.last_error
+  }, EA.truncate(row.last_error, 60)) : React.createElement("span", { className: "admin-email-dim" }, "-");
+  const retryBtn = row => row.status === "failed" ? React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm",
+    disabled: retryingId != null,
+    onClick: () => retry(row)
+  }, retryingId === row.id ? "Memproses…" : "Coba lagi") : null;
+  const badge = data ? EA.modeBadge(data) : null;
+  const counts = data && data.counts_7d || {};
+  const rows = data && Array.isArray(data.recent) ? data.recent : [];
+  const busy = sending || pollingId != null;
+  const header = React.createElement("div", { className: "admin-email-head" },
+    React.createElement("span", { className: "admin-email-icon" }, React.createElement(ViewGlyph, { name: "mMail", size: 18 })),
+    React.createElement("h3", { className: "admin-email-title" }, "Email"),
+    React.createElement("button", {
+      type: "button",
+      className: "btn btn-secondary btn-sm admin-email-reload",
+      onClick: load,
+      disabled: loading
+    }, loading && data ? "Memuat…" : "Muat ulang"));
+  let body;
+  if (loadError && !data) {
+    body = React.createElement("div", { className: "admin-email-state" },
+      React.createElement("span", null, "Gagal memuat status email"),
+      React.createElement("button", { type: "button", className: "btn btn-secondary btn-sm", onClick: load, disabled: loading }, "Coba lagi"));
+  } else if (!data) {
+    body = React.createElement("div", { className: "admin-email-state" }, "Memuat…");
+  } else {
+    body = React.createElement(React.Fragment, null,
+      React.createElement("div", { className: "admin-email-badge admin-email-badge-" + badge.tone }, badge.text),
+      loadError && React.createElement("div", { className: "admin-email-state admin-email-state-inline" },
+        React.createElement("span", null, "Gagal memuat status email"),
+        React.createElement("button", { type: "button", className: "btn btn-secondary btn-sm", onClick: load, disabled: loading }, "Coba lagi")),
+      React.createElement("div", { className: "admin-email-stats", "aria-label": "Ringkasan 7 hari" },
+        [["sent", "Terkirim"], ["failed", "Gagal"], ["queued", "Antre"], ["expired", "Kedaluwarsa"]].map(([k, label]) => React.createElement("div", {
+          key: k,
+          className: "admin-email-stat admin-email-stat-" + EA.badgeFor(k)
+        }, React.createElement("div", { className: "admin-email-stat-num" }, Number(counts[k]) || 0),
+          React.createElement("div", { className: "admin-email-stat-label" }, label)))),
+      React.createElement("div", { className: "admin-email-stats-note" }, "7 hari terakhir"),
+      React.createElement("form", { className: "admin-email-form", onSubmit: sendTest },
+        React.createElement("input", {
+          type: "email",
+          className: "input",
+          value: to,
+          onChange: e => setTo(e.target.value),
+          placeholder: user && user.email || "Kosongkan = email akun admin",
+          "aria-label": "Alamat tujuan email tes",
+          disabled: busy
+        }),
+        React.createElement("button", { type: "submit", className: "btn btn-primary btn-sm", disabled: busy },
+          sending ? "Mengirim…" : pollingId != null ? "Menunggu hasil…" : "Kirim email tes")),
+      rows.length === 0 ? React.createElement("div", { className: "admin-email-state" }, "Belum ada email") : React.createElement(React.Fragment, null,
+        React.createElement("div", { className: "admin-email-table-wrap" },
+          React.createElement("table", { className: "admin-email-table" },
+            React.createElement("thead", null, React.createElement("tr", null,
+              ["Jenis", "Penerima", "Status", "Percobaan", "Waktu", "Error", ""].map((h, i) => React.createElement("th", { key: i }, h)))),
+            React.createElement("tbody", null, rows.map(row => React.createElement("tr", { key: row.id },
+              React.createElement("td", null, EA.kindLabel(row.kind)),
+              React.createElement("td", { className: "admin-email-to" }, row.to),
+              React.createElement("td", null, chip(row.status)),
+              React.createElement("td", null, EA.formatAttempts(row.attempts)),
+              React.createElement("td", { className: "admin-email-time" }, fmtTime(row.created_at)),
+              React.createElement("td", null, errCell(row)),
+              React.createElement("td", { className: "admin-email-act" }, retryBtn(row))))))),
+        React.createElement("ul", { className: "admin-email-list" }, rows.map(row => React.createElement("li", { key: row.id, className: "admin-email-item" },
+          React.createElement("div", { className: "admin-email-item-top" },
+            React.createElement("span", { className: "admin-email-item-kind" }, EA.kindLabel(row.kind)),
+            chip(row.status)),
+          React.createElement("div", { className: "admin-email-to" }, row.to),
+          React.createElement("div", { className: "admin-email-item-meta" },
+            fmtTime(row.created_at), " · Percobaan ", EA.formatAttempts(row.attempts)),
+          row.last_error && React.createElement("div", null, errCell(row)),
+          retryBtn(row))))));
+  }
+  return React.createElement("section", { className: "card admin-email" }, header, body);
+}
 function AdminPage({
   user,
   showToast
@@ -38946,7 +39135,7 @@ function AdminPage({
       setShowModal(false);
       setEditItem(null);
     }
-  }), /*#__PURE__*/React.createElement("div", {
+  }), React.createElement(AdminEmailCard, { user: user, showToast: showToast }), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 40
     }
