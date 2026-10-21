@@ -2,6 +2,7 @@
 import email
 import socket
 import smtplib
+import ssl
 from email import policy
 
 import pytest
@@ -29,6 +30,7 @@ class FakeSMTP:
 
     def starttls(self, **kw):
         self.calls.append("starttls")
+        self.starttls_kw = kw
 
     def login(self, user, password):
         self.calls.append(("login", user, password))
@@ -89,6 +91,7 @@ def test_starttls_mode_calls_starttls_and_login():
     s = FakeSMTP.instances[0]
     assert (s.host, s.port, s.timeout) == ("smtp.x.id", 587, 15)
     assert s.calls == ["starttls", ("login", "u", "pw"), "send_message", "quit"]
+    assert isinstance(s.starttls_kw["context"], ssl.SSLContext)
 
 
 def test_ssl_mode_uses_smtp_ssl_without_starttls(monkeypatch):
@@ -98,6 +101,7 @@ def test_ssl_mode_uses_smtp_ssl_without_starttls(monkeypatch):
     assert type(s).__name__ == "FakeSSL"
     assert "starttls" not in s.calls
     assert "send_message" in s.calls
+    assert isinstance(s.kw["context"], ssl.SSLContext)
 
 
 def test_none_mode_no_tls(monkeypatch):
@@ -213,12 +217,15 @@ def test_roundtrip_aiosmtpd(monkeypatch):
             got.append(envelope)
             return "250 OK"
 
-    ctl = Controller(H(), hostname="127.0.0.1", port=0)
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    ctl = Controller(H(), hostname="127.0.0.1", port=port)
     ctl.start()
     try:
         monkeypatch.undo()  # pakai smtplib asli
         monkeypatch.setattr(mailer, "SMTP_HOST", "127.0.0.1")
-        monkeypatch.setattr(mailer, "SMTP_PORT", ctl.server.sockets[0].getsockname()[1])
+        monkeypatch.setattr(mailer, "SMTP_PORT", port)
         monkeypatch.setattr(mailer, "SMTP_SECURITY", "none")
         monkeypatch.setattr(mailer, "SMTP_USER", "")
         monkeypatch.setattr(mailer, "SMTP_FROM", "Alurik <noreply@x.id>")
