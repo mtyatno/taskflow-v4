@@ -112,7 +112,7 @@ Baru:
    "recent": [{"id": 1, "kind": "reset", "to": "hi***@jatahku.com", "status": "sent", "attempts": 1,
                "last_error": null, "created_at": "...", "sent_at": "..."}]}
   ```
-  `host`/`port`/`security` null pada dev mode. `queued` termasuk `sending`. `recent` = 20 terbaru. Penyamaran penerima: 2 karakter pertama bagian lokal + `***@` + domain (bagian lokal ≤ 2 karakter → 1 karakter + `***`).
+  `host`/`port`/`security` null pada dev mode. `queued` termasuk `sending`. `recent` = 20 terbaru. Penyamaran penerima: 2 karakter pertama bagian lokal (atau seluruhnya bila lebih pendek) + `***@` + domain ("hi@jatahku.com" → "hi***@jatahku.com", "a@b.id" → "a***@b.id").
 - `POST /api/admin/email/test` body `{"to": "opsional"}` → bawaan email admin; tanpa keduanya → 400 "Isi alamat tujuan atau tambahkan email di Pengaturan". Validasi `EMAIL_RE`. Batas **5 email tes per jam** (hitung baris `kind='test'` 1 jam terakhir, global) → 429. Hasil `{"id": n}` lalu `wake()`.
 - `POST /api/admin/email/{id}/retry` → hanya `status='failed'`; set `queued`, `attempts=0`, `next_attempt_at=now`, `last_error` dipertahankan sampai percobaan berikutnya; `wake()`. Email `reset` yang `expires_at`-nya lewat → 400 "Link reset sudah kedaluwarsa — minta reset baru". Status lain → 400. Tidak ada → 404.
 
