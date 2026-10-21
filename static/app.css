@@ -1808,6 +1808,11 @@
       color: var(--text-primary); transition: background 0.1s;
     }
     .milkdown-tooltip-btn:hover { background: var(--bg-primary); }
+    .milkdown-tooltip [hidden] { display: none !important; }
+    .milkdown-tooltip-sep { width: 1px; align-self: stretch; margin: 2px 4px; background: var(--border); }
+    .milkdown-tooltip-btn.milkdown-tooltip-cmt {
+      width: auto; gap: 6px; padding: 0 8px; font-weight: 600; white-space: nowrap;
+    }
     /* ── Block handle (+ / ⋮⋮) ala Notion ────────────────────────── */
     .milkdown-editor.has-block-handle .ProseMirror { padding-left: 48px; }
     .milkdown-block-handle {

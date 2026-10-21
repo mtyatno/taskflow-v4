@@ -30,8 +30,8 @@ test("fullSync memanggil pullComments setelah pullNotesAndReconcile dan sebelum 
   assert.ok(indexHtml.includes('"tf:comments-changed"'));
 });
 
-test("sw.js mem-precache ketiga modul komentar dan versi v454", () => {
+test("sw.js mem-precache ketiga modul komentar dan versi v455", () => {
   for (const f of FILES) assert.ok(swJs.includes(`"/static/offline/${f}"`), f);
-  assert.ok(swJs.includes('"taskflow-v454-komentar-ui"'));
-  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v454-komentar-ui"'));
+  assert.ok(swJs.includes('"taskflow-v455-komentar-tooltip"'));
+  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v455-komentar-tooltip"'));
 });

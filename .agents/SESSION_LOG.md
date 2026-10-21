@@ -3914,3 +3914,6 @@
 ## 2026-10-22 05:40 WIB — Claude — merge Email Fase 0b (#77)
 - Bapak: "merge dan deploy". `main` maju (#78 memakai v452) → di-merge, SW **v453** `taskflow-v453-email-mailer`, `app.css?v=357`; CI Tests hijau di head PR; #77 di-merge (67d578c); Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` (tabel `email_outbox` + worker email). Bot tidak perlu restart. Cek Admin → kartu Email (badge "Dev mode"). Saat memilih layanan SMTP: ikuti checklist di entri CURRENT_STATE.
+
+## 2026-10-22 — Claude — fix tooltip format vs "Komentari" menindih di editor
+- Bapak melaporkan dua popup saling menutupi saat memilih teks di editor. Repro Playwright: rect bertumpuk. Fix: "Komentari" jadi bagian tooltip format Milkdown (desktop), gelembung NoteModal hanya untuk sentuh. SW v455, app.css?v=359. Tes + E2E 89/89. Branch `claude/komentar-bubble-overlap`, PR menunggu "merge dan deploy".

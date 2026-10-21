@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=358">
+  <link rel="stylesheet" href="/static/app.css?v=359">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v454-komentar-ui";
+    window.__SW_VERSION = "taskflow-v455-komentar-tooltip";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -24928,7 +24928,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v454-komentar-ui"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v455-komentar-tooltip"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -27512,7 +27512,8 @@ function MilkdownEditor({
   onInsertTask,
   noteListId = null,
   mediaNoteId = null,
-  mediaNoteOwnerId = null
+  mediaNoteOwnerId = null,
+  onCommentSelection = null
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
@@ -27524,6 +27525,9 @@ function MilkdownEditor({
   React.useEffect(() => { onInsertDrawingRef.current = onInsertDrawing; }, [onInsertDrawing]);
   const onInsertTaskRef = React.useRef(onInsertTask);
   React.useEffect(() => { onInsertTaskRef.current = onInsertTask; }, [onInsertTask]);
+  // Komentar note: tombol "Komentari" di dalam tooltip format (satu toolbar, tidak saling menutupi).
+  const onCommentSelectionRef = React.useRef(onCommentSelection);
+  React.useEffect(() => { onCommentSelectionRef.current = onCommentSelection; }, [onCommentSelection]);
   const isExternalUpdate = React.useRef(false);
   const [ready, setReady] = React.useState(false);
   const [mathEdit, setMathEdit] = React.useState(null);
@@ -28000,6 +28004,31 @@ function MilkdownEditor({
     tooltipEl.appendChild(makeTbBtn('<i>I</i>', 'Italic', 'emphasis'));
     tooltipEl.appendChild(makeTbBtn('<s>S</s>', 'Strikethrough', 'strike_through'));
     tooltipEl.appendChild(makeTbBtn('<>', 'Inline Code', 'inlineCode'));
+    // Komentari — tampil hanya bila host (NoteModal, note workspace) memberi onCommentSelection.
+    const cmtSepEl = document.createElement('span');
+    cmtSepEl.className = 'milkdown-tooltip-sep';
+    cmtSepEl.hidden = true;
+    const cmtBtnEl = document.createElement('button');
+    cmtBtnEl.type = 'button';
+    cmtBtnEl.className = 'milkdown-tooltip-btn milkdown-tooltip-cmt';
+    cmtBtnEl.title = 'Komentari teks terpilih';
+    cmtBtnEl.hidden = true;
+    cmtBtnEl.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+    cmtBtnEl.appendChild(document.createTextNode('Komentari'));
+    cmtBtnEl.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
+    cmtBtnEl.addEventListener('click', e => {
+      e.stopPropagation();
+      e.preventDefault();
+      const cb = onCommentSelectionRef.current;
+      if (!cb) return;
+      // Teks seleksi DOM (sama dengan gelembung pembaca) agar penjangkaran kutipan konsisten.
+      const s = window.getSelection ? window.getSelection() : null;
+      const text = s && !s.isCollapsed ? s.toString() : '';
+      if (!text || !text.trim()) return;
+      onCommentSelectionRef.current(text);
+    });
+    tooltipEl.appendChild(cmtSepEl);
+    tooltipEl.appendChild(cmtBtnEl);
 
     // ── Table toolbar ─────────────────────────────────────────────
     const tableToolbarEl = document.createElement('div');
@@ -28263,6 +28292,8 @@ function MilkdownEditor({
               // blok terpilih utuh (klik ⋮⋮ block handle) bukan seleksi teks → tanpa tooltip format
               if (MB.NodeSelection && selection instanceof MB.NodeSelection && selection.node.isBlock) return false;
               const isCellSelection = selection.isRowSelection?.() || selection.isColSelection?.() || (selection.constructor && selection.constructor.name === 'CellSelection');
+              // UI sentuh memakai bar bawah "Komentari teks terpilih" (CommentSelectionBubble).
+              cmtBtnEl.hidden = cmtSepEl.hidden = !(onCommentSelectionRef.current && !isTouchUI);
               return !isCellSelection;
             }
           });
@@ -30926,7 +30957,8 @@ function NoteCommentsButton({
 // Gelembung "Komentari" untuk seleksi teks di dalam containerRef (layar sentuh: bar bawah).
 function CommentSelectionBubble({
   containerRef,
-  onComment
+  onComment,
+  touchOnly = false
 }) {
   const [sel, setSel] = useState(null);
   const touch = useMemo(() => {
@@ -30963,7 +30995,8 @@ function CommentSelectionBubble({
       if (raf) cancelAnimationFrame(raf);
     };
   }, [containerRef]);
-  if (!sel) return null;
+  // touchOnly (editor): di desktop tombol "Komentari" sudah ada di tooltip format Milkdown.
+  if (!sel || touchOnly && !touch) return null;
   // mousedown tidak mengambil fokus/seleksi (editor tetap memegang seleksi).
   const keep = (e) => e.preventDefault();
   const fire = () => {
@@ -32776,6 +32809,12 @@ function NoteModal({
     } : { position: "relative" }
   }, /*#__PURE__*/React.createElement(MilkdownEditor, {
     value: content,
+    onCommentSelection: cmtNote ? text => {
+      const q = window.TF.commentui.normalizeQuote(text);
+      if (!q) return;
+      setCmtQuote(q);
+      setCmtOpen(true);
+    } : null,
     noteListId: noteListId,
     mediaNoteId: mediaNoteIdForCards,
     mediaNoteOwnerId: mediaNoteOwnerId,
@@ -33390,6 +33429,7 @@ function NoteModal({
     }
   }, inner), cmtWide ? cmtPanelEl : null), cmtNote && /*#__PURE__*/React.createElement(CommentSelectionBubble, {
     containerRef: paperWrapRef,
+    touchOnly: true,
     onComment: q => {
       setCmtQuote(q);
       setCmtOpen(true);
