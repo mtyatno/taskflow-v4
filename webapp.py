@@ -150,6 +150,8 @@ import bookmark
 import ai_review
 import review_history
 import mailer
+import email_outbox
+import email_templates
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("WEB_SECRET_KEY", secrets.token_hex(32))
@@ -189,6 +191,8 @@ def _media_db_connect():
 media_storage = get_storage(MEDIA_STORAGE, MEDIA_ROOT)
 media_worker = MediaWorker(connect=_media_db_connect, storage=media_storage,
                            ffmpeg=shutil.which("ffmpeg"), ffprobe=shutil.which("ffprobe"))
+# Worker email (outbox SQLite). Baru jalan di startup(); wake() sebelum start() tidak berbuat apa-apa.
+email_worker = email_outbox.EmailWorker(connect=_media_db_connect)
 
 # ── Cookie signing (for published note unlock) ─────────────────────────────────
 def _sign_cookie(slug: str) -> str:
@@ -945,6 +949,8 @@ def migrate_db():
         # Komentar note workspace: skema + bersihkan tombstone > 30 hari.
         note_comments.ensure_note_comments_schema(conn)
         note_comments.purge_old_tombstones(conn, datetime.now(_TZ_JKT).isoformat())
+        # Outbox email (antrean kirim + retry).
+        email_outbox.ensure_schema(conn)
         conn.commit()
     finally:
         conn.close()
@@ -1687,6 +1693,18 @@ async def startup():
         logger.warning("pembersihan unggahan macet saat start gagal", exc_info=True)
     media_worker.requeue_processing()
     media_worker.start()
+    try:
+        email_worker.recover_stale()
+    except Exception:
+        logger.warning("pemulihan email 'sending' saat start gagal", exc_info=True)
+    try:
+        email_worker.purge_old()
+    except Exception:
+        logger.warning("pembersihan outbox email saat start gagal", exc_info=True)
+    try:
+        email_worker.start()
+    except Exception:
+        logger.warning("worker email gagal start", exc_info=True)
     if TELEGRAM_BOT_TOKEN:
         try:
             from telegram import Bot as TelegramBot
@@ -1936,7 +1954,7 @@ async def complete_account(req: CompleteAccountReq, request: Request, response: 
 _FORGOT_GENERIC = {"message": "Jika email terdaftar, link reset sudah dikirim"}
 
 @app.post("/api/auth/forgot")
-async def forgot_password(req: ForgotReq, background_tasks: BackgroundTasks):
+async def forgot_password(req: ForgotReq):
     email = req.email.strip().lower()
     with get_db() as conn:
         user = conn.execute(
@@ -1962,8 +1980,14 @@ async def forgot_password(req: ForgotReq, background_tasks: BackgroundTasks):
                 (now + timedelta(hours=1)).isoformat(),
             ),
         )
-    reset_link = f"{WEBAPP_URL}/?reset_token={token}"
-    background_tasks.add_task(mailer.send_reset_email, email, user["username"], reset_link)
+        reset_link = f"{WEBAPP_URL}/?reset_token={token}"
+        # Antre di transaksi yang sama dengan token; email kedaluwarsa 10 menit sebelum token (50 mnt).
+        email_outbox.enqueue(
+            conn, kind="reset", user_id=user["id"], to_addr=email,
+            rendered=email_templates.reset_password(user["username"], reset_link),
+            expires_at=email_outbox.utcnow() + timedelta(minutes=50),
+        )
+    email_worker.wake()
     return _FORGOT_GENERIC
 
 

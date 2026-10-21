@@ -6,7 +6,6 @@ supaya flow reset password tetap bisa dites end-to-end sebelum SMTP di-setup.
 Konfigurasi dibaca lewat atribut modul (mailer.SMTP_HOST dst.) saat dipanggil,
 sehingga tes bisa monkeypatch.
 """
-import html as _html
 import logging
 import smtplib
 import ssl
@@ -145,21 +144,3 @@ def send_message(msg: EmailMessage) -> None:
         err = MailPermanentError if _is_permanent(e) else MailTemporaryError
         raise err(format_error(e)) from e
 
-
-def send_reset_email(to: str, username: str, reset_link: str) -> None:
-    # Sementara (dipakai webapp sampai outbox menggantikannya). Dipanggil dari
-    # BackgroundTasks — jangan raise: kegagalan SMTP cukup di-log.
-    subject = "Reset Password Alurik"
-    body = (
-        f"Halo {username},\n\n"
-        f"Kami menerima permintaan reset password untuk akun Alurik-mu.\n"
-        f"Klik link berikut untuk membuat password baru (berlaku 1 jam, sekali pakai):\n\n"
-        f"{reset_link}\n\n"
-        f"Jika kamu tidak merasa meminta reset password, abaikan email ini — "
-        f"password-mu tidak berubah.\n"
-    )
-    html = "<pre>" + _html.escape(body) + "</pre>"
-    try:
-        send_message(build_message(to, subject, body, html))
-    except Exception:
-        log.exception("Gagal kirim email reset ke %s", to)
