@@ -3745,3 +3745,7 @@
 
 ## 2026-10-21 08:40 WIB — Claude — merge main (#68) ke kelola-workspace-fase1, SW v442
 - `main` maju (#68 bug note list tag, SW v441 / `app.css?v=349` — sama dengan PR #70). Main di-merge; konflik hanya string versi + `.agents`/.gitignore (kedua sisi dipertahankan). SW naik ke **v442** `taskflow-v442-kelola-workspace-fase1`, `app.css?v=350`. pytest 945; JS 2421/2422 (pra-ada `draw_local_reactive`); inline OK; E2E fase 1 98/98, note list tags 5/5.
+
+## 2026-10-21 10:15 WIB — Claude — merge Kelola Workspace Fase 1 (#70)
+- Bapak: "ya" (merge). #70 di-merge (a03aa76); CI Tests dan Deploy Taskflow V4 sukses. SW v442, `app.css?v=350`.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` lalu `sudo systemctl restart taskflow` (migrasi kolom `shared_lists`). Lalu Fase 2 (undangan & siklus hidup) bila diminta.
