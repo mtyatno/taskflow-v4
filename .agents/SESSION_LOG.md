@@ -3833,3 +3833,9 @@
 - **Changes:** Batal "+" menghapus paragraf "/" utuh (tanpa `<br />` tersimpan) + kursor ke akhir blok asal; Esc dalam debounce ditangani; autocomplete NoteModal `preventDefault` saat Esc + plugin slash lewati `defaultPrevented`; klik ⋮⋮ = di luar (hanya `addBtn` dikecualikan). Tes node 21/21, E2E 56/56 + grid 39/39.
 - **Files Touch:** static/index.html, tests/offline/note_slash_menu_dismiss.test.js, temporary_files/e2e_slash_menu_dismiss.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (di-push ke `claude/slash-menu-dismiss`, PR belum dibuat)
+
+## [2026-10-21 22:30] - Claude
+- **Task:** Re-review fix slash menu dismiss (9db3981): batal "+" di paragraf trailing kosong & di item list masih meninggalkan sampah.
+- **Changes:** state plugin menyimpan `orig` (doc sebelum "+"); batal → pulihkan persis via `docRestoreRange` (diff) + `tr.replace`; `orig` dibuang bila ada suntingan non-appendTransaction. Tes node 28/28; E2E 74/74 (seksi list/trailing), grid 39/39.
+- **Files Touch:** static/index.html, tests/offline/note_slash_menu_dismiss.test.js, temporary_files/e2e_slash_menu_dismiss.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (di-push ke `claude/slash-menu-dismiss`, PR belum dibuat)

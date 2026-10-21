@@ -27024,22 +27024,42 @@ function plusSlashRemovalRange(doc, pos) {
   if (container && container.childCount > 1) return { from: $p.before(), to: $p.after(), whole: true };
   return { from: pos, to: pos + 1, whole: false };
 }
-// Reducer state plugin dismiss slash menu: { plusPos: posisi "/" sisipan "+" | null, dismissed }.
+// Reducer state plugin dismiss slash menu: { plusPos: posisi "/" sisipan "+" | null, dismissed, orig }.
 // plusPos dipetakan lewat perubahan dokumen (karakternya terhapus → null). dismissed (menu baru
-// ditutup Esc / klik luar) bertahan sampai dokumen berubah atau kursor pindah. Meta menimpa keduanya.
+// ditutup Esc / klik luar) bertahan sampai dokumen berubah atau kursor pindah. orig = dokumen sebelum
+// "+" (untuk pemulihan persis saat dibatalkan); dibuang bila dokumen disunting selain lewat
+// appendTransaction (mis. paragraf trailing kosong) atau "/" hilang. Meta menimpa semuanya.
 function nextSlashDismissState(prev, tr, meta) {
-  const cur = prev || { plusPos: null, dismissed: false };
+  const cur = prev || { plusPos: null, dismissed: false, orig: null };
   let plusPos = cur.plusPos;
+  let orig = cur.orig || null;
   if (plusPos != null && tr.docChanged) {
     const r = tr.mapping.mapResult(plusPos, 1);
     plusPos = r.deleted ? null : r.pos;
   }
+  const appended = typeof tr.getMeta === "function" && !!tr.getMeta("appendedTransaction");
+  if (tr.docChanged && !appended) orig = null;
   let dismissed = !!cur.dismissed && !tr.docChanged && !tr.selectionSet;
   if (meta) {
     if ("plusPos" in meta) plusPos = meta.plusPos;
     if ("dismissed" in meta) dismissed = !!meta.dismissed;
+    if ("orig" in meta) orig = meta.orig || null;
   }
-  return { plusPos, dismissed };
+  if (plusPos == null) orig = null;
+  return { plusPos, dismissed, orig };
+}
+// Rentang minimal (gaya diff ProseMirror) agar curDoc kembali persis ke origDoc:
+// tr.replace(start, endB, origDoc.slice(start, endA)). null bila sama.
+function docRestoreRange(origDoc, curDoc) {
+  if (!origDoc || !curDoc) return null;
+  const start = origDoc.content.findDiffStart(curDoc.content);
+  if (start == null) return null;
+  const end = origDoc.content.findDiffEnd(curDoc.content);
+  if (!end) return null;
+  let endA = end.a, endB = end.b;
+  const overlap = start - Math.min(endA, endB);
+  if (overlap > 0) { endA += overlap; endB += overlap; }
+  return { start, endA, endB };
 }
 // shouldShow SlashProvider: sama dengan bawaan (karakter terakhir sebelum kursor = "/"),
 // kecuali menu baru saja ditutup pengguna.
@@ -27461,14 +27481,26 @@ function MilkdownEditor({
     const isSlashMenuShown = () => slashMenu.dataset.show === 'true';
     // Pemicu "/" ada & belum ditutup, tetapi menu belum tampil (masih dalam debounce 200 ms SlashProvider)
     const isSlashMenuPending = (view) => !!slashProvider && !!slashDismissKey && shouldShowSlashMenu(slashProvider.getContent(view), slashDismissKey.getState(view.state));
-    // Batalkan "/" sisipan "+" di pos (bila masih utuh) pada tr: paragrafnya dihapus utuh (lihat
-    // plusSlashRemovalRange). setSel: kursor ke akhir blok di atas (blok tempat "+" diklik).
-    const removePlusSlash = (tr, doc, pos, setSel) => {
-      const r = plusSlashRemovalRange(doc, pos);
-      if (!r) return false;
-      tr.delete(r.from, r.to);
-      if (setSel && r.whole) {
-        try { tr.setSelection(MB.TextSelection.near(tr.doc.resolve(tr.mapping.map(r.from)), -1)); } catch (_) {}
+    // Batalkan "+" bila "/"-nya masih utuh. Utama: pulihkan persis dokumen sebelum "+" (st.orig) —
+    // "+" bisa memecah list ("- a / - b" → dua list) dan memicu paragraf trailing kosong tambahan.
+    // Cadangan (dokumen sudah disunting lain): hapus paragraf "/" (plusSlashRemovalRange).
+    // setSel: kursor ke akhir blok di atas (blok tempat "+" diklik).
+    const removePlusSlash = (tr, doc, st, setSel) => {
+      const pos = st && st.plusPos;
+      if (!isPlusSlashIntact(doc, pos)) return false;
+      let whole = true;
+      if (st.orig) {
+        const d = docRestoreRange(st.orig, doc);
+        if (d) tr.replace(d.start, d.endB, st.orig.slice(d.start, d.endA));
+        if (!tr.doc.eq(st.orig)) tr.replaceWith(0, tr.doc.content.size, st.orig.content);
+      } else {
+        const r = plusSlashRemovalRange(doc, pos);
+        if (!r) return false;
+        tr.delete(r.from, r.to);
+        whole = r.whole;
+      }
+      if (setSel && whole) {
+        try { tr.setSelection(MB.TextSelection.near(tr.doc.resolve(tr.mapping.map(pos - 1, -1)), -1)); } catch (_) {}
       }
       return true;
     };
@@ -27478,7 +27510,7 @@ function MilkdownEditor({
       if (!view || !slashDismissKey) return;
       const st = slashDismissKey.getState(view.state);
       const tr = view.state.tr;
-      removePlusSlash(tr, view.state.doc, st && st.plusPos, true);
+      removePlusSlash(tr, view.state.doc, st, true);
       // dismissed: debounce SlashProvider (200 ms) / transaksi berikutnya tidak memunculkan menu lagi
       tr.setMeta(slashDismissKey, { plusPos: null, dismissed: true });
       view.dispatch(tr);
@@ -27493,7 +27525,7 @@ function MilkdownEditor({
     const slashDismissPlugin = MB.$prose && MB.Plugin && slashDismissKey ? MB.$prose(() => new MB.Plugin({
       key: slashDismissKey,
       state: {
-        init: () => ({ plusPos: null, dismissed: false }),
+        init: () => ({ plusPos: null, dismissed: false, orig: null }),
         apply: (tr, value) => nextSlashDismissState(value, tr, tr.getMeta(slashDismissKey))
       },
       props: {
@@ -27664,13 +27696,14 @@ function MilkdownEditor({
             const tr = state.tr;
             // "+" ditekan lagi saat menu dari "+" sebelumnya masih terbuka → "/" lama dibuang dulu
             const prev = slashDismissKey ? slashDismissKey.getState(state) : null;
-            removePlusSlash(tr, state.doc, prev && prev.plusPos, false);
+            removePlusSlash(tr, state.doc, prev, false);
+            const base = tr.doc; // dokumen sebelum "+" ini → dipulihkan persis bila dibatalkan
             const at = tr.mapping.map(pos);
             tr.insert(at, state.schema.nodes.paragraph.create());
             tr.setSelection(MB.TextSelection.near(tr.doc.resolve(at + 1)));
             tr.insertText('/');
             // catat posisi "/" sisipan "+" → Esc / klik luar boleh menghapusnya
-            if (slashDismissKey) tr.setMeta(slashDismissKey, { plusPos: tr.selection.from - 1, dismissed: false });
+            if (slashDismissKey) tr.setMeta(slashDismissKey, { plusPos: tr.selection.from - 1, dismissed: false, orig: base });
             return tr;
           };
           let tr = null;

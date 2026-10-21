@@ -13,6 +13,9 @@ Alur (desktop 1280×800):
   h  "+" dua kali (menu "+" pertama masih terbuka) → hanya satu "/" tersisa
   i  keluar dari mode edit → listener pointerdown document dilepas (destroy)
   s  note "Satu\n\nDua": "+" (tengah / akhir) → Esc / klik luar → Simpan → konten server tetap "Satu\n\nDua"
+  l  note berisi bullet / ordered / task list: "+" di paragraf trailing kosong & item list pertama →
+     Esc / klik luar / "+" dua kali → DOM editor persis semula; Simpan → konten server = acuan (hasil simpan
+     suntingan netral, karena serializer menormalkan list)
 Touch 375×740 (has_touch, is_mobile):
   t  ketuk paragraf → ketuk "+" → menu tampil → ketuk di luar → tertutup, "/" hilang;
      ketuk "+" lagi → ketuk teks lain di editor → tertutup, "/" hilang
@@ -32,6 +35,11 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 
 MENU = G.MENU
 SIMPAN_CONTENT = "Satu\n\nDua"
+LIST_CONTENT = "Satu\n\n- a\n- b\n\n1. n1\n2. n2\n\n- [ ] t1\n- [ ] t2\n\nAkhir"
+LIST_CASES = [("trailing kosong", ".ProseMirror > p >> nth=-1"), ("bullet item 1", ".ProseMirror ul li >> nth=0"),
+              ("ordered item 1", ".ProseMirror ol li >> nth=0"),
+              ("task item 1", ".ProseMirror li[data-item-type=task], .ProseMirror li[data-checked] >> nth=0")]
+PM_HTML = "() => document.querySelector('.ProseMirror').innerHTML"
 results = []
 
 
@@ -103,6 +111,48 @@ def plus(p, idx=0):
     p.wait_for_timeout(150)
 
 
+def cancel_plus(p, sel, mode):
+    """"+" pada blok sel lalu batalkan: esc / out (klik toolbar) / plus2 ("+" lagi di paragraf lain lalu Esc)."""
+    loc = p.locator(sel).first
+    loc.hover()
+    p.wait_for_timeout(350)
+    p.locator(".milkdown-block-handle-add").first.click()
+    p.locator(MENU).wait_for(timeout=4000)
+    p.wait_for_timeout(150)
+    if mode == "esc":
+        p.keyboard.press("Escape")
+    elif mode == "out":
+        click_spot(p, ".note-toolbar")
+    else:
+        # "+" kedua di blok LAIN yang tidak tertutup menu (plugin-block tidak menampilkan ulang handle untuk
+        # blok aktif yang sama setelah dokumen berubah). "/" + pecahan list dari "+" pertama dipulihkan dulu.
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(200)
+        pt = p.evaluate("""() => {
+          for (const el of document.querySelectorAll('.ProseMirror > p, .ProseMirror > h2')) {
+            if (el.innerText.trim() === '/' || !el.innerText.trim()) continue;
+            const r = el.getBoundingClientRect(); if (r.top < 0 || r.bottom > innerHeight) continue;
+            const y = r.top + r.height / 2;
+            for (const x of [r.left + 30, r.right - 30]) {
+              const e = document.elementFromPoint(x, y);
+              if (e && el.contains(e)) return { x, y, t: el.innerText };
+            }
+          }
+          return null;
+        }""")
+        p.mouse.move(pt["x"] - 10, pt["y"], steps=3)
+        p.mouse.move(pt["x"] + 20, pt["y"], steps=3)
+        p.wait_for_timeout(400)
+        p.locator(".milkdown-block-handle-add").first.click()
+        p.wait_for_timeout(300)
+        n_slash = (st(p)["slashParas"], p.evaluate("() => document.querySelectorAll('.ProseMirror ul, .ProseMirror ol').length"))
+        p.keyboard.press("Escape")
+        p.wait_for_timeout(450)
+        return n_slash
+    p.wait_for_timeout(450)
+    return None
+
+
 def click_spot(p, sel):
     spot = p.evaluate(SPOT_JS, sel)
     if not spot:
@@ -119,6 +169,7 @@ def main():
         A = G.register(base, "Penulis")
         G.make_note(base, A, "Note Dismiss E2E", "Isi awal catatan\n\nParagraf kedua")
         note_s = G.make_note(base, A, "Note Simpan E2E", SIMPAN_CONTENT)
+        note_l = G.make_note(base, A, "Note List E2E", LIST_CONTENT)
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             ctx, p = G.open_app(browser, base, A)
@@ -323,6 +374,45 @@ def main():
                 saved = requests.get(base + "/api/scratchpad/%d" % note_s["id"],
                                      headers={"Authorization": "Bearer " + A["token"]}).json().get("content")
                 check(label + ": konten tersimpan = semula (tanpa <br />)", saved == SIMPAN_CONTENT, repr(saved))
+
+            # l: list (bullet / ordered / task) & paragraf trailing kosong — batal "+" memulihkan persis
+            G.card(p, "Note List E2E").wait_for(timeout=20000)
+            G.open_editor(p, "Note List E2E")
+            # Pembanding: serializer Milkdown menormalkan markdown pada suntingan apa pun (mis. "- a\n- b" →
+            # "* a\n\n* b"), jadi konten acuan = hasil simpan setelah suntingan netral (ketik "x" lalu hapus).
+            p.locator(".ProseMirror > p", has_text="Akhir").first.click()
+            p.keyboard.press("End")
+            p.keyboard.type("x")
+            p.keyboard.press("Backspace")
+            p.wait_for_timeout(400)
+            p.locator("button", has_text="Simpan").first.click()
+            p.wait_for_timeout(2000)
+            list_ref = requests.get(base + "/api/scratchpad/%d" % note_l["id"],
+                                    headers={"Authorization": "Bearer " + A["token"]}).json().get("content")
+            check("l0 acuan serializer tanpa <br /> & list utuh", "<br" not in (list_ref or "") and list_ref.count("[ ]") == 2, repr(list_ref))
+            G.card(p, "Note List E2E").wait_for(timeout=20000)
+            G.open_editor(p, "Note List E2E")
+            html0 = p.evaluate(PM_HTML)
+            n_lists0 = p.evaluate("() => document.querySelectorAll('.ProseMirror ul, .ProseMirror ol').length")
+            for name, sel in LIST_CASES:
+                if p.locator(sel).count() == 0:
+                    check("l " + name + ": elemen ada", False, sel)
+                    continue
+                for mode in ("esc", "out", "plus2"):
+                    n_slash = cancel_plus(p, sel, mode)
+                    html = p.evaluate(PM_HTML)
+                    s = st(p)
+                    note = "" if html == html0 else (s["texts"], html[:300])
+                    if mode == "plus2":
+                        check("l %s plus2: '+' kedua → satu '/', list dari '+' pertama sudah utuh lagi" % name,
+                              n_slash == (1, n_lists0), (n_slash, n_lists0))
+                    check("l %s %s: dokumen persis semula, menu tertutup" % (name, mode), html == html0 and not s["menu"], note)
+                    html0 = html
+            p.locator("button", has_text="Simpan").first.click()
+            p.wait_for_timeout(2000)
+            saved = requests.get(base + "/api/scratchpad/%d" % note_l["id"],
+                                 headers={"Authorization": "Bearer " + A["token"]}).json().get("content")
+            check("l konten tersimpan = acuan (list utuh, tanpa <br />)", saved == list_ref, (repr(saved), repr(list_ref)))
 
             check("z tanpa pageerror (desktop)", not p.errors, p.errors[:3])
             ctx.close()

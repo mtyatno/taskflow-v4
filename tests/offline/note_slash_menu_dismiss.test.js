@@ -23,7 +23,7 @@ function helpers() {
   const end = indexHtml.indexOf("// Block handle ala Notion (+ / ⋮⋮)", start);
   assert.ok(end > start, "helper dismiss slash harus sebelum komentar block handle");
   const src = indexHtml.slice(start, end);
-  return new Function(src + "\nreturn { isPlusSlashIntact, plusSlashRemovalRange, nextSlashDismissState, shouldShowSlashMenu, isSlashOutsideTarget };")();
+  return new Function(src + "\nreturn { isPlusSlashIntact, plusSlashRemovalRange, docRestoreRange, nextSlashDismissState, shouldShowSlashMenu, isSlashOutsideTarget };")();
 }
 
 // Dokumen palsu: daftar paragraf; posisi ala ProseMirror (paragraf i mulai di offset, isi di offset+1)
@@ -80,21 +80,22 @@ test("nextSlashDismissState: posisi '/' dipetakan, dismissed dibersihkan saat me
   const tr = (opts = {}) => ({
     docChanged: !!opts.docChanged,
     selectionSet: !!opts.selectionSet,
+    getMeta: (k) => (k === "appendedTransaction" ? opts.appended : undefined),
     mapping: { mapResult: (pos, assoc) => {
       assert.equal(assoc, 1, "assoc 1: karakter '/' setelah posisi");
       return opts.map ? opts.map(pos) : { pos, deleted: false };
     } }
   });
   await t.test("awal kosong", () => {
-    assert.deepEqual(nextSlashDismissState(undefined, tr(), undefined), { plusPos: null, dismissed: false });
+    assert.deepEqual(nextSlashDismissState(undefined, tr(), undefined), { plusPos: null, dismissed: false, orig: null });
   });
   await t.test("meta plusPos dari tombol +", () => {
     const s = nextSlashDismissState({ plusPos: null, dismissed: true }, tr({ docChanged: true, selectionSet: true }), { plusPos: 6, dismissed: false });
-    assert.deepEqual(s, { plusPos: 6, dismissed: false });
+    assert.deepEqual(s, { plusPos: 6, dismissed: false, orig: null });
   });
   await t.test("perubahan dokumen menggeser posisi", () => {
     const s = nextSlashDismissState({ plusPos: 6, dismissed: false }, tr({ docChanged: true, map: p => ({ pos: p + 3, deleted: false }) }));
-    assert.deepEqual(s, { plusPos: 9, dismissed: false });
+    assert.deepEqual(s, { plusPos: 9, dismissed: false, orig: null });
   });
   await t.test("'/' terhapus → lupakan posisi", () => {
     const s = nextSlashDismissState({ plusPos: 6, dismissed: false }, tr({ docChanged: true, map: p => ({ pos: p, deleted: true }) }));
@@ -102,7 +103,7 @@ test("nextSlashDismissState: posisi '/' dipetakan, dismissed dibersihkan saat me
   });
   await t.test("tanpa perubahan dokumen → posisi tetap (mapping tidak dipanggil)", () => {
     const s = nextSlashDismissState({ plusPos: 6, dismissed: false }, tr({ map: () => { throw new Error("tak boleh"); } }));
-    assert.deepEqual(s, { plusPos: 6, dismissed: false });
+    assert.deepEqual(s, { plusPos: 6, dismissed: false, orig: null });
   });
   await t.test("dismissed bertahan pada transaksi meta saja, hilang saat mengetik / kursor pindah", () => {
     assert.equal(nextSlashDismissState({ plusPos: null, dismissed: true }, tr()).dismissed, true);
@@ -111,8 +112,51 @@ test("nextSlashDismissState: posisi '/' dipetakan, dismissed dibersihkan saat me
   });
   await t.test("meta dismiss (Esc / klik luar) menang atas pembersihan", () => {
     const s = nextSlashDismissState({ plusPos: 6, dismissed: false }, tr({ docChanged: true, map: p => ({ pos: p, deleted: true }) }), { plusPos: null, dismissed: true });
-    assert.deepEqual(s, { plusPos: null, dismissed: true });
+    assert.deepEqual(s, { plusPos: null, dismissed: true, orig: null });
   });
+});
+
+test("nextSlashDismissState: dokumen asal (sebelum '+') untuk pemulihan persis", async (t) => {
+  const { nextSlashDismissState } = helpers();
+  const D0 = { name: "doc-asal" };
+  const tr = (opts = {}) => ({
+    docChanged: !!opts.docChanged, selectionSet: !!opts.selectionSet,
+    getMeta: (k) => (k === "appendedTransaction" ? opts.appended : undefined),
+    mapping: { mapResult: (pos) => (opts.map ? opts.map(pos) : { pos, deleted: false }) }
+  });
+  await t.test("meta '+' menyimpan orig", () => {
+    const s = nextSlashDismissState(undefined, tr({ docChanged: true }), { plusPos: 7, dismissed: false, orig: D0 });
+    assert.deepEqual(s, { plusPos: 7, dismissed: false, orig: D0 });
+  });
+  await t.test("transaksi appendTransaction (paragraf trailing, dsb.) mempertahankan orig", () => {
+    const s = nextSlashDismissState({ plusPos: 7, dismissed: false, orig: D0 }, tr({ docChanged: true, appended: {} }));
+    assert.equal(s.orig, D0);
+    assert.equal(s.plusPos, 7);
+  });
+  await t.test("tanpa perubahan dokumen mempertahankan orig", () => {
+    assert.equal(nextSlashDismissState({ plusPos: 7, dismissed: false, orig: D0 }, tr({ selectionSet: true })).orig, D0);
+  });
+  await t.test("suntingan pengguna lain → orig dibuang (jatuh ke hapus paragraf)", () => {
+    const s = nextSlashDismissState({ plusPos: 7, dismissed: false, orig: D0 }, tr({ docChanged: true }));
+    assert.equal(s.orig, null);
+    assert.equal(s.plusPos, 7);
+  });
+  await t.test("'/' terhapus → orig ikut dibuang", () => {
+    const s = nextSlashDismissState({ plusPos: 7, dismissed: false, orig: D0 }, tr({ docChanged: true, appended: {}, map: p => ({ pos: p, deleted: true }) }));
+    assert.deepEqual(s, { plusPos: null, dismissed: false, orig: null });
+  });
+});
+
+test("docRestoreRange: rentang minimal untuk kembali ke dokumen asal", () => {
+  const { docRestoreRange } = helpers();
+  const mk = (start, end) => ({ content: { findDiffStart: () => start, findDiffEnd: () => end } });
+  const cur = { content: {} };
+  assert.equal(docRestoreRange(mk(null, null), cur), null, "dokumen sama → null");
+  assert.equal(docRestoreRange(null, cur), null);
+  // tanpa tumpang tindih
+  assert.deepEqual(docRestoreRange(mk(6, { a: 6, b: 9 }), cur), { start: 6, endA: 6, endB: 9 });
+  // tumpang tindih (teks sama di kedua sisi) → digeser
+  assert.deepEqual(docRestoreRange(mk(7, { a: 5, b: 8 }), cur), { start: 7, endA: 7, endB: 10 });
 });
 
 test("shouldShowSlashMenu: '/' terakhir, kecuali baru saja ditutup", () => {
@@ -159,13 +203,18 @@ test("MilkdownEditor: wiring dismiss slash menu", async (t) => {
     assert.ok(start > 0);
     const src = editorCode.slice(start, editorCode.indexOf("\n    };", start));
     assert.match(src, /slashProvider\.hide\(\)/);
-    assert.match(src, /removePlusSlash\(tr, view\.state\.doc, st && st\.plusPos, true\)/);
+    assert.match(src, /removePlusSlash\(tr, view\.state\.doc, st, true\)/);
     assert.match(src, /if \(keepFocus\) view\.focus\(\);/);
     const rm = editorCode.slice(editorCode.indexOf("const removePlusSlash = ("), editorCode.indexOf("const dismissSlashMenu"));
+    // utama: pulihkan persis dokumen sebelum "+" (list yang terpecah, paragraf trailing tambahan)
+    assert.match(rm, /const d = docRestoreRange\(st\.orig, doc\);/);
+    assert.match(rm, /tr\.replace\(d\.start, d\.endB, st\.orig\.slice\(d\.start, d\.endA\)\)/);
+    assert.match(rm, /if \(!tr\.doc\.eq\(st\.orig\)\) tr\.replaceWith\(0, tr\.doc\.content\.size, st\.orig\.content\)/);
+    // cadangan (dokumen sudah disunting lain): hapus paragraf "/"
     assert.match(rm, /plusSlashRemovalRange\(doc, pos\)/);
     assert.match(rm, /tr\.delete\(r\.from, r\.to\)/);
     // kursor ke akhir blok di atas (blok tempat "+" diklik)
-    assert.match(rm, /MB\.TextSelection\.near\(tr\.doc\.resolve\(tr\.mapping\.map\(r\.from\)\), -1\)/);
+    assert.match(rm, /MB\.TextSelection\.near\(tr\.doc\.resolve\(tr\.mapping\.map\(pos - 1, -1\)\), -1\)/);
     assert.match(src, /tr\.setMeta\(slashDismissKey, \{ plusPos: null, dismissed: true \}\)/);
     assert.match(src, /view\.dispatch\(tr\)/);
   });
@@ -184,8 +233,10 @@ test("MilkdownEditor: wiring dismiss slash menu", async (t) => {
   await t.test("onBlockAdd mencatat posisi '/' sisipan dan membuang '/' '+' sebelumnya", () => {
     const start = editorCode.indexOf("const onBlockAdd = () => {");
     const src = editorCode.slice(start, editorCode.indexOf("\n    };", start));
-    assert.match(src, /tr\.setMeta\(slashDismissKey, \{ plusPos: tr\.selection\.from - 1, dismissed: false \}\)/);
-    assert.match(src, /removePlusSlash\(tr, state\.doc, prev && prev\.plusPos, false\)/);
+    assert.match(src, /tr\.setMeta\(slashDismissKey, \{ plusPos: tr\.selection\.from - 1, dismissed: false, orig: base \}\)/);
+    assert.match(src, /removePlusSlash\(tr, state\.doc, prev, false\)/);
+    assert.match(src, /const base = tr\.doc;/);
+    assert.match(src, /plusPos: tr\.selection\.from - 1, dismissed: false, orig: base \}/);
     assert.match(src, /const at = tr\.mapping\.map\(pos\);/);
     assert.ok(src.indexOf("insertText('/')") < src.indexOf("plusPos: tr.selection.from - 1"), "meta setelah '/' diketik");
   });
