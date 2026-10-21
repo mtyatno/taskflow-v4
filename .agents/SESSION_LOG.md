@@ -3798,6 +3798,13 @@
 - Bapak: "merge". #72 di-merge (8d9dfe0); CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek Mindmap, Diskusi, Gambar, Habit, Kalender, hero Dashboard (SW v445).
 
+## 2026-10-21 — Claude — Komentar Note PR 2 (offline)
+- SDD 7 task (store IndexedDB v6, `commentanchor`/`commentrepo`/`commentroutes`, push op `comment`, delta pull di `fullSync`, SW v446, dokumentasi) + review per task. Spec §4 baris delta (kursor) dan §6.5 diperbarui. pytest 1018, JS 2592/2593 (pra-ada `draw_local_reactive`), inline OK.
+- **Status:** Needs Review (belum di-push; deploy = file statis, restart `taskflow-web` saja). **Berikutnya:** PR 3 UI.
+
+## 2026-10-21 — Claude — Komentar Note PR 2: perbaikan review akhir
+- I1 `commentrepo` membaca `chatrepo` saat `user()` dipanggil (tes vm urutan `index.html`); I2 record `sync_error`-saja diperlakukan tersinkron (pull/tombstone/reset/replace); I3 penanda baca maju bila server melapor `comment_unread` false; I4 `replaceSince` (awal request − 5 menit) di GET per note; M1 validasi lokal 422. Spec §6.1/§6.5 + CURRENT_STATE diperbarui. JS 2601/2602 (pra-ada `draw_local_reactive`), komentar 97, pytest 1018, inline OK.
+- **Status:** Needs Review (belum di-push).
 ## 2026-10-21 19:58 WIB — Claude — slash menu note grid 2 kolom + Wikilink
 - **Task:** slash menu editor note terlalu panjang (perlu scroll ke Gambar/Task) → grid 2 kolom dengan label grup + item Wikilink (disetujui Bapak).
 - **Changes:** `SLASH_MENU_GROUPS` + `makeSlashItem` opsi `{ wide, hint, title }`, `case 'wikilink'`, middleware `slashClampToViewport`; CSS slash menu baru; SW v446 / `app.css?v=352` (tes versi ikut). Tes baru `note_slash_menu_grid.test.js`, `note_slash_task.test.js` disesuaikan; E2E `temporary_files/e2e_slash_menu_grid.py` 26/26.
@@ -3824,6 +3831,10 @@
 
 ## [2026-10-21 20:45] - Claude — bug layar putih Chrome Android (Pomodoro selesai / tombol Fokus)
 - **Task:** perbaiki layar putih produksi di Chrome Android saat Pomodoro mencapai 00:00 dan setiap tap Fokus sesudahnya (akar masalah: `new Notification()` "Illegal constructor" dilempar dari efek `usePomodoro`, tanpa error boundary).
-- **Changes:** `sendBrowserNotification` lewat `ServiceWorkerRegistration.showNotification` + cadangan konstruktor dalam try/catch, tidak pernah melempar; `playNotificationSound` aman + menutup AudioContext; `pomoAlert` di `usePomodoro` setelah semua setState (Work 00:00, istirahat, batas Overtime); `AppErrorBoundary` membungkus `App` (layar pemulihan, `tf_last_crash`); SW v448 `taskflow-v448-android-notif-fix` / `app.css?v=354` (setelah merge `origin/main` a9fb110: #73 memakai v447/353); tes node `pomo_android_notification.test.js` (TDD, 21); E2E `temporary_files/e2e_android_notification.py` 40/40.
+- **Changes:** `sendBrowserNotification` lewat `ServiceWorkerRegistration.showNotification` + cadangan konstruktor dalam try/catch, tidak pernah melempar; `playNotificationSound` aman + menutup AudioContext; `pomoAlert` di `usePomodoro` setelah semua setState (Work 00:00, istirahat, batas Overtime); `AppErrorBoundary` membungkus `App` (layar pemulihan, `tf_last_crash`); SW v450 `taskflow-v450-android-notif-fix` / `app.css?v=355` (setelah merge `origin/main` a9fb110 #73 v447 dan 6b9579c #75 v448; v449 dipegang draft #76); tes node `pomo_android_notification.test.js` (TDD, 21); E2E `temporary_files/e2e_android_notification.py` 40/40.
 - **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/test_version.py, tests/offline/*.test.js (versi + tes baru), temporary_files/e2e_android_notification.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (belum di-push; deploy = file statis + restart `taskflow-web` saja). pytest 1018; JS 2525/2526 (pra-ada `draw_local_reactive`); E2E focus page 35/35, overtime 98/98.
+
+## 2026-10-21 21:05 WIB — Claude — merge Komentar Note PR 2 (offline)
+- Merge `origin/main` (#73 slash menu, SW v447) ke `claude/komentar-note-offline`: konflik hanya string versi + `.agents/*`; SW dinaikkan ke **v448** `taskflow-v448-komentar-offline` (app.css tetap ?v=353). npm 2628/2629 (pra-ada `draw_local_reactive`), pytest 1018, inline OK.
+- PR dibuat dan di-merge ke `main` atas instruksi Bapak ("merge dan deploy"). Deploy: file statis saja → restart `taskflow-web`.

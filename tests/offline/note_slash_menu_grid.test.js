@@ -257,10 +257,10 @@ test("CSS slash menu grid", async (t) => {
   });
 });
 
-test("cache bust v448 + app.css?v=354", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v448-android-notif-fix";/m);
-  assert.match(webappPy, /sw_cache = "taskflow-v448-android-notif-fix"/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v448-android-notif-fix";/);
-  assert.match(indexHtml, /app\.css\?v=354/);
+test("cache bust v450 + app.css?v=355", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v450-android-notif-fix";/m);
+  assert.match(webappPy, /sw_cache = "taskflow-v450-android-notif-fix"/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v450-android-notif-fix";/);
+  assert.match(indexHtml, /app\.css\?v=355/);
   assert.equal(/app\.css\?v=352/.test(indexHtml), false);
 });

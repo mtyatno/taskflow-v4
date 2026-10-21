@@ -99,11 +99,11 @@ test("accountbanner.js dimuat dan di-precache service worker", () => {
   assert.match(sw, /"\/static\/offline\/accountbanner\.js"/);
 });
 
-test("cache bust v448 + app.css?v=354", () => {
-  assert.match(sw, /^const CACHE = "taskflow-v448-android-notif-fix";/m);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v448-android-notif-fix";/);
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v448-android-notif-fix"/);
-  assert.match(py, /sw_cache = "taskflow-v448-android-notif-fix"/);
-  assert.match(html, /app\.css\?v=354/);
+test("cache bust v450 + app.css?v=355", () => {
+  assert.match(sw, /^const CACHE = "taskflow-v450-android-notif-fix";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v450-android-notif-fix";/);
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v450-android-notif-fix"/);
+  assert.match(py, /sw_cache = "taskflow-v450-android-notif-fix"/);
+  assert.match(html, /app\.css\?v=355/);
   assert.doesNotMatch(html, /v437|app\.css\?v=345/);
 });

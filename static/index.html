@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=354">
+  <link rel="stylesheet" href="/static/app.css?v=355">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v448-android-notif-fix";
+    window.__SW_VERSION = "taskflow-v450-android-notif-fix";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -279,6 +279,8 @@
   <script src="/static/offline/noterepo.js"></script>
   <script src="/static/offline/notequery.js"></script>
   <script src="/static/offline/notehydrate.js"></script>
+  <script src="/static/offline/commentanchor.js"></script>
+  <script src="/static/offline/commentrepo.js"></script>
   <script src="/static/offline/noteroutes.js"></script>
   <script src="/static/offline/notetrash.js"></script>
   <script src="/static/offline/drawingrepo.js"></script>
@@ -298,6 +300,7 @@
   <script src="/static/offline/mindmaproutes.js"></script>
   <script src="/static/offline/chatrepo.js"></script>
   <script src="/static/offline/chatroutes.js"></script>
+  <script src="/static/offline/commentroutes.js"></script>
   <script src="/static/offline/listsync.js"></script>
   <script src="/static/offline/workspacepins.js"></script>
   <script src="/static/offline/wsmanage.js"></script>
@@ -1237,6 +1240,7 @@ function sync() {
         return notesRes;
       });
     }))
+    .then(() => step(() => (window.TF.syncpull.pullComments ? window.TF.syncpull.pullComments(__syncRawFetch).then((r) => { if (r && (r.pulled > 0 || r.reset)) window.dispatchEvent(new CustomEvent("tf:comments-changed", { detail: { source: "sync", note_ids: r.changedNoteIds } })); return r; }) : null)))
     .then(() => step(() => {
       if (!window.TF.syncpull.pullMindmapsAndReconcile) return null;
       return window.TF.syncpull.pullMindmapsAndReconcile(__syncRawFetch).then((mmRes) => {
@@ -24573,7 +24577,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v448-android-notif-fix"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v450-android-notif-fix"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

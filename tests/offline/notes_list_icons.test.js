@@ -51,8 +51,8 @@ test("NotesPage memakai glyph yang ditentukan", () => {
 });
 
 test("versi SW di-bump", () => {
-  assert.match(sw, /taskflow-v448-android-notif-fix/);
-  assert.match(indexHtml, /taskflow-v448-android-notif-fix/);
+  assert.match(sw, /taskflow-v450-android-notif-fix/);
+  assert.match(indexHtml, /taskflow-v450-android-notif-fix/);
   assert.ok(!/taskflow-v44[0-3]-/.test(indexHtml));
 });
 
