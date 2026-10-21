@@ -3838,3 +3838,8 @@
 ## 2026-10-21 21:05 WIB — Claude — merge Komentar Note PR 2 (offline)
 - Merge `origin/main` (#73 slash menu, SW v447) ke `claude/komentar-note-offline`: konflik hanya string versi + `.agents/*`; SW dinaikkan ke **v448** `taskflow-v448-komentar-offline` (app.css tetap ?v=353). npm 2628/2629 (pra-ada `draw_local_reactive`), pytest 1018, inline OK.
 - PR dibuat dan di-merge ke `main` atas instruksi Bapak ("merge dan deploy"). Deploy: file statis saja → restart `taskflow-web`.
+
+## 2026-10-21 21:46 WIB — Claude — merge perbaikan layar putih Chrome Android (#74)
+- Bapak: "merge PR#74". #74 di-merge (1cf0447); CI Tests hijau. SW v450 / `app.css?v=355`.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` (tanpa migrasi); buka ulang aplikasi di HP (tutup penuh, buka lagi) lalu coba Fokus. Timer yang macet pulih sendiri saat Fokus ditekan.
+- Brainstorming fitur pemilihan task di halaman Fokus berjalan (mockup di visual companion).
