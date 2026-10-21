@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=347">
+  <link rel="stylesheet" href="/static/app.css?v=349">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -23442,7 +23442,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v439-account-fase0a"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v441-note-list-tags"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -28502,6 +28502,10 @@ function NoteModal({
   // ⇔ updated_at record ≠ lastKnownAt (push sendiri hanya memajukan base_rev, updated_at tetap → bukan "pihak lain").
   const loadedBaseRevRef = useRef(note?.base_rev ?? null);
   const persistInFlightRef = useRef(null);
+  // Autosave menulis ke record lokal tanpa memancarkan noteSaved (agar daftar tidak dimuat ulang tiap 2,5 dtk).
+  // Ref ini menandai ada tulisan autosave yang belum diumumkan → saat editor ditutup, noteSaved dipancarkan
+  // sekali supaya daftar catatan (tag, pratinjau, tanggal) ikut terbarui walau tombol Simpan tidak menulis lagi.
+  const unannouncedWriteRef = useRef(false);
   // Baca record lokal terkini lewat router lokal (jalan offline): bentuk API + cid/base_rev (notequery.shape).
   const readLocalNote = () => (note?.id ? api.get(`/api/scratchpad/${note.id}`).catch(() => null) : Promise.resolve(null));
   const recordChangedElsewhere = fresh => {
@@ -28560,6 +28564,7 @@ function NoteModal({
     });
     persistInFlightRef.current = p.catch(() => null);
     const saved = await p;
+    unannouncedWriteRef.current = (saved && saved.cid) || note?.cid || true; // cid untuk filter listener noteSaved
     lastSavedSnapRef.current = snap;
     if (saved && saved.updated_at) lastKnownAtRef.current = saved.updated_at;
     if (saved && saved.base_rev !== undefined) loadedBaseRevRef.current = saved.base_rev ?? null;
@@ -28595,6 +28600,7 @@ function NoteModal({
         if (typeof copier === "function") await copier(note.id, {});
       }
       await persistEditor();
+      unannouncedWriteRef.current = false;
       window.dispatchEvent(new CustomEvent("noteSaved", { detail: { source: "editor", cids: fresh?.cid ? [fresh.cid] : [] } }));
       return true;
     } catch (e) {
@@ -28606,7 +28612,20 @@ function NoteModal({
   flushAutosaveRef.current = flushAutosave;
   // Unmount (semua jalur tutup: Batal, ✕, klik tasklink, navigasi) → flush; PUT ke router lokal tetap selesai
   // setelah komponen hilang.
-  useEffect(() => () => { try { flushAutosaveRef.current(); } catch (_) {} }, []);
+  // Tidak ada yang perlu di-flush tetapi autosave sempat menulis → umumkan sekali (bug: tag baru tidak tampil di
+  // daftar catatan sampai pindah halaman, karena Simpan setelah autosave tidak menulis/memuat ulang daftar).
+  useEffect(() => () => {
+    let p;
+    try { p = flushAutosaveRef.current(); } catch (_) { p = Promise.resolve(false); }
+    Promise.resolve(p).catch(() => false).then(flushed => {
+      const written = unannouncedWriteRef.current;
+      if (flushed || !written) return;
+      unannouncedWriteRef.current = false;
+      // cid tak diketahui → tanpa `cids` (bukan []), agar semua listener memeriksa
+      const detail = typeof written === "string" ? { source: "editor-autosave", cids: [written] } : { source: "editor-autosave" };
+      window.dispatchEvent(new CustomEvent("noteSaved", { detail }));
+    });
+  }, []);
   // Mount: record lokal bisa lebih baru dari prop `note` (daftar basi) → sejajarkan editor dengan record.
   useEffect(() => { checkLocalRevision().catch(() => {}); }, []);
   // T5: pull / push 409 / editor lain menulis record ini → muat ulang atau banner (note pribadi juga, bukan
@@ -29902,6 +29921,7 @@ function NoteModal({
         meta_json: JSON.stringify({ paper_mode: paperConfig })
       });
       if (saved?.id && !savedNoteId) setSavedNoteId(saved.id);
+      unannouncedWriteRef.current = false; // tulisan kini lewat onSave pemanggil (NotesPage memuat ulang daftar + noteSaved)
       // sudah tersimpan lewat onSave → flush saat unmount tidak perlu menulis lagi
       lastSavedSnapRef.current = snap;
       if (saved?.updated_at) lastKnownAtRef.current = saved.updated_at;
@@ -38955,7 +38975,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v439-account-fase0a";
+    window.__SW_VERSION = "taskflow-v441-note-list-tags";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
