@@ -34,6 +34,14 @@ def iso(dt: datetime) -> str:
     return dt.isoformat()
 
 
+def mask_email(addr: str) -> str:
+    """Samarkan penerima: 2 karakter pertama lokal + ***@domain (lokal 1 karakter -> 1 karakter)."""
+    local, sep, domain = (addr or "").rpartition("@")
+    if not sep:
+        return "***"
+    return f"{local[:2]}***@{domain}"
+
+
 def ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute("""
         CREATE TABLE IF NOT EXISTS email_outbox (

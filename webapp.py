@@ -6300,6 +6300,79 @@ async def delete_habit_template(template_id: int, user=Depends(get_admin_user)):
         conn.execute("DELETE FROM habit_templates WHERE id = ?", (template_id,))
     return {"ok": True}
 
+class AdminEmailTestReq(BaseModel):
+    to: Optional[str] = None
+
+
+@app.get("/api/admin/email/status")
+async def admin_email_status(user=Depends(get_admin_user)):
+    summary = mailer.smtp_summary()
+    since = email_outbox.iso(email_outbox.utcnow() - timedelta(days=7))
+    with get_db() as conn:
+        counts = {"sent": 0, "failed": 0, "queued": 0, "expired": 0}
+        for r in conn.execute(
+                "SELECT status, COUNT(*) AS n FROM email_outbox WHERE created_at >= ? GROUP BY status", (since,)):
+            key = "queued" if r["status"] in ("queued", "sending") else r["status"]
+            if key in counts:
+                counts[key] += r["n"]
+        rows = conn.execute(
+            "SELECT id, kind, to_addr, status, attempts, last_error, created_at, sent_at"
+            " FROM email_outbox ORDER BY id DESC LIMIT 20").fetchall()
+    return {
+        **summary,
+        "worker_alive": email_worker.is_alive(),
+        "counts_7d": counts,
+        "recent": [{"id": r["id"], "kind": r["kind"], "to": email_outbox.mask_email(r["to_addr"]),
+                    "status": r["status"], "attempts": r["attempts"], "last_error": r["last_error"],
+                    "created_at": r["created_at"], "sent_at": r["sent_at"]} for r in rows],
+    }
+
+
+@app.post("/api/admin/email/test")
+async def admin_email_send_test(req: AdminEmailTestReq, user=Depends(get_admin_user)):
+    to = (req.to or "").strip()
+    with get_db() as conn:
+        if not to:
+            row = conn.execute("SELECT email FROM users WHERE id = ?", (user["sub"],)).fetchone()
+            to = ((row["email"] if row else None) or "").strip()
+        if not to:
+            raise HTTPException(status_code=400, detail="Isi alamat tujuan atau tambahkan email di Pengaturan")
+        if not EMAIL_RE.match(to):
+            raise HTTPException(status_code=400, detail="Format email tidak valid")
+        now = email_outbox.utcnow()
+        hour_ago = email_outbox.iso(now - timedelta(hours=1))
+        n = conn.execute("SELECT COUNT(*) FROM email_outbox WHERE kind = 'test' AND created_at >= ?",
+                         (hour_ago,)).fetchone()[0]
+        if n >= 5:
+            raise HTTPException(status_code=429, detail="Batas 5 email tes per jam tercapai, coba lagi nanti")
+        summary = mailer.smtp_summary()
+        sent_at = now.replace(tzinfo=timezone.utc).astimezone(_TZ_JKT).strftime("%d %b %Y %H:%M WIB")
+        rendered = email_templates.smtp_test(summary["host"], summary["port"], summary["security"], sent_at)
+        email_id = email_outbox.enqueue(conn, kind="test", to_addr=to, rendered=rendered,
+                                        user_id=user["sub"], now=now)
+    email_worker.wake()
+    return {"id": email_id}
+
+
+@app.post("/api/admin/email/{email_id}/retry")
+async def admin_email_retry(email_id: int, user=Depends(get_admin_user)):
+    with get_db() as conn:
+        row = conn.execute("SELECT status, kind, expires_at FROM email_outbox WHERE id = ?",
+                           (email_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Email tidak ditemukan")
+        if row["status"] != "failed":
+            raise HTTPException(status_code=400, detail="Hanya email berstatus gagal yang bisa dicoba lagi")
+        now = email_outbox.utcnow()
+        if row["kind"] == "reset" and row["expires_at"] and row["expires_at"] <= email_outbox.iso(now):
+            raise HTTPException(status_code=400, detail="Link reset sudah kedaluwarsa — minta reset baru")
+        ts = email_outbox.iso(now)
+        conn.execute("UPDATE email_outbox SET status='queued', attempts=0, next_attempt_at=?, updated_at=?"
+                     " WHERE id = ? AND status = 'failed'", (ts, ts, email_id))
+    email_worker.wake()
+    return {"ok": True}
+
+
 @app.get("/api/admin/users")
 async def list_admin_users(user=Depends(get_admin_user)):
     with get_db() as conn:
