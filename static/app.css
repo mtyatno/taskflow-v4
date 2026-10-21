@@ -4538,6 +4538,12 @@
 .cmt-bubble { position: absolute; z-index: 1050; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; box-shadow: 0 6px 18px rgba(15,23,42,0.18); cursor: pointer; }
 .cmt-touchbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1050; display: flex; justify-content: center; padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px)); background: var(--bg-card); border-top: 1px solid var(--border); }
 .cmt-touchbar button { min-height: 44px; width: 100%; max-width: 420px; }
+/* Header editor (NoteModal) di HP: pil Komentar ringkas (ikon + jumlah); aria-label tetap. */
+@media (max-width: 768px) {
+  .cmt-hdr-btn--modal .cmt-btn-label { display: none; }
+  /* Pil header editor boleh turun baris agar tombol tutup (✕) tetap di layar. */
+  .note-modal-hdr-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; min-width: 0; }
+}
 ::highlight(cmt) { background-color: rgba(168,197,0,0.25); }
 ::highlight(cmt-active) { background-color: rgba(168,197,0,0.55); }
 @media (pointer: coarse) {

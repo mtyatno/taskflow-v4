@@ -18,6 +18,9 @@ function fnSource(name) {
   return indexHtml.slice(start, end);
 }
 
+// Ambang panel samping per host: pembaca 760px (mockup jendela 1360px), editor 900px.
+const WIDE_PX = { NotePanel: 760, NoteModal: 900 };
+
 for (const host of ["NotePanel", "NoteModal"]) {
   test(`${host} memasang tombol, panel, gelembung seleksi, dan sorotan`, () => {
     const src = fnSource(host);
@@ -27,7 +30,9 @@ for (const host of ["NotePanel", "NoteModal"]) {
     assert.match(src, /TF\.commenthighlight\.apply\(/);
     assert.match(src, /TF\.commenthighlight\.clear\(/);
     assert.match(src, /useNoteComments\(/);
-    assert.match(src, /useHostWide\([^)]*900\)/);
+    assert.match(src, new RegExp(`useHostWide\\(cmtHostRef, ${WIDE_PX[host]}\\)`));
+    const other = WIDE_PX[host === "NotePanel" ? "NoteModal" : "NotePanel"];
+    assert.ok(!new RegExp(`useHostWide\\(cmtHostRef, ${other}\\)`).test(src), `${host} must not use ${other}px`);
     assert.match(src, /tf_cmt_panel_open/);
     assert.match(src, /scrollIntoView\(\{\s*block:\s*"center"/);
     assert.ok(!/window\.confirm\([^)]*[Kk]omentar/.test(src), "no window.confirm for comments");
@@ -83,6 +88,20 @@ test("CommentSelectionBubble: selectionchange, dalam containerRef, normalizeQuot
   assert.match(src, /\(hover: none\)/);
   assert.match(src, /"Komentari"/);
   assert.match(src, /"Komentari teks terpilih"/);
+});
+
+test("header editor di HP: pil Komentar ringkas (label disembunyikan ≤768px, khusus NoteModal)", () => {
+  const appCss = fs.readFileSync(path.resolve(__dirname, "../../static/app.css"), "utf8").replace(/\r\n/g, "\n");
+  assert.match(fnSource("NoteCommentsButton"), /className: "note-act-label cmt-btn-label"/);
+  assert.match(fnSource("NoteModal"), /React\.createElement\(NoteCommentsButton, \{\s*className: "cmt-hdr-btn--modal",/);
+  assert.ok(!fnSource("NotePanel").includes("cmt-hdr-btn--modal"), "reader keeps its own label rule");
+  assert.match(appCss, /@media \(max-width: 768px\) \{\s*\.cmt-hdr-btn--modal \.cmt-btn-label \{ display: none; \}/);
+  // ✕ tetap di layar 375px: aksi header editor boleh turun baris di HP
+  assert.match(fnSource("NoteModal"), /className: "note-modal-hdr-actions",/);
+  assert.match(appCss, /\.note-modal-hdr-actions \{ flex-wrap: wrap;/);
+  // aturan berada di blok .cmt- (bukan di ekor file)
+  const at = appCss.indexOf(".cmt-hdr-btn--modal .cmt-btn-label");
+  assert.ok(at > appCss.indexOf(".cmt-touchbar {") && at < appCss.indexOf("::highlight(cmt)"), "rule sits with the other .cmt- rules");
 });
 
 test("useHostWide memakai ResizeObserver", () => {

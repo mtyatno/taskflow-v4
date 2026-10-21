@@ -30660,10 +30660,12 @@ function useHostWide(ref, minPx) {
 function NoteCommentsButton({
   count = 0,
   active = false,
-  onClick
+  onClick,
+  className
 }) {
   return /*#__PURE__*/React.createElement("button", {
     type: "button",
+    className: className,
     onClick: onClick,
     title: "Komentar",
     "aria-pressed": active ? "true" : "false",
@@ -30687,7 +30689,7 @@ function NoteCommentsButton({
     name: "fChat",
     size: 14
   }), /*#__PURE__*/React.createElement("span", {
-    className: "note-act-label"
+    className: "note-act-label cmt-btn-label"
   }, "Komentar"), count > 0 ? /*#__PURE__*/React.createElement("span", {
     className: "cmt-badge",
     "aria-hidden": "true"
@@ -32982,6 +32984,7 @@ function NoteModal({
       color: "var(--accent)"
     }
   }, !focusMode && /*#__PURE__*/React.createElement(React.Fragment, null, "\u26A1 Catatan (v5.1)")), /*#__PURE__*/React.createElement("div", {
+    className: "note-modal-hdr-actions",
     style: {
       display: "flex",
       gap: 6,
@@ -33028,6 +33031,7 @@ function NoteModal({
     noteId: note.id,
     variant: "pill"
   }), !focusMode && note?.id && noteListId != null && /*#__PURE__*/React.createElement(NoteCommentsButton, {
+    className: "cmt-hdr-btn--modal",
     count: cmt.openCount,
     active: cmtOpen,
     onClick: () => setCmtPanelOpen(!cmtOpen)
@@ -34033,7 +34037,8 @@ function NotePanel({
     return () => window.removeEventListener("tf:cmt-modal", onModal);
   }, []);
   const cmtHostRef = React.useRef(null);
-  const cmtWide = useHostWide(cmtHostRef, 900);
+  // Pembaca: panel samping dari lebar host 760px (mockup: jendela 1360px), editor tetap 900px.
+  const cmtWide = useHostWide(cmtHostRef, 760);
   const [cmtOpen, setCmtOpen] = useState(false);
   const [cmtQuote, setCmtQuote] = useState("");
   const [cmtActiveId, setCmtActiveId] = useState(null);
