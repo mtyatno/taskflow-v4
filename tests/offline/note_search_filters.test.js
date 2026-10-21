@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v401", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v441-kelola-workspace-fase1";/m,
-      "sw.js CACHE must be taskflow-v441-kelola-workspace-fase1"
+      /^const CACHE = "taskflow-v442-kelola-workspace-fase1";/m,
+      "sw.js CACHE must be taskflow-v442-kelola-workspace-fase1"
     );
   });
 });

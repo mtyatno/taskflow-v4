@@ -3733,3 +3733,15 @@
 ## 2026-10-21 09:00 WIB — Claude — Kelola Workspace Fase 1 (halaman Kelola per workspace)
 - Brainstorming → spec + rencana disetujui Bapak; SDD 7 task (Task 1+2 backend digabung), review per task, review akhir opus (temuan kritis: index.html baru + modul offline lama → blank) → 1 gelombang perbaikan + re-review bersih. SW v441, `app.css?v=349`, ADR-023. pytest 945, JS 2421/2422 (pra-ada), E2E 98/98 + Fase 0 66/66.
 - **Status:** Needs Review (draft PR; setelah merge restart `taskflow-web` lalu `taskflow`).
+## 2026-10-21 06:50 WIB — Claude — bug note list tag basi setelah autosave
+- **Task:** laporan Bapak: tag yang ditambahkan lewat editor note tidak tampil di note list sampai pindah halaman.
+- **Changes:** `NoteModal` memancarkan `noteSaved` saat ditutup bila autosave sempat menulis tanpa diumumkan (`unannouncedWriteRef`); SW v440 / `app.css?v=349`; tes sumber `note_editor_sync.test.js`; E2E `temporary_files/e2e_note_list_tags.py` 5/5 (kode lama gagal a, c).
+- **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/test_version.py, tests/offline/*.test.js, temporary_files/e2e_note_list_tags.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR; deploy = file statis + restart `taskflow-web` saja)
+
+## 2026-10-21 07:55 WIB — Claude — merge bug note list tag (#68)
+- Bapak: "merge". #68 di-merge (19a87cc); CI Tests hijau di head PR (b68e3ea). SW v441 / `app.css?v=349` (v440 / 348 tetap untuk draft #67 Suara latar — #67 perlu naik nomor saat di-merge).
+- **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web` saja. Cek: edit note → tambah `#tag` → tunggu beberapa detik → Simpan → kartu di note list langsung menampilkan tag.
+
+## 2026-10-21 08:40 WIB — Claude — merge main (#68) ke kelola-workspace-fase1, SW v442
+- `main` maju (#68 bug note list tag, SW v441 / `app.css?v=349` — sama dengan PR #70). Main di-merge; konflik hanya string versi + `.agents`/.gitignore (kedua sisi dipertahankan). SW naik ke **v442** `taskflow-v442-kelola-workspace-fase1`, `app.css?v=350`. pytest 945; JS 2421/2422 (pra-ada `draw_local_reactive`); inline OK; E2E fase 1 98/98, note list tags 5/5.
