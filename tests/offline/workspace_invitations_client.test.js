@@ -42,6 +42,19 @@ test("linkExpiryText: 'berlaku sampai {tanggal jam}' format id-ID", () => {
   assert.equal(wm.linkExpiryText("bukan tanggal"), "");
 });
 
+test("joinedDate/linkExpiryText: string ber-offset dari server tidak diberi 'Z' tambahan", () => {
+  const off = "2026-10-22T15:30:00.123456+07:00";
+  assert.equal(wm.joinedDate(off).toISOString(), "2026-10-22T08:30:00.123Z");
+  assert.equal(wm.joinedDate("2026-10-22T08:30:00Z").toISOString(), "2026-10-22T08:30:00.000Z");
+  assert.equal(wm.joinedDate("2026-10-22T03:30:00-05:00").toISOString(), "2026-10-22T08:30:00.000Z");
+  assert.equal(wm.linkExpiryText(off), "berlaku sampai " + new Date("2026-10-22T08:30:00Z").toLocaleString("id-ID", DT_OPTS));
+  // naive tetap dibaca UTC (perilaku lama)
+  assert.equal(wm.joinedDate("2026-10-22T08:30:00").toISOString(), "2026-10-22T08:30:00.000Z");
+  const created = "2026-10-21T10:00:00+07:00";
+  assert.equal(wm.invitationSubtitle({ inviter_name: "Budi", created_at: created }),
+    "Diundang oleh Budi · " + new Date("2026-10-21T03:00:00Z").toLocaleDateString("id-ID", D_OPTS));
+});
+
 test("invitationSubtitle: 'Diundang oleh {nama} · {tanggal}'", () => {
   const created = "2026-10-21 03:00:00";
   const tanggal = new Date("2026-10-21T03:00:00Z").toLocaleDateString("id-ID", D_OPTS);
@@ -113,4 +126,55 @@ test("helper baru dipanggil dengan guard typeof (pola Fase 1)", () => {
     const guards = html.split(`typeof WSM.${name} === "function"`).length - 1;
     assert.ok(guards >= calls, `${name}: setiap panggilan harus dijaga typeof (${calls} panggilan, ${guards} guard)`);
   }
+});
+
+// ── perbaikan review akhir Fase 2a ──────────────────────────────────────
+
+test("pratinjau ?join= dan pratinjau di halaman daftar memakai WSM.joinedDate (dijaga) + fallback new Date", () => {
+  const modal = sliceBetween("\nfunction JoinListModal(", "\nfunction SharedListsManager(");
+  assert.match(modal, /"Bergabung ke workspace"/);
+  assert.ok(!html.includes("Bergabung ke Shared List"));
+  assert.match(modal, /typeof WSM\.joinedDate === "function" \? WSM\.joinedDate\(preview\.expires_at\) : null\) \|\| new Date\(preview\.expires_at\)/);
+  assert.ok(!/new Date\(preview\.expires_at\)\.toLocaleString/.test(modal));
+  const mgr = sliceBetween("\nfunction SharedListsManager(", "\nfunction WorkspaceMembersSection(");
+  assert.match(mgr, /typeof WSM\.joinedDate === "function" \? WSM\.joinedDate\(joinPreview\.expires_at\) : null\) \|\| new Date\(joinPreview\.expires_at\)/);
+});
+
+test("poller notifikasi: jumlah belum dibaca naik → loadInvitations (dijaga typeof)", () => {
+  const i = app.indexOf("const fetchUnread = useCallback(");
+  const fn = app.slice(i, i + 700);
+  assert.match(fn, /next > prev && typeof loadInvitations === "function"\) loadInvitations\(\)/);
+});
+
+test("klik notifikasi undangan yang sudah tidak menunggu → toast 'Undangan ini sudah tidak berlaku'", () => {
+  const i = app.indexOf("const openInvitationsFromNotif = ");
+  const fn = app.slice(i, i + 900);
+  assert.match(fn, /i\.list\.id === n\.list_id/);
+  assert.match(fn, /showToast\("Undangan ini sudah tidak berlaku"/);
+  assert.match(app, /isInvite \? \(\) => openInvitationsFromNotif\(n\)/);
+});
+
+test("aksesibilitas: label Terima/Tolak, Salin/Batalkan link, aria-busy, baris notifikasi bisa dipakai keyboard", () => {
+  assert.ok(html.includes('"aria-label": `Terima undangan ke ${inv.list.name}`'));
+  assert.ok(html.includes('"aria-label": `Tolak undangan ke ${inv.list.name}`'));
+  assert.ok(html.includes('"aria-label": `Salin link (${linkUsage(l)})`'));
+  assert.ok(html.includes('"aria-label": `Batalkan link (${linkUsage(l)})`'));
+  for (const t of ['invBusy === inv.id ? "true"', 'ownerBusy === "link:" + l.code ? "true"',
+    'ownerBusy === "inv:" + inv.id ? "true"', 'ownerBusy === "all" ? "true"', 'inviteBusy ? "true"', 'creatingLink ? "true"'])
+    assert.ok(html.includes('"aria-busy": ' + t), "aria-busy " + t);
+  assert.match(app, /role: clickable \? "button" : undefined,\n\s+tabIndex: clickable \? 0 : undefined/);
+  assert.match(app, /e\.key === "Enter" \|\| e\.key === " "/);
+});
+
+test("form undang owner: guard in-flight (ref + tombol nonaktif)", () => {
+  const sec = sliceBetween("\nfunction WorkspaceMembersSection(", "\nfunction ");
+  assert.match(sec, /if \(!username \|\| !online \|\| inviteBusyRef\.current\) return;/);
+  assert.match(sec, /finally \{\n\s+inviteBusyRef\.current = false;\n\s+setInviteBusy\(false\);/);
+  assert.match(sec, /disabled: !online \|\| inviteBusy,/);
+});
+
+test("undangan menunggu: tanpa display_name hanya '@username' sekali", () => {
+  const sec = sliceBetween("\nfunction WorkspaceMembersSection(", "\nfunction ");
+  assert.match(sec, /const name = who\.display_name && who\.display_name !== who\.username \? who\.display_name : "";/);
+  assert.match(sec, /name \? name \+ " " : null/);
 });

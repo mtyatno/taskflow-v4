@@ -50,6 +50,14 @@ MSG_MISSING = "Kode tidak valid."
 
 
 # ── helper ──────────────────────────────────────────────────────────────────────────────────────
+def hour_min(m):
+    """Jam:menit pertama dalam teks tanggal-jam id-ID ("22 Okt 15.30" / "22/10/2026, 15.30.12")."""
+    if not m:
+        return None
+    t = re.search(r"(\d{1,2})[.:](\d{2})(?:[.:]\d{2})?\s*$", m.group(1).strip())
+    return (int(t.group(1)), int(t.group(2))) if t else None
+
+
 def open_app(browser, base, user, theme="light", width=1280, height=860, path="/"):
     kw = {"service_workers": "block", "viewport": {"width": width, "height": height}}
     if width < 600:
@@ -192,7 +200,7 @@ def invite_flows(base, A, a, U, u, ws, tag):
           row.count() == 1 and acc_name in row.inner_text() and "Diundang oleh Ana" in row.inner_text(),
           repr(row.all_inner_texts()))
     shot(u, "1d_undangan_untukmu_%s.png" % tag)
-    row.get_by_role("button", name="Terima", exact=True).click()
+    row.get_by_role("button", name="Terima undangan ke %s" % acc_name, exact=True).click()
     check("[%s] 1g toast 'Bergabung ke %s'" % (tag, acc_name), toast(u, "Bergabung ke %s" % acc_name))
     check("[%s] 1h kartu workspace muncul, seksi + badge hilang" % tag,
           wait_until(lambda: card(u, acc_id).count() == 1 and inv_section(u).count() == 0 and no_badge(u), 15),
@@ -211,7 +219,7 @@ def invite_flows(base, A, a, U, u, ws, tag):
     row = inv_section(u).locator("[data-invitation]")
     row.first.wait_for(timeout=8000)
     check("[%s] 2b seksi memuat %s" % (tag, dec_name), dec_name in row.first.inner_text())
-    row.first.get_by_role("button", name="Tolak", exact=True).click()
+    row.first.get_by_role("button", name="Tolak undangan ke %s" % dec_name, exact=True).click()
     check("[%s] 2c toast 'Undangan ditolak'" % tag, toast(u, "Undangan ditolak"))
     check("[%s] 2d workspace tidak muncul, seksi + badge hilang" % tag,
           wait_until(lambda: card(u, dec_id).count() == 0 and inv_section(u).count() == 0 and no_badge(u), 10))
@@ -291,17 +299,21 @@ def main():
             join_url = inp.input_value()
             code1 = join_url.split("code=")[-1]
             check("4c join_url berisi /join?code=", "/join?code=" in join_url and len(code1) > 10, join_url)
-            sec.get_by_role("button", name="Salin", exact=True).click()
+            sec.get_by_role("button", name="Salin link (Sisa 1 dari 1)", exact=True).click()
             check("4c' Salin → toast 'Link disalin'", toast(a, "Link disalin"))
             shot(a, "4a_link_satu_orang_terang.png")
             # B lewat ?join=
             ctxj, bj = open_app(browser, base, B, path="/?join=" + code1)
             pages.append(bj)
-            modal = bj.locator(".modal-content").filter(has_text="Bergabung ke Shared List")
+            modal = bj.locator(".modal-content").filter(has_text="Bergabung ke workspace")
             check("4d ?join= modal: 'Owner: Ana · 1 anggota'",
                   wait_until(lambda: modal.get_by_text("Owner: Ana · 1 anggota", exact=True).count() == 1, 10),
                   repr(modal.all_inner_texts()))
             check("4d' ?join= dibersihkan dari URL", "join=" not in bj.url, bj.url)
+            owner_hm = hour_min(re.search(r"berlaku sampai ([^\n]+)", sec.inner_text()))
+            modal_hm = hour_min(re.search(r"berlaku hingga ([^\n]+)", modal.inner_text()))
+            check("4d'' jam kedaluwarsa sama: teks link owner %r = modal ?join= 'Berlaku hingga' %r" % (owner_hm, modal_hm),
+                  owner_hm is not None and owner_hm == modal_hm)
             shot(bj, "4b_join_modal_terang.png", full=False)
             modal.get_by_role("button", name="Gabung ke List Ini").click()
             check("4e B bergabung (toast + kartu)",
@@ -336,7 +348,7 @@ def main():
             check("5c B bergabung lewat kode", wait_until(lambda: card(b, L2).count() == 1, 10))
             ctxj, cj = open_app(browser, base, C, path="/?join=" + code2)
             pages.append(cj)
-            modal = cj.locator(".modal-content").filter(has_text="Bergabung ke Shared List")
+            modal = cj.locator(".modal-content").filter(has_text="Bergabung ke workspace")
             check("5d C ?join=: 'Owner: Ana · 2 anggota'",
                   wait_until(lambda: modal.get_by_text("Owner: Ana · 2 anggota", exact=True).count() == 1, 10))
             modal.get_by_role("button", name="Gabung ke List Ini").click()
@@ -353,7 +365,7 @@ def main():
                   wait_until(lambda: sec.locator("input.ws-invite-link").count() == 2
                              and "Sisa 10 dari 10" in sec.inner_text(), 8))
             code3 = sec.locator("input.ws-invite-link").first.input_value().split("code=")[-1]
-            sec.get_by_role("button", name="Batalkan link undangan").first.click()
+            sec.get_by_role("button", name="Batalkan link (Sisa 10 dari 10)", exact=True).first.click()
             check("5h Batalkan → satu link tersisa",
                   wait_until(lambda: sec.locator("input.ws-invite-link").count() == 1, 8))
             check("5h' link tersisa = link tanpa batas", link_codes(base, A, L2) == [code2], repr(link_codes(base, A, L2)))
@@ -380,7 +392,7 @@ def main():
             shot(a, "5b_setelah_matikan_semua_terang.png")
             ctxj, cj = open_app(browser, base, C, path="/?join=" + code2)
             pages.append(cj)
-            modal = cj.locator(".modal-content").filter(has_text="Bergabung ke Shared List")
+            modal = cj.locator(".modal-content").filter(has_text="Bergabung ke workspace")
             check("5l ?join= link dimatikan → '%s'" % MSG_REVOKED,
                   wait_until(lambda: modal.get_by_text(MSG_REVOKED, exact=True).count() == 1, 10),
                   repr(modal.all_inner_texts()))
@@ -419,16 +431,19 @@ def main():
                 return loc.count() >= 1 and all(x.is_disabled() and x.get_attribute("title") == OFF for x in loc.all())
 
             names = ["＋ Undang via Username", "Buat link", "Batalkan undangan untuk @%s" % B["username"],
-                     "Batalkan link undangan", "Matikan semua link"]
-            check("6a owner offline: %s nonaktif + title '%s'" % (", ".join(names), OFF),
-                  wait_until(lambda: all(off(sec.get_by_role("button", name=n, exact=True)) for n in names), 5),
-                  repr({n: [(x.is_disabled(), x.get_attribute("title"))
-                            for x in sec.get_by_role("button", name=n, exact=True).all()] for n in names}))
+                     re.compile(r"^Batalkan link \("), "Matikan semua link"]
+
+            def btns(n):
+                return sec.get_by_role("button", name=n) if hasattr(n, "pattern") else sec.get_by_role("button", name=n, exact=True)
+            check("6a owner offline: %s nonaktif + title '%s'" % (", ".join(getattr(n, "pattern", n) for n in names), OFF),
+                  wait_until(lambda: all(off(btns(n)) for n in names), 5),
+                  repr({getattr(n, "pattern", n): [(x.is_disabled(), x.get_attribute("title"))
+                            for x in btns(n).all()] for n in names}))
             shot(a, "6a_offline_owner_terang.png")
             row = inv_section(b).locator("[data-invitation]")
             check("6b penerima offline: Terima/Tolak nonaktif + title",
-                  wait_until(lambda: off(row.get_by_role("button", name="Terima", exact=True))
-                             and off(row.get_by_role("button", name="Tolak", exact=True)), 5))
+                  wait_until(lambda: off(row.get_by_role("button", name=re.compile(r"^Terima undangan ke ")))
+                             and off(row.get_by_role("button", name=re.compile(r"^Tolak undangan ke "))), 5))
             check("6c penerima offline: badge tetap (cache)", has_badge(b, 1), repr(badge_state(b)))
             shot(b, "6b_offline_penerima_terang.png")
             ctxa.set_offline(False)
