@@ -384,7 +384,12 @@ test("index.html NoteModal: snapshot-based autosave, no navigator.onLine guard, 
 
 test("index.html NoteModal: flush on close/unmount, noteSaved listener for personal notes too, server poll via window.__syncRawFetch", () => {
   assert.match(noteModal, /const flushAutosave = async \(\) => \{/);
-  assert.match(noteModal, /useEffect\(\(\) => \(\) => \{ try \{ flushAutosaveRef\.current\(\); \} catch \(_\) \{\} \}, \[\]\);/, "flush saat unmount");
+  assert.match(noteModal, /try \{ p = flushAutosaveRef\.current\(\); \}/, "flush saat unmount");
+  // autosave yang belum diumumkan → noteSaved sekali saat ditutup (bug: tag baru tidak tampil di daftar catatan)
+  assert.match(noteModal, /const unannouncedWriteRef = useRef\(false\);/);
+  assert.match(noteModal, /const saved = await p;\s*unannouncedWriteRef\.current = /, "persistEditor menandai tulisan autosave");
+  assert.match(noteModal, /if \(flushed \|\| !written\) return;[\s\S]{0,300}source: "editor-autosave", cids: \[written\][\s\S]{0,120}new CustomEvent\("noteSaved", \{ detail \}\)/, "unmount mengumumkan autosave");
+  assert.match(noteModal, /setSavedNoteId\(saved\.id\);\s*unannouncedWriteRef\.current = false;/, "Simpan via onSave tidak mengumumkan dua kali");
   assert.match(noteModal, /await flushAutosave\(\);\s*\} catch \{\}\s*\}\s*onClose\(\);/, "tombol ✕ memakai flush, bukan PUT tanpa syarat");
   assert.match(noteModal, /window\.addEventListener\("noteSaved", handler\);/);
   assert.match(noteModal, /if \(cids && myCid && !cids\.includes\(myCid\)\) return;/);

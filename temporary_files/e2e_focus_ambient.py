@@ -383,7 +383,7 @@ def run_sw_offline(browser, base, user, proc):
         check("h1 Brown Noise online -> idle, tersimpan di alurik-ambient-v1",
               st["state"] == "idle" and cached and all("brown-noise-v1" in u for u in cached), "%r %r" % (st, cached))
         names = p.evaluate("() => caches.keys()")
-        check("h2 cache SW versi aktif + alurik-ambient-v1", "taskflow-v440-focus-ambient" in names
+        check("h2 cache SW versi aktif + alurik-ambient-v1", "taskflow-v442-focus-ambient" in names
               and "alurik-ambient-v1" in names, repr(names))
         # Kosongkan cache HTTP browser (dipakai bersama oleh halaman dan fetch SW) dan matikan untuk halaman ini:
         # StaticFiles mengirim ETag/Last-Modified tanpa Cache-Control, sehingga cache heuristik Chromium bisa

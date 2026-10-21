@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v440-focus-ambient', () => {
+  test('Service Worker cache version is bumped to taskflow-v442-focus-ambient', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v440-focus-ambient";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v442-focus-ambient";/m);
   });
 });
 

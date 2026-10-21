@@ -3736,7 +3736,21 @@
 - **Files Touch:** static/sw.js, static/index.html, webapp.py, tests/, .gitignore, temporary_files/e2e_focus_ambient.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (belum di-push; deploy = file statis + `static/sounds/` + restart `taskflow-web` saja)
 
+## 2026-10-21 06:50 WIB — Claude — bug note list tag basi setelah autosave
+- **Task:** laporan Bapak: tag yang ditambahkan lewat editor note tidak tampil di note list sampai pindah halaman.
+- **Changes:** `NoteModal` memancarkan `noteSaved` saat ditutup bila autosave sempat menulis tanpa diumumkan (`unannouncedWriteRef`); SW v440 / `app.css?v=349`; tes sumber `note_editor_sync.test.js`; E2E `temporary_files/e2e_note_list_tags.py` 5/5 (kode lama gagal a, c).
+- **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/test_version.py, tests/offline/*.test.js, temporary_files/e2e_note_list_tags.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR; deploy = file statis + restart `taskflow-web` saja)
+
 ## 2026-10-21 07:10 WIB — Claude — Fokus Hari Ini PR D: perbaikan review akhir
 - **Changes:** suara memudar saat logout / sesi berakhir (efek update App: `isRunning: !!user && timer.isRunning`, deps `!!user`) + tes sumber + E2E j; SW `/static/sounds/`: kegagalan Cache Storage lanjut ke jaringan, `cache.put` lewat `e.waitUntil(...).catch`, + 4 tes; `.pomo-ambient-select option` latar `#fff` + tes CSS; E2E h membuktikan respons `from_service_worker` + kontrol negatif (putaran review 1). E2E ambient 87/87; lihat entri CURRENT_STATE untuk verifikasi lengkap.
 - **Files Touch:** static/index.html, static/sw.js, static/app.css, tests/offline/focus_ambient_ui.test.js, tests/offline/sw_ambient_cache.test.js, temporary_files/e2e_focus_ambient.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push)
+
+## 2026-10-21 07:55 WIB — Claude — merge bug note list tag (#68)
+- Bapak: "merge". #68 di-merge (19a87cc); CI Tests hijau di head PR (b68e3ea). SW v441 / `app.css?v=349` (v440 / 348 tetap untuk draft #67 Suara latar — #67 perlu naik nomor saat di-merge).
+- **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web` saja. Cek: edit note → tambah `#tag` → tunggu beberapa detik → Simpan → kartu di note list langsung menampilkan tag.
+
+## 2026-10-21 08:30 WIB — Claude — Fokus Hari Ini PR D: merge main (#68)
+- **Changes:** merge `origin/main` (#68 note list tags) ke `claude/focus-ambient`; konflik versi diselesaikan ke SW v442 `taskflow-v442-focus-ambient` / `app.css?v=350` (sw.js, index.html ×3, webapp.py, tes, E2E h2); `.gitignore` + `.agents` kedua sisi. Verifikasi: pytest 911; JS 2392/2393 (pra-ada `draw_local_reactive`); inline OK; `e2e_focus_page.py` 35/35; `e2e_focus_ambient.py` 87/87 tetapi skenario g (autoplay ditolak setelah reload) flaky ±50% — sama di HEAD sebelum merge, bukan regresi.
 - **Status:** Needs Review (belum di-push)
