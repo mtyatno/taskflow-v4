@@ -387,7 +387,7 @@
   }
 
   const exported = {
-    CURSOR_KEY, READS_KEY, getRaw, putRaw, deleteRaw, shape, listForNote, threads, parts,
+    CURSOR_KEY, READS_KEY, getRaw, putRaw, deleteRaw, findComment, shape, listForNote, threads, parts,
     create, edit, resolve, remove, discard, mergePulled, clearSynced, markRead, seedReadMarkers, decorateNotes,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.commentrepo = exported; }
