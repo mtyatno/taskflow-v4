@@ -3761,3 +3761,8 @@
 
 ## 2026-10-21 07:10 WIB — Claude — ikon daftar Catatan, pin, Petakan
 - Bapak minta ikon di panel Catatan (catatan, tanpa tag, share, tag, trash) lalu juga pin dan otak (Petakan) diganti gaya Alurik. Implementer subagent + review terpisah (siap merge). SW v443 / `app.css?v=350`. **Status:** Needs Review (draft PR; restart `taskflow-web`).
+
+## 2026-10-21 10:20 WIB — Claude — merge ikon daftar Catatan (#69)
+- Bapak: "merge". `main` sempat maju dua kali (#68 v441, #70 v442 + `app.css?v=350`); branch di-merge `main` dua kali, SW dinomori ulang ke v443. #69 di-merge (8153da0); CI Tests dan Deploy Taskflow V4 sukses.
+- Catatan: E2E lama `temporary_files/e2e_tasklist_view_icons.py` langkah 14 (Kelola Workspace) tidak cocok lagi dengan halaman hasil #70; ada saklar `E2E_SKIP_MANAGE=1`, langkahnya perlu disesuaikan terpisah.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek panel Catatan (SW v443).
