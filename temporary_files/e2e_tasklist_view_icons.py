@@ -687,6 +687,96 @@ def run_chat_calendar_pages(browser, base, user, theme):
         ctx.close()
 
 
+EMOJI_HABIT = "\U0001F3AF\U0001F525\u23F3\u270F\U0001F5D1\u2705\u2715\U0001F331\u26A1\U0001F4C1\U0001F4C2"
+
+
+def run_habit_dashboard_pages(browser, base, user, empty_user, theme):
+    tag = "terang" if theme == "light" else "gelap"
+    # --- Habit: keadaan kosong (user tanpa habit) ---
+    ctx, p = open_tasks_page(browser, base, empty_user, theme)
+    try:
+        nav_to(p, "Habit Tracker")
+        p.locator("text=Belum ada habit").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(400)
+        check("[%s] 21a Habit kosong: tanpa emoji, sprout svg 44px" % tag,
+              not [c for c in EMOJI_HABIT if c in p.locator("body").inner_text()]
+              and p.locator(".wsf-title-ico svg[width='44']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_21_habit_kosong.png" % tag), scale="css")
+    finally:
+        ctx.close()
+    # --- Habit: kartu (micro target, streak, menu) lalu pending offline ---
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        nav_to(p, "Habit Tracker")
+        p.locator(".habit-card-new").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(500)
+        check("[%s] 21b Habit: tanpa emoji di innerText" % tag,
+              not [c for c in EMOJI_HABIT if c in p.locator("body").inner_text()])
+        check("[%s] 21c Habit: micro target 13px, api 15px" % tag,
+              p.locator(".habit-card-micro-new svg[width='13']").count() >= 1
+              and p.locator(".habit-streak-badge svg[width='15']").count() >= 1)
+        card = p.locator(".habit-card-new").first
+        card.screenshot(path=os.path.join(SHOTS, "%s_21_habit_kartu.png" % tag), scale="css")
+        p.screenshot(path=os.path.join(SHOTS, "%s_21_habit_halaman.png" % tag), scale="css")
+        # menu kartu terbuka
+        card.locator(".habit-card-meta button").last.click()
+        p.get_by_text("Hapus", exact=True).first.wait_for(state="visible", timeout=5000)
+        check("[%s] 21d Habit: menu Edit/Hapus svg 14px, tanpa emoji" % tag,
+              p.get_by_role("button", name="Edit").locator("svg[width='14']").count() >= 1
+              and p.get_by_role("button", name="Hapus").locator("svg[width='14']").count() >= 1
+              and not [c for c in EMOJI_HABIT if c in p.locator("body").inner_text()])
+        p.screenshot(path=os.path.join(SHOTS, "%s_21_habit_menu.png" % tag), scale="css")
+        # modal edit (dari menu yang masih terbuka)
+        p.get_by_role("button", name="Edit").first.click()
+        p.locator(".modal-close").first.wait_for(state="visible", timeout=5000)
+        check("[%s] 21e Habit: modal edit, tutup svg 15px" % tag,
+              p.locator(".modal-close svg[width='15']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_21_habit_edit.png" % tag), scale="css")
+        p.locator(".modal-close").first.click()
+        # habit pending: mode local-first melayani /today dari router lokal, jadi sisipkan habit _pending lewat api.get
+        p.evaluate("""() => {
+            const orig = api.get.bind(api);
+            api.get = async (u, ...r) => {
+                const d = await orig(u, ...r);
+                if (String(u).startsWith("/api/habits/today") && Array.isArray(d))
+                    return [...d, {id: "tmp_e2e_1", title: "Baca buku offline", phase: "pagi", micro_target: "Baca 1 halaman",
+                        _pending: true, today_status: null, skip_reason: "", streak: 0, week_log: [null, null, null, null, null, null, null],
+                        frequency: [0, 1, 2, 3, 4, 5, 6]}];
+                return d;
+            };
+        }""")
+        nav_to(p, "Semua Task")
+        p.locator(".tl-view-seg").wait_for(state="visible", timeout=15000)
+        nav_to(p, "Habit Tracker")
+        p.locator("[title='Menunggu sinkron']").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        check("[%s] 21f Habit pending: jam pasir svg 13px, tanpa emoji" % tag,
+              p.locator("[title='Menunggu sinkron'] svg[width='13']").count() == 1
+              and not [c for c in EMOJI_HABIT if c in p.locator("body").inner_text()])
+        p.locator(".habit-card-new", has=p.locator("[title='Menunggu sinkron']")).screenshot(
+            path=os.path.join(SHOTS, "%s_21_habit_pending.png" % tag), scale="css")
+    finally:
+        ctx.close()
+    # --- Dashboard: hero + chip habit ---
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        nav_to(p, "Dashboard")
+        p.locator(".dash-hero-habit-cta").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(600)
+        body = p.locator("body").inner_text()
+        check("[%s] 22a Dashboard: tanpa emoji ikon, chip habit svg 13px" % tag,
+              not [c for c in EMOJI_HABIT if c in body]
+              and p.locator(".dash-hero-habit-cta svg[width='13']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_22_dashboard_hero.png" % tag), scale="css")
+        p.locator(".dash-hero-habit-pill").first.screenshot(path=os.path.join(SHOTS, "%s_22_dashboard_chip.png" % tag), scale="css")
+        print("  screenshot %s_21/22_*.png" % tag, flush=True)
+    finally:
+        ctx.close()
+
+
 def main():
     os.makedirs(SHOTS, exist_ok=True)
     for f in os.listdir(SHOTS):
@@ -733,6 +823,11 @@ def main():
         _td = _dt.date.today().isoformat()
         api(base, user, "POST", "/api/tasks", json={"title": "Rapat rutin harian", "gtd_status": "next", "deadline": _td, "recurrence_type": "daily"})
         api(base, user, "POST", "/api/tasks", json={"title": "Susun proposal", "gtd_status": "next", "deadline": _td, "project": "Proyek Alfa"})
+        # Habit (Task 3 ikon halaman): micro target + streak; user terpisah tanpa habit untuk keadaan kosong
+        empty_user = register(base, "kosong")
+        _, hb = api(base, user, "POST", "/api/habits", json={"title": "Minum air", "phase": "pagi", "micro_target": "Satu gelas dulu", "frequency": [0, 1, 2, 3, 4, 5, 6]})
+        api(base, user, "POST", "/api/habits/%d/checkin" % hb["id"], json={"status": "done"})
+        api(base, user, "POST", "/api/habits", json={"title": "Jalan sore", "phase": "siang", "micro_target": "Pakai sepatu saja", "frequency": [0, 1, 2, 3, 4, 5, 6]})
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for theme in ("light", "dark"):
@@ -753,6 +848,7 @@ def main():
                 run_notes_page(browser, base, user, theme)
                 run_mindmap_draw_pages(browser, base, user, theme)
                 run_chat_calendar_pages(browser, base, user, theme)
+                run_habit_dashboard_pages(browser, base, user, empty_user, theme)
             browser.close()
     except Exception as e:
         check("exception", False, "%s: %s" % (type(e).__name__, str(e)[:900]))

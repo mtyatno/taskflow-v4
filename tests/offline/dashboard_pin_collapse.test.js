@@ -206,7 +206,7 @@ test("Dashboard: modal \"Lihat semua\" / Disematkan ramah keyboard & pembaca lay
   assert.match(modal, /\{\s*id: "dash-modal-title",\s*style: \{\s*fontWeight: 700,\s*fontSize: 16\s*\}\s*\}, dashModal\.title\)/);
   assert.equal(src.split('id: "dash-modal-title"').length - 1, 1, "id judul modal harus unik");
   // ✕: tombol bertipe, berlabel, langsung menerima fokus saat modal terbuka.
-  assert.match(modal, /type: "button",\s*className: "btn btn-secondary btn-sm",\s*"aria-label": "Tutup",\s*autoFocus: true,\s*onClick: \(\) => setDashModal\(null\)\s*\}, "✕"\)/);
+  assert.match(modal, /type: "button",\s*className: "btn btn-secondary btn-sm",\s*"aria-label": "Tutup",\s*autoFocus: true,\s*onClick: \(\) => setDashModal\(null\)\s*\}, \/\*#__PURE__\*\/React.createElement\(ViewGlyph, \{ name: "fX", size: 15 \}\)\)/);
   // Baris kedua varian (pins & task): bisa difokus, diaktifkan keyboard (aksi = onClick-nya sendiri).
   assert.equal(src.split('className: "dash-modal-row"').length - 1, 2, "dua varian baris modal");
   const rows = [...modal.matchAll(/className: "dash-modal-row",\s*role: "button",\s*tabIndex: 0,\s*onKeyDown: dashModalRowKey,\s*onClick: \(\) => \{/g)];
