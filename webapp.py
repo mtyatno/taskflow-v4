@@ -937,6 +937,8 @@ def migrate_db():
         repository.ensure_contexts_schema(conn)
         repository.ensure_workspace_pins_schema(conn)
         repository.ensure_workspace_identity_schema(conn)
+        repository.ensure_workspace_invitations_schema(conn)
+        repository.ensure_list_invites_schema(conn)
         repository.ensure_pomodoro_schema(conn)
         repository.backfill_contexts(conn)
         # Drawing milik workspace: kolom list_id/last_edited_by + backfill sekali jalan dari note workspace.
@@ -1421,6 +1423,43 @@ class PublishReq(BaseModel):
 
 class JoinListReq(BaseModel):
     code: str
+
+
+class GenerateLinkReq(BaseModel):
+    expires_in: Literal["1h", "1d", "7d"] = "1d"
+    max_uses: Literal[1, 10, None] = 1
+
+
+_INVITE_ERRORS = {
+    "missing": "Kode tidak valid.",
+    "revoked": "Link sudah dibatalkan owner.",
+    "expired": "Link sudah kedaluwarsa.",
+    "full": "Link sudah mencapai batas pemakaian.",
+}
+_INVITE_HOURS = {"1h": 1, "1d": 24, "7d": 24 * 7}
+
+# Referensi kuat untuk task DM undangan agar tidak dibuang GC sebelum selesai.
+_INVITE_DM_TASKS: set = set()
+
+
+def _spawn_invite_dm(coro) -> None:
+    task = asyncio.create_task(coro)
+    _INVITE_DM_TASKS.add(task)
+    task.add_done_callback(_INVITE_DM_TASKS.discard)
+
+
+def _iso_with_offset(s):
+    """Stempel naive (waktu lokal server) -> ISO ber-offset agar klien tidak salah baca zona.
+    None/kosong dikembalikan apa adanya; string yang sudah ber-offset tidak diubah."""
+    if not s or not isinstance(s, str):
+        return s
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return s
+    if dt.tzinfo is not None:
+        return s
+    return dt.astimezone().isoformat()
 
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
@@ -3428,9 +3467,15 @@ async def create_list(req: SharedListCreate, user=Depends(get_current_user)):
 async def join_list_by_code(req: JoinListReq, user=Depends(get_current_user)):
     uid = user["sub"]
     repo = TaskRepository(DB_PATH)
-    list_id = repo.consume_list_invite(req.code)
-    if not list_id:
-        raise HTTPException(status_code=400, detail="Kode tidak valid, sudah digunakan, atau kadaluarsa.")
+    st = repo.invite_status(req.code)
+    if st["status"] == "full" and repo.is_list_member_or_owner(st["list_id"], uid):
+        # kirim ganda pada link sekali pakai: penjelasan yang tepat adalah "sudah anggota"
+        detail = ("Kamu adalah owner list ini." if repo.is_list_owner(st["list_id"], uid)
+                  else "Kamu sudah menjadi anggota list ini.")
+        raise HTTPException(status_code=400, detail=detail)
+    if st["status"] != "ok":
+        raise HTTPException(status_code=400, detail=_INVITE_ERRORS[st["status"]])
+    list_id = st["list_id"]
     lst = repo.get_shared_list(list_id)
     if not lst:
         raise HTTPException(status_code=404, detail="List tidak ditemukan.")
@@ -3438,7 +3483,16 @@ async def join_list_by_code(req: JoinListReq, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Kamu adalah owner list ini.")
     if repo.is_list_member_or_owner(list_id, uid):
         raise HTTPException(status_code=400, detail="Kamu sudah menjadi anggota list ini.")
-    repo.add_list_member(list_id, uid)
+    # Pakai kuota + tambah anggota dalam satu transaksi; sudah anggota -> rollback (kuota utuh).
+    res = repo.join_list_via_invite(req.code, uid)
+    if res["status"] == "owner":
+        raise HTTPException(status_code=400, detail="Kamu adalah owner list ini.")
+    if res["status"] == "already_member" or (
+            res["status"] != "ok" and repo.is_list_member_or_owner(list_id, uid)):
+        raise HTTPException(status_code=400, detail="Kamu sudah menjadi anggota list ini.")
+    if res["status"] != "ok":
+        st = repo.invite_status(req.code)
+        raise HTTPException(status_code=400, detail=_INVITE_ERRORS.get(st["status"], _INVITE_ERRORS["missing"]))
     # Notify owner
     with get_db() as conn:
         owner = conn.execute(
@@ -3446,9 +3500,8 @@ async def join_list_by_code(req: JoinListReq, user=Depends(get_current_user)):
         ).fetchone()
     if owner and owner["telegram_id"] and _tg_bot:
         try:
-            import asyncio
             joiner = user.get("username", f"user#{uid}")
-            asyncio.create_task(_tg_bot.send_message(
+            _spawn_invite_dm(_tg_bot.send_message(
                 chat_id=owner["telegram_id"],
                 text=f"👥 <b>{_esc_msg(joiner)}</b> bergabung ke shared list <b>{_esc_msg(lst['name'])}</b>.",
                 parse_mode="HTML",
@@ -3469,9 +3522,12 @@ async def reorder_workspace_pins(req: PinOrderReq, user=Depends(get_current_user
 @app.get("/api/lists/preview/{code}")
 async def preview_invite_code(code: str, user=Depends(get_current_user)):
     """Preview list info from an invite code without consuming it."""
+    st = TaskRepository(DB_PATH).invite_status(code)
+    if st["status"] != "ok":
+        raise HTTPException(status_code=400, detail=_INVITE_ERRORS[st["status"]])
     with get_db() as conn:
         row = conn.execute(
-            "SELECT li.list_id, li.expires_at, li.used, sl.name, "
+            "SELECT li.list_id, li.expires_at, sl.name, "
             "COALESCE(NULLIF(u.display_name, ''), u.username) AS owner_name, "
             "1 + (SELECT COUNT(*) FROM list_members lm WHERE lm.list_id = sl.id) AS member_count "
             "FROM list_invites li "
@@ -3479,12 +3535,9 @@ async def preview_invite_code(code: str, user=Depends(get_current_user)):
             "LEFT JOIN users u ON u.id = sl.owner_id WHERE li.code = ?",
             (code,),
         ).fetchone()
-    if not row or row["used"]:
-        raise HTTPException(status_code=400, detail="Kode tidak valid atau sudah digunakan.")
-    from datetime import datetime as _dt
-    if _dt.fromisoformat(row["expires_at"]) < _dt.now():
-        raise HTTPException(status_code=400, detail="Kode sudah kadaluarsa.")
-    return {"list_id": row["list_id"], "list_name": row["name"], "expires_at": row["expires_at"],
+    if not row:
+        raise HTTPException(status_code=400, detail=_INVITE_ERRORS["missing"])
+    return {"list_id": row["list_id"], "list_name": row["name"], "expires_at": _iso_with_offset(row["expires_at"]),
             "owner_name": row["owner_name"], "member_count": row["member_count"]}
 
 
@@ -3496,7 +3549,8 @@ async def get_list(list_id: int, user=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="List not found")
     if not repo.is_list_member_or_owner(list_id, user["sub"]):
         raise HTTPException(status_code=403, detail="Not a member of this list")
-    members = repo.get_list_members(list_id)
+    members = [{**m, "joined_at": _iso_with_offset(m.get("joined_at"))}
+               for m in repo.get_list_members(list_id)]
     # Include owner info
     with get_db() as conn:
         owner = conn.execute(
@@ -3644,39 +3698,147 @@ async def invite_to_list(list_id: int, req: InviteUserReq, user=Depends(get_curr
     if repo.is_list_member_or_owner(list_id, target["id"]):
         raise HTTPException(status_code=400, detail=f"User '{req.username}' sudah menjadi anggota")
 
-    added = repo.add_list_member(list_id, target["id"])
-    # Notify via Telegram if user has telegram_id
-    if added and target.get("telegram_id") and _tg_bot:
-        try:
-            inviter = user.get("username", f"user#{uid}")
-            import asyncio
-            asyncio.create_task(
-                _tg_bot.send_message(
-                    chat_id=target["telegram_id"],
-                    text=f"👥 <b>{_esc_msg(inviter)}</b> mengundangmu ke shared list <b>{_esc_msg(lst['name'])}</b>!\n"
-                         f"Kamu sekarang bisa melihat dan mengedit task di list ini.",
-                    parse_mode="HTML"
-                )
-            )
-        except Exception:
-            pass
+    try:
+        inv = repo.create_workspace_invitation(list_id, uid, target["id"])
+    except repository.AlreadyMember:
+        raise HTTPException(status_code=400, detail=f"User '{req.username}' sudah menjadi anggota")
+    except repository.InvitationExists:
+        raise HTTPException(status_code=409, detail=f"Undangan untuk @{req.username} sudah dikirim")
+    _spawn_invite_dm(_send_invitation_telegram(inv))
     return {
         "ok": True,
-        "added_user": {"id": target["id"], "username": target["username"], "display_name": target["display_name"]}
+        "invitation": {
+            "id": inv["id"],
+            "invitee": {"id": target["id"], "username": target["username"],
+                        "display_name": target["display_name"]},
+            "created_at": _iso_with_offset(inv["created_at"]),
+        },
     }
 
 
-@app.post("/api/lists/{list_id}/generate-link")
-async def generate_invite_link(list_id: int, user=Depends(get_current_user)):
-    """Generate a one-use invite link (48h) for sharing via URL."""
+async def _send_invitation_telegram(invitation: dict) -> None:
+    """DM Telegram undangan workspace dengan tombol Terima/Tolak; galat hanya di-log."""
+    if not _tg_bot:
+        return
+    try:
+        repo = TaskRepository(DB_PATH)
+        target = repo.get_user_by_id(invitation["invitee_id"])
+        if not target or not target.get("telegram_id"):
+            return
+        inviter = repo.get_user_by_id(invitation["inviter_id"]) or {}
+        lst = repo.get_shared_list(invitation["list_id"]) or {}
+        inviter_name = inviter.get("display_name") or inviter.get("username") or "Seseorang"
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("Terima", callback_data=f"inv_acc_{invitation['id']}"),
+            InlineKeyboardButton("Tolak", callback_data=f"inv_dec_{invitation['id']}"),
+        ]])
+        await _tg_bot.send_message(
+            chat_id=target["telegram_id"],
+            text=f"{_esc_msg(inviter_name)} mengundangmu ke workspace <b>{_esc_msg(lst.get('name', ''))}</b>.",
+            parse_mode="HTML",
+            reply_markup=kb,
+        )
+    except Exception:
+        logger.warning("Gagal kirim undangan workspace via Telegram", exc_info=True)
+
+
+@app.get("/api/invitations")
+async def list_my_invitations(user=Depends(get_current_user)):
+    return [{**i, "created_at": _iso_with_offset(i["created_at"])}
+            for i in TaskRepository(DB_PATH).list_pending_invitations_for_user(user["sub"])]
+
+
+def _respond_invitation(invitation_id: int, user, accept: bool) -> dict:
+    try:
+        return TaskRepository(DB_PATH).respond_workspace_invitation(invitation_id, user["sub"], accept)
+    except repository.InvitationNotFound:
+        raise HTTPException(status_code=404, detail="Undangan tidak ditemukan")
+    except repository.InvitationClosed:
+        raise HTTPException(status_code=409, detail="Undangan sudah dijawab atau dibatalkan")
+    except repository.InvitationExpired:
+        raise HTTPException(status_code=410, detail="Undangan sudah kedaluwarsa")
+
+
+@app.post("/api/invitations/{invitation_id}/accept")
+async def accept_invitation(invitation_id: int, user=Depends(get_current_user)):
+    return {"ok": True, **_respond_invitation(invitation_id, user, True)}
+
+
+@app.post("/api/invitations/{invitation_id}/decline")
+async def decline_invitation(invitation_id: int, user=Depends(get_current_user)):
+    return {"ok": True, **_respond_invitation(invitation_id, user, False)}
+
+
+@app.get("/api/lists/{list_id}/invitations")
+async def list_workspace_invitations(list_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_owner(list_id, user["sub"]):
+        raise HTTPException(status_code=403, detail="Hanya owner yang bisa melihat undangan")
+    return [{**i, "created_at": _iso_with_offset(i["created_at"])}
+            for i in repo.list_pending_invitations_for_workspace(list_id)]
+
+
+@app.delete("/api/lists/{list_id}/invitations/{invitation_id}")
+async def cancel_workspace_invitation(list_id: int, invitation_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_owner(list_id, user["sub"]):
+        raise HTTPException(status_code=403, detail="Hanya owner yang bisa membatalkan undangan")
+    try:
+        repo.cancel_workspace_invitation(list_id, invitation_id)
+    except repository.InvitationNotFound:
+        raise HTTPException(status_code=404, detail="Undangan tidak ditemukan")
+    except repository.InvitationClosed:
+        raise HTTPException(status_code=409, detail="Undangan sudah tidak menunggu jawaban")
+    return {"ok": True}
+
+
+def _require_list_owner(repo, list_id: int, uid: int):
+    if not repo.is_list_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Hanya owner yang bisa mengelola invite link.")
+
+
+def _link_out(inv: dict) -> dict:
     from config import WEBAPP_URL
+    return {"code": inv["code"], "join_url": f"{WEBAPP_URL}/join?code={inv['code']}",
+            "expires_at": _iso_with_offset(inv["expires_at"]), "max_uses": inv["max_uses"], "uses": inv["uses"]}
+
+
+@app.post("/api/lists/{list_id}/generate-link")
+async def generate_invite_link(list_id: int, req: Optional[GenerateLinkReq] = None,
+                               user=Depends(get_current_user)):
+    """Buat link undangan (masa berlaku 1h/1d/7d, batas 1/10/tanpa batas)."""
     uid = user["sub"]
     repo = TaskRepository(DB_PATH)
     if not repo.is_list_owner(list_id, uid):
         raise HTTPException(status_code=403, detail="Hanya owner yang bisa membuat invite link.")
-    code = repo.create_list_invite(list_id, uid, expire_hours=48)
-    join_url = f"{WEBAPP_URL}/join?code={code}"
-    return {"code": code, "join_url": join_url, "expires_in_hours": 48}
+    req = req or GenerateLinkReq()
+    inv = repo.create_list_invite(list_id, uid, expire_hours=_INVITE_HOURS[req.expires_in],
+                                 max_uses=req.max_uses)
+    return _link_out(inv)
+
+
+@app.get("/api/lists/{list_id}/links")
+async def list_invite_links(list_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    _require_list_owner(repo, list_id, user["sub"])
+    return [{**_link_out(i), "created_at": _iso_with_offset(i["created_at"])} for i in repo.list_active_invites(list_id)]
+
+
+@app.delete("/api/lists/{list_id}/links/{code}")
+async def revoke_invite_link(list_id: int, code: str, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    _require_list_owner(repo, list_id, user["sub"])
+    if not repo.revoke_list_invite(list_id, code):
+        raise HTTPException(status_code=404, detail="Link tidak ditemukan.")
+    return {"ok": True}
+
+
+@app.delete("/api/lists/{list_id}/links")
+async def revoke_all_invite_links(list_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    _require_list_owner(repo, list_id, user["sub"])
+    return {"revoked": repo.revoke_all_list_invites(list_id)}
 
 
 @app.get("/api/lists/{list_id}/tasks")
@@ -4567,7 +4729,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v448-komentar-offline"
+    sw_cache = "taskflow-v451-kelola-workspace-fase2a"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

@@ -85,9 +85,9 @@ test("Gambar/Canvas memakai ViewGlyph", () => {
   assert.match(draw, /"Pinned"/);
 });
 
-test("cache bust taskflow-v448-komentar-offline", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v448-komentar-offline";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v448-komentar-offline";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v448-komentar-offline"/);
-  assert.match(webappPy, /sw_cache = "taskflow-v448-komentar-offline"/);
+test("cache bust taskflow-v451-kelola-workspace-fase2a", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v451-kelola-workspace-fase2a";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v451-kelola-workspace-fase2a";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v451-kelola-workspace-fase2a"/);
+  assert.match(webappPy, /sw_cache = "taskflow-v451-kelola-workspace-fase2a"/);
 });
