@@ -3797,3 +3797,7 @@
 ## 2026-10-21 15:46 WIB — Claude — merge ikon enam halaman (#72)
 - Bapak: "merge". #72 di-merge (8d9dfe0); CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek Mindmap, Diskusi, Gambar, Habit, Kalender, hero Dashboard (SW v445).
+
+## 2026-10-21 — Claude — Komentar Note PR 2 (offline)
+- SDD 7 task (store IndexedDB v6, `commentanchor`/`commentrepo`/`commentroutes`, push op `comment`, delta pull di `fullSync`, SW v446, dokumentasi) + review per task. Spec §4 baris delta (kursor) dan §6.5 diperbarui. pytest 1018, JS 2592/2593 (pra-ada `draw_local_reactive`), inline OK.
+- **Status:** Needs Review (belum di-push; deploy = file statis, restart `taskflow-web` saja). **Berikutnya:** PR 3 UI.

@@ -83,7 +83,7 @@ Semua memerlukan login. Ukuran dan format diperiksa di model Pydantic.
 
 | Metode & path | Fungsi |
 |---|---|
-| `GET /api/note-comments?since=&limit=` | Delta pull global. `since` = kursor `"<updated_at>|<id>"` (kosong = dari awal), `limit` default 500, maks 1000. Urut `(updated_at, id)`. Mengembalikan `{items, cursor, more}`; `items` termasuk tombstone (`deleted_at` terisi, `body` dikosongkan). Kursor > 30 hari → `{"reset": true}`. Kursor bisa maju tanpa item (`max(updated_at terakhir, now − 5 menit)\|0`); `reset` hanya berarti klien tidak sinkron > 30 hari; komentar yang terlihat lagi (restore, share ulang, bergabung ke workspace) di-bump `updated_at`-nya. |
+| `GET /api/note-comments?since=&limit=` | Delta pull global. `since` = kursor `"<updated_at>|<id>"` (kosong = dari awal), `limit` default 500, maks 1000. Urut `(updated_at, id)`. Mengembalikan `{items, cursor, more}`; `items` termasuk tombstone (`deleted_at` terisi, `body` dikosongkan). Kursor > 30 hari → `{"reset": true}`. Kursor bisa maju tanpa item: kursor halaman terakhir = `ts\|id` item terbaru bila ≥ now − 5 menit, selain itu `now − 5 menit\|0`; tidak pernah mundur; `reset` hanya berarti klien tidak sinkron > 30 hari; komentar yang terlihat lagi (restore, share ulang, bergabung ke workspace) di-bump `updated_at`-nya. |
 | `GET /api/scratchpad/{id}/comments` | Semua komentar terlihat milik satu note, tanpa tombstone |
 | `POST /api/scratchpad/{id}/comments` | `{body, quote?, parent_id?, client_id?}` → baris baru. `client_id` yang sudah ada → kembalikan baris lama (200). `parent_id` yang menunjuk balasan → diratakan ke thread induknya. `quote` diabaikan pada balasan |
 | `PATCH /api/note-comments/{cid}` | `{body}` (edit, isi `edited_at`) **atau** `{resolved: bool}` (thread saja) |
@@ -148,6 +148,15 @@ Prioritas jenis bila seseorang memenuhi beberapa syarat: menyebut > mengomentari
 ### 6.4 Pull (`syncpull.js`)
 
 Ikut `fullSync` (berkala 30 detik dan saat online) serta sinyal SSE: ulangi `GET /api/note-comments?since=` sampai `more:false`, simpan kursor. Respons `{"reset": true}` → hapus semua record lokal yang tidak `pending`, kosongkan kursor, tarik ulang. Tombstone → hapus record lokal. Record lokal yang `pending` tidak ditimpa. Komentar milik note yang belum ada di lokal tetap disimpan (note datang di pull note).
+
+### 6.5 Tambahan hasil implementasi (PR 2)
+
+- **Penanda baca lokal:** `_meta` kunci `comment_reads` (`note_cid → waktu baca`), di-seed dari `comment_unread` saat pull note, sehingga badge belum-dibaca tetap benar offline; perbandingan waktu memakai `Date.parse` (epoch), bukan string, karena waktu lokal berakhiran `Z` sedangkan server `+07:00`.
+- **`server_copy` untuk rollback:** record `pending` menyimpan salinan keadaan server terakhir (`server_copy`). Bila op ditolak (`sync_error`), perubahan dikembalikan ke `server_copy`; `pending` dan `server_copy` dikosongkan saat revert.
+- **Create ditahan:** op create komentar ditahan selama masih ada op note untuk note itu di antrean (note harus sampai ke server lebih dulu).
+- **Body di-trim seperti server:** `create`/`edit` menyimpan body yang sudah di-trim, dan push membandingkan dengan body yang dikirim, sehingga spasi di tepi tidak memicu PATCH palsu / tanda "diedit".
+- **Perubahan lokal setelah `sync_error` = coba lagi:** `sync_error` dikosongkan dan op untuk jenisnya dipastikan ada (jalur create: op create dimasukkan lagi), karena push membuang op saat gagal permanen.
+- **Adopsi lewat `client_id`:** bila pull membawa komentar yang cocok dengan create lokal, record diadopsi; body/resolved lokal yang berbeda dari server dipertahankan (`server_copy` = item server, `pending` + op edit/resolve) sehingga perubahan yang sudah dilebur ke create tidak hilang.
 
 ## 7. UI (`static/index.html`, `static/app.css`)
 
