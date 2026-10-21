@@ -3797,3 +3797,9 @@
 ## 2026-10-21 15:46 WIB — Claude — merge ikon enam halaman (#72)
 - Bapak: "merge". #72 di-merge (8d9dfe0); CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek Mindmap, Diskusi, Gambar, Habit, Kalender, hero Dashboard (SW v445).
+
+## 2026-10-21 19:58 WIB — Claude — slash menu note grid 2 kolom + Wikilink
+- **Task:** slash menu editor note terlalu panjang (perlu scroll ke Gambar/Task) → grid 2 kolom dengan label grup + item Wikilink (disetujui Bapak).
+- **Changes:** `SLASH_MENU_GROUPS` + `makeSlashItem` opsi `{ wide, hint, title }`, `case 'wikilink'`, middleware `slashClampToViewport`; CSS slash menu baru; SW v446 / `app.css?v=352` (tes versi ikut). Tes baru `note_slash_menu_grid.test.js`, `note_slash_task.test.js` disesuaikan; E2E `temporary_files/e2e_slash_menu_grid.py` 26/26.
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/*.test.js (versi), tests/offline/note_slash_menu_grid.test.js, tests/test_version.py, temporary_files/e2e_slash_menu_grid.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (commit lokal, belum di-push)
