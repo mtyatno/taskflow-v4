@@ -3849,3 +3849,7 @@
 
 ## 2026-10-21 21:55 WIB — Claude — merge main (#74) ke kelola-workspace-fase2a, SW v451
 - `main` maju (#74 layar putih Android, SW v450 / `app.css?v=355`, `__SW_VERSION` pindah ke skrip awal `<body>`). Main di-merge (sisi main untuk hunk itu); SW naik ke **v451** `taskflow-v451-kelola-workspace-fase2a`, `app.css?v=356`. pytest 1072; JS 2682/2683 (pra-ada `draw_local_reactive`); inline OK; E2E 2a 78/78.
+
+## 2026-10-21 22:05 WIB — Claude — merge Kelola Workspace Fase 2a (#76)
+- Bapak: "merge". #76 di-merge (cb9ed2b) setelah merge main (#74) + SW v451; CI Tests dan Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` lalu `sudo systemctl restart taskflow` (migrasi undangan + bot). Lalu Fase 2b (transfer ownership, arsip, ekspor) bila diminta.
