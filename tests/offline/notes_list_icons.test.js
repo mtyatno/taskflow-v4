@@ -51,8 +51,8 @@ test("NotesPage memakai glyph yang ditentukan", () => {
 });
 
 test("versi SW di-bump", () => {
-  assert.match(sw, /taskflow-v449-kelola-workspace-fase2a/);
-  assert.match(indexHtml, /taskflow-v449-kelola-workspace-fase2a/);
+  assert.match(sw, /taskflow-v451-kelola-workspace-fase2a/);
+  assert.match(indexHtml, /taskflow-v451-kelola-workspace-fase2a/);
   assert.ok(!/taskflow-v44[0-3]-/.test(indexHtml));
 });
 
