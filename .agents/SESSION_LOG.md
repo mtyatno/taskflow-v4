@@ -3821,3 +3821,9 @@
 - **Changes:** Review ulang commit ikon (247770f) oleh subagen: siap merge; CI hijau; PR di-merge (131e5c8), workflow Deploy Taskflow V4 sukses. SW v447 / app.css 353.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
+
+## [2026-10-21 21:10] - Claude
+- **Task:** Bug: slash menu dari tombol "+" tidak bisa ditutup (Esc / klik di luar), "/" tertinggal.
+- **Changes:** Repro Playwright → akar masalah: SlashProvider hanya dievaluasi saat view update, blur tanpa transaksi, Esc tak ditangani. Fix: plugin `note-slash-dismiss` (state posisi "/" sisipan "+", flag dismissed, Esc + stopPropagation), `shouldShow` kustom, listener pointerdown capture document (dilepas saat destroy), `onBlockAdd` mencatat posisi & membuang "/" lama. SW v449. Tes node baru + E2E 44/44.
+- **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/offline/note_slash_menu_dismiss.test.js (baru), tests/offline/*.test.js (versi; regex SlashProvider di note_slash_menu_grid), tests/test_version.py, temporary_files/e2e_slash_menu_dismiss.py (baru), .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (branch `claude/slash-menu-dismiss` di-push, PR belum dibuat)

@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v447-slash-menu-icons", () => {
-    assert.match(swJs, /taskflow-v447-slash-menu-icons/);
+  await t.test("sw.js bumped to taskflow-v449-slash-menu-dismiss", () => {
+    assert.match(swJs, /taskflow-v449-slash-menu-dismiss/);
   });
 });

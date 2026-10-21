@@ -24506,7 +24506,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v447-slash-menu-icons"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v449-slash-menu-dismiss"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -27004,6 +27004,46 @@ function isSlashTriggerBefore($pos) {
   if (off === 1) return true;
   return /^\s$/.test($pos.parent.textBetween(off - 2, off - 1, null, "￼"));
 }
+// ── Tutup slash menu (Esc / klik di luar) ─────────────────────────
+// "/" sisipan tombol "+" di posisi pos masih utuh = paragraf berisi tepat "/" saja. Bila pengguna
+// sudah mengetik di paragraf itu, "/" dianggap teks pengguna → jangan dihapus.
+function isPlusSlashIntact(doc, pos) {
+  if (!doc || !doc.content || typeof pos !== "number" || pos < 0 || pos + 1 > doc.content.size) return false;
+  let $p;
+  try { $p = doc.resolve(pos + 1); } catch (_) { return false; }
+  const parent = $p && $p.parent;
+  return !!parent && !!parent.isTextblock && $p.parentOffset === 1 && parent.textContent === "/";
+}
+// Reducer state plugin dismiss slash menu: { plusPos: posisi "/" sisipan "+" | null, dismissed }.
+// plusPos dipetakan lewat perubahan dokumen (karakternya terhapus → null). dismissed (menu baru
+// ditutup Esc / klik luar) bertahan sampai dokumen berubah atau kursor pindah. Meta menimpa keduanya.
+function nextSlashDismissState(prev, tr, meta) {
+  const cur = prev || { plusPos: null, dismissed: false };
+  let plusPos = cur.plusPos;
+  if (plusPos != null && tr.docChanged) {
+    const r = tr.mapping.mapResult(plusPos, 1);
+    plusPos = r.deleted ? null : r.pos;
+  }
+  let dismissed = !!cur.dismissed && !tr.docChanged && !tr.selectionSet;
+  if (meta) {
+    if ("plusPos" in meta) plusPos = meta.plusPos;
+    if ("dismissed" in meta) dismissed = !!meta.dismissed;
+  }
+  return { plusPos, dismissed };
+}
+// shouldShow SlashProvider: sama dengan bawaan (karakter terakhir sebelum kursor = "/"),
+// kecuali menu baru saja ditutup pengguna.
+function shouldShowSlashMenu(content, st) {
+  if (st && st.dismissed) return false;
+  return typeof content === "string" && content.slice(-1) === "/";
+}
+// pointerdown di luar menu (dan di luar elemen yang dikecualikan, mis. block handle "+")?
+function isSlashOutsideTarget(target, menuEl, keepEls) {
+  if (!target || !menuEl) return false;
+  if (menuEl.contains(target)) return false;
+  for (const el of keepEls || []) if (el && el.contains(target)) return false;
+  return true;
+}
 // Block handle ala Notion (+ / ⋮⋮) di kiri setiap blok editor.
 // Ubah ke false untuk menyembunyikannya di perangkat sentuh (HP) bila editor terasa sempit.
 const BLOCK_HANDLE_ON_TOUCH = true;
@@ -27401,6 +27441,46 @@ function MilkdownEditor({
       }
     };
 
+    // ── Tutup slash menu: Esc / klik di luar ───────────────────────
+    // SlashProvider hanya menilai ulang saat view update (transaksi). Klik di luar editor (blur) tidak
+    // membuat transaksi dan Esc tidak ditangani → menu tetap terbuka. Ditutup manual di sini; "/"
+    // sisipan tombol "+" ikut dihapus bila masih utuh, "/" ketikan pengguna dibiarkan.
+    const slashDismissKey = MB.PluginKey ? new MB.PluginKey('note-slash-dismiss') : null;
+    let slashProvider = null;
+    let slashView = null;
+    const isSlashMenuShown = () => slashMenu.dataset.show === 'true';
+    const dismissSlashMenu = (view) => {
+      if (slashProvider) slashProvider.hide(); else slashMenu.dataset.show = 'false';
+      if (!view || !slashDismissKey) return;
+      const st = slashDismissKey.getState(view.state);
+      const tr = view.state.tr;
+      if (st && isPlusSlashIntact(view.state.doc, st.plusPos)) tr.delete(st.plusPos, st.plusPos + 1);
+      // dismissed: debounce SlashProvider (200 ms) / transaksi berikutnya tidak memunculkan menu lagi
+      tr.setMeta(slashDismissKey, { plusPos: null, dismissed: true });
+      view.dispatch(tr);
+    };
+    // pointerdown (capture) di luar menu → tutup. Item menu & area scroll menu = di dalam menu.
+    // Tombol "+" dikecualikan: onBlockAdd sendiri membuang "/" sisipan "+" sebelumnya.
+    const onSlashOutsidePointer = (e) => {
+      if (!isSlashMenuShown() || !isSlashOutsideTarget(e.target, slashMenu, [handleEl])) return;
+      try { dismissSlashMenu(slashView); } catch (err) { console.warn('Slash menu: gagal menutup', err); }
+    };
+    const slashDismissPlugin = MB.$prose && MB.Plugin && slashDismissKey ? MB.$prose(() => new MB.Plugin({
+      key: slashDismissKey,
+      state: {
+        init: () => ({ plusPos: null, dismissed: false }),
+        apply: (tr, value) => nextSlashDismissState(value, tr, tr.getMeta(slashDismissKey))
+      },
+      props: {
+        handleKeyDown: (view, e) => {
+          if (e.key !== 'Escape' || !isSlashMenuShown()) return false;
+          e.stopPropagation();
+          dismissSlashMenu(view);
+          return true;
+        }
+      }
+    })) : null;
+
     // ── Tooltip DOM ─────────────────────────────────────────────────
     const tooltipEl = document.createElement('div');
     tooltipEl.className = 'milkdown-tooltip';
@@ -27554,9 +27634,16 @@ function MilkdownEditor({
           if (!view || !active || active.$pos.doc !== view.state.doc) return;
           const { state } = view;
           const insertAt = (pos) => {
-            const tr = state.tr.insert(pos, state.schema.nodes.paragraph.create());
-            tr.setSelection(MB.TextSelection.near(tr.doc.resolve(pos + 1)));
+            const tr = state.tr;
+            // "+" ditekan lagi saat menu dari "+" sebelumnya masih terbuka → "/" lama dibuang dulu
+            const prev = slashDismissKey ? slashDismissKey.getState(state) : null;
+            if (prev && isPlusSlashIntact(state.doc, prev.plusPos)) tr.delete(prev.plusPos, prev.plusPos + 1);
+            const at = tr.mapping.map(pos);
+            tr.insert(at, state.schema.nodes.paragraph.create());
+            tr.setSelection(MB.TextSelection.near(tr.doc.resolve(at + 1)));
             tr.insertText('/');
+            // catat posisi "/" sisipan "+" → Esc / klik luar boleh menghapusnya
+            if (slashDismissKey) tr.setMeta(slashDismissKey, { plusPos: tr.selection.from - 1, dismissed: false });
             return tr;
           };
           let tr = null;
@@ -27671,11 +27758,14 @@ function MilkdownEditor({
       // Wire slash menu — SlashProvider handles show/hide when user types /
       ctx.set(slashPair.key, {
         view(editorView) {
-          const provider = new MB.SlashProvider({ content: slashMenu, root: document.body, middleware: [slashClampToViewport] });
+          const provider = new MB.SlashProvider({ content: slashMenu, root: document.body, middleware: [slashClampToViewport], shouldShow: (view) => shouldShowSlashMenu(provider.getContent(view), slashDismissKey ? slashDismissKey.getState(view.state) : null) });
+          slashProvider = provider;
+          slashView = editorView;
+          document.addEventListener('pointerdown', onSlashOutsidePointer, true);
           provider.update(editorView);
           return {
             update: (view, prevState) => provider.update(view, prevState),
-            destroy: () => { provider.destroy(); slashMenu.remove(); }
+            destroy: () => { document.removeEventListener('pointerdown', onSlashOutsidePointer, true); slashProvider = null; slashView = null; provider.destroy(); slashMenu.remove(); }
           };
         }
       });
@@ -27798,7 +27888,7 @@ function MilkdownEditor({
           }
         });
       }
-    }).use(MB.commonmark).use(MB.gfm).use(MB.columnResizingPlugin || []).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(blockHandleEnabled ? touchGuardPlugin : []).use(blockHandleEnabled ? MB.block : []).use(dropCursorPlugin || []).use(MB.trailing).use(createTrailingEmptyBlockPlugin(MB) || []).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).use(createCalloutBlockquotePlugin()).use(createDrawingPlugin(MB)).use(createMediaPlugin(MB)).create().then(editor => {
+    }).use(MB.commonmark).use(MB.gfm).use(MB.columnResizingPlugin || []).use(MB.listener).use(MB.history).use(MB.math).use(MB.indent).use(MB.emoji).use(slashDismissPlugin || []).use(slashPair).use(tooltipPair).use(tableToolbarPair).use(blockHandleEnabled ? touchGuardPlugin : []).use(blockHandleEnabled ? MB.block : []).use(dropCursorPlugin || []).use(MB.trailing).use(createTrailingEmptyBlockPlugin(MB) || []).use(createWikilinkPlugin(onWikilinkClick)).use(createTasklinkPlugin(tasksGetter || (() => []))).use(createHighlightPlugin()).use(createMarkdownPastePlugin(onImagePaste ? (file => onImagePasteRef.current?.(file)) : null)).use(createTaskCheckboxPlugin()).use(createCalloutBlockquotePlugin()).use(createDrawingPlugin(MB)).use(createMediaPlugin(MB)).create().then(editor => {
       if (cancelled) {
         editor.destroy();
         return;
@@ -40358,7 +40448,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v447-slash-menu-icons";
+    window.__SW_VERSION = "taskflow-v449-slash-menu-dismiss";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 
