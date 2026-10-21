@@ -337,3 +337,84 @@ test("decorateNotes, markRead and seedReadMarkers", async () => {
   await repo.seedReadMarkers([{ id: 10, comment_unread: true }], "2028-01-01T00:00:00Z");
   assert.equal((await metaGet("comment_reads")).n1, before);
 });
+
+test("adopting own create keeps a local edit merged into it as an edit op", async () => {
+  const c = await repo.create("n1", { body: "a" });
+  await repo.edit(c.cid, "b");
+  await repo.mergePulled([srv({ id: 500, client_id: c.cid, user_id: 1, body: "a" })]);
+  const rec = await repo.getRaw(c.cid);
+  assert.equal(rec.body, "b");
+  assert.equal(rec.server_id, 500);
+  assert.equal(rec.pending, "edit");
+  assert.equal(rec.server_copy.body, "a");
+  assert.deepEqual((await commentOps()).map((o) => [o.op, o.cid]), [["edit", c.cid]]);
+  // later pulls do not overwrite the pending edit
+  await repo.mergePulled([srv({ id: 500, client_id: c.cid, user_id: 1, body: "a" })]);
+  assert.equal((await repo.getRaw(c.cid)).body, "b");
+});
+
+test("adopting own create keeps a local resolve merged into it as a resolve op", async () => {
+  const c = await repo.create("n1", { body: "a" });
+  await repo.resolve(c.cid, true);
+  await repo.mergePulled([srv({ id: 501, client_id: c.cid, user_id: 1, body: "a" })]);
+  const rec = await repo.getRaw(c.cid);
+  assert.equal(rec.body, "a");
+  assert.ok(rec.resolved_at);
+  assert.equal(rec.resolved_by, 1);
+  assert.equal(rec.pending, "resolve");
+  assert.equal(rec.server_copy.resolved_at, null);
+  assert.deepEqual((await commentOps()).map((o) => [o.op, o.cid]), [["resolve", c.cid]]);
+});
+
+test("adopting own create with both edit and resolve queues both ops once", async () => {
+  const c = await repo.create("n1", { body: "a" });
+  await repo.edit(c.cid, "b");
+  await repo.resolve(c.cid, true);
+  await repo.mergePulled([srv({ id: 502, client_id: c.cid, user_id: 1, body: "a" })]);
+  const rec = await repo.getRaw(c.cid);
+  assert.equal(rec.pending, "edit");
+  assert.deepEqual((await commentOps()).map((o) => o.op).sort(), ["edit", "resolve"]);
+});
+
+test("a new change after sync_error retries: synced record gets its op back", async () => {
+  await repo.mergePulled([srv({ id: 100 })]);
+  const cid = await cidOf("comment", 100);
+  await repo.putRaw(Object.assign({}, await repo.getRaw(cid), { sync_error: { code: "rejected", message: "x" } }));
+  await repo.edit(cid, "lagi");
+  const rec = await repo.getRaw(cid);
+  assert.equal(rec.sync_error, null);
+  assert.equal(rec.pending, "edit");
+  assert.deepEqual((await commentOps()).map((o) => [o.op, o.cid]), [["edit", cid]]);
+});
+
+test("a failed edit retried via resolve re-queues the edit op too", async () => {
+  await repo.mergePulled([srv({ id: 100 })]);
+  const cid = await cidOf("comment", 100);
+  await repo.edit(cid, "gagal");
+  for (const o of await commentOps()) await require("../../static/offline/outbox.js").outboxRemove(o.qid);
+  await repo.putRaw(Object.assign({}, await repo.getRaw(cid), { sync_error: { code: "rejected", message: "x" } }));
+  await repo.resolve(cid, true);
+  assert.equal((await repo.getRaw(cid)).sync_error, null);
+  assert.deepEqual((await commentOps()).map((o) => o.op).sort(), ["edit", "resolve"]);
+});
+
+test("a new change after sync_error retries: pending create gets its create op back", async () => {
+  const c = await repo.create("n1", { body: "a" });
+  for (const o of await commentOps()) await require("../../static/offline/outbox.js").outboxRemove(o.qid);
+  await repo.putRaw(Object.assign({}, await repo.getRaw(c.cid), { sync_error: { code: "access", message: "x" } }));
+  await repo.edit(c.cid, "b");
+  const rec = await repo.getRaw(c.cid);
+  assert.equal(rec.sync_error, null);
+  assert.equal(rec.pending, "create");
+  assert.deepEqual((await commentOps()).map((o) => [o.op, o.cid]), [["create", c.cid]]);
+});
+
+test("remove after sync_error clears it and queues delete", async () => {
+  await repo.mergePulled([srv({ id: 100 })]);
+  const cid = await cidOf("comment", 100);
+  await repo.putRaw(Object.assign({}, await repo.getRaw(cid), { sync_error: { code: "rejected", message: "x" } }));
+  await repo.remove(cid);
+  const rec = await repo.getRaw(cid);
+  assert.equal(rec.sync_error, null);
+  assert.deepEqual((await commentOps()).map((o) => o.op), ["delete"]);
+});

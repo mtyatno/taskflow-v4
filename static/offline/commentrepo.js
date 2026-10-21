@@ -187,17 +187,26 @@
   }
 
   // Ubah komentar yang sudah ada: pending create → hanya record; ber-server_id → server_copy + op jenisnya.
+  // Perubahan baru pada record ber-sync_error = coba lagi: push sudah membuang op-nya, jadi op dipastikan ada lagi.
+  function retryOps(rec, kind) {
+    const prior = rec.sync_error && (rec.pending === "edit" || rec.pending === "resolve") && rec.pending !== kind
+      && kind !== "delete" ? rec.pending : null;
+    rec.sync_error = null;
+    return prior ? addOpOnce("comment", prior, rec.cid) : Promise.resolve();
+  }
   function change(rec, kind, mutate) {
     const now = nowIso();
     if (rec.pending === "create") {
       mutate(rec, now, false);
-      return putRaw(rec).then(() => rec);
+      rec.sync_error = null;
+      return putRaw(rec).then(() => addOpOnce("comment", "create", rec.cid)).then(() => rec);
     }
     if (!rec.server_copy) rec.server_copy = snapshot(rec);
     mutate(rec, now, true);
     rec.updated_at = now;
+    const retry = retryOps(rec, kind);
     rec.pending = kind;
-    return putRaw(rec).then(() => addOpOnce("comment", kind, rec.cid)).then(() => rec);
+    return retry.then(() => putRaw(rec)).then(() => addOpOnce("comment", kind, rec.cid)).then(() => rec);
   }
 
   function edit(cid, body) {
@@ -235,6 +244,7 @@
       const now = nowIso();
       rec.deleted_at = now;
       rec.updated_at = now;
+      rec.sync_error = null;
       rec.pending = "delete";
       return putRaw(rec)
         .then(() => removeOps(rec.cid, ["edit", "resolve"]))
@@ -279,10 +289,25 @@
           if (local && local.pending === "create" && item.client_id === local.cid) {
             changed.add(item.note_id);
             if (tomb) return dropUnsent(local.cid).then(() => TFidmap.mapDelete("comment", item.id));
+            // Perubahan lokal yang dilebur ke create (edit/resolve) dipertahankan sebagai op lanjutan.
             const rec = serverRecord(item, local.cid, local.note_cid, local.parent_cid);
+            const bodyDiff = local.body !== rec.body;
+            const resDiff = (local.resolved_at != null) !== (rec.resolved_at != null);
+            const kinds = (bodyDiff ? ["edit"] : []).concat(resDiff ? ["resolve"] : []);
+            if (kinds.length) {
+              rec.server_copy = snapshot(item);
+              if (bodyDiff) rec.body = local.body;
+              if (resDiff) {
+                rec.resolved_at = local.resolved_at;
+                rec.resolved_by = local.resolved_by;
+                rec.resolved_by_name = local.resolved_by_name;
+              }
+              rec.pending = kinds[0];
+            }
             return putRaw(rec)
               .then(() => TFidmap.mapPut("comment", item.id, local.cid))
-              .then(() => removeOps(local.cid, ["create"]));
+              .then(() => removeOps(local.cid, ["create"]))
+              .then(() => kinds.reduce((q, k) => q.then(() => addOpOnce("comment", k, local.cid)), Promise.resolve()));
           }
           if (local && (local.pending || local.sync_error)) return null;
           if (tomb) {
