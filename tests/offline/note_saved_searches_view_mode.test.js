@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v443-notes-list-icons", () => {
-    assert.match(swJs, /taskflow-v443-notes-list-icons/);
+  await t.test("sw.js bumped to taskflow-v444-focus-ambient", () => {
+    assert.match(swJs, /taskflow-v444-focus-ambient/);
   });
 });

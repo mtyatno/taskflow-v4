@@ -1,4 +1,6 @@
-const CACHE = "taskflow-v443-notes-list-icons";
+const CACHE = "taskflow-v444-focus-ambient";
+// Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
+const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/ui-components.js",
@@ -30,6 +32,7 @@ const STATIC = [
   "/static/offline/focuspage.js",
   "/static/offline/pomologic.js",
   "/static/offline/pomolog.js",
+  "/static/offline/ambient.js",
   "/static/review/digest.js",
   "/static/offline/voicedictate.js",
   "/static/offline/drawdirective.js",
@@ -153,7 +156,7 @@ self.addEventListener("install", e => {
 self.addEventListener("activate", e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
+      .then(keys => Promise.all(keys.filter(k => k !== CACHE && !k.startsWith("alurik-ambient-")).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
       .catch(() => self.clients.claim())
   );
@@ -183,6 +186,31 @@ self.addEventListener("fetch", e => {
       ))
     );
     return;
+  }
+
+  // Suara latar (/static/sounds/): cache-first dari AMBIENT_CACHE. Pemutar memakai fetch biasa (tanpa Range),
+  // jadi hanya respons 200 penuh yang disimpan; 206/lainnya diteruskan tanpa disimpan.
+  // Cache Storage yang gagal (open/match) tidak boleh memblokir jaringan: lanjut ke fetch, 503 hanya bila
+  // jaringan juga gagal. put dijaga lewat waitUntil dan kegagalannya (mis. kuota) diabaikan.
+  if (request.method === "GET" && url.pathname.startsWith("/static/sounds/")) {
+    const cacheP = caches.open(AMBIENT_CACHE).catch(() => null)
+    e.respondWith(
+      cacheP
+        .then(cache => (cache ? cache.match(request) : undefined))
+        .catch(() => undefined)
+        .then(cached => {
+          if (cached) return cached
+          return fetch(request).then(res => {
+            if (res.ok && res.status === 200) {
+              const copy = res.clone()
+              e.waitUntil(cacheP.then(cache => cache && cache.put(request, copy)).catch(() => {}))
+            }
+            return res
+          })
+        })
+        .catch(() => new Response("Offline", { status: 503 }))
+    )
+    return
   }
 
   // /api/habit-templates — network-first + cache fallback for offline

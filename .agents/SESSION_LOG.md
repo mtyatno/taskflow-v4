@@ -3730,6 +3730,12 @@
 - Bapak: "merge". #66 di-merge (50d0e24) setelah merge main (#65) + SW v439 / `app.css?v=347`; CI Tests hijau di head PR, Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** ada migrasi (`users.password_set`) — `sudo systemctl restart taskflow-web`, lalu `sudo systemctl restart taskflow` (satu per satu). Semua sesi web/aplikasi tetap berjalan (token lama tanpa ganti password tetap sah). Lalu Fase 0b (upgrade mailer) → spec + plan.
 
+## 2026-10-21 06:20 WIB — Claude — Fokus Hari Ini PR D (Suara latar): Task 5
+- **Task:** Task 5 PR D: merge `origin/main` (cbcd8c7, #66) ke `claude/focus-ambient`, naik versi SW v440 `taskflow-v440-focus-ambient` / `app.css?v=348`, E2E suara latar, handover.
+- **Changes:** merge main (konflik baris `CACHE` di `sw.js`, kedua sisi dipertahankan); versi di `sw.js`, `index.html` ×3, `webapp.py` + tes yang mengunci versi; `PomoAmbient` mendapat teks `sr-only aria-live="polite"` untuk tooltip waiting-tap / error (+ tes sumber); E2E baru `temporary_files/e2e_focus_ambient.py` 87/87 (termasuk tata letak 375 px + 320 px, tanpa perubahan CSS); E2E lama 35/35 · 41/41 · 98/98; pytest 911; JS 2387/2388 (pra-ada `draw_local_reactive`); inline OK.
+- **Files Touch:** static/sw.js, static/index.html, webapp.py, tests/, .gitignore, temporary_files/e2e_focus_ambient.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push; deploy = file statis + `static/sounds/` + restart `taskflow-web` saja)
+
 ## 2026-10-21 09:00 WIB — Claude — Kelola Workspace Fase 1 (halaman Kelola per workspace)
 - Brainstorming → spec + rencana disetujui Bapak; SDD 7 task (Task 1+2 backend digabung), review per task, review akhir opus (temuan kritis: index.html baru + modul offline lama → blank) → 1 gelombang perbaikan + re-review bersih. SW v441, `app.css?v=349`, ADR-023. pytest 945, JS 2421/2422 (pra-ada), E2E 98/98 + Fase 0 66/66.
 - **Status:** Needs Review (draft PR; setelah merge restart `taskflow-web` lalu `taskflow`).
@@ -3739,9 +3745,18 @@
 - **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/test_version.py, tests/offline/*.test.js, temporary_files/e2e_note_list_tags.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (draft PR; deploy = file statis + restart `taskflow-web` saja)
 
+## 2026-10-21 07:10 WIB — Claude — Fokus Hari Ini PR D: perbaikan review akhir
+- **Changes:** suara memudar saat logout / sesi berakhir (efek update App: `isRunning: !!user && timer.isRunning`, deps `!!user`) + tes sumber + E2E j; SW `/static/sounds/`: kegagalan Cache Storage lanjut ke jaringan, `cache.put` lewat `e.waitUntil(...).catch`, + 4 tes; `.pomo-ambient-select option` latar `#fff` + tes CSS; E2E h membuktikan respons `from_service_worker` + kontrol negatif (putaran review 1). E2E ambient 87/87; lihat entri CURRENT_STATE untuk verifikasi lengkap.
+- **Files Touch:** static/index.html, static/sw.js, static/app.css, tests/offline/focus_ambient_ui.test.js, tests/offline/sw_ambient_cache.test.js, temporary_files/e2e_focus_ambient.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push)
+
 ## 2026-10-21 07:55 WIB — Claude — merge bug note list tag (#68)
 - Bapak: "merge". #68 di-merge (19a87cc); CI Tests hijau di head PR (b68e3ea). SW v441 / `app.css?v=349` (v440 / 348 tetap untuk draft #67 Suara latar — #67 perlu naik nomor saat di-merge).
 - **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web` saja. Cek: edit note → tambah `#tag` → tunggu beberapa detik → Simpan → kartu di note list langsung menampilkan tag.
+
+## 2026-10-21 08:30 WIB — Claude — Fokus Hari Ini PR D: merge main (#68)
+- **Changes:** merge `origin/main` (#68 note list tags) ke `claude/focus-ambient`; konflik versi diselesaikan ke SW v442 `taskflow-v442-focus-ambient` / `app.css?v=350` (sw.js, index.html ×3, webapp.py, tes, E2E h2); `.gitignore` + `.agents` kedua sisi. Verifikasi: pytest 911; JS 2392/2393 (pra-ada `draw_local_reactive`); inline OK; `e2e_focus_page.py` 35/35; `e2e_focus_ambient.py` 87/87 tetapi skenario g (autoplay ditolak setelah reload) flaky ±50% — sama di HEAD sebelum merge, bukan regresi.
+- **Status:** Needs Review (belum di-push)
 
 ## 2026-10-21 08:40 WIB — Claude — merge main (#68) ke kelola-workspace-fase1, SW v442
 - `main` maju (#68 bug note list tag, SW v441 / `app.css?v=349` — sama dengan PR #70). Main di-merge; konflik hanya string versi + `.agents`/.gitignore (kedua sisi dipertahankan). SW naik ke **v442** `taskflow-v442-kelola-workspace-fase1`, `app.css?v=350`. pytest 945; JS 2421/2422 (pra-ada `draw_local_reactive`); inline OK; E2E fase 1 98/98, note list tags 5/5.
@@ -3766,3 +3781,7 @@
 - Bapak: "merge". `main` sempat maju dua kali (#68 v441, #70 v442 + `app.css?v=350`); branch di-merge `main` dua kali, SW dinomori ulang ke v443. #69 di-merge (8153da0); CI Tests dan Deploy Taskflow V4 sukses.
 - Catatan: E2E lama `temporary_files/e2e_tasklist_view_icons.py` langkah 14 (Kelola Workspace) tidak cocok lagi dengan halaman hasil #70; ada saklar `E2E_SKIP_MANAGE=1`, langkahnya perlu disesuaikan terpisah.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek panel Catatan (SW v443).
+
+## 2026-10-21 10:40 WIB — Claude — Fokus Hari Ini PR D: merge main (#69–#71)
+- **Changes:** merge `origin/main` b5f46ed ke `claude/focus-ambient`; SW v444 `taskflow-v444-focus-ambient` / `app.css?v=351` (sw.js, index.html ×3, webapp.py, tes termasuk `notes_list_icons` + `note_toc`, E2E h2); `VIEW_GLYPHS` memuat ikon `n*` (#69) dan `headphones`; `.gitignore` + `.agents` kedua sisi.
+- **Status:** Needs Review (belum di-push)
