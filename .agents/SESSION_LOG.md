@@ -3893,3 +3893,7 @@
 - **Changes:** CI hijau di 55460fd, tanpa konflik; PR di-merge (8724d3f), workflow Deploy Taskflow V4 sukses. SW v452, app.css tetap 356.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
+
+## 2026-10-22 05:40 WIB — Claude — merge Email Fase 0b (#77)
+- Bapak: "merge dan deploy". `main` maju (#78 memakai v452) → di-merge, SW **v453** `taskflow-v453-email-mailer`, `app.css?v=357`; CI Tests hijau di head PR; #77 di-merge (67d578c); Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` (tabel `email_outbox` + worker email). Bot tidak perlu restart. Cek Admin → kartu Email (badge "Dev mode"). Saat memilih layanan SMTP: ikuti checklist di entri CURRENT_STATE.
