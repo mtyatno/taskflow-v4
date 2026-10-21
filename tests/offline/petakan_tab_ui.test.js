@@ -45,7 +45,7 @@ test("MindmapTabInstance uses the exact linked UI strings", () => {
     "Maksimal 6 tingkat heading",
     "Hapus bagian «",
     "» beserta isinya dari catatan?",
-    "📄 Tertaut ke: ",
+    "Tertaut ke: ",
     "Tersimpan ke catatan",
     "Catatan sumber ada di Sampah",
     "Catatan sumber tidak tersedia untukmu",
@@ -147,13 +147,13 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
   const src = extractTab();
   const Comp = new Function("React", "useState", "useRef", "useEffect", "api", "window", "document", "MutationObserver",
     "navigator", "CustomEvent", "MindmapOutline", "LinkPickerModal", "NoteModal", "NoteTrashModal", "MINDMAP_DIRECTIONS",
-    "renderConflicts", "isOfflineErr", "setTimeout", "clearTimeout",
+    "renderConflicts", "isOfflineErr", "setTimeout", "clearTimeout", "ViewGlyph",
     src + "\nreturn MindmapTabInstance;")(React, useState, useRef, useEffect, api, win,
     { documentElement: { getAttribute: () => "light" }, addEventListener() {}, removeEventListener() {} },
     function () { this.observe = () => {}; this.disconnect = () => {}; },
     { onLine: online }, function (type, init) { this.type = type; this.detail = init && init.detail; },
     "MindmapOutline", "LinkPickerModal", "NoteModal", "NoteTrashModal", [], () => {}, () => false,
-    (fn, ms) => { timers.push(fn); return timers.length; }, () => {});
+    (fn, ms) => { timers.push(fn); return timers.length; }, () => {}, "ViewGlyph");
   const tab = Object.assign({ id: 3, title: "Judul", user_id: 1, source_note_cid: "nc1", source_note_id: 7,
     data_json: JSON.stringify(NM.LINKED_VIEW_STATE_DEFAULT) }, tabExtra);
   const props = Object.assign({ tab, isActive: true, showToast: (m, k) => toasts.push(m), currentUserId: 1, onUpdateTitle: (id, t) => titles.push(t) }, propsExtra);
@@ -202,7 +202,7 @@ test("behavior: loads the linked map from the note and writes a rename back with
   const load = h.posted.find((m) => m.type === "load");
   assert.ok(load && load.linked === true && load.showSummary === true);
   assert.deepEqual(load.data.nodeData.children.map((c) => c.topic), ["A", "B"]);
-  assert.ok(findText(h.out, "📄 Tertaut ke: "));
+  assert.ok(findText(h.out, "Tertaut ke: "));
   const data = JSON.parse(JSON.stringify(load.data));
   data.nodeData.children.reverse(); // B, A
   await h.message({ type: "change", data, gen: curGen(h) });
@@ -425,13 +425,13 @@ test("behavior B5: only the active tab holds a stream; activation catches up onc
   await h.setProps({ isActive: true });
   assert.equal(made.length, 1);
   assert.equal(made[0].url, "/api/mindmaps/3/stream");
-  assert.ok(!findText(h.out, "🟢 Langsung"), "belum tersambung");
+  assert.ok(!findText(h.out, "Langsung"), "belum tersambung");
   made[0].onopen(); await h.settle();
   assert.deepEqual(liveCalls, [3], "catch-up sekali saat aktif");
-  assert.ok(findText(h.out, "🟢 Langsung"));
+  assert.ok(findText(h.out, "Langsung"));
   await h.setProps({ isActive: false });
   assert.equal(made[0].closed, true, "stream ditutup saat tab tidak aktif");
-  assert.ok(!findText(h.out, "🟢 Langsung"));
+  assert.ok(!findText(h.out, "Langsung"));
   await h.setProps({ isActive: true });
   assert.equal(made.length, 2);
   made[1].onopen(); await h.settle();

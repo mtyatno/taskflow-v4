@@ -575,6 +575,20 @@ def run_mindmap_draw_pages(browser, base, user, theme):
         p.screenshot(path=os.path.join(SHOTS, "%s_17_mindmap_halaman.png" % tag), scale="css")
         side.screenshot(path=os.path.join(SHOTS, "%s_17_mindmap_daftar.png" % tag), scale="css")
         print("  screenshot %s_17_mindmap_*.png" % tag, flush=True)
+        # tab peta terbuka (header: judul, Canvas/Outline, badge workspace)
+        p.get_by_text("Peta Tim", exact=True).first.click()
+        p.locator("button", has_text="Canvas").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(600)
+        body = p.locator("body").inner_text()
+        bad = [c for c in "🧠📝📄🟢👥" if c in body]
+        check("[%s] 17d tab peta: tanpa emoji di innerText" % tag, not bad, repr(bad))
+        check("[%s] 17e tab peta: Canvas 14px, Outline 14px, judul 13px, badge/Share 12px" % tag,
+              p.locator("button", has_text="Canvas").locator("svg[width='14']").count() == 1
+              and p.locator("button", has_text="Outline").locator("svg[width='14']").count() == 1
+              and p.locator("svg[width='13']").count() >= 2
+              and p.locator("svg[width='12']").count() >= 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_17_mindmap_tab_terbuka.png" % tag), scale="css")
         # --- Gambar / Canvas ---
         nav_to(p, "Draw")
         p.locator("text=Gambar / Canvas").first.wait_for(state="visible", timeout=15000)

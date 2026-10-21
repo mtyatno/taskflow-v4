@@ -13158,14 +13158,14 @@ function MindmapTabInstance({
     onClick: () => openLinkedNoteAt(null, "modal"),
     title: "Buka catatan",
     style: { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", cursor: "pointer" }
-  }, "📄 Tertaut ke: ", linkedTitle || tab.title || "Tanpa judul", " ↗") : /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", verticalAlign: "-2px", marginRight: 5 } }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nNote", size: 13 })), "Tertaut ke: ", linkedTitle || tab.title || "Tanpa judul", " ↗") : /*#__PURE__*/React.createElement("span", {
     style: { fontSize: 13, fontWeight: 600, color: "var(--text-primary)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }
-  }, "🧠 ", tab.title), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", verticalAlign: "-2px", marginRight: 5 } }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nBrain", size: 13 })), tab.title), /*#__PURE__*/React.createElement("span", {
     style: { fontSize: 11, color: syncStatus === "offline" ? "#ef4444" : "var(--text-light)", flexShrink: 0 }
   }, syncStatus === "saving" ? "Menyimpan..." : syncStatus === "offline" ? "Offline" : isLinked ? "Tersimpan ke catatan" : "Tersimpan"), liveOn && isActive && !isLinked && /*#__PURE__*/React.createElement("span", {
     title: "Perubahan anggota lain tampil otomatis",
-    style: { fontSize: 11, color: "var(--text-light)", flexShrink: 0 }
-  }, "🟢 Langsung"),
+    style: { fontSize: 11, color: "var(--text-light)", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4 }
+  }, /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", color: "#22c55e" } }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "pDot", size: 8 })), "Langsung"),
       /*#__PURE__*/React.createElement("div", {
         style: { display: "flex", alignItems: "center", gap: 2, background: "var(--bg-primary)", borderRadius: 8, padding: 2, flexShrink: 0 }
       }, /*#__PURE__*/React.createElement("button", {
@@ -13180,18 +13180,18 @@ function MindmapTabInstance({
           border: viewMode === "canvas" ? "1px solid var(--accent)" : "1px solid var(--border)",
           background: viewMode === "canvas" ? "var(--accent)" : "var(--bg-card)",
           color: viewMode === "canvas" ? "#000" : "var(--text-secondary)",
-          borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer"
+          borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5
         }
-      }, "🧠 Canvas"), /*#__PURE__*/React.createElement("button", {
+      }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nBrain", size: 14 }), "Canvas"), /*#__PURE__*/React.createElement("button", {
         onClick: () => setViewMode("outline"),
         title: "Mode outline",
         style: {
           border: viewMode === "outline" ? "1px solid var(--accent)" : "1px solid var(--border)",
           background: viewMode === "outline" ? "var(--accent)" : "var(--bg-card)",
           color: viewMode === "outline" ? "#000" : "var(--text-secondary)",
-          borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer"
+          borderRadius: 6, padding: "3px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5
         }
-      }, "📝 Outline")),
+      }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "compact", size: 14 }), "Outline")),
       /*#__PURE__*/React.createElement("div", {
         style: { display: "flex", alignItems: "center", gap: 2, background: "var(--bg-primary)", borderRadius: 8, padding: 2, flexShrink: 0 }
       }, MINDMAP_DIRECTIONS.map(d => /*#__PURE__*/React.createElement("button", {
@@ -13236,13 +13236,13 @@ function MindmapTabInstance({
       /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => { setRenaming(true); setRenameVal(isLinked ? (linkedTitle || tab.title) : tab.title); }, style: { fontSize: 11 } }, "Rename"),
       isLinked ? (tab.list_id ? /*#__PURE__*/React.createElement("span", {
         className: "badge",
-        style: { fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0 }
-      }, `👥 ${sharedLists.find(l => l.id === tab.list_id)?.name || "Shared"}`) : null) : isOwner && sharedLists.length > 0 ? /*#__PURE__*/React.createElement("div", { ref: shareRef, style: { position: "relative", flexShrink: 0 } },
+        style: { fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4 }
+      }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "mUsers", size: 12 }), sharedLists.find(l => l.id === tab.list_id)?.name || "Shared") : null) : isOwner && sharedLists.length > 0 ? /*#__PURE__*/React.createElement("div", { ref: shareRef, style: { position: "relative", flexShrink: 0 } },
         /*#__PURE__*/React.createElement("button", {
           className: "btn btn-secondary btn-sm",
           onClick: () => setShareOpen(o => !o),
-          style: { fontSize: 11, color: tab.list_id ? "var(--accent)" : undefined, borderColor: tab.list_id ? "var(--accent)" : undefined }
-        }, "👥 ", tab.list_id ? sharedLists.find(l => l.id === tab.list_id)?.name || "Shared" : "Share"),
+          style: { fontSize: 11, display: "inline-flex", alignItems: "center", gap: 4, color: tab.list_id ? "var(--accent)" : undefined, borderColor: tab.list_id ? "var(--accent)" : undefined }
+        }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "mUsers", size: 12 }), tab.list_id ? sharedLists.find(l => l.id === tab.list_id)?.name || "Shared" : "Share"),
         shareOpen && /*#__PURE__*/React.createElement("div", {
           style: { position: "absolute", top: "calc(100% + 4px)", left: 0, zIndex: 300, background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 10, boxShadow: "0 6px 20px rgba(0,0,0,0.18)", minWidth: 180, maxWidth: "calc(100vw - 32px)", padding: "4px 0" }
         }, /*#__PURE__*/React.createElement("div", { style: { fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: 1, padding: "6px 14px 4px" } }, "Bagikan ke List"),
@@ -13262,8 +13262,8 @@ function MindmapTabInstance({
         )
       ) : (!isOwner && tab?.list_id) ? /*#__PURE__*/React.createElement("span", {
         className: "badge",
-        style: { fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0 }
-      }, `👥 ${sharedLists.find(l => l.id === tab.list_id)?.name || "Shared"}`) : null,
+        style: { fontSize: 11, padding: "3px 8px", borderRadius: 6, background: "var(--bg-primary)", border: "1px solid var(--border)", color: "var(--text-secondary)", flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 4 }
+      }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "mUsers", size: 12 }), sharedLists.find(l => l.id === tab.list_id)?.name || "Shared") : null,
 
       (isLinked ? !isNoteOwner : !isOwner) ? null : deleteConfirm ? /*#__PURE__*/React.createElement(React.Fragment, null,
         /*#__PURE__*/React.createElement("span", { style: { fontSize: 11, color: "#ef4444", flexShrink: 0 } }, "Pindahkan ke Sampah?"),

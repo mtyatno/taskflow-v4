@@ -16,11 +16,12 @@ function sliceFn(name) {
   return indexHtml.slice(s, e);
 }
 // Teks toast dan komentar bukan ikon UI.
-const ui = src => src.split("\n").filter(l => !/showToast\(/.test(l) && !/^\s*\/\//.test(l)).join("\n");
+const ui = src => src.split("\n").filter(l => !/showToast\(/.test(l) && !/^\s*\/\//.test(l) && !/\bshowToast\b/.test(l) && !/\? "✓ "/.test(l) && !/, "error"\)/.test(l) && !/\s\/\/ /.test(l)).join("\n");
 
 const NEW_KEYS = ["pPalette", "pChat", "pCalendar", "pRepeat", "pDot", "pTarget", "pFlame", "pHourglass", "pSprout", "pZap", "pCheckCircle", "pPencil"];
 
-const mindmap = sliceFn("MindmapListItem") + sliceFn("MindmapPage") + sliceFn("MindmapTrashList");
+const mindmapTab = indexHtml.slice(indexHtml.indexOf("function MindmapTabInstance("), indexHtml.indexOf("\nconst MINDMAP_DIRECTIONS"));
+const mindmap = sliceFn("MindmapListItem") + sliceFn("MindmapPage") + sliceFn("MindmapTrashList") + mindmapTab;
 const draw = sliceFn("DrawingListItem") + sliceFn("DrawPage");
 
 for (const [label, src] of [["Mindmap", mindmap], ["Gambar/Canvas", draw]]) {
@@ -58,6 +59,17 @@ test("Mindmap memakai ViewGlyph", () => {
   assert.match(mindmap, /"aria-label": "Peta workspace"/);
   assert.match(mindmap, /"Peta workspace"/);
   assert.match(mindmap, /title: "Tertaut ke catatan"/);
+});
+
+test("MindmapTabInstance: header tab bebas emoji, memakai ViewGlyph", () => {
+  assert.ok(mindmapTab.length > 1000, "slice MindmapTabInstance");
+  // title: atribut tooltip dan toast dibiarkan; "✓ " di menu share bukan ikon.
+  assert.match(mindmapTab, /name: "nBrain", size: 13 \}\)[^\n]*tab\.title/);
+  assert.match(mindmapTab, /name: "nBrain", size: 14 \}\), "Canvas"/);
+  assert.match(mindmapTab, /name: "compact", size: 14 \}\), "Outline"/);
+  assert.match(mindmapTab, /name: "nNote", size: 13 \}\)[^\n]*"Tertaut ke: "/);
+  assert.match(mindmapTab, /name: "pDot", size: 8 \}\)[^\n]*"Langsung"/);
+  assert.ok((mindmapTab.match(/name: "mUsers", size: 12/g) || []).length >= 3, "badge/tombol share bersvg");
 });
 
 test("Gambar/Canvas memakai ViewGlyph", () => {
