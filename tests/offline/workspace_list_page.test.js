@@ -207,3 +207,27 @@ test("app.css: .ws-pin-row + status drag, kartu responsif tanpa hex baru", () =>
   assert.match(block, /\.ws-card-actions\s*\{[^}]*flex-wrap:\s*wrap/);
   assert.match(block, /\.ws-pin-row\s*\{[^}]*touch-action:\s*manipulation/);
 });
+
+// Race (E2E Task 7, langkah 4j): GET /api/lists milik fetchAll terkirim sebelum pin/urutan/identitas diubah dan
+// responsnya (data lama) tiba sesudahnya → tidak boleh menimpa sharedLists/cache "lists" (urutan baru kembali lama).
+test("App fetchAll: respons GET /api/lists yang terkirim sebelum mutasi workspace tidak menimpa sharedLists", () => {
+  assert.ok(app.includes("const listsMutationSeq = useRef(0);"), "ref penanda mutasi daftar workspace");
+  const pin = sliceBetween("const handleWorkspacePin = useCallback(async (listId, pin) => {", "}, [showToast, queueListPull]);");
+  const order = sliceBetween("const handleWorkspacePinOrder = useCallback(async ids => {", "}, [showToast, queueListPull]);");
+  const upd = sliceBetween("const handleWorkspaceUpdated = useCallback(async list => {", "}, [queueListPull]);");
+  for (const [n, h] of [["pin", pin], ["urutan", order], ["identitas", upd]]) {
+    assert.ok(h.includes("listsMutationSeq.current++;"), n + " menaikkan listsMutationSeq");
+  }
+  // urutan: dinaikkan sebelum perubahan optimistis
+  assert.ok(order.indexOf("listsMutationSeq.current++;") < order.indexOf("applyPositions(posOf);"));
+  const fa = sliceBetween("const fetchAll = useCallback(async () => {", "}, [user]);");
+  const seqAt = fa.indexOf("const listsSeqAtFetch = listsMutationSeq.current;");
+  assert.ok(seqAt > 0, "fetchAll mencatat penanda sebelum GET");
+  assert.ok(seqAt < fa.indexOf("await sync()"), "dicatat sebelum sync() dan GET (awal fetchAll)");
+  // urutan: dinaikkan lagi setelah PUT selesai (sukses/gagal) → GET yang terkirim selagi PUT berjalan ikut basi
+  const put = order.indexOf('await api.fetch("/api/lists/pins/order"');
+  const after = order.slice(put);
+  assert.ok(after.indexOf("listsMutationSeq.current++;") > 0 && after.indexOf("listsMutationSeq.current++;") < after.indexOf("} catch (err) {"));
+  assert.ok(after.slice(after.indexOf("} catch (err) {")).includes("listsMutationSeq.current++;"));
+  assert.match(fa, /if \(cacheKey === "lists" && listsMutationSeq\.current !== listsSeqAtFetch\) continue;/);
+});

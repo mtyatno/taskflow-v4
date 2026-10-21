@@ -37632,6 +37632,9 @@ function App() {
   // Item tahap (context) semua scope, termasuk diarsip dan pending lokal — untuk papan Kanban
   const [contextItems, setContextItems] = useState([]);
   const [sharedLists, setSharedLists] = useState([]);
+  // Dinaikkan tiap pin/urutan/identitas workspace diubah lokal. fetchAll membandingkannya: respons GET /api/lists
+  // yang terkirim sebelum perubahan (data lama) tidak boleh menimpa sharedLists/cache "lists".
+  const listsMutationSeq = useRef(0);
   // Nama workspace untuk badge 👥 di kartu drawing (hydrateDrawingPreviews bukan komponen React)
   useEffect(() => {
     window.__tfSharedLists = sharedLists;
@@ -37721,6 +37724,7 @@ function App() {
     const pinned = !!r.pinned;
     const pinPos = pinned ? (r.pin_position ?? null) : null;
     const WP = window.TF && window.TF.workspacepins;
+    listsMutationSeq.current++;
     if (WP) setSharedLists(ls => {
       const next = WP.applyPinChange(ls, listId, pinned, pinPos);
       // cache daftar yang dipakai fetchAll saat muat awal → reload tidak menampilkan status pin lama
@@ -37750,6 +37754,7 @@ function App() {
       return next;
     });
     const LS = window.TF && window.TF.listsync;
+    listsMutationSeq.current++;
     applyPositions(posOf);
     try { if (LS && LS.setLocalPinOrder) await LS.setLocalPinOrder(order); } catch (_) {}
     try {
@@ -37758,7 +37763,9 @@ function App() {
         body: JSON.stringify({ list_ids: order }),
         network: true
       });
+      listsMutationSeq.current++; // GET yang terkirim selagi PUT berjalan bisa membawa urutan lama
     } catch (err) {
+      listsMutationSeq.current++;
       applyPositions(prevPos);
       try { if (LS && LS.setLocalPinOrder) await LS.setLocalPinOrder(prevOrder); } catch (_) {}
       const code = err && err.body && err.body.detail && err.body.detail.code;
@@ -37774,6 +37781,7 @@ function App() {
   // ganti item di sharedLists + cache "lists", record list lokal (IndexedDB), lalu pull di antrean sync.
   const handleWorkspaceUpdated = useCallback(async list => {
     if (!list || list.id == null) return;
+    listsMutationSeq.current++;
     setSharedLists(ls => {
       const next = (ls || []).map(l => l.id === list.id ? { ...l, ...list } : l);
       try { OfflineDB.cacheSet("lists", next)?.catch?.(() => {}); } catch (_) {}
@@ -38164,6 +38172,8 @@ function App() {
   const isSyncing = useRef(false);
   const fetchAll = useCallback(async () => {
     if (!user) return;
+    // Dicatat sebelum sync() + GET: mutasi workspace apa pun selama fetchAll berjalan membuat respons lists basi.
+    const listsSeqAtFetch = listsMutationSeq.current;
     // useIntroState melewati __refreshTasks selama fetchAll berjalan (cegah sync penuh kedua saat login pertama).
     window.__fetchAllInFlight = true;
     try {
@@ -38192,6 +38202,8 @@ function App() {
     for (let i = 0; i < calls.length; i++) {
       const [, setter, cacheKey] = calls[i];
       const r = results[i];
+      // Workspace diubah lokal selama request berjalan → respons ini basi; state/cache sudah benar, fetch berikutnya menyusul.
+      if (cacheKey === "lists" && listsMutationSeq.current !== listsSeqAtFetch) continue;
       if (r.status === "fulfilled") {
         setter(r.value);
         if (cacheKey) OfflineDB.cacheSet(cacheKey, r.value);
