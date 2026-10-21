@@ -47,7 +47,8 @@ test("SharedListsManager memakai ViewGlyph di semua tempat", () => {
   assert.match(manager, /Kelola Workspace/);
   assert.match(manager, /className: "wsf-title-ico"/);
   assert.match(manager, /"\.\.\." : \/\*#__PURE__\*\/React\.createElement\(|"\.\.\." :/);
-  assert.match(manager, /Generate Invite Link/);
+  // Fase 2a Task 6: tombol "Generate Invite Link" diganti bagian "Link undangan" (ikon mLink 14 di judulnya).
+  assert.match(manager, /name: "mLink",\s*size: 14\s*\}\), "Link undangan"/);
 });
 
 test("TopBarPomodoroChip: ViewGlyph pomoTomato/pomoBreak + kelas is-break", () => {
@@ -64,12 +65,12 @@ test("CSS ikon chip Pomodoro", () => {
   assert.match(appCss, /\.topbar-pomo-chip\.is-break \.topbar-pomo-icon\s*\{\s*color:\s*var\(--break\);\s*\}/);
 });
 
-test("cache bust v449 + app.css?v=353", () => {
+test("cache bust v452 + app.css?v=356", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v449-slash-menu-dismiss";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v449-slash-menu-dismiss";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v449-slash-menu-dismiss"/);
-  assert.match(py, /sw_cache = "taskflow-v449-slash-menu-dismiss"/);
-  assert.match(indexHtml, /app\.css\?v=353/);
+  assert.match(swJs, /^const CACHE = "taskflow-v452-slash-menu-dismiss";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v452-slash-menu-dismiss";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v452-slash-menu-dismiss"/);
+  assert.match(py, /sw_cache = "taskflow-v452-slash-menu-dismiss"/);
+  assert.match(indexHtml, /app\.css\?v=356/);
 });

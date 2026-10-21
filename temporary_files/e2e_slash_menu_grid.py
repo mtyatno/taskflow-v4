@@ -334,6 +334,12 @@ def main():
             p.keyboard.press("Backspace")  # buang "[[" agar dropdown wikilink tidak aktif di langkah berikut
             p.wait_for_timeout(400)
             check("d2 dropdown wikilink tertutup setelah '[[' dihapus", p.locator(".wiki-autocomplete").count() == 0)
+            # kursor kembali tepat setelah "and/" → slash menu tampil lagi; tutup (Esc) agar klik berikut tidak
+            # tertahan menu (sebelumnya flaky: titik klik .ProseMirror kadang di bawah menu)
+            p.keyboard.press("Escape")
+            p.wait_for_timeout(300)
+            check("d3 Esc menutup slash menu, 'and/' tetap", p.locator(MENU).count() == 0 and (p.evaluate(CUR_BLOCK_JS) or "").strip() == "and/",
+                  p.evaluate(CUR_BLOCK_JS))
 
             # f: Wikilink di dalam `kode` tidak mewarisi mark inline code
             new_line_and(p, "`kode x`")

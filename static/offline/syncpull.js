@@ -928,11 +928,61 @@
       });
   }
 
+  // commentrepo dibaca malas (modul lama dari cache SW tanpa komentar tidak boleh merusak pull)
+  function commentRepo() {
+    try { return isNode ? require("./commentrepo.js") : (root.TF && root.TF.commentrepo); } catch (_) { return null; }
+  }
+  function metaApi() {
+    try { return isNode ? require("./meta.js") : (root.TF && root.TF.meta); } catch (_) { return null; }
+  }
+
   function pullNotesAndReconcile(rawFetch) {
     const fetchOne = (sid) => Promise.resolve(rawFetch("/api/scratchpad/" + sid)).then(goneOrJson).catch(() => null);
     return Promise.resolve(rawFetch("/api/scratchpad"))
       .then(listJsonOrThrow)
-      .then((list) => pullNotes(list || [], fetchOne));
+      .then((list) => pullNotes(list || [], fetchOne).then((res) => {
+        const CR = commentRepo();
+        if (!CR || typeof CR.seedReadMarkers !== "function") return res;
+        return Promise.resolve().then(() => CR.seedReadMarkers(list || [], new Date().toISOString()))
+          .catch(() => null).then(() => res);
+      }));
+  }
+
+  // Delta pull komentar note: kursor di _meta `comments_cursor`; `reset` → buang komentar tersinkron, ulang sekali.
+  const COMMENT_MAX_PAGES = 50;
+  function pullComments(rawFetch) {
+    const CR = commentRepo();
+    const M = metaApi();
+    if (!CR || !M) return Promise.resolve({ pulled: 0, reset: false, changedNoteIds: [] });
+    const key = CR.CURSOR_KEY || "comments_cursor";
+    const out = { pulled: 0, reset: false, changedNoteIds: [] };
+    const changed = new Set();
+    let pages = 0;
+    let resets = 0;
+    function finish() { out.changedNoteIds = Array.from(changed); return out; }
+    function loop(cursor) {
+      if (pages >= COMMENT_MAX_PAGES) return Promise.resolve(finish());
+      pages++;
+      return Promise.resolve(rawFetch("/api/note-comments?since=" + encodeURIComponent(cursor) + "&limit=500"))
+        .then(listJsonOrThrow)
+        .then((page) => {
+          const body = page || {};
+          if (body.reset) {
+            out.reset = true;
+            resets++;
+            if (resets > 1) return finish();
+            return CR.clearSynced().then(() => M.metaSet(key, "")).then(() => loop(""));
+          }
+          const items = Array.isArray(body.items) ? body.items : [];
+          return CR.mergePulled(items).then((m) => {
+            out.pulled += items.length;
+            for (const n of ((m && m.changedNoteIds) || [])) changed.add(n);
+            const next = typeof body.cursor === "string" ? body.cursor : cursor;
+            return M.metaSet(key, next).then(() => (body.more ? loop(next) : finish()));
+          });
+        });
+    }
+    return Promise.resolve(M.metaGet(key)).then((c) => loop(typeof c === "string" ? c : ""));
   }
 
   function getAllMindmaps() {
@@ -1890,7 +1940,7 @@
     pullTasks, pullAndReconcile,
     reconcileRecurringExceptions, pullRecurringExceptions,
     pullHabits, pullHabitLogs, pullHabitsAndLogs,
-    pullNotes, pullNotesAndReconcile,
+    pullNotes, pullNotesAndReconcile, pullComments,
     pullMindmaps, pullMindmapsAndReconcile, pullMindmapOne, pullMindmapTrash,
     pullDrawings, pullDrawingsAndReconcile,
     mergeDrawingSnapshots,

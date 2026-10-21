@@ -303,7 +303,9 @@ def main():
         for k, name in (("W", W_NAME), ("W2", W2_NAME), ("W3", W3_NAME), ("WL", LONG_NAME)):
             ids[k] = api(base, A, "POST", "/api/lists", json={"name": name})["id"]
         for k in ("W", "W3"):
-            api(base, A, "POST", "/api/lists/%d/invite" % ids[k], json={"username": B["username"]})
+            # Fase 2a: undang = menunggu persetujuan → B menerima agar menjadi anggota (setup sama seperti dulu)
+            inv = api(base, A, "POST", "/api/lists/%d/invite" % ids[k], json={"username": B["username"]})
+            api(base, B, "POST", "/api/invitations/%d/accept" % inv["invitation"]["id"], json={})
         bw = api(base, B, "POST", "/api/lists", json={"name": B_WS})["id"]
         code = api(base, B, "POST", "/api/lists/%d/generate-link" % bw, json={})["code"]
         # Keadaan pin yang diketahui: GET pertama menanam pin otomatis → lepas semua, lalu pin W saja (rail langkah 1).

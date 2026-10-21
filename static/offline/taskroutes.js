@@ -22,6 +22,7 @@
   const TFdrawingroutes = req("./drawingroutes.js", root.TF && root.TF.drawingroutes);
   const TFmindmaproutes = req("./mindmaproutes.js", root.TF && root.TF.mindmaproutes);
   const TFchatroutes = req("./chatroutes.js", root.TF && root.TF.chatroutes);
+  const TFcommentroutes = req("./commentroutes.js", root.TF && root.TF.commentroutes);
   const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
   const TFcontexts = req("./contextcache.js", root.TF && root.TF.contextcache);
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
@@ -311,6 +312,7 @@
     TFdrawingroutes.registerDrawingRoutes(router);
     TFmindmaproutes.registerMindmapRoutes(router);
     TFchatroutes.registerChatRoutes(router);
+    TFcommentroutes.registerCommentRoutes(router);
 
     return router;
   }

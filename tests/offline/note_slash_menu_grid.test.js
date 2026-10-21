@@ -257,10 +257,10 @@ test("CSS slash menu grid", async (t) => {
   });
 });
 
-test("cache bust v449 + app.css?v=353", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v449-slash-menu-dismiss";/m);
-  assert.match(webappPy, /sw_cache = "taskflow-v449-slash-menu-dismiss"/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v449-slash-menu-dismiss";/);
-  assert.match(indexHtml, /app\.css\?v=353/);
+test("cache bust v452 + app.css?v=356", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v452-slash-menu-dismiss";/m);
+  assert.match(webappPy, /sw_cache = "taskflow-v452-slash-menu-dismiss"/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v452-slash-menu-dismiss";/);
+  assert.match(indexHtml, /app\.css\?v=356/);
   assert.equal(/app\.css\?v=352/.test(indexHtml), false);
 });
