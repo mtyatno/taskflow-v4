@@ -3917,3 +3917,6 @@
 
 ## 2026-10-22 — Claude — fix tooltip format vs "Komentari" menindih di editor
 - Bapak melaporkan dua popup saling menutupi saat memilih teks di editor. Repro Playwright: rect bertumpuk. Fix: "Komentari" jadi bagian tooltip format Milkdown (desktop), gelembung NoteModal hanya untuk sentuh. SW v455, app.css?v=359. Tes + E2E 89/89. Branch `claude/komentar-bubble-overlap`, PR menunggu "merge dan deploy".
+
+## 2026-10-22 06:10 WIB — Claude — merge #80 (tooltip Komentari)
+- Bapak: "merge dan deploy". CI hijau, #80 di-merge (dab39a3), Deploy Taskflow V4 sukses. Tinggal restart `taskflow-web` (SW v455).
