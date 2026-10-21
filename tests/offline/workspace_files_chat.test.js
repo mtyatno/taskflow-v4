@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v452-komentar-ui', () => {
+  test('Service Worker cache version is bumped to taskflow-v453-komentar-ui', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v452-komentar-ui";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v453-komentar-ui";/m);
   });
 });
 

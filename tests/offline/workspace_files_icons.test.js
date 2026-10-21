@@ -69,9 +69,9 @@ test("CSS wsf-title-ico terang + gelap", () => {
 test("cache bust v432 + app.css?v=357", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v452-komentar-ui";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v452-komentar-ui";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v452-komentar-ui"/);
-  assert.match(py, /sw_cache = "taskflow-v452-komentar-ui"/);
+  assert.match(swJs, /^const CACHE = "taskflow-v453-komentar-ui";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v453-komentar-ui";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v453-komentar-ui"/);
+  assert.match(py, /sw_cache = "taskflow-v453-komentar-ui"/);
   assert.match(indexHtml, /app\.css\?v=357/);
 });
