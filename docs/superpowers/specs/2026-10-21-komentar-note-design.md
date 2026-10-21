@@ -165,13 +165,14 @@ Ikut `fullSync` (berkala 30 detik dan saat online) serta sinyal SSE: ulangi `GET
 
 Komponen baru: `NoteCommentsPanel` (panel/lembar), `CommentThread`, `CommentComposer` (memakai `MentionInput` dengan kandidat anggota workspace), `CommentSelectionBubble`.
 
-- **`NoteModal`:** tombol header "Komentar · N" hanya untuk note di workspace; badge hijau bila `comment_unread`. Desktop ≥ 1024px: panel 380px di kanan, kertas bergeser; status buka/tutup di `localStorage` (try/catch). Layar sempit: lembar dari bawah tinggi ±70%, latar diredupkan. Membuka panel → `POST /comments/read` dan berlangganan SSE; menutup modal → berhenti berlangganan.
+- **Pembaca (`NotePanel`) dan editor (`NoteModal`):** komentar tersedia di keduanya; tombol header "Komentar · N" hanya untuk note di workspace; badge hijau bila `comment_unread`. Panel samping 380px di kanan bila lebar host ≥ 760px di pembaca dan ≥ 900px di editor (ukur lewat `ResizeObserver` pada host, bukan viewport); selain itu lembar dari bawah tinggi ±70%, latar diredupkan. Status buka/tutup di `localStorage` (try/catch). Header editor ≤ 768px: tombol berupa pil ikon + angka (label disembunyikan, `aria-label` tetap) dan baris aksi membungkus. Membuka panel → `POST /comments/read` dan berlangganan SSE; menutup modal → berhenti berlangganan.
 - **Seleksi:** seleksi tak kosong di editor → gelembung "Komentari" di atasnya (desktop) atau tombol di bar bawah (sentuh). Klik → panel terbuka, chip kutipan di kolom tulis (teks polos, dipotong 500 karakter, chip bisa dilepas).
-- **Sorotan:** plugin ProseMirror berbasis `Decoration.inline` dengan kelas `.cmt-anchor` / `.cmt-anchor-active` untuk thread terbuka yang kutipannya ketemu. Klik sorotan → thread aktif di panel; klik kutipan di kartu → sorotan aktif + scroll ke posisinya. Markdown note tidak berubah. Bundle Milkdown di-rebuild agar `milkdown-build/entry.js` mengekspor `Decoration` dan `DecorationSet` dari `@milkdown/prose/view`; bila tidak tersedia, sorotan dimatikan dan panel tetap berjalan.
+- **Sorotan (hasil implementasi PR 3):** memakai CSS Custom Highlight API (`commenthighlight.js`, kunci `cmt` dan `cmt-active`) atas `Range` yang dicari lewat `findQuote`; tanpa plugin/`Decoration` ProseMirror dan tanpa rebuild bundle Milkdown, DOM dan markdown note tidak berubah. Di browser tanpa dukungan API ini sorotan tidak tampil dan panel tetap berjalan. Klik sorotan → thread aktif di panel hanya di pembaca (editor tidak memasang klik agar tidak mengganggu penyuntingan); klik kutipan di kartu → sorotan aktif + scroll ke posisinya.
 - **Kutipan hilang:** kartu menampilkan kutipan dicoret + "Bagian ini sudah diubah atau dihapus dari catatan."
 - **Panel:** tab `Terbuka · N` / `Selesai · N`; aksi per hak §3; edit inline dengan label "diedit"; "Menunggu sinkron" untuk `pending`; Ctrl/⌘+Enter untuk kirim; status kosong sesuai mockup; banner offline "Kamu sedang offline. Komentar dikirim otomatis saat tersambung."
 - **Daftar catatan:** badge jumlah komentar terbuka (hijau bila `comment_unread`, abu bila sudah dibaca, tidak tampil bila 0).
-- **Notifikasi:** item dengan `note_id` membuka note dengan panel komentar terbuka.
+- **Notifikasi:** item dengan `note_id` membuka note dengan panel komentar terbuka lewat `requestOpen`, yang juga memancarkan event `window` `tf:comments-open {noteId}` (NotePanel mendengarnya sehingga note yang sudah aktif ikut membuka panel); permintaan kedaluwarsa setelah 30 detik agar penanda basi tidak membuka panel tak terduga.
+- **Akses hilang:** galat lokal "Note not found" (note hilang dari IndexedDB setelah sync karena dipindah/di-unshare) diperlakukan sama dengan `comments_access_lost`: panel kosong, stream ditutup, tanpa toast. Backend belum memancarkan `comments_access_lost` saat note di-unshare/dipindah (PR backend terpisah).
 - Mode gelap via token tema yang ada; tanpa aksen `border-left`; target sentuh ≥ 44px di mobile.
 
 Teks UI persis mengikuti mockup (lihat kanvas).
@@ -203,6 +204,6 @@ Semua PR: `npm test`, `python -m pytest`, `check_inline_scripts`, dan pembaruan 
 
 1. **Backend** — skema & migrasi, helper visibilitas, endpoint §4, field turunan, siklus hidup §2.2, notifikasi + Telegram, SSE, pytest.
 2. **Offline** — `DB_VERSION` 6, `commentrepo`, `commentanchor`, `commentroutes`, push/pull, tes node, precache SW.
-3. **UI** — rebuild bundle Milkdown (ekspor Decoration), panel/lembar, seleksi, sorotan, badge daftar, navigasi notifikasi, CSS + mode gelap, naik versi SW, E2E.
+3. **UI** — **selesai** (`claude/komentar-note-ui`): panel/lembar, seleksi, sorotan (CSS Custom Highlight API, tanpa rebuild Milkdown), badge daftar, navigasi notifikasi, CSS + mode gelap, SW v452, E2E dua akun 77/77.
 
 Setiap PR punya rencana sendiri di `docs/superpowers/plans/` (skill writing-plans) sebelum implementasi.

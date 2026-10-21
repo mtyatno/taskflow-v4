@@ -3858,3 +3858,7 @@
 - `temporary_files/e2e_komentar_note.py` (10 skenario, 77 langkah lulus; screenshot `temporary_files/e2e_komentar_note/`, di-.gitignore).
 - Bug ditemukan + diperbaiki (a478c02): panel anggota tetap menampilkan komentar + stream terbuka setelah pemilik memindah note ke pribadi. Tes sumber baru di `tests/offline/comment_panel_ui.test.js`.
 - Verifikasi: npm test 2731/2732 (pra-ada `draw_local_reactive`), pytest 1072, inline OK. Belum push.
+
+## 2026-10-21 23:30 WIB — Claude — Komentar note PR 3 Task 7 (dokumentasi)
+- CURRENT_STATE entri PR 3 dilengkapi (SIAP REVIEW AKHIR; deploy file statis → restart `taskflow-web`; SW v452 / app.css 357; sisa diketahui). Spec komentar §7 disesuaikan hasil implementasi (CSS Custom Highlight API, ambang 760/900 px, pembaca + editor, header HP, `tf:comments-open`), §9 PR 3 ditandai selesai.
+- Verifikasi: npm test 2731/2732 (pra-ada `draw_local_reactive`), pytest 1072, inline OK. Belum push.
