@@ -370,7 +370,8 @@ test("Floating ToC — NoteModal (mode edit) menggantikan kolom samping NoteToc"
   });
 
   await t.test("FloatingToc dirender langsung di root modal (setelah area scroll), gating !focusMode & heading ≥ 2", () => {
-    assert.match(noteModalCode, /\}, inner\), !focusMode && tocItems\.length >= 2 && \/\*#__PURE__\*\/React\.createElement\(FloatingToc, \{\s*items: tocItems,\s*activeIdx: tocActiveIdx,\s*onJump: jumpToEditorHeading,\s*onOpen: syncEditorToc,\s*className: "floating-toc-anchor--modal"\s*\}\)/);
+    // Komentar (PR 3): area scroll + panel samping dibungkus baris flex; gelembung seleksi di antaranya.
+    assert.match(noteModalCode, /\}, inner\),(?: cmtWide \? cmtPanelEl : null\), cmtNote && \/\*#__PURE__\*\/React\.createElement\(CommentSelectionBubble, \{[\s\S]*?\}\),)? !focusMode && tocItems\.length >= 2 && \/\*#__PURE__\*\/React\.createElement\(FloatingToc, \{\s*items: tocItems,\s*activeIdx: tocActiveIdx,\s*onJump: jumpToEditorHeading,\s*onOpen: syncEditorToc,\s*className: "floating-toc-anchor--modal"\s*\}\)/);
   });
 
   await t.test("daftar heading dari dokumen editor; extractHeadings(content) hanya fallback sebelum editor siap", () => {
@@ -411,7 +412,7 @@ test("Floating ToC — NoteModal (mode edit) menggantikan kolom samping NoteToc"
   await t.test("scroll-spy mode edit: root = div scroll modal (bukan viewport) → jalan di layar pendek", () => {
     // Area scroll modal baru mulai di y≈182 (header+toolbar); pita relatif viewport tertutup header bila vh < ~455px.
     assert.match(noteModalCode, /const \[tocScrollEl, setTocScrollEl\] = React\.useState\(null\);/, "elemen scroll modal disimpan di state (callback ref)");
-    assert.match(noteModalCode, /\}, header, !focusMode && topFixed, \/\*#__PURE__\*\/React\.createElement\("div", \{\s*ref: setTocScrollEl,\s*style: \{\s*flex: 1,\s*overflowY: "auto",/, "ref dipasang di div scroll modal (flex:1; overflowY:auto) yang membungkus inner");
+    assert.match(noteModalCode, /\}, header, !focusMode && topFixed, (?:\/\*#__PURE__\*\/React\.createElement\("div", \{\s*style: \{\s*flex: 1,\s*minHeight: 0,\s*display: "flex"\s*\}\s*\}, )?\/\*#__PURE__\*\/React\.createElement\("div", \{\s*ref: setTocScrollEl,\s*style: \{\s*flex: 1,\s*overflowY: "auto",/, "ref dipasang di div scroll modal (flex:1; overflowY:auto) yang membungkus inner");
     assert.match(noteModalCode, /\{ root: tocScrollEl, rootMargin: "0px 0px -60% 0px", threshold: 0 \}/, "root = area scroll modal, pita = 40% teratas area scroll");
     assert.strictEqual(/root: null/.test(noteModalCode), false, "NoteModal tidak boleh memakai root viewport");
     assert.match(noteModalCode, /if \(focusMode \|\| !tocScrollEl \|\| !editorToc/, "tanpa elemen root → observer tidak dibuat");
