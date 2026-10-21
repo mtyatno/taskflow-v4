@@ -64,12 +64,12 @@ test("CSS ikon chip Pomodoro", () => {
   assert.match(appCss, /\.topbar-pomo-chip\.is-break \.topbar-pomo-icon\s*\{\s*color:\s*var\(--break\);\s*\}/);
 });
 
-test("cache bust v446 + app.css?v=351", () => {
+test("cache bust v447 + app.css?v=353", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v446-komentar-offline";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v446-komentar-offline";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v446-komentar-offline"/);
-  assert.match(py, /sw_cache = "taskflow-v446-komentar-offline"/);
-  assert.match(indexHtml, /app\.css\?v=351/);
+  assert.match(swJs, /^const CACHE = "taskflow-v448-komentar-offline";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v448-komentar-offline";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v448-komentar-offline"/);
+  assert.match(py, /sw_cache = "taskflow-v448-komentar-offline"/);
+  assert.match(indexHtml, /app\.css\?v=353/);
 });

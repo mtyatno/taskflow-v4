@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v401", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v446-komentar-offline";/m,
-      "sw.js CACHE must be taskflow-v446-komentar-offline"
+      /^const CACHE = "taskflow-v448-komentar-offline";/m,
+      "sw.js CACHE must be taskflow-v448-komentar-offline"
     );
   });
 });
