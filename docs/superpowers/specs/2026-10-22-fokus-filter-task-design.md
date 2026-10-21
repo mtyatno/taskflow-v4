@@ -1,7 +1,7 @@
 # Spec: Halaman Fokus Hari Ini — memilih task (tab waktu, cari, chip, filter tersembunyi, kelompok Workspace › Project)
 
 - **Tanggal:** 2026-10-22
-- **Basis kode:** `main` @ `7b8d4de` (mtyatno/taskflow-v4)
+- **Basis kode:** `main` @ `c771b54` (mtyatno/taskflow-v4; SW v452, `app.css?v=356`)
 - **Status:** desain disetujui dalam sesi brainstorming 2026-10-21/22 (pemilik + Claude). Tata letak dipilih lewat prototipe interaktif: opsi A ditambah filter tersembunyi seperti opsi C. Spec tertulis ini menunggu review pemilik sebelum rencana implementasi dibuat.
 - **Salinan:** repo `docs/superpowers/specs/2026-10-22-fokus-filter-task-design.md` dan Project claude.ai "alurik" `claude/spec-fokus-filter-task-2026-10-22.md`. Isi keduanya sama.
 - **Prototipe:** artifact "Filter Halaman Fokus" (versi 2), berisi 16 task contoh dengan kontrol yang benar-benar menyaring. Bila ada perbedaan, spec ini yang berlaku.
