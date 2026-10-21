@@ -531,6 +531,15 @@ def main():
                   card_with(a, body6q).count() == 1 and card_with(a, body6q).first.locator(".cmt-quote-lost").count() == 0
                   and a.get_by_text(LOST).count() == 0)
             shot(a, "06_A_editor_sorotan.png")
+            # Seleksi di editor: "Komentari" ada DI DALAM tooltip format (B/I/S/<>), tanpa gelembung terpisah
+            # yang dulu menindih tooltip.
+            select_text(a, ".ProseMirror", "Rilis versi baru")
+            tcb = a.locator(".milkdown-tooltip .milkdown-tooltip-cmt")
+            check("6c4 editor: tombol Komentari di tooltip format, tanpa gelembung terpisah",
+                  wait_until(lambda: tcb.count() == 1 and tcb.first.is_visible(), 5)
+                  and a.locator("button.cmt-bubble").count() == 0)
+            shot(a, "06_A_editor_tooltip_komentari.png")
+            a.evaluate("() => window.getSelection().removeAllRanges()")
             # pilih kata "pemasaran" di ProseMirror lalu ketik pengganti
             pm.click()
             select_text(a, ".ProseMirror", "pemasaran")
