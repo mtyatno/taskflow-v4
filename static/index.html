@@ -30009,6 +30009,11 @@ function PaperPageGuides({ rootRef, paperConfig }) {
   //   - NoteCommentsPanel (CommentThreadCard, CommentComposer, CommentDeleteDialog)
   // Komentar level halaman untuk note workspace (list_id != null). Data lewat rute lokal PR 2.
 
+// Galat rute lokal "Note not found": note tak ada lagi di perangkat ini (sync menghapus/memindahkannya).
+function noteGone(err) {
+  return !!(err && err.__local && /note not found/i.test(String(err.message || "")));
+}
+
 function useNoteComments(note, {
   open,
   showToast
@@ -30022,6 +30027,8 @@ function useNoteComments(note, {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine !== false);
+  // Note tak ada lagi di lokal (sync: dipindah ke pribadi / di-unshare / dihapus) → daftar kosong, stream ditutup.
+  const [gone, setGone] = useState(false);
   const seqRef = useRef(0);
   const lostRef = useRef(false);
   const failToastRef = useRef(false);
@@ -30039,9 +30046,15 @@ function useNoteComments(note, {
       setRows(list);
       setLoading(false);
       return list;
-    }, () => {
+    }, (err) => {
       if (seq !== seqRef.current) return [];
       setLoading(false);
+      if (noteGone(err)) {
+        lostRef.current = true;
+        setRows([]);
+        setGone(true);
+        return [];
+      }
       if (!failToastRef.current) {
         failToastRef.current = true;
         const t = toastRef.current;
@@ -30053,6 +30066,7 @@ function useNoteComments(note, {
   // Ganti note: kosongkan, reset penanda, muat ulang.
   useEffect(() => {
     lostRef.current = false;
+    setGone(false);
     failToastRef.current = false;
     lastReadRef.current = 0;
     setRows([]);
@@ -30064,18 +30078,22 @@ function useNoteComments(note, {
     const onChanged = () => { if (noteId != null) reload(); };
     const onOnline = () => { setOnline(true); if (noteId != null) reload(); };
     const onOffline = () => setOnline(false);
+    // Pull note dari sync (note dipindah/di-unshare/dihapus di perangkat lain) → cek ulang lewat rute lokal.
+    const onNoteSaved = (e) => { if (noteId != null && e && e.detail && e.detail.source === "sync") reload(); };
     window.addEventListener("tf:comments-changed", onChanged);
+    window.addEventListener("noteSaved", onNoteSaved);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
     return () => {
       window.removeEventListener("tf:comments-changed", onChanged);
+      window.removeEventListener("noteSaved", onNoteSaved);
       window.removeEventListener("online", onOnline);
       window.removeEventListener("offline", onOffline);
     };
   }, [noteId, reload]);
   // Live: SSE per note server (pola mindmap). Hanya online; dibuka lagi saat 'online'.
   useEffect(() => {
-    if (serverId == null || typeof EventSource === "undefined") return;
+    if (serverId == null || gone || typeof EventSource === "undefined") return;
     let es = null;
     let disposed = false;
     const closeStream = () => {
@@ -30122,7 +30140,7 @@ function useNoteComments(note, {
       window.removeEventListener("online", onOnline);
       closeStream();
     };
-  }, [serverId, listId, reload]);
+  }, [serverId, listId, reload, gone]);
   // Tandai dibaca saat panel terbuka dan ada komentar — paling sering sekali per 10 detik.
   // Tertahan throttle → satu POST susulan di sisa waktu; panel ditutup → POST akhir bila ada yang baru.
   const readSig = rows.map((r) => (r.cid || r.id) + ":" + (r.updated_at || r.created_at || "")).join(",");

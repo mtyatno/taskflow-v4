@@ -219,3 +219,22 @@ test("NoteCommentsPanel: status online dari hook (prop), tanpa pendengar online/
   assert.ok(!src.includes('addEventListener("online"'));
   assert.ok(src.includes("!isOnline ?"));
 });
+
+test("useNoteComments: note hilang dari lokal (dipindah ke pribadi / di-unshare, terlihat lewat sync) → rows kosong, stream ditutup, tanpa toast", () => {
+  const src = fnSource("useNoteComments");
+  // pull note dari sync menghapus/memindah note → muat ulang komentar
+  assert.ok(src.includes('addEventListener("noteSaved"'), "dengarkan noteSaved");
+  assert.ok(src.includes('removeEventListener("noteSaved"'), "pendengar noteSaved dilepas");
+  // galat rute lokal "Note not found" = akses hilang, bukan gagal muat
+  const i = src.indexOf("noteGone(err)");
+  assert.ok(i >= 0, "reload memeriksa noteGone(err)");
+  const branch = src.slice(i, i + 300);
+  assert.ok(branch.includes("setRows([])"), "rows dikosongkan");
+  assert.ok(branch.includes("setGone(true)"), "tandai gone");
+  assert.ok(branch.indexOf("return") < branch.indexOf("Gagal memuat komentar") || !branch.includes("Gagal memuat komentar"),
+    "tanpa toast gagal muat");
+  assert.ok(/__local\s*&&\s*\/note not found\/i/.test(fnSource("noteGone")), "deteksi galat lokal note not found");
+  // stream SSE tidak dibuka / ditutup selama gone
+  assert.ok(src.includes("if (serverId == null || gone ||"), "SSE berhenti saat gone");
+  assert.ok(src.includes("}, [serverId, listId, reload, gone]);"), "efek SSE bergantung pada gone");
+});
