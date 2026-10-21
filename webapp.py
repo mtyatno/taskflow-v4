@@ -3651,7 +3651,7 @@ async def invite_to_list(list_id: int, req: InviteUserReq, user=Depends(get_curr
         raise HTTPException(status_code=400, detail=f"User '{req.username}' sudah menjadi anggota")
     except repository.InvitationExists:
         raise HTTPException(status_code=409, detail=f"Undangan untuk @{req.username} sudah dikirim")
-    await _send_invitation_telegram(inv)
+    asyncio.create_task(_send_invitation_telegram(inv))
     return {
         "ok": True,
         "invitation": {

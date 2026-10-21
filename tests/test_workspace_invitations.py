@@ -233,3 +233,53 @@ def test_migration_idempotent(client):
         conn.close()
     webapp.migrate_db()
     webapp.migrate_db()
+
+
+def test_accept_is_atomic_when_membership_insert_fails(client, monkeypatch):
+    import pytest
+    import repository
+    from config import DB_PATH
+    a, b, lid, iid = _setup(client)
+
+    def boom(conn, list_id, user_id):
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr(repository.TaskRepository, "_add_list_member_conn", staticmethod(boom))
+    repo = repository.TaskRepository(DB_PATH)
+    with pytest.raises(sqlite3.OperationalError):
+        repo.respond_workspace_invitation(iid, b.id, True)
+    monkeypatch.undo()
+    assert _q("SELECT status FROM workspace_invitations WHERE id=?", (iid,))[0]["status"] == "pending"
+    assert not _is_member(lid, b.id)
+    assert not [n for n in a.get("/api/notifications").json() if "menerima" in n["message"]]
+    # retry berhasil
+    assert b.post(f"/api/invitations/{iid}/accept").status_code == 200
+    assert _is_member(lid, b.id)
+
+
+def test_invite_telegram_dm_has_accept_decline_buttons(client, monkeypatch):
+    import asyncio
+    import webapp
+
+    class FakeBot:
+        def __init__(self):
+            self.sent = []
+
+        async def send_message(self, chat_id, text, parse_mode=None, reply_markup=None, **kw):
+            self.sent.append((chat_id, text, reply_markup))
+
+    fake = FakeBot()
+    monkeypatch.setattr(webapp, "_tg_bot", fake)
+    a, b = U(client, "oa"), U(client, "ib")
+    tg = 7_000_000 + int(uuid.uuid4().int % 900_000)
+    _q("UPDATE users SET telegram_id=? WHERE id=?", (tg, b.id))
+    lid = _workspace(a)
+    inv = {"id": 0, "list_id": lid, "invitee_id": b.id, "inviter_id": a.id}
+    iid = _invite(a, lid, b).json()["invitation"]["id"]
+    inv["id"] = iid
+    asyncio.run(webapp._send_invitation_telegram(inv))
+    assert fake.sent
+    chat, text, kb = fake.sent[-1]
+    assert chat == tg and "mengundangmu ke workspace" in text
+    btns = kb.inline_keyboard[0]
+    assert [x.callback_data for x in btns] == [f"inv_acc_{iid}", f"inv_dec_{iid}"]

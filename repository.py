@@ -1859,22 +1859,27 @@ class TaskRepository:
             )
             return cur.rowcount > 0
 
-    def add_list_member(self, list_id: int, user_id: int) -> bool:
+    @staticmethod
+    def _add_list_member_conn(conn, list_id: int, user_id: int) -> bool:
+        """Tambah anggota pada koneksi/transaksi yang sudah ada. False bila sudah anggota."""
         now = datetime.now().isoformat()
+        try:
+            conn.execute(
+                "INSERT INTO list_members (list_id, user_id, joined_at) VALUES (?,?,?)",
+                (list_id, user_id, now),
+            )
+        except sqlite3.IntegrityError:
+            return False  # already a member
+        try:  # komentar note jadi terlihat bagi anggota baru: bump agar delta pull mengirimnya
+            conn.execute("UPDATE note_comments SET updated_at = ? WHERE list_id = ?",
+                         (datetime.now(_TZ_JKT).isoformat(), list_id))
+        except sqlite3.OperationalError:
+            pass  # tabel belum dimigrasi
+        return True
+
+    def add_list_member(self, list_id: int, user_id: int) -> bool:
         with self._connect() as conn:
-            try:
-                conn.execute(
-                    "INSERT INTO list_members (list_id, user_id, joined_at) VALUES (?,?,?)",
-                    (list_id, user_id, now),
-                )
-            except sqlite3.IntegrityError:
-                return False  # already a member
-            try:  # komentar note jadi terlihat bagi anggota baru: bump agar delta pull mengirimnya
-                conn.execute("UPDATE note_comments SET updated_at = ? WHERE list_id = ?",
-                             (datetime.now(_TZ_JKT).isoformat(), list_id))
-            except sqlite3.OperationalError:
-                pass  # tabel belum dimigrasi
-            return True
+            return self._add_list_member_conn(conn, list_id, user_id)
 
     def remove_list_member(self, list_id: int, user_id: int) -> bool:
         with self._connect() as conn:
@@ -2225,8 +2230,8 @@ class TaskRepository:
                 "VALUES (?,?,0,?,NULL,?,'workspace_invite_response')",
                 (lst["owner_id"], f"{who_name} {verb} undangan ke {lst['name']}", lst["id"], now),
             )
-        if accept:
-            self.add_list_member(inv["list_id"], user_id)  # idempoten bila sudah anggota
+            if accept:  # satu transaksi: gagal di sini -> status tetap pending
+                self._add_list_member_conn(conn, inv["list_id"], user_id)  # idempoten
         return {"status": status,
                 "list": {"id": lst["id"], "name": lst["name"], "avatar": lst["avatar"],
                          "color_idx": lst["color_idx"]}}
