@@ -3853,3 +3853,8 @@
 ## 2026-10-21 22:05 WIB — Claude — merge Kelola Workspace Fase 2a (#76)
 - Bapak: "merge". #76 di-merge (cb9ed2b) setelah merge main (#74) + SW v451; CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` lalu `sudo systemctl restart taskflow` (migrasi undangan + bot). Lalu Fase 2b (transfer ownership, arsip, ekspor) bila diminta.
+
+## 2026-10-21 23:00 WIB — Claude — Komentar note PR 3 Task 6 (E2E dua akun)
+- `temporary_files/e2e_komentar_note.py` (10 skenario, 77 langkah lulus; screenshot `temporary_files/e2e_komentar_note/`, di-.gitignore).
+- Bug ditemukan + diperbaiki (a478c02): panel anggota tetap menampilkan komentar + stream terbuka setelah pemilik memindah note ke pribadi. Tes sumber baru di `tests/offline/comment_panel_ui.test.js`.
+- Verifikasi: npm test 2731/2732 (pra-ada `draw_local_reactive`), pytest 1072, inline OK. Belum push.
