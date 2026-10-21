@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v446-slash-menu-grid";
+const CACHE = "taskflow-v447-slash-menu-icons";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [

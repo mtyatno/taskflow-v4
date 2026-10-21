@@ -24,31 +24,79 @@ function evalGroups() {
   return new Function(src)();
 }
 
+// [ikon teks (heading) | glyph VIEW_GLYPHS, label, tipe, payload]
 const EXPECTED = [
   ["Teks", [
     ["H1", "Heading 1", "heading", 1],
     ["H2", "Heading 2", "heading", 2],
     ["H3", "Heading 3", "heading", 3],
-    ['"', "Blockquote", "blockquote"],
-    ["💡", "Callout", "callout"],
-    ["▶", "Toggle", "toggle"],
-    ["💻", "Code", "code_block"],
+    ["sQuote", "Blockquote", "blockquote"],
+    ["sLightbulb", "Callout", "callout"],
+    ["sToggle", "Toggle", "toggle"],
+    ["sCode", "Code", "code_block"],
   ]],
   ["Daftar", [
-    ["•", "Bullet", "bullet_list_simple"],
-    ["1.", "Numbered", "ordered_list"],
-    ["☑", "Checklist", "task_list"],
+    ["sListBullet", "Bullet", "bullet_list_simple"],
+    ["sListOrdered", "Numbered", "ordered_list"],
+    ["sChecklist", "Checklist", "task_list"],
   ]],
   ["Sisipkan", [
-    ["⊞", "Tabel", "table"],
-    ["—", "Divider", "hr"],
-    ["🎨", "Gambar", "draw"],
-    ["📌", "Task", "task"],
+    ["sTable", "Tabel", "table"],
+    ["sDivider", "Divider", "hr"],
+    ["pPalette", "Gambar", "draw"],
+    ["nPin", "Task", "task"],
   ]],
   ["Tautan", [
-    ["🔗", "Wikilink", "wikilink"],
+    ["mLink", "Wikilink", "wikilink"],
   ]],
 ];
+const GLYPH_KEYS = EXPECTED.flatMap(g => g[1].map(r => r[0])).filter(k => !/^H\d$/.test(k));
+
+function viewGlyphs() {
+  const start = indexHtml.indexOf("const VIEW_GLYPHS = {");
+  const end = indexHtml.indexOf("function ViewGlyph(");
+  assert.ok(start > 0 && end > start);
+  return new Function(indexHtml.slice(start, end).replace("const VIEW_GLYPHS = ", "return "))();
+}
+
+test("slash menu: ikon glyph gaya Alurik", async (t) => {
+  const groups = evalGroups();
+  const items = groups.flatMap(g => g.items);
+  await t.test("12 glyph ada di VIEW_GLYPHS (duotone, viewBox 24)", () => {
+    const G = viewGlyphs();
+    assert.equal(GLYPH_KEYS.length, 12);
+    for (const k of GLYPH_KEYS) {
+      assert.ok(typeof G[k] === "string" && G[k].length > 0, "VIEW_GLYPHS." + k);
+    }
+    for (const k of ["sQuote", "sLightbulb", "sToggle", "sCode", "sListBullet", "sListOrdered", "sChecklist", "sTable", "sDivider"]) {
+      assert.match(G[k], /fill="currentColor" fill-opacity="\.22"/, k + " punya isian lembut");
+      assert.equal(/<script|on\w+=/i.test(G[k]), false, k + " markup statis aman");
+    }
+  });
+  await t.test("heading tetap ikon teks, item lain memakai glyph (tanpa emoji/simbol)", () => {
+    for (const it of items) {
+      if (it.type === "heading") {
+        assert.match(it.icon, /^H[123]$/);
+        assert.equal(it.glyph, undefined);
+      } else {
+        assert.equal(it.icon, undefined, "item " + it.label + " tanpa ikon teks");
+        assert.ok(GLYPH_KEYS.includes(it.glyph), "glyph " + it.label);
+      }
+    }
+    assert.equal(/\p{Extended_Pictographic}/u.test(groupsSource()), false, "tanpa emoji di SLASH_MENU_GROUPS");
+    assert.equal(/[•☑⊞—▶]/.test(groupsSource().replace(/title: '[^']*'/g, "")), false, "tanpa simbol ikon lama");
+  });
+  await t.test("makeSlashItem membuat <svg> dari VIEW_GLYPHS (atribut sama dengan ViewGlyph)", () => {
+    const start = indexHtml.indexOf("const makeSlashItem = (");
+    const src = indexHtml.slice(start, indexHtml.indexOf("// ── Tooltip DOM", start));
+    assert.match(src, /document\.createElementNS\('http:\/\/www\.w3\.org\/2000\/svg', 'svg'\)/);
+    for (const a of ["'viewBox', '0 0 24 24'", "'fill', 'none'", "'stroke', 'currentColor'", "'stroke-linecap', 'round'",
+                     "'stroke-linejoin', 'round'", "'aria-hidden', 'true'", "'focusable', 'false'", "'width', '16'", "'height', '16'"]) {
+      assert.ok(src.includes("setAttribute(" + a + ")"), "atribut " + a);
+    }
+    assert.match(src, /glyph: it\.glyph/);
+  });
+});
 
 test("slash menu: grup dan item sesuai urutan", async (t) => {
   const groups = evalGroups();
@@ -56,7 +104,7 @@ test("slash menu: grup dan item sesuai urutan", async (t) => {
     assert.deepEqual(groups.map(g => g.label), EXPECTED.map(g => g[0]));
   });
   await t.test("15 item dengan ikon/label/tipe/payload persis", () => {
-    const flat = groups.flatMap(g => g.items.map(it => [it.icon, it.label, it.type, it.payload]));
+    const flat = groups.flatMap(g => g.items.map(it => [it.glyph || it.icon, it.label, it.type, it.payload]));
     const exp = EXPECTED.flatMap(g => g[1].map(([i, l, ty, p]) => [i, l, ty, p]));
     assert.equal(flat.length, 15);
     assert.deepEqual(flat, exp);
@@ -86,7 +134,7 @@ test("slash menu: listbox punya nama aksesibel", () => {
   assert.match(indexHtml, /slashMenu\.setAttribute\('role', 'listbox'\);\s*slashMenu\.setAttribute\('aria-label', 'Sisipkan blok'\);/);
 });
 
-test("slash menu: konstruksi DOM aman (tanpa innerHTML)", async (t) => {
+test("slash menu: konstruksi DOM aman (label via textContent)", async (t) => {
   const start = indexHtml.indexOf("const makeSlashItem = (");
   const end = indexHtml.indexOf("// ── Tooltip DOM", start);
   const src = indexHtml.slice(start, end);
@@ -97,9 +145,11 @@ test("slash menu: konstruksi DOM aman (tanpa innerHTML)", async (t) => {
     assert.match(src, /milkdown-slash-label/);
     assert.match(src, /setAttribute\('title'/);
   });
-  await t.test("tanpa innerHTML", () => {
-    assert.equal(/innerHTML/.test(src), false);
-    assert.match(src, /textContent/);
+  await t.test("innerHTML hanya untuk markup glyph statis VIEW_GLYPHS", () => {
+    const uses = src.match(/[\w.]+\.innerHTML\s*=\s*[^;]+;/g) || [];
+    assert.equal(uses.length, 1, uses.join(" | "));
+    assert.match(uses[0], /^svg\.innerHTML = VIEW_GLYPHS\[o\.glyph\];$/);
+    assert.match(src, /labelEl\.textContent = label;/);
   });
   await t.test("label grup + grid dibuat per grup", () => {
     assert.match(src, /milkdown-slash-group-label/);
@@ -194,6 +244,12 @@ test("CSS slash menu grid", async (t) => {
     assert.match(css, /\.milkdown-slash-item\.is-wide \{ grid-column: 1 \/ -1; \}/);
     assert.match(css, /\.milkdown-slash-group-label \{[^}]*text-transform: uppercase/);
     assert.match(css, /\.milkdown-slash-hint \{[^}]*margin-left: auto/);
+    const icon = /\.milkdown-slash-icon \{([^}]*)\}/.exec(css);
+    assert.match(icon[1], /display: inline-flex/);
+    assert.match(icon[1], /align-items: center/);
+    assert.match(icon[1], /justify-content: center/);
+    assert.match(icon[1], /color: var\(--text-light\)/);
+    assert.match(css, /\.milkdown-slash-item:hover \.milkdown-slash-icon,\s*\.milkdown-slash-item\[aria-selected="true"\] \.milkdown-slash-icon \{ color: var\(--text-primary\); \}/);
     assert.match(css, /\.milkdown-slash-label \{[^}]*text-overflow: ellipsis/);
   });
   await t.test("dark hover tanpa box-shadow", () => {
@@ -201,10 +257,10 @@ test("CSS slash menu grid", async (t) => {
   });
 });
 
-test("cache bust v446 + app.css?v=352", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v446-slash-menu-grid";/m);
-  assert.match(webappPy, /sw_cache = "taskflow-v446-slash-menu-grid"/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v446-slash-menu-grid";/);
-  assert.match(indexHtml, /app\.css\?v=352/);
-  assert.equal(/app\.css\?v=351/.test(indexHtml), false);
+test("cache bust v447 + app.css?v=353", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v447-slash-menu-icons";/m);
+  assert.match(webappPy, /sw_cache = "taskflow-v447-slash-menu-icons"/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v447-slash-menu-icons";/);
+  assert.match(indexHtml, /app\.css\?v=353/);
+  assert.equal(/app\.css\?v=352/.test(indexHtml), false);
 });

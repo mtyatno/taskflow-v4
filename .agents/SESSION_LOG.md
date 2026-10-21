@@ -3809,3 +3809,9 @@
 - **Changes:** `slashClampToViewport` (visualViewport kedua sumbu, max-height dinamis + reset rects), `case 'wikilink'` buang mark `spec.code`, `aria-label` listbox; tes unit + E2E (k, f, a7) 36/36.
 - **Files Touch:** static/index.html, tests/offline/note_slash_menu_grid.test.js, temporary_files/e2e_slash_menu_grid.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (commit lokal, belum di-push)
+
+## 2026-10-21 20:35 WIB — Claude — slash menu: ikon gaya Alurik
+- **Task:** Bapak minta ikon emoji/simbol slash menu diganti glyph duotone gaya Alurik (seperti #69/#72).
+- **Changes:** 9 glyph baru `s*` di `VIEW_GLYPHS` + pakai ulang `pPalette`/`nPin`/`mLink`; `SLASH_MENU_GROUPS` kunci `glyph`; `makeSlashItem` membuat svg (createElementNS); CSS ikon; SW v447 / `app.css?v=353`; tes glyph + daftar kunci `VIEW_GLYPHS`; E2E 39/39 (svg di 12 item, heading teks, tanpa emoji).
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/*.test.js (versi, glyph), tests/test_version.py, temporary_files/e2e_slash_menu_grid.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (di-push ke branch PR #73)

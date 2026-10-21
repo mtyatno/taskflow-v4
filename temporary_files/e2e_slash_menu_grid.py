@@ -1,7 +1,7 @@
 """E2E: slash menu editor note — grid 2 kolom + label grup + item Wikilink (2026-10-21). Tidak dijalankan CI.
 
 Alur:
-  a  ketik "/" di paragraf baru → menu tampil, 4 label grup, 15 item, grid 2 kolom, tanpa scroll (1280×800)
+  a  ketik "/" di paragraf baru → menu tampil, 4 label grup, 15 item, ikon glyph svg (heading teks), grid 2 kolom, tanpa scroll (1280×800)
   b  screenshot terang + gelap; 375×740 → tanpa scroll, menu utuh di dalam viewport (dijepit middleware)
   c  klik Wikilink → "/" hilang, paragraf berisi "[[", dropdown autocomplete wikilink tampil
   d  "and/" → klik Wikilink → "and/" tetap ("/" di tengah teks bukan pemicu)
@@ -207,6 +207,21 @@ def main():
             m = menu_metrics(p)
             check("a1 4 label grup berurutan", m["labels"] == ["Teks", "Daftar", "Sisipkan", "Tautan"], m["labels"])
             check("a2 15 item sesuai urutan", m["items"] == EXPECTED_ITEMS, m["items"])
+            ic = p.evaluate("""() => [...document.querySelectorAll(".milkdown-slash-menu[data-show='true'] .milkdown-slash-item")].map(el => {
+              const i = el.querySelector('.milkdown-slash-icon'); const svg = i.querySelector('svg');
+              const r = svg ? svg.getBoundingClientRect() : null;
+              return { label: el.querySelector('.milkdown-slash-label').textContent, text: i.textContent,
+                       svg: !!svg, ns: svg ? svg.namespaceURI : null, shapes: svg ? svg.querySelectorAll('path,rect,circle').length : 0,
+                       w: r ? Math.round(r.width) : 0, emoji: /\p{Extended_Pictographic}/u.test(el.textContent) };
+            })""")
+            heads = [x for x in ic if x["label"].startswith("Heading")]
+            others = [x for x in ic if not x["label"].startswith("Heading")]
+            check("a2b heading tetap ikon teks H1–H3 tanpa svg", [x["text"] for x in heads] == ["H1", "H2", "H3"] and not any(x["svg"] for x in heads),
+                  [(x["text"], x["svg"]) for x in heads])
+            check("a2c 12 item lain berisi svg glyph (namespace SVG, ada bentuk, 16px) tanpa teks ikon",
+                  len(others) == 12 and all(x["svg"] and x["ns"] == "http://www.w3.org/2000/svg" and x["shapes"] > 0 and x["w"] == 16 and x["text"] == "" for x in others),
+                  [(x["label"], x["svg"], x["shapes"], x["w"], x["text"]) for x in others if not (x["svg"] and x["shapes"] and x["w"] == 16 and x["text"] == "")])
+            check("a2d tanpa emoji di item menu", not any(x["emoji"] for x in ic), [x["label"] for x in ic if x["emoji"]])
             check("a3 grid 2 kolom (baris 1 sejajar)", m["row1Top"][0] == m["row1Top"][1] and m["row1Left"][1] > m["row1Left"][0],
                   (m["row1Top"], m["row1Left"]))
             check("a4 tanpa scroll 1280×800", m["sh"] <= m["ch"], (m["sh"], m["ch"]))

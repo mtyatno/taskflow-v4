@@ -11,10 +11,10 @@ const swJs = fs.readFileSync(path.join(root, "static/sw.js"), "utf8");
 const webappPy = fs.readFileSync(path.join(root, "webapp.py"), "utf8");
 
 test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
-  await t.test("SLASH_MENU_GROUPS registers 'task' with label 'Task' and title 'Tugas / Task (/task, /tasks)'", () => {
+  await t.test("SLASH_MENU_GROUPS registers 'task' with glyph nPin, label 'Task' and title 'Tugas / Task (/task, /tasks)'", () => {
     assert.match(
       indexHtml,
-      /\{\s*icon:\s*['"]📌['"],\s*label:\s*['"]Task['"],\s*type:\s*['"]task['"],\s*title:\s*['"]Tugas \/ Task \(\/task, \/tasks\)['"]\s*\}/
+      /\{\s*glyph:\s*['"]nPin['"],\s*label:\s*['"]Task['"],\s*type:\s*['"]task['"],\s*title:\s*['"]Tugas \/ Task \(\/task, \/tasks\)['"]\s*\}/
     );
   });
 
@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v446-slash-menu-grid in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v446-slash-menu-grid";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v446-slash-menu-grid"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v446-slash-menu-grid";/);
+  await t.test("Service Worker cache is taskflow-v447-slash-menu-icons in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v447-slash-menu-icons";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v447-slash-menu-icons"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v447-slash-menu-icons";/);
   });
 });

@@ -11,9 +11,9 @@ test("Service Worker and stylesheet versions are synchronized for v396", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v446-slash-menu-grid/);
-  assert.match(html, /taskflow-v446-slash-menu-grid/);
-  assert.match(html, /app\.css\?v=352/);
+  assert.match(sw, /taskflow-v447-slash-menu-icons/);
+  assert.match(html, /taskflow-v447-slash-menu-icons/);
+  assert.match(html, /app\.css\?v=353/);
 });
 
 test("Dashboard contains conditional rendering logic for new users (hasTasks)", () => {
