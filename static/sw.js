@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v451-kelola-workspace-fase2a";
+const CACHE = "taskflow-v452-slash-menu-dismiss";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [

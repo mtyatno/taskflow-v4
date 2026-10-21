@@ -178,7 +178,7 @@ test("slash menu: aksi wikilink menyisipkan [[ dari state segar", () => {
 });
 
 test("slash menu: posisi dijepit ke dalam viewport (HP)", async (t) => {
-  assert.match(indexHtml, /new MB\.SlashProvider\(\{ content: slashMenu, root: document\.body, middleware: \[slashClampToViewport\] \}\)/);
+  assert.match(indexHtml, /new MB\.SlashProvider\(\{ content: slashMenu, root: document\.body, middleware: \[slashClampToViewport\](?:, shouldShow: [^\n]*)? \}\)/);
   const m = indexHtml.match(/const slashClampToViewport = \{[\s\S]*?\n    \};/);
   assert.ok(m, "middleware slashClampToViewport harus ada");
   const mk = (win) => new Function("window", "document", m[0] + "\nreturn slashClampToViewport;")(
@@ -257,10 +257,10 @@ test("CSS slash menu grid", async (t) => {
   });
 });
 
-test("cache bust v450 + app.css?v=356", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v451-kelola-workspace-fase2a";/m);
-  assert.match(webappPy, /sw_cache = "taskflow-v451-kelola-workspace-fase2a"/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v451-kelola-workspace-fase2a";/);
+test("cache bust v452 + app.css?v=356", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v452-slash-menu-dismiss";/m);
+  assert.match(webappPy, /sw_cache = "taskflow-v452-slash-menu-dismiss"/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v452-slash-menu-dismiss";/);
   assert.match(indexHtml, /app\.css\?v=356/);
   assert.equal(/app\.css\?v=352/.test(indexHtml), false);
 });
