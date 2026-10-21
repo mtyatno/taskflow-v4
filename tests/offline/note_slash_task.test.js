@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v449-email-mailer in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v449-email-mailer";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v449-email-mailer"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v449-email-mailer";/);
+  await t.test("Service Worker cache is taskflow-v452-email-mailer in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v452-email-mailer";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v452-email-mailer"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v452-email-mailer";/);
   });
 });

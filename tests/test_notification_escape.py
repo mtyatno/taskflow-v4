@@ -96,9 +96,12 @@ def test_telegram_messages_from_server_are_escaped(client, monkeypatch):
     tg_b = 9_000_000 + int(uuid.uuid4().int % 900_000)
     _set_tg(b.id, tg_b)
     list_id = _mk_list(a, name=PAYLOAD)
-    # undangan langsung: pesan Telegram ke target memuat nama list
+    # undangan username: pesan Telegram ke target memuat nama list
     r = a.post(f"/api/lists/{list_id}/invite", json={"username": b.username})
     assert r.status_code == 200, r.text
+    # undangan baru menunggu persetujuan; b diterima agar ikut menerima notifikasi task
+    iid = r.json()["invitation"]["id"]
+    assert b.post(f"/api/invitations/{iid}/accept").status_code == 200
     # task baru di list: pesan Telegram lewat _notify_members_bg
     a.post("/api/tasks", json={"title": PAYLOAD, "list_id": list_id})
     texts = [t for (cid, t, pm) in fake.sent if cid == tg_b]

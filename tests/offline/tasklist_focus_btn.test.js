@@ -76,14 +76,14 @@ test("CSS: label tombol fokus disembunyikan di layar sempit", () => {
   assert.match(appCss, /@media \(max-width: 768px\) \{[\s\S]*?\.task-row-badges \.dash-focus-label \{ display: none; \}/);
 });
 
-test("cache bust v432 + app.css?v=354", () => {
+test("cache bust v432 + app.css?v=357", () => {
   const sw = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.resolve(__dirname, "../../webapp.py"), "utf8");
-  assert.match(sw, /^const CACHE = "taskflow-v449-email-mailer";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v449-email-mailer";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v449-email-mailer"/);
-  assert.match(py, /sw_cache = "taskflow-v449-email-mailer"/);
-  assert.match(indexHtml, /app\.css\?v=354/);
+  assert.match(sw, /^const CACHE = "taskflow-v452-email-mailer";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v452-email-mailer";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v452-email-mailer"/);
+  assert.match(py, /sw_cache = "taskflow-v452-email-mailer"/);
+  assert.match(indexHtml, /app\.css\?v=357/);
 });
 
 test("Sidebar: badge Today ikut menghitung task fokus aktif", () => {

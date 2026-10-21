@@ -18,6 +18,7 @@ temporary_files/e2e_tasklist_view_icons/. Keluar non-zero bila ada langkah gagal
     E2E_PYTHON=/path/ke/python-dengan-dependensi-webapp python3 temporary_files/e2e_tasklist_view_icons.py
 """
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -409,14 +410,19 @@ def run_manage_page(browser, base, user, theme):
         check("[%s] 14a tanpa emoji di halaman Kelola Workspace" % tag, not bad, repr(bad))
         check("[%s] 14b judul: wsf-title-ico svg 22px" % tag, h2.locator(".wsf-title-ico svg[width='22']").count() == 1)
         check("[%s] 14c header Gabung: svg 16px" % tag, page_el.locator("div", has_text="Gabung ke Workspace Orang Lain").locator("svg[width='16']").count() >= 1)
-        tiles = page_el.locator("span[title='Owner'], span[title='Member']")
-        check("[%s] 14d tile workspace 40px: 1 Owner + 1 Member, tiap tile bersvg 22px" % tag,
-              page_el.locator("span[title='Owner']").count() == 1 and page_el.locator("span[title='Member']").count() == 1
-              and tiles.locator("svg[width='22']").count() == 2)
+        # Kelola Workspace Fase 1: tile ikon Owner/Member diganti kartu [data-ws-card] dengan avatar workspace
+        # (.ws-avatar 40px, warna ws-cN) + teks peran "Owner · n anggota" / "Member · n anggota".
+        cards = page_el.locator("[data-ws-card]")
+        roles = cards.evaluate_all("els => els.map(e => e.innerText)")
+        check("[%s] 14d kartu workspace: 1 Owner + 1 Member, tiap kartu ber-avatar" % tag,
+              cards.count() == 2 and sum("Owner ·" in t for t in roles) == 1 and sum("Member ·" in t for t in roles) == 1
+              and cards.locator(".ws-avatar").count() == 2, repr(roles))
+        tiles = cards.locator(".ws-avatar")
         sizes = tiles.evaluate_all("els => els.map(e => [e.offsetWidth, e.offsetHeight])")
-        check("[%s] 14e ukuran tile 40x40" % tag, sizes and all(s == [40, 40] for s in sizes), repr(sizes))
-        colors = tiles.evaluate_all("els => els.map(e => getComputedStyle(e).color)")
-        check("[%s] 14f warna tile Owner != Member" % tag, len(set(colors)) == 2, repr(colors))
+        check("[%s] 14e ukuran avatar 40x40" % tag, sizes and all(s == [40, 40] for s in sizes), repr(sizes))
+        colors = tiles.evaluate_all("els => els.map(e => [/(^| )ws-c\\d/.test(e.className), getComputedStyle(e).backgroundColor])")
+        check("[%s] 14f avatar berwarna (kelas ws-cN, latar tidak transparan)" % tag,
+              colors and all(c[0] and c[1] not in ("rgba(0, 0, 0, 0)", "transparent") for c in colors), repr(colors))
         p.mouse.move(5, 5)
         shot_page(p, "%s_14_kelola_daftar.png" % tag)
         # Gabung: kode salah -> pesan error bersvg
@@ -429,16 +435,15 @@ def run_manage_page(browser, base, user, theme):
               page_el.locator("svg[width='14']").count() >= 1 and "❌" not in page_el.inner_text())
         shot_page(p, "%s_14_kelola_gabung_error.png" % tag)
         page_el.locator("button", has_text="Tutup").first.click()
-        # Expand workspace milik sendiri: anggota + tombol undang
-        btn_link = page_el.locator("button", has_text="Generate Invite Link")
-        for i in range(page_el.get_by_role("button", name="Kelola", exact=True).count()):
-            page_el.get_by_role("button", name="Kelola", exact=True).nth(i).click()  # urutan baris tidak dijamin
-            p.wait_for_timeout(300)
-            if btn_link.count():
-                break
-            page_el.get_by_role("button", name="Tutup", exact=True).first.click()
-        btn_link.wait_for(state="visible", timeout=10000)
-        check("[%s] 14h tombol Generate Invite Link bersvg 14px" % tag, btn_link.locator("svg[width='14']").count() == 1)
+        # Kelola workspace milik sendiri (Fase 1: halaman detail ws_manage_<id>) → seksi Anggota. Fase 2a: tombol
+        # "Generate Invite Link" diganti blok "Link undangan" (judul bersvg mLink 14px + Berlaku/Bisa dipakai/Buat link).
+        page_el.locator("[data-ws-card]").filter(has_text="Tim Alfa").first.get_by_role("button", name="Kelola", exact=True).click()
+        page_el = p.locator(".ws-manage-page").first
+        sec = page_el.locator("section[aria-labelledby^='ws-sec-anggota-']").first
+        sec.wait_for(state="visible", timeout=10000)
+        link_head = sec.locator("div", has_text=re.compile(r"^Link undangan$")).last
+        link_head.wait_for(state="visible", timeout=10000)
+        check("[%s] 14h judul 'Link undangan' bersvg 14px" % tag, link_head.locator("svg[width='14']").count() == 1)
         check("[%s] 14i baris anggota: svg 16px (mUser)" % tag, page_el.locator("svg[width='16']").count() >= 2)
         text = page_el.inner_text()
         check("[%s] 14j tanpa emoji setelah expand" % tag, not [c for c in EMOJI_MANAGE if c in text])
@@ -797,8 +802,11 @@ def main():
         api(base, budi, "POST", "/api/lists", json={"name": "Tim Beta"})
         _, lb = api(base, budi, "GET", "/api/lists")
         beta = [x for x in (lb if isinstance(lb, list) else lb.get("lists", [])) if x.get("name") == "Tim Beta"][0]
-        api(base, budi, "POST", "/api/lists/%d/invite" % beta["id"], json={"username": user["username"]})
-        api(base, user, "POST", "/api/lists/%d/invite" % list_id, json={"username": budi["username"]})
+        # Fase 2a: undangan username menunggu persetujuan → penerima menerima lewat API agar menjadi anggota
+        _, inv = api(base, budi, "POST", "/api/lists/%d/invite" % beta["id"], json={"username": user["username"]})
+        api(base, user, "POST", "/api/invitations/%d/accept" % inv["invitation"]["id"], json={})
+        _, inv = api(base, user, "POST", "/api/lists/%d/invite" % list_id, json={"username": budi["username"]})
+        api(base, budi, "POST", "/api/invitations/%d/accept" % inv["invitation"]["id"], json={})
         _, tasks = api(base, user, "GET", "/api/tasks")
         tl = tasks if isinstance(tasks, list) else tasks.get("tasks", [])
         api(base, user, "POST", "/api/tasks/%d/focus" % tl[0]["id"])

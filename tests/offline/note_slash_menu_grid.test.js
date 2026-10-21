@@ -257,10 +257,10 @@ test("CSS slash menu grid", async (t) => {
   });
 });
 
-test("cache bust v449 + app.css?v=354", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v449-email-mailer";/m);
-  assert.match(webappPy, /sw_cache = "taskflow-v449-email-mailer"/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v449-email-mailer";/);
-  assert.match(indexHtml, /app\.css\?v=354/);
+test("cache bust v452 + app.css?v=357", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v452-email-mailer";/m);
+  assert.match(webappPy, /sw_cache = "taskflow-v452-email-mailer"/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v452-email-mailer";/);
+  assert.match(indexHtml, /app\.css\?v=357/);
   assert.equal(/app\.css\?v=352/.test(indexHtml), false);
 });
