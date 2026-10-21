@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v447-kelola-workspace-fase2a', () => {
+  test('Service Worker cache version is bumped to taskflow-v449-kelola-workspace-fase2a', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v447-kelola-workspace-fase2a";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v449-kelola-workspace-fase2a";/m);
   });
 });
 

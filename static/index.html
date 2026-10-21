@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=353">
+  <link rel="stylesheet" href="/static/app.css?v=355">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -276,6 +276,8 @@
   <script src="/static/offline/noterepo.js"></script>
   <script src="/static/offline/notequery.js"></script>
   <script src="/static/offline/notehydrate.js"></script>
+  <script src="/static/offline/commentanchor.js"></script>
+  <script src="/static/offline/commentrepo.js"></script>
   <script src="/static/offline/noteroutes.js"></script>
   <script src="/static/offline/notetrash.js"></script>
   <script src="/static/offline/drawingrepo.js"></script>
@@ -295,6 +297,7 @@
   <script src="/static/offline/mindmaproutes.js"></script>
   <script src="/static/offline/chatrepo.js"></script>
   <script src="/static/offline/chatroutes.js"></script>
+  <script src="/static/offline/commentroutes.js"></script>
   <script src="/static/offline/listsync.js"></script>
   <script src="/static/offline/workspacepins.js"></script>
   <script src="/static/offline/wsmanage.js"></script>
@@ -1234,6 +1237,7 @@ function sync() {
         return notesRes;
       });
     }))
+    .then(() => step(() => (window.TF.syncpull.pullComments ? window.TF.syncpull.pullComments(__syncRawFetch).then((r) => { if (r && (r.pulled > 0 || r.reset)) window.dispatchEvent(new CustomEvent("tf:comments-changed", { detail: { source: "sync", note_ids: r.changedNoteIds } })); return r; }) : null)))
     .then(() => step(() => {
       if (!window.TF.syncpull.pullMindmapsAndReconcile) return null;
       return window.TF.syncpull.pullMindmapsAndReconcile(__syncRawFetch).then((mmRes) => {
@@ -9503,7 +9507,17 @@ const VIEW_GLYPHS = {
   pSprout: '<path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" fill="currentColor" fill-opacity=".22"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" fill="currentColor" fill-opacity=".22"/>',
   pZap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" fill="currentColor" fill-opacity=".22"/>',
   pCheckCircle: '<circle cx="12" cy="12" r="10" fill="currentColor" fill-opacity=".22"/><path d="m9 12 2 2 4-4"/>',
-  pPencil: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>'
+  pPencil: '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/>',
+  // Ikon slash menu editor note (Lucide + isian lembut)
+  sQuote: '<path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z" fill="currentColor" fill-opacity=".22"/><path d="M5 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1a2 2 0 0 1-2 2 1 1 0 0 0-1 1v2a1 1 0 0 0 1 1 6 6 0 0 0 6-6V5a2 2 0 0 0-2-2z" fill="currentColor" fill-opacity=".22"/>',
+  sLightbulb: '<path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5z" fill="currentColor" fill-opacity=".22"/><path d="M9 18h6"/><path d="M10 22h4"/>',
+  sToggle: '<rect x="3" y="3" width="18" height="18" rx="4" fill="currentColor" fill-opacity=".22"/><path d="m10 8 4 4-4 4"/>',
+  sCode: '<rect x="2" y="4" width="20" height="16" rx="3" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/><path d="m13.5 6-3 12"/>',
+  sListBullet: '<rect x="2" y="3.5" width="20" height="5" rx="2.5" fill="currentColor" fill-opacity=".22" stroke="none"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/><path d="M9 6h12"/><path d="M9 12h12"/><path d="M9 18h12"/>',
+  sListOrdered: '<rect x="2" y="3.5" width="20" height="7" rx="2.5" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M10 6h11"/><path d="M10 12h11"/><path d="M10 18h11"/><path d="M4 10h2"/><path d="M4 6h1v4"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/>',
+  sChecklist: '<rect x="3" y="3" width="18" height="18" rx="3" fill="currentColor" fill-opacity=".22"/><path d="m8 12 3 3 5-6"/>',
+  sTable: '<path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4H3z" fill="currentColor" fill-opacity=".22" stroke="none"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/>',
+  sDivider: '<rect x="4" y="3" width="16" height="5" rx="1.5" fill="currentColor" fill-opacity=".22" stroke="none"/><rect x="4" y="16" width="16" height="5" rx="1.5" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M3 12h18"/>'
 };
 function ViewGlyph({
   name,
@@ -24843,7 +24857,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v447-kelola-workspace-fase2a"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v449-kelola-workspace-fase2a"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -27418,6 +27432,7 @@ function MilkdownEditor({
     const slashMenu = document.createElement('div');
     slashMenu.className = 'milkdown-slash-menu';
     slashMenu.setAttribute('role', 'listbox');
+    slashMenu.setAttribute('aria-label', 'Sisipkan blok');
     const doSlashAction = (type, payload) => {
       const inst = instanceRef.current;
       if (!inst) return;
@@ -27550,6 +27565,18 @@ function MilkdownEditor({
               tr = tr.insertText(template, from, to);
             }
             break;
+          case 'wikilink':
+            {
+              // "/" pemicu sudah dihapus jalur generik di atas (state di sini sudah segar).
+              // Sisipkan "[[" seperti tombol toolbar Wiki → markdownUpdated → onChange host
+              // mendeteksi /\[\[([^\]]*)$/ dan membuka dropdown autocomplete wikilink.
+              // Jangan mewarisi mark inline code (mis. "/" diketik di dalam `kode`): "[[" dan
+              // query sesudahnya harus teks biasa agar jadi wikilink. Mark lain (bold, dll.) tetap.
+              const wlMarks = (state.storedMarks || state.selection.$from.marks()).filter(mk => !mk.type.spec.code);
+              tr.setStoredMarks(wlMarks);
+              tr = tr.insertText('[[', from, to);
+            }
+            break;
           case 'draw':
             {
               // Hapus teks query slash ("/draw" dst) — sebelumnya nyasar permanen di konten note
@@ -27603,11 +27630,72 @@ function MilkdownEditor({
         view.focus();
       });
     };
-    const makeSlashItem = (icon, label, type, payload) => {
+    // Isi slash menu: grid 2 kolom per grup. Heading memakai ikon teks (H1–H3), item lain glyph
+    // VIEW_GLYPHS gaya Alurik (`glyph`). `title` = deskripsi panjang (tooltip) agar alias
+    // perintah (/draw, /task, ...) tetap mudah ditemukan walau label dipersingkat.
+    const SLASH_MENU_GROUPS = [
+      { label: 'Teks', items: [
+        { icon: 'H1', label: 'Heading 1', type: 'heading', payload: 1, title: 'Heading 1 (judul besar)' },
+        { icon: 'H2', label: 'Heading 2', type: 'heading', payload: 2, title: 'Heading 2 (judul sedang)' },
+        { icon: 'H3', label: 'Heading 3', type: 'heading', payload: 3, title: 'Heading 3 (judul kecil)' },
+        { glyph: 'sQuote', label: 'Blockquote', type: 'blockquote', title: 'Blockquote / Kutipan' },
+        { glyph: 'sLightbulb', label: 'Callout', type: 'callout', title: 'Callout / Info (/callout)' },
+        { glyph: 'sToggle', label: 'Toggle', type: 'toggle', title: 'Toggle / Lipatan (/toggle)' },
+        { glyph: 'sCode', label: 'Code', type: 'code_block', title: 'Code Block (/code)' }
+      ] },
+      { label: 'Daftar', items: [
+        { glyph: 'sListBullet', label: 'Bullet', type: 'bullet_list_simple', title: 'Bullet List' },
+        { glyph: 'sListOrdered', label: 'Numbered', type: 'ordered_list', title: 'Ordered List (bernomor)' },
+        { glyph: 'sChecklist', label: 'Checklist', type: 'task_list', title: 'Task List / Checklist' }
+      ] },
+      { label: 'Sisipkan', items: [
+        { glyph: 'sTable', label: 'Tabel', type: 'table', title: 'Tabel 3×3' },
+        { glyph: 'sDivider', label: 'Divider', type: 'hr', title: 'Divider / Garis pemisah' },
+        { glyph: 'pPalette', label: 'Gambar', type: 'draw', title: 'Gambar / Sketsa (/draw)' },
+        { glyph: 'nPin', label: 'Task', type: 'task', title: 'Tugas / Task (/task, /tasks)' }
+      ] },
+      { label: 'Tautan', items: [
+        { glyph: 'mLink', label: 'Wikilink', type: 'wikilink', title: 'Wikilink — tautan ke note lain [[judul]]', wide: true, hint: '[[ ]]' }
+      ] }
+    ];
+    const makeSlashItem = (icon, label, type, payload, opts) => {
+      const o = opts || {};
       const el = document.createElement('div');
-      el.className = 'milkdown-slash-item';
+      el.className = 'milkdown-slash-item' + (o.wide ? ' is-wide' : '');
       el.setAttribute('role', 'option');
-      el.innerHTML = '<span class="milkdown-slash-icon">' + icon + '</span><span>' + label + '</span>';
+      if (o.title) el.setAttribute('title', o.title);
+      // Label statis, tetap dibangun lewat createElement + textContent (bukan string HTML)
+      const iconEl = document.createElement('span');
+      iconEl.className = 'milkdown-slash-icon';
+      if (o.glyph && VIEW_GLYPHS[o.glyph]) {
+        // Atribut sama dengan ViewGlyph. Markup dari konstanta statis VIEW_GLYPHS (bukan data pengguna).
+        const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        svg.setAttribute('width', '16');
+        svg.setAttribute('height', '16');
+        svg.setAttribute('viewBox', '0 0 24 24');
+        svg.setAttribute('fill', 'none');
+        svg.setAttribute('stroke', 'currentColor');
+        svg.setAttribute('stroke-width', '1.9');
+        svg.setAttribute('stroke-linecap', 'round');
+        svg.setAttribute('stroke-linejoin', 'round');
+        svg.setAttribute('aria-hidden', 'true');
+        svg.setAttribute('focusable', 'false');
+        svg.innerHTML = VIEW_GLYPHS[o.glyph];
+        iconEl.appendChild(svg);
+      } else {
+        iconEl.textContent = icon || '';
+      }
+      const labelEl = document.createElement('span');
+      labelEl.className = 'milkdown-slash-label';
+      labelEl.textContent = label;
+      el.appendChild(iconEl);
+      el.appendChild(labelEl);
+      if (o.hint) {
+        const hintEl = document.createElement('span');
+        hintEl.className = 'milkdown-slash-hint';
+        hintEl.textContent = o.hint;
+        el.appendChild(hintEl);
+      }
       el.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
       el.addEventListener('click', e => {
         e.stopPropagation();
@@ -27616,20 +27704,53 @@ function MilkdownEditor({
       });
       return el;
     };
-    slashMenu.appendChild(makeSlashItem('H1', 'Heading 1', 'heading', 1));
-    slashMenu.appendChild(makeSlashItem('H2', 'Heading 2', 'heading', 2));
-    slashMenu.appendChild(makeSlashItem('H3', 'Heading 3', 'heading', 3));
-    slashMenu.appendChild(makeSlashItem('•', 'Bullet List', 'bullet_list_simple'));
-    slashMenu.appendChild(makeSlashItem('1.', 'Ordered List', 'ordered_list'));
-    slashMenu.appendChild(makeSlashItem('☑', 'Task List', 'task_list'));
-    slashMenu.appendChild(makeSlashItem('"', 'Blockquote', 'blockquote'));
-    slashMenu.appendChild(makeSlashItem('⊞', 'Table', 'table'));
-    slashMenu.appendChild(makeSlashItem('—', 'Divider', 'hr'));
-    slashMenu.appendChild(makeSlashItem('💻', 'Code Block (/code)', 'code_block'));
-    slashMenu.appendChild(makeSlashItem('💡', 'Callout / Info (/callout)', 'callout'));
-    slashMenu.appendChild(makeSlashItem('▶', 'Toggle / Lipatan (/toggle)', 'toggle'));
-    slashMenu.appendChild(makeSlashItem('🎨', 'Gambar / Sketsa (/draw)', 'draw'));
-    slashMenu.appendChild(makeSlashItem('📌', 'Tugas / Task (/task, /tasks)', 'task'));
+    SLASH_MENU_GROUPS.forEach(group => {
+      const labelEl = document.createElement('div');
+      labelEl.className = 'milkdown-slash-group-label';
+      labelEl.textContent = group.label;
+      labelEl.setAttribute('aria-hidden', 'true');
+      const grid = document.createElement('div');
+      grid.className = 'milkdown-slash-grid';
+      grid.setAttribute('role', 'group');
+      grid.setAttribute('aria-label', group.label);
+      group.items.forEach(it => {
+        grid.appendChild(makeSlashItem(it.icon, it.label, it.type, it.payload, { wide: it.wide, hint: it.hint, title: it.title, glyph: it.glyph }));
+      });
+      slashMenu.appendChild(labelEl);
+      slashMenu.appendChild(grid);
+    });
+
+    // Middleware floating-ui: jepit posisi menu ke dalam area yang terlihat. Menu grid selebar
+    // 340px keluar layar HP bila kursor jauh di kanan, dan di layar pendek tidak muat di atas
+    // maupun di bawah kursor (flip bawaan tak menolong) → geser hingga utuh terlihat (boleh
+    // menutupi baris "/"). Saat keyboard HP terbuka, visualViewport jauh lebih pendek dari 70vh:
+    // max-height dibatasi ke tinggi area terlihat agar menu bisa di-scroll di dalam (Wikilink
+    // tidak tertutup keyboard); bila ruang cukup lagi, kembali ke max-height CSS.
+    // Koordinat absolut relatif dokumen (root = body); visualViewport (pageLeft/pageTop) dipakai
+    // untuk kedua sumbu bila ada.
+    const slashClampToViewport = {
+      name: 'slashClampToViewport',
+      fn: ({ x, y, rects, elements }) => {
+        const vv = window.visualViewport;
+        const left = vv ? (vv.pageLeft || 0) : (window.scrollX || 0);
+        const top = vv ? (vv.pageTop || 0) : (window.scrollY || 0);
+        const vw = vv ? vv.width : (document.documentElement.clientWidth || window.innerWidth);
+        const vh = vv ? vv.height : window.innerHeight;
+        const floatingEl = elements && elements.floating;
+        if (floatingEl && floatingEl.style) {
+          const cssMax = Math.min(440, Math.floor(window.innerHeight * 0.7));
+          const avail = Math.floor(vh - 16);
+          const want = avail >= cssMax ? '' : Math.max(120, avail) + 'px';
+          if (floatingEl.style.maxHeight !== want) {
+            floatingEl.style.maxHeight = want;
+            return { reset: { rects: true } };
+          }
+        }
+        const maxX = left + vw - rects.floating.width - 8;
+        const maxY = top + vh - rects.floating.height - 8;
+        return { x: Math.max(left + 8, Math.min(x, maxX)), y: Math.max(top + 8, Math.min(y, maxY)) };
+      }
+    };
 
     // ── Tooltip DOM ─────────────────────────────────────────────────
     const tooltipEl = document.createElement('div');
@@ -27901,7 +28022,7 @@ function MilkdownEditor({
       // Wire slash menu — SlashProvider handles show/hide when user types /
       ctx.set(slashPair.key, {
         view(editorView) {
-          const provider = new MB.SlashProvider({ content: slashMenu, root: document.body });
+          const provider = new MB.SlashProvider({ content: slashMenu, root: document.body, middleware: [slashClampToViewport] });
           provider.update(editorView);
           return {
             update: (view, prevState) => provider.update(view, prevState),
@@ -40697,7 +40818,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(App, null), document.getElement
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v447-kelola-workspace-fase2a";
+    window.__SW_VERSION = "taskflow-v449-kelola-workspace-fase2a";
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

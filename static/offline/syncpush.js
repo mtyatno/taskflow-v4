@@ -1838,6 +1838,265 @@
     });
   }
 
+  // ── Komentar note (PR 2 offline) ─────────────────────────────────────────────────────────────────
+  // commentrepo dibaca malas: modul lama dari cache SW bisa belum memuatnya → op komentar tetap antre.
+  function commentRepo() {
+    try { return isNode ? require("./commentrepo.js") : (root.TF && root.TF.commentrepo); } catch (_) { return null; }
+  }
+  const COMMENT_FIELDS = ["note_id", "list_id", "parent_id", "user_id", "username", "display_name", "body", "quote",
+    "resolved_at", "resolved_by", "resolved_by_name", "edited_at", "deleted_at", "client_id", "created_at", "updated_at"];
+  const COMMENT_ERR = {
+    access: { code: "access", message: "Kamu sudah tidak punya akses ke catatan ini." },
+    not_shared: { code: "not_shared", message: "Catatan ini sudah tidak dibagikan ke workspace." },
+    invalid: { code: "invalid", message: "Komentar tidak valid." },
+    rejected: { code: "rejected", message: "Perubahan tidak tersimpan." },
+  };
+  // Field yang dikirim tiap jenis op: selama op itu masih antre, respons op lain tidak menimpanya.
+  const COMMENT_OWNED = {
+    edit: ["body", "edited_at"],
+    resolve: ["resolved_at", "resolved_by", "resolved_by_name"],
+    delete: COMMENT_FIELDS,
+  };
+  const COMMENT_KIND_ORDER = ["delete", "edit", "resolve"];
+  function commentSnapshot(src) {
+    const c = {};
+    for (const f of COMMENT_FIELDS) c[f] = src && src[f] != null ? src[f] : null;
+    return c;
+  }
+  function getAllCommentsRaw() {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const r = db.transaction("note_comments", "readonly").objectStore("note_comments").getAll();
+      r.onsuccess = () => resolve(r.result || []);
+      r.onerror = () => reject(r.error);
+    }));
+  }
+  function commentOpsOf(cid) {
+    return TFoutbox.outboxAll().then((ops) => ops.filter((o) => o.entity_type === "comment" && o.cid === cid));
+  }
+  function removeCommentOps(cid) {
+    return commentOpsOf(cid).then((ops) => ops.reduce((p, o) => p.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve()));
+  }
+  function addCommentOpOnce(kind, cid) {
+    return commentOpsOf(cid).then((ops) => (ops.some((o) => o.op === kind)
+      ? null : TFoutbox.outboxAdd({ entity_type: "comment", op: kind, cid: cid })));
+  }
+  function commentSidOf(rec) {
+    if (rec.server_id != null) return Promise.resolve(rec.server_id);
+    return TFidmap.serverIdOf(rec.cid).then((sid) => (sid != null ? sid : null));
+  }
+  // id server note: idmap → record note → fallback (note_id komentar).
+  function commentNoteSid(noteCid, fallback) {
+    if (!noteCid) return Promise.resolve(fallback != null ? fallback : null);
+    return TFidmap.serverIdOf(noteCid).then((sid) => {
+      if (sid != null) return sid;
+      return getNoteRaw(noteCid).then((n) => (n && n.server_id != null ? n.server_id : (fallback != null ? fallback : null)));
+    });
+  }
+  // id server thread induk: parent_id record → idmap/record induk; tidak ada → { hold: true }.
+  function commentParentSid(CR, rec) {
+    if (rec.parent_id != null) return Promise.resolve({ sid: rec.parent_id });
+    if (!rec.parent_cid) return Promise.resolve({ sid: null });
+    return TFidmap.serverIdOf(rec.parent_cid).then((sid) => {
+      if (sid != null) return { sid: sid };
+      return CR.getRaw(rec.parent_cid).then((p) => (p && p.server_id != null ? { sid: p.server_id } : { hold: true }));
+    });
+  }
+  // Create gagal: record + isi lokal tetap (pending "create"), op dibuang, sync_error per kode.
+  function commentCreateFail(op, cid, code, result) {
+    result.failed++;
+    return TFdb.mutate("note_comments", cid, (cur) => (cur ? Object.assign({}, cur, { sync_error: COMMENT_ERR[code] }) : undefined))
+      .then(() => TFoutbox.outboxRemove(op.qid));
+  }
+  // Perubahan pada komentar yang sudah ada ditolak: kembali ke salinan server, semua op komentar ini dibuang.
+  function commentRejected(op, cid, result) {
+    result.failed++;
+    return TFdb.mutate("note_comments", cid, (cur) => {
+      if (!cur) return undefined;
+      const next = Object.assign({}, cur);
+      if (cur.server_copy) Object.assign(next, cur.server_copy);
+      next.pending = null;
+      next.server_copy = null;
+      next.sync_error = COMMENT_ERR.rejected;
+      return next;
+    }).then(() => removeCommentOps(cid)).then(() => TFoutbox.outboxRemove(op.qid));
+  }
+  // Komentar sudah tidak ada di server: hapus record + balasan lokalnya beserta op & idmap.
+  function commentGone(cid, sid) {
+    return getAllCommentsRaw().then((all) => {
+      const victims = all.filter((r) => r.cid === cid || r.parent_cid === cid || (sid != null && r.parent_id != null && r.parent_id == sid));
+      const CR = commentRepo();
+      return victims.reduce((p, r) => p.then(() => CR.deleteRaw(r.cid))
+        .then(() => removeCommentOps(r.cid))
+        .then(() => (r.server_id != null ? TFidmap.mapDelete("comment", r.server_id) : null)), Promise.resolve())
+        .then(() => (sid != null ? TFidmap.mapDelete("comment", sid) : null));
+    });
+  }
+  // Respons sukses → record TERKINI. `diff(cur)` = jenis op yang harus diantre lagi karena isi lokal berbeda dari
+  // yang (sekarang) ada di server (perubahan selama request / leburan ke create). Field yang akan dikirim op yang
+  // masih antre tidak ditimpa; pending/server_copy bersih hanya bila tidak ada op komentar tersisa.
+  function commentSettle(cid, data, diff) {
+    const CR = commentRepo();
+    return CR.getRaw(cid).then((cur) => {
+      if (!cur) return null;
+      const kinds = diff(cur);
+      return kinds.reduce((p, k) => p.then(() => addCommentOpOnce(k, cid)), Promise.resolve())
+        .then(() => commentOpsOf(cid))
+        .then((ops) => TFdb.mutate("note_comments", cid, (now) => {
+          if (!now) return undefined;
+          const left = COMMENT_KIND_ORDER.filter((k) => ops.some((o) => o.op === k));
+          const base = now.server_copy || commentSnapshot(now);
+          const server = Object.assign({}, base);
+          for (const f of COMMENT_FIELDS) if (data && Object.prototype.hasOwnProperty.call(data, f)) server[f] = data[f];
+          const owned = new Set([].concat(...left.map((k) => COMMENT_OWNED[k])));
+          const next = Object.assign({}, now);
+          for (const f of COMMENT_FIELDS) if (!owned.has(f)) next[f] = server[f];
+          if (data && data.id != null) next.server_id = data.id;
+          next.sync_error = null;
+          next.pending = left.length ? left[0] : null;
+          next.server_copy = left.length ? server : null;
+          return next;
+        }));
+    });
+  }
+  function resolvedDiffers(local, server) { return (local.resolved_at != null) !== (server.resolved_at != null); }
+
+  function opCommentCreate(op, transport, result, pending) {
+    const CR = commentRepo();
+    if (!CR) return Promise.resolve(); // modul lama: tahan
+    return CR.getRaw(op.cid).then((rec) => {
+      if (!rec || rec.server_id != null) return TFoutbox.outboxRemove(op.qid);
+      return Promise.all([TFoutbox.outboxAll(), commentNoteSid(rec.note_cid, rec.note_id)]).then(([ops, noteSid]) => {
+        // Review Focus 1: note baru dibuat / di-share offline → tunggu sampai op note-nya habis (bukan 409).
+        if (rec.note_cid && ops.some((o) => o.entity_type === "note" && o.cid === rec.note_cid)) return;
+        if (noteSid == null) {
+          if (parentCreatePending(pending, rec.note_cid)) return;
+          return commentCreateFail(op, op.cid, "access", result);
+        }
+        return commentParentSid(CR, rec).then((par) => {
+          // Review Focus 2: thread induk belum terkirim → tahan selama create-nya masih antre (FIFO: lebih dulu).
+          if (par.hold) {
+            if (parentCreatePending(pending, rec.parent_cid)) return;
+            return commentCreateFail(op, op.cid, "access", result);
+          }
+          const isReply = !!rec.parent_cid || par.sid != null;
+          const sent = {
+            body: rec.body != null ? rec.body : "",
+            quote: isReply ? null : (rec.quote != null ? rec.quote : null),
+            parent_id: par.sid != null ? par.sid : null,
+            client_id: rec.cid,
+          };
+          return send(transport, "POST", "/api/scratchpad/" + noteSid + "/comments", sent).then((res) => {
+            if (ok(res)) return commentCreated(op, rec, noteSid, sent, res.data || {}, result);
+            const st = res.status;
+            const code = (st === 403 || st === 404) ? "access" : (st === 409 ? "not_shared" : "invalid");
+            return commentCreateFail(op, op.cid, code, result);
+          });
+        });
+      });
+    });
+  }
+  function commentCreated(op, rec, noteSid, sent, data, result) {
+    const CR = commentRepo();
+    const sid = data.id;
+    const row = Object.assign({ note_id: noteSid }, data);
+    return TFidmap.mapPut("comment", sid, op.cid)
+      .then(() => TFoutbox.outboxRemove(op.qid))
+      .then(() => CR.getRaw(op.cid))
+      .then((cur) => {
+        result.pushed++;
+        if (!cur) {
+          // dihapus lokal selama POST: server sudah punya komentarnya → tombstone + op delete.
+          const server = commentSnapshot(Object.assign({}, rec, row));
+          const now = new Date().toISOString();
+          return CR.putRaw(Object.assign({}, rec, server, {
+            server_id: sid, deleted_at: now, updated_at: now, pending: "delete", sync_error: null, server_copy: server,
+          })).then(() => addCommentOpOnce("delete", op.cid));
+        }
+        // pull sudah mengadopsi lewat client_id (Review Focus 3) → tidak ada yang perlu dilakukan lagi.
+        if (cur.server_id != null && cur.pending !== "create") return null;
+        return commentSettle(op.cid, row, (c) => {
+          const kinds = [];
+          if (c.deleted_at) return ["delete"];
+          // edit selama request: bandingkan dengan body yang DIKIRIM, bukan body respons (server men-strip
+          // whitespace → "halo\n" vs "halo" bukan edit, dan PATCH palsu menandai komentar "diedit").
+          if ((c.body != null ? c.body : "") !== sent.body) kinds.push("edit");
+          if (resolvedDiffers(c, row)) kinds.push("resolve");
+          return kinds;
+        });
+      });
+  }
+
+  function opCommentPatch(op, transport, result) {
+    const CR = commentRepo();
+    if (!CR) return Promise.resolve();
+    return CR.getRaw(op.cid).then((rec) => {
+      if (!rec) return TFoutbox.outboxRemove(op.qid);
+      return commentSidOf(rec).then((sid) => {
+        if (sid == null) return TFoutbox.outboxRemove(op.qid); // belum di server: op create membawa isinya
+        const isEdit = op.op === "edit";
+        const sent = isEdit ? { body: rec.body != null ? rec.body : "" } : { resolved: rec.resolved_at != null };
+        return send(transport, "PATCH", "/api/note-comments/" + sid, sent).then((res) => {
+          if (ok(res)) {
+            const data = res.data || {};
+            return TFoutbox.outboxRemove(op.qid)
+              .then(() => commentSettle(op.cid, data, (c) => {
+                if (isEdit) return (c.body != null ? c.body : "") !== sent.body ? ["edit"] : [];
+                return (c.resolved_at != null) !== sent.resolved ? ["resolve"] : [];
+              }))
+              .then(() => { result.pushed++; });
+          }
+          if (classify(res) === "gone") {
+            return commentGone(op.cid, sid).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.failed++; });
+          }
+          return commentRejected(op, op.cid, result);
+        });
+      });
+    });
+  }
+
+  function opCommentDelete(op, transport, result) {
+    const CR = commentRepo();
+    if (!CR) return Promise.resolve();
+    return CR.getRaw(op.cid).then((rec) => {
+      if (!rec) return TFoutbox.outboxRemove(op.qid);
+      return commentSidOf(rec).then((sid) => {
+        if (sid == null) return commentGone(op.cid, null).then(() => TFoutbox.outboxRemove(op.qid));
+        return send(transport, "DELETE", "/api/note-comments/" + sid, undefined).then((res) => {
+          if (ok(res) || res.status === 404) {
+            return commentGone(op.cid, sid).then(() => TFoutbox.outboxRemove(op.qid)).then(() => { result.pushed++; });
+          }
+          return commentRejected(op, op.cid, result);
+        });
+      });
+    });
+  }
+
+  function opCommentRead(op, transport, result, pending) {
+    return commentNoteSid(op.cid, null).then((sid) => {
+      if (sid == null) {
+        if (parentCreatePending(pending, op.cid)) return; // tahan sampai create note terkirim
+        return TFoutbox.outboxRemove(op.qid);
+      }
+      return send(transport, "POST", "/api/scratchpad/" + sid + "/comments/read", {}).then((res) => {
+        if (ok(res)) result.pushed++;
+        return TFoutbox.outboxRemove(op.qid); // 403/404/409/4xx: penanda baca tidak berguna lagi
+      });
+    });
+  }
+
+  // Op komentar bisa dibuang oleh op lain di drain yang sama (penolakan membuang semua op cid itu) → hanya
+  // diproses bila masih ada di outbox.
+  function processCommentOp(op, transport, result, pending) {
+    return TFoutbox.outboxAll().then((ops) => {
+      if (!ops.some((o) => o.qid === op.qid)) return null;
+      if (op.entity_type === "comment_read") return op.op === "mark" ? opCommentRead(op, transport, result, pending) : TFoutbox.outboxRemove(op.qid);
+      if (op.op === "create") return opCommentCreate(op, transport, result, pending);
+      if (op.op === "edit" || op.op === "resolve") return opCommentPatch(op, transport, result);
+      if (op.op === "delete") return opCommentDelete(op, transport, result);
+      return TFoutbox.outboxRemove(op.qid);
+    });
+  }
+
   function opHabitDelete(op, transport, result) {
     return TFidmap.serverIdOf(op.cid).then((sid) => {
       if (sid == null) {
@@ -1886,6 +2145,7 @@
     if (op.entity_type === "mindmap" && op.op === "pin") return opMindmapPin(op, transport, result);
     if (op.entity_type === "mindmap" && op.op === "restore") return opMindmapRestore(op, transport, result);
     if (op.entity_type === "message" && op.op === "send") return opChatSend(op, transport, result, pending);
+    if (op.entity_type === "comment" || op.entity_type === "comment_read") return processCommentOp(op, transport, result, pending);
     if (op.entity_type === "context" && op.op === "create") return opContextCreate(op, transport, result);
     if (op.entity_type === "pomodoro_log" && op.op === "create") return opPomodoroCreate(op, transport, result, pending);
     return TFoutbox.outboxRemove(op.qid);
