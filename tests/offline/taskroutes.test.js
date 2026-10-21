@@ -321,7 +321,7 @@ test("GET /api/lists returns local lists shaped like the server", async () => {
   await seedLists([{ cid: "l1", server_id: 7, name: "Team", owner_id: 1, role: "owner", member_count: 3, dirty: 0 }]);
   const R = buildTaskRouter();
   const lists = await R.dispatch("GET", "/api/lists", undefined);
-  assert.deepEqual(lists, [{ id: 7, name: "Team", owner_id: 1, role: "owner", member_count: 3, pinned: false, pin_position: null }]);
+  assert.deepEqual(lists, [{ id: 7, name: "Team", owner_id: 1, role: "owner", member_count: 3, pinned: false, pin_position: null, description: "", color_idx: null, avatar: null, updated_at: null }]);
 });
 
 test("GET /api/lists/:id/tasks returns only that list's active tasks", async () => {

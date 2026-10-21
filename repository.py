@@ -375,6 +375,19 @@ def ensure_workspace_pins_schema(conn) -> None:
         conn.execute("ALTER TABLE users ADD COLUMN workspace_pins_seeded INTEGER NOT NULL DEFAULT 0")
 
 
+def ensure_workspace_identity_schema(conn) -> None:
+    """Kolom identitas `shared_lists`: description, color_idx, avatar, updated_at (idempoten)."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(shared_lists)").fetchall()]
+    if "description" not in cols:
+        conn.execute("ALTER TABLE shared_lists ADD COLUMN description TEXT DEFAULT ''")
+    if "color_idx" not in cols:
+        conn.execute("ALTER TABLE shared_lists ADD COLUMN color_idx INTEGER DEFAULT NULL")
+    if "avatar" not in cols:
+        conn.execute("ALTER TABLE shared_lists ADD COLUMN avatar TEXT DEFAULT NULL")
+    if "updated_at" not in cols:
+        conn.execute("ALTER TABLE shared_lists ADD COLUMN updated_at TEXT DEFAULT NULL")
+
+
 def ensure_pomodoro_schema(conn) -> None:
     """Kolom estimasi/realisasi di `tasks` + log Pomodoro append-only (idempoten, ADR-021)."""
     cols = [r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()]
@@ -1065,6 +1078,7 @@ class TaskRepository:
             ensure_projects_schema(conn)
             ensure_contexts_schema(conn)
             ensure_workspace_pins_schema(conn)
+            ensure_workspace_identity_schema(conn)
             ensure_pomodoro_schema(conn)
 
     def heal_orphan_workspace_items(self) -> int:
@@ -1621,6 +1635,21 @@ class TaskRepository:
             )
             return cur.rowcount > 0
 
+    def update_workspace_identity(self, list_id: int, owner_id: int, fields: dict) -> Optional[dict]:
+        """Ubah identitas workspace (owner saja). `fields` hanya berisi kunci yang dikirim
+        (name, description, color_idx, avatar; sudah dinormalisasi). None bila bukan owner."""
+        allowed = [k for k in ("name", "description", "color_idx", "avatar") if k in fields]
+        sets = ", ".join(f"{k} = ?" for k in allowed + ["updated_at"])
+        params = [fields[k] for k in allowed] + [datetime.now().isoformat(), list_id, owner_id]
+        with self._connect() as conn:
+            cur = conn.execute(
+                f"UPDATE shared_lists SET {sets} WHERE id = ? AND owner_id = ?", params
+            )
+            if cur.rowcount == 0:
+                return None
+            row = conn.execute("SELECT * FROM shared_lists WHERE id = ?", (list_id,)).fetchone()
+            return dict(row)
+
     def delete_shared_list(self, list_id: int, owner_id: int) -> bool:
         files_to_unlink: list[str] = []
         with self._connect() as conn:
@@ -1682,11 +1711,12 @@ class TaskRepository:
         """All lists where user is owner OR member, with role and member_count."""
         with self._connect() as conn:
             owned = conn.execute(
-                "SELECT id, name, owner_id, created_at FROM shared_lists WHERE owner_id = ?",
+                "SELECT id, name, owner_id, created_at, description, color_idx, avatar, updated_at FROM shared_lists WHERE owner_id = ?",
                 (user_id,),
             ).fetchall()
             membered = conn.execute(
-                """SELECT sl.id, sl.name, sl.owner_id, sl.created_at
+                """SELECT sl.id, sl.name, sl.owner_id, sl.created_at,
+                          sl.description, sl.color_idx, sl.avatar, sl.updated_at
                    FROM shared_lists sl
                    JOIN list_members lm ON lm.list_id = sl.id
                    WHERE lm.user_id = ?""",
@@ -1750,6 +1780,27 @@ class TaskRepository:
                 (user_id, list_id, mx + 1, datetime.now().isoformat()),
             )
             return mx + 1
+
+    def reorder_workspace_pins(self, user_id: int, list_ids: list[int]) -> bool:
+        """Tulis ulang posisi pin 0..n-1 sesuai `list_ids`. False (tanpa menulis) bila himpunan
+        berbeda dari pin user saat ini atau ada duplikat. Satu transaksi BEGIN IMMEDIATE."""
+        if len(set(list_ids)) != len(list_ids):
+            return False
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = {
+                r["list_id"] for r in conn.execute(
+                    "SELECT list_id FROM workspace_pins WHERE user_id = ?", (user_id,)
+                ).fetchall()
+            }
+            if current != set(list_ids):
+                return False
+            for pos, lid in enumerate(list_ids):
+                conn.execute(
+                    "UPDATE workspace_pins SET position = ? WHERE user_id = ? AND list_id = ?",
+                    (pos, user_id, lid),
+                )
+            return True
 
     def unpin_workspace(self, user_id: int, list_id: int) -> bool:
         with self._connect() as conn:
