@@ -186,7 +186,33 @@
     return out;
   }
 
-  const exported = { nameMatches, impactLines, memberRows, identityDiff, joinedDate, filterWorkspaces, pinDropIndex, mergeIdentityDraft };
+  // Teks kuota link undangan: max_uses null → "Tanpa batas"; selain itu "Sisa {n} dari {max}" (n ≥ 0).
+  function linkUsageText(link) {
+    const l = link || {};
+    if (l.max_uses == null || l.max_uses === "") return "Tanpa batas";
+    const max = num(l.max_uses);
+    const left = Math.max(0, max - num(l.uses));
+    return `Sisa ${left} dari ${max}`;
+  }
+
+  // "berlaku sampai {tanggal jam}" (id-ID); tanggal tidak valid → "".
+  function linkExpiryText(expiresAt) {
+    const d = joinedDate(expiresAt);
+    if (!d) return "";
+    return "berlaku sampai " + d.toLocaleString("id-ID", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+
+  // Subjudul kartu "Undangan untukmu": "Diundang oleh {nama} · {tanggal}" (bagian kosong dihilangkan).
+  function invitationSubtitle(inv) {
+    const i = inv || {};
+    const name = trimStr(i.inviter_name);
+    const d = joinedDate(i.created_at);
+    let out = name ? `Diundang oleh ${name}` : "Diundang";
+    if (d) out += " · " + d.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+    return out;
+  }
+
+  const exported = { nameMatches, impactLines, memberRows, identityDiff, joinedDate, filterWorkspaces, pinDropIndex, mergeIdentityDraft, linkUsageText, linkExpiryText, invitationSubtitle };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.wsmanage = exported; }
   return exported;
 });
