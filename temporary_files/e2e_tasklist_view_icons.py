@@ -609,6 +609,84 @@ def run_mindmap_draw_pages(browser, base, user, theme):
         ctx.close()
 
 
+EMOJI_CHATCAL = "💬🔍✕📋🗓🔁📁🔴📅✕✖"
+
+
+def run_chat_calendar_pages(browser, base, user, theme):
+    import datetime
+    tag = "terang" if theme == "light" else "gelap"
+    today = datetime.date.today()
+    hol = today.replace(day=1) + datetime.timedelta(days=16 if today.day != 17 else 17)
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        p.route("**/api/holidays*", lambda r: r.fulfill(status=200, content_type="application/json",
+                body='{"data":[{"date":"%s","name":"Hari Uji Nasional","is_joint":false}]}' % hol.isoformat()))
+        # --- Diskusi / Chat ---
+        nav_to(p, "Diskusi")
+        p.locator("text=Diskusi / Chat").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(600)
+        text = p.locator("body").inner_text()
+        bad = [c for c in EMOJI_CHATCAL if c in text]
+        check("[%s] 19a Chat: tanpa emoji di innerText" % tag, not bad, repr(bad))
+        check("[%s] 19b Chat: judul svg 18px, pencarian 15px, pane kosong 44px" % tag,
+              p.locator(".wsf-title-ico svg[width='18']").count() >= 1
+              and p.locator(".scratchpad-bar svg[width='15']").count() >= 1
+              and p.locator("svg[width='44']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_19_chat_halaman.png" % tag), scale="css")
+        p.locator(".scratchpad-bar input").fill("zzzz")
+        check("[%s] 19c Chat: tombol hapus pencarian svg 13px" % tag,
+              p.locator("button[title='Hapus pencarian'] svg[width='13']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_19_chat_cari.png" % tag), scale="css")
+        # --- Kalender ---
+        nav_to(p, "Kalender")
+        p.locator("h1", has_text="Kalender").wait_for(state="visible", timeout=15000)
+        p.wait_for_timeout(2500)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(600)
+        text = p.locator("body").inner_text()
+        bad = [c for c in EMOJI_CHATCAL if c in text]
+        check("[%s] 20a Kalender: tanpa emoji di innerText" % tag, not bad, repr(bad))
+        check("[%s] 20b Kalender: judul svg 22px, repeat 12px, folder 12px, libur dot svg" % tag,
+              p.locator("h1 .wsf-title-ico svg[width='22']").count() == 1
+              and p.locator("svg[width='12']").count() >= 1
+              and p.locator("svg[width='10']").count() >= 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_20_kalender_bulan.png" % tag), scale="css")
+        p.screenshot(path=os.path.join(SHOTS, "%s_20_kalender_bulan_zoom.png" % tag), scale="css",
+                     clip={"x": 200, "y": 120, "width": 700, "height": 420})
+        # sidebar hari libur
+        p.get_by_text("%d" % hol.day, exact=True).first.click()
+        p.wait_for_timeout(500)
+        check("[%s] 20c Kalender: sidebar hari libur, tanpa emoji" % tag,
+              not [c for c in EMOJI_CHATCAL if c in p.locator("body").inner_text()]
+              and p.locator(".cal-agenda-holiday-tag svg[width='8']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_20_kalender_sidebar_libur.png" % tag), scale="css")
+        # tampilan Minggu
+        p.get_by_role("button", name="Minggu").first.click()
+        p.wait_for_timeout(600)
+        p.screenshot(path=os.path.join(SHOTS, "%s_20_kalender_minggu.png" % tag), scale="css")
+        print("  screenshot %s_19/20_*.png" % tag, flush=True)
+    finally:
+        ctx.close()
+    # popup mobile (lebar 390)
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        p.route("**/api/holidays*", lambda r: r.fulfill(status=200, content_type="application/json",
+                body='{"data":[{"date":"%s","name":"Hari Uji Nasional","is_joint":false}]}' % hol.isoformat()))
+        nav_to(p, "Kalender")
+        p.locator("h1", has_text="Kalender").wait_for(state="visible", timeout=15000)
+        p.set_viewport_size({"width": 390, "height": 860})
+        p.wait_for_timeout(2500)
+        p.get_by_text("%d" % today.day, exact=True).first.click()
+        p.wait_for_timeout(600)
+        check("[%s] 20d Kalender mobile: popup tanpa emoji, tutup svg 14px" % tag,
+              not [c for c in EMOJI_CHATCAL if c in p.locator("body").inner_text()]
+              and p.locator("button[aria-label='Tutup'] svg[width='14']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_20_kalender_mobile_popup.png" % tag), scale="css")
+    finally:
+        ctx.close()
+
+
 def main():
     os.makedirs(SHOTS, exist_ok=True)
     for f in os.listdir(SHOTS):
@@ -650,6 +728,11 @@ def main():
         api(base, user, "PATCH", "/api/drawings/%s/pin" % dr1["id"])
         _, dr2 = api(base, budi, "POST", "/api/drawings", json={"title": "Gambar Tim", "list_id": list_id})
         api(base, user, "PUT", "/api/drawings/%s" % dr2["id"], json={"title": "Gambar Tim"})
+        # Kalender (Task 2 ikon halaman): task berulang + task proyek pada bulan ini
+        import datetime as _dt
+        _td = _dt.date.today().isoformat()
+        api(base, user, "POST", "/api/tasks", json={"title": "Rapat rutin harian", "gtd_status": "next", "deadline": _td, "recurrence_type": "daily"})
+        api(base, user, "POST", "/api/tasks", json={"title": "Susun proposal", "gtd_status": "next", "deadline": _td, "project": "Proyek Alfa"})
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for theme in ("light", "dark"):
@@ -669,6 +752,7 @@ def main():
                 run_pomo_chip(browser, base, user, theme)
                 run_notes_page(browser, base, user, theme)
                 run_mindmap_draw_pages(browser, base, user, theme)
+                run_chat_calendar_pages(browser, base, user, theme)
             browser.close()
     except Exception as e:
         check("exception", False, "%s: %s" % (type(e).__name__, str(e)[:900]))

@@ -44,11 +44,11 @@ test("ChatPage Unified Container Layout and Redesign", async (t) => {
   });
 
   await t.test("2. ChatListPanel Component Header and Toggle Button", () => {
-    // Header title: 💬 Diskusi / Chat with font-weight 700 and font-size 14
+    // Header title: pChat glyph + Diskusi / Chat with font-weight 700 and font-size 14
     assert.match(
       chatListPanelCode,
-      /💬 Diskusi \/ Chat/,
-      "ChatListPanel header should display '💬 Diskusi / Chat'"
+      /name: "pChat",\s*size: 18[\s\S]*?"Diskusi \/ Chat"/,
+      "ChatListPanel header should display the pChat glyph + 'Diskusi / Chat'"
     );
     assert.match(
       chatListPanelCode,
@@ -78,8 +78,8 @@ test("ChatPage Unified Container Layout and Redesign", async (t) => {
     );
     assert.match(
       chatListPanelCode,
-      /🔍/,
-      "ChatListPanel search should include 🔍 icon"
+      /name: "fSearch"/,
+      "ChatListPanel search should include the fSearch glyph"
     );
     assert.match(
       chatListPanelCode,
@@ -88,8 +88,8 @@ test("ChatPage Unified Container Layout and Redesign", async (t) => {
     );
     assert.match(
       chatListPanelCode,
-      /query\s*&&\s*\/\*#__PURE__\*\/React\.createElement\("button"[\s\S]*?✕/,
-      "ChatListPanel search should show clear button ✕ when query is not empty"
+      /query\s*&&\s*\/\*#__PURE__\*\/React\.createElement\("button"[\s\S]*?name: "fX"/,
+      "ChatListPanel search should show clear button (fX glyph) when query is not empty"
     );
   });
 

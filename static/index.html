@@ -17782,7 +17782,12 @@ function CalendarView({
         whiteSpace: "nowrap",
         marginBottom: 3
       }
-    }, t._isRecurring ? "🔁 " : "", t.title), /*#__PURE__*/React.createElement("div", {
+    }, t._isRecurring ? /*#__PURE__*/React.createElement("span", {
+ style: {color: "var(--text-secondary)", display: "inline-flex", verticalAlign: "middle", marginRight: 4}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pRepeat",
+ size: 12
+})) : "", t.title), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         gap: 5,
@@ -17819,7 +17824,12 @@ function CalendarView({
         fontSize: 11,
         color: "var(--text-light)"
       }
-    }, "\uD83D\uDCC1 ", t.project))), /*#__PURE__*/React.createElement("span", {
+    }, /*#__PURE__*/React.createElement("span", {
+ style: {display: "inline-flex", verticalAlign: "middle", marginRight: 4}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "fFolder",
+ size: 12
+})), t.project))), /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 16,
         color: "var(--text-light)",
@@ -17882,7 +17892,12 @@ function CalendarView({
         overflow: "hidden",
         overflowWrap: "anywhere"
       }
-    }, t._isRecurring ? "🔁 " : "", t.title), /*#__PURE__*/React.createElement("div", {
+    }, t._isRecurring ? /*#__PURE__*/React.createElement("span", {
+ style: {color: "var(--text-secondary)", display: "inline-flex", verticalAlign: "middle", marginRight: 4}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pRepeat",
+ size: 12
+})) : "", t.title), /*#__PURE__*/React.createElement("div", {
       style: {
         display: "flex",
         gap: 4,
@@ -17908,7 +17923,12 @@ function CalendarView({
         whiteSpace: "nowrap",
         maxWidth: "100%"
       }
-    }, "📁 ", t.project)));
+    }, /*#__PURE__*/React.createElement("span", {
+ style: {display: "inline-flex", verticalAlign: "middle", marginRight: 4}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "fFolder",
+ size: 12
+})), t.project)));
   };
   const renderWeek = () => {
     const days = weekKeys.map((key, i) => {
@@ -17993,7 +18013,12 @@ function CalendarView({
           textOverflow: "ellipsis",
           whiteSpace: "nowrap"
         }
-      }, day.holiday ? `🔴 ${day.holiday}` : day.items.length ? `${day.items.length} task` : "Tidak ada task")), weekAddButton(day.key, `${CAL_DAY_LONG[day.i]} ${day.date} ${day.monthShort}`)), day.items.length > 0 && /*#__PURE__*/React.createElement(TaskListItems, {
+      }, day.holiday ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+ style: {color: "#ef4444", display: "inline-flex", verticalAlign: "middle", marginRight: 5}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pDot",
+ size: 8
+})), day.holiday) : day.items.length ? `${day.items.length} task` : "Tidak ada task")), weekAddButton(day.key, `${CAL_DAY_LONG[day.i]} ${day.date} ${day.monthShort}`)), day.items.length > 0 && /*#__PURE__*/React.createElement(TaskListItems, {
         items: day.items,
         onSelect: onTaskClick
       }))));
@@ -18072,7 +18097,12 @@ function CalendarView({
         textOverflow: "ellipsis",
         whiteSpace: "nowrap"
       }
-    }, "🔴 ", day.holiday)), weekAddButton(day.key, `${CAL_DAY_LONG[day.i]} ${day.date} ${day.monthShort}`)), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("span", {
+ style: {color: "#ef4444", display: "inline-flex", verticalAlign: "middle", marginRight: 5}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pDot",
+ size: 8
+})), day.holiday)), weekAddButton(day.key, `${CAL_DAY_LONG[day.i]} ${day.date} ${day.monthShort}`)), /*#__PURE__*/React.createElement("div", {
       onClick: day.items.length === 0 && onCreateOnDate ? () => onCreateOnDate(day.key) : undefined,
       style: {
         flex: 1,
@@ -18096,9 +18126,20 @@ function CalendarView({
   }, /*#__PURE__*/React.createElement("h1", {
     style: {
       fontSize: 24,
-      fontWeight: 700
+      fontWeight: 700,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 10
     }
-  }, "\uD83D\uDDD3\uFE0F Kalender"), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+      className: "wsf-title-ico",
+      style: {
+        display: "inline-flex"
+      }
+    }, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pCalendar",
+ size: 22
+})), "Kalender"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -18263,7 +18304,12 @@ function CalendarView({
           whiteSpace: "nowrap",
           padding: "0 2px"
         }
-      }, "\uD83D\uDD34"), dayTasks.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+      }, /*#__PURE__*/React.createElement("span", {
+ style: {color: "#ef4444", display: "inline-flex", verticalAlign: "middle", marginRight: 0}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pDot",
+ size: 10
+}))), dayTasks.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
         style: {
           display: "flex",
           gap: 2,
@@ -18335,7 +18381,12 @@ function CalendarView({
         fontSize: 9,
         color: "#ef4444"
       }
-    }, "\uD83D\uDD34"), dayTasks.length > 0 && /*#__PURE__*/React.createElement("span", {
+    }, /*#__PURE__*/React.createElement("span", {
+ style: {color: "#ef4444", display: "inline-flex", verticalAlign: "middle", marginRight: 0}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pDot",
+ size: 10
+}))), dayTasks.length > 0 && /*#__PURE__*/React.createElement("span", {
       style: {
         fontSize: 10,
         fontWeight: 700,
@@ -18376,7 +18427,12 @@ function CalendarView({
           opacity: isDoneOcc ? 0.6 : 1
         },
         title: t.title
-      }, t._isRecurring ? "🔁 " : "", t.title);
+      }, t._isRecurring ? /*#__PURE__*/React.createElement("span", {
+ style: {color: "var(--text-secondary)", display: "inline-flex", verticalAlign: "middle", marginRight: 4}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pRepeat",
+ size: 12
+})) : "", t.title);
     }), hasMore && /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 10,
@@ -18459,7 +18515,12 @@ function CalendarView({
         color: "#ef4444",
         marginBottom: 6
       }
-    }, "\uD83D\uDD34 Hari Libur Nasional \u2014 ", new Date(year, month, 1).toLocaleDateString("id-ID", {
+    }, /*#__PURE__*/React.createElement("span", {
+ style: {color: "#ef4444", display: "inline-flex", verticalAlign: "middle", marginRight: 5}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pDot",
+ size: 8
+})), "Hari Libur Nasional \u2014 ", new Date(year, month, 1).toLocaleDateString("id-ID", {
       month: "long",
       year: "numeric"
     })), /*#__PURE__*/React.createElement("div", {
@@ -18522,14 +18583,24 @@ function CalendarView({
       fontWeight: 700,
       color: "var(--text-primary)"
     }
-  }, "\uD83D\uDCC5 ", selectedDateLabel), selectedHoliday && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+ style: {display: "inline-flex", verticalAlign: "middle", marginRight: 6}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pCalendar",
+ size: 15
+})), selectedDateLabel), selectedHoliday && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: "#ef4444",
       fontWeight: 600,
       marginTop: 2
     }
-  }, "\uD83D\uDD34 ", selectedHoliday), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+ style: {color: "#ef4444", display: "inline-flex", verticalAlign: "middle", marginRight: 5}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pDot",
+ size: 8
+})), selectedHoliday), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 11,
       color: "var(--text-light)",
@@ -18549,9 +18620,14 @@ function CalendarView({
       fontSize: 18,
       cursor: "pointer",
       color: "var(--text-light)",
-      padding: 4
-    }
-  }, "\u2715"))), selectedTasks.length === 0 ? /*#__PURE__*/React.createElement("div", {
+      padding: 4,
+      display: "inline-flex"
+    },
+    "aria-label": "Tutup"
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "fX",
+ size: 14
+})))), selectedTasks.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
       padding: "20px 0",
@@ -18592,9 +18668,19 @@ function CalendarView({
       }
     }, /*#__PURE__*/React.createElement("div", {
       className: "cal-agenda-date"
-    }, "\uD83D\uDCC5 ", sidebarDateLabel), sidebarHoliday && /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("span", {
+ style: {display: "inline-flex", verticalAlign: "middle", marginRight: 6}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pCalendar",
+ size: 15
+})), sidebarDateLabel), sidebarHoliday && /*#__PURE__*/React.createElement("div", {
       className: "cal-agenda-holiday-tag"
-    }, "\uD83D\uDD34 ", sidebarHoliday), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("span", {
+ style: {color: "#ef4444", display: "inline-flex", verticalAlign: "middle", marginRight: 5}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pDot",
+ size: 8
+})), sidebarHoliday), /*#__PURE__*/React.createElement("div", {
       style: {
         fontSize: 12,
         color: "var(--text-light)",
@@ -18640,7 +18726,12 @@ function CalendarView({
       className: "cal-agenda-holiday-card"
     }, /*#__PURE__*/React.createElement("div", {
       className: "cal-agenda-holiday-title"
-    }, "\uD83D\uDD34 Hari Libur Nasional \u2014 ", new Date(year, month, 1).toLocaleDateString("id-ID", {
+    }, /*#__PURE__*/React.createElement("span", {
+ style: {color: "#ef4444", display: "inline-flex", verticalAlign: "middle", marginRight: 5}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pDot",
+ size: 8
+})), "Hari Libur Nasional \u2014 ", new Date(year, month, 1).toLocaleDateString("id-ID", {
       month: "long",
       year: "numeric"
     })), /*#__PURE__*/React.createElement("div", {
@@ -18703,14 +18794,24 @@ function CalendarView({
       fontWeight: 700,
       fontSize: 16
     }
-  }, "\uD83D\uDCC5 ", selectedDateLabel), selectedHoliday && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+ style: {display: "inline-flex", verticalAlign: "middle", marginRight: 6}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pCalendar",
+ size: 15
+})), selectedDateLabel), selectedHoliday && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: "#ef4444",
       fontWeight: 600,
       marginTop: 3
     }
-  }, "\uD83D\uDD34 ", selectedHoliday), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+ style: {color: "#ef4444", display: "inline-flex", verticalAlign: "middle", marginRight: 5}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pDot",
+ size: 8
+})), selectedHoliday), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: "var(--text-light)",
@@ -18724,8 +18825,12 @@ function CalendarView({
     }
   }, onCreateOnDate && addOnDayButton, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
-    onClick: () => setSelectedDay(null)
-  }, "\u2715"))), /*#__PURE__*/React.createElement("div", {
+    onClick: () => setSelectedDay(null),
+    "aria-label": "Tutup"
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "fX",
+ size: 14
+})))), /*#__PURE__*/React.createElement("div", {
     style: {
       overflowY: "auto",
       flex: 1
@@ -18764,7 +18869,12 @@ function CalendarView({
       fontSize: 15,
       marginBottom: 4
     }
-  }, "\uD83D\uDD01 ", recurPopup.task.title), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+ style: {display: "inline-flex", verticalAlign: "middle", marginRight: 6}
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pRepeat",
+ size: 15
+})), recurPopup.task.title), /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
       color: "var(--text-light)",
@@ -20918,9 +21028,17 @@ function ChatListPanel({
       color: "var(--text-primary)",
       display: "flex",
       alignItems: "center",
-      gap: 6
+      gap: 8
     }
-  }, "💬 Diskusi / Chat"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", {
+ className: "wsf-title-ico",
+ style: {
+ display: "inline-flex"
+ }
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pChat",
+ size: 18
+})), "Diskusi / Chat"), /*#__PURE__*/React.createElement("button", {
     onClick: onToggle,
     title: collapsed ? "Perluas panel" : "Perkecil panel",
     style: {
@@ -20958,10 +21076,13 @@ function ChatListPanel({
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
-      fontSize: 12,
-      opacity: 0.6
+      display: "inline-flex",
+      color: "var(--text-light)"
     }
-  }, "🔍"), /*#__PURE__*/React.createElement("input", {
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "fSearch",
+ size: 15
+})), /*#__PURE__*/React.createElement("input", {
     value: query,
     onChange: e => setQuery(e.target.value),
     placeholder: "Cari grup atau orang...",
@@ -20984,9 +21105,14 @@ function ChatListPanel({
       color: "var(--text-light)",
       fontSize: 13,
       padding: 0,
-      lineHeight: 1
-    }
-  }, "✕"))), /*#__PURE__*/React.createElement("div", {
+      lineHeight: 1,
+      display: "inline-flex"
+    },
+    "aria-label": "Hapus pencarian"
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "fX",
+ size: 13
+})))), /*#__PURE__*/React.createElement("div", {
     style: {
       flex: 1,
       overflowY: "auto",
@@ -21007,7 +21133,14 @@ function ChatListPanel({
       fontSize: 28,
       marginBottom: 8
     }
-  }, "📋"), "Belum ada shared list.", /*#__PURE__*/React.createElement("br", null), "Buat atau bergabung dulu."), lists.length > 0 && filtered.length === 0 && q && !collapsed && emptyMsg("Tidak ada grup yang cocok"), filtered.map(l => /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
+ style: {
+ display: "inline-flex"
+ }
+}, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "wsTasks",
+ size: 28
+}))), "Belum ada shared list.", /*#__PURE__*/React.createElement("br", null), "Buat atau bergabung dulu."), lists.length > 0 && filtered.length === 0 && q && !collapsed && emptyMsg("Tidak ada grup yang cocok"), filtered.map(l => /*#__PURE__*/React.createElement("div", {
     key: "g" + l.id,
     className: `chat-list-item${isSel("group", l.id) ? " active" : ""}`,
     onClick: () => onSelect(l),
@@ -21236,9 +21369,12 @@ function ChatPage({
     }
   }, /*#__PURE__*/React.createElement("div", {
     style: {
-      fontSize: 40
+      display: "inline-flex"
     }
-  }, "💬"), /*#__PURE__*/React.createElement("div", null, "Pilih grup atau pesan pribadi untuk mulai berdiskusi"))), showDmPicker && /*#__PURE__*/React.createElement(DmContactPicker, {
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+ name: "pChat",
+ size: 44
+})), /*#__PURE__*/React.createElement("div", null, "Pilih grup atau pesan pribadi untuk mulai berdiskusi"))), showDmPicker && /*#__PURE__*/React.createElement(DmContactPicker, {
     onPick: startDm,
     onClose: () => setShowDmPicker(false),
     showToast: showToast
