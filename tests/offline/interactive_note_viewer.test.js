@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v439-account-fase0a/,
-      "sw.js should be bumped to taskflow-v439-account-fase0a"
+      /taskflow-v441-kelola-workspace-fase1/,
+      "sw.js should be bumped to taskflow-v441-kelola-workspace-fase1"
     );
   });
 
