@@ -204,6 +204,66 @@
     .settings-field-hint { margin-top: 6px; font-size: 12px; line-height: 1.45; color: var(--text-secondary); }
     .account-setup-desc { margin: 0 0 16px; font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
 
+    /* Admin: kartu Email (fase 0b) — status lewat chip/badge berwarna lembut, tanpa garis tepi aksen */
+    .admin-email { margin-top: 32px; }
+    .admin-email-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+    .admin-email-icon { flex-shrink: 0; width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: rgba(168,197,0,0.16); color: #7E9400; }
+    .admin-email-title { margin: 0; font-size: 16px; font-weight: 700; flex: 1; min-width: 0; }
+    .admin-email-badge { display: inline-flex; align-items: center; max-width: 100%; padding: 5px 12px; border-radius: 10px; font-size: 12.5px; font-weight: 600; overflow-wrap: anywhere; margin-bottom: 14px; }
+    .admin-email-badge-ok { background: rgba(34,197,94,0.12); color: #15803d; }
+    .admin-email-badge-warn { background: rgba(234,179,8,0.16); color: #a16207; }
+    .admin-email-badge-err { background: rgba(220,38,38,0.1); color: #b91c1c; }
+    .admin-email-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    .admin-email-stat { padding: 10px 12px; border-radius: 10px; background: var(--bg-subtle); border: 1px solid var(--border); min-width: 0; }
+    .admin-email-stat-num { font-size: 22px; font-weight: 700; line-height: 1.1; }
+    .admin-email-stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+    .admin-email-stat-ok .admin-email-stat-num { color: #16a34a; }
+    .admin-email-stat-err .admin-email-stat-num { color: #dc2626; }
+    .admin-email-stat-warn .admin-email-stat-num { color: #ca8a04; }
+    .admin-email-stat-muted .admin-email-stat-num { color: var(--text-secondary); }
+    .admin-email-stats-note { font-size: 11.5px; color: var(--text-light); margin: 6px 0 16px; }
+    .admin-email-form { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
+    .admin-email-form .input { flex: 1 1 220px; min-width: 0; }
+    .admin-email-state { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 14px 0; font-size: 13px; color: var(--text-secondary); }
+    .admin-email-state-inline { padding: 0 0 12px; color: #b91c1c; }
+    .admin-email-table-wrap { overflow-x: auto; }
+    .admin-email-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .admin-email-table th { padding: 8px 10px; text-align: left; white-space: nowrap; font-weight: 600; background: var(--bg-primary); border-bottom: 2px solid var(--border); }
+    .admin-email-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+    .admin-email-time { white-space: nowrap; color: var(--text-secondary); }
+    .admin-email-act { text-align: right; white-space: nowrap; }
+    .admin-email-to { overflow-wrap: anywhere; }
+    .admin-email-err { font-size: 12px; color: var(--text-secondary); overflow-wrap: anywhere; cursor: help; }
+    .admin-email-dim { color: var(--text-light); }
+    .admin-email-chip { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+    .admin-email-chip-ok { background: rgba(34,197,94,0.14); color: #15803d; }
+    .admin-email-chip-warn { background: rgba(234,179,8,0.18); color: #a16207; }
+    .admin-email-chip-err { background: rgba(220,38,38,0.12); color: #b91c1c; }
+    .admin-email-chip-muted { background: rgba(100,116,139,0.14); color: #64748b; }
+    .admin-email-list { display: none; list-style: none; margin: 0; padding: 0; }
+    .admin-email-item { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; font-size: 13px; min-width: 0; }
+    .admin-email-item-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .admin-email-item-kind { font-weight: 600; }
+    .admin-email-item-meta { font-size: 12px; color: var(--text-secondary); }
+    .admin-email-item .btn { align-self: flex-start; margin-top: 4px; }
+    [data-theme="dark"] .admin-email-icon { background: rgba(168,197,0,0.18); color: var(--accent); }
+    [data-theme="dark"] .admin-email-badge-ok, [data-theme="dark"] .admin-email-chip-ok { background: rgba(34,197,94,0.18); color: #4ade80; }
+    [data-theme="dark"] .admin-email-badge-warn, [data-theme="dark"] .admin-email-chip-warn { background: rgba(234,179,8,0.18); color: #facc15; }
+    [data-theme="dark"] .admin-email-badge-err, [data-theme="dark"] .admin-email-chip-err { background: rgba(220,38,38,0.2); color: #f87171; }
+    [data-theme="dark"] .admin-email-chip-muted { background: rgba(148,163,184,0.16); color: #a3a3a3; }
+    [data-theme="dark"] .admin-email-stat-ok .admin-email-stat-num { color: #4ade80; }
+    [data-theme="dark"] .admin-email-stat-err .admin-email-stat-num { color: #f87171; }
+    [data-theme="dark"] .admin-email-stat-warn .admin-email-stat-num { color: #facc15; }
+    [data-theme="dark"] .admin-email-state-inline { color: #f87171; }
+    @media (max-width: 768px) {
+      .admin-email { padding: 16px; }
+      .admin-email-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .admin-email-table-wrap { display: none; }
+      .admin-email-list { display: block; }
+      .admin-email-form .btn { flex: 1 1 100%; }
+    }
+    /* /Admin: kartu Email */
+
     /* Cards */
     .card { background: var(--bg-card); border-radius: 14px; border: 1px solid rgba(0,0,0,0.06); padding: 20px; min-width: 0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 8px -2px rgba(0,0,0,0.03); }
     .card-hover { transition: all 0.2s; }

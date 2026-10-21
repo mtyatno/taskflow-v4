@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v447-slash-menu-icons";
+const CACHE = "taskflow-v448-email-mailer";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
@@ -29,6 +29,7 @@ const STATIC = [
   "/static/offline/wsmanage.js",
   "/static/offline/introgate.js",
   "/static/offline/accountbanner.js",
+  "/static/offline/emailadmin.js",
   "/static/offline/focuspage.js",
   "/static/offline/pomologic.js",
   "/static/offline/pomolog.js",

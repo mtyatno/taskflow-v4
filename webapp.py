@@ -4591,7 +4591,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v447-slash-menu-icons"
+    sw_cache = "taskflow-v448-email-mailer"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
