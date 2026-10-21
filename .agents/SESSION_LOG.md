@@ -3736,6 +3736,9 @@
 - **Files Touch:** static/sw.js, static/index.html, webapp.py, tests/, .gitignore, temporary_files/e2e_focus_ambient.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (belum di-push; deploy = file statis + `static/sounds/` + restart `taskflow-web` saja)
 
+## 2026-10-21 09:00 WIB — Claude — Kelola Workspace Fase 1 (halaman Kelola per workspace)
+- Brainstorming → spec + rencana disetujui Bapak; SDD 7 task (Task 1+2 backend digabung), review per task, review akhir opus (temuan kritis: index.html baru + modul offline lama → blank) → 1 gelombang perbaikan + re-review bersih. SW v441, `app.css?v=349`, ADR-023. pytest 945, JS 2421/2422 (pra-ada), E2E 98/98 + Fase 0 66/66.
+- **Status:** Needs Review (draft PR; setelah merge restart `taskflow-web` lalu `taskflow`).
 ## 2026-10-21 06:50 WIB — Claude — bug note list tag basi setelah autosave
 - **Task:** laporan Bapak: tag yang ditambahkan lewat editor note tidak tampil di note list sampai pindah halaman.
 - **Changes:** `NoteModal` memancarkan `noteSaved` saat ditutup bila autosave sempat menulis tanpa diumumkan (`unannouncedWriteRef`); SW v440 / `app.css?v=349`; tes sumber `note_editor_sync.test.js`; E2E `temporary_files/e2e_note_list_tags.py` 5/5 (kode lama gagal a, c).
@@ -3753,4 +3756,32 @@
 
 ## 2026-10-21 08:30 WIB — Claude — Fokus Hari Ini PR D: merge main (#68)
 - **Changes:** merge `origin/main` (#68 note list tags) ke `claude/focus-ambient`; konflik versi diselesaikan ke SW v442 `taskflow-v442-focus-ambient` / `app.css?v=350` (sw.js, index.html ×3, webapp.py, tes, E2E h2); `.gitignore` + `.agents` kedua sisi. Verifikasi: pytest 911; JS 2392/2393 (pra-ada `draw_local_reactive`); inline OK; `e2e_focus_page.py` 35/35; `e2e_focus_ambient.py` 87/87 tetapi skenario g (autoplay ditolak setelah reload) flaky ±50% — sama di HEAD sebelum merge, bukan regresi.
+- **Status:** Needs Review (belum di-push)
+
+## 2026-10-21 08:40 WIB — Claude — merge main (#68) ke kelola-workspace-fase1, SW v442
+- `main` maju (#68 bug note list tag, SW v441 / `app.css?v=349` — sama dengan PR #70). Main di-merge; konflik hanya string versi + `.agents`/.gitignore (kedua sisi dipertahankan). SW naik ke **v442** `taskflow-v442-kelola-workspace-fase1`, `app.css?v=350`. pytest 945; JS 2421/2422 (pra-ada `draw_local_reactive`); inline OK; E2E fase 1 98/98, note list tags 5/5.
+
+## 2026-10-21 10:15 WIB — Claude — merge Kelola Workspace Fase 1 (#70)
+- Bapak: "ya" (merge). #70 di-merge (a03aa76); CI Tests dan Deploy Taskflow V4 sukses. SW v442, `app.css?v=350`.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` lalu `sudo systemctl restart taskflow` (migrasi kolom `shared_lists`). Lalu Fase 2 (undangan & siklus hidup) bila diminta.
+## 2026-10-21 — Claude — Komentar Note PR 1 (backend)
+- **Task:** komentar level halaman untuk note workspace, bagian backend (PR 1 dari 3): skema, endpoint, delta pull, notifikasi, SSE, siklus hidup.
+- **Changes:** lihat entri CURRENT_STATE `claude/komentar-note`; commit 93647bf..b3de0f9 + `docs(agents): komentar note PR 1 backend`. ADR-024.
+- **Files Touch:** note_comments.py, repository.py, webapp.py, tests/note_comment_helpers.py, tests/test_note_comments_*.py, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push; deploy = migrasi -> restart `taskflow-web`, lalu `taskflow`; SW tetap v439). pytest 952, JS 2331/2332 (pra-ada `draw_local_reactive`).
+
+## 2026-10-21 10:15 WIB — Claude — merge Komentar Note PR 1 (backend)
+- Merge `origin/main` (#68 note list tag, #70 Kelola Workspace fase 1) ke `claude/komentar-note`: konflik hanya di `.agents/*`; ADR komentar dinomori ulang ADR-024. pytest 1004 passed, JS 2421/2422 (pra-ada `draw_local_reactive`).
+- PR dibuat dan di-merge ke `main` atas instruksi Bapak ("merge"). Deploy workflow berjalan otomatis; perlu restart `taskflow-web` lalu `taskflow` (migrasi `note_comments`, `note_comment_reads`, `notifications.note_id`).
+
+## 2026-10-21 07:10 WIB — Claude — ikon daftar Catatan, pin, Petakan
+- Bapak minta ikon di panel Catatan (catatan, tanpa tag, share, tag, trash) lalu juga pin dan otak (Petakan) diganti gaya Alurik. Implementer subagent + review terpisah (siap merge). SW v443 / `app.css?v=350`. **Status:** Needs Review (draft PR; restart `taskflow-web`).
+
+## 2026-10-21 10:20 WIB — Claude — merge ikon daftar Catatan (#69)
+- Bapak: "merge". `main` sempat maju dua kali (#68 v441, #70 v442 + `app.css?v=350`); branch di-merge `main` dua kali, SW dinomori ulang ke v443. #69 di-merge (8153da0); CI Tests dan Deploy Taskflow V4 sukses.
+- Catatan: E2E lama `temporary_files/e2e_tasklist_view_icons.py` langkah 14 (Kelola Workspace) tidak cocok lagi dengan halaman hasil #70; ada saklar `E2E_SKIP_MANAGE=1`, langkahnya perlu disesuaikan terpisah.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek panel Catatan (SW v443).
+
+## 2026-10-21 10:40 WIB — Claude — Fokus Hari Ini PR D: merge main (#69–#71)
+- **Changes:** merge `origin/main` b5f46ed ke `claude/focus-ambient`; SW v444 `taskflow-v444-focus-ambient` / `app.css?v=351` (sw.js, index.html ×3, webapp.py, tes termasuk `notes_list_icons` + `note_toc`, E2E h2); `VIEW_GLYPHS` memuat ikon `n*` (#69) dan `headphones`; `.gitignore` + `.agents` kedua sisi.
 - **Status:** Needs Review (belum di-push)

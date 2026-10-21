@@ -29,7 +29,8 @@ test("VIEW_GLYPHS + ViewGlyph (inline, meniru FocusGlyph)", async (t) => {
     const keys = [...mapSrc.matchAll(/^\s{2}(\w+):\s*'/gm)].map(m => m[1]);
     assert.deepEqual(keys, ["normal", "compact", "kanban", "wsTasks", "wsFiles",
       "fFolder", "fPdf", "fSheet", "fImage", "fFile", "fSearch", "fUpload", "fDownload", "fEye", "fChat", "fPin", "fTrash", "fX",
-      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "pomoTomato", "pomoBreak", "headphones"]);
+      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "pomoTomato", "pomoBreak",
+      "nNote", "nTag", "nTagOff", "nStar", "nChevronDown", "nChevronUp", "nBacklink", "nPin", "nBrain", "headphones"]);
   });
 
   await t.test("VIEW_GLYPHS bisa dievaluasi dan setiap glyph berisi markup SVG", () => {
@@ -149,15 +150,15 @@ test("CSS segmented toggle", async (t) => {
   });
 });
 
-test("cache bust v432 + app.css?v=350", async (t) => {
+test("cache bust v432 + app.css?v=351", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html, sw_cache webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v442-focus-ambient";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v442-focus-ambient";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v442-focus-ambient"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v442-focus-ambient"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v444-focus-ambient";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v444-focus-ambient";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v444-focus-ambient"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v444-focus-ambient"/);
   });
 
-  await t.test("index.html memuat app.css?v=350", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=350">/);
+  await t.test("index.html memuat app.css?v=351", () => {
+    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=351">/);
   });
 });

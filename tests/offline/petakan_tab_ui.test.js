@@ -611,8 +611,7 @@ test("C8: NotePanel applies the heading only to the target note id", () => {
 
 // Petakan C9: titik masuk (tombol Petakan, + Dari Catatan, badge tertaut).
 test("C9 entry points: Petakan buttons, + Dari Catatan, linked badge, tf:petakan event", () => {
-  assert.match(indexHtml, /🧠 Petakan/);
-  assert.match(indexHtml, /🧠 Buka peta/);
+  assert.match(indexHtml, /name: "nBrain", size: 14 \}\), linkedId != null \? "Buka peta" : "Petakan"/);
   assert.match(indexHtml, /\+ Dari Catatan/);
   assert.match(indexHtml, /new CustomEvent\("tf:petakan"/);
   assert.match(indexHtml, /addEventListener\("tf:petakan"/);

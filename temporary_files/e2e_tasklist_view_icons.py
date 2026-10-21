@@ -485,6 +485,69 @@ def run_pomo_chip(browser, base, user, theme):
         ctx.close()
 
 
+EMOJI_NOTES = "📝🔍⭐🏷⬜📌👥🔗☰▤▴▾✕🧠"
+
+
+def run_notes_page(browser, base, user, theme):
+    tag = "terang" if theme == "light" else "gelap"
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        nav_to(p, "Notes")
+        left = p.locator(".notes-left")
+        left.wait_for(state="visible", timeout=15000)
+        left.locator("text=Catatan Bersama").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        text = left.inner_text()
+        bad = [c for c in EMOJI_NOTES if c in text]
+        check("[%s] 16a tanpa emoji di panel daftar catatan" % tag, not bad, repr(bad))
+        check("[%s] 16b judul: wsf-title-ico svg 20px" % tag, left.locator(".wsf-title-ico svg[width='20']").count() >= 1)
+        check("[%s] 16c tombol header (view mode, sampah, tutup) bersvg 15px" % tag,
+              left.locator("button svg[width='15']").count() >= 3)
+        check("[%s] 16d kartu: pin 12px, badge bersama 12px, tanpa tag 11px, tautan 11px" % tag,
+              left.locator(".note-card-title svg[width='12']").count() >= 2
+              and left.locator("svg[width='11']").count() >= 3)
+        check("[%s] 16e pil '+N Tags' bersvg tag 14px + chevron 12px" % tag,
+              left.locator("button.tag-pill", has_text="Tags").locator("svg[width='14']").count() == 1
+              and left.locator("button.tag-pill", has_text="Tags").locator("svg[width='12']").count() == 1)
+        check("[%s] 16f pane kanan kosong: svg 44px" % tag, p.locator(".notes-right svg[width='44']").count() == 1)
+        shot_el(p, left, "%s_16_catatan_daftar.png" % tag)
+        p.screenshot(path=os.path.join(SHOTS, "%s_16_catatan_halaman.png" % tag), scale="css")
+        pill = left.locator("button.tag-pill", has_text="Tags")
+        pill.click()
+        p.wait_for_timeout(300)
+        check("[%s] 16g popover tag: 'Tanpa Tag' bersvg 13px, tanpa emoji" % tag,
+              p.locator("button, div, span", has_text="Tanpa Tag").locator("svg[width='13']").count() >= 1
+              and "⬜" not in left.inner_text())
+        shot_el(p, left, "%s_16_catatan_popover_tag.png" % tag)
+        pill.click()
+        left.locator("input[placeholder^='Cari']").first.fill("kata")
+        p.wait_for_timeout(200)
+        # mengetik otomatis membuka dropdown pencarian tersimpan
+        left.locator("button[title='Tutup pencarian tersimpan']").wait_for(state="visible", timeout=5000)
+        check("[%s] 16j dropdown cari: 'Simpan pencarian' bersvg bintang 13px, tanpa emoji" % tag,
+              left.locator(".scratchpad-search-dropdown svg[width='13']").count() >= 1
+              and "⭐" not in left.inner_text())
+        shot_el(p, left, "%s_16_catatan_dropdown_cari.png" % tag)
+        left.locator("button[title='Tutup pencarian tersimpan']").click()
+        left.locator("input[placeholder^='Cari']").first.fill("")
+        p.wait_for_timeout(300)
+        # buka catatan terpin + bersama: header/toolbar
+        left.locator(".note-card-title", has_text="Catatan Bersama").first.click()
+        p.locator(".notes-panel-title").wait_for(state="visible", timeout=10000)
+        p.mouse.move(5, 5)
+        hdr = p.locator(".notes-panel-header")
+        check("[%s] 16h header note: badge Bersama svg 12px tanpa emoji" % tag,
+              hdr.locator(".note-shared-badge svg[width='12']").count() == 1 and "👥" not in hdr.inner_text())
+        check("[%s] 16i toolbar: tombol pin svg 15px aria-pressed + Petakan svg 14px tanpa emoji" % tag,
+              p.locator("button[aria-pressed] svg[width='15']").count() >= 1
+              and p.locator("button", has_text="Petakan").locator("svg[width='14']").count() == 1
+              and "🧠" not in p.locator(".notes-right").inner_text())
+        shot_el(p, hdr, "%s_16_catatan_toolbar.png" % tag)
+        p.screenshot(path=os.path.join(SHOTS, "%s_16_catatan_note_terbuka.png" % tag), scale="css")
+    finally:
+        ctx.close()
+
+
 def main():
     os.makedirs(SHOTS, exist_ok=True)
     for f in os.listdir(SHOTS):
@@ -510,6 +573,13 @@ def main():
         _, tasks = api(base, user, "GET", "/api/tasks")
         tl = tasks if isinstance(tasks, list) else tasks.get("tasks", [])
         api(base, user, "POST", "/api/tasks/%d/focus" % tl[0]["id"])
+        for i, tg in enumerate(["kerja", "rumah", "ide", "riset", "belanja", "buku", "proyek"]):
+            api(base, user, "POST", "/api/scratchpad", json={"title": "Catatan Tag %s" % tg, "content": "isi kata %d" % i, "tags": [tg, "kerja"]})
+        api(base, user, "POST", "/api/scratchpad", json={"title": "Catatan Tanpa Tag", "content": "polos kata"})
+        _, nb = api(base, user, "POST", "/api/scratchpad", json={"title": "Catatan Bersama", "content": "dibagi [[Catatan Tanpa Tag]]", "tags": ["ide"], "list_id": list_id})
+        _, npn = api(base, user, "POST", "/api/scratchpad", json={"title": "Catatan Terpin", "content": "terpin", "tags": ["kerja"]})
+        npid = npn.get("id") or npn.get("note", {}).get("id")
+        api(base, user, "PATCH", "/api/scratchpad/%d/pin" % npid, json={"pinned": True}, ok_codes=(200, 422))
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for theme in ("light", "dark"):
@@ -524,11 +594,13 @@ def main():
             for theme in ("light", "dark"):
                 run_files_view(browser, base, user, theme, ws_name, True)
             for theme in ("light", "dark"):
-                run_manage_page(browser, base, user, theme)
+                if not os.environ.get("E2E_SKIP_MANAGE"):  # halaman Kelola didesain ulang di #70; langkah 14 perlu pembaruan terpisah
+                    run_manage_page(browser, base, user, theme)
                 run_pomo_chip(browser, base, user, theme)
+                run_notes_page(browser, base, user, theme)
             browser.close()
     except Exception as e:
-        check("exception", False, "%s: %s" % (type(e).__name__, e))
+        check("exception", False, "%s: %s" % (type(e).__name__, str(e)[:900]))
     finally:
         proc.terminate()
         try:

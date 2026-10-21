@@ -11,6 +11,12 @@ Langkah 1–3 dijalankan di tema terang lalu gelap (tidak merusak data); 4–5 d
      dengan list_id null (task pribadi B, tampil di Inbox B); di perangkat A task itu hilang dari store lokal.
   6  Tidak ada teks "shared list" di halaman; screenshot terang + gelap tiap langkah.
 
+Fase 1 (Task 6): kartu daftar tidak lagi punya panel/Hapus/Keluar. Anggota dan dialog hapus dibuka lewat tombol
+"Kelola" di kartu → halaman ws_manage_<id> (seksi Anggota + Danger Zone), kembali lewat "← Semua workspace".
+Langkah 3 offline: tombol "Hapus workspace" di Danger Zone nonaktif ("Butuh koneksi internet"); dialog yang dibuka
+saat online lalu koneksi putus → "Hapus permanen" gagal dengan "Hapus workspace butuh koneksi internet" dan
+workspace tetap ada (API).
+
 Server lokal: uvicorn webapp:app, DB sementara. Screenshot: temporary_files/e2e_kelola_workspace_fase0/.
 Keluar non-zero bila ada langkah gagal.
 
@@ -165,36 +171,50 @@ def idb_tasks(page, title):
     return page.evaluate(IDB_BY_TITLE, title)
 
 
-def kelola_btn(p, lid):
-    return p.locator("button[aria-controls='ws-panel-%d']" % lid)
-
-
 def card(p, lid):
-    return kelola_btn(p, lid).locator("xpath=ancestor::div[3]")
+    # Fase 1: kartu "Semua workspace" (halaman daftar)
+    return p.locator("[data-ws-card='%d']" % lid)
+
+
+def kelola_btn(p, lid):
+    return card(p, lid).get_by_role("button", name="Kelola", exact=True)
+
+
+def back_btn(p):
+    return p.get_by_role("button", name="\u2190 Semua workspace", exact=True)
 
 
 def hapus_btn(p, lid):
-    return card(p, lid).get_by_role("button", name="Hapus", exact=True)
+    # Fase 1: tombol hapus ada di Danger Zone halaman detail ws_manage_<id>
+    return p.locator("section[aria-labelledby='ws-sec-danger-%d']" % lid).get_by_role(
+        "button", name="Hapus workspace", exact=True)
 
 
 def panel(p, lid):
-    return p.locator("#ws-panel-%d" % lid)
+    # Fase 1: seksi Anggota di halaman detail
+    return p.locator("section[aria-labelledby='ws-sec-anggota-%d']" % lid)
 
 
 def member_rows(p, lid):
-    return panel(p, lid).locator(":scope > div").filter(has=p.locator("span", has_text="@"))
+    # WorkspaceMembersSection: seksi > div (komponen) > baris
+    return panel(p, lid).locator(":scope > div > div").filter(has=p.locator("span", has_text="@"))
 
 
 def expand(p, lid):
-    if kelola_btn(p, lid).get_attribute("aria-expanded") != "true":
+    """Buka halaman detail workspace lewat tombol Kelola di kartu daftar."""
+    if panel(p, lid).count() == 0:
+        if kelola_btn(p, lid).count() == 0 and back_btn(p).count() > 0:
+            collapse(p, lid)
         kelola_btn(p, lid).click()
     panel(p, lid).wait_for(timeout=5000)
     wait_until(lambda: panel(p, lid).inner_text().find("Memuat") < 0, 10)
 
 
 def collapse(p, lid):
-    if kelola_btn(p, lid).get_attribute("aria-expanded") == "true":
-        kelola_btn(p, lid).click()
+    """Kembali ke halaman daftar."""
+    if back_btn(p).count() > 0:
+        back_btn(p).first.click()
+    p.locator("h2").filter(has_text="Kelola Workspace").first.wait_for(timeout=10000)
 
 
 def dialog(p):
@@ -242,7 +262,8 @@ def ui_steps_1_to_3(browser, base, A, B, ids, theme):
         collapse(p, W2)
         no_shared_list(p, "[%s] 6a halaman Kelola tanpa teks 'shared list'" % tag)
 
-        # ── 2. dialog hapus ──────────────────────────────────────────────────────────────────────
+        # ── 2. dialog hapus (Fase 1: dari Danger Zone halaman detail) ─────────────────────────────
+        expand(p, W)
         hapus_btn(p, W).click()
         d = dialog(p)
         d.wait_for(timeout=5000)
@@ -268,22 +289,31 @@ def ui_steps_1_to_3(browser, base, A, B, ids, theme):
         check("[%s] 2g Esc menutup dialog" % tag, wait_until(lambda: dialog(p).count() == 0, 3))
         check("[%s] 2h fokus kembali ke tombol Hapus W" % tag,
               hapus_btn(p, W).evaluate("el => el === document.activeElement"))
-        check("[%s] 2i workspace W masih ada" % tag, kelola_btn(p, W).count() == 1)
+        check("[%s] 2i workspace W masih ada" % tag, hapus_btn(p, W).count() == 1 and panel(p, W).count() == 1)
 
         # ── 3. offline ───────────────────────────────────────────────────────────────────────────
         ctx.set_offline(True)
+        check("[%s] 3a offline: tombol 'Hapus workspace' nonaktif + 'Butuh koneksi internet'" % tag,
+              wait_until(lambda: hapus_btn(p, W).is_disabled(), 5)
+              and hapus_btn(p, W).get_attribute("title") == "Butuh koneksi internet")
+        shot(p, "3a_offline_danger_zone_%s.png" % tag)
+        ctx.set_offline(False)
+        wait_until(lambda: hapus_btn(p, W).is_enabled(), 5)
         hapus_btn(p, W).click()
         d = dialog(p)
-        d.wait_for(timeout=5000)
-        check("[%s] 3a offline: '%s'" % (tag, OFFLINE_TEXT),
-              wait_until(lambda: d.get_by_text(OFFLINE_TEXT).count() == 1, 5))
+        d.locator("li").first.wait_for(timeout=10000)
+        ctx.set_offline(True)
         d.get_by_label("Ketik nama workspace untuk konfirmasi").fill(W_NAME)
-        check("[%s] 3b offline: 'Hapus permanen' nonaktif walau nama cocok" % tag,
-              d.get_by_role("button", name="Hapus permanen").is_disabled())
-        shot(p, "3_offline_%s.png" % tag)
+        d.get_by_role("button", name="Hapus permanen").click()
+        check("[%s] 3b dialog terbuka lalu offline: '%s'" % (tag, OFFLINE_TEXT),
+              wait_until(lambda: d.get_by_text(OFFLINE_TEXT).count() == 1, 10))
+        shot(p, "3b_offline_dialog_%s.png" % tag)
         p.keyboard.press("Escape")
         wait_until(lambda: dialog(p).count() == 0, 3)
         ctx.set_offline(False)
+        check("[%s] 3c API: W tetap ada setelah hapus offline" % tag,
+              api(base, A, "GET", "/api/lists/%d" % W).get("id") == W)
+        collapse(p, W)
     finally:
         ctx.close()
 
@@ -344,8 +374,6 @@ def main():
             a.get_by_role("button", name="Keluarkan", exact=True).click()
             check("4b panel W3: 'Belum ada anggota lain.'",
                   wait_until(lambda: "Belum ada anggota lain." in panel(a, W3).inner_text(), 10))
-            check("4c kartu W3 '1 anggota'", wait_until(lambda: "1 anggota" in card(a, W3).inner_text(), 10),
-                  repr(card(a, W3).inner_text()[:100]))
             act = api(base, A, "GET", "/api/tasks/%d" % w3_active["id"])
             don = api(base, A, "GET", "/api/tasks/%d" % w3_done["id"])
             check("4d API: task aktif B di W3 tanpa penanggung jawab", act.get("assigned_to") is None,
@@ -354,16 +382,20 @@ def main():
                   repr(don.get("assigned_to")))
             shot(a, "4b_setelah_keluarkan_terang.png")
             collapse(a, W3)
+            check("4c kartu W3 '1 anggota'", wait_until(lambda: "1 anggota" in card(a, W3).inner_text(), 10),
+                  repr(card(a, W3).inner_text()[:100]))
 
-            # ── 5. hapus W ───────────────────────────────────────────────────────────────────────
+            # ── 5. hapus W (Fase 1: dari Danger Zone halaman detail) ─────────────────────────────
             W = ids["W"]
+            expand(a, W)
             hapus_btn(a, W).click()
             d = dialog(a)
             d.locator("li").first.wait_for(timeout=10000)
             d.get_by_label("Ketik nama workspace untuk konfirmasi").fill(W_NAME.upper())
             d.get_by_role("button", name="Hapus permanen").click()
-            check("5c dialog tertutup + kartu W hilang",
-                  wait_until(lambda: dialog(a).count() == 0 and kelola_btn(a, W).count() == 0, 10))
+            check("5c dialog tertutup, kembali ke daftar + kartu W hilang",
+                  wait_until(lambda: dialog(a).count() == 0 and card(a, W).count() == 0
+                             and card(a, ids["W2"]).count() == 1, 10))
             check("5d toast 'Workspace dihapus'",
                   wait_until(lambda: a.locator(".toast").filter(has_text="Workspace dihapus").count() >= 1, 5))
             shot(a, "5a_A_setelah_hapus_terang.png")
@@ -399,8 +431,9 @@ def main():
             open_manage(ad)
             kelola_btn(ad, W3).wait_for(timeout=10000)
             expand(ad, W3)
-            check("6e [gelap] W3 'Belum ada anggota lain.' dan W tidak ada",
-                  "Belum ada anggota lain." in panel(ad, W3).inner_text() and kelola_btn(ad, W).count() == 0)
+            check("6e [gelap] W3 'Belum ada anggota lain.'", "Belum ada anggota lain." in panel(ad, W3).inner_text())
+            collapse(ad, W3)
+            check("6e' [gelap] W tidak ada di daftar", card(ad, W).count() == 0 and card(ad, W3).count() == 1)
             shot(ad, "4b_5a_A_setelah_keluarkan_hapus_gelap.png")
             ctxd.close()
             ctxbd, bd = open_app(browser, base, B, "dark")

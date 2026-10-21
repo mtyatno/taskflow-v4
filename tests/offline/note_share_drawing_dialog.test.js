@@ -464,11 +464,12 @@ test("leave workspace fetches leave-impact and offers copy-then-leave", async ()
   assert.deepEqual(r.asked, []);
 });
 
-test("NoteModal, NotePanel and SharedListsManager use the shared helpers and dialog", () => {
+test("NoteModal, NotePanel and WorkspaceManagePage use the shared helpers and dialog", () => {
   const modal = (html.match(/const handleModalShare = async listId => \{[\s\S]*?\n  \};/) || [""])[0];
   const panelSrc = html.slice(html.indexOf("\nfunction NotePanel("));
   const panel = (panelSrc.match(/const handleShare = async listId => \{\n    setShareOpen\(false\);[\s\S]*?\n  \};/) || [""])[0];
-  const leave = (html.match(/const handleLeave = async \(listId, listName\) => \{[\s\S]*?\n  \};/) || [""])[0];
+  // Fase 1 Task 6: Keluar pindah dari kartu SharedListsManager ke Danger Zone WorkspaceManagePage.
+  const leave = (html.match(/const handleLeaveWorkspace = async \(\) => \{[\s\S]*?\n  \};/) || [""])[0];
   for (const [name, b] of [["NoteModal", modal], ["NotePanel", panel]]) {
     assert.match(b, /confirmNoteShareWithDrawings\(\{/, name);
     assert.doesNotMatch(b, /\/\* silent/, name);

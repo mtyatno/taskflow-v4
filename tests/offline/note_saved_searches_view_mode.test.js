@@ -32,11 +32,11 @@ test("Saved Searches UI and SW v364", async (t) => {
   await t.test("index.html defines search dropdown popover and toggle button", () => {
     assert.match(indexHtml, /showSearchDropdown/);
     assert.match(indexHtml, /scratchpad-search-dropdown/);
-    assert.match(indexHtml, /[▾▴]/);
+    assert.match(indexHtml, /showSearchDropdown ? [^;]*nChevronUp[^;]*nChevronDown/);
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v442-focus-ambient", () => {
-    assert.match(swJs, /taskflow-v442-focus-ambient/);
+  await t.test("sw.js bumped to taskflow-v444-focus-ambient", () => {
+    assert.match(swJs, /taskflow-v444-focus-ambient/);
   });
 });
