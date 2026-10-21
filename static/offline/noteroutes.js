@@ -13,6 +13,15 @@
   const TFdb = req("./db.js", root.TF && root.TF.db);
   const TFrepo = req("./noterepo.js", root.TF && root.TF.noterepo);
   const TFquery = req("./notequery.js", root.TF && root.TF.notequery);
+  // Dekorasi badge komentar bersifat best-effort: modul dicari saat dipanggil.
+  function commentRepo() {
+    try { return isNode ? require("./commentrepo.js") : (root.TF && root.TF.commentrepo); } catch (e) { return null; }
+  }
+  function decorate(rows) {
+    const repo = commentRepo();
+    if (!repo || typeof repo.decorateNotes !== "function") return Promise.resolve(rows);
+    return Promise.resolve().then(() => repo.decorateNotes(rows)).catch(() => rows);
+  }
 
   function allNotes() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -33,14 +42,16 @@
   function notFound() { return Promise.reject(new Error("Note not found")); }
 
   function registerNoteRoutes(router) {
-    router.register("GET", "/api/scratchpad", ({ query }) => TFquery.getNotes(query || {}));
+    router.register("GET", "/api/scratchpad", ({ query }) =>
+      TFquery.getNotes(query || {}).then(decorate));
     router.register("GET", "/api/scratchpad/recent", () => TFquery.getRecent());
     router.register("GET", "/api/scratchpad/pinned", () => TFquery.getPinned());
     router.register("GET", "/api/scratchpad/titles", () => TFquery.getTitles());
     router.register("GET", "/api/scratchpad/:id/backlinks", ({ params }) =>
       resolveNoteCid(params.id).then((cid) => (cid ? TFquery.getBacklinks(cid) : notFound())));
     router.register("GET", "/api/scratchpad/:id", ({ params }) =>
-      resolveNoteCid(params.id).then((cid) => (cid ? TFquery.getNote(cid) : notFound())));
+      resolveNoteCid(params.id).then((cid) => (cid ? TFquery.getNote(cid) : notFound()))
+        .then((row) => (row ? decorate([row]).then((r) => r[0]) : row)));
     router.register("POST", "/api/scratchpad", ({ body }) =>
       TFrepo.createNote(body || {}, {}).then((rec) => TFquery.getNote(rec.cid)));
     router.register("PUT", "/api/scratchpad/:id", ({ params, body }) =>
@@ -56,7 +67,7 @@
         .map((n) => ({ id: n.server_id != null ? n.server_id : n.cid, title: n.title, updated_at: n.updated_at }))));
   }
 
-  const exported = { registerNoteRoutes };
+  const exported = { registerNoteRoutes, resolveNoteCid };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.noteroutes = exported; }
   return exported;
 });
