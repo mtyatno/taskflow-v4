@@ -405,6 +405,26 @@ def ensure_workspace_invitations_schema(conn) -> None:
         conn.execute("ALTER TABLE notifications ADD COLUMN kind TEXT DEFAULT NULL")
 
 
+def ensure_list_invites_schema(conn) -> None:
+    """Kolom link undangan (max_uses, uses, revoked_at, created_at) + backfill baris lama (idempoten)."""
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(list_invites)").fetchall()]
+    for name, ddl in (("max_uses", "INTEGER DEFAULT NULL"), ("uses", "INTEGER DEFAULT 0"),
+                      ("revoked_at", "TEXT DEFAULT NULL"), ("created_at", "TEXT DEFAULT NULL")):
+        if name not in cols:
+            conn.execute(f"ALTER TABLE list_invites ADD COLUMN {name} {ddl}")
+    # Baris lama = created_at masih NULL (baris baru selalu mengisinya).
+    legacy = conn.execute(
+        "SELECT code, expires_at, used FROM list_invites WHERE created_at IS NULL").fetchall()
+    for r in legacy:
+        try:
+            created = (datetime.fromisoformat(r[1]) - timedelta(hours=48)).isoformat()
+        except (TypeError, ValueError):
+            created = datetime.now().isoformat()
+        conn.execute(
+            "UPDATE list_invites SET max_uses = 1, uses = ?, created_at = ? WHERE code = ?",
+            (1 if r[2] else 0, created, r[0]))
+
+
 def ensure_workspace_pins_schema(conn) -> None:
     """Tabel `workspace_pins` + kolom `users.workspace_pins_seeded` (idempoten)."""
     conn.execute("""
@@ -1127,6 +1147,7 @@ class TaskRepository:
             ensure_workspace_pins_schema(conn)
             ensure_workspace_identity_schema(conn)
             ensure_workspace_invitations_schema(conn)
+            ensure_list_invites_schema(conn)
             ensure_pomodoro_schema(conn)
 
     def heal_orphan_workspace_items(self) -> int:
@@ -1972,29 +1993,84 @@ class TaskRepository:
 
     # ── List Invites ───────────────────────────────────────────────────────
 
-    def create_list_invite(self, list_id: int, created_by: int, expire_hours: int = 48) -> str:
-        from datetime import timedelta
+    def create_list_invite(self, list_id: int, created_by: int, expire_hours: int = 24,
+                           max_uses: Optional[int] = 1) -> dict:
         code = secrets.token_urlsafe(16)
-        expires_at = (datetime.now() + timedelta(hours=expire_hours)).isoformat()
+        now = datetime.now()
+        expires_at = (now + timedelta(hours=expire_hours)).isoformat()
         with self._connect() as conn:
             conn.execute(
-                "INSERT INTO list_invites (code, list_id, created_by, expires_at, used) VALUES (?,?,?,?,0)",
-                (code, list_id, created_by, expires_at),
+                "INSERT INTO list_invites (code, list_id, created_by, expires_at, used, max_uses, uses, created_at) "
+                "VALUES (?,?,?,?,0,?,0,?)",
+                (code, list_id, created_by, expires_at, max_uses, now.isoformat()),
             )
-        return code
+        return {"code": code, "expires_at": expires_at, "max_uses": max_uses, "uses": 0}
+
+    def list_active_invites(self, list_id: int) -> list[dict]:
+        now = datetime.now().isoformat()
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT code, expires_at, max_uses, uses, created_at FROM list_invites "
+                "WHERE list_id = ? AND revoked_at IS NULL AND expires_at > ? "
+                "AND (max_uses IS NULL OR uses < max_uses) ORDER BY created_at DESC, rowid DESC",
+                (list_id, now),
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    def revoke_list_invite(self, list_id: int, code: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE list_invites SET revoked_at = ? WHERE code = ? AND list_id = ?",
+                (datetime.now().isoformat(), code, list_id),
+            )
+            return cur.rowcount == 1
+
+    def revoke_all_list_invites(self, list_id: int) -> int:
+        now = datetime.now().isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE list_invites SET revoked_at = ? WHERE list_id = ? AND revoked_at IS NULL "
+                "AND expires_at > ? AND (max_uses IS NULL OR uses < max_uses)",
+                (now, list_id, now),
+            )
+            return cur.rowcount
+
+    def invite_status(self, code: str) -> dict:
+        """{status: ok|missing|revoked|expired|full, list_id}."""
+        with self._connect() as conn:
+            r = conn.execute(
+                "SELECT list_id, expires_at, max_uses, uses, revoked_at FROM list_invites WHERE code = ?",
+                (code,),
+            ).fetchone()
+        if not r:
+            return {"status": "missing", "list_id": None}
+        if r["revoked_at"]:
+            st = "revoked"
+        elif r["expires_at"] <= datetime.now().isoformat():
+            st = "expired"
+        elif r["max_uses"] is not None and (r["uses"] or 0) >= r["max_uses"]:
+            st = "full"
+        else:
+            st = "ok"
+        return {"status": st, "list_id": r["list_id"]}
 
     def consume_list_invite(self, code: str) -> Optional[int]:
-        """Returns list_id if valid, else None."""
+        """Pakai satu kuota secara atomik. Mengembalikan list_id bila sah, else None."""
+        now = datetime.now().isoformat()
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT list_id, expires_at, used FROM list_invites WHERE code = ?", (code,)
-            ).fetchone()
-            if not row or row["used"]:
+            cur = conn.execute(
+                "UPDATE list_invites SET uses = uses + 1 WHERE code = ? AND revoked_at IS NULL "
+                "AND expires_at > ? AND (max_uses IS NULL OR uses < max_uses)",
+                (code, now),
+            )
+            if cur.rowcount != 1:
                 return None
-            if datetime.fromisoformat(row["expires_at"]) < datetime.now():
-                return None
-            conn.execute("UPDATE list_invites SET used = 1 WHERE code = ?", (code,))
-            return row["list_id"]
+            conn.execute(
+                "UPDATE list_invites SET used = 1 WHERE code = ? AND max_uses IS NOT NULL AND uses >= max_uses",
+                (code,),
+            )
+            row = conn.execute("SELECT list_id FROM list_invites WHERE code = ?", (code,)).fetchone()
+            return row["list_id"] if row else None
 
     # ── Shared-list task queries ───────────────────────────────────────────
 

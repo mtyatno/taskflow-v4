@@ -938,6 +938,7 @@ def migrate_db():
         repository.ensure_workspace_pins_schema(conn)
         repository.ensure_workspace_identity_schema(conn)
         repository.ensure_workspace_invitations_schema(conn)
+        repository.ensure_list_invites_schema(conn)
         repository.ensure_pomodoro_schema(conn)
         repository.backfill_contexts(conn)
         # Drawing milik workspace: kolom list_id/last_edited_by + backfill sekali jalan dari note workspace.
@@ -1422,6 +1423,20 @@ class PublishReq(BaseModel):
 
 class JoinListReq(BaseModel):
     code: str
+
+
+class GenerateLinkReq(BaseModel):
+    expires_in: Literal["1h", "1d", "7d"] = "1d"
+    max_uses: Literal[1, 10, None] = 1
+
+
+_INVITE_ERRORS = {
+    "missing": "Kode tidak valid.",
+    "revoked": "Link sudah dibatalkan owner.",
+    "expired": "Link sudah kedaluwarsa.",
+    "full": "Link sudah mencapai batas pemakaian.",
+}
+_INVITE_HOURS = {"1h": 1, "1d": 24, "7d": 24 * 7}
 
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
@@ -3429,9 +3444,10 @@ async def create_list(req: SharedListCreate, user=Depends(get_current_user)):
 async def join_list_by_code(req: JoinListReq, user=Depends(get_current_user)):
     uid = user["sub"]
     repo = TaskRepository(DB_PATH)
-    list_id = repo.consume_list_invite(req.code)
-    if not list_id:
-        raise HTTPException(status_code=400, detail="Kode tidak valid, sudah digunakan, atau kadaluarsa.")
+    st = repo.invite_status(req.code)
+    if st["status"] != "ok":
+        raise HTTPException(status_code=400, detail=_INVITE_ERRORS[st["status"]])
+    list_id = st["list_id"]
     lst = repo.get_shared_list(list_id)
     if not lst:
         raise HTTPException(status_code=404, detail="List tidak ditemukan.")
@@ -3439,6 +3455,10 @@ async def join_list_by_code(req: JoinListReq, user=Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Kamu adalah owner list ini.")
     if repo.is_list_member_or_owner(list_id, uid):
         raise HTTPException(status_code=400, detail="Kamu sudah menjadi anggota list ini.")
+    # Cek keanggotaan di atas tidak memakai kuota; consume atomik menangani balapan kuota terakhir.
+    if not repo.consume_list_invite(req.code):
+        st = repo.invite_status(req.code)
+        raise HTTPException(status_code=400, detail=_INVITE_ERRORS.get(st["status"], _INVITE_ERRORS["missing"]))
     repo.add_list_member(list_id, uid)
     # Notify owner
     with get_db() as conn:
@@ -3470,9 +3490,12 @@ async def reorder_workspace_pins(req: PinOrderReq, user=Depends(get_current_user
 @app.get("/api/lists/preview/{code}")
 async def preview_invite_code(code: str, user=Depends(get_current_user)):
     """Preview list info from an invite code without consuming it."""
+    st = TaskRepository(DB_PATH).invite_status(code)
+    if st["status"] != "ok":
+        raise HTTPException(status_code=400, detail=_INVITE_ERRORS[st["status"]])
     with get_db() as conn:
         row = conn.execute(
-            "SELECT li.list_id, li.expires_at, li.used, sl.name, "
+            "SELECT li.list_id, li.expires_at, sl.name, "
             "COALESCE(NULLIF(u.display_name, ''), u.username) AS owner_name, "
             "1 + (SELECT COUNT(*) FROM list_members lm WHERE lm.list_id = sl.id) AS member_count "
             "FROM list_invites li "
@@ -3480,11 +3503,8 @@ async def preview_invite_code(code: str, user=Depends(get_current_user)):
             "LEFT JOIN users u ON u.id = sl.owner_id WHERE li.code = ?",
             (code,),
         ).fetchone()
-    if not row or row["used"]:
-        raise HTTPException(status_code=400, detail="Kode tidak valid atau sudah digunakan.")
-    from datetime import datetime as _dt
-    if _dt.fromisoformat(row["expires_at"]) < _dt.now():
-        raise HTTPException(status_code=400, detail="Kode sudah kadaluarsa.")
+    if not row:
+        raise HTTPException(status_code=400, detail=_INVITE_ERRORS["missing"])
     return {"list_id": row["list_id"], "list_name": row["name"], "expires_at": row["expires_at"],
             "owner_name": row["owner_name"], "member_count": row["member_count"]}
 
@@ -3738,17 +3758,52 @@ async def cancel_workspace_invitation(list_id: int, invitation_id: int, user=Dep
     return {"ok": True}
 
 
-@app.post("/api/lists/{list_id}/generate-link")
-async def generate_invite_link(list_id: int, user=Depends(get_current_user)):
-    """Generate a one-use invite link (48h) for sharing via URL."""
+def _require_list_owner(repo, list_id: int, uid: int):
+    if not repo.is_list_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Hanya owner yang bisa mengelola invite link.")
+
+
+def _link_out(inv: dict) -> dict:
     from config import WEBAPP_URL
+    return {"code": inv["code"], "join_url": f"{WEBAPP_URL}/join?code={inv['code']}",
+            "expires_at": inv["expires_at"], "max_uses": inv["max_uses"], "uses": inv["uses"]}
+
+
+@app.post("/api/lists/{list_id}/generate-link")
+async def generate_invite_link(list_id: int, req: Optional[GenerateLinkReq] = None,
+                               user=Depends(get_current_user)):
+    """Buat link undangan (masa berlaku 1h/1d/7d, batas 1/10/tanpa batas)."""
     uid = user["sub"]
     repo = TaskRepository(DB_PATH)
     if not repo.is_list_owner(list_id, uid):
         raise HTTPException(status_code=403, detail="Hanya owner yang bisa membuat invite link.")
-    code = repo.create_list_invite(list_id, uid, expire_hours=48)
-    join_url = f"{WEBAPP_URL}/join?code={code}"
-    return {"code": code, "join_url": join_url, "expires_in_hours": 48}
+    req = req or GenerateLinkReq()
+    inv = repo.create_list_invite(list_id, uid, expire_hours=_INVITE_HOURS[req.expires_in],
+                                 max_uses=req.max_uses)
+    return _link_out(inv)
+
+
+@app.get("/api/lists/{list_id}/links")
+async def list_invite_links(list_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    _require_list_owner(repo, list_id, user["sub"])
+    return [{**_link_out(i), "created_at": i["created_at"]} for i in repo.list_active_invites(list_id)]
+
+
+@app.delete("/api/lists/{list_id}/links/{code}")
+async def revoke_invite_link(list_id: int, code: str, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    _require_list_owner(repo, list_id, user["sub"])
+    if not repo.revoke_list_invite(list_id, code):
+        raise HTTPException(status_code=404, detail="Link tidak ditemukan.")
+    return {"ok": True}
+
+
+@app.delete("/api/lists/{list_id}/links")
+async def revoke_all_invite_links(list_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    _require_list_owner(repo, list_id, user["sub"])
+    return {"revoked": repo.revoke_all_list_invites(list_id)}
 
 
 @app.get("/api/lists/{list_id}/tasks")
