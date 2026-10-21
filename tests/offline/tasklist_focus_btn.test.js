@@ -69,7 +69,22 @@ test("CompactRow & Kanban tidak memakai onStartFocus", () => {
 
 test("TodayFocusView: task fokus aktif selalu tampil", () => {
   const src = fnSource("TodayFocusView");
-  assert.match(src, /const todayTasks = tasks\.filter\(t => \(t\.quadrant === "Q1" \|\| t\.is_overdue \|\| t\.is_focused \|\| \(focusTask && t\.id === focusTask\.id\)\) && t\.gtd_status !== "done" && t\.gtd_status !== "archived"\)/);
+  // Cakupan lewat focusfilter.inTodayScope dengan focusTaskId (task aktif selalu masuk, kecuali done/archived),
+  // lalu splitTarget menaruhnya di Target paling atas.
+  assert.match(src, /const scope = tasks\.filter\(t => window\.TF\.focusfilter\.inTodayScope\(t, \{\s*todayISO: todayStr,\s*focusTaskId: focusTask\?\.id\s*\}\)\);/);
+  assert.match(src, /splitTarget\(scope, focusTask\?\.id\)/);
+  assert.ok(!src.includes("includeDone"), "task selesai tidak tampil di halaman Fokus");
+  // Perilaku (modul nyata): task Waiting/P3/Q2 tanpa deadline hanya masuk karena aktif, dan jadi Target, bukan pool.
+  const ff = require("../../static/offline/focusfilter.js");
+  const TODAY = "2026-10-22";
+  const active = { id: 9, title: "Aktif dari halaman Tasks", gtd_status: "waiting", priority: "P3", quadrant: "Q2" };
+  const urgent = { id: 1, title: "Urgent", gtd_status: "next", priority: "P1", quadrant: "Q1" };
+  assert.ok(!ff.inTodayScope(active, { todayISO: TODAY }), "tanpa focusTaskId task itu di luar cakupan");
+  const scope = [urgent, active].filter(t => ff.inTodayScope(t, { todayISO: TODAY, focusTaskId: 9 }));
+  const { target, pool } = ff.splitTarget(scope, 9);
+  assert.deepEqual(target.map(t => t.id), [9]);
+  assert.deepEqual(pool.map(t => t.id), [1]);
+  assert.ok(!ff.inTodayScope({ ...active, gtd_status: "done" }, { todayISO: TODAY, focusTaskId: 9 }), "task aktif yang selesai keluar");
 });
 
 test("CSS: label tombol fokus disembunyikan di layar sempit", () => {

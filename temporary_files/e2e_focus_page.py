@@ -206,7 +206,7 @@ def main():
         end = time.strftime("%Y-%m-%d", time.localtime(time.time() + 30 * 86400))
         _, rec = api(base, user, "POST", "/api/tasks",
                      json={"title": REC_TITLE, "priority": "P3", "gtd_status": "next", "recurrence_type": "daily",
-                           "recurrence_end_date": end, "deadline": today_iso()})
+                           "recurrence_end_date": end})
         check("0 seed: 3 task Q1 hari ini + 2 subtask + 1 task harian",
               len(ids) == 3 and rec.get("recurrence_type") == "daily", repr(rec.get("recurrence_type")))
         with sync_playwright() as pw:
@@ -330,10 +330,13 @@ def run_flow(browser, ctx, p, base, user, titles):
     check("e1b 'Berulang hari ini' ada, tidak terlihat, aria-hidden",
           rec_sec.count() == 1 and not rec_sec.first.is_visible() and rec_sec.first.get_attribute("aria-hidden") == "true")
     p.wait_for_timeout(500)
-    list_h = p.evaluate("document.querySelector('.focus-section[data-tour=today-list] .ftask-list').getBoundingClientRect().height")
+    list_h = p.evaluate("""() => { const el = document.querySelector('.focus-target'); const cs = getComputedStyle(el);
+        return el.getBoundingClientRect().height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom); }""")
+    groups_h = p.evaluate("[...document.querySelectorAll('.focus-group')].reduce((a, g) => a + g.getBoundingClientRect().height, 0)")
     act_h = p.locator(".ftask.is-focusing").bounding_box()["height"]
     check("e1a Zen: hanya task aktif yang terlihat dan tinggi daftar ~ tinggi item aktif",
-          visible_titles(p) == [first_title] and abs(list_h - act_h) <= 4, "daftar %.1f vs item %.1f" % (list_h, act_h))
+          visible_titles(p) == [first_title] and abs(list_h - act_h) <= 4 and groups_h <= 4,
+          "daftar %.1f vs item %.1f, kelompok tersembunyi %.1f" % (list_h, act_h, groups_h))
     check("e1c task tersembunyi aria-hidden", p.locator(".ftask.is-zen-hidden[aria-hidden='true']").count() == 2)
     check("e2 .focus-zen-note tampil", p.locator(".focus-zen-note").is_visible(), p.locator(".focus-zen-note").inner_text())
     check("e3 panel task aktif terbuka", p.locator(".ftask.is-focusing.is-open .ftask-panel").is_visible())
