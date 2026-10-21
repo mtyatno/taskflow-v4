@@ -217,6 +217,9 @@
   <div id="root"></div>
 
   <script>
+    // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
+    // render pertama crash.
+    window.__SW_VERSION = "taskflow-v447-android-notif-fix";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -1624,13 +1627,12 @@ function sendBrowserNotification(title, body) {
   try {
     const NotificationApi = window.Notification;
     if (!NotificationApi) return;
+    // Tanpa `badge`: ikon app tidak transparan → tampil sebagai kotak putih di status bar Android.
+    // Tanpa `renotify`: tag sama cukup menggantikan notifikasi lama tanpa berbunyi/bergetar lagi.
     const options = {
       body,
       icon: "/static/icon-192.png",
-      badge: "/static/icon-192.png",
-      tag: "alurik-pomodoro",
-      // Tag sama menggantikan notifikasi sebelumnya; renotify agar penggantinya tetap berbunyi/bergetar.
-      renotify: true
+      tag: "alurik-pomodoro"
     };
     const showWithConstructor = () => {
       try {
@@ -1646,8 +1648,15 @@ function sendBrowserNotification(title, body) {
         return;
       }
       Promise.resolve().then(() => sw.getRegistration()).then(reg => {
-        if (reg && typeof reg.showNotification === "function") return reg.showNotification(title, options);
-        showWithConstructor();
+        if (!reg || typeof reg.showNotification !== "function") {
+          showWithConstructor();
+          return;
+        }
+        // Menolak bila worker belum aktif (mis. baru terpasang) → coba konstruktor (tetap dijaga).
+        return Promise.resolve().then(() => reg.showNotification(title, options)).catch(err => {
+          warn(err);
+          showWithConstructor();
+        });
       }).catch(warn);
     };
     if (NotificationApi.permission === "granted") {
@@ -40437,7 +40446,7 @@ ReactDOM.render(/*#__PURE__*/React.createElement(AppErrorBoundary, null, /*#__PU
   <script>
     // Service Worker & App Update Detection
     window.__APP_VERSION = "4.0.0";
-    window.__SW_VERSION = "taskflow-v447-android-notif-fix";
+    // window.__SW_VERSION di-set di skrip awal <body> (sebelum ReactDOM.render).
     window.__SW_REGISTRATION = null;
     window.__APP_UPDATE_AVAILABLE = false;
 

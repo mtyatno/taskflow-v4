@@ -283,6 +283,50 @@ test("Android: state macet (countdown, 0, tidak berjalan) lalu start(task) → t
   assert.doesNotThrow(() => assert.equal(env.act((t) => t.start({ id: 5 })), false));
 });
 
+test("Android: state macet REALISTIS (workStartedAt W dipertahankan) → start(task) → tepat 1 post sesi dengan client_id W (dedup server), awaiting", () => {
+  const { N } = androidNotification();
+  // Persis seperti tf_pomo_state setelah crash + reload di produksi: countdown 0 tidak berjalan, W tersimpan.
+  const W = T0 - 40 * MIN;
+  const env = makeEnv({ notification: N, focusTask: null,
+    saved: todayState({ timeLeft: 0, isRunning: false, targetEndTime: W + 1500 * 1000, phase: "countdown",
+      focusTaskId: null, workStartedAt: W, sessionTaskId: 5, sessionCount: 0, totalFocusTime: 0,
+      otAccumSec: 0, otRunStartedAt: null, countBeforeSession: null }) });
+  assert.equal(env.t.phase, "countdown");
+  assert.equal(env.t.isRunning, false);
+  assert.equal(env.posts.length, 0, "mount dengan state diam tidak mencatat apa pun");
+  assert.doesNotThrow(() => env.act((t) => t.start({ id: 5, title: "Urgent 0" })));
+  assert.equal(env.posts.length, 1, "tepat satu post sesi");
+  assert.equal(env.posts[0].url, "/api/tasks/5/pomodoros");
+  assert.equal(env.posts[0].body.kind, "session");
+  assert.equal(env.posts[0].body.client_id, `pomo-7-${W}-s`, "client_id memakai W lama → server men-dedup bila sesi ini sudah tercatat");
+  assert.equal(env.t.phase, "awaiting");
+  assert.equal(env.t.isRunning, false);
+  assert.equal(env.t.timeLeft, 0);
+  assert.equal(env.saved().phase, "awaiting");
+  assert.equal(env.saved().workStartedAt, W);
+  // Render/efek berikutnya tidak memicu post kedua.
+  env.advance(5000);
+  assert.equal(env.posts.length, 1);
+});
+
+test("Android: state istirahat macet (shortBreak, 0, tidak berjalan) → start(task) → Work 25:00 diam, tanpa exception", () => {
+  const { N } = androidNotification();
+  const env = makeEnv({ notification: N, focusTask: null,
+    saved: todayState({ mode: "shortBreak", timeLeft: 0, isRunning: false, targetEndTime: null, phase: "countdown",
+      focusTaskId: null, sessionCount: 1, totalFocusTime: 1500 }) });
+  assert.equal(env.t.mode, "shortBreak");
+  assert.equal(env.t.timeLeft, 0);
+  assert.doesNotThrow(() => env.act((t) => t.start({ id: 5 })));
+  assert.equal(env.t.mode, "work");
+  assert.equal(env.t.timeLeft, 1500);
+  assert.equal(env.t.isRunning, false);
+  assert.equal(env.t.phase, "countdown");
+  assert.equal(env.posts.length, 0, "istirahat tidak mencatat sesi");
+  assert.equal(env.saved().mode, "work");
+  assert.equal(env.saved().timeLeft, 1500);
+  assert.equal(env.saved().isRunning, false);
+});
+
 test("Android: muat ulang dengan countdown Work yang sudah habis (sisa crash) → tanpa exception saat mount, awaiting", () => {
   const { N } = androidNotification();
   const ws = T0 - 26 * MIN;
@@ -418,7 +462,7 @@ async function withRejectionWatch(fn) {
   assert.deepEqual(seen, [], "tanpa unhandled rejection");
 }
 
-test("sendBrowserNotification: registrasi SW ada → reg.showNotification (ikon URL, badge, tag), konstruktor tidak dipakai", async () => {
+test("sendBrowserNotification: registrasi SW ada → reg.showNotification (ikon URL, tag; tanpa badge/renotify), konstruktor tidak dipakai", async () => {
   await withRejectionWatch(async () => {
     const { N, calls } = androidNotification();
     const reg = fakeReg();
@@ -429,8 +473,9 @@ test("sendBrowserNotification: registrasi SW ada → reg.showNotification (ikon 
     assert.equal(reg.shown[0].title, "🍅 Pomodoro Selesai!");
     assert.equal(reg.shown[0].opts.body, "Pomodoro selesai — lanjut fokus atau istirahat?");
     assert.equal(reg.shown[0].opts.icon, "/static/icon-192.png");
-    assert.equal(reg.shown[0].opts.badge, "/static/icon-192.png");
     assert.equal(reg.shown[0].opts.tag, "alurik-pomodoro");
+    assert.ok(!("badge" in reg.shown[0].opts), "tanpa badge: ikon tidak transparan → kotak putih di Android");
+    assert.ok(!("renotify" in reg.shown[0].opts), "tanpa renotify: penyelesaian ganda tidak bergetar dua kali");
     assert.equal(calls.constructed.length, 0);
     assert.deepEqual(h.warns, []);
   });
@@ -521,12 +566,41 @@ test("sendBrowserNotification: getRegistration / showNotification menolak → ti
     await flush();
     assert.equal(h.warns.length, 1);
 
+    // showNotification menolak (worker belum aktif) → cadangan konstruktor; di Android ikut melempar → tetap tertangkap.
     const reg = fakeReg({ rejects: true });
-    h = realAlertHelpers({ Notification: N, navigator: swNavigator({ reg }) });
+    const android = androidNotification();
+    h = realAlertHelpers({ Notification: android.N, navigator: swNavigator({ reg }) });
     assert.doesNotThrow(() => h.sendBrowserNotification("t", "b"));
     await flush();
+    await flush();
     assert.equal(reg.shown.length, 1);
+    assert.equal(android.calls.constructed.length, 1, "cadangan konstruktor dicoba setelah showNotification menolak");
+    assert.equal(h.warns.length, 2, "penolakan SW + kegagalan konstruktor sama-sama dicatat");
+  });
+});
+
+test("sendBrowserNotification: showNotification menolak di desktop → notifikasi lewat konstruktor", async () => {
+  await withRejectionWatch(async () => {
+    const reg = fakeReg({ rejects: true });
+    const desk = desktopNotification();
+    const h = realAlertHelpers({ Notification: desk.N, navigator: swNavigator({ reg }) });
+    h.sendBrowserNotification("🍅 Pomodoro Selesai!", "b");
+    await flush();
+    await flush();
+    assert.equal(reg.shown.length, 1);
+    assert.equal(desk.calls.constructed.length, 1);
+    assert.equal(desk.calls.constructed[0].title, "🍅 Pomodoro Selesai!");
+    assert.equal(desk.calls.constructed[0].opts.tag, "alurik-pomodoro");
     assert.equal(h.warns.length, 1);
+
+    // showNotification melempar sinkron (bukan promise) → jalur cadangan yang sama.
+    const desk2 = desktopNotification();
+    const syncReg = { showNotification: () => { throw new TypeError("No active registration"); } };
+    const h2 = realAlertHelpers({ Notification: desk2.N, navigator: swNavigator({ reg: syncReg }) });
+    assert.doesNotThrow(() => h2.sendBrowserNotification("t", "b"));
+    await flush();
+    await flush();
+    assert.equal(desk2.calls.constructed.length, 1);
   });
 });
 
@@ -587,6 +661,17 @@ test("ReactDOM.render membungkus App dengan AppErrorBoundary", () => {
   for (const needle of ["Terjadi kesalahan pada tampilan", "Muat ulang", "Salin detail", "tf_last_crash", "console.error"]) {
     assert.ok(src.includes(needle), `boundary memuat ${needle}`);
   }
+});
+
+test("window.__SW_VERSION di-set sekali, sebelum render React mana pun (crash render pertama tetap mencatat versi)", () => {
+  const assigns = [...indexHtml.matchAll(/window\.__SW_VERSION\s*=\s*"([^"]+)";/g)];
+  assert.equal(assigns.length, 1, "satu penugasan");
+  const at = assigns[0].index;
+  assert.ok(at < indexHtml.indexOf("ReactDOM.render("), "sebelum ReactDOM.render");
+  assert.ok(at < indexHtml.indexOf("\nfunction usePomodoro("), "sebelum skrip aplikasi");
+  assert.ok(at > indexHtml.indexOf("<body>"), "di skrip awal <body>");
+  const sw = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
+  assert.equal(assigns[0][1], sw.match(/^const CACHE = "([^"]+)";/m)[1], "string sama dengan CACHE sw.js");
 });
 
 function boundaryEnv({ setItemThrows = false, clipboard } = {}) {

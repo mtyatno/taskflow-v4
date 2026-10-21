@@ -10,7 +10,7 @@ b state macet dari crash lama (countdown, 0, tidak berjalan) + tap Fokus dashboa
 c error render dipaksa DARI TES (window.TF.tasklogic.todayLocalISO dibuat melempar, lalu App dirender ulang lewat
   window.__showToast — tanpa hook debug di kode produksi) -> layar "Terjadi kesalahan pada tampilan", tf_last_crash,
   Salin detail -> clipboard, tanpa scroll horizontal (412 / 320 px), Muat ulang -> app kembali normal
-d Service Worker aktif: notifikasi lewat ServiceWorkerRegistration.showNotification (ikon, badge, tag),
+d Service Worker aktif: notifikasi lewat ServiceWorkerRegistration.showNotification (ikon, tag; tanpa badge/renotify),
   konstruktor tidak dipanggil; cache SW versi baru
 Screenshot terang + gelap: temporary_files/e2e_android_notification/ (di-.gitignore).
 
@@ -285,9 +285,10 @@ def scenario_d(pw, browser, base, user):
         ok = (len(shown) == 1 and shown[0]["title"] == "🍅 Pomodoro Selesai!"
               and shown[0]["opts"].get("body") == "Pomodoro selesai — lanjut fokus atau istirahat?"
               and shown[0]["opts"].get("icon") == "/static/icon-192.png"
-              and shown[0]["opts"].get("badge") == "/static/icon-192.png"
-              and shown[0]["opts"].get("tag") == "alurik-pomodoro")
-        check("d3 notifikasi lewat ServiceWorkerRegistration.showNotification (ikon, badge, tag)", ok, json.dumps(shown))
+              and shown[0]["opts"].get("tag") == "alurik-pomodoro"
+              and "badge" not in shown[0]["opts"] and "renotify" not in shown[0]["opts"])
+        check("d3 notifikasi lewat ServiceWorkerRegistration.showNotification (ikon, tag; tanpa badge/renotify)",
+              ok, json.dumps(shown))
         check("d4 konstruktor Notification tidak dipanggil", p.evaluate("window.__notifCtor") == 0)
         check("d5 tanpa pageerror", errs == [], str(errs[:2]))
     finally:
