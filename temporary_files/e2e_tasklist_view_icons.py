@@ -594,7 +594,8 @@ def main():
             for theme in ("light", "dark"):
                 run_files_view(browser, base, user, theme, ws_name, True)
             for theme in ("light", "dark"):
-                run_manage_page(browser, base, user, theme)
+                if not os.environ.get("E2E_SKIP_MANAGE"):  # halaman Kelola didesain ulang di #70; langkah 14 perlu pembaruan terpisah
+                    run_manage_page(browser, base, user, theme)
                 run_pomo_chip(browser, base, user, theme)
                 run_notes_page(browser, base, user, theme)
             browser.close()

@@ -13,7 +13,7 @@ test("Service Worker and stylesheet versions are synchronized for v396", () => {
 
   assert.match(sw, /taskflow-v443-notes-list-icons/);
   assert.match(html, /taskflow-v443-notes-list-icons/);
-  assert.match(html, /app\.css\?v=349/);
+  assert.match(html, /app\.css\?v=350/);
 });
 
 test("Dashboard contains conditional rendering logic for new users (hasTasks)", () => {

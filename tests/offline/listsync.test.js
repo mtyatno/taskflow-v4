@@ -54,7 +54,7 @@ test("pullLists deletes a local list whose server_id vanished", async () => {
 test("getLocalLists returns the server-shaped array (id = server_id)", async () => {
   await pullLists([srv({ id: 5, name: "Team", role: "owner", member_count: 4 })]);
   const out = await getLocalLists();
-  assert.deepEqual(out, [{ id: 5, name: "Team", owner_id: 1, role: "owner", member_count: 4, pinned: false, pin_position: null }]);
+  assert.deepEqual(out, [{ id: 5, name: "Team", owner_id: 1, role: "owner", member_count: 4, pinned: false, pin_position: null, description: "", color_idx: null, avatar: null, updated_at: null }]);
 });
 
 test("pullLists stores pinned and pin_position", async () => {
