@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v448-komentar-offline", () => {
-    assert.match(swJs, /taskflow-v448-komentar-offline/);
+  await t.test("sw.js bumped to taskflow-v450-android-notif-fix", () => {
+    assert.match(swJs, /taskflow-v450-android-notif-fix/);
   });
 });
