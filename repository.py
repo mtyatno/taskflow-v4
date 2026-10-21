@@ -9,7 +9,7 @@ import os
 import sqlite3
 import secrets
 import hashlib
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional
 from contextlib import contextmanager
 
@@ -356,6 +356,53 @@ _PIN_SEED_COUNT = 3
 
 class PinLimitError(Exception):
     """User sudah punya PIN_LIMIT workspace yang di-pin."""
+
+
+INVITATION_TTL_DAYS = 14
+
+
+class InvitationExists(Exception):
+    """Sudah ada undangan pending untuk pasangan (workspace, penerima) ini."""
+
+
+class AlreadyMember(Exception):
+    """Penerima sudah menjadi anggota/owner workspace."""
+
+
+class InvitationNotFound(Exception):
+    """Undangan tidak ada / bukan milik pemanggil / bukan milik workspace ini."""
+
+
+class InvitationClosed(Exception):
+    """Undangan sudah dijawab atau dibatalkan."""
+
+
+class InvitationExpired(Exception):
+    """Undangan pending melewati INVITATION_TTL_DAYS."""
+
+
+def ensure_workspace_invitations_schema(conn) -> None:
+    """Tabel `workspace_invitations` + kolom `notifications.kind` (idempoten)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS workspace_invitations (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            list_id      INTEGER NOT NULL REFERENCES shared_lists(id) ON DELETE CASCADE,
+            invitee_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            inviter_id   INTEGER NOT NULL,
+            status       TEXT NOT NULL DEFAULT 'pending',
+            created_at   TEXT NOT NULL,
+            responded_at TEXT DEFAULT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_ws_invitations_pending "
+        "ON workspace_invitations(list_id, invitee_id) WHERE status='pending'"
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_ws_invitations_invitee "
+                 "ON workspace_invitations(invitee_id, status)")
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(notifications)").fetchall()]
+    if "kind" not in cols:
+        conn.execute("ALTER TABLE notifications ADD COLUMN kind TEXT DEFAULT NULL")
 
 
 def ensure_workspace_pins_schema(conn) -> None:
@@ -1079,6 +1126,7 @@ class TaskRepository:
             ensure_contexts_schema(conn)
             ensure_workspace_pins_schema(conn)
             ensure_workspace_identity_schema(conn)
+            ensure_workspace_invitations_schema(conn)
             ensure_pomodoro_schema(conn)
 
     def heal_orphan_workspace_items(self) -> int:
@@ -2052,17 +2100,151 @@ class TaskRepository:
 
     def add_notification(self, user_id: int, message: str,
                          list_id: Optional[int] = None, task_id: Optional[int] = None,
-                         note_id: Optional[int] = None) -> dict:
+                         note_id: Optional[int] = None, kind: Optional[str] = None) -> dict:
         now = datetime.now().isoformat()
         with self._connect() as conn:
             cur = conn.execute(
-                "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, note_id, created_at) "
-                "VALUES (?,?,0,?,?,?,?)",
-                (user_id, message, list_id, task_id, note_id, now),
+                "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, note_id, created_at, kind) "
+                "VALUES (?,?,0,?,?,?,?,?)",
+                (user_id, message, list_id, task_id, note_id, now, kind),
             )
             return {"id": cur.lastrowid, "user_id": user_id, "message": message,
                     "is_read": False, "list_id": list_id, "task_id": task_id, "note_id": note_id,
-                    "created_at": now}
+                    "created_at": now, "kind": kind}
+
+    # ── Undangan workspace via username (Fase 2a §1.2) ────────────────────
+
+    @staticmethod
+    def _invitation_expired(created_at: str) -> bool:
+        try:
+            return datetime.fromisoformat(created_at) < datetime.now() - timedelta(days=INVITATION_TTL_DAYS)
+        except (TypeError, ValueError):
+            return False
+
+    def create_workspace_invitation(self, list_id: int, inviter_id: int, invitee_id: int) -> dict:
+        with self._connect() as conn:
+            lst = conn.execute("SELECT name, owner_id FROM shared_lists WHERE id = ?", (list_id,)).fetchone()
+            if not lst:
+                raise InvitationNotFound("Workspace tidak ditemukan")
+            if lst["owner_id"] == invitee_id or conn.execute(
+                "SELECT 1 FROM list_members WHERE list_id = ? AND user_id = ?", (list_id, invitee_id)
+            ).fetchone():
+                raise AlreadyMember()
+            cutoff = (datetime.now() - timedelta(days=INVITATION_TTL_DAYS)).isoformat()
+            # pending kedaluwarsa dianggap tidak ada untuk keunikan
+            conn.execute(
+                "UPDATE workspace_invitations SET status='cancelled', responded_at=? "
+                "WHERE list_id=? AND invitee_id=? AND status='pending' AND created_at < ?",
+                (datetime.now().isoformat(), list_id, invitee_id, cutoff),
+            )
+            now = datetime.now().isoformat()
+            try:
+                cur = conn.execute(
+                    "INSERT INTO workspace_invitations (list_id, invitee_id, inviter_id, status, created_at) "
+                    "VALUES (?,?,?,'pending',?)",
+                    (list_id, invitee_id, inviter_id, now),
+                )
+            except sqlite3.IntegrityError:
+                raise InvitationExists()
+            inviter = conn.execute(
+                "SELECT username, display_name FROM users WHERE id = ?", (inviter_id,)
+            ).fetchone()
+            inviter_name = (inviter["display_name"] or inviter["username"]) if inviter else "Seseorang"
+            conn.execute(
+                "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, created_at, kind) "
+                "VALUES (?,?,0,?,NULL,?,'workspace_invite')",
+                (invitee_id, f"{inviter_name} mengundangmu ke workspace {lst['name']}", list_id, now),
+            )
+            return {"id": cur.lastrowid, "list_id": list_id, "invitee_id": invitee_id,
+                    "inviter_id": inviter_id, "status": "pending", "created_at": now}
+
+    def list_pending_invitations_for_user(self, user_id: int) -> list[dict]:
+        cutoff = (datetime.now() - timedelta(days=INVITATION_TTL_DAYS)).isoformat()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT i.id, i.created_at, sl.id AS lid, sl.name, sl.avatar, sl.color_idx,
+                          COALESCE(NULLIF(u.display_name, ''), u.username) AS inviter_name
+                   FROM workspace_invitations i
+                   JOIN shared_lists sl ON sl.id = i.list_id
+                   LEFT JOIN users u ON u.id = i.inviter_id
+                   WHERE i.invitee_id = ? AND i.status = 'pending' AND i.created_at >= ?
+                   ORDER BY i.created_at DESC, i.id DESC""",
+                (user_id, cutoff),
+            ).fetchall()
+            return [{"id": r["id"],
+                     "list": {"id": r["lid"], "name": r["name"], "avatar": r["avatar"],
+                              "color_idx": r["color_idx"]},
+                     "inviter_name": r["inviter_name"], "created_at": r["created_at"]} for r in rows]
+
+    def list_pending_invitations_for_workspace(self, list_id: int) -> list[dict]:
+        cutoff = (datetime.now() - timedelta(days=INVITATION_TTL_DAYS)).isoformat()
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT i.id, i.created_at, u.id AS uid, u.username, u.display_name
+                   FROM workspace_invitations i JOIN users u ON u.id = i.invitee_id
+                   WHERE i.list_id = ? AND i.status = 'pending' AND i.created_at >= ?
+                   ORDER BY i.created_at DESC, i.id DESC""",
+                (list_id, cutoff),
+            ).fetchall()
+            return [{"id": r["id"], "created_at": r["created_at"],
+                     "invitee": {"id": r["uid"], "username": r["username"],
+                                 "display_name": r["display_name"]}} for r in rows]
+
+    def respond_workspace_invitation(self, invitation_id: int, user_id: int, accept: bool) -> dict:
+        with self._connect() as conn:
+            inv = conn.execute(
+                "SELECT * FROM workspace_invitations WHERE id = ? AND invitee_id = ?",
+                (invitation_id, user_id),
+            ).fetchone()
+            if not inv:
+                raise InvitationNotFound()
+            if inv["status"] != "pending":
+                raise InvitationClosed()
+            if self._invitation_expired(inv["created_at"]):
+                raise InvitationExpired()
+            lst = conn.execute(
+                "SELECT id, name, owner_id, avatar, color_idx FROM shared_lists WHERE id = ?",
+                (inv["list_id"],),
+            ).fetchone()
+            if not lst:
+                raise InvitationNotFound()
+            now = datetime.now().isoformat()
+            status = "accepted" if accept else "declined"
+            cur = conn.execute(
+                "UPDATE workspace_invitations SET status = ?, responded_at = ? "
+                "WHERE id = ? AND status = 'pending'",
+                (status, now, invitation_id),
+            )
+            if cur.rowcount != 1:
+                raise InvitationClosed()
+            who = conn.execute("SELECT username, display_name FROM users WHERE id = ?", (user_id,)).fetchone()
+            who_name = (who["display_name"] or who["username"]) if who else "Seseorang"
+            verb = "menerima" if accept else "menolak"
+            conn.execute(
+                "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, created_at, kind) "
+                "VALUES (?,?,0,?,NULL,?,'workspace_invite_response')",
+                (lst["owner_id"], f"{who_name} {verb} undangan ke {lst['name']}", lst["id"], now),
+            )
+        if accept:
+            self.add_list_member(inv["list_id"], user_id)  # idempoten bila sudah anggota
+        return {"status": status,
+                "list": {"id": lst["id"], "name": lst["name"], "avatar": lst["avatar"],
+                         "color_idx": lst["color_idx"]}}
+
+    def cancel_workspace_invitation(self, list_id: int, invitation_id: int) -> None:
+        with self._connect() as conn:
+            inv = conn.execute(
+                "SELECT status FROM workspace_invitations WHERE id = ? AND list_id = ?",
+                (invitation_id, list_id),
+            ).fetchone()
+            if not inv:
+                raise InvitationNotFound()
+            if inv["status"] != "pending":
+                raise InvitationClosed()
+            conn.execute(
+                "UPDATE workspace_invitations SET status='cancelled', responded_at=? WHERE id=?",
+                (datetime.now().isoformat(), invitation_id),
+            )
 
     def notify_list_members(self, list_id: int, actor_user_id: int,
                             message: str, task_id: Optional[int] = None):

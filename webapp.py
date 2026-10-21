@@ -937,6 +937,7 @@ def migrate_db():
         repository.ensure_contexts_schema(conn)
         repository.ensure_workspace_pins_schema(conn)
         repository.ensure_workspace_identity_schema(conn)
+        repository.ensure_workspace_invitations_schema(conn)
         repository.ensure_pomodoro_schema(conn)
         repository.backfill_contexts(conn)
         # Drawing milik workspace: kolom list_id/last_edited_by + backfill sekali jalan dari note workspace.
@@ -3644,26 +3645,97 @@ async def invite_to_list(list_id: int, req: InviteUserReq, user=Depends(get_curr
     if repo.is_list_member_or_owner(list_id, target["id"]):
         raise HTTPException(status_code=400, detail=f"User '{req.username}' sudah menjadi anggota")
 
-    added = repo.add_list_member(list_id, target["id"])
-    # Notify via Telegram if user has telegram_id
-    if added and target.get("telegram_id") and _tg_bot:
-        try:
-            inviter = user.get("username", f"user#{uid}")
-            import asyncio
-            asyncio.create_task(
-                _tg_bot.send_message(
-                    chat_id=target["telegram_id"],
-                    text=f"👥 <b>{_esc_msg(inviter)}</b> mengundangmu ke shared list <b>{_esc_msg(lst['name'])}</b>!\n"
-                         f"Kamu sekarang bisa melihat dan mengedit task di list ini.",
-                    parse_mode="HTML"
-                )
-            )
-        except Exception:
-            pass
+    try:
+        inv = repo.create_workspace_invitation(list_id, uid, target["id"])
+    except repository.AlreadyMember:
+        raise HTTPException(status_code=400, detail=f"User '{req.username}' sudah menjadi anggota")
+    except repository.InvitationExists:
+        raise HTTPException(status_code=409, detail=f"Undangan untuk @{req.username} sudah dikirim")
+    await _send_invitation_telegram(inv)
     return {
         "ok": True,
-        "added_user": {"id": target["id"], "username": target["username"], "display_name": target["display_name"]}
+        "invitation": {
+            "id": inv["id"],
+            "invitee": {"id": target["id"], "username": target["username"],
+                        "display_name": target["display_name"]},
+            "created_at": inv["created_at"],
+        },
     }
+
+
+async def _send_invitation_telegram(invitation: dict) -> None:
+    """DM Telegram undangan workspace dengan tombol Terima/Tolak; galat hanya di-log."""
+    if not _tg_bot:
+        return
+    try:
+        repo = TaskRepository(DB_PATH)
+        target = repo.get_user_by_id(invitation["invitee_id"])
+        if not target or not target.get("telegram_id"):
+            return
+        inviter = repo.get_user_by_id(invitation["inviter_id"]) or {}
+        lst = repo.get_shared_list(invitation["list_id"]) or {}
+        inviter_name = inviter.get("display_name") or inviter.get("username") or "Seseorang"
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("Terima", callback_data=f"inv_acc_{invitation['id']}"),
+            InlineKeyboardButton("Tolak", callback_data=f"inv_dec_{invitation['id']}"),
+        ]])
+        await _tg_bot.send_message(
+            chat_id=target["telegram_id"],
+            text=f"{_esc_msg(inviter_name)} mengundangmu ke workspace <b>{_esc_msg(lst.get('name', ''))}</b>.",
+            parse_mode="HTML",
+            reply_markup=kb,
+        )
+    except Exception:
+        logger.warning("Gagal kirim undangan workspace via Telegram", exc_info=True)
+
+
+@app.get("/api/invitations")
+async def list_my_invitations(user=Depends(get_current_user)):
+    return TaskRepository(DB_PATH).list_pending_invitations_for_user(user["sub"])
+
+
+def _respond_invitation(invitation_id: int, user, accept: bool) -> dict:
+    try:
+        return TaskRepository(DB_PATH).respond_workspace_invitation(invitation_id, user["sub"], accept)
+    except repository.InvitationNotFound:
+        raise HTTPException(status_code=404, detail="Undangan tidak ditemukan")
+    except repository.InvitationClosed:
+        raise HTTPException(status_code=409, detail="Undangan sudah dijawab atau dibatalkan")
+    except repository.InvitationExpired:
+        raise HTTPException(status_code=410, detail="Undangan sudah kedaluwarsa")
+
+
+@app.post("/api/invitations/{invitation_id}/accept")
+async def accept_invitation(invitation_id: int, user=Depends(get_current_user)):
+    return {"ok": True, **_respond_invitation(invitation_id, user, True)}
+
+
+@app.post("/api/invitations/{invitation_id}/decline")
+async def decline_invitation(invitation_id: int, user=Depends(get_current_user)):
+    return {"ok": True, **_respond_invitation(invitation_id, user, False)}
+
+
+@app.get("/api/lists/{list_id}/invitations")
+async def list_workspace_invitations(list_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_owner(list_id, user["sub"]):
+        raise HTTPException(status_code=403, detail="Hanya owner yang bisa melihat undangan")
+    return repo.list_pending_invitations_for_workspace(list_id)
+
+
+@app.delete("/api/lists/{list_id}/invitations/{invitation_id}")
+async def cancel_workspace_invitation(list_id: int, invitation_id: int, user=Depends(get_current_user)):
+    repo = TaskRepository(DB_PATH)
+    if not repo.is_list_owner(list_id, user["sub"]):
+        raise HTTPException(status_code=403, detail="Hanya owner yang bisa membatalkan undangan")
+    try:
+        repo.cancel_workspace_invitation(list_id, invitation_id)
+    except repository.InvitationNotFound:
+        raise HTTPException(status_code=404, detail="Undangan tidak ditemukan")
+    except repository.InvitationClosed:
+        raise HTTPException(status_code=409, detail="Undangan sudah tidak menunggu jawaban")
+    return {"ok": True}
 
 
 @app.post("/api/lists/{list_id}/generate-link")
