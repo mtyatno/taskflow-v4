@@ -257,10 +257,10 @@ test("CSS slash menu grid", async (t) => {
   });
 });
 
-test("cache bust v450 + app.css?v=356", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v451-kelola-workspace-fase2a";/m);
-  assert.match(webappPy, /sw_cache = "taskflow-v451-kelola-workspace-fase2a"/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v451-kelola-workspace-fase2a";/);
-  assert.match(indexHtml, /app\.css\?v=356/);
+test("cache bust v450 + app.css?v=357", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v452-komentar-ui";/m);
+  assert.match(webappPy, /sw_cache = "taskflow-v452-komentar-ui"/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v452-komentar-ui";/);
+  assert.match(indexHtml, /app\.css\?v=357/);
   assert.equal(/app\.css\?v=352/.test(indexHtml), false);
 });

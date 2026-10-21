@@ -65,12 +65,12 @@ test("CSS ikon chip Pomodoro", () => {
   assert.match(appCss, /\.topbar-pomo-chip\.is-break \.topbar-pomo-icon\s*\{\s*color:\s*var\(--break\);\s*\}/);
 });
 
-test("cache bust v450 + app.css?v=356", () => {
+test("cache bust v450 + app.css?v=357", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v451-kelola-workspace-fase2a";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v451-kelola-workspace-fase2a";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v451-kelola-workspace-fase2a"/);
-  assert.match(py, /sw_cache = "taskflow-v451-kelola-workspace-fase2a"/);
-  assert.match(indexHtml, /app\.css\?v=356/);
+  assert.match(swJs, /^const CACHE = "taskflow-v452-komentar-ui";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v452-komentar-ui";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v452-komentar-ui"/);
+  assert.match(py, /sw_cache = "taskflow-v452-komentar-ui"/);
+  assert.match(indexHtml, /app\.css\?v=357/);
 });
