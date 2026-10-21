@@ -27014,6 +27014,16 @@ function isPlusSlashIntact(doc, pos) {
   const parent = $p && $p.parent;
   return !!parent && !!parent.isTextblock && $p.parentOffset === 1 && parent.textContent === "/";
 }
+// Rentang yang dihapus saat "+" dibatalkan: paragraf buatan "+" utuh (agar tidak tersimpan sebagai
+// paragraf kosong "<br />"), kecuali paragraf itu satu-satunya anak induknya → cukup "/"-nya.
+// null bila "/" tidak lagi utuh (teks pengguna tidak disentuh).
+function plusSlashRemovalRange(doc, pos) {
+  if (!isPlusSlashIntact(doc, pos)) return null;
+  const $p = doc.resolve(pos + 1);
+  const container = $p.depth >= 1 ? $p.node($p.depth - 1) : null;
+  if (container && container.childCount > 1) return { from: $p.before(), to: $p.after(), whole: true };
+  return { from: pos, to: pos + 1, whole: false };
+}
 // Reducer state plugin dismiss slash menu: { plusPos: posisi "/" sisipan "+" | null, dismissed }.
 // plusPos dipetakan lewat perubahan dokumen (karakternya terhapus → null). dismissed (menu baru
 // ditutup Esc / klik luar) bertahan sampai dokumen berubah atau kursor pindah. Meta menimpa keduanya.
@@ -27449,21 +27459,36 @@ function MilkdownEditor({
     let slashProvider = null;
     let slashView = null;
     const isSlashMenuShown = () => slashMenu.dataset.show === 'true';
-    const dismissSlashMenu = (view) => {
+    // Pemicu "/" ada & belum ditutup, tetapi menu belum tampil (masih dalam debounce 200 ms SlashProvider)
+    const isSlashMenuPending = (view) => !!slashProvider && !!slashDismissKey && shouldShowSlashMenu(slashProvider.getContent(view), slashDismissKey.getState(view.state));
+    // Batalkan "/" sisipan "+" di pos (bila masih utuh) pada tr: paragrafnya dihapus utuh (lihat
+    // plusSlashRemovalRange). setSel: kursor ke akhir blok di atas (blok tempat "+" diklik).
+    const removePlusSlash = (tr, doc, pos, setSel) => {
+      const r = plusSlashRemovalRange(doc, pos);
+      if (!r) return false;
+      tr.delete(r.from, r.to);
+      if (setSel && r.whole) {
+        try { tr.setSelection(MB.TextSelection.near(tr.doc.resolve(tr.mapping.map(r.from)), -1)); } catch (_) {}
+      }
+      return true;
+    };
+    // keepFocus: Esc → editor tetap fokus; klik di luar → fokus tidak direbut
+    const dismissSlashMenu = (view, keepFocus) => {
       if (slashProvider) slashProvider.hide(); else slashMenu.dataset.show = 'false';
       if (!view || !slashDismissKey) return;
       const st = slashDismissKey.getState(view.state);
       const tr = view.state.tr;
-      if (st && isPlusSlashIntact(view.state.doc, st.plusPos)) tr.delete(st.plusPos, st.plusPos + 1);
+      removePlusSlash(tr, view.state.doc, st && st.plusPos, true);
       // dismissed: debounce SlashProvider (200 ms) / transaksi berikutnya tidak memunculkan menu lagi
       tr.setMeta(slashDismissKey, { plusPos: null, dismissed: true });
       view.dispatch(tr);
+      if (keepFocus) view.focus();
     };
     // pointerdown (capture) di luar menu → tutup. Item menu & area scroll menu = di dalam menu.
-    // Tombol "+" dikecualikan: onBlockAdd sendiri membuang "/" sisipan "+" sebelumnya.
+    // Tombol "+" dikecualikan: onBlockAdd sendiri membuang "/" sisipan "+" sebelumnya. ⋮⋮ = di luar.
     const onSlashOutsidePointer = (e) => {
-      if (!isSlashMenuShown() || !isSlashOutsideTarget(e.target, slashMenu, [handleEl])) return;
-      try { dismissSlashMenu(slashView); } catch (err) { console.warn('Slash menu: gagal menutup', err); }
+      if (!isSlashMenuShown() || !isSlashOutsideTarget(e.target, slashMenu, [addBtn])) return;
+      try { dismissSlashMenu(slashView, false); } catch (err) { console.warn('Slash menu: gagal menutup', err); }
     };
     const slashDismissPlugin = MB.$prose && MB.Plugin && slashDismissKey ? MB.$prose(() => new MB.Plugin({
       key: slashDismissKey,
@@ -27473,9 +27498,11 @@ function MilkdownEditor({
       },
       props: {
         handleKeyDown: (view, e) => {
-          if (e.key !== 'Escape' || !isSlashMenuShown()) return false;
+          // defaultPrevented: Esc sudah dipakai autocomplete wikilink/tag/task NoteModal (listener capture)
+          if (e.key !== 'Escape' || e.defaultPrevented) return false;
+          if (!isSlashMenuShown() && !isSlashMenuPending(view)) return false;
           e.stopPropagation();
-          dismissSlashMenu(view);
+          dismissSlashMenu(view, true);
           return true;
         }
       }
@@ -27637,7 +27664,7 @@ function MilkdownEditor({
             const tr = state.tr;
             // "+" ditekan lagi saat menu dari "+" sebelumnya masih terbuka → "/" lama dibuang dulu
             const prev = slashDismissKey ? slashDismissKey.getState(state) : null;
-            if (prev && isPlusSlashIntact(state.doc, prev.plusPos)) tr.delete(prev.plusPos, prev.plusPos + 1);
+            removePlusSlash(tr, state.doc, prev && prev.plusPos, false);
             const at = tr.mapping.map(pos);
             tr.insert(at, state.schema.nodes.paragraph.create());
             tr.setSelection(MB.TextSelection.near(tr.doc.resolve(at + 1)));
@@ -31066,12 +31093,13 @@ function NoteModal({
     if (!pmDom) return;
     const onKeyDown = e => {
       if (noteAiDropdown) {
-        if (e.key === 'Escape') { setNoteAiDropdown(null); return; }
+        if (e.key === 'Escape') { e.preventDefault(); setNoteAiDropdown(null); return; }
         // Don't intercept other keys — the <input> handles Enter
         return;
       }
       if (tagDropdown) {
         if (e.key === 'Escape') {
+          e.preventDefault(); // slash menu tidak ikut tertutup oleh Esc yang sama
           setTagDropdown(null);
           return;
         }
@@ -31106,6 +31134,7 @@ function NoteModal({
           return;
         }
         if (e.key === 'Escape') {
+          e.preventDefault(); // slash menu tidak ikut tertutup oleh Esc yang sama
           setTaskDropdown(null);
           return;
         }
@@ -31138,6 +31167,7 @@ function NoteModal({
           return;
         }
         if (e.key === 'Escape') {
+          e.preventDefault(); // slash menu tidak ikut tertutup oleh Esc yang sama
           setWikiDropdown(null);
           return;
         }

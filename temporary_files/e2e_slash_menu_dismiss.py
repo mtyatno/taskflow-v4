@@ -1,8 +1,9 @@
 """E2E: slash menu editor note — tutup dengan Esc / klik di luar (2026-10-21). Tidak dijalankan CI.
 
 Alur (desktop 1280×800):
-  a  "+" → Esc → menu tertutup, "/" sisipan "+" hilang, kursor di paragraf kosong, editor tetap fokus,
-     note tetap terbuka, Escape tidak sampai ke listener window (stopPropagation)
+  a  "+" → Esc → menu tertutup, paragraf "/" buatan "+" hilang (dokumen = semula), kursor di akhir blok
+     asal, editor tetap fokus, note tetap terbuka, Escape tidak sampai ke listener window (stopPropagation);
+     Ctrl+Z setelahnya wajar; Esc < 200 ms setelah ketik "/" (debounce) tetap mencegah menu; klik ⋮⋮ = di luar
   b  "+" → klik teks lain di editor → tertutup, "/" hilang
   c  "+" → klik area kosong di luar editor (latar halaman note) → tertutup, "/" hilang
   d  "+" → klik area kosong toolbar note → tertutup, "/" hilang
@@ -11,6 +12,7 @@ Alur (desktop 1280×800):
   g  item tetap bisa diklik setelah semua itu ("+" → Heading 1; ketik "/" → Divider); scroll roda di menu tidak menutup
   h  "+" dua kali (menu "+" pertama masih terbuka) → hanya satu "/" tersisa
   i  keluar dari mode edit → listener pointerdown document dilepas (destroy)
+  s  note "Satu\n\nDua": "+" (tengah / akhir) → Esc / klik luar → Simpan → konten server tetap "Satu\n\nDua"
 Touch 375×740 (has_touch, is_mobile):
   t  ketuk paragraf → ketuk "+" → menu tampil → ketuk di luar → tertutup, "/" hilang;
      ketuk "+" lagi → ketuk teks lain di editor → tertutup, "/" hilang
@@ -22,11 +24,14 @@ import os
 import sys
 import tempfile
 
+import requests
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import e2e_slash_menu_grid as G  # noqa: E402  (start_server, register, make_note, open_app, ...)
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 MENU = G.MENU
+SIMPAN_CONTENT = "Satu\n\nDua"
 results = []
 
 
@@ -58,6 +63,15 @@ STATE_JS = """() => {
     focused: !!document.querySelector('.ProseMirror.ProseMirror-focused') && document.activeElement && document.activeElement.classList.contains('ProseMirror'),
     block: b ? b.innerText.replace(/\\n/g, '') : null, blockTag: b ? b.tagName : null,
   };
+}"""
+
+# Kursor (selection kosong) di akhir textblock-nya
+CARET_END_JS = """() => {
+  const s = getSelection(); if (!s || !s.isCollapsed || !s.anchorNode) return false;
+  const n = s.anchorNode; const el = n.nodeType === 3 ? n.parentElement : n;
+  const b = el.closest('p,h1,h2,h3,li'); if (!b) return false;
+  const r = document.createRange(); r.selectNodeContents(b); r.setStart(s.anchorNode, s.anchorOffset);
+  return r.toString().length === 0;
 }"""
 
 # Titik kosong (bukan tombol/input/tautan) di dalam elemen selector; elementFromPoint harus di dalamnya
@@ -104,6 +118,7 @@ def main():
     try:
         A = G.register(base, "Penulis")
         G.make_note(base, A, "Note Dismiss E2E", "Isi awal catatan\n\nParagraf kedua")
+        note_s = G.make_note(base, A, "Note Simpan E2E", SIMPAN_CONTENT)
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             ctx, p = G.open_app(browser, base, A)
@@ -117,6 +132,7 @@ def main():
                   p.evaluate("() => window.__slashListeners()"))
 
             # a: "+" → Esc
+            s0_before = st(p)["texts"]
             plus(p)
             s0 = st(p)
             check("a0 '+' membuka menu dengan '/' di paragraf baru", s0["menu"] and s0["slashParas"] == 1, s0)
@@ -126,14 +142,59 @@ def main():
             s = st(p)
             check("a1 Esc → menu tertutup", not s["menu"], s)
             check("a2 Esc → '/' sisipan '+' hilang", s["slashParas"] == 0, s["texts"])
-            check("a3 kursor di paragraf kosong, editor fokus", s["focused"] and s["blockTag"] == "P" and s["block"] == "", s)
+            check("a3 paragraf buatan '+' ikut hilang (dokumen = semula), kursor di akhir blok asal, editor fokus",
+                  s["texts"] == s0_before and s["focused"] and s["block"] == "Isi awal catatan" and p.evaluate(CARET_END_JS), (s, s0_before))
             check("a4 note tetap terbuka (editor masih ada)", p.locator(".ProseMirror[contenteditable=true]").count() == 1)
             check("a5 Escape tidak diteruskan ke listener window", p.evaluate("() => window.__escSeen") == esc0)
             p.wait_for_timeout(400)
             check("a6 menu tetap tertutup setelah debounce", not st(p)["menu"])
-            p.keyboard.type("abc", delay=30)
+            p.keyboard.type(" abc", delay=30)
             p.wait_for_timeout(300)
-            check("a7 mengetik di paragraf itu normal", st(p)["block"] == "abc" and not st(p)["menu"], st(p))
+            check("a7 mengetik melanjutkan blok asal", st(p)["block"] == "Isi awal catatan abc" and not st(p)["menu"], st(p))
+            for _ in range(4):
+                p.keyboard.press("Backspace")
+            p.wait_for_timeout(300)
+            # a8: Ctrl+Z setelah Esc → wajar (kembali ke dokumen sebelum Esc atau sebelum "+"), tanpa error
+            before_plus = st(p)["texts"]
+            plus(p)
+            p.keyboard.press("Escape")
+            p.wait_for_timeout(400)
+            p.keyboard.press("Control+z")
+            p.wait_for_timeout(500)
+            t_undo = st(p)["texts"]
+            with_slash = before_plus[:1] + ["/"] + before_plus[1:]
+            check("a8 Ctrl+Z setelah Esc → dokumen sebelum Esc atau sebelum '+'", t_undo in (before_plus, with_slash), t_undo)
+            if t_undo == with_slash:
+                p.keyboard.press("Escape")
+                p.wait_for_timeout(400)
+                if st(p)["slashParas"]:
+                    p.keyboard.press("Backspace")
+                    p.keyboard.press("Backspace")
+                    p.wait_for_timeout(300)
+            check("a9 bersih kembali", st(p)["texts"] == before_plus, st(p)["texts"])
+            # e0: Esc dalam debounce 200 ms (menu belum tampil) tetap menutup / mencegah menu
+            G.new_line_and(p, "/")
+            p.keyboard.press("Escape")
+            p.wait_for_timeout(700)
+            s = st(p)
+            check("e0 Esc < 200 ms setelah ketik '/' → menu tidak muncul, '/' tetap", not s["menu"] and s["block"] == "/", s)
+            p.keyboard.press("Backspace")
+            p.keyboard.press("Backspace")
+            p.wait_for_timeout(300)
+            # j: klik ⋮⋮ (bukan "+") = di luar → menu tertutup
+            plus(p)
+            p.locator(".ProseMirror > p").first.hover()
+            p.wait_for_timeout(350)
+            drag = p.locator(".milkdown-block-handle-drag").first
+            if drag.is_visible():
+                drag.click()
+                p.wait_for_timeout(450)
+                s = st(p)
+                check("j1 klik ⋮⋮ → menu tertutup, '/' hilang", not s["menu"] and s["slashParas"] == 0, s)
+            else:
+                check("j1 handle ⋮⋮ terlihat", False)
+            p.locator(".ProseMirror > p").first.click()
+            p.wait_for_timeout(300)
 
             # b: "+" → klik teks lain di editor
             plus(p)
@@ -242,6 +303,26 @@ def main():
             n_editors = p.locator(".ProseMirror[contenteditable=true]").count()
             lst = p.evaluate("() => window.__slashListeners()")
             check("i1 keluar mode edit → listener pointerdown slash dilepas", n_editors == 0 and lst == 0, (n_editors, lst))
+
+            # s: konten tersimpan tidak berubah setelah "+" dibatalkan (tanpa "<br />"), tengah & akhir dokumen
+            for label, idx, how in [("s1 tengah + Esc", 0, "esc"), ("s2 akhir + Esc", 1, "esc"),
+                                    ("s3 tengah + klik luar", 0, "out"), ("s4 akhir + klik luar", 1, "out")]:
+                G.card(p, "Note Simpan E2E").wait_for(timeout=20000)
+                G.open_editor(p, "Note Simpan E2E")
+                before = st(p)["texts"]
+                plus(p, idx)
+                if how == "esc":
+                    p.keyboard.press("Escape")
+                else:
+                    click_spot(p, ".note-toolbar")
+                p.wait_for_timeout(500)
+                after = st(p)["texts"]
+                check(label + ": dokumen editor = semula", after == before and not st(p)["menu"], (before, after))
+                p.locator("button", has_text="Simpan").first.click()
+                p.wait_for_timeout(2000)
+                saved = requests.get(base + "/api/scratchpad/%d" % note_s["id"],
+                                     headers={"Authorization": "Bearer " + A["token"]}).json().get("content")
+                check(label + ": konten tersimpan = semula (tanpa <br />)", saved == SIMPAN_CONTENT, repr(saved))
 
             check("z tanpa pageerror (desktop)", not p.errors, p.errors[:3])
             ctx.close()

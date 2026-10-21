@@ -3827,3 +3827,9 @@
 - **Changes:** Repro Playwright → akar masalah: SlashProvider hanya dievaluasi saat view update, blur tanpa transaksi, Esc tak ditangani. Fix: plugin `note-slash-dismiss` (state posisi "/" sisipan "+", flag dismissed, Esc + stopPropagation), `shouldShow` kustom, listener pointerdown capture document (dilepas saat destroy), `onBlockAdd` mencatat posisi & membuang "/" lama. SW v449. Tes node baru + E2E 44/44.
 - **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/offline/note_slash_menu_dismiss.test.js (baru), tests/offline/*.test.js (versi; regex SlashProvider di note_slash_menu_grid), tests/test_version.py, temporary_files/e2e_slash_menu_dismiss.py (baru), .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (branch `claude/slash-menu-dismiss` di-push, PR belum dibuat)
+
+## [2026-10-21 21:45] - Claude
+- **Task:** Review fix slash menu dismiss (review independen eccbb5d).
+- **Changes:** Batal "+" menghapus paragraf "/" utuh (tanpa `<br />` tersimpan) + kursor ke akhir blok asal; Esc dalam debounce ditangani; autocomplete NoteModal `preventDefault` saat Esc + plugin slash lewati `defaultPrevented`; klik ⋮⋮ = di luar (hanya `addBtn` dikecualikan). Tes node 21/21, E2E 56/56 + grid 39/39.
+- **Files Touch:** static/index.html, tests/offline/note_slash_menu_dismiss.test.js, temporary_files/e2e_slash_menu_dismiss.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (di-push ke `claude/slash-menu-dismiss`, PR belum dibuat)

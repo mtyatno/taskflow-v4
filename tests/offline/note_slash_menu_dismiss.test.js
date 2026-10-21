@@ -23,7 +23,7 @@ function helpers() {
   const end = indexHtml.indexOf("// Block handle ala Notion (+ / ⋮⋮)", start);
   assert.ok(end > start, "helper dismiss slash harus sebelum komentar block handle");
   const src = indexHtml.slice(start, end);
-  return new Function(src + "\nreturn { isPlusSlashIntact, nextSlashDismissState, shouldShowSlashMenu, isSlashOutsideTarget };")();
+  return new Function(src + "\nreturn { isPlusSlashIntact, plusSlashRemovalRange, nextSlashDismissState, shouldShowSlashMenu, isSlashOutsideTarget };")();
 }
 
 // Dokumen palsu: daftar paragraf; posisi ala ProseMirror (paragraf i mulai di offset, isi di offset+1)
@@ -37,7 +37,9 @@ function fakeDoc(paras) {
       if (pos < 0 || pos > off) throw new RangeError("posisi di luar dokumen");
       const b = blocks.find(x => pos > x.start && pos <= x.start + 1 + x.text.length);
       if (!b) return { parent: { isTextblock: false, textContent: "" }, parentOffset: 0 };
-      return { parent: { isTextblock: true, textContent: b.text }, parentOffset: pos - b.start - 1 };
+      return { parent: { isTextblock: true, textContent: b.text }, parentOffset: pos - b.start - 1, depth: 1,
+               before: () => b.start, after: () => b.start + b.text.length + 2,
+               node: (d) => (d === 0 ? { childCount: blocks.length } : null) };
     }
   };
 }
@@ -58,6 +60,19 @@ test("isPlusSlashIntact: hanya '/' tunggal sisipan '+' yang boleh dihapus", () =
   assert.equal(isPlusSlashIntact(fakeDoc(["Isi", "/head"]), 6), false);
   assert.equal(isPlusSlashIntact(fakeDoc(["Isi", "x/"]), 6), false);
   assert.equal(isPlusSlashIntact(fakeDoc(["Isi", ""]), 6), false);
+});
+
+test("plusSlashRemovalRange: paragraf '+' dihapus utuh, kecuali satu-satunya blok", () => {
+  const { plusSlashRemovalRange } = helpers();
+  // ["Satu", "/", "Dua"]: "/" paragraf mulai di 6, karakter "/" di 7, paragraf berakhir di 9
+  assert.deepEqual(plusSlashRemovalRange(fakeDoc(["Satu", "/", "Dua"]), 7), { from: 6, to: 9, whole: true });
+  // di akhir dokumen
+  assert.deepEqual(plusSlashRemovalRange(fakeDoc(["Satu", "/"]), 7), { from: 6, to: 9, whole: true });
+  // satu-satunya blok → hanya "/" (dokumen tidak boleh kosong tanpa blok)
+  assert.deepEqual(plusSlashRemovalRange(fakeDoc(["/"]), 1), { from: 1, to: 2, whole: false });
+  // tidak utuh → null (teks pengguna tidak disentuh)
+  assert.equal(plusSlashRemovalRange(fakeDoc(["Satu", "/x"]), 7), null);
+  assert.equal(plusSlashRemovalRange(fakeDoc(["Satu", "/"]), null), null);
 });
 
 test("nextSlashDismissState: posisi '/' dipetakan, dismissed dibersihkan saat mengetik/bergerak", async (t) => {
@@ -113,14 +128,16 @@ test("shouldShowSlashMenu: '/' terakhir, kecuali baru saja ditutup", () => {
 
 test("isSlashOutsideTarget: klik di menu / handle bukan 'di luar'", () => {
   const { isSlashOutsideTarget } = helpers();
-  const item = {}, scrollArea = {}, addBtn = {}, editorText = {}, header = {};
+  const item = {}, scrollArea = {}, editorText = {}, header = {}, dragBtn = {};
+  const addBtn = { contains: n => n === addBtn };
   const menu = { contains: n => n === menu || n === item || n === scrollArea };
   const handle = { contains: n => n === handle || n === addBtn };
   assert.equal(isSlashOutsideTarget(item, menu, [handle]), false, "item menu");
   assert.equal(isSlashOutsideTarget(scrollArea, menu, [handle]), false, "area scroll menu");
   assert.equal(isSlashOutsideTarget(menu, menu, [handle]), false);
-  assert.equal(isSlashOutsideTarget(addBtn, menu, [handle]), false, "tombol + (onBlockAdd membereskan '/' lama)");
+  assert.equal(isSlashOutsideTarget(addBtn, menu, [addBtn]), false, "tombol + (onBlockAdd membereskan '/' lama)");
   assert.equal(isSlashOutsideTarget(editorText, menu, [handle]), true);
+  assert.equal(isSlashOutsideTarget(dragBtn, menu, [addBtn]), true, "⋮⋮ (bukan tombol +) = di luar");
   assert.equal(isSlashOutsideTarget(header, menu, [handle, null]), true);
   assert.equal(isSlashOutsideTarget(header, menu), true);
   assert.equal(isSlashOutsideTarget(null, menu, [handle]), false);
@@ -132,20 +149,29 @@ test("MilkdownEditor: wiring dismiss slash menu", async (t) => {
     const m = editorCode.match(/const slashDismissPlugin = [\s\S]*?\n    \}\)\) : null;/);
     assert.ok(m, "slashDismissPlugin harus ada");
     assert.match(m[0], /apply: \(tr, value\) => nextSlashDismissState\(value, tr, tr\.getMeta\(slashDismissKey\)\)/);
-    assert.match(m[0], /handleKeyDown: \(view, e\) => \{\s*if \(e\.key !== 'Escape' \|\| !isSlashMenuShown\(\)\) return false;\s*e\.stopPropagation\(\);\s*dismissSlashMenu\(view\);\s*return true;/);
+    // Esc dilewati bila sudah dikonsumsi autocomplete (defaultPrevented); menu tampil ATAU masih menunggu debounce
+    assert.match(m[0], /handleKeyDown: \(view, e\) => \{\s*(?:\/\/[^\n]*\s*)?if \(e\.key !== 'Escape' \|\| e\.defaultPrevented\) return false;\s*if \(!isSlashMenuShown\(\) && !isSlashMenuPending\(view\)\) return false;\s*e\.stopPropagation\(\);\s*dismissSlashMenu\(view, true\);\s*return true;/);
+    assert.match(editorCode, /const isSlashMenuPending = \(view\) => !!slashProvider && !!slashDismissKey && shouldShowSlashMenu\(slashProvider\.getContent\(view\), slashDismissKey\.getState\(view\.state\)\);/);
     assert.match(editorCode, /\.use\(slashDismissPlugin \|\| \[\]\)\.use\(slashPair\)/);
   });
   await t.test("dismissSlashMenu: sembunyikan, hapus '/' sisipan '+' bila utuh, tandai dismissed", () => {
-    const start = editorCode.indexOf("const dismissSlashMenu = (view) => {");
+    const start = editorCode.indexOf("const dismissSlashMenu = (view, keepFocus) => {");
     assert.ok(start > 0);
     const src = editorCode.slice(start, editorCode.indexOf("\n    };", start));
     assert.match(src, /slashProvider\.hide\(\)/);
-    assert.match(src, /isPlusSlashIntact\(view\.state\.doc, st\.plusPos\)\) tr\.delete\(st\.plusPos, st\.plusPos \+ 1\)/);
+    assert.match(src, /removePlusSlash\(tr, view\.state\.doc, st && st\.plusPos, true\)/);
+    assert.match(src, /if \(keepFocus\) view\.focus\(\);/);
+    const rm = editorCode.slice(editorCode.indexOf("const removePlusSlash = ("), editorCode.indexOf("const dismissSlashMenu"));
+    assert.match(rm, /plusSlashRemovalRange\(doc, pos\)/);
+    assert.match(rm, /tr\.delete\(r\.from, r\.to\)/);
+    // kursor ke akhir blok di atas (blok tempat "+" diklik)
+    assert.match(rm, /MB\.TextSelection\.near\(tr\.doc\.resolve\(tr\.mapping\.map\(r\.from\)\), -1\)/);
     assert.match(src, /tr\.setMeta\(slashDismissKey, \{ plusPos: null, dismissed: true \}\)/);
     assert.match(src, /view\.dispatch\(tr\)/);
   });
   await t.test("klik di luar: pointerdown capture di document, dilepas saat destroy", () => {
-    assert.match(editorCode, /const onSlashOutsidePointer = \(e\) => \{\s*if \(!isSlashMenuShown\(\) \|\| !isSlashOutsideTarget\(e\.target, slashMenu, \[handleEl\]\)\) return;/);
+    assert.match(editorCode, /const onSlashOutsidePointer = \(e\) => \{\s*if \(!isSlashMenuShown\(\) \|\| !isSlashOutsideTarget\(e\.target, slashMenu, \[addBtn\]\)\) return;/);
+    assert.match(editorCode, /try \{ dismissSlashMenu\(slashView, false\); \}/);
     assert.match(editorCode, /document\.addEventListener\('pointerdown', onSlashOutsidePointer, true\);/);
     assert.match(editorCode, /document\.removeEventListener\('pointerdown', onSlashOutsidePointer, true\);/);
     const v = editorCode.match(/ctx\.set\(slashPair\.key, \{[\s\S]*?\n      \}\);/);
@@ -159,7 +185,7 @@ test("MilkdownEditor: wiring dismiss slash menu", async (t) => {
     const start = editorCode.indexOf("const onBlockAdd = () => {");
     const src = editorCode.slice(start, editorCode.indexOf("\n    };", start));
     assert.match(src, /tr\.setMeta\(slashDismissKey, \{ plusPos: tr\.selection\.from - 1, dismissed: false \}\)/);
-    assert.match(src, /prev && isPlusSlashIntact\(state\.doc, prev\.plusPos\)\) tr\.delete\(prev\.plusPos, prev\.plusPos \+ 1\)/);
+    assert.match(src, /removePlusSlash\(tr, state\.doc, prev && prev\.plusPos, false\)/);
     assert.match(src, /const at = tr\.mapping\.map\(pos\);/);
     assert.ok(src.indexOf("insertText('/')") < src.indexOf("plusPos: tr.selection.from - 1"), "meta setelah '/' diketik");
   });
@@ -173,4 +199,13 @@ test("cache bust v449", () => {
   assert.match(webappPy, /sw_cache = "taskflow-v449-slash-menu-dismiss"/);
   assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v449-slash-menu-dismiss";/);
   assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v449-slash-menu-dismiss"/);
+});
+
+test("autocomplete NoteModal: Esc yang dikonsumsi memanggil preventDefault (slash menu tidak ikut tertutup)", () => {
+  const start = indexHtml.indexOf("// Keyboard nav for dropdowns in Milkdown ProseMirror editor");
+  assert.ok(start > 0);
+  const src = indexHtml.slice(start, indexHtml.indexOf("pmDom.addEventListener('keydown', onKeyDown, true);", start));
+  const escs = src.match(/if \(e\.key === 'Escape'\) \{[^}]*\}/g) || [];
+  assert.equal(escs.length, 4, escs.join(" | "));
+  for (const b of escs) assert.match(b, /e\.preventDefault\(\);/, b);
 });
