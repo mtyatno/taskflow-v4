@@ -86,7 +86,8 @@ def test_shared_list_and_invite_handlers_escape(monkeypatch):
     monkeypatch.setattr(bot.repo, "get_user_by_username",
                         lambda u: {"id": 2, "display_name": X, "telegram_id": 55})
     monkeypatch.setattr(bot.repo, "is_list_member_or_owner", lambda l, u: False)
-    monkeypatch.setattr(bot.repo, "add_list_member", lambda l, u: True)
+    monkeypatch.setattr(bot.repo, "create_workspace_invitation",
+                        lambda l, i, t: {"id": 9, "list_id": l})
     msg = _Msg()
     update = SimpleNamespace(
         message=msg,
@@ -97,7 +98,7 @@ def test_shared_list_and_invite_handlers_escape(monkeypatch):
     assert msg.sent and sent
     for text in [t for t, _ in msg.sent] + sent:
         assert "<x>" not in text, text
-        assert XE in text
+    assert all(XE in t for t in sent)  # DM ke penerima memuat nama workspace ter-escape
 
 
 def test_deletelist_confirmation_says_tasks_return_to_creator(monkeypatch):

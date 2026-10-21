@@ -67,7 +67,7 @@ from config import (
     UPLOAD_DIR, MAX_FILE_SIZE, WEBAPP_URL,
 )
 from models import Task, GTDStatus, Priority, Quadrant
-from repository import TaskRepository
+from repository import TaskRepository, InvitationExists, AlreadyMember, InvitationNotFound, InvitationClosed, InvitationExpired
 from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date, format_date
 from nlp import parse_task, format_confirmation, parse_query
@@ -1469,6 +1469,32 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     data = query.data
 
+    # ── Undangan workspace: Terima / Tolak ──
+    if data.startswith(("inv_acc_", "inv_dec_")):
+        accept = data.startswith("inv_acc_")
+        try:
+            inv_id = int(data.split("_", 2)[2])
+        except ValueError:
+            await query.edit_message_text("Undangan ini sudah tidak berlaku")
+            return
+        inv = repo.get_workspace_invitation(inv_id)
+        if inv and inv["invitee_id"] != uid(context):
+            await query.answer("Undangan ini bukan untukmu", show_alert=True)
+            return
+        try:
+            res = repo.respond_workspace_invitation(inv_id, uid(context), accept)
+        except (InvitationNotFound, InvitationClosed, InvitationExpired):
+            await query.answer()
+            await query.edit_message_text("Undangan ini sudah tidak berlaku")
+            return
+        await query.answer()
+        if accept:
+            await query.edit_message_text(
+                f"✅ Bergabung ke <b>{h(res['list']['name'])}</b>", parse_mode=ParseMode.HTML)
+        else:
+            await query.edit_message_text("Undangan ditolak")
+        return
+
     # ── Done button ──
     if data.startswith("done_"):
         task_id = int(data.replace("done_", ""))
@@ -2592,25 +2618,37 @@ async def cmd_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    repo.add_list_member(list_id, target["id"])
+    try:
+        inv = repo.create_workspace_invitation(list_id, uid(context), target["id"])
+    except InvitationExists:
+        await update.message.reply_text(f"Undangan untuk @{h(raw_username)} sudah dikirim.")
+        return
+    except AlreadyMember:
+        await update.message.reply_text(
+            f"ℹ️ <b>{h(target['display_name'])}</b> sudah menjadi anggota list ini.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
 
-    # Notify target via Telegram if they have telegram_id
+    # DM penerima dengan tombol Terima/Tolak (bila punya telegram_id)
     if target.get("telegram_id"):
-        inviter_name = update.effective_user.full_name or update.effective_user.username
+        inviter_name = update.effective_user.full_name or update.effective_user.username or "Seseorang"
+        kb = InlineKeyboardMarkup([[
+            InlineKeyboardButton("Terima", callback_data=f"inv_acc_{inv['id']}"),
+            InlineKeyboardButton("Tolak", callback_data=f"inv_dec_{inv['id']}"),
+        ]])
         try:
             await context.bot.send_message(
                 chat_id=target["telegram_id"],
-                text=f"👥 <b>{h(inviter_name)}</b> mengundangmu ke shared list <b>{h(lst['name'])}</b>!\n"
-                     f"Kamu sekarang bisa melihat dan mengerjakan task di list ini.\n\n"
-                     f"Lihat di: /mylist",
+                text=f"{h(inviter_name)} mengundangmu ke workspace <b>{h(lst['name'])}</b>.",
                 parse_mode=ParseMode.HTML,
+                reply_markup=kb,
             )
         except Exception as e:
-            logger.warning(f"Gagal notif ke {target['telegram_id']}: {e}")
+            logger.warning(f"Gagal kirim undangan ke {target['telegram_id']}: {e}")
 
     await update.message.reply_text(
-        f"✅ <b>{h(target['display_name'])}</b> berhasil ditambahkan ke list <b>{h(lst['name'])}</b>!",
-        parse_mode=ParseMode.HTML,
+        f"📨 Undangan dikirim ke @{h(raw_username)}. Menunggu persetujuan."
     )
 
 

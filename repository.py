@@ -2239,6 +2239,11 @@ class TaskRepository:
             return {"id": cur.lastrowid, "list_id": list_id, "invitee_id": invitee_id,
                     "inviter_id": inviter_id, "status": "pending", "created_at": now}
 
+    def get_workspace_invitation(self, invitation_id: int) -> Optional[dict]:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM workspace_invitations WHERE id = ?", (invitation_id,)).fetchone()
+            return dict(row) if row else None
+
     def list_pending_invitations_for_user(self, user_id: int) -> list[dict]:
         cutoff = (datetime.now() - timedelta(days=INVITATION_TTL_DAYS)).isoformat()
         with self._connect() as conn:
