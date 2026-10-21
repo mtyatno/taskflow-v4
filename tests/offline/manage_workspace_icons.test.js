@@ -13,14 +13,16 @@ function sliceFn(name) {
   assert.ok(e > s, name + " slice");
   return indexHtml.slice(s, e);
 }
-const manager = sliceFn("SharedListsManager");
+// Fase 1: daftar anggota + undangan diekstrak ke WorkspaceMembersSection (dipakai WorkspaceManagePage);
+// halaman daftar SharedListsManager tetap memuat glyph judul/gabung, sliceFn digabung supaya cek ikon tetap utuh.
+const manager = sliceFn("SharedListsManager") + sliceFn("WorkspaceMembersSection");
 const chip = sliceFn("TopBarPomodoroChip");
 // Teks toast bukan ikon UI.
 const ui = src => src.split("\n").filter(l => !/showToast\(/.test(l)).join("\n");
 
 const NEW_KEYS = ["mSettings", "mLink", "mXCircle", "mUsers", "mUser", "pomoTomato", "pomoBreak"];
 
-for (const [label, src] of [["SharedListsManager", manager], ["TopBarPomodoroChip", chip]]) {
+for (const [label, src] of [["SharedListsManager", manager], ["WorkspaceManagePage", sliceFn("WorkspaceManagePage") + sliceFn("WorkspaceIdentityView") + sliceFn("WorkspaceIdentityForm")], ["TopBarPomodoroChip", chip]]) {
   test(label + " bebas emoji ikon (literal maupun escape \\u)", () => {
     const lines = ui(src);
     const m = lines.match(/[\u{1F300}-\u{1FAFF}☀-➿⬀-⯿️]/u);
@@ -39,11 +41,11 @@ test("SharedListsManager memakai ViewGlyph di semua tempat", () => {
   for (const [k, s] of [["mSettings", 22], ["mLink", 16], ["mXCircle", 14], ["wsTasks", 16], ["mUser", 16], ["mLink", 14]]) {
     assert.match(manager, new RegExp('name:\\s*"' + k + '",\\s*size:\\s*' + s + "\\b"), k + " " + s);
   }
-  assert.match(manager, /name:\s*l\.role === "owner" \? "wsTasks" : "mUsers",\s*size:\s*22/);
+  // Fase 1 Task 6: ikon peran 40×40 di kartu diganti WorkspaceAvatar 40 px; peran tetap tertulis (Owner/Member).
+  assert.match(manager, /React\.createElement\(WorkspaceAvatar, \{\s*list: l,\s*size: 40/);
+  assert.match(manager, /l\.role === "owner" \? "Owner" : "Member", " \\xB7 ", l\.member_count, " anggota"/);
   assert.match(manager, /Kelola Workspace/);
   assert.match(manager, /className: "wsf-title-ico"/);
-  assert.match(manager, /width: 40,\s*height: 40/);
-  assert.match(manager, /title: l\.role === "owner" \? "Owner" : "Member"/);
   assert.match(manager, /"\.\.\." : \/\*#__PURE__\*\/React\.createElement\(|"\.\.\." :/);
   assert.match(manager, /Generate Invite Link/);
 });
@@ -62,12 +64,12 @@ test("CSS ikon chip Pomodoro", () => {
   assert.match(appCss, /\.topbar-pomo-chip\.is-break \.topbar-pomo-icon\s*\{\s*color:\s*var\(--break\);\s*\}/);
 });
 
-test("cache bust v441 + app.css?v=349", () => {
+test("cache bust v441 + app.css?v=350", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v441-note-list-tags";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v441-note-list-tags";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v441-note-list-tags"/);
-  assert.match(py, /sw_cache = "taskflow-v441-note-list-tags"/);
-  assert.match(indexHtml, /app\.css\?v=349/);
+  assert.match(swJs, /^const CACHE = "taskflow-v442-kelola-workspace-fase1";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v442-kelola-workspace-fase1";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v442-kelola-workspace-fase1"/);
+  assert.match(py, /sw_cache = "taskflow-v442-kelola-workspace-fase1"/);
+  assert.match(indexHtml, /app\.css\?v=350/);
 });

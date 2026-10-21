@@ -138,6 +138,9 @@
     [data-theme="dark"] .sidebar-rail-btn.active { background: rgba(168,197,0,0.18); color: #A8C500; }
     [data-theme="dark"] .sidebar-rail-divider { background: rgba(255,255,255,0.08); }
     .sidebar-rail-ws-avatar { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; line-height: 1; color: #fff; user-select: none; transition: box-shadow 0.15s; }
+    .ws-avatar { --sz: 20px; width: var(--sz); height: var(--sz); flex: 0 0 auto; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: calc(var(--sz) * 0.5); font-weight: 700; line-height: 1; color: white; user-select: none; overflow: hidden; }
+    .ws-avatar-emoji { font-size: calc(var(--sz) * 0.55); font-weight: 400; }
+    .ws-page-desc { color: var(--text-light); font-size: 13px; margin: 2px 0 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
     .sidebar-rail-btn.active .sidebar-rail-ws-avatar { box-shadow: 0 0 0 2px var(--accent); }
     .ws-c0 { background: #2563eb; } .ws-c1 { background: #7c3aed; } .ws-c2 { background: #be185d; } .ws-c3 { background: #c2410c; }
     .ws-c4 { background: #15803d; } .ws-c5 { background: #0f766e; } .ws-c6 { background: #a16207; } .ws-c7 { background: #475569; }
@@ -257,6 +260,41 @@
     [data-theme="dark"] .btn-warn-soft:hover:not(:disabled) { background: rgba(245, 158, 11, 0.2); }
     .ws-danger-text { color: #dc2626; }
     [data-theme="dark"] .ws-danger-text { color: #fca5a5; }
+    /* Kelola Workspace Fase 1: halaman per workspace (ws_manage_<id>) */
+    .ws-manage-section { background: var(--bg-primary); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
+    .ws-manage-section-title { font-size: 15px; font-weight: 700; margin: 0 0 12px; }
+    .ws-danger-zone { border-color: #fecaca; background: #fffafa; }
+    .ws-danger-zone .ws-manage-section-title { color: #dc2626; }
+    [data-theme="dark"] .ws-danger-zone { border-color: rgba(239, 68, 68, 0.35); background: rgba(239, 68, 68, 0.06); }
+    [data-theme="dark"] .ws-danger-zone .ws-manage-section-title { color: #fca5a5; }
+    .ws-danger-zone-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    /* Kelola Workspace Fase 1 Task 6: halaman daftar (seksi Di sidebar + Semua workspace) */
+    .ws-pin-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .ws-pin-row { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--bg-card); touch-action: manipulation; user-select: none; -webkit-user-select: none; position: relative; transition: border-color 0.15s, box-shadow 0.15s; }
+    .ws-pin-row.is-draggable { cursor: grab; }
+    .ws-pin-row.is-dragging { cursor: grabbing; z-index: 2; opacity: 0.92; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); transition: none; }
+    .ws-pin-row.is-drop-target { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .ws-pin-grip { display: inline-flex; color: var(--text-light); flex: 0 0 auto; }
+    .ws-pin-name { flex: 1 1 auto; min-width: 0; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ws-pin-actions { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+    .ws-pin-move { padding-left: 8px; padding-right: 8px; display: inline-flex; align-items: center; }
+    .ws-card { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; min-width: 0; }
+    .ws-card-main { display: flex; align-items: center; gap: 10px; flex: 1 1 240px; min-width: 0; }
+    .ws-card-name { font-weight: 600; overflow-wrap: anywhere; }
+    .ws-card-desc { font-size: 13px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .ws-card-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; flex: 0 0 auto; }
+    .ws-list-page .btn:disabled, .ws-manage-page .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .ws-pin-full-hint { font-size: 12px; color: var(--text-light); margin-top: 8px; }
+    @media (max-width: 480px) {
+      .ws-pin-row { flex-wrap: wrap; }
+      .ws-pin-actions { margin-left: auto; }
+    }
+    /* /Kelola Workspace Fase 1 Task 6 */
+    .ws-color-group { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .ws-color-swatch { width: 28px; height: 28px; border-radius: 50%; border: 2px solid transparent; padding: 0; cursor: pointer; box-shadow: 0 0 0 1px var(--border); font-family: inherit; }
+    .ws-color-swatch.ws-color-auto { width: auto; height: 28px; padding: 0 10px; border-radius: 14px; background: var(--bg-subtle); color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+    .ws-color-swatch[aria-checked="true"] { border-color: var(--bg-primary); box-shadow: 0 0 0 2px var(--accent); }
+    .ws-color-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     .ws-invite-link { flex: 1; min-width: 0; font-size: 11px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-subtle); color: var(--text-secondary); }
     .btn-sm { padding: 5px 12px; font-size: 13px; }
     /* ── Chat ── */

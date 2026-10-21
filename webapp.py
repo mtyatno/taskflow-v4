@@ -933,6 +933,7 @@ def migrate_db():
         repository.backfill_projects(conn)
         repository.ensure_contexts_schema(conn)
         repository.ensure_workspace_pins_schema(conn)
+        repository.ensure_workspace_identity_schema(conn)
         repository.ensure_pomodoro_schema(conn)
         repository.backfill_contexts(conn)
         # Drawing milik workspace: kolom list_id/last_edited_by + backfill sekali jalan dari note workspace.
@@ -1232,6 +1233,16 @@ class TaskUpdate(BaseModel):
 
 class SharedListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+
+class PinOrderReq(BaseModel):
+    list_ids: list[int] = Field(max_length=50)
+
+class WorkspacePatch(BaseModel):
+    """Semua opsional; field yang tidak dikirim (model_fields_set) tidak diubah."""
+    name: Optional[str] = None
+    description: Optional[str] = None
+    color_idx: Optional[Any] = None
+    avatar: Optional[str] = None
 
 class HabitCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
@@ -3427,13 +3438,25 @@ async def join_list_by_code(req: JoinListReq, user=Depends(get_current_user)):
     return {"ok": True, "list_id": list_id, "list_name": lst["name"]}
 
 
+@app.put("/api/lists/pins/order")
+async def reorder_workspace_pins(req: PinOrderReq, user=Depends(get_current_user)):
+    if not TaskRepository(DB_PATH).reorder_workspace_pins(user["sub"], req.list_ids):
+        raise HTTPException(status_code=409, detail={
+            "code": "PIN_ORDER_MISMATCH", "message": "Urutan pin sudah berubah di perangkat lain"})
+    return {"ok": True, "list_ids": req.list_ids}
+
+
 @app.get("/api/lists/preview/{code}")
 async def preview_invite_code(code: str, user=Depends(get_current_user)):
     """Preview list info from an invite code without consuming it."""
     with get_db() as conn:
         row = conn.execute(
-            "SELECT li.list_id, li.expires_at, li.used, sl.name FROM list_invites li "
-            "JOIN shared_lists sl ON sl.id = li.list_id WHERE li.code = ?",
+            "SELECT li.list_id, li.expires_at, li.used, sl.name, "
+            "COALESCE(NULLIF(u.display_name, ''), u.username) AS owner_name, "
+            "1 + (SELECT COUNT(*) FROM list_members lm WHERE lm.list_id = sl.id) AS member_count "
+            "FROM list_invites li "
+            "JOIN shared_lists sl ON sl.id = li.list_id "
+            "LEFT JOIN users u ON u.id = sl.owner_id WHERE li.code = ?",
             (code,),
         ).fetchone()
     if not row or row["used"]:
@@ -3441,7 +3464,8 @@ async def preview_invite_code(code: str, user=Depends(get_current_user)):
     from datetime import datetime as _dt
     if _dt.fromisoformat(row["expires_at"]) < _dt.now():
         raise HTTPException(status_code=400, detail="Kode sudah kadaluarsa.")
-    return {"list_id": row["list_id"], "list_name": row["name"], "expires_at": row["expires_at"]}
+    return {"list_id": row["list_id"], "list_name": row["name"], "expires_at": row["expires_at"],
+            "owner_name": row["owner_name"], "member_count": row["member_count"]}
 
 
 @app.get("/api/lists/{list_id}")
@@ -3459,6 +3483,39 @@ async def get_list(list_id: int, user=Depends(get_current_user)):
             "SELECT id, username, display_name FROM users WHERE id = ?", (lst["owner_id"],)
         ).fetchone()
     return {**lst, "members": members, "owner": dict(owner) if owner else None}
+
+
+@app.patch("/api/lists/{list_id}")
+async def patch_list(list_id: int, req: WorkspacePatch, user=Depends(get_current_user)):
+    import workspace_identity as wi
+    uid = user["sub"]
+    repo = TaskRepository(DB_PATH)
+    if not repo.get_shared_list(list_id):
+        raise HTTPException(status_code=404, detail="List not found")
+    if not repo.is_list_owner(list_id, uid):
+        raise HTTPException(status_code=403, detail="Hanya owner yang bisa mengubah workspace.")
+    sent = req.model_fields_set
+    fields: dict = {}
+    try:
+        if "name" in sent:
+            name = (req.name or "").strip()
+            if not 1 <= len(name) <= 100:
+                raise ValueError("Nama harus 1–100 karakter")
+            fields["name"] = name
+        if "description" in sent:
+            fields["description"] = wi.normalize_description(req.description)
+        if "color_idx" in sent:
+            fields["color_idx"] = wi.normalize_color_idx(req.color_idx)
+        if "avatar" in sent:
+            fields["avatar"] = wi.normalize_avatar(req.avatar)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    if repo.update_workspace_identity(list_id, uid, fields) is None:
+        raise HTTPException(status_code=403, detail="Hanya owner yang bisa mengubah workspace.")
+    row = next((x for x in repo.get_lists_for_user(uid) if x["id"] == list_id), None)
+    if row is None:  # workspace terhapus di tengah permintaan
+        raise HTTPException(status_code=404, detail="Workspace tidak ditemukan")
+    return row
 
 
 @app.get("/api/lists/{list_id}/members")
@@ -4490,7 +4547,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v441-note-list-tags"
+    sw_cache = "taskflow-v442-kelola-workspace-fase1"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

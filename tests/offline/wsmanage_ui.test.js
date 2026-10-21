@@ -18,7 +18,8 @@ function sliceBetween(startMarker, endMarker) {
   return html.slice(start, end);
 }
 
-// SharedListsManager + WorkspaceDeleteDialog (didefinisikan tepat sesudahnya) s/d Sidebar.
+// SharedListsManager + WorkspaceMembersSection (Fase 1: panel anggota diekstrak, dipakai juga halaman
+// WorkspaceManagePage) + WorkspaceDeleteDialog s/d Sidebar.
 const block = sliceBetween("\nfunction SharedListsManager(", "\nfunction Sidebar(");
 const dialog = sliceBetween("\nfunction WorkspaceDeleteDialog(", "\nfunction Sidebar(");
 
@@ -48,7 +49,7 @@ test("teks persis dialog hapus, keluarkan, daftar anggota dan toast", () => {
     "\"Keluarkan\"",
     "\"Owner\"",
     "\"Belum ada anggota lain.\"",
-    "\"Anggota:\"",
+    "\"ws-sec-anggota-\" + list.id, \"Anggota\"",
     "\"Workspace dibuat ✅\"",
     "\"Workspace dihapus\"",
     "ditambahkan ke workspace ✅`",
@@ -59,10 +60,18 @@ test("teks persis dialog hapus, keluarkan, daftar anggota dan toast", () => {
   assert.match(block, /`Keluarkan \$\{[^`]+\} dari workspace ini\?`/);
 });
 
-test("aksesibilitas: aria-expanded, aria-controls, aria-label keluarkan, dialog modal", () => {
-  assert.ok(block.includes("\"aria-expanded\""));
-  assert.ok(block.includes("\"aria-controls\""));
-  assert.ok(block.includes("\"ws-panel-\""));
+test("aksesibilitas: seksi berlabel, aria-label keluarkan, dialog modal", () => {
+  // Fase 1 Task 6: panel lipat (aria-expanded/aria-controls "ws-panel-") di kartu daftar dihapus; anggota dan
+  // dialog hapus pindah ke halaman detail — seksinya <section aria-labelledby> dengan judul berid.
+  const mgr = sliceBetween("\nfunction SharedListsManager(", "\nfunction WorkspaceMembersSection(");
+  const page = sliceBetween("\nfunction WorkspaceManagePage(", "\nfunction WorkspaceIdentityView(");
+  assert.ok(!mgr.includes("\"ws-panel-\""));
+  assert.ok(!mgr.includes("WorkspaceDeleteDialog"), "kartu daftar tidak lagi membuka dialog hapus");
+  assert.match(page, /React\.createElement\(WorkspaceDeleteDialog, \{/);
+  assert.match(page, /"aria-labelledby": id/);
+  assert.match(page, /section\("ws-sec-anggota-" \+ list\.id, "Anggota", \/\*#__PURE__\*\/React\.createElement\(WorkspaceMembersSection/);
+  assert.ok(mgr.includes("`Naikkan ${"));
+  assert.ok(mgr.includes("`Turunkan ${"));
   assert.ok(block.includes("`Keluarkan ${"));
   assert.ok(block.includes("\"aria-label\""));
   assert.ok(dialog.includes("role: \"dialog\""));
@@ -74,8 +83,10 @@ test("aksesibilitas: aria-expanded, aria-controls, aria-label keluarkan, dialog 
 
 test("memakai helper wsmanage, delete-impact lewat jaringan, dan kelas tema", () => {
   // helper dijaga: window.TF.wsmanage tidak ada → baris anggota [] (tanpa crash), dihitung sekali per render
+  // (Fase 1: satu workspace per WorkspaceMembersSection → detail tunggal, bukan peta details[l.id])
   assert.ok(block.includes("const WSM = window.TF && window.TF.wsmanage;"));
-  assert.ok(block.includes("WSM ? WSM.memberRows(details[l.id]) : []"));
+  assert.ok(block.includes("WSM ? WSM.memberRows(detail) : []"));
+  assert.ok(block.includes("React.createElement(WorkspaceMembersSection"));
   assert.equal((block.match(/memberRows\(/g) || []).length, 1);
   assert.ok(!block.includes("window.TF.wsmanage.memberRows"));
   assert.ok(dialog.includes("const WS = window.TF && window.TF.wsmanage;"));
@@ -95,10 +106,11 @@ test("memakai helper wsmanage, delete-impact lewat jaringan, dan kelas tema", ()
   assert.doesNotMatch(block, /api\.get\(`\/api\/lists\/\$\{listId\}`, \{ network: true \}\)/);
   // gagal memuat anggota tanpa data → pesan + Coba lagi (bukan "Memuat…" selamanya)
   assert.ok(block.includes("\"Gagal memuat anggota.\""));
-  assert.match(block, /memberErrors\[l\.id\][\s\S]{0,800}"Coba lagi"/);
-  assert.match(block, /catch \(e\) \{\n\s*console\.warn\([^)]*\);\n\s*setMemberErrors/);
+  assert.match(block, /!detail && memberError\)[\s\S]{0,800}"Coba lagi"/);
+  assert.match(block, /catch \(e\) \{\n\s*console\.warn\([^)]*\);\n\s*setMemberError\(true\)/);
   // detail selalu diambil ulang (guard cache lama dihapus)
   assert.ok(!/if \(members\[listId\]\) return;/.test(block));
+  assert.ok(!/if \(detail\) return;/.test(block));
   // keluar memakai dialog Alurik sebagai confirmFn
   assert.match(block, /confirmFn: [^\n]*askDrawingScope/);
   assert.match(block, /confirmFn:[\s\S]{0,200}note: "Task belum selesai yang ditugaskan kepadamu di workspace ini akan dilepas penanggung jawabnya\."/);
