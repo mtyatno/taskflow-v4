@@ -1970,6 +1970,14 @@ async def forgot_password(req: ForgotReq):
         if recent >= 3:
             return _FORGOT_GENERIC
         token = secrets.token_urlsafe(32)
+        reset_link = f"{WEBAPP_URL}/?reset_token={token}"
+        # Render dulu sebelum menulis apa pun: bila gagal, token tidak tersimpan tanpa emailnya,
+        # dan respons tetap sama dengan email tak dikenal (anti-enumerasi).
+        try:
+            rendered = email_templates.reset_password(user["username"], reset_link)
+        except Exception:
+            logger.exception("render email reset gagal (user_id=%s)", user["id"])
+            return _FORGOT_GENERIC
         now = datetime.now(_TZ_JKT)
         conn.execute(
             "INSERT INTO password_reset_tokens (user_id, token_hash, created_at, expires_at) VALUES (?,?,?,?)",
@@ -1980,11 +1988,10 @@ async def forgot_password(req: ForgotReq):
                 (now + timedelta(hours=1)).isoformat(),
             ),
         )
-        reset_link = f"{WEBAPP_URL}/?reset_token={token}"
         # Antre di transaksi yang sama dengan token; email kedaluwarsa 10 menit sebelum token (50 mnt).
         email_outbox.enqueue(
             conn, kind="reset", user_id=user["id"], to_addr=email,
-            rendered=email_templates.reset_password(user["username"], reset_link),
+            rendered=rendered,
             expires_at=email_outbox.utcnow() + timedelta(minutes=50),
         )
     email_worker.wake()

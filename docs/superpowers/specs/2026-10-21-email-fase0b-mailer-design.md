@@ -64,6 +64,7 @@ Indeks: `(status, next_attempt_at)` untuk worker, `(created_at)` untuk kartu Adm
 
 ### 1.4 Batasan
 
+- Isi email dikosongkan saat baris menjadi `sent` atau `expired` (link reset tidak disimpan lebih lama dari perlu).
 - Worker hanya di proses `taskflow-web` (uvicorn satu proses, `reload=False`). Bot Telegram tidak menjalankan worker; di fase berikutnya bot cukup menulis ke tabel yang sama.
 - Isi email (subjek/body) **tidak pernah** ditampilkan di Admin atau API — hanya metadata.
 - Tes: `BackgroundTasks` tidak lagi dipakai untuk email. Fixture `captured_emails` di `tests/conftest.py` diganti membaca baris `email_outbox` (kind, to_addr, body_text untuk mengambil link reset).

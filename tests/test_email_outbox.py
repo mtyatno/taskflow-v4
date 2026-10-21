@@ -125,7 +125,7 @@ def test_enqueue_and_send_success(db, clock):
 def test_retry_schedule(db, clock):
     send = FakeSend(mailer.MailTemporaryError("x"))
     w = _worker(db, clock, send)
-    rid = _enqueue(db, clock)
+    rid = _enqueue(db, clock, kind="reset")
     for n, delay in enumerate((1, 5, 30, 120), start=1):
         assert w.run_due() == 1
         r = _row(db, rid)
@@ -140,6 +140,38 @@ def test_retry_schedule(db, clock):
     assert r["status"] == "failed" and r["attempts"] == 5 and r["last_error"] == "x"
     assert len(send.calls) == 5
     assert w.run_due() == 0
+
+
+def test_test_kind_fails_on_first_temporary_error(db, clock):
+    send = FakeSend(mailer.MailTemporaryError("timed out"))
+    rid = _enqueue(db, clock, kind="test")
+    assert _worker(db, clock, send).run_due() == 1
+    r = _row(db, rid)
+    assert r["status"] == "failed" and r["attempts"] == 1 and r["last_error"] == "timed out"
+    assert r["body_text"] == "isi teks"  # failed menyimpan isi untuk "Coba lagi"
+
+
+def test_sent_row_body_is_blanked(db, clock):
+    rid = _enqueue(db, clock)
+    assert _worker(db, clock, FakeSend()).run_due() == 1
+    r = _row(db, rid)
+    assert r["status"] == "sent" and r["body_text"] == "" and r["body_html"] == ""
+
+
+def test_expired_row_body_is_blanked(db, clock):
+    rid = _enqueue(db, clock, expires_at=T0 + timedelta(minutes=50))
+    clock[0] = T0 + timedelta(minutes=51)
+    assert _worker(db, clock, FakeSend()).run_due() == 1
+    r = _row(db, rid)
+    assert r["status"] == "expired" and r["body_text"] == "" and r["body_html"] == ""
+
+
+def test_failed_row_keeps_body(db, clock):
+    send = FakeSend(mailer.MailPermanentError("535"))
+    rid = _enqueue(db, clock, kind="reset")
+    _worker(db, clock, send).run_due()
+    r = _row(db, rid)
+    assert r["status"] == "failed" and r["body_text"] == "isi teks" and r["body_html"] == "<p>isi</p>"
 
 
 def test_permanent_error_fails_immediately(db, clock):
@@ -236,7 +268,7 @@ def test_purge_old(db, clock):
 
 def test_unexpected_exception_does_not_kill_worker(db, clock):
     send = FakeSend(RuntimeError("boom"))
-    rid = _enqueue(db, clock)
+    rid = _enqueue(db, clock, kind="reset")
     assert _worker(db, clock, send).run_due() == 1
     r = _row(db, rid)
     assert r["status"] == "queued" and r["attempts"] == 1

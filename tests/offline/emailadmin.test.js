@@ -108,6 +108,9 @@ test("testOutcome: toast sesuai hasil email tes", () => {
   assert.deepEqual(ea.testOutcome({ status: "expired" }),
     { type: "error", text: "Email tes gagal: Kedaluwarsa" });
   assert.equal(ea.testOutcome({ status: "queued" }), null);
+  assert.deepEqual(ea.testOutcome({ status: "queued", attempts: 1, last_error: "timed out" }),
+    { type: "error", text: "Email tes gagal (akan dicoba lagi): timed out" });
+  assert.equal(ea.testOutcome({ status: "queued", attempts: 0, last_error: null }), null);
   assert.equal(ea.testOutcome(null), null);
   assert.deepEqual(ea.TIMEOUT_OUTCOME, { type: "info", text: "Email tes masih dalam antrean" });
 });

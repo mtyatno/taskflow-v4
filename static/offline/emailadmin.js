@@ -73,6 +73,9 @@
 
   // Hasil akhir email tes → { type, text } untuk toast, atau null bila belum selesai.
   function testOutcome(row) {
+    if (row && row.status === "queued" && row.attempts >= 1 && row.last_error) {
+      return { type: "error", text: "Email tes gagal (akan dicoba lagi): " + row.last_error };
+    }
     if (!isPollingDone(row)) return null;
     if (row.status === "sent") return { type: "success", text: "Email tes terkirim" };
     return { type: "error", text: "Email tes gagal: " + (row.last_error || statusLabel(row.status)) };

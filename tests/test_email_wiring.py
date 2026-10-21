@@ -58,3 +58,26 @@ def test_forgot_wakes_worker(client, monkeypatch):
 
 def test_mailer_has_no_send_reset_email():
     assert not hasattr(mailer, "send_reset_email")
+
+
+def test_forgot_render_failure_returns_generic_and_writes_nothing(client, monkeypatch):
+    import email_templates
+    register_user(client, "wire_d", "wire_d@test.id")
+
+    def count():
+        c = db()
+        try:
+            return (c.execute("SELECT COUNT(*) FROM email_outbox").fetchone()[0],
+                    c.execute("SELECT COUNT(*) FROM password_reset_tokens").fetchone()[0])
+        finally:
+            c.close()
+
+    before = count()
+
+    def boom(*a, **k):
+        raise ValueError("WEBAPP_URL tanpa skema")
+
+    monkeypatch.setattr(email_templates, "reset_password", boom)
+    r = client.post("/api/auth/forgot", json={"email": "wire_d@test.id"})
+    assert r.status_code == 200 and r.json() == webapp._FORGOT_GENERIC
+    assert count() == before

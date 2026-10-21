@@ -156,7 +156,7 @@ class EmailWorker:
     def _process(self, conn: sqlite3.Connection, rid: int) -> bool:
         """Proses satu baris. False bila baris tidak lagi `queued` (sudah diklaim worker lain)."""
         row = conn.execute(
-            "SELECT to_addr, subject, body_text, body_html, expires_at FROM email_outbox"
+            "SELECT to_addr, subject, body_text, body_html, expires_at, kind FROM email_outbox"
             " WHERE id=? AND status='queued'", (rid,)).fetchone()
         if row is None:
             return False
@@ -164,7 +164,8 @@ class EmailWorker:
         ts = iso(now)
         if row[4] is not None and now >= datetime.fromisoformat(row[4]):
             cur = conn.execute(
-                "UPDATE email_outbox SET status='expired', updated_at=? WHERE id=? AND status='queued'", (ts, rid))
+                "UPDATE email_outbox SET status='expired', body_text='', body_html='', updated_at=?"
+                " WHERE id=? AND status='queued'", (ts, rid))
             conn.commit()
             return cur.rowcount > 0
 
@@ -192,13 +193,15 @@ class EmailWorker:
         else:
             now = self._now()
             conn.execute(
-                "UPDATE email_outbox SET status='sent', sent_at=?, updated_at=? WHERE id=? AND status='sending'",
+                "UPDATE email_outbox SET status='sent', sent_at=?, updated_at=?, body_text='', body_html=''"
+                " WHERE id=? AND status='sending'",
                 (iso(now), iso(now), rid))
             conn.commit()
             return True
 
         now = self._now()
-        if permanent or attempts >= MAX_ATTEMPTS:
+        # Email tes admin: gagal apa pun langsung `failed` (admin menekan "Coba lagi"); reset tetap dijadwal ulang.
+        if permanent or attempts >= MAX_ATTEMPTS or row[5] == "test":
             conn.execute(
                 "UPDATE email_outbox SET status='failed', last_error=?, updated_at=? WHERE id=? AND status='sending'",
                 (err, iso(now), rid))

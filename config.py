@@ -68,11 +68,11 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY", "")
 # SMTP untuk email transaksional (reset password).
 # SMTP_HOST kosong = dev mode: email tidak dikirim, isinya dicetak ke log server.
 SMTP_HOST = os.getenv("SMTP_HOST", "")
-SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_PORT = int(os.getenv("SMTP_PORT") or 587)
 SMTP_USER = os.getenv("SMTP_USER", "")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "")
 SMTP_FROM = os.getenv("SMTP_FROM", "Alurik <noreply@localhost>")
 # starttls | ssl | none. Kosong = ditebak dari port (465 -> ssl, lainnya starttls).
 SMTP_SECURITY = os.getenv("SMTP_SECURITY", "")
 SMTP_REPLY_TO = os.getenv("SMTP_REPLY_TO", "")
-SMTP_TIMEOUT = int(os.getenv("SMTP_TIMEOUT", "15"))
+SMTP_TIMEOUT = int(os.getenv("SMTP_TIMEOUT") or 15)
