@@ -3797,3 +3797,21 @@
 ## 2026-10-21 15:46 WIB — Claude — merge ikon enam halaman (#72)
 - Bapak: "merge". #72 di-merge (8d9dfe0); CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek Mindmap, Diskusi, Gambar, Habit, Kalender, hero Dashboard (SW v445).
+
+## 2026-10-21 19:58 WIB — Claude — slash menu note grid 2 kolom + Wikilink
+- **Task:** slash menu editor note terlalu panjang (perlu scroll ke Gambar/Task) → grid 2 kolom dengan label grup + item Wikilink (disetujui Bapak).
+- **Changes:** `SLASH_MENU_GROUPS` + `makeSlashItem` opsi `{ wide, hint, title }`, `case 'wikilink'`, middleware `slashClampToViewport`; CSS slash menu baru; SW v446 / `app.css?v=352` (tes versi ikut). Tes baru `note_slash_menu_grid.test.js`, `note_slash_task.test.js` disesuaikan; E2E `temporary_files/e2e_slash_menu_grid.py` 26/26.
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/*.test.js (versi), tests/offline/note_slash_menu_grid.test.js, tests/test_version.py, temporary_files/e2e_slash_menu_grid.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (commit lokal, belum di-push)
+
+## 2026-10-21 20:15 WIB — Claude — slash menu: perbaikan review
+- **Task:** temuan review 6ff769a (keyboard HP menutupi baris bawah menu, sistem koordinat campur, wikilink di dalam inline code mewarisi mark code, listbox tanpa nama).
+- **Changes:** `slashClampToViewport` (visualViewport kedua sumbu, max-height dinamis + reset rects), `case 'wikilink'` buang mark `spec.code`, `aria-label` listbox; tes unit + E2E (k, f, a7) 36/36.
+- **Files Touch:** static/index.html, tests/offline/note_slash_menu_grid.test.js, temporary_files/e2e_slash_menu_grid.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (commit lokal, belum di-push)
+
+## 2026-10-21 20:35 WIB — Claude — slash menu: ikon gaya Alurik
+- **Task:** Bapak minta ikon emoji/simbol slash menu diganti glyph duotone gaya Alurik (seperti #69/#72).
+- **Changes:** 9 glyph baru `s*` di `VIEW_GLYPHS` + pakai ulang `pPalette`/`nPin`/`mLink`; `SLASH_MENU_GROUPS` kunci `glyph`; `makeSlashItem` membuat svg (createElementNS); CSS ikon; SW v447 / `app.css?v=353`; tes glyph + daftar kunci `VIEW_GLYPHS`; E2E 39/39 (svg di 12 item, heading teks, tanpa emoji).
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/*.test.js (versi, glyph), tests/test_version.py, temporary_files/e2e_slash_menu_grid.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (di-push ke branch PR #73)
