@@ -89,7 +89,10 @@ test("cache bust v432 + app.css?v=356", () => {
 test("Sidebar: badge Today ikut menghitung task fokus aktif", () => {
   const src = fnSource("Sidebar");
   assert.match(src.slice(0, src.indexOf(") {\n")), /\bfocusTaskId\b/);
-  assert.match(src, /const todayCount = \(tasks \|\| \[\]\)\.filter\(t => \(t\.quadrant === "Q1" \|\| t\.is_overdue \|\| t\.is_focused \|\| \(focusTaskId != null && t\.id === focusTaskId\)\) && t\.gtd_status !== "done" && t\.gtd_status !== "archived"\)\.length;/);
+  // Cakupan sekarang dari focusfilter.inTodayScope (Q1/terlambat/hari ini/⭐/task aktif; done & archived
+  // keluar secara default): focusTaskId diteruskan agar task aktif tetap dihitung.
+  assert.match(src, /const todayCount = \(tasks \|\| \[\]\)\.filter\(t => window\.TF\.focusfilter\.inTodayScope\(t, \{ todayISO, focusTaskId \}\)\)\.length;/);
+  assert.ok(!src.includes("includeDone"), "badge sidebar tidak menghitung task selesai");
   const call = indexHtml.split("React.createElement(Sidebar, {")[1].slice(0, 400);
   assert.match(call, /focusTaskId: focusTaskId,/);
 });

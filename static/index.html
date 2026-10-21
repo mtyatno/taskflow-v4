@@ -4203,7 +4203,8 @@ function Sidebar({
   const projCounts = React.useMemo(() => sidebarProjectCounts(projects, tasks), [projects, tasks]);
 
   // Count today's focus tasks
-  const todayCount = (tasks || []).filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused || (focusTaskId != null && t.id === focusTaskId)) && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
+  const todayISO = window.TF.tasklogic.todayLocalISO();
+  const todayCount = (tasks || []).filter(t => window.TF.focusfilter.inTodayScope(t, { todayISO, focusTaskId })).length;
 
   // Pending offline tasks — merge ke sidebar counts
   const pendingByStatus = React.useMemo(() => (tasks || []).filter(t => t._pending).reduce((acc, t) => {
@@ -20390,12 +20391,14 @@ function Dashboard({
   };
 
   // ── Prioritas hari ini (dipakai hero ring + kartu Prioritas) ──
-  const todayStr = new Date().toISOString().split("T")[0];
-  const allToday = tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused || t.deadline === todayStr) && t.gtd_status !== "archived");
+  const todayStr = window.TF.tasklogic.todayLocalISO();
+  const allToday = tasks.filter(t => window.TF.focusfilter.inTodayScope(t, { todayISO: todayStr, includeDone: true }));
   const doneToday = allToday.filter(t => t.gtd_status === "done");
   const pendingToday = allToday.filter(t => t.gtd_status !== "done").sort((a, b) => {
-    if (a.is_overdue && !b.is_overdue) return -1;
-    if (!a.is_overdue && b.is_overdue) return 1;
+    const aLate = window.TF.focusfilter.timeBucket(a, todayStr) === "late";
+    const bLate = window.TF.focusfilter.timeBucket(b, todayStr) === "late";
+    if (aLate && !bLate) return -1;
+    if (!aLate && bLate) return 1;
     return SORT_PRI(a, b);
   });
   // Show done tasks on top (max 2), then pending (max 5 total visible)
@@ -40120,8 +40123,10 @@ function App() {
         return tasks.filter(t => t.is_overdue);
       case "done":
         return tasks.filter(t => t.gtd_status === "done");
-      case "today":
-        return tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && t.gtd_status !== "done" && t.gtd_status !== "archived");
+      case "today": {
+        const todayISO = window.TF.tasklogic.todayLocalISO();
+        return tasks.filter(t => window.TF.focusfilter.inTodayScope(t, { todayISO }));
+      }
       case "all":
         return tasks.filter(t => t.gtd_status !== "done" && t.gtd_status !== "archived");
       default:
