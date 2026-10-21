@@ -548,6 +548,53 @@ def run_notes_page(browser, base, user, theme):
         ctx.close()
 
 
+EMOJI_PAGES = "🧠🎨✕★🗑👥📄✏"
+
+
+def run_mindmap_draw_pages(browser, base, user, theme):
+    tag = "terang" if theme == "light" else "gelap"
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        # --- Mindmap ---
+        nav_to(p, "Mindmap")
+        p.locator("text=Mindmaps").first.wait_for(state="visible", timeout=15000)
+        p.locator("text=Peta Pribadi").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        side = p.locator("div", has=p.locator("text=Mindmaps")).filter(has_text="Sampah").last
+        text = p.locator("body").inner_text()
+        bad = [c for c in EMOJI_PAGES if c in text]
+        check("[%s] 17a Mindmap: tanpa emoji di innerText" % tag, not bad, repr(bad))
+        check("[%s] 17b Mindmap: judul svg 18px, pinned svg 10px, Sampah svg 14px, pane kosong svg 44px" % tag,
+              p.locator(".wsf-title-ico svg[width='18']").count() >= 1
+              and p.locator("svg[width='10']").count() >= 1
+              and p.locator("button", has_text="Sampah").locator("svg[width='14']").count() == 1
+              and p.locator("svg[width='44']").count() == 1)
+        check("[%s] 17c Mindmap: penanda workspace (13px, aria-label) + dari catatan (13px)" % tag,
+              p.locator("[aria-label='Peta workspace'] svg[width='13']").count() >= 1
+              and p.locator("[aria-label='Tertaut ke catatan'] svg[width='13']").count() >= 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_17_mindmap_halaman.png" % tag), scale="css")
+        side.screenshot(path=os.path.join(SHOTS, "%s_17_mindmap_daftar.png" % tag), scale="css")
+        print("  screenshot %s_17_mindmap_*.png" % tag, flush=True)
+        # --- Gambar / Canvas ---
+        nav_to(p, "Draw")
+        p.locator("text=Gambar / Canvas").first.wait_for(state="visible", timeout=15000)
+        p.locator("text=Gambar Pribadi").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        text = p.locator("body").inner_text()
+        bad = [c for c in EMOJI_PAGES if c in text]
+        check("[%s] 18a Gambar: tanpa emoji di innerText" % tag, not bad, repr(bad))
+        check("[%s] 18b Gambar: judul svg 18px, chip workspace svg 12px, pinned 10px, pensil 11px, pane kosong 44px" % tag,
+              p.locator(".wsf-title-ico svg[width='18']").count() >= 1
+              and p.locator("span", has_text="Tim Alfa").locator("svg[width='12']").count() >= 1
+              and p.locator("svg[width='10']").count() >= 1
+              and p.locator("svg[width='11']").count() >= 1
+              and p.locator("svg[width='44']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_18_draw_halaman.png" % tag), scale="css")
+        print("  screenshot %s_18_draw_halaman.png" % tag, flush=True)
+    finally:
+        ctx.close()
+
+
 def main():
     os.makedirs(SHOTS, exist_ok=True)
     for f in os.listdir(SHOTS):
@@ -580,6 +627,15 @@ def main():
         _, npn = api(base, user, "POST", "/api/scratchpad", json={"title": "Catatan Terpin", "content": "terpin", "tags": ["kerja"]})
         npid = npn.get("id") or npn.get("note", {}).get("id")
         api(base, user, "PATCH", "/api/scratchpad/%d/pin" % npid, json={"pinned": True}, ok_codes=(200, 422))
+        # Mindmap + Gambar (Task 1 ikon halaman): pribadi terpin, bersama workspace, dari catatan; gambar milik budi di workspace
+        _, mm1 = api(base, user, "POST", "/api/mindmaps", json={"title": "Peta Pribadi"})
+        api(base, user, "PATCH", "/api/mindmaps/%d/pin" % mm1["id"], json={"pinned": True})
+        api(base, user, "POST", "/api/mindmaps", json={"title": "Peta Tim", "list_id": list_id})
+        api(base, user, "POST", "/api/mindmaps", json={"source_note_id": npid})
+        _, dr1 = api(base, user, "POST", "/api/drawings", json={"title": "Gambar Pribadi"})
+        api(base, user, "PATCH", "/api/drawings/%s/pin" % dr1["id"])
+        _, dr2 = api(base, budi, "POST", "/api/drawings", json={"title": "Gambar Tim", "list_id": list_id})
+        api(base, user, "PUT", "/api/drawings/%s" % dr2["id"], json={"title": "Gambar Tim"})
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for theme in ("light", "dark"):
@@ -598,6 +654,7 @@ def main():
                     run_manage_page(browser, base, user, theme)
                 run_pomo_chip(browser, base, user, theme)
                 run_notes_page(browser, base, user, theme)
+                run_mindmap_draw_pages(browser, base, user, theme)
             browser.close()
     except Exception as e:
         check("exception", False, "%s: %s" % (type(e).__name__, str(e)[:900]))
