@@ -3785,3 +3785,8 @@
 ## 2026-10-21 10:40 WIB — Claude — Fokus Hari Ini PR D: merge main (#69–#71)
 - **Changes:** merge `origin/main` b5f46ed ke `claude/focus-ambient`; SW v444 `taskflow-v444-focus-ambient` / `app.css?v=351` (sw.js, index.html ×3, webapp.py, tes termasuk `notes_list_icons` + `note_toc`, E2E h2); `VIEW_GLYPHS` memuat ikon `n*` (#69) dan `headphones`; `.gitignore` + `.agents` kedua sisi.
 - **Status:** Needs Review (belum di-push)
+
+## 2026-10-21 10:50 WIB — Claude — merge Fokus Hari Ini PR D (#67)
+- Bapak: "merge". `main` sudah maju (#68–#71) → merge `main` ke branch dua kali, versi naik ke SW v444 / `app.css?v=351`; CI Tests hijau; #67 di-merge (a899d8a). Kelima enhancement halaman Fokus Hari Ini selesai.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` (tanpa migrasi). Cek suara latar di HP (terutama iPhone/Safari).
+- **Catatan:** E2E `e2e_focus_ambient.py` skenario g flaky ±50% (Chromium headless kadang mengizinkan autoplay setelah reload) — perlu dirapikan.
