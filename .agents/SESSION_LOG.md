@@ -3862,3 +3862,8 @@
 ## 2026-10-21 23:30 WIB — Claude — Komentar note PR 3 Task 7 (dokumentasi)
 - CURRENT_STATE entri PR 3 dilengkapi (SIAP REVIEW AKHIR; deploy file statis → restart `taskflow-web`; SW v452 / app.css 357; sisa diketahui). Spec komentar §7 disesuaikan hasil implementasi (CSS Custom Highlight API, ambang 760/900 px, pembaca + editor, header HP, `tf:comments-open`), §9 PR 3 ditandai selesai.
 - Verifikasi: npm test 2731/2732 (pra-ada `draw_local_reactive`), pytest 1072, inline OK. Belum push.
+
+## 2026-10-21 — Claude — Komentar note PR 3: perbaikan review akhir
+- I-1 kutipan lintas paragraf (`collectSegments` menyisipkan `\n` virtual saat pindah blok), I-2 badge daftar ikut diperbarui (`notifyCommentsChanged`, NotesPage mendengar `tf:comments-changed`), M-1 pembaca di bawah editor tanpa SSE (`live`), M-3 ToC bergeser 380px saat panel samping terbuka, M-4 komposer nonaktif setelah akses hilang, triage #30 spec §7.
+- Tes baru `tests/offline/comment_final_fix_ui.test.js` + 2 tes `commenthighlight`; E2E +11 langkah (kutipan dua paragraf di editor, badge tanpa reload, komposer akses hilang).
+- Verifikasi: npm test 2740/2741 (pra-ada `draw_local_reactive`), pytest 1072, inline OK, E2E 88/88. Laporan `.superpowers/sdd/2026-10-21-komentar-note-ui/final-fix-report.md`. Belum push.

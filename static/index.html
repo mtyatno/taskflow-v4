@@ -30009,14 +30009,25 @@ function PaperPageGuides({ rootRef, paperConfig }) {
   //   - NoteCommentsPanel (CommentThreadCard, CommentComposer, CommentDeleteDialog)
   // Komentar level halaman untuk note workspace (list_id != null). Data lewat rute lokal PR 2.
 
+const CMT_LOST_TEXT = "Kamu sudah tidak punya akses ke catatan ini.";
+
 // Galat rute lokal "Note not found": note tak ada lagi di perangkat ini (sync menghapus/memindahkannya).
 function noteGone(err) {
   return !!(err && err.__local && /note not found/i.test(String(err.message || "")));
 }
 
+// Beri tahu pendengar lain (daftar catatan, badge) bahwa komentar note ini berubah di perangkat ini.
+function notifyCommentsChanged(noteId) {
+  if (noteId == null) return;
+  try {
+    window.dispatchEvent(new CustomEvent("tf:comments-changed", { detail: { source: "local", note_ids: [noteId] } }));
+  } catch (_) {}
+}
+
 function useNoteComments(note, {
   open,
-  showToast
+  showToast,
+  live = true
 } = {}) {
   const active = !!(note && note.id != null && note.list_id != null);
   const noteId = active ? note.id : null;
@@ -30073,9 +30084,12 @@ function useNoteComments(note, {
     if (noteId == null) { seqRef.current++; setLoading(false); return; }
     reload();
   }, [noteId, listId, reload]);
-  // Event lokal (sync pull, tab lain) + kembali online.
+  // Event dari sync pull (sumber "local" = mutasi hook ini sendiri / host lain → diabaikan) + kembali online.
   useEffect(() => {
-    const onChanged = () => { if (noteId != null) reload(); };
+    const onChanged = (e) => {
+      if (e && e.detail && e.detail.source === "local") return;
+      if (noteId != null) reload();
+    };
     const onOnline = () => { setOnline(true); if (noteId != null) reload(); };
     const onOffline = () => setOnline(false);
     // Pull note dari sync (note dipindah/di-unshare/dihapus di perangkat lain) → cek ulang lewat rute lokal.
@@ -30091,9 +30105,16 @@ function useNoteComments(note, {
       window.removeEventListener("offline", onOffline);
     };
   }, [noteId, reload]);
+  // live false (pembaca di bawah editor) → tanpa stream; kembali live → muat ulang (mutasi editor terlewat).
+  const prevLiveRef = useRef(live);
+  useEffect(() => {
+    const was = prevLiveRef.current;
+    prevLiveRef.current = live;
+    if (live && !was && noteId != null) reload();
+  }, [live, noteId, reload]);
   // Live: SSE per note server (pola mindmap). Hanya online; dibuka lagi saat 'online'.
   useEffect(() => {
-    if (serverId == null || gone || typeof EventSource === "undefined") return;
+    if (!live || serverId == null || gone || typeof EventSource === "undefined") return;
     let es = null;
     let disposed = false;
     const closeStream = () => {
@@ -30111,7 +30132,9 @@ function useNoteComments(note, {
         const pull = SP && SP.pullComments && typeof window.__syncRawFetch === "function"
           ? Promise.resolve().then(() => SP.pullComments(window.__syncRawFetch))
           : Promise.resolve();
-        pull.then(() => { if (!disposed) reload(); }, () => { if (!disposed) reload(); });
+        // Setelah pull: muat ulang panel + kabari daftar catatan (badge jumlah/baru).
+        const done = () => { if (disposed) return; reload(); notifyCommentsChanged(noteId); };
+        pull.then(done, done);
         return;
       }
       if (ev.type === "comments_access_lost") {
@@ -30119,6 +30142,7 @@ function useNoteComments(note, {
         closeStream();
         seqRef.current++;
         setRows([]);
+        setGone(true);
       }
     };
     const connect = () => {
@@ -30140,7 +30164,7 @@ function useNoteComments(note, {
       window.removeEventListener("online", onOnline);
       closeStream();
     };
-  }, [serverId, listId, reload, gone]);
+  }, [serverId, listId, reload, gone, live]);
   // Tandai dibaca saat panel terbuka dan ada komentar — paling sering sekali per 10 detik.
   // Tertahan throttle → satu POST susulan di sisa waktu; panel ditutup → POST akhir bila ada yang baru.
   const readSig = rows.map((r) => (r.cid || r.id) + ":" + (r.updated_at || r.created_at || "")).join(",");
@@ -30154,7 +30178,8 @@ function useNoteComments(note, {
     if (st.noteId == null || !st.hasRows) return;
     lastReadRef.current = Date.now();
     lastReadSigRef.current = st.sig;
-    api.post(`/api/scratchpad/${encodeURIComponent(st.noteId)}/comments/read`, {}).catch(() => {});
+    const nid = st.noteId;
+    api.post(`/api/scratchpad/${encodeURIComponent(nid)}/comments/read`, {}).then(() => notifyCommentsChanged(nid), () => {});
   }, []);
   useEffect(() => { lastReadSigRef.current = ""; }, [noteId, listId]);
   useEffect(() => {
@@ -30176,14 +30201,21 @@ function useNoteComments(note, {
       if (st.hasRows && st.sig !== lastReadSigRef.current) postRead();
     }
   }, [open, postRead]);
+  // Setelah create/edit/resolve/hapus/buang dari panel: muat ulang + kabari daftar catatan (badge).
+  const afterChange = useCallback(() => {
+    notifyCommentsChanged(noteId);
+    return reload();
+  }, [noteId, reload]);
   const R = window.TF && window.TF.commentrepo;
   const openCount = R && R.threads ? window.TF.commentrepo.threads(rows, "open").length : 0;
   return {
     rows,
     loading,
     reload,
+    afterChange,
     online,
-    openCount
+    openCount,
+    gone
   };
 }
 
@@ -30249,14 +30281,19 @@ function CommentComposer({
   onCancel,
   showToast,
   autoFocus = false,
-  compact = false
+  compact = false,
+  lost: lostProp = false
 }) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  // Akses hilang (gone / comments_access_lost dari hook, atau galat lokal "Note not found" saat kirim).
+  const [lostLocal, setLostLocal] = useState(false);
+  useEffect(() => { setLostLocal(false); }, [note && note.id]);
+  const lost = !!lostProp || lostLocal;
   const sendingRef = useRef(false);
   const send = () => {
     const body = text.trim();
-    if (!body || sendingRef.current || !note || note.id == null) return;
+    if (lost || !body || sendingRef.current || !note || note.id == null) return;
     sendingRef.current = true;
     setSending(true);
     const payload = { body };
@@ -30268,6 +30305,12 @@ function CommentComposer({
       reload && reload();
       onSent && onSent();
     }, (err) => {
+      if (noteGone(err)) {
+        setLostLocal(true);
+        showToast && showToast(CMT_LOST_TEXT, "error");
+        reload && reload();
+        return;
+      }
       showToast && showToast((err && err.message) || "Komentar gagal dikirim", "error");
     }).then(() => {
       sendingRef.current = false;
@@ -30279,6 +30322,15 @@ function CommentComposer({
     if (e.key === "Escape" && onCancel) { e.preventDefault(); e.stopPropagation(); onCancel(); }
   };
   const wsName = workspaceName || "workspace";
+  if (lost) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "cmt-composer cmt-composer--lost" + (compact ? " cmt-composer--reply" : ""),
+      "aria-disabled": "true"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "cmt-lost",
+      role: "status"
+    }, CMT_LOST_TEXT));
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "cmt-composer" + (compact ? " cmt-composer--reply" : "")
   }, parentId == null && quote ? /*#__PURE__*/React.createElement("div", {
@@ -30338,7 +30390,8 @@ function CommentThreadCard({
   candidates,
   workspaceName,
   reload,
-  showToast
+  showToast,
+  lost = false
 }) {
   const CU = window.TF.commentui;
   const [draft, setDraft] = useState("");
@@ -30502,7 +30555,8 @@ function CommentThreadCard({
     onCancel: () => setReplying(null),
     showToast: showToast,
     autoFocus: true,
-    compact: true
+    compact: true,
+    lost: lost
   }) : null);
 }
 
@@ -30520,7 +30574,8 @@ function NoteCommentsPanel({
   reload,
   showToast,
   workspaceName,
-  online
+  online,
+  gone = false
 }) {
   const [tab, setTab] = useState("open");
   const [editingId, setEditingId] = useState(null);
@@ -30629,7 +30684,8 @@ function NoteCommentsPanel({
     candidates: candidates,
     workspaceName: workspaceName,
     reload: reload,
-    showToast: showToast
+    showToast: showToast,
+    lost: !!gone
   }))), /*#__PURE__*/React.createElement(CommentComposer, {
     note: note,
     quote: quote || "",
@@ -30638,7 +30694,8 @@ function NoteCommentsPanel({
     workspaceName: workspaceName || "workspace",
     reload: reload,
     onSent: () => setTab("open"),
-    showToast: showToast
+    showToast: showToast,
+    lost: !!gone
   }), deleteTarget ? /*#__PURE__*/React.createElement(CommentDeleteDialog, {
     hasReplies: !!deleteTarget.hasReplies,
     busy: deleting,
@@ -31345,10 +31402,11 @@ function NoteModal({
     activeId: cmtActiveId,
     onActivate: cmtActivate,
     docText: cmtDocText,
-    reload: cmt.reload,
+    reload: cmt.afterChange,
     showToast: showToast,
     workspaceName: (sharedLists || []).find(l => String(l.id) === String(noteListId))?.name,
-    online: cmt.online
+    online: cmt.online,
+    gone: cmt.gone
   }) : null;
   const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
   const handleModalShare = async listId => {
@@ -33148,6 +33206,7 @@ function NoteModal({
   // Always full-screen panel
   return /*#__PURE__*/React.createElement("div", {
     ref: cmtHostRef,
+    className: cmtWide && cmtPanelEl ? "cmt-side-open" : undefined,
     style: {
       position: "fixed",
       inset: 0,
@@ -34062,7 +34121,8 @@ function NotePanel({
   const [cmtActiveId, setCmtActiveId] = useState(null);
   const [cmtDocText, setCmtDocText] = useState(null);
   const cmtEntriesRef = React.useRef([]);
-  const cmt = useNoteComments(note, { open: cmtOpen && cmtEnabled && !cmtUnderModal, showToast });
+  // Editor di atas pembaca → pembaca tanpa SSE sendiri (stream dipegang editor), dimuat ulang saat kembali.
+  const cmt = useNoteComments(note, { open: cmtOpen && cmtEnabled && !cmtUnderModal, showToast, live: !cmtUnderModal });
   const cmtOpenThreads = useMemo(() => {
     const R = window.TF && window.TF.commentrepo;
     if (!cmtEnabled || !R || !R.threads) return [];
@@ -34150,10 +34210,11 @@ function NotePanel({
     activeId: cmtActiveId,
     onActivate: cmtActivate,
     docText: cmtDocText,
-    reload: cmt.reload,
+    reload: cmt.afterChange,
     showToast: showToast,
     workspaceName: (sharedLists || []).find(l => String(l.id) === String(note.list_id))?.name,
-    online: cmt.online
+    online: cmt.online,
+    gone: cmt.gone
   }) : null;
 
   const renderedNoteEl = /*#__PURE__*/React.createElement("div", {
@@ -34191,6 +34252,7 @@ function NotePanel({
 
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     ref: cmtHostRef,
+    className: cmtWide && cmtPanelEl ? "cmt-side-open" : undefined,
     style: {
       display: "flex",
       gap: 0
@@ -35550,6 +35612,19 @@ function NotesPage({
     const handler = () => fetchNotes(q, activeTags, filterUntagged, notesTab);
     window.addEventListener("noteSaved", handler);
     return () => window.removeEventListener("noteSaved", handler);
+  }, [q, activeTags, filterUntagged, notesTab]);
+  // Komentar berubah (baca/tulis lokal, pull sync, SSE) → badge daftar (comment_open_count/comment_unread) dibaca ulang.
+  useEffect(() => {
+    let cmtListTimer = null;
+    const onCmt = () => {
+      clearTimeout(cmtListTimer);
+      cmtListTimer = setTimeout(() => { cmtListTimer = null; fetchNotes(q, activeTags, filterUntagged, notesTab); }, 500);
+    };
+    window.addEventListener("tf:comments-changed", onCmt);
+    return () => {
+      window.removeEventListener("tf:comments-changed", onCmt);
+      clearTimeout(cmtListTimer);
+    };
   }, [q, activeTags, filterUntagged, notesTab]);
   useEffect(() => {
     const handler = () => {

@@ -21,6 +21,17 @@
     return (el && el.ownerDocument) || (typeof document !== "undefined" ? document : null);
   }
 
+  // Blok terdekat (dibatasi root). DOM ProseMirror tidak punya teks spasi antar blok, jadi tanpa
+  // pemisah "<p>a</p><p>b</p>" menjadi "ab" dan kutipan lintas paragraf tidak ketemu.
+  const BLOCK = "p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th, div";
+  function blockOf(p, rootEl) {
+    if (!p || typeof p.closest !== "function") return null;
+    const b = p.closest(BLOCK);
+    if (!b || b === rootEl) return null;
+    if (rootEl && typeof rootEl.contains === "function" && !rootEl.contains(b)) return null;
+    return b;
+  }
+
   function collectSegments(rootEl) {
     const doc = docOf(rootEl);
     const filter = (typeof NodeFilter !== "undefined" && NodeFilter.SHOW_TEXT) || 4;
@@ -28,11 +39,18 @@
     const segments = [];
     let text = "";
     let node;
+    let prevBlock;
+    let started = false;
     while ((node = walker.nextNode())) {
       const p = node.parentElement;
       if (p && typeof p.closest === "function" && p.closest(SKIP)) continue;
       const v = node.nodeValue || "";
       if (!v.length) continue;
+      const block = blockOf(p, rootEl);
+      // Pindah blok → "\n" virtual di text (tanpa segmen); findQuote menormalkan spasi.
+      if (started && block !== prevBlock) text += "\n";
+      started = true;
+      prevBlock = block;
       segments.push({ node, start: text.length, end: text.length + v.length });
       text += v;
     }

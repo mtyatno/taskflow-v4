@@ -137,7 +137,8 @@ test("Floating ToC CSS — tombol melayang ala Medium", async (t) => {
     assert.ok(block.includes(".floating-toc-anchor {"), "blok ini memang override desktop Floating ToC");
     const m = /\.floating-toc-anchor\.floating-toc-anchor--modal \{([^}]*)\}/.exec(block);
     assert.ok(m, "rule .floating-toc-anchor.floating-toc-anchor--modal di dalam @media (min-width: 769px)");
-    assert.match(m[1], /right:\s*8px/, "desktop: geser ke kanan (celah dari tepi teks editor)");
+    // + lebar panel komentar samping bila terbuka (--cmt-side-w, default 0)
+    assert.match(m[1], /right:\s*calc\(8px \+ var\(--cmt-side-w, 0px\)\)/, "desktop: geser ke kanan (celah dari tepi teks editor)");
     assert.strictEqual(/z-index/.test(m[1]), false, "z-index tetap 45: anchor dirender di dalam root NoteModal (konteks tumpuk z 1000)");
     assert.ok(block.indexOf(".floating-toc-anchor.floating-toc-anchor--modal {") > block.indexOf(".floating-toc-anchor {"), "varian setelah override base desktop");
   });

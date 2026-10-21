@@ -235,6 +235,6 @@ test("useNoteComments: note hilang dari lokal (dipindah ke pribadi / di-unshare,
     "tanpa toast gagal muat");
   assert.ok(/__local\s*&&\s*\/note not found\/i/.test(fnSource("noteGone")), "deteksi galat lokal note not found");
   // stream SSE tidak dibuka / ditutup selama gone
-  assert.ok(src.includes("if (serverId == null || gone ||"), "SSE berhenti saat gone");
-  assert.ok(src.includes("}, [serverId, listId, reload, gone]);"), "efek SSE bergantung pada gone");
+  assert.ok(src.includes("if (!live || serverId == null || gone ||"), "SSE berhenti saat gone / tidak live");
+  assert.ok(src.includes("}, [serverId, listId, reload, gone, live]);"), "efek SSE bergantung pada gone dan live");
 });

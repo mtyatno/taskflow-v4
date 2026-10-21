@@ -65,3 +65,73 @@ test("threadAt", () => {
   assert.equal(hl.threadAt([], "x", 0), null);
   assert.equal(hl.threadAt(null, "x", 0), null);
 });
+
+// ── I-1: pemisah blok virtual "\n" di collectSegments ──
+const BLOCK_SEL = "p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th, div";
+function fakeDom(spec, rootEl) {
+  // spec: [{ text, block, skip }] — block = objek blok (atau null), skip = di dalam elemen SKIP.
+  const nodes = spec.map((s) => ({
+    nodeValue: s.text,
+    parentElement: {
+      closest(sel) {
+        if (sel === BLOCK_SEL) return s.block || null;
+        return s.skip ? {} : null;
+      },
+    },
+  }));
+  const blocks = new Set(spec.map((s) => s.block).filter(Boolean));
+  rootEl.contains = (el) => blocks.has(el) && !(el && el.outside);
+  rootEl.ownerDocument = {
+    createTreeWalker() { let i = 0; return { nextNode() { return i < nodes.length ? nodes[i++] : null; } }; },
+  };
+  return nodes;
+}
+
+test("collectSegments: blok berbeda → \\n virtual tanpa segmen, offset segmen konsisten", () => {
+  global.NodeFilter = { SHOW_TEXT: 4 };
+  try {
+    const p1 = { tag: "p1" }, p2 = { tag: "p2" };
+    const rootEl = {};
+    const nodes = fakeDom([
+      { text: "alpha ", block: p1 },
+      { text: "one", block: p1 },
+      { text: "beta two", block: p2 },
+    ], rootEl);
+    const { text, segments } = hl.collectSegments(rootEl);
+    assert.equal(text, "alpha one\nbeta two");
+    assert.equal(segments.length, 3);
+    assert.deepEqual(segments.map((s) => [s.start, s.end]), [[0, 6], [6, 9], [10, 18]]);
+    for (const s of segments) assert.equal(text.slice(s.start, s.end), s.node.nodeValue);
+    assert.equal(segments[2].node, nodes[2]);
+    // findQuote lintas paragraf menemukan "one beta" dan locate memetakan ke dua node
+    const anchor = require("../../static/offline/commentanchor.js");
+    const hit = anchor.findQuote(text, "one beta");
+    assert.ok(hit, "kutipan lintas paragraf harus ketemu");
+    const loc = hl.locate(segments, hit.from, hit.to);
+    assert.ok(loc);
+    assert.equal(loc.startNode, nodes[1]);
+    assert.equal(loc.startOffset, 0);
+    assert.equal(loc.endNode, nodes[2]);
+    assert.equal(loc.endOffset, 4);
+  } finally { delete global.NodeFilter; }
+});
+
+test("collectSegments: blok sama tanpa pemisah; node SKIP dilewati; blok di luar root = tanpa blok", () => {
+  global.NodeFilter = { SHOW_TEXT: 4 };
+  try {
+    const p1 = { tag: "p1" }, outer = { tag: "outer", outside: true };
+    const rootEl = {};
+    fakeDom([
+      { text: "a", block: outer },
+      { text: "b", block: outer },
+      { text: "x", block: p1, skip: true },
+      { text: "c", block: p1 },
+      { text: "d", block: p1 },
+    ], rootEl);
+    const { text, segments } = hl.collectSegments(rootEl);
+    // outer di luar root → null untuk a & b (sama) ; c masuk p1 → satu pemisah; x dilewati
+    assert.equal(text, "ab\ncd");
+    assert.equal(segments.length, 4);
+    for (const s of segments) assert.equal(text.slice(s.start, s.end), s.node.nodeValue);
+  } finally { delete global.NodeFilter; }
+});

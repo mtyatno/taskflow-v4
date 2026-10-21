@@ -12,6 +12,8 @@ A = pemilik workspace W, B = anggota. Desktop 1360×900 (panel samping pembaca),
   8  klik `Kirim` dua kali cepat (dan Ctrl+Enter dua kali) → tepat satu komentar di server
   9  A pindahkan note ke pribadi saat panel B terbuka → panel B kosong, tanpa error
  10  375 px terang + gelap: lembar bawah, scrollWidth ≤ 375; badge `cmt-badge` di daftar catatan B
+ 11  (dijalankan sebelum 9) badge daftar B: komentar A → jumlah + is-unread; B membaca → is-unread hilang, tanpa reload
+  6  juga: kutipan lintas paragraf (QUOTE2) tetap tersorot dan tidak "hilang" di pembaca maupun editor
 
 Server lokal uvicorn webapp:app + DB sementara. Screenshot: temporary_files/e2e_komentar_note/ (di-.gitignore).
 Keluar non-zero bila ada langkah gagal.
@@ -45,6 +47,8 @@ NOTE_BODY = ("Rilis versi baru dijadwalkan minggu depan.\n\n"
              "Anggaran pemasaran perlu ditinjau ulang sebelum Jumat.\n\n"
              "Tim desain menyiapkan mockup halaman utama.\n")
 QUOTE = "Anggaran pemasaran perlu ditinjau ulang"
+QUOTE2 = "sebelum Jumat. Tim desain menyiapkan"  # lintas paragraf 2 → 3 (I-1)
+Q2K = re.sub(r"\s+", "", QUOTE2)  # pembanding hl_texts
 NOTE9 = "Catatan Pindah"
 PRIV = "Catatan Pribadi Ana"
 LOST = "Bagian ini sudah diubah atau dihapus dari catatan."
@@ -296,6 +300,24 @@ def has_highlight(p):
     return p.evaluate("() => !!(window.CSS && CSS.highlights && (CSS.highlights.has('cmt') || CSS.highlights.has('cmt-active')))")
 
 
+def hl_texts(p):
+    """Teks semua Range sorotan komentar (cmt + cmt-active) tanpa spasi (Range.toString lintas blok tanpa pemisah)."""
+    return p.evaluate("""() => { if (!(window.CSS && CSS.highlights)) return [];
+        const out = []; for (const k of ['cmt', 'cmt-active']) { const h = CSS.highlights.get(k);
+            if (h) for (const r of h) out.push(r.toString().replace(/\\s+/g, '')); }
+        return out; }""")
+
+
+def badge_state(p, title):
+    """(jumlah, is_unread) badge komentar kartu note di daftar; (0, False) bila tidak ada."""
+    b = note_card(p, title).locator(".cmt-badge")
+    if b.count() == 0:
+        return (0, False)
+    lab = b.first.get_attribute("aria-label") or ""
+    m = re.match(r"^(\d+) komentar terbuka", lab)
+    return (int(m.group(1)) if m else -1, "is-unread" in (b.first.get_attribute("class") or ""))
+
+
 def has_cmt_key(p):
     return p.evaluate("() => !!(window.CSS && CSS.highlights && CSS.highlights.has('cmt'))")
 
@@ -482,6 +504,14 @@ def main():
             check("5j sorotan kembali di A", wait_until(lambda: has_highlight(a), 5))
 
             # ── 6. A edit teks terkutip di editor ───────────────────────────────
+            # I-1: thread berkutipan lintas paragraf (2 → 3) — tetap tersorot di pembaca dan editor.
+            body6q = "Kutipan dua paragraf tetap tersorot."
+            api(base, A, "POST", "/api/scratchpad/%d/comments" % n1["id"], json={"body": body6q, "quote": QUOTE2})
+            c6q = card_with(a, body6q)
+            check("6pre pembaca A: kartu kutipan dua paragraf tampil (SSE)", wait_until(lambda: c6q.count() == 1, 15))
+            check("6pre2 pembaca A: kutipan dua paragraf tidak 'hilang' dan tersorot",
+                  wait_until(lambda: c6q.first.locator(".cmt-quote-lost").count() == 0 and Q2K in hl_texts(a), 8),
+                  repr(hl_texts(a)))
             a.console.clear()
             a.errors.clear()
             a.locator(".notes-panel-actions").first.get_by_text("Edit", exact=True).click()
@@ -495,6 +525,11 @@ def main():
             panel(a).first.wait_for(timeout=8000)
             check("6b editor: panel menampilkan kartu berkutipan", wait_until(lambda: card_with(a, body2).count() == 1, 10))
             check("6c editor: sorotan aktif", wait_until(lambda: has_highlight(a), 8))
+            check("6c2 editor: kutipan dua paragraf tersorot (2 sorotan)",
+                  wait_until(lambda: Q2K in hl_texts(a) and len(hl_texts(a)) == 2, 8), repr(hl_texts(a)))
+            check("6c3 editor: kartu kutipan dua paragraf tanpa teks kutipan-hilang",
+                  card_with(a, body6q).count() == 1 and card_with(a, body6q).first.locator(".cmt-quote-lost").count() == 0
+                  and a.get_by_text(LOST).count() == 0)
             shot(a, "06_A_editor_sorotan.png")
             # pilih kata "pemasaran" di ProseMirror lalu ketik pengganti
             pm.click()
@@ -506,7 +541,10 @@ def main():
             check("6d editor memuat teks baru", "Anggaran promosi digital dan iklan" in pm.inner_text())
             lost = card_with(a, body2).first.locator(".cmt-quote-lost")
             check("6e kartu: '%s'" % LOST, wait_until(lambda: lost.count() == 1 and lost.inner_text().strip() == LOST, 8))
-            check("6f sorotan thread kutipan-hilang lenyap", wait_until(lambda: not has_highlight(a), 5))
+            check("6f sorotan thread kutipan-hilang lenyap, kutipan dua paragraf tetap",
+                  wait_until(lambda: hl_texts(a) == [Q2K], 5), repr(hl_texts(a)))
+            check("6f2 kartu kutipan dua paragraf tetap tanpa teks kutipan-hilang",
+                  card_with(a, body6q).first.locator(".cmt-quote-lost").count() == 0)
             errs = cmt_errors(a.console) + a.errors
             check("6g mengetik di editor: tanpa error console/pageerror dari kode komentar", not errs, repr(errs[:3]))
             print("  console error lain:", a.console[:5], flush=True)
@@ -577,6 +615,30 @@ def main():
             check("8c panel B: masing-masing satu kartu", card_with(b, body8).count() == 1 and card_with(b, body8b).count() == 1,
                   "%d/%d" % (card_with(b, body8).count(), card_with(b, body8b).count()))
 
+            # ── 11. badge daftar B ikut diperbarui tanpa reload (I-2) ─────────────
+            b.evaluate("() => { window.__e2eNoReload = 1; }")
+            b.get_by_role("button", name="Tutup panel komentar").first.click()
+            check("11pre panel B ditutup", wait_until(lambda: panel(b).count() == 0, 5))
+            b.wait_for_timeout(1000)
+            n_before, _ = badge_state(b, NOTE)
+            check("11a badge B ada sebelum komentar baru", n_before > 0, repr(badge_state(b, NOTE)))
+            body11 = "Komentar baru untuk badge daftar."
+            api(base, A, "POST", "/api/scratchpad/%d/comments" % n1["id"], json={"body": body11})
+            t11 = time.time()
+            check("11b komentar A → jumlah badge B bertambah + is-unread, tanpa reload",
+                  wait_until(lambda: badge_state(b, NOTE) == (n_before + 1, True), 15),
+                  "%r setelah %.1f s" % (badge_state(b, NOTE), time.time() - t11))
+            print("  11b badge diperbarui dalam %.1f s" % (time.time() - t11), flush=True)
+            shot(b, "11_B_badge_baru.png")
+            reader_btn(b).first.click()
+            panel(b).first.wait_for(timeout=8000)
+            t11 = time.time()
+            check("11c B membaca komentar → badge kehilangan is-unread, tanpa reload",
+                  wait_until(lambda: badge_state(b, NOTE) == (n_before + 1, False), 15),
+                  "%r setelah %.1f s" % (badge_state(b, NOTE), time.time() - t11))
+            check("11d halaman B tidak dimuat ulang", b.evaluate("() => window.__e2eNoReload === 1"))
+            shot(b, "11_B_badge_dibaca.png")
+
             # ── 9. note dipindah ke pribadi saat panel B terbuka ─────────────────
             b.errors.clear()
             b.console.clear()
@@ -605,6 +667,11 @@ def main():
                   repr(open_streams(b)))
             errs = b.errors + cmt_errors(b.console)
             check("9f B: tanpa error tak tertangkap", not errs, repr(errs[:3]))
+            if panel(b).count():
+                lost_c = composer(b).locator(".cmt-lost")
+                check("9g komposer B: teks akses hilang, tanpa input",
+                      lost_c.count() == 1 and lost_c.inner_text().strip() == "Kamu sudah tidak punya akses ke catatan ini."
+                      and composer(b).locator("textarea").count() == 0)
             print("  B setelah pindah: panel=%d, aksi=%d" % (panel(b).count(), b.locator(".notes-panel-actions").count()), flush=True)
             shot(b, "09_B_setelah_dipindah.png")
 

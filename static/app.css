@@ -2339,7 +2339,7 @@
 /* ── Floating ToC ala Medium — tombol melayang (mobile-first: FAB di atas FAB Buat Baru) ── */
 .floating-toc-anchor {
   position: fixed;
-  right: 16px;
+  right: calc(16px + var(--cmt-side-w, 0px));
   bottom: calc(92px + env(safe-area-inset-bottom, 0px));
   z-index: 45;
 }
@@ -2431,7 +2431,7 @@
   }
   /* Mode edit: dgn right 16px tombol menempel tepi kanan teks editor (celah ~1px) → geser ke kanan */
   .floating-toc-anchor.floating-toc-anchor--modal {
-    right: 8px;
+    right: calc(8px + var(--cmt-side-w, 0px));
   }
 }
 
@@ -4473,6 +4473,9 @@
 .cmt-panel { display: flex; flex-direction: column; min-height: 0; box-sizing: border-box; background: var(--bg-card); color: var(--text-primary); font-size: 14px; overflow: hidden; }
 .cmt-panel *, .cmt-panel *::before, .cmt-panel *::after { box-sizing: border-box; }
 .cmt-panel--side { width: 380px; max-width: 100%; flex: 0 0 380px; height: 100%; border: 0; border-inline-start: 1px solid var(--border); }
+/* Panel samping terbuka (host diberi .cmt-side-open) → tombol ToC melayang (.floating-toc-anchor memakai
+   --cmt-side-w di `right`) digeser sejauh lebar panel agar tidak menutupinya. */
+.cmt-side-open { --cmt-side-w: 380px; }
 .cmt-sheet { position: fixed; left: 0; right: 0; bottom: 0; height: 72vh; max-width: 100vw; z-index: 1101; border: 1px solid var(--border); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -12px 32px rgba(15,23,42,0.18); padding-bottom: env(safe-area-inset-bottom, 0px); overflow-x: hidden; }
 .cmt-sheet-backdrop { position: fixed; inset: 0; z-index: 1100; background: rgba(15,23,42,0.4); }
 .cmt-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 12px 8px 16px; }
@@ -4519,6 +4522,7 @@
 .cmt-btn--danger:hover:not(:disabled) { background: #b91c1c; }
 .cmt-composer { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--bg-card); }
 .cmt-composer--reply { padding: 8px 0 0; border-top: 0; }
+.cmt-lost { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--bg-hover); color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
 .cmt-composer .cmt-input, .cmt-edit .cmt-input { width: 100%; min-height: 44px; resize: vertical; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 14px; line-height: 1.45; }
 .cmt-composer .cmt-input:focus, .cmt-edit .cmt-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(168,197,0,0.25); }
 .cmt-edit { display: flex; flex-direction: column; gap: 6px; }
