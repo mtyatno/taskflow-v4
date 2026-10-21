@@ -405,3 +405,44 @@ test("comment_read: note tanpa sid dengan op create note yang gagal 503 → dita
   assert.equal(tr.calls.length, 1);
   assert.equal((await outboxAll()).length, 2);
 });
+
+test("create body 'halo\\n' dan server mengembalikan 'halo' (strip) → tidak ada edit palsu, pending null", async () => {
+  await mapPut("note", 50, "n1");
+  await put("scratchpad_notes", [note()]);
+  await put("note_comments", [comment({ body: "halo\n" })]);
+  await put("_outbox", [{ qid: 1, entity_type: "comment", op: "create", cid: "k1" }]);
+  const tr = fakeTransport(() => ({ status: 201, data: serverRow({ body: "halo" }) }));
+  await pushOutbox(tr);
+  const rec = await getC("k1");
+  assert.equal(rec.pending, null);
+  assert.equal(rec.body, "halo");
+  assert.equal(rec.server_copy, null);
+  assert.equal((await outboxAll()).length, 0);
+  assert.equal(tr.calls.length, 1);
+});
+
+test("edit lokal selama POST create in-flight → op edit diantre, isi lokal dipertahankan", async () => {
+  await mapPut("note", 50, "n1");
+  await put("scratchpad_notes", [note()]);
+  await put("note_comments", [comment()]);
+  await put("_outbox", [{ qid: 1, entity_type: "comment", op: "create", cid: "k1" }]);
+  const calls = [];
+  const tr = {
+    request(method, path, body) {
+      calls.push(method);
+      if (method !== "POST") return Promise.resolve({ status: 200, data: serverRow({ body: "baru", edited_at: "x" }) });
+      return getC("k1").then((r) => put("note_comments", [Object.assign({}, r, { body: "baru" })]))
+        .then(() => ({ status: 201, data: serverRow() }));
+    },
+  };
+  await pushOutbox(tr);
+  const rec = await getC("k1");
+  assert.equal(rec.server_id, 900);
+  assert.equal(rec.body, "baru");
+  assert.equal(rec.pending, "edit");
+  assert.equal(rec.server_copy.body, "halo");
+  assert.deepEqual((await outboxAll()).map((o) => o.op), ["edit"]);
+  await pushOutbox(tr);
+  assert.deepEqual(calls, ["POST", "PATCH"]);
+  assert.equal((await getC("k1")).pending, null);
+});

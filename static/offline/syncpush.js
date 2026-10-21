@@ -1986,7 +1986,7 @@
             client_id: rec.cid,
           };
           return send(transport, "POST", "/api/scratchpad/" + noteSid + "/comments", sent).then((res) => {
-            if (ok(res)) return commentCreated(op, rec, noteSid, res.data || {}, result);
+            if (ok(res)) return commentCreated(op, rec, noteSid, sent, res.data || {}, result);
             const st = res.status;
             const code = (st === 403 || st === 404) ? "access" : (st === 409 ? "not_shared" : "invalid");
             return commentCreateFail(op, op.cid, code, result);
@@ -1995,7 +1995,7 @@
       });
     });
   }
-  function commentCreated(op, rec, noteSid, data, result) {
+  function commentCreated(op, rec, noteSid, sent, data, result) {
     const CR = commentRepo();
     const sid = data.id;
     const row = Object.assign({ note_id: noteSid }, data);
@@ -2017,7 +2017,9 @@
         return commentSettle(op.cid, row, (c) => {
           const kinds = [];
           if (c.deleted_at) return ["delete"];
-          if ((c.body != null ? c.body : "") !== (row.body != null ? row.body : "")) kinds.push("edit");
+          // edit selama request: bandingkan dengan body yang DIKIRIM, bukan body respons (server men-strip
+          // whitespace → "halo\n" vs "halo" bukan edit, dan PATCH palsu menandai komentar "diedit").
+          if ((c.body != null ? c.body : "") !== sent.body) kinds.push("edit");
           if (resolvedDiffers(c, row)) kinds.push("resolve");
           return kinds;
         });

@@ -162,7 +162,7 @@
           parent_id: thread && thread.server_id != null ? thread.server_id : null,
           user_id: u.user_id != null ? u.user_id : null,
           username: u.username || null, display_name: u.display_name || null,
-          body: String(inp.body || ""), quote: thread ? null : (inp.quote != null ? inp.quote : null),
+          body: String(inp.body || "").trim(), quote: thread ? null : (inp.quote != null ? inp.quote : null),
           resolved_at: null, resolved_by: null, resolved_by_name: null, edited_at: null, deleted_at: null,
           client_id: cid, created_at: now, updated_at: now,
           pending: "create", sync_error: null, server_copy: null,
@@ -215,7 +215,7 @@
 
   function edit(cid, body) {
     return loadLive(cid).then((rec) => change(rec, "edit", (r, now, synced) => {
-      r.body = String(body || "");
+      r.body = String(body || "").trim(); // server men-strip body; samakan supaya push tidak memicu edit palsu
       if (synced) r.edited_at = now;
       else r.updated_at = now;
     })).then(shape);

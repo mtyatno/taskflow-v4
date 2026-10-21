@@ -450,3 +450,14 @@ test("remove after sync_error clears it and queues delete", async () => {
   assert.equal(rec.sync_error, null);
   assert.deepEqual((await commentOps()).map((o) => o.op), ["delete"]);
 });
+
+test("create and edit trim the body like the server", async () => {
+  const c = await repo.create("n1", { body: "  halo \n" });
+  assert.equal((await repo.getRaw(c.cid)).body, "halo");
+  await repo.edit(c.cid, "\n dua  ");
+  assert.equal((await repo.getRaw(c.cid)).body, "dua");
+  await repo.mergePulled([srv({ id: 100 })]);
+  const cid = await cidOf("comment", 100);
+  await repo.edit(cid, " tiga\n");
+  assert.equal((await repo.getRaw(cid)).body, "tiga");
+});
