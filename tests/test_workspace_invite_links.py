@@ -60,7 +60,8 @@ def test_generate_defaults_1d_single_use(client):
     assert j["max_uses"] == 1 and j["uses"] == 0
     assert j["code"] in j["join_url"]
     exp = datetime.fromisoformat(j["expires_at"])
-    assert timedelta(hours=23) < exp - datetime.now() <= timedelta(hours=24, seconds=5)
+    assert exp.tzinfo is not None
+    assert timedelta(hours=23) < exp - datetime.now().astimezone() <= timedelta(hours=24, seconds=5)
     assert _row(j["code"])["created_at"]
 
 
@@ -69,10 +70,10 @@ def test_generate_options_valid(client):
     lid = _ws(o)
     r = _gen(o, lid, expires_in="1h", max_uses=10).json()
     assert r["max_uses"] == 10
-    assert timedelta(minutes=59) < datetime.fromisoformat(r["expires_at"]) - datetime.now() <= timedelta(hours=1, seconds=5)
+    assert timedelta(minutes=59) < datetime.fromisoformat(r["expires_at"]) - datetime.now().astimezone() <= timedelta(hours=1, seconds=5)
     r = _gen(o, lid, expires_in="7d", max_uses=None).json()
     assert r["max_uses"] is None
-    assert timedelta(days=6, hours=23) < datetime.fromisoformat(r["expires_at"]) - datetime.now()
+    assert timedelta(days=6, hours=23) < datetime.fromisoformat(r["expires_at"]) - datetime.now().astimezone()
 
 
 def test_generate_invalid_options_422(client):
@@ -224,3 +225,82 @@ def test_legacy_invite_backfill(client):
     assert r.json()["detail"] == "Link sudah mencapai batas pemakaian."
     r = p2.post("/api/lists/join", json={"code": "legacy-used"})
     assert r.json()["detail"] == "Link sudah mencapai batas pemakaian."
+
+
+def test_link_and_preview_timestamps_offset_aware(client):
+    o, p = U(client), U(client)
+    lid = _ws(o)
+    code = _gen(o, lid).json()["code"]
+    links = o.get(f"/api/lists/{lid}/links").json()
+    assert links and all(datetime.fromisoformat(x["expires_at"]).tzinfo is not None
+                         and datetime.fromisoformat(x["created_at"]).tzinfo is not None for x in links)
+    pv = p.get(f"/api/lists/preview/{code}").json()
+    assert datetime.fromisoformat(pv["expires_at"]).tzinfo is not None
+    # penyimpanan tetap naive; instan sama
+    raw = _row(code)["expires_at"]
+    assert datetime.fromisoformat(raw).tzinfo is None
+    assert datetime.fromisoformat(pv["expires_at"]) == datetime.fromisoformat(raw).astimezone()
+
+
+def test_double_join_spends_one_use(client):
+    o, p = U(client), U(client)
+    lid = _ws(o)
+    code = _gen(o, lid, max_uses=10).json()["code"]
+    assert p.post("/api/lists/join", json={"code": code}).status_code == 200
+    r = p.post("/api/lists/join", json={"code": code})
+    assert r.status_code == 400 and r.json()["detail"] == "Kamu sudah menjadi anggota list ini."
+    assert _row(code)["uses"] == 1
+
+
+def test_single_use_double_submit_gets_already_member(client):
+    o, p = U(client), U(client)
+    lid = _ws(o)
+    code = _gen(o, lid).json()["code"]
+    assert p.post("/api/lists/join", json={"code": code}).status_code == 200
+    r = p.post("/api/lists/join", json={"code": code})
+    assert r.status_code == 400 and r.json()["detail"] == "Kamu sudah menjadi anggota list ini."
+
+
+def test_join_via_invite_rolls_back_when_already_member(client):
+    o, p = U(client), U(client)
+    lid = _ws(o)
+    code = _gen(o, lid, max_uses=10).json()["code"]
+    repo = TaskRepository(webapp.DB_PATH)
+    assert repo.join_list_via_invite(code, p.id) == {"status": "ok", "list_id": lid}
+    assert repo.join_list_via_invite(code, p.id) == {"status": "already_member", "list_id": lid}
+    assert repo.join_list_via_invite(code, o.id) == {"status": "owner", "list_id": lid}
+    assert _row(code)["uses"] == 1
+
+
+def test_concurrent_same_user_join_single_use(client):
+    o, p = U(client), U(client)
+    lid = _ws(o)
+    code = _gen(o, lid).json()["code"]
+    repo = TaskRepository(webapp.DB_PATH)
+    res = []
+    barrier = threading.Barrier(2)
+
+    def run():
+        barrier.wait()
+        res.append(repo.join_list_via_invite(code, p.id)["status"])
+
+    ts = [threading.Thread(target=run) for _ in range(2)]
+    [t.start() for t in ts]
+    [t.join() for t in ts]
+    assert res.count("ok") == 1
+    assert _row(code)["uses"] == 1
+    conn = db()
+    n = conn.execute("SELECT COUNT(*) FROM list_members WHERE list_id=? AND user_id=?", (lid, p.id)).fetchone()[0]
+    conn.close()
+    assert n == 1
+
+
+def test_rerevoke_own_link_200_other_workspace_404(client):
+    o = U(client)
+    lid, lid2 = _ws(o), _ws(o)
+    code = _gen(o, lid).json()["code"]
+    assert o.delete(f"/api/lists/{lid}/links/{code}").status_code == 200
+    first = _row(code)["revoked_at"]
+    assert o.delete(f"/api/lists/{lid}/links/{code}").status_code == 200
+    assert _row(code)["revoked_at"] == first
+    assert o.delete(f"/api/lists/{lid2}/links/{code}").status_code == 404

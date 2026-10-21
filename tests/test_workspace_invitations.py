@@ -164,8 +164,9 @@ def test_expired_not_listed(client):
 
 def test_accept_when_already_member(client):
     a, b, lid, iid = _setup(client)
-    code = a.post(f"/api/lists/{lid}/generate-link").json()["code"]
-    assert b.post("/api/lists/join", json={"code": code}).status_code == 200
+    # keanggotaan lewat jalur yang tidak menutup undangan (mis. data lama) -> terima tetap idempoten
+    _q("INSERT INTO list_members(list_id, user_id, joined_at) VALUES (?,?,?)",
+       (lid, b.id, datetime.now().isoformat()))
     r = b.post(f"/api/invitations/{iid}/accept")
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "accepted"
@@ -283,3 +284,68 @@ def test_invite_telegram_dm_has_accept_decline_buttons(client, monkeypatch):
     assert chat == tg and "mengundangmu ke workspace" in text
     btns = kb.inline_keyboard[0]
     assert [x.callback_data for x in btns] == [f"inv_acc_{iid}", f"inv_dec_{iid}"]
+
+
+def test_join_via_link_closes_pending_invitation(client):
+    a, b, lid, iid = _setup(client)
+    code = a.post(f"/api/lists/{lid}/generate-link").json()["code"]
+    assert b.post("/api/lists/join", json={"code": code}).status_code == 200
+    assert b.get("/api/invitations").json() == []
+    assert a.get(f"/api/lists/{lid}/invitations").json() == []
+    row = _q("SELECT status, responded_at FROM workspace_invitations WHERE id=?", (iid,))[0]
+    assert row["status"] == "accepted" and row["responded_at"]
+    assert b.post(f"/api/invitations/{iid}/accept").status_code == 409
+
+
+def test_cancel_does_not_overwrite_concurrent_accept(client, monkeypatch):
+    """Terima terjadi di antara pembacaan dan penulisan -> batal gagal 409, status tetap accepted."""
+    import repository as repo_mod
+    import webapp
+    a, b, lid, iid = _setup(client)
+    repo = repo_mod.TaskRepository(webapp.DB_PATH)
+    repo.respond_workspace_invitation(iid, b.id, True)
+    try:
+        repo.cancel_workspace_invitation(lid, iid)
+        raise AssertionError("harus InvitationClosed")
+    except repo_mod.InvitationClosed:
+        pass
+    assert _q("SELECT status FROM workspace_invitations WHERE id=?", (iid,))[0]["status"] == "accepted"
+    try:
+        repo.cancel_workspace_invitation(lid + 99999, iid)
+        raise AssertionError("harus InvitationNotFound")
+    except repo_mod.InvitationNotFound:
+        pass
+
+
+def test_cancel_update_is_conditional_on_pending():
+    import inspect
+    import repository as repo_mod
+    src = inspect.getsource(repo_mod.TaskRepository.cancel_workspace_invitation)
+    assert "status='pending'" in src.split("UPDATE workspace_invitations", 1)[1].split(")", 1)[0]
+
+
+def test_invitation_timestamps_are_offset_aware(client):
+    a, b = U(client, "oa"), U(client, "ib")
+    lid = _workspace(a)
+    r = _invite(a, lid, b)
+    assert datetime.fromisoformat(r.json()["invitation"]["created_at"]).tzinfo is not None
+    assert datetime.fromisoformat(b.get("/api/invitations").json()[0]["created_at"]).tzinfo is not None
+    assert datetime.fromisoformat(a.get(f"/api/lists/{lid}/invitations").json()[0]["created_at"]).tzinfo is not None
+    iid = r.json()["invitation"]["id"]
+    assert b.post(f"/api/invitations/{iid}/accept").status_code == 200
+    members = a.get(f"/api/lists/{lid}").json()["members"]
+    assert members and all(datetime.fromisoformat(m["joined_at"]).tzinfo is not None for m in members)
+    # instan yang sama dengan stempel naive (waktu lokal server) di DB
+    raw = _q("SELECT joined_at FROM list_members WHERE list_id=? AND user_id=?", (lid, b.id))[0]["joined_at"]
+    assert datetime.fromisoformat(members[0]["joined_at"]) == datetime.fromisoformat(raw).astimezone()
+
+
+def test_iso_with_offset_helper():
+    import webapp
+    assert webapp._iso_with_offset(None) is None
+    assert webapp._iso_with_offset("") == ""
+    assert webapp._iso_with_offset("2026-10-21T10:00:00+07:00") == "2026-10-21T10:00:00+07:00"
+    out = webapp._iso_with_offset("2026-10-21T10:00:00.123456")
+    assert datetime.fromisoformat(out).tzinfo is not None
+    assert datetime.fromisoformat(out) == datetime.fromisoformat("2026-10-21T10:00:00.123456").astimezone()
+    assert webapp._iso_with_offset("bukan-tanggal") == "bukan-tanggal"

@@ -159,3 +159,51 @@ def test_callback_missing_invitation(monkeypatch):
     tg, _ = _user()
     q = _press(tg, "inv_acc_99999999")
     assert q.edits == ["Undangan ini sudah tidak berlaku"]
+
+
+def test_callbacks_answer_exactly_once(monkeypatch):
+    otg, owner, itg, invitee, lid, inv_id = _make_inv(monkeypatch)
+    q = _press(itg, f"inv_acc_{inv_id}")
+    assert q.answers == [(None, False)]
+    q = _press(itg, f"inv_acc_{inv_id}")  # sudah tidak berlaku
+    assert q.answers == [(None, False)]
+    q = _press(itg, "inv_acc_bukan")
+    assert q.answers == [(None, False)] and q.edits == ["Undangan ini sudah tidak berlaku"]
+
+
+def test_callback_unexpected_error_handled(monkeypatch):
+    otg, owner, itg, invitee, lid, inv_id = _make_inv(monkeypatch)
+
+    def boom(*a, **kw):
+        raise RuntimeError("db mati")
+    monkeypatch.setattr(bot.repo, "respond_workspace_invitation", boom)
+    q = _press(itg, f"inv_acc_{inv_id}")
+    assert q.answers == [(None, False)]
+    assert q.edits == ["Gagal memproses undangan. Coba lagi dari aplikasi Alurik."]
+
+
+def test_cmd_invite_plain_text_not_escaped(monkeypatch):
+    monkeypatch.setattr(bot, "ALLOWED_USER_IDS", [])
+    otg, owner, itg, invitee, lid, fake = _setup()
+    msg = Msg()
+    update = SimpleNamespace(message=msg, effective_user=SimpleNamespace(id=otg, full_name="Owner", username="o"))
+    ctx = SimpleNamespace(args=[str(lid), "@a&b"], user_data={}, bot=fake)
+    monkeypatch.setattr(bot.repo, "get_user_by_username",
+                        lambda n: bot.repo.get_user_by_id(invitee) if n == "a&b" else None)
+    asyncio.run(bot.cmd_invite(update, ctx))
+    assert msg.sent == ["📨 Undangan dikirim ke @a&b. Menunggu persetujuan."]
+    msg2 = Msg()
+    update.message = msg2
+    asyncio.run(bot.cmd_invite(update, ctx))
+    assert msg2.sent == ["Undangan untuk @a&b sudah dikirim."]
+
+
+def test_cmd_invite_dm_uses_alurik_display_name(monkeypatch):
+    monkeypatch.setattr(bot, "ALLOWED_USER_IDS", [])
+    otg, owner, itg, invitee, lid, fake = _setup()
+    conn = db()
+    conn.execute("UPDATE users SET display_name = ? WHERE id = ?", ("Nama Alurik", owner))
+    conn.commit()
+    conn.close()
+    _invite_cmd(otg, lid, itg, fake)  # full_name Telegram = "Owner"
+    assert fake.sent[0]["text"].startswith("Nama Alurik mengundangmu")

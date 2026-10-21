@@ -1891,6 +1891,14 @@ class TaskRepository:
             )
         except sqlite3.IntegrityError:
             return False  # already a member
+        try:  # jadi anggota lewat jalur lain (mis. link) -> undangan menunggu ikut tertutup
+            conn.execute(
+                "UPDATE workspace_invitations SET status='accepted', responded_at=? "
+                "WHERE list_id=? AND invitee_id=? AND status='pending'",
+                (now, list_id, user_id),
+            )
+        except sqlite3.OperationalError:
+            pass  # tabel belum dimigrasi
         try:  # komentar note jadi terlihat bagi anggota baru: bump agar delta pull mengirimnya
             conn.execute("UPDATE note_comments SET updated_at = ? WHERE list_id = ?",
                          (datetime.now(_TZ_JKT).isoformat(), list_id))
@@ -2019,11 +2027,14 @@ class TaskRepository:
 
     def revoke_list_invite(self, list_id: int, code: str) -> bool:
         with self._connect() as conn:
-            cur = conn.execute(
-                "UPDATE list_invites SET revoked_at = ? WHERE code = ? AND list_id = ?",
+            conn.execute(
+                "UPDATE list_invites SET revoked_at = ? WHERE code = ? AND list_id = ? AND revoked_at IS NULL",
                 (datetime.now().isoformat(), code, list_id),
             )
-            return cur.rowcount == 1
+            # Batal ulang link sendiri tetap sukses (stempel pertama dipertahankan); kode workspace lain -> False.
+            return conn.execute(
+                "SELECT 1 FROM list_invites WHERE code = ? AND list_id = ?", (code, list_id)
+            ).fetchone() is not None
 
     def revoke_all_list_invites(self, list_id: int) -> int:
         now = datetime.now().isoformat()
@@ -2071,6 +2082,35 @@ class TaskRepository:
             )
             row = conn.execute("SELECT list_id FROM list_invites WHERE code = ?", (code,)).fetchone()
             return row["list_id"] if row else None
+
+    def join_list_via_invite(self, code: str, user_id: int) -> dict:
+        """Pakai kuota link + tambah anggota dalam satu transaksi.
+        {status: ok|already_member|owner|missing|revoked|expired|full, list_id}.
+        Bila user ternyata sudah anggota/owner, transaksi di-rollback (kuota tidak terpakai)."""
+        now = datetime.now().isoformat()
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE list_invites SET uses = uses + 1 WHERE code = ? AND revoked_at IS NULL "
+                "AND expires_at > ? AND (max_uses IS NULL OR uses < max_uses)",
+                (code, now),
+            )
+            if cur.rowcount != 1:
+                conn.rollback()
+                return {"status": None, "list_id": None}  # pemanggil membaca ulang invite_status
+            row = conn.execute("SELECT list_id FROM list_invites WHERE code = ?", (code,)).fetchone()
+            list_id = row["list_id"]
+            lst = conn.execute("SELECT owner_id FROM shared_lists WHERE id = ?", (list_id,)).fetchone()
+            if lst and lst["owner_id"] == user_id:
+                conn.rollback()
+                return {"status": "owner", "list_id": list_id}
+            if not self._add_list_member_conn(conn, list_id, user_id):
+                conn.rollback()
+                return {"status": "already_member", "list_id": list_id}
+            conn.execute(
+                "UPDATE list_invites SET used = 1 WHERE code = ? AND max_uses IS NOT NULL AND uses >= max_uses",
+                (code,),
+            )
+            return {"status": "ok", "list_id": list_id}
 
     # ── Shared-list task queries ───────────────────────────────────────────
 
@@ -2319,18 +2359,21 @@ class TaskRepository:
 
     def cancel_workspace_invitation(self, list_id: int, invitation_id: int) -> None:
         with self._connect() as conn:
+            # UPDATE bersyarat: tidak menimpa terima/tolak yang terjadi bersamaan.
+            cur = conn.execute(
+                "UPDATE workspace_invitations SET status='cancelled', responded_at=? "
+                "WHERE id=? AND list_id=? AND status='pending'",
+                (datetime.now().isoformat(), invitation_id, list_id),
+            )
+            if cur.rowcount == 1:
+                return
             inv = conn.execute(
                 "SELECT status FROM workspace_invitations WHERE id = ? AND list_id = ?",
                 (invitation_id, list_id),
             ).fetchone()
             if not inv:
                 raise InvitationNotFound()
-            if inv["status"] != "pending":
-                raise InvitationClosed()
-            conn.execute(
-                "UPDATE workspace_invitations SET status='cancelled', responded_at=? WHERE id=?",
-                (datetime.now().isoformat(), invitation_id),
-            )
+            raise InvitationClosed()
 
     def notify_list_members(self, list_id: int, actor_user_id: int,
                             message: str, task_id: Optional[int] = None):

@@ -1475,24 +1475,36 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             inv_id = int(data.split("_", 2)[2])
         except ValueError:
-            await query.edit_message_text("Undangan ini sudah tidak berlaku")
-            return
-        inv = repo.get_workspace_invitation(inv_id)
+            inv_id = None
+        try:
+            inv = repo.get_workspace_invitation(inv_id) if inv_id is not None else None
+        except Exception:
+            logger.exception("Gagal membaca undangan workspace %s", inv_id)
+            inv = None
         if inv and inv["invitee_id"] != uid(context):
+            # satu-satunya jawaban untuk callback ini
             await query.answer("Undangan ini bukan untukmu", show_alert=True)
             return
-        try:
-            res = repo.respond_workspace_invitation(inv_id, uid(context), accept)
-        except (InvitationNotFound, InvitationClosed, InvitationExpired):
-            await query.answer()
-            await query.edit_message_text("Undangan ini sudah tidak berlaku")
-            return
         await query.answer()
-        if accept:
-            await query.edit_message_text(
-                f"✅ Bergabung ke <b>{h(res['list']['name'])}</b>", parse_mode=ParseMode.HTML)
-        else:
-            await query.edit_message_text("Undangan ditolak")
+        try:
+            try:
+                if inv_id is None:
+                    raise InvitationNotFound()
+                res = repo.respond_workspace_invitation(inv_id, uid(context), accept)
+            except (InvitationNotFound, InvitationClosed, InvitationExpired):
+                await query.edit_message_text("Undangan ini sudah tidak berlaku")
+                return
+            if accept:
+                await query.edit_message_text(
+                    f"✅ Bergabung ke <b>{h(res['list']['name'])}</b>", parse_mode=ParseMode.HTML)
+            else:
+                await query.edit_message_text("Undangan ditolak")
+        except Exception:
+            logger.exception("Gagal memproses tombol undangan workspace %s", inv_id)
+            try:
+                await query.edit_message_text("Gagal memproses undangan. Coba lagi dari aplikasi Alurik.")
+            except Exception:
+                pass
         return
 
     # ── Done button ──
@@ -2621,7 +2633,7 @@ async def cmd_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         inv = repo.create_workspace_invitation(list_id, uid(context), target["id"])
     except InvitationExists:
-        await update.message.reply_text(f"Undangan untuk @{h(raw_username)} sudah dikirim.")
+        await update.message.reply_text(f"Undangan untuk @{raw_username} sudah dikirim.")
         return
     except AlreadyMember:
         await update.message.reply_text(
@@ -2632,7 +2644,8 @@ async def cmd_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # DM penerima dengan tombol Terima/Tolak (bila punya telegram_id)
     if target.get("telegram_id"):
-        inviter_name = update.effective_user.full_name or update.effective_user.username or "Seseorang"
+        inviter = repo.get_user_by_id(uid(context)) or {}
+        inviter_name = inviter.get("display_name") or inviter.get("username") or "Seseorang"
         kb = InlineKeyboardMarkup([[
             InlineKeyboardButton("Terima", callback_data=f"inv_acc_{inv['id']}"),
             InlineKeyboardButton("Tolak", callback_data=f"inv_dec_{inv['id']}"),
@@ -2648,7 +2661,7 @@ async def cmd_invite(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logger.warning(f"Gagal kirim undangan ke {target['telegram_id']}: {e}")
 
     await update.message.reply_text(
-        f"📨 Undangan dikirim ke @{h(raw_username)}. Menunggu persetujuan."
+        f"📨 Undangan dikirim ke @{raw_username}. Menunggu persetujuan."
     )
 
 
