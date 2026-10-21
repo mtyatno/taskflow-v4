@@ -3876,3 +3876,9 @@
 ## 2026-10-21 22:05 WIB — Claude — merge Kelola Workspace Fase 2a (#76)
 - Bapak: "merge". #76 di-merge (cb9ed2b) setelah merge main (#74) + SW v451; CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` lalu `sudo systemctl restart taskflow` (migrasi undangan + bot). Lalu Fase 2b (transfer ownership, arsip, ekspor) bila diminta.
+
+## [2026-10-22 05:25] - Claude
+- **Task:** Merge PR #78 (slash menu: tutup dengan Esc / klik di luar, batal "+" memulihkan note) atas instruksi Bapak.
+- **Changes:** CI hijau di 55460fd, tanpa konflik; PR di-merge (8724d3f), workflow Deploy Taskflow V4 sukses. SW v452, app.css tetap 356.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — tinggal restart `taskflow-web` di server.
