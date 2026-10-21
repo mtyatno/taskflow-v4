@@ -30124,13 +30124,40 @@ function useNoteComments(note, {
     };
   }, [serverId, listId, reload]);
   // Tandai dibaca saat panel terbuka dan ada komentar — paling sering sekali per 10 detik.
+  // Tertahan throttle → satu POST susulan di sisa waktu; panel ditutup → POST akhir bila ada yang baru.
+  const readSig = rows.map((r) => (r.cid || r.id) + ":" + (r.updated_at || r.created_at || "")).join(",");
+  const readStateRef = useRef({ noteId: null, sig: "", hasRows: false });
+  readStateRef.current = { noteId, sig: readSig, hasRows: rows.length > 0 };
+  const lastReadSigRef = useRef("");
+  const readTimerRef = useRef(null);
+  const prevOpenRef = useRef(!!open);
+  const postRead = useCallback(() => {
+    const st = readStateRef.current;
+    if (st.noteId == null || !st.hasRows) return;
+    lastReadRef.current = Date.now();
+    lastReadSigRef.current = st.sig;
+    api.post(`/api/scratchpad/${encodeURIComponent(st.noteId)}/comments/read`, {}).catch(() => {});
+  }, []);
+  useEffect(() => { lastReadSigRef.current = ""; }, [noteId, listId]);
   useEffect(() => {
     if (!open || noteId == null || !rows.length) return;
-    const now = Date.now();
-    if (now - lastReadRef.current < 10000) return;
-    lastReadRef.current = now;
-    api.post(`/api/scratchpad/${encodeURIComponent(noteId)}/comments/read`, {}).catch(() => {});
-  }, [open, noteId, rows]);
+    if (readSig === lastReadSigRef.current) return;
+    const wait = 10000 - (Date.now() - lastReadRef.current);
+    if (wait <= 0) { postRead(); return; }
+    readTimerRef.current = setTimeout(() => { readTimerRef.current = null; postRead(); }, wait);
+    return () => {
+      clearTimeout(readTimerRef.current);
+      readTimerRef.current = null;
+    };
+  }, [open, noteId, readSig, postRead]);
+  useEffect(() => {
+    const wasOpen = prevOpenRef.current;
+    prevOpenRef.current = !!open;
+    if (wasOpen && !open) {
+      const st = readStateRef.current;
+      if (st.hasRows && st.sig !== lastReadSigRef.current) postRead();
+    }
+  }, [open, postRead]);
   const R = window.TF && window.TF.commentrepo;
   const openCount = R && R.threads ? window.TF.commentrepo.threads(rows, "open").length : 0;
   return {
@@ -30474,7 +30501,8 @@ function NoteCommentsPanel({
   docText,
   reload,
   showToast,
-  workspaceName
+  workspaceName,
+  online
 }) {
   const [tab, setTab] = useState("open");
   const [editingId, setEditingId] = useState(null);
@@ -30482,7 +30510,8 @@ function NoteCommentsPanel({
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [candidates, setCandidates] = useState([]);
-  const [online, setOnline] = useState(() => navigator.onLine !== false);
+  // Status online dari hook host (useNoteComments); tanpa prop → navigator.onLine.
+  const isOnline = online != null ? !!online : navigator.onLine !== false;
   const [nowMs, setNowMs] = useState(() => Date.now());
   const deleteRef = useRef(null);
   deleteRef.current = deleteTarget;
@@ -30497,16 +30526,8 @@ function NoteCommentsPanel({
     return () => { alive = false; };
   }, [listId, currentUserId]);
   useEffect(() => {
-    const on = () => setOnline(true);
-    const off = () => setOnline(false);
-    window.addEventListener("online", on);
-    window.addEventListener("offline", off);
     const t = setInterval(() => setNowMs(Date.now()), 60000);
-    return () => {
-      window.removeEventListener("online", on);
-      window.removeEventListener("offline", off);
-      clearInterval(t);
-    };
+    return () => clearInterval(t);
   }, []);
   // Lembar bawah: Esc menutup (kecuali dialog hapus sedang terbuka).
   useEffect(() => {
@@ -30567,7 +30588,7 @@ function NoteCommentsPanel({
   }))), /*#__PURE__*/React.createElement("div", {
     className: "cmt-tabs",
     role: "tablist"
-  }, tabBtn("open", "Terbuka · ", vm.openCount), tabBtn("done", "Selesai · ", vm.doneCount)), !online ? /*#__PURE__*/React.createElement("div", {
+  }, tabBtn("open", "Terbuka · ", vm.openCount), tabBtn("done", "Selesai · ", vm.doneCount)), !isOnline ? /*#__PURE__*/React.createElement("div", {
     className: "cmt-offline",
     role: "status"
   }, "Kamu sedang offline. Komentar dikirim otomatis saat tersambung.") : null, /*#__PURE__*/React.createElement("div", {

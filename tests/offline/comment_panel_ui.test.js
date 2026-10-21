@@ -184,3 +184,38 @@ test("app.css: aturan .cmt-* dan highlight, tanpa border-left", () => {
   for (const r of cssRules(".cmt-")) assert.ok(!/border-left/.test(r.body), `no border-left in ${r.sel}`);
   assert.ok(cssRules('[data-theme="dark"] .cmt-').length > 0, "dark overrides");
 });
+
+// ── Perbaikan review ronde 1 ──
+const uiComponents = fs.readFileSync(path.resolve(__dirname, "../../static/ui-components.js"), "utf8").replace(/\r\n/g, "\n");
+
+test("MentionInput: Esc di dropdown memanggil preventDefault (lembar komentar tidak ikut tertutup)", () => {
+  const i = uiComponents.indexOf('} else if (e.key === "Escape") {');
+  assert.ok(i >= 0, "Escape branch exists");
+  const branch = uiComponents.slice(i, uiComponents.indexOf("} else {", i));
+  assert.ok(branch.includes("e.preventDefault()"));
+  assert.ok(branch.includes("setMentionState(null)"));
+  // Panel melewati Esc yang sudah ditangani.
+  assert.ok(fnSource("NoteCommentsPanel").includes("e.defaultPrevented"));
+});
+
+test("useNoteComments: tandai dibaca dengan POST susulan (setTimeout + clearTimeout) dan POST akhir saat ditutup", () => {
+  const src = fnSource("useNoteComments");
+  const i = src.indexOf("Tandai dibaca");
+  assert.ok(i >= 0);
+  const read = src.slice(i);
+  assert.ok(/setTimeout\(\(\) => \{[^}]*postRead\(\)/.test(read), "trailing POST dijadwalkan");
+  assert.ok(read.includes("10000 - (Date.now() - lastReadRef.current)"), "sisa waktu throttle");
+  assert.ok(read.includes("clearTimeout(readTimerRef.current)"), "timer dibersihkan di cleanup");
+  assert.ok(read.includes("wasOpen && !open"), "POST akhir saat panel ditutup");
+  assert.ok(read.includes("st.sig !== lastReadSigRef.current"), "hanya bila ada yang baru");
+  assert.ok(read.includes("/comments/read"));
+});
+
+test("NoteCommentsPanel: status online dari hook (prop), tanpa pendengar online/offline sendiri", () => {
+  const src = fnSource("NoteCommentsPanel");
+  const sig = src.slice(0, src.indexOf(") {"));
+  assert.ok(sig.includes("online"));
+  assert.ok(!src.includes('addEventListener("offline"'));
+  assert.ok(!src.includes('addEventListener("online"'));
+  assert.ok(src.includes("!isOnline ?"));
+});
