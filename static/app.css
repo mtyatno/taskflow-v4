@@ -2399,7 +2399,7 @@
 /* ── Floating ToC ala Medium — tombol melayang (mobile-first: FAB di atas FAB Buat Baru) ── */
 .floating-toc-anchor {
   position: fixed;
-  right: 16px;
+  right: calc(16px + var(--cmt-side-w, 0px));
   bottom: calc(92px + env(safe-area-inset-bottom, 0px));
   z-index: 45;
 }
@@ -2491,7 +2491,7 @@
   }
   /* Mode edit: dgn right 16px tombol menempel tepi kanan teks editor (celah ~1px) → geser ke kanan */
   .floating-toc-anchor.floating-toc-anchor--modal {
-    right: 8px;
+    right: calc(8px + var(--cmt-side-w, 0px));
   }
 }
 
@@ -4529,6 +4529,100 @@
 
 
 
+/* ── Komentar note (PR 3): panel samping / lembar bawah, kartu thread, komposer, sorotan ── */
+.cmt-panel { display: flex; flex-direction: column; min-height: 0; box-sizing: border-box; background: var(--bg-card); color: var(--text-primary); font-size: 14px; overflow: hidden; }
+.cmt-panel *, .cmt-panel *::before, .cmt-panel *::after { box-sizing: border-box; }
+.cmt-panel--side { width: 380px; max-width: 100%; flex: 0 0 380px; height: 100%; border: 0; border-inline-start: 1px solid var(--border); }
+/* Panel samping terbuka (host diberi .cmt-side-open) → tombol ToC melayang (.floating-toc-anchor memakai
+   --cmt-side-w di `right`) digeser sejauh lebar panel agar tidak menutupinya. */
+.cmt-side-open { --cmt-side-w: 380px; }
+.cmt-sheet { position: fixed; left: 0; right: 0; bottom: 0; height: 72vh; max-width: 100vw; z-index: 1101; border: 1px solid var(--border); border-bottom: 0; border-radius: 16px 16px 0 0; box-shadow: 0 -12px 32px rgba(15,23,42,0.18); padding-bottom: env(safe-area-inset-bottom, 0px); overflow-x: hidden; }
+.cmt-sheet-backdrop { position: fixed; inset: 0; z-index: 1100; background: rgba(15,23,42,0.4); }
+.cmt-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 12px 8px 16px; }
+.cmt-title { margin: 0; font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.cmt-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border: 0; border-radius: 8px; background: transparent; color: var(--text-secondary); cursor: pointer; flex: 0 0 auto; }
+.cmt-icon-btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+.cmt-tabs { display: flex; gap: 4px; padding: 0 12px 8px; border-bottom: 1px solid var(--border); }
+.cmt-tab { border: 0; background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; font-weight: 600; padding: 6px 10px; border-radius: 8px; cursor: pointer; }
+.cmt-tab:hover { background: var(--bg-hover); }
+.cmt-tab.is-active { color: var(--text-primary); background: rgba(168,197,0,0.16); }
+.cmt-offline { margin: 8px 12px 0; padding: 8px 10px; border-radius: 8px; background: var(--bg-hover); color: var(--text-secondary); font-size: 12.5px; }
+.cmt-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.cmt-empty { margin: 16px 4px; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
+.cmt-card { border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; background: var(--bg-card); display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.cmt-card.is-active { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(168,197,0,0.25); }
+.cmt-quote { display: flex; flex-direction: column; gap: 4px; width: 100%; text-align: left; border: 0; border-radius: 8px; padding: 6px 8px; background: rgba(168,197,0,0.12); color: var(--text-secondary); font: inherit; font-size: 12.5px; font-style: italic; cursor: pointer; }
+.cmt-quote-text { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.cmt-quote.is-lost { background: var(--bg-hover); }
+.cmt-quote.is-lost .cmt-quote-text { text-decoration: line-through; opacity: 0.7; }
+.cmt-quote-lost { font-style: normal; font-size: 12px; color: var(--text-secondary); }
+.cmt-item { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.cmt-reply { margin-inline-start: 14px; padding-top: 8px; border-top: 1px solid var(--border); }
+.cmt-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 12px; color: var(--text-secondary); }
+.cmt-avatar { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: rgba(168,197,0,0.2); color: var(--text-primary); font-size: 10.5px; font-weight: 700; flex: 0 0 auto; }
+.cmt-name { font-weight: 600; color: var(--text-primary); }
+.cmt-edited { font-style: italic; }
+.cmt-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.5; color: var(--text-primary); }
+.cmt-mention { color: #5d6e00; background: rgba(168,197,0,0.16); border-radius: 4px; padding: 0 2px; font-weight: 600; }
+.cmt-pending { opacity: 0.8; }
+.cmt-pending-label { font-size: 11px; padding: 1px 6px; border-radius: 999px; background: var(--bg-hover); color: var(--text-secondary); }
+.cmt-failed { color: var(--text-primary); }
+.cmt-failed-row { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; border-radius: 8px; background: rgba(220,38,38,0.08); color: #b91c1c; font-size: 12.5px; }
+.cmt-resolved { font-size: 12px; color: var(--text-secondary); }
+.cmt-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.cmt-btn { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+.cmt-btn:hover:not(:disabled) { background: var(--bg-hover); }
+.cmt-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.cmt-btn--sm { font-size: 12px; padding: 4px 8px; }
+.cmt-btn--ghost { border-color: transparent; background: transparent; color: var(--text-secondary); }
+.cmt-btn--ghost:hover:not(:disabled) { color: var(--text-primary); }
+.cmt-btn--primary { background: var(--accent); border-color: var(--accent); color: #1a1f00; }
+.cmt-btn--primary:hover:not(:disabled) { background: var(--accent); filter: brightness(0.95); }
+.cmt-btn--danger { background: #dc2626; border-color: #dc2626; color: #fff; }
+.cmt-btn--danger:hover:not(:disabled) { background: #b91c1c; }
+.cmt-composer { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-top: 1px solid var(--border); background: var(--bg-card); }
+.cmt-composer--reply { padding: 8px 0 0; border-top: 0; }
+.cmt-lost { margin: 0; padding: 10px 12px; border-radius: 8px; background: var(--bg-hover); color: var(--text-secondary); font-size: 13px; line-height: 1.45; }
+.cmt-composer .cmt-input, .cmt-edit .cmt-input { width: 100%; min-height: 44px; resize: vertical; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 14px; line-height: 1.45; }
+.cmt-composer .cmt-input:focus, .cmt-edit .cmt-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px rgba(168,197,0,0.25); }
+.cmt-edit { display: flex; flex-direction: column; gap: 6px; }
+/* Dropdown @mention MentionInput (inline top:100%) dibuka ke atas: komposer ada di dasar panel yang overflow:hidden. */
+.cmt-composer [style*="top: 100%"], .cmt-edit [style*="top: 100%"] { top: auto !important; bottom: calc(100% + 4px); }
+.cmt-composer-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.cmt-composer-actions { display: flex; gap: 6px; margin-inline-start: auto; }
+.cmt-hint { font-size: 11.5px; color: var(--text-secondary); min-width: 0; overflow-wrap: anywhere; }
+.cmt-quote-chip { display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 10px; border-radius: 8px; background: rgba(168,197,0,0.12); font-size: 12.5px; color: var(--text-secondary); min-width: 0; }
+.cmt-quote-chip-text { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmt-dialog-backdrop { position: fixed; inset: 0; z-index: 1200; background: rgba(15,23,42,0.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.cmt-dialog { width: 100%; max-width: 360px; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); border-radius: 14px; padding: 18px; box-shadow: 0 20px 40px rgba(15,23,42,0.25); }
+.cmt-dialog-title { margin: 0 0 14px; font-size: 15px; font-weight: 600; line-height: 1.4; }
+.cmt-dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.cmt-badge { display: inline-flex; align-items: center; gap: 3px; min-width: 18px; height: 18px; padding: 0 6px; border-radius: 999px; background: rgba(168,197,0,0.2); color: var(--text-primary); font-size: 11px; font-weight: 700; line-height: 1; }
+.cmt-badge.is-unread { background: var(--accent); color: #1a1f00; }
+[data-theme="dark"] .cmt-badge { background: rgba(168,197,0,0.28); }
+[data-theme="dark"] .cmt-badge.is-unread { background: var(--accent); color: #1a1f00; }
+.cmt-bubble { position: absolute; z-index: 1050; display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; box-shadow: 0 6px 18px rgba(15,23,42,0.18); cursor: pointer; }
+.cmt-touchbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 1050; display: flex; justify-content: center; padding: 8px 16px calc(8px + env(safe-area-inset-bottom, 0px)); background: var(--bg-card); border-top: 1px solid var(--border); }
+.cmt-touchbar button { min-height: 44px; width: 100%; max-width: 420px; }
+/* Header editor (NoteModal) di HP: pil Komentar ringkas (ikon + jumlah); aria-label tetap. */
+@media (max-width: 768px) {
+  .cmt-hdr-btn--modal .cmt-btn-label { display: none; }
+  /* Pil header editor boleh turun baris agar tombol tutup (✕) tetap di layar. */
+  .note-modal-hdr-actions { flex-wrap: wrap; justify-content: flex-end; row-gap: 6px; min-width: 0; }
+}
+::highlight(cmt) { background-color: rgba(168,197,0,0.25); }
+::highlight(cmt-active) { background-color: rgba(168,197,0,0.55); }
+@media (pointer: coarse) {
+  .cmt-btn, .cmt-tab, .cmt-quote, .cmt-bubble { min-height: 44px; }
+  .cmt-icon-btn { width: 44px; height: 44px; }
+}
+[data-theme="dark"] .cmt-sheet { box-shadow: 0 -12px 32px rgba(0,0,0,0.5); }
+[data-theme="dark"] .cmt-mention { color: var(--accent); background: rgba(168,197,0,0.18); }
+[data-theme="dark"] .cmt-failed-row { background: rgba(248,113,113,0.12); color: #fca5a5; }
+[data-theme="dark"] .cmt-btn--danger { background: #b91c1c; border-color: #b91c1c; }
+[data-theme="dark"] .cmt-sheet-backdrop, [data-theme="dark"] .cmt-dialog-backdrop { background: rgba(0,0,0,0.55); }
+[data-theme="dark"] .cmt-dialog, [data-theme="dark"] .cmt-bubble { box-shadow: 0 20px 40px rgba(0,0,0,0.5); }
+
 /* ── Modal pilih tanggal saat task baru tanpa deadline (TaskDatePromptModal) ── */
 .task-date-prompt-overlay { z-index: 1200; }
 .task-date-prompt { max-width: 400px; padding: 22px; }
@@ -4599,3 +4693,4 @@
   .is-zen-hidden { animation: none; display: none; }
   .is-zen-shown { animation: none; }
 }
+

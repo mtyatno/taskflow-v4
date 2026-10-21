@@ -79,6 +79,8 @@ function MentionInput({
         applyMention(filtered[highlighted]);
       } else rest.onKeyDown?.(e);
     } else if (e.key === "Escape") {
+      // Esc hanya menutup dropdown: preventDefault agar pendengar Esc induk (mis. lembar komentar) melewatinya.
+      e.preventDefault();
       setMentionState(null);
       setFiltered([]);
     } else {

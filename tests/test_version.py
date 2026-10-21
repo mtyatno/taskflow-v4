@@ -6,9 +6,9 @@ def test_get_app_version(client):
     assert r.status_code == 200
     data = r.json()
     assert data["app_version"] == "4.0.0"
-    assert data["sw_version"] == "taskflow-v453-email-mailer"
-    assert "v453" in data["sw_version"]
-    assert data["cache_name"] == "taskflow-v453-email-mailer"
+    assert data["sw_version"] == "taskflow-v454-komentar-ui"
+    assert "v454" in data["sw_version"]
+    assert data["cache_name"] == "taskflow-v454-komentar-ui"
     assert isinstance(data["timestamp"], int)
     assert data["timestamp"] > 0
 

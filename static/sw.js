@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v453-email-mailer";
+const CACHE = "taskflow-v454-komentar-ui";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
@@ -73,6 +73,8 @@ const STATIC = [
   "/static/offline/chatrepo.js",
   "/static/offline/chatroutes.js",
   "/static/offline/commentroutes.js",
+  "/static/offline/commentui.js",
+  "/static/offline/commenthighlight.js",
   "/static/vendor/tldraw/index.html",
   "/static/vendor/tldraw/assets/index.js",
   "/static/vendor/tldraw/assets/index.css",

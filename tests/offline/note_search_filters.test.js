@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v401", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v453-email-mailer";/m,
-      "sw.js CACHE must be taskflow-v453-email-mailer"
+      /^const CACHE = "taskflow-v454-komentar-ui";/m,
+      "sw.js CACHE must be taskflow-v454-komentar-ui"
     );
   });
 });

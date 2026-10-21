@@ -4760,7 +4760,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v453-email-mailer"
+    sw_cache = "taskflow-v454-komentar-ui"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
