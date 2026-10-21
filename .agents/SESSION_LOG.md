@@ -3797,3 +3797,9 @@
 ## 2026-10-21 15:46 WIB — Claude — merge ikon enam halaman (#72)
 - Bapak: "merge". #72 di-merge (8d9dfe0); CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web`; cek Mindmap, Diskusi, Gambar, Habit, Kalender, hero Dashboard (SW v445).
+
+## [2026-10-21 20:45] - Claude — bug layar putih Chrome Android (Pomodoro selesai / tombol Fokus)
+- **Task:** perbaiki layar putih produksi di Chrome Android saat Pomodoro mencapai 00:00 dan setiap tap Fokus sesudahnya (akar masalah: `new Notification()` "Illegal constructor" dilempar dari efek `usePomodoro`, tanpa error boundary).
+- **Changes:** `sendBrowserNotification` lewat `ServiceWorkerRegistration.showNotification` + cadangan konstruktor dalam try/catch, tidak pernah melempar; `playNotificationSound` aman + menutup AudioContext; `pomoAlert` di `usePomodoro` setelah semua setState (Work 00:00, istirahat, batas Overtime); `AppErrorBoundary` membungkus `App` (layar pemulihan, `tf_last_crash`); SW v447 `taskflow-v447-android-notif-fix` / `app.css?v=353` (v446/352 dipakai draft #73); tes node `pomo_android_notification.test.js` (TDD, 21); E2E `temporary_files/e2e_android_notification.py` 40/40.
+- **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/test_version.py, tests/offline/*.test.js (versi + tes baru), temporary_files/e2e_android_notification.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push; deploy = file statis + restart `taskflow-web` saja). pytest 1018; JS 2525/2526 (pra-ada `draw_local_reactive`); E2E focus page 35/35, overtime 98/98.
