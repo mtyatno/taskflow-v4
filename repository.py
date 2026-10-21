@@ -1688,6 +1688,13 @@ class TaskRepository:
                     )
             except sqlite3.OperationalError:
                 pass  # kolom drawings.list_id belum dimigrasi
+            try:
+                if conn.execute(
+                    "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
+                ).fetchone():
+                    conn.execute("DELETE FROM note_comments WHERE list_id = ?", (list_id,))
+            except sqlite3.OperationalError:
+                pass  # tabel note_comments belum dimigrasi
             cur = conn.execute(
                 "DELETE FROM shared_lists WHERE id = ? AND owner_id = ?", (list_id, owner_id)
             )
@@ -1812,9 +1819,14 @@ class TaskRepository:
                     "INSERT INTO list_members (list_id, user_id, joined_at) VALUES (?,?,?)",
                     (list_id, user_id, now),
                 )
-                return True
             except sqlite3.IntegrityError:
                 return False  # already a member
+            try:  # komentar note jadi terlihat bagi anggota baru: bump agar delta pull mengirimnya
+                conn.execute("UPDATE note_comments SET updated_at = ? WHERE list_id = ?",
+                             (datetime.now(_TZ_JKT).isoformat(), list_id))
+            except sqlite3.OperationalError:
+                pass  # tabel belum dimigrasi
+            return True
 
     def remove_list_member(self, list_id: int, user_id: int) -> bool:
         with self._connect() as conn:
@@ -2039,16 +2051,18 @@ class TaskRepository:
     # ── Notifications ─────────────────────────────────────────────────────
 
     def add_notification(self, user_id: int, message: str,
-                         list_id: Optional[int] = None, task_id: Optional[int] = None) -> dict:
+                         list_id: Optional[int] = None, task_id: Optional[int] = None,
+                         note_id: Optional[int] = None) -> dict:
         now = datetime.now().isoformat()
         with self._connect() as conn:
             cur = conn.execute(
-                "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, created_at) "
-                "VALUES (?,?,0,?,?,?)",
-                (user_id, message, list_id, task_id, now),
+                "INSERT INTO notifications (user_id, message, is_read, list_id, task_id, note_id, created_at) "
+                "VALUES (?,?,0,?,?,?,?)",
+                (user_id, message, list_id, task_id, note_id, now),
             )
             return {"id": cur.lastrowid, "user_id": user_id, "message": message,
-                    "is_read": False, "list_id": list_id, "task_id": task_id, "created_at": now}
+                    "is_read": False, "list_id": list_id, "task_id": task_id, "note_id": note_id,
+                    "created_at": now}
 
     def notify_list_members(self, list_id: int, actor_user_id: int,
                             message: str, task_id: Optional[int] = None):

@@ -3749,3 +3749,12 @@
 ## 2026-10-21 10:15 WIB — Claude — merge Kelola Workspace Fase 1 (#70)
 - Bapak: "ya" (merge). #70 di-merge (a03aa76); CI Tests dan Deploy Taskflow V4 sukses. SW v442, `app.css?v=350`.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` lalu `sudo systemctl restart taskflow` (migrasi kolom `shared_lists`). Lalu Fase 2 (undangan & siklus hidup) bila diminta.
+## 2026-10-21 — Claude — Komentar Note PR 1 (backend)
+- **Task:** komentar level halaman untuk note workspace, bagian backend (PR 1 dari 3): skema, endpoint, delta pull, notifikasi, SSE, siklus hidup.
+- **Changes:** lihat entri CURRENT_STATE `claude/komentar-note`; commit 93647bf..b3de0f9 + `docs(agents): komentar note PR 1 backend`. ADR-024.
+- **Files Touch:** note_comments.py, repository.py, webapp.py, tests/note_comment_helpers.py, tests/test_note_comments_*.py, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (belum di-push; deploy = migrasi -> restart `taskflow-web`, lalu `taskflow`; SW tetap v439). pytest 952, JS 2331/2332 (pra-ada `draw_local_reactive`).
+
+## 2026-10-21 10:15 WIB — Claude — merge Komentar Note PR 1 (backend)
+- Merge `origin/main` (#68 note list tag, #70 Kelola Workspace fase 1) ke `claude/komentar-note`: konflik hanya di `.agents/*`; ADR komentar dinomori ulang ADR-024. pytest 1004 passed, JS 2421/2422 (pra-ada `draw_local_reactive`).
+- PR dibuat dan di-merge ke `main` atas instruksi Bapak ("merge"). Deploy workflow berjalan otomatis; perlu restart `taskflow-web` lalu `taskflow` (migrasi `note_comments`, `note_comment_reads`, `notifications.note_id`).

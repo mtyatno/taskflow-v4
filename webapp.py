@@ -144,6 +144,7 @@ from datehelper import parse_date
 from repository import TaskRepository
 import repository
 import drawing_scope
+import note_comments
 import safehtml
 import bookmark
 import ai_review
@@ -239,6 +240,8 @@ dm_subscribers: dict[int, set[tuple[int, asyncio.Queue]]] = defaultdict(set)
 # Mindmap bersama: mindmap_id → {(user_id, queue)}. Hanya sinyal (tanpa isi peta);
 # akses tiap pelanggan dicek ulang saat broadcast (lihat _mindmap_broadcast).
 mindmap_subscribers: dict[int, set[tuple[int, asyncio.Queue]]] = defaultdict(set)
+# Komentar note: note_id → {(user_id, queue)}. Hanya sinyal (tanpa isi komentar); akses dicek ulang saat broadcast.
+note_comment_subscribers: dict[int, set[tuple[int, asyncio.Queue]]] = defaultdict(set)
 
 # ── Database helpers ───────────────────────────────────────────────────────────
 
@@ -939,6 +942,9 @@ def migrate_db():
         # Drawing milik workspace: kolom list_id/last_edited_by + backfill sekali jalan dari note workspace.
         drawing_scope.ensure_drawing_scope_schema(conn)
         drawing_scope.backfill_drawing_lists(conn, datetime.now(_TZ_JKT).isoformat())
+        # Komentar note workspace: skema + bersihkan tombstone > 30 hari.
+        note_comments.ensure_note_comments_schema(conn)
+        note_comments.purge_old_tombstones(conn, datetime.now(_TZ_JKT).isoformat())
         conn.commit()
     finally:
         conn.close()
@@ -1543,6 +1549,20 @@ async def _notify_members_bg(list_id: int, actor_user_id: int, message: str, tas
                     pass
     except Exception:
         pass
+
+
+async def _notify_users_bg(messages: dict, list_id: int, note_id: int):
+    """In-app + Telegram per penerima ({user_id: pesan}); kegagalan satu penerima tidak menghentikan yang lain."""
+    for uid, msg in messages.items():
+        try:
+            TaskRepository(DB_PATH).add_notification(uid, msg, list_id=list_id, note_id=note_id)
+            if _tg_bot:
+                with get_db() as conn:
+                    row = conn.execute("SELECT telegram_id FROM users WHERE id = ?", (uid,)).fetchone()
+                if row and row["telegram_id"]:
+                    await _tg_bot.send_message(chat_id=row["telegram_id"], text=msg, parse_mode="HTML")
+        except Exception:
+            pass
 
 
 async def _send_tg_message(tg_id: int, text: str):
@@ -5704,7 +5724,7 @@ async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_u
             """
             try:
                 rows = conn.execute(sql, fts_params).fetchall()
-                return [_scratchpad_row(r, conn, uid) for r in rows]
+                return note_comments.apply_summaries(conn, uid, [_scratchpad_row(r, conn, uid) for r in rows])
             except sqlite3.OperationalError:
                 pass  # Fallback to LIKE query if FTS expression fails
 
@@ -5721,7 +5741,7 @@ async def list_scratchpad(q: str = "", tag: str = "", user=Depends(get_current_u
             ORDER BY s.updated_at DESC
         """
         rows = conn.execute(sql, fallback_params).fetchall()
-        return [_scratchpad_row(r, conn, uid) for r in rows]
+        return note_comments.apply_summaries(conn, uid, [_scratchpad_row(r, conn, uid) for r in rows])
 
 # ── Note Trash (snapshot ke trashed_notes; lihat docs/superpowers/specs/2026-10-02-note-trash-design.md) ──
 
@@ -5819,6 +5839,7 @@ def _purge_expired_trashed_notes(conn) -> None:
         _delete_linked_mindmaps(conn, expired)
         _purge_trashed_media(conn, expired)
         conn.execute("DELETE FROM trashed_notes WHERE deleted_at < ?", (cutoff,))
+        note_comments.delete_for_notes(conn, expired)
     except Exception:
         pass
     _cleanup_stuck_media_uploads(conn, _media_utcnow())
@@ -6083,6 +6104,7 @@ async def restore_trashed_note(note_id: int, user=Depends(get_current_user)):
         conn.execute("DELETE FROM trashed_notes WHERE note_id = ?", (note_id,))
         _sync_linked_mindmap(conn, note_id)
         sync = _note_with_drawing_sync(conn, note_id, uid, datetime.now(_TZ_JKT).isoformat(), move=False)
+        note_comments.touch_for_note(conn, note_id, note.get("list_id"), datetime.now(_TZ_JKT).isoformat())
         conn.commit()
         # Media yang dibuang saat masih 'processing' diantrekan lagi sekarang, bukan menunggu restart.
         for r in conn.execute("SELECT id FROM note_attachments WHERE note_id = ? AND status = 'processing'",
@@ -6102,6 +6124,7 @@ async def purge_trashed_note(note_id: int, user=Depends(get_current_user)):
         cur = conn.execute(f"DELETE FROM trashed_notes WHERE {allowed}", (note_id, uid, str(uid)))
         if cur.rowcount:
             _delete_linked_mindmaps(conn, [note_id])
+            note_comments.delete_for_notes(conn, [note_id])
     return {"ok": True}
 
 @app.delete("/api/scratchpad/trash")
@@ -6119,6 +6142,7 @@ async def empty_trashed_notes(user=Depends(get_current_user)):
             (uid, str(uid))).fetchall()]
         deleted = len(gone)
         _delete_linked_mindmaps(conn, gone)
+        note_comments.delete_for_notes(conn, gone)
     return {"ok": True, "deleted": deleted}
 
 @app.get("/api/scratchpad/recent")
@@ -7075,7 +7099,7 @@ async def get_scratchpad_note(note_id: int, user=Depends(get_current_user)):
         """, [note_id] + access_params).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Note tidak ditemukan")
-        return _scratchpad_row(row, conn, uid)
+        return note_comments.apply_summaries(conn, uid, [_scratchpad_row(row, conn, uid)])[0]
 
 
 _UUID_TOKEN_RE = re.compile(r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}')
@@ -7581,6 +7605,8 @@ async def update_scratchpad(note_id: int, req: ScratchpadUpdate, user=Depends(ge
         _upsert_tags_for_note(conn, note_id, existing["user_id"], tag_names)
         _sync_linked_mindmap(conn, note_id)
         sync = _note_with_drawing_sync(conn, note_id, uid, now, move=existing["list_id"] != new_list_id)
+        if new_list_id is not None and existing["list_id"] != new_list_id:
+            note_comments.touch_for_note(conn, note_id, new_list_id, now)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(updated, conn, uid, sync)
@@ -7654,6 +7680,7 @@ async def share_scratchpad(note_id: int, req: NoteShareReq, user=Depends(get_cur
         )
         _sync_linked_mindmap(conn, note_id)
         sync = _note_with_drawing_sync(conn, note_id, uid, now, move=True)
+        note_comments.touch_for_note(conn, note_id, req.list_id, now)
         conn.commit()
         updated = conn.execute(_NOTE_SELECT, (note_id,)).fetchone()
         return _scratchpad_row_synced(updated, conn, uid, sync)
@@ -7722,6 +7749,298 @@ async def unpublish_scratchpad(note_id: int, user=Depends(get_current_user)):
         conn.execute("DELETE FROM published_notes WHERE note_id = ? AND user_id = ?", (note_id, uid))
         conn.commit()
         return {"ok": True}
+
+class CommentCreate(BaseModel):
+    body: str
+    quote: Optional[str] = None
+    parent_id: Optional[int] = None
+    client_id: Optional[str] = None
+
+    @field_validator("body")
+    @classmethod
+    def _body_ok(cls, v):
+        v = (v or "").strip()
+        if not 1 <= len(v) <= 4000:
+            raise ValueError("Isi komentar 1-4000 karakter")
+        return v
+
+    @field_validator("quote")
+    @classmethod
+    def _quote_ok(cls, v):
+        if v is not None and len(v) > 500:
+            raise ValueError("Kutipan maksimal 500 karakter")
+        return v
+
+    @field_validator("client_id")
+    @classmethod
+    def _client_ok(cls, v):
+        if v is not None and len(v) > 64:
+            raise ValueError("client_id maksimal 64 karakter")
+        return v
+
+
+class CommentPatch(BaseModel):
+    body: Optional[str] = None
+    resolved: Optional[bool] = None
+
+    @field_validator("body")
+    @classmethod
+    def _body_ok(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not 1 <= len(v) <= 4000:
+            raise ValueError("Isi komentar 1-4000 karakter")
+        return v
+
+    @model_validator(mode="after")
+    def _exactly_one(self):
+        if (self.body is None) == (self.resolved is None):
+            raise ValueError("Isi tepat satu dari body atau resolved")
+        return self
+
+
+def _comment_out(conn, cid: int) -> dict:
+    row = conn.execute(
+        f"SELECT {note_comments.SELECT_COLS} {note_comments.FROM_JOINS} WHERE c.id = ?", (cid,)).fetchone()
+    return note_comments.serialize(row)
+
+
+def _schedule_comment_notify(background_tasks, conn, note, comment, actor_uid: int, event: str) -> None:
+    """Susun pesan per penerima (dalam transaksi yang sama) lalu jadwalkan pengiriman setelah respons."""
+    kinds = note_comments.recipients(conn, note=note, comment=comment, actor_uid=actor_uid, event=event)
+    if not kinds:
+        return
+    a = conn.execute("SELECT username, display_name FROM users WHERE id = ?", (actor_uid,)).fetchone()
+    actor = (a["display_name"] or a["username"]) if a else ""
+    body = comment.get("body") or ""
+    messages = {u: note_comments.message(k, actor, note["title"], body, _esc_msg) for u, k in kinds.items()}
+    background_tasks.add_task(_notify_users_bg, messages, note["list_id"], note["id"])
+
+
+@app.get("/api/scratchpad/{note_id}/comments")
+async def list_note_comments(note_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    with get_db() as conn:
+        note = note_comments.visible_note(conn, uid, note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        if note["list_id"] is None:
+            return []
+        rows = conn.execute(
+            f"SELECT {note_comments.SELECT_COLS} {note_comments.FROM_JOINS} "
+            "WHERE c.note_id = ? AND c.list_id = ? AND c.deleted_at IS NULL ORDER BY c.created_at, c.id",
+            (note_id, note["list_id"])).fetchall()
+        return [note_comments.serialize(r) for r in rows]
+
+
+@app.get("/api/note-comments")
+async def pull_note_comments(since: str = "", limit: int = 500, user=Depends(get_current_user)):
+    uid = user["sub"]
+    limit = max(1, min(limit, 1000))
+    now = datetime.now(_TZ_JKT).isoformat()
+    cur = note_comments.parse_cursor(since.replace(" ", "+"))  # "+07:00" tak ter-encode tiba sebagai spasi
+    if note_comments.cursor_expired(cur, now):
+        return {"reset": True, "items": [], "cursor": "", "more": False}
+    where, params = note_comments.visible_clause(uid)
+    cond = ""
+    if cur is not None:
+        cond = "(c.updated_at > ? OR (c.updated_at = ? AND c.id > ?)) AND "
+        params = [cur[0], cur[0], cur[1]] + params
+    with get_db() as conn:
+        rows = conn.execute(
+            f"SELECT {note_comments.SELECT_COLS} {note_comments.FROM_JOINS} "
+            f"JOIN scratchpad_notes n ON n.id = c.note_id WHERE {cond}{where} "
+            "ORDER BY c.updated_at, c.id LIMIT ?", params + [limit + 1]).fetchall()
+    more = len(rows) > limit
+    items = [note_comments.serialize(r) for r in rows[:limit]]
+    if more:
+        cursor = note_comments.make_cursor(items[-1]["updated_at"], items[-1]["id"])
+    else:
+        # Kursor boleh maju tanpa item: max(updated_at terakhir, sekarang - 5 menit) agar tidak kedaluwarsa saat sepi.
+        margin = (datetime.now(_TZ_JKT) - timedelta(minutes=5)).isoformat()
+        last, last_id = (items[-1]["updated_at"], items[-1]["id"]) if items else cur or ("", 0)
+        # Item terakhir lebih baru dari margin: pakai (updated_at, id)-nya agar tak terkirim ulang.
+        cursor = note_comments.make_cursor(last, last_id) if last >= margin else note_comments.make_cursor(margin, 0)
+    return {"items": items, "cursor": cursor, "more": more}
+
+
+@app.post("/api/scratchpad/{note_id}/comments")
+async def create_note_comment(note_id: int, req: CommentCreate, background_tasks: BackgroundTasks,
+                              user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        note = note_comments.visible_note(conn, uid, note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        if note["list_id"] is None:
+            raise HTTPException(status_code=409, detail={"code": "NOTE_NOT_SHARED"})
+        if req.client_id:
+            dup = conn.execute(
+                "SELECT id FROM note_comments WHERE user_id = ? AND client_id = ?", (uid, req.client_id)).fetchone()
+            if dup:
+                return _comment_out(conn, dup["id"])
+        parent_id = None
+        if req.parent_id is not None:
+            parent = note_comments.get_visible(conn, uid, req.parent_id)
+            if not parent or parent["deleted_at"] or parent["note_id"] != note_id:
+                raise HTTPException(status_code=404, detail="Komentar tidak ditemukan")
+            parent_id = parent["parent_id"] or parent["id"]
+        quote = req.quote if parent_id is None else None
+        cur = conn.execute(
+            "INSERT INTO note_comments (note_id, list_id, user_id, parent_id, body, quote, client_id, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (note_id, note["list_id"], uid, parent_id, req.body, quote, req.client_id, now, now))
+        out = _comment_out(conn, cur.lastrowid)
+        _schedule_comment_notify(background_tasks, conn, note, out, uid, "create")
+    await _note_comment_broadcast(note_id, {"type": "comments_changed", "note_id": note_id})
+    return out
+
+
+@app.post("/api/scratchpad/{note_id}/comments/read")
+async def mark_note_comments_read(note_id: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        note = note_comments.visible_note(conn, uid, note_id)
+        if not note:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+        if note["list_id"] is not None:
+            note_comments.mark_read(conn, uid, note_id, now)
+        return {"ok": True}
+
+
+@app.patch("/api/note-comments/{cid}")
+async def patch_note_comment(cid: int, req: CommentPatch, background_tasks: BackgroundTasks,
+                             user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        c = note_comments.get_visible(conn, uid, cid)
+        if not c or c["deleted_at"]:
+            raise HTTPException(status_code=404, detail="Komentar tidak ditemukan")
+        if req.body is not None:
+            if c["user_id"] != uid:
+                raise HTTPException(status_code=403, detail="Hanya penulis yang bisa mengedit komentar")
+            conn.execute("UPDATE note_comments SET body = ?, edited_at = ?, updated_at = ? WHERE id = ?",
+                         (req.body, now, now, cid))
+        else:
+            if c["parent_id"] is not None:
+                raise HTTPException(status_code=422, detail="Hanya thread yang bisa diselesaikan")
+            if uid not in (c["user_id"], c["note_owner_id"]):
+                raise HTTPException(status_code=403, detail="Tidak berhak menyelesaikan thread ini")
+            if bool(req.resolved) == bool(c["resolved_at"]):
+                pass  # sudah di keadaan yang diminta: no-op (tanpa UPDATE, notifikasi, atau sinyal)
+            elif req.resolved:
+                conn.execute("UPDATE note_comments SET resolved_at = ?, resolved_by = ?, updated_at = ? WHERE id = ?",
+                             (now, uid, now, cid))
+                _schedule_comment_notify(
+                    background_tasks, conn, {"user_id": c["note_owner_id"], "list_id": c["list_id"], "title": c["note_title"],
+                                             "id": c["note_id"]}, dict(c), uid, "resolve")
+            else:
+                conn.execute("UPDATE note_comments SET resolved_at = NULL, resolved_by = NULL, updated_at = ? WHERE id = ?",
+                             (now, cid))
+        out = _comment_out(conn, cid)
+        note_id = c["note_id"]
+    if req.body is not None or bool(req.resolved) != bool(c["resolved_at"]):
+        await _note_comment_broadcast(note_id, {"type": "comments_changed", "note_id": note_id})
+    return out
+
+
+@app.delete("/api/note-comments/{cid}")
+async def delete_note_comment(cid: int, user=Depends(get_current_user)):
+    uid = user["sub"]
+    now = datetime.now(_TZ_JKT).isoformat()
+    with get_db() as conn:
+        c = note_comments.get_visible(conn, uid, cid)
+        if not c:
+            raise HTTPException(status_code=404, detail="Komentar tidak ditemukan")
+        if uid not in (c["user_id"], c["note_owner_id"]):
+            raise HTTPException(status_code=403, detail="Tidak berhak menghapus komentar ini")
+        # Hapus thread -> semua balasannya ikut; tombstone yang sudah ada tidak disentuh lagi.
+        cur = conn.execute(
+            "UPDATE note_comments SET deleted_at = ?, body = '', quote = NULL, updated_at = ? "
+            "WHERE (id = ? OR parent_id = ?) AND deleted_at IS NULL", (now, now, cid, cid))
+        changed = cur.rowcount > 0
+        note_id = c["note_id"]
+    if changed:
+        await _note_comment_broadcast(note_id, {"type": "comments_changed", "note_id": note_id})
+    return {"ok": True}
+
+
+def _note_comment_push(note_id: int, uid: int, q: asyncio.Queue, event: dict) -> None:
+    """Antrean dibatasi (100): bila penuh pelanggan dilepas; klien menyambung ulang dan menarik delta."""
+    try:
+        q.put_nowait(event)
+    except asyncio.QueueFull:
+        note_comment_subscribers.get(note_id, set()).discard((uid, q))
+
+
+async def _note_comment_broadcast(note_id: int, event: dict) -> None:
+    """Kirim sinyal ke pelanggan stream komentar note. Pelanggan yang tak lagi bisa melihat note
+    (atau note-nya kembali pribadi) menerima 'comments_access_lost' dan dilepas.
+    Dipanggil setelah commit: kegagalan hanya dicatat."""
+    try:
+        subs = list(note_comment_subscribers.get(note_id, set()))
+        if not subs:
+            return
+        verdicts = []
+        with get_db() as conn:
+            for uid, q in subs:
+                n = note_comments.visible_note(conn, uid, note_id)
+                verdicts.append((uid, q, bool(n) and n["list_id"] is not None))
+        for uid, q, ok in verdicts:
+            if ok:
+                _note_comment_push(note_id, uid, q, event)
+            else:
+                _note_comment_push(note_id, uid, q, {"type": "comments_access_lost", "note_id": note_id})
+                note_comment_subscribers.get(note_id, set()).discard((uid, q))
+    except Exception:
+        logging.getLogger(__name__).exception("note comment broadcast gagal (note_id=%s)", note_id)
+
+
+@app.get("/api/scratchpad/{note_id}/comments/stream")
+async def note_comments_stream(note_id: int, request: Request, user=Depends(get_current_user_sse)):
+    uid = user["sub"]
+    with get_db() as conn:
+        note = note_comments.visible_note(conn, uid, note_id)
+        if not note or note["list_id"] is None:
+            raise HTTPException(status_code=404, detail="Note tidak ditemukan")
+
+    terminal = ("comments_access_lost",)
+
+    async def event_generator():
+        q: asyncio.Queue = asyncio.Queue(maxsize=100)
+        entry = (uid, q)
+        note_comment_subscribers[note_id].add(entry)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                if entry not in note_comment_subscribers.get(note_id, ()):
+                    while not q.empty():
+                        msg = q.get_nowait()
+                        if msg.get("type") in terminal:
+                            yield {"data": json.dumps(msg)}
+                            break
+                    break
+                try:
+                    msg = await asyncio.wait_for(q.get(), timeout=20.0)
+                    yield {"data": json.dumps(msg)}
+                    if msg.get("type") in terminal:
+                        break
+                except asyncio.TimeoutError:
+                    if not _session_still_valid(user):
+                        break
+                    yield {"data": json.dumps({"type": "ping"})}
+        finally:
+            note_comment_subscribers[note_id].discard(entry)
+            if not note_comment_subscribers.get(note_id):
+                note_comment_subscribers.pop(note_id, None)
+
+    return EventSourceResponse(event_generator())
+
 
 # ── Public publish pages (/pub/*) ──────────────────────────────────────────────
 
