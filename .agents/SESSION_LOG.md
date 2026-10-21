@@ -3823,6 +3823,11 @@
 - **Files Touch:** static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/*.test.js (versi, glyph), tests/test_version.py, temporary_files/e2e_slash_menu_grid.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (di-push ke branch PR #73)
 
+## 2026-10-21 21:05 WIB — Claude — Email Fase 0b: mailer andal (E2E + handover)
+- **Task:** Task 7 SDD Email Fase 0b — E2E kartu Email di halaman Admin, perbarui spec (aturan penyamaran), handover.
+- **Changes:** E2E `temporary_files/e2e_admin_email.py` 10/10 (email tes, non-admin, lupa password, "Coba lagi" pada baris `failed`, gelap, 375 px); spec §3.1 penyamaran disamakan dengan implementasi; entri CURRENT_STATE (SW v448 / `app.css?v=354`, ADR-025, checklist SMTP/DNS). pytest 1080, JS 2552/2553 (pra-ada `draw_local_reactive`), inline OK.
+- **Files Touch:** temporary_files/e2e_admin_email.py, .gitignore, docs/superpowers/specs/2026-10-21-email-fase0b-mailer-design.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (commit lokal di `claude/email-fase0b`, belum di-push / PR; menunggu review akhir)
 ## [2026-10-21 20:40] - Claude
 - **Task:** Merge PR #73 (slash menu grid 2 kolom + Wikilink + ikon duotone) atas instruksi Bapak.
 - **Changes:** Review ulang commit ikon (247770f) oleh subagen: siap merge; CI hijau; PR di-merge (131e5c8), workflow Deploy Taskflow V4 sukses. SW v447 / app.css 353.
@@ -3839,6 +3844,10 @@
 - Merge `origin/main` (#73 slash menu, SW v447) ke `claude/komentar-note-offline`: konflik hanya string versi + `.agents/*`; SW dinaikkan ke **v448** `taskflow-v448-komentar-offline` (app.css tetap ?v=353). npm 2628/2629 (pra-ada `draw_local_reactive`), pytest 1018, inline OK.
 - PR dibuat dan di-merge ke `main` atas instruksi Bapak ("merge dan deploy"). Deploy: file statis saja → restart `taskflow-web`.
 
+## 2026-10-21 23:30 WIB — Claude — Email Fase 0b: review akhir + merge main (#75)
+- Review akhir opus → 1 gelombang perbaikan (3e12e44b): email tes gagal di error pertama, isi email dikosongkan saat sent/expired, SMTP_TIMEOUT/PORT kosong aman, contoh Exim, forgot render-dulu. Re-review bersih.
+- `main` maju (#75 komentar offline memakai v448) → di-merge; SW naik ke **v449** `taskflow-v449-email-mailer`, `app.css?v=354`. pytest 1086; JS 2649/2650 (pra-ada `draw_local_reactive`); inline OK.
+- **Status:** draft PR; deploy = restart `taskflow-web` saja.
 ## 2026-10-21 23:30 WIB — Claude — Kelola Workspace Fase 2a (undangan & akses gabung)
 - Brainstorming → spec + rencana disetujui; SDD 7 task + review per task + review akhir opus → 1 gelombang perbaikan + re-review bersih. Merge main (#73, #75) → SW v449, `app.css?v=355`, ADR-025. pytest 1072, JS 2657/2658 (pra-ada), E2E 2a 78/78 + Fase 1/0 + tasklist icons lulus.
 - **Status:** Needs Review (draft PR; setelah merge restart `taskflow-web` lalu `taskflow`).
@@ -3877,6 +3886,8 @@
 - Bapak: "merge". #76 di-merge (cb9ed2b) setelah merge main (#74) + SW v451; CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` lalu `sudo systemctl restart taskflow` (migrasi undangan + bot). Lalu Fase 2b (transfer ownership, arsip, ekspor) bila diminta.
 
+## 2026-10-21 22:20 WIB — Claude — Email Fase 0b: merge main (#74–#76)
+- `main` maju ke v451 / `app.css?v=356` dan memakai ADR-025 (undangan workspace) → di-merge; ADR email jadi **ADR-026**, SW **v452** `taskflow-v452-email-mailer`, `app.css?v=357`.
 ## [2026-10-22 05:25] - Claude
 - **Task:** Merge PR #78 (slash menu: tutup dengan Esc / klik di luar, batal "+" memulihkan note) atas instruksi Bapak.
 - **Changes:** CI hijau di 55460fd, tanpa konflik; PR di-merge (8724d3f), workflow Deploy Taskflow V4 sukses. SW v452, app.css tetap 356.
