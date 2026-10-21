@@ -26,7 +26,7 @@ test("NoteTrashModal has Catatan/Mindmap tabs; MindmapTrashList uses TF.mindmapt
 
 test("MindmapPage: Sampah button, workspace filter via filterSidebar, shared badge", () => {
   const p = slice(html, "function MindmapPage(", "\nfunction ");
-  assert.match(p, /"🗑 Sampah"/);
+  assert.match(p, /name: "fTrash", size: 14 \}\), "Sampah"/);
   assert.match(p, /initialKind: "mindmap"/);
   assert.match(p, /filterSidebar\(/);
   assert.match(p, /tf_mindmap_filter/);

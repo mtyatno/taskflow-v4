@@ -39,7 +39,7 @@ test("MindmapTabInstance subscribes to the stream only for shared, non-linked, s
   assert.match(t, /mindmap_access_lost/);
   assert.match(t, /"Akses ke peta ini dicabut"/);
   assert.match(t, /"Peta ini dihapus oleh pemiliknya"/);
-  assert.match(t, /"🟢 Langsung"/);
+  assert.match(t, /name: "pDot", size: 8 \}\)\), "Langsung"/);
   assert.match(t, /base_data_json: baseDocRef\.current/);
   assert.match(t, /type: "remoteUpdate"/);
   assert.match(t, /remoteSkipped/);

@@ -59,7 +59,7 @@ test("DrawPage passes sharedLists and filters by scope (Semua/Pribadi/W)", () =>
 test("DrawingListItem shows 👥 badge and hides pin for non-owner", () => {
   const b = listItem();
   assert.match(b, /projectWorkspaceBadge\(d\.list_id, sharedLists\)/);
-  assert.match(b, /✏️ \$\{d\.last_editor_display_name \|\| d\.last_editor_username\}/);
+  assert.match(b, /name: "pPencil", size: 11 \}\), \/\*#__PURE__\*\/React\.createElement\("span", .*?, d\.last_editor_display_name \|\| d\.last_editor_username\)/);
   assert.doesNotMatch(b, /oleh \$\{/);
   assert.match(b, /drawingIsOwner\(d, currentUserId\)/);
   assert.match(b, /isOwner && \(hovered \|\| !!d\.is_pinned\)|\(hovered \|\| !!d\.is_pinned\) && isOwner/);

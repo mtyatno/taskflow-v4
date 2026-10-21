@@ -548,6 +548,235 @@ def run_notes_page(browser, base, user, theme):
         ctx.close()
 
 
+EMOJI_PAGES = "🧠🎨✕★🗑👥📄✏"
+
+
+def run_mindmap_draw_pages(browser, base, user, theme):
+    tag = "terang" if theme == "light" else "gelap"
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        # --- Mindmap ---
+        nav_to(p, "Mindmap")
+        p.locator("text=Mindmaps").first.wait_for(state="visible", timeout=15000)
+        p.locator("text=Peta Pribadi").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        side = p.locator("div", has=p.locator("text=Mindmaps")).filter(has_text="Sampah").last
+        text = p.locator("body").inner_text()
+        bad = [c for c in EMOJI_PAGES if c in text]
+        check("[%s] 17a Mindmap: tanpa emoji di innerText" % tag, not bad, repr(bad))
+        check("[%s] 17b Mindmap: judul svg 18px, pinned svg 10px, Sampah svg 14px, pane kosong svg 44px" % tag,
+              p.locator(".wsf-title-ico svg[width='18']").count() >= 1
+              and p.locator("svg[width='10']").count() >= 1
+              and p.locator("button", has_text="Sampah").locator("svg[width='14']").count() == 1
+              and p.locator("svg[width='44']").count() == 1)
+        check("[%s] 17c Mindmap: penanda workspace (13px, aria-label) + dari catatan (13px)" % tag,
+              p.locator("[aria-label='Peta workspace'] svg[width='13']").count() >= 1
+              and p.locator("[aria-label='Tertaut ke catatan'] svg[width='13']").count() >= 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_17_mindmap_halaman.png" % tag), scale="css")
+        side.screenshot(path=os.path.join(SHOTS, "%s_17_mindmap_daftar.png" % tag), scale="css")
+        print("  screenshot %s_17_mindmap_*.png" % tag, flush=True)
+        # tab peta terbuka (header: judul, Canvas/Outline, badge workspace)
+        p.get_by_text("Peta Tim", exact=True).first.click()
+        p.locator("button", has_text="Canvas").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(600)
+        body = p.locator("body").inner_text()
+        bad = [c for c in "🧠📝📄🟢👥" if c in body]
+        check("[%s] 17d tab peta: tanpa emoji di innerText" % tag, not bad, repr(bad))
+        check("[%s] 17e tab peta: Canvas 14px, Outline 14px, judul 13px, badge/Share 12px" % tag,
+              p.locator("button", has_text="Canvas").locator("svg[width='14']").count() == 1
+              and p.locator("button", has_text="Outline").locator("svg[width='14']").count() == 1
+              and p.locator("svg[width='13']").count() >= 2
+              and p.locator("svg[width='12']").count() >= 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_17_mindmap_tab_terbuka.png" % tag), scale="css")
+        # --- Gambar / Canvas ---
+        nav_to(p, "Draw")
+        p.locator("text=Gambar / Canvas").first.wait_for(state="visible", timeout=15000)
+        p.locator("text=Gambar Pribadi").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        text = p.locator("body").inner_text()
+        bad = [c for c in EMOJI_PAGES if c in text]
+        check("[%s] 18a Gambar: tanpa emoji di innerText" % tag, not bad, repr(bad))
+        check("[%s] 18b Gambar: judul svg 18px, chip workspace svg 12px, pinned 10px, pensil 11px, pane kosong 44px" % tag,
+              p.locator(".wsf-title-ico svg[width='18']").count() >= 1
+              and p.locator("span", has_text="Tim Alfa").locator("svg[width='12']").count() >= 1
+              and p.locator("svg[width='10']").count() >= 1
+              and p.locator("svg[width='11']").count() >= 1
+              and p.locator("svg[width='44']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_18_draw_halaman.png" % tag), scale="css")
+        print("  screenshot %s_18_draw_halaman.png" % tag, flush=True)
+    finally:
+        ctx.close()
+
+
+EMOJI_CHATCAL = "💬🔍✕📋🗓🔁📁🔴📅✕✖"
+
+
+def run_chat_calendar_pages(browser, base, user, theme):
+    import datetime
+    tag = "terang" if theme == "light" else "gelap"
+    today = datetime.date.today()
+    hol = today.replace(day=1) + datetime.timedelta(days=16 if today.day != 17 else 17)
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        p.route("**/api/holidays*", lambda r: r.fulfill(status=200, content_type="application/json",
+                body='{"data":[{"date":"%s","name":"Hari Uji Nasional","is_joint":false}]}' % hol.isoformat()))
+        # --- Diskusi / Chat ---
+        nav_to(p, "Diskusi")
+        p.locator("text=Diskusi / Chat").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(600)
+        text = p.locator("body").inner_text()
+        bad = [c for c in EMOJI_CHATCAL if c in text]
+        check("[%s] 19a Chat: tanpa emoji di innerText" % tag, not bad, repr(bad))
+        check("[%s] 19b Chat: judul svg 18px, pencarian 15px, pane kosong 44px" % tag,
+              p.locator(".wsf-title-ico svg[width='18']").count() >= 1
+              and p.locator(".scratchpad-bar svg[width='15']").count() >= 1
+              and p.locator("svg[width='44']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_19_chat_halaman.png" % tag), scale="css")
+        p.locator(".scratchpad-bar input").fill("zzzz")
+        check("[%s] 19c Chat: tombol hapus pencarian svg 13px" % tag,
+              p.locator("button[title='Hapus pencarian'] svg[width='13']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_19_chat_cari.png" % tag), scale="css")
+        # --- Kalender ---
+        nav_to(p, "Kalender")
+        p.locator("h1", has_text="Kalender").wait_for(state="visible", timeout=15000)
+        p.wait_for_timeout(2500)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(600)
+        text = p.locator("body").inner_text()
+        bad = [c for c in EMOJI_CHATCAL if c in text]
+        check("[%s] 20a Kalender: tanpa emoji di innerText" % tag, not bad, repr(bad))
+        check("[%s] 20b Kalender: judul svg 22px, repeat 12px, folder 12px, libur dot svg" % tag,
+              p.locator("h1 .wsf-title-ico svg[width='22']").count() == 1
+              and p.locator("svg[width='12']").count() >= 1
+              and p.locator("svg[width='10']").count() >= 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_20_kalender_bulan.png" % tag), scale="css")
+        p.screenshot(path=os.path.join(SHOTS, "%s_20_kalender_bulan_zoom.png" % tag), scale="css",
+                     clip={"x": 200, "y": 120, "width": 700, "height": 420})
+        # sidebar hari libur
+        p.get_by_text("%d" % hol.day, exact=True).first.click()
+        p.wait_for_timeout(500)
+        check("[%s] 20c Kalender: sidebar hari libur, tanpa emoji" % tag,
+              not [c for c in EMOJI_CHATCAL if c in p.locator("body").inner_text()]
+              and p.locator(".cal-agenda-holiday-tag svg[width='8']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_20_kalender_sidebar_libur.png" % tag), scale="css")
+        # tampilan Minggu
+        p.get_by_role("button", name="Minggu").first.click()
+        p.wait_for_timeout(600)
+        p.screenshot(path=os.path.join(SHOTS, "%s_20_kalender_minggu.png" % tag), scale="css")
+        print("  screenshot %s_19/20_*.png" % tag, flush=True)
+    finally:
+        ctx.close()
+    # popup mobile (lebar 390)
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        p.route("**/api/holidays*", lambda r: r.fulfill(status=200, content_type="application/json",
+                body='{"data":[{"date":"%s","name":"Hari Uji Nasional","is_joint":false}]}' % hol.isoformat()))
+        nav_to(p, "Kalender")
+        p.locator("h1", has_text="Kalender").wait_for(state="visible", timeout=15000)
+        p.set_viewport_size({"width": 390, "height": 860})
+        p.wait_for_timeout(2500)
+        p.get_by_text("%d" % today.day, exact=True).first.click()
+        p.wait_for_timeout(600)
+        check("[%s] 20d Kalender mobile: popup tanpa emoji, tutup svg 14px" % tag,
+              not [c for c in EMOJI_CHATCAL if c in p.locator("body").inner_text()]
+              and p.locator("button[aria-label='Tutup'] svg[width='14']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_20_kalender_mobile_popup.png" % tag), scale="css")
+    finally:
+        ctx.close()
+
+
+EMOJI_HABIT = "\U0001F3AF\U0001F525\u23F3\u270F\U0001F5D1\u2705\u2715\U0001F331\u26A1\U0001F4C1\U0001F4C2"
+
+
+def run_habit_dashboard_pages(browser, base, user, empty_user, theme):
+    tag = "terang" if theme == "light" else "gelap"
+    # --- Habit: keadaan kosong (user tanpa habit) ---
+    ctx, p = open_tasks_page(browser, base, empty_user, theme)
+    try:
+        nav_to(p, "Habit Tracker")
+        p.locator("text=Belum ada habit").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(400)
+        check("[%s] 21a Habit kosong: tanpa emoji, sprout svg 44px" % tag,
+              not [c for c in EMOJI_HABIT if c in p.locator("body").inner_text()]
+              and p.locator(".wsf-title-ico svg[width='44']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_21_habit_kosong.png" % tag), scale="css")
+    finally:
+        ctx.close()
+    # --- Habit: kartu (micro target, streak, menu) lalu pending offline ---
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        nav_to(p, "Habit Tracker")
+        p.locator(".habit-card-new").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(500)
+        check("[%s] 21b Habit: tanpa emoji di innerText" % tag,
+              not [c for c in EMOJI_HABIT if c in p.locator("body").inner_text()])
+        check("[%s] 21c Habit: micro target 13px, api 15px" % tag,
+              p.locator(".habit-card-micro-new svg[width='13']").count() >= 1
+              and p.locator(".habit-streak-badge svg[width='15']").count() >= 1)
+        card = p.locator(".habit-card-new").first
+        card.screenshot(path=os.path.join(SHOTS, "%s_21_habit_kartu.png" % tag), scale="css")
+        p.screenshot(path=os.path.join(SHOTS, "%s_21_habit_halaman.png" % tag), scale="css")
+        # menu kartu terbuka
+        card.locator(".habit-card-meta button").last.click()
+        p.get_by_text("Hapus", exact=True).first.wait_for(state="visible", timeout=5000)
+        check("[%s] 21d Habit: menu Edit/Hapus svg 14px, tanpa emoji" % tag,
+              p.get_by_role("button", name="Edit").locator("svg[width='14']").count() >= 1
+              and p.get_by_role("button", name="Hapus").locator("svg[width='14']").count() >= 1
+              and not [c for c in EMOJI_HABIT if c in p.locator("body").inner_text()])
+        p.screenshot(path=os.path.join(SHOTS, "%s_21_habit_menu.png" % tag), scale="css")
+        # modal edit (dari menu yang masih terbuka)
+        p.get_by_role("button", name="Edit").first.click()
+        p.locator(".modal-close").first.wait_for(state="visible", timeout=5000)
+        check("[%s] 21e Habit: modal edit, tutup svg 15px" % tag,
+              p.locator(".modal-close svg[width='15']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_21_habit_edit.png" % tag), scale="css")
+        p.locator(".modal-close").first.click()
+        # habit pending: mode local-first melayani /today dari router lokal, jadi sisipkan habit _pending lewat api.get
+        p.evaluate("""() => {
+            const orig = api.get.bind(api);
+            api.get = async (u, ...r) => {
+                const d = await orig(u, ...r);
+                if (String(u).startsWith("/api/habits/today") && Array.isArray(d))
+                    return [...d, {id: "tmp_e2e_1", title: "Baca buku offline", phase: "pagi", micro_target: "Baca 1 halaman",
+                        _pending: true, today_status: null, skip_reason: "", streak: 0, week_log: [null, null, null, null, null, null, null],
+                        frequency: [0, 1, 2, 3, 4, 5, 6]}];
+                return d;
+            };
+        }""")
+        nav_to(p, "Semua Task")
+        p.locator(".tl-view-seg").wait_for(state="visible", timeout=15000)
+        nav_to(p, "Habit Tracker")
+        p.locator("[title='Menunggu sinkron']").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        check("[%s] 21f Habit pending: jam pasir svg 13px, tanpa emoji" % tag,
+              p.locator("[title='Menunggu sinkron'] svg[width='13']").count() == 1
+              and not [c for c in EMOJI_HABIT if c in p.locator("body").inner_text()])
+        p.locator(".habit-card-new", has=p.locator("[title='Menunggu sinkron']")).screenshot(
+            path=os.path.join(SHOTS, "%s_21_habit_pending.png" % tag), scale="css")
+    finally:
+        ctx.close()
+    # --- Dashboard: hero + chip habit ---
+    ctx, p = open_tasks_page(browser, base, user, theme)
+    try:
+        nav_to(p, "Dashboard")
+        p.locator(".dash-hero-habit-cta").first.wait_for(state="visible", timeout=15000)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(600)
+        body = p.locator("body").inner_text()
+        check("[%s] 22a Dashboard: tanpa emoji ikon, chip habit svg 13px" % tag,
+              not [c for c in EMOJI_HABIT if c in body]
+              and p.locator(".dash-hero-habit-cta svg[width='13']").count() == 1)
+        p.screenshot(path=os.path.join(SHOTS, "%s_22_dashboard_hero.png" % tag), scale="css")
+        p.locator(".dash-hero-habit-pill").first.screenshot(path=os.path.join(SHOTS, "%s_22_dashboard_chip.png" % tag), scale="css")
+        print("  screenshot %s_21/22_*.png" % tag, flush=True)
+    finally:
+        ctx.close()
+
+
 def main():
     os.makedirs(SHOTS, exist_ok=True)
     for f in os.listdir(SHOTS):
@@ -580,6 +809,25 @@ def main():
         _, npn = api(base, user, "POST", "/api/scratchpad", json={"title": "Catatan Terpin", "content": "terpin", "tags": ["kerja"]})
         npid = npn.get("id") or npn.get("note", {}).get("id")
         api(base, user, "PATCH", "/api/scratchpad/%d/pin" % npid, json={"pinned": True}, ok_codes=(200, 422))
+        # Mindmap + Gambar (Task 1 ikon halaman): pribadi terpin, bersama workspace, dari catatan; gambar milik budi di workspace
+        _, mm1 = api(base, user, "POST", "/api/mindmaps", json={"title": "Peta Pribadi"})
+        api(base, user, "PATCH", "/api/mindmaps/%d/pin" % mm1["id"], json={"pinned": True})
+        api(base, user, "POST", "/api/mindmaps", json={"title": "Peta Tim", "list_id": list_id})
+        api(base, user, "POST", "/api/mindmaps", json={"source_note_id": npid})
+        _, dr1 = api(base, user, "POST", "/api/drawings", json={"title": "Gambar Pribadi"})
+        api(base, user, "PATCH", "/api/drawings/%s/pin" % dr1["id"])
+        _, dr2 = api(base, budi, "POST", "/api/drawings", json={"title": "Gambar Tim", "list_id": list_id})
+        api(base, user, "PUT", "/api/drawings/%s" % dr2["id"], json={"title": "Gambar Tim"})
+        # Kalender (Task 2 ikon halaman): task berulang + task proyek pada bulan ini
+        import datetime as _dt
+        _td = _dt.date.today().isoformat()
+        api(base, user, "POST", "/api/tasks", json={"title": "Rapat rutin harian", "gtd_status": "next", "deadline": _td, "recurrence_type": "daily"})
+        api(base, user, "POST", "/api/tasks", json={"title": "Susun proposal", "gtd_status": "next", "deadline": _td, "project": "Proyek Alfa"})
+        # Habit (Task 3 ikon halaman): micro target + streak; user terpisah tanpa habit untuk keadaan kosong
+        empty_user = register(base, "kosong")
+        _, hb = api(base, user, "POST", "/api/habits", json={"title": "Minum air", "phase": "pagi", "micro_target": "Satu gelas dulu", "frequency": [0, 1, 2, 3, 4, 5, 6]})
+        api(base, user, "POST", "/api/habits/%d/checkin" % hb["id"], json={"status": "done"})
+        api(base, user, "POST", "/api/habits", json={"title": "Jalan sore", "phase": "siang", "micro_target": "Pakai sepatu saja", "frequency": [0, 1, 2, 3, 4, 5, 6]})
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for theme in ("light", "dark"):
@@ -598,6 +846,9 @@ def main():
                     run_manage_page(browser, base, user, theme)
                 run_pomo_chip(browser, base, user, theme)
                 run_notes_page(browser, base, user, theme)
+                run_mindmap_draw_pages(browser, base, user, theme)
+                run_chat_calendar_pages(browser, base, user, theme)
+                run_habit_dashboard_pages(browser, base, user, empty_user, theme)
             browser.close()
     except Exception as e:
         check("exception", False, "%s: %s" % (type(e).__name__, str(e)[:900]))

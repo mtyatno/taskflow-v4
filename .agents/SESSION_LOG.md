@@ -3790,3 +3790,6 @@
 - Bapak: "merge". `main` sudah maju (#68–#71) → merge `main` ke branch dua kali, versi naik ke SW v444 / `app.css?v=351`; CI Tests hijau; #67 di-merge (a899d8a). Kelima enhancement halaman Fokus Hari Ini selesai.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` (tanpa migrasi). Cek suara latar di HP (terutama iPhone/Safari).
 - **Catatan:** E2E `e2e_focus_ambient.py` skenario g flaky ±50% (Chromium headless kadang mengizinkan autoplay setelah reload) — perlu dirapikan.
+
+## 2026-10-21 12:50 WIB — Claude — ikon Mindmap, Diskusi, Gambar, Habit, Kalender, hero Dashboard
+- Bapak minta ikon enam halaman diganti gaya Alurik. SDD 3 task (sonnet) + addendum MindmapTabInstance, review akhir opus (siap merge). SW v445. **Status:** Needs Review (draft PR; restart `taskflow-web`).
