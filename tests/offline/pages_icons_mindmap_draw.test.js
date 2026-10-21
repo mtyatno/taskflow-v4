@@ -85,9 +85,9 @@ test("Gambar/Canvas memakai ViewGlyph", () => {
   assert.match(draw, /"Pinned"/);
 });
 
-test("cache bust taskflow-v447-android-notif-fix", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v447-android-notif-fix";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v447-android-notif-fix";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v447-android-notif-fix"/);
-  assert.match(webappPy, /sw_cache = "taskflow-v447-android-notif-fix"/);
+test("cache bust taskflow-v448-android-notif-fix", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v448-android-notif-fix";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v448-android-notif-fix";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v448-android-notif-fix"/);
+  assert.match(webappPy, /sw_cache = "taskflow-v448-android-notif-fix"/);
 });

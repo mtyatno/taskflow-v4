@@ -34,7 +34,7 @@ import e2e_focus_target as tg  # wait_for, sync, pomo_state
 ROOT = h.ROOT
 SHOTS = os.path.join(ROOT, "temporary_files", "e2e_android_notification")
 check = h.check
-SW_VERSION = "taskflow-v447-android-notif-fix"
+SW_VERSION = "taskflow-v448-android-notif-fix"
 ANDROID_MSG = ("Failed to construct 'Notification': Illegal constructor. "
                "Use ServiceWorkerRegistration.showNotification() instead.")
 ANDROID = """

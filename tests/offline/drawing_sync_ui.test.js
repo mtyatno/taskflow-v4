@@ -246,8 +246,8 @@ test("App.jsx: load gema (snapshot yang baru saja dikirim iframe ini) diabaikan"
 });
 
 // ── Cache bust ───────────────────────────────────────────────────────────────
-test("sw.js CACHE = taskflow-v447-android-notif-fix (tldraw di-cache cache-first)", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v447-android-notif-fix";/m);
+test("sw.js CACHE = taskflow-v448-android-notif-fix (tldraw di-cache cache-first)", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v448-android-notif-fix";/m);
 });
 
 // ══ Putaran pengerasan (review independen) ══════════════════════════════════════

@@ -11,9 +11,9 @@ test("Service Worker and stylesheet versions are synchronized for v396", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v447-android-notif-fix/);
-  assert.match(html, /taskflow-v447-android-notif-fix/);
-  assert.match(html, /app\.css\?v=353/);
+  assert.match(sw, /taskflow-v448-android-notif-fix/);
+  assert.match(html, /taskflow-v448-android-notif-fix/);
+  assert.match(html, /app\.css\?v=354/);
 });
 
 test("Dashboard contains conditional rendering logic for new users (hasTasks)", () => {

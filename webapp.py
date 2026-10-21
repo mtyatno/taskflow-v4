@@ -4567,7 +4567,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v447-android-notif-fix"
+    sw_cache = "taskflow-v448-android-notif-fix"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

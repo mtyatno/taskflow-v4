@@ -11,10 +11,10 @@ const swJs = fs.readFileSync(path.join(root, "static/sw.js"), "utf8");
 const webappPy = fs.readFileSync(path.join(root, "webapp.py"), "utf8");
 
 test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
-  await t.test("slashMenu.appendChild registers 'task' with label 'Tugas / Task (/task, /tasks)'", () => {
+  await t.test("SLASH_MENU_GROUPS registers 'task' with glyph nPin, label 'Task' and title 'Tugas / Task (/task, /tasks)'", () => {
     assert.match(
       indexHtml,
-      /slashMenu\.appendChild\(makeSlashItem\(\s*['"]📌['"],\s*['"]Tugas \/ Task \(\/task, \/tasks\)['"],\s*['"]task['"]\s*\)\);/
+      /\{\s*glyph:\s*['"]nPin['"],\s*label:\s*['"]Task['"],\s*type:\s*['"]task['"],\s*title:\s*['"]Tugas \/ Task \(\/task, \/tasks\)['"]\s*\}/
     );
   });
 
@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v447-android-notif-fix in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v447-android-notif-fix";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v447-android-notif-fix"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v447-android-notif-fix";/);
+  await t.test("Service Worker cache is taskflow-v448-android-notif-fix in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v448-android-notif-fix";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v448-android-notif-fix"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v448-android-notif-fix";/);
   });
 });
