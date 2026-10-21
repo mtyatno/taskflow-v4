@@ -3801,3 +3801,7 @@
 ## 2026-10-21 — Claude — Komentar Note PR 2 (offline)
 - SDD 7 task (store IndexedDB v6, `commentanchor`/`commentrepo`/`commentroutes`, push op `comment`, delta pull di `fullSync`, SW v446, dokumentasi) + review per task. Spec §4 baris delta (kursor) dan §6.5 diperbarui. pytest 1018, JS 2592/2593 (pra-ada `draw_local_reactive`), inline OK.
 - **Status:** Needs Review (belum di-push; deploy = file statis, restart `taskflow-web` saja). **Berikutnya:** PR 3 UI.
+
+## 2026-10-21 — Claude — Komentar Note PR 2: perbaikan review akhir
+- I1 `commentrepo` membaca `chatrepo` saat `user()` dipanggil (tes vm urutan `index.html`); I2 record `sync_error`-saja diperlakukan tersinkron (pull/tombstone/reset/replace); I3 penanda baca maju bila server melapor `comment_unread` false; I4 `replaceSince` (awal request − 5 menit) di GET per note; M1 validasi lokal 422. Spec §6.1/§6.5 + CURRENT_STATE diperbarui. JS 2601/2602 (pra-ada `draw_local_reactive`), komentar 97, pytest 1018, inline OK.
+- **Status:** Needs Review (belum di-push).

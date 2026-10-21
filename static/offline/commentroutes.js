@@ -43,9 +43,11 @@
         if (!(onlineNow() && fetcher)) return local();
         return getNote(cid).then((note) => {
           if (!note || note.server_id == null) return local();
+          const requestStart = Date.now();
           return Promise.resolve(fetcher("/api/scratchpad/" + note.server_id + "/comments"))
             .then((items) => (Array.isArray(items)
-              ? TFcomment.mergePulled(items, { replaceForNoteId: note.server_id }) : undefined))
+              ? TFcomment.mergePulled(items, { replaceForNoteId: note.server_id, replaceSince: requestStart })
+              : undefined))
             .then(local, local);
         });
       }));

@@ -86,6 +86,18 @@ test("GET online fetches server comments and merges", async () => {
   assert.equal(list[0].body, "server body");
 });
 
+test("GET online keeps a just-synced comment missing from the server list, drops an old one", async () => {
+  const commentrepo = require("../../static/offline/commentrepo.js");
+  const recent = new Date(Date.now() - 30e3).toISOString();
+  await commentrepo.mergePulled([
+    srv({ id: 200, user_id: 1, created_at: recent, updated_at: recent }),
+    srv({ id: 201, created_at: "2026-10-01T08:00:00+07:00", updated_at: "2026-10-01T08:00:00+07:00" }),
+  ], {});
+  chatrepo.configureFetcher(() => Promise.resolve([]));
+  const list = await buildTaskRouter().dispatch("GET", "/api/scratchpad/10/comments");
+  assert.deepEqual(list.map((c) => c.server_id), [200]);
+});
+
 test("GET with failing fetcher falls back to local", async () => {
   const R = buildTaskRouter();
   await R.dispatch("POST", "/api/scratchpad/10/comments", { body: "lokal" });

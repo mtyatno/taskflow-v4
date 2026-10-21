@@ -292,15 +292,111 @@ test("mergePulled: upsert, tombstone, skip pending, adopt own client_id, replace
   assert.ok(await repo.getRaw(mine.cid));
 });
 
-test("clearSynced removes only records without pending or sync_error", async () => {
-  await repo.mergePulled([srv({ id: 100 }), srv({ id: 101 })]);
+test("clearSynced removes synced and sync_error-only records, keeps pending ones", async () => {
+  await repo.mergePulled([srv({ id: 100 }), srv({ id: 101 }), srv({ id: 102 })]);
   const c101 = await cidOf("comment", 101);
+  const c102 = await cidOf("comment", 102);
+  // sync_error-only (edit ditolak, sudah di-revert) = sudah tersinkron
   await repo.putRaw(Object.assign({}, await repo.getRaw(c101), { sync_error: { code: "rejected", message: "x" } }));
+  // masih pending + sync_error → dilindungi
+  await repo.putRaw(Object.assign({}, await repo.getRaw(c102), { pending: "edit", sync_error: { code: "rejected", message: "x" } }));
   const p = await repo.create("n1", { body: "p" });
+  const pe = await repo.create("n1", { body: "pe" });
+  await repo.putRaw(Object.assign({}, await repo.getRaw(pe.cid), { sync_error: { code: "access", message: "x" } }));
   await repo.clearSynced();
   assert.equal(await cidOf("comment", 100), undefined);
-  assert.ok(await repo.getRaw(c101));
+  assert.equal(await repo.getRaw(c101), undefined);
+  assert.equal(await cidOf("comment", 101), undefined);
+  assert.ok(await repo.getRaw(c102));
   assert.ok(await repo.getRaw(p.cid));
+  assert.ok(await repo.getRaw(pe.cid));
+});
+
+test("mergePulled: sync_error-only record receives server item and sync_error is cleared", async () => {
+  await repo.mergePulled([srv({ id: 100 })]);
+  const cid = await cidOf("comment", 100);
+  await repo.putRaw(Object.assign({}, await repo.getRaw(cid), { sync_error: { code: "rejected", message: "x" } }));
+  await repo.mergePulled([srv({ id: 100, resolved_at: "2026-10-21T09:00:00+07:00", resolved_by: 2, body: "dari server" })]);
+  const rec = await repo.getRaw(cid);
+  assert.equal(rec.body, "dari server");
+  assert.equal(rec.resolved_at, "2026-10-21T09:00:00+07:00");
+  assert.equal(rec.sync_error, null);
+  assert.equal(rec.pending, null);
+});
+
+test("mergePulled: tombstone deletes a sync_error-only record", async () => {
+  await repo.mergePulled([srv({ id: 100 })]);
+  const cid = await cidOf("comment", 100);
+  await repo.putRaw(Object.assign({}, await repo.getRaw(cid), { sync_error: { code: "rejected", message: "x" } }));
+  await repo.mergePulled([srv({ id: 100, deleted_at: "2026-10-21T09:00:00+07:00", body: "", quote: null })]);
+  assert.equal(await repo.getRaw(cid), undefined);
+  assert.equal(await cidOf("comment", 100), undefined);
+});
+
+test("mergePulled: pending record with sync_error and pending-create with sync_error stay protected", async () => {
+  await repo.mergePulled([srv({ id: 100 })]);
+  const cid = await cidOf("comment", 100);
+  await repo.putRaw(Object.assign({}, await repo.getRaw(cid), { pending: "edit", body: "lokal",
+    sync_error: { code: "rejected", message: "x" } }));
+  await repo.mergePulled([srv({ id: 100, body: "server" })]);
+  assert.equal((await repo.getRaw(cid)).body, "lokal");
+  await repo.mergePulled([srv({ id: 100, deleted_at: "2026-10-21T09:00:00+07:00" })]);
+  assert.ok(await repo.getRaw(cid));
+  const pe = await repo.create("n1", { body: "pe" });
+  await repo.putRaw(Object.assign({}, await repo.getRaw(pe.cid), { sync_error: { code: "access", message: "x" } }));
+  await repo.mergePulled([], { replaceForNoteId: 10, replaceSince: Date.now() + 3600e3 });
+  assert.ok(await repo.getRaw(pe.cid));
+  assert.ok(await repo.getRaw(cid));
+});
+
+test("replaceForNoteId removes an old sync_error-only record missing from the server list", async () => {
+  await repo.mergePulled([srv({ id: 100 })]);
+  const cid = await cidOf("comment", 100);
+  await repo.putRaw(Object.assign({}, await repo.getRaw(cid), { sync_error: { code: "rejected", message: "x" } }));
+  await repo.mergePulled([], { replaceForNoteId: 10, replaceSince: Date.parse("2026-10-22T00:00:00Z") });
+  assert.equal(await repo.getRaw(cid), undefined);
+  assert.equal(await cidOf("comment", 100), undefined);
+});
+
+test("replaceForNoteId keeps records created/updated within 5 minutes before replaceSince", async () => {
+  const start = Date.now();
+  const recent = new Date(start - 60e3).toISOString();
+  const old = new Date(start - 10 * 60e3).toISOString();
+  await repo.mergePulled([
+    srv({ id: 200, created_at: old, updated_at: recent }), // baru tersinkron (updated_at baru)
+    srv({ id: 201, created_at: recent, updated_at: recent }),
+    srv({ id: 202, created_at: old, updated_at: old }),
+  ]);
+  const c200 = await cidOf("comment", 200);
+  const c201 = await cidOf("comment", 201);
+  const c202 = await cidOf("comment", 202);
+  await repo.mergePulled([], { replaceForNoteId: 10, replaceSince: start });
+  assert.ok(await repo.getRaw(c200));
+  assert.ok(await repo.getRaw(c201));
+  assert.equal(await repo.getRaw(c202), undefined);
+  assert.equal(await cidOf("comment", 202), undefined);
+});
+
+test("create/edit validate like the server: 422 for empty, >4000 body, >500 quote on thread", async () => {
+  async function rejects422(p) {
+    try { await p; } catch (e) { assert.equal(e.status, 422); assert.equal(e.message, "Komentar tidak valid"); return; }
+    assert.fail("expected 422");
+  }
+  await rejects422(repo.create("n1", { body: "" }));
+  await rejects422(repo.create("n1", { body: "   \n " }));
+  await rejects422(repo.create("n1", {}));
+  await rejects422(repo.create("n1", { body: "x".repeat(4001) }));
+  await rejects422(repo.create("n1", { body: "ok", quote: "q".repeat(501) }));
+  assert.equal((await repo.create("n1", { body: " " + "x".repeat(4000) + " " })).body.length, 4000);
+  const t = await repo.create("n1", { body: "t", quote: "q".repeat(500) });
+  // balasan: quote diabaikan, jadi tidak divalidasi
+  const r = await repo.create("n1", { body: "r", quote: "q".repeat(501), parent_id: t.cid });
+  assert.equal(r.quote, null);
+  assert.equal((await commentOps()).length, 3);
+  await rejects422(repo.edit(t.cid, "  "));
+  await rejects422(repo.edit(t.cid, "y".repeat(4001)));
+  assert.equal((await repo.getRaw(t.cid)).body, "t");
+  assert.equal((await repo.edit(t.cid, "y".repeat(4000))).body.length, 4000);
 });
 
 test("decorateNotes, markRead and seedReadMarkers", async () => {
@@ -325,17 +421,23 @@ test("decorateNotes, markRead and seedReadMarkers", async () => {
   await setNote({ list_id: 9 });
   rows = await repo.decorateNotes([{ cid: "n1", list_id: 9 }]);
   assert.equal(rows[0].comment_open_count, 0);
-  // seedReadMarkers fills only missing markers for notes the server says are read
+  // seedReadMarkers: server bilang sudah dibaca → penanda maju ke waktu pull (max dengan yang ada)
   const before = (await metaGet("comment_reads")).n1;
+  assert.ok(before && Date.parse(before) < Date.parse("2027-01-01T00:00:00Z"));
   await repo.seedReadMarkers([
     { id: 10, comment_unread: false }, { id: 20, comment_unread: false }, { id: 99, comment_unread: false },
   ], "2027-01-01T00:00:00Z");
-  const reads = await metaGet("comment_reads");
-  assert.equal(reads.n1, before);
+  let reads = await metaGet("comment_reads");
+  assert.equal(reads.n1, "2027-01-01T00:00:00Z"); // dibaca di perangkat lain → maju
   assert.equal(reads.n2, "2027-01-01T00:00:00Z");
   assert.equal(Object.keys(reads).length, 2);
+  // waktu pull lebih lama dari penanda yang ada → penanda tidak mundur
+  await repo.seedReadMarkers([{ id: 10, comment_unread: false }], "2026-01-01T00:00:00Z");
+  assert.equal((await metaGet("comment_reads")).n1, "2027-01-01T00:00:00Z");
+  // comment_unread true tidak mengubah penanda
   await repo.seedReadMarkers([{ id: 10, comment_unread: true }], "2028-01-01T00:00:00Z");
-  assert.equal((await metaGet("comment_reads")).n1, before);
+  reads = await metaGet("comment_reads");
+  assert.equal(reads.n1, "2027-01-01T00:00:00Z");
 });
 
 test("adopting own create keeps a local edit merged into it as an edit op", async () => {

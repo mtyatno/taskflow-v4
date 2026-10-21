@@ -17,11 +17,15 @@
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
   const TFmeta = req("./meta.js", root.TF && root.TF.meta);
-  const TFchat = req("./chatrepo.js", root.TF && root.TF.chatrepo);
+  // chatrepo.js dimuat SETELAH commentrepo.js di index.html → dibaca saat dipanggil, bukan saat load.
+  const chatRepo = () => (isNode ? require("./chatrepo.js") : root.TF && root.TF.chatrepo);
 
   const STORE = "note_comments";
   const CURSOR_KEY = "comments_cursor";
   const READS_KEY = "comment_reads";
+  const MAX_BODY = 4000;
+  const MAX_QUOTE = 500;
+  const REPLACE_GRACE_MS = 5 * 60 * 1000;
   const SERVER_FIELDS = ["note_id", "list_id", "parent_id", "user_id", "username", "display_name", "body", "quote",
     "resolved_at", "resolved_by", "resolved_by_name", "edited_at", "deleted_at", "client_id", "created_at", "updated_at"];
 
@@ -32,8 +36,18 @@
     return Object.assign(new Error(msg), code ? { status, code } : { status });
   }
   function user() {
-    return (TFchat && TFchat.getCurrentUser && TFchat.getCurrentUser()) || {};
+    const chat = chatRepo();
+    return (chat && chat.getCurrentUser && chat.getCurrentUser()) || {};
   }
+  // Batas sama dengan server (§4): body 1–4000 setelah trim, quote ≤ 500 (hanya thread).
+  function invalid() { return fail(422, "Komentar tidak valid"); }
+  function checkBody(body) {
+    const b = String(body == null ? "" : body).trim();
+    if (!b || b.length > MAX_BODY) throw invalid();
+    return b;
+  }
+  // Sudah tersinkron: tanpa pending, atau hanya sync_error pada record ber-server_id (perubahan sudah di-revert).
+  const isSynced = (r) => !r.pending && (!r.sync_error || r.server_id != null);
 
   // --- raw IndexedDB helpers (dipakai ulang oleh push/pull) ---
   function storeOp(store, mode, fn) {
@@ -151,6 +165,8 @@
           });
         })
         : Promise.resolve(null);
+      const body = checkBody(inp.body);
+      if (inp.parent_id == null && inp.quote != null && String(inp.quote).length > MAX_QUOTE) throw invalid();
       return parentP.then((thread) => {
         const u = user();
         const cid = TFids.newCid();
@@ -162,7 +178,7 @@
           parent_id: thread && thread.server_id != null ? thread.server_id : null,
           user_id: u.user_id != null ? u.user_id : null,
           username: u.username || null, display_name: u.display_name || null,
-          body: String(inp.body || "").trim(), quote: thread ? null : (inp.quote != null ? inp.quote : null),
+          body: body, quote: thread ? null : (inp.quote != null ? inp.quote : null),
           resolved_at: null, resolved_by: null, resolved_by_name: null, edited_at: null, deleted_at: null,
           client_id: cid, created_at: now, updated_at: now,
           pending: "create", sync_error: null, server_copy: null,
@@ -214,11 +230,11 @@
   }
 
   function edit(cid, body) {
-    return loadLive(cid).then((rec) => change(rec, "edit", (r, now, synced) => {
-      r.body = String(body || "").trim(); // server men-strip body; samakan supaya push tidak memicu edit palsu
+    return Promise.resolve().then(() => checkBody(body)).then((b) => loadLive(cid).then((rec) => change(rec, "edit", (r, now, synced) => {
+      r.body = b; // server men-strip body; samakan supaya push tidak memicu edit palsu
       if (synced) r.edited_at = now;
       else r.updated_at = now;
-    })).then(shape);
+    }))).then(shape);
   }
 
   function resolve(cid, resolved) {
@@ -313,7 +329,7 @@
               .then(() => removeOps(local.cid, ["create"]))
               .then(() => kinds.reduce((q, k) => q.then(() => addOpOnce("comment", k, local.cid)), Promise.resolve()));
           }
-          if (local && (local.pending || local.sync_error)) return null;
+          if (local && !isSynced(local)) return null;
           if (tomb) {
             changed.add(item.note_id);
             return (local ? deleteRaw(local.cid) : Promise.resolve()).then(() => TFidmap.mapDelete("comment", item.id));
@@ -330,8 +346,12 @@
         });
     }), Promise.resolve()).then(() => {
       if (o.replaceForNoteId == null) return null;
+      // Record yang dibuat/diubah sejak (awal request − grace) bisa saja belum ada di respons
+      // (POST belum ter-commit saat GET dilayani) → jangan dihapus; hapusan remote tetap datang sebagai tombstone.
+      const since = (o.replaceSince != null ? o.replaceSince : Date.now()) - REPLACE_GRACE_MS;
       return getAll().then((all) => all
-        .filter((r) => r.note_id == o.replaceForNoteId && !r.pending && !r.sync_error
+        .filter((r) => r.note_id == o.replaceForNoteId && isSynced(r)
+          && ts(r.created_at) < since && ts(r.updated_at) < since
           && !(r.server_id != null && seen.has(String(r.server_id))))
         .reduce((p, r) => p.then(() => {
           changed.add(o.replaceForNoteId);
@@ -341,7 +361,7 @@
   }
 
   function clearSynced() {
-    return getAll().then((all) => all.filter((r) => !r.pending && !r.sync_error)
+    return getAll().then((all) => all.filter(isSynced)
       .reduce((p, r) => p.then(() => deleteRaw(r.cid)
         .then(() => (r.server_id != null ? TFidmap.mapDelete("comment", r.server_id) : null))), Promise.resolve()));
   }
@@ -358,7 +378,8 @@
     return readsGet().then((reads) => {
       let dirty = false;
       return list.reduce((p, n) => p.then(() => TFidmap.cidOf("note", n.id).then((cid) => {
-        if (cid && reads[cid] == null) { reads[cid] = now; dirty = true; }
+        // Dibaca di perangkat lain → penanda maju ke waktu pull (tidak pernah mundur).
+        if (cid && (reads[cid] == null || ts(reads[cid]) < ts(now))) { reads[cid] = now; dirty = true; }
       })), Promise.resolve()).then(() => (dirty ? TFmeta.metaSet(READS_KEY, reads) : null));
     });
   }
