@@ -2890,8 +2890,14 @@ function WorkspaceMembersSection({
   const [memberError, setMemberError] = useState(false);
   const [inviting, setInviting] = useState(false);
   const [inviteUsername, setInviteUsername] = useState("");
-  const [generatedLink, setGeneratedLink] = useState("");
-  const [generating, setGenerating] = useState(false);
+  // Fase 2a: undangan menunggu + link undangan aktif (owner, lewat jaringan; bukan state sementara)
+  const [invitations, setInvitations] = useState([]);
+  const [links, setLinks] = useState(null);
+  const [linkError, setLinkError] = useState(false);
+  const [linkExpires, setLinkExpires] = useState("1d");
+  const [linkMaxUses, setLinkMaxUses] = useState(1);
+  const [creatingLink, setCreatingLink] = useState(false);
+  const [ownerBusy, setOwnerBusy] = useState(null);
   const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
   const offlineTitle = online ? undefined : "Butuh koneksi internet";
   const loadMembers = React.useCallback(async () => {
@@ -2910,32 +2916,109 @@ function WorkspaceMembersSection({
   useEffect(() => {
     loadMembers();
   }, [loadMembers]);
-  const handleGenerateLink = async () => {
-    if (!online) return;
-    setGenerating(true);
+  const loadInvitations = React.useCallback(async () => {
+    if (!isOwner) return;
     try {
-      const data = await api.post(`/api/lists/${listId}/generate-link`, {});
-      setGeneratedLink(data.join_url || "");
+      const data = await api.get(`/api/lists/${listId}/invitations`, { network: true });
+      setInvitations(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.warn("[ws-manage] gagal memuat undangan menunggu", listId, e);
+    }
+  }, [listId, isOwner]);
+  const loadLinks = React.useCallback(async () => {
+    if (!isOwner) return;
+    setLinkError(false);
+    try {
+      const data = await api.get(`/api/lists/${listId}/links`, { network: true });
+      setLinks(Array.isArray(data) ? data : []);
+    } catch (e) {
+      console.warn("[ws-manage] gagal memuat link undangan", listId, e);
+      setLinkError(true);
+    }
+  }, [listId, isOwner]);
+  // Dimuat saat terbuka dan saat kembali online (data owner hanya dari server).
+  useEffect(() => {
+    if (!isOwner || !online) return;
+    loadInvitations();
+    loadLinks();
+  }, [isOwner, online, loadInvitations, loadLinks]);
+  const linkUsage = l => WSM && typeof WSM.linkUsageText === "function" ? WSM.linkUsageText(l) : l && l.max_uses != null ? `Sisa ${Math.max(0, (l.max_uses || 0) - (l.uses || 0))} dari ${l.max_uses}` : "Tanpa batas";
+  const linkExpiry = l => WSM && typeof WSM.linkExpiryText === "function" ? WSM.linkExpiryText(l && l.expires_at) : "";
+  const handleCreateLink = async () => {
+    if (!online || creatingLink) return;
+    setCreatingLink(true);
+    try {
+      await api.fetch(`/api/lists/${listId}/generate-link`, {
+        method: "POST",
+        body: JSON.stringify({ expires_in: linkExpires, max_uses: linkMaxUses }),
+        network: true
+      });
+      await loadLinks();
     } catch (err) {
       showToast(err.message, "error");
     }
-    setGenerating(false);
+    setCreatingLink(false);
+  };
+  const handleRevokeLink = async code => {
+    if (!online || ownerBusy) return;
+    setOwnerBusy("link:" + code);
+    try {
+      await api.fetch(`/api/lists/${listId}/links/${encodeURIComponent(code)}`, { method: "DELETE", network: true });
+    } catch (err) {
+      showToast(err.message, "error");
+    }
+    await loadLinks();
+    setOwnerBusy(null);
+  };
+  const handleRevokeAll = async () => {
+    if (!online || ownerBusy) return;
+    const choice = await askDrawingScope({
+      title: "Matikan semua link undangan workspace ini? Link yang sudah dibagikan tidak bisa dipakai lagi.",
+      actions: [{ value: "cancel", label: "Batal" }, { value: "ok", label: "Matikan semua link", primary: true, danger: true }]
+    });
+    if (choice !== "ok") return;
+    setOwnerBusy("all");
+    try {
+      await api.fetch(`/api/lists/${listId}/links`, { method: "DELETE", network: true });
+      showToast("Semua link dimatikan");
+    } catch (err) {
+      showToast(err.message, "error");
+    }
+    await loadLinks();
+    setOwnerBusy(null);
+  };
+  const handleCancelInvitation = async invId => {
+    if (!online || ownerBusy) return;
+    setOwnerBusy("inv:" + invId);
+    try {
+      await api.fetch(`/api/lists/${listId}/invitations/${invId}`, { method: "DELETE", network: true });
+    } catch (err) {
+      showToast(err.message, "error");
+    }
+    await loadInvitations();
+    setOwnerBusy(null);
   };
   const copyLink = url => {
-    navigator.clipboard.writeText(url).then(() => showToast("Link disalin ✅")).catch(() => showToast("Gagal menyalin", "error"));
+    try {
+      navigator.clipboard.writeText(url).then(() => showToast("Link disalin")).catch(() => showToast("Gagal menyalin", "error"));
+    } catch (_) {
+      showToast("Gagal menyalin", "error");
+    }
   };
   const handleInvite = async () => {
     const username = inviteUsername.replace("@", "").trim();
     if (!username || !online) return;
     try {
-      await api.post(`/api/lists/${listId}/invite`, {
-        username
+      await api.fetch(`/api/lists/${listId}/invite`, {
+        method: "POST",
+        body: JSON.stringify({ username }),
+        network: true
       });
-      showToast(`${username} ditambahkan ke workspace ✅`);
+      // Penerima belum anggota (menunggu persetujuan) → muat ulang daftar undangan menunggu saja.
+      showToast(`Undangan dikirim ke @${username}`);
       setInviteUsername("");
       setInviting(false);
-      loadMembers();
-      onRefresh();
+      loadInvitations();
     } catch (err) {
       showToast(err.message, "error");
     }
@@ -2962,6 +3045,25 @@ function WorkspaceMembersSection({
     fontSize: 13,
     color: "var(--text-light)",
     marginBottom: 8
+  };
+  const subTitle = {
+    fontSize: 13,
+    fontWeight: 600,
+    marginBottom: 6
+  };
+  const fieldLabel = {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    fontSize: 12,
+    color: "var(--text-secondary)",
+    flex: "1 1 120px",
+    minWidth: 0
+  };
+  const fieldInput = {
+    padding: "6px 10px",
+    fontSize: 13,
+    width: "100%"
   };
   let listEl;
   if (!detail && memberError) {
@@ -3110,50 +3212,190 @@ function WorkspaceMembersSection({
       setInviting(true);
       setInviteUsername("");
     }
-  }, "＋ Undang via Username"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: handleGenerateLink,
-    disabled: generating || !online,
-    title: offlineTitle
-  }, generating ? "..." : /*#__PURE__*/React.createElement("span", {
+  }, "＋ Undang via Username")), invitations.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
-      display: "inline-flex",
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: subTitle
+  }, "Undangan menunggu"), invitations.map(inv => {
+    const who = inv.invitee || {};
+    const name = who.display_name || who.username || "";
+    const sent = inv.created_at && WSM && typeof WSM.joinedDate === "function" ? WSM.joinedDate(inv.created_at) : null;
+    return /*#__PURE__*/React.createElement("div", {
+      key: inv.id,
+      style: {
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "4px 0"
+      }
+    }, /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "inline-flex",
+        color: "var(--text-light)",
+        flexShrink: 0
+      }
+    }, /*#__PURE__*/React.createElement(ViewGlyph, {
+      name: "mUser",
+      size: 16
+    })), /*#__PURE__*/React.createElement("span", {
+      style: {
+        flex: 1,
+        minWidth: 0,
+        fontSize: 13,
+        overflowWrap: "anywhere"
+      }
+    }, name, " ", /*#__PURE__*/React.createElement("span", {
+      style: {
+        color: "var(--text-light)"
+      }
+    }, "@", who.username), sent && /*#__PURE__*/React.createElement("span", {
+      style: {
+        display: "block",
+        fontSize: 11,
+        color: "var(--text-light)"
+      }
+    }, "dikirim ", sent.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" }))), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "btn btn-secondary btn-sm",
+      "aria-label": `Batalkan undangan untuk @${who.username || ""}`,
+      disabled: !online || ownerBusy != null,
+      title: offlineTitle,
+      onClick: () => handleCancelInvitation(inv.id),
+      style: {
+        flexShrink: 0
+      }
+    }, "Batalkan"));
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginTop: 14
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      ...subTitle,
+      display: "flex",
       alignItems: "center",
       gap: 6
     }
   }, /*#__PURE__*/React.createElement(ViewGlyph, {
     name: "mLink",
     size: 14
-  }), "Generate Invite Link"))), generatedLink && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginTop: 10,
-      background: "var(--bg-card)",
-      borderRadius: 8,
-      padding: 10,
-      border: "1px solid var(--border)"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)",
-      marginBottom: 6
-    }
-  }, "Link berlaku 48 jam, sekali pakai:"), /*#__PURE__*/React.createElement("div", {
+  }), "Link undangan"), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
-      alignItems: "center"
+      flexWrap: "wrap",
+      alignItems: "flex-end",
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    style: fieldLabel
+  }, "Berlaku", /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    value: linkExpires,
+    onChange: e => setLinkExpires(e.target.value),
+    style: fieldInput
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "1h"
+  }, "1 jam"), /*#__PURE__*/React.createElement("option", {
+    value: "1d"
+  }, "1 hari"), /*#__PURE__*/React.createElement("option", {
+    value: "7d"
+  }, "7 hari"))), /*#__PURE__*/React.createElement("label", {
+    style: fieldLabel
+  }, "Bisa dipakai", /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    value: linkMaxUses == null ? "none" : String(linkMaxUses),
+    onChange: e => setLinkMaxUses(e.target.value === "none" ? null : parseInt(e.target.value, 10)),
+    style: fieldInput
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "1"
+  }, "1 orang"), /*#__PURE__*/React.createElement("option", {
+    value: "10"
+  }, "Maks 10 orang"), /*#__PURE__*/React.createElement("option", {
+    value: "none"
+  }, "Tanpa batas"))), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-primary btn-sm",
+    onClick: handleCreateLink,
+    disabled: !online || creatingLink,
+    title: offlineTitle
+  }, creatingLink ? "..." : "Buat link")), linkError && !links ? /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      flexWrap: "wrap",
+      fontSize: 13,
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "ws-danger-text"
+  }, "Gagal memuat link."), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm",
+    disabled: !online,
+    title: offlineTitle,
+    onClick: () => loadLinks()
+  }, "Coba lagi")) : !links ? /*#__PURE__*/React.createElement("div", {
+    style: muted
+  }, online ? "Memuat…" : "Butuh koneksi internet") : links.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: muted
+  }, "Belum ada link aktif.") : /*#__PURE__*/React.createElement(React.Fragment, null, links.map(l => /*#__PURE__*/React.createElement("div", {
+    key: l.code,
+    style: {
+      background: "var(--bg-card)",
+      borderRadius: 8,
+      padding: 10,
+      border: "1px solid var(--border)",
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      alignItems: "center",
+      minWidth: 0
     }
   }, /*#__PURE__*/React.createElement("input", {
     readOnly: true,
-    value: generatedLink,
+    value: l.join_url || "",
     className: "ws-invite-link",
     "aria-label": "Link undangan",
     onClick: e => e.target.select()
   }), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary btn-sm",
-    onClick: () => copyLink(generatedLink)
-  }, "Salin")))));
+    type: "button",
+    className: "btn btn-secondary btn-sm",
+    onClick: () => copyLink(l.join_url || ""),
+    style: {
+      flexShrink: 0
+    }
+  }, "Salin"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm",
+    "aria-label": "Batalkan link undangan",
+    disabled: !online || ownerBusy != null,
+    title: offlineTitle,
+    onClick: () => handleRevokeLink(l.code),
+    style: {
+      flexShrink: 0
+    }
+  }, "Batalkan")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-light)",
+      marginTop: 6,
+      overflowWrap: "anywhere"
+    }
+  }, [linkUsage(l), linkExpiry(l)].filter(Boolean).join(" · ")))), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm",
+    onClick: handleRevokeAll,
+    disabled: !online || ownerBusy != null,
+    title: offlineTitle
+  }, "Matikan semua link")))));
 }
 // Kelola Workspace Fase 0: dialog hapus workspace — ringkasan dampak (GET delete-impact, lewat jaringan) + ketik nama.
 // Esc / klik luar menutup; fokus ke input saat terbuka, kembali ke tombol asal saat ditutup.

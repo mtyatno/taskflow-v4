@@ -52,7 +52,7 @@ test("teks persis dialog hapus, keluarkan, daftar anggota dan toast", () => {
     "\"ws-sec-anggota-\" + list.id, \"Anggota\"",
     "\"Workspace dibuat ✅\"",
     "\"Workspace dihapus\"",
-    "ditambahkan ke workspace ✅`",
+    "`Undangan dikirim ke @${", // Fase 2a: undang = menunggu persetujuan
     "\"Anggota dikeluarkan\"",
     "\"Belum ada workspace. Buat yang pertama di atas!\"",
   ];

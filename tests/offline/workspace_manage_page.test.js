@@ -145,7 +145,9 @@ test("anggota: owner pertama, galat + Coba lagi, dialog Keluarkan, undangan owne
   assert.ok(members.includes("\"Coba lagi\""));
   assert.ok(members.includes("\"Belum ada anggota lain.\""));
   assert.match(members, /`Keluarkan \$\{[^`]+\} dari workspace ini\?`/);
-  assert.ok(members.includes("Generate Invite Link"));
+  // Fase 2a Task 6: "Generate Invite Link" → bagian "Link undangan" + "Buat link"
+  assert.ok(members.includes('"Link undangan"'));
+  assert.ok(members.includes('"Buat link"'));
   assert.ok(members.includes("Undang via Username"));
   // Fase 1 Task 6: panel anggota di kartu SharedListsManager dihapus — satu-satunya pemakai adalah halaman detail
   const mgr = sliceFn("SharedListsManager");

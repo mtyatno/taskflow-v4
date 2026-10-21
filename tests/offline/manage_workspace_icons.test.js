@@ -47,7 +47,8 @@ test("SharedListsManager memakai ViewGlyph di semua tempat", () => {
   assert.match(manager, /Kelola Workspace/);
   assert.match(manager, /className: "wsf-title-ico"/);
   assert.match(manager, /"\.\.\." : \/\*#__PURE__\*\/React\.createElement\(|"\.\.\." :/);
-  assert.match(manager, /Generate Invite Link/);
+  // Fase 2a Task 6: tombol "Generate Invite Link" diganti bagian "Link undangan" (ikon mLink 14 di judulnya).
+  assert.match(manager, /name: "mLink",\s*size: 14\s*\}\), "Link undangan"/);
 });
 
 test("TopBarPomodoroChip: ViewGlyph pomoTomato/pomoBreak + kelas is-break", () => {
