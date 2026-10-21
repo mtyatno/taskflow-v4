@@ -135,8 +135,10 @@ test("FocusTaskItem: sumber memuat tombol ⭐, hideProject, dan bucket lokal unt
   assert.ok(sig.includes("hideProject"));
   assert.ok(src.includes("ftask-star"));
   assert.ok(src.includes('"aria-pressed": !!task.is_focused'));
+  assert.ok(src.includes('"aria-label": "Target hari ini"'), "aria-label tombol toggle konstan");
   assert.ok(src.includes("Tandai sebagai target hari ini"));
   assert.ok(src.includes("Lepas dari target hari ini"));
+  assert.ok(!/"aria-label": starTitle/.test(src), "teks aksi hanya di title, bukan aria-label");
   assert.ok(src.includes("stopPropagation"));
   assert.ok(src.includes("focusfilter.timeBucket("));
   assert.ok(src.includes("todayLocalISO()"));
@@ -153,7 +155,8 @@ test("FocusTaskItem: ⭐ aktif/nonaktif, aria, stopPropagation, tanpa onToggleSt
   assert.equal(btn.props.type, "button");
   assert.ok(hasClass(btn, "is-on"));
   assert.equal(btn.props["aria-pressed"], true);
-  assert.equal(btn.props["aria-label"], "Lepas dari target hari ini");
+  assert.equal(btn.props["aria-label"], "Target hari ini");
+  assert.equal(btn.props.title, "Lepas dari target hari ini");
   let stopped = 0;
   btn.props.onClick({ stopPropagation: () => { stopped += 1; } });
   assert.equal(stopped, 1, "klik ⭐ tidak ikut membuka baris");
@@ -163,7 +166,8 @@ test("FocusTaskItem: ⭐ aktif/nonaktif, aria, stopPropagation, tanpa onToggleSt
   const [btn2] = findAll(off, n => n.type === "button" && hasClass(n, "ftask-star"));
   assert.ok(!hasClass(btn2, "is-on"));
   assert.equal(btn2.props["aria-pressed"], false);
-  assert.equal(btn2.props["aria-label"], "Tandai sebagai target hari ini");
+  assert.equal(btn2.props["aria-label"], "Target hari ini", "aria-label tidak berubah antar keadaan");
+  assert.equal(btn2.props.title, "Tandai sebagai target hari ini");
 
   // tombol ⭐ mendahului tombol Fokus di dalam baris
   const [row] = findAll(off, n => hasClass(n, "ftask-row"));
@@ -296,7 +300,14 @@ test("TodayFocusView: Target/pool dari scope, kelompok, lipat tersimpan, pesan b
   assert.match(src, /headerSummary\(\{\s*count: scope\.length/);
   assert.match(src, /scope\.reduce\(\(sum, t\) => sum \+ window\.TF\.pomologic\.clampEstimate\(t\.estimated_pomodoros\), 0\)/);
   assert.ok(src.includes("useFocusTaskCounts(scope.map(t => t.id))"));
-  assert.ok(src.includes("const zenHiddenCount = scope.filter(t => t.id !== focusTask?.id).length + recurringToday.length;"));
+  // Zen: setiap task dihitung sekali (task berulang yang juga ada di cakupan tidak dobel), task aktif tidak dihitung
+  assert.ok(src.includes("const zenHiddenIds = new Set([...scope, ...recurringToday].map(t => String(t.id)));"));
+  assert.ok(src.includes("zenHiddenIds.delete(String(focusTask.id))"));
+  assert.ok(src.includes("const zenHiddenCount = zenHiddenIds.size;"));
+  assert.ok(!src.includes("+ recurringToday.length"), "tidak lagi menjumlahkan task berulang dua kali");
+  // pool = pool splitTarget tanpa task "Berulang hari ini"
+  assert.ok(src.includes("pool: scopePool"));
+  assert.ok(src.includes("const pool = scopePool.filter(t => !recurringIds.has(String(t.id)));"));
   // renderItem(task, { inGroup }) membungkus FocusTaskItem
   assert.match(src, /const renderItem = \(task, \{\s*inGroup\s*\} = \{\}\) =>/);
   assert.ok(src.includes("onToggleStar: t => onToggleFocus?.(t.id)"));
@@ -351,4 +362,111 @@ test("app.css: Target, kelompok, ⭐, dan chevron tanpa transisi saat reduced-mo
   assert.match(appCss, /\[data-theme="dark"\] \.ftask-star\.is-on \{[^}]*#A8C500/);
   assert.match(appCss, /\.ftask-star\.is-on svg path \{[^}]*fill: currentColor/);
   assert.match(appCss, /@media \(prefers-reduced-motion: reduce\) \{\s*\.focus-group-chevron \{ transition: none; \}\s*\}/);
+});
+
+// ── Perbaikan putaran 1: "Berulang hari ini" tidak ikut pool; Zen menghitung tiap task sekali ──
+
+const focuspage = require("../../static/offline/focuspage.js");
+
+// Render TodayFocusView dengan hook palsu (state = nilai awal, efek tidak jalan) dan komponen anak berupa
+// stub bernama, lalu periksa elemen yang dikembalikan.
+function renderFocusView({ tasks, focusTask = null, zen = false, sharedLists = [], onToggleFocus }) {
+  const stubs = {};
+  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph"]) stubs[n] = n;
+  const storage = { getItem: k => (k === "tf_focus_zen" && zen ? "1" : null), setItem: () => {} };
+  const { TodayFocusView } = loadComponents(["computeOccurrences", "TodayFocusView"], {
+    React: { createElement: fakeReact.createElement, useEffect: NOOP },
+    useState: init => [typeof init === "function" ? init() : init, NOOP],
+    useEffect: NOOP,
+    useRef: () => ({ current: null }),
+    window: { localStorage: storage, TF: { focusfilter: ff, focuspage, pomologic, tasklogic: { todayLocalISO: () => TODAY } } },
+    document: { querySelectorAll: () => [] },
+    api: { get: () => Promise.resolve({}) },
+    POMO_DURATIONS: { work: 1500 },
+    useFocusTaskCounts: () => [{}, NOOP],
+    ...stubs
+  });
+  const timer = { mode: "work", isRunning: zen, timeLeft: 1500, pomodorosToday: 0, pause: NOOP };
+  const tree = TodayFocusView({ tasks, onTaskClick: NOOP, onDone: NOOP, loading: false, timer, focusTask, setFocusTask: NOOP, sharedLists, onToggleFocus });
+  return {
+    tree,
+    groups: findAll(tree, n => n.type === "FocusTaskGroups")[0],
+    targetSection: findAll(tree, n => n.type === "FocusTargetSection")[0],
+    heads: findAll(tree, n => n.type === "FocusSectionHead").map(n => n.props),
+    recurringRows: findAll(tree, n => n.type === "div" && hasClass(n, "ftask--recurring")),
+    zenNote: findAll(tree, n => hasClass(n, "focus-zen-note"))[0],
+    empty: findAll(tree, n => hasClass(n, "focus-empty"))[0],
+    note: findAll(tree, n => hasClass(n, "focus-note"))[0],
+    summary: findAll(tree, n => hasClass(n, "focus-page-summary"))[0]
+  };
+}
+const dueToday = { gtd_status: "next", priority: "P3", quadrant: "Q3", deadline: TODAY, project: "Rumah", created_at: "2026-10-01T08:00:00" };
+const recur = { recurrence_type: "daily", recurrence_end_date: "2026-11-30" };
+
+test("TodayFocusView: task berulang yang tampil di 'Berulang hari ini' tidak masuk pool/kelompok, non-berulang tetap", () => {
+  const tasks = [
+    { ...dueToday, ...recur, id: 1, title: "Minum obat harian" },
+    { ...dueToday, id: 2, title: "Bayar listrik" },
+    { ...dueToday, id: 3, title: "Q1 urgent", quadrant: "Q1", priority: "P1" }
+  ];
+  const v = renderFocusView({ tasks });
+  // tepat satu baris berulang, dan task itu ada di cakupan (deadline hari ini)
+  assert.deepEqual(v.recurringRows.length, 1);
+  assert.ok(tasks.filter(t => ff.inTodayScope(t, { todayISO: TODAY })).some(t => t.id === 1), "task berulang ber-deadline hari ini ada di cakupan");
+  // kelompok hanya memuat task non-berulang
+  const grouped = v.groups.props.groups.flatMap(g => g.tasks.map(t => t.id)).sort();
+  assert.deepEqual(grouped, [2, 3]);
+  // jumlah di kepala "Task hari ini" = isi pool; ringkasan header tetap jumlah cakupan (spec §6.1)
+  const poolHead = v.heads.find(h => h.title === "Task hari ini");
+  assert.equal(poolHead.count, 2);
+  assert.ok(textOf(v.summary).startsWith("3 tugas"), textOf(v.summary));
+  assert.equal(v.targetSection, undefined, "tanpa ⭐/aktif tidak ada seksi Target");
+});
+
+test("TodayFocusView: task berulang yang ⭐ tetap di Target, tidak di pool, dan tidak dobel di Zen", () => {
+  const tasks = [
+    { ...dueToday, ...recur, id: 1, title: "Berulang bintang", is_focused: true },
+    { ...dueToday, ...recur, id: 2, title: "Berulang biasa" },
+    { ...dueToday, id: 3, title: "Biasa" },
+    { ...dueToday, id: 4, title: "Aktif", quadrant: "Q1", priority: "P1" }
+  ];
+  const v = renderFocusView({ tasks, focusTask: tasks[3], zen: true });
+  // Target: aktif lalu ⭐ (task ⭐ berulang tidak terpengaruh); pool: hanya "Biasa"
+  assert.deepEqual(v.targetSection.props.tasks.map(t => t.id), [4, 1]);
+  assert.deepEqual(v.groups.props.groups.flatMap(g => g.tasks.map(t => t.id)), [3]);
+  assert.equal(v.heads.find(h => h.title === "Task hari ini").count, 1);
+  assert.equal(v.recurringRows.length, 2, "kedua task berulang tetap tampil di 'Berulang hari ini'");
+  // Zen: task lain = {1, 2, 3} dihitung sekali (task berulang 1 dan 2 ada di cakupan DAN di daftar berulang)
+  assert.equal(textOf(v.zenNote), "Mode Zen · 3 task lain disembunyikan sampai istirahat");
+  // task aktif berulang tidak dihitung sebagai "task lain"
+  const active = { ...dueToday, ...recur, id: 9, title: "Aktif berulang" };
+  const v2 = renderFocusView({ tasks: [active, tasks[2]], focusTask: active, zen: true });
+  assert.equal(textOf(v2.zenNote), "Mode Zen · 1 task lain disembunyikan sampai istirahat");
+});
+
+test("TodayFocusView: bila hanya task berulang yang tersisa, pesan kosong; ⭐ di Target + pool kosong → catatan Target", () => {
+  const onlyRecurring = renderFocusView({ tasks: [{ ...dueToday, ...recur, id: 1, title: "Minum obat harian" }] });
+  assert.equal(onlyRecurring.groups, undefined, "tidak ada kelompok");
+  assert.ok(onlyRecurring.empty, "kotak pesan kosong tampil");
+  assert.ok(textOf(onlyRecurring.empty).includes("Tidak ada task urgent!"));
+  assert.equal(onlyRecurring.recurringRows.length, 1);
+
+  const starred = { ...dueToday, id: 2, title: "Bintang", is_focused: true };
+  const v = renderFocusView({ tasks: [starred, { ...dueToday, ...recur, id: 1, title: "Minum obat harian" }] });
+  assert.equal(v.groups, undefined);
+  assert.equal(textOf(v.note), "Semua task hari ini sudah ada di Target.");
+  assert.deepEqual(v.targetSection.props.tasks.map(t => t.id), [2]);
+});
+
+test("TodayFocusView: renderItem memberi hideProject di kelompok dan ⭐ memanggil onToggleFocus", () => {
+  const toggled = [];
+  const tasks = [{ ...dueToday, id: 5, title: "Biasa" }];
+  const v = renderFocusView({ tasks, onToggleFocus: id => toggled.push(id) });
+  const inGroup = v.groups.props.renderItem(tasks[0], { inGroup: true });
+  const inTarget = v.groups.props.renderItem(tasks[0], { inGroup: false });
+  assert.equal(inGroup.type, "FocusTaskItem");
+  assert.equal(inGroup.props.hideProject, true);
+  assert.equal(inTarget.props.hideProject, false);
+  inGroup.props.onToggleStar(tasks[0]);
+  assert.deepEqual(toggled, [5]);
 });

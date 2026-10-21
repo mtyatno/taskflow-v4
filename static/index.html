@@ -9634,7 +9634,8 @@ function FocusTaskItem({
   const countLabel = key => key === "subtasks" ? c.subTotal > 0 ? `${c.subDone || 0}/${c.subTotal}` : null : key === "notes" ? c.notes > 0 ? String(c.notes) : null : c.atts > 0 ? String(c.atts) : null;
   // Terlambat menurut tanggal lokal; is_overdue dari server/IndexedDB bisa basi.
   const isLate = window.TF.focusfilter.timeBucket(task, window.TF.tasklogic.todayLocalISO()) === "late";
-  const starLabel = task.is_focused ? "Lepas dari target hari ini" : "Tandai sebagai target hari ini";
+  // Tombol toggle: aria-label konstan ("Target hari ini"), keadaan lewat aria-pressed, teks aksi lewat title.
+  const starTitle = task.is_focused ? "Lepas dari target hari ini" : "Tandai sebagai target hari ini";
   return React.createElement("div", {
     className: `ftask fade-in${open ? " is-open" : ""}${isFocusing ? " is-focusing" : ""}${zenHidden ? " is-zen-hidden" : ""}${zenShown ? " is-zen-shown" : ""}`,
     "aria-hidden": zenHidden ? true : undefined
@@ -9730,8 +9731,8 @@ function FocusTaskItem({
       onToggleStar(task);
     },
     "aria-pressed": !!task.is_focused,
-    "aria-label": starLabel,
-    title: starLabel
+    "aria-label": "Target hari ini",
+    title: starTitle
   }, React.createElement(FocusGlyph, {
     name: "star",
     size: 18
@@ -11333,8 +11334,12 @@ function TodayFocusView({
   }));
   const {
     target,
-    pool
+    pool: scopePool
   } = window.TF.focusfilter.splitTarget(scope, focusTask?.id);
+  // Task yang tampil di "Berulang hari ini" tidak ikut daftar "Task hari ini" (tidak tampil dua kali);
+  // Target tidak terpengaruh: task berulang yang ditandai ⭐ atau aktif tetap ada di Target.
+  const recurringIds = new Set(recurringToday.map(t => String(t.id)));
+  const pool = scopePool.filter(t => !recurringIds.has(String(t.id)));
   const groups = window.TF.focusfilter.groupTasks(pool, sharedLists);
   const zenOn = window.TF.focuspage.zenActive({
     enabled: zenEnabled,
@@ -11345,7 +11350,10 @@ function TodayFocusView({
     if (zenOn) setZenWasActive(true);
   }, [zenOn]);
   const zenReveal = !zenOn && (zenEnabled || zenWasActive);
-  const zenHiddenCount = scope.filter(t => t.id !== focusTask?.id).length + recurringToday.length;
+  // Setiap task dihitung sekali, termasuk task berulang yang juga ada di cakupan; task aktif tidak dihitung.
+  const zenHiddenIds = new Set([...scope, ...recurringToday].map(t => String(t.id)));
+  if (focusTask) zenHiddenIds.delete(String(focusTask.id));
+  const zenHiddenCount = zenHiddenIds.size;
   const zenClass = zenOn ? " is-zen-hidden" : zenReveal ? " is-zen-shown" : "";
   // Seksi Target memuat task aktif → tetap tampil di Zen (hanya ⭐ lain yang disembunyikan per item).
   const targetHasActive = !!focusTask && target.some(t => t.id === focusTask.id);
@@ -11540,7 +11548,7 @@ function TodayFocusView({
     className: "focus-zen-note"
   }, `Mode Zen · ${zenHiddenCount} task lain disembunyikan sampai istirahat`), loading ? React.createElement("div", {
     className: "focus-empty"
-  }, "Loading...") : scope.length === 0 ? React.createElement("div", {
+  }, "Loading...") : target.length === 0 && pool.length === 0 ? React.createElement("div", {
     className: `focus-empty${zenClass}`,
     "aria-hidden": zenOn ? true : undefined
   }, React.createElement("div", {

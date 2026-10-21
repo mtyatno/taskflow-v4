@@ -206,7 +206,7 @@ def main():
         end = time.strftime("%Y-%m-%d", time.localtime(time.time() + 30 * 86400))
         _, rec = api(base, user, "POST", "/api/tasks",
                      json={"title": REC_TITLE, "priority": "P3", "gtd_status": "next", "recurrence_type": "daily",
-                           "recurrence_end_date": end})
+                           "recurrence_end_date": end, "deadline": today_iso()})
         check("0 seed: 3 task Q1 hari ini + 2 subtask + 1 task harian",
               len(ids) == 3 and rec.get("recurrence_type") == "daily", repr(rec.get("recurrence_type")))
         with sync_playwright() as pw:
@@ -238,7 +238,15 @@ def run_flow(browser, ctx, p, base, user, titles):
     p.locator(".ftask").first.wait_for(state="visible", timeout=20000)
     p.locator(".pomo-park-input").wait_for(state="visible", timeout=10000)
     n0 = n_tugas(p)
-    check("a0 halaman Fokus: 3 tugas", n0 == 3, summary(p))
+    # Ringkasan menghitung seluruh cakupan (spec 6.1): 3 task Q1 + task harian ber-deadline hari ini = 4.
+    check("a0 halaman Fokus: 4 tugas (3 Q1 + task harian ber-deadline hari ini)", n0 == 4, summary(p))
+    # Task harian hanya tampil di "Berulang hari ini": tidak ikut kelompok, dan jumlah "Task hari ini" = 3.
+    pool_count = p.locator(".focus-section[data-tour=today-list] .focus-section-count").inner_text().strip()
+    check("a0c task harian tidak masuk kelompok 'Task hari ini' (hanya 'Berulang hari ini')",
+          p.locator(".focus-group .ftask").filter(has_text=REC_TITLE).count() == 0
+          and p.locator(".focus-group .ftask").count() == 3 and pool_count == "3"
+          and p.locator(".ftask--recurring").filter(has_text=REC_TITLE).count() == 1,
+          "kelompok=%d, jumlah=%s" % (p.locator(".focus-group .ftask").count(), pool_count))
     check("a0b placeholder Parkir Distraksi",
           p.locator(".pomo-park-input").get_attribute("placeholder") == "Ada pikiran lewat? Ketik & tekan Enter untuk simpan ke Inbox...")
 
