@@ -189,8 +189,12 @@
   // Ubah komentar yang sudah ada: pending create → hanya record; ber-server_id → server_copy + op jenisnya.
   // Perubahan baru pada record ber-sync_error = coba lagi: push sudah membuang op-nya, jadi op dipastikan ada lagi.
   function retryOps(rec, kind) {
+    // Hanya op yang masih berbeda dari server_copy (push yang gagal permanen sudah mengembalikan record).
+    const sc = rec.server_copy;
+    const stillDiffers = (k) => !!sc && (k === "edit" ? rec.body !== sc.body
+      : (rec.resolved_at != null) !== (sc.resolved_at != null));
     const prior = rec.sync_error && (rec.pending === "edit" || rec.pending === "resolve") && rec.pending !== kind
-      && kind !== "delete" ? rec.pending : null;
+      && kind !== "delete" && stillDiffers(rec.pending) ? rec.pending : null;
     rec.sync_error = null;
     return prior ? addOpOnce("comment", prior, rec.cid) : Promise.resolve();
   }

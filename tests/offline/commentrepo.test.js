@@ -387,14 +387,46 @@ test("a new change after sync_error retries: synced record gets its op back", as
   assert.deepEqual((await commentOps()).map((o) => [o.op, o.cid]), [["edit", cid]]);
 });
 
-test("a failed edit retried via resolve re-queues the edit op too", async () => {
+test("retry after sync_error re-queues a prior edit only while it still differs from server_copy", async () => {
+  const { outboxRemove } = require("../../static/offline/outbox.js");
+  await repo.mergePulled([srv({ id: 100 }), srv({ id: 101 })]);
+  // a) push reverted the record from server_copy (permanent failure) -> resolve queues only resolve
+  const a = await cidOf("comment", 100);
+  await repo.edit(a, "gagal");
+  for (const o of await commentOps()) await outboxRemove(o.qid);
+  const ra = await repo.getRaw(a);
+  await repo.putRaw(Object.assign({}, ra, ra.server_copy, {
+    pending: null, server_copy: null, sync_error: { code: "rejected", message: "x" } }));
+  await repo.resolve(a, true);
+  assert.equal((await repo.getRaw(a)).sync_error, null);
+  assert.equal((await repo.getRaw(a)).body, "server body");
+  assert.deepEqual((await commentOps()).map((o) => o.op), ["resolve"]);
+  for (const o of await commentOps()) await outboxRemove(o.qid);
+  // b) pending edit whose body equals server_copy -> no edit op
+  const b = await cidOf("comment", 101);
+  await repo.edit(b, "server body");
+  for (const o of await commentOps()) await outboxRemove(o.qid);
+  await repo.putRaw(Object.assign({}, await repo.getRaw(b), { sync_error: { code: "rejected", message: "x" } }));
+  await repo.resolve(b, true);
+  assert.deepEqual((await commentOps()).map((o) => o.op), ["resolve"]);
+  for (const o of await commentOps()) await outboxRemove(o.qid);
+  // c) body still differs from server_copy -> edit op queued with the resolve
+  await repo.discard(b);
+  await repo.edit(b, "beda");
+  for (const o of await commentOps()) await outboxRemove(o.qid);
+  await repo.putRaw(Object.assign({}, await repo.getRaw(b), { sync_error: { code: "rejected", message: "x" } }));
+  await repo.resolve(b, true);
+  assert.deepEqual((await commentOps()).map((o) => o.op).sort(), ["edit", "resolve"]);
+});
+
+test("retry after sync_error re-queues a prior resolve only while it still differs", async () => {
+  const { outboxRemove } = require("../../static/offline/outbox.js");
   await repo.mergePulled([srv({ id: 100 })]);
-  const cid = await cidOf("comment", 100);
-  await repo.edit(cid, "gagal");
-  for (const o of await commentOps()) await require("../../static/offline/outbox.js").outboxRemove(o.qid);
-  await repo.putRaw(Object.assign({}, await repo.getRaw(cid), { sync_error: { code: "rejected", message: "x" } }));
-  await repo.resolve(cid, true);
-  assert.equal((await repo.getRaw(cid)).sync_error, null);
+  const c = await cidOf("comment", 100);
+  await repo.resolve(c, true);
+  for (const o of await commentOps()) await outboxRemove(o.qid);
+  await repo.putRaw(Object.assign({}, await repo.getRaw(c), { sync_error: { code: "rejected", message: "x" } }));
+  await repo.edit(c, "baru");
   assert.deepEqual((await commentOps()).map((o) => o.op).sort(), ["edit", "resolve"]);
 });
 
