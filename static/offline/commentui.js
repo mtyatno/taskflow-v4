@@ -108,10 +108,18 @@
 
   // Penanda sekali pakai: daftar catatan → buka panel komentar saat note dibuka.
   let pendingOpen = null;
-  function requestOpen(noteId) { pendingOpen = noteId == null ? null : String(noteId); }
-  function consumeOpen(noteId) {
-    if (pendingOpen !== null && pendingOpen === String(noteId)) { pendingOpen = null; return true; }
-    return false;
+  const OPEN_TTL_MS = 30000;
+  function requestOpen(noteId) {
+    pendingOpen = noteId == null ? null : { id: String(noteId), at: Date.now() };
+    if (pendingOpen && typeof window !== "undefined" && window && typeof window.dispatchEvent === "function" && typeof CustomEvent === "function") {
+      try { window.dispatchEvent(new CustomEvent("tf:comments-open", { detail: { noteId: pendingOpen.id } })); } catch (_) {}
+    }
+  }
+  function consumeOpen(noteId, nowMs) {
+    if (pendingOpen === null || pendingOpen.id !== String(noteId)) return false;
+    const fresh = (nowMs == null ? Date.now() : nowMs) - pendingOpen.at <= OPEN_TTL_MS;
+    pendingOpen = null;
+    return fresh;
   }
 
   const exported = {

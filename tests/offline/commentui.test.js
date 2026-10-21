@@ -110,3 +110,27 @@ test("requestOpen/consumeOpen sekali pakai", () => {
   assert.equal(ui.consumeOpen("9"), true);
   assert.equal(ui.consumeOpen(9), false);
 });
+
+test("consumeOpen kedaluwarsa setelah 30 detik", () => {
+  const real = Date.now;
+  try {
+    Date.now = () => 1000;
+    ui.requestOpen(4);
+    assert.equal(ui.consumeOpen(4, 1000 + 30001), false);
+    assert.equal(ui.consumeOpen(4, 1000), false); // sudah dibersihkan
+    ui.requestOpen(4);
+    assert.equal(ui.consumeOpen(4, 1000 + 29000), true);
+  } finally { Date.now = real; }
+});
+test("requestOpen mengirim event tf:comments-open bila window ada", () => {
+  const seen = [];
+  const hadW = "window" in global, hadC = "CustomEvent" in global;
+  const oldW = global.window;
+  global.window = { dispatchEvent: (e) => seen.push(e) };
+  try {
+    ui.requestOpen(12);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0].type, "tf:comments-open");
+    assert.equal(seen[0].detail.noteId, "12");
+  } finally { if (hadW) global.window = oldW; else delete global.window; ui.consumeOpen(12); }
+});

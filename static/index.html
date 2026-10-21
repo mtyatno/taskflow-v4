@@ -34068,6 +34068,17 @@ function NotePanel({
   useEffect(() => {
     if (cmtWide && cmtEnabled && cmtStoredOpen()) setCmtOpen(true);
   }, [cmtWide]);
+  // Notifikasi komentar saat note ini sudah aktif: efek per-note.id tidak jalan ulang, jadi dengarkan event.
+  useEffect(() => {
+    const onOpen = e => {
+      const want = String(e && e.detail && e.detail.noteId);
+      if (want !== String(note.id) && (note.server_id == null || want !== String(note.server_id))) return;
+      const CU = window.TF && window.TF.commentui;
+      if (CU && CU.consumeOpen && CU.consumeOpen(want) && cmtEnabled) setCmtOpen(true);
+    };
+    window.addEventListener("tf:comments-open", onOpen);
+    return () => window.removeEventListener("tf:comments-open", onOpen);
+  }, [note.id, note.server_id, cmtEnabled]);
   // Sorotan thread terbuka setelah konten HTML dirender / komentar / thread aktif berubah.
   useEffect(() => {
     const H = window.TF && window.TF.commenthighlight;

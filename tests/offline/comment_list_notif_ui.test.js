@@ -52,3 +52,8 @@ test("sw.js precache modul dan versi baru", () => {
   assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v452-komentar-ui"'));
   assert.ok(indexHtml.includes("app.css?v=357"));
 });
+
+test("NotePanel memasang dan melepas listener tf:comments-open", () => {
+  assert.ok(indexHtml.includes('window.addEventListener("tf:comments-open"'));
+  assert.ok(indexHtml.includes('window.removeEventListener("tf:comments-open"'));
+});
