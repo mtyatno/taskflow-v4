@@ -9,7 +9,7 @@
   "use strict";
 
   const DB_NAME = "taskflow-offline";
-  const DB_VERSION = 5;
+  const DB_VERSION = 6;
 
   // Each entity store keyed by `cid`. Indexes: [name, keyPath, options].
   const ENTITY_STORES = {
@@ -50,6 +50,7 @@
     recurring_exceptions: [["task_cid", "task_cid"], ["dirty", "dirty"]],
     note_templates: [["server_id", "server_id"], ["dirty", "dirty"]],
     habit_templates: [["server_id", "server_id"], ["dirty", "dirty"]],
+    note_comments: [["server_id", "server_id"], ["note_cid", "note_cid"], ["note_id", "note_id"], ["list_id", "list_id"]],
   };
 
   const ENTITY_STORE_NAMES = Object.keys(ENTITY_STORES);
