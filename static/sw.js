@@ -3,6 +3,7 @@ const CACHE = "taskflow-v462-fokus-checklist-hitungan";
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
+  "/static/app.css?v=362",  // query HARUS sama persis dengan <link> app.css di index.html (catch-all mencocokkan URL persis)
   "/static/ui-components.js",
   "/static/offline/ids.js",
   "/static/offline/db.js",
@@ -76,9 +77,6 @@ const STATIC = [
   "/static/offline/commentroutes.js",
   "/static/offline/commentui.js",
   "/static/offline/commenthighlight.js",
-  "/static/vendor/tldraw/index.html",
-  "/static/vendor/tldraw/assets/index.js",
-  "/static/vendor/tldraw/assets/index.css",
   "/static/vendor/react.production.min.js",
   "/static/vendor/react-dom.production.min.js",
   "/static/vendor/chart.umd.min.js",
@@ -87,10 +85,23 @@ const STATIC = [
   "/static/vendor/prism.min.js",
   "/static/vendor/driver.iife.js",
   "/static/vendor/driver.css",
-  "/static/vendor/milkdown.bundle.js",
+  "/static/vendor/milkdown.bundle.js?v=289",  // query sama persis dengan <script> di index.html
   "/static/vendor/tailwind.min.css",
   "/static/vendor/katex/katex.min.js",
   "/static/vendor/katex/katex.min.css",
+  "/config.js",
+];
+
+// Aset opsional: boleh diambil belakangan saat dipakai, jadi kegagalannya TIDAK menggagalkan install.
+// Ikon/manifest punya cabang network-first sendiri, font KaTeX hanya dipakai note berisi rumus, dan build
+// tldraw dibuat saat deploy (tidak ada di repo) — bila ikut shell, build gagal = install gagal selamanya.
+const OPTIONAL_STATIC = [
+  "/manifest.json?v=2",
+  "/static/icon-192.png?v=2",
+  "/static/icon-512.png?v=2",
+  "/static/icon-maskable-192.png?v=2",
+  "/static/icon-maskable-512.png?v=2",
+  "/static/icon-new-task.svg",
   "/static/vendor/katex/fonts/KaTeX_AMS-Regular.woff2",
   "/static/vendor/katex/fonts/KaTeX_Caligraphic-Bold.woff2",
   "/static/vendor/katex/fonts/KaTeX_Caligraphic-Regular.woff2",
@@ -111,13 +122,9 @@ const STATIC = [
   "/static/vendor/katex/fonts/KaTeX_Size3-Regular.woff2",
   "/static/vendor/katex/fonts/KaTeX_Size4-Regular.woff2",
   "/static/vendor/katex/fonts/KaTeX_Typewriter-Regular.woff2",
-  "/manifest.json?v=2",
-  "/config.js",
-  "/static/icon-192.png?v=2",
-  "/static/icon-512.png?v=2",
-  "/static/icon-maskable-192.png?v=2",
-  "/static/icon-maskable-512.png?v=2",
-  "/static/icon-new-task.svg",
+  "/static/vendor/tldraw/index.html",
+  "/static/vendor/tldraw/assets/index.js",
+  "/static/vendor/tldraw/assets/index.css",
 ];
 
 // tldraw runtime assets (ikon toolbar, font, translations) di-vendor lokal dari
@@ -135,7 +142,7 @@ const TLDRAW_ASSETS = [].concat(
   TLD_EMBEDS.map(t => TLD + "/embed-icons/" + t + ".png"),
   [TLD + "/watermarks/watermark-desktop.svg"]
 );
-STATIC.push.apply(STATIC, TLDRAW_ASSETS);
+OPTIONAL_STATIC.push.apply(OPTIONAL_STATIC, TLDRAW_ASSETS);
 
 self.addEventListener("message", e => {
   if (e.data === "SKIP_WAITING" || (e.data && e.data.type === "SKIP_WAITING")) {
@@ -146,7 +153,7 @@ self.addEventListener("message", e => {
 self.addEventListener("install", e => {
   e.waitUntil(
     caches.open(CACHE)
-      .then(cache => Promise.allSettled(STATIC.map(url => cache.add(new Request(url, { cache: "reload" })))))
+      .then(cache => Promise.allSettled(STATIC.concat(OPTIONAL_STATIC).map(url => cache.add(new Request(url, { cache: "reload" })))))
       .then(() => {
         if (!self.registration.active) {
           self.skipWaiting();
