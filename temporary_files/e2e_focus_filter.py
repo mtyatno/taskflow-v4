@@ -913,6 +913,11 @@ def scenario_l(env, pw, browser, user, kind, theme="light"):
         p.locator(".focus-filter-sheet").wait_for(state="visible")
         p.keyboard.press("Escape")
         p.locator(".focus-filter-sheet").wait_for(state="detached", timeout=3000)
+        # cleanup efek (pemulih overflow) berjalan sesaat setelah DOM lembar dilepas → tunggu, jangan baca seketika
+        try:
+            p.wait_for_function("(v) => getComputedStyle(document.body).overflow === v", arg=before_ov, timeout=2000)
+        except Exception:
+            pass
         check("l4b setelah ditutup overflow body dipulihkan", p.evaluate("getComputedStyle(document.body).overflow") == before_ov,
               "sebelum=%r sesudah=%r" % (before_ov, p.evaluate("getComputedStyle(document.body).overflow")))
         y1 = p.evaluate("window.scrollY")

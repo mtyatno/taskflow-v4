@@ -11419,13 +11419,15 @@ function FocusFilterBar({
   const times = [["all", "Semua"], ["today", "Hari ini"], ["late", "Terlambat"]];
   const quick = [...ff.QUICK_PRI.map(value => ["pri", value]), ...ff.QUICK_QUAD.map(value => ["quad", value])];
   const showReset = !ff.isFilterDefault(filter) || query.trim() !== "";
+  // ≥ 2 pil atau pil panjang: tetap dua baris walau kartu lebar, supaya chip dan Reset tidak terpotong.
+  const dense = pills.length >= 2 || pills.some(pill => String(pill.label).length > 24);
   return React.createElement("div", {
     className: `focus-filter${zenClass}`,
     "aria-hidden": zenHidden ? true : undefined
   }, React.createElement("div", {
     className: "focus-filter-card"
   }, React.createElement("div", {
-    className: "focus-filter-grid"
+    className: `focus-filter-grid${dense ? " is-dense" : ""}`
   }, React.createElement("div", {
     className: "focus-filter-time",
     role: "group",

@@ -4722,13 +4722,13 @@
 .focus-group .ftask.is-open { box-shadow: none; }
 .focus-group .ftask + .ftask { box-shadow: inset 0 1px 0 var(--border); }
 @media (hover: hover) {
-  .focus-group .ftask:not(.is-focusing):hover { background: var(--bg-subtle); }
+  .focus-group .ftask:not(.is-focusing):hover { background: var(--bg-hover); }
 }
 /* Desktop: baris satu garis — judul di kiri, chip/tanggal/jumlah rata kanan sebelum ⭐ · Fokus · panah */
 @media (min-width: 1024px) {
   .focus-group .ftask-main { flex-direction: row; align-items: center; gap: 14px; }
   .focus-group .ftask-title { flex: 1 1 auto; min-width: 0; font-weight: 500; }
-  .focus-group .ftask-meta { flex: 0 1 auto; justify-content: flex-end; max-width: 60%; }
+  .focus-group .ftask-meta { flex: 0 0 auto; justify-content: flex-end; max-width: 60%; }
 }
 @media (max-width: 640px) {
   .focus-group-count-unit { display: none; }
@@ -4738,9 +4738,8 @@
   .ftask-star:hover { background: var(--bg-primary); }
 }
 .ftask-star.is-on { color: #6B8000; }
-[data-theme="dark"] .ftask-star.is-on { color: #A8C500; }
-.ftask-star.is-on svg path { fill: #A8C500; fill-opacity: 1; }
 [data-theme="dark"] .ftask-star.is-on { color: #D9EE6A; }
+.ftask-star.is-on svg path { fill: #A8C500; fill-opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   .focus-group-chevron { transition: none; }
 }
@@ -4760,13 +4759,13 @@
 .focus-filter-time button[aria-pressed="true"] { background: var(--text-primary); color: var(--bg-card); }
 .focus-filter-chip .n { font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
 /* Angka tab = badge bulat; angka Terlambat merah muda */
-.focus-filter-time .n { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 999px; background: rgba(15,23,42,0.07); color: var(--text-secondary); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.focus-filter-time .n { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 999px; background: rgba(15,23,42,0.06); color: #475569; font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .focus-filter-time button[aria-pressed="true"] .n { background: rgba(255,255,255,0.2); color: inherit; }
-.focus-filter-time .n.is-late { background: rgba(239,68,68,0.12); color: #dc2626; }
+.focus-filter-time .n.is-late { background: rgba(239,68,68,0.10); color: #b91c1c; }
 .focus-filter-time button[aria-pressed="true"] .n.is-late { background: rgba(239,68,68,0.32); color: #fee2e2; }
-[data-theme="dark"] .focus-filter-time .n { background: rgba(255,255,255,0.1); }
+[data-theme="dark"] .focus-filter-time .n { background: rgba(255,255,255,0.07); color: #d4d4d4; }
 [data-theme="dark"] .focus-filter-time button[aria-pressed="true"] .n { background: rgba(0,0,0,0.14); }
-[data-theme="dark"] .focus-filter-time .n.is-late { background: rgba(248,113,113,0.16); color: #f87171; }
+[data-theme="dark"] .focus-filter-time .n.is-late { background: rgba(248,113,113,0.12); color: #fca5a5; }
 [data-theme="dark"] .focus-filter-time button[aria-pressed="true"] .n.is-late { background: rgba(220,38,38,0.85); color: #fff; }
 .focus-filter-search { grid-area: search; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 2px 0 11px; background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 12px; color: var(--text-secondary); cursor: text; transition: border-color .15s, box-shadow .15s; }
 .focus-filter-search:focus-within { border-color: #A8C500; box-shadow: 0 0 0 3px rgba(168,197,0,0.18); }
@@ -4812,9 +4811,9 @@
   .focus-filter-btn { width: 42px; padding: 0; }
   .focus-filter-badge { position: absolute; top: -6px; right: -6px; box-shadow: 0 0 0 2px var(--bg-card); }
 }
-/* Lebar: semuanya satu baris */
+/* Lebar: semuanya satu baris — kecuali .is-dense (≥ 2 pil / pil panjang) supaya chip & Reset tidak terpotong */
 @container focusfilter (min-width: 1000px) {
-  .focus-filter-grid { grid-template-columns: auto minmax(200px, 1fr) minmax(0, max-content) auto; grid-template-areas: "time search chips btn"; }
+  .focus-filter-grid:not(.is-dense) { grid-template-columns: auto minmax(200px, 1fr) minmax(0, max-content) auto; grid-template-areas: "time search chips btn"; }
 }
 .focus-filter-time button:focus-visible, .focus-filter-chip:focus-visible, .focus-filter-btn:focus-visible, .focus-filter-clear:focus-visible, .focus-filter-link:focus-visible, .focus-filter-sheet-actions button:focus-visible { outline: 2px solid #7E9400; outline-offset: 1px; }
 [data-theme="dark"] .focus-filter-time button:focus-visible, [data-theme="dark"] .focus-filter-chip:focus-visible, [data-theme="dark"] .focus-filter-btn:focus-visible, [data-theme="dark"] .focus-filter-clear:focus-visible, [data-theme="dark"] .focus-filter-link:focus-visible, [data-theme="dark"] .focus-filter-sheet-actions button:focus-visible { outline-color: #A8C500; }

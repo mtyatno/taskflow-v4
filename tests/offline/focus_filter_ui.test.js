@@ -393,7 +393,8 @@ test("app.css: Target, kelompok, ⭐, dan chevron tanpa transisi saat reduced-mo
   assert.match(star, /width: 36px/);
   assert.match(star, /height: 36px/);
   assert.match(appCss, /\.ftask-star\.is-on \{[^}]*#6B8000/);
-  assert.match(appCss, /\[data-theme="dark"\] \.ftask-star\.is-on \{[^}]*#A8C500/);
+  assert.match(appCss, /\[data-theme="dark"\] \.ftask-star\.is-on \{[^}]*#D9EE6A/);
+  assert.equal((appCss.match(/\[data-theme="dark"\] \.ftask-star\.is-on \{/g) || []).length, 1, "satu aturan ⭐ gelap");
   assert.match(appCss, /\.ftask-star\.is-on svg path \{[^}]*fill: #A8C500/);
   assert.match(appCss, /@media \(prefers-reduced-motion: reduce\) \{\s*\.focus-group-chevron \{ transition: none; \}\s*\}/);
 });
@@ -1464,10 +1465,10 @@ test("app.css redesign: kartu bar filter ber-container query, grid 3 tata letak,
   assert.match(rule(".focus-filter-badge", mid), /position: absolute/);
   // lebar: satu baris
   const wide = block("1000px");
-  assert.match(rule(".focus-filter-grid", wide), /grid-template-areas: "time search chips btn"/);
+  assert.match(rule(".focus-filter-grid:not(.is-dense)", wide), /grid-template-areas: "time search chips btn"/);
   // angka tab: badge bulat; Terlambat merah muda
   assert.match(rule(".focus-filter-time .n"), /border-radius: 999px/);
-  assert.match(rule(".focus-filter-time .n.is-late"), /#dc2626/);
+  assert.match(rule(".focus-filter-time .n.is-late"), /#b91c1c/);
   assert.ok(appCss.includes('[data-theme="dark"] .focus-filter-time .n.is-late'), "varian gelap angka Terlambat");
   // lembar desktop berjangkar ke pembungkus .focus-filter (bukan kartu ber-container)
   assert.match(rule(".focus-filter"), /position: relative/);
@@ -1503,4 +1504,12 @@ test("ikon ⭐ bergaya Alurik (duotone: garis + isian lembut)", () => {
   const star = glyphs.match(/\n  star: '([^']*)'/);
   assert.ok(star, "FOCUS_GLYPHS.star");
   assert.match(star[1], /fill="currentColor" fill-opacity="\.22"/);
+});
+
+test("FocusFilterBar redesign: ≥ 2 pil atau pil panjang → grid is-dense (tetap dua baris di kartu lebar)", () => {
+  const dense = pills => hasClass(findAll(renderBar({ pills }).tree, n => hasClass(n, "focus-filter-grid"))[0], "is-dense");
+  assert.equal(dense([]), false);
+  assert.equal(dense([{ key: "status", kind: "status", label: "Semua status" }]), false);
+  assert.equal(dense([{ key: "status", kind: "status", label: "Semua status" }, { key: "pri:P4", kind: "pri", value: "P4", label: "P4" }]), true);
+  assert.equal(dense([{ key: "proj", kind: "proj", label: "Tim Marketing · Kampanye Ramadan 2026" }]), true);
 });
