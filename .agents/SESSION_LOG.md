@@ -3944,3 +3944,9 @@
 - **Changes:** Task 1–5 (modul `focusfilter.js`, satu cakupan hari ini, Target ⭐ + kelompok, bar + lembar filter) masing-masing direview; Task 6 (merge `origin/main` b84f357, SW v456 / app.css 360, E2E `e2e_focus_filter.py` 115 langkah, ADR-027, sinkron spec) — sempat dihentikan Bapak lalu diselesaikan; review akhir siap merge + gelombang perbaikan 8ac3430. Draft PR #81.
 - **Files Touch:** static/offline/focusfilter.js, static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/focusfilter.test.js, tests/offline/focus_filter_ui.test.js, tests (pin versi), temporary_files/e2e_focus_filter.py (+ perbaikan e2e_focus_page/target/ambient/android_notification), docs spec/plan, .agents/*
 - **Status:** Needs Review — draft PR #81 menunggu "merge"; deploy = restart `taskflow-web`.
+
+## [2026-10-22 10:00] - Claude
+- **Task:** Merge PR #81 (pemilihan task halaman Fokus) atas instruksi Bapak.
+- **Changes:** PR ditandai siap, CI hijau di 516f2d7, di-merge (7072a1a). Deploy percobaan 1 timeout 10 menit di langkah SSH (bukan karena isi PR), dijalankan ulang sekali → sukses. SW v456 `taskflow-v456-focus-filter`, app.css 360.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — tinggal restart `taskflow-web` di server.
