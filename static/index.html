@@ -6030,6 +6030,8 @@ function TaskFormModal({
   const noteContentRef = React.useRef(null);
   const noteMilkdownRef = React.useRef(null);
   const noteSavedIdRef = React.useRef(null);
+  // Pemilih file toolbar note ({ media, file }) — dipakai item "Media" menu blok editor.
+  const notePickRef = React.useRef(null);
   const [noteDrawingInsertOpen, setNoteDrawingInsertOpen] = useState(false);
   const [noteQuickDrawState, setNoteQuickDrawState] = useState(null);
   const [notePaperConfig, setNotePaperConfig] = useState({ enabled: true, size: 'A4', orientation: 'portrait' });
@@ -6468,8 +6470,8 @@ function TaskFormModal({
       openNoteTaskDropdown();
       return;
     }
-    // /draw, /canvas, /gambar, /sketsa slash command — buka drawing insert modal
-    const drawMatch = textBefore.match(/(?:^|\n)\/(draw|canvas|gambar|sketsa)$/i);
+    // /draw, /canvas, /sketsa slash command — buka drawing insert modal
+    const drawMatch = textBefore.match(/(?:^|\n)\/(draw|canvas|sketsa)$/i);
     if (drawMatch) {
       editor.action(ctx => {
         const view = ctx.get(MB.editorViewCtx);
@@ -6608,10 +6610,14 @@ function TaskFormModal({
       setCreatingInlineNoteTask(false);
     }
   };
-  const handleNoteImagePaste = async file => {
+  // opts.source === 'picker': gambar dari tombol/menu "Media" (bukan tempel) — toast unggah, dan data URL
+  // dibatasi MEDIA_INLINE_IMAGE_MAX_BYTES. Tempel (tanpa opts) tidak berubah.
+  const handleNoteImagePaste = async (file, opts) => {
     var editor = noteMilkdownRef.current;
     if (!editor) return;
     var MB = window.MilkdownBundle;
+    var fromPicker = !!(opts && opts.source === 'picker');
+    var say = function(m, t) { return typeof showToast === 'function' ? showToast(m, t) : window.__showToast?.(m, t); };
     var insertNoteMd = function(md) {
       editor.action(function(ctx) {
         try {
@@ -6647,6 +6653,7 @@ function TaskFormModal({
         formData.append('file', file);
         var uh = {};
         if (typeof __token !== 'undefined' && __token) uh['Authorization'] = 'Bearer ' + __token;
+        if (fromPicker) say('Mengunggah gambar…', 'info');
         var res = await fetch(apiUrl('/api/scratchpad/' + noteId + '/attachments'), { method: 'POST', headers: uh, body: formData });
         if (res.ok) {
           var att = await res.json();
@@ -6654,6 +6661,10 @@ function TaskFormModal({
           return;
         }
       } catch (_) {}
+    }
+    if (fromPicker && file.size > MEDIA_INLINE_IMAGE_MAX_BYTES) {
+      say('Gambar lebih dari 1 MB butuh koneksi internet dan catatan yang sudah tersimpan', 'error');
+      return;
     }
     // Offline fallback: base64 data URL
     try {
@@ -7011,6 +7022,8 @@ function TaskFormModal({
       onApplyTemplate: function(tpl) { return setNote("content", tpl); },
       onInsertTask: openNoteTaskDropdown,
       onInsertDrawing: handleOpenNoteInsertDrawing,
+      onInsertImage: f => handleNoteImagePaste(f, { source: 'picker' }),
+      pickerRef: notePickRef,
       voiceState: noteVoiceState,
       onToggleVoice: handleToggleNoteVoice,
       paperConfig: notePaperConfig,
@@ -7050,7 +7063,8 @@ function TaskFormModal({
       onTasklinkClick: function() {},
       onImagePaste: handleNoteImagePaste,
       onInsertDrawing: handleOpenNoteInsertDrawing,
-      onInsertTask: openNoteTaskDropdown
+      onInsertTask: openNoteTaskDropdown,
+      onPickMedia: () => notePickRef.current?.media?.()
     }), notePaperConfig?.enabled && /*#__PURE__*/React.createElement(PaperPageGuides, {
       rootRef: notePaperWrapRef,
       paperConfig: notePaperConfig
@@ -27631,6 +27645,32 @@ async function beginNoteMediaUpload({ file, noteId, MD, toast, ensureId, insert,
   } catch (err) { console.warn('[media] unggah gagal', err); }
   return cid;
 }
+// Tombol/menu "Media" note: gambar disisipkan seperti tempel (unggah lampiran server, selain itu data URL).
+// Data URL gambar pilihan dibatasi 1 MB agar isi note tidak membengkak saat offline / note belum tersimpan.
+const MEDIA_INLINE_IMAGE_MAX_BYTES = 1024 * 1024;
+// Sesuai _ALLOWED_ATTACH_MIME server (image/png, image/jpeg, image/webp).
+const NOTE_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp'];
+// File dari pemilih "Media" → { kind: 'image' } | { kind: 'av' } | { kind: 'error', message }.
+// ctx = { allowAV (host punya unggah audio/video), online, hasNote, MD (TF.mediadirective) }.
+function mediaPickAction(file, ctx) {
+  const c = ctx || {};
+  const name = String((file && file.name) || '');
+  const dot = name.lastIndexOf('.');
+  const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+  if (NOTE_IMAGE_EXTS.indexOf(ext) !== -1) return { kind: 'image' };
+  if (c.allowAV && c.MD && typeof c.MD.isMediaFileName === 'function' && c.MD.isMediaFileName(name)) {
+    if (!c.online) return { kind: 'error', message: 'Butuh koneksi internet untuk mengunggah audio/video' };
+    if (!c.hasNote) return { kind: 'error', message: 'Simpan note dulu, lalu lampirkan audio/video' };
+    return { kind: 'av' };
+  }
+  return { kind: 'error', message: 'Format tidak didukung' };
+}
+// Atribut accept input "Media": gambar + (bila allowAV) ekstensi audio/video MD.MEDIA_EXTS.
+function noteMediaAccept(allowAV, MD) {
+  const img = NOTE_IMAGE_EXTS.map(x => '.' + x).join(',');
+  if (!allowAV || !MD || !Array.isArray(MD.MEDIA_EXTS)) return img;
+  return img + ',' + MD.MEDIA_EXTS.map(x => '.' + x).join(',');
+}
 // Satu manajer per tab (dipanggil App; juga sebagai cadangan oleh alur sisip). Modul absen → null.
 function ensureMediaUploadManager() {
   if (typeof window === 'undefined') return null;
@@ -27759,33 +27799,61 @@ function NoteToolbar({
   onInsertTask,
   onInsertDrawing,
   onInsertMedia,
+  onInsertImage,
+  pickerRef,
   voiceState,
   onToggleVoice,
 paperConfig,
 onPaperConfigChange
 }) {
   const [hOpen, setHOpen] = React.useState(false);
-  // 🎬 Audio/Video: input sendiri (accept = ekstensi media), nonaktif saat offline / note belum tersimpan.
+  // Media: satu input untuk gambar (onInsertImage) + audio/video (onInsertMedia, bila host punya).
+  // Jenis ditentukan dari ekstensi saat dipilih (mediaPickAction); tombol selalu aktif.
+  const hasMediaBtn = !!(onInsertMedia || onInsertImage);
   const mediaInputRef = React.useRef(null);
-  const [mediaOnline, setMediaOnline] = React.useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
-  React.useEffect(() => {
-    const upd = () => setMediaOnline(navigator.onLine !== false);
-    window.addEventListener('online', upd);
-    window.addEventListener('offline', upd);
-    return () => {
-      window.removeEventListener('online', upd);
-      window.removeEventListener('offline', upd);
-    };
-  }, []);
-  const mediaAccept = React.useMemo(() => {
-    const MD = window.TF && window.TF.mediadirective;
-    return MD && Array.isArray(MD.MEDIA_EXTS) ? MD.MEDIA_EXTS.map(x => '.' + x).join(',') : '';
-  }, []);
+  const mediaAccept = React.useMemo(() => noteMediaAccept(!!onInsertMedia, window.TF && window.TF.mediadirective), [!!onInsertMedia]);
   const hRef = React.useRef(null);
   const [moreOpen, setMoreOpen] = React.useState(false);
   const moreRef = React.useRef(null);
   const fileInputRef = React.useRef(null);
   const [uploading, setUploading] = React.useState(false);
+  const sayToolbarError = m => {
+    try { window.__showToast?.(m, 'error'); } catch (_) {}
+  };
+  const handleMediaPicked = e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const act = mediaPickAction(f, {
+      allowAV: !!onInsertMedia,
+      online: typeof navigator === 'undefined' || navigator.onLine !== false,
+      hasNote: !!noteId,
+      MD: window.TF && window.TF.mediadirective
+    });
+    if (act.kind === 'image') {
+      if (onInsertImage) onInsertImage(f); else sayToolbarError('Format tidak didukung');
+    } else if (act.kind === 'av') {
+      onInsertMedia(f);
+    } else {
+      sayToolbarError(act.message);
+    }
+  };
+  // Pemilih file dipanggil juga dari menu blok (slash "/" / "+") lewat pickerRef host: input.click()
+  // harus sinkron (tanpa await) agar masih dalam aktivasi pengguna dan dialog file terbuka.
+  const openMediaPicker = () => {
+    if (mediaInputRef.current) mediaInputRef.current.click();
+  };
+  const openFilePicker = () => {
+    if (!noteId) { sayToolbarError('Simpan note dulu, lalu lampirkan file'); return; }
+    if (uploading) return;
+    if (fileInputRef.current) fileInputRef.current.click();
+  };
+  React.useEffect(() => {
+    if (!pickerRef) return undefined;
+    const api = { media: openMediaPicker, file: openFilePicker };
+    pickerRef.current = api;
+    return () => { if (pickerRef.current === api) pickerRef.current = null; };
+  });
   const [templates, setTemplates] = React.useState([]);
   const [tplOpen, setTplOpen] = React.useState(false);
   const tplBtnRef = React.useRef(null);
@@ -28252,10 +28320,30 @@ onPaperConfigChange
       cmd(window.MilkdownBundle?.insertHrCommand?.key);
     },
     title: "Horizontal rule"
-  }, React.createElement(Icon, { name: "minus", size: 13 })), /*#__PURE__*/React.createElement("input", {
+  }, React.createElement(Icon, { name: "minus", size: 13 })), hasMediaBtn ? React.createElement("input", {
+    ref: mediaInputRef,
+    type: "file",
+    accept: mediaAccept,
+    style: {
+      display: 'none'
+    },
+    onChange: handleMediaPicked
+  }) : null, hasMediaBtn ? React.createElement("button", {
+    type: "button",
+    className: "note-media-insert-btn",
+    onMouseDown: e => {
+      e.preventDefault();
+      openMediaPicker();
+    },
+    onClick: e => {
+      // aktivasi keyboard (Enter/Spasi) tidak lewat mousedown
+      if (e.detail === 0) openMediaPicker();
+    },
+    title: onInsertMedia ? "Sisipkan media: gambar, audio, atau video" : "Sisipkan gambar"
+  }, [React.createElement(ViewGlyph, { name: "fImage", size: 14, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 4 } }, "Media")]) : null, /*#__PURE__*/React.createElement("input", {
     ref: fileInputRef,
     type: "file",
-    accept: ".png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf",
+    accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf",
     style: {
       display: 'none'
     },
@@ -28265,42 +28353,12 @@ onPaperConfigChange
       e.preventDefault();
       if (noteId) fileInputRef.current?.click();
     },
-    title: noteId ? 'Lampirkan file' : 'Simpan note dulu',
+    title: noteId ? "Lampirkan file (PDF, dokumen, spreadsheet)" : "Simpan note dulu",
     disabled: uploading || !noteId,
     style: {
       opacity: noteId ? 1 : 0.4
     }
-  }, React.createElement(Icon, { name: "paperclip", size: 14 })), onInsertMedia ? React.createElement("input", {
-    ref: mediaInputRef,
-    type: "file",
-    accept: mediaAccept,
-    style: {
-      display: 'none'
-    },
-    onChange: e => {
-      const f = e.target.files && e.target.files[0];
-      e.target.value = '';
-      if (f) onInsertMedia(f);
-    }
-  }) : null, onInsertMedia ? React.createElement("button", {
-    type: "button",
-    className: "note-media-insert-btn",
-    onMouseDown: e => {
-      e.preventDefault();
-      if (noteId && mediaOnline) mediaInputRef.current?.click();
-    },
-    onClick: e => {
-      // aktivasi keyboard (Enter/Spasi) tidak lewat mousedown
-      if (e.detail === 0 && noteId && mediaOnline) mediaInputRef.current?.click();
-    },
-    title: !mediaOnline ? 'Butuh koneksi internet untuk mengunggah audio/video' : noteId ? 'Lampirkan audio/video' : 'Simpan note dulu',
-    disabled: !mediaOnline || !noteId,
-    style: {
-      opacity: mediaOnline && noteId ? 1 : 0.4,
-      fontSize: 12,
-      whiteSpace: 'nowrap'
-    }
-  }, "🎬 Audio/Video") : null, voiceState && voiceState !== 'unsupported' ? /*#__PURE__*/React.createElement("button", {
+  }, [React.createElement(Icon, { name: "paperclip", size: 14, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 4 } }, "File")]), voiceState && voiceState !== 'unsupported' ? /*#__PURE__*/React.createElement("button", {
     type: "button",
     onPointerDown: function(e) { e.preventDefault(); if (onToggleVoice) onToggleVoice(); },
     className: "note-mic-btn" + (voiceState === 'listening' ? ' listening' : '') + (voiceState === 'paused' ? ' paused' : ''),
@@ -28446,7 +28504,9 @@ function MilkdownEditor({
   noteListId = null,
   mediaNoteId = null,
   mediaNoteOwnerId = null,
-  onCommentSelection = null
+  onCommentSelection = null,
+  onPickMedia = null,
+  onPickFile = null
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
@@ -28458,6 +28518,11 @@ function MilkdownEditor({
   React.useEffect(() => { onInsertDrawingRef.current = onInsertDrawing; }, [onInsertDrawing]);
   const onInsertTaskRef = React.useRef(onInsertTask);
   React.useEffect(() => { onInsertTaskRef.current = onInsertTask; }, [onInsertTask]);
+  // Item menu blok "Media"/"File": host membuka pemilih file toolbar (dipanggil sinkron dari klik item).
+  const onPickMediaRef = React.useRef(onPickMedia);
+  React.useEffect(() => { onPickMediaRef.current = onPickMedia; }, [onPickMedia]);
+  const onPickFileRef = React.useRef(onPickFile);
+  React.useEffect(() => { onPickFileRef.current = onPickFile; }, [onPickFile]);
   // Komentar note: tombol "Komentari" di dalam tooltip format (satu toolbar, tidak saling menutupi).
   const onCommentSelectionRef = React.useRef(onCommentSelection);
   React.useEffect(() => { onCommentSelectionRef.current = onCommentSelection; }, [onCommentSelection]);
@@ -28518,8 +28583,8 @@ function MilkdownEditor({
         const view = ctx.get(MB.editorViewCtx);
         if (!view) return;
         // Hapus karakter pemicu "/" sebelum aksi (menu slash tampil bila karakter tepat
-        // sebelum kursor = "/"); "/" asli teks (and/or) dibiarkan. 'draw' dan 'task' menanganinya sendiri.
-        if (type !== 'draw' && type !== 'task') {
+        // sebelum kursor = "/"); "/" asli teks (and/or) dibiarkan. 'draw', 'task', 'media', 'file' menanganinya sendiri.
+        if (type !== 'draw' && type !== 'task' && type !== 'media' && type !== 'file') {
           const sel0 = view.state.selection;
           if (sel0.empty && isSlashTriggerBefore(sel0.$from)) {
             view.dispatch(view.state.tr.delete(sel0.$from.pos - 1, sel0.$from.pos));
@@ -28682,6 +28747,22 @@ function MilkdownEditor({
               return;
             }
             break;
+          case 'media':
+          case 'file':
+            {
+              // Hapus "/" pemicu seperti 'draw', lalu buka pemilih file host. Tetap sinkron di dalam
+              // handler klik item: input.click() hanya diizinkan browser selama aktivasi pengguna.
+              const qFrom2 = state.selection.$from;
+              const qText2 = qFrom2.parent.textBetween(0, qFrom2.parentOffset, null, "￼");
+              const slashIdx2 = qText2.lastIndexOf("/");
+              if (slashIdx2 >= 0 && isSlashTriggerBefore(qFrom2)) {
+                view.dispatch(state.tr.delete(qFrom2.start() + slashIdx2, qFrom2.pos));
+              }
+              const pickRef = type === 'media' ? onPickMediaRef : onPickFileRef;
+              pickRef.current?.();
+              return;
+            }
+            break;
         }
         // Kursor masuk ke blok baru (list/tabel/divider). Default ProseMirror menaruhnya SESUDAH
         // blok baru → ketikan nyasar ke awal blok berikutnya (terlihat saat "+" di tengah dokumen).
@@ -28730,7 +28811,10 @@ function MilkdownEditor({
         { glyph: 'sTable', label: 'Tabel', type: 'table', title: 'Tabel 3×3' },
         { glyph: 'sDivider', label: 'Divider', type: 'hr', title: 'Divider / Garis pemisah' },
         { glyph: 'pPalette', label: 'Sketsa', type: 'draw', title: 'Sketsa — coretan bebas, diagram, papan tulis' },
-        { glyph: 'nPin', label: 'Task', type: 'task', title: 'Tugas / Task (/task, /tasks)' }
+        { glyph: 'nPin', label: 'Task', type: 'task', title: 'Tugas / Task (/task, /tasks)' },
+        // Media/File hanya bila host memberi pemilihnya (prop saat mount)
+        ...(onPickMedia ? [{ glyph: 'fImage', label: 'Media', type: 'media', title: 'Media — gambar, audio, atau video' }] : []),
+        ...(onPickFile ? [{ glyph: 'fFile', label: 'File', type: 'file', title: 'File — PDF/dokumen sebagai lampiran' }] : [])
       ] },
       { label: 'Tautan', items: [
         { glyph: 'mLink', label: 'Wikilink', type: 'wikilink', title: 'Wikilink — tautan ke note lain [[judul]]', wide: true, hint: '[[ ]]' }
@@ -32285,7 +32369,7 @@ function NoteModal({
     } catch (_) {}
     return ok;
   };
-  // 🎬 Audio/Video: id server note (cid lokal → push dulu), direktif ::media, lalu unggah lewat __mediaUploads.
+  // Audio/video (tombol/menu "Media"): id server note (cid lokal → push dulu), direktif ::media, lalu unggah lewat __mediaUploads.
   const [mediaServerNoteId, setMediaServerNoteId] = React.useState(null);
   const mediaNoteIdForCards = savedNoteId != null && /^\d+$/.test(String(savedNoteId)) ? Number(savedNoteId) : mediaServerNoteId;
   const mediaNoteOwnerId = note?.user_id != null ? note.user_id : (currentUserId != null ? currentUserId : (Number(localStorage.getItem('tf_user_id')) || null));
@@ -32315,6 +32399,8 @@ function NoteModal({
     }
     return ok;
   };
+  // Pemilih file toolbar ({ media, file } dari NoteToolbar) — dipakai item "Media"/"File" menu blok editor.
+  const notePickRef = React.useRef(null);
   const handleInsertMedia = file => {
     beginNoteMediaUpload({
       file,
@@ -32342,7 +32428,11 @@ function NoteModal({
       } catch (_) {}
     });
   };
-  const handleImagePaste = async file => {
+  // opts.source === 'picker': gambar dari tombol/menu "Media" (bukan tempel) — toast unggah, dan data URL
+  // dibatasi MEDIA_INLINE_IMAGE_MAX_BYTES. Tempel (tanpa opts) tidak berubah.
+  const handleImagePaste = async (file, opts) => {
+    const fromPicker = !!(opts && opts.source === 'picker');
+    const say = (m, t) => (typeof showToast === 'function' ? showToast(m, t) : window.__showToast?.(m, t));
     // Try server upload first (smaller content, permanent storage)
     // Only if note has a real server ID (numeric), not offline UUID
     if (savedNoteId && /^\d+$/.test(String(savedNoteId))) {
@@ -32351,6 +32441,7 @@ function NoteModal({
         formData.append('file', file);
         const headers = {};
         if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
+        if (fromPicker) say('Mengunggah gambar…', 'info');
         const res = await fetch(apiUrl('/api/scratchpad/' + savedNoteId + '/attachments'), {
           method: 'POST', headers, body: formData
         });
@@ -32359,11 +32450,16 @@ function NoteModal({
           const url = '/api/scratchpad/attachments/' + att.id + '/view';
           const alt = att.original_name || 'image';
           insertImageMd('![' + alt + '](' + url + ')');
+          setAttachments(prev => prev.concat([att]));
           return;
         }
       } catch (_) {
         // Server unreachable (offline) — fall through to base64
       }
+    }
+    if (fromPicker && file.size > MEDIA_INLINE_IMAGE_MAX_BYTES) {
+      say('Gambar lebih dari 1 MB butuh koneksi internet dan catatan yang sudah tersimpan', 'error');
+      return;
     }
     // Offline fallback: convert to base64 data URL, insert directly
     try {
@@ -33035,8 +33131,8 @@ function NoteModal({
       return;
     }
 
-    // /draw, /canvas, /gambar, /sketsa slash command — buka drawing insert modal
-    const drawMatch = textBefore.match(/(?:^|\n)\/(draw|canvas|gambar|sketsa)$/i);
+    // /draw, /canvas, /sketsa slash command — buka drawing insert modal
+    const drawMatch = textBefore.match(/(?:^|\n)\/(draw|canvas|sketsa)$/i);
     if (drawMatch) {
       const ed = milkdownEditorRef.current;
       if (ed && window.MilkdownBundle?.editorViewCtx) {
@@ -33691,6 +33787,8 @@ function NoteModal({
     onInsertTask: openTaskDropdown,
     onInsertDrawing: handleOpenInsertDrawing,
     onInsertMedia: handleInsertMedia,
+    onInsertImage: f => handleImagePaste(f, { source: 'picker' }),
+    pickerRef: notePickRef,
     voiceState: voiceState,
     onToggleVoice: handleToggleVoice,
     paperConfig: paperConfig,
@@ -33782,7 +33880,9 @@ function NoteModal({
     onTasklinkClick: handleTasklinkClick,
     onImagePaste: handleImagePaste,
     onInsertDrawing: handleOpenInsertDrawing,
-    onInsertTask: openTaskDropdown
+    onInsertTask: openTaskDropdown,
+    onPickMedia: () => notePickRef.current?.media?.(),
+    onPickFile: () => notePickRef.current?.file?.()
   }), paperConfig?.enabled && /*#__PURE__*/React.createElement(PaperPageGuides, {
     rootRef: paperWrapRef,
     paperConfig: paperConfig

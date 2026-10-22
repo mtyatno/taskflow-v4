@@ -25,7 +25,7 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
     assert.match(
       indexHtml,
-      /if\s*\(\s*type\s*!==\s*['"]draw['"]\s*&&\s*type\s*!==\s*['"]task['"]\s*\)/
+      /if\s*\(\s*type\s*!==\s*['"]draw['"]\s*&&\s*type\s*!==\s*['"]task['"]\s*&&\s*type\s*!==\s*['"]media['"]\s*&&\s*type\s*!==\s*['"]file['"]\s*\)/
     );
   });
 

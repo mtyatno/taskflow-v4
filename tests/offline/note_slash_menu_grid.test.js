@@ -19,9 +19,10 @@ function groupsSource() {
   const end = indexHtml.indexOf("];", start);
   return indexHtml.slice(start, end + 2);
 }
+// Item Media/File bersyarat pada prop host saat mount (onPickMedia/onPickFile); di sini keduanya ada.
 function evalGroups() {
   const src = groupsSource().replace("const SLASH_MENU_GROUPS = ", "return ");
-  return new Function(src)();
+  return new Function("onPickMedia", "onPickFile", src)(() => {}, () => {});
 }
 
 // [ikon teks (heading) | glyph VIEW_GLYPHS, label, tipe, payload]
@@ -45,6 +46,8 @@ const EXPECTED = [
     ["sDivider", "Divider", "hr"],
     ["pPalette", "Sketsa", "draw"],
     ["nPin", "Task", "task"],
+    ["fImage", "Media", "media"],
+    ["fFile", "File", "file"],
   ]],
   ["Tautan", [
     ["mLink", "Wikilink", "wikilink"],
@@ -62,13 +65,13 @@ function viewGlyphs() {
 test("slash menu: ikon glyph gaya Alurik", async (t) => {
   const groups = evalGroups();
   const items = groups.flatMap(g => g.items);
-  await t.test("12 glyph ada di VIEW_GLYPHS (duotone, viewBox 24)", () => {
+  await t.test("14 glyph ada di VIEW_GLYPHS (duotone, viewBox 24)", () => {
     const G = viewGlyphs();
-    assert.equal(GLYPH_KEYS.length, 12);
+    assert.equal(GLYPH_KEYS.length, 14);
     for (const k of GLYPH_KEYS) {
       assert.ok(typeof G[k] === "string" && G[k].length > 0, "VIEW_GLYPHS." + k);
     }
-    for (const k of ["sQuote", "sLightbulb", "sToggle", "sCode", "sListBullet", "sListOrdered", "sChecklist", "sTable", "sDivider"]) {
+    for (const k of ["sQuote", "sLightbulb", "sToggle", "sCode", "sListBullet", "sListOrdered", "sChecklist", "sTable", "sDivider", "fImage", "fFile"]) {
       assert.match(G[k], /fill="currentColor" fill-opacity="\.22"/, k + " punya isian lembut");
       assert.equal(/<script|on\w+=/i.test(G[k]), false, k + " markup statis aman");
     }
@@ -103,10 +106,10 @@ test("slash menu: grup dan item sesuai urutan", async (t) => {
   await t.test("4 label grup berurutan", () => {
     assert.deepEqual(groups.map(g => g.label), EXPECTED.map(g => g[0]));
   });
-  await t.test("15 item dengan ikon/label/tipe/payload persis", () => {
+  await t.test("17 item dengan ikon/label/tipe/payload persis", () => {
     const flat = groups.flatMap(g => g.items.map(it => [it.glyph || it.icon, it.label, it.type, it.payload]));
     const exp = EXPECTED.flatMap(g => g[1].map(([i, l, ty, p]) => [i, l, ty, p]));
-    assert.equal(flat.length, 15);
+    assert.equal(flat.length, 17);
     assert.deepEqual(flat, exp);
   });
   await t.test("setiap item punya title deskriptif", () => {
@@ -116,6 +119,8 @@ test("slash menu: grup dan item sesuai urutan", async (t) => {
     const byType = Object.fromEntries(groups.flatMap(g => g.items).map(it => [it.type, it]));
     assert.equal(byType.draw.title, "Sketsa — coretan bebas, diagram, papan tulis");
     assert.equal(byType.task.title, "Tugas / Task (/task, /tasks)");
+    assert.equal(byType.media.title, "Media — gambar, audio, atau video");
+    assert.equal(byType.file.title, "File — PDF/dokumen sebagai lampiran");
     assert.equal(byType.callout.title, "Callout / Info (/callout)");
     assert.equal(byType.toggle.title, "Toggle / Lipatan (/toggle)");
     assert.equal(byType.code_block.title, "Code Block (/code)");
@@ -173,8 +178,8 @@ test("slash menu: aksi wikilink menyisipkan [[ dari state segar", () => {
   assert.match(m[1], /tr\.setStoredMarks\(/);
   assert.match(m[1], /spec\.code/);
   assert.ok(m[1].indexOf("setStoredMarks") < m[1].indexOf("insertText('[['"), "stored marks diatur sebelum insertText");
-  // "/" pemicu dihapus oleh jalur generik (bukan pengecualian draw/task)
-  assert.match(indexHtml, /if \(type !== 'draw' && type !== 'task'\) \{\s*const sel0 = view\.state\.selection;\s*if \(sel0\.empty && isSlashTriggerBefore\(sel0\.\$from\)\)/);
+  // "/" pemicu dihapus oleh jalur generik (bukan pengecualian draw/task/media/file)
+  assert.match(indexHtml, /if \(type !== 'draw' && type !== 'task' && type !== 'media' && type !== 'file'\) \{\s*const sel0 = view\.state\.selection;\s*if \(sel0\.empty && isSlashTriggerBefore\(sel0\.\$from\)\)/);
 });
 
 test("slash menu: posisi dijepit ke dalam viewport (HP)", async (t) => {

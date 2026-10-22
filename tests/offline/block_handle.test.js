@@ -419,7 +419,7 @@ test("doSlashAction: karakter pemicu '/' dihapus sebelum aksi (kecuali draw)", a
   await t.test("fix disisipkan sebelum `const { state } = view;`", () => {
     assert.match(
       editorCode,
-      /const doSlashAction = \(type, payload\) => \{[\s\S]*?if \(type !== 'draw'(?: && type !== 'task')?\) \{\s*const sel0 = view\.state\.selection;\s*if \(sel0\.empty && isSlashTriggerBefore\(sel0\.\$from\)\) \{\s*view\.dispatch\(view\.state\.tr\.delete\(sel0\.\$from\.pos - 1, sel0\.\$from\.pos\)\);\s*\}\s*\}\s*const \{ state \} = view;/
+      /const doSlashAction = \(type, payload\) => \{[\s\S]*?if \(type !== 'draw' && type !== 'task' && type !== 'media' && type !== 'file'\) \{\s*const sel0 = view\.state\.selection;\s*if \(sel0\.empty && isSlashTriggerBefore\(sel0\.\$from\)\) \{\s*view\.dispatch\(view\.state\.tr\.delete\(sel0\.\$from\.pos - 1, sel0\.\$from\.pos\)\);\s*\}\s*\}\s*const \{ state \} = view;/
     );
   });
   await t.test("kursor masuk ke blok baru (list/tabel/divider), bukan ke blok sesudahnya", () => {

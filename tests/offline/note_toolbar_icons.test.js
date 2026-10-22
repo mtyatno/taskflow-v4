@@ -155,11 +155,18 @@ test("Note Editor Toolbar Lucide Icons Modernization", async (t) => {
       "Horizontal rule button should use minus icon"
     );
 
-    // Attach file button: paperclip icon
+    // Attach file button (📎 File): paperclip icon
     assert.match(
       toolbarCode,
-      /title:\s*noteId \? ['"]Lampirkan file['"][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']paperclip["']/,
+      /title:\s*noteId \? ['"]Lampirkan file \(PDF, dokumen, spreadsheet\)['"][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']paperclip["']/,
       "Attach file button should use paperclip icon"
+    );
+
+    // Media button: ViewGlyph fImage (gaya Alurik)
+    assert.match(
+      toolbarCode,
+      /className:\s*["']note-media-insert-btn["'][\s\S]*?React\.createElement\(ViewGlyph,\s*\{\s*name:\s*["']fImage["']/,
+      "Media button should use fImage glyph"
     );
 
     // Voice dictation mic button: mic icon
@@ -193,6 +200,7 @@ test("Note Editor Toolbar Lucide Icons Modernization", async (t) => {
     assert.doesNotMatch(toolbarCode, /📄\s*Kertas/, "No literal 📄 Kertas string in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /🎨\s*\+Gambar/, "No literal 🎨 +Gambar string in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /🎨\s*\+?Sketsa/, "No literal 🎨 Sketsa string in NoteToolbar buttons");
+    assert.doesNotMatch(toolbarCode, /🎬/, "No legacy 🎬 Audio/Video label in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /\\uD83C\\uDF99/, "No legacy microphone emoji in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /\\uD83D\\uDD34/, "No legacy red circle emoji in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /\\uD83D\\uDFE1/, "No legacy yellow circle emoji in NoteToolbar buttons");
