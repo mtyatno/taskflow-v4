@@ -85,11 +85,11 @@ test("CSS kartu email: ada blok .admin-email, tanpa border-left, ada media 768px
   assert.match(block, /\[data-theme="dark"\] \.admin-email-chip/);
 });
 
-test("cache bust v453 + app.css?v=362", () => {
+test("cache bust v453 + app.css?v=365", () => {
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(sw, /^const CACHE = "taskflow-v464-sw-precache-shell";/m);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v464-sw-precache-shell";/);
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v464-sw-precache-shell"/);
-  assert.match(py, /sw_cache = "taskflow-v464-sw-precache-shell"/);
-  assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=362">/);
+  assert.match(sw, /^const CACHE = "taskflow-v467-fokus-parkir-toast";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v467-fokus-parkir-toast";/);
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v467-fokus-parkir-toast"/);
+  assert.match(py, /sw_cache = "taskflow-v467-fokus-parkir-toast"/);
+  assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=365">/);
 });
