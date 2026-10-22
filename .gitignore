@@ -32,10 +32,13 @@ temporary_files/e2e_dashboard_intro/
 temporary_files/e2e_focus_page/
 temporary_files/e2e_kelola_workspace_fase0/
 temporary_files/e2e_focus_target/
+temporary_files/e2e_focus_filter/
 temporary_files/e2e_focus_overtime/
 temporary_files/e2e_focus_ambient/
 temporary_files/e2e_kelola_workspace_fase1/
 temporary_files/e2e_kelola_workspace_fase2a/
 temporary_files/e2e_note_list_tags/
+temporary_files/e2e_admin_email/
 temporary_files/e2e_android_notification/
+temporary_files/e2e_komentar_note/
 temporary_files/e2e_slash_menu_*.png

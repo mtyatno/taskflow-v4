@@ -3823,6 +3823,11 @@
 - **Files Touch:** static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/*.test.js (versi, glyph), tests/test_version.py, temporary_files/e2e_slash_menu_grid.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (di-push ke branch PR #73)
 
+## 2026-10-21 21:05 WIB — Claude — Email Fase 0b: mailer andal (E2E + handover)
+- **Task:** Task 7 SDD Email Fase 0b — E2E kartu Email di halaman Admin, perbarui spec (aturan penyamaran), handover.
+- **Changes:** E2E `temporary_files/e2e_admin_email.py` 10/10 (email tes, non-admin, lupa password, "Coba lagi" pada baris `failed`, gelap, 375 px); spec §3.1 penyamaran disamakan dengan implementasi; entri CURRENT_STATE (SW v448 / `app.css?v=354`, ADR-025, checklist SMTP/DNS). pytest 1080, JS 2552/2553 (pra-ada `draw_local_reactive`), inline OK.
+- **Files Touch:** temporary_files/e2e_admin_email.py, .gitignore, docs/superpowers/specs/2026-10-21-email-fase0b-mailer-design.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (commit lokal di `claude/email-fase0b`, belum di-push / PR; menunggu review akhir)
 ## [2026-10-21 20:40] - Claude
 - **Task:** Merge PR #73 (slash menu grid 2 kolom + Wikilink + ikon duotone) atas instruksi Bapak.
 - **Changes:** Review ulang commit ikon (247770f) oleh subagen: siap merge; CI hijau; PR di-merge (131e5c8), workflow Deploy Taskflow V4 sukses. SW v447 / app.css 353.
@@ -3839,6 +3844,10 @@
 - Merge `origin/main` (#73 slash menu, SW v447) ke `claude/komentar-note-offline`: konflik hanya string versi + `.agents/*`; SW dinaikkan ke **v448** `taskflow-v448-komentar-offline` (app.css tetap ?v=353). npm 2628/2629 (pra-ada `draw_local_reactive`), pytest 1018, inline OK.
 - PR dibuat dan di-merge ke `main` atas instruksi Bapak ("merge dan deploy"). Deploy: file statis saja → restart `taskflow-web`.
 
+## 2026-10-21 23:30 WIB — Claude — Email Fase 0b: review akhir + merge main (#75)
+- Review akhir opus → 1 gelombang perbaikan (3e12e44b): email tes gagal di error pertama, isi email dikosongkan saat sent/expired, SMTP_TIMEOUT/PORT kosong aman, contoh Exim, forgot render-dulu. Re-review bersih.
+- `main` maju (#75 komentar offline memakai v448) → di-merge; SW naik ke **v449** `taskflow-v449-email-mailer`, `app.css?v=354`. pytest 1086; JS 2649/2650 (pra-ada `draw_local_reactive`); inline OK.
+- **Status:** draft PR; deploy = restart `taskflow-web` saja.
 ## 2026-10-21 23:30 WIB — Claude — Kelola Workspace Fase 2a (undangan & akses gabung)
 - Brainstorming → spec + rencana disetujui; SDD 7 task + review per task + review akhir opus → 1 gelombang perbaikan + re-review bersih. Merge main (#73, #75) → SW v449, `app.css?v=355`, ADR-025. pytest 1072, JS 2657/2658 (pra-ada), E2E 2a 78/78 + Fase 1/0 + tasklist icons lulus.
 - **Status:** Needs Review (draft PR; setelah merge restart `taskflow-web` lalu `taskflow`).
@@ -3877,6 +3886,25 @@
 - Bapak: "merge". #76 di-merge (cb9ed2b) setelah merge main (#74) + SW v451; CI Tests dan Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` lalu `sudo systemctl restart taskflow` (migrasi undangan + bot). Lalu Fase 2b (transfer ownership, arsip, ekspor) bila diminta.
 
+## 2026-10-21 23:00 WIB — Claude — Komentar note PR 3 Task 6 (E2E dua akun)
+- `temporary_files/e2e_komentar_note.py` (10 skenario, 77 langkah lulus; screenshot `temporary_files/e2e_komentar_note/`, di-.gitignore).
+- Bug ditemukan + diperbaiki (a478c02): panel anggota tetap menampilkan komentar + stream terbuka setelah pemilik memindah note ke pribadi. Tes sumber baru di `tests/offline/comment_panel_ui.test.js`.
+- Verifikasi: npm test 2731/2732 (pra-ada `draw_local_reactive`), pytest 1072, inline OK. Belum push.
+
+## 2026-10-21 23:30 WIB — Claude — Komentar note PR 3 Task 7 (dokumentasi)
+- CURRENT_STATE entri PR 3 dilengkapi (SIAP REVIEW AKHIR; deploy file statis → restart `taskflow-web`; SW v452 / app.css 357; sisa diketahui). Spec komentar §7 disesuaikan hasil implementasi (CSS Custom Highlight API, ambang 760/900 px, pembaca + editor, header HP, `tf:comments-open`), §9 PR 3 ditandai selesai.
+- Verifikasi: npm test 2731/2732 (pra-ada `draw_local_reactive`), pytest 1072, inline OK. Belum push.
+
+## 2026-10-21 — Claude — Komentar note PR 3: perbaikan review akhir
+- I-1 kutipan lintas paragraf (`collectSegments` menyisipkan `\n` virtual saat pindah blok), I-2 badge daftar ikut diperbarui (`notifyCommentsChanged`, NotesPage mendengar `tf:comments-changed`), M-1 pembaca di bawah editor tanpa SSE (`live`), M-3 ToC bergeser 380px saat panel samping terbuka, M-4 komposer nonaktif setelah akses hilang, triage #30 spec §7.
+- Tes baru `tests/offline/comment_final_fix_ui.test.js` + 2 tes `commenthighlight`; E2E +11 langkah (kutipan dua paragraf di editor, badge tanpa reload, komposer akses hilang).
+- Verifikasi: npm test 2740/2741 (pra-ada `draw_local_reactive`), pytest 1072, inline OK, E2E 88/88. Laporan `.superpowers/sdd/2026-10-21-komentar-note-ui/final-fix-report.md`. Belum push.
+
+## 2026-10-22 05:40 WIB — Claude — merge Komentar Note PR 3 (UI)
+- Merge `origin/main` (#78 slash menu, SW v452) ke `claude/komentar-note-ui`: konflik hanya string versi + `.agents/*`; SW **v454** `taskflow-v454-komentar-ui`, `app.css?v=358` (setelah #77). npm 2789/2790 (pra-ada `draw_local_reactive`), pytest 1072, inline OK, E2E komentar 88/88 di tree gabungan.
+- PR dibuat dan di-merge ke `main` atas instruksi Bapak ("merge dan deploy"). Deploy: file statis saja → restart `taskflow-web`.
+## 2026-10-21 22:20 WIB — Claude — Email Fase 0b: merge main (#74–#76)
+- `main` maju ke v451 / `app.css?v=356` dan memakai ADR-025 (undangan workspace) → di-merge; ADR email jadi **ADR-026**, SW **v452** `taskflow-v452-email-mailer`, `app.css?v=357`.
 ## [2026-10-22 05:25] - Claude
 - **Task:** Merge PR #78 (slash menu: tutup dengan Esc / klik di luar, batal "+" memulihkan note) atas instruksi Bapak.
 - **Changes:** CI hijau di 55460fd, tanpa konflik; PR di-merge (8724d3f), workflow Deploy Taskflow V4 sukses. SW v452, app.css tetap 356.
@@ -3895,3 +3923,18 @@
 - **Changes:** `docs/superpowers/plans/2026-10-22-fokus-filter-task.md` (6 task: modul focusfilter ×2, satu definisi cakupan, Target + kelompok + ⭐, bar + lembar filter, versi/E2E/ADR-027) commit 13f5939, disalin ke Project.
 - **Files Touch:** docs/superpowers/plans/2026-10-22-fokus-filter-task.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — menunggu review rencana.
+## 2026-10-22 05:40 WIB — Claude — merge Email Fase 0b (#77)
+- Bapak: "merge dan deploy". `main` maju (#78 memakai v452) → di-merge, SW **v453** `taskflow-v453-email-mailer`, `app.css?v=357`; CI Tests hijau di head PR; #77 di-merge (67d578c); Deploy Taskflow V4 sukses.
+- **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` (tabel `email_outbox` + worker email). Bot tidak perlu restart. Cek Admin → kartu Email (badge "Dev mode"). Saat memilih layanan SMTP: ikuti checklist di entri CURRENT_STATE.
+
+## 2026-10-22 — Claude — fix tooltip format vs "Komentari" menindih di editor
+- Bapak melaporkan dua popup saling menutupi saat memilih teks di editor. Repro Playwright: rect bertumpuk. Fix: "Komentari" jadi bagian tooltip format Milkdown (desktop), gelembung NoteModal hanya untuk sentuh. SW v455, app.css?v=359. Tes + E2E 89/89. Branch `claude/komentar-bubble-overlap`, PR menunggu "merge dan deploy".
+
+## 2026-10-22 06:10 WIB — Claude — merge #80 (tooltip Komentari)
+- Bapak: "merge dan deploy". CI hijau, #80 di-merge (dab39a3), Deploy Taskflow V4 sukses. Tinggal restart `taskflow-web` (SW v455).
+
+## [2026-10-22 08:20] - Claude
+- **Task:** Task 6 pemilihan task halaman Fokus: versi, E2E, ADR, handover (`claude/fokus-filter`).
+- **Changes:** merge `origin/main` b84f357 (konflik hanya `.agents/*` dan ekor `app.css`, kedua sisi dipertahankan); SW **v456** `taskflow-v456-focus-filter`, `app.css?v=360` (sw.js, index.html ×3, webapp.py, tes pin versi); E2E baru `temporary_files/e2e_focus_filter.py` (115 langkah, skenario a–n + Zen tanpa task aktif, 3× hijau) + `.gitignore` folder screenshot; ADR-027; spec/rencana disinkronkan dengan 5 keputusan implementasi (⭐ aria-label konstan, berulang keluar dari pool, hitungan Zen, lembar ditutup bila bar tidak dirender, props `FocusFilterBar`); dua E2E lama diperbaiki (pin SW v450 di `e2e_android_notification.py`, balapan baca `tf_pomo_state` di `e2e_focus_target.py` langkah e0). Regresi: npm test 2912/2913 (1 pra-ada), pytest 1139 passed, inline OK, E2E page/target/android/overtime hijau (overtime run ke-2, flake b5–b7 pra-ada).
+- **Files Touch:** static/sw.js, static/index.html, static/app.css, webapp.py, tests/test_version.py + tes pin versi, temporary_files/e2e_focus_filter.py, temporary_files/e2e_android_notification.py, temporary_files/e2e_focus_target.py, .gitignore, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md, docs/superpowers/specs/2026-10-22-fokus-filter-task-design.md, docs/superpowers/plans/2026-10-22-fokus-filter-task.md
+- **Status:** Needs Review — belum di-push, belum ada PR. Deploy bila di-merge: restart `taskflow-web`.

@@ -150,6 +150,8 @@ import bookmark
 import ai_review
 import review_history
 import mailer
+import email_outbox
+import email_templates
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("WEB_SECRET_KEY", secrets.token_hex(32))
@@ -189,6 +191,8 @@ def _media_db_connect():
 media_storage = get_storage(MEDIA_STORAGE, MEDIA_ROOT)
 media_worker = MediaWorker(connect=_media_db_connect, storage=media_storage,
                            ffmpeg=shutil.which("ffmpeg"), ffprobe=shutil.which("ffprobe"))
+# Worker email (outbox SQLite). Baru jalan di startup(); wake() sebelum start() tidak berbuat apa-apa.
+email_worker = email_outbox.EmailWorker(connect=_media_db_connect)
 
 # ── Cookie signing (for published note unlock) ─────────────────────────────────
 def _sign_cookie(slug: str) -> str:
@@ -947,6 +951,8 @@ def migrate_db():
         # Komentar note workspace: skema + bersihkan tombstone > 30 hari.
         note_comments.ensure_note_comments_schema(conn)
         note_comments.purge_old_tombstones(conn, datetime.now(_TZ_JKT).isoformat())
+        # Outbox email (antrean kirim + retry).
+        email_outbox.ensure_schema(conn)
         conn.commit()
     finally:
         conn.close()
@@ -1726,6 +1732,18 @@ async def startup():
         logger.warning("pembersihan unggahan macet saat start gagal", exc_info=True)
     media_worker.requeue_processing()
     media_worker.start()
+    try:
+        email_worker.recover_stale()
+    except Exception:
+        logger.warning("pemulihan email 'sending' saat start gagal", exc_info=True)
+    try:
+        email_worker.purge_old()
+    except Exception:
+        logger.warning("pembersihan outbox email saat start gagal", exc_info=True)
+    try:
+        email_worker.start()
+    except Exception:
+        logger.warning("worker email gagal start", exc_info=True)
     if TELEGRAM_BOT_TOKEN:
         try:
             from telegram import Bot as TelegramBot
@@ -1975,7 +1993,7 @@ async def complete_account(req: CompleteAccountReq, request: Request, response: 
 _FORGOT_GENERIC = {"message": "Jika email terdaftar, link reset sudah dikirim"}
 
 @app.post("/api/auth/forgot")
-async def forgot_password(req: ForgotReq, background_tasks: BackgroundTasks):
+async def forgot_password(req: ForgotReq):
     email = req.email.strip().lower()
     with get_db() as conn:
         user = conn.execute(
@@ -1991,6 +2009,14 @@ async def forgot_password(req: ForgotReq, background_tasks: BackgroundTasks):
         if recent >= 3:
             return _FORGOT_GENERIC
         token = secrets.token_urlsafe(32)
+        reset_link = f"{WEBAPP_URL}/?reset_token={token}"
+        # Render dulu sebelum menulis apa pun: bila gagal, token tidak tersimpan tanpa emailnya,
+        # dan respons tetap sama dengan email tak dikenal (anti-enumerasi).
+        try:
+            rendered = email_templates.reset_password(user["username"], reset_link)
+        except Exception:
+            logger.exception("render email reset gagal (user_id=%s)", user["id"])
+            return _FORGOT_GENERIC
         now = datetime.now(_TZ_JKT)
         conn.execute(
             "INSERT INTO password_reset_tokens (user_id, token_hash, created_at, expires_at) VALUES (?,?,?,?)",
@@ -2001,8 +2027,13 @@ async def forgot_password(req: ForgotReq, background_tasks: BackgroundTasks):
                 (now + timedelta(hours=1)).isoformat(),
             ),
         )
-    reset_link = f"{WEBAPP_URL}/?reset_token={token}"
-    background_tasks.add_task(mailer.send_reset_email, email, user["username"], reset_link)
+        # Antre di transaksi yang sama dengan token; email kedaluwarsa 10 menit sebelum token (50 mnt).
+        email_outbox.enqueue(
+            conn, kind="reset", user_id=user["id"], to_addr=email,
+            rendered=rendered,
+            expires_at=email_outbox.utcnow() + timedelta(minutes=50),
+        )
+    email_worker.wake()
     return _FORGOT_GENERIC
 
 
@@ -4729,7 +4760,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v452-slash-menu-dismiss"
+    sw_cache = "taskflow-v456-focus-filter"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
@@ -6437,6 +6468,79 @@ async def delete_habit_template(template_id: int, user=Depends(get_admin_user)):
             raise HTTPException(status_code=404, detail="Template tidak ditemukan")
         conn.execute("DELETE FROM habit_templates WHERE id = ?", (template_id,))
     return {"ok": True}
+
+class AdminEmailTestReq(BaseModel):
+    to: Optional[str] = None
+
+
+@app.get("/api/admin/email/status")
+async def admin_email_status(user=Depends(get_admin_user)):
+    summary = mailer.smtp_summary()
+    since = email_outbox.iso(email_outbox.utcnow() - timedelta(days=7))
+    with get_db() as conn:
+        counts = {"sent": 0, "failed": 0, "queued": 0, "expired": 0}
+        for r in conn.execute(
+                "SELECT status, COUNT(*) AS n FROM email_outbox WHERE created_at >= ? GROUP BY status", (since,)):
+            key = "queued" if r["status"] in ("queued", "sending") else r["status"]
+            if key in counts:
+                counts[key] += r["n"]
+        rows = conn.execute(
+            "SELECT id, kind, to_addr, status, attempts, last_error, created_at, sent_at"
+            " FROM email_outbox ORDER BY id DESC LIMIT 20").fetchall()
+    return {
+        **summary,
+        "worker_alive": email_worker.is_alive(),
+        "counts_7d": counts,
+        "recent": [{"id": r["id"], "kind": r["kind"], "to": email_outbox.mask_email(r["to_addr"]),
+                    "status": r["status"], "attempts": r["attempts"], "last_error": r["last_error"],
+                    "created_at": r["created_at"], "sent_at": r["sent_at"]} for r in rows],
+    }
+
+
+@app.post("/api/admin/email/test")
+async def admin_email_send_test(req: AdminEmailTestReq, user=Depends(get_admin_user)):
+    to = (req.to or "").strip()
+    with get_db() as conn:
+        if not to:
+            row = conn.execute("SELECT email FROM users WHERE id = ?", (user["sub"],)).fetchone()
+            to = ((row["email"] if row else None) or "").strip()
+        if not to:
+            raise HTTPException(status_code=400, detail="Isi alamat tujuan atau tambahkan email di Pengaturan")
+        if not EMAIL_RE.match(to):
+            raise HTTPException(status_code=400, detail="Format email tidak valid")
+        now = email_outbox.utcnow()
+        hour_ago = email_outbox.iso(now - timedelta(hours=1))
+        n = conn.execute("SELECT COUNT(*) FROM email_outbox WHERE kind = 'test' AND created_at >= ?",
+                         (hour_ago,)).fetchone()[0]
+        if n >= 5:
+            raise HTTPException(status_code=429, detail="Batas 5 email tes per jam tercapai, coba lagi nanti")
+        summary = mailer.smtp_summary()
+        sent_at = now.replace(tzinfo=timezone.utc).astimezone(_TZ_JKT).strftime("%d %b %Y %H:%M WIB")
+        rendered = email_templates.smtp_test(summary["host"], summary["port"], summary["security"], sent_at)
+        email_id = email_outbox.enqueue(conn, kind="test", to_addr=to, rendered=rendered,
+                                        user_id=user["sub"], now=now)
+    email_worker.wake()
+    return {"id": email_id}
+
+
+@app.post("/api/admin/email/{email_id}/retry")
+async def admin_email_retry(email_id: int, user=Depends(get_admin_user)):
+    with get_db() as conn:
+        row = conn.execute("SELECT status, kind, expires_at FROM email_outbox WHERE id = ?",
+                           (email_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Email tidak ditemukan")
+        if row["status"] != "failed":
+            raise HTTPException(status_code=400, detail="Hanya email berstatus gagal yang bisa dicoba lagi")
+        now = email_outbox.utcnow()
+        if row["kind"] == "reset" and row["expires_at"] and row["expires_at"] <= email_outbox.iso(now):
+            raise HTTPException(status_code=400, detail="Link reset sudah kedaluwarsa — minta reset baru")
+        ts = email_outbox.iso(now)
+        conn.execute("UPDATE email_outbox SET status='queued', attempts=0, next_attempt_at=?, updated_at=?"
+                     " WHERE id = ? AND status = 'failed'", (ts, ts, email_id))
+    email_worker.wake()
+    return {"ok": True}
+
 
 @app.get("/api/admin/users")
 async def list_admin_users(user=Depends(get_admin_user)):

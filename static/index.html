@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=356">
+  <link rel="stylesheet" href="/static/app.css?v=360">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v452-slash-menu-dismiss";
+    window.__SW_VERSION = "taskflow-v456-focus-filter";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -302,11 +302,14 @@
   <script src="/static/offline/chatrepo.js"></script>
   <script src="/static/offline/chatroutes.js"></script>
   <script src="/static/offline/commentroutes.js"></script>
+  <script src="/static/offline/commentui.js"></script>
+  <script src="/static/offline/commenthighlight.js"></script>
   <script src="/static/offline/listsync.js"></script>
   <script src="/static/offline/workspacepins.js"></script>
   <script src="/static/offline/wsmanage.js"></script>
   <script src="/static/offline/introgate.js"></script>
   <script src="/static/offline/accountbanner.js"></script>
+  <script src="/static/offline/emailadmin.js"></script>
   <script src="/static/offline/focuspage.js"></script>
   <script src="/static/offline/pomologic.js"></script>
   <script src="/static/offline/pomolog.js"></script>
@@ -9542,6 +9545,7 @@ const VIEW_GLYPHS = {
   mXCircle: '<circle cx="12" cy="12" r="10" fill="currentColor" fill-opacity=".22"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
   mUsers: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" fill="currentColor" fill-opacity=".22"/><circle cx="9" cy="7" r="4" fill="currentColor" fill-opacity=".22"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
   mUser: '<circle cx="12" cy="8" r="5" fill="currentColor" fill-opacity=".22"/><path d="M20 21a8 8 0 0 0-16 0"/>',
+  mMail: '<rect x="2" y="4" width="20" height="16" rx="2" fill="currentColor" fill-opacity=".22"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
   pomoTomato: '<circle cx="12" cy="13.5" r="7.5" fill="currentColor" fill-opacity=".22"/><path d="M12 8V4.5"/><path d="M8.5 6.5 12 8l3.5-1.5"/>',
   pomoBreak: '<path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" fill="currentColor" fill-opacity=".22"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3"/><path d="M12 2v3"/>',
   nNote: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" fill="currentColor" fill-opacity=".22"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M8 9h2"/>',
@@ -25473,7 +25477,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v452-slash-menu-dismiss"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v456-focus-filter"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -28057,7 +28061,8 @@ function MilkdownEditor({
   onInsertTask,
   noteListId = null,
   mediaNoteId = null,
-  mediaNoteOwnerId = null
+  mediaNoteOwnerId = null,
+  onCommentSelection = null
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
@@ -28069,6 +28074,9 @@ function MilkdownEditor({
   React.useEffect(() => { onInsertDrawingRef.current = onInsertDrawing; }, [onInsertDrawing]);
   const onInsertTaskRef = React.useRef(onInsertTask);
   React.useEffect(() => { onInsertTaskRef.current = onInsertTask; }, [onInsertTask]);
+  // Komentar note: tombol "Komentari" di dalam tooltip format (satu toolbar, tidak saling menutupi).
+  const onCommentSelectionRef = React.useRef(onCommentSelection);
+  React.useEffect(() => { onCommentSelectionRef.current = onCommentSelection; }, [onCommentSelection]);
   const isExternalUpdate = React.useRef(false);
   const [ready, setReady] = React.useState(false);
   const [mathEdit, setMathEdit] = React.useState(null);
@@ -28545,6 +28553,31 @@ function MilkdownEditor({
     tooltipEl.appendChild(makeTbBtn('<i>I</i>', 'Italic', 'emphasis'));
     tooltipEl.appendChild(makeTbBtn('<s>S</s>', 'Strikethrough', 'strike_through'));
     tooltipEl.appendChild(makeTbBtn('<>', 'Inline Code', 'inlineCode'));
+    // Komentari — tampil hanya bila host (NoteModal, note workspace) memberi onCommentSelection.
+    const cmtSepEl = document.createElement('span');
+    cmtSepEl.className = 'milkdown-tooltip-sep';
+    cmtSepEl.hidden = true;
+    const cmtBtnEl = document.createElement('button');
+    cmtBtnEl.type = 'button';
+    cmtBtnEl.className = 'milkdown-tooltip-btn milkdown-tooltip-cmt';
+    cmtBtnEl.title = 'Komentari teks terpilih';
+    cmtBtnEl.hidden = true;
+    cmtBtnEl.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>';
+    cmtBtnEl.appendChild(document.createTextNode('Komentari'));
+    cmtBtnEl.addEventListener('mousedown', e => { e.preventDefault(); e.stopPropagation(); });
+    cmtBtnEl.addEventListener('click', e => {
+      e.stopPropagation();
+      e.preventDefault();
+      const cb = onCommentSelectionRef.current;
+      if (!cb) return;
+      // Teks seleksi DOM (sama dengan gelembung pembaca) agar penjangkaran kutipan konsisten.
+      const s = window.getSelection ? window.getSelection() : null;
+      const text = s && !s.isCollapsed ? s.toString() : '';
+      if (!text || !text.trim()) return;
+      onCommentSelectionRef.current(text);
+    });
+    tooltipEl.appendChild(cmtSepEl);
+    tooltipEl.appendChild(cmtBtnEl);
 
     // ── Table toolbar ─────────────────────────────────────────────
     const tableToolbarEl = document.createElement('div');
@@ -28808,6 +28841,8 @@ function MilkdownEditor({
               // blok terpilih utuh (klik ⋮⋮ block handle) bukan seleksi teks → tanpa tooltip format
               if (MB.NodeSelection && selection instanceof MB.NodeSelection && selection.node.isBlock) return false;
               const isCellSelection = selection.isRowSelection?.() || selection.isColSelection?.() || (selection.constructor && selection.constructor.name === 'CellSelection');
+              // UI sentuh memakai bar bawah "Komentari teks terpilih" (CommentSelectionBubble).
+              cmtBtnEl.hidden = cmtSepEl.hidden = !(onCommentSelectionRef.current && !isTouchUI);
               return !isCellSelection;
             }
           });
@@ -30695,6 +30730,858 @@ function PaperPageGuides({ rootRef, paperConfig }) {
   }, "Halaman ", g.page))));
 }
 
+  // ═══ DEPENDENCIES: NoteComments ═══
+  // uses:
+  //   - React (useState, useEffect, useRef, useMemo, useCallback)
+  //   - api, apiUrl, API_BASE, __token
+  //   - window.TF.commentui, window.TF.commentrepo, window.TF.syncpull
+  //   - MentionInput (static/ui-components.js), ViewGlyph
+  // emits:
+  //   - useNoteComments
+  //   - NoteCommentsPanel (CommentThreadCard, CommentComposer, CommentDeleteDialog)
+  // Komentar level halaman untuk note workspace (list_id != null). Data lewat rute lokal PR 2.
+
+const CMT_LOST_TEXT = "Kamu sudah tidak punya akses ke catatan ini.";
+
+// Galat rute lokal "Note not found": note tak ada lagi di perangkat ini (sync menghapus/memindahkannya).
+function noteGone(err) {
+  return !!(err && err.__local && /note not found/i.test(String(err.message || "")));
+}
+
+// Beri tahu pendengar lain (daftar catatan, badge) bahwa komentar note ini berubah di perangkat ini.
+function notifyCommentsChanged(noteId) {
+  if (noteId == null) return;
+  try {
+    window.dispatchEvent(new CustomEvent("tf:comments-changed", { detail: { source: "local", note_ids: [noteId] } }));
+  } catch (_) {}
+}
+
+function useNoteComments(note, {
+  open,
+  showToast,
+  live = true
+} = {}) {
+  const active = !!(note && note.id != null && note.list_id != null);
+  const noteId = active ? note.id : null;
+  const listId = active ? note.list_id : null;
+  // Server id untuk SSE: note.server_id, atau id numerik positif (note yang dimuat dari server); cid → tanpa SSE.
+  const rawId = active ? String(note.id) : "";
+  const serverId = !active ? null : (note.server_id != null ? note.server_id : (/^\d+$/.test(rawId) && Number(rawId) > 0 ? rawId : null));
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" || navigator.onLine !== false);
+  // Note tak ada lagi di lokal (sync: dipindah ke pribadi / di-unshare / dihapus) → daftar kosong, stream ditutup.
+  const [gone, setGone] = useState(false);
+  const seqRef = useRef(0);
+  const lostRef = useRef(false);
+  const failToastRef = useRef(false);
+  const lastReadRef = useRef(0);
+  const toastRef = useRef(showToast);
+  toastRef.current = showToast;
+  const reload = useCallback(() => {
+    if (noteId == null) return Promise.resolve([]);
+    const seq = ++seqRef.current;
+    if (lostRef.current) { setRows([]); return Promise.resolve([]); }
+    setLoading(true);
+    return api.get(`/api/scratchpad/${encodeURIComponent(noteId)}/comments`).then((data) => {
+      if (seq !== seqRef.current) return data;
+      const list = lostRef.current ? [] : (Array.isArray(data) ? data : []);
+      setRows(list);
+      setLoading(false);
+      return list;
+    }, (err) => {
+      if (seq !== seqRef.current) return [];
+      setLoading(false);
+      if (noteGone(err)) {
+        lostRef.current = true;
+        setRows([]);
+        setGone(true);
+        return [];
+      }
+      if (!failToastRef.current) {
+        failToastRef.current = true;
+        const t = toastRef.current;
+        t && t("Gagal memuat komentar", "error");
+      }
+      return [];
+    });
+  }, [noteId, listId]);
+  // Ganti note: kosongkan, reset penanda, muat ulang.
+  useEffect(() => {
+    lostRef.current = false;
+    setGone(false);
+    failToastRef.current = false;
+    lastReadRef.current = 0;
+    setRows([]);
+    if (noteId == null) { seqRef.current++; setLoading(false); return; }
+    reload();
+  }, [noteId, listId, reload]);
+  // Event dari sync pull (sumber "local" = mutasi hook ini sendiri / host lain → diabaikan) + kembali online.
+  useEffect(() => {
+    const onChanged = (e) => {
+      if (e && e.detail && e.detail.source === "local") return;
+      if (noteId != null) reload();
+    };
+    const onOnline = () => { setOnline(true); if (noteId != null) reload(); };
+    const onOffline = () => setOnline(false);
+    // Pull note dari sync (note dipindah/di-unshare/dihapus di perangkat lain) → cek ulang lewat rute lokal.
+    const onNoteSaved = (e) => { if (noteId != null && e && e.detail && e.detail.source === "sync") reload(); };
+    window.addEventListener("tf:comments-changed", onChanged);
+    window.addEventListener("noteSaved", onNoteSaved);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("tf:comments-changed", onChanged);
+      window.removeEventListener("noteSaved", onNoteSaved);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  }, [noteId, reload]);
+  // live false (pembaca di bawah editor) → tanpa stream; kembali live → muat ulang (mutasi editor terlewat).
+  const prevLiveRef = useRef(live);
+  useEffect(() => {
+    const was = prevLiveRef.current;
+    prevLiveRef.current = live;
+    if (live && !was && noteId != null) reload();
+  }, [live, noteId, reload]);
+  // Live: SSE per note server (pola mindmap). Hanya online; dibuka lagi saat 'online'.
+  useEffect(() => {
+    if (!live || serverId == null || gone || typeof EventSource === "undefined") return;
+    let es = null;
+    let disposed = false;
+    const closeStream = () => {
+      if (!es) return;
+      es.onmessage = null; es.onerror = null;
+      try { es.close(); } catch (_) {}
+      es = null;
+    };
+    const onEvent = (e) => {
+      let ev = null;
+      try { ev = JSON.parse(e.data); } catch (_) { return; }
+      if (!ev || ev.type === "ping") return;
+      if (ev.type === "comments_changed") {
+        const SP = window.TF && window.TF.syncpull;
+        const pull = SP && SP.pullComments && typeof window.__syncRawFetch === "function"
+          ? Promise.resolve().then(() => SP.pullComments(window.__syncRawFetch))
+          : Promise.resolve();
+        // Setelah pull: muat ulang panel + kabari daftar catatan (badge jumlah/baru).
+        const done = () => { if (disposed) return; reload(); notifyCommentsChanged(noteId); };
+        pull.then(done, done);
+        return;
+      }
+      if (ev.type === "comments_access_lost") {
+        lostRef.current = true;
+        closeStream();
+        seqRef.current++;
+        setRows([]);
+        setGone(true);
+      }
+    };
+    const connect = () => {
+      if (disposed || es || lostRef.current || !navigator.onLine) return;
+      const url = apiUrl("/api/scratchpad/" + serverId + "/comments/stream") + (API_BASE && __token ? "?token=" + encodeURIComponent(__token) : "");
+      try { es = new EventSource(url); } catch (_) { es = null; return; }
+      es.onmessage = onEvent;
+      // EventSource menyambung ulang sendiri; bila ditutup permanen (404/403) dilepas, dibuka lagi saat online.
+      es.onerror = () => { if (es && es.readyState === 2) closeStream(); };
+    };
+    const onOffline = () => closeStream();
+    const onOnline = () => connect();
+    window.addEventListener("offline", onOffline);
+    window.addEventListener("online", onOnline);
+    connect();
+    return () => {
+      disposed = true;
+      window.removeEventListener("offline", onOffline);
+      window.removeEventListener("online", onOnline);
+      closeStream();
+    };
+  }, [serverId, listId, reload, gone, live]);
+  // Tandai dibaca saat panel terbuka dan ada komentar — paling sering sekali per 10 detik.
+  // Tertahan throttle → satu POST susulan di sisa waktu; panel ditutup → POST akhir bila ada yang baru.
+  const readSig = rows.map((r) => (r.cid || r.id) + ":" + (r.updated_at || r.created_at || "")).join(",");
+  const readStateRef = useRef({ noteId: null, sig: "", hasRows: false });
+  readStateRef.current = { noteId, sig: readSig, hasRows: rows.length > 0 };
+  const lastReadSigRef = useRef("");
+  const readTimerRef = useRef(null);
+  const prevOpenRef = useRef(!!open);
+  const postRead = useCallback(() => {
+    const st = readStateRef.current;
+    if (st.noteId == null || !st.hasRows) return;
+    lastReadRef.current = Date.now();
+    lastReadSigRef.current = st.sig;
+    const nid = st.noteId;
+    api.post(`/api/scratchpad/${encodeURIComponent(nid)}/comments/read`, {}).then(() => notifyCommentsChanged(nid), () => {});
+  }, []);
+  useEffect(() => { lastReadSigRef.current = ""; }, [noteId, listId]);
+  useEffect(() => {
+    if (!open || noteId == null || !rows.length) return;
+    if (readSig === lastReadSigRef.current) return;
+    const wait = 10000 - (Date.now() - lastReadRef.current);
+    if (wait <= 0) { postRead(); return; }
+    readTimerRef.current = setTimeout(() => { readTimerRef.current = null; postRead(); }, wait);
+    return () => {
+      clearTimeout(readTimerRef.current);
+      readTimerRef.current = null;
+    };
+  }, [open, noteId, readSig, postRead]);
+  useEffect(() => {
+    const wasOpen = prevOpenRef.current;
+    prevOpenRef.current = !!open;
+    if (wasOpen && !open) {
+      const st = readStateRef.current;
+      if (st.hasRows && st.sig !== lastReadSigRef.current) postRead();
+    }
+  }, [open, postRead]);
+  // Setelah create/edit/resolve/hapus/buang dari panel: muat ulang + kabari daftar catatan (badge).
+  const afterChange = useCallback(() => {
+    notifyCommentsChanged(noteId);
+    return reload();
+  }, [noteId, reload]);
+  const R = window.TF && window.TF.commentrepo;
+  const openCount = R && R.threads ? window.TF.commentrepo.threads(rows, "open").length : 0;
+  return {
+    rows,
+    loading,
+    reload,
+    afterChange,
+    online,
+    openCount,
+    gone
+  };
+}
+
+function CommentDeleteDialog({
+  hasReplies,
+  onCancel,
+  onConfirm,
+  busy
+}) {
+  const cancelRef = useRef(null);
+  const prevFocusRef = useRef(null);
+  useEffect(() => {
+    prevFocusRef.current = document.activeElement;
+    cancelRef.current && cancelRef.current.focus();
+    return () => {
+      const el = prevFocusRef.current;
+      if (el && typeof el.focus === "function" && document.contains(el)) {
+        try { el.focus(); } catch (_) {}
+      }
+    };
+  }, []);
+  const onKeyDown = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); onCancel(); }
+  };
+  const title = hasReplies ? "Hapus komentar ini beserta balasannya?" : "Hapus komentar ini?";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "cmt-dialog-backdrop",
+    onClick: onCancel
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "cmt-dialog",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": title,
+    onKeyDown: onKeyDown,
+    onClick: (e) => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "cmt-dialog-title"
+  }, title), /*#__PURE__*/React.createElement("div", {
+    className: "cmt-dialog-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    ref: cancelRef,
+    className: "cmt-btn",
+    onClick: onCancel
+  }, "Batal"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "cmt-btn cmt-btn--danger",
+    disabled: !!busy,
+    onClick: onConfirm
+  }, "Hapus"))));
+}
+
+function CommentComposer({
+  note,
+  parentId = null,
+  quote = "",
+  onClearQuote,
+  placeholder,
+  candidates = [],
+  workspaceName,
+  reload,
+  onSent,
+  onCancel,
+  showToast,
+  autoFocus = false,
+  compact = false,
+  lost: lostProp = false
+}) {
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  // Akses hilang (gone / comments_access_lost dari hook, atau galat lokal "Note not found" saat kirim).
+  const [lostLocal, setLostLocal] = useState(false);
+  useEffect(() => { setLostLocal(false); }, [note && note.id]);
+  const lost = !!lostProp || lostLocal;
+  const sendingRef = useRef(false);
+  const send = () => {
+    const body = text.trim();
+    if (lost || !body || sendingRef.current || !note || note.id == null) return;
+    sendingRef.current = true;
+    setSending(true);
+    const payload = { body };
+    if (parentId != null) payload.parent_id = parentId;
+    else if (quote) payload.quote = quote;
+    api.post(`/api/scratchpad/${encodeURIComponent(note.id)}/comments`, payload).then(() => {
+      setText("");
+      if (parentId == null && quote && onClearQuote) onClearQuote();
+      reload && reload();
+      onSent && onSent();
+    }, (err) => {
+      if (noteGone(err)) {
+        setLostLocal(true);
+        showToast && showToast(CMT_LOST_TEXT, "error");
+        reload && reload();
+        return;
+      }
+      showToast && showToast((err && err.message) || "Komentar gagal dikirim", "error");
+    }).then(() => {
+      sendingRef.current = false;
+      setSending(false);
+    });
+  };
+  const onKeyDown = (e) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); return; }
+    if (e.key === "Escape" && onCancel) { e.preventDefault(); e.stopPropagation(); onCancel(); }
+  };
+  const wsName = workspaceName || "workspace";
+  if (lost) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "cmt-composer cmt-composer--lost" + (compact ? " cmt-composer--reply" : ""),
+      "aria-disabled": "true"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "cmt-lost",
+      role: "status"
+    }, CMT_LOST_TEXT));
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "cmt-composer" + (compact ? " cmt-composer--reply" : "")
+  }, parentId == null && quote ? /*#__PURE__*/React.createElement("div", {
+    className: "cmt-quote-chip"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "cmt-quote-chip-text"
+  }, "Mengomentari: “", quote, "”"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "cmt-icon-btn",
+    "aria-label": "Lepas kutipan",
+    onClick: () => onClearQuote && onClearQuote()
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "fX",
+    size: 14
+  }))) : null, /*#__PURE__*/React.createElement(MentionInput, {
+    as: "textarea",
+    className: "cmt-input",
+    rows: compact ? 2 : 3,
+    value: text,
+    onChange: (e) => setText(e.target.value),
+    onKeyDown: onKeyDown,
+    collaborators: candidates,
+    placeholder: placeholder || "Tulis komentar… ketik @ untuk menyebut anggota",
+    "aria-label": placeholder || "Tulis komentar",
+    autoFocus: autoFocus,
+    maxLength: 4000
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "cmt-composer-row"
+  }, compact ? null : /*#__PURE__*/React.createElement("span", {
+    className: "cmt-hint"
+  }, "Ctrl + Enter untuk kirim · terlihat oleh semua anggota ", wsName), /*#__PURE__*/React.createElement("div", {
+    className: "cmt-composer-actions"
+  }, onCancel ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "cmt-btn",
+    onClick: onCancel
+  }, "Batal") : null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "cmt-btn cmt-btn--primary",
+    disabled: sending || !text.trim(),
+    "aria-busy": sending ? "true" : undefined,
+    onClick: send
+  }, "Kirim"))));
+}
+
+function CommentThreadCard({
+  thread,
+  note,
+  nowMs,
+  active,
+  onActivate,
+  editingId,
+  setEditingId,
+  replying,
+  setReplying,
+  onRequestDelete,
+  candidates,
+  workspaceName,
+  reload,
+  showToast,
+  lost = false
+}) {
+  const CU = window.TF.commentui;
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const fail = (err) => showToast && showToast((err && err.message) || "Perubahan gagal disimpan", "error");
+  const startEdit = (c) => { setDraft(c.body || ""); setEditingId(c.id); };
+  const saveEdit = (c) => {
+    const body = draft.trim();
+    if (!body || saving) return;
+    setSaving(true);
+    api.patch(`/api/note-comments/${encodeURIComponent(c.id)}`, { body }).then(() => {
+      setEditingId(null);
+      reload && reload();
+    }, fail).then(() => setSaving(false));
+  };
+  const setResolved = (resolved) => {
+    api.patch(`/api/note-comments/${encodeURIComponent(thread.id)}`, { resolved: resolved }).then(() => reload && reload(), fail);
+  };
+  const copyText = (c) => {
+    try {
+      Promise.resolve(navigator.clipboard.writeText(c.body || "")).then(() => {
+        showToast && showToast("Teks disalin", "success");
+      }, () => showToast && showToast("Gagal menyalin teks", "error"));
+    } catch (_) {
+      showToast && showToast("Gagal menyalin teks", "error");
+    }
+  };
+  const discard = (c) => {
+    Promise.resolve(window.TF.commentrepo.discard(c.cid)).then(() => reload && reload(), fail);
+  };
+  const isTop = (c) => c === thread;
+  const renderBody = (c) => window.TF.commentrepo.parts(c.body).map((p, i) => p.m
+    ? /*#__PURE__*/React.createElement("span", { key: i, className: "cmt-mention" }, p.s)
+    : /*#__PURE__*/React.createElement(React.Fragment, { key: i }, p.s));
+  const renderItem = (c) => {
+    const name = c.display_name || c.username || "Anggota";
+    const editing = editingId != null && String(editingId) === String(c.id);
+    const statusRow = c.failed ? /*#__PURE__*/React.createElement("div", {
+      className: "cmt-failed-row",
+      role: "alert"
+    }, /*#__PURE__*/React.createElement("span", null, "Gagal terkirim.", c.sync_error && c.sync_error.message ? " " + c.sync_error.message : ""), /*#__PURE__*/React.createElement("div", {
+      className: "cmt-actions"
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "cmt-btn cmt-btn--sm",
+      onClick: () => copyText(c)
+    }, "Salin teks"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "cmt-btn cmt-btn--sm",
+      onClick: () => discard(c)
+    }, "Buang"))) : c.rejected ? /*#__PURE__*/React.createElement("div", {
+      className: "cmt-failed-row",
+      role: "alert"
+    }, /*#__PURE__*/React.createElement("span", null, "Perubahan tidak tersimpan."), /*#__PURE__*/React.createElement("div", {
+      className: "cmt-actions"
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "cmt-btn cmt-btn--sm",
+      onClick: () => discard(c)
+    }, "Tutup"))) : null;
+    const canAct = !c.failed && !c.rejected;
+    return /*#__PURE__*/React.createElement("div", {
+      key: c.cid || c.id,
+      className: "cmt-item" + (isTop(c) ? "" : " cmt-reply") + (c.failed || c.rejected ? " cmt-failed" : "") + (c.pending && !c.failed && !c.rejected ? " cmt-pending" : "")
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "cmt-meta"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "cmt-avatar",
+      "aria-hidden": "true"
+    }, CU.initials(name)), /*#__PURE__*/React.createElement("span", {
+      className: "cmt-name"
+    }, name), /*#__PURE__*/React.createElement("span", {
+      className: "cmt-time"
+    }, CU.relTime(c.created_at, nowMs)), c.edited_at ? /*#__PURE__*/React.createElement("span", {
+      className: "cmt-edited"
+    }, "diedit") : null, c.pending && !c.failed && !c.rejected ? /*#__PURE__*/React.createElement("span", {
+      className: "cmt-pending-label"
+    }, "Menunggu sinkron") : null), editing ? /*#__PURE__*/React.createElement("div", {
+      className: "cmt-edit"
+    }, /*#__PURE__*/React.createElement(MentionInput, {
+      as: "textarea",
+      className: "cmt-input",
+      rows: 3,
+      value: draft,
+      onChange: (e) => setDraft(e.target.value),
+      onKeyDown: (e) => {
+        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); saveEdit(c); }
+        else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); setEditingId(null); }
+      },
+      collaborators: candidates,
+      "aria-label": "Edit komentar",
+      autoFocus: true,
+      maxLength: 4000
+    }), /*#__PURE__*/React.createElement("div", {
+      className: "cmt-actions"
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "cmt-btn cmt-btn--sm",
+      onClick: () => setEditingId(null)
+    }, "Batal"), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "cmt-btn cmt-btn--sm cmt-btn--primary",
+      disabled: saving || !draft.trim(),
+      onClick: () => saveEdit(c)
+    }, "Simpan"))) : /*#__PURE__*/React.createElement("div", {
+      className: "cmt-body"
+    }, renderBody(c)), statusRow, !editing && canAct ? /*#__PURE__*/React.createElement("div", {
+      className: "cmt-actions"
+    }, isTop(c) && thread.resolved_at == null ? /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "cmt-btn cmt-btn--sm cmt-btn--ghost",
+      onClick: () => setReplying(replying ? null : thread.id)
+    }, /*#__PURE__*/React.createElement(ViewGlyph, {
+      name: "fChat",
+      size: 14
+    }), "Balas") : null, isTop(c) && c.canResolve ? /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "cmt-btn cmt-btn--sm cmt-btn--ghost",
+      onClick: () => setResolved(thread.resolved_at == null)
+    }, /*#__PURE__*/React.createElement(ViewGlyph, {
+      name: "pCheckCircle",
+      size: 14
+    }), thread.resolved_at == null ? "Selesaikan" : "Buka lagi") : null, c.canEdit ? /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "cmt-btn cmt-btn--sm cmt-btn--ghost",
+      onClick: () => startEdit(c)
+    }, /*#__PURE__*/React.createElement(ViewGlyph, {
+      name: "pPencil",
+      size: 14
+    }), "Edit") : null, c.canDelete ? /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "cmt-btn cmt-btn--sm cmt-btn--ghost",
+      onClick: () => onRequestDelete(c, isTop(c) && (thread.replies || []).length > 0)
+    }, /*#__PURE__*/React.createElement(ViewGlyph, {
+      name: "fTrash",
+      size: 14
+    }), "Hapus") : null) : null);
+  };
+  return /*#__PURE__*/React.createElement("article", {
+    className: "cmt-card" + (active ? " is-active" : ""),
+    "data-comment-id": thread.id
+  }, thread.quote ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "cmt-quote" + (thread.anchorLost ? " is-lost" : ""),
+    onClick: () => onActivate && onActivate(thread.id),
+    "aria-pressed": active ? "true" : "false"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "cmt-quote-text"
+  }, "“", thread.quote, "”"), thread.anchorLost ? /*#__PURE__*/React.createElement("span", {
+    className: "cmt-quote-lost"
+  }, "Bagian ini sudah diubah atau dihapus dari catatan.") : null) : null, renderItem(thread), (thread.replies || []).map(renderItem), thread.resolved_at != null ? /*#__PURE__*/React.createElement("div", {
+    className: "cmt-resolved"
+  }, "Diselesaikan oleh ", thread.resolved_by_name || "anggota", " · ", CU.relTime(thread.resolved_at, nowMs)) : null, replying ? /*#__PURE__*/React.createElement(CommentComposer, {
+    note: note,
+    parentId: thread.id,
+    placeholder: "Tulis balasan…",
+    candidates: candidates,
+    workspaceName: workspaceName,
+    reload: reload,
+    onSent: () => setReplying(null),
+    onCancel: () => setReplying(null),
+    showToast: showToast,
+    autoFocus: true,
+    compact: true,
+    lost: lost
+  }) : null);
+}
+
+function NoteCommentsPanel({
+  note,
+  rows,
+  currentUserId,
+  layout = "side",
+  onClose,
+  quote,
+  onClearQuote,
+  activeId,
+  onActivate,
+  docText,
+  reload,
+  showToast,
+  workspaceName,
+  online,
+  gone = false
+}) {
+  const [tab, setTab] = useState("open");
+  const [editingId, setEditingId] = useState(null);
+  const [replyingId, setReplyingId] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [candidates, setCandidates] = useState([]);
+  // Status online dari hook host (useNoteComments); tanpa prop → navigator.onLine.
+  const isOnline = online != null ? !!online : navigator.onLine !== false;
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const deleteRef = useRef(null);
+  deleteRef.current = deleteTarget;
+  const listId = note ? note.list_id : null;
+  // Kandidat @mention: anggota workspace (gagal → kosong).
+  useEffect(() => {
+    if (listId == null) { setCandidates([]); return; }
+    let alive = true;
+    api.get(`/api/lists/${note.list_id}`).then((d) => {
+      if (alive) setCandidates(window.TF.commentui.mentionCandidates(d, currentUserId));
+    }, () => { if (alive) setCandidates([]); });
+    return () => { alive = false; };
+  }, [listId, currentUserId]);
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 60000);
+    return () => clearInterval(t);
+  }, []);
+  // Lembar bawah: Esc menutup (kecuali dialog hapus sedang terbuka).
+  useEffect(() => {
+    if (layout !== "sheet") return;
+    const onKey = (e) => {
+      if (e.key !== "Escape" || deleteRef.current || e.defaultPrevented) return;
+      onClose && onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [layout, onClose]);
+  // Kutipan baru dari host → tab Terbuka agar komposer & thread barunya terlihat.
+  useEffect(() => { if (quote) setTab("open"); }, [quote]);
+  const vm = useMemo(() => window.TF.commentui.viewModel(rows || [], {
+    tab,
+    meId: currentUserId,
+    noteOwnerId: note ? note.user_id : null,
+    docText
+  }), [rows, tab, currentUserId, note && note.user_id, docText]);
+  const confirmDelete = () => {
+    const t = deleteTarget;
+    if (!t || deleting) return;
+    setDeleting(true);
+    api.del(`/api/note-comments/${encodeURIComponent(t.c.id)}`).then(() => {
+      setDeleteTarget(null);
+      reload && reload();
+    }, (err) => {
+      showToast && showToast((err && err.message) || "Komentar gagal dihapus", "error");
+    }).then(() => setDeleting(false));
+  };
+  const tabBtn = (key, label, count) => /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "tab",
+    "aria-selected": tab === key ? "true" : "false",
+    className: "cmt-tab" + (tab === key ? " is-active" : ""),
+    onClick: () => setTab(key)
+  }, label, count);
+  const emptyText = tab === "open"
+    ? "Belum ada komentar terbuka. Pilih teks di catatan untuk mengomentari bagian tertentu, atau tulis komentar umum di bawah."
+    : "Belum ada komentar yang diselesaikan.";
+  const panel = /*#__PURE__*/React.createElement("aside", {
+    className: "cmt-panel " + (layout === "sheet" ? "cmt-sheet" : "cmt-panel--side"),
+    role: layout === "sheet" ? "dialog" : "complementary",
+    "aria-modal": layout === "sheet" ? "true" : undefined,
+    "aria-label": "Komentar"
+  }, /*#__PURE__*/React.createElement("header", {
+    className: "cmt-head"
+  }, /*#__PURE__*/React.createElement("h2", {
+    className: "cmt-title"
+  }, "Komentar"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "cmt-icon-btn",
+    "aria-label": "Tutup panel komentar",
+    onClick: () => onClose && onClose()
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "fX",
+    size: 18
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "cmt-tabs",
+    role: "tablist"
+  }, tabBtn("open", "Terbuka · ", vm.openCount), tabBtn("done", "Selesai · ", vm.doneCount)), !isOnline ? /*#__PURE__*/React.createElement("div", {
+    className: "cmt-offline",
+    role: "status"
+  }, "Kamu sedang offline. Komentar dikirim otomatis saat tersambung.") : null, /*#__PURE__*/React.createElement("div", {
+    className: "cmt-list",
+    role: "tabpanel"
+  }, vm.threads.length === 0 ? /*#__PURE__*/React.createElement("p", {
+    className: "cmt-empty"
+  }, emptyText) : vm.threads.map((t) => /*#__PURE__*/React.createElement(CommentThreadCard, {
+    key: t.cid || t.id,
+    thread: t,
+    note: note,
+    nowMs: nowMs,
+    active: activeId != null && String(activeId) === String(t.id),
+    onActivate: onActivate,
+    editingId: editingId,
+    setEditingId: setEditingId,
+    replying: replyingId != null && String(replyingId) === String(t.id),
+    setReplying: setReplyingId,
+    onRequestDelete: (c, hasReplies) => setDeleteTarget({ c, hasReplies }),
+    candidates: candidates,
+    workspaceName: workspaceName,
+    reload: reload,
+    showToast: showToast,
+    lost: !!gone
+  }))), /*#__PURE__*/React.createElement(CommentComposer, {
+    note: note,
+    quote: quote || "",
+    onClearQuote: onClearQuote,
+    candidates: candidates,
+    workspaceName: workspaceName || "workspace",
+    reload: reload,
+    onSent: () => setTab("open"),
+    showToast: showToast,
+    lost: !!gone
+  }), deleteTarget ? /*#__PURE__*/React.createElement(CommentDeleteDialog, {
+    hasReplies: !!deleteTarget.hasReplies,
+    busy: deleting,
+    onCancel: () => setDeleteTarget(null),
+    onConfirm: confirmDelete
+  }) : null);
+  if (layout !== "sheet") return panel;
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "cmt-sheet-backdrop",
+    onClick: () => onClose && onClose(),
+    "aria-hidden": "true"
+  }), panel);
+}
+
+// Lebar elemen host ≥ minPx → layout panel samping; selain itu lembar bawah.
+function useHostWide(ref, minPx) {
+  const [wide, setWide] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const w = el.getBoundingClientRect().width;
+      setWide(w >= minPx);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure);
+      return () => window.removeEventListener("resize", measure);
+    }
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref, minPx]);
+  return wide;
+}
+
+function NoteCommentsButton({
+  count = 0,
+  active = false,
+  onClick,
+  className
+}) {
+  return /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: className,
+    onClick: onClick,
+    title: "Komentar",
+    "aria-pressed": active ? "true" : "false",
+    "aria-label": `Komentar, ${count} terbuka`,
+    style: {
+      background: active ? "rgba(168,197,0,0.15)" : "none",
+      border: "1.5px solid var(--accent)",
+      borderRadius: 20,
+      cursor: "pointer",
+      fontSize: 12,
+      color: "var(--accent)",
+      fontWeight: 700,
+      padding: "2px 10px",
+      lineHeight: 1.5,
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 5,
+      flexShrink: 0
+    }
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "fChat",
+    size: 14
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "note-act-label cmt-btn-label"
+  }, "Komentar"), count > 0 ? /*#__PURE__*/React.createElement("span", {
+    className: "cmt-badge",
+    "aria-hidden": "true"
+  }, count) : null);
+}
+
+// Gelembung "Komentari" untuk seleksi teks di dalam containerRef (layar sentuh: bar bawah).
+function CommentSelectionBubble({
+  containerRef,
+  onComment,
+  touchOnly = false
+}) {
+  const [sel, setSel] = useState(null);
+  const touch = useMemo(() => {
+    try { return !!(window.matchMedia && window.matchMedia("(hover: none)").matches); } catch (_) { return false; }
+  }, []);
+  useEffect(() => {
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const root = containerRef && containerRef.current;
+      const s = window.getSelection ? window.getSelection() : null;
+      if (!root || !s || s.isCollapsed || !s.rangeCount) { setSel(null); return; }
+      const text = s.toString();
+      if (!text || !text.trim()) { setSel(null); return; }
+      const range = s.getRangeAt(0);
+      if (!root.contains(range.commonAncestorContainer)) { setSel(null); return; }
+      const r = range.getBoundingClientRect();
+      if (!r || (!r.width && !r.height)) { setSel(null); return; }
+      const vw = window.innerWidth || 0;
+      setSel({
+        text,
+        top: r.top > 52 ? r.top - 44 : r.bottom + 8,
+        left: Math.max(8, Math.min(r.left + r.width / 2 - 52, vw - 124))
+      });
+    };
+    const onChange = () => { if (!raf) raf = requestAnimationFrame(update); };
+    document.addEventListener("selectionchange", onChange);
+    window.addEventListener("scroll", onChange, true);
+    window.addEventListener("resize", onChange);
+    return () => {
+      document.removeEventListener("selectionchange", onChange);
+      window.removeEventListener("scroll", onChange, true);
+      window.removeEventListener("resize", onChange);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [containerRef]);
+  // touchOnly (editor): di desktop tombol "Komentari" sudah ada di tooltip format Milkdown.
+  if (!sel || touchOnly && !touch) return null;
+  // mousedown tidak mengambil fokus/seleksi (editor tetap memegang seleksi).
+  const keep = (e) => e.preventDefault();
+  const fire = () => {
+    const q = window.TF.commentui.normalizeQuote(sel.text);
+    setSel(null);
+    if (q && onComment) onComment(q);
+  };
+  if (touch) {
+    return /*#__PURE__*/React.createElement("div", {
+      className: "cmt-touchbar"
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "cmt-btn cmt-btn--primary",
+      onMouseDown: keep,
+      onClick: fire
+    }, /*#__PURE__*/React.createElement(ViewGlyph, {
+      name: "fChat",
+      size: 16
+    }), "Komentari teks terpilih"));
+  }
+  return /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "cmt-bubble",
+    style: {
+      position: "fixed",
+      top: sel.top,
+      left: sel.left
+    },
+    onMouseDown: keep,
+    onClick: fire
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "fChat",
+    size: 14
+  }), "Komentari");
+}
+
 function NoteModal({
   note,
   tasks,
@@ -31170,6 +32057,91 @@ function NoteModal({
 
 
   const [noteListId, setNoteListId] = useState(note?.list_id ?? null);
+  // ── Komentar note (PR 3): hanya note tersimpan di workspace (noteListId != null). ──
+  const cmtNote = React.useMemo(() => (note?.id && noteListId != null ? { ...note, list_id: noteListId } : null), [note, noteListId]);
+  const cmtHostRef = React.useRef(null);
+  const cmtWide = useHostWide(cmtHostRef, 900);
+  const [cmtOpen, setCmtOpen] = useState(false);
+  const [cmtQuote, setCmtQuote] = useState("");
+  const [cmtActiveId, setCmtActiveId] = useState(null);
+  const [cmtDocText, setCmtDocText] = useState(null);
+  const cmtEntriesRef = React.useRef([]);
+  const cmt = useNoteComments(cmtNote, { open: cmtOpen && !!cmtNote, showToast });
+  const cmtOpenThreads = React.useMemo(() => {
+    const R = window.TF && window.TF.commentrepo;
+    if (!cmtNote || !R || !R.threads) return [];
+    return R.threads(cmt.rows, "open").filter(t => t.quote).map(t => ({ id: t.id, quote: t.quote }));
+  }, [cmt.rows, cmtNote]);
+  const setCmtPanelOpen = next => {
+    setCmtOpen(next);
+    // Status buka diingat hanya untuk layout samping (lembar bawah tidak dibuka otomatis).
+    if (cmtWide) { try { localStorage.setItem("tf_cmt_panel_open", next ? "1" : "0"); } catch (_) {} }
+  };
+  const cmtStoredOpen = () => { try { return localStorage.getItem("tf_cmt_panel_open") === "1"; } catch (_) { return false; } };
+  React.useEffect(() => {
+    setCmtQuote("");
+    setCmtActiveId(null);
+    setCmtDocText(null);
+    setCmtOpen(!!cmtNote && cmtWide && cmtStoredOpen());
+  }, [cmtNote?.id, cmtNote?.list_id]);
+  React.useEffect(() => {
+    if (cmtWide && cmtNote && cmtStoredOpen()) setCmtOpen(true);
+  }, [cmtWide]);
+  // Sorotan pada .ProseMirror, dihitung ulang 200 ms setelah isi berubah (editor dibuat async → coba ulang).
+  React.useEffect(() => {
+    const H = window.TF && window.TF.commenthighlight;
+    if (!H) return;
+    if (!cmtNote) { cmtEntriesRef.current = []; H.clear(); return; }
+    let timer = null;
+    let tries = 0;
+    const run = () => {
+      const root = paperWrapRef.current && paperWrapRef.current.querySelector(".ProseMirror");
+      if (!root) {
+        if (++tries < 15) timer = setTimeout(run, 300);
+        return;
+      }
+      setCmtDocText(H.collectSegments(root).text);
+      cmtEntriesRef.current = window.TF.commenthighlight.apply(root, cmtOpenThreads, cmtActiveId);
+    };
+    timer = setTimeout(run, 200);
+    return () => clearTimeout(timer);
+  }, [content, cmtOpenThreads, cmtActiveId, cmtNote?.id, focusMode]);
+  React.useEffect(() => () => {
+    cmtEntriesRef.current = [];
+    window.TF && window.TF.commenthighlight && window.TF.commenthighlight.clear();
+  }, [note?.id]);
+  // Editor menutupi pembaca: pembaca (NotePanel) menahan panel/sorotannya selama editor terpasang.
+  React.useEffect(() => {
+    window.__tfCmtModalDepth = (window.__tfCmtModalDepth || 0) + 1;
+    window.dispatchEvent(new CustomEvent("tf:cmt-modal"));
+    return () => {
+      window.__tfCmtModalDepth = Math.max(0, (window.__tfCmtModalDepth || 1) - 1);
+      window.dispatchEvent(new CustomEvent("tf:cmt-modal"));
+    };
+  }, []);
+  const cmtActivate = id => {
+    setCmtActiveId(id);
+    const en = (cmtEntriesRef.current || []).find(x => String(x.id) === String(id));
+    const el = en && en.range && en.range.startContainer && en.range.startContainer.parentElement;
+    if (el && el.isConnected) el.scrollIntoView({ block: "center" });
+  };
+  const cmtPanelEl = cmtNote && cmtOpen ? /*#__PURE__*/React.createElement(NoteCommentsPanel, {
+    note: cmtNote,
+    rows: cmt.rows,
+    currentUserId: currentUserId,
+    layout: cmtWide ? "side" : "sheet",
+    onClose: () => setCmtPanelOpen(false),
+    quote: cmtQuote,
+    onClearQuote: () => setCmtQuote(""),
+    activeId: cmtActiveId,
+    onActivate: cmtActivate,
+    docText: cmtDocText,
+    reload: cmt.afterChange,
+    showToast: showToast,
+    workspaceName: (sharedLists || []).find(l => String(l.id) === String(noteListId))?.name,
+    online: cmt.online,
+    gone: cmt.gone
+  }) : null;
   const [drawingScopeDialogEl, askDrawingScope] = useDrawingScopeDialog();
   const handleModalShare = async listId => {
     setShareOpen(false);
@@ -32386,6 +33358,12 @@ function NoteModal({
     } : { position: "relative" }
   }, /*#__PURE__*/React.createElement(MilkdownEditor, {
     value: content,
+    onCommentSelection: cmtNote ? text => {
+      const q = window.TF.commentui.normalizeQuote(text);
+      if (!q) return;
+      setCmtQuote(q);
+      setCmtOpen(true);
+    } : null,
     noteListId: noteListId,
     mediaNoteId: mediaNoteIdForCards,
     mediaNoteOwnerId: mediaNoteOwnerId,
@@ -32825,6 +33803,7 @@ function NoteModal({
       color: "var(--accent)"
     }
   }, !focusMode && /*#__PURE__*/React.createElement(React.Fragment, null, "\u26A1 Catatan (v5.1)")), /*#__PURE__*/React.createElement("div", {
+    className: "note-modal-hdr-actions",
     style: {
       display: "flex",
       gap: 6,
@@ -32870,6 +33849,11 @@ function NoteModal({
   }, "\u25CF "), "Focus")), !focusMode && note?.id && /*#__PURE__*/React.createElement(PetakanButton, {
     noteId: note.id,
     variant: "pill"
+  }), !focusMode && note?.id && noteListId != null && /*#__PURE__*/React.createElement(NoteCommentsButton, {
+    className: "cmt-hdr-btn--modal",
+    count: cmt.openCount,
+    active: cmtOpen,
+    onClick: () => setCmtPanelOpen(!cmtOpen)
   }), !focusMode && note?.id && note.user_id === currentUserId && sharedLists.length > 0 && /*#__PURE__*/React.createElement("div", {
     ref: shareRef,
     style: {
@@ -32964,6 +33948,8 @@ function NoteModal({
 
   // Always full-screen panel
   return /*#__PURE__*/React.createElement("div", {
+    ref: cmtHostRef,
+    className: cmtWide && cmtPanelEl ? "cmt-side-open" : undefined,
     style: {
       position: "fixed",
       inset: 0,
@@ -32974,16 +33960,30 @@ function NoteModal({
       padding: "24px 32px"
     }
   }, header, !focusMode && topFixed, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minHeight: 0,
+      display: "flex"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
     ref: setTocScrollEl,
     style: {
       flex: 1,
       overflowY: "auto",
       minHeight: 0,
+      minWidth: 0,
       display: "flex",
       flexDirection: "column",
       gap: 14
     }
-  }, inner), !focusMode && tocItems.length >= 2 && /*#__PURE__*/React.createElement(FloatingToc, {
+  }, inner), cmtWide ? cmtPanelEl : null), cmtNote && /*#__PURE__*/React.createElement(CommentSelectionBubble, {
+    containerRef: paperWrapRef,
+    touchOnly: true,
+    onComment: q => {
+      setCmtQuote(q);
+      setCmtOpen(true);
+    }
+  }), !focusMode && tocItems.length >= 2 && /*#__PURE__*/React.createElement(FloatingToc, {
     items: tocItems,
     activeIdx: tocActiveIdx,
     onJump: jumpToEditorHeading,
@@ -33004,7 +34004,7 @@ function NoteModal({
     sharedLists: sharedLists,
     onClose: () => setQuickDrawState(null),
     showToast: showToast
-  }), drawingScopeDialogEl);
+  }), drawingScopeDialogEl, !cmtWide ? cmtPanelEl : null);
 }
 
   // ═══ DEPENDENCIES: NotePanel ═══
@@ -33846,6 +34846,121 @@ function NotePanel({
     }
   });
 
+  // ── Komentar note (PR 3): hanya note workspace (note.list_id != null). ──
+  const noteHtml = renderMarkdown(note.content || "", titleStrings, allNotes, tasks) || '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>';
+  const cmtEnabled = note.id != null && note.list_id != null;
+  // Editor (NoteModal) terbuka di atas pembaca → panel, gelembung, dan sorotan pembaca ditahan.
+  const [cmtUnderModal, setCmtUnderModal] = useState(() => (window.__tfCmtModalDepth || 0) > 0);
+  useEffect(() => {
+    const onModal = () => setCmtUnderModal((window.__tfCmtModalDepth || 0) > 0);
+    window.addEventListener("tf:cmt-modal", onModal);
+    onModal();
+    return () => window.removeEventListener("tf:cmt-modal", onModal);
+  }, []);
+  const cmtHostRef = React.useRef(null);
+  // Pembaca: panel samping dari lebar host 760px (mockup: jendela 1360px), editor tetap 900px.
+  const cmtWide = useHostWide(cmtHostRef, 760);
+  const [cmtOpen, setCmtOpen] = useState(false);
+  const [cmtQuote, setCmtQuote] = useState("");
+  const [cmtActiveId, setCmtActiveId] = useState(null);
+  const [cmtDocText, setCmtDocText] = useState(null);
+  const cmtEntriesRef = React.useRef([]);
+  // Editor di atas pembaca → pembaca tanpa SSE sendiri (stream dipegang editor), dimuat ulang saat kembali.
+  const cmt = useNoteComments(note, { open: cmtOpen && cmtEnabled && !cmtUnderModal, showToast, live: !cmtUnderModal });
+  const cmtOpenThreads = useMemo(() => {
+    const R = window.TF && window.TF.commentrepo;
+    if (!cmtEnabled || !R || !R.threads) return [];
+    return R.threads(cmt.rows, "open").filter(t => t.quote).map(t => ({ id: t.id, quote: t.quote }));
+  }, [cmt.rows, cmtEnabled]);
+  const cmtStoredOpen = () => { try { return localStorage.getItem("tf_cmt_panel_open") === "1"; } catch (_) { return false; } };
+  const setCmtPanelOpen = next => {
+    setCmtOpen(next);
+    // Status buka diingat hanya untuk layout samping (lembar bawah tidak dibuka otomatis).
+    if (cmtWide) { try { localStorage.setItem("tf_cmt_panel_open", next ? "1" : "0"); } catch (_) {} }
+  };
+  // Mount / ganti note: permintaan buka dari daftar (consumeOpen) atau status tersimpan (layout samping).
+  useEffect(() => {
+    const CU = window.TF && window.TF.commentui;
+    const requested = !!(CU && CU.consumeOpen && CU.consumeOpen(note.id));
+    setCmtQuote("");
+    setCmtActiveId(null);
+    setCmtDocText(null);
+    setCmtOpen(cmtEnabled && (requested || (cmtWide && cmtStoredOpen())));
+  }, [note.id, note.list_id]);
+  useEffect(() => {
+    if (cmtWide && cmtEnabled && cmtStoredOpen()) setCmtOpen(true);
+  }, [cmtWide]);
+  // Notifikasi komentar saat note ini sudah aktif: efek per-note.id tidak jalan ulang, jadi dengarkan event.
+  useEffect(() => {
+    const onOpen = e => {
+      const want = String(e && e.detail && e.detail.noteId);
+      if (want !== String(note.id) && (note.server_id == null || want !== String(note.server_id))) return;
+      const CU = window.TF && window.TF.commentui;
+      if (CU && CU.consumeOpen && CU.consumeOpen(want) && cmtEnabled) setCmtOpen(true);
+    };
+    window.addEventListener("tf:comments-open", onOpen);
+    return () => window.removeEventListener("tf:comments-open", onOpen);
+  }, [note.id, note.server_id, cmtEnabled]);
+  // Sorotan thread terbuka setelah konten HTML dirender / komentar / thread aktif berubah.
+  useEffect(() => {
+    const H = window.TF && window.TF.commenthighlight;
+    if (!H) return;
+    if (cmtUnderModal) return;
+    const root = tocSpyRef.current;
+    if (!cmtEnabled || !root) { cmtEntriesRef.current = []; H.clear(); return; }
+    setCmtDocText(H.collectSegments(root).text);
+    cmtEntriesRef.current = window.TF.commenthighlight.apply(root, cmtOpenThreads, cmtActiveId);
+  }, [noteHtml, cmtOpenThreads, cmtActiveId, cmtEnabled, note.id, viewerPaperConfig?.enabled, cmtUnderModal]);
+  useEffect(() => () => {
+    cmtEntriesRef.current = [];
+    window.TF && window.TF.commenthighlight && window.TF.commenthighlight.clear();
+  }, [note.id]);
+  const cmtActivate = id => {
+    setCmtActiveId(id);
+    const en = (cmtEntriesRef.current || []).find(x => String(x.id) === String(id));
+    const el = en && en.range && en.range.startContainer && en.range.startContainer.parentElement;
+    if (el && el.isConnected) el.scrollIntoView({ block: "center" });
+  };
+  // Klik teks bersorot → buka panel + aktifkan thread. Tautan/tombol/checkbox tetap milik handler lain.
+  const cmtContentClick = e => {
+    if (!cmtEnabled || !(cmtEntriesRef.current || []).length) return;
+    const t = e.target;
+    if (t && t.closest && t.closest("a, button, input, [data-tasklink], [data-wiki-id]")) return;
+    const s = window.getSelection ? window.getSelection() : null;
+    if (s && !s.isCollapsed) return;
+    let node = null;
+    let offset = 0;
+    if (typeof document.caretPositionFromPoint === "function") {
+      const p = document.caretPositionFromPoint(e.clientX, e.clientY);
+      if (p) { node = p.offsetNode; offset = p.offset; }
+    } else if (typeof document.caretRangeFromPoint === "function") {
+      const r = document.caretRangeFromPoint(e.clientX, e.clientY);
+      if (r) { node = r.startContainer; offset = r.startOffset; }
+    }
+    if (!node) return;
+    const id = window.TF.commenthighlight.threadAt(cmtEntriesRef.current, node, offset);
+    if (id == null) return;
+    setCmtActiveId(id);
+    setCmtOpen(true);
+  };
+  const cmtPanelEl = cmtEnabled && cmtOpen && !cmtUnderModal ? /*#__PURE__*/React.createElement(NoteCommentsPanel, {
+    note: note,
+    rows: cmt.rows,
+    currentUserId: currentUserId,
+    layout: cmtWide ? "side" : "sheet",
+    onClose: () => setCmtPanelOpen(false),
+    quote: cmtQuote,
+    onClearQuote: () => setCmtQuote(""),
+    activeId: cmtActiveId,
+    onActivate: cmtActivate,
+    docText: cmtDocText,
+    reload: cmt.afterChange,
+    showToast: showToast,
+    workspaceName: (sharedLists || []).find(l => String(l.id) === String(note.list_id))?.name,
+    online: cmt.online,
+    gone: cmt.gone
+  }) : null;
+
   const renderedNoteEl = /*#__PURE__*/React.createElement("div", {
     className: "note-rendered",
     ref: tocSpyRef,
@@ -33853,7 +34968,10 @@ function NotePanel({
     style: {
       lineHeight: 1.75
     },
-    onClick: handlePreviewClick,
+    onClick: e => {
+      handlePreviewClick(e);
+      cmtContentClick(e);
+    },
     onDoubleClick: e => {
       if (e.target && e.target.closest && e.target.closest('input, a, button, [data-tasklink], [data-wiki-id], [data-wiki-title], [data-drawing-preview], [data-media-card]')) return;
       const container = e.currentTarget;
@@ -33872,11 +34990,13 @@ function NotePanel({
     },
     title: "Double-click untuk mengedit catatan",
     dangerouslySetInnerHTML: {
-      __html: renderMarkdown(note.content || "", titleStrings, allNotes, tasks) || '<span style="color:var(--text-light);font-style:italic">Catatan kosong.</span>'
+      __html: noteHtml
     }
   });
 
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    ref: cmtHostRef,
+    className: cmtWide && cmtPanelEl ? "cmt-side-open" : undefined,
     style: {
       display: "flex",
       gap: 0
@@ -34173,6 +35293,10 @@ function NotePanel({
     }
   }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nPin", size: 15 })), note.id != null && /*#__PURE__*/React.createElement(PetakanButton, {
     noteId: note.id
+  }), note.id != null && note.list_id != null && /*#__PURE__*/React.createElement(NoteCommentsButton, {
+    count: cmt.openCount,
+    active: cmtOpen,
+    onClick: () => setCmtPanelOpen(!cmtOpen)
   }), /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       const meta = publishedMeta;
@@ -34499,7 +35623,25 @@ function NotePanel({
       color: 'var(--text-light)',
       flexShrink: 0
     }
-  }, att.file_size > 1048576 ? (att.file_size / 1048576).toFixed(1) + 'MB' : Math.round(att.file_size / 1024) + 'KB'))))), tocItems.length >= 2 && /*#__PURE__*/React.createElement(FloatingToc, {
+  }, att.file_size > 1048576 ? (att.file_size / 1048576).toFixed(1) + 'MB' : Math.round(att.file_size / 1024) + 'KB'))))), cmtWide && cmtPanelEl ? /*#__PURE__*/React.createElement("div", {
+    className: "cmt-side-wrap",
+    style: {
+      position: "sticky",
+      top: 0,
+      alignSelf: "flex-start",
+      height: "calc(100vh - 150px)",
+      minHeight: 360,
+      display: "flex",
+      flex: "0 0 auto",
+      marginLeft: 16
+    }
+  }, cmtPanelEl) : null, cmtEnabled && !cmtUnderModal && /*#__PURE__*/React.createElement(CommentSelectionBubble, {
+    containerRef: tocSpyRef,
+    onComment: q => {
+      setCmtQuote(q);
+      setCmtOpen(true);
+    }
+  }), tocItems.length >= 2 && /*#__PURE__*/React.createElement(FloatingToc, {
     items: tocItems,
     activeIdx: tocActiveIdx,
     onJump: item => {
@@ -34581,7 +35723,7 @@ function NotePanel({
         style: { padding: '6px 18px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
       }, publishWorking ? "Menyimpan..." : "💾 Simpan")
     )
-  ))), drawingScopeDialogEl);
+  ))), drawingScopeDialogEl, !cmtWide ? cmtPanelEl : null);
 }
 // ── Sampah mindmap (tab "Mindmap" di modal Sampah). Spec #5: docs/superpowers/specs/2026-10-19-mindmap-findings-3-8-design.md ──
 // Daftar & pulihkan lewat router lokal (TF.mindmaptrash: cermin + hapus lokal tertunda) → bekerja offline.
@@ -35214,6 +36356,19 @@ function NotesPage({
     const handler = () => fetchNotes(q, activeTags, filterUntagged, notesTab);
     window.addEventListener("noteSaved", handler);
     return () => window.removeEventListener("noteSaved", handler);
+  }, [q, activeTags, filterUntagged, notesTab]);
+  // Komentar berubah (baca/tulis lokal, pull sync, SSE) → badge daftar (comment_open_count/comment_unread) dibaca ulang.
+  useEffect(() => {
+    let cmtListTimer = null;
+    const onCmt = () => {
+      clearTimeout(cmtListTimer);
+      cmtListTimer = setTimeout(() => { cmtListTimer = null; fetchNotes(q, activeTags, filterUntagged, notesTab); }, 500);
+    };
+    window.addEventListener("tf:comments-changed", onCmt);
+    return () => {
+      window.removeEventListener("tf:comments-changed", onCmt);
+      clearTimeout(cmtListTimer);
+    };
   }, [q, activeTags, filterUntagged, notesTab]);
   useEffect(() => {
     const handler = () => {
@@ -35987,6 +37142,15 @@ function NotesPage({
                     color: "#2563eb"
                   }
                 }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "mUsers", size: 12 })),
+                n.comment_open_count > 0 && /*#__PURE__*/React.createElement("span", {
+                  className: "cmt-badge" + (n.comment_unread ? " is-unread" : ""),
+                  title: n.comment_open_count + " komentar terbuka" + (n.comment_unread ? ", ada yang baru" : ""),
+                  "aria-label": n.comment_open_count + " komentar terbuka" + (n.comment_unread ? ", ada yang baru" : ""),
+                  style: {
+                    marginRight: 4,
+                    verticalAlign: "middle"
+                  }
+                }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "fChat", size: 12 }), n.comment_open_count),
                 n.title || n.content.slice(0, 60)
               ),
               /*#__PURE__*/React.createElement("span", {
@@ -38118,6 +39282,193 @@ function AdminTemplateModal({
     disabled: saving
   }, saving ? 'Menyimpan...' : 'Simpan')))));
 }
+// ─── Kartu "Email" halaman Admin (fase 0b): mode SMTP, ringkasan 7 hari, email tes + polling,
+// riwayat 20 email, "Coba lagi" untuk yang gagal. Logika murni di TF.emailadmin (static/offline/emailadmin.js).
+function AdminEmailCard({
+  user,
+  showToast
+}) {
+  const EA = window.TF && window.TF.emailadmin;
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState(false);
+  const [to, setTo] = React.useState("");
+  const [sending, setSending] = React.useState(false);
+  const [pollingId, setPollingId] = React.useState(null);
+  const [retryingId, setRetryingId] = React.useState(null);
+  const mountedRef = React.useRef(true);
+  const pollRef = React.useRef(null);
+  const fetchStatus = () => api.get("/api/admin/email/status", { network: true });
+  const load = React.useCallback(() => {
+    setLoading(true);
+    return fetchStatus().then(d => {
+      if (!mountedRef.current) return;
+      setData(d);
+      setLoadError(false);
+      setLoading(false);
+    }).catch(() => {
+      if (!mountedRef.current) return;
+      setLoadError(true);
+      setLoading(false);
+    });
+  }, []);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    load();
+    return () => {
+      mountedRef.current = false;
+      clearTimeout(pollRef.current);
+      pollRef.current = null;
+    };
+  }, [load]);
+  if (!EA) return null;
+  // Polling status tiap POLL_MS sampai baris email tes selesai, atau POLL_MAX_MS habis.
+  const startPoll = id => {
+    clearTimeout(pollRef.current);
+    const started = Date.now();
+    setPollingId(id);
+    const finish = out => {
+      pollRef.current = null;
+      if (!mountedRef.current) return;
+      setPollingId(null);
+      showToast(out.text, out.type);
+    };
+    const next = () => {
+      if (!mountedRef.current) return;
+      if (Date.now() - started >= EA.POLL_MAX_MS) return finish(EA.TIMEOUT_OUTCOME);
+      pollRef.current = setTimeout(tick, EA.POLL_MS);
+    };
+    const tick = () => {
+      pollRef.current = null;
+      if (!mountedRef.current) return;
+      fetchStatus().then(d => {
+        if (!mountedRef.current) return;
+        setData(d);
+        setLoadError(false);
+        const out = EA.testOutcome(EA.findRow(d, id));
+        if (out) finish(out);else next();
+      }).catch(() => next());
+    };
+    next();
+  };
+  const sendTest = async e => {
+    e.preventDefault();
+    if (sending || pollingId != null) return;
+    setSending(true);
+    try {
+      const addr = to.trim();
+      const r = await api.post("/api/admin/email/test", addr ? { to: addr } : {});
+      if (!mountedRef.current) return;
+      setSending(false);
+      fetchStatus().then(d => { if (mountedRef.current) setData(d); }).catch(() => {});
+      startPoll(r.id);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      setSending(false);
+      showToast(err.message || "Gagal mengirim email tes", "error");
+    }
+  };
+  const retry = async row => {
+    if (retryingId != null) return;
+    setRetryingId(row.id);
+    try {
+      await api.post("/api/admin/email/" + row.id + "/retry", {});
+      if (!mountedRef.current) return;
+      showToast("Email dimasukkan ke antrean lagi");
+      load();
+    } catch (err) {
+      if (mountedRef.current) showToast(err.message || "Gagal mencoba lagi", "error");
+    } finally {
+      if (mountedRef.current) setRetryingId(null);
+    }
+  };
+  const fmtTime = iso => {
+    const d = EA.parseUtc(iso);
+    return d ? d.toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "-";
+  };
+  const chip = status => React.createElement("span", {
+    className: "admin-email-chip admin-email-chip-" + EA.badgeFor(status)
+  }, EA.statusLabel(status));
+  const errCell = row => row.last_error ? React.createElement("span", {
+    className: "admin-email-err",
+    title: row.last_error
+  }, EA.truncate(row.last_error, 60)) : React.createElement("span", { className: "admin-email-dim" }, "-");
+  const retryBtn = row => row.status === "failed" ? React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary btn-sm",
+    disabled: retryingId != null,
+    onClick: () => retry(row)
+  }, retryingId === row.id ? "Memproses…" : "Coba lagi") : null;
+  const badge = data ? EA.modeBadge(data) : null;
+  const counts = data && data.counts_7d || {};
+  const rows = data && Array.isArray(data.recent) ? data.recent : [];
+  const busy = sending || pollingId != null;
+  const header = React.createElement("div", { className: "admin-email-head" },
+    React.createElement("span", { className: "admin-email-icon" }, React.createElement(ViewGlyph, { name: "mMail", size: 18 })),
+    React.createElement("h3", { className: "admin-email-title" }, "Email"),
+    React.createElement("button", {
+      type: "button",
+      className: "btn btn-secondary btn-sm admin-email-reload",
+      onClick: load,
+      disabled: loading
+    }, loading && data ? "Memuat…" : "Muat ulang"));
+  let body;
+  if (loadError && !data) {
+    body = React.createElement("div", { className: "admin-email-state" },
+      React.createElement("span", null, "Gagal memuat status email"),
+      React.createElement("button", { type: "button", className: "btn btn-secondary btn-sm", onClick: load, disabled: loading }, "Coba lagi"));
+  } else if (!data) {
+    body = React.createElement("div", { className: "admin-email-state" }, "Memuat…");
+  } else {
+    body = React.createElement(React.Fragment, null,
+      React.createElement("div", { className: "admin-email-badge admin-email-badge-" + badge.tone }, badge.text),
+      loadError && React.createElement("div", { className: "admin-email-state admin-email-state-inline" },
+        React.createElement("span", null, "Gagal memuat status email"),
+        React.createElement("button", { type: "button", className: "btn btn-secondary btn-sm", onClick: load, disabled: loading }, "Coba lagi")),
+      React.createElement("div", { className: "admin-email-stats", "aria-label": "Ringkasan 7 hari" },
+        [["sent", "Terkirim"], ["failed", "Gagal"], ["queued", "Antre"], ["expired", "Kedaluwarsa"]].map(([k, label]) => React.createElement("div", {
+          key: k,
+          className: "admin-email-stat admin-email-stat-" + EA.badgeFor(k)
+        }, React.createElement("div", { className: "admin-email-stat-num" }, Number(counts[k]) || 0),
+          React.createElement("div", { className: "admin-email-stat-label" }, label)))),
+      React.createElement("div", { className: "admin-email-stats-note" }, "7 hari terakhir"),
+      React.createElement("form", { className: "admin-email-form", onSubmit: sendTest },
+        React.createElement("input", {
+          type: "email",
+          className: "input",
+          value: to,
+          onChange: e => setTo(e.target.value),
+          placeholder: user && user.email || "Kosongkan = email akun admin",
+          "aria-label": "Alamat tujuan email tes",
+          disabled: busy
+        }),
+        React.createElement("button", { type: "submit", className: "btn btn-primary btn-sm", disabled: busy },
+          sending ? "Mengirim…" : pollingId != null ? "Menunggu hasil…" : "Kirim email tes")),
+      rows.length === 0 ? React.createElement("div", { className: "admin-email-state" }, "Belum ada email") : React.createElement(React.Fragment, null,
+        React.createElement("div", { className: "admin-email-table-wrap" },
+          React.createElement("table", { className: "admin-email-table" },
+            React.createElement("thead", null, React.createElement("tr", null,
+              ["Jenis", "Penerima", "Status", "Percobaan", "Waktu", "Error", ""].map((h, i) => React.createElement("th", { key: i }, h)))),
+            React.createElement("tbody", null, rows.map(row => React.createElement("tr", { key: row.id },
+              React.createElement("td", null, EA.kindLabel(row.kind)),
+              React.createElement("td", { className: "admin-email-to" }, row.to),
+              React.createElement("td", null, chip(row.status)),
+              React.createElement("td", null, EA.formatAttempts(row.attempts)),
+              React.createElement("td", { className: "admin-email-time" }, fmtTime(row.created_at)),
+              React.createElement("td", null, errCell(row)),
+              React.createElement("td", { className: "admin-email-act" }, retryBtn(row))))))),
+        React.createElement("ul", { className: "admin-email-list" }, rows.map(row => React.createElement("li", { key: row.id, className: "admin-email-item" },
+          React.createElement("div", { className: "admin-email-item-top" },
+            React.createElement("span", { className: "admin-email-item-kind" }, EA.kindLabel(row.kind)),
+            chip(row.status)),
+          React.createElement("div", { className: "admin-email-to" }, row.to),
+          React.createElement("div", { className: "admin-email-item-meta" },
+            fmtTime(row.created_at), " · Percobaan ", EA.formatAttempts(row.attempts)),
+          row.last_error && React.createElement("div", null, errCell(row)),
+          retryBtn(row))))));
+  }
+  return React.createElement("section", { className: "card admin-email" }, header, body);
+}
 function AdminPage({
   user,
   showToast
@@ -38373,7 +39724,7 @@ function AdminPage({
       setShowModal(false);
       setEditItem(null);
     }
-  }), /*#__PURE__*/React.createElement("div", {
+  }), React.createElement(AdminEmailCard, { user: user, showToast: showToast }), /*#__PURE__*/React.createElement("div", {
     style: {
       marginTop: 40
     }
@@ -41353,8 +42704,14 @@ function App() {
     }
   }, "Belum ada notifikasi") : notifications.map(n => {
     const isInvite = n.kind === "workspace_invite";
-    const clickable = isInvite || !!n.task_id;
-    const activate = isInvite ? () => openInvitationsFromNotif(n) : n.task_id ? () => openTaskById(n.task_id) : undefined;
+    const clickable = isInvite || !!n.task_id || !!n.note_id;
+    const openNoteComments = () => {
+      setShowNotifPanel(false);
+      if (window.TF && window.TF.commentui) window.TF.commentui.requestOpen(n.note_id);
+      setPendingNoteId(n.note_id);
+      setPage("notes");
+    };
+    const activate = isInvite ? () => openInvitationsFromNotif(n) : n.task_id ? () => openTaskById(n.task_id) : n.note_id ? openNoteComments : undefined;
     return /*#__PURE__*/React.createElement("div", {
     key: n.id,
     onClick: activate,

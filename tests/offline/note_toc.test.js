@@ -137,7 +137,8 @@ test("Floating ToC CSS — tombol melayang ala Medium", async (t) => {
     assert.ok(block.includes(".floating-toc-anchor {"), "blok ini memang override desktop Floating ToC");
     const m = /\.floating-toc-anchor\.floating-toc-anchor--modal \{([^}]*)\}/.exec(block);
     assert.ok(m, "rule .floating-toc-anchor.floating-toc-anchor--modal di dalam @media (min-width: 769px)");
-    assert.match(m[1], /right:\s*8px/, "desktop: geser ke kanan (celah dari tepi teks editor)");
+    // + lebar panel komentar samping bila terbuka (--cmt-side-w, default 0)
+    assert.match(m[1], /right:\s*calc\(8px \+ var\(--cmt-side-w, 0px\)\)/, "desktop: geser ke kanan (celah dari tepi teks editor)");
     assert.strictEqual(/z-index/.test(m[1]), false, "z-index tetap 45: anchor dirender di dalam root NoteModal (konteks tumpuk z 1000)");
     assert.ok(block.indexOf(".floating-toc-anchor.floating-toc-anchor--modal {") > block.indexOf(".floating-toc-anchor {"), "varian setelah override base desktop");
   });
@@ -370,7 +371,8 @@ test("Floating ToC — NoteModal (mode edit) menggantikan kolom samping NoteToc"
   });
 
   await t.test("FloatingToc dirender langsung di root modal (setelah area scroll), gating !focusMode & heading ≥ 2", () => {
-    assert.match(noteModalCode, /\}, inner\), !focusMode && tocItems\.length >= 2 && \/\*#__PURE__\*\/React\.createElement\(FloatingToc, \{\s*items: tocItems,\s*activeIdx: tocActiveIdx,\s*onJump: jumpToEditorHeading,\s*onOpen: syncEditorToc,\s*className: "floating-toc-anchor--modal"\s*\}\)/);
+    // Komentar (PR 3): area scroll + panel samping dibungkus baris flex; gelembung seleksi sesudahnya.
+    assert.match(noteModalCode, /\}, inner\), cmtWide \? cmtPanelEl : null\), cmtNote && \/\*#__PURE__\*\/React\.createElement\(CommentSelectionBubble, \{\s*containerRef: paperWrapRef,[\s\S]*?\}\), !focusMode && tocItems\.length >= 2 && \/\*#__PURE__\*\/React\.createElement\(FloatingToc, \{\s*items: tocItems,\s*activeIdx: tocActiveIdx,\s*onJump: jumpToEditorHeading,\s*onOpen: syncEditorToc,\s*className: "floating-toc-anchor--modal"\s*\}\)/);
   });
 
   await t.test("daftar heading dari dokumen editor; extractHeadings(content) hanya fallback sebelum editor siap", () => {
@@ -411,7 +413,7 @@ test("Floating ToC — NoteModal (mode edit) menggantikan kolom samping NoteToc"
   await t.test("scroll-spy mode edit: root = div scroll modal (bukan viewport) → jalan di layar pendek", () => {
     // Area scroll modal baru mulai di y≈182 (header+toolbar); pita relatif viewport tertutup header bila vh < ~455px.
     assert.match(noteModalCode, /const \[tocScrollEl, setTocScrollEl\] = React\.useState\(null\);/, "elemen scroll modal disimpan di state (callback ref)");
-    assert.match(noteModalCode, /\}, header, !focusMode && topFixed, \/\*#__PURE__\*\/React\.createElement\("div", \{\s*ref: setTocScrollEl,\s*style: \{\s*flex: 1,\s*overflowY: "auto",/, "ref dipasang di div scroll modal (flex:1; overflowY:auto) yang membungkus inner");
+    assert.match(noteModalCode, /\}, header, !focusMode && topFixed, \/\*#__PURE__\*\/React\.createElement\("div", \{\s*style: \{\s*flex: 1,\s*minHeight: 0,\s*display: "flex"\s*\}\s*\}, \/\*#__PURE__\*\/React\.createElement\("div", \{\s*ref: setTocScrollEl,\s*style: \{\s*flex: 1,\s*overflowY: "auto",\s*minHeight: 0,\s*minWidth: 0,/, "ref dipasang di div scroll modal (flex:1; overflowY:auto) yang membungkus inner");
     assert.match(noteModalCode, /\{ root: tocScrollEl, rootMargin: "0px 0px -60% 0px", threshold: 0 \}/, "root = area scroll modal, pita = 40% teratas area scroll");
     assert.strictEqual(/root: null/.test(noteModalCode), false, "NoteModal tidak boleh memakai root viewport");
     assert.match(noteModalCode, /if \(focusMode \|\| !tocScrollEl \|\| !editorToc/, "tanpa elemen root → observer tidak dibuat");
@@ -579,8 +581,8 @@ test("jumpToEditorHeading — lompat ke DOM heading editor (fungsional)", async 
 });
 
 test("cache bust: app.css & service worker", async (t) => {
-  await t.test("index.html memuat app.css?v=356", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=356">/);
+  await t.test("index.html memuat app.css?v=360", () => {
+    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=360">/);
   });
   await t.test("sw.js CACHE di-bump untuk floating ToC (v332 atau lebih baru)", () => {
     const m = swJs.match(/^const CACHE = "taskflow-v(\d+)-[^"]+";/m);

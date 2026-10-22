@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v452-slash-menu-dismiss";
+const CACHE = "taskflow-v456-focus-filter";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
@@ -30,6 +30,7 @@ const STATIC = [
   "/static/offline/wsmanage.js",
   "/static/offline/introgate.js",
   "/static/offline/accountbanner.js",
+  "/static/offline/emailadmin.js",
   "/static/offline/focuspage.js",
   "/static/offline/pomologic.js",
   "/static/offline/pomolog.js",
@@ -73,6 +74,8 @@ const STATIC = [
   "/static/offline/chatrepo.js",
   "/static/offline/chatroutes.js",
   "/static/offline/commentroutes.js",
+  "/static/offline/commentui.js",
+  "/static/offline/commenthighlight.js",
   "/static/vendor/tldraw/index.html",
   "/static/vendor/tldraw/assets/index.js",
   "/static/vendor/tldraw/assets/index.css",

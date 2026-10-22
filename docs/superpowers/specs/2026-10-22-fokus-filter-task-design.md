@@ -147,7 +147,10 @@ Chip cepat (P1–P3, Q1, Q3) dan `time` tidak dihitung karena sudah terlihat lan
 
 Dari `scope = tasks.filter(t => inTodayScope(t, { todayISO, focusTaskId }))`:
 - `target` = task aktif (bila ada di `scope`) lalu task ⭐ lainnya. Diurutkan dengan `comparePriority` (§6.4), task aktif selalu pertama.
-- `pool` = `scope` tanpa anggota `target`. Hanya `pool` yang disaring dan dikelompokkan.
+- `pool` = `scope` tanpa anggota `target`, dan tanpa task berulang yang punya kejadian hari ini. Hanya `pool` yang disaring dan dikelompokkan.
+  - "Punya kejadian hari ini" = `recurrence_type` + `recurrence_end_date` ada dan `computeOccurrences` untuk hari ini tidak kosong.
+  - Dihitung sebelum pengecualian hari ini: setelah kejadian hari ini ditandai done/skipped, task itu tetap tidak masuk `pool` (tidak tampil dua kali dengan "Berulang hari ini").
+  - Target tidak terpengaruh: task berulang yang ⭐ atau aktif tetap di Target.
 - Header halaman (`headerSummary.count`, "N tugas") tetap memakai `scope.length`, dan estimasi tetap dijumlahkan dari `scope` seperti sekarang.
 
 ### 6.2 `matches(task, filter, opts)`
@@ -205,7 +208,8 @@ Dari atas ke bawah:
   - `onToggleStar(task)` menampilkan tombol ⭐ di baris, sebelum tombol Fokus/Aktif:
     - `type="button"`, kelas `ftask-star`, ikon `star` dengan fill bila `task.is_focused`;
     - `aria-pressed={!!task.is_focused}`;
-    - `aria-label` "Tandai sebagai target hari ini" / "Lepas dari target hari ini";
+    - `aria-label` konstan "Target hari ini" (keadaan lewat `aria-pressed`, supaya pembaca layar tidak membaca label dan status yang saling bertentangan);
+    - `title` "Tandai sebagai target hari ini" / "Lepas dari target hari ini" (teks aksi);
     - `stopPropagation` agar baris tidak ikut terbuka.
   - `hideProject` (true di dalam kelompok) menyembunyikan info project di meta, karena sudah tertulis di judul kelompok.
 - `TodayFocusView` menerima prop baru `onToggleFocus` (App meneruskan `handleToggleFocus`) dan `sharedLists`.
@@ -217,8 +221,13 @@ Dari atas ke bawah:
 - `FocusSectionHead` dengan glyph bintang, judul "Target hari ini", dan jumlah.
 - Berisi `FocusTaskItem` untuk task di `target`, dengan latar lembut aksen (`.focus-target`). Info project tetap tampil.
 - Saat Mode Zen aktif, task ⭐ non-aktif mendapat `zenHidden` seperti sekarang, dan task aktif tetap tampil terbuka.
+- Bila Target tidak memuat task aktif (misalnya task aktif diselesaikan dari tempat lain saat Work berjalan), seluruh seksi Target mendapat `is-zen-hidden` + `aria-hidden` (kelas ada di `section.focus-section` yang membungkus `.focus-target`).
 
 ### 7.4 `FocusFilterBar`
+
+- Props selain state filter dan handler:
+  - `children`: lembar filter (`FocusFilterSheet`), dirender di dalam baris cari (`position: relative`) supaya panel desktop berjangkar tepat di bawah tombol Filter;
+  - `zenClass` dan `zenHidden`: kelas Zen dan `aria-hidden` untuk seluruh bar (§7.8).
 
 Tiga baris, masing-masing setinggi satu kontrol, `flex-shrink: 0`:
 1. **Tab waktu.** Grup tombol `role="group"` `aria-label="Waktu"`, tiga tombol `aria-pressed`: "Semua N", "Hari ini N", "Terlambat N" (angka dari `timeCounts`, `tabular-nums`). Tombol aktif berlatar gelap.
@@ -246,6 +255,7 @@ Tiga baris, masing-masing setinggi satu kontrol, `flex-shrink: 0`:
   - **Aksi (menempel di bawah):** "Reset" (mengembalikan status/pri/quad/proj ke default, tanpa menyentuh `time` dan `query`) dan "Tampilkan N task" (N = hasil `matches` penuh, menutup lembar).
 - Perubahan berlaku seketika; tidak ada tombol "Terapkan" terpisah.
 - Menutup: Esc, ketuk latar/di luar panel, atau tombol Tampilkan. Fokus kembali ke tombol Filter.
+- Lembar juga ditutup (state `sheetOpen` menjadi `false`, bukan sekadar disamarkan) setiap kali bar filter tidak dirender: saat memuat, cakupan/`pool` kosong, atau Mode Zen aktif. Dengan begitu lembar tidak terbuka sendiri saat bar muncul lagi. Fokus tidak dikembalikan ke tombol yang sudah lepas dari DOM atau tersembunyi (`aria-hidden`).
 - Saat dibuka, fokus pindah ke chip pertama. Tab berputar di dalam dialog selama terbuka.
 - Di HP, scroll halaman dikunci selama lembar terbuka.
 
@@ -267,8 +277,8 @@ Tiga baris, masing-masing setinggi satu kontrol, `flex-shrink: 0`:
 ### 7.8 Mode Zen
 
 - Saat `zenOn`, `FocusFilterBar`, semua kelompok, catatan, dan pesan kosong mendapat `is-zen-hidden` dan `aria-hidden`. Saat `zenReveal`, mereka mendapat `is-zen-shown`, memakai kelas yang sudah ada.
-- `zenHiddenCount` = jumlah seluruh `scope` selain task aktif + `recurringToday.length` (tidak terpengaruh filter).
-- Lembar filter yang terbuka ditutup saat Zen menjadi aktif.
+- `zenHiddenCount` = jumlah id unik dari Target ∪ `pool` ∪ baris "Berulang hari ini" yang tampil, dikurangi task aktif. Tiap task dihitung sekali, tidak terpengaruh filter. Task berulang yang kejadian hari ininya sudah done/skipped tidak tampil, jadi tidak dihitung.
+- Lembar filter yang terbuka ditutup saat Zen menjadi aktif (§7.5).
 
 ### 7.9 CSS (`static/app.css`)
 

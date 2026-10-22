@@ -43,7 +43,7 @@ Semua pilihan diingat per perangkat. Cakupan "hari ini" dihitung dari satu fungs
   - Opsi project "Semua"; aksi lembar "Reset" dan "Tampilkan N task".
   - Pil: "Status: Next, Waiting" (label status digabung ", ") atau "Semua status", `aria-label` "Hapus filter <label>". Chip "Reset".
   - Pesan: "Tidak ada task urgent!" + "Semua Q1, terlambat, dan deadline hari ini sudah selesai."; "Semua task hari ini sudah ada di Target."; "Tidak ada task yang cocok dengan filter ini." + tombol "Reset filter"; "N task berstatus lain disembunyikan · Tampilkan".
-  - ⭐: "Tandai sebagai target hari ini" / "Lepas dari target hari ini".
+  - ⭐ (ruling Task 4): `aria-label` tetap "Target hari ini" + `aria-pressed`; `title` = "Tandai sebagai target hari ini" / "Lepas dari target hari ini".
   - Label kelompok: "Pribadi", "Workspace", "Tanpa project".
 - **Kombinasi filter:** "atau" di dalam satu jenis, "dan" antarjenis. `status: []` = semua status. Query dicocokkan dengan `toLocaleLowerCase("id")`, spasi berulang dirapatkan, dan `trim()`.
 - **Badge** `nonDefaultCount`:
@@ -262,7 +262,7 @@ Semua pilihan diingat per perangkat. Cakupan "hari ini" dihitung dari satu fungs
 - Produces: `renderItem(task, { inGroup })` di `TodayFocusView` (dipakai Task 5); kelas DOM `.focus-target`, `.focus-group[.is-collapsed]`, `.focus-group-head[aria-expanded]`, `.ftask-star[aria-pressed]`.
 
 - [ ] **Step 1: Tulis test yang gagal** (sumber):
-  - `FocusTaskItem`: tanda tangan memuat `onToggleStar` dan `hideProject`; sumber memuat `ftask-star`, `aria-pressed`, kedua `aria-label` ⭐, `stopPropagation`, dan `focusfilter.timeBucket(`; tidak ada `task.is_overdue`.
+  - `FocusTaskItem`: tanda tangan memuat `onToggleStar` dan `hideProject`; sumber memuat `ftask-star`, `aria-pressed`, `aria-label` konstan "Target hari ini" + kedua `title` ⭐, `stopPropagation`, dan `focusfilter.timeBucket(`; tidak ada `task.is_overdue`.
   - `FocusTargetSection` memuat `"Target hari ini"` dan `focus-target`.
   - `FocusTaskGroups` memuat `aria-expanded`, `aria-controls`, `focus-group-head`, dan `is-collapsed`.
   - `TodayFocusView` memuat `splitTarget(`, `groupTasks(`, `readCollapsed(`, `writeCollapsed(`, `sharedLists`, `onToggleFocus`, teks pesan kosong baru, dan "Semua task hari ini sudah ada di Target."; tidak ada lagi `t.quadrant === "Q1" || t.is_overdue`.
