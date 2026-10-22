@@ -127,13 +127,30 @@
       }
     }
 
+    // Registration langsung dari navigator.serviceWorker (dipakai pengecekan manual sebelum register() selesai).
+    async function swRegistration() {
+      if (!sw || typeof sw.getRegistration !== "function") return null;
+      try {
+        return (await sw.getRegistration()) || null;
+      } catch (_) {
+        return null;
+      }
+    }
+
     // check({ manual }) — tidak pernah menolak.
     async function check(options) {
       const manual = !!(options && options.manual);
       try {
         if (manual) say("checking");
-        const reg = getRegistration();
-        if (reg && controlled()) {
+        let reg = getRegistration();
+        if (controlled()) {
+          // Selisih versi tidak pernah memunculkan banner langsung di halaman terkendali, juga saat
+          // registration belum diketahui (mis. visibilitychange sebelum register() selesai).
+          if (!reg && manual) reg = await swRegistration();
+          if (!reg) {
+            if (manual) say("checkFailed");
+            return;
+          }
           await (manual ? checkManual(reg) : checkAuto(reg));
           return;
         }

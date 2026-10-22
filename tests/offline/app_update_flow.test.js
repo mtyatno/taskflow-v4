@@ -119,6 +119,8 @@ function setup({ reg = null, controlled = true, sw, version = PAGE } = {}) {
   return { ...deps, reg, u: au.createAppUpdater(deps) };
 }
 
+const toasts = (t) => t.toast.calls.map(([m, type]) => [m, type]);
+
 test("TEXT dan APPLY_FALLBACK_MS sesuai spec", () => {
   assert.equal(au.APPLY_FALLBACK_MS, 5000);
   assert.deepEqual({ ...au.TEXT }, {
@@ -287,6 +289,43 @@ test("8. tidak terkendali + versi beda → onReady; sw ada tapi getRegistration(
   assert.equal(t4.onReady.calls.length, 0);
 });
 
+// Halaman terkendali tetapi registration belum diketahui (visibilitychange sebelum register() selesai):
+// selisih versi tetap tidak boleh memunculkan banner langsung (spec §3.1).
+test("8b. auto check terkendali + getRegistration() null + versi beda → onReady tidak dipanggil, tanpa toast", async () => {
+  const t = setup({ reg: null, version: NEWER });
+  await assert.doesNotReject(t.u.check());
+  assert.equal(t.onReady.calls.length, 0);
+  assert.equal(t.toast.calls.length, 0);
+  assert.equal(t.fetch.calls.length, 0);
+});
+
+test('8c. manual terkendali + getRegistration() null, tanpa sw.getRegistration → toast checkFailed "error"', async () => {
+  const t = setup({ reg: null, version: NEWER });
+  assert.equal(typeof t.sw.getRegistration, "undefined");
+  await assert.doesNotReject(t.u.check({ manual: true }));
+  assert.deepEqual(toasts(t), [[T.checking, "info"], [T.checkFailed, "error"]]);
+  assert.equal(t.onReady.calls.length, 0);
+});
+
+test('8d. manual terkendali + getRegistration() null, sw.getRegistration() → reg menunggu → onReady + toast ready "info"', async () => {
+  const reg = fakeReg({ waiting: fakeWorker("installed") });
+  const sw = { controller: fakeWorker("activated"), getRegistration: spy(() => Promise.resolve(reg)) };
+  const t = setup({ reg: null, sw, version: NEWER });
+  await t.u.check({ manual: true });
+  assert.equal(sw.getRegistration.calls.length, 1);
+  assert.equal(reg.update.calls.length, 1);
+  assert.deepEqual(toasts(t), [[T.checking, "info"], [T.ready, "info"]]);
+  assert.equal(t.onReady.calls.length, 1);
+
+  // sw.getRegistration() menolak atau tidak menemukan registration → checkFailed.
+  for (const getRegistration of [() => Promise.reject(new Error("x")), () => Promise.resolve(undefined)]) {
+    const t2 = setup({ reg: null, sw: { controller: fakeWorker("activated"), getRegistration }, version: NEWER });
+    await assert.doesNotReject(t2.u.check({ manual: true }));
+    assert.deepEqual(toasts(t2), [[T.checking, "info"], [T.checkFailed, "error"]]);
+    assert.equal(t2.onReady.calls.length, 0);
+  }
+});
+
 test('9. apply dengan reg.waiting → postMessage({type:"SKIP_WAITING"}) ke worker menunggu, bukan ke sw.controller; reload setelah 5000 ms (bug B)', () => {
   const waiting = fakeWorker("installed");
   const reg = fakeReg({ waiting });
@@ -328,8 +367,6 @@ test("10. apply tanpa SW menunggu → reload langsung", () => {
   t2.u.apply();
   assert.equal(t2.reload.calls.length, 1);
 });
-
-const toasts = (t) => t.toast.calls.map(([m, type]) => [m, type]);
 
 test('11a. manual: waiting → toast ready "info"', async () => {
   // SW menunggu sudah ada (banner sempat ditutup); update() tidak menemukan versi lebih baru lagi.
