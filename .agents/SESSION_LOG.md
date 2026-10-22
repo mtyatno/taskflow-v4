@@ -4059,3 +4059,9 @@
 ## 2026-10-23 05:10 WIB — Claude — merge bug lampiran gambar 📎 (#89)
 - Bapak memilih "Merge #89 saja dulu". Dua kali merge `main` (#88 v463, #90 v464) → SW **v465** `taskflow-v465-note-lampiran-gambar` / `app.css?v=363`; CI Tests hijau di 5109987; #89 di-merge (f61c3c8).
 - **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web`. Masih terbuka: gambar note 401 di browser tanpa cookie (opsi di CURRENT_STATE).
+
+## 2026-10-23 05:40 WIB — Claude — Nextcloud lampiran note di thread terpisah
+- **Task:** Bapak: fast track — panggilan Nextcloud dijalankan di thread terpisah; lalu lampiran note baru ke disk VPS (PR berikutnya).
+- **Changes:** `asyncio.to_thread` untuk upload/view/delete/pub lampiran note + ekspor DOCX; tes `tests/test_nextcloud_offloop.py` (5, gagal di kode lama); pytest 1167.
+- **Files Touch:** webapp.py, tests/test_nextcloud_offloop.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR; deploy = restart `taskflow-web` saja)

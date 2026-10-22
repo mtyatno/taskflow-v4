@@ -236,6 +236,14 @@ def _nc_ensure_folder() -> None:
         if r.status_code not in (201, 405):  # 201=created, 405=already exists
             raise HTTPException(status_code=500, detail=f"Nextcloud folder error: {r.status_code} on {path}")
 
+def _nc_put_file(nc_path: str, content: bytes, mime_type: str):
+    """Pastikan folder ada lalu PUT file ke Nextcloud. Sinkron (requests) — panggil lewat asyncio.to_thread
+    dari endpoint async supaya event loop server tidak tertahan selama Nextcloud memproses."""
+    import requests as _req
+    _nc_ensure_folder()
+    return _req.put(_nc_dav_url(nc_path), data=content, auth=_nc_auth(), timeout=60,
+                    headers={"Content-Type": mime_type})
+
 # ── Chat SSE broadcast bus ─────────────────────────────────────────────────────
 chat_subscribers: dict[int, set[asyncio.Queue]] = defaultdict(set)
 # DM: conversation_id → {(user_id, queue)} — user_id disimpan agar bisa tahu
@@ -6759,9 +6767,8 @@ async def upload_note_attachment(note_id: int, file: UploadFile = FastAPIFile(..
     ext = Path(original_name).suffix or ""
     nc_path = f"{NEXTCLOUD_FOLDER}/{uuid.uuid4()}{ext}"
 
-    _nc_ensure_folder()
-    r = _req.put(_nc_dav_url(nc_path), data=content, auth=_nc_auth(), timeout=60,
-                 headers={"Content-Type": mime_type})
+    # Nextcloud lambat → di thread terpisah agar request lain (pengguna lain) tidak ikut menunggu
+    r = await asyncio.to_thread(_nc_put_file, nc_path, content, mime_type)
     if r.status_code not in (200, 201, 204):
         raise HTTPException(status_code=500, detail=f"Upload ke Nextcloud gagal: {r.status_code}")
 
@@ -6892,7 +6899,7 @@ async def delete_note_attachment(att_id: int, user=Depends(get_current_user)):
         if att["storage"] == "local":
             _delete_media_files(att)
         else:
-            r = _req.delete(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=10)
+            r = await asyncio.to_thread(_req.delete, _nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=10)
             if r.status_code not in (200, 204, 404):  # 404 = already deleted, still OK
                 raise HTTPException(status_code=500, detail=f"Nextcloud delete gagal: {r.status_code}")
         conn.execute("DELETE FROM note_attachments WHERE id=?", (att_id,))
@@ -6912,8 +6919,10 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user_sse)):
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
         urls = _media_urls(att["id"], bool(att["poster_key"]), int(_time.time()))
         return RedirectResponse(urls["play_url"], status_code=302)
-    r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30, stream=True)
+    # koneksi + header di thread; badan di-stream oleh Starlette (iterator sinkron → threadpool)
+    r = await asyncio.to_thread(_req.get, _nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30, stream=True)
     if r.status_code != 200:
+        r.close()
         raise HTTPException(status_code=404, detail="File tidak ditemukan di Nextcloud")
     safe_name = att["original_name"].replace('"', '_').replace('\r', '').replace('\n', '')
     return StreamingResponse(
@@ -7656,7 +7665,8 @@ async def export_scratchpad_docx(note_id: int, user=Depends(get_current_user)):
     drawing_res = _make_drawing_resolver(uid)
     image_res = _make_image_resolver(uid, note_id=note_id)
     try:
-        doc_io = markdown_to_docx(title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res,
+        # resolver gambar mengambil lampiran dari Nextcloud (sinkron) → seluruh ekspor di thread terpisah
+        doc_io = await asyncio.to_thread(markdown_to_docx, title, content, meta, drawing_resolver=drawing_res, image_resolver=image_res,
                                  media_resolver=_make_media_resolver(uid, note_id))
         safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
         return Response(
@@ -7750,7 +7760,7 @@ async def export_scratchpad_docx_live(req: NoteExportLiveRequest, user=Depends(g
         return db_img_res(src, alt=alt)
 
     try:
-        doc_io = markdown_to_docx(title, content, drawing_resolver=combined_drawing_res, image_resolver=combined_image_res,
+        doc_io = await asyncio.to_thread(markdown_to_docx, title, content, drawing_resolver=combined_drawing_res, image_resolver=combined_image_res,
                                  media_resolver=_make_media_resolver(uid, req.note_id))
         safe_name = re.sub(r'[\\/*?:"<>|]', '', title).strip() or "Catatan"
         return Response(
@@ -9294,7 +9304,7 @@ async def view_published_attachment(att_id: str, request: Request):
         # Nextcloud storage check
         if NEXTCLOUD_URL and nc_path:
             try:
-                r = _req.get(_nc_dav_url(nc_path), auth=_nc_auth(), timeout=15)
+                r = await asyncio.to_thread(_req.get, _nc_dav_url(nc_path), auth=_nc_auth(), timeout=15)
                 if r.status_code == 200:
                     return Response(
                         content=r.content,
