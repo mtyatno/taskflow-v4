@@ -252,8 +252,10 @@ test("FocusTaskGroups: judul kelompok, terlipat tanpa daftar, id aria-controls u
   assert.deepEqual(heads.map(h => h.props["aria-expanded"]), [true, false, true]);
   assert.ok(heads.every(h => h.props.type === "button"));
   const ids = heads.map(h => h.props["aria-controls"]);
-  assert.equal(new Set(ids).size, 3, "aria-controls unik per kelompok");
-  assert.ok(ids.every(id => /^[A-Za-z][\w-]*$/.test(id)), "id aman (slug)");
+  assert.equal(ids[1], undefined, "kelompok terlipat: daftarnya tidak dirender, jadi tanpa aria-controls");
+  const openIds = [ids[0], ids[2]];
+  assert.equal(new Set(openIds).size, 2, "aria-controls unik per kelompok terbuka");
+  assert.ok(openIds.every(id => /^[A-Za-z][\w-]*$/.test(id)), "id aman (slug)");
 
   // teks judul: "‹ws› ·", nama project, jumlah
   const ws = findAll(heads[0], n => hasClass(n, "focus-group-ws"));
@@ -267,12 +269,41 @@ test("FocusTaskGroups: judul kelompok, terlipat tanpa daftar, id aria-controls u
   // daftar hanya untuk kelompok terbuka; id daftar = aria-controls judulnya
   const lists = findAll(tree, n => n.type === "div" && hasClass(n, "ftask-list"));
   assert.equal(lists.length, 2);
-  assert.deepEqual(lists.map(l => l.props.id), [ids[0], ids[2]]);
+  assert.deepEqual(lists.map(l => l.props.id), openIds);
   assert.deepEqual(calls.map(c => c[0]).sort(), [1, 2, 3], "task kelompok terlipat (id 4) tidak dirender");
   assert.ok(calls.every(c => c[1] === true), "renderItem dipanggil dengan inGroup: true");
 
   heads[0].props.onClick();
   assert.deepEqual(toggled, [groups[0].key]);
+});
+
+test("FocusTaskGroups: aria-controls hanya saat terbuka dan selalu menunjuk id yang dirender (review akhir 3)", () => {
+  const { FocusTaskGroups } = loadComponents(["FocusTaskGroups"], { React: fakeReact, FocusGlyph: "FocusGlyph" });
+  const groups = ff.groupTasks([
+    { id: 1, title: "a", project: "Alurik", list_id: null },
+    { id: 2, title: "b", project: "Rumah", list_id: null },
+    { id: 3, title: "c", project: "Kampanye", list_id: 5 }
+  ], [{ id: 5, name: "Tim Marketing" }]);
+  const render = collapsed => FocusTaskGroups({ groups, collapsed: new Set(collapsed), onToggleGroup: NOOP, renderItem: () => ({ type: "item", props: {}, children: [] }) });
+  const heads = tree => findAll(tree, n => n.type === "button" && hasClass(n, "focus-group-head"));
+  const listIds = tree => findAll(tree, n => n.props.id).map(n => n.props.id);
+
+  // semua terbuka: tiap judul menunjuk daftar yang ada
+  let tree = render([]);
+  assert.ok(heads(tree).every(h => h.props["aria-expanded"] === true && typeof h.props["aria-controls"] === "string"));
+  assert.ok(heads(tree).every(h => listIds(tree).includes(h.props["aria-controls"])), "setiap aria-controls punya elemen ber-id");
+
+  // sebagian terlipat: judul terlipat tanpa aria-controls, yang terbuka tetap menunjuk id yang dirender
+  tree = render([groups[0].key, groups[2].key]);
+  const hs = heads(tree);
+  assert.deepEqual(hs.map(h => h.props["aria-expanded"]), [false, true, false]);
+  assert.deepEqual(hs.map(h => h.props["aria-controls"] === undefined), [true, false, true]);
+  assert.ok(hs.every(h => h.props["aria-controls"] === undefined || listIds(tree).includes(h.props["aria-controls"])));
+
+  // semua terlipat: tak ada daftar, tak ada aria-controls
+  tree = render(groups.map(g => g.key));
+  assert.equal(listIds(tree).length, 0);
+  assert.ok(heads(tree).every(h => h.props["aria-controls"] === undefined));
 });
 
 test("TodayFocusView: Target/pool dari scope, kelompok, lipat tersimpan, pesan baru", () => {
@@ -677,6 +708,38 @@ test("app.css: bar filter, chip, badge, lembar HP/desktop, tema gelap, reduced-m
   assert.match(appCss, /@media \(prefers-reduced-motion: reduce\) \{\s*\.focus-filter-sheet, \.focus-filter-backdrop \{ animation: none; \}\s*\}/);
 });
 
+test("app.css: :hover blok Fokus (filter, ⭐, kelompok) hanya di @media (hover: hover); .is-on gelap punya border-color aksen (review akhir 1)", () => {
+  // Pindai per baris: lacak @media tingkat atas yang sedang terbuka, kumpulkan setiap aturan :hover blok Fokus.
+  let media = null;
+  const hovers = [];
+  for (const line of appCss.split("\n")) {
+    const open = line.match(/^@media ([^{]+)\{\s*$/);
+    if (open) { media = open[1].trim(); continue; }
+    if (media && line.startsWith("}")) { media = null; continue; }
+    if (/:hover/.test(line) && /\.(focus-filter|focus-group-head|ftask-star)/.test(line)) hovers.push({ line: line.trim(), media });
+  }
+  // semua aturan :hover blok ini yang dikenal (terang + gelap) memang terpindai, bukan lolos kosong
+  for (const needle of [
+    ".ftask-star:hover", ".focus-filter-time button:hover", ".focus-filter-clear:hover", ".focus-filter-btn:hover",
+    '[data-theme="dark"] .focus-filter-btn:hover', ".focus-filter-chip:hover", '[data-theme="dark"] .focus-filter-chip:hover',
+    ".focus-filter-sheet-actions .focus-filter-sheet-go:hover"
+  ]) assert.ok(hovers.some(h => h.line.startsWith(needle)), `aturan ${needle} harus ada`);
+  for (const h of hovers) assert.equal(h.media, "(hover: hover)", `:hover harus di dalam @media (hover: hover): ${h.line}`);
+  // tampilan hover desktop (terang) tidak berubah
+  assert.match(appCss, /@media \(hover: hover\) \{\n  \.focus-filter-chip:hover \{ border-color: #d6d6cc; \}/);
+  assert.match(appCss, /@media \(hover: hover\) \{\n  \.ftask-star:hover \{ background: var\(--bg-primary\); \}\n\}/);
+
+  // .is-on gelap: border aksen eksplisit, dan tetap menang walau hover berlaku (spesifisitas sama, hover lebih dulu di berkas)
+  for (const cls of ["chip", "btn"]) {
+    const on = appCss.match(new RegExp(`\\n\\[data-theme="dark"\\] \\.focus-filter-${cls}\\.is-on[^{]*\\{([^}]*)\\}`));
+    assert.ok(on, `aturan .is-on gelap untuk ${cls}`);
+    assert.match(on[1], /border-color: #A8C500/, `.is-on gelap ${cls} harus ber-border-color aksen`);
+    const hoverAt = appCss.indexOf(`[data-theme="dark"] .focus-filter-${cls}:hover`);
+    const onAt = appCss.indexOf(`[data-theme="dark"] .focus-filter-${cls}.is-on`);
+    assert.ok(hoverAt >= 0 && onAt > hoverAt, `hover gelap ${cls} harus mendahului .is-on gelap`);
+  }
+});
+
 function barProps(over = {}) {
   return {
     filter: ff.normalizeFilter(null), query: "", counts: { all: 3, today: 2, late: 1 }, badge: 0, pills: [], sheetOpen: false,
@@ -778,6 +841,19 @@ test("FocusFilterBar: pil/Reset yang diklik hilang → fokus pindah ke chip pert
   const [chips] = findAll(tree, n => hasClass(n, "focus-filter-chips"));
   findAll(chips, n => hasClass(n, "is-pill"))[0].props.onClick();
   assert.equal(timers.length, 1, "fokus dipindah setelah render ulang");
+});
+
+test("FocusFilterBar: fokus pasca-hilang tanpa menggulir halaman (preventScroll, review akhir 2)", () => {
+  const { tree, timers } = renderBar({ pills: [{ key: "proj", kind: "proj", label: "Pribadi · Alurik" }] });
+  const [chips] = findAll(tree, n => hasClass(n, "focus-filter-chips"));
+  const calls = [];
+  const first = { focus: (...a) => calls.push(a) };
+  chips.props.ref.current = { isConnected: true, querySelector: sel => (sel === "button" ? first : null) };
+  findAll(chips, n => hasClass(n, "is-pill"))[0].props.onClick();
+  assert.equal(timers.length, 1);
+  timers.shift()();
+  assert.equal(calls.length, 1, "chip pertama difokus");
+  assert.deepEqual(calls[0], [{ preventScroll: true }]);
 });
 
 function sheetProps(over = {}) {
@@ -1220,6 +1296,31 @@ test("TodayFocusView: 'Reset filter' / 'Tampilkan' hilang setelah diklik → fok
   v.doc.activeElement = v.doc.body;
   v.timers.shift()();
   assert.equal(btn.focused, 1);
+});
+
+test("TodayFocusView: fokus ke tombol Filter pasca-hilang tanpa menggulir halaman (preventScroll, review akhir 2)", () => {
+  const calls = [];
+  const btn = { isConnected: true, focus: (...a) => calls.push(a) };
+  const v = mountFocusView({ tasks: T5_TASKS });
+  v.bar.props.filterBtnRef.current = btn;
+  findAll(v.hiddenNote, n => n.type === "button")[0].props.onClick();
+  v.render();
+  v.doc.activeElement = v.doc.body;
+  v.timers.shift()();
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0], [{ preventScroll: true }]);
+});
+
+test("helper fokus-pasca-hilang di sumber: tidak ada .focus() tanpa preventScroll (review akhir 2)", () => {
+  for (const [fn, name] of [["FocusFilterBar", "keepChipFocus"], ["TodayFocusView", "keepFilterFocus"]]) {
+    const src = fnSource(fn);
+    const start = src.indexOf(`const ${name} = () => setTimeout(`);
+    assert.ok(start >= 0, name);
+    const body = src.slice(start, src.indexOf("}, 0);", start));
+    assert.ok(body.includes(".focus("), `${name} memanggil focus`);
+    assert.ok(!body.includes(".focus()"), `${name}: .focus() polos akan menggulir halaman`);
+    assert.match(body, /\.focus\(\{\s*preventScroll: true\s*\}\)/);
+  }
 });
 
 // ── Fix putaran 1 Task 5 ─────────────────────────────────────────────────────────────────────

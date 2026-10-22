@@ -59,7 +59,7 @@ Semua pilihan diingat per perangkat. Cakupan "hari ini" dihitung dari satu fungs
   - di ≤ 768 px scroll `body` dikunci selama lembar terbuka;
   - target sentuh ≥ 36 px; `prefers-reduced-motion` mematikan transisi chevron dan lembar.
 - **Rilis:**
-  - SW + `app.css?v=` naik ke nomor kosong berikutnya. Saat plan ditulis: `main` v452 / 356, draft #77 v452 / 357. Jadi pakai **v454 `taskflow-v454-focus-filter`, `?v=358`**, dan cek ulang di Task 6.
+  - SW + `app.css?v=` naik ke nomor kosong berikutnya. Saat plan ditulis: `main` v452 / 356, draft #77 v452 / 357. Jadi pakai **v454 `taskflow-v454-focus-filter`, `?v=358`**, dan cek ulang di Task 6. (dirilis sebagai v456 / `?v=360`)
   - Ubah di `sw.js` `CACHE`, `index.html` (`__SW_VERSION` di skrip awal body + fallback About + link css), `webapp.py` `sw_cache`, `tests/test_version.py`, dan semua tes yang mengunci versi (`grep -rl "v452" tests`).
   - Deploy: file statis; restart `taskflow-web`.
 - **Verifikasi standar:** `export PATH=/home/claude/venv-alurik/bin:$PATH`, lalu:
@@ -248,7 +248,7 @@ Semua pilihan diingat per perangkat. Cakupan "hari ini" dihitung dari satu fungs
     - `renderItem(task, { inGroup })` membuat `FocusTaskItem` dengan props lama + `onToggleStar: t => onToggleFocus?.(t.id)` + `hideProject: inGroup`;
     - pool dirender lewat `groupTasks(pool, sharedLists)` **tanpa filter dulu** (filter di Task 5);
     - pesan kosong cakupan memakai teks baru; bila `pool` kosong tetapi target ada → "Semua task hari ini sudah ada di Target.";
-    - `zenHiddenCount` = `scope` selain task aktif + `recurringToday.length`. Seksi Target, judul kelompok, dan catatan ikut kelas zen seperti item.
+    - `zenHiddenCount` = `scope` selain task aktif + `recurringToday.length`. Seksi Target, judul kelompok, dan catatan ikut kelas zen seperti item. (digantikan: lihat spec §7.8)
   - App: teruskan `sharedLists` dan `onToggleFocus: handleToggleFocus` ke `TodayFocusView`.
 - Modify: `static/app.css`:
   - `.focus-target` (latar aksen lembut `rgba(168,197,0,0.10)`, radius 14, padding 8; varian gelap);
@@ -362,4 +362,4 @@ Semua pilihan diingat per perangkat. Cakupan "hari ini" dihitung dari satu fungs
   - ADR-027 di `DECISIONS.md`;
   - entri `CURRENT_STATE` (ganti entri "SPEC DITULIS" untuk `claude/fokus-filter`): versi, isi, verifikasi, deploy = restart `taskflow-web`;
   - entri `SESSION_LOG`.
-- [ ] **Step 5: Commit** — `chore(fokus): SW v454 + E2E filter halaman Fokus + ADR-027`
+- [ ] **Step 5: Commit** — `chore(fokus): SW v454 + E2E filter halaman Fokus + ADR-027` (dirilis sebagai v456 / `?v=360`, pesan commit memakai `SW v456`)

@@ -2,7 +2,7 @@
 
 - **Tanggal:** 2026-10-22
 - **Basis kode:** `main` @ `c771b54` (mtyatno/taskflow-v4; SW v452, `app.css?v=356`)
-- **Status:** desain disetujui dalam sesi brainstorming 2026-10-21/22 (pemilik + Claude). Tata letak dipilih lewat prototipe interaktif: opsi A ditambah filter tersembunyi seperti opsi C. Spec tertulis ini menunggu review pemilik sebelum rencana implementasi dibuat.
+- **Status:** desain disetujui dalam sesi brainstorming 2026-10-21/22 (pemilik + Claude). Tata letak dipilih lewat prototipe interaktif: opsi A ditambah filter tersembunyi seperti opsi C. Spec tertulis disetujui pemilik 2026-10-22 05:29 WIB dan sudah diimplementasikan di branch `claude/fokus-filter` (SW v456); keputusan implementasi (rulings) sudah dilebur ke §6.1, §7.2, §7.4, §7.5, dan §7.8.
 - **Salinan:** repo `docs/superpowers/specs/2026-10-22-fokus-filter-task-design.md` dan Project claude.ai "alurik" `claude/spec-fokus-filter-task-2026-10-22.md`. Isi keduanya sama.
 - **Prototipe:** artifact "Filter Halaman Fokus" (versi 2), berisi 16 task contoh dengan kontrol yang benar-benar menyaring. Bila ada perbedaan, spec ini yang berlaku.
 - **Istilah:**
@@ -303,6 +303,7 @@ Tiga baris, masing-masing setinggi satu kontrol, `flex-shrink: 0`:
 - **JSON rusak / nilai asing** → `normalizeFilter` membuang yang tidak valid.
 - **Toggle ⭐ gagal (offline tanpa router lokal / error server):** toast error dari `handleToggleFocus`, dan tampilan tidak berubah.
 - **Task yang tidak di-render tetap bisa ditandai selesai di tempat lain;** daftar dibentuk ulang dari `tasks` setiap render.
+- **⭐ (`is_focused`) adalah kolom per task yang dibagi seluruh anggota workspace:** menandai task workspace dengan ⭐ memasukkannya ke "Target hari ini" semua anggota (semantik yang sudah ada, K3).
 - **Jumlah besar (ratusan task dalam cakupan):** semua fungsi O(n) per render, dengan `useMemo` atas `[tasks, filter, query, todayISO, focusTaskId, sharedLists]`. Tidak ada virtualisasi (di luar cakupan).
 
 ## 9. Pengujian

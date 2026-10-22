@@ -18,6 +18,7 @@ Screenshot terang + gelap: temporary_files/e2e_android_notification/ (di-.gitign
 """
 import json
 import os
+import re
 import shutil
 import sqlite3
 import sys
@@ -36,7 +37,7 @@ SHOTS = os.path.join(ROOT, "temporary_files", "e2e_android_notification")
 check = h.check
 # Nama cache SW saat ini dibaca dari static/sw.js (sebelumnya dikunci ke v450 sehingga basi setiap rilis).
 with open(os.path.join(ROOT, "static", "sw.js"), encoding="utf-8") as _f:
-    SW_VERSION = __import__("re").search(r'const CACHE = "([^"]+)"', _f.read()).group(1)
+    SW_VERSION = re.search(r'const CACHE = "([^"]+)"', _f.read()).group(1)
 ANDROID_MSG = ("Failed to construct 'Notification': Illegal constructor. "
                "Use ServiceWorkerRegistration.showNotification() instead.")
 ANDROID = """

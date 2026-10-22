@@ -11209,7 +11209,7 @@ function FocusTaskGroups({
       type: "button",
       className: "focus-group-head",
       "aria-expanded": !isCollapsed,
-      "aria-controls": listId,
+      "aria-controls": isCollapsed ? undefined : listId,
       onClick: () => onToggleGroup(group.key)
     }, React.createElement(FocusGlyph, {
       name: "chevron",
@@ -11266,7 +11266,9 @@ function FocusFilterBar({
   const keepChipFocus = () => setTimeout(() => {
     const row = chipsRef.current;
     const active = document.activeElement;
-    if (row && row.isConnected && (!active || active === document.body)) row.querySelector("button")?.focus();
+    if (row && row.isConnected && (!active || active === document.body)) row.querySelector("button")?.focus({
+      preventScroll: true
+    });
   }, 0);
   const times = [["all", "Semua"], ["today", "Hari ini"], ["late", "Terlambat"]];
   const quick = [...ff.QUICK_PRI.map(value => ["pri", value]), ...ff.QUICK_QUAD.map(value => ["quad", value])];
@@ -11696,7 +11698,9 @@ function TodayFocusView({
   const keepFilterFocus = () => setTimeout(() => {
     const btn = filterBtnRef.current;
     const active = document.activeElement;
-    if (btn && btn.isConnected && (!active || active === document.body)) btn.focus();
+    if (btn && btn.isConnected && (!active || active === document.body)) btn.focus({
+      preventScroll: true
+    });
   }, 0);
   const zenOn = window.TF.focuspage.zenActive({
     enabled: zenEnabled,
