@@ -123,9 +123,9 @@ test("FOCUS_GLYPHS: star, sliders, search dalam gaya garis glyph lain", () => {
   for (const key of ["star", "sliders", "search"]) {
     assert.match(block, new RegExp(`\\n  ${key}: '<`), `FOCUS_GLYPHS.${key} harus ada`);
   }
-  // star = garis; isian saat aktif datang dari CSS (.ftask-star.is-on), bukan dari path
+  // star = duotone gaya Alurik (garis + isian lembut .22); isian penuh saat aktif datang dari CSS (.ftask-star.is-on)
   const star = block.match(/\n  star: '([^']*)'/)[1];
-  assert.ok(!star.includes('fill="currentColor"'), "path star tidak mengisi sendiri");
+  assert.ok(star.includes('fill="currentColor" fill-opacity=".22"'), "path star duotone");
 });
 
 test("FocusTaskItem: sumber memuat tombol ⭐, hideProject, dan bucket lokal untuk deadline", () => {
@@ -260,7 +260,9 @@ test("FocusTaskGroups: judul kelompok, terlipat tanpa daftar, id aria-controls u
   // teks judul: "‹ws› ·", nama project, jumlah
   const ws = findAll(heads[0], n => hasClass(n, "focus-group-ws"));
   assert.equal(textOf(ws[0]), "Pribadi ·");
-  assert.equal(findAll(heads[0], n => hasClass(n, "focus-group-count"))[0].children[0], 2);
+  const count0 = findAll(heads[0], n => hasClass(n, "focus-group-count"))[0];
+  assert.equal(textOf(findAll(count0, n => hasClass(n, "focus-group-count-n"))[0]), "2");
+  assert.equal(textOf(findAll(count0, n => hasClass(n, "focus-group-count-unit"))[0]), " task");
   assert.ok(findAll(heads[0], n => n.type === "FocusGlyph" && n.props.name === "chevron").length === 1);
   assert.equal(textOf(findAll(heads[1], n => hasClass(n, "focus-group-ws"))[0]), "Tim Marketing ·");
   assert.equal(textOf(findAll(heads[1], n => hasClass(n, "focus-group-name"))[0]), "Kampanye");
@@ -380,7 +382,7 @@ test("app.css: Target, kelompok, ⭐, dan chevron tanpa transisi saat reduced-mo
   assert.match(target, /border-radius: 14px/);
   assert.match(target, /padding: 8px/);
   assert.ok(appCss.includes('[data-theme="dark"] .focus-target'), "varian gelap Target");
-  assert.match(rule(".focus-group-head"), /min-height: 36px/);
+  assert.match(rule(".focus-group-head"), /min-height: 42px/);
   const name = rule(".focus-group-name");
   assert.match(name, /text-overflow: ellipsis/);
   assert.match(name, /white-space: nowrap/);
@@ -392,7 +394,7 @@ test("app.css: Target, kelompok, ⭐, dan chevron tanpa transisi saat reduced-mo
   assert.match(star, /height: 36px/);
   assert.match(appCss, /\.ftask-star\.is-on \{[^}]*#6B8000/);
   assert.match(appCss, /\[data-theme="dark"\] \.ftask-star\.is-on \{[^}]*#A8C500/);
-  assert.match(appCss, /\.ftask-star\.is-on svg path \{[^}]*fill: currentColor/);
+  assert.match(appCss, /\.ftask-star\.is-on svg path \{[^}]*fill: #A8C500/);
   assert.match(appCss, /@media \(prefers-reduced-motion: reduce\) \{\s*\.focus-group-chevron \{ transition: none; \}\s*\}/);
 });
 
@@ -626,7 +628,7 @@ function mountFocusView({ tasks, focusTask = null, zen = false, running = false,
 
 test("FocusFilterBar: sumber memuat teks bar persis, aria, enterKeyHint, isFilterDefault", () => {
   const src = fnSource("FocusFilterBar");
-  for (const needle of ['"Semua"', '"Hari ini"', '"Terlambat"', '"aria-label": "Waktu"', 'role: "group"', '"Cari judul task…"', '"aria-label": "Cari task"', 'enterKeyHint: "search"', 'type: "search"', '"Hapus pencarian"', '"Filter lainnya"', " aktif", "Hapus filter ", '"Reset"', '"aria-pressed"', '"aria-haspopup": "dialog"', '"aria-expanded"', "isFilterDefault(", "focus-filter-searchrow", "focus-filter-badge", "is-pill", "is-reset", "is-on", 'name: "search"', 'name: "sliders"']) {
+  for (const needle of ['"Semua"', '"Hari ini"', '"Terlambat"', '"aria-label": "Waktu"', 'role: "group"', '"Cari judul task…"', '"aria-label": "Cari task"', 'enterKeyHint: "search"', 'type: "search"', '"Hapus pencarian"', '"Filter lainnya"', " aktif", "Hapus filter ", '"Reset"', '"aria-pressed"', '"aria-haspopup": "dialog"', '"aria-expanded"', "isFilterDefault(", "focus-filter-card", "focus-filter-grid", "focus-filter-btnwrap", "focus-filter-badge", "is-pill", "is-reset", "is-on", 'name: "search"', 'name: "sliders"']) {
     assert.ok(src.includes(needle), `FocusFilterBar harus memuat ${needle}`);
   }
 });
@@ -665,7 +667,7 @@ test("app.css: bar filter, chip, badge, lembar HP/desktop, tema gelap, reduced-m
     assert.ok(m, `CSS rule ${sel} must exist`);
     return m[2];
   };
-  assert.match(rule(".focus-filter-searchrow"), /position: relative/);
+  assert.match(rule(".focus-filter"), /position: relative/);
   const tab = rule(".focus-filter-time button");
   assert.match(tab, /min-height: 36px/);
   assert.match(rule('.focus-filter-time button[aria-pressed="true"]'), /background: var\(--text-primary\);[^}]*color: var\(--bg-card\)/);
@@ -779,8 +781,8 @@ test("FocusFilterBar: tab waktu, cari, tombol Filter, pil, chip cepat, dan Reset
   assert.ok(tabs.every(t => t.props.type === "button"));
   assert.ok(tabs.every(t => findAll(t, n => n.type === "span" && hasClass(n, "n")).length === 1));
   tabs[2].props.onClick();
-  // 2. cari + Filter
-  const [row] = findAll(tree, n => hasClass(n, "focus-filter-searchrow"));
+  // 2. cari + Filter (redesign: kotak cari dan tombol Filter jadi sel grid sendiri)
+  const [row] = findAll(tree, n => hasClass(n, "focus-filter-grid"));
   const [label] = findAll(row, n => n.type === "label" && hasClass(n, "focus-filter-search"));
   const [input] = findAll(label, n => n.type === "input");
   assert.deepEqual([input.props.type, input.props.placeholder, input.props["aria-label"], input.props.enterKeyHint, input.props.value], ["search", "Cari judul task…", "Cari task", "search", "balas"]);
@@ -830,10 +832,12 @@ test("FocusFilterBar: default tanpa badge, tanpa hapus-cari, tanpa Reset; Reset 
   assert.equal(reset({ query: "x" }), 1);
   assert.equal(reset({ filter: ff.normalizeFilter({ time: "late" }) }), 1);
   assert.equal(reset({ filter: ff.normalizeFilter({ pri: ["P2"] }) }), 1);
-  // lembar (children) dirender di dalam baris cari, supaya panel desktop berjangkar di bawah tombol Filter
+  // lembar (children) dirender di luar kartu (container query), langsung di bawah pembungkus
+  // position: relative → panel desktop berjangkar di tepi kanan bar, tepat di bawah tombol Filter
   const { tree: withSheet } = renderBar({ children: { type: "SHEET", props: {}, children: [] } });
-  const [row] = findAll(withSheet, n => hasClass(n, "focus-filter-searchrow"));
-  assert.equal(findAll(row, n => n.type === "SHEET").length, 1);
+  const [card] = findAll(withSheet, n => hasClass(n, "focus-filter-card"));
+  assert.equal(findAll(card, n => n.type === "SHEET").length, 0, "lembar tidak di dalam kartu ber-container");
+  assert.equal(withSheet.children.filter(c => c && c.type === "SHEET").length, 1);
 });
 
 test("FocusFilterBar: pil/Reset yang diklik hilang → fokus pindah ke chip pertama, bukan ke body", () => {
@@ -1397,4 +1401,106 @@ test("TodayFocusView: lembar terbuka lalu bar hilang (pool/cakupan kosong, memua
     assert.equal(s.doc.body.style.overflow, "auto", label);
     assert.equal(s.doc.activeElement, elsewhere, label);
   }
+});
+
+// ── Redesign bar filter + kartu kelompok (desain pemilik 2026-10-22) ──
+
+test("FocusFilterBar redesign: kartu → grid (tab, cari, chip, tombol Filter), lembar di luar kartu", () => {
+  const { tree } = renderBar({
+    counts: { all: 31, today: 4, late: 23 }, badge: 1,
+    pills: [{ key: "status", kind: "status", label: "Semua status" }],
+    children: { type: "SHEET", props: {}, children: [] }
+  });
+  assert.ok(hasClass(tree, "focus-filter"), "akar tetap .focus-filter (kelas Zen menempel di sini)");
+  const kids = tree.children.filter(Boolean);
+  assert.ok(hasClass(kids[0], "focus-filter-card"), "anak pertama = kartu");
+  assert.equal(kids[1].type, "SHEET", "lembar = saudara kartu, bukan di dalamnya");
+  const [grid] = kids[0].children.filter(Boolean);
+  assert.ok(hasClass(grid, "focus-filter-grid"));
+  const cells = grid.children.filter(Boolean);
+  assert.deepEqual(cells.map(c => ["focus-filter-time", "focus-filter-search", "focus-filter-chips", "focus-filter-btnwrap"].find(k => hasClass(c, k))),
+    ["focus-filter-time", "focus-filter-search", "focus-filter-chips", "focus-filter-btnwrap"]);
+  const [btn] = findAll(cells[3], n => n.type === "button" && hasClass(n, "focus-filter-btn"));
+  assert.ok(btn, "tombol Filter di sel btnwrap");
+  assert.equal(textOf(findAll(btn, n => hasClass(n, "focus-filter-badge"))[0]), "1");
+});
+
+test("FocusFilterBar redesign: angka tab jadi badge; angka Terlambat bertanda is-late", () => {
+  const { tree } = renderBar({ counts: { all: 31, today: 4, late: 23 } });
+  const tabs = findAll(findAll(tree, n => hasClass(n, "focus-filter-time"))[0], n => n.type === "button");
+  const ns = tabs.map(t => findAll(t, n => n.type === "span" && hasClass(n, "n"))[0]);
+  assert.deepEqual(ns.map(n => textOf(n)), ["31", "4", "23"]);
+  assert.deepEqual(ns.map(n => hasClass(n, "is-late")), [false, false, true]);
+});
+
+test("app.css redesign: kartu bar filter ber-container query, grid 3 tata letak, pembatas, badge", () => {
+  const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rule = (sel, src = appCss) => {
+    const m = src.match(new RegExp(`(^|\\n)\\s*${esc(sel)} \\{([^}]*)\\}`));
+    assert.ok(m, `CSS rule ${sel} must exist`);
+    return m[2];
+  };
+  const card = rule(".focus-filter-card");
+  assert.match(card, /container: focusfilter \/ inline-size/);
+  assert.match(card, /background: var\(--bg-card\)/);
+  assert.match(card, /border: 1px solid var\(--border\)/);
+  assert.match(card, /border-radius: 16px/);
+  // HP (dasar): tab | cari + Filter | chip
+  const grid = rule(".focus-filter-grid");
+  assert.match(grid, /display: grid/);
+  assert.match(grid, /grid-template-areas: "time time" "search btn" "chips chips"/);
+  for (const [sel, area] of [[".focus-filter-time", "time"], [".focus-filter-search", "search"], [".focus-filter-chips", "chips"], [".focus-filter-btnwrap", "btn"]]) {
+    assert.match(rule(sel), new RegExp(`grid-area: ${area}`), sel);
+  }
+  const block = q => {
+    const i = appCss.indexOf(`@container focusfilter (min-width: ${q})`);
+    assert.ok(i >= 0, `@container focusfilter (min-width: ${q})`);
+    return appCss.slice(i, appCss.indexOf("\n}\n", i));
+  };
+  // sedang: tab + cari | chip + pembatas + Filter
+  const mid = block("600px");
+  assert.match(rule(".focus-filter-grid", mid), /grid-template-areas: "time search search" "chips chips btn"/);
+  assert.match(rule(".focus-filter-btnwrap", mid), /box-shadow: inset 1px 0 0 var\(--border\)/, "pembatas = bayangan inset (border-left dilarang task_date_prompt.test)");
+  assert.match(rule(".focus-filter-badge", mid), /position: absolute/);
+  // lebar: satu baris
+  const wide = block("1000px");
+  assert.match(rule(".focus-filter-grid", wide), /grid-template-areas: "time search chips btn"/);
+  // angka tab: badge bulat; Terlambat merah muda
+  assert.match(rule(".focus-filter-time .n"), /border-radius: 999px/);
+  assert.match(rule(".focus-filter-time .n.is-late"), /#dc2626/);
+  assert.ok(appCss.includes('[data-theme="dark"] .focus-filter-time .n.is-late'), "varian gelap angka Terlambat");
+  // lembar desktop berjangkar ke pembungkus .focus-filter (bukan kartu ber-container)
+  assert.match(rule(".focus-filter"), /position: relative/);
+});
+
+test("app.css redesign: kelompok = kartu, baris di dalamnya bergaris pemisah, satu baris di desktop", () => {
+  const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rule = (sel, src = appCss) => {
+    const m = src.match(new RegExp(`(^|\\n)\\s*${esc(sel)} \\{([^}]*)\\}`));
+    assert.ok(m, `CSS rule ${sel} must exist`);
+    return m[2];
+  };
+  const group = rule(".focus-group");
+  assert.match(group, /background: var\(--bg-card\)/);
+  assert.match(group, /border: 1px solid var\(--border\)/);
+  assert.match(group, /border-radius: 14px/);
+  assert.match(group, /overflow: hidden/);
+  assert.match(rule(".focus-group .ftask"), /border: 0/);
+  assert.match(rule(".focus-group .ftask + .ftask"), /box-shadow: inset 0 1px 0 var\(--border\)/);
+  assert.match(rule(".focus-group-count"), /border-radius: 999px/);
+  const desk = appCss.slice(appCss.indexOf("@media (min-width: 1024px) {\n  .focus-group .ftask-main"));
+  assert.ok(desk.startsWith("@media (min-width: 1024px)"), "blok desktop baris satu baris");
+  assert.match(rule(".focus-group .ftask-main", desk), /flex-direction: row/);
+  assert.match(rule(".focus-group .ftask-meta", desk), /justify-content: flex-end/);
+  const narrow = appCss.slice(appCss.indexOf("@media (max-width: 640px) {\n  .focus-group-count-unit"));
+  assert.ok(narrow.startsWith("@media (max-width: 640px)"), "HP: jumlah tanpa kata task");
+  assert.match(rule(".focus-group-count-unit", narrow), /display: none/);
+});
+
+test("ikon ⭐ bergaya Alurik (duotone: garis + isian lembut)", () => {
+  const start = indexHtml.indexOf("const FOCUS_GLYPHS = {");
+  const glyphs = indexHtml.slice(start, indexHtml.indexOf("};", start));
+  const star = glyphs.match(/\n  star: '([^']*)'/);
+  assert.ok(star, "FOCUS_GLYPHS.star");
+  assert.match(star[1], /fill="currentColor" fill-opacity="\.22"/);
 });

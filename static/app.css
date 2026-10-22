@@ -4699,44 +4699,76 @@
   .is-zen-shown { animation: none; }
 }
 
-/* Fokus Hari Ini: seksi Target, kelompok Workspace › Project, tombol ⭐ di baris task */
+/* Fokus Hari Ini: seksi Target, kelompok Workspace › Project (satu kartu per kelompok), tombol ⭐ di baris task */
 .focus-target { background: rgba(168,197,0,0.10); border-radius: 14px; padding: 8px; }
 [data-theme="dark"] .focus-target { background: rgba(168,197,0,0.14); }
 .focus-note { font-size: 12.5px; color: var(--text-secondary); text-align: center; margin: 0; padding: 4px 0; }
-.focus-groups { display: flex; flex-direction: column; gap: 14px; }
-.focus-group { display: flex; flex-direction: column; gap: 6px; }
+.focus-groups { display: flex; flex-direction: column; gap: 12px; }
+.focus-group { display: flex; flex-direction: column; background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
 .focus-page.is-zen .focus-groups { gap: 0; }
-.focus-group-head { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 36px; padding: 4px 2px; margin: 0; border: 0; border-radius: 8px; background: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--text-primary); text-align: left; cursor: pointer; }
+.focus-group-head { display: flex; align-items: center; gap: 7px; width: 100%; min-height: 42px; padding: 8px 14px; margin: 0; border: 0; border-radius: 0; background: var(--bg-subtle); font: inherit; font-size: 13px; font-weight: 700; color: var(--text-primary); text-align: left; cursor: pointer; }
+.focus-group:not(.is-collapsed) .focus-group-head { box-shadow: inset 0 -1px 0 var(--border); }
 .focus-group-head:focus-visible, .ftask-star:focus-visible { outline: 2px solid #7E9400; outline-offset: 2px; }
+.focus-group-head:focus-visible { outline-offset: -2px; }
 [data-theme="dark"] .focus-group-head:focus-visible, [data-theme="dark"] .ftask-star:focus-visible { outline-color: #A8C500; }
 .focus-group-chevron { flex-shrink: 0; color: var(--text-secondary); transition: transform .15s ease; }
 .focus-group.is-collapsed .focus-group-chevron { transform: rotate(-90deg); }
 .focus-group-ws { flex: 0 1 auto; min-width: 0; color: var(--text-secondary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .focus-group-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.focus-group-count { flex-shrink: 0; margin-left: auto; font-size: 12px; font-weight: 700; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.focus-group-count { flex-shrink: 0; margin-left: auto; padding: 2px 9px; border-radius: 999px; background: var(--bg-hover); font-size: 11.5px; font-weight: 700; color: var(--text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* Baris task di dalam kartu kelompok: tanpa kartu sendiri, dipisah garis tipis (bayangan inset) */
+.focus-group .ftask-list { gap: 0; }
+.focus-group .ftask { border: 0; border-radius: 0; }
+.focus-group .ftask.is-open { box-shadow: none; }
+.focus-group .ftask + .ftask { box-shadow: inset 0 1px 0 var(--border); }
+@media (hover: hover) {
+  .focus-group .ftask:not(.is-focusing):hover { background: var(--bg-subtle); }
+}
+/* Desktop: baris satu garis — judul di kiri, chip/tanggal/jumlah rata kanan sebelum ⭐ · Fokus · panah */
+@media (min-width: 1024px) {
+  .focus-group .ftask-main { flex-direction: row; align-items: center; gap: 14px; }
+  .focus-group .ftask-title { flex: 1 1 auto; min-width: 0; font-weight: 500; }
+  .focus-group .ftask-meta { flex: 0 1 auto; justify-content: flex-end; max-width: 60%; }
+}
+@media (max-width: 640px) {
+  .focus-group-count-unit { display: none; }
+}
 .ftask-star { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; margin: -2px 0; border: 0; border-radius: 10px; background: none; color: var(--text-secondary); cursor: pointer; flex-shrink: 0; transition: background .15s, color .15s; }
 @media (hover: hover) {
   .ftask-star:hover { background: var(--bg-primary); }
 }
 .ftask-star.is-on { color: #6B8000; }
 [data-theme="dark"] .ftask-star.is-on { color: #A8C500; }
-.ftask-star.is-on svg path { fill: currentColor; }
+.ftask-star.is-on svg path { fill: #A8C500; fill-opacity: 1; }
+[data-theme="dark"] .ftask-star.is-on { color: #D9EE6A; }
 @media (prefers-reduced-motion: reduce) {
   .focus-group-chevron { transition: none; }
 }
 
-/* Fokus Hari Ini: bar filter (tab waktu, cari, chip) dan lembar "Filter lainnya" */
-.focus-filter { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-.focus-filter > * { flex-shrink: 0; }
-.focus-filter-time { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; padding: 3px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; }
+/* Fokus Hari Ini: bar filter (tab waktu, cari, chip, tombol Filter) dan lembar "Filter lainnya".
+   .focus-filter = pembungkus (position: relative, jangkar panel desktop); .focus-filter-card = kartu ber-container
+   query (lembar dirender di luar kartu karena container query menjadikannya containing block untuk position: fixed).
+   Tata letak: HP (dasar) 3 baris · ≥ 600px 2 baris · ≥ 1000px 1 baris. */
+.focus-filter { position: relative; margin-bottom: 12px; }
+.focus-filter-card { container: focusfilter / inline-size; background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 10px; }
+.focus-filter-grid { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "time time" "search btn" "chips chips"; gap: 8px; align-items: center; }
+.focus-filter-time { grid-area: time; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; padding: 3px; background: var(--bg-hover); border: 1px solid var(--border); border-radius: 12px; }
 .focus-filter-time button { display: flex; align-items: center; justify-content: center; gap: 5px; min-width: 0; min-height: 36px; padding: 0 4px; margin: 0; border: 0; border-radius: 9px; background: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--text-secondary); white-space: nowrap; cursor: pointer; transition: background .15s, color .15s; }
 @media (hover: hover) {
   .focus-filter-time button:hover { color: var(--text-primary); }
 }
 .focus-filter-time button[aria-pressed="true"] { background: var(--text-primary); color: var(--bg-card); }
-.focus-filter-time .n, .focus-filter-chip .n { font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.focus-filter-searchrow { position: relative; display: flex; gap: 6px; }
-.focus-filter-search { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 2px 0 11px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; color: var(--text-secondary); cursor: text; transition: border-color .15s, box-shadow .15s; }
+.focus-filter-chip .n { font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+/* Angka tab = badge bulat; angka Terlambat merah muda */
+.focus-filter-time .n { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; padding: 0 6px; border-radius: 999px; background: rgba(15,23,42,0.07); color: var(--text-secondary); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.focus-filter-time button[aria-pressed="true"] .n { background: rgba(255,255,255,0.2); color: inherit; }
+.focus-filter-time .n.is-late { background: rgba(239,68,68,0.12); color: #dc2626; }
+.focus-filter-time button[aria-pressed="true"] .n.is-late { background: rgba(239,68,68,0.32); color: #fee2e2; }
+[data-theme="dark"] .focus-filter-time .n { background: rgba(255,255,255,0.1); }
+[data-theme="dark"] .focus-filter-time button[aria-pressed="true"] .n { background: rgba(0,0,0,0.14); }
+[data-theme="dark"] .focus-filter-time .n.is-late { background: rgba(248,113,113,0.16); color: #f87171; }
+[data-theme="dark"] .focus-filter-time button[aria-pressed="true"] .n.is-late { background: rgba(220,38,38,0.85); color: #fff; }
+.focus-filter-search { grid-area: search; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 2px 0 11px; background: var(--bg-subtle); border: 1px solid var(--border); border-radius: 12px; color: var(--text-secondary); cursor: text; transition: border-color .15s, box-shadow .15s; }
 .focus-filter-search:focus-within { border-color: #A8C500; box-shadow: 0 0 0 3px rgba(168,197,0,0.18); }
 .focus-filter-search svg { flex-shrink: 0; }
 .focus-filter-search input { flex: 1; min-width: 0; height: 36px; padding: 0; margin: 0; border: 0; background: none; font: inherit; font-size: 14px; color: var(--text-primary); outline: none; -webkit-appearance: none; appearance: none; }
@@ -4746,15 +4778,16 @@
 @media (hover: hover) {
   .focus-filter-clear:hover { background: var(--bg-hover); color: var(--text-primary); }
 }
-.focus-filter-btn { position: relative; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 42px; min-height: 40px; padding: 0; margin: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); color: var(--text-primary); cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
+.focus-filter-btnwrap { grid-area: btn; display: flex; align-items: center; justify-content: flex-end; }
+.focus-filter-btn { position: relative; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-width: 42px; min-height: 40px; padding: 0 11px; margin: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); color: var(--text-primary); cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
 @media (hover: hover) {
   .focus-filter-btn:hover { border-color: #d6d6cc; }
   [data-theme="dark"] .focus-filter-btn:hover { border-color: #525252; }
 }
 .focus-filter-btn.is-on, .focus-filter-btn[aria-expanded="true"] { border-color: #A8C500; background: rgba(168,197,0,0.14); color: #4E5C00; }
 [data-theme="dark"] .focus-filter-btn.is-on, [data-theme="dark"] .focus-filter-btn[aria-expanded="true"] { border-color: #A8C500; background: rgba(168,197,0,0.16); color: #D9EE6A; }
-.focus-filter-badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #A8C500; color: #1F2116; font-size: 10.5px; font-weight: 800; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--bg-page); pointer-events: none; }
-.focus-filter-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; margin: -3px; padding: 3px; }
+.focus-filter-badge { position: static; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #A8C500; color: #1F2116; font-size: 10.5px; font-weight: 800; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; pointer-events: none; }
+.focus-filter-chips { grid-area: chips; min-width: 0; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; margin: -3px; padding: 3px; }
 .focus-filter-chips::-webkit-scrollbar { display: none; }
 .focus-filter-chips > * { flex-shrink: 0; }
 .focus-filter-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; max-width: 100%; padding: 0 13px; margin: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 12.5px; font-weight: 700; white-space: nowrap; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
@@ -4770,6 +4803,19 @@
 .focus-filter-chip.is-reset { border-style: dashed; color: var(--text-secondary); }
 .focus-filter-pill-label { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .focus-filter-x { font-size: 11px; font-weight: 800; opacity: .75; }
+/* Sedang: tab + cari | chip + pembatas + tombol Filter (badge di pojok) */
+@container focusfilter (min-width: 600px) {
+  .focus-filter-grid { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-areas: "time search search" "chips chips btn"; }
+  .focus-filter-time { display: inline-grid; grid-template-columns: repeat(3, auto); justify-self: start; }
+  .focus-filter-time button { padding: 0 12px; }
+  .focus-filter-btnwrap { padding-left: 10px; box-shadow: inset 1px 0 0 var(--border); }
+  .focus-filter-btn { width: 42px; padding: 0; }
+  .focus-filter-badge { position: absolute; top: -6px; right: -6px; box-shadow: 0 0 0 2px var(--bg-card); }
+}
+/* Lebar: semuanya satu baris */
+@container focusfilter (min-width: 1000px) {
+  .focus-filter-grid { grid-template-columns: auto minmax(200px, 1fr) minmax(0, max-content) auto; grid-template-areas: "time search chips btn"; }
+}
 .focus-filter-time button:focus-visible, .focus-filter-chip:focus-visible, .focus-filter-btn:focus-visible, .focus-filter-clear:focus-visible, .focus-filter-link:focus-visible, .focus-filter-sheet-actions button:focus-visible { outline: 2px solid #7E9400; outline-offset: 1px; }
 [data-theme="dark"] .focus-filter-time button:focus-visible, [data-theme="dark"] .focus-filter-chip:focus-visible, [data-theme="dark"] .focus-filter-btn:focus-visible, [data-theme="dark"] .focus-filter-clear:focus-visible, [data-theme="dark"] .focus-filter-link:focus-visible, [data-theme="dark"] .focus-filter-sheet-actions button:focus-visible { outline-color: #A8C500; }
 /* Desktop: panel di bawah tombol Filter (rata kanan) + latar transparan penangkap klik luar */
