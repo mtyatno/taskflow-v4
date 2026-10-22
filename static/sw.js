@@ -1,6 +1,10 @@
 const CACHE = "taskflow-v462-fokus-checklist-hitungan";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
+// Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
+// satu file gagal → install gagal dan SW lama (cache lengkap) tetap aktif. Setiap <script src> / <link
+// rel="stylesheet"> lokal di index.html wajib ada di sini dengan URL PERSIS termasuk query versi, dan setiap
+// entri harus ada di repo — dijaga tests/offline/sw_precache_shell.test.js (spec 2026-10-22-sw-precache-shell §3).
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/app.css?v=362",  // query HARUS sama persis dengan <link> app.css di index.html (catch-all mencocokkan URL persis)
@@ -129,7 +133,7 @@ const OPTIONAL_STATIC = [
 
 // tldraw runtime assets (ikon toolbar, font, translations) di-vendor lokal dari
 // cdn.tldraw.com/2.4.6 (bundle dipatch ke base /static/vendor/tldraw/cdn) supaya
-// canvas jalan offline TANPA warmup. Di-precache saat install.
+// canvas jalan offline TANPA warmup. Di-precache saat install sebagai aset opsional.
 const TLD = "/static/vendor/tldraw/cdn/2.4.6";
 const TLD_ICONS = ["align-bottom","align-center-horizontal","align-center-vertical","align-left","align-right","align-top","arrow-left","arrowhead-arrow","arrowhead-bar","arrowhead-diamond","arrowhead-dot","arrowhead-none","arrowhead-square","arrowhead-triangle","arrowhead-triangle-inverted","blob","bring-forward","bring-to-front","broken","check","check-circle","chevron-down","chevron-left","chevron-right","chevron-up","chevrons-ne","chevrons-sw","clipboard-copied","clipboard-copy","color","cross-2","cross-circle","dash-dashed","dash-dotted","dash-draw","dash-solid","disconnected","discord","distribute-horizontal","distribute-vertical","dot","dots-horizontal","dots-vertical","drag-handle-dots","duplicate","edit","external-link","fill-fill","fill-none","fill-pattern","fill-semi","fill-solid","follow","following","font-draw","font-mono","font-sans","font-serif","geo-arrow-down","geo-arrow-left","geo-arrow-right","geo-arrow-up","geo-check-box","geo-cloud","geo-diamond","geo-ellipse","geo-heart","geo-hexagon","geo-octagon","geo-oval","geo-pentagon","geo-rectangle","geo-rhombus","geo-rhombus-2","geo-star","geo-trapezoid","geo-triangle","geo-x-box","github","group","horizontal-align-end","horizontal-align-middle","horizontal-align-start","info-circle","leading","link","lock","menu","minus","mixed","pack","plus","question-mark","question-mark-circle","redo","reset-zoom","rotate-ccw","rotate-cw","send-backward","send-to-back","share-1","size-extra-large","size-large","size-medium","size-small","spline-cubic","spline-line","stack-horizontal","stack-vertical","status-offline","stretch-horizontal","stretch-vertical","text-align-center","text-align-left","text-align-right","toggle-off","toggle-on","tool-arrow","tool-eraser","tool-frame","tool-hand","tool-highlight","tool-laser","tool-line","tool-media","tool-note","tool-pencil","tool-pointer","tool-screenshot","tool-text","trash","twitter","undo","ungroup","unlock","vertical-align-end","vertical-align-middle","vertical-align-start","warning-triangle","zoom-in","zoom-out"];
 const TLD_LOCALES = ["ar","ca","cs","da","de","en","es","fa","fi","fr","gl","he","hi-in","hr","hu","id","it","ja","ko-kr","ku","my","ne","no","pl","pt-br","pt-pt","ro","ru","sl","sv","te","th","tr","uk","vi","zh-cn","zh-tw"];
@@ -150,16 +154,23 @@ self.addEventListener("message", e => {
   }
 });
 
+// Request precache: "no-cache" = browser mengirim request bersyarat (If-None-Match / If-Modified-Since) bila
+// HTTP cache punya salinan, jadi file yang tidak berubah sejak rilis lalu cukup dijawab 304 — tidak diunduh
+// ulang penuh setiap rilis (dulu mode reload). File yang berubah tetap diunduh karena ETag-nya berbeda.
+const freshRequest = url => new Request(url, { cache: "no-cache" });
+
+// Install (spec §3.2):
+// - shell lewat cache.addAll → atomik: satu request gagal / non-2xx → tidak ada yang disimpan, waitUntil menolak,
+//   SW baru redundant, SW lama tetap aktif dengan cache lengkapnya. Dicoba lagi pada pemuatan/update berikutnya.
+// - opsional baru diambil setelah shell tersimpan, lewat allSettled: kegagalannya tidak menggagalkan install.
+// - skipWaiting hanya untuk install pertama (belum ada SW aktif) dan hanya setelah shell tersimpan. SENGAJA tanpa
+//   .catch: install pertama yang gagal cukup berarti halaman belum dikendalikan SW (tetap jalan online).
 self.addEventListener("install", e => {
   e.waitUntil(
     caches.open(CACHE)
-      .then(cache => Promise.allSettled(STATIC.concat(OPTIONAL_STATIC).map(url => cache.add(new Request(url, { cache: "reload" })))))
+      .then(cache => cache.addAll(STATIC.map(freshRequest))
+        .then(() => Promise.allSettled(OPTIONAL_STATIC.map(u => cache.add(freshRequest(u))))))
       .then(() => {
-        if (!self.registration.active) {
-          self.skipWaiting();
-        }
-      })
-      .catch(() => {
         if (!self.registration.active) {
           self.skipWaiting();
         }
