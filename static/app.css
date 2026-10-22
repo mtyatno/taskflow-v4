@@ -1386,7 +1386,11 @@
     .note-modal-title-input { font-size: 17px; font-weight: 700; background: none; border: none; outline: none; color: var(--text-primary); width: 100%; border-bottom: 1.5px solid var(--border); padding-bottom: 8px; }
     .note-modal-content-input { font-size: 14px; background: var(--bg-page); border: 1px solid var(--border); border-radius: 10px; padding: 12px; color: var(--text-primary); width: 100%; resize: vertical; min-height: 120px; outline: none; font-family: inherit; line-height: 1.6; }
     .note-modal-section-label { font-size: 11px; font-weight: 700; color: var(--text-secondary); letter-spacing: 0.05em; text-transform: uppercase; margin-bottom: 6px; }
-    .note-toolbar { display: flex; gap: 2px; flex-wrap: nowrap; align-items: center; margin-bottom: 6px; overflow: visible; }
+    /* Toolbar editor note: satu baris bila muat, wrap ke baris kedua bila tidak; tidak pernah scroll horizontal.
+       container notetb → label tombol (.ntb-label) disembunyikan saat sempit (lihat @container notetb di bawah).
+       Containment membuat stacking context → position/z-index agar dropdown toolbar tetap di atas editor. */
+    .note-toolbar { display: flex; gap: 2px; row-gap: 4px; flex-wrap: wrap; align-items: center; margin-bottom: 6px; overflow: visible; min-width: 0; max-width: 100%; box-sizing: border-box; container: notetb / inline-size; position: relative; z-index: 5; }
+    .note-toolbar > * { flex-shrink: 0; }
     .wikilink { color: var(--accent); font-weight: 600; cursor: pointer; border-bottom: 1px dashed var(--accent); transition: opacity 0.15s; }
     .wikilink:hover { opacity: 0.75; }
     .wikilink-broken { color: #b45309; background: rgba(245,158,11,0.10); border-radius: 4px; padding: 0 3px; border-bottom: 1px dashed #d97706; cursor: pointer; font-style: italic; }
@@ -1406,6 +1410,11 @@
     .note-toolbar button { background: none; border: 1px solid var(--border); border-radius: 7px; color: var(--text-secondary); font-size: 12.5px; font-weight: 600; cursor: pointer; padding: 0 8px; height: 28px; display: inline-flex; align-items: center; justify-content: center; gap: 3px; transition: all 0.12s; font-family: inherit; white-space: nowrap; }
     .note-toolbar button:hover { background: var(--bg-primary); border-color: var(--accent); color: var(--text-primary); }
     .note-toolbar .sep { width: 1px; background: var(--border); margin: 2px 3px; align-self: stretch; }
+    /* Toolbar sempit (HP/tablet kecil): tombol berlabel jadi ikon saja (title + aria-label tetap) agar muat ≤ 2 baris.
+       Ambang dari pengukuran (temporary_files/e2e_note_toolbar_fluid.py): isi berlabel ±788px → 2 baris butuh ≥ ±470px. */
+    @container notetb (max-width: 479px) {
+      .note-toolbar .ntb-label { display: none; }
+    }
     .tpl-dropdown { position: absolute; top: 100%; left: 0; background: white; border: 1px solid #e5e7eb; border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); min-width: 220px; z-index: 1000; overflow: hidden; padding: 4px 0; }
     .tpl-group-label { padding: 6px 14px 3px; font-size: 9px; font-weight: 700; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.8px; }
     .tpl-item { padding: 7px 14px; font-size: 13px; cursor: pointer; color: #374151; }
@@ -1466,14 +1475,6 @@
         padding: 20px 16px;
         gap: 10px;
       }
-      .note-toolbar { 
-        flex-wrap: nowrap; 
-        overflow-x: auto; 
-        padding-bottom: 4px;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-      }
-      .note-toolbar::-webkit-scrollbar { display: none; }
       .note-toolbar button { flex-shrink: 0; }
       .note-modal-title-input { font-size: 19px; }
       .note-modal-content-input { font-size: 15px; flex-grow: 1; }

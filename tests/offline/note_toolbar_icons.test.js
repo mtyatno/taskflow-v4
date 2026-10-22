@@ -113,39 +113,35 @@ test("Note Editor Toolbar Lucide Icons Modernization", async (t) => {
       "Sketsa button should use draw icon"
     );
 
-    // Format lainnya button: plus icon
-    assert.match(
-      toolbarCode,
-      /title:\s*["']Format lainnya["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']plus["']/,
-      "Format lainnya (+) button should use plus icon"
-    );
+    // Tombol "+" (Format lainnya) dihapus (Task 2b, 2026-10-23): isinya tampil langsung di toolbar.
+    assert.doesNotMatch(toolbarCode, /Format lainnya/, "tombol + Format lainnya sudah dihapus");
 
-    // Numbered list button: listOrdered icon
+    // Numbered list button (langsung di toolbar): listOrdered icon
     assert.match(
       toolbarCode,
-      /title:\s*["']Numbered list["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']listOrdered["']/,
-      "Numbered list dropdown button should use listOrdered icon"
+      /title:\s*["']Numbered list["']\s*\},\s*React\.createElement\(Icon,\s*\{\s*name:\s*["']listOrdered["']/,
+      "Numbered list button should use listOrdered icon"
     );
 
     // Strikethrough button: strikethrough icon
     assert.match(
       toolbarCode,
-      /title:\s*["']Strikethrough["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']strikethrough["']/,
-      "Strikethrough dropdown button should use strikethrough icon"
+      /title:\s*["']Strikethrough["']\s*\},\s*React\.createElement\(Icon,\s*\{\s*name:\s*["']strikethrough["']/,
+      "Strikethrough button should use strikethrough icon"
     );
 
     // Table button: table icon
     assert.match(
       toolbarCode,
-      /title:\s*["']Insert table["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']table["']/,
-      "Table dropdown button should use table icon"
+      /title:\s*["']Insert table["']\s*\},\s*React\.createElement\(Icon,\s*\{\s*name:\s*["']table["']/,
+      "Table button should use table icon"
     );
 
     // Wikilink button: link icon
     assert.match(
       toolbarCode,
-      /title:\s*["']Internal link \[\[wiki\]\]["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']link["']/,
-      "Wikilink dropdown button should use link icon"
+      /title:\s*["']Internal link \[\[wiki\]\]["'][^}]*\},\s*\[React\.createElement\(Icon,\s*\{\s*name:\s*["']link["']/,
+      "Wikilink button should use link icon"
     );
 
     // Horizontal rule button: minus icon

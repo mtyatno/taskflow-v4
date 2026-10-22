@@ -242,7 +242,7 @@ test("NoteToolbar: tombol Media (ViewGlyph fImage + 'Media'), tidak nonaktif off
   assert.match(btn, /onClick: e => \{[\s\S]*?if \(e\.detail === 0\) openMediaPicker\(\);\s*\}/, "aktivasi keyboard");
   assert.match(btn, /title: onInsertMedia \? "Sisipkan media: gambar, audio, atau video" : "Sisipkan gambar"/);
   assert.match(btn, /React\.createElement\(ViewGlyph, \{ name: "fImage", size: 14, key: "ic" \}\)/);
-  assert.match(btn, /React\.createElement\("span", \{ key: "tx", style: \{ marginLeft: 4 \} \}, "Media"\)/);
+  assert.match(btn, /React\.createElement\("span", \{ key: "tx", className: "ntb-label", style: \{ marginLeft: 4 \} \}, "Media"\)/);
   assert.equal(/disabled|opacity|mediaOnline/.test(btn), false, "tidak lagi nonaktif");
   assert.equal(/mediaOnline/.test(tb), false, "status online tak lagi dipantau di toolbar");
   assert.equal(tb.includes("🎬"), false, "emoji 🎬 dihapus");
@@ -260,7 +260,7 @@ test("NoteToolbar: tombol 📎 File (paperclip + 'File'), title & disabled tetap
   assert.match(btn, /disabled: uploading \|\| !noteId,/);
   assert.match(btn, /opacity: noteId \? 1 : 0\.4/);
   assert.match(btn, /React\.createElement\(Icon, \{ name: "paperclip", size: 14, key: "ic" \}\)/);
-  assert.match(btn, /React\.createElement\("span", \{ key: "tx", style: \{ marginLeft: 4 \} \}, "File"\)/);
+  assert.match(btn, /React\.createElement\("span", \{ key: "tx", className: "ntb-label", style: \{ marginLeft: 4 \} \}, "File"\)/);
   assert.match(tb, /onChange: handleAttachFile/);
 });
 

@@ -43,4 +43,6 @@ temporary_files/e2e_admin_email/
 temporary_files/e2e_android_notification/
 temporary_files/e2e_komentar_note/
 temporary_files/e2e_sw_precache_shell/
+temporary_files/e2e_istilah_sketsa_media/
 temporary_files/e2e_slash_menu_*.png
+temporary_files/e2e_note_toolbar_fluid/
