@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v458-fokus-filter-redesign/,
-      "sw.js should be bumped to taskflow-v458-fokus-filter-redesign"
+      /taskflow-v460-fokus-hero-mobile/,
+      "sw.js should be bumped to taskflow-v460-fokus-hero-mobile"
     );
   });
 

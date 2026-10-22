@@ -395,7 +395,8 @@ def run_shots(browser, base, user):
             p2.locator(".focus-page-summary").wait_for(state="visible", timeout=20000)
             if p2.locator(".focus-pomo .focus-pomo-task-count").count() == 0:
                 focus(p2, TITLES[0])
-            p2.locator(".focus-pomo .focus-pomo-task-count").first.scroll_into_view_if_needed()
+            # di HP hitungan 🍅 di kartu disembunyikan (kartu ringkas) → gulir ke baris task aktif
+            p2.locator(".focus-pomo .focus-pomo-task").first.scroll_into_view_if_needed()
             h.shot(p2, "bar_%s_%s.png" % (theme, tag))
             r = open_panel(p2, TITLES[0])
             r.scroll_into_view_if_needed()

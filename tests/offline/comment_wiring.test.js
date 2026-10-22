@@ -32,6 +32,6 @@ test("fullSync memanggil pullComments setelah pullNotesAndReconcile dan sebelum 
 
 test("sw.js mem-precache ketiga modul komentar dan versi v457", () => {
   for (const f of FILES) assert.ok(swJs.includes(`"/static/offline/${f}"`), f);
-  assert.ok(swJs.includes('"taskflow-v458-fokus-filter-redesign"'));
-  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v458-fokus-filter-redesign"'));
+  assert.ok(swJs.includes('"taskflow-v460-fokus-hero-mobile"'));
+  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v460-fokus-hero-mobile"'));
 });

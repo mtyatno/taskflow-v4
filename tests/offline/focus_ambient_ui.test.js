@@ -83,7 +83,10 @@ test("CSS: pomo-ambient, warna status, reduced-motion", () => {
   assert.ok(appCss.includes("#f87171"));
   assert.ok(appCss.includes("#facc15"));
   assert.match(appCss, /prefers-reduced-motion: reduce\)\s*\{[^}]*\.pomo-ambient\[data-state="loading"\][^}]*animation: none/);
-  assert.match(appCss, /max-width: 768px\)[\s\S]*?\.pomo-ambient\s*\{[^}]*flex-basis: 100%/);
+  // HP (kartu ringkas): kontrol inline disembunyikan, diganti pil 🎧 + popover di baris atas
+  const hp = appCss.slice(appCss.indexOf("/* Kartu Pomodoro ringkas di HP */"));
+  assert.match(hp, /\.focus-pomo-stats \.pomo-ambient[^{]*\{[^}]*display: none/);
+  assert.match(hp, /\.pomo-amb-mobile \{[^}]*grid-area: amb/);
   // Popup native <option> bisa gelap (tema OS): teks gelap butuh latar terang eksplisit.
   assert.match(appCss, /\.pomo-ambient-select option\s*\{[^}]*color: #111;[^}]*background: #fff/);
 });

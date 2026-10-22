@@ -85,11 +85,11 @@ test("CSS kartu email: ada blok .admin-email, tanpa border-left, ada media 768px
   assert.match(block, /\[data-theme="dark"\] \.admin-email-chip/);
 });
 
-test("cache bust v453 + app.css?v=361", () => {
+test("cache bust v453 + app.css?v=362", () => {
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(sw, /^const CACHE = "taskflow-v458-fokus-filter-redesign";/m);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v458-fokus-filter-redesign";/);
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v458-fokus-filter-redesign"/);
-  assert.match(py, /sw_cache = "taskflow-v458-fokus-filter-redesign"/);
-  assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=361">/);
+  assert.match(sw, /^const CACHE = "taskflow-v460-fokus-hero-mobile";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v460-fokus-hero-mobile";/);
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v460-fokus-hero-mobile"/);
+  assert.match(py, /sw_cache = "taskflow-v460-fokus-hero-mobile"/);
+  assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=362">/);
 });

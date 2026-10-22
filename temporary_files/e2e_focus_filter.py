@@ -922,7 +922,8 @@ def scenario_l(env, pw, browser, user, kind, theme="light"):
               "sebelum=%r sesudah=%r" % (before_ov, p.evaluate("getComputedStyle(document.body).overflow")))
         y1 = p.evaluate("window.scrollY")
         p.mouse.move(vp[0] / 2, 40)
-        p.mouse.wheel(0, -300)
+        # kartu Pomodoro ringkas di HP → halaman bisa sudah di atas; gulir ke arah yang masih bisa
+        p.mouse.wheel(0, 300 if y1 < 300 else -300)
         p.wait_for_timeout(400)
         check("l4c kontrol: tanpa lembar, roda yang sama menggulir halaman (jadi l4 bukan kebetulan)",
               p.evaluate("window.scrollY") != y1, "scrollY %r→%r" % (y1, p.evaluate("window.scrollY")))
