@@ -64,7 +64,14 @@ self.addEventListener("install", e => {
 - **Tidak ada `.catch` yang menelan kegagalan shell.** Kode lama memanggil `skipWaiting()` di `.catch` untuk install pertama. Itu dihapus: install pertama yang gagal hanya berarti halaman belum dikendalikan SW (tetap jalan online) dan dicoba lagi pada pemuatan berikutnya.
 - `skipWaiting()` tetap hanya untuk install pertama (`!self.registration.active`) dan hanya setelah shell tersimpan.
 - Cache bernama versi baru yang sempat dibuat oleh install gagal (berisi sebagian file opsional, atau kosong) tidak dipakai. Ia terhapus oleh `activate` berikutnya yang berhasil (filter `k !== CACHE`). Install ulang ke nama yang sama menimpa isinya.
-- Browser mencoba update lagi pada navigasi berikutnya, saat `reg.update()` dipanggil di `load` / `visibilitychange`, dan tiap 30 menit (`index.html`). Dengan §3.3, percobaan ulang itu murah.
+- Browser mencoba update lagi pada navigasi berikutnya, saat `reg.update()` dipanggil di `load` / `visibilitychange`, dan tiap 30 menit (`index.html`). Setiap percobaan menjalankan install penuh lagi.
+  - Dengan §3.3, file statis cukup 304.
+  - `/` tetap diunduh penuh (`no-store`, ±1,7 MB mentah / ±400 KB gzip), jadi di jaringan yang terus gagal, percobaan ulang tidak gratis. Tindak lanjut F (§7) membuat `/` bisa direvalidasi.
+- Kegagalan install dicatat dengan `console.warn` (lalu dilempar ulang) agar terlihat lewat remote debugging.
+- **Mode gagal permanen yang harus dicegah:**
+  - URL shell yang 404 di produksi. Dijaga tes: setiap entri harus file yang ter-track git.
+  - URL ganda di `STATIC`: `cache.addAll` menolak request duplikat dengan `InvalidStateError`. Dijaga tes keunikan.
+  - Penyimpanan HP hampir penuh (`QuotaExceededError`): cache lama baru dibebaskan setelah SW baru aktif, jadi perangkat itu bertahan di versi lama sampai ruang cukup. Diterima dan dicatat di ADR-029.
 
 ### 3.3 Revalidasi, bukan unduh ulang
 
@@ -85,14 +92,15 @@ Bila install gagal karena jaringan, `/api/version` tetap melaporkan versi baru s
 - SW **v464** `taskflow-v464-sw-precache-shell`. v463 dicadangkan untuk PR #84; periksa `main` sebelum merge karena nomor bisa bentrok dengan PR paralel. Ganti semua kemunculan versi lama di `static/`, `webapp.py` (`sw_cache`), dan `tests/`.
 - `app.css` tidak berubah (`?v=362`).
 - Deploy: file statis + `webapp.py` (`sw_cache`) → restart `taskflow-web` agar `/api/version` melaporkan v464. Tanpa migrasi.
-- Rilis ini sendiri masih memakai jalur update lama di perangkat pengguna: SW lama (v462) yang menghapus cache saat SW baru aktif. Perlindungan berlaku mulai rilis sesudahnya, karena yang menjalankan install adalah SW baru.
+- Perlindungan sudah berlaku untuk rilis ini sendiri: handler `install` dan `activate` yang berjalan adalah milik SW baru (v464). Cache v464 sudah berisi app.css sebelum `activate` menghapus cache lama, dan install v464 yang gagal membuat SW lama tetap aktif.
 
 ## 6. Pengujian
 
 - **Unit (`node --test`), file baru `tests/offline/sw_precache_shell.test.js`:**
   - setiap `<script src>` dan `<link rel="stylesheet" href>` lokal (diawali `/`) di `static/index.html` ada di `STATIC` dengan string persis;
   - setiap entri `STATIC` selain `/` dan `/config.js` menunjuk file yang ada di `static/` (query diabaikan);
-  - `STATIC` dan `OPTIONAL_STATIC` tidak beririsan, dan `/static/sounds/` tidak ada di keduanya;
+  - `STATIC` dan `OPTIONAL_STATIC` tidak beririsan, masing-masing tanpa duplikat, dan `/static/sounds/` tidak ada di keduanya;
+  - file tes ini ikut CI lewat jembatan pytest (pola `tests/test_note_media_ui_node.py`), karena `test.yml` hanya menjalankan pytest;
   - install memakai `cache: "no-cache"` dan tidak memakai `"reload"`;
   - harness install dengan Cache palsu yang `addAll`-nya atomik:
     - shell gagal satu → `waitUntil` menolak, tidak ada entri shell tersimpan, `skipWaiting` tidak dipanggil;
@@ -114,7 +122,12 @@ Bila install gagal karena jaringan, `/api/version` tetap melaporkan versi baru s
 
 - **D.** Font Google (Nunito Sans) di-self-host dan di-precache. Stylesheet lintas origin itu render-blocking dan tidak pernah disimpan SW (respons opaque `ok=false`).
 - **E.** Iframe mindmap `static/vendor/mind-elixir/index.html` dan asetnya (`MindElixir.iife.js?v=121`, `MindElixir.css?v=121`, modul offline ber-query seperti `mindmapops.js?v=8`) tidak di-precache dengan URL persis. Mindmap offline setelah rilis bisa rusak dengan cara yang sama. Tes penjaga §6 bisa diperluas ke halaman iframe.
-- Perilaku banner update (§4).
+- **F.** `/` disajikan dengan ETag isi + `Cache-Control: no-cache` (bukan `no-store`). Setiap pembukaan app (fetch latar belakang SWR di SW) dan setiap percobaan install cukup 304, bukan ±400 KB gzip. Pertimbangkan efek ke bfcache (halaman `no-store` tidak masuk back/forward cache) dan alur logout sebelum mengubahnya.
+- **G.** Build tldraw saat deploy (`vite build` dengan `emptyOutDir`) memberi semua file `static/vendor/tldraw/` mtime baru, sehingga ETag Starlette (`mtime-size`) berubah dan ±230 file itu tetap diunduh ulang tiap rilis. Perbaikan: build ke folder sementara lalu `rsync -a --checksum --delete` ke `static/vendor/tldraw/`.
+- **H.** Pemeriksaan di `deploy.yml` bahwa setiap entri `STATIC` ada di server sebelum restart. Saat ini deploy tidak menunggu tes, jadi perlindungannya hanya CI hijau sebelum merge.
+- Perilaku banner update (§4), termasuk:
+  - throttle `reg.update()` setelah install gagal;
+  - `register("/sw.js")` ulang bila registrasi pertama gagal dan `update()` menolak `InvalidStateError`.
 
 ## 8. ADR
 
@@ -122,4 +135,6 @@ Tambahkan **ADR-029: Precache SW — shell atomik dan revalidasi** ke `.agents/D
 - update bisa tertunda sampai jaringan cukup baik untuk memvalidasi shell;
 - setiap file baru yang dimuat `index.html` wajib ada di `STATIC` dengan URL persis (dijaga tes);
 - tldraw/ikon/KaTeX tetap bisa hilang sampai dipakai online;
-- perlindungan berlaku mulai rilis setelah v464.
+- URL ganda atau URL yang 404 di `STATIC` memblokir semua update (dijaga tes + CI);
+- perangkat dengan penyimpanan hampir penuh bertahan di versi lama;
+- perlindungan sudah berlaku untuk rilis v464 sendiri.
