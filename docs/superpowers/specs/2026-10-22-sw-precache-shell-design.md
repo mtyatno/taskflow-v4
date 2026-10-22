@@ -89,7 +89,7 @@ Bila install gagal karena jaringan, `/api/version` tetap melaporkan versi baru s
 
 ## 5. Versi dan deploy
 
-- SW **v464** `taskflow-v464-sw-precache-shell`. v463 dicadangkan untuk PR #84; periksa `main` sebelum merge karena nomor bisa bentrok dengan PR paralel. Ganti semua kemunculan versi lama di `static/`, `webapp.py` (`sw_cache`), dan `tests/`.
+- SW **v464** `taskflow-v464-sw-precache-shell` (main sudah v463 dari PR #88). PR #84 juga mengincar nomor berikutnya: siapa pun yang di-merge belakangan menaikkan nomornya. Periksa `main` sebelum merge. Ganti semua kemunculan versi lama di `static/`, `webapp.py` (`sw_cache`), dan `tests/`.
 - `app.css` tidak berubah (`?v=362`).
 - Deploy: file statis + `webapp.py` (`sw_cache`) → restart `taskflow-web` agar `/api/version` melaporkan v464. Tanpa migrasi.
 - Perlindungan sudah berlaku untuk rilis ini sendiri: handler `install` dan `activate` yang berjalan adalah milik SW baru (v464). Cache v464 sudah berisi app.css sebelum `activate` menghapus cache lama, dan install v464 yang gagal membuat SW lama tetap aktif.
