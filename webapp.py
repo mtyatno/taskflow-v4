@@ -2245,6 +2245,8 @@ async def list_tasks(
 
 
 CHILD_COUNTS_MAX_IDS = 500
+# 500 id × 18 digit + koma ≈ 9500 karakter; batas mentah ini dicek sebelum string dipecah.
+CHILD_COUNTS_MAX_CHARS = 12000
 
 
 # Halaman Fokus: jumlah checklist/catatan/lampiran banyak task dalam SATU request. Dulu klien
@@ -2255,6 +2257,8 @@ CHILD_COUNTS_MAX_IDS = 500
 @app.get("/api/tasks/child-counts")
 async def task_child_counts(ids: str = "", user=Depends(get_current_user)):
     uid = user["sub"]
+    if len(ids) > CHILD_COUNTS_MAX_CHARS:
+        raise HTTPException(status_code=400, detail=f"Parameter ids maksimal {CHILD_COUNTS_MAX_CHARS} karakter")
     wanted = []
     seen = set()
     for tok in ids.split(","):
@@ -2267,8 +2271,8 @@ async def task_child_counts(ids: str = "", user=Depends(get_current_user)):
             continue
         seen.add(tid)
         wanted.append(tid)
-    if len(wanted) > CHILD_COUNTS_MAX_IDS:
-        raise HTTPException(status_code=400, detail=f"Maksimal {CHILD_COUNTS_MAX_IDS} id task per request")
+        if len(wanted) > CHILD_COUNTS_MAX_IDS:
+            raise HTTPException(status_code=400, detail=f"Maksimal {CHILD_COUNTS_MAX_IDS} id task per request")
     if not wanted:
         return {"counts": {}}
 
@@ -3385,7 +3389,7 @@ async def create_subtask(task_id: int, req: SubtaskCreate, background_tasks: Bac
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
-            f"📝 <b>{_esc_msg(actor)}</b> menambah subtask di task <b>{_esc_msg(row['title'])}</b>.",
+            f"📝 <b>{_esc_msg(actor)}</b> menambah item checklist di task <b>{_esc_msg(row['title'])}</b>.",
             task_id=task_id
         )
     return result

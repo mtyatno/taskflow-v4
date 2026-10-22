@@ -4,7 +4,9 @@ Halaman Fokus dulu memanggil 3 GET per task (subtasks, notes, attachments) seren
 koneksi browser membuat POST tambah checklist/catatan tertahan sampai timeout 15 dtk.
 """
 import io
+import itertools
 
+import webapp
 from test_contexts_tasks import U, _workspace, _add_member, _mk
 
 
@@ -125,3 +127,102 @@ def test_route_not_swallowed_by_task_detail_route(client):
 def test_unauthenticated_is_401(client):
     client.cookies.clear()
     assert client.get("/api/tasks/child-counts?ids=1").status_code == 401
+
+
+def test_raw_ids_longer_than_12000_chars_rejected_before_parsing(client):
+    u = U(client, "cc")
+    t = _mk(u)
+    # 500 id × 18 digit + koma = 9499 karakter: masih diterima.
+    ok = ",".join([str(t["id"])] + [str(10**17 + i) for i in range(499)])
+    assert len(ok) < 12000
+    assert set(_counts(u, ok)) == {str(t["id"])}
+    # Sampah panjang (tanpa id valid sekalipun) ditolak sebelum dipecah.
+    r = u.get("/api/tasks/child-counts?ids=" + "," * 12001)
+    assert r.status_code == 400
+    assert "12000" in r.json()["detail"]
+    r = u.get("/api/tasks/child-counts?ids=" + ("x" * 11990) + f",{t['id']},1234567")
+    assert r.status_code == 400
+
+
+def test_leading_zeros_and_max_18_digits(client):
+    u = U(client, "cq")
+    t = _mk(u)["id"]
+    r = u.get(f"/api/tasks/child-counts?ids=000{t},999999999999999999,9223372036854775807")
+    assert r.status_code == 200, r.text
+    assert set(r.json()["counts"]) == {str(t)}
+
+
+# ── Paritas dengan endpoint per task untuk setiap pasangan pengguna × task (review independen) ──
+
+def _sub_done(u, tid, done=False):
+    r = u.post(f"/api/tasks/{tid}/subtasks", json={"title": "x"})
+    assert r.status_code == 200, r.text
+    if done:
+        assert u.post(f"/api/subtasks/{r.json()['id']}/toggle").status_code == 200
+
+
+def _per_task(u, tid):
+    s = u.get(f"/api/tasks/{tid}/subtasks")
+    n = u.get(f"/api/tasks/{tid}/notes")
+    a = u.get(f"/api/tasks/{tid}/attachments")
+    codes = {s.status_code, n.status_code, a.status_code}
+    if codes != {200}:
+        assert len(codes) == 1, codes
+        return None
+    subs = s.json()
+    return {"sub_total": len(subs), "sub_done": sum(1 for x in subs if x["is_done"]),
+            "notes": len(n.json()), "atts": len(a.json())}
+
+
+def _check_parity(users, tids):
+    ids = ",".join(str(t) for t in tids)
+    for u in users:
+        batch = _counts(u, ids)
+        for t in tids:
+            assert batch.get(str(t)) == _per_task(u, t), (u.id, t)
+
+
+def test_parity_with_per_task_endpoints_across_membership_changes_and_workspace_delete(client):
+    owner, member, outsider, leaver = (U(client, p) for p in ("ro", "rm", "rz", "rl"))
+    ws = _workspace(owner)
+    _add_member(ws, member.id)
+    _add_member(ws, leaver.id)
+    ws2 = _workspace(outsider)
+    tasks = []
+    for creator, lid in itertools.product((owner, member, leaver), (None, ws)):
+        body = {"title": "t"}
+        if lid:
+            body["list_id"] = lid
+        t = _mk(creator, **body)["id"]
+        _sub_done(creator, t, done=True)
+        _sub_done(creator, t)
+        _note(creator, t)
+        _att(creator, t)
+        tasks.append(t)
+    tasks.append(_mk(outsider, title="o", list_id=ws2)["id"])
+    users = [owner, member, outsider, leaver]
+    _check_parity(users, tasks + [0, 999999999999999999])
+    # anggota keluar sendiri → task workspace hilang darinya
+    assert leaver.delete(f"/api/lists/{ws}/leave").status_code == 200
+    _check_parity(users, tasks)
+    # pemilik mengeluarkan anggota
+    assert owner.delete(f"/api/lists/{ws}/members/{member.id}").status_code == 200
+    _check_parity(users, tasks)
+    # pemilik menghapus workspace
+    r = owner.delete(f"/api/lists/{ws}")
+    assert r.status_code == 200, r.text
+    _check_parity(users, tasks)
+
+
+def test_workspace_checklist_notification_says_item_checklist(client, monkeypatch):
+    sent = []
+
+    async def fake_notify(list_id, actor_user_id, message, task_id=None):
+        sent.append(message)
+    monkeypatch.setattr(webapp, "_notify_members_bg", fake_notify)
+    owner = U(client, "cn")
+    ws = _workspace(owner)
+    t = _mk(owner, title="rapat", list_id=ws)
+    _sub(owner, t["id"], "agenda")
+    assert any("menambah item checklist di task" in m for m in sent), sent
+    assert not any("menambah subtask" in m for m in sent), sent
