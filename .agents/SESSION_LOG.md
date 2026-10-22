@@ -4016,3 +4016,9 @@
 - **Changes:** verifikasi ulang suite + repro main vs branch (300 task, latensi 150 ms: 923 → 20 request, POST 14,5 → 0,16 dtk); komentar `useFocusTaskCounts` disesuaikan (f2f8e0f6); branch di-push, **draft PR #87**.
 - **Files Touch:** static/index.html (komentar), .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — draft PR #87, tunggu "merge".
+
+## [2026-10-22 21:54] - Claude
+- **Task:** Merge PR #87 (hitungan batch halaman Fokus + "Subtask" → "Checklist") atas instruksi Bapak ("merge").
+- **Changes:** CI hijau di 9c88afb6, PR di-merge (e012e83b), workflow Deploy Taskflow V4 sukses. SW v462 `taskflow-v462-fokus-checklist-hitungan`, app.css 362.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — tinggal restart `taskflow-web` di server.
