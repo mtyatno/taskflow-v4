@@ -68,9 +68,9 @@ test("CSS ikon chip Pomodoro", () => {
 test("cache bust v450 + app.css?v=360", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v456-focus-filter";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v456-focus-filter";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v456-focus-filter"/);
-  assert.match(py, /sw_cache = "taskflow-v456-focus-filter"/);
+  assert.match(swJs, /^const CACHE = "taskflow-v457-task-pindah-workspace";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v457-task-pindah-workspace";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v457-task-pindah-workspace"/);
+  assert.match(py, /sw_cache = "taskflow-v457-task-pindah-workspace"/);
   assert.match(indexHtml, /app\.css\?v=360/);
 });

@@ -3945,6 +3945,11 @@
 - **Files Touch:** static/offline/focusfilter.js, static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/focusfilter.test.js, tests/offline/focus_filter_ui.test.js, tests (pin versi), temporary_files/e2e_focus_filter.py (+ perbaikan e2e_focus_page/target/ambient/android_notification), docs spec/plan, .agents/*
 - **Status:** Needs Review — draft PR #81 menunggu "merge"; deploy = restart `taskflow-web`.
 
+## [2026-10-22 10:20] - Claude
+- **Task:** Pindah task pribadi ke workspace (permintaan Bapak).
+- **Changes:** endpoint `PATCH /api/tasks/{id}/workspace`, tombol + panel di detail task, helper `moveTaskToWorkspace`, SW v457, ADR-028, tes Python/JS + E2E.
+- **Files Touch:** webapp.py, static/index.html, static/sw.js, tests/test_task_move_workspace.py, tests/offline/task_move_workspace.test.js, tests (pin versi), temporary_files/e2e_task_move_workspace.py, .agents/*.
+- **Status:** Needs Review — PR menunggu review screenshot; deploy = restart `taskflow-web`.
 ## [2026-10-22 10:00] - Claude
 - **Task:** Merge PR #81 (pemilihan task halaman Fokus) atas instruksi Bapak.
 - **Changes:** PR ditandai siap, CI hijau di 516f2d7, di-merge (7072a1a). Deploy percobaan 1 timeout 10 menit di langkah SSH (bukan karena isi PR), dijalankan ulang sekali → sukses. SW v456 `taskflow-v456-focus-filter`, app.css 360.

@@ -154,10 +154,10 @@ test("CSS segmented toggle", async (t) => {
 
 test("cache bust v432 + app.css?v=360", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html, sw_cache webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v456-focus-filter";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v456-focus-filter";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v456-focus-filter"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v456-focus-filter"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v457-task-pindah-workspace";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v457-task-pindah-workspace";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v457-task-pindah-workspace"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v457-task-pindah-workspace"/);
   });
 
   await t.test("index.html memuat app.css?v=360", () => {

@@ -48,8 +48,8 @@ test("index.html memuat commentui & commenthighlight setelah commentroutes", () 
 test("sw.js precache modul dan versi baru", () => {
   assert.ok(swJs.includes('"/static/offline/commentui.js"'));
   assert.ok(swJs.includes('"/static/offline/commenthighlight.js"'));
-  assert.ok(swJs.includes('const CACHE = "taskflow-v456-focus-filter"'));
-  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v456-focus-filter"'));
+  assert.ok(swJs.includes('const CACHE = "taskflow-v457-task-pindah-workspace"'));
+  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v457-task-pindah-workspace"'));
   assert.ok(indexHtml.includes("app.css?v=360"));
 });
 
