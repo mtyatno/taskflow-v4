@@ -31,7 +31,8 @@ test("PomoParkInput: salin, a11y, dan perilaku utama", () => {
   assert.ok(src.includes("__refreshTasks"));
   assert.ok(src.includes("1500"));
   assert.ok(src.includes('"Gagal menyimpan ke Inbox"'));
-  assert.ok(src.includes("Tersimpan ke Inbox"));
+  assert.ok(!src.includes("Tersimpan ke Inbox"), "sukses hanya diumumkan HUD (satu pengumuman SR)");
+  assert.ok(!src.includes('className: "sr-only"'), "tanpa live region sr-only kedua");
   const guard = src.search(/busy\.current\)\s*return/);
   assert.ok(guard >= 0, "guard busy ada");
   assert.ok(guard < src.indexOf('api.post("/api/tasks"'), "guard busy sebelum api.post");

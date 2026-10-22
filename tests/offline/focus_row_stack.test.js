@@ -1,7 +1,7 @@
 "use strict";
 
-// Baris task halaman Fokus di HP (<= 768 px): ⭐, Fokus, chevron ditumpuk dalam satu kolom vertikal
-// di kanan agar judul mendapat sisa lebar. Desktop/tablet > 768 px dan urutan DOM tidak berubah.
+// Baris task halaman Fokus di HP (<= 640 px): ⭐, Fokus, chevron ditumpuk dalam satu kolom vertikal
+// di kanan agar judul mendapat sisa lebar. Tablet/desktop > 640 px dan urutan DOM tidak berubah.
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -25,8 +25,8 @@ function mediaBlocks(query) {
 }
 const SEL = ".ftask-row:not(.is-static)";
 function stackBlock() {
-  const blocks = mediaBlocks("(max-width: 768px)").filter(b => b.includes(SEL + " {"));
-  assert.equal(blocks.length, 1, "satu blok @media (max-width: 768px) untuk kolom tombol baris task");
+  const blocks = mediaBlocks("(max-width: 640px)").filter(b => b.includes(SEL + " {"));
+  assert.equal(blocks.length, 1, "satu blok @media (max-width: 640px) untuk kolom tombol baris task");
   return blocks[0];
 }
 function rule(block, sel) {

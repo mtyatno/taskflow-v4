@@ -77,7 +77,9 @@ test("CSS <= 1024 px: strip satu baris, h1/tanggal/ringkasan visually-hidden, ma
   assert.match(strip, /display: flex/);
   assert.match(strip, /flex-wrap: wrap/, "bagian yang tidak muat turun ke baris 2...");
   assert.match(strip, /overflow: hidden/, "...lalu terpotong (tersembunyi)");
-  assert.match(strip, /height: /, "tinggi dikunci satu baris");
+  assert.match(strip, /height: 1\.5em/, "tinggi dikunci satu baris, skala dengan ukuran teks");
+  assert.match(strip, /line-height: 1\.5;/, "line-height tanpa satuan agar ikut zoom teks");
+  assert.doesNotMatch(strip, /(^|[ ;])(height|line-height): \d+px/, "tanpa tinggi px tetap");
   assert.match(b, /\.focus-page-strip > span \{[^}]*white-space: (pre|nowrap)/, "tiap bagian tidak terpotong di tengah");
   assert.match(b, /\.focus-page-strip svg \{[^}]*display: inline-block/, "glyph sebaris (svg global display:block membuat bagian pomo setinggi 3 baris)");
 });

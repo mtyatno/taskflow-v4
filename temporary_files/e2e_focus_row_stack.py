@@ -1,10 +1,10 @@
 """E2E baris task halaman Fokus di HP: ⭐ / Fokus / chevron satu kolom vertikal (Bapak 2026-10-23). Tidak dijalankan CI.
 
 Skenario (terang + gelap):
-- 375 px & 768 px: di setiap baris (Target hari ini + kelompok task) tombol bertumpuk vertikal — left sama,
+- 375 px & 640 px (HP, <= 640): di setiap baris (Target hari ini + kelompok task) tombol bertumpuk vertikal — left sama,
   top naik berurutan ⭐ < Fokus < chevron, kolom rata atas, target sentuh >= 32 px; lebar judul >= 70% lebar
   baris; tanpa scroll horizontal; ⭐ / Fokus / buka panel tetap berfungsi; baris "Berulang hari ini" tetap flex.
-- 1024 & 1280 px: tetap horizontal (tengah vertikal sama, ⭐ kiri Fokus kiri chevron), label "Fokus" terlihat.
+- 768, 1024 & 1280 px (tablet/desktop): tetap horizontal (tengah vertikal sama, ⭐ kiri Fokus kiri chevron); label "Fokus" terlihat di > 768 (641-768 ikon saja, aturan lama).
 Screenshot: temporary_files/e2e_focus_row_stack/ (git-ignored).
 
     E2E_PYTHON=/path/python-dengan-dependensi-webapp python3 temporary_files/e2e_focus_row_stack.py
@@ -70,13 +70,13 @@ def stacked_checks(p, tag):
     h.check("%s: baris 'Berulang hari ini' tetap flex" % tag, rec == "flex", repr(rec))
 
 
-def horizontal_checks(p, tag):
+def horizontal_checks(p, tag, vw):
     rows = p.evaluate(GEO)
     bad = [r for r in rows if not (r["display"] == "flex" and r["star"] and abs(r["star"]["cy"] - r["focus"]["cy"]) <= 2
                                    and abs(r["focus"]["cy"] - r["chev"]["cy"]) <= 2
                                    and r["star"]["r"] <= r["focus"]["l"] + 1 and r["focus"]["r"] <= r["chev"]["l"] + 1
-                                   and r["star"]["w"] == 36 and r["labelVis"])]
-    h.check("%s: tombol tetap horizontal (⭐ · Fokus · chevron, label Fokus, ⭐ 36 px)" % tag, rows and not bad, repr(bad[:1]))
+                                   and r["star"]["w"] == 36 and (r["labelVis"] or vw <= 768))]
+    h.check("%s: tombol tetap horizontal (⭐ · Fokus · chevron, ⭐ 36 px%s)" % (tag, ", label Fokus" if vw > 768 else "; 641-768: Fokus ikon saja"), rows and not bad, repr(bad[:1]))
 
 
 def behaviour_checks(p, base, user, tag):
@@ -122,7 +122,7 @@ def main():
             browser = pw.chromium.launch()
             first = True
             for theme in ("light", "dark"):
-                for vw in (375, 768, 1024, 1280):
+                for vw in (375, 640, 768, 1024, 1280):
                     tag = "%s %d" % (theme, vw)
                     ctx, p = open_focus(browser, base, user, vw, 900, theme)
                     try:
@@ -131,7 +131,7 @@ def main():
                             p.wait_for_timeout(800)
                             first = False
                         p.locator(".focus-target .ftask").first.wait_for(state="visible", timeout=10000)
-                        if vw <= 768:
+                        if vw <= 640:
                             stacked_checks(p, tag)
                             if vw == 375:
                                 shot(p, "rows_%s_%d.png" % (theme, vw))
@@ -139,7 +139,7 @@ def main():
                             else:
                                 shot(p, "rows_%s_%d.png" % (theme, vw))
                         else:
-                            horizontal_checks(p, tag)
+                            horizontal_checks(p, tag, vw)
                             shot(p, "rows_%s_%d.png" % (theme, vw))
                     finally:
                         ctx.close()
