@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v462-fokus-checklist-hitungan', () => {
+  test('Service Worker cache version is bumped to taskflow-v463-lampiran-tanpa-cookie', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v462-fokus-checklist-hitungan";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v463-lampiran-tanpa-cookie";/m);
   });
 });
 

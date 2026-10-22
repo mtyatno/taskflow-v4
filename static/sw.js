@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v462-fokus-checklist-hitungan";
+const CACHE = "taskflow-v463-lampiran-tanpa-cookie";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
