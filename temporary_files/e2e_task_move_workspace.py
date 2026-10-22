@@ -11,6 +11,7 @@ import re
 import ssl
 import sys
 import tempfile
+import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -123,8 +124,12 @@ def main():
             btn.click()
             p.locator("select[aria-label='Workspace tujuan']").select_option(str(ws["id"]))
             shot(p, "2-panel-terang-desktop.png", bottom=True)
+            # sync penuh dibuat lambat (30 dtk) seperti akun besar: modal harus tetap cepat tertutup
+            p.evaluate("() => { window.__syncNow = () => new Promise(r => setTimeout(r, 30000)); }")
+            t0 = time.time()
             p.get_by_role("button", name="Pindahkan").click()
             p.locator(".modal-content", has_text=TITLE).wait_for(state="detached", timeout=15000)
+            check("2 modal tertutup < 5 dtk walau sync lambat", time.time() - t0 < 5, "%.1f dtk" % (time.time() - t0))
             shot(p, "6-setelah-pindah-terang-desktop.png")
             with sqlite3.connect(db_path) as c:
                 rows = c.execute("SELECT t.list_id, p.list_id FROM tasks t LEFT JOIN projects p ON p.id = t.project_id "

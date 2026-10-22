@@ -2621,6 +2621,9 @@ async def move_task_to_workspace(task_id: int, req: TaskMoveReq, background_task
         conn.commit()
         updated = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
         out = task_row_to_dict(updated, conn)
+        # Baris semua task yang pindah: klien menulisnya langsung ke IndexedDB (tanpa menunggu sync penuh)
+        moved = [task_row_to_dict(r, conn) for r in conn.execute(
+            f"SELECT * FROM tasks WHERE id IN ({marks})", ids).fetchall()]
 
     actor = user.get("username", f"user#{uid}")
     background_tasks.add_task(
@@ -2629,6 +2632,7 @@ async def move_task_to_workspace(task_id: int, req: TaskMoveReq, background_task
         task_id=task_id
     )
     out["moved_ids"] = ids
+    out["moved"] = moved
     return out
 
 
@@ -4826,7 +4830,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v457-task-pindah-workspace"
+    sw_cache = "taskflow-v458-task-pindah-cepat"
     return JSONResponse(
         content={
             "app_version": "4.0.0",
