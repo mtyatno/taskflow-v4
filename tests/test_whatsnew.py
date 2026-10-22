@@ -161,6 +161,15 @@ GOOD = {"version": "taskflow-v10-a", "date": "2026-10-23", "title": "Judul", "ne
     ({"entries": [dict(GOOD, new=["<b>tebal</b>"])]}, "<"),
     ({"entries": [dict(GOOD, title="t" * 61)]}, "60"),
     ({"entries": [dict(GOOD, link="/x")]}, "kunci"),
+    # sub-aturan yang tidak tertangkap baris di atas: tiap baris mengunci satu cabang validate
+    ({"entries": [dict(GOOD, new=[""])]}, "poin kosong"),
+    ({"entries": [dict(GOOD, new=["  "])]}, "poin kosong"),  # hanya spasi = kosong
+    ({"entries": [dict(GOOD, new=["a\nb"])]}, "baris baru"),
+    ({"entries": [dict(GOOD, new=["a\rb"])]}, "baris baru"),
+    ({"entries": [dict(GOOD, new="bukan array")]}, "new harus array string"),
+    ({"entries": [dict(GOOD, fixed=[3])]}, "fixed harus array string"),
+    ({"entries": [dict(GOOD, date="20261023")]}, "date '20261023'"),  # fromisoformat (3.11+) menerimanya; hanya DATE_RE yang menolak
+    ({"entries": [dict(GOOD, silent="ya")]}, "silent harus true atau false"),
 ])
 def test_validator_rejects(data, needle):
     errs = validate(data, "taskflow-v10-a", "taskflow-v10-a")
