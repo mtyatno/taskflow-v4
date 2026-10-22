@@ -3990,3 +3990,9 @@
 - **Changes:** CI hijau di e02d675, PR di-merge (e3468ec), workflow Deploy Taskflow V4 sukses. SW v460 `taskflow-v460-fokus-hero-mobile`, app.css 362.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
+
+## [2026-10-22 17:40] - Claude
+- **Task:** Fix tambah checklist/catatan di halaman Fokus kena "Request timeout — coba lagi" (ratusan GET hitungan per task saat halaman dibuka) + ganti sebutan "Subtask" → "Checklist" untuk checklist.
+- **Changes:** endpoint batch `GET /api/tasks/child-counts` (sebelum `/api/tasks/{task_id}`); `useFocusTaskCounts` memakai batch (potongan 200, `network: true`) untuk id numerik, cid lokal tetap per task; rename teks checklist di halaman Fokus + seksi Checklist detail task; SW v462 `taskflow-v462-fokus-checklist-hitungan`; tes Python + node baru, pin versi dinaikkan.
+- **Files Touch:** webapp.py, static/index.html, static/sw.js, tests/test_task_child_counts.py, tests/offline/focus_child_counts.test.js, tests/offline/focus_filter_ui.test.js, tests/test_version.py + 26 tes pin versi, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal di `claude/fokus-checklist-hitungan`, belum push/PR.
