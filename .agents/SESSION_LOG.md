@@ -3955,3 +3955,9 @@
 - **Changes:** PR ditandai siap, CI hijau di 516f2d7, di-merge (7072a1a). Deploy percobaan 1 timeout 10 menit di langkah SSH (bukan karena isi PR), dijalankan ulang sekali → sukses. SW v456 `taskflow-v456-focus-filter`, app.css 360.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
+
+## [2026-10-22 16:00] - Claude
+- **Task:** Fix bug "Tandai selesai" — baris task baru hilang setelah sync penuh (10–15 dtk).
+- **Changes:** helper `markTasksDoneLocal` + update state optimistik di `handleDone`/`handleDoneAll`/`handleDoneParentOnly` sebelum `fetchAll()`; SW v459 `taskflow-v459-task-selesai-instan`; tes node `task_done_instant.test.js`; E2E `e2e_task_done_instant.py` (gagal 7/28 di kode lama, hijau 2×).
+- **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/test_version.py + tes pin versi, tests/offline/task_done_instant.test.js, temporary_files/e2e_task_done_instant.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal di `claude/task-selesai-instan`, belum push/PR.

@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v457-task-pindah-workspace";
+const CACHE = "taskflow-v459-task-selesai-instan";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
