@@ -51,8 +51,8 @@ test("NotesPage memakai glyph yang ditentukan", () => {
 });
 
 test("versi SW di-bump", () => {
-  assert.match(sw, /taskflow-v458-fokus-filter-redesign/);
-  assert.match(indexHtml, /taskflow-v458-fokus-filter-redesign/);
+  assert.match(sw, /taskflow-v460-fokus-hero-mobile/);
+  assert.match(indexHtml, /taskflow-v460-fokus-hero-mobile/);
   assert.ok(!/taskflow-v44[0-3]-/.test(indexHtml));
 });
 

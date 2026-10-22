@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=361">
+  <link rel="stylesheet" href="/static/app.css?v=362">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v458-fokus-filter-redesign";
+    window.__SW_VERSION = "taskflow-v460-fokus-hero-mobile";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -9719,7 +9719,10 @@ const VIEW_GLYPHS = {
   sListOrdered: '<rect x="2" y="3.5" width="20" height="7" rx="2.5" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M10 6h11"/><path d="M10 12h11"/><path d="M10 18h11"/><path d="M4 10h2"/><path d="M4 6h1v4"/><path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"/>',
   sChecklist: '<rect x="3" y="3" width="18" height="18" rx="3" fill="currentColor" fill-opacity=".22"/><path d="m8 12 3 3 5-6"/>',
   sTable: '<path d="M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4H3z" fill="currentColor" fill-opacity=".22" stroke="none"/><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M12 3v18"/>',
-  sDivider: '<rect x="4" y="3" width="16" height="5" rx="1.5" fill="currentColor" fill-opacity=".22" stroke="none"/><rect x="4" y="16" width="16" height="5" rx="1.5" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M3 12h18"/>'
+  sDivider: '<rect x="4" y="3" width="16" height="5" rx="1.5" fill="currentColor" fill-opacity=".22" stroke="none"/><rect x="4" y="16" width="16" height="5" rx="1.5" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M3 12h18"/>',
+  // Kolom parkir pikiran (kartu Pomodoro ringkas di HP)
+  sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" fill="currentColor" fill-opacity=".22"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+  send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>'
 };
 function ViewGlyph({
   name,
@@ -10522,7 +10525,9 @@ function PomoModeSwitch({
     className: `pomo-mode${timer.mode === m.key ? " is-active" : ""}${m.key !== "work" ? " is-break" : ""}`,
     "aria-pressed": timer.mode === m.key,
     onClick: () => timer.switchMode(m.key)
-  }, m.label)));
+  }, m.label, React.createElement("span", {
+    className: "pomo-mode-min"
+  }, " ", Math.round(POMO_DURATIONS[m.key] / 60), "m"))));
 }
 function PomoRing({
   timer,
@@ -10689,6 +10694,8 @@ function PomoParkInput() {
       busy.current = false;
     }
   };
+  // HP (kartu ringkas): placeholder pendek supaya tidak terpotong
+  const compact = !!(window.matchMedia && window.matchMedia("(max-width: 768px)").matches);
   const onKeyDown = e => {
     e.stopPropagation();
     if (e.key === "Enter") {
@@ -10702,11 +10709,17 @@ function PomoParkInput() {
   };
   return React.createElement("div", {
     className: `pomo-park${status === "ok" ? " is-ok" : ""}${status === "error" ? " is-error" : ""}`
-  }, React.createElement("input", {
+  }, React.createElement("span", {
+    className: "pomo-park-icon",
+    "aria-hidden": "true"
+  }, React.createElement(ViewGlyph, {
+    name: "sparkles",
+    size: 16
+  })), React.createElement("input", {
     className: "pomo-park-input",
     type: "text",
     value: text,
-    placeholder: "Ada pikiran lewat? Ketik & tekan Enter untuk simpan ke Inbox...",
+    placeholder: compact ? "Ada pikiran lewat? Ketik & Enter ke Inbox..." : "Ada pikiran lewat? Ketik & tekan Enter untuk simpan ke Inbox...",
     maxLength: 200,
     "aria-label": "Parkir distraksi ke Inbox",
     enterKeyHint: "done",
@@ -10720,6 +10733,16 @@ function PomoParkInput() {
     "aria-hidden": "true"
   }, React.createElement(Icon, {
     name: "check",
+    size: 16
+  })), React.createElement("button", {
+    type: "button",
+    className: "pomo-park-send",
+    "aria-label": "Simpan ke Inbox",
+    title: "Simpan ke Inbox",
+    disabled: !text.trim(),
+    onClick: park
+  }, React.createElement(ViewGlyph, {
+    name: "send",
     size: 16
   })), React.createElement("span", {
     className: "sr-only",
@@ -10770,13 +10793,115 @@ function PomoAmbient({
     "aria-live": "polite"
   }, tip || ""));
 }
+// HP: pil "🎧 <suara> ⌄" di baris atas kartu Pomodoro; ketuk → popover pilihan suara (radio) + volume.
+// Esc atau ketuk di luar menutup popover dan fokus kembali ke pil. Desktop memakai PomoAmbient (inline).
+function PomoAmbientPill({
+  ambient
+}) {
+  const a = ambient || {};
+  const st = a.state || "idle";
+  const sound = a.sound || "off";
+  const volume = typeof a.volume === "number" ? a.volume : 50;
+  const sounds = window.TF.ambient.SOUNDS;
+  const current = sounds.find(o => o.key === sound) || sounds[0];
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const pillRef = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = e => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    const onKey = e => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setOpen(false);
+        pillRef.current?.focus({
+          preventScroll: true
+        });
+      }
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("keydown", onKey);
+    wrapRef.current?.querySelector('[aria-checked="true"]')?.focus({
+      preventScroll: true
+    });
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+  const tip = st === "error" ? "Suara belum tersedia offline" : st === "waiting-tap" ? "Ketuk di mana saja untuk menyalakan suara" : undefined;
+  return React.createElement("div", {
+    ref: wrapRef,
+    className: "pomo-amb-mobile",
+    "data-state": st
+  }, React.createElement("button", {
+    ref: pillRef,
+    type: "button",
+    className: "pomo-amb-pill",
+    "aria-haspopup": "dialog",
+    "aria-expanded": open,
+    "aria-label": `Suara latar: ${current.label}`,
+    title: tip,
+    onClick: () => setOpen(v => !v)
+  }, React.createElement(ViewGlyph, {
+    name: "headphones",
+    size: 15
+  }), React.createElement("span", {
+    className: "pomo-amb-pill-label"
+  }, current.label), React.createElement(FocusGlyph, {
+    name: "chevron",
+    size: 13
+  })), open && React.createElement("div", {
+    className: "pomo-amb-pop",
+    role: "dialog",
+    "aria-label": "Suara latar"
+  }, React.createElement("div", {
+    className: "pomo-amb-pop-title"
+  }, "Suara latar"), React.createElement("div", {
+    className: "pomo-amb-opts",
+    role: "radiogroup",
+    "aria-label": "Suara latar"
+  }, sounds.map(o => React.createElement("button", {
+    key: o.key,
+    type: "button",
+    role: "radio",
+    "aria-checked": o.key === sound,
+    className: `pomo-amb-opt${o.key === sound ? " is-on" : ""}`,
+    onClick: () => a.onSound && a.onSound(o.key)
+  }, React.createElement("span", null, o.label), o.key === sound && React.createElement(FocusGlyph, {
+    name: "check",
+    size: 14
+  })))), React.createElement("label", {
+    className: "pomo-amb-vol"
+  }, React.createElement("span", {
+    className: "pomo-amb-vol-head"
+  }, React.createElement("span", null, "Volume"), React.createElement("span", {
+    className: "pomo-amb-vol-n"
+  }, volume, "%")), React.createElement("input", {
+    className: "pomo-amb-volume",
+    type: "range",
+    min: 0,
+    max: 100,
+    step: 1,
+    value: volume,
+    disabled: sound === "off",
+    "aria-label": "Volume suara latar",
+    "aria-valuetext": volume + "%",
+    onChange: e => a.onVolume && a.onVolume(Number(e.target.value))
+  })), tip && React.createElement("p", {
+    className: "pomo-amb-tip"
+  }, tip)));
+}
 function PomodoroTimer({
   timer,
   focusTask,
   cardRef,
   zenEnabled,
   onToggleZen,
-  ambient
+  ambient,
+  onCompleteTask
 }) {
   const t = timer;
   return React.createElement("section", {
@@ -10801,7 +10926,9 @@ function PomodoroTimer({
     className: "focus-pomo-body"
   }, React.createElement("div", {
     className: "focus-pomo-head"
-  }, React.createElement("div", null, React.createElement("h2", {
+  }, React.createElement("div", {
+    className: "focus-pomo-headline"
+  }, React.createElement("h2", {
     className: "focus-pomo-title"
   }, React.createElement(Icon, {
     name: "clock",
@@ -10820,13 +10947,18 @@ function PomodoroTimer({
   }, React.createElement(ViewGlyph, {
     name: "fEye",
     size: 16
-  })), React.createElement(PomoModeSwitch, {
+  })), React.createElement(PomoAmbientPill, {
+    ambient: ambient
+  }), React.createElement(PomoModeSwitch, {
     timer: t
   }))), React.createElement(PomoControls, {
     timer: t
   }), React.createElement(PomoParkInput, null), focusTask ? React.createElement("div", {
     className: "focus-pomo-task"
   }, React.createElement("span", {
+    className: "focus-pomo-task-dot",
+    "aria-hidden": "true"
+  }), React.createElement("span", {
     className: "focus-pomo-task-icon"
   }, React.createElement(FocusGlyph, {
     name: "target",
@@ -10845,7 +10977,16 @@ function PomodoroTimer({
     size: 14
   }), " ", React.createElement("span", {
     className: `focus-pomo-task-done${window.TF.pomologic.isOverEstimate((focusTask.pomodoros_done || 0) + (t.overtimePomodoros || 0), window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros)) ? " is-over" : ""}`
-  }, (focusTask.pomodoros_done || 0) + (t.overtimePomodoros || 0)), " / ", window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros))) : React.createElement("div", {
+  }, (focusTask.pomodoros_done || 0) + (t.overtimePomodoros || 0)), " / ", window.TF.pomologic.clampEstimate(focusTask.estimated_pomodoros)), onCompleteTask && React.createElement("button", {
+    type: "button",
+    className: "focus-pomo-task-done-btn",
+    "aria-label": `Tandai selesai: ${focusTask.title}`,
+    title: "Tandai task aktif selesai",
+    onClick: () => onCompleteTask(focusTask)
+  }, React.createElement(FocusGlyph, {
+    name: "check",
+    size: 14
+  }), "Selesai")) : React.createElement("div", {
     className: "focus-pomo-hint"
   }, "Pilih task di bawah lalu klik ", React.createElement("strong", null, "Fokus"), " untuk menjadikannya task aktif."), React.createElement("div", {
     className: "focus-pomo-stats"
@@ -10855,19 +10996,34 @@ function PomodoroTimer({
     className: "focus-pomo-stat-value is-red"
   }, t.pomodorosToday), React.createElement("span", {
     className: "focus-pomo-stat-label"
-  }, "Pomodoro")), React.createElement("div", {
+  }, React.createElement("span", {
+    className: "is-long"
+  }, "Pomodoro"), React.createElement("span", {
+    className: "is-short"
+  }, "Pomo"))), React.createElement("div", {
     className: "focus-pomo-stat"
   }, React.createElement("span", {
     className: "focus-pomo-stat-value is-green"
   }, formatFocusTime(t.totalFocusTime)), React.createElement("span", {
     className: "focus-pomo-stat-label"
-  }, "Waktu fokus")), React.createElement("div", {
+  }, React.createElement("span", {
+    className: "is-long"
+  }, "Waktu fokus"), React.createElement("span", {
+    className: "is-short"
+  }, "Fokus"))), React.createElement("div", {
     className: "focus-pomo-stat"
   }, React.createElement("span", {
     className: "focus-pomo-stat-value is-lime"
   }, Math.floor(t.pomodorosToday / 4)), React.createElement("span", {
     className: "focus-pomo-stat-label"
-  }, "Set lengkap")), React.createElement(PomoAmbient, {
+  }, React.createElement("span", {
+    className: "is-long"
+  }, "Set lengkap"), React.createElement("span", {
+    className: "is-short"
+  }, "Set"))), focusTask && focusTask.project && React.createElement("span", {
+    className: "focus-pomo-stats-project",
+    title: "Project task aktif"
+  }, focusTask.project), React.createElement(PomoAmbient, {
     ambient: ambient
   }))));
 }
@@ -12004,7 +12160,8 @@ function TodayFocusView({
     cardRef: pomoRef,
     zenEnabled: zenEnabled,
     onToggleZen: toggleZen,
-    ambient: ambient
+    ambient: ambient,
+    onCompleteTask: t => handleTaskDone(t.id)
   }), recurringToday.length > 0 && React.createElement("section", {
     className: `focus-section${zenClass}`,
     "aria-hidden": zenOn ? true : undefined
@@ -25633,7 +25790,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v458-fokus-filter-redesign"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v460-fokus-hero-mobile"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

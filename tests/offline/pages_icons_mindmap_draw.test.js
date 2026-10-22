@@ -85,9 +85,9 @@ test("Gambar/Canvas memakai ViewGlyph", () => {
   assert.match(draw, /"Pinned"/);
 });
 
-test("cache bust taskflow-v458-fokus-filter-redesign", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v458-fokus-filter-redesign";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v458-fokus-filter-redesign";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v458-fokus-filter-redesign"/);
-  assert.match(webappPy, /sw_cache = "taskflow-v458-fokus-filter-redesign"/);
+test("cache bust taskflow-v460-fokus-hero-mobile", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v460-fokus-hero-mobile";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v460-fokus-hero-mobile";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v460-fokus-hero-mobile"/);
+  assert.match(webappPy, /sw_cache = "taskflow-v460-fokus-hero-mobile"/);
 });

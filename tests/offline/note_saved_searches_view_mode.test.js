@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v458-fokus-filter-redesign", () => {
-    assert.match(swJs, /taskflow-v458-fokus-filter-redesign/);
+  await t.test("sw.js bumped to taskflow-v460-fokus-hero-mobile", () => {
+    assert.match(swJs, /taskflow-v460-fokus-hero-mobile/);
   });
 });
