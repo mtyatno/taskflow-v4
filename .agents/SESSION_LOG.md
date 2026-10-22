@@ -4022,3 +4022,10 @@
 - **Changes:** CI hijau di 9c88afb6, PR di-merge (e012e83b), workflow Deploy Taskflow V4 sukses. SW v462 `taskflow-v462-fokus-checklist-hitungan`, app.css 362.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
+
+## [2026-10-22 23:29] - Claude
+- **Task:** Fix klik lampiran task/note di web → 401 "Not authenticated" bila cookie `token` tidak ada (SPA login lewat localStorage + header).
+- **Changes:** `openAttachment` web → event `tf-open-attachment` (path relatif, tanpa token) ke `AttachmentViewer`; helper `fetchAttachmentResponse` (Bearer `__token`, `apiUrl` hanya untuk path relatif, 401 → "Sesi berakhir — masuk lagi"); komentar diperbarui; SW v463 `taskflow-v463-lampiran-tanpa-cookie` (+ pin versi di tes); tes node + E2E baru.
+- **Verifikasi:** npm 2973/2972 (pra-ada `draw_local_reactive`); pytest 1156 passed 1 skipped; inline OK; `e2e_attachment_open_web` 13/0; `e2e_focus_page` 36/0.
+- **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/test_version.py, tests/offline/*.test.js (pin versi), tests/offline/attachment_viewer_web.test.js, temporary_files/e2e_attachment_open_web.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal di `claude/lampiran-tanpa-cookie`, belum push/PR.

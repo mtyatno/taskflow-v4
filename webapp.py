@@ -4890,7 +4890,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v462-fokus-checklist-hitungan"
+    sw_cache = "taskflow-v463-lampiran-tanpa-cookie"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

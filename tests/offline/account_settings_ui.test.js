@@ -100,10 +100,10 @@ test("accountbanner.js dimuat dan di-precache service worker", () => {
 });
 
 test("cache bust v450 + app.css?v=362", () => {
-  assert.match(sw, /^const CACHE = "taskflow-v462-fokus-checklist-hitungan";/m);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v462-fokus-checklist-hitungan";/);
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v462-fokus-checklist-hitungan"/);
-  assert.match(py, /sw_cache = "taskflow-v462-fokus-checklist-hitungan"/);
+  assert.match(sw, /^const CACHE = "taskflow-v463-lampiran-tanpa-cookie";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v463-lampiran-tanpa-cookie";/);
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v463-lampiran-tanpa-cookie"/);
+  assert.match(py, /sw_cache = "taskflow-v463-lampiran-tanpa-cookie"/);
   assert.match(html, /app\.css\?v=362/);
   assert.doesNotMatch(html, /v437|app\.css\?v=345/);
 });
