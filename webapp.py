@@ -1245,6 +1245,9 @@ class TaskUpdate(BaseModel):
     # base_rev: updated_at yang diketahui klien; bila dikirim dan ≠ server → 409 REV_MISMATCH (prinsip 7)
     base_rev: Optional[str] = None
 
+class TaskMoveReq(BaseModel):
+    list_id: int  # workspace tujuan
+
 class SharedListCreate(BaseModel):
     name: str = Field(min_length=1, max_length=100)
 
@@ -2564,6 +2567,69 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
                 task_id=task_id
             )
     return task_row_to_dict(row)
+
+
+@app.patch("/api/tasks/{task_id}/workspace")
+async def move_task_to_workspace(task_id: int, req: TaskMoveReq, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
+    """Pindahkan task pribadi (beserta child task-nya) ke workspace. Hanya pemilik task.
+    Project & tahap di-resolve ulang per nama di scope workspace (dibuat bila belum ada); lampiran
+    ikut tercatat di Files workspace. updated_at di-bump agar pull klien mengadopsi list_id baru."""
+    uid = user["sub"]
+    if not TaskRepository(DB_PATH).is_list_member_or_owner(req.list_id, uid):
+        raise HTTPException(status_code=403, detail="Kamu bukan anggota workspace ini")
+    with get_db() as conn:
+        row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        if not row or row["user_id"] != uid:
+            raise HTTPException(status_code=404, detail="Task tidak ditemukan")
+        if row["list_id"] is not None:
+            raise HTTPException(status_code=400, detail="Task sudah berada di workspace")
+        if row["parent_id"] is not None:
+            raise HTTPException(status_code=400, detail="Sub-task ikut dipindah bersama task induknya")
+
+        # Task + seluruh turunannya yang masih pribadi milik pengguna (urut BFS, induk dulu)
+        ids, frontier = [task_id], [task_id]
+        while frontier:
+            marks = ",".join("?" * len(frontier))
+            kids = [r["id"] for r in conn.execute(
+                f"SELECT id FROM tasks WHERE parent_id IN ({marks}) AND user_id = ? AND list_id IS NULL",
+                (*frontier, uid)).fetchall() if r["id"] not in ids]
+            ids.extend(kids)
+            frontier = kids
+
+        now = datetime.now().isoformat()
+        for tid in ids:
+            t = conn.execute("SELECT project, context FROM tasks WHERE id = ?", (tid,)).fetchone()
+            proj_id, proj_name = repository.resolve_task_project(
+                conn, owner_id=uid, list_id=req.list_id, name=t["project"], project_id=None, actor_id=uid)
+            ctx_id, ctx_name = repository.resolve_task_context(
+                conn, owner_id=uid, list_id=req.list_id, name=t["context"], context_id=None, actor_id=uid)
+            conn.execute(
+                "UPDATE tasks SET list_id = ?, assigned_to = NULL, project = ?, project_id = ?, "
+                "context = ?, context_id = ?, updated_at = ? WHERE id = ?",
+                (req.list_id, proj_name, proj_id, ctx_name, ctx_id, now, tid))
+
+        _ensure_workspace_files_table(conn)
+        marks = ",".join("?" * len(ids))
+        for att in conn.execute(
+                f"SELECT * FROM task_attachments WHERE task_id IN ({marks})", ids).fetchall():
+            conn.execute(
+                """INSERT INTO workspace_files
+                   (list_id, user_id, filename, original_name, file_size, mime_type, source, task_id, is_deleted, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, 'task', ?, 0, ?)""",
+                (req.list_id, uid, att["filename"], att["original_name"], att["file_size"] or 0,
+                 att["mime_type"] or "", att["task_id"], now))
+        conn.commit()
+        updated = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
+        out = task_row_to_dict(updated, conn)
+
+    actor = user.get("username", f"user#{uid}")
+    background_tasks.add_task(
+        _notify_members_bg, req.list_id, uid,
+        f"📥 <b>{_esc_msg(actor)}</b> memindahkan task <b>{_esc_msg(row['title'])}</b> ke workspace ini.",
+        task_id=task_id
+    )
+    out["moved_ids"] = ids
+    return out
 
 
 @app.post("/api/tasks/{task_id}/done")
@@ -4760,7 +4826,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v455-komentar-tooltip"
+    sw_cache = "taskflow-v456-task-pindah-workspace"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

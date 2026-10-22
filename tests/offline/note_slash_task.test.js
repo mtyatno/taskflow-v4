@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v455-komentar-tooltip in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v455-komentar-tooltip";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v455-komentar-tooltip"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v455-komentar-tooltip";/);
+  await t.test("Service Worker cache is taskflow-v456-task-pindah-workspace in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v456-task-pindah-workspace";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v456-task-pindah-workspace"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v456-task-pindah-workspace";/);
   });
 });

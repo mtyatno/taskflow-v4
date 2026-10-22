@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v455-komentar-tooltip";
+    window.__SW_VERSION = "taskflow-v456-task-pindah-workspace";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -8293,6 +8293,32 @@ function ModalNotes({
   //   - TaskDetailModal
   // BLOCK LENGTH: ~960 lines (6435-7395) — complex modal, many sub-component deps
 
+// Pindah task pribadi ke workspace (online saja, seperti share note): dorong edit tertunda dulu, butuh id
+// server, lalu PATCH /api/tasks/:id/workspace dan tarik ulang supaya list_id/project/tahap baru (task + child)
+// masuk IndexedDB. Mengembalikan { ok, updated } atau { ok:false, message }.
+async function moveTaskToWorkspace({ api, task, listId, pushNow, syncNow, serverIdOf, offline }) {
+  if (!task || listId == null || listId === "") return { ok: false, message: "Pilih workspace tujuan" };
+  if (typeof pushNow === "function") {
+    try { await pushNow(); } catch (_) {}
+  }
+  const isNum = v => v != null && /^\d+$/.test(String(v));
+  let sid = isNum(task.server_id) ? task.server_id : isNum(task.id) ? task.id : null;
+  if (sid == null && task.cid && typeof serverIdOf === "function") {
+    try { sid = await serverIdOf(task.cid); } catch (_) { sid = null; }
+  }
+  if (!isNum(sid)) return { ok: false, message: "Task belum tersinkron ke server. Coba lagi sebentar lagi." };
+  let updated;
+  try {
+    updated = await api.patch(`/api/tasks/${sid}/workspace`, { list_id: Number(listId) });
+  } catch (err) {
+    if (typeof offline === "function" && offline(err)) return { ok: false, message: "Butuh koneksi internet untuk memindahkan task." };
+    return { ok: false, message: err && err.message || "Gagal memindahkan task" };
+  }
+  if (typeof syncNow === "function") {
+    try { await syncNow(); } catch (_) {}
+  }
+  return { ok: true, updated: updated || {} };
+}
 function TaskDetailModal({
   task,
   onClose,
@@ -8324,6 +8350,51 @@ function TaskDetailModal({
     progress: task.progress || 0
   });
   const [saving, setSaving] = useState(false);
+  // Pindah ke workspace: hanya task pribadi tingkat atas (child ikut induknya).
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [moveTarget, setMoveTarget] = useState("");
+  const [moving, setMoving] = useState(false);
+  const [moveLists, setMoveLists] = useState(sharedLists || null);
+  const movePanelRef = useRef(null);
+  useEffect(() => {
+    if (moveOpen && movePanelRef.current && movePanelRef.current.scrollIntoView) movePanelRef.current.scrollIntoView({
+      block: "nearest",
+      behavior: "smooth"
+    });
+  }, [moveOpen]);
+  const canMove = (task.list_id == null || task.list_id === "") && !task.parent_id && !task.parent_cid;
+  useEffect(() => {
+    if (!moveOpen || moveLists) return undefined;
+    let alive = true;
+    api.get("/api/lists").then(r => {
+      if (alive) setMoveLists(Array.isArray(r) ? r : []);
+    }).catch(() => alive && setMoveLists([]));
+    return () => {
+      alive = false;
+    };
+  }, [moveOpen, moveLists]);
+  const handleMove = async () => {
+    if (!moveTarget || moving) return;
+    setMoving(true);
+    const res = await moveTaskToWorkspace({
+      api,
+      task,
+      listId: moveTarget,
+      pushNow: window.__pushNow,
+      syncNow: window.__syncNow,
+      serverIdOf: window.TF && window.TF.idmap ? window.TF.idmap.serverIdOf : null,
+      offline: isOfflineErr
+    });
+    setMoving(false);
+    if (!res.ok) {
+      window.__showToast ? window.__showToast(res.message, "error") : alert(res.message);
+      return;
+    }
+    const ws = (moveLists || []).find(l => String(l.id) === String(moveTarget));
+    window.__showToast?.(`Task dipindahkan ke ${ws ? ws.name : "workspace"}`);
+    onRefresh?.();
+    onClose();
+  };
   // Scope task tetap (dari task.list_id); opsi project mengikuti scope itu.
   const scopeProjects = useScopeProjects(task.list_id);
   const scopeContexts = useScopeContexts(task.list_id);
@@ -9124,7 +9195,73 @@ function TaskDetailModal({
     collaborators: collaborators
   }), /*#__PURE__*/React.createElement(ModalAttachments, {
     taskId: task.id
-  }), isEditing ? /*#__PURE__*/React.createElement("div", {
+  }), !isEditing && moveOpen && /*#__PURE__*/React.createElement("div", {
+    className: "task-move-panel",
+    ref: movePanelRef,
+    style: {
+      border: "1px solid var(--border)",
+      borderRadius: 10,
+      padding: 12,
+      marginBottom: 12,
+      background: "var(--bg-subtle)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontWeight: 700,
+      fontSize: 14,
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "users",
+    size: 15,
+    style: {
+      color: "var(--accent)"
+    }
+  }), "Pindah ke Workspace"), moveLists && moveLists.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-light)"
+    }
+  }, "Kamu belum punya workspace. Buat atau gabung workspace dulu.") : /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    "aria-label": "Workspace tujuan",
+    value: moveTarget,
+    disabled: moving || !moveLists,
+    onChange: e => setMoveTarget(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, moveLists ? "\u2014 Pilih workspace \u2014" : "Memuat\u2026"), (moveLists || []).map(l => /*#__PURE__*/React.createElement("option", {
+    key: l.id,
+    value: l.id
+  }, projectScopeOptionLabel(l)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-light)",
+      marginTop: 8,
+      lineHeight: 1.5
+    }
+  }, "Task akan terlihat oleh semua anggota workspace. Sub-task, checklist, catatan dan lampiran ikut pindah; project dan tahap memakai nama yang sama di workspace."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      justifyContent: "flex-end",
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: () => {
+      setMoveOpen(false);
+      setMoveTarget("");
+    },
+    disabled: moving
+  }, "Batal"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary btn-sm",
+    onClick: handleMove,
+    disabled: moving || !moveTarget
+  }, moving ? "Memindahkan..." : "Pindahkan"))), isEditing ? /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       gap: 8,
@@ -9151,7 +9288,10 @@ function TaskDetailModal({
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-danger btn-sm",
     onClick: onDelete
-  }, "\uD83D\uDDD1\uFE0F Hapus"), task.gtd_status !== "done" && onToggleFocus && /*#__PURE__*/React.createElement("button", {
+  }, "\uD83D\uDDD1\uFE0F Hapus"), canMove && !moveOpen && /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: () => setMoveOpen(true)
+  }, /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } }, /*#__PURE__*/React.createElement(Icon, { name: "users", size: 13 }), "Pindah ke Workspace")), task.gtd_status !== "done" && onToggleFocus && /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm",
     onClick: () => {
       onToggleFocus(task.id);
@@ -24928,7 +25068,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v455-komentar-tooltip"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v456-task-pindah-workspace"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
