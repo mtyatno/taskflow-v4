@@ -4043,3 +4043,10 @@
 - **Files Touch:** static/sw.js, static/index.html (versi), webapp.py (`sw_cache`), tests/offline/sw_precache_shell.test.js, tests/test_sw_precache_node.py, tests/test_static_revalidate.py, tests/test_version.py + pin versi, temporary_files/e2e_sw_precache_shell.py, .gitignore, docs/superpowers/specs/2026-10-22-sw-precache-shell-design.md, docs/superpowers/plans/2026-10-22-sw-precache-shell.md, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Verifikasi:** npm 2989/2988 (pra-ada `draw_local_reactive`); pytest 1162 passed 1 skipped; inline OK; E2E branch 13/13, main 8/13.
 - **Status:** Needs Review — draft PR, tunggu "merge dan deploy".
+
+
+## [2026-10-23 04:52] - Claude
+- **Task:** Merge PR #90 (precache shell SW atomik + revalidasi) atas instruksi Bapak ("merge").
+- **Changes:** main tidak bergerak sejak d36ac63, CI hijau di 5ea96f5a, PR ditandai ready lalu di-merge (059aa81c), Deploy Taskflow V4 sukses. SW v464 `taskflow-v464-sw-precache-shell`, app.css 362. PR #89 dan #84 perlu nomor SW berikutnya (v465+).
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — tinggal restart `taskflow-web` di server.
