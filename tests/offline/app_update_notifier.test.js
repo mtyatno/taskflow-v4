@@ -17,8 +17,8 @@ function fnSource(name) {
   return indexHtml.slice(start, end);
 }
 
-test("1. Service Worker: CACHE version is bumped to taskflow-v463-lampiran-tanpa-cookie", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v463-lampiran-tanpa-cookie";/m);
+test("1. Service Worker: CACHE version is bumped to taskflow-v464-sw-precache-shell", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v464-sw-precache-shell";/m);
 });
 
 test("2. Service Worker: install event respects active worker (waits for skipWaiting prompt)", () => {
@@ -50,7 +50,7 @@ test("5. Frontend: UpdateNotificationBanner component exists with required eleme
 
 test("6. Frontend: Service Worker registration and update detection logic exists", () => {
   assert.match(indexHtml, /window\.__APP_VERSION\s*=\s*"4\.0\.0";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v463-lampiran-tanpa-cookie";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v464-sw-precache-shell";/);
   assert.match(indexHtml, /reg\.addEventListener\("updatefound"/);
   assert.match(indexHtml, /newWorker\.state === "installed"/);
   assert.match(indexHtml, /navigator\.serviceWorker\.controller/);

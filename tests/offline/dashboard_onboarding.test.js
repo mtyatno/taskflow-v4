@@ -11,8 +11,8 @@ test("Service Worker and stylesheet versions are synchronized for v396", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v463-lampiran-tanpa-cookie/);
-  assert.match(html, /taskflow-v463-lampiran-tanpa-cookie/);
+  assert.match(sw, /taskflow-v464-sw-precache-shell/);
+  assert.match(html, /taskflow-v464-sw-precache-shell/);
   assert.match(html, /app\.css\?v=362/);
 });
 

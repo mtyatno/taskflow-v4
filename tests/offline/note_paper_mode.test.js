@@ -184,11 +184,11 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
   const webappPath = path.resolve(__dirname, "../../webapp.py");
   const webappPy = fs.readFileSync(webappPath, "utf8");
 
-  await t.test("Service Worker and cache version is taskflow-v463-lampiran-tanpa-cookie", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v463-lampiran-tanpa-cookie";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v463-lampiran-tanpa-cookie";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v463-lampiran-tanpa-cookie"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v463-lampiran-tanpa-cookie"/);
+  await t.test("Service Worker and cache version is taskflow-v464-sw-precache-shell", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v464-sw-precache-shell";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v464-sw-precache-shell";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v464-sw-precache-shell"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v464-sw-precache-shell"/);
   });
 
   const notePanelMatch = indexHtml.match(/function NotePanel\([\s\S]*?^function /m);
