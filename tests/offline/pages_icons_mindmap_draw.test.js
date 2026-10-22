@@ -85,8 +85,8 @@ test("Gambar/Canvas memakai ViewGlyph", () => {
   assert.match(draw, /"Pinned"/);
 });
 
-test("cache bust taskflow-v465-note-lampiran-gambar", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v465-note-lampiran-gambar";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v465-note-lampiran-gambar";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v465-note-lampiran-gambar"/);
+test("cache bust taskflow-v466-apa-yang-baru", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v466-apa-yang-baru";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v466-apa-yang-baru";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v466-apa-yang-baru"/);
 });

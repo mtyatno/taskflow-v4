@@ -39,3 +39,13 @@ Before completing your turn or ending a session:
    - **Files Touch:** <List of modified files>
    - **Status:** <Completed | In Progress | Needs Review>
    ```
+
+---
+
+## 4. CHECKLIST RILIS FRONTEND (setiap kenaikan versi SW)
+
+1. Naikkan `CACHE` di `static/sw.js` dan `window.__SW_VERSION` (beserta fallback-nya) di `static/index.html`, lalu sesuaikan tes yang memeriksa versi.
+2. Bila `app.css` berubah: naikkan `app.css?v=` di `index.html` **dan** entri yang sama di `STATIC`.
+3. Tambahkan entri teratas di `static/whatsnew.json` untuk versi itu, di PR yang sama, sesuai aturan §3.3. Rilis tanpa perubahan yang terasa oleh pengguna ditulis sebagai `{"version", "date", "silent": true}`.
+4. Saat menggabungkan `main` dan nomor versi bentrok: pertahankan entri yang sudah ada di `main` apa adanya, naikkan versi PR ini di semua tempat termasuk `version` entrinya, dan pastikan entri itu tetap paling atas.
+5. Jalankan `python -m pytest tests/test_whatsnew.py tests/test_version.py -q` sebelum push.

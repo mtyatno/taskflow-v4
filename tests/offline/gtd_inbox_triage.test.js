@@ -141,8 +141,8 @@ test("7. Service Worker and stylesheet versions are bumped to v411 and app.css?v
   const sw = fs.readFileSync(swPath, "utf8");
 
   assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=363">/);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v465-note-lampiran-gambar";/);
-  assert.match(sw, /^const CACHE = "taskflow-v465-note-lampiran-gambar";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v466-apa-yang-baru";/);
+  assert.match(sw, /^const CACHE = "taskflow-v466-apa-yang-baru";/m);
 });
 
 test("8. Dashboard KPI Inbox integrates GtdInboxWizardModal and navigations", () => {

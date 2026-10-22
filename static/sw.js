@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v465-note-lampiran-gambar";
+const CACHE = "taskflow-v466-apa-yang-baru";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 // Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
@@ -96,6 +96,7 @@ const STATIC = [
   "/static/vendor/katex/katex.min.js",
   "/static/vendor/katex/katex.min.css",
   "/config.js",
+  "/static/whatsnew.json",
 ];
 
 // Aset opsional: boleh diambil belakangan saat dipakai, jadi kegagalannya TIDAK menggagalkan install.

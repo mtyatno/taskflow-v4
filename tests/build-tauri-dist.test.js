@@ -15,6 +15,7 @@ test("build-tauri-dist assembles the web server layout", () => {
   }
   assert.ok(fs.existsSync(path.join(out, "static", "offline", "db.js")), "missing static/offline/db.js");
   assert.ok(fs.existsSync(path.join(out, "static", "index.html")), "missing static/index.html");
+  assert.ok(fs.existsSync(path.join(out, "static", "whatsnew.json")), "missing static/whatsnew.json");
 });
 
 test("tauri.conf.json configures linux deb and appimage packaging", () => {
