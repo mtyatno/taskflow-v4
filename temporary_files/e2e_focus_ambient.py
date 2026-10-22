@@ -109,8 +109,31 @@ def near(v, goal, tol=0.03):
     return v is not None and abs(v - goal) <= tol
 
 
+SOUND_LABELS = {"off": "Off", "hujan": "Hujan", "brown-noise": "Brown Noise", "detak-jam": "Detak Jam"}
+
+
+def is_phone(p):
+    """HP (≤ 768 px): kartu ringkas memakai pil 🎧 + popover, bukan select/slider inline."""
+    return (p.viewport_size or {}).get("width", 1280) <= 768
+
+
 def ctl(p):
+    if is_phone(p):
+        return p.locator(".focus-pomo .pomo-amb-mobile").first
     return p.locator(".focus-pomo .pomo-ambient").first
+
+
+def open_pop(p):
+    pill = ctl(p).locator(".pomo-amb-pill")
+    if pill.get_attribute("aria-expanded") != "true":
+        pill.click()
+    ctl(p).locator(".pomo-amb-pop").wait_for(state="visible", timeout=3000)
+
+
+def close_pop(p):
+    if ctl(p).locator(".pomo-amb-pop").count():
+        p.keyboard.press("Escape")
+        ctl(p).locator(".pomo-amb-pop").wait_for(state="detached", timeout=3000)
 
 
 def ctl_state(p):
@@ -118,17 +141,28 @@ def ctl_state(p):
 
 
 def select(p, key):
-    ctl(p).locator("select.pomo-ambient-select").select_option(key)
+    if is_phone(p):
+        open_pop(p)
+        ctl(p).locator(".pomo-amb-opt").filter(has_text=SOUND_LABELS[key]).first.click()
+        close_pop(p)
+    else:
+        ctl(p).locator("select.pomo-ambient-select").select_option(key)
     p.wait_for_timeout(300)
 
 
 def set_volume(p, v):
-    ctl(p).locator("input.pomo-ambient-volume").fill(str(v))
+    if is_phone(p):
+        open_pop(p)
+        ctl(p).locator("input.pomo-amb-volume").fill(str(v))
+        close_pop(p)
+    else:
+        ctl(p).locator("input.pomo-ambient-volume").fill(str(v))
     p.wait_for_timeout(200)
 
 
 def live_text(p):
-    return ctl(p).locator("[aria-live=polite]").text_content() or ""
+    # wilayah aria-live ada di kontrol inline (tetap di DOM walau disembunyikan di HP)
+    return p.locator(".focus-pomo .pomo-ambient [aria-live=polite]").first.text_content() or ""
 
 
 def card_btn(p, sel):
@@ -494,10 +528,11 @@ def run_logout(browser, base):
 
 def layout_check(p, tag):
     res = p.evaluate("""() => {
-        const card = document.querySelector('.focus-pomo'), c = document.querySelector('.focus-pomo .pomo-ambient');
+        const card = document.querySelector('.focus-pomo');
+        const c = innerWidth <= 768 ? document.querySelector('.focus-pomo .pomo-amb-mobile') : document.querySelector('.focus-pomo .pomo-ambient');
         const stats = document.querySelector('.focus-pomo .focus-pomo-stats');
         const b = card.getBoundingClientRect(), vw = window.innerWidth, bad = [];
-        for (const el of [stats, c, ...c.querySelectorAll('select, input, .pomo-ambient-icon')]) {
+        for (const el of [stats, c, ...c.querySelectorAll('select, input, .pomo-ambient-icon, .pomo-amb-pill')]) {
             const r = el.getBoundingClientRect();
             if (r.left < b.left - 1 || r.right > b.right + 1 || r.left < -1 || r.right > vw + 1)
                 bad.push(el.className + ' ' + Math.round(r.left) + '-' + Math.round(r.right));
@@ -523,6 +558,19 @@ def run_shots(browser, base, user):
             if tag != "320":
                 h.shot(p2, "playing_%s_%s.png" % (theme, tag))
             layout_check(p2, "%s %s playing" % (tag, theme))
+            if is_phone(p2):
+                pill = ctl(p2).locator(".pomo-amb-pill")
+                check("P %s %s: pil suara di baris atas menyebut suara aktif" % (tag, theme),
+                      pill.get_attribute("aria-label") == "Suara latar: Hujan", pill.get_attribute("aria-label"))
+                open_pop(p2)
+                opts = ctl(p2).locator(".pomo-amb-opt").evaluate_all("os => os.map(o => [o.textContent, o.getAttribute('aria-checked')])")
+                check("P %s %s: popover berisi 4 pilihan, Hujan tercentang" % (tag, theme),
+                      opts == [["Off", "false"], ["Hujan", "true"], ["Brown Noise", "false"], ["Detak Jam", "false"]], repr(opts))
+                if tag != "320":
+                    h.shot(p2, "popover_%s_%s.png" % (theme, tag))
+                close_pop(p2)
+                check("P %s %s: Esc menutup popover, fokus kembali ke pil" % (tag, theme),
+                      p2.evaluate("document.activeElement === document.querySelector('.pomo-amb-pill')"))
             card_btn(p2, "button[aria-label=Stop]")
             # status error: request suara diputus
             c2.route("**/static/sounds/**", lambda r: r.abort())

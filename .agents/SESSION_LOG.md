@@ -3967,8 +3967,20 @@
 - **Changes:** CI hijau di d68ae88, PR di-merge (fdfb4ef), workflow Deploy Taskflow V4 sukses. SW v458 `taskflow-v458-fokus-filter-redesign`, app.css 361.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
+
+## [2026-10-22 16:40] - Claude
+- **Task:** Kartu Pomodoro ringkas di HP sesuai desain Bapak (lampiran), keputusan: tanpa tombol ^, Zen di sebelah pil suara, volume lewat popover pil, 🍅 disembunyikan di HP.
+- **Changes:** `PomodoroTimer` (headline, Selesai, statistik pendek + project), `PomoAmbientPill` baru (popover), `PomoModeSwitch` (durasi), `PomoParkInput` (✨, kirim, placeholder pendek), CSS blok "Kartu Pomodoro ringkas di HP"; E2E baru + penyesuaian E2E ambient/target/filter; versi v460 / app.css 362.
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/focus_hero_mobile.test.js (+ tes lama: ambient, park, glyph, pin versi), temporary_files/e2e_focus_*.py, .gitignore, .agents/*
+- **Status:** Needs Review — draft PR, menunggu "merge".
 ## [2026-10-22 16:00] - Claude
 - **Task:** Fix bug "Tandai selesai" — baris task baru hilang setelah sync penuh (10–15 dtk).
 - **Changes:** helper `markTasksDoneLocal` + update state optimistik di `handleDone`/`handleDoneAll`/`handleDoneParentOnly` sebelum `fetchAll()`; SW v459 `taskflow-v459-task-selesai-instan`; tes node `task_done_instant.test.js`; E2E `e2e_task_done_instant.py` (gagal 7/28 di kode lama, hijau 2×).
 - **Files Touch:** static/index.html, static/sw.js, webapp.py, tests/test_version.py + tes pin versi, tests/offline/task_done_instant.test.js, temporary_files/e2e_task_done_instant.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — commit lokal di `claude/task-selesai-instan`, belum push/PR.
+
+## [2026-10-22 16:40] - Claude
+- **Task:** Merge PR #85 (tandai selesai instan) atas instruksi Bapak ("merge").
+- **Changes:** memuat `origin/main` e3468ec (#86, SW v460, app.css 362) ke branch; konflik hanya pin versi dan `.agents/*`; SW dinaikkan ke **v461** `taskflow-v461-task-selesai-instan`. Tes ulang sebelum merge.
+- **Files Touch:** static/sw.js, static/index.html, webapp.py, tests/test_version.py + tes pin versi, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — tinggal restart `taskflow-web`.

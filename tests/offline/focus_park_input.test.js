@@ -47,8 +47,9 @@ test("PomodoroTimer: PomoParkInput dirender sebelum task/hint", () => {
 
 test("CSS: .pomo-park-input dan order mobile", () => {
   assert.ok(appCss.includes(".pomo-park-input"));
-  const i = appCss.indexOf("@media (max-width: 768px)", appCss.indexOf(".pomo-park-input"));
+  // HP: kartu ringkas menempatkan kolom parkir di baris paling bawah (grid-area park)
+  const i = appCss.indexOf("@media (max-width: 768px)", appCss.indexOf("/* Kartu Pomodoro ringkas di HP */"));
   assert.ok(i >= 0);
   const block = appCss.slice(i, appCss.indexOf("\n}\n", i));
-  assert.match(block, /\.pomo-park\s*\{[^}]*order:\s*4/);
+  assert.match(block, /\.focus-pomo \.pomo-park\s*\{[^}]*grid-area:\s*park/);
 });
