@@ -2244,6 +2244,66 @@ async def list_tasks(
     return [task_row_to_dict(r) for r in rows]
 
 
+CHILD_COUNTS_MAX_IDS = 500
+
+
+# Halaman Fokus: jumlah checklist/catatan/lampiran banyak task dalam SATU request. Dulu klien
+# memanggil 3 GET per task (subtasks, notes, attachments) serentak saat halaman dibuka; ratusan GET
+# itu memenuhi antrean koneksi browser sehingga POST tambah checklist/catatan tertahan di belakangnya
+# lalu kena timeout 15 dtk. Harus didaftarkan SEBELUM /api/tasks/{task_id} (kalau tidak, "child-counts"
+# ditangkap sebagai task_id → 422). Task yang tidak bisa dibaca / tidak ada dilewati (tanpa 403/404).
+@app.get("/api/tasks/child-counts")
+async def task_child_counts(ids: str = "", user=Depends(get_current_user)):
+    uid = user["sub"]
+    wanted = []
+    seen = set()
+    for tok in ids.split(","):
+        tok = tok.strip()
+        # Hanya bilangan bulat positif; > 18 digit di luar INTEGER SQLite (dan bukan id task).
+        if not tok.isascii() or not tok.isdigit() or len(tok) > 18:
+            continue
+        tid = int(tok)
+        if tid <= 0 or tid in seen:
+            continue
+        seen.add(tid)
+        wanted.append(tid)
+    if len(wanted) > CHILD_COUNTS_MAX_IDS:
+        raise HTTPException(status_code=400, detail=f"Maksimal {CHILD_COUNTS_MAX_IDS} id task per request")
+    if not wanted:
+        return {"counts": {}}
+
+    marks = ",".join("?" * len(wanted))
+    with get_db() as conn:
+        # Aturan baca sama dengan _can_access_task: pemilik task, atau pemilik/anggota shared list-nya.
+        readable = conn.execute(
+            f"SELECT id FROM tasks WHERE id IN ({marks}) AND (user_id = ? OR list_id IN ("
+            "  SELECT id FROM shared_lists WHERE owner_id = ?"
+            "  UNION SELECT list_id FROM list_members WHERE user_id = ?"
+            "))",
+            [*wanted, uid, uid, uid],
+        ).fetchall()
+        counts = {r["id"]: {"sub_total": 0, "sub_done": 0, "notes": 0, "atts": 0} for r in readable}
+        if not counts:
+            return {"counts": {}}
+        task_ids = list(counts)
+        marks = ",".join("?" * len(task_ids))
+        # Tanpa filter baris terhapus — sama dengan get_subtasks / get_notes_with_author / get_attachments.
+        for r in conn.execute(
+            f"SELECT task_id, COUNT(*) AS total, SUM(CASE WHEN is_done THEN 1 ELSE 0 END) AS done"
+            f" FROM subtasks WHERE task_id IN ({marks}) GROUP BY task_id",
+            task_ids,
+        ):
+            counts[r["task_id"]]["sub_total"] = r["total"]
+            counts[r["task_id"]]["sub_done"] = r["done"] or 0
+        for table, field in (("task_notes", "notes"), ("task_attachments", "atts")):
+            for r in conn.execute(
+                f"SELECT task_id, COUNT(*) AS n FROM {table} WHERE task_id IN ({marks}) GROUP BY task_id",
+                task_ids,
+            ):
+                counts[r["task_id"]][field] = r["n"]
+    return {"counts": {str(tid): c for tid, c in counts.items()}}
+
+
 @app.post("/api/tasks")
 async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=Depends(get_current_user)):
     uid = user["sub"]
@@ -4826,7 +4886,7 @@ async def serve_sw():
 
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v461-task-selesai-instan"
+    sw_cache = "taskflow-v462-fokus-checklist-hitungan"
     return JSONResponse(
         content={
             "app_version": "4.0.0",

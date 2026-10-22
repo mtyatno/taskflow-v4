@@ -106,7 +106,7 @@ function itemGlobals() {
     GTD_ICON: {}, QUAD_ICON: {}, QUAD_LABELS: {},
     PriBadge: stub, Icon: stub, FocusGlyph: stub, ViewGlyph: stub,
     FocusNotes: stub, FocusAttachments: stub, FocusSubtasks: stub,
-    FOCUS_TABS: [{ key: "subtasks", label: "Subtask", glyph: "subtasks" }],
+    FOCUS_TABS: [{ key: "subtasks", label: "Checklist", glyph: "subtasks" }],
     formatDate: d => String(d)
   };
 }
