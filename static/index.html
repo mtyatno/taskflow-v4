@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v460-fokus-hero-mobile";
+    window.__SW_VERSION = "taskflow-v461-task-selesai-instan";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -25805,7 +25805,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v460-fokus-hero-mobile"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v461-task-selesai-instan"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -40806,6 +40806,21 @@ function UpdateNotificationBanner({ onClose }) {
   }, "✕")));
 }
 
+// Tandai selesai optimistik di state React: POST /done dilayani router lokal (IndexedDB) dalam ±0,1 dtk,
+// tetapi fetchAll() baru setTasks setelah sync() penuh — tanpa ini baris task bertahan 10–15 dtk.
+// id dibandingkan via String (cid atau id server int).
+function markTasksDoneLocal(prev, ids, now) {
+  if (!Array.isArray(prev)) return prev;
+  const set = new Set((ids || []).map(String));
+  const at = now || new Date().toISOString();
+  return prev.map(t => t && set.has(String(t.id)) ? {
+    ...t,
+    gtd_status: "done",
+    completed_at: at,
+    is_overdue: false
+  } : t);
+}
+
 function App() {
   const [hasAppUpdate, setHasAppUpdate] = useState(() => Boolean(window.__APP_UPDATE_AVAILABLE));
   useEffect(() => {
@@ -42052,6 +42067,7 @@ function App() {
           throw postErr;
         }
       }
+      setTasks(prev => markTasksDoneLocal(prev, [taskId]));
       showToast("Task selesai! ✅");
       fetchAll();
       window.dispatchEvent(new CustomEvent("taskUpdated", {
@@ -42112,6 +42128,7 @@ function App() {
           throw postErr;
         }
       }
+      setTasks(prev => markTasksDoneLocal(prev, [...children.map(c => c.id), taskId]));
       showToast("Task & semua subtask selesai! ✅");
       fetchAll();
       setSelectedTask(null);
@@ -42153,6 +42170,7 @@ function App() {
           throw postErr;
         }
       }
+      setTasks(prev => markTasksDoneLocal(prev, [taskId]));
       showToast("Task selesai! ✅");
       fetchAll();
       setSelectedTask(null);
