@@ -372,13 +372,14 @@ const focuspage = require("../../static/offline/focuspage.js");
 // stub bernama, lalu periksa elemen yang dikembalikan.
 function renderFocusView({ tasks, focusTask = null, zen = false, sharedLists = [], onToggleFocus }) {
   const stubs = {};
-  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph"]) stubs[n] = n;
+  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph"]) stubs[n] = n;
   const storage = { getItem: k => (k === "tf_focus_zen" && zen ? "1" : null), setItem: () => {} };
   const { TodayFocusView } = loadComponents(["computeOccurrences", "TodayFocusView"], {
-    React: { createElement: fakeReact.createElement, useEffect: NOOP },
+    React: { createElement: fakeReact.createElement, Fragment: "Fragment", useEffect: NOOP },
     useState: init => [typeof init === "function" ? init() : init, NOOP],
     useEffect: NOOP,
     useRef: () => ({ current: null }),
+    useMemo: fn => fn(),
     window: { localStorage: storage, TF: { focusfilter: ff, focuspage, pomologic, tasklogic: { todayLocalISO: () => TODAY } } },
     document: { querySelectorAll: () => [] },
     api: { get: () => Promise.resolve({}) },
@@ -469,4 +470,750 @@ test("TodayFocusView: renderItem memberi hideProject di kelompok dan ⭐ memangg
   assert.equal(inTarget.props.hideProject, false);
   inGroup.props.onToggleStar(tasks[0]);
   assert.deepEqual(toggled, [5]);
+});
+
+// ── Task 5: bar filter, lembar filter, penyimpanan per perangkat, catatan ───────────────────
+
+// `const NAME = ...;` tingkat modul dari index.html (untuk dirakit bersama komponen).
+function constSource(name) {
+  const start = indexHtml.indexOf(`\nconst ${name} = `);
+  assert.ok(start >= 0, `const ${name} must exist`);
+  return indexHtml.slice(start, indexHtml.indexOf(";\n", start) + 1);
+}
+function loadWith(names, globals, extra = []) {
+  const src = extra.join("\n") + "\n" + names.map(n => fnSource(n) + "\n}").join("\n");
+  const keys = Object.keys(globals);
+  return new Function(...keys, `${src}\nreturn { ${names.join(", ")} };`)(...keys.map(k => globals[k]));
+}
+
+// Hook mini: state/ref/memo bertahan antar render, efek dijalankan (dengan cleanup) saat flush().
+function createHooks() {
+  const slots = [];
+  let cursor = 0;
+  let pending = [];
+  const changed = (a, b) => !a || !b || a.length !== b.length || a.some((d, j) => !Object.is(d, b[j]));
+  return {
+    useState(init) {
+      const k = cursor++;
+      if (!slots[k]) slots[k] = { value: typeof init === "function" ? init() : init };
+      const slot = slots[k];
+      return [slot.value, next => { slot.value = typeof next === "function" ? next(slot.value) : next; }];
+    },
+    useRef(init) {
+      const k = cursor++;
+      if (!slots[k]) slots[k] = { current: init === undefined ? null : init };
+      return slots[k];
+    },
+    useMemo(fn, deps) {
+      const k = cursor++;
+      if (slots[k] && !changed(slots[k].deps, deps)) return slots[k].value;
+      slots[k] = { value: fn(), deps };
+      return slots[k].value;
+    },
+    useEffect(fn, deps) {
+      const k = cursor++;
+      const slot = slots[k] || (slots[k] = { ran: false });
+      if (!slot.ran || changed(slot.deps, deps)) pending.push({ slot, fn, deps });
+    },
+    begin() { cursor = 0; pending = []; },
+    flush() {
+      const list = pending;
+      pending = [];
+      for (const { slot, fn, deps } of list) {
+        if (typeof slot.cleanup === "function") slot.cleanup();
+        slot.cleanup = fn();
+        slot.deps = deps;
+        slot.ran = true;
+      }
+    },
+    unmount() {
+      for (const s of slots) if (s && typeof s.cleanup === "function") { s.cleanup(); s.cleanup = undefined; }
+    }
+  };
+}
+
+const STATUS_LABELS_SRC = () => constSource("FOCUS_STATUS_LABELS");
+const T5_LISTS = [{ id: 5, name: "Tim Marketing" }];
+// Cakupan 6 task (Q1 / terlambat / hari ini), tanpa ⭐: pool = semuanya. Default (Next) → 11, 12, 16.
+const T5_TASKS = [
+  { id: 11, title: "Revisi landing page", gtd_status: "next", priority: "P1", quadrant: "Q1", deadline: TODAY, project: "Alurik", list_id: null },
+  { id: 12, title: "Balas email klien", gtd_status: "next", priority: "P2", quadrant: "Q3", deadline: "2026-10-20", project: "Alurik", list_id: null },
+  { id: 13, title: "Telepon dokter gigi", gtd_status: "inbox", priority: "P3", quadrant: "Q1", project: "", list_id: null },
+  { id: 14, title: "Konfirmasi vendor", gtd_status: "waiting", priority: "P2", quadrant: "Q3", deadline: "2026-10-10", project: "Kampanye Q4", list_id: 5 },
+  { id: 15, title: "Servis AC kamar", gtd_status: "someday", priority: "P4", quadrant: "Q1", project: "Rumah", list_id: null },
+  { id: 16, title: "Brief desain banner", gtd_status: "next", priority: "P4", quadrant: "Q2", deadline: TODAY, project: "Kampanye Q4", list_id: 5 }
+];
+
+// TodayFocusView dengan hook mini (state nyata + efek), anak berupa stub bernama, storage di memori.
+function mountFocusView({ tasks, focusTask = null, zen = false, running = false, stored = {}, exceptions = {}, sharedLists = T5_LISTS, throwingStorage = false } = {}) {
+  const store = { ...stored };
+  if (zen) store.tf_focus_zen = "1";
+  const storage = throwingStorage
+    ? { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } }
+    : { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
+  const hooks = createHooks();
+  const stubs = {};
+  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph"]) stubs[n] = n;
+  const timers = [];
+  const doc = { querySelectorAll: () => [], body: { name: "body" }, activeElement: null };
+  const { TodayFocusView } = loadWith(["computeOccurrences", "TodayFocusView"], {
+    React: { createElement: fakeReact.createElement, Fragment: "Fragment", useEffect: hooks.useEffect },
+    useState: hooks.useState, useEffect: hooks.useEffect, useRef: hooks.useRef, useMemo: hooks.useMemo,
+    window: { localStorage: storage, addEventListener: NOOP, removeEventListener: NOOP, TF: { focusfilter: ff, focuspage, pomologic, tasklogic: { todayLocalISO: () => TODAY } } },
+    document: doc,
+    setTimeout: fn => timers.push(fn),
+    requestAnimationFrame: () => 0, cancelAnimationFrame: NOOP,
+    api: { get: () => Promise.resolve(exceptions) },
+    POMO_DURATIONS: { work: 1500 },
+    useFocusTaskCounts: () => [{}, NOOP],
+    ...stubs
+  }, [STATUS_LABELS_SRC()]);
+  const props = { tasks, onTaskClick: NOOP, onDone: NOOP, loading: false, focusTask, setFocusTask: NOOP, sharedLists, onToggleFocus: NOOP };
+  const v = {
+    store, timers, doc,
+    render({ isRunning = running, ...over } = {}) {
+      Object.assign(props, over, { timer: { mode: "work", isRunning, timeLeft: 1500, pomodorosToday: 0, pause: NOOP } });
+      running = isRunning;
+      hooks.begin();
+      v.tree = TodayFocusView(props);
+      hooks.flush();
+      return v;
+    },
+    one: pred => findAll(v.tree, pred)[0],
+    get bar() { return v.one(n => n.type === "FocusFilterBar"); },
+    get sheet() { return v.one(n => n.type === "FocusFilterSheet"); },
+    get groups() { return v.one(n => n.type === "FocusTaskGroups"); },
+    get shownIds() { return v.groups ? v.groups.props.groups.flatMap(g => g.tasks.map(t => t.id)).sort((a, b) => a - b) : []; },
+    get head() { return findAll(v.tree, n => n.type === "FocusSectionHead").map(n => n.props).find(h => h.title === "Task hari ini"); },
+    get hiddenNote() { return v.one(n => hasClass(n, "focus-filter-hidden-note")); },
+    get filterEmpty() { return v.one(n => hasClass(n, "focus-filter-empty")); },
+    get savedFilter() { return store.tf_focus_filter === undefined ? undefined : JSON.parse(store.tf_focus_filter); }
+  };
+  return v.render();
+}
+
+test("FocusFilterBar: sumber memuat teks bar persis, aria, enterKeyHint, isFilterDefault", () => {
+  const src = fnSource("FocusFilterBar");
+  for (const needle of ['"Semua"', '"Hari ini"', '"Terlambat"', '"aria-label": "Waktu"', 'role: "group"', '"Cari judul task…"', '"aria-label": "Cari task"', 'enterKeyHint: "search"', 'type: "search"', '"Hapus pencarian"', '"Filter lainnya"', " aktif", "Hapus filter ", '"Reset"', '"aria-pressed"', '"aria-haspopup": "dialog"', '"aria-expanded"', "isFilterDefault(", "focus-filter-searchrow", "focus-filter-badge", "is-pill", "is-reset", "is-on", 'name: "search"', 'name: "sliders"']) {
+    assert.ok(src.includes(needle), `FocusFilterBar harus memuat ${needle}`);
+  }
+});
+
+test("FocusFilterSheet: sumber memuat dialog, subjudul, catatan status, label kuadran, Esc, kunci scroll HP", () => {
+  const src = fnSource("FocusFilterSheet");
+  for (const needle of ['role: "dialog"', '"aria-modal"', '"aria-labelledby"', '"Filter lainnya"', '"Status"', '"Prioritas"', '"Kuadran"', '"Workspace › Project"', '"Default: Next saja. Kosongkan semua untuk menampilkan semua status."', '"Q1 Lakukan"', '"Q2 Rencanakan"', '"Q3 Delegasikan"', '"Q4 Singkirkan"', '"Semua"', '"Reset"', '"Tampilkan "', '"Escape"', '"Tab"', 'matchMedia("(max-width: 768px)")', "document.body.style.overflow", "returnFocusRef", "focus-filter-backdrop", "focus-filter-sheet-actions"]) {
+    assert.ok(src.includes(needle), `FocusFilterSheet harus memuat ${needle}`);
+  }
+  assert.match(constSource("FOCUS_STATUS_LABELS"), /next: "Next",\s*inbox: "Inbox",\s*waiting: "Waiting",\s*someday: "Someday"/);
+});
+
+test("TodayFocusView: sumber memuat penyimpanan filter, hitungan, pesan, useMemo, dan Zen menutup lembar", () => {
+  const src = fnSource("TodayFocusView");
+  for (const needle of ["readFilter(zenStorage())", "writeFilter(zenStorage()", "normalizeFilter(", "matches(", "timeCounts(", "statusCounts(", "hiddenByStatus(", "projectOptions(", "nonDefaultCount(", "berstatus lain disembunyikan", '"Reset filter"', '"Tidak ada task yang cocok dengan filter ini."', "focus-filter-empty", "focus-filter-hidden-note", "FocusFilterBar", "FocusFilterSheet", '"Semua status"', '"Status: "']) {
+    assert.ok(src.includes(needle), `TodayFocusView harus memuat ${needle}`);
+  }
+  assert.match(src, /useMemo\(\(\) => \{[\s\S]*?\}, \[tasks, filter, query, todayStr, focusTask\?\.id, sharedLists\]\)/);
+  assert.match(src, /useEffect\(\(\) => \{\s*if \(zenOn\) setSheetOpen\(false\);\s*\}, \[zenOn\]\)/);
+  assert.ok(src.includes("open: sheetOpen && !zenOn"));
+  assert.ok(src.includes("count: shown.length"), "kepala Task hari ini = jumlah task tampil");
+  // tulis storage di luar updater state (Ruling 4)
+  assert.match(src, /const normalized = window\.TF\.focusfilter\.normalizeFilter\(next\);\s*setFilterState\(normalized\);\s*window\.TF\.focusfilter\.writeFilter\(zenStorage\(\), normalized\);/);
+  // kata pencarian tidak disimpan
+  assert.ok(!/setItem\([^)]*query/.test(src));
+  const start = indexHtml.indexOf("// ═══ DEPENDENCIES: TodayFocusView ═══");
+  const deps = indexHtml.slice(start, indexHtml.indexOf("function TodayFocusView(", start));
+  for (const name of ["FocusFilterBar", "FocusFilterSheet"]) assert.ok(deps.includes(`- ${name}`), name);
+});
+
+test("app.css: bar filter, chip, badge, lembar HP/desktop, tema gelap, reduced-motion", () => {
+  const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const rule = sel => {
+    const m = appCss.match(new RegExp(`(^|\\n)${esc(sel)} \\{([^}]*)\\}`));
+    assert.ok(m, `CSS rule ${sel} must exist`);
+    return m[2];
+  };
+  assert.match(rule(".focus-filter-searchrow"), /position: relative/);
+  const tab = rule(".focus-filter-time button");
+  assert.match(tab, /min-height: 36px/);
+  assert.match(rule('.focus-filter-time button[aria-pressed="true"]'), /background: var\(--text-primary\);[^}]*color: var\(--bg-card\)/);
+  const chips = rule(".focus-filter-chips");
+  assert.match(chips, /overflow-x: auto/);
+  assert.match(chips, /scrollbar-width: none/);
+  assert.match(rule(".focus-filter-chips::-webkit-scrollbar"), /display: none/);
+  assert.match(rule(".focus-filter-chips > *"), /flex-shrink: 0/);
+  assert.match(rule(".focus-filter-chip"), /min-height: 36px/);
+  assert.match(rule(".focus-filter-chip.is-pill"), /background: var\(--text-primary\);[^}]*color: var\(--bg-card\)/);
+  assert.match(rule(".focus-filter-chip.is-reset"), /border-style: dashed/);
+  const badge = rule(".focus-filter-badge");
+  assert.match(badge, /background: #A8C500/);
+  assert.match(badge, /color: #1F2116/);
+  // desktop: panel di bawah tombol Filter, rata kanan, 340 px, latar transparan penangkap klik luar
+  const sheet = rule(".focus-filter-sheet");
+  assert.match(sheet, /position: absolute/);
+  assert.match(sheet, /top: calc\(100% \+ 6px\)/);
+  assert.match(sheet, /right: 0/);
+  assert.match(sheet, /width: 340px/);
+  const backdrop = rule(".focus-filter-backdrop");
+  assert.match(backdrop, /position: fixed/);
+  assert.match(backdrop, /inset: 0/);
+  assert.match(backdrop, /background: transparent/);
+  // HP: lembar bawah fixed, radius 20, maks 86vh, latar redup
+  const blocks = [...appCss.matchAll(/\n@media \(max-width: 768px\) \{\n((?:  .*\n)+)\}/g)].map(m => m[1]);
+  const mobile = blocks.find(b => b.includes(".focus-filter-sheet {"));
+  assert.ok(mobile, "blok @media (max-width: 768px) untuk lembar");
+  const mSheet = mobile.match(/\.focus-filter-sheet \{([^}]*)\}/)[1];
+  assert.match(mSheet, /position: fixed/);
+  assert.match(mSheet, /bottom: 0/);
+  assert.match(mSheet, /max-height: 86vh/);
+  assert.match(mSheet, /border-radius: 20px 20px 0 0/);
+  assert.match(mobile.match(/\.focus-filter-backdrop \{([^}]*)\}/)[1], /background: rgba\(15, ?18, ?8, ?0?\.38\)/);
+  // tema gelap
+  for (const sel of ['[data-theme="dark"] .focus-filter-chip.is-on', '[data-theme="dark"] .focus-filter-btn.is-on', '[data-theme="dark"] .focus-filter-sheet']) {
+    assert.ok(appCss.includes(sel), sel);
+  }
+  // reduced-motion: lembar tanpa animasi
+  assert.match(appCss, /@media \(prefers-reduced-motion: reduce\) \{\s*\.focus-filter-sheet, \.focus-filter-backdrop \{ animation: none; \}\s*\}/);
+});
+
+function barProps(over = {}) {
+  return {
+    filter: ff.normalizeFilter(null), query: "", counts: { all: 3, today: 2, late: 1 }, badge: 0, pills: [], sheetOpen: false,
+    onTime: NOOP, onQuery: NOOP, onToggleQuick: NOOP, onRemovePill: NOOP, onReset: NOOP, onOpenSheet: NOOP, filterBtnRef: { current: null },
+    ...over
+  };
+}
+function renderBar(over) {
+  const hooks = createHooks();
+  const timers = [];
+  const { FocusFilterBar } = loadWith(["FocusFilterBar"], {
+    React: fakeReact, useRef: hooks.useRef, useEffect: hooks.useEffect, FocusGlyph: "FocusGlyph",
+    window: { TF: { focusfilter: ff } }, document: { activeElement: null, body: {} }, setTimeout: fn => timers.push(fn)
+  });
+  hooks.begin();
+  const tree = FocusFilterBar(barProps(over));
+  return { tree, timers };
+}
+
+test("FocusFilterBar: tab waktu, cari, tombol Filter, pil, chip cepat, dan Reset", () => {
+  const calls = [];
+  const rec = name => (...a) => calls.push([name, ...a]);
+  const btnRef = { current: null };
+  const { tree } = renderBar({
+    filter: ff.normalizeFilter({ time: "today", status: [], pri: ["P1", "P4"], quad: ["Q3"] }),
+    query: "balas", counts: { all: 6, today: 2, late: 3 }, badge: 2, sheetOpen: true, filterBtnRef: btnRef,
+    pills: [{ key: "status", kind: "status", label: "Semua status" }, { key: "pri:P4", kind: "pri", value: "P4", label: "P4" }],
+    onTime: rec("time"), onQuery: rec("query"), onToggleQuick: rec("quick"), onRemovePill: rec("pill"), onReset: rec("reset"), onOpenSheet: rec("open")
+  });
+  assert.ok(hasClass(tree, "focus-filter"));
+  // 1. tab waktu
+  const [group] = findAll(tree, n => hasClass(n, "focus-filter-time"));
+  assert.deepEqual([group.props.role, group.props["aria-label"]], ["group", "Waktu"]);
+  const tabs = findAll(group, n => n.type === "button");
+  assert.deepEqual(tabs.map(t => textOf(t)), ["Semua 6", "Hari ini 2", "Terlambat 3"]);
+  assert.deepEqual(tabs.map(t => t.props["aria-pressed"]), [false, true, false]);
+  assert.ok(tabs.every(t => t.props.type === "button"));
+  assert.ok(tabs.every(t => findAll(t, n => n.type === "span" && hasClass(n, "n")).length === 1));
+  tabs[2].props.onClick();
+  // 2. cari + Filter
+  const [row] = findAll(tree, n => hasClass(n, "focus-filter-searchrow"));
+  const [label] = findAll(row, n => n.type === "label" && hasClass(n, "focus-filter-search"));
+  const [input] = findAll(label, n => n.type === "input");
+  assert.deepEqual([input.props.type, input.props.placeholder, input.props["aria-label"], input.props.enterKeyHint, input.props.value], ["search", "Cari judul task…", "Cari task", "search", "balas"]);
+  input.props.onChange({ target: { value: "balas e" } });
+  const [clear] = findAll(label, n => n.type === "button");
+  assert.equal(clear.props["aria-label"], "Hapus pencarian");
+  clear.props.onClick();
+  const [fbtn] = findAll(row, n => n.type === "button" && hasClass(n, "focus-filter-btn"));
+  assert.equal(fbtn.props.ref, btnRef);
+  assert.deepEqual([fbtn.props["aria-haspopup"], fbtn.props["aria-expanded"], fbtn.props["aria-label"]], ["dialog", true, "Filter lainnya, 2 aktif"]);
+  assert.equal(textOf(findAll(fbtn, n => hasClass(n, "focus-filter-badge"))[0]), "2");
+  fbtn.props.onClick();
+  // 3. chip: pil → cepat → Reset
+  const [chips] = findAll(tree, n => hasClass(n, "focus-filter-chips"));
+  const items = chips.children.filter(c => c && c.type === "button");
+  const kinds = items.map(c => hasClass(c, "is-pill") ? "pill" : hasClass(c, "is-reset") ? "reset" : "quick");
+  assert.deepEqual(kinds, ["pill", "pill", "quick", "quick", "quick", "quick", "quick", "reset"]);
+  assert.deepEqual(items.filter(c => hasClass(c, "is-pill")).map(c => c.props["aria-label"]), ["Hapus filter Semua status", "Hapus filter P4"]);
+  assert.ok(textOf(items[0]).startsWith("Semua status"));
+  const quick = items.filter(c => !hasClass(c, "is-pill") && !hasClass(c, "is-reset"));
+  assert.deepEqual(quick.map(c => textOf(c)), ["P1", "P2", "P3", "Q1", "Q3"]);
+  assert.deepEqual(quick.map(c => c.props["aria-pressed"]), [true, false, false, false, true]);
+  assert.deepEqual(quick.map(c => hasClass(c, "is-on")), [true, false, false, false, true]);
+  assert.ok(items.every(c => c.props.type === "button"));
+  items[1].props.onClick();
+  quick[3].props.onClick();
+  items[7].props.onClick();
+  assert.equal(textOf(items[7]), "Reset");
+  assert.deepEqual(calls, [
+    ["time", "late"], ["query", "balas e"], ["query", ""], ["open"],
+    ["pill", { key: "pri:P4", kind: "pri", value: "P4", label: "P4" }], ["quick", "quad", "Q1"], ["reset"]
+  ]);
+});
+
+test("FocusFilterBar: default tanpa badge, tanpa hapus-cari, tanpa Reset; Reset muncul untuk query/time/chip", () => {
+  const { tree } = renderBar();
+  const [fbtn] = findAll(tree, n => n.type === "button" && hasClass(n, "focus-filter-btn"));
+  assert.equal(fbtn.props["aria-label"], "Filter lainnya");
+  assert.equal(fbtn.props["aria-expanded"], false);
+  assert.ok(!hasClass(fbtn, "is-on"));
+  assert.equal(findAll(tree, n => hasClass(n, "focus-filter-badge")).length, 0);
+  assert.equal(findAll(tree, n => n.props["aria-label"] === "Hapus pencarian").length, 0);
+  assert.equal(findAll(tree, n => hasClass(n, "is-reset")).length, 0);
+  assert.equal(findAll(tree, n => hasClass(n, "is-pill")).length, 0);
+  const reset = over => findAll(renderBar(over).tree, n => hasClass(n, "is-reset")).length;
+  assert.equal(reset({ query: "   " }), 0, "query spasi saja dianggap kosong");
+  assert.equal(reset({ query: "x" }), 1);
+  assert.equal(reset({ filter: ff.normalizeFilter({ time: "late" }) }), 1);
+  assert.equal(reset({ filter: ff.normalizeFilter({ pri: ["P2"] }) }), 1);
+  // lembar (children) dirender di dalam baris cari, supaya panel desktop berjangkar di bawah tombol Filter
+  const { tree: withSheet } = renderBar({ children: { type: "SHEET", props: {}, children: [] } });
+  const [row] = findAll(withSheet, n => hasClass(n, "focus-filter-searchrow"));
+  assert.equal(findAll(row, n => n.type === "SHEET").length, 1);
+});
+
+test("FocusFilterBar: pil/Reset yang diklik hilang → fokus pindah ke chip pertama, bukan ke body", () => {
+  const { tree, timers } = renderBar({ pills: [{ key: "proj", kind: "proj", label: "Pribadi · Alurik" }] });
+  const [chips] = findAll(tree, n => hasClass(n, "focus-filter-chips"));
+  findAll(chips, n => hasClass(n, "is-pill"))[0].props.onClick();
+  assert.equal(timers.length, 1, "fokus dipindah setelah render ulang");
+});
+
+function sheetProps(over = {}) {
+  return {
+    open: true, filter: ff.normalizeFilter(null), statusCounts: { next: 3, inbox: 1, waiting: 1, someday: 0 },
+    projectOptions: [{ key: "p:alurik", label: "Pribadi · Alurik", count: 2 }, { key: "5:kampanye q4", label: "Tim Marketing · Kampanye Q4", count: 2 }],
+    shownCount: 3, onChange: NOOP, onResetHidden: NOOP, onClose: NOOP, returnFocusRef: { current: null },
+    ...over
+  };
+}
+// Lembar dengan DOM palsu: elemen dapat difokus, listener keydown di window, body.style.overflow.
+function mountSheet({ mobile = true, overflow = "auto" } = {}) {
+  const doc = { activeElement: null, body: { style: { overflow } } };
+  const listeners = [];
+  const win = {
+    matchMedia: q => ({ matches: mobile && q === "(max-width: 768px)" }),
+    addEventListener: (type, fn, capture) => listeners.push({ type, fn, capture }),
+    removeEventListener: (type, fn, capture) => {
+      const i = listeners.findIndex(l => l.type === type && l.fn === fn && l.capture === capture);
+      if (i >= 0) listeners.splice(i, 1);
+    }
+  };
+  const el = name => ({ name, isConnected: true, focus() { doc.activeElement = this; }, closest: () => null });
+  const chips = [el("chip-next"), el("chip-inbox"), el("tampilkan")];
+  const sheetEl = { querySelector: () => chips[0], querySelectorAll: () => chips, contains: x => x === sheetEl || chips.includes(x) };
+  const hooks = createHooks();
+  const { FocusFilterSheet } = loadWith(["FocusFilterSheet"], {
+    React: { ...fakeReact, Fragment: "Fragment" }, useRef: hooks.useRef, useEffect: hooks.useEffect,
+    window: { ...win, TF: { focusfilter: ff } }, document: doc
+  }, [STATUS_LABELS_SRC()]);
+  const s = {
+    doc, listeners, chips, sheetEl, hooks,
+    render(props) {
+      hooks.begin();
+      s.tree = FocusFilterSheet(props);
+      const dialog = s.tree && findAll(s.tree, n => n.props.role === "dialog")[0];
+      if (dialog) dialog.props.ref.current = sheetEl;
+      hooks.flush();
+      return s;
+    },
+    key(key, extra = {}) {
+      const ev = { key, shiftKey: false, prevented: 0, stopped: 0, preventDefault() { ev.prevented++; }, stopPropagation() { ev.stopped++; }, ...extra };
+      listeners.filter(l => l.type === "keydown").forEach(l => l.fn(ev));
+      return ev;
+    }
+  };
+  return s;
+}
+
+test("FocusFilterSheet: tertutup = tidak merender apa pun; terbuka = latar + dialog berlabel", () => {
+  const closed = mountSheet().render(sheetProps({ open: false }));
+  assert.equal(closed.tree, null);
+  assert.equal(closed.listeners.length, 0);
+  const closes = [];
+  const s = mountSheet().render(sheetProps({ onClose: () => closes.push(1) }));
+  const [backdrop] = findAll(s.tree, n => hasClass(n, "focus-filter-backdrop"));
+  const [dialog] = findAll(s.tree, n => hasClass(n, "focus-filter-sheet"));
+  assert.ok(backdrop && dialog);
+  assert.deepEqual([dialog.props.role, dialog.props["aria-modal"]], ["dialog", "true"]);
+  const [title] = findAll(dialog, n => n.props.id === dialog.props["aria-labelledby"]);
+  assert.equal(textOf(title), "Filter lainnya");
+  backdrop.props.onClick();
+  assert.equal(closes.length, 1, "klik latar (di luar panel) menutup");
+});
+
+test("FocusFilterSheet: empat grup chip, angka status, catatan, label kuadran, opsi project, aksi", () => {
+  const changes = [];
+  let resets = 0, closes = 0;
+  const filter = ff.normalizeFilter({ status: ["next", "waiting"], pri: ["P2"], quad: ["Q4"], proj: null });
+  const s = mountSheet().render(sheetProps({ filter, onChange: f => changes.push(f), onResetHidden: () => resets++, onClose: () => closes++ }));
+  const groups = findAll(s.tree, n => hasClass(n, "focus-filter-sheet-group"));
+  assert.equal(groups.length, 4);
+  const heads = groups.map(g => findAll(g, n => n.type === "h4")[0]);
+  assert.deepEqual(heads.map(h => textOf(h)), ["Status", "Prioritas", "Kuadran", "Workspace › Project"]);
+  groups.forEach((g, i) => {
+    assert.equal(g.props.role, "group");
+    assert.equal(g.props["aria-labelledby"], heads[i].props.id);
+  });
+  const chipsOf = g => findAll(g, n => n.type === "button" && hasClass(n, "focus-filter-chip"));
+  const [st, pri, quad, proj] = groups.map(chipsOf);
+  assert.deepEqual(st.map(c => textOf(c)), ["Next 3", "Inbox 1", "Waiting 1", "Someday 0"]);
+  assert.deepEqual(st.map(c => c.props["aria-pressed"]), [true, false, true, false]);
+  assert.equal(textOf(findAll(groups[0], n => hasClass(n, "focus-filter-sheet-note"))[0]), "Default: Next saja. Kosongkan semua untuk menampilkan semua status.");
+  assert.deepEqual(pri.map(c => textOf(c)), ["P1", "P2", "P3", "P4"]);
+  assert.deepEqual(pri.map(c => c.props["aria-pressed"]), [false, true, false, false]);
+  assert.deepEqual(quad.map(c => textOf(c)), ["Q1 Lakukan", "Q2 Rencanakan", "Q3 Delegasikan", "Q4 Singkirkan"]);
+  assert.deepEqual(quad.map(c => c.props["aria-pressed"]), [false, false, false, true]);
+  assert.deepEqual(proj.map(c => textOf(c)), ["Semua", "Pribadi · Alurik 2", "Tim Marketing · Kampanye Q4 2"]);
+  assert.deepEqual(proj.map(c => c.props["aria-pressed"]), [true, false, false]);
+  assert.ok([...st, ...pri, ...quad, ...proj].every(c => c.props.type === "button" && hasClass(c, "is-on") === c.props["aria-pressed"]));
+  // multi: status / prioritas / kuadran; tunggal: project
+  st[0].props.onClick();
+  st[1].props.onClick();
+  pri[3].props.onClick();
+  quad[3].props.onClick();
+  proj[2].props.onClick();
+  proj[0].props.onClick();
+  assert.deepEqual(changes.map(c => ff.normalizeFilter(c)), [
+    { ...filter, status: ["waiting"] },
+    { ...filter, status: ["next", "inbox", "waiting"] },
+    { ...filter, pri: ["P2", "P4"] },
+    { ...filter, quad: [] },
+    { ...filter, proj: { key: "5:kampanye q4", label: "Tim Marketing · Kampanye Q4" } },
+    { ...filter, proj: null }
+  ]);
+  // aksi menempel di bawah
+  const [actions] = findAll(s.tree, n => hasClass(n, "focus-filter-sheet-actions"));
+  const btns = findAll(actions, n => n.type === "button");
+  assert.deepEqual(btns.map(b => textOf(b)), ["Reset", "Tampilkan 3 task"]);
+  btns[0].props.onClick();
+  btns[1].props.onClick();
+  assert.deepEqual([resets, closes], [1, 1]);
+  // project terpilih ditandai; opsi basi (count 0) tetap tampil
+  const s2 = mountSheet().render(sheetProps({
+    filter: ff.normalizeFilter({ proj: { key: "p:lama", label: "Pribadi · Lama" } }),
+    projectOptions: [{ key: "p:alurik", label: "Pribadi · Alurik", count: 2 }, { key: "p:lama", label: "Pribadi · Lama", count: 0 }]
+  }));
+  const proj2 = chipsOf(findAll(s2.tree, n => hasClass(n, "focus-filter-sheet-group"))[3]);
+  assert.deepEqual(proj2.map(c => [textOf(c), c.props["aria-pressed"]]), [["Semua", false], ["Pribadi · Alurik 2", false], ["Pribadi · Lama 0", true]]);
+});
+
+test("FocusFilterSheet: buka → fokus chip pertama, kunci scroll HP; Esc menutup; Tab berputar; tutup → pulih + fokus kembali", () => {
+  const closes = [];
+  const back = { isConnected: true, focused: 0, focus() { back.focused++; }, closest: () => null };
+  const props = sheetProps({ onClose: () => closes.push(1), returnFocusRef: { current: back } });
+  const s = mountSheet({ mobile: true, overflow: "scroll" }).render(props);
+  assert.equal(s.doc.activeElement, s.chips[0], "fokus ke chip pertama");
+  assert.equal(s.doc.body.style.overflow, "hidden", "scroll body terkunci di HP");
+  assert.deepEqual(s.listeners.map(l => [l.type, l.capture]), [["keydown", true]]);
+  // Tab di elemen terakhir → pertama; Shift+Tab di pertama → terakhir; di tengah → bawaan browser
+  s.chips[2].focus();
+  let ev = s.key("Tab");
+  assert.equal(ev.prevented, 1);
+  assert.equal(s.doc.activeElement, s.chips[0]);
+  ev = s.key("Tab", { shiftKey: true });
+  assert.equal(ev.prevented, 1);
+  assert.equal(s.doc.activeElement, s.chips[2]);
+  s.chips[1].focus();
+  ev = s.key("Tab");
+  assert.equal(ev.prevented, 0);
+  // fokus di luar lembar → ditarik kembali ke dalam
+  s.doc.activeElement = { name: "luar" };
+  ev = s.key("Tab");
+  assert.equal(ev.prevented, 1);
+  assert.equal(s.doc.activeElement, s.chips[0]);
+  // tombol lain tidak ditangani; Esc menutup dan tidak diteruskan ke listener Escape lain
+  assert.equal(s.key("a").prevented, 0);
+  ev = s.key("Escape");
+  assert.deepEqual([closes.length, ev.prevented, ev.stopped], [1, 1, 1]);
+  // induk menutup (open=false): listener dilepas, overflow dipulihkan, fokus ke tombol Filter
+  s.render({ ...props, open: false });
+  assert.equal(s.listeners.length, 0);
+  assert.equal(s.doc.body.style.overflow, "scroll");
+  assert.equal(back.focused, 1);
+  assert.equal(s.tree, null);
+});
+
+test("FocusFilterSheet: desktop tanpa kunci scroll; unmount saat terbuka tetap memulihkan; fokus tidak ke tombol tersembunyi", () => {
+  const back = { isConnected: true, focused: 0, focus() { back.focused++; }, closest: () => null };
+  const d = mountSheet({ mobile: false, overflow: "" }).render(sheetProps({ returnFocusRef: { current: back } }));
+  assert.equal(d.doc.body.style.overflow, "", "desktop: body tidak dikunci");
+  d.hooks.unmount();
+  assert.equal(d.listeners.length, 0);
+  assert.equal(back.focused, 1);
+
+  const m = mountSheet({ mobile: true, overflow: "" }).render(sheetProps({ returnFocusRef: { current: back } }));
+  assert.equal(m.doc.body.style.overflow, "hidden");
+  m.hooks.unmount();
+  assert.equal(m.doc.body.style.overflow, "", "unmount memulihkan overflow");
+
+  // tombol Filter di dalam bar yang aria-hidden (Zen) atau sudah lepas dari DOM → fokus tidak dikembalikan
+  const hidden = { isConnected: true, focused: 0, focus() { hidden.focused++; }, closest: sel => (sel.includes("aria-hidden") ? {} : null) };
+  const h = mountSheet({ mobile: false }).render(sheetProps({ returnFocusRef: { current: hidden } }));
+  h.render(sheetProps({ open: false, returnFocusRef: { current: hidden } }));
+  assert.equal(hidden.focused, 0);
+  const gone = { isConnected: false, focused: 0, focus() { gone.focused++; }, closest: () => null };
+  const g = mountSheet({ mobile: false }).render(sheetProps({ returnFocusRef: { current: gone } }));
+  g.hooks.unmount();
+  assert.equal(gone.focused, 0);
+});
+
+test("TodayFocusView: filter default (Next) dari storage kosong, hitungan bar, catatan status tersembunyi", () => {
+  const v = mountFocusView({ tasks: T5_TASKS });
+  assert.deepEqual(v.shownIds, [11, 12, 16]);
+  assert.equal(v.head.count, 3, "kepala Task hari ini = task yang tampil");
+  const bar = v.bar.props;
+  assert.deepEqual(bar.filter, ff.normalizeFilter(null));
+  assert.equal(bar.query, "");
+  assert.deepEqual(bar.counts, { all: 3, today: 2, late: 1 });
+  assert.equal(bar.badge, 0);
+  assert.deepEqual(bar.pills, []);
+  assert.equal(bar.sheetOpen, false);
+  assert.ok(bar.filterBtnRef && "current" in bar.filterBtnRef);
+  const sheet = v.sheet.props;
+  assert.equal(sheet.open, false);
+  assert.equal(sheet.returnFocusRef, bar.filterBtnRef);
+  assert.deepEqual(sheet.statusCounts, { next: 3, inbox: 1, waiting: 1, someday: 1 });
+  assert.deepEqual(sheet.projectOptions.map(o => [o.label, o.count]), [["Pribadi · Alurik", 2], ["Pribadi · Rumah", 1], ["Pribadi · Tanpa project", 1], ["Tim Marketing · Kampanye Q4", 2]]);
+  assert.equal(sheet.shownCount, 3);
+  assert.equal(textOf(v.hiddenNote), "3 task berstatus lain disembunyikan · Tampilkan");
+  assert.equal(v.hiddenNote.type, "p");
+  assert.equal(v.filterEmpty, undefined);
+  assert.equal(v.savedFilter, undefined, "render saja tidak menulis storage");
+  // "Tampilkan" → status [] (semua status), disimpan per perangkat
+  findAll(v.hiddenNote, n => n.type === "button")[0].props.onClick();
+  v.render();
+  assert.deepEqual(v.shownIds, [11, 12, 13, 14, 15, 16]);
+  assert.deepEqual(v.savedFilter.status, []);
+  assert.equal(v.hiddenNote, undefined);
+  assert.deepEqual(v.bar.props.pills.map(p => p.label), ["Semua status"]);
+  assert.equal(v.bar.props.badge, 1);
+  // ✕ pil status → kembali ke Next
+  v.bar.props.onRemovePill(v.bar.props.pills[0]);
+  v.render();
+  assert.deepEqual(v.savedFilter.status, ["next"]);
+  assert.deepEqual(v.shownIds, [11, 12, 16]);
+});
+
+test("TodayFocusView: tab, chip cepat, cari, Reset; chip cepat dan lembar berbagi state", () => {
+  const v = mountFocusView({ tasks: T5_TASKS });
+  v.bar.props.onTime("late");
+  v.render();
+  assert.deepEqual(v.shownIds, [12]);
+  assert.equal(v.savedFilter.time, "late");
+  assert.deepEqual(v.bar.props.counts, { all: 3, today: 2, late: 1 }, "angka tab mengabaikan tab aktif");
+  v.bar.props.onTime("all");
+  v.render();
+  v.bar.props.onToggleQuick("pri", "P1");
+  v.render();
+  assert.deepEqual(v.shownIds, [11]);
+  assert.deepEqual(v.sheet.props.filter.pri, ["P1"], "lembar melihat state yang sama");
+  v.bar.props.onToggleQuick("pri", "P2");
+  v.render();
+  assert.deepEqual(v.shownIds, [11, 12]);
+  assert.deepEqual(v.savedFilter.pri, ["P1", "P2"]);
+  v.bar.props.onToggleQuick("pri", "P1");
+  v.render();
+  assert.deepEqual(v.bar.props.filter.pri, ["P2"]);
+  assert.equal(v.bar.props.badge, 0, "chip cepat tidak masuk badge");
+  // cari: tidak disimpan, spasi dirapatkan, tanpa beda huruf besar/kecil
+  v.bar.props.onQuery("  BALAS   email ");
+  v.render();
+  assert.equal(v.bar.props.query, "  BALAS   email ");
+  assert.deepEqual(v.shownIds, [12]);
+  assert.ok(!String(v.store.tf_focus_filter).includes("BALAS"));
+  assert.equal(v.head.count, 1);
+  // Reset (chip bar) → default + kosongkan cari
+  v.bar.props.onReset();
+  v.render();
+  assert.deepEqual(v.bar.props.filter, ff.normalizeFilter(null));
+  assert.equal(v.bar.props.query, "");
+  assert.deepEqual(v.savedFilter, ff.normalizeFilter(null));
+  assert.deepEqual(v.shownIds, [11, 12, 16]);
+});
+
+test("TodayFocusView: lembar — buka/tutup, perubahan langsung tersimpan, Reset lembar menjaga waktu dan cari", () => {
+  const v = mountFocusView({ tasks: T5_TASKS });
+  v.bar.props.onOpenSheet();
+  v.render();
+  assert.equal(v.bar.props.sheetOpen, true);
+  assert.equal(v.sheet.props.open, true);
+  // lembar = anak bar (berjangkar di baris cari)
+  assert.equal(findAll(v.bar, n => n.type === "FocusFilterSheet").length, 1);
+  const f = v.sheet.props.filter;
+  v.sheet.props.onChange({ ...f, status: [], proj: { key: "5:kampanye q4", label: "Tim Marketing · Kampanye Q4" }, quad: ["Q2", "Q2", "Qx"] });
+  v.render();
+  assert.deepEqual(v.savedFilter, { time: "all", status: [], pri: [], quad: ["Q2"], proj: { key: "5:kampanye q4", label: "Tim Marketing · Kampanye Q4" } }, "dinormalisasi sebelum disimpan");
+  assert.deepEqual(v.shownIds, [16]);
+  assert.equal(v.sheet.props.shownCount, 1);
+  assert.deepEqual(v.bar.props.pills.map(p => [p.label, p.kind]), [["Semua status", "status"], ["Tim Marketing · Kampanye Q4", "proj"], ["Q2", "quad"]]);
+  assert.equal(v.bar.props.badge, 3);
+  // ✕ pil Q2 / project
+  v.bar.props.onRemovePill(v.bar.props.pills[2]);
+  v.render();
+  assert.deepEqual(v.savedFilter.quad, []);
+  v.bar.props.onRemovePill(v.bar.props.pills[1]);
+  v.render();
+  assert.equal(v.savedFilter.proj, null);
+  // Reset lembar: status/pri/quad/proj default, waktu + cari tetap
+  v.bar.props.onTime("today");
+  v.bar.props.onQuery("brief");
+  v.render();
+  v.sheet.props.onChange({ ...v.sheet.props.filter, pri: ["P4"], quad: ["Q4"] });
+  v.render();
+  v.sheet.props.onResetHidden();
+  v.render();
+  assert.deepEqual(v.savedFilter, { time: "today", status: ["next"], pri: [], quad: [], proj: null });
+  assert.equal(v.bar.props.query, "brief");
+  assert.deepEqual(v.shownIds, [16]);
+  v.sheet.props.onClose();
+  v.render();
+  assert.equal(v.sheet.props.open, false);
+  assert.equal(v.bar.props.sheetOpen, false);
+});
+
+test("TodayFocusView: filter tersimpan dibaca saat mount; pil + badge; project basi → pesan + Reset filter", () => {
+  const stored = { tf_focus_filter: JSON.stringify({ status: ["waiting", "next"], pri: ["P4", "P1"], quad: ["Q4", "Q2"], proj: { key: "p:lama", label: "Pribadi · Lama" } }) };
+  const v = mountFocusView({ tasks: T5_TASKS, stored });
+  assert.deepEqual(v.bar.props.pills.map(p => p.label), ["Status: Next, Waiting", "Pribadi · Lama", "P4", "Q2", "Q4"]);
+  assert.equal(v.bar.props.badge, 5);
+  assert.equal(v.groups, undefined, "tidak ada task yang cocok → tanpa kelompok");
+  assert.equal(v.head.count, 0);
+  assert.ok(v.bar, "bar tetap tampil (pool tidak kosong)");
+  const opt = v.sheet.props.projectOptions.at(-1);
+  assert.deepEqual(opt, { key: "p:lama", label: "Pribadi · Lama", count: 0 });
+  assert.ok(v.filterEmpty && v.filterEmpty.type === "div");
+  assert.ok(textOf(v.filterEmpty).startsWith("Tidak ada task yang cocok dengan filter ini."));
+  const [btn] = findAll(v.filterEmpty, n => n.type === "button");
+  assert.equal(textOf(btn), "Reset filter");
+  assert.equal(btn.props.type, "button");
+  v.bar.props.onQuery("x");
+  v.render();
+  findAll(v.filterEmpty, n => n.type === "button")[0].props.onClick();
+  v.render();
+  assert.deepEqual(v.savedFilter, ff.normalizeFilter(null));
+  assert.equal(v.bar.props.query, "");
+  assert.deepEqual(v.shownIds, [11, 12, 16]);
+  assert.equal(v.filterEmpty, undefined);
+});
+
+test("TodayFocusView: storage rusak atau diblokir → default tanpa error", () => {
+  const bad = mountFocusView({ tasks: T5_TASKS, stored: { tf_focus_filter: "{rusak", tf_focus_collapsed: "[1,{}]" } });
+  assert.deepEqual(bad.bar.props.filter, ff.normalizeFilter(null));
+  assert.deepEqual(bad.shownIds, [11, 12, 16]);
+  const blocked = mountFocusView({ tasks: T5_TASKS, throwingStorage: true });
+  assert.deepEqual(blocked.bar.props.filter, ff.normalizeFilter(null));
+  blocked.bar.props.onToggleQuick("quad", "Q3");
+  blocked.render();
+  assert.deepEqual(blocked.shownIds, [12], "filter tetap berjalan di memori");
+});
+
+test("TodayFocusView: bar tidak dirender bila cakupan kosong atau pool kosong (semua di Target)", () => {
+  const empty = mountFocusView({ tasks: [{ id: 1, title: "Nanti", gtd_status: "next", priority: "P3", quadrant: "Q2" }] });
+  assert.equal(empty.bar, undefined);
+  assert.equal(empty.hiddenNote, undefined);
+  assert.ok(textOf(empty.one(n => hasClass(n, "focus-empty"))).includes("Tidak ada task urgent!"));
+  const onlyTarget = mountFocusView({ tasks: [{ ...T5_TASKS[0], is_focused: true }] });
+  assert.equal(onlyTarget.bar, undefined);
+  assert.equal(onlyTarget.sheet, undefined);
+  assert.equal(textOf(onlyTarget.one(n => hasClass(n, "focus-note"))), "Semua task hari ini sudah ada di Target.");
+  // Target tidak tersaring: task ⭐ berstatus Waiting tetap di Target walau filter default Next
+  const mixed = mountFocusView({ tasks: [...T5_TASKS, { id: 20, title: "Bintang waiting", gtd_status: "waiting", priority: "P3", quadrant: "Q2", is_focused: true }] });
+  assert.deepEqual(mixed.one(n => n.type === "FocusTargetSection").props.tasks.map(t => t.id), [20]);
+  assert.deepEqual(mixed.shownIds, [11, 12, 16]);
+});
+
+test("TodayFocusView: Zen menyembunyikan bar/kelompok/catatan/pesan dan menutup lembar; saat istirahat is-zen-shown", () => {
+  const focus = { ...T5_TASKS[0], id: 30, title: "Aktif", quadrant: "Q2", deadline: null };
+  const tasks = [...T5_TASKS, focus];
+  const v = mountFocusView({ tasks, focusTask: focus, zen: true, running: false });
+  // Zen menyala tetapi timer belum jalan → semua terlihat (kelas reveal yang sudah ada); buka lembar
+  assert.equal(v.bar.props.zenClass, " is-zen-shown");
+  assert.equal(v.bar.props.zenHidden, false);
+  v.bar.props.onOpenSheet();
+  v.render();
+  assert.equal(v.sheet.props.open, true);
+  // Work berjalan → zenOn: lembar langsung tertutup, bar/kelompok/catatan disembunyikan
+  v.render({ isRunning: true });
+  assert.equal(v.sheet.props.open, false, "lembar ditutup pada render yang sama");
+  assert.equal(v.bar.props.sheetOpen, false);
+  assert.equal(v.bar.props.zenClass, " is-zen-hidden");
+  assert.equal(v.bar.props.zenHidden, true);
+  assert.equal(v.groups.props.zenClass, " is-zen-hidden");
+  assert.equal(v.groups.props.zenHidden, true);
+  assert.ok(hasClass(v.hiddenNote, "is-zen-hidden"));
+  assert.equal(v.hiddenNote.props["aria-hidden"], true);
+  // jeda → zenReveal: kelas is-zen-shown, lembar tetap tertutup (state ikut ditutup oleh efek)
+  v.render({ isRunning: false });
+  assert.equal(v.sheet.props.open, false);
+  assert.equal(v.bar.props.zenClass, " is-zen-shown");
+  assert.equal(v.bar.props.zenHidden, false);
+  assert.ok(hasClass(v.hiddenNote, "is-zen-shown"));
+  assert.equal(v.hiddenNote.props["aria-hidden"], undefined);
+  // pesan "tidak ada yang cocok" ikut disembunyikan saat Zen
+  v.bar.props.onQuery("tidak ada judul ini");
+  v.render({ isRunning: true });
+  assert.ok(hasClass(v.filterEmpty, "is-zen-hidden"));
+  assert.equal(v.filterEmpty.props["aria-hidden"], true);
+});
+
+test("TodayFocusView: task berulang yang kejadiannya hari ini sudah done/skipped tetap tidak masuk pool (Ruling 1)", async () => {
+  const recurring = { ...dueToday, ...recur, id: 1, title: "Minum obat harian" };
+  const skipped = { ...dueToday, ...recur, id: 2, title: "Siram tanaman" };
+  const plain = { ...dueToday, id: 3, title: "Bayar listrik" };
+  const v = mountFocusView({
+    tasks: [recurring, skipped, plain],
+    exceptions: { 1: [{ occurrence_date: TODAY, status: "done" }], 2: [{ occurrence_date: TODAY, status: "skipped" }] }
+  });
+  // sebelum pengecualian dimuat: kedua task berulang tampil di "Berulang hari ini", bukan di pool
+  assert.equal(findAll(v.tree, n => n.type === "div" && hasClass(n, "ftask--recurring")).length, 2);
+  assert.deepEqual(v.shownIds, [3]);
+  await new Promise(resolve => setImmediate(resolve));
+  v.render();
+  // pengecualian done/skipped: baris berulang hilang, tetapi task tidak "muncul" di Task hari ini —
+  // juga setelah daftar dihitung ulang (sinkronisasi memberi array tasks baru, filter berubah)
+  assert.equal(findAll(v.tree, n => n.type === "div" && hasClass(n, "ftask--recurring")).length, 0);
+  assert.deepEqual(v.shownIds, [3]);
+  v.render({ tasks: [recurring, skipped, plain] });
+  assert.deepEqual(v.shownIds, [3]);
+  assert.equal(v.head.count, 1);
+  v.bar.props.onToggleQuick("pri", "P3");
+  v.render();
+  assert.deepEqual(v.shownIds, [3]);
+  assert.equal(v.sheet.props.statusCounts.next, 1, "hitungan lembar juga tanpa task berulang");
+  // Target tidak terpengaruh: task berulang ber-⭐ tetap di Target
+  const starredTasks = [{ ...recurring, is_focused: true }, plain];
+  const starred = mountFocusView({ tasks: starredTasks, exceptions: { 1: [{ occurrence_date: TODAY, status: "done" }] } });
+  await new Promise(resolve => setImmediate(resolve));
+  starred.render({ tasks: [...starredTasks] });
+  assert.deepEqual(starred.one(n => n.type === "FocusTargetSection").props.tasks.map(t => t.id), [1]);
+  assert.deepEqual(starred.shownIds, [3]);
+});
+
+test("TodayFocusView: 'Reset filter' / 'Tampilkan' hilang setelah diklik → fokus ke tombol Filter, bukan body", () => {
+  const btn = { isConnected: true, focused: 0, focus() { btn.focused++; } };
+  // catatan "Tampilkan" (status lain)
+  const v = mountFocusView({ tasks: T5_TASKS });
+  v.bar.props.filterBtnRef.current = btn;
+  findAll(v.hiddenNote, n => n.type === "button")[0].props.onClick();
+  v.render();
+  assert.equal(v.timers.length, 1);
+  v.doc.activeElement = v.doc.body;
+  v.timers.shift()();
+  assert.equal(btn.focused, 1);
+  // pesan kosong "Reset filter"; fokus yang sudah pindah ke tempat lain tidak direbut
+  v.bar.props.onQuery("tidak ada judul ini");
+  v.render();
+  findAll(v.filterEmpty, n => n.type === "button")[0].props.onClick();
+  v.render();
+  v.doc.activeElement = { name: "lain" };
+  v.timers.shift()();
+  assert.equal(btn.focused, 1);
+  // tombol Filter sudah lepas dari DOM → tidak difokus
+  v.bar.props.onQuery("tidak ada judul ini");
+  v.render();
+  findAll(v.filterEmpty, n => n.type === "button")[0].props.onClick();
+  btn.isConnected = false;
+  v.doc.activeElement = v.doc.body;
+  v.timers.shift()();
+  assert.equal(btn.focused, 1);
 });

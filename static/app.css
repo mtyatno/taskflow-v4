@@ -4563,3 +4563,78 @@
 @media (prefers-reduced-motion: reduce) {
   .focus-group-chevron { transition: none; }
 }
+
+/* Fokus Hari Ini: bar filter (tab waktu, cari, chip) dan lembar "Filter lainnya" */
+.focus-filter { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.focus-filter > * { flex-shrink: 0; }
+.focus-filter-time { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; padding: 3px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; }
+.focus-filter-time button { display: flex; align-items: center; justify-content: center; gap: 5px; min-width: 0; min-height: 36px; padding: 0 4px; margin: 0; border: 0; border-radius: 9px; background: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--text-secondary); white-space: nowrap; cursor: pointer; transition: background .15s, color .15s; }
+.focus-filter-time button:hover { color: var(--text-primary); }
+.focus-filter-time button[aria-pressed="true"] { background: var(--text-primary); color: var(--bg-card); }
+.focus-filter-time .n, .focus-filter-chip .n { font-size: 11.5px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.focus-filter-searchrow { position: relative; display: flex; gap: 6px; }
+.focus-filter-search { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 2px 0 11px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; color: var(--text-secondary); cursor: text; transition: border-color .15s, box-shadow .15s; }
+.focus-filter-search:focus-within { border-color: #A8C500; box-shadow: 0 0 0 3px rgba(168,197,0,0.18); }
+.focus-filter-search svg { flex-shrink: 0; }
+.focus-filter-search input { flex: 1; min-width: 0; height: 36px; padding: 0; margin: 0; border: 0; background: none; font: inherit; font-size: 14px; color: var(--text-primary); outline: none; -webkit-appearance: none; appearance: none; }
+.focus-filter-search input::placeholder { color: var(--text-light); }
+.focus-filter-search input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+.focus-filter-clear { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; margin: 0; border: 0; border-radius: 9px; background: none; font: inherit; font-size: 13px; color: var(--text-secondary); cursor: pointer; }
+.focus-filter-clear:hover { background: var(--bg-hover); color: var(--text-primary); }
+.focus-filter-btn { position: relative; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 42px; min-height: 40px; padding: 0; margin: 0; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); color: var(--text-primary); cursor: pointer; transition: border-color .15s, background .15s, color .15s; }
+.focus-filter-btn:hover { border-color: #d6d6cc; }
+[data-theme="dark"] .focus-filter-btn:hover { border-color: #525252; }
+.focus-filter-btn.is-on, .focus-filter-btn[aria-expanded="true"] { border-color: #A8C500; background: rgba(168,197,0,0.14); color: #4E5C00; }
+[data-theme="dark"] .focus-filter-btn.is-on, [data-theme="dark"] .focus-filter-btn[aria-expanded="true"] { background: rgba(168,197,0,0.16); color: #D9EE6A; }
+.focus-filter-badge { position: absolute; top: -6px; right: -6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: #A8C500; color: #1F2116; font-size: 10.5px; font-weight: 800; line-height: 18px; text-align: center; font-variant-numeric: tabular-nums; box-shadow: 0 0 0 2px var(--bg-page); pointer-events: none; }
+.focus-filter-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; margin: -3px; padding: 3px; }
+.focus-filter-chips::-webkit-scrollbar { display: none; }
+.focus-filter-chips > * { flex-shrink: 0; }
+.focus-filter-chip { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; max-width: 100%; padding: 0 13px; margin: 0; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 12.5px; font-weight: 700; white-space: nowrap; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.focus-filter-chip:hover { border-color: #d6d6cc; }
+[data-theme="dark"] .focus-filter-chip:hover { border-color: #525252; }
+.focus-filter-chip .n { color: var(--text-secondary); }
+.focus-filter-chip.is-on { background: rgba(168,197,0,0.14); border-color: #A8C500; color: #4E5C00; }
+[data-theme="dark"] .focus-filter-chip.is-on { background: rgba(168,197,0,0.16); color: #D9EE6A; }
+.focus-filter-chip.is-on .n { color: inherit; }
+.focus-filter-chip.is-pill { background: var(--text-primary); border-color: var(--text-primary); color: var(--bg-card); }
+.focus-filter-chip.is-reset { border-style: dashed; color: var(--text-secondary); }
+.focus-filter-pill-label { min-width: 0; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.focus-filter-x { font-size: 11px; font-weight: 800; opacity: .75; }
+.focus-filter-time button:focus-visible, .focus-filter-chip:focus-visible, .focus-filter-btn:focus-visible, .focus-filter-clear:focus-visible, .focus-filter-link:focus-visible, .focus-filter-sheet-actions button:focus-visible { outline: 2px solid #7E9400; outline-offset: 1px; }
+[data-theme="dark"] .focus-filter-time button:focus-visible, [data-theme="dark"] .focus-filter-chip:focus-visible, [data-theme="dark"] .focus-filter-btn:focus-visible, [data-theme="dark"] .focus-filter-clear:focus-visible, [data-theme="dark"] .focus-filter-link:focus-visible, [data-theme="dark"] .focus-filter-sheet-actions button:focus-visible { outline-color: #A8C500; }
+/* Desktop: panel di bawah tombol Filter (rata kanan) + latar transparan penangkap klik luar */
+.focus-filter-backdrop { position: fixed; inset: 0; z-index: 70; background: transparent; }
+.focus-filter-sheet { position: absolute; top: calc(100% + 6px); right: 0; z-index: 71; width: 340px; max-width: calc(100vw - 32px); max-height: min(70vh, 560px); overflow-y: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 14px; padding: 14px 16px 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; box-shadow: 0 16px 40px rgba(15,23,42,0.16); color: var(--text-primary); animation: focus-filter-pop .16s ease; }
+[data-theme="dark"] .focus-filter-sheet { box-shadow: 0 16px 40px rgba(0,0,0,0.5); }
+.focus-filter-sheet:focus { outline: none; }
+.focus-filter-sheet > * { flex-shrink: 0; }
+.focus-filter-grab { display: none; }
+.focus-filter-sheet-title { margin: 0; font-size: 15px; font-weight: 800; color: var(--text-primary); }
+.focus-filter-sheet-group { display: flex; flex-direction: column; gap: 7px; }
+.focus-filter-sheet-sub { margin: 0; font-size: 11px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--text-secondary); }
+.focus-filter-sheet-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.focus-filter-sheet-note { margin: 0; font-size: 11.5px; color: var(--text-secondary); }
+.focus-filter-opt-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.focus-filter-sheet-actions { position: sticky; bottom: 0; display: flex; gap: 8px; margin: 0 -16px; padding: 10px 16px 14px; background: var(--bg-card); box-shadow: inset 0 1px 0 var(--border); }
+.focus-filter-sheet-actions button { flex: 1; min-height: 40px; padding: 0 12px; margin: 0; border: 1px solid var(--border); border-radius: 11px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.focus-filter-sheet-actions .focus-filter-sheet-go { background: #A8C500; border-color: #A8C500; color: #1F2116; }
+.focus-filter-sheet-actions .focus-filter-sheet-go:hover { background: #95AD00; border-color: #95AD00; }
+.focus-filter-empty { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 16px 12px 10px; background: var(--bg-card); border: 1px dashed var(--border); border-radius: 12px; font-size: 13px; color: var(--text-secondary); text-align: center; }
+.focus-filter-hidden-note { margin: 8px 0 0; font-size: 12.5px; color: var(--text-secondary); text-align: center; }
+.focus-filter-link { display: inline-flex; align-items: center; min-height: 36px; padding: 0 4px; margin: 0; border: 0; border-radius: 6px; background: none; font: inherit; font-weight: 800; color: var(--text-primary); text-decoration: underline; text-decoration-color: #A8C500; text-decoration-thickness: 2px; text-underline-offset: 3px; cursor: pointer; }
+@keyframes focus-filter-pop { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes focus-filter-up { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes focus-filter-fade { from { opacity: 0; } to { opacity: 1; } }
+/* HP: lembar bawah (fixed, maks 86vh) dengan latar redup; input 16px agar iOS tidak memperbesar */
+@media (max-width: 768px) {
+  .focus-filter-search input { font-size: 16px; }
+  .focus-filter-backdrop { background: rgba(15, 18, 8, 0.38); animation: focus-filter-fade .18s ease; }
+  [data-theme="dark"] .focus-filter-backdrop { background: rgba(0, 0, 0, 0.55); }
+  .focus-filter-sheet { position: fixed; top: auto; left: 0; right: 0; bottom: 0; width: auto; max-width: none; max-height: 86vh; max-height: 86dvh; padding: 8px max(16px, env(safe-area-inset-right, 0px)) 0 max(16px, env(safe-area-inset-left, 0px)); border-width: 1px 0 0; border-radius: 20px 20px 0 0; box-shadow: 0 -10px 30px rgba(15,23,42,0.18); animation: focus-filter-up .22s ease; }
+  .focus-filter-grab { display: block; width: 38px; height: 4px; margin: 0 auto; border-radius: 4px; background: var(--border); }
+  .focus-filter-sheet-actions { margin: 0 calc(-1 * max(16px, env(safe-area-inset-right, 0px))) 0 calc(-1 * max(16px, env(safe-area-inset-left, 0px))); padding: 10px max(16px, env(safe-area-inset-right, 0px)) calc(14px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .focus-filter-sheet, .focus-filter-backdrop { animation: none; }
+}
