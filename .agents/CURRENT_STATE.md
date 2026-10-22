@@ -1,3 +1,11 @@
+## 🟠 Pindah task ke workspace: tombol "Memindahkan..." tertahan ~1 menit — `claude/project-thread-we0hl7` — 2026-10-22 (Claude) — PR DIBUKA; TUNGGU "merge dan deploy"
+- **Laporan Bapak:** klik "Pindahkan" → "Memindahkan..." ~1 menit, lalu berhasil.
+- **Akar masalah:** `moveTaskToWorkspace` (v457) selalu `await __pushNow()` (antre di belakang sync yang sedang jalan) dan `await __syncNow()` (sync penuh semua entitas) sebelum menutup modal. Dibuktikan E2E: dengan `__syncNow` dibuat lambat 30 dtk, kode lama tidak menutup modal dalam 15 dtk.
+- **Fix:** push hanya bila ada op task di outbox (atau task belum punya id server); server mengembalikan `moved` (baris semua task yang pindah); `applyMovedTasksLocal` menulis scope baru + `base_rev` ke IndexedDB lewat `TF.db.mutate`; `__syncNow` dipicu di latar tanpa ditunggu.
+- **Versi:** SW **v458** `taskflow-v458-task-pindah-cepat`, `app.css` tetap v=360.
+- **Verifikasi:** pytest 1142 passed; `npm test` 2926/2927 (gagal pra-ada `draw_local_reactive`); `task_move_workspace.test.js` 9/9; E2E 6/6 (modal tertutup 0,1 dtk walau sync 30 dtk).
+- **Deploy:** webapp.py berubah (respons `moved`) → restart `taskflow-web`. Klien lama tetap jalan tanpa `moved` (fallback baris utama).
+
 ## 🟠 Pindah task pribadi ke workspace — `claude/project-thread-we0hl7` — 2026-10-22 (Claude) — DI-MERGE (#82) atas "merge dan deploy" Bapak; TUNGGU RESTART `taskflow-web`
 - **Permintaan Bapak:** task eksisting bisa dipindahkan dari task pribadi ke task workspace.
 - **Backend:** `PATCH /api/tasks/{id}/workspace` `{list_id}` (ADR-028). Pemilik saja, task pribadi tingkat atas (sub-task → 400 "ikut induknya"), bukan anggota → 403. Task + seluruh child pribadi milik pengguna ikut pindah; `project`/`context` di-resolve ulang per nama di scope workspace (NOCASE, dibuat bila belum ada); `assigned_to` NULL; `updated_at` di-bump (pull klien mengadopsi); lampiran dicatat di `workspace_files` (source `task`); notifikasi anggota. Respons = baris task + `moved_ids`. Tanpa migrasi.

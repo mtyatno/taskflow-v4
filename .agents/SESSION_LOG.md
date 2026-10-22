@@ -3955,3 +3955,10 @@
 - **Changes:** PR ditandai siap, CI hijau di 516f2d7, di-merge (7072a1a). Deploy percobaan 1 timeout 10 menit di langkah SSH (bukan karena isi PR), dijalankan ulang sekali → sukses. SW v456 `taskflow-v456-focus-filter`, app.css 360.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
+
+## [2026-10-22 14:55] - Claude
+- **Task:** bug pindah task ke workspace lambat (~1 menit).
+- **Changes:** tidak menunggu sync penuh; push hanya bila ada op task; adopsi lokal baris `moved`; SW v458; tes JS/Python + E2E sync lambat.
+- **Files Touch:** webapp.py, static/index.html, static/sw.js, tests (pin versi, task_move_workspace), temporary_files/e2e_task_move_workspace.py, .agents/*.
+- **Status:** Needs Review — PR menunggu "merge dan deploy"; deploy = restart `taskflow-web`.
+

@@ -46,6 +46,9 @@ def test_move_member_sees_task_and_children_follow(client):
     r = _move(member, parent["id"], ws)
     assert r.status_code == 200, r.text
     assert r.json()["moved_ids"] == [parent["id"], child["id"], grand["id"]]
+    moved = {m["id"]: m for m in r.json()["moved"]}
+    assert set(moved) == {parent["id"], child["id"], grand["id"]}
+    assert all(m["list_id"] == ws for m in moved.values())
     for tid in (parent["id"], child["id"], grand["id"]):
         assert _row("SELECT list_id FROM tasks WHERE id = ?", tid)["list_id"] == ws
     ids = {x["id"] for x in owner.get("/api/tasks?include_done=true").json()}
