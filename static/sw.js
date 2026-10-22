@@ -1,8 +1,14 @@
-const CACHE = "taskflow-v464-note-lampiran-gambar";
+const CACHE = "taskflow-v465-note-lampiran-gambar";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
+// Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
+// satu file gagal → install gagal dan SW lama (cache lengkap) tetap aktif. Setiap <script src> / <link
+// rel="stylesheet"> lokal di index.html wajib ada di sini dengan URL PERSIS termasuk query versi; setiap entri
+// harus file yang ter-track git dan tidak boleh ganda (URL 404 / ganda = semua update SW gagal) — dijaga
+// tests/offline/sw_precache_shell.test.js, ikut CI lewat tests/test_sw_precache_node.py (spec §3).
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
+  "/static/app.css?v=363",  // query HARUS sama persis dengan <link> app.css di index.html (catch-all mencocokkan URL persis)
   "/static/ui-components.js",
   "/static/offline/ids.js",
   "/static/offline/db.js",
@@ -77,9 +83,6 @@ const STATIC = [
   "/static/offline/commentroutes.js",
   "/static/offline/commentui.js",
   "/static/offline/commenthighlight.js",
-  "/static/vendor/tldraw/index.html",
-  "/static/vendor/tldraw/assets/index.js",
-  "/static/vendor/tldraw/assets/index.css",
   "/static/vendor/react.production.min.js",
   "/static/vendor/react-dom.production.min.js",
   "/static/vendor/chart.umd.min.js",
@@ -88,10 +91,24 @@ const STATIC = [
   "/static/vendor/prism.min.js",
   "/static/vendor/driver.iife.js",
   "/static/vendor/driver.css",
-  "/static/vendor/milkdown.bundle.js",
+  "/static/vendor/milkdown.bundle.js?v=289",  // query sama persis dengan <script> di index.html
   "/static/vendor/tailwind.min.css",
   "/static/vendor/katex/katex.min.js",
   "/static/vendor/katex/katex.min.css",
+  "/config.js",
+];
+
+// Aset opsional: boleh diambil belakangan saat dipakai, jadi kegagalannya TIDAK menggagalkan install.
+// Ikon/manifest punya cabang network-first sendiri, font KaTeX hanya dipakai note berisi rumus, dan build
+// tldraw dibuat saat deploy (tidak ada di repo) — bila ikut shell, build gagal = install gagal selamanya.
+const OPTIONAL_STATIC = [
+  "/manifest.json?v=2",
+  "/static/icon-32.png?v=2",
+  "/static/icon-192.png?v=2",
+  "/static/icon-512.png?v=2",
+  "/static/icon-maskable-192.png?v=2",
+  "/static/icon-maskable-512.png?v=2",
+  "/static/icon-new-task.svg",
   "/static/vendor/katex/fonts/KaTeX_AMS-Regular.woff2",
   "/static/vendor/katex/fonts/KaTeX_Caligraphic-Bold.woff2",
   "/static/vendor/katex/fonts/KaTeX_Caligraphic-Regular.woff2",
@@ -112,18 +129,14 @@ const STATIC = [
   "/static/vendor/katex/fonts/KaTeX_Size3-Regular.woff2",
   "/static/vendor/katex/fonts/KaTeX_Size4-Regular.woff2",
   "/static/vendor/katex/fonts/KaTeX_Typewriter-Regular.woff2",
-  "/manifest.json?v=2",
-  "/config.js",
-  "/static/icon-192.png?v=2",
-  "/static/icon-512.png?v=2",
-  "/static/icon-maskable-192.png?v=2",
-  "/static/icon-maskable-512.png?v=2",
-  "/static/icon-new-task.svg",
+  "/static/vendor/tldraw/index.html",
+  "/static/vendor/tldraw/assets/index.js",
+  "/static/vendor/tldraw/assets/index.css",
 ];
 
 // tldraw runtime assets (ikon toolbar, font, translations) di-vendor lokal dari
 // cdn.tldraw.com/2.4.6 (bundle dipatch ke base /static/vendor/tldraw/cdn) supaya
-// canvas jalan offline TANPA warmup. Di-precache saat install.
+// canvas jalan offline TANPA warmup. Di-precache saat install sebagai aset opsional.
 const TLD = "/static/vendor/tldraw/cdn/2.4.6";
 const TLD_ICONS = ["align-bottom","align-center-horizontal","align-center-vertical","align-left","align-right","align-top","arrow-left","arrowhead-arrow","arrowhead-bar","arrowhead-diamond","arrowhead-dot","arrowhead-none","arrowhead-square","arrowhead-triangle","arrowhead-triangle-inverted","blob","bring-forward","bring-to-front","broken","check","check-circle","chevron-down","chevron-left","chevron-right","chevron-up","chevrons-ne","chevrons-sw","clipboard-copied","clipboard-copy","color","cross-2","cross-circle","dash-dashed","dash-dotted","dash-draw","dash-solid","disconnected","discord","distribute-horizontal","distribute-vertical","dot","dots-horizontal","dots-vertical","drag-handle-dots","duplicate","edit","external-link","fill-fill","fill-none","fill-pattern","fill-semi","fill-solid","follow","following","font-draw","font-mono","font-sans","font-serif","geo-arrow-down","geo-arrow-left","geo-arrow-right","geo-arrow-up","geo-check-box","geo-cloud","geo-diamond","geo-ellipse","geo-heart","geo-hexagon","geo-octagon","geo-oval","geo-pentagon","geo-rectangle","geo-rhombus","geo-rhombus-2","geo-star","geo-trapezoid","geo-triangle","geo-x-box","github","group","horizontal-align-end","horizontal-align-middle","horizontal-align-start","info-circle","leading","link","lock","menu","minus","mixed","pack","plus","question-mark","question-mark-circle","redo","reset-zoom","rotate-ccw","rotate-cw","send-backward","send-to-back","share-1","size-extra-large","size-large","size-medium","size-small","spline-cubic","spline-line","stack-horizontal","stack-vertical","status-offline","stretch-horizontal","stretch-vertical","text-align-center","text-align-left","text-align-right","toggle-off","toggle-on","tool-arrow","tool-eraser","tool-frame","tool-hand","tool-highlight","tool-laser","tool-line","tool-media","tool-note","tool-pencil","tool-pointer","tool-screenshot","tool-text","trash","twitter","undo","ungroup","unlock","vertical-align-end","vertical-align-middle","vertical-align-start","warning-triangle","zoom-in","zoom-out"];
 const TLD_LOCALES = ["ar","ca","cs","da","de","en","es","fa","fi","fr","gl","he","hi-in","hr","hu","id","it","ja","ko-kr","ku","my","ne","no","pl","pt-br","pt-pt","ro","ru","sl","sv","te","th","tr","uk","vi","zh-cn","zh-tw"];
@@ -136,7 +149,7 @@ const TLDRAW_ASSETS = [].concat(
   TLD_EMBEDS.map(t => TLD + "/embed-icons/" + t + ".png"),
   [TLD + "/watermarks/watermark-desktop.svg"]
 );
-STATIC.push.apply(STATIC, TLDRAW_ASSETS);
+OPTIONAL_STATIC.push.apply(OPTIONAL_STATIC, TLDRAW_ASSETS);
 
 self.addEventListener("message", e => {
   if (e.data === "SKIP_WAITING" || (e.data && e.data.type === "SKIP_WAITING")) {
@@ -144,16 +157,28 @@ self.addEventListener("message", e => {
   }
 });
 
+// Request precache: "no-cache" = browser mengirim request bersyarat (If-None-Match / If-Modified-Since) bila
+// HTTP cache punya salinan, jadi file yang tidak berubah sejak rilis lalu cukup dijawab 304 — tidak diunduh
+// ulang penuh setiap rilis (dulu mode reload). File yang berubah tetap diunduh karena ETag-nya berbeda.
+const freshRequest = url => new Request(url, { cache: "no-cache" });
+
+// Install (spec §3.2):
+// - shell lewat cache.addAll → atomik: satu request gagal / non-2xx → tidak ada yang disimpan, waitUntil menolak,
+//   SW baru redundant, SW lama tetap aktif dengan cache lengkapnya. Dicoba lagi pada pemuatan/update berikutnya.
+// - opsional baru diambil setelah shell tersimpan, lewat allSettled: kegagalannya tidak menggagalkan install.
+// - skipWaiting hanya untuk install pertama (belum ada SW aktif) dan hanya setelah shell tersimpan. Kegagalan
+//   TIDAK ditelan: .catch hanya mencatat (terlihat lewat remote debugging) lalu melempar ulang. Install pertama
+//   yang gagal cukup berarti halaman belum dikendalikan SW (tetap jalan online).
 self.addEventListener("install", e => {
   e.waitUntil(
     caches.open(CACHE)
-      .then(cache => Promise.allSettled(STATIC.map(url => cache.add(new Request(url, { cache: "reload" })))))
-      .then(() => {
-        if (!self.registration.active) {
-          self.skipWaiting();
-        }
+      .then(cache => cache.addAll(STATIC.map(freshRequest))
+        .then(() => Promise.allSettled(OPTIONAL_STATIC.map(u => cache.add(freshRequest(u))))))
+      .catch(err => {
+        console.warn("SW install gagal (shell tidak lengkap) — SW lama tetap aktif:", err);
+        throw err;
       })
-      .catch(() => {
+      .then(() => {
         if (!self.registration.active) {
           self.skipWaiting();
         }
