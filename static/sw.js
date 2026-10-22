@@ -3,8 +3,9 @@ const CACHE = "taskflow-v462-fokus-checklist-hitungan";
 const AMBIENT_CACHE = "alurik-ambient-v1";
 // Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
 // satu file gagal → install gagal dan SW lama (cache lengkap) tetap aktif. Setiap <script src> / <link
-// rel="stylesheet"> lokal di index.html wajib ada di sini dengan URL PERSIS termasuk query versi, dan setiap
-// entri harus ada di repo — dijaga tests/offline/sw_precache_shell.test.js (spec 2026-10-22-sw-precache-shell §3).
+// rel="stylesheet"> lokal di index.html wajib ada di sini dengan URL PERSIS termasuk query versi; setiap entri
+// harus file yang ter-track git dan tidak boleh ganda (URL 404 / ganda = semua update SW gagal) — dijaga
+// tests/offline/sw_precache_shell.test.js, ikut CI lewat tests/test_sw_precache_node.py (spec §3).
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/app.css?v=362",  // query HARUS sama persis dengan <link> app.css di index.html (catch-all mencocokkan URL persis)
@@ -101,6 +102,7 @@ const STATIC = [
 // tldraw dibuat saat deploy (tidak ada di repo) — bila ikut shell, build gagal = install gagal selamanya.
 const OPTIONAL_STATIC = [
   "/manifest.json?v=2",
+  "/static/icon-32.png?v=2",
   "/static/icon-192.png?v=2",
   "/static/icon-512.png?v=2",
   "/static/icon-maskable-192.png?v=2",
@@ -163,13 +165,18 @@ const freshRequest = url => new Request(url, { cache: "no-cache" });
 // - shell lewat cache.addAll → atomik: satu request gagal / non-2xx → tidak ada yang disimpan, waitUntil menolak,
 //   SW baru redundant, SW lama tetap aktif dengan cache lengkapnya. Dicoba lagi pada pemuatan/update berikutnya.
 // - opsional baru diambil setelah shell tersimpan, lewat allSettled: kegagalannya tidak menggagalkan install.
-// - skipWaiting hanya untuk install pertama (belum ada SW aktif) dan hanya setelah shell tersimpan. SENGAJA tanpa
-//   .catch: install pertama yang gagal cukup berarti halaman belum dikendalikan SW (tetap jalan online).
+// - skipWaiting hanya untuk install pertama (belum ada SW aktif) dan hanya setelah shell tersimpan. Kegagalan
+//   TIDAK ditelan: .catch hanya mencatat (terlihat lewat remote debugging) lalu melempar ulang. Install pertama
+//   yang gagal cukup berarti halaman belum dikendalikan SW (tetap jalan online).
 self.addEventListener("install", e => {
   e.waitUntil(
     caches.open(CACHE)
       .then(cache => cache.addAll(STATIC.map(freshRequest))
         .then(() => Promise.allSettled(OPTIONAL_STATIC.map(u => cache.add(freshRequest(u))))))
+      .catch(err => {
+        console.warn("SW install gagal (shell tidak lengkap) — SW lama tetap aktif:", err);
+        throw err;
+      })
       .then(() => {
         if (!self.registration.active) {
           self.skipWaiting();

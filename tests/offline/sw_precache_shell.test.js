@@ -8,6 +8,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const os = require("node:os");
+const { execFileSync } = require("node:child_process");
 
 const ROOT = path.resolve(__dirname, "../..");
 const swJs = fs.readFileSync(path.join(ROOT, "static/sw.js"), "utf8");
@@ -36,20 +38,55 @@ function swGlobals() {
   ));
 }
 
-// <script src="/…"> dan <link rel="stylesheet" href="/…"> lokal di index.html (urutan atribut bebas).
-function localAssetsOfIndex() {
-  const urls = [];
-  for (const [tag] of indexHtml.matchAll(/<script\b[^>]*>/g)) {
-    const src = /\bsrc="([^"]+)"/.exec(tag);
-    if (src && src[1].startsWith("/") && !src[1].startsWith("//")) urls.push(src[1]);
+// Atribut sebuah tag HTML: nama huruf kecil → nilai (kutip ganda, kutip tunggal, atau tanpa kutip).
+function attrsOf(tag) {
+  const attrs = {};
+  for (const m of tag.matchAll(/([^\s"'<>\/=]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g)) {
+    attrs[m[1].toLowerCase()] = m[2] !== undefined ? m[2] : m[3] !== undefined ? m[3] : m[4];
   }
-  for (const [tag] of indexHtml.matchAll(/<link\b[^>]*>/g)) {
-    if (!/\brel="stylesheet"/.test(tag)) continue;
-    const href = /\bhref="([^"]+)"/.exec(tag);
-    if (href && href[1].startsWith("/") && !href[1].startsWith("//")) urls.push(href[1]);
-  }
-  return urls;
+  return attrs;
 }
+const isLocal = u => typeof u === "string" && u.startsWith("/") && !u.startsWith("//");
+const relsOf = attrs => (attrs.rel || "").toLowerCase().split(/\s+/).filter(Boolean);
+const tagsOf = (html, name) => [...html.matchAll(new RegExp("<" + name + "\\b[^>]*>", "gi"))].map(m => attrsOf(m[0]));
+
+// <script src="/…"> dan <link rel="stylesheet" href="/…"> lokal di index.html (urutan atribut bebas).
+function localAssetsOfIndex(html = indexHtml) {
+  return [
+    ...tagsOf(html, "script").map(a => a.src),
+    ...tagsOf(html, "link").filter(a => relsOf(a).includes("stylesheet")).map(a => a.href),
+  ].filter(isLocal);
+}
+
+// <link rel="icon" / "apple-touch-icon" / "manifest"> lokal di index.html.
+function linkedAppIconsOfIndex(html = indexHtml) {
+  const APP_RELS = ["icon", "apple-touch-icon", "manifest"];
+  return tagsOf(html, "link")
+    .filter(a => relsOf(a).some(r => APP_RELS.includes(r)))
+    .map(a => a.href)
+    .filter(isLocal);
+}
+
+// Entri yang dipakai tes siklus diambil dari index.html (bukan di-hardcode) supaya tidak basi saat query naik.
+const INDEX_ASSETS = localAssetsOfIndex();
+const indexUrlOf = pathname => INDEX_ASSETS.find(u => u.split("?")[0] === pathname);
+
+// Path repo (tanpa "/" depan, tanpa query) yang TIDAK boleh jadi entri shell: tidak ada di disk, atau tidak
+// ter-track git (untracked / gitignored, mis. hasil build lokal — di server produksi akan 404 dan install SW
+// gagal terus). Pemeriksaan git hanya dilewati bila git tidak ada atau `root` bukan checkout git.
+function untrackedPaths(root, rels) {
+  const run = args => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  let tracked = null;
+  try {
+    if (run(["rev-parse", "--is-inside-work-tree"]).trim() === "true") tracked = true;
+  } catch (_) {
+    tracked = null; // git tidak ada / bukan checkout git → fallback: cukup ada di disk
+  }
+  if (tracked) tracked = new Set(run(["--literal-pathspecs", "ls-files", "-z", "--", ...rels]).split("\0").filter(Boolean));
+  return rels.filter(rel => !fs.existsSync(path.join(root, rel)) || (tracked !== null && !tracked.has(rel)));
+}
+
+const dupsOf = list => [...new Set(list.filter((u, i) => list.indexOf(u) !== i))];
 
 test("sw precache: setiap script/stylesheet lokal di index.html ada di STATIC dengan URL persis", () => {
   const { STATIC } = swGlobals();
@@ -58,18 +95,83 @@ test("sw precache: setiap script/stylesheet lokal di index.html ada di STATIC de
   for (const u of ["/config.js", "/static/vendor/tailwind.min.css", "/static/ui-components.js"]) {
     assert.ok(local.includes(u), "parser index.html tidak menemukan " + u);
   }
-  assert.ok(local.some(u => u.startsWith("/static/app.css?v=")), "parser tidak menemukan app.css");
-  assert.ok(local.some(u => u.startsWith("/static/vendor/milkdown.bundle.js?v=")), "parser tidak menemukan milkdown");
+  assert.match(indexUrlOf("/static/app.css") || "", /^\/static\/app\.css\?v=\d+$/, "parser tidak menemukan app.css ber-query");
+  assert.match(indexUrlOf("/static/vendor/milkdown.bundle.js") || "", /\?v=\d+$/, "parser tidak menemukan milkdown ber-query");
   const missing = local.filter(u => !STATIC.includes(u));
   assert.deepEqual(missing, [], "dimuat index.html tapi tidak ada di STATIC (URL persis): " + missing.join(", "));
 });
 
-test("sw precache: entri STATIC menunjuk file yang ada", () => {
+test("sw precache: parser tag index.html — kutip tunggal/ganda, urutan atribut bebas, hanya URL lokal", () => {
+  const html = [
+    "<script src='/static/a.js?v=1'></script>",
+    '<script type="module" src="/static/b.js"></script>',
+    '<script src="https://cdn.example/x.js"></script>',
+    '<script src="//cdn.example/y.js"></script>',
+    "<script>var s = 1;</script>",
+    "<link href='/static/c.css?v=2' rel='stylesheet'>",
+    '<link rel="stylesheet" href="https://fonts.example/css">',
+    '<LINK REL="Stylesheet" HREF="/static/e.css">',
+    "<link rel='icon' type='image/png' href='/static/icon-32.png?v=2'>",
+    '<link rel="apple-touch-icon" href="/static/icon-192.png?v=2">',
+    '<link rel="manifest" href="/manifest.json?v=2">',
+    '<link rel="preconnect" href="https://fonts.example">',
+  ].join("\n");
+  assert.deepEqual(localAssetsOfIndex(html), ["/static/a.js?v=1", "/static/b.js", "/static/c.css?v=2", "/static/e.css"]);
+  assert.deepEqual(linkedAppIconsOfIndex(html), ["/static/icon-32.png?v=2", "/static/icon-192.png?v=2", "/manifest.json?v=2"]);
+});
+
+test("sw precache: entri STATIC menunjuk file yang ada dan ter-track git", () => {
   const { STATIC } = swGlobals();
-  const absent = STATIC
-    .filter(u => u !== "/" && u !== "/config.js")
-    .filter(u => !fs.existsSync(path.join(ROOT, u.split("?")[0].replace(/^\//, ""))));
-  assert.deepEqual(absent, [], "entri STATIC tanpa file di repo: " + absent.join(", "));
+  const rels = STATIC.filter(u => u !== "/" && u !== "/config.js").map(u => u.split("?")[0].replace(/^\//, ""));
+  const bad = untrackedPaths(ROOT, rels);
+  assert.deepEqual(bad, [], "entri STATIC tanpa file ter-track git (akan 404 di produksi → install gagal terus): " + bad.join(", "));
+});
+
+test("sw precache: pemeriksa entri menolak file untracked/gitignored; tanpa checkout git → cukup ada di disk", (t) => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "sw-precache-"));
+  try {
+    const put = (dir, rel) => {
+      fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
+      fs.writeFileSync(path.join(dir, rel), "x");
+    };
+    const plain = path.join(tmp, "plain");
+    put(plain, "static/a.js");
+    assert.deepEqual(untrackedPaths(plain, ["static/a.js", "static/hilang.js"]), ["static/hilang.js"]);
+
+    const repo = path.join(tmp, "repo");
+    for (const rel of ["static/a.js", "static/untracked.js", "static/build/out.js", ".gitignore"]) put(repo, rel);
+    fs.writeFileSync(path.join(repo, ".gitignore"), "static/build/\n");
+    try {
+      execFileSync("git", ["init", "-q"], { cwd: repo, stdio: "ignore" });
+      execFileSync("git", ["add", "static/a.js", ".gitignore"], { cwd: repo, stdio: "ignore" });
+    } catch (e) {
+      t.skip("git tidak tersedia: " + e.message);
+      return;
+    }
+    assert.deepEqual(
+      untrackedPaths(repo, ["static/a.js", "static/untracked.js", "static/build/out.js", "static/hilang.js"]),
+      ["static/untracked.js", "static/build/out.js", "static/hilang.js"]
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("sw precache: STATIC dan OPTIONAL_STATIC masing-masing tanpa entri ganda", () => {
+  const { STATIC, OPTIONAL_STATIC } = swGlobals();
+  for (const [name, list] of [["STATIC", STATIC], ["OPTIONAL_STATIC", OPTIONAL_STATIC]]) {
+    assert.deepEqual(dupsOf(list), [], name + " memuat entri ganda (Cache.addAll menolak request duplikat): " + dupsOf(list).join(", "));
+    assert.equal(new Set(list).size, list.length);
+  }
+});
+
+test("sw precache: ikon & manifest yang ditautkan index.html ada di OPTIONAL_STATIC dengan URL persis", () => {
+  const { OPTIONAL_STATIC } = swGlobals();
+  const links = linkedAppIconsOfIndex();
+  assert.ok(links.some(u => u.startsWith("/manifest.json")), "parser tidak menemukan manifest");
+  assert.ok(links.some(u => u.startsWith("/static/icon-32.png")), "parser tidak menemukan favicon 32px");
+  const missing = links.filter(u => !OPTIONAL_STATIC.includes(u));
+  assert.deepEqual(missing, [], "ditautkan index.html tapi tidak ada di OPTIONAL_STATIC: " + missing.join(", "));
 });
 
 test("sw precache: STATIC dan OPTIONAL_STATIC tidak beririsan; tldraw/ikon/katex hanya opsional", () => {
@@ -83,6 +185,7 @@ test("sw precache: STATIC dan OPTIONAL_STATIC tidak beririsan; tldraw/ikon/katex
   assert.ok(OPTIONAL_STATIC.includes(TLD + "/watermarks/watermark-desktop.svg"), "TLDRAW_ASSETS harus di-push ke OPTIONAL_STATIC");
   for (const u of [
     "/manifest.json?v=2",
+    "/static/icon-32.png?v=2",
     "/static/icon-192.png?v=2",
     "/static/icon-512.png?v=2",
     "/static/icon-maskable-192.png?v=2",
@@ -112,11 +215,12 @@ test("sw precache: /static/sounds/ tidak di-precache", () => {
 
 // ── Siklus hidup install/activate (spec §3.2, §3.3, §6) ──
 // CacheStorage palsu DIBAGI antar versi SW (seperti di browser) dan jaringan yang bisa diatur. Cache.addAll
-// dibuat ATOMIK seperti aslinya: semua request di-fetch dulu; satu reject atau berstatus non-2xx → tolak tanpa
-// menyimpan apa pun. Cache.add menolak bila !res.ok. Pola dasar: repro_css.js dari analisis bug 2026-10-22.
+// dibuat ATOMIK seperti aslinya: request ganda → InvalidStateError (Chromium: "Cache.addAll(): duplicate
+// requests"); semua request di-fetch dulu; satu reject atau berstatus non-2xx → tolak tanpa menyimpan apa pun.
+// Cache.add menolak bila !res.ok. Pola dasar: repro_css.js dari analisis bug 2026-10-22.
 const ORIGIN = "http://app";
-const CSS = "/static/app.css?v=362";
-const MILK = "/static/vendor/milkdown.bundle.js?v=289";
+const CSS = indexUrlOf("/static/app.css");
+const MILK = indexUrlOf("/static/vendor/milkdown.bundle.js");
 const TAILWIND = "/static/vendor/tailwind.min.css";
 const withCache = (src, name) => src.replace(/const CACHE = "[^"]+"/, 'const CACHE = "' + name + '"');
 const tick = () => new Promise(r => setTimeout(r, 10));
@@ -151,6 +255,16 @@ function makeWorld() {
       add: async req => { const res = await fetchOk(req); m.set(hrefOf(req), res); },
       addAll: async reqs => {
         const list = [...reqs];
+        const seen = new Set();
+        for (const r of list) {
+          const k = hrefOf(r);
+          if (seen.has(k)) {
+            const err = new Error("Cache.addAll(): duplicate requests (" + k + ")");
+            err.name = "InvalidStateError";
+            throw err;
+          }
+          seen.add(k);
+        }
         const resps = await Promise.all(list.map(fetchOk)); // satu gagal → tolak, belum ada yang disimpan
         list.forEach((r, i) => m.set(hrefOf(r), resps[i]));
       },
@@ -182,7 +296,7 @@ function makeWorld() {
   // active: null = install pertama (belum ada SW yang mengendalikan); objek = SW lama aktif.
   function loadSw(src, { active }) {
     const h = {};
-    const counts = { skipWaiting: 0 };
+    const counts = { skipWaiting: 0, warns: [] };
     const sandbox = {
       self: {
         addEventListener: (t, f) => { h[t] = f; },
@@ -192,7 +306,8 @@ function makeWorld() {
       },
       caches: cachesApi,
       fetch: (req, init) => network(req, init),
-      Response, Request: RelRequest, Headers, URL, URLSearchParams, Promise, JSON, console, setTimeout, clearTimeout,
+      Response, Request: RelRequest, Headers, URL, URLSearchParams, Promise, JSON, setTimeout, clearTimeout,
+      console: Object.assign(Object.create(console), { warn: (...args) => { counts.warns.push(args); } }),
     };
     vm.createContext(sandbox);
     vm.runInContext(src, sandbox);
@@ -232,8 +347,9 @@ test('sw precache: install memakai cache: "no-cache" untuk semua request precach
   assert.deepEqual(fetched, [...new Set(STATIC.concat(OPTIONAL_STATIC))].sort(), "semua entri precache di-fetch");
   const notNoCache = w.net.log.filter(x => x.cache !== "no-cache");
   assert.deepEqual(notNoCache.slice(0, 3), [], notNoCache.length + " request precache tanpa cache: no-cache");
-  assert.ok(!/["']reload["']/.test(swJs), 'mode cache "reload" tidak boleh tersisa di sw.js');
-  assert.equal(vm.runInContext('freshRequest("/static/app.css?v=362").cache', sw.sandbox), "no-cache");
+  assert.ok(!/cache:\s*["']reload["']/.test(swJs), 'mode cache "reload" tidak boleh tersisa di sw.js');
+  assert.equal(vm.runInContext("freshRequest(" + JSON.stringify(CSS) + ").cache", sw.sandbox), "no-cache");
+  assert.deepEqual(sw.counts.warns, []);
 });
 
 test("sw precache: shell gagal satu (tailwind) → install menolak, tak ada entri shell tersimpan, skipWaiting tidak dipanggil (active ada)", async () => {
@@ -246,6 +362,22 @@ test("sw precache: shell gagal satu (tailwind) → install menolak, tak ada entr
   const shellStored = STATIC.filter(u => stored.includes(u));
   assert.deepEqual(shellStored, [], "addAll atomik: tidak ada entri shell tersimpan");
   assert.equal(sw.counts.skipWaiting, 0);
+  // kegagalan dicatat (terlihat lewat remote debugging) lalu dilempar ulang — install tetap menolak
+  assert.equal(sw.counts.warns.length, 1);
+  assert.match(String(sw.counts.warns[0][0]), /SW install gagal/);
+  assert.match(String(sw.counts.warns[0][1]), /connection reset/);
+});
+
+test("sw precache: entri shell ganda → install menolak (InvalidStateError), tak ada entri shell tersimpan", async () => {
+  const { STATIC } = swGlobals();
+  const dupSrc = withCache(swJs, "taskflow-vNEW").replace("const STATIC = [\n", 'const STATIC = [\n  "' + TAILWIND + '",\n');
+  assert.notEqual(dupSrc, withCache(swJs, "taskflow-vNEW"));
+  const w = makeWorld();
+  const sw = w.loadSw(dupSrc, { active: {} });
+  await assert.rejects(sw.install(), err => err.name === "InvalidStateError" && /duplicate/.test(err.message));
+  assert.deepEqual(STATIC.filter(u => w.storedUrls("taskflow-vNEW").includes(u)), []);
+  assert.equal(sw.counts.skipWaiting, 0);
+  assert.equal(sw.counts.warns.length, 1);
 });
 
 test("sw precache: opsional gagal (semua /static/vendor/tldraw/…) → install sukses, semua STATIC tersimpan", async () => {
@@ -260,6 +392,7 @@ test("sw precache: opsional gagal (semua /static/vendor/tldraw/…) → install 
     assert.ok(stored.includes("/static/icon-192.png?v=2"), "opsional lain tetap tersimpan");
     assert.ok(!stored.some(u => u.startsWith("/static/vendor/tldraw/")));
     assert.equal(sw.counts.skipWaiting, 0, "ada SW aktif → SW baru menunggu");
+    assert.deepEqual(sw.counts.warns, [], "opsional gagal bukan kegagalan install");
   }
 });
 
@@ -276,6 +409,7 @@ test("sw precache: install pertama gagal → skipWaiting tidak dipanggil, instal
   const sw = w.loadSw(swJs, { active: null });
   await assert.rejects(sw.install());
   assert.equal(sw.counts.skipWaiting, 0);
+  assert.equal(sw.counts.warns.length, 1);
 });
 
 test("sw precache: siklus: SW lama aktif + app.css ter-cache → SW baru install gagal (app.css reject) → cache lama utuh, GET app.css offline 200", async () => {
@@ -304,7 +438,7 @@ test("sw precache: siklus: SW lama aktif + app.css ter-cache → SW baru install
   assert.equal((await oldSw.get(TAILWIND)).status, 200);
 });
 
-test("sw precache: siklus: SW baru install sukses → activate → cache lama terhapus → GET /static/app.css?v=362 dan /static/vendor/milkdown.bundle.js?v=289 offline 200", async () => {
+test("sw precache: siklus: SW baru install sukses → activate → cache lama terhapus → GET app.css dan milkdown.bundle.js (URL persis index.html) offline 200", async () => {
   const w = makeWorld();
   const oldSw = w.loadSw(withCache(swJs, "taskflow-vOLD"), { active: null });
   await oldSw.install();
