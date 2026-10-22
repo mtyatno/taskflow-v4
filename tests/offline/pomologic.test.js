@@ -38,6 +38,18 @@ test("headerSummary", () => {
   assert.deepEqual(pl.headerSummary({ count: 0, done: 2, estimate: 0 }),
     { tasksText: "0 tugas", pomoText: "2", hoursText: null });
 });
+test("headerSummaryShort: varian strip ringkas HP/tablet", () => {
+  assert.deepEqual(pl.headerSummaryShort({ count: 27, done: 0, estimate: 27 }),
+    { tasksText: "27 task", pomoText: "0/27", hoursText: "~11,5 j" });
+  assert.deepEqual(pl.headerSummaryShort({ count: 4, done: 1, estimate: 2 }),
+    { tasksText: "4 task", pomoText: "1/2", hoursText: "~1 j" });
+  assert.deepEqual(pl.headerSummaryShort({ count: 0, done: 2, estimate: 0 }),
+    { tasksText: "0 task", pomoText: "2", hoursText: null });
+  assert.deepEqual(pl.headerSummaryShort(null), { tasksText: "0 task", pomoText: "0", hoursText: null });
+  // varian panjang tidak berubah
+  assert.deepEqual(pl.headerSummary({ count: 27, done: 0, estimate: 27 }),
+    { tasksText: "27 tugas", pomoText: "0 / 27", hoursText: "~11.5 jam" });
+});
 test("sessionClientId", () => {
   assert.equal(pl.sessionClientId(7, 1760000000000), "pomo-7-1760000000000-s");
 });

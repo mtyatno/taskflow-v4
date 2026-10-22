@@ -12267,7 +12267,37 @@ function TodayFocusView({
       name: "pomoTomato",
       size: 14
     }), " hari ini", hs.hoursText ? " (" + hs.hoursText + ")" : ""];
-  })()))), React.createElement(PomodoroTimer, {
+  })())), React.createElement("p", {
+    className: "focus-page-strip",
+    "aria-hidden": "true"
+  }, (() => {
+    // HP & tablet (<= 1024 px): satu baris ringkas; kalimat lengkap di atas tetap untuk pembaca layar
+    const hs = window.TF.pomologic.headerSummaryShort({
+      count: scope.length,
+      done: timer.pomodorosToday,
+      estimate: scope.reduce((sum, t) => sum + window.TF.pomologic.clampEstimate(t.estimated_pomodoros), 0)
+    });
+    return [React.createElement("span", {
+      key: "d",
+      className: "fps-date"
+    }, new Date().toLocaleDateString("id-ID", {
+      weekday: "short",
+      day: "numeric",
+      month: "short"
+    })), React.createElement("span", {
+      key: "t",
+      className: "fps-tasks"
+    }, " · ", hs.tasksText), React.createElement("span", {
+      key: "p",
+      className: "fps-pomo"
+    }, " · ", React.createElement(ViewGlyph, {
+      name: "pomoTomato",
+      size: 13
+    }), " ", hs.pomoText), hs.hoursText ? React.createElement("span", {
+      key: "h",
+      className: "fps-hours"
+    }, " · ", hs.hoursText) : null];
+  })())), React.createElement(PomodoroTimer, {
     timer: timer,
     focusTask: focusTask,
     cardRef: pomoRef,
