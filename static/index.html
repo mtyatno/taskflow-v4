@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v462-fokus-checklist-hitungan";
+    window.__SW_VERSION = "taskflow-v463-lampiran-tanpa-cookie";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -554,12 +554,19 @@ function aiReviewOn() {
   try { return !!window.__AI_ENABLED && localStorage.getItem("tf_ai_review_optin") === "1"; }
   catch (e) { return false; }
 }
-// Open/download an attachment. On web (same-origin) the cookie/session opens it
-// directly in a new tab. In the native app the webview is cross-origin to the API
-// and a plain <a href> can't send the auth token, so fetch the file with the Bearer
-// token and download the resulting blob.
+// Open/download an attachment through the in-app AttachmentViewer (web + native app).
+// Web (no API_BASE): a plain window.open(path) navigation authenticates ONLY via the
+// httpOnly `token` cookie, and that cookie can be absent while the SPA is still logged
+// in (localStorage.tf_token → Authorization header; /api/auth/refresh never re-creates
+// a lost cookie) → 401 "Not authenticated". So the web dispatches the same
+// "tf-open-attachment" event with the RELATIVE path (no ?token= in the URL) and the
+// viewer fetches it with the Bearer header (fetchAttachmentResponse). The <a href>
+// on attachment links stays as-is (middle-click / new tab keeps cookie behaviour).
 async function openAttachment(path, filename) {
-  if (!API_BASE) { window.open(path, "_blank", "noopener"); return; }
+  if (!API_BASE) {
+    window.dispatchEvent(new CustomEvent("tf-open-attachment", { detail: { url: path, filename: filename || "" } }));
+    return;
+  }
   // Native app (desktop + mobile): the webview can't handle blob downloads and the
   // Android webview can't render PDFs, so open the file in the OS browser/viewer via
   // the Tauri opener plugin. Append ?token= so the external browser (a separate
@@ -577,6 +584,18 @@ async function openAttachment(path, filename) {
     return;
   }
   window.open(url, "_blank");
+}
+// Fetch an attachment for AttachmentViewer with header auth: Authorization: Bearer
+// <__token> (read at fetch time) when a token exists, so it works without the cookie.
+// Relative "/api/..." paths (web) are resolved with apiUrl() only when API_BASE is set;
+// absolute URLs (Tauri: already API_BASE + ?token=) pass through unchanged.
+async function fetchAttachmentResponse(url) {
+  const tok = (typeof __token !== "undefined" && __token) ? __token : "";
+  const full = (API_BASE && typeof url === "string" && url.charAt(0) === "/") ? apiUrl(url) : url;
+  const res = await fetch(full, { headers: tok ? { Authorization: "Bearer " + tok } : {} });
+  if (res.status === 401) throw new Error("Sesi berakhir — masuk lagi");
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res;
 }
 // An <img> embedded in note content cannot send the auth token, and in the native
 // app the webview is cross-origin to the API. The /view endpoint also accepts the
@@ -25842,7 +25861,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v462-fokus-checklist-hitungan"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v463-lampiran-tanpa-cookie"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -40411,14 +40430,18 @@ function WeeklyReview({ tasks, onTaskClick, showToast, onAddFocus, onReschedule,
       !showAll && q.overflow > 0 && /*#__PURE__*/React.createElement("button", { onClick: () => setShowAll(true), style: { background: "none", border: "none", color: "var(--accent)", cursor: "pointer", fontSize: 12, padding: "10px 0", fontWeight: 600 } }, `+ ${q.overflow} lainnya`)));
 }
 // ─────────────────────────────────────────────────────────────────────────────
-// In-app attachment viewer (native app). openAttachment() dispatches the
+// In-app attachment viewer (web + native app). openAttachment() dispatches the
 // "tf-open-attachment" event instead of handing the file to an external OS app
-// (unreliable on Windows desktop, no way back on Android). This fetches the blob
-// with the token and shows it inline; "Tutup" returns to the note on every platform.
+// (native: unreliable on Windows desktop, no way back on Android) or to a plain
+// browser navigation (web: depends on the httpOnly `token` cookie, which may be
+// absent while the SPA is logged in via localStorage → 401). This fetches the blob
+// with header auth (fetchAttachmentResponse: Bearer __token, no token in the URL on
+// web) and shows it inline; "Tutup" returns to the note on every platform.
   // ═══ DEPENDENCIES: AttachmentViewer ═══
   // uses:
   //   - React
   //   - api
+  //   - fetchAttachmentResponse
   //   - API_BASE
   //   - __token
   //   - ICONS
@@ -40460,8 +40483,7 @@ function AttachmentViewer() {
     setLoading(true); setError(""); setBlobUrl(""); setKind("");
     (async () => {
       try {
-        const res = await fetch(item.url);
-        if (!res.ok) throw new Error("HTTP " + res.status);
+        const res = await fetchAttachmentResponse(item.url);
         const blob = await res.blob();
         if (cancelled) return;
         // XSS: blob URL se-origin dengan aplikasi → pratinjau hanya dari MIME blob (bukan nama file), lewat

@@ -106,9 +106,9 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v462-fokus-checklist-hitungan in static/sw.js and webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v462-fokus-checklist-hitungan";/m);
-    assert.match(webappPy, /sw_cache = "taskflow-v462-fokus-checklist-hitungan"/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v462-fokus-checklist-hitungan";/);
+  await t.test("Service Worker cache is taskflow-v463-lampiran-tanpa-cookie in static/sw.js and webapp.py", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v463-lampiran-tanpa-cookie";/m);
+    assert.match(webappPy, /sw_cache = "taskflow-v463-lampiran-tanpa-cookie"/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v463-lampiran-tanpa-cookie";/);
   });
 });
