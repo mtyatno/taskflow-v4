@@ -145,6 +145,10 @@ def test_whatsnew_json_precached():
     assert "/static/whatsnew.json" in static_entries(read(SW))
 
 
+def test_whatsnew_js_precached():
+    assert "/static/offline/whatsnew.js" in static_entries(read(SW))
+
+
 GOOD = {"version": "taskflow-v10-a", "date": "2026-10-23", "title": "Judul", "new": ["Poin."]}
 
 
