@@ -301,7 +301,8 @@ test("TodayFocusView: Target/pool dari scope, kelompok, lipat tersimpan, pesan b
   assert.match(src, /scope\.reduce\(\(sum, t\) => sum \+ window\.TF\.pomologic\.clampEstimate\(t\.estimated_pomodoros\), 0\)/);
   assert.ok(src.includes("useFocusTaskCounts(scope.map(t => t.id))"));
   // Zen: setiap task dihitung sekali (task berulang yang juga ada di cakupan tidak dobel), task aktif tidak dihitung
-  assert.ok(src.includes("const zenHiddenIds = new Set([...scope, ...recurringToday].map(t => String(t.id)));"));
+  // (fix Task 5) yang disembunyikan = yang memang tampil tanpa Zen: Target ∪ pool ∪ "Berulang hari ini"
+  assert.ok(src.includes("const zenHiddenIds = new Set([...target, ...pool, ...recurringToday].map(t => String(t.id)));"));
   assert.ok(src.includes("zenHiddenIds.delete(String(focusTask.id))"));
   assert.ok(src.includes("const zenHiddenCount = zenHiddenIds.size;"));
   assert.ok(!src.includes("+ recurringToday.length"), "tidak lagi menjumlahkan task berulang dua kali");
@@ -613,7 +614,8 @@ test("TodayFocusView: sumber memuat penyimpanan filter, hitungan, pesan, useMemo
     assert.ok(src.includes(needle), `TodayFocusView harus memuat ${needle}`);
   }
   assert.match(src, /useMemo\(\(\) => \{[\s\S]*?\}, \[tasks, filter, query, todayStr, focusTask\?\.id, sharedLists\]\)/);
-  assert.match(src, /useEffect\(\(\) => \{\s*if \(zenOn\) setSheetOpen\(false\);\s*\}, \[zenOn\]\)/);
+  assert.match(src, /const filterBarShown = !loading && pool\.length > 0;/);
+  assert.match(src, /useEffect\(\(\) => \{\s*if \(zenOn \|\| !filterBarShown\) setSheetOpen\(false\);\s*\}, \[zenOn, filterBarShown\]\)/);
   assert.ok(src.includes("open: sheetOpen && !zenOn"));
   assert.ok(src.includes("count: shown.length"), "kepala Task hari ini = jumlah task tampil");
   // tulis storage di luar updater state (Ruling 4)
@@ -801,19 +803,21 @@ function mountSheet({ mobile = true, overflow = "auto" } = {}) {
   const el = name => ({ name, isConnected: true, focus() { doc.activeElement = this; }, closest: () => null });
   const chips = [el("chip-next"), el("chip-inbox"), el("tampilkan")];
   const sheetEl = { querySelector: () => chips[0], querySelectorAll: () => chips, contains: x => x === sheetEl || chips.includes(x) };
-  const hooks = createHooks();
+  // Hook didelegasikan ke `s.hooks`, sehingga remount() memberi instance baru (seperti React saat elemen muncul lagi).
   const { FocusFilterSheet } = loadWith(["FocusFilterSheet"], {
-    React: { ...fakeReact, Fragment: "Fragment" }, useRef: hooks.useRef, useEffect: hooks.useEffect,
+    React: { ...fakeReact, Fragment: "Fragment" },
+    useRef: (...a) => s.hooks.useRef(...a), useEffect: (...a) => s.hooks.useEffect(...a),
     window: { ...win, TF: { focusfilter: ff } }, document: doc
   }, [STATUS_LABELS_SRC()]);
   const s = {
-    doc, listeners, chips, sheetEl, hooks,
+    doc, listeners, chips, sheetEl, hooks: createHooks(),
+    remount() { s.hooks.unmount(); s.hooks = createHooks(); },
     render(props) {
-      hooks.begin();
+      s.hooks.begin();
       s.tree = FocusFilterSheet(props);
       const dialog = s.tree && findAll(s.tree, n => n.props.role === "dialog")[0];
       if (dialog) dialog.props.ref.current = sheetEl;
-      hooks.flush();
+      s.hooks.flush();
       return s;
     },
     key(key, extra = {}) {
@@ -1216,4 +1220,80 @@ test("TodayFocusView: 'Reset filter' / 'Tampilkan' hilang setelah diklik → fok
   v.doc.activeElement = v.doc.body;
   v.timers.shift()();
   assert.equal(btn.focused, 1);
+});
+
+// ── Fix putaran 1 Task 5 ─────────────────────────────────────────────────────────────────────
+
+test("TodayFocusView: catatan Zen = Target ∪ pool ∪ berulang tampil − aktif; berulang yang done tidak dihitung, task tersaring tetap (fix 1)", async () => {
+  const active = { ...dueToday, id: 40, title: "Aktif", quadrant: "Q1", priority: "P1" };
+  const rec = { ...dueToday, ...recur, id: 41, title: "Minum obat harian" }; // dalam cakupan: deadline seri hari ini
+  const next = { ...dueToday, id: 42, title: "Bayar listrik" };
+  const waiting = { ...dueToday, id: 43, title: "Tunggu balasan", gtd_status: "waiting" }; // tersaring status default
+  const v = mountFocusView({
+    tasks: [active, rec, next, waiting], focusTask: active, zen: true, running: true,
+    exceptions: { 41: [{ occurrence_date: TODAY, status: "done" }] }
+  });
+  const zenNote = () => textOf(v.one(n => hasClass(n, "focus-zen-note")));
+  // sebelum pengecualian dimuat: baris berulang + 2 task pool (satu tersaring) = 3
+  assert.equal(zenNote(), "Mode Zen · 3 task lain disembunyikan sampai istirahat");
+  await new Promise(resolve => setImmediate(resolve));
+  v.render();
+  // kejadian hari ini done → task berulang tidak tampil di mana pun → tidak dihitung
+  assert.equal(findAll(v.tree, n => n.type === "div" && hasClass(n, "ftask--recurring")).length, 0);
+  assert.deepEqual(v.shownIds, [42]);
+  assert.equal(zenNote(), "Mode Zen · 2 task lain disembunyikan sampai istirahat", "Waiting yang tersaring tetap dihitung");
+  // filter/cari tidak mengubah hitungan
+  v.bar.props.onQuery("tidak ada judul ini");
+  v.render();
+  assert.equal(zenNote(), "Mode Zen · 2 task lain disembunyikan sampai istirahat");
+});
+
+test("TodayFocusView: lembar terbuka lalu bar hilang (pool/cakupan kosong, memuat) → state ditutup; bar kembali → lembar tidak terbuka sendiri (fix 2)", () => {
+  const v = mountFocusView({ tasks: T5_TASKS });
+  // "React" untuk satu anak: elemen FocusFilterSheet dirender dengan komponen asli; hilang dari pohon = unmount.
+  const s = mountSheet({ mobile: true, overflow: "auto" });
+  let mounted = false;
+  const host = () => {
+    const el = v.sheet;
+    if (el) {
+      s.render(el.props);
+      mounted = true;
+    } else if (mounted) {
+      s.remount();
+      s.tree = null;
+      mounted = false;
+    }
+  };
+  const starred = { ...T5_TASKS[0], is_focused: true };
+  for (const [label, emptyRender] of [
+    ["pool kosong (semua di Target)", () => v.render({ tasks: [starred] })],
+    ["cakupan kosong", () => v.render({ tasks: [] })],
+    ["memuat", () => v.render({ loading: true })]
+  ]) {
+    v.render({ tasks: T5_TASKS, loading: false });
+    host();
+    v.bar.props.onOpenSheet();
+    v.render();
+    host();
+    assert.equal(v.sheet.props.open, true, label);
+    assert.equal(s.doc.body.style.overflow, "hidden", label);
+    // sinkronisasi mengosongkan pool → bar dan lembar tidak dirender; unmount memulihkan scroll body
+    emptyRender();
+    host();
+    assert.equal(v.bar, undefined, label);
+    assert.equal(v.sheet, undefined, label);
+    assert.equal(s.doc.body.style.overflow, "auto", label);
+    assert.equal(s.listeners.length, 0, label);
+    // task masuk pool lagi → bar kembali, lembar tetap tertutup: fokus tidak direbut, scroll tidak dikunci
+    const elsewhere = { name: "di tempat lain" };
+    s.doc.activeElement = elsewhere;
+    v.render({ tasks: [starred, ...T5_TASKS.slice(1)], loading: false });
+    host();
+    assert.ok(v.bar, label);
+    assert.equal(v.bar.props.sheetOpen, false, label);
+    assert.equal(v.sheet.props.open, false, label);
+    assert.equal(s.tree, null, label);
+    assert.equal(s.doc.body.style.overflow, "auto", label);
+    assert.equal(s.doc.activeElement, elsewhere, label);
+  }
 });

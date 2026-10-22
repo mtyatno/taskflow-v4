@@ -11702,13 +11702,16 @@ function TodayFocusView({
   useEffect(() => {
     if (zenOn) setZenWasActive(true);
   }, [zenOn]);
-  // Mode Zen menutup lembar filter (tidak terbuka lagi sendiri saat istirahat).
+  // Lembar filter ditutup (state, bukan sekadar disamarkan) setiap kali bar filter tidak dirender —
+  // memuat, cakupan/pool kosong — atau Mode Zen aktif, supaya tidak terbuka sendiri saat bar muncul lagi.
+  const filterBarShown = !loading && pool.length > 0;
   useEffect(() => {
-    if (zenOn) setSheetOpen(false);
-  }, [zenOn]);
+    if (zenOn || !filterBarShown) setSheetOpen(false);
+  }, [zenOn, filterBarShown]);
   const zenReveal = !zenOn && (zenEnabled || zenWasActive);
-  // Setiap task dihitung sekali, termasuk task berulang yang juga ada di cakupan; task aktif tidak dihitung.
-  const zenHiddenIds = new Set([...scope, ...recurringToday].map(t => String(t.id)));
+  // Yang disembunyikan Zen = yang tampil tanpa Zen (Target, pool sebelum filter, "Berulang hari ini"), masing-masing
+  // sekali; task aktif tidak dihitung. Task berulang yang kejadian hari ininya done/skipped tidak tampil → tidak dihitung.
+  const zenHiddenIds = new Set([...target, ...pool, ...recurringToday].map(t => String(t.id)));
   if (focusTask) zenHiddenIds.delete(String(focusTask.id));
   const zenHiddenCount = zenHiddenIds.size;
   const zenClass = zenOn ? " is-zen-hidden" : zenReveal ? " is-zen-shown" : "";
