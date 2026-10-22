@@ -310,6 +310,7 @@
   <script src="/static/offline/introgate.js"></script>
   <script src="/static/offline/accountbanner.js"></script>
   <script src="/static/offline/whatsnew.js"></script>
+  <script src="/static/offline/appupdate.js"></script>
   <script src="/static/offline/emailadmin.js"></script>
   <script src="/static/offline/focuspage.js"></script>
   <script src="/static/offline/pomologic.js"></script>
@@ -43544,7 +43545,8 @@ class AppErrorBoundary extends React.Component {
 ReactDOM.render(/*#__PURE__*/React.createElement(AppErrorBoundary, null, /*#__PURE__*/React.createElement(App, null)), document.getElementById("root"));
 </script>
   <script>
-    // Service Worker & App Update Detection
+    // Service Worker & App Update Detection — hanya pemasangan; logika di static/offline/appupdate.js
+    // (TF.appupdate, spec docs/superpowers/specs/2026-10-23-apa-yang-baru-design.md §3.1).
     window.__APP_VERSION = "4.0.0";
     // window.__SW_VERSION di-set di skrip awal <body> (sebelum ReactDOM.render).
     window.__SW_REGISTRATION = null;
@@ -43555,113 +43557,66 @@ ReactDOM.render(/*#__PURE__*/React.createElement(AppErrorBoundary, null, /*#__PU
       window.dispatchEvent(new CustomEvent("appupdateavailable"));
     }
 
-    window.applyAppUpdate = function() {
-      const reg = window.__SW_REGISTRATION;
-      if (reg && reg.waiting) {
-        reg.waiting.postMessage({ type: "SKIP_WAITING" });
-      } else if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: "SKIP_WAITING" });
-        setTimeout(() => window.location.reload(), 300);
-      } else {
-        window.location.reload();
-      }
-    };
+    (function () {
+      // Tanpa modul (gagal dimuat), SW tetap didaftarkan dan controllerchange tetap memuat ulang,
+      // sehingga aplikasi tidak pernah terkunci di versi lama.
+      const updater = window.TF && window.TF.appupdate
+        ? window.TF.appupdate.createAppUpdater({
+            sw: navigator.serviceWorker || null,
+            getRegistration: () => window.__SW_REGISTRATION,
+            fetch: window.fetch.bind(window),
+            reload: () => window.location.reload(),
+            setTimeout: window.setTimeout.bind(window),
+            toast: (message, type) => {
+              const f = window.showToast || window.__showToast;
+              if (typeof f === "function") f(message, type);
+            },
+            pageVersion: window.__SW_VERSION,
+            onReady: notifyAppUpdateAvailable,
+          })
+        : null;
 
-    window.checkForAppUpdate = async function(options) {
-      const isManual = Boolean(options && options.manual);
-      const toastFn = window.showToast || window.__showToast;
-      if (isManual && typeof toastFn === "function") {
-        toastFn("Mengecek pembaruan...", "info");
-      }
-
-      let updateFound = false;
-      const reg = window.__SW_REGISTRATION;
-
-      try {
-        if (reg) {
-          await reg.update().catch(err => console.warn("SW update check failed:", err));
-          if (reg.waiting && navigator.serviceWorker.controller) {
-            updateFound = true;
-          }
-        }
-
-        try {
-          const res = await fetch("/api/version?t=" + Date.now(), {
-            cache: "no-store",
-            headers: { "Cache-Control": "no-cache" }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.sw_version && data.sw_version !== window.__SW_VERSION) {
-              updateFound = true;
-            }
-          }
-        } catch (e) {
-          console.warn("Fetch /api/version failed:", e);
-        }
-
-        if (updateFound || (reg && reg.waiting && navigator.serviceWorker.controller)) {
-          notifyAppUpdateAvailable();
-          if (isManual && typeof toastFn === "function") {
-            toastFn("Pembaruan tersedia! Silakan muat ulang.", "info");
-          }
-        } else if (isManual && typeof toastFn === "function") {
-          toastFn("Aplikasi sudah dalam versi terbaru", "success");
-        }
-      } catch (err) {
-        console.error("Error checking for update:", err);
-        if (isManual && typeof toastFn === "function") {
-          toastFn("Gagal memeriksa pembaruan", "error");
-        }
-      }
-    };
-
-    if ("serviceWorker" in navigator) {
-      let refreshing = false;
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
-        if (!refreshing) {
-          refreshing = true;
-          window.location.reload();
-        }
-      });
-
-      const trackInstall = (reg) => {
-        window.__SW_REGISTRATION = reg;
-        if (reg.waiting && navigator.serviceWorker.controller) {
-          notifyAppUpdateAvailable();
-        }
-        reg.addEventListener("updatefound", () => {
-          const newWorker = reg.installing;
-          if (!newWorker) return;
-          newWorker.addEventListener("statechange", () => {
-            if (newWorker.state === "installed" && navigator.serviceWorker.controller && reg.waiting) {
-              notifyAppUpdateAvailable();
-            }
-          });
-        });
+      window.applyAppUpdate = function() {
+        if (updater) updater.apply();
+        else window.location.reload();
       };
 
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/sw.js", { scope: "/" })
-          .then(reg => {
-            trackInstall(reg);
-            reg.update().catch(() => {});
-          })
-          .catch(err => console.warn("SW register failed:", err));
-      });
+      window.checkForAppUpdate = function(options) {
+        return updater ? updater.check(options) : Promise.resolve();
+      };
 
-      // Visibility change: saat tab kembali aktif
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") {
+      if ("serviceWorker" in navigator) {
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
+        });
+
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js", { scope: "/" })
+            .then(reg => {
+              window.__SW_REGISTRATION = reg;
+              if (updater) updater.track(reg);
+              reg.update().catch(() => {});
+            })
+            .catch(err => console.warn("SW register failed:", err));
+        });
+
+        // Visibility change: saat tab kembali aktif
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") {
+            window.checkForAppUpdate();
+          }
+        });
+
+        // Auto check setiap 30 menit (1800000 ms)
+        setInterval(() => {
           window.checkForAppUpdate();
-        }
-      });
-
-      // Auto check setiap 30 menit (1800000 ms)
-      setInterval(() => {
-        window.checkForAppUpdate();
-      }, 1800000);
-    }
+        }, 1800000);
+      }
+    })();
   </script>
 
 </body>

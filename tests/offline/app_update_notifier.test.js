@@ -8,6 +8,7 @@ const path = require("node:path");
 const swJs = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
 const indexHtml = fs.readFileSync(path.resolve(__dirname, "../../static/index.html"), "utf8");
 const appCss = fs.readFileSync(path.resolve(__dirname, "../../static/app.css"), "utf8");
+const appUpdateJs = fs.readFileSync(path.resolve(__dirname, "../../static/offline/appupdate.js"), "utf8");
 
 function fnSource(name) {
   const start = indexHtml.indexOf(`function ${name}(`);
@@ -49,17 +50,24 @@ test("5. Frontend: UpdateNotificationBanner component exists with required eleme
 });
 
 test("6. Frontend: Service Worker registration and update detection logic exists", () => {
+  // Pemasangan tetap di skrip inline index.html.
   assert.match(indexHtml, /window\.__APP_VERSION\s*=\s*"4\.0\.0";/);
   assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v466-apa-yang-baru";/);
-  assert.match(indexHtml, /reg\.addEventListener\("updatefound"/);
-  assert.match(indexHtml, /newWorker\.state === "installed"/);
-  assert.match(indexHtml, /navigator\.serviceWorker\.controller/);
-  assert.match(indexHtml, /window\.checkForAppUpdate\s*=\s*async function/);
+  assert.match(indexHtml, /<script src="\/static\/offline\/appupdate\.js"><\/script>/);
+  assert.match(indexHtml, /window\.TF\.appupdate\.createAppUpdater\(/);
+  assert.match(indexHtml, /navigator\.serviceWorker\.register\("\/sw\.js"/);
+  assert.match(indexHtml, /updater\.track\(reg\)/);
+  assert.match(indexHtml, /window\.checkForAppUpdate\s*=\s*function/);
   assert.match(indexHtml, /reg\.update\(\)/);
-  assert.match(indexHtml, /\/api\/version\?t=/);
   assert.match(indexHtml, /visibilitychange/);
   assert.match(indexHtml, /document\.visibilityState === "visible"/);
   assert.match(indexHtml, /1800000/, "harus memiliki interval 30 menit (1800000 ms)");
+  // Logika deteksi pindah ke static/offline/appupdate.js (TF.appupdate).
+  assert.match(appUpdateJs, /reg\.addEventListener\("updatefound"/);
+  assert.match(appUpdateJs, /worker\.state === "installed"/);
+  assert.match(appUpdateJs, /sw\.controller/);
+  assert.match(appUpdateJs, /reg\.update\(\)/);
+  assert.match(appUpdateJs, /\/api\/version\?t=/);
 });
 
 test("7. Frontend: SettingsPage displays app version and has Cek Pembaruan button", () => {
