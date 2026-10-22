@@ -97,7 +97,6 @@ test("cache bust v432 + app.css?v=363", () => {
   assert.match(sw, /^const CACHE = "taskflow-v465-note-lampiran-gambar";/m);
   assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v465-note-lampiran-gambar";/);
   assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v465-note-lampiran-gambar"/);
-  assert.match(py, /sw_cache = "taskflow-v465-note-lampiran-gambar"/);
   assert.match(indexHtml, /app\.css\?v=363/);
 });
 

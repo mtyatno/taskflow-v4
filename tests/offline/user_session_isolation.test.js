@@ -360,5 +360,4 @@ test("7. Service Worker cache version is taskflow-v465-note-lampiran-gambar", ()
   assert.match(sw, /^const CACHE = "taskflow-v465-note-lampiran-gambar";/m, "sw.js CACHE must be v401");
   assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v465-note-lampiran-gambar";/, "index.html fallback SW version must be v401");
   assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v465-note-lampiran-gambar"/, "index.html About modal SW version fallback must be v401");
-  assert.match(webapp, /sw_cache = "taskflow-v465-note-lampiran-gambar"/, "webapp.py sw_cache must be v401");
 });

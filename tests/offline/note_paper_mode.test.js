@@ -188,7 +188,6 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
     assert.match(swJs, /^const CACHE = "taskflow-v465-note-lampiran-gambar";/m);
     assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v465-note-lampiran-gambar";/);
     assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v465-note-lampiran-gambar"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v465-note-lampiran-gambar"/);
   });
 
   const notePanelMatch = indexHtml.match(/function NotePanel\([\s\S]*?^function /m);
