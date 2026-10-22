@@ -4010,3 +4010,9 @@
 - **Verifikasi:** `npm test` 2966 tes, 2965 pass, 1 gagal pra-ada `draw_local_reactive`; pytest 1156 passed, 1 skipped; `check_inline_scripts.js` OK (5 skrip); `e2e_focus_page` 36/0; Playwright ad-hoc (SW aktif, server dimatikan, Task 004 diselesaikan offline lalu reload): badge Task 000 `1/2`+`1` dan Task 001 `1` tetap tampil (6c994d91: hilang).
 - **Files Touch:** static/sw.js, webapp.py, tests/offline/sw_child_counts.test.js, tests/test_task_child_counts.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — commit lokal, belum push/PR.
+
+## [2026-10-22 18:04] - Claude
+- **Task:** Koordinasi fix timeout tambah checklist/catatan halaman Fokus + rename Checklist; jawab pertanyaan Bapak soal alur lampiran (task, note, Telegram).
+- **Changes:** verifikasi ulang suite + repro main vs branch (300 task, latensi 150 ms: 923 → 20 request, POST 14,5 → 0,16 dtk); komentar `useFocusTaskCounts` disesuaikan (f2f8e0f6); branch di-push, **draft PR #87**.
+- **Files Touch:** static/index.html (komentar), .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — draft PR #87, tunggu "merge".
