@@ -9982,8 +9982,9 @@ function FocusTaskItem({
 // Id server (numerik) diambil sekaligus lewat GET /api/tasks/child-counts (≤ 200 id per request),
 // bukan 3 GET per task: ratusan GET serentak memenuhi antrean koneksi browser sehingga POST tambah
 // checklist/catatan tertahan di belakangnya lalu kena timeout 15 dtk. Tanpa `network: true`: SW
-// network-first + fallback cache tetap memberi badge saat offline (router lokal melewatkan child-counts,
-// lihat isTaskChildCountsCall); id diurutkan supaya URL (= kunci cache SW) stabil untuk himpunan task sama.
+// network-first menyimpan hitungan PER TASK (sw.js storeChildCounts), jadi badge tetap ada saat offline
+// walau himpunan task berubah (router lokal melewatkan child-counts, lihat isTaskChildCountsCall);
+// id diurutkan supaya potongan 200 id deterministik.
 // Id lokal (cid, belum tersinkron) tetap 3 GET per task — dilayani router lokal dari IndexedDB.
 function useFocusTaskCounts(taskIds) {
   const [counts, setCounts] = useState({});
