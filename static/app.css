@@ -3823,7 +3823,7 @@
   .focus-pomo .focus-zen-btn { grid-area: zen; width: 34px; height: 34px; border-radius: 10px; }
   .pomo-amb-mobile { grid-area: amb; display: block; position: relative; }
   .pomo-amb-pill { display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 9px 0 10px; margin: 0; border: 0; border-radius: 10px; background: rgba(255,255,255,0.08); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12); color: rgba(255,255,255,0.88); font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
-  .pomo-amb-pill-label { max-width: 86px; overflow: hidden; text-overflow: ellipsis; }
+  .pomo-amb-pill-label { max-width: 56px; overflow: hidden; text-overflow: ellipsis; }
   .pomo-amb-pill[aria-expanded="true"] { background: rgba(255,255,255,0.14); }
   .pomo-amb-mobile[data-state="playing"] .pomo-amb-pill svg:first-child { color: #4ade80; }
   .pomo-amb-mobile[data-state="error"] .pomo-amb-pill svg:first-child { color: #f87171; }
@@ -3845,7 +3845,8 @@
   .focus-pomo-ring { grid-area: ring; width: 72px; height: 72px; align-self: center; }
   .focus-pomo-ring .pomo-ring-svg { width: 72px; height: 72px; }
   .focus-pomo-time { font-size: 16px; letter-spacing: -0.5px; }
-  .focus-pomo-label { font-size: 8.5px; margin-top: 3px; letter-spacing: .6px; }
+  .focus-pomo-label { max-width: 60px; font-size: 8.5px; line-height: 1.1; margin-top: 3px; letter-spacing: .6px; text-align: center; }
+  .focus-pomo-time.is-long { font-size: 12.5px; letter-spacing: -0.3px; }
   .focus-pomo .pomo-controls { grid-area: ctrl; flex-wrap: nowrap; gap: 6px; }
   .focus-pomo .pomo-controls.is-awaiting, .focus-pomo .pomo-controls.is-overtime { flex-wrap: wrap; }
   .focus-pomo .pomo-btn { flex-shrink: 0; height: 36px; padding: 0 9px; gap: 4px; font-size: 12.5px; }
@@ -3868,7 +3869,10 @@
   .focus-pomo-stats .pomo-ambient, .focus-pomo-task-icon, .focus-pomo-task-kicker, .focus-pomo-task-count, .focus-pomo-stat-label .is-long { display: none; }
   .focus-pomo .pomo-park { grid-area: park; gap: 8px; padding: 0 4px 0 10px; background: rgba(255,255,255,0.05); border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1); }
   .pomo-park-icon { color: #A8C500; flex-shrink: 0; }
-  .focus-pomo .pomo-park-input { border-bottom: 0; padding: 10px 2px; font-size: 16px; }
+  .focus-pomo .pomo-park-input { border-bottom: 0; padding: 10px 2px; font-size: 16px; text-overflow: ellipsis; }
+  .focus-pomo .pomo-park-input::placeholder { font-size: 13px; }
+  .focus-pomo .pomo-park:focus-within { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35); }
+  .focus-pomo .pomo-park.is-error { box-shadow: inset 0 0 0 1px #f87171; }
   .pomo-park-send { align-items: center; justify-content: center; flex-shrink: 0; width: 34px; height: 34px; padding: 0; margin: 0; border: 0; border-radius: 9px; background: none; color: rgba(255,255,255,0.75); cursor: pointer; }
   .pomo-park-send:disabled { opacity: .35; cursor: default; }
   .focus-pomo .pomo-park-ok { right: 44px; }

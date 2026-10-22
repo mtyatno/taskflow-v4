@@ -130,3 +130,24 @@ test("app.css: kartu ringkas tetap menghormati reduced-motion dan bar ringkas ti
   const blocks = [...appCss.matchAll(/\n@media \(prefers-reduced-motion: reduce\) \{\n((?:  .*\n)+)\}/g)].map(m => m[1]);
   assert.ok(blocks.some(b => b.includes(".pomo-amb-pop { animation: none; }")), "animasi popover suara mati saat reduced-motion");
 });
+
+test("review: pil memakai label pendek (kata pertama), radio roving + panah, aria-live di HP", () => {
+  const src = fnSource("PomoAmbientPill");
+  assert.ok(src.includes('current.label.split(" ")[0]'), "Brown Noise → Brown, Detak Jam → Detak");
+  assert.ok(src.includes("tabIndex: o.key === sound ? 0 : -1"), "roving tabindex");
+  assert.ok(src.includes('"ArrowDown"') && src.includes('"ArrowUp"'), "panah pindah pilihan");
+  assert.match(src, /className: "sr-only",\s*"aria-live": "polite"/);
+  assert.match(rule(".pomo-amb-pill-label", mobileBlock()), /max-width: 56px/);
+});
+
+test("review: waktu panjang mengecil, label lingkaran rata tengah, placeholder 13px + ellipsis, isyarat fokus/eror parkir", () => {
+  assert.ok(fnSource("PomodoroTimer").includes('String(t.timeDisplay).length > 6 ? " is-long" : ""'));
+  assert.ok(fnSource("PomoParkInput").includes("onPointerDown: e => e.preventDefault()"), "kirim tidak menutup keyboard");
+  const m = mobileBlock();
+  assert.match(rule(".focus-pomo-time.is-long", m), /font-size: 12\.5px/);
+  assert.match(rule(".focus-pomo-label", m), /text-align: center/);
+  assert.match(rule(".focus-pomo .pomo-park-input::placeholder", m), /font-size: 13px/);
+  assert.match(rule(".focus-pomo .pomo-park-input", m), /text-overflow: ellipsis/);
+  assert.match(rule(".focus-pomo .pomo-park:focus-within", m), /box-shadow/);
+  assert.match(rule(".focus-pomo .pomo-park.is-error", m), /#f87171/);
+});

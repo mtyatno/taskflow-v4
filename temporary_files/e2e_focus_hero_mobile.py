@@ -95,7 +95,7 @@ def main():
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for theme in ("dark", "light"):
-                for vw in (375, 340):
+                for vw in (393, 375, 340):
                     user = h.register(base, "hero%s%d" % (theme[0], vw))
                     for t, pr in ((T_A, "Patuha II"), (T_B, "MSBT")):
                         h.api(base, user, "POST", "/api/tasks", json={"title": t, "project": pr, "priority": "P1", "deadline": today, "gtd_status": "next"})
@@ -107,6 +107,16 @@ def main():
                         h.check("a %s: durasi mode 25m/5m/15m terlihat" % tag, [m.strip() for m in mins] == ["25m", "5m", "15m"], repr(mins))
                         h.check("a %s: petunjuk pilih task tampil" % tag, p.locator(".focus-pomo-hint").is_visible())
                         shot(p, "%s_%d_1_tanpa_task.png" % (theme, vw))
+                        # Long: label "Istirahat panjang" tetap di dalam lingkaran, rata tengah
+                        p.locator(".focus-pomo .pomo-mode").filter(has_text="Long").first.tap()
+                        p.wait_for_timeout(300)
+                        lab = p.evaluate("""() => { const r = document.querySelector('.focus-pomo-ring').getBoundingClientRect();
+                            const l = document.querySelector('.focus-pomo-label').getBoundingClientRect();
+                            return {inside: l.left >= r.left + 4 && l.right <= r.right - 4, center: Math.abs((l.left + l.right) / 2 - (r.left + r.right) / 2) < 2,
+                                    align: getComputedStyle(document.querySelector('.focus-pomo-label')).textAlign}; }""")
+                        h.check("a %s: label mode Long di dalam lingkaran, rata tengah" % tag, lab["inside"] and lab["center"] and lab["align"] == "center", repr(lab))
+                        p.locator(".focus-pomo .pomo-mode").filter(has_text="Work").first.tap()
+                        p.wait_for_timeout(300)
                         # kirim parkir lewat tombol (bukan Enter)
                         send = p.locator(".pomo-park-send")
                         h.check("b %s: tombol kirim nonaktif saat kosong" % tag, send.is_disabled())
@@ -127,6 +137,22 @@ def main():
                                 and proj.is_visible() and proj.inner_text() in ("Patuha II", "MSBT")
                                 and not p.locator(".focus-pomo-task-count").is_visible(), title)
                         shot(p, "%s_%d_2_task_aktif.png" % (theme, vw))
+                        # suara berlabel panjang: pil memakai kata pertama, baris atas tidak bertumpuk
+                        for key, short in (("Brown Noise", "Brown"), ("Detak Jam", "Detak")):
+                            p.locator(".pomo-amb-pill").tap()
+                            p.locator(".pomo-amb-opt").filter(has_text=key).first.tap()
+                            p.locator(".focus-pomo-ring").tap()
+                            p.wait_for_timeout(300)
+                            g = geo(p)
+                            label = p.locator(".pomo-amb-pill-label")
+                            h.check("c %s: pil menampilkan '%s' (di < 370 px hanya ikon)" % (tag, short),
+                                    label.inner_text() == short if vw >= 370 else not label.is_visible(), label.inner_text())
+                            h.check("c %s %s: modes | Zen | pil berurutan tanpa tumpuk" % (tag, short),
+                                    g["modes"]["r"] <= g["zen"]["l"] + 1 and g["zen"]["r"] <= g["pill"]["l"] + 1 and not g["hscroll"], repr(g))
+                        p.locator(".pomo-amb-pill").tap()
+                        p.locator(".pomo-amb-opt").filter(has_text="Off").first.tap()
+                        p.locator(".focus-pomo-ring").tap()
+                        p.wait_for_timeout(300)
                         p.locator(".focus-pomo .pomo-btn-main").tap()
                         p.wait_for_timeout(500)
                         p.clock.run_for(3000)

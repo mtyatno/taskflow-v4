@@ -10740,6 +10740,7 @@ function PomoParkInput() {
     "aria-label": "Simpan ke Inbox",
     title: "Simpan ke Inbox",
     disabled: !text.trim(),
+    onPointerDown: e => e.preventDefault(),
     onClick: park
   }, React.createElement(ViewGlyph, {
     name: "send",
@@ -10850,7 +10851,7 @@ function PomoAmbientPill({
     size: 15
   }), React.createElement("span", {
     className: "pomo-amb-pill-label"
-  }, current.label), React.createElement(FocusGlyph, {
+  }, current.label.split(" ")[0]), React.createElement(FocusGlyph, {
     name: "chevron",
     size: 13
   })), open && React.createElement("div", {
@@ -10863,13 +10864,24 @@ function PomoAmbientPill({
     className: "pomo-amb-opts",
     role: "radiogroup",
     "aria-label": "Suara latar"
-  }, sounds.map(o => React.createElement("button", {
+  }, sounds.map((o, i) => React.createElement("button", {
     key: o.key,
     type: "button",
     role: "radio",
     "aria-checked": o.key === sound,
+    tabIndex: o.key === sound ? 0 : -1,
     className: `pomo-amb-opt${o.key === sound ? " is-on" : ""}`,
-    onClick: () => a.onSound && a.onSound(o.key)
+    onClick: () => a.onSound && a.onSound(o.key),
+    onKeyDown: e => {
+      // radiogroup: panah atas/bawah (kiri/kanan) pindah + pilih, fokus ikut
+      const step = e.key === "ArrowDown" || e.key === "ArrowRight" ? 1 : e.key === "ArrowUp" || e.key === "ArrowLeft" ? -1 : 0;
+      if (!step) return;
+      e.preventDefault();
+      const next = sounds[(i + step + sounds.length) % sounds.length];
+      a.onSound && a.onSound(next.key);
+      const btns = e.currentTarget.parentNode.querySelectorAll('[role="radio"]');
+      btns[(i + step + btns.length) % btns.length]?.focus();
+    }
   }, React.createElement("span", null, o.label), o.key === sound && React.createElement(FocusGlyph, {
     name: "check",
     size: 14
@@ -10892,7 +10904,10 @@ function PomoAmbientPill({
     onChange: e => a.onVolume && a.onVolume(Number(e.target.value))
   })), tip && React.createElement("p", {
     className: "pomo-amb-tip"
-  }, tip)));
+  }, tip)), React.createElement("span", {
+    className: "sr-only",
+    "aria-live": "polite"
+  }, tip || ""));
 }
 function PomodoroTimer({
   timer,
@@ -10917,7 +10932,7 @@ function PomodoroTimer({
   }), React.createElement("div", {
     className: "focus-pomo-ring-text"
   }, React.createElement("div", {
-    className: "focus-pomo-time",
+    className: `focus-pomo-time${String(t.timeDisplay).length > 6 ? " is-long" : ""}`,
     role: "timer",
     "aria-live": "off"
   }, t.timeDisplay), React.createElement("div", {
