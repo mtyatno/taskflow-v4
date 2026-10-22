@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v461-task-selesai-instan";
+const CACHE = "taskflow-v462-fokus-checklist-hitungan";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
@@ -168,6 +168,60 @@ self.addEventListener("activate", e => {
       .catch(() => self.clients.claim())
   );
 });
+
+// ── Hitungan checklist/catatan/lampiran halaman Fokus (GET /api/tasks/child-counts?ids=…) ──
+// Cache-nya PER TASK, bukan URL batch: URL batch bergantung pada himpunan id (task selesai/baru, deadline berubah,
+// tengah malam, potongan 200 id bergeser), jadi fallback URL persis hampir tidak pernah cocok saat offline.
+// Kunci per task /api/tasks/child-counts/<id> SENGAJA di bawah /api/: pembersihan cache saat logout (index.html,
+// hapus entri yang pathname-nya diawali /api/) ikut menghapusnya — hitungan akun lain tidak tertinggal.
+
+// Id dari ?ids= dengan aturan server: bilangan bulat positif ≤ 18 digit, nol di depan dibuang, unik.
+function childCountIds(url) {
+  const ids = new Set();
+  for (const raw of (url.searchParams.get("ids") || "").split(",")) {
+    const tok = raw.trim();
+    if (!/^\d{1,18}$/.test(tok)) continue;
+    const id = tok.replace(/^0+/, "");
+    if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
+function childCountKey(origin, id) {
+  return new Request(origin + "/api/tasks/child-counts/" + id);
+}
+
+// Respons jaringan ok: simpan hitungan tiap task; id yang diminta tapi tidak dikembalikan (tidak bisa dibaca /
+// sudah dihapus) → hitungan lamanya dibuang. URL batch sendiri tidak pernah disimpan.
+function storeChildCounts(origin, ids, counts) {
+  if (!counts || typeof counts !== "object") return Promise.resolve();
+  return caches.open(CACHE).then(cache => Promise.all([
+    ...Object.keys(counts).filter(id => /^\d{1,18}$/.test(id)).map(id => cache.put(
+      childCountKey(origin, id),
+      new Response(JSON.stringify(counts[id]), { headers: { "Content-Type": "application/json" } })
+    )),
+    ...ids.filter(id => !Object.prototype.hasOwnProperty.call(counts, id)).map(id => cache.delete(childCountKey(origin, id))),
+  ]));
+}
+
+// Jaringan gagal: rakit {"counts": …} dari kunci per task; tidak ada satu pun → 503 OFFLINE seperti biasa.
+function offlineChildCounts(origin, ids) {
+  const offline = () => new Response(
+    JSON.stringify({ detail: "OFFLINE" }),
+    { status: 503, headers: { "Content-Type": "application/json" } }
+  );
+  return caches.open(CACHE)
+    .then(cache => Promise.all(ids.map(id => cache.match(childCountKey(origin, id))
+      .then(res => (res ? res.json().then(c => [id, c]) : null))
+      .catch(() => null))))
+    .then(found => {
+      const counts = {};
+      for (const f of found) if (f) counts[f[0]] = f[1];
+      if (!Object.keys(counts).length) return offline();
+      return new Response(JSON.stringify({ counts }), { status: 200, headers: { "Content-Type": "application/json" } });
+    })
+    .catch(offline);
+}
 
 self.addEventListener("fetch", e => {
   const { request } = e;
@@ -383,6 +437,19 @@ self.addEventListener("fetch", e => {
         { status: 503, headers: { "Content-Type": "application/json" } }
       ))
     );
+    return;
+  }
+
+  // Hitungan halaman Fokus: network-first dengan cache per task (lihat childCountIds/storeChildCounts di atas).
+  // Respons jaringan diteruskan apa adanya; non-ok (mis. 422 backend lama, 500) tanpa tulis cache dan tanpa fallback.
+  if (request.method === "GET" && url.pathname === "/api/tasks/child-counts") {
+    const ids = childCountIds(url);
+    const net = fetch(request.clone());
+    e.waitUntil(
+      net.then(res => (res.ok ? res.clone().json().then(data => storeChildCounts(url.origin, ids, data && data.counts)) : null))
+        .catch(() => {})
+    );
+    e.respondWith(net.catch(() => offlineChildCounts(url.origin, ids)));
     return;
   }
 

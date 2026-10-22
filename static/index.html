@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v461-task-selesai-instan";
+    window.__SW_VERSION = "taskflow-v462-fokus-checklist-hitungan";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -737,11 +737,13 @@ const api = {
       try { _router = api._localRouter || (api._localRouter = _R.buildTaskRouter()); } catch (_) { _router = null; }
       if (_router) {
         const _method = (opts.method || "GET").toUpperCase();
-        // shouldRouteLocally: /api/tags?entity_type=note & /api/scratchpad/trash... selalu ke jaringan.
-        // Fallback untuk taskroutes.js lama dari cache SW (index.html bisa lebih baru dari modulnya).
-        const _local = _R.shouldRouteLocally
+        // shouldRouteLocally: /api/tags?entity_type=note, /api/scratchpad/trash..., /api/tasks/child-counts selalu ke jaringan.
+        // Fallback untuk taskroutes.js lama dari cache SW (index.html bisa lebih baru dari modulnya). child-counts
+        // dicek di luar keduanya: taskroutes.js lama (dengan shouldRouteLocally, tanpa isTaskChildCountsCall)
+        // akan merutekannya ke GET /api/tasks/:id lokal.
+        const _local = !/^\/api\/tasks\/child-counts(\/|\?|$)/.test(url) && (_R.shouldRouteLocally
           ? _R.shouldRouteLocally(_router, _method, url)
-          : (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url) && !/^\/api\/scratchpad\/trash(\/|\?|$)/.test(url));
+          : (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url) && !/^\/api\/scratchpad\/trash(\/|\?|$)/.test(url)));
         if (_local) {
           const _body = opts.body ? JSON.parse(opts.body) : undefined;
           const _res = await _router.dispatch(_method, url, _body)
@@ -9142,7 +9144,7 @@ function TaskDetailModal({
       color: "var(--text-light)",
       padding: "0 4px"
     },
-    title: "Hapus subtask"
+    title: "Hapus item checklist"
   }, "\u2715"))), adding && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -9154,7 +9156,7 @@ function TaskDetailModal({
     className: "input",
     value: newSub,
     onChange: e => setNewSub(e.target.value),
-    placeholder: "Judul subtask...",
+    placeholder: "Item checklist baru...",
     autoFocus: true,
     onKeyDown: e => {
       if (e.key === "Enter") handleAddSub();
@@ -9745,10 +9747,10 @@ function ViewGlyph({
 
 // ── Task item for the Today page: ringkas, detail dibuka per task ─────────
 //   Baris: centang, judul, meta (prioritas, kuadran Eisenhower, status GTD, project, deadline,
-//   jumlah subtask/catatan/lampiran), tombol Fokus. Klik baris → buka panel ber-tab
-//   (Subtask / Catatan / Lampiran) di bawahnya; hanya satu task terbuka sekaligus.
+//   jumlah checklist/catatan/lampiran), tombol Fokus. Klik baris → buka panel ber-tab
+//   (Checklist / Catatan / Lampiran) di bawahnya; hanya satu task terbuka sekaligus.
 const FOCUS_TABS = [
-  { key: "subtasks", label: "Subtask", glyph: "subtasks" },
+  { key: "subtasks", label: "Checklist", glyph: "subtasks" },
   { key: "notes", label: "Catatan", glyph: "note" },
   { key: "attachments", label: "Lampiran", glyph: "clip" }
 ];
@@ -9975,16 +9977,36 @@ function FocusTaskItem({
   }))));
 }
 
-// Jumlah subtask/catatan/lampiran per task untuk baris ringkas: diambil sekali per task
+// Jumlah checklist/catatan/lampiran per task untuk baris ringkas: diambil sekali per task
 // (tanpa polling); panel yang sedang terbuka melaporkan angka terbarunya lewat `report`.
+// Id server (numerik) diambil sekaligus lewat GET /api/tasks/child-counts (≤ 200 id per request),
+// bukan 3 GET per task: ratusan GET serentak memenuhi antrean koneksi browser sehingga POST tambah
+// checklist/catatan tertahan di belakangnya lalu kena timeout 15 dtk. Tanpa `network: true`: SW
+// network-first menyimpan hitungan PER TASK (sw.js storeChildCounts), jadi badge tetap ada saat offline
+// walau himpunan task berubah (router lokal melewatkan child-counts, lihat isTaskChildCountsCall);
+// id diurutkan supaya potongan 200 id deterministik.
+// Id lokal (cid, belum tersinkron) tetap 3 GET per task — dilayani router lokal dari IndexedDB.
 function useFocusTaskCounts(taskIds) {
   const [counts, setCounts] = useState({});
   const fetchedRef = useRef(new Set());
   const key = taskIds.join(",");
   useEffect(() => {
+    // Angka yang sudah dilaporkan panel terbuka menang atas hasil fetch.
+    const merge = (id, patch) => setCounts(prev => ({
+      ...prev,
+      [id]: {
+        ...patch,
+        ...(prev[id] || {})
+      }
+    }));
+    const serverIds = [];
     taskIds.forEach(id => {
       if (fetchedRef.current.has(id)) return;
       fetchedRef.current.add(id);
+      if (/^\d+$/.test(String(id))) {
+        serverIds.push(id);
+        return;
+      }
       Promise.all([api.get(`/api/tasks/${id}/subtasks`).catch(() => null), api.get(`/api/tasks/${id}/notes`).catch(() => null), api.get(`/api/tasks/${id}/attachments`).catch(() => null)]).then(([subs, notes, atts]) => {
         const patch = {};
         if (Array.isArray(subs)) {
@@ -9993,15 +10015,30 @@ function useFocusTaskCounts(taskIds) {
         }
         if (Array.isArray(notes)) patch.notes = notes.length;
         if (Array.isArray(atts)) patch.atts = atts.length;
-        setCounts(prev => ({
-          ...prev,
-          [id]: {
-            ...patch,
-            ...(prev[id] || {})
-          }
-        }));
+        merge(id, patch);
       });
     });
+    serverIds.sort((a, b) => Number(a) - Number(b));
+    const CHUNK = 200; // server menolak > 500 id per request
+    for (let i = 0; i < serverIds.length; i += CHUNK) {
+      const chunk = serverIds.slice(i, i + CHUNK);
+      api.get(`/api/tasks/child-counts?ids=${chunk.join(",")}`).then(res => {
+        const byId = res && res.counts || {};
+        // Id yang tidak dikembalikan (tidak bisa dibaca / sudah dihapus) dibiarkan tanpa hitungan.
+        chunk.forEach(id => {
+          const c = byId[String(id)];
+          if (c) merge(id, {
+            subTotal: c.sub_total,
+            subDone: c.sub_done,
+            notes: c.notes,
+            atts: c.atts
+          });
+        });
+      }).catch(() => {
+        // Offline / error: tanpa hitungan; lepas tanda supaya dicoba lagi saat daftar id berubah.
+        chunk.forEach(id => fetchedRef.current.delete(id));
+      });
+    }
   }, [key]);
   const report = useCallback((id, patch) => setCounts(prev => ({
     ...prev,
@@ -11124,7 +11161,7 @@ function TopBarPomodoroChip({
   })));
 }
 
-// ── Inline Subtask Checklist (for Focus page) ──────────────
+// ── Inline Checklist (tabel subtasks) untuk halaman Fokus ──
   // ═══ DEPENDENCIES: Focus Views (Subtasks/Notes/Attachments) ═══
   // uses:
   //   - React
@@ -11202,7 +11239,7 @@ function FocusSubtasks({
     "aria-valuemin": 0,
     "aria-valuemax": total,
     "aria-valuenow": doneCount,
-    "aria-label": `${doneCount} dari ${total} subtask selesai`
+    "aria-label": `${doneCount} dari ${total} item checklist selesai`
   }, React.createElement("div", {
     className: "ftask-progress-track"
   }, React.createElement("div", {
@@ -11229,14 +11266,14 @@ function FocusSubtasks({
     className: "ftask-sub-title"
   }, s.title))))), total === 0 && loaded && React.createElement("div", {
     className: "ftask-empty"
-  }, "Belum ada subtask."), React.createElement("div", {
+  }, "Belum ada checklist."), React.createElement("div", {
     className: "ftask-add"
   }, React.createElement("input", {
     className: "input",
     value: newSub,
     onChange: e => setNewSub(e.target.value),
-    placeholder: "Tambah subtask, tekan Enter",
-    "aria-label": "Subtask baru",
+    placeholder: "Tambah item checklist, tekan Enter",
+    "aria-label": "Item checklist baru",
     onKeyDown: e => {
       if (e.key === "Enter") handleAdd();
       if (e.key === "Escape") setNewSub("");
@@ -25805,7 +25842,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v461-task-selesai-instan"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v462-fokus-checklist-hitungan"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

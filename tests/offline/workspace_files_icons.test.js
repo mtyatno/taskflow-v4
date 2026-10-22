@@ -69,9 +69,9 @@ test("CSS wsf-title-ico terang + gelap", () => {
 test("cache bust v432 + app.css?v=362", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v461-task-selesai-instan";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v461-task-selesai-instan";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v461-task-selesai-instan"/);
-  assert.match(py, /sw_cache = "taskflow-v461-task-selesai-instan"/);
+  assert.match(swJs, /^const CACHE = "taskflow-v462-fokus-checklist-hitungan";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v462-fokus-checklist-hitungan";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v462-fokus-checklist-hitungan"/);
+  assert.match(py, /sw_cache = "taskflow-v462-fokus-checklist-hitungan"/);
   assert.match(indexHtml, /app\.css\?v=362/);
 });

@@ -140,11 +140,23 @@
     return m ? { id: m[1], kind: m[2], numeric: /^\d+$/.test(m[1]) } : null;
   }
 
+  // GET /api/tasks/child-counts?ids=… (hitungan checklist/catatan/lampiran halaman Fokus) hanya ada di server —
+  // store lokal checklist/catatan/lampiran tidak pernah di-pull (K6). Tanpa ini rute lokal GET /api/tasks/:id
+  // menelan "child-counts" sebagai id → "Task not found". Lewat jaringan, SW network-first + fallback cache
+  // tetap memberi badge hitungan saat offline.
+  function isTaskChildCountsCall(method, path) {
+    if (String(method || "GET").toUpperCase() !== "GET") return false;
+    const q = path.indexOf("?");
+    const base = (q === -1 ? path : path.slice(0, q)).replace(/\/+$/, "");
+    return base === "/api/tasks/child-counts";
+  }
+
   // Keputusan api wrapper (index.html): layani dari router lokal, atau teruskan ke jaringan.
   function shouldRouteLocally(router, method, path) {
     if (!router) return false;
     const m = String(method || "GET").toUpperCase();
     if (isNoteTagsCall(m, path) || isNoteTrashCall(m, path) || isMindmapTrashDelete(m, path)) return false;
+    if (isTaskChildCountsCall(m, path)) return false;
     const child = isTaskChildListCall(m, path);
     if (child && child.numeric) return false; // K6: data ada di server, bukan di store lokal
     return router.hasRoute(m, path);
@@ -317,7 +329,7 @@
     return router;
   }
 
-  const exported = { buildTaskRouter, isNoteTagsCall, isNoteTrashCall, isMindmapTrashDelete, isTaskChildListCall, shouldRouteLocally };
+  const exported = { buildTaskRouter, isNoteTagsCall, isNoteTrashCall, isMindmapTrashDelete, isTaskChildListCall, isTaskChildCountsCall, shouldRouteLocally };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskroutes = exported; }
   return exported;
 });

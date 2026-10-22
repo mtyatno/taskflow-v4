@@ -388,6 +388,22 @@ test("K6: GET /api/tasks/:id/subtasks|notes|attachments go to the network for nu
   assert.equal(isTaskChildListCall("GET", "/api/tasks/12/tags"), null);
 });
 
+test("GET /api/tasks/child-counts (hitungan halaman Fokus) selalu ke jaringan, tidak ditelan GET /api/tasks/:id", () => {
+  const { isTaskChildCountsCall } = require("../../static/offline/taskroutes.js");
+  const R = buildTaskRouter();
+  // tanpa pengecualian, rute lokal GET /api/tasks/:id menangkap "child-counts" sebagai id
+  assert.equal(R.hasRoute("GET", "/api/tasks/child-counts?ids=1,2"), true);
+  assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/child-counts?ids=1,2"), false);
+  assert.equal(shouldRouteLocally(R, "get", "/api/tasks/child-counts"), false);
+  assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/child-counts/"), false);
+  assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/5"), true);
+  assert.equal(shouldRouteLocally(R, "GET", "/api/tasks"), true);
+  assert.equal(isTaskChildCountsCall("GET", "/api/tasks/child-counts?ids=1"), true);
+  assert.equal(isTaskChildCountsCall("GET", "/api/tasks/child-countsx"), false);
+  assert.equal(isTaskChildCountsCall("GET", "/api/tasks/5"), false);
+  assert.equal(isTaskChildCountsCall("POST", "/api/tasks/child-counts"), false);
+});
+
 // ── PR B Target 🍅: log pomodoro offline ──
 test("POST /api/tasks/:id/pomodoros queues the log and local reads report record + pending", async () => {
   await seedTasks([task({ cid: "a", server_id: 10, pomodoros_done: 2, estimated_pomodoros: 4 })]);

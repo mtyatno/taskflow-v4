@@ -3990,3 +3990,29 @@
 - **Changes:** CI hijau di e02d675, PR di-merge (e3468ec), workflow Deploy Taskflow V4 sukses. SW v460 `taskflow-v460-fokus-hero-mobile`, app.css 362.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
+
+## [2026-10-22 17:25] - Claude
+- **Task:** Fix tambah checklist/catatan di halaman Fokus kena "Request timeout — coba lagi" (ratusan GET hitungan per task saat halaman dibuka) + ganti sebutan "Subtask" → "Checklist" untuk checklist.
+- **Changes:** endpoint batch `GET /api/tasks/child-counts` (sebelum `/api/tasks/{task_id}`); `useFocusTaskCounts` memakai batch (potongan 200; `network: true` dicabut di entri berikut) untuk id numerik, cid lokal tetap per task; rename teks checklist di halaman Fokus + seksi Checklist detail task; SW v462 `taskflow-v462-fokus-checklist-hitungan`; tes Python + node baru, pin versi dinaikkan.
+- **Files Touch:** webapp.py, static/index.html, static/sw.js, tests/test_task_child_counts.py, tests/offline/focus_child_counts.test.js, tests/offline/focus_filter_ui.test.js, tests/test_version.py + 26 tes pin versi, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal di `claude/fokus-checklist-hitungan`, belum push/PR.
+
+## [2026-10-22 17:37] - Claude
+- **Task:** Revisi atas permintaan koordinator: batch hitungan halaman Fokus tanpa `network: true` (badge harus tetap ada saat offline lewat cache SW).
+- **Changes:** `taskroutes.js` `isTaskChildCountsCall` + `shouldRouteLocally` false untuk `GET /api/tasks/child-counts`; `api.fetch` mengecek child-counts di depan kedua cabang keputusan lokal; `useFocusTaskCounts` mengurutkan id numerik sebelum dipotong dan memanggil batch tanpa opsi; tes node diperbarui/ditambah.
+- **Files Touch:** static/offline/taskroutes.js, static/index.html, tests/offline/focus_child_counts.test.js, tests/offline/taskroutes.test.js, tests/offline/note_trash_routing.test.js, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal di `claude/fokus-checklist-hitungan`, belum push/PR.
+
+## [2026-10-22 17:54] - Claude
+- **Task:** Perbaikan hasil review independen untuk `claude/fokus-checklist-hitungan`: badge hitungan offline hilang saat himpunan task berubah (cache SW URL persis), plus minor.
+- **Changes:** sw.js cabang khusus `GET /api/tasks/child-counts` dengan cache per task (`/api/tasks/child-counts/<id>`, URL batch tidak disimpan, id yang dilewati server dihapus, offline dirakit dari kunci per task atau 503); endpoint menolak `ids` > 12000 karakter dan berhenti di id ke-501; notifikasi "menambah item checklist di task"; tes paritas akses dari reviewer diporting; `.agents` (v463 untuk PR #84, jam SESSION_LOG disamakan dengan commit).
+- **Commits di branch:** e21b9f08 (fix batch + rename + v462), 445e676e (docs agents), 6c994d91 (tanpa `network: true`, taskroutes `isTaskChildCountsCall`, id diurutkan), commit ini (cache SW per task + minor review).
+- **Verifikasi:** `npm test` 2966 tes, 2965 pass, 1 gagal pra-ada `draw_local_reactive`; pytest 1156 passed, 1 skipped; `check_inline_scripts.js` OK (5 skrip); `e2e_focus_page` 36/0; Playwright ad-hoc (SW aktif, server dimatikan, Task 004 diselesaikan offline lalu reload): badge Task 000 `1/2`+`1` dan Task 001 `1` tetap tampil (6c994d91: hilang).
+- **Files Touch:** static/sw.js, webapp.py, tests/offline/sw_child_counts.test.js, tests/test_task_child_counts.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal, belum push/PR.
+
+## [2026-10-22 18:04] - Claude
+- **Task:** Koordinasi fix timeout tambah checklist/catatan halaman Fokus + rename Checklist; jawab pertanyaan Bapak soal alur lampiran (task, note, Telegram).
+- **Changes:** verifikasi ulang suite + repro main vs branch (300 task, latensi 150 ms: 923 → 20 request, POST 14,5 → 0,16 dtk); komentar `useFocusTaskCounts` disesuaikan (f2f8e0f6); branch di-push, **draft PR #87**.
+- **Files Touch:** static/index.html (komentar), .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — draft PR #87, tunggu "merge".
