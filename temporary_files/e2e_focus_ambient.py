@@ -21,6 +21,7 @@ Status audio dibaca dari window.__ambientState() ({state, sound, volume, target,
 <audio> yang dicatat oleh init script (window.__audios) untuk currentTime dan jumlah elemen.
 """
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -38,6 +39,9 @@ SHOTS = os.path.join(ROOT, "temporary_files", "e2e_focus_ambient")
 h.SHOTS = SHOTS
 tg.SHOTS = SHOTS
 check = h.check
+# Nama cache SW saat ini dibaca dari static/sw.js (sebelumnya dikunci ke v444 sehingga basi setiap rilis).
+with open(os.path.join(ROOT, "static", "sw.js"), encoding="utf-8") as _f:
+    SW_VERSION = re.search(r'const CACHE = "([^"]+)"', _f.read()).group(1)
 T1 = "Tulis proposal"
 OTHERS = ["Rapikan inbox", "Siapkan rapat"]
 TIP_ERROR = "Suara belum tersedia offline"
@@ -383,7 +387,7 @@ def run_sw_offline(browser, base, user, proc):
         check("h1 Brown Noise online -> idle, tersimpan di alurik-ambient-v1",
               st["state"] == "idle" and cached and all("brown-noise-v1" in u for u in cached), "%r %r" % (st, cached))
         names = p.evaluate("() => caches.keys()")
-        check("h2 cache SW versi aktif + alurik-ambient-v1", "taskflow-v444-focus-ambient" in names
+        check("h2 cache SW versi aktif + alurik-ambient-v1", SW_VERSION in names
               and "alurik-ambient-v1" in names, repr(names))
         # Kosongkan cache HTTP browser (dipakai bersama oleh halaman dan fetch SW) dan matikan untuk halaman ini:
         # StaticFiles mengirim ETag/Last-Modified tanpa Cache-Control, sehingga cache heuristik Chromium bisa

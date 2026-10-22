@@ -69,27 +69,45 @@ test("CompactRow & Kanban tidak memakai onStartFocus", () => {
 
 test("TodayFocusView: task fokus aktif selalu tampil", () => {
   const src = fnSource("TodayFocusView");
-  assert.match(src, /const todayTasks = tasks\.filter\(t => \(t\.quadrant === "Q1" \|\| t\.is_overdue \|\| t\.is_focused \|\| \(focusTask && t\.id === focusTask\.id\)\) && t\.gtd_status !== "done" && t\.gtd_status !== "archived"\)/);
+  // Cakupan lewat focusfilter.inTodayScope dengan focusTaskId (task aktif selalu masuk, kecuali done/archived),
+  // lalu splitTarget menaruhnya di Target paling atas.
+  assert.match(src, /const scope = tasks\.filter\(t => window\.TF\.focusfilter\.inTodayScope\(t, \{\s*todayISO: todayStr,\s*focusTaskId: focusTask\?\.id\s*\}\)\);/);
+  assert.match(src, /splitTarget\(scope, focusTask\?\.id\)/);
+  assert.ok(!src.includes("includeDone"), "task selesai tidak tampil di halaman Fokus");
+  // Perilaku (modul nyata): task Waiting/P3/Q2 tanpa deadline hanya masuk karena aktif, dan jadi Target, bukan pool.
+  const ff = require("../../static/offline/focusfilter.js");
+  const TODAY = "2026-10-22";
+  const active = { id: 9, title: "Aktif dari halaman Tasks", gtd_status: "waiting", priority: "P3", quadrant: "Q2" };
+  const urgent = { id: 1, title: "Urgent", gtd_status: "next", priority: "P1", quadrant: "Q1" };
+  assert.ok(!ff.inTodayScope(active, { todayISO: TODAY }), "tanpa focusTaskId task itu di luar cakupan");
+  const scope = [urgent, active].filter(t => ff.inTodayScope(t, { todayISO: TODAY, focusTaskId: 9 }));
+  const { target, pool } = ff.splitTarget(scope, 9);
+  assert.deepEqual(target.map(t => t.id), [9]);
+  assert.deepEqual(pool.map(t => t.id), [1]);
+  assert.ok(!ff.inTodayScope({ ...active, gtd_status: "done" }, { todayISO: TODAY, focusTaskId: 9 }), "task aktif yang selesai keluar");
 });
 
 test("CSS: label tombol fokus disembunyikan di layar sempit", () => {
   assert.match(appCss, /@media \(max-width: 768px\) \{[\s\S]*?\.task-row-badges \.dash-focus-label \{ display: none; \}/);
 });
 
-test("cache bust v432 + app.css?v=359", () => {
+test("cache bust v432 + app.css?v=360", () => {
   const sw = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.resolve(__dirname, "../../webapp.py"), "utf8");
-  assert.match(sw, /^const CACHE = "taskflow-v456-task-pindah-workspace";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v456-task-pindah-workspace";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v456-task-pindah-workspace"/);
-  assert.match(py, /sw_cache = "taskflow-v456-task-pindah-workspace"/);
-  assert.match(indexHtml, /app\.css\?v=359/);
+  assert.match(sw, /^const CACHE = "taskflow-v457-task-pindah-workspace";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v457-task-pindah-workspace";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v457-task-pindah-workspace"/);
+  assert.match(py, /sw_cache = "taskflow-v457-task-pindah-workspace"/);
+  assert.match(indexHtml, /app\.css\?v=360/);
 });
 
 test("Sidebar: badge Today ikut menghitung task fokus aktif", () => {
   const src = fnSource("Sidebar");
   assert.match(src.slice(0, src.indexOf(") {\n")), /\bfocusTaskId\b/);
-  assert.match(src, /const todayCount = \(tasks \|\| \[\]\)\.filter\(t => \(t\.quadrant === "Q1" \|\| t\.is_overdue \|\| t\.is_focused \|\| \(focusTaskId != null && t\.id === focusTaskId\)\) && t\.gtd_status !== "done" && t\.gtd_status !== "archived"\)\.length;/);
+  // Cakupan sekarang dari focusfilter.inTodayScope (Q1/terlambat/hari ini/⭐/task aktif; done & archived
+  // keluar secara default): focusTaskId diteruskan agar task aktif tetap dihitung.
+  assert.match(src, /const todayCount = \(tasks \|\| \[\]\)\.filter\(t => window\.TF\.focusfilter\.inTodayScope\(t, \{ todayISO, focusTaskId \}\)\)\.length;/);
+  assert.ok(!src.includes("includeDone"), "badge sidebar tidak menghitung task selesai");
   const call = indexHtml.split("React.createElement(Sidebar, {")[1].slice(0, 400);
   assert.match(call, /focusTaskId: focusTaskId,/);
 });

@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v456-task-pindah-workspace', () => {
+  test('Service Worker cache version is bumped to taskflow-v457-task-pindah-workspace', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v456-task-pindah-workspace";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v457-task-pindah-workspace";/m);
   });
 });
 

@@ -66,12 +66,12 @@ test("CSS wsf-title-ico terang + gelap", () => {
   assert.match(appCss, /\[data-theme="dark"\]\s*\.wsf-title-ico\s*\{\s*color:\s*var\(--accent\);\s*\}/);
 });
 
-test("cache bust v432 + app.css?v=359", () => {
+test("cache bust v432 + app.css?v=360", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v456-task-pindah-workspace";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v456-task-pindah-workspace";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v456-task-pindah-workspace"/);
-  assert.match(py, /sw_cache = "taskflow-v456-task-pindah-workspace"/);
-  assert.match(indexHtml, /app\.css\?v=359/);
+  assert.match(swJs, /^const CACHE = "taskflow-v457-task-pindah-workspace";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v457-task-pindah-workspace";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v457-task-pindah-workspace"/);
+  assert.match(py, /sw_cache = "taskflow-v457-task-pindah-workspace"/);
+  assert.match(indexHtml, /app\.css\?v=360/);
 });
