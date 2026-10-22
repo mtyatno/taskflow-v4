@@ -235,7 +235,7 @@ READ_JS = """() => {
     target: titles('.focus-target'),
     groups: qa('.focus-group').map(g => ({
       ws: g.querySelector('.focus-group-ws').textContent.trim(), name: g.querySelector('.focus-group-name').textContent.trim(),
-      count: +g.querySelector('.focus-group-count').textContent, collapsed: g.classList.contains('is-collapsed'),
+      count: +g.querySelector('.focus-group-count-n').textContent, collapsed: g.classList.contains('is-collapsed'),
       expanded: g.querySelector('.focus-group-head').getAttribute('aria-expanded'),
       titles: [...g.querySelectorAll('.ftask-title')].map(e => e.textContent.trim())})),
     tabs, tabOn,
@@ -635,7 +635,7 @@ def scenario_f(env, p):
     check("f2 lipat kelompok → isinya hilang, hitungan tetap, kelas is-collapsed",
           grp.locator(".ftask").count() == 0 and "is-collapsed" in (grp.get_attribute("class") or "")
           and head.get_attribute("aria-expanded") == "false"
-          and int(grp.locator(".focus-group-count").inner_text()) == len(alurik["titles"]))
+          and int(grp.locator(".focus-group-count-n").inner_text()) == len(alurik["titles"]))
     # Setel filter yang menyisakan kelompok Alurik: Hari ini + Semua status + chip Q1
     tab_btn(p, "Hari ini").click()
     p.locator(".focus-filter-hidden-note .focus-filter-link").click()
@@ -913,6 +913,11 @@ def scenario_l(env, pw, browser, user, kind, theme="light"):
         p.locator(".focus-filter-sheet").wait_for(state="visible")
         p.keyboard.press("Escape")
         p.locator(".focus-filter-sheet").wait_for(state="detached", timeout=3000)
+        # cleanup efek (pemulih overflow) berjalan sesaat setelah DOM lembar dilepas → tunggu, jangan baca seketika
+        try:
+            p.wait_for_function("(v) => getComputedStyle(document.body).overflow === v", arg=before_ov, timeout=2000)
+        except Exception:
+            pass
         check("l4b setelah ditutup overflow body dipulihkan", p.evaluate("getComputedStyle(document.body).overflow") == before_ov,
               "sebelum=%r sesudah=%r" % (before_ov, p.evaluate("getComputedStyle(document.body).overflow")))
         y1 = p.evaluate("window.scrollY")

@@ -225,8 +225,14 @@ Dari atas ke bawah:
 
 ### 7.4 `FocusFilterBar`
 
+- **Redesign 2026-10-22 (desain pemilik):** bar = satu kartu (`.focus-filter-card`, container query `focusfilter`) berisi grid tab · cari · chip · tombol Filter.
+  - Lebar kartu ≥ 1000 px: satu baris (tab selebar isinya, cari melebar, chip, pembatas, tombol Filter dengan badge di pojok).
+  - 600–999 px: baris 1 tab + cari; baris 2 chip, pembatas, tombol Filter.
+  - < 600 px: baris 1 tab selebar kartu; baris 2 cari + tombol Filter (badge di dalam tombol); baris 3 chip yang bisa digeser.
+  - Angka tab = badge bulat; angka Terlambat merah muda (`.n.is-late`).
+  - Lembar dirender di luar kartu karena container query menjadikan kartu containing block untuk `position: fixed`.
 - Props selain state filter dan handler:
-  - `children`: lembar filter (`FocusFilterSheet`), dirender di dalam baris cari (`position: relative`) supaya panel desktop berjangkar tepat di bawah tombol Filter;
+  - `children`: lembar filter (`FocusFilterSheet`), dirender di luar kartu bar tetapi di dalam pembungkus `.focus-filter` (`position: relative`), jadi panel desktop berjangkar di tepi kanan bar, tepat di bawah tombol Filter;
   - `zenClass` dan `zenHidden`: kelas Zen dan `aria-hidden` untuk seluruh bar (§7.8).
 
 Tiga baris, masing-masing setinggi satu kontrol, `flex-shrink: 0`:
@@ -261,6 +267,7 @@ Tiga baris, masing-masing setinggi satu kontrol, `flex-shrink: 0`:
 
 ### 7.6 Kelompok
 
+- **Redesign 2026-10-22:** tiap kelompok = satu kartu; judul berlatar lembut dengan pil jumlah ("N task", di HP hanya angka); task di dalamnya jadi baris dipisah garis tipis. Desktop (≥ 1024 px): baris satu garis, chip/tanggal rata kanan sebelum ⭐ · Fokus · panah. Ikon ⭐ duotone gaya Alurik (garis + isian lembut; aktif = garis zaitun + isian lime). Tombol Fokus tetap gaya lama.
 - Judul kelompok berupa tombol `aria-expanded`: chevron, `workspaceLabel ·` (warna redup), `projectLabel`, dan jumlah di kanan.
 - Klik melipat/membuka kelompok dan memperbarui `tf_focus_collapsed`.
 - Kelompok terlipat hanya menampilkan judulnya. Hitungan tetap terlihat.

@@ -3956,6 +3956,17 @@
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
 
+## [2026-10-22 15:30] - Claude
+- **Task:** Redesign bar filter + kelompok halaman Fokus sesuai desain Bapak (lampiran 3 gambar), ganti ikon ⭐ ke gaya duotone Alurik.
+- **Changes:** `FocusFilterBar` → kartu + grid ber-container query (1/2/3 baris, mode `.is-dense`), lembar di luar kartu; `FocusTaskGroups` → pil "N task"; CSS kelompok-kartu + baris satu garis di desktop; ⭐ duotone; versi v458 / app.css 361; tes sumber + E2E disesuaikan.
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/focus_filter_ui.test.js (+ pin versi), temporary_files/e2e_focus_filter.py, docs spec, .agents/*
+- **Status:** Needs Review — draft PR, menunggu "merge".
+
+## [2026-10-22 15:10] - Claude
+- **Task:** Merge PR #83 (redesign bar filter + kelompok kartu halaman Fokus, ⭐ duotone) atas instruksi Bapak.
+- **Changes:** CI hijau di d68ae88, PR di-merge (fdfb4ef), workflow Deploy Taskflow V4 sukses. SW v458 `taskflow-v458-fokus-filter-redesign`, app.css 361.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — tinggal restart `taskflow-web` di server.
 ## [2026-10-22 16:00] - Claude
 - **Task:** Fix bug "Tandai selesai" — baris task baru hilang setelah sync penuh (10–15 dtk).
 - **Changes:** helper `markTasksDoneLocal` + update state optimistik di `handleDone`/`handleDoneAll`/`handleDoneParentOnly` sebelum `fetchAll()`; SW v459 `taskflow-v459-task-selesai-instan`; tes node `task_done_instant.test.js`; E2E `e2e_task_done_instant.py` (gagal 7/28 di kode lama, hijau 2×).
