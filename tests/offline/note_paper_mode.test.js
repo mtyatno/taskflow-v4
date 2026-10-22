@@ -184,11 +184,11 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
   const webappPath = path.resolve(__dirname, "../../webapp.py");
   const webappPy = fs.readFileSync(webappPath, "utf8");
 
-  await t.test("Service Worker and cache version is taskflow-v462-fokus-checklist-hitungan", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v462-fokus-checklist-hitungan";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v462-fokus-checklist-hitungan";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v462-fokus-checklist-hitungan"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v462-fokus-checklist-hitungan"/);
+  await t.test("Service Worker and cache version is taskflow-v463-note-lampiran-gambar", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v463-note-lampiran-gambar";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v463-note-lampiran-gambar";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v463-note-lampiran-gambar"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v463-note-lampiran-gambar"/);
   });
 
   const notePanelMatch = indexHtml.match(/function NotePanel\([\s\S]*?^function /m);

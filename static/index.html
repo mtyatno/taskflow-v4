@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=362">
+  <link rel="stylesheet" href="/static/app.css?v=363">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v462-fokus-checklist-hitungan";
+    window.__SW_VERSION = "taskflow-v463-note-lampiran-gambar";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -325,6 +325,7 @@
   <script src="/static/offline/mediadirective.js"></script>
   <script src="/static/offline/mediaupload.js"></script>
   <script src="/static/offline/mediacard.js"></script>
+  <script src="/static/offline/noteattach.js"></script>
   <script src="/static/offline/safehtml.js"></script>
   <script src="/static/ui-components.js"></script>
   <script>
@@ -25842,7 +25843,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v462-fokus-checklist-hitungan"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v463-note-lampiran-gambar"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -26132,13 +26133,18 @@ function repairQuoteMarkdown(md) {
   }
   return out.join('\n');
 }
+// Isi editor/viewer: pulihkan lampiran 📎 yang tersimpan ter-escape (bug lama `!\[nama]\(url)`) lalu blockquote.
+function repairNoteMarkdown(md) {
+  const fix = typeof window !== 'undefined' && window.TF && window.TF.noteattach && window.TF.noteattach.repairEscapedAttachmentLinks;
+  return repairQuoteMarkdown(fix ? fix(md) : md);
+}
 
 // Pra-proses markdown sebelum marked.parse. Dipakai renderMarkdown DAN extractHeadings supaya
 // daftar isi mode baca sejalan dengan id "note-h-N": semua langkah yang bisa mengubah struktur blok
 // (kutipan, math, wikilink, tasklink, ==highlight==, ::draw, unescape link/gambar, normalisasi tabel)
 // ada di sini. Mengembalikan teks ber-placeholder (text) + peta placeholder -> HTML / sumber mentah.
 function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
-  text = repairQuoteMarkdown(text);
+  text = repairNoteMarkdown(text);
   const rawMap = {};
   const SH = tfSafeHtml();
   // Kunci placeholder memuat nonce per render (seperti server), jadi teks pengguna tidak bisa memalsukannya.
@@ -27767,6 +27773,8 @@ onPaperConfigChange
   const moreRef = React.useRef(null);
   const fileInputRef = React.useRef(null);
   const [uploading, setUploading] = React.useState(false);
+  // Indikator unggah lampiran 📎: { name, loaded, total } selama berjalan (null = tidak ada).
+  const [uploadInfo, setUploadInfo] = React.useState(null);
   const [templates, setTemplates] = React.useState([]);
   const [tplOpen, setTplOpen] = React.useState(false);
   const tplBtnRef = React.useRef(null);
@@ -27871,35 +27879,62 @@ onPaperConfigChange
     });
     editor.action(ctx => ctx.get(MB.editorViewCtx).focus());
   };
+  // Sisipkan markdown sebagai node (gambar/tautan) lewat parser editor — BUKAN tr.insertText: teks mentah
+  // di-escape serializer jadi `!\[nama]\(url)` dan tidak pernah tampil sebagai gambar (bug 2026-10-22).
+  const insertParsedMarkdown = md => {
+    const editor = milkdownEditorRef?.current;
+    const MB = window.MilkdownBundle;
+    if (!editor || !MB?.editorViewCtx || !MB?.parserCtx) return false;
+    let ok = false;
+    try {
+      editor.action(ctx => {
+        const view = ctx.get(MB.editorViewCtx);
+        const doc = ctx.get(MB.parserCtx)(md);
+        if (!view || !doc || !doc.content || doc.content.size === 0) return;
+        view.dispatch(view.state.tr.replaceSelection(doc.slice(0, doc.content.size)).scrollIntoView());
+        view.focus();
+        ok = true;
+      });
+    } catch (_) {}
+    return ok;
+  };
+  // XHR (bukan fetch) supaya progres byte terkirim bisa ditampilkan.
+  const uploadNoteAttachment = (file, onProgress) => new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', apiUrl(`/api/scratchpad/${noteId}/attachments`));
+    if (typeof __token !== 'undefined' && __token) xhr.setRequestHeader('Authorization', 'Bearer ' + __token);
+    xhr.upload.onprogress = ev => onProgress(ev.loaded, ev.lengthComputable ? ev.total : 0);
+    xhr.upload.onload = () => onProgress(file.size || 1, file.size || 1);
+    xhr.onload = () => {
+      let body = null;
+      try { body = JSON.parse(xhr.responseText); } catch (_) {}
+      if (xhr.status >= 200 && xhr.status < 300 && body) resolve(body);
+      else reject(new Error((body && typeof body.detail === 'string' && body.detail) || 'Upload gagal'));
+    };
+    xhr.onerror = () => reject(new Error('Upload gagal — periksa koneksi internet'));
+    xhr.onabort = () => reject(new Error('Upload dibatalkan'));
+    const formData = new FormData();
+    formData.append('file', file);
+    xhr.send(formData);
+  });
   const handleAttachFile = async e => {
     const file = e.target.files?.[0];
+    e.target.value = '';
     if (!file || !noteId) return;
+    const NA = window.TF && window.TF.noteattach;
     setUploading(true);
+    setUploadInfo({ name: file.name || 'file', loaded: 0, total: file.size || 0 });
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const headers = {};
-      if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
-      const res = await fetch(apiUrl(`/api/scratchpad/${noteId}/attachments`), {
-        method: 'POST',
-        headers,
-        body: formData
-      });
-      if (!res.ok) {
-        const d = await res.json();
-        throw new Error(d.detail || 'Upload gagal');
-      }
-      const att = await res.json();
-      const isImage = att.mime_type.startsWith('image/');
-      const url = `/api/scratchpad/attachments/${att.id}/view`;
-      const syntax = isImage ? `![${att.original_name}](${url})` : `[📄 ${att.original_name}](${url})`;
-      insertText(syntax);
-      onAttachUploaded?.(att);
+      const att = await uploadNoteAttachment(file, (loaded, total) => setUploadInfo({ name: file.name || 'file', loaded, total }));
+      const md = NA ? NA.attachmentMarkdown(att) : `![${att.original_name}](/api/scratchpad/attachments/${att.id}/view)`;
+      onAttachUploaded?.(att); // lampiran sudah ada di server → daftar lampiran diperbarui walau sisip gagal
+      if (!insertParsedMarkdown(md)) throw new Error('Lampiran terunggah, tetapi gagal disisipkan ke catatan');
     } catch (err) {
-      alert(err.message);
+      const msg = (err && err.message) || 'Upload gagal';
+      if (typeof window.__showToast === 'function') window.__showToast(msg, 'error'); else console.warn('[lampiran]', msg);
     } finally {
       setUploading(false);
-      e.target.value = '';
+      setUploadInfo(null);
     }
   };
   const headings = [{
@@ -27942,7 +27977,7 @@ onPaperConfigChange
     if (ib !== -1) return 1;
     return a.localeCompare(b);
   });
-  return /*#__PURE__*/React.createElement("div", {
+  const toolbarEl = /*#__PURE__*/React.createElement("div", {
     className: "note-toolbar"
   }, /*#__PURE__*/React.createElement("div", {
     ref: tplBtnRef,
@@ -28329,6 +28364,25 @@ onPaperConfigChange
       )
     )
   );
+  // Indikator unggah lampiran 📎 (bug 2026-10-22: sebelumnya tidak ada tanda apa pun selama unggah).
+  const NA = window.TF && window.TF.noteattach;
+  const pct = uploadInfo && NA ? NA.percent(uploadInfo.loaded, uploadInfo.total) : null;
+  const statusEl = uploadInfo ? React.createElement("div", {
+    className: "note-upload-status",
+    role: "status",
+    "aria-live": "polite"
+  },
+    React.createElement("span", { className: "note-upload-spinner", "aria-hidden": "true" }),
+    React.createElement("span", { className: "note-upload-text", title: uploadInfo.name },
+      NA ? NA.statusText(uploadInfo.name, uploadInfo.loaded, uploadInfo.total) : "Mengunggah " + uploadInfo.name + "…"),
+    pct != null && pct < 100 ? React.createElement("span", { className: "note-upload-pct", "aria-hidden": "true" }, pct + "%") : null,
+    React.createElement("span", { className: "note-upload-bar", "aria-hidden": "true" },
+      React.createElement("span", {
+        className: "note-upload-bar-fill" + (pct == null || pct >= 100 ? " is-indeterminate" : ""),
+        style: pct == null || pct >= 100 ? undefined : { width: pct + "%" }
+      }))
+  ) : null;
+  return React.createElement(React.Fragment, null, toolbarEl, statusEl);
 }
 // "/" tepat sebelum kursor ($pos) dianggap pemicu slash menu hanya bila di awal textblock
 // atau didahului whitespace (spasi/NBSP/tab/baris baru). "/" di tengah teks (and/or, URL,
@@ -29173,7 +29227,7 @@ function MilkdownEditor({
 
     MB.Editor.make().config(ctx => {
       ctx.set(MB.rootCtx, containerRef.current);
-      ctx.set(MB.defaultValueCtx, repairQuoteMarkdown(value || ''));
+      ctx.set(MB.defaultValueCtx, repairNoteMarkdown(value || ''));
       ctx.get(MB.listenerCtx).markdownUpdated((_ctx, markdown) => {
         if (!isExternalUpdate.current) {
           const cleaned = (markdown || '').replace(/[\r\n]+$/, '');
@@ -29424,7 +29478,7 @@ function MilkdownEditor({
       const serializer = ctx.get(MB.serializerCtx);
       return serializer(view.state.doc);
     });
-    const next = repairQuoteMarkdown(value || '');
+    const next = repairNoteMarkdown(value || '');
     if (current.trim() !== next.trim() && current.trim() !== (value || '').trim()) {
       isExternalUpdate.current = true;
       editor.action(MB.replaceAll(next));

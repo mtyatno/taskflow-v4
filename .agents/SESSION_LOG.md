@@ -4022,3 +4022,9 @@
 - **Changes:** CI hijau di 9c88afb6, PR di-merge (e012e83b), workflow Deploy Taskflow V4 sukses. SW v462 `taskflow-v462-fokus-checklist-hitungan`, app.css 362.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
+
+## 2026-10-23 00:30 WIB — Claude — bug lampiran gambar 📎 editor note
+- **Task:** laporan Bapak: unggah gambar dari editor note tanpa indikator, hasilnya teks `![…](…)`, tetap teks setelah disimpan.
+- **Changes:** sisip lampiran lewat parser editor (bukan teks mentah), indikator unggah XHR dengan %, galat via toast, pemulihan note lama yang ter-escape; helper `static/offline/noteattach.js` + tes; SW v463 / `app.css?v=363`; E2E `temporary_files/e2e_note_image_attach.py` 11/11 (main lama 3/11).
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, static/offline/noteattach.js, webapp.py, tests/test_version.py, tests/offline/*.test.js, temporary_files/e2e_note_image_attach.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR; deploy = file statis + restart `taskflow-web` saja)

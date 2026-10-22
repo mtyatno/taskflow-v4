@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v462-fokus-checklist-hitungan", () => {
-    assert.match(swJs, /taskflow-v462-fokus-checklist-hitungan/);
+  await t.test("sw.js bumped to taskflow-v463-note-lampiran-gambar", () => {
+    assert.match(swJs, /taskflow-v463-note-lampiran-gambar/);
   });
 });

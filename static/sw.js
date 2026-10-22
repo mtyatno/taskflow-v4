@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v462-fokus-checklist-hitungan";
+const CACHE = "taskflow-v463-note-lampiran-gambar";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
@@ -41,6 +41,7 @@ const STATIC = [
   "/static/offline/mediadirective.js",
   "/static/offline/mediaupload.js",
   "/static/offline/mediacard.js",
+  "/static/offline/noteattach.js",
   "/static/offline/safehtml.js",
   "/static/offline/habitlogic.js",
   "/static/offline/habitrepo.js",
