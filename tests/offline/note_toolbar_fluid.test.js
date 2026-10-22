@@ -76,9 +76,21 @@ test("container query: toolbar adalah container notetb dan label .ntb-label dise
   const blocks = atBlocks(css, "@container notetb (max-width:");
   assert.ok(blocks.length >= 1, "@container notetb (max-width: …) tidak ada");
   assert.ok(blocks.some(b => /\.ntb-label\s*\{[^}]*display:\s*none/.test(b)), "label tidak disembunyikan di container sempit");
-  // toolbar membentuk stacking context (containment) → harus di atas editor agar dropdown tidak tertutup
-  assert.match(all, /position:\s*relative/);
-  assert.match(all, /z-index:\s*\d+/);
+  // Toolbar tidak boleh jadi stacking context sendiri: z-index pada .note-toolbar akan mengurung dropdown
+  // (z-index 300/1000) di bawah block handle (30) / footer sticky (10) modal.
+  assert.doesNotMatch(all, /z-index\s*:/, ".note-toolbar tidak boleh ber-z-index");
+});
+
+// Ambang hasil pengukuran (temporary_files/e2e_note_toolbar_fluid.py, Chromium): isi berlabel butuh lebar
+// toolbar >= 472px untuk 2 baris → label disembunyikan di <= 519px (margin ±10% untuk metrik font perangkat);
+// isi ikon-saja (padding rapat) 2 baris mulai lebar toolbar ±290px (viewport 360).
+test("container sempit (<= 519px): label disembunyikan, padding tombol & margin pemisah dirapatkan", () => {
+  const blocks = atBlocks(css, "@container notetb (max-width: 519px)");
+  assert.equal(blocks.length, 1, "@container notetb (max-width: 519px) harus ada tepat satu");
+  const b = blocks[0];
+  assert.match(b, /\.note-toolbar \.ntb-label\s*\{\s*display:\s*none;?\s*\}/);
+  assert.match(b, /\.note-toolbar button\s*\{\s*padding:\s*0 5px;?\s*\}/);
+  assert.match(b, /\.note-toolbar \.sep\s*\{\s*margin:\s*2px 1px;?\s*\}/);
 });
 
 test("tombol berlabel memakai span.ntb-label dan punya title + aria-label bermakna", () => {

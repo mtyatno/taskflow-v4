@@ -64,13 +64,18 @@ MEASURE_JS = r"""() => {
         ((el.innerText || el.title || '').trim().slice(0, 12)) + '" right=' + Math.round(r.right)));
     }
   }
+  // Pembungkus toolbar sampai akar modal (elemen position:fixed pertama, inklusif). Di atas akar modal
+  // adalah halaman di belakang overlay (mis. .fade-in halaman Notes) — luapannya tidak terkait toolbar;
+  // scroll horizontal halaman tetap dicek lewat docOverflow.
   const anc = [];
-  let a = tb;
+  const pageAnc = [];
+  let a = tb, inModal = true;
   while (a && a !== document.documentElement) {
     if (a.scrollWidth > a.clientWidth + 1 && getComputedStyle(a).display !== 'inline') {
-      anc.push((a === tb ? 'TOOLBAR ' : '') + a.tagName + '.' + String(a.className).slice(0, 40) +
+      (inModal ? anc : pageAnc).push((a === tb ? 'TOOLBAR ' : '') + a.tagName + '.' + String(a.className).slice(0, 40) +
         ' sw=' + a.scrollWidth + ' cw=' + a.clientWidth + ' ox=' + getComputedStyle(a).overflowX);
     }
+    if (inModal && getComputedStyle(a).position === 'fixed') inModal = false;
     a = a.parentElement;
   }
   const labels = [...tb.querySelectorAll('button')].map(b => {
@@ -79,7 +84,7 @@ MEASURE_JS = r"""() => {
   });
   return {
     vw, rows: rowsArr.length, tops, tbW: Math.round(tbr.width), sw: tb.scrollWidth, cw: tb.clientWidth,
-    ox: getComputedStyle(tb).overflowX, wrap: getComputedStyle(tb).flexWrap, bad: bad.slice(0, 6), anc,
+    ox: getComputedStyle(tb).overflowX, wrap: getComputedStyle(tb).flexWrap, bad: bad.slice(0, 6), anc, pageAnc,
     docOverflow: document.documentElement.scrollWidth > window.innerWidth + 1 ? document.documentElement.scrollWidth : 0,
     labels,
   };
@@ -159,6 +164,9 @@ def run_host(p, host):
         print("  %s@%d rows=%d tops=%s tbW=%d sw=%d cw=%d ox=%s wrap=%s bad=%s anc=%s doc=%s" % (
             host, w, m["rows"], m["tops"], m["tbW"], m["sw"], m["cw"], m["ox"], m["wrap"], m["bad"], m["anc"],
             m["docOverflow"]), flush=True)
+        if m["pageAnc"]:
+            print("  info: %s@%d halaman di belakang modal meluber (bukan pembungkus toolbar): %s" % (host, w, m["pageAnc"]),
+                  flush=True)
         check("%s@%d tanpa overflow (toolbar/pembungkus/viewport)" % (host, w), not over,
               "bad=%s anc=%s doc=%s" % (m["bad"], m["anc"], m["docOverflow"]))
         if w == 320:

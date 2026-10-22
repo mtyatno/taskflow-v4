@@ -50,7 +50,7 @@ test("sw.js precache modul dan versi baru", () => {
   assert.ok(swJs.includes('"/static/offline/commenthighlight.js"'));
   assert.ok(swJs.includes('const CACHE = "taskflow-v466-istilah-sketsa-media"'));
   assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v466-istilah-sketsa-media"'));
-  assert.ok(indexHtml.includes("app.css?v=362"));
+  assert.ok(indexHtml.includes("app.css?v=364"));
 });
 
 test("NotePanel memasang dan melepas listener tf:comments-open", () => {
