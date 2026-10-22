@@ -94,8 +94,9 @@ test("3. Dashboard component in static/index.html implements habit checkin and C
   const captureIdx = dashSrc.indexOf('dash-capture');
   assert.ok(topIdx >= 0 && stripIdx > topIdx && captureIdx > stripIdx, "habit strip must be between hero-top and dash-capture");
 
-  // Center HUD toast rendering
-  assert.match(dashSrc, /centerToast\.type\s*===\s*["']habit["']\s*\?\s*["']activity["']/);
+  // Center HUD toast rendering: komponen bersama CenterHudToast (juga dipakai input Parkir Distraksi halaman Fokus)
+  assert.match(dashSrc, /React\.createElement\(CenterHudToast, \{\s*toast: centerToast\s*\}\)/);
+  assert.match(fnSource("CenterHudToast", html), /toast\.type\s*===\s*["']habit["']\s*\?\s*["']activity["']/);
 });
 
 test("4. Service Worker and index.html cache version is taskflow-v464-sw-precache-shell", () => {

@@ -10722,8 +10722,42 @@ const formatFocusTime = secs => {
   return `${mins}m`;
 };
 
+// HUD tengah layar "Task Created" (dipakai Dashboard & input Parkir Distraksi halaman Fokus).
+function useCenterHudToast() {
+  const [toast, setToast] = React.useState(null);
+  React.useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 2800);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  return [toast, setToast];
+}
+function CenterHudToast({
+  toast,
+  portal
+}) {
+  if (!toast) return null;
+  const el = React.createElement("div", {
+    key: toast.id,
+    className: `center-hud-toast center-hud-${toast.type}`,
+    role: "status",
+    "aria-live": "polite"
+  }, React.createElement("div", {
+    className: `center-hud-icon-wrap center-hud-icon-${toast.type}`
+  }, React.createElement(Icon, {
+    name: toast.type === "task" ? "clipboardCheck" : toast.type === "habit" ? "activity" : "notes",
+    size: 18
+  })), React.createElement("span", {
+    className: "center-hud-title"
+  }, toast.title));
+  return portal && typeof document !== "undefined" && document.body ? ReactDOM.createPortal(el, document.body) : el;
+}
+
 // Parkir Distraksi: tangkap pikiran yang lewat ke Inbox tanpa keluar dari sesi fokus
 function PomoParkInput() {
+  const [hud, setHud] = useCenterHudToast();
   const [text, setText] = React.useState("");
   const [status, setStatus] = React.useState("idle"); // "idle" | "ok" | "error"
   const busy = React.useRef(false);
@@ -10740,6 +10774,11 @@ function PomoParkInput() {
       await api.post("/api/tasks", body);
       setText("");
       setStatus("ok");
+      setHud({
+        id: Date.now(),
+        type: "task",
+        title: "Task Created"
+      });
       window.__refreshTasks?.();
       if (okTimer.current) clearTimeout(okTimer.current);
       okTimer.current = setTimeout(() => setStatus("idle"), 1500);
@@ -10763,7 +10802,7 @@ function PomoParkInput() {
       e.target.blur();
     }
   };
-  return React.createElement("div", {
+  return React.createElement(React.Fragment, null, React.createElement("div", {
     className: `pomo-park${status === "ok" ? " is-ok" : ""}${status === "error" ? " is-error" : ""}`
   }, React.createElement("span", {
     className: "pomo-park-icon",
@@ -10804,7 +10843,10 @@ function PomoParkInput() {
   })), React.createElement("span", {
     className: "sr-only",
     "aria-live": "polite"
-  }, status === "ok" ? "Tersimpan ke Inbox" : ""));
+  }, status === "ok" ? "Tersimpan ke Inbox" : "")), React.createElement(CenterHudToast, {
+    toast: hud,
+    portal: true
+  }));
 }
 
 // Kartu Pomodoro penuh (di atas halaman)
@@ -21040,7 +21082,7 @@ function Dashboard({
   const [inboxWizardOpen, setInboxWizardOpen] = useState(false);
   const [dashModal, setDashModal] = useState(null);
   const [scratchInput, setScratchInput] = useState("");
-  const [centerToast, setCenterToast] = useState(null);
+  const [centerToast, setCenterToast] = useCenterHudToast();
   const [recentNotes, setRecentNotes] = useState([]);
   const [pinnedNotes, setPinnedNotes] = useState([]);
   const [pinnedMindmaps, setPinnedMindmaps] = useState([]);
@@ -21102,13 +21144,6 @@ function Dashboard({
     window.addEventListener("habitSaved", fetchHabits);
     return () => window.removeEventListener("habitSaved", fetchHabits);
   }, []);
-  useEffect(() => {
-    if (!centerToast) return;
-    const timer = setTimeout(() => {
-      setCenterToast(null);
-    }, 2800);
-    return () => clearTimeout(timer);
-  }, [centerToast]);
   const handleScratch = async e => {
     if (e.key !== "Enter" || !scratchInput.trim()) return;
     const text = scratchInput.trim();
@@ -22227,19 +22262,9 @@ function Dashboard({
   })))))),
 
   /* ── Center HUD Toast (Task / Note Created notification) ── */
-  centerToast && /*#__PURE__*/React.createElement("div", {
-    key: centerToast.id,
-    className: `center-hud-toast center-hud-${centerToast.type}`,
-    role: "status",
-    "aria-live": "polite"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: `center-hud-icon-wrap center-hud-icon-${centerToast.type}`
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: centerToast.type === "task" ? "clipboardCheck" : centerToast.type === "habit" ? "activity" : "notes",
-    size: 18
-  })), /*#__PURE__*/React.createElement("span", {
-    className: "center-hud-title"
-  }, centerToast.title)),
+  /*#__PURE__*/React.createElement(CenterHudToast, {
+    toast: centerToast
+  }),
 
   inboxWizardOpen && /*#__PURE__*/React.createElement(GtdInboxWizardModal, {
     tasks: inboxTasks,
