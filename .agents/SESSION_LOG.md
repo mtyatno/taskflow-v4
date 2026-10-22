@@ -3950,3 +3950,8 @@
 - **Changes:** endpoint `PATCH /api/tasks/{id}/workspace`, tombol + panel di detail task, helper `moveTaskToWorkspace`, SW v457, ADR-028, tes Python/JS + E2E.
 - **Files Touch:** webapp.py, static/index.html, static/sw.js, tests/test_task_move_workspace.py, tests/offline/task_move_workspace.test.js, tests (pin versi), temporary_files/e2e_task_move_workspace.py, .agents/*.
 - **Status:** Needs Review — PR menunggu review screenshot; deploy = restart `taskflow-web`.
+## [2026-10-22 10:00] - Claude
+- **Task:** Merge PR #81 (pemilihan task halaman Fokus) atas instruksi Bapak.
+- **Changes:** PR ditandai siap, CI hijau di 516f2d7, di-merge (7072a1a). Deploy percobaan 1 timeout 10 menit di langkah SSH (bukan karena isi PR), dijalankan ulang sekali → sukses. SW v456 `taskflow-v456-focus-filter`, app.css 360.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — tinggal restart `taskflow-web` di server.
