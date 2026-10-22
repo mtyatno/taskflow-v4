@@ -224,25 +224,60 @@ def _nc_dav_url(path: str) -> str:
 def _nc_auth() -> tuple:
     return (NEXTCLOUD_USER, NEXTCLOUD_APP_PASSWORD)
 
-def _nc_ensure_folder() -> None:
-    import requests as _req
-    # Create each path segment in order so parent exists before child
-    # e.g. /TaskFlow/attachments → first /TaskFlow, then /TaskFlow/attachments
-    segments = NEXTCLOUD_FOLDER.strip("/").split("/")
-    path = ""
-    for seg in segments:
-        path += "/" + seg
-        r = _req.request("MKCOL", _nc_dav_url(path), auth=_nc_auth(), timeout=10)
-        if r.status_code not in (201, 405):  # 201=created, 405=already exists
-            raise HTTPException(status_code=500, detail=f"Nextcloud folder error: {r.status_code} on {path}")
+# ── Lampiran note (📎) di disk VPS ──────────────────────────────────────────────
+# Sejak 2026-10-23 lampiran note baru disimpan di UPLOAD_DIR (sama seperti file workspace & lampiran task; ikut
+# backup.sh) dengan storage='upload' dan storage_key = nama file acak. Baris lama storage='nextcloud' (folder
+# Nextcloud /TaskFlow/attachments, NEXTCLOUD_FOLDER) tetap dibaca/dihapus lewat Nextcloud; storage='local' = media
+# audio/video (media_storage).
+_NOTE_UPLOAD_KEY_RE = re.compile(r"[0-9a-f]{32}(?:\.[a-z0-9]{1,10})?")
 
-def _nc_put_file(nc_path: str, content: bytes, mime_type: str):
-    """Pastikan folder ada lalu PUT file ke Nextcloud. Sinkron (requests) — panggil lewat asyncio.to_thread
-    dari endpoint async supaya event loop server tidak tertahan selama Nextcloud memproses."""
-    import requests as _req
-    _nc_ensure_folder()
-    return _req.put(_nc_dav_url(nc_path), data=content, auth=_nc_auth(), timeout=60,
-                    headers={"Content-Type": mime_type})
+
+def _note_upload_key(original_name: str) -> str:
+    ext = Path(original_name or "").suffix.lower()
+    if not re.fullmatch(r"\.[a-z0-9]{1,10}", ext):
+        ext = ""
+    return uuid.uuid4().hex + ext
+
+
+def _note_upload_path(att):
+    """Path file lampiran note di disk, atau None bila baris bukan storage='upload' / kunci tidak sah."""
+    try:
+        if att["storage"] != "upload":
+            return None
+        key = att["storage_key"] or ""
+    except (KeyError, IndexError, TypeError):
+        return None
+    if not _NOTE_UPLOAD_KEY_RE.fullmatch(key):
+        return None
+    return os.path.join(UPLOAD_DIR, key)
+
+
+def _write_note_upload(path: str, content: bytes) -> None:
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".part"
+    try:
+        with open(tmp, "wb") as fh:
+            fh.write(content)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.remove(tmp)  # jangan tinggalkan .part (ikut ter-backup) saat disk penuh / galat tulis
+        except OSError:
+            pass
+        raise
+
+
+def _delete_note_upload_file(att) -> None:
+    """Hapus file lampiran note di disk (storage='upload'). Tidak pernah melempar."""
+    path = _note_upload_path(att)
+    if not path:
+        return
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.warning("hapus lampiran note gagal: %s", path, exc_info=True)
 
 # ── Chat SSE broadcast bus ─────────────────────────────────────────────────────
 chat_subscribers: dict[int, set[asyncio.Queue]] = defaultdict(set)
@@ -6748,7 +6783,6 @@ def _safe_upload_mime(mime_type) -> str:
 
 @app.post("/api/scratchpad/{note_id}/attachments")
 async def upload_note_attachment(note_id: int, file: UploadFile = FastAPIFile(...), user=Depends(get_current_user)):
-    import requests as _req
     uid = user["sub"]
     with get_db() as conn:
         note = _accessible_note(conn, uid, note_id)
@@ -6764,21 +6798,25 @@ async def upload_note_attachment(note_id: int, file: UploadFile = FastAPIFile(..
     if mime_type not in _ALLOWED_ATTACH_MIME:
         raise HTTPException(status_code=415, detail="Tipe file tidak diizinkan. Gunakan PNG, JPG, WebP, atau PDF")
 
-    ext = Path(original_name).suffix or ""
-    nc_path = f"{NEXTCLOUD_FOLDER}/{uuid.uuid4()}{ext}"
-
-    # Nextcloud lambat → di thread terpisah agar request lain (pengguna lain) tidak ikut menunggu
-    r = await asyncio.to_thread(_nc_put_file, nc_path, content, mime_type)
-    if r.status_code not in (200, 201, 204):
-        raise HTTPException(status_code=500, detail=f"Upload ke Nextcloud gagal: {r.status_code}")
-
+    # Disk VPS (UPLOAD_DIR), bukan Nextcloud: unggah tidak lagi menunggu Nextcloud
+    key = _note_upload_key(original_name)
+    path = os.path.join(UPLOAD_DIR, key)
+    await asyncio.to_thread(_write_note_upload, path, content)
+    try:
+        with get_db() as conn:
+            cur = conn.execute(
+                "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, file_size, mime_type, "
+                "storage, storage_key) VALUES (?,?,'',?,?,?,'upload',?)",
+                (note_id, uid, original_name, len(content), mime_type, key)
+            )
+            conn.commit()
+            att_id = cur.lastrowid
+    except Exception:
+        # baris tidak tersimpan → file tanpa pemilik dihapus lagi
+        _delete_note_upload_file({"storage": "upload", "storage_key": key})
+        raise
     with get_db() as conn:
-        cur = conn.execute(
-            "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, file_size, mime_type) VALUES (?,?,?,?,?,?)",
-            (note_id, uid, nc_path, original_name, len(content), mime_type)
-        )
-        conn.commit()
-        row = conn.execute("SELECT * FROM note_attachments WHERE id=?", (cur.lastrowid,)).fetchone()
+        row = conn.execute("SELECT * FROM note_attachments WHERE id=?", (att_id,)).fetchone()
         return dict(row)
 
 @app.get("/api/scratchpad/{note_id}/attachments")
@@ -6832,7 +6870,8 @@ def _delete_media_files(row) -> None:
 
 
 def _purge_trashed_media(conn, note_ids) -> None:
-    """Hapus file media lampiran (storage='local') dari snapshot note di Sampah. Tidak pernah melempar."""
+    """Hapus file lampiran di disk (media storage='local', lampiran 📎 storage='upload') dari snapshot note di Sampah.
+    Tidak pernah melempar."""
     try:
         ids = [int(i) for i in note_ids]
         for i in range(0, len(ids), 500):
@@ -6850,6 +6889,8 @@ def _purge_trashed_media(conn, note_ids) -> None:
                 for a in atts:
                     if isinstance(a, dict) and a.get("storage") == "local":
                         _delete_media_files(a)
+                    elif isinstance(a, dict) and a.get("storage") == "upload":
+                        _delete_note_upload_file(a)
     except Exception:
         logger.warning("purge media Sampah gagal", exc_info=True)
 
@@ -6898,12 +6939,16 @@ async def delete_note_attachment(att_id: int, user=Depends(get_current_user)):
             raise HTTPException(status_code=403, detail="Bukan attachment milikmu")
         if att["storage"] == "local":
             _delete_media_files(att)
+        elif att["storage"] == "upload":
+            pass  # file di disk dihapus setelah baris terhapus (di bawah)
         else:
             r = await asyncio.to_thread(_req.delete, _nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=10)
             if r.status_code not in (200, 204, 404):  # 404 = already deleted, still OK
                 raise HTTPException(status_code=500, detail=f"Nextcloud delete gagal: {r.status_code}")
         conn.execute("DELETE FROM note_attachments WHERE id=?", (att_id,))
         conn.commit()
+    if att["storage"] == "upload":
+        _delete_note_upload_file(att)
     return {"ok": True}
 
 @app.get("/api/scratchpad/attachments/{att_id}/view")
@@ -6919,6 +6964,13 @@ async def view_note_attachment(att_id: int, user=Depends(get_current_user_sse)):
             raise HTTPException(status_code=404, detail="Attachment tidak ditemukan")
         urls = _media_urls(att["id"], bool(att["poster_key"]), int(_time.time()))
         return RedirectResponse(urls["play_url"], status_code=302)
+    if att["storage"] == "upload":
+        path = _note_upload_path(att)
+        if not path or not os.path.isfile(path):
+            raise HTTPException(status_code=404, detail="File tidak ditemukan")
+        safe_name = (att["original_name"] or "file").replace('"', '_').replace('\r', '').replace('\n', '')
+        return FileResponse(path, media_type=_served_file_mime(att["mime_type"]),
+                            headers=_inline_file_headers(att["mime_type"], safe_name))
     # koneksi + header di thread; badan di-stream oleh Starlette (iterator sinkron → threadpool)
     r = await asyncio.to_thread(_req.get, _nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=30, stream=True)
     if r.status_code != 200:
@@ -7608,7 +7660,16 @@ def _make_image_resolver(uid: int, note_id: int = None):
                             att = row
                             break
 
-            if att and att["nextcloud_path"] and not _nc_disabled:
+            local_path = _note_upload_path(att) if att else None
+            if local_path:
+                try:
+                    with open(local_path, "rb") as fh:
+                        data = fh.read()
+                    _img_cache[cache_key] = data
+                    return data
+                except OSError:
+                    logger.warning("lampiran note %s tidak ada di disk", att["id"])
+            elif att and att["nextcloud_path"] and not _nc_disabled:
                 try:
                     import requests as _req
                     r = _req.get(_nc_dav_url(att["nextcloud_path"]), auth=_nc_auth(), timeout=15)
@@ -9289,6 +9350,13 @@ async def view_published_attachment(att_id: str, request: Request):
         safe_name = (att["original_name"] or "file").replace('"', '_').replace('\r', '').replace('\n', '')
         mime_type = att["mime_type"] or "application/octet-stream"
         nc_path = att["nextcloud_path"] or ""
+
+        if att["storage"] == "upload":
+            path = _note_upload_path(att)
+            if not path or not os.path.isfile(path):
+                raise HTTPException(status_code=404, detail="File tidak ditemukan")
+            return FileResponse(path, media_type=_served_file_mime(mime_type),
+                                headers=_inline_file_headers(mime_type, safe_name))
 
         # Local storage fallback
         if nc_path:
