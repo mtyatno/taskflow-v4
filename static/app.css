@@ -3819,6 +3819,16 @@
   .ftask-panel { padding: 2px 12px 12px; }
   .ftask-info { max-width: 160px; }
 }
+/* HP: ⭐ / Fokus / chevron ditumpuk satu kolom di kanan (atas→bawah) agar judul dapat sisa lebar.
+   Urutan DOM & tab tidak berubah; baris ke-4 (1fr) menyerap tinggi judul supaya tombol tetap rapat di atas. */
+@media (max-width: 768px) {
+  .ftask-row:not(.is-static) { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto auto 1fr; column-gap: 8px; row-gap: 0; align-items: start; padding: 10px 6px 10px 12px; }
+  .ftask-row:not(.is-static) > .check-btn { grid-column: 1; grid-row: 1 / -1; }
+  .ftask-row:not(.is-static) > .ftask-main { grid-column: 2; grid-row: 1 / -1; }
+  .ftask-row:not(.is-static) > .ftask-star { grid-column: 3; grid-row: 1; width: 34px; height: 34px; margin: 0; }
+  .ftask-row:not(.is-static) > .ftask-focus-btn { grid-column: 3; grid-row: 2; width: 34px; height: 34px; }
+  .ftask-row:not(.is-static) > .ftask-chevron { grid-column: 3; grid-row: 3; width: 34px; height: 32px; padding: 7px 8px; margin: 0; box-sizing: border-box; }
+}
 /* Kartu Pomodoro ringkas di HP */
 @media (max-width: 768px) {
   .focus-pomo { grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: "modes modes zen amb" "ring ctrl ctrl ctrl" "ring task task task" "stats stats stats stats" "park park park park"; justify-items: stretch; align-items: center; gap: 10px 10px; padding: 12px; border-radius: 16px; margin-bottom: 16px; overflow: visible; }
