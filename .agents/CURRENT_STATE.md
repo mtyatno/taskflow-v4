@@ -1,4 +1,4 @@
-## 🟠 Bug: lampiran gambar 📎 di editor note tampil sebagai teks + tanpa indikator unggah — `claude/note-attach-image` — 2026-10-23 (Claude) — DRAFT PR, TUNGGU REVIEW BAPAK
+## 🟠 Bug: lampiran gambar 📎 di editor note tampil sebagai teks + tanpa indikator unggah — `claude/note-attach-image` — 2026-10-23 (Claude) — DI-MERGE (#89, f61c3c8) atas pilihan Bapak "Merge #89 saja dulu" 2026-10-23; TUNGGU RESTART `taskflow-web`
 - **Status:** frontend saja (tanpa migrasi/endpoint). SW **v465** `taskflow-v465-note-lampiran-gambar`, `app.css?v=363` (v463 dipakai #88, v464 dipakai #90). **Deploy: file statis, lalu restart `taskflow-web` saja.** Bila `main` memakai v465 lebih dulu, naikkan ke nomor kosong berikutnya.
 - **Gejala (laporan Bapak):** Edit note → 📎 pilih gambar → tidak ada tanda unggah selama beberapa lama → muncul teks `![nama](/api/scratchpad/attachments/44/view)`, bukan gambar; setelah disimpan tetap teks.
 - **Akar masalah:** `NoteToolbar.handleAttachFile` menyisipkan sintaks markdown lewat `tr.insertText` (teks mentah) → serializer Milkdown menyimpannya ter-escape `!\[nama]\(url)`; selama unggah hanya tombol yang dinonaktifkan.

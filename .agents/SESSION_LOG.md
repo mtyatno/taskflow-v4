@@ -4055,3 +4055,7 @@
 - **Changes:** sisip lampiran lewat parser editor (bukan teks mentah), indikator unggah XHR dengan %, galat via toast, pemulihan note lama yang ter-escape; helper `static/offline/noteattach.js` + tes; SW v465 / `app.css?v=363`; E2E `temporary_files/e2e_note_image_attach.py` 11/11 (main lama 3/11).
 - **Files Touch:** static/index.html, static/app.css, static/sw.js, static/offline/noteattach.js, webapp.py, tests/test_version.py, tests/offline/*.test.js, temporary_files/e2e_note_image_attach.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (draft PR; deploy = file statis + restart `taskflow-web` saja)
+
+## 2026-10-23 05:10 WIB — Claude — merge bug lampiran gambar 📎 (#89)
+- Bapak memilih "Merge #89 saja dulu". Dua kali merge `main` (#88 v463, #90 v464) → SW **v465** `taskflow-v465-note-lampiran-gambar` / `app.css?v=363`; CI Tests hijau di 5109987; #89 di-merge (f61c3c8).
+- **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web`. Masih terbuka: gambar note 401 di browser tanpa cookie (opsi di CURRENT_STATE).
