@@ -30,7 +30,7 @@ describe('Drawing Directive Module', () => {
     const raw = '::draw[canvas-default]';
     const parsed = parseDirective(raw);
     assert.equal(parsed.id, 'canvas-default');
-    assert.equal(parsed.title, 'Gambar');
+    assert.equal(parsed.title, 'Sketsa');
     assert.equal(parsed.size, 'L');
     assert.equal(parsed.width, '100%');
     assert.equal(parsed.height, '400px');
@@ -52,7 +52,7 @@ describe('Drawing Directive Module', () => {
   it('formats attributes with fallback defaults', () => {
     const attrs = { id: 'canvas-simple' };
     const str = formatDirective(attrs);
-    assert.equal(str, '::draw[canvas-simple]{title="Gambar" size="L" width="100%"}');
+    assert.equal(str, '::draw[canvas-simple]{title="Sketsa" size="L" width="100%"}');
   });
 
   it('remark transformer transforms text nodes containing ::draw into drawingDirective nodes', () => {
@@ -273,7 +273,7 @@ describe('Drawing Directive Module', () => {
 
   describe('DOMOutputSpec Safety for Milkdown / ProseMirror Drawing Node', () => {
     function generateDrawingToDOM(nodeAttrs) {
-      const { id = '', title = 'Gambar', size = 'L', width = '100%', height = '400px' } = nodeAttrs;
+      const { id = '', title = 'Sketsa', size = 'L', width = '100%', height = '400px' } = nodeAttrs;
       const widthVal = width || (size === 'S' ? '50%' : size === 'M' ? '75%' : '100%');
       const heightVal = height || (size === 'S' ? '200px' : size === 'M' ? '300px' : '400px');
       const cardWidthStyle = widthVal && widthVal !== '100%' ? `display:block;width:${widthVal};max-width:${widthVal};margin:10px auto;` : `display:block;width:100%;margin:10px 0;`;
@@ -285,7 +285,7 @@ describe('Drawing Directive Module', () => {
         style: cardWidthStyle
       },
         ['span', { class: 'note-draw-header', style: 'display:flex;' },
-          ['span', { class: 'note-draw-title' }, `🎨 ${title || 'Gambar'}`],
+          ['span', { class: 'note-draw-title' }, `🎨 ${title || 'Sketsa'}`],
           ['span', { style: 'display:flex;gap:6px;align-items:center;' },
             ['span', { class: 'note-draw-size-pills', style: 'display:inline-flex;' },
               ['button', { type: 'button', class: `note-draw-size-btn ${size === 'S' ? 'active' : ''}`, 'data-size-btn': 'S' }, 'S'],
@@ -300,9 +300,9 @@ describe('Drawing Directive Module', () => {
           class: 'note-draw-preview-container',
           'data-drawing-preview': id,
           style: `display:flex;max-height:${heightVal};resize:vertical;overflow:auto;cursor:pointer;`,
-          title: 'Klik untuk membuka / mengedit gambar'
+          title: 'Klik untuk membuka / mengedit sketsa'
         },
-          ['span', { class: 'drawing-preview-placeholder', style: 'color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;' }, '🎨 Memuat gambar...']
+          ['span', { class: 'drawing-preview-placeholder', style: 'color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;' }, '🎨 Memuat sketsa...']
         ]
       ];
     }
@@ -376,7 +376,7 @@ describe('Drawing Directive Module', () => {
         const titleSpan = header.children[0];
         assert.equal(titleSpan.tag, 'span');
         assert.deepEqual(titleSpan.attrs, { class: 'note-draw-title' });
-        assert.equal(titleSpan.children[0].text, `🎨 ${tc.title || 'Gambar'}`);
+        assert.equal(titleSpan.children[0].text, `🎨 ${tc.title || 'Sketsa'}`);
       }
     });
 
@@ -488,7 +488,7 @@ describe('Drawing Directive Module', () => {
   });
 
   // Spec XSS §3: syarat isi = trim().startsWith('<svg') (sama dengan server & halaman publik); includes('<svg')
-  // tidak dipakai lagi. SVG ber-prolog XML ditolak (kartu "Gambar tidak tersedia").
+  // tidak dipakai lagi. SVG ber-prolog XML ditolak (kartu "Sketsa tidak tersedia").
   describe('Inline Drawing Preview SVG Parsing (startsWith <svg)', () => {
     function isValidSvg(svg) {
       return Boolean(svg && typeof svg === 'string' && svg.trim().startsWith('<svg'));

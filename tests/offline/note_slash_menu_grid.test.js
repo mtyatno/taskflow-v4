@@ -43,7 +43,7 @@ const EXPECTED = [
   ["Sisipkan", [
     ["sTable", "Tabel", "table"],
     ["sDivider", "Divider", "hr"],
-    ["pPalette", "Gambar", "draw"],
+    ["pPalette", "Sketsa", "draw"],
     ["nPin", "Task", "task"],
   ]],
   ["Tautan", [
@@ -114,7 +114,7 @@ test("slash menu: grup dan item sesuai urutan", async (t) => {
       assert.ok(typeof it.title === "string" && it.title.length > it.label.length - 1, `title untuk ${it.label}`);
     }
     const byType = Object.fromEntries(groups.flatMap(g => g.items).map(it => [it.type, it]));
-    assert.equal(byType.draw.title, "Gambar / Sketsa (/draw)");
+    assert.equal(byType.draw.title, "Sketsa — coretan bebas, diagram, papan tulis");
     assert.equal(byType.task.title, "Tugas / Task (/task, /tasks)");
     assert.equal(byType.callout.title, "Callout / Info (/callout)");
     assert.equal(byType.toggle.title, "Toggle / Lipatan (/toggle)");

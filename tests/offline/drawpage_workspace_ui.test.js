@@ -1,6 +1,6 @@
 "use strict";
 
-// PR 3 Task 3: halaman Draw — share ke workspace, badge, filter scope, aksi khusus pemilik.
+// PR 3 Task 3: halaman Sketsa — share ke workspace, badge, filter scope, aksi khusus pemilik.
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -68,7 +68,7 @@ test("DrawingListItem shows 👥 badge and hides pin for non-owner", () => {
 test("DrawingTabInstance share uses TF.drawingshare.shareDrawing and renders DRAWING_IN_USE dialog text", () => {
   const b = tabInst();
   assert.match(b, /TF\.drawingshare\.shareDrawing\(api, tab, listId\)/);
-  assert.match(b, /Drawing masih dipakai/);
+  assert.match(b, /Sketsa masih dipakai/);
   assert.match(b, /dan \$\{inUse\.hidden_count\} note lain/);
   assert.match(b, /Buat salinan pribadi sebagai gantinya\./);
   assert.match(b, /Jadikan salinan pribadi/);
@@ -78,7 +78,7 @@ test("DrawingTabInstance share uses TF.drawingshare.shareDrawing and renders DRA
   assert.match(b, /isOwner && sharedLists\.length > 0/);
   assert.match(b, /last_editor_username/);
   assert.match(b, /Dipakai di: /);
-  assert.match(b, /showToast\(res\.message \|\| "Gagal membagikan gambar", "error"\)/);
+  assert.match(b, /showToast\(res\.message \|\| "Gagal membagikan sketsa", "error"\)/);
   assert.match(b, /onDrawingChanged\(tab\.id, res\.drawing, listId\)/);
   assert.doesNotMatch(b, /window\.alert|\balert\(/);
 });
@@ -120,7 +120,7 @@ test("DrawingTabInstance share/copy toast instead of rejecting when TF.drawingsh
   const h = mk({ TF: {} }, {}, { id: 1 }, (msg, t) => toasts.push([msg, t]), () => {}, () => {}, (v) => busy.push(v), null, null);
   await h.handleShare(5);
   await h.handleMakePersonalCopy();
-  assert.deepEqual(toasts, [["Muat ulang aplikasi untuk membagikan gambar.", "error"], ["Muat ulang aplikasi untuk membagikan gambar.", "error"]]);
+  assert.deepEqual(toasts, [["Muat ulang aplikasi untuk membagikan sketsa.", "error"], ["Muat ulang aplikasi untuk membagikan sketsa.", "error"]]);
   assert.deepEqual(busy, []);
   const h2 = mk({}, {}, { id: 1 }, (msg, t) => toasts.push([msg, t]), () => {}, () => {}, () => {}, null, null);
   await h2.handleShare(5);

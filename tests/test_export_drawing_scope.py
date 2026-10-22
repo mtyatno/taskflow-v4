@@ -2,7 +2,7 @@
 
 `_make_drawing_resolver(uid)` dipakai ekspor note tersimpan (GET /api/scratchpad/{id}/export/docx) dan
 ekspor live (POST /api/scratchpad/export/docx, isinya bebas dari klien). Token direktif ::draw[...]
-di-resolve lewat id angka, client_id, lalu judul (persis, lalu heuristik "gambar/canvas -"), dan semuanya
+di-resolve lewat id angka, client_id, lalu judul (persis, lalu heuristik "sketsa/gambar/canvas -"), dan semuanya
 terscope ke user_id pengekspor: drawing user lain (walau di-pin), judul milik user lain, dan fallback lama
 "id drawing = id note" tidak pernah ter-resolve. Token berbentuk id angka atau UUID yang tidak ter-resolve
 tidak ditebak lewat judul (akan menyematkan drawing pengekspor sendiri yang kebetulan berjudul sama).
@@ -24,7 +24,7 @@ UNKNOWN = "00000000-0000-0000-0000-000000000000"
 
 def _uniq():
     """Tag unik TANPA angka (huruf a-p). Heuristik judul resolver (dipertahankan) mengubah judul bawaan
-    "Gambar <token>" jadi LIKE '%token%' atas judul drawing milik pengekspor: token id angka ("Gambar 2")
+    "Sketsa <token>" jadi LIKE '%token%' atas judul drawing milik pengekspor: token id angka ("Sketsa 2")
     akan kebetulan cocok dengan judul drawing A yang memuat "2" bila tag-nya memuat angka (tes jadi flaky)."""
     return uuid.uuid4().hex[:10].translate(str.maketrans("0123456789", "ghijklmnop"))
 
@@ -130,7 +130,7 @@ def _plant_drawing_with_next_note_id(client, headers, owner_id, title, svg):
 def _exports(client, headers, note_id, content):
     """Ekspor content lewat kedua endpoint DOCX (note tersimpan dan live); kembalikan
     {endpoint: (teks semua paragraf, jumlah gambar di dokumen)}. Drawing yang ter-resolve jadi gambar
-    dengan keterangan berisi judulnya; yang tidak ter-resolve jadi paragraf "[Gambar/Canvas: ...]"."""
+    dengan keterangan berisi judulnya; yang tidak ter-resolve jadi paragraf "[Sketsa: ...]"."""
     saved = client.get(f"/api/scratchpad/{note_id}/export/docx", headers=headers)
     live = client.post("/api/scratchpad/export/docx", headers=headers, json={
         "note_id": note_id, "title": "Ekspor live", "content": content,
@@ -144,15 +144,15 @@ def _exports(client, headers, note_id, content):
 
 
 def _placeholders(text):
-    """Judul pada paragraf "[Gambar/Canvas: judul]": tepat rujukan drawing yang tidak ter-resolve."""
-    return re.findall(r"\[Gambar/Canvas: ([^\]]*)\]", text)
+    """Judul pada paragraf "[Sketsa: judul]": tepat rujukan drawing yang tidak ter-resolve."""
+    return re.findall(r"\[Sketsa: ([^\]]*)\]", text)
 
 
 # ── Resolver ─────────────────────────────────────────────────────────────────
 
 def test_export_resolver_rejects_other_users_drawings(client):
     """Drawing user lain (walau di-pin) tidak ter-resolve lewat id, client_id, judul direktif,
-    heuristik "gambar/canvas -", maupun token berisi judul."""
+    heuristik "sketsa/gambar/canvas -", maupun token berisi judul."""
     s = _scenario(client)
     res = webapp._make_drawing_resolver(s.uid_a)
 
@@ -160,6 +160,7 @@ def test_export_resolver_rejects_other_users_drawings(client):
         "id": res(str(s.b["id"])),
         "client_id": res(s.b["client_id"]),
         "judul direktif": res("tidak-ada", title=s.b["title"]),
+        "judul dengan prefix sketsa": res("tidak-ada", title=f"Sketsa - {s.b['title']}"),
         "judul dengan prefix gambar": res("tidak-ada", title=f"Gambar - {s.b['title']}"),
         "token judul": res(s.b["title"]),
     }
@@ -169,7 +170,7 @@ def test_export_resolver_rejects_other_users_drawings(client):
 
 def test_export_resolver_resolves_own_drawings(client):
     """Drawing milik pengekspor ter-resolve lewat id, client_id (dukungan baru), judul direktif persis,
-    dan heuristik lama "gambar/canvas -", dengan bentuk hasil {id, title, svg} yang dibaca docx_exporter."""
+    dan heuristik "sketsa/gambar/canvas -" (judul lama "Gambar - …" tetap dibersihkan), dengan bentuk hasil {id, title, svg} yang dibaca docx_exporter."""
     s = _scenario(client)
     res = webapp._make_drawing_resolver(s.uid_a)
     expected = {"id": s.a["id"], "title": s.a["title"], "svg": s.svg_a}
@@ -178,6 +179,7 @@ def test_export_resolver_resolves_own_drawings(client):
         "id": res(str(s.a["id"])),
         "client_id": res(s.a["client_id"]),
         "judul direktif": res("tidak-ada", title=s.a["title"]),
+        "judul dengan prefix sketsa": res("tidak-ada", title=f"Sketsa - {s.a['title']}"),
         "judul dengan prefix gambar": res("tidak-ada", title=f"Gambar - {s.a['title']}"),
     }
     assert got == {name: expected for name in got}
@@ -198,7 +200,7 @@ def test_export_resolver_no_note_id_fallback(client):
 
     for kind, (text, pictures) in _exports(client, s.ha, note_id, content).items():
         assert pictures == 0, f"{kind}: drawing B (id sama dengan id note) ikut tersemat"
-        assert _placeholders(text) == [f"Gambar {UNKNOWN}"], kind
+        assert _placeholders(text) == [f"Sketsa {UNKNOWN}"], kind
 
 
 # ── Endpoint ekspor ──────────────────────────────────────────────────────────
@@ -216,7 +218,7 @@ def test_export_endpoints_embed_only_exporters_drawings(client):
         f'::draw[tidak-ada]{{title="{s.b["title"]}"}}',
     ])
     note_id = _create_note(client, s.ha, f"Note A {s.tag}", content)
-    unresolved = sorted([f"Gambar {s.b['id']}", f"Gambar {s.b['client_id']}", s.b["title"]])
+    unresolved = sorted([f"Sketsa {s.b['id']}", f"Sketsa {s.b['client_id']}", s.b["title"]])
 
     for kind, (text, pictures) in _exports(client, s.ha, note_id, content).items():
         assert pictures == 3, kind

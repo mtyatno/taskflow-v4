@@ -143,7 +143,7 @@ test("member delete/pin of others' drawing is rejected locally", async () => {
   const R = buildTaskRouter();
   await put([local({ cid: "o", server_id: 60, list_id: 9, user_id: 7 })]);
   for (const [m, p] of [["DELETE", "/api/drawings/60"], ["PATCH", "/api/drawings/60/pin"], ["DELETE", "/api/drawings/o"]]) {
-    await assert.rejects(R.dispatch(m, p, undefined), (e) => e.status === 403 && e.message === "Hanya pemilik drawing" && e.body.detail === "Hanya pemilik drawing");
+    await assert.rejects(R.dispatch(m, p, undefined), (e) => e.status === 403 && e.message === "Hanya pemilik sketsa" && e.body.detail === "Hanya pemilik sketsa");
   }
   assert.deepEqual(await outboxAll(), []);
   const rec = (await all())[0];

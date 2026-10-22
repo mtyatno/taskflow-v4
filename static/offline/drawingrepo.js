@@ -31,9 +31,9 @@
     return !!rec && rec.user_id != null && me != null && String(rec.user_id) !== String(me);
   }
   function ownerOnlyError() {
-    const e = new Error("Hanya pemilik drawing");
+    const e = new Error("Hanya pemilik sketsa");
     e.status = 403;
-    e.body = { detail: "Hanya pemilik drawing" };
+    e.body = { detail: "Hanya pemilik sketsa" };
     return e;
   }
   // Field scope workspace/kolaborator dari baris server (null bila tidak ada).

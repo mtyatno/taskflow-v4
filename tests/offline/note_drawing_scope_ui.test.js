@@ -9,7 +9,7 @@ const path = require("node:path");
 const html = fs.readFileSync(path.resolve(__dirname, "../../static/index.html"), "utf8");
 const share = require("../../static/offline/drawingshare.js");
 
-const PLACEHOLDER = "Gambar tidak tersedia untukmu: sudah dihapus atau tidak dibagikan ke workspace ini.";
+const PLACEHOLDER = "Sketsa tidak tersedia untukmu: sudah dihapus atau tidak dibagikan ke workspace ini.";
 const LISTS = [{ id: 5, name: "Tim A" }, { id: 9, name: "Tim B" }];
 
 function src(name) {
@@ -74,7 +74,7 @@ test("insert own personal drawing into W note calls shareDrawing; other workspac
   r = await apply(mkShare({ ok: false, code: "OFFLINE", message: "x" }), api, { id: "cid1", cid: "cid1", server_id: null, title: "Mine" }, { kind: "own_to_ws", listId: 5 }, "Tim A");
   assert.equal(r.ok, true);
   assert.equal(r.id, "cid1");
-  assert.equal(r.toast, "Gambar belum dibagikan ke Tim A; bagikan dari halaman Draw saat online.");
+  assert.equal(r.toast, "Sketsa belum dibagikan ke Tim A; bagikan dari halaman Sketsa saat online.");
 
   // other_ws_copy → salin ke W note, sisip token salinan (client_id dulu)
   calls.length = 0;
@@ -83,8 +83,8 @@ test("insert own personal drawing into W note calls shareDrawing; other workspac
   assert.deepEqual([calls[0][0], calls[0][3]], ["copy", 5]);
 
   // salin gagal → tidak disisipkan, pesan diteruskan
-  r = await apply(mkShare(null, { ok: false, code: "OFFLINE", message: "Data gambar belum tersedia offline." }), api, { id: 40, list_id: 9 }, { kind: "other_ws_copy", listId: 5 }, "Tim A");
-  assert.deepEqual(r, { ok: false, message: "Data gambar belum tersedia offline." });
+  r = await apply(mkShare(null, { ok: false, code: "OFFLINE", message: "Data sketsa belum tersedia offline." }), api, { id: 40, list_id: 9 }, { kind: "other_ws_copy", listId: 5 }, "Tim A");
+  assert.deepEqual(r, { ok: false, message: "Data sketsa belum tersedia offline." });
 
   // scopeNotice asli: drawing pribadi milik sendiri → own_to_ws; milik W lain → other_ws_copy
   assert.equal(share.scopeNotice({ list_id: null, user_id: 1 }, 5, 1).kind, "own_to_ws");
@@ -115,7 +115,7 @@ test("new drawing from W note posts list_id", () => {
 function fakeEl(did) {
   const attrs = { "data-drawing-preview": did };
   return {
-    innerHTML: "<span>🎨 Memuat gambar...</span>",
+    innerHTML: "<span>🎨 Memuat sketsa...</span>",
     getAttribute: k => (k in attrs ? attrs[k] : null),
     setAttribute: (k, v) => { attrs[k] = String(v); },
     querySelector: () => null,
@@ -166,7 +166,7 @@ test("hydrateDrawingPreviews renders exact placeholder text when drawing unavail
   // ditemukan → <img> lewat TF.safehtml.mountSvgImg (bukan markup svg; detail di svg_preview_img.test.js)
   el = await run({ remote: { id: 42, svg_preview: "<svg></svg>", list_id: null } });
   assert.deepEqual(el.mounted, ["<svg></svg>"]);
-  assert.equal(el.innerHTML, "<span>🎨 Memuat gambar...</span>");
+  assert.equal(el.innerHTML, "<span>🎨 Memuat sketsa...</span>");
   assert.equal(el.attrs["data-hydrated"], "true");
   // ditemukan lokal tanpa svg → tidak dianggap hilang
   el = await run({ local: { id: 42, svg_preview: "" }, remote: notFound });
@@ -224,9 +224,9 @@ test("embed shows 👥 badge and copy action when scopes differ; action swaps no
     assert.deepEqual(dispatched, [{ pos: 7, type: null, attrs: { id: "newc", title: "T", size: "M", width: "75%", height: "300px" } }]);
     // gagal → tidak ada dispatch, pesan diteruskan
     dispatched.length = 0;
-    g.TF.drawingshare.copyDrawing = async () => ({ ok: false, code: "OFFLINE", message: "Data gambar belum tersedia offline." });
+    g.TF.drawingshare.copyDrawing = async () => ({ ok: false, code: "OFFLINE", message: "Data sketsa belum tersedia offline." });
     const bad = await copyInto(editor, "40", 5);
-    assert.deepEqual(bad, { ok: false, message: "Data gambar belum tersedia offline." });
+    assert.deepEqual(bad, { ok: false, message: "Data sketsa belum tersedia offline." });
     assert.equal(dispatched.length, 0);
   } finally {
     g.window = saved.window; g.TF = saved.TF; g.api = saved.api;
@@ -246,8 +246,8 @@ test("embed shows 👥 badge and copy action when scopes differ; action swaps no
 
 test("QuickDrawModal shows workspace banner text", () => {
   const banner = helper("drawingEditBanner", ["drawingScopeListName"]);
-  assert.equal(banner({ list_id: 9 }, 5, LISTS), "Kamu mengedit drawing milik workspace Tim B. Perubahan terlihat oleh semua anggota.");
-  assert.equal(banner({ list_id: 9 }, null, LISTS), "Kamu mengedit drawing milik workspace Tim B. Perubahan terlihat oleh semua anggota.");
+  assert.equal(banner({ list_id: 9 }, 5, LISTS), "Kamu mengedit sketsa milik workspace Tim B. Perubahan terlihat oleh semua anggota.");
+  assert.equal(banner({ list_id: 9 }, null, LISTS), "Kamu mengedit sketsa milik workspace Tim B. Perubahan terlihat oleh semua anggota.");
   assert.equal(banner({ list_id: 9 }, "9", LISTS), null);
   assert.equal(banner({ list_id: null }, 5, LISTS), null);
   assert.equal(banner(null, 5, LISTS), null);

@@ -40,7 +40,7 @@ def test_shared_published_note_shows_workspace_drawing(client):
     page = pub.get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
     assert marker in _shown(page.text)
-    assert "Gambar tidak tersedia" not in page.text
+    assert "Sketsa tidak tersedia" not in page.text
     assert pub.get(f"/pub/drawings/{d['id']}").status_code == 200
     assert pub.get(f"/pub/drawings/{d['client_id']}").status_code == 200
 
@@ -61,7 +61,9 @@ def test_shared_published_note_hides_non_workspace_drawing(client):
     page = pub.get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
     assert marker not in _shown(page.text)
-    assert "Gambar tidak tersedia" in page.text
+    assert "Sketsa tidak tersedia" in page.text
+    # judul bawaan kartu tanpa title="…" = "Sketsa" (bukan "Gambar")
+    assert "<span>🎨 Sketsa</span>" in page.text and "<span>🎨 Gambar</span>" not in page.text
     assert pub.get(f"/pub/drawings/{k['id']}").status_code == 404
     assert pub.get(f"/pub/drawings/{k['client_id']}").status_code == 404
     assert drawing_row(k["id"])["list_id"] is None
@@ -167,7 +169,7 @@ def test_trusted_note_still_hides_inaccessible_drawing(client):
     pub = anon()
     page = pub.get(f"/pub/{username}/{slug}")
     assert marker not in _shown(page.text)
-    assert "Gambar tidak tersedia" in page.text
+    assert "Sketsa tidak tersedia" in page.text
     assert pub.get(f"/pub/drawings/{c['id']}").status_code == 404
     assert pub.get(f"/pub/drawings/{cw['id']}").status_code == 404
 
@@ -189,11 +191,11 @@ def test_export_docx_resolves_member_accessible_drawing(client):
     dw = make_drawing(client, ha, f"dw-{tag}", cid=f"cid-dw-{tag}", list_id=w, svg=_svg("DW"))
     dp = make_drawing(client, ha, f"dp-{tag}", cid=f"cid-dp-{tag}", svg=_svg("DP"))
     text, pics = _docx_text(client, hb, f"::draw[{dw['id']}]{{title=\"x\"}}")
-    assert pics == 1 and "[Gambar/Canvas" not in text
+    assert pics == 1 and "[Sketsa" not in text
     text, pics = _docx_text(client, hb, f"::draw[{dw['client_id']}]")
     assert pics == 1
     text, pics = _docx_text(client, hb, f"::draw[{dp['id']}]\n\n::draw[{dp['client_id']}]")
-    assert pics == 0 and "[Gambar/Canvas" in text
+    assert pics == 0 and "[Sketsa" in text
     # heuristik judul tidak menjangkau drawing pribadi A
     text, pics = _docx_text(client, hb, f"::draw[tidak-ada]{{title=\"{dp['title']}\"}}")
     assert pics == 0

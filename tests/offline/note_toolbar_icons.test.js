@@ -106,11 +106,11 @@ test("Note Editor Toolbar Lucide Icons Modernization", async (t) => {
       "+ Task button should use checkSquare icon"
     );
 
-    // + Gambar button: draw icon
+    // Sketsa button: draw icon
     assert.match(
       toolbarCode,
-      /title:\s*["']Sisipkan atau buat gambar \/ sketsa baru \(\/draw\)["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']draw["']/,
-      "+ Gambar button should use draw icon"
+      /title:\s*["']Sisipkan sketsa yang ada atau buat sketsa baru["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']draw["']/,
+      "Sketsa button should use draw icon"
     );
 
     // Format lainnya button: plus icon
@@ -192,6 +192,7 @@ test("Note Editor Toolbar Lucide Icons Modernization", async (t) => {
     assert.doesNotMatch(toolbarCode, /\\uD83D\\uDCC4/, "No legacy paper emoji unicode in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /📄\s*Kertas/, "No literal 📄 Kertas string in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /🎨\s*\+Gambar/, "No literal 🎨 +Gambar string in NoteToolbar buttons");
+    assert.doesNotMatch(toolbarCode, /🎨\s*\+?Sketsa/, "No literal 🎨 Sketsa string in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /\\uD83C\\uDF99/, "No legacy microphone emoji in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /\\uD83D\\uDD34/, "No legacy red circle emoji in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /\\uD83D\\uDFE1/, "No legacy yellow circle emoji in NoteToolbar buttons");

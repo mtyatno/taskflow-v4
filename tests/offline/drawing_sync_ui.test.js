@@ -143,7 +143,7 @@ test("QuickDrawModal: state 'Menyimpan…' — tombol nonaktif & cegah tutup gan
   assert.match(qdm, /disabled:\s*saving/);
 });
 
-test("QuickDrawModal: handleOpenStandalone ikut menunggu simpan sebelum membuka halaman Draw", () => {
+test("QuickDrawModal: handleOpenStandalone ikut menunggu simpan sebelum membuka halaman Sketsa", () => {
   assert.match(qdm, /const handleOpenStandalone = \(\) => [\s\S]{0,200}?openDrawing/);
   assert.doesNotMatch(qdm, /const handleOpenStandalone = \(\) => \{\s*handleClose\(\);\s*window\.dispatchEvent/);
 });
@@ -366,12 +366,12 @@ test("isEmptyDrawingData: '{}' / kosong = gambar baru; snapshot atau JSON lain b
   for (const v of ['{"store":{},"schema":{}}', '{"a":1}', "rusak{", "[]"]) assert.equal(fn(v), false, JSON.stringify(v));
 });
 
-test("QuickDrawModal & DrawingTabInstance: 'ready' → load {v:2, empty} atau loadError + toast 'Gagal memuat gambar'", () => {
+test("QuickDrawModal & DrawingTabInstance: 'ready' → load {v:2, empty} atau loadError + toast 'Gagal memuat sketsa'", () => {
   for (const [name, code] of [["QuickDrawModal", qdm], ["DrawingTabInstance", dti]]) {
     assert.match(code, /type: 'load',\s*v: 2,\s*data: doc\.data_json \|\| '\{\}',\s*empty: isEmptyDrawingData\(doc\.data_json\)/, name + " load awal");
     assert.match(code, /type: 'load',\s*v: 2,\s*data: fresh\.data_json,\s*empty: isEmptyDrawingData\(fresh\.data_json\)/, name + " load ulang");
     assert.match(code, /postMessage\(\{ type: 'loadError', v: 2 \}, window\.location\.origin\)/, name + " loadError");
-    assert.match(code, /showToast\('Gagal memuat gambar', 'error'\)/, name + " toast");
+    assert.match(code, /showToast\('Gagal memuat sketsa', 'error'\)/, name + " toast");
   }
 });
 
