@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v455-komentar-tooltip";
+const CACHE = "taskflow-v456-focus-filter";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
@@ -12,6 +12,7 @@ const STATIC = [
   "/static/offline/blobstore.js",
   "/static/offline/router.js",
   "/static/offline/tasklogic.js",
+  "/static/offline/focusfilter.js",
   "/static/offline/tagrepo.js",
   "/static/offline/taskrepo.js",
   "/static/offline/taskquery.js",

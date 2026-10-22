@@ -3911,6 +3911,18 @@
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
 
+
+## [2026-10-22 05:35] - Claude
+- **Task:** Brainstorming pemilihan task di halaman Fokus (permintaan Bapak 2026-10-21) → spec.
+- **Changes:** mockup 3 opsi lalu prototipe interaktif gabungan A + filter tersembunyi (artifact "Filter Halaman Fokus"); Bapak setuju tata letak dan arsitektur; spec ditulis + commit d2c89b3 di `claude/fokus-filter` (di-push), disalin ke Project.
+- **Files Touch:** docs/superpowers/specs/2026-10-22-fokus-filter-task-design.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — menunggu review spec oleh Bapak sebelum rencana implementasi.
+
+## [2026-10-22 05:45] - Claude
+- **Task:** Rencana implementasi pemilihan task halaman Fokus (spec disetujui Bapak).
+- **Changes:** `docs/superpowers/plans/2026-10-22-fokus-filter-task.md` (6 task: modul focusfilter ×2, satu definisi cakupan, Target + kelompok + ⭐, bar + lembar filter, versi/E2E/ADR-027) commit 13f5939, disalin ke Project.
+- **Files Touch:** docs/superpowers/plans/2026-10-22-fokus-filter-task.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — menunggu review rencana.
 ## 2026-10-22 05:40 WIB — Claude — merge Email Fase 0b (#77)
 - Bapak: "merge dan deploy". `main` maju (#78 memakai v452) → di-merge, SW **v453** `taskflow-v453-email-mailer`, `app.css?v=357`; CI Tests hijau di head PR; #77 di-merge (67d578c); Deploy Taskflow V4 sukses.
 - **Berikutnya (di server, oleh Bapak):** `sudo systemctl restart taskflow-web` (tabel `email_outbox` + worker email). Bot tidak perlu restart. Cek Admin → kartu Email (badge "Dev mode"). Saat memilih layanan SMTP: ikuti checklist di entri CURRENT_STATE.
@@ -3920,3 +3932,15 @@
 
 ## 2026-10-22 06:10 WIB — Claude — merge #80 (tooltip Komentari)
 - Bapak: "merge dan deploy". CI hijau, #80 di-merge (dab39a3), Deploy Taskflow V4 sukses. Tinggal restart `taskflow-web` (SW v455).
+
+## [2026-10-22 08:20] - Claude
+- **Task:** Task 6 pemilihan task halaman Fokus: versi, E2E, ADR, handover (`claude/fokus-filter`).
+- **Changes:** merge `origin/main` b84f357 (konflik hanya `.agents/*` dan ekor `app.css`, kedua sisi dipertahankan); SW **v456** `taskflow-v456-focus-filter`, `app.css?v=360` (sw.js, index.html ×3, webapp.py, tes pin versi); E2E baru `temporary_files/e2e_focus_filter.py` (115 langkah, skenario a–n + Zen tanpa task aktif, 3× hijau) + `.gitignore` folder screenshot; ADR-027; spec/rencana disinkronkan dengan 5 keputusan implementasi (⭐ aria-label konstan, berulang keluar dari pool, hitungan Zen, lembar ditutup bila bar tidak dirender, props `FocusFilterBar`); dua E2E lama diperbaiki (pin SW v450 di `e2e_android_notification.py`, balapan baca `tf_pomo_state` di `e2e_focus_target.py` langkah e0). Regresi: npm test 2912/2913 (1 pra-ada), pytest 1139 passed, inline OK, E2E page/target/android/overtime hijau (overtime run ke-2, flake b5–b7 pra-ada).
+- **Files Touch:** static/sw.js, static/index.html, static/app.css, webapp.py, tests/test_version.py + tes pin versi, temporary_files/e2e_focus_filter.py, temporary_files/e2e_android_notification.py, temporary_files/e2e_focus_target.py, .gitignore, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md, docs/superpowers/specs/2026-10-22-fokus-filter-task-design.md, docs/superpowers/plans/2026-10-22-fokus-filter-task.md
+- **Status:** Needs Review — belum di-push, belum ada PR. Deploy bila di-merge: restart `taskflow-web`.
+
+## [2026-10-22 09:10] - Claude
+- **Task:** Implementasi pemilihan task halaman Fokus (rencana 6 task, subagent-driven) sampai draft PR.
+- **Changes:** Task 1–5 (modul `focusfilter.js`, satu cakupan hari ini, Target ⭐ + kelompok, bar + lembar filter) masing-masing direview; Task 6 (merge `origin/main` b84f357, SW v456 / app.css 360, E2E `e2e_focus_filter.py` 115 langkah, ADR-027, sinkron spec) — sempat dihentikan Bapak lalu diselesaikan; review akhir siap merge + gelombang perbaikan 8ac3430. Draft PR #81.
+- **Files Touch:** static/offline/focusfilter.js, static/index.html, static/app.css, static/sw.js, webapp.py, tests/offline/focusfilter.test.js, tests/offline/focus_filter_ui.test.js, tests (pin versi), temporary_files/e2e_focus_filter.py (+ perbaikan e2e_focus_page/target/ambient/android_notification), docs spec/plan, .agents/*
+- **Status:** Needs Review — draft PR #81 menunggu "merge"; deploy = restart `taskflow-web`.

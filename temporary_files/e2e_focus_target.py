@@ -321,6 +321,8 @@ def run_flow(ctx, p, base, user, ids, db):
     wait_for(lambda: server_task(base, user, ids[t1]).get("is_focused") in (1, True), timeout=10)
     before = server_task(base, user, ids[t1]).get("pomodoros_done")
     start(p)
+    # tf_pomo_state ditulis efek React ±11 ms setelah DOM berubah; baca setelah workStartedAt tersimpan (bukan balapan).
+    wait_for(lambda: pomo_state(p).get("isRunning") and pomo_state(p).get("workStartedAt"), timeout=5, interval=0.05)
     st = pomo_state(p)
     cid = "pomo-%s-%s-s" % (user["id"], st.get("workStartedAt"))
     p2 = ctx.new_page()

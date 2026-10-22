@@ -152,15 +152,15 @@ test("CSS segmented toggle", async (t) => {
   });
 });
 
-test("cache bust v432 + app.css?v=359", async (t) => {
+test("cache bust v432 + app.css?v=360", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html, sw_cache webapp.py", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v455-komentar-tooltip";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v455-komentar-tooltip";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v455-komentar-tooltip"/);
-    assert.match(webappPy, /sw_cache = "taskflow-v455-komentar-tooltip"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v456-focus-filter";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v456-focus-filter";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v456-focus-filter"/);
+    assert.match(webappPy, /sw_cache = "taskflow-v456-focus-filter"/);
   });
 
-  await t.test("index.html memuat app.css?v=359", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=359">/);
+  await t.test("index.html memuat app.css?v=360", () => {
+    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=360">/);
   });
 });

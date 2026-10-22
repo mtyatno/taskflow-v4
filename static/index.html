@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=359">
+  <link rel="stylesheet" href="/static/app.css?v=360">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v455-komentar-tooltip";
+    window.__SW_VERSION = "taskflow-v456-focus-filter";
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -263,6 +263,7 @@
   <script src="/static/offline/blobstore.js"></script>
   <script src="/static/offline/router.js"></script>
   <script src="/static/offline/tasklogic.js"></script>
+  <script src="/static/offline/focusfilter.js"></script>
   <script src="/static/offline/tagrepo.js"></script>
   <script src="/static/offline/taskrepo.js"></script>
   <script src="/static/offline/taskquery.js"></script>
@@ -4205,7 +4206,8 @@ function Sidebar({
   const projCounts = React.useMemo(() => sidebarProjectCounts(projects, tasks), [projects, tasks]);
 
   // Count today's focus tasks
-  const todayCount = (tasks || []).filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused || (focusTaskId != null && t.id === focusTaskId)) && t.gtd_status !== "done" && t.gtd_status !== "archived").length;
+  const todayISO = window.TF.tasklogic.todayLocalISO();
+  const todayCount = (tasks || []).filter(t => window.TF.focusfilter.inTodayScope(t, { todayISO, focusTaskId })).length;
 
   // Pending offline tasks — merge ke sidebar counts
   const pendingByStatus = React.useMemo(() => (tasks || []).filter(t => t._pending).reduce((acc, t) => {
@@ -9492,7 +9494,10 @@ const FOCUS_GLYPHS = {
   open: '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
   target: '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   repeat: '<path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14"/><path d="m7 22-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/>',
-  check: '<path d="M20 6 9 17l-5-5"/>'
+  check: '<path d="M20 6 9 17l-5-5"/>',
+  star: '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>',
+  sliders: '<path d="M4 7h10"/><path d="M18 7h2"/><path d="M4 17h4"/><path d="M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4.3-4.3"/>'
 };
 function FocusGlyph({
   name,
@@ -9619,7 +9624,9 @@ function FocusTaskItem({
   isFocusing,
   hasFocusTask,
   zenHidden,
-  zenShown
+  zenShown,
+  onToggleStar,
+  hideProject
 }) {
   const pomoDone = task.pomodoros_done || 0;
   const pomoEst = window.TF.pomologic.clampEstimate(task.estimated_pomodoros);
@@ -9629,6 +9636,10 @@ function FocusTaskItem({
   const panelId = `ftask-panel-${task.id}`;
   const showStatus = task.gtd_status && GTD_LABELS[task.gtd_status] && task.gtd_status !== "done";
   const countLabel = key => key === "subtasks" ? c.subTotal > 0 ? `${c.subDone || 0}/${c.subTotal}` : null : key === "notes" ? c.notes > 0 ? String(c.notes) : null : c.atts > 0 ? String(c.atts) : null;
+  // Terlambat menurut tanggal lokal; is_overdue dari server/IndexedDB bisa basi.
+  const isLate = window.TF.focusfilter.timeBucket(task, window.TF.tasklogic.todayLocalISO()) === "late";
+  // Tombol toggle: aria-label konstan ("Target hari ini"), keadaan lewat aria-pressed, teks aksi lewat title.
+  const starTitle = task.is_focused ? "Lepas dari target hari ini" : "Tandai sebagai target hari ini";
   return React.createElement("div", {
     className: `ftask fade-in${open ? " is-open" : ""}${isFocusing ? " is-focusing" : ""}${zenHidden ? " is-zen-hidden" : ""}${zenShown ? " is-zen-shown" : ""}`,
     "aria-hidden": zenHidden ? true : undefined
@@ -9686,7 +9697,7 @@ function FocusTaskItem({
   }, React.createElement(Icon, {
     name: GTD_ICON[task.gtd_status],
     size: 12
-  }), GTD_LABELS[task.gtd_status]), task.project && React.createElement("span", {
+  }), GTD_LABELS[task.gtd_status]), task.project && !hideProject && React.createElement("span", {
     className: "ftask-info",
     title: "Project"
   }, React.createElement(FocusGlyph, {
@@ -9695,8 +9706,8 @@ function FocusTaskItem({
   }), React.createElement("span", {
     className: "ftask-info-text"
   }, task.project)), task.deadline && React.createElement("span", {
-    className: `ftask-info${task.is_overdue ? " is-overdue" : ""}`,
-    title: task.is_overdue ? "Terlambat" : "Deadline"
+    className: `ftask-info${isLate ? " is-overdue" : ""}`,
+    title: isLate ? "Terlambat" : "Deadline"
   }, React.createElement(FocusGlyph, {
     name: "calendar",
     size: 13
@@ -9716,7 +9727,20 @@ function FocusTaskItem({
   }, React.createElement(ViewGlyph, {
     name: "pomoTomato",
     size: 12
-  }), pomoDone, "/", pomoEst))), React.createElement("button", {
+  }), pomoDone, "/", pomoEst))), onToggleStar && React.createElement("button", {
+    type: "button",
+    className: `ftask-star${task.is_focused ? " is-on" : ""}`,
+    onClick: e => {
+      e.stopPropagation();
+      onToggleStar(task);
+    },
+    "aria-pressed": !!task.is_focused,
+    "aria-label": "Target hari ini",
+    title: starTitle
+  }, React.createElement(FocusGlyph, {
+    name: "star",
+    size: 18
+  })), React.createElement("button", {
     type: "button",
     "data-tour": "today-focus-btn",
     className: `ftask-focus-btn ${isFocusing ? "is-active" : isOtherFocused ? "is-disabled" : ""}`,
@@ -11140,6 +11164,343 @@ function FocusSectionHead({
   }, count));
 }
 
+// Target hari ini: task aktif Pomodoro + task ber-⭐ (tidak ikut disaring). `zenClass` (diawali spasi)
+// dan `zenHidden` diisi induk hanya saat seksi ini tidak memuat task aktif, supaya task aktif tetap tampil di Zen.
+function FocusTargetSection({
+  tasks,
+  renderItem,
+  zenClass = "",
+  zenHidden = false
+}) {
+  return React.createElement("section", {
+    className: `focus-section${zenClass}`,
+    "aria-hidden": zenHidden ? true : undefined
+  }, React.createElement(FocusSectionHead, {
+    glyph: "star",
+    title: "Target hari ini",
+    count: tasks.length
+  }), React.createElement("div", {
+    className: "ftask-list focus-target"
+  }, tasks.map(task => renderItem(task, {
+    inGroup: false
+  }))));
+}
+
+// Kelompok Workspace › Project: judul = tombol lipat (aria-expanded), isi hanya dirender saat terbuka.
+// `collapsed` = Set kunci kelompok. id daftar diturunkan dari urutan render, jadi unik per render.
+function FocusTaskGroups({
+  groups,
+  collapsed,
+  onToggleGroup,
+  renderItem,
+  zenClass = "",
+  zenHidden = false
+}) {
+  return React.createElement("div", {
+    className: "focus-groups"
+  }, groups.map((group, index) => {
+    const isCollapsed = collapsed.has(group.key);
+    const listId = `focus-group-${index}`;
+    return React.createElement("section", {
+      key: group.key,
+      className: `focus-group${isCollapsed ? " is-collapsed" : ""}${zenClass}`,
+      "aria-hidden": zenHidden ? true : undefined
+    }, React.createElement("button", {
+      type: "button",
+      className: "focus-group-head",
+      "aria-expanded": !isCollapsed,
+      "aria-controls": isCollapsed ? undefined : listId,
+      onClick: () => onToggleGroup(group.key)
+    }, React.createElement(FocusGlyph, {
+      name: "chevron",
+      size: 14,
+      className: "focus-group-chevron"
+    }), React.createElement("span", {
+      className: "focus-group-ws"
+    }, `${group.workspaceLabel} ·`), React.createElement("span", {
+      className: "focus-group-name"
+    }, group.projectLabel), React.createElement("span", {
+      className: "focus-group-count"
+    }, group.tasks.length)), !isCollapsed && React.createElement("div", {
+      id: listId,
+      className: "ftask-list"
+    }, group.tasks.map(task => renderItem(task, {
+      inGroup: true
+    }))));
+  }));
+}
+
+// Label status GTD di lembar filter dan pil "Status: …" (urutan kanonis = focusfilter.STATUSES).
+const FOCUS_STATUS_LABELS = {
+  next: "Next",
+  inbox: "Inbox",
+  waiting: "Waiting",
+  someday: "Someday"
+};
+
+// Bar filter "Task hari ini": tab waktu, cari + tombol Filter, lalu baris chip (pil filter tersembunyi,
+// chip cepat P1–P3/Q1/Q3, Reset). `children` = lembar filter, dirender di baris cari (position: relative)
+// supaya panel desktop berjangkar tepat di bawah tombol Filter.
+function FocusFilterBar({
+  filter,
+  query,
+  counts,
+  badge,
+  pills,
+  sheetOpen,
+  onTime,
+  onQuery,
+  onToggleQuick,
+  onRemovePill,
+  onReset,
+  onOpenSheet,
+  filterBtnRef,
+  zenClass = "",
+  zenHidden = false,
+  children
+}) {
+  const ff = window.TF.focusfilter;
+  const inputRef = useRef(null);
+  const chipsRef = useRef(null);
+  // Pil/Reset yang diklik hilang setelah render ulang → fokus ke chip pertama, bukan jatuh ke body.
+  const keepChipFocus = () => setTimeout(() => {
+    const row = chipsRef.current;
+    const active = document.activeElement;
+    if (row && row.isConnected && (!active || active === document.body)) row.querySelector("button")?.focus({
+      preventScroll: true
+    });
+  }, 0);
+  const times = [["all", "Semua"], ["today", "Hari ini"], ["late", "Terlambat"]];
+  const quick = [...ff.QUICK_PRI.map(value => ["pri", value]), ...ff.QUICK_QUAD.map(value => ["quad", value])];
+  const showReset = !ff.isFilterDefault(filter) || query.trim() !== "";
+  return React.createElement("div", {
+    className: `focus-filter${zenClass}`,
+    "aria-hidden": zenHidden ? true : undefined
+  }, React.createElement("div", {
+    className: "focus-filter-time",
+    role: "group",
+    "aria-label": "Waktu"
+  }, times.map(([key, label]) => React.createElement("button", {
+    key,
+    type: "button",
+    "aria-pressed": filter.time === key,
+    onClick: () => onTime(key)
+  }, label, " ", React.createElement("span", {
+    className: "n"
+  }, counts[key])))), React.createElement("div", {
+    className: "focus-filter-searchrow"
+  }, React.createElement("label", {
+    className: "focus-filter-search"
+  }, React.createElement(FocusGlyph, {
+    name: "search",
+    size: 15
+  }), React.createElement("input", {
+    ref: inputRef,
+    type: "search",
+    value: query,
+    placeholder: "Cari judul task…",
+    "aria-label": "Cari task",
+    enterKeyHint: "search",
+    autoComplete: "off",
+    spellCheck: false,
+    onChange: e => onQuery(e.target.value)
+  }), query !== "" && React.createElement("button", {
+    type: "button",
+    className: "focus-filter-clear",
+    "aria-label": "Hapus pencarian",
+    onClick: () => {
+      onQuery("");
+      inputRef.current?.focus();
+    }
+  }, "✕")), React.createElement("button", {
+    ref: filterBtnRef,
+    type: "button",
+    className: `focus-filter-btn${badge > 0 ? " is-on" : ""}`,
+    "aria-haspopup": "dialog",
+    "aria-expanded": !!sheetOpen,
+    "aria-label": badge > 0 ? `Filter lainnya, ${badge} aktif` : "Filter lainnya",
+    onClick: onOpenSheet
+  }, React.createElement(FocusGlyph, {
+    name: "sliders",
+    size: 17
+  }), badge > 0 && React.createElement("span", {
+    className: "focus-filter-badge",
+    "aria-hidden": "true"
+  }, badge)), children), React.createElement("div", {
+    ref: chipsRef,
+    className: "focus-filter-chips"
+  }, pills.map(pill => React.createElement("button", {
+    key: pill.key,
+    type: "button",
+    className: "focus-filter-chip is-pill",
+    "aria-label": `Hapus filter ${pill.label}`,
+    onClick: () => {
+      onRemovePill(pill);
+      keepChipFocus();
+    }
+  }, React.createElement("span", {
+    className: "focus-filter-pill-label"
+  }, pill.label), React.createElement("span", {
+    className: "focus-filter-x",
+    "aria-hidden": "true"
+  }, "✕"))), quick.map(([kind, value]) => {
+    const on = filter[kind].includes(value);
+    return React.createElement("button", {
+      key: value,
+      type: "button",
+      className: `focus-filter-chip${on ? " is-on" : ""}`,
+      "aria-pressed": on,
+      onClick: () => onToggleQuick(kind, value)
+    }, value);
+  }), showReset && React.createElement("button", {
+    type: "button",
+    className: "focus-filter-chip is-reset",
+    onClick: () => {
+      onReset();
+      keepChipFocus();
+    }
+  }, "Reset")));
+}
+
+// Lembar "Filter lainnya": HP = lembar bawah (fixed, latar redup), desktop = panel di bawah tombol Filter
+// (absolute, latar transparan penangkap klik luar); bedanya hanya di CSS. Perubahan berlaku seketika.
+// Saat terbuka: fokus ke chip pertama, Esc menutup, Tab berputar di dalam, scroll body dikunci di HP;
+// saat tertutup/unmount semuanya dipulihkan dan fokus kembali ke tombol Filter (`returnFocusRef`).
+function FocusFilterSheet({
+  open,
+  filter,
+  statusCounts,
+  projectOptions,
+  shownCount,
+  onChange,
+  onResetHidden,
+  onClose,
+  returnFocusRef
+}) {
+  const ff = window.TF.focusfilter;
+  const sheetRef = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!open) return undefined;
+    const sheet = sheetRef.current;
+    const focusables = () => sheet ? [...sheet.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')] : [];
+    sheet?.querySelector(".focus-filter-chip")?.focus();
+    const onKey = e => {
+      if (e.key === "Escape") {
+        // Esc dipakai lembar ini saja — listener Escape lain (modal, menu) tidak ikut bereaksi
+        e.preventDefault();
+        e.stopPropagation();
+        closeRef.current();
+        return;
+      }
+      if (e.key !== "Tab" || !sheet) return;
+      const items = focusables();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+      if (!sheet.contains(active) || active === sheet) {
+        e.preventDefault();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey, true); // fase capture: lebih dulu dari listener Escape lain
+    // HP: lembar bawah menutupi halaman → scroll body dikunci selama terbuka (nilai lama dipulihkan).
+    const lockScroll = !!(window.matchMedia && window.matchMedia("(max-width: 768px)").matches);
+    const prevOverflow = document.body.style.overflow;
+    if (lockScroll) document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      if (lockScroll) document.body.style.overflow = prevOverflow;
+      // Jangan memfokus tombol yang sudah lepas dari DOM atau tersembunyi (bar disembunyikan Mode Zen).
+      const back = returnFocusRef && returnFocusRef.current;
+      if (back && back.isConnected && !back.closest('[aria-hidden="true"]')) back.focus();
+    };
+  }, [open]);
+  if (!open) return null;
+  const quadLabels = {
+    Q1: "Q1 Lakukan",
+    Q2: "Q2 Rencanakan",
+    Q3: "Q3 Delegasikan",
+    Q4: "Q4 Singkirkan"
+  };
+  const toggle = (kind, value) => {
+    const list = filter[kind];
+    onChange({
+      ...filter,
+      [kind]: list.includes(value) ? list.filter(v => v !== value) : [...list, value]
+    });
+  };
+  const chip = (key, on, onClick, content) => React.createElement("button", {
+    key,
+    type: "button",
+    className: `focus-filter-chip${on ? " is-on" : ""}`,
+    "aria-pressed": on,
+    onClick
+  }, ...[].concat(content));
+  const count = n => React.createElement("span", {
+    className: "n"
+  }, n);
+  const group = (id, title, chips, note) => React.createElement("div", {
+    className: "focus-filter-sheet-group",
+    role: "group",
+    "aria-labelledby": id
+  }, React.createElement("h4", {
+    id,
+    className: "focus-filter-sheet-sub"
+  }, title), React.createElement("div", {
+    className: "focus-filter-sheet-chips"
+  }, chips), note);
+  return React.createElement(React.Fragment, null, React.createElement("div", {
+    className: "focus-filter-backdrop",
+    "aria-hidden": "true",
+    onClick: onClose
+  }), React.createElement("div", {
+    ref: sheetRef,
+    className: "focus-filter-sheet",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-labelledby": "focus-filter-sheet-title",
+    tabIndex: -1
+  }, React.createElement("div", {
+    className: "focus-filter-grab",
+    "aria-hidden": "true"
+  }), React.createElement("h3", {
+    id: "focus-filter-sheet-title",
+    className: "focus-filter-sheet-title"
+  }, "Filter lainnya"), group("focus-filter-sub-status", "Status", ff.STATUSES.map(s => chip(s, filter.status.includes(s), () => toggle("status", s), [FOCUS_STATUS_LABELS[s], " ", count(statusCounts[s])])), React.createElement("p", {
+    className: "focus-filter-sheet-note"
+  }, "Default: Next saja. Kosongkan semua untuk menampilkan semua status.")), group("focus-filter-sub-pri", "Prioritas", ff.PRIORITIES.map(p => chip(p, filter.pri.includes(p), () => toggle("pri", p), p))), group("focus-filter-sub-quad", "Kuadran", ff.QUADRANTS.map(q => chip(q, filter.quad.includes(q), () => toggle("quad", q), quadLabels[q]))), group("focus-filter-sub-proj", "Workspace › Project", [chip("__all", !filter.proj, () => onChange({
+    ...filter,
+    proj: null
+  }), "Semua"), ...projectOptions.map(o => chip(o.key, !!filter.proj && filter.proj.key === o.key, () => onChange({
+    ...filter,
+    proj: {
+      key: o.key,
+      label: o.label
+    }
+  }), [React.createElement("span", {
+    className: "focus-filter-opt-label"
+  }, o.label), " ", count(o.count)]))]), React.createElement("div", {
+    className: "focus-filter-sheet-actions"
+  }, React.createElement("button", {
+    type: "button",
+    className: "focus-filter-sheet-reset",
+    onClick: onResetHidden
+  }, "Reset"), React.createElement("button", {
+    type: "button",
+    className: "focus-filter-sheet-go",
+    onClick: onClose
+  }, "Tampilkan " + shownCount + " task"))));
+}
+
 // ══════════════════════════════════════════════════════════════
 //  TODAY FOCUS VIEW (workstation: Pomodoro + daftar task ringkas)
 // ══════════════════════════════════════════════════════════════
@@ -11153,6 +11514,10 @@ function FocusSectionHead({
   //   - FocusTaskItem
   //   - useFocusTaskCounts
   //   - FocusSectionHead
+  //   - FocusTargetSection
+  //   - FocusTaskGroups
+  //   - FocusFilterBar
+  //   - FocusFilterSheet
   //   - computeOccurrences
   // emits:
   //   - TodayFocusView
@@ -11165,7 +11530,9 @@ function TodayFocusView({
   timer: propsTimer,
   focusTask: propsFocusTask,
   setFocusTask: propsSetFocusTask,
-  ambient
+  ambient,
+  sharedLists = [],
+  onToggleFocus
 }) {
   const [localFocusTask, setLocalFocusTask] = useState(null);
   const focusTask = propsFocusTask !== undefined ? propsFocusTask : localFocusTask;
@@ -11191,6 +11558,24 @@ function TodayFocusView({
     setZenEnabled(next);
     window.TF.focuspage.writeZenPref(zenStorage(), next);
   };
+  // Kelompok yang dilipat diingat per perangkat (kunci kelompok); tulis ulang setiap toggle.
+  const [collapsed, setCollapsed] = useState(() => new Set(window.TF.focusfilter.readCollapsed(zenStorage())));
+  const toggleGroup = key => {
+    const next = new Set(collapsed);
+    if (next.has(key)) next.delete(key);else next.add(key);
+    setCollapsed(next);
+    window.TF.focusfilter.writeCollapsed(zenStorage(), [...next]);
+  };
+  // Filter "Task hari ini" diingat per perangkat (selalu ternormalisasi); kata pencarian tidak disimpan.
+  const [filter, setFilterState] = useState(() => window.TF.focusfilter.readFilter(zenStorage()));
+  const setFilter = next => {
+    const normalized = window.TF.focusfilter.normalizeFilter(next);
+    setFilterState(normalized);
+    window.TF.focusfilter.writeFilter(zenStorage(), normalized);
+  };
+  const [query, setQuery] = useState("");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const filterBtnRef = useRef(null);
   // Diangkat ke App level: const timer = usePomodoro({ focusTask });
   const timer = propsTimer || {
     mode: "work",
@@ -11221,30 +11606,102 @@ function TodayFocusView({
     if (recurringTasks.length === 0) return;
     api.get("/api/recurring/exceptions?from=" + todayStr + "&to=" + todayStr).then(data => setTodayExceptions(data || {})).catch(() => {});
   }, [tasks]);
-  const recurringToday = tasks.filter(t => {
-    if (!t.recurrence_type || !t.recurrence_end_date) return false;
-    const occs = computeOccurrences(t, todayStr, todayStr);
-    if (occs.length === 0) return false;
+  // Task berulang yang punya kejadian hari ini (sebelum pengecualian) = kunci dedupe pool di bawah;
+  // yang tampil di "Berulang hari ini" hanya yang kejadiannya belum done/skipped.
+  const recurringOccurring = tasks.filter(t => t.recurrence_type && t.recurrence_end_date && computeOccurrences(t, todayStr, todayStr).length > 0);
+  const recurringToday = recurringOccurring.filter(t => {
     const excs = todayExceptions[String(t.id)] || [];
     const exc = excs.find(e => e.occurrence_date === todayStr);
     return !exc || exc.status !== "done" && exc.status !== "skipped";
   });
-  const todayTasks = tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused || (focusTask && t.id === focusTask.id)) && t.gtd_status !== "done" && t.gtd_status !== "archived");
-  const sortedTasks = [...todayTasks].sort((a, b) => {
-    if (focusTask) {
-      if (a.id === focusTask.id) return -1;
-      if (b.id === focusTask.id) return 1;
-    }
-    if (a.is_overdue && !b.is_overdue) return -1;
-    if (!a.is_overdue && b.is_overdue) return 1;
-    const priOrder = {
-      P1: 1,
-      P2: 2,
-      P3: 3,
-      P4: 4
+  // Cakupan hari ini (tanggal lokal) → Target (task aktif lalu ⭐) dan pool (sisanya, dikelompokkan).
+  const scope = tasks.filter(t => window.TF.focusfilter.inTodayScope(t, {
+    todayISO: todayStr,
+    focusTaskId: focusTask?.id
+  }));
+  const {
+    target,
+    pool: scopePool
+  } = window.TF.focusfilter.splitTarget(scope, focusTask?.id);
+  // Task berulang yang terjadi hari ini tidak ikut daftar "Task hari ini" (tidak tampil dua kali), juga
+  // setelah kejadian hari ini ditandai done/skipped; Target tidak terpengaruh: task berulang yang ⭐ atau aktif tetap di Target.
+  const recurringIds = new Set(recurringOccurring.map(t => String(t.id)));
+  const pool = scopePool.filter(t => !recurringIds.has(String(t.id)));
+  // Penyaringan + hitungan bar/lembar. `pool` hanya bergantung pada tasks, tanggal, dan task aktif,
+  // jadi deps ini lengkap; Target tidak pernah disaring.
+  const {
+    shown,
+    timeCounts,
+    statusCounts,
+    hiddenByStatus,
+    projectOptions,
+    groups
+  } = useMemo(() => {
+    const ff = window.TF.focusfilter;
+    const opts = {
+      todayISO: todayStr,
+      query
     };
-    return priOrder[a.priority] - priOrder[b.priority];
+    const shown = pool.filter(t => ff.matches(t, filter, opts));
+    return {
+      shown,
+      timeCounts: ff.timeCounts(pool, filter, opts),
+      statusCounts: ff.statusCounts(pool, filter, opts),
+      hiddenByStatus: ff.hiddenByStatus(pool, filter, opts),
+      projectOptions: ff.projectOptions(pool, sharedLists, filter),
+      groups: ff.groupTasks(shown, sharedLists)
+    };
+  }, [tasks, filter, query, todayStr, focusTask?.id, sharedLists]);
+  // Pil = filter tersembunyi yang berbeda dari default (jumlahnya = badge nonDefaultCount).
+  const filterBadge = window.TF.focusfilter.nonDefaultCount(filter);
+  const filterPills = [];
+  if (!window.TF.focusfilter.isDefaultStatus(filter.status)) filterPills.push({
+    key: "status",
+    kind: "status",
+    label: filter.status.length ? "Status: " + filter.status.map(s => FOCUS_STATUS_LABELS[s]).join(", ") : "Semua status"
   });
+  if (filter.proj) filterPills.push({
+    key: "proj",
+    kind: "proj",
+    label: filter.proj.label || "Project"
+  });
+  filter.pri.filter(p => !window.TF.focusfilter.QUICK_PRI.includes(p)).forEach(p => filterPills.push({
+    key: "pri:" + p,
+    kind: "pri",
+    value: p,
+    label: p
+  }));
+  filter.quad.filter(q => !window.TF.focusfilter.QUICK_QUAD.includes(q)).forEach(q => filterPills.push({
+    key: "quad:" + q,
+    kind: "quad",
+    value: q,
+    label: q
+  }));
+  const toggleIn = (list, value) => list.includes(value) ? list.filter(v => v !== value) : [...list, value];
+  const removePill = pill => {
+    if (pill.kind === "status") setFilter({
+      ...filter,
+      status: ["next"]
+    });else if (pill.kind === "proj") setFilter({
+      ...filter,
+      proj: null
+    });else setFilter({
+      ...filter,
+      [pill.kind]: filter[pill.kind].filter(v => v !== pill.value)
+    });
+  };
+  const resetAllFilters = () => {
+    setFilter(window.TF.focusfilter.DEFAULT_FILTER);
+    setQuery("");
+  };
+  // Tombol di pesan/catatan hilang setelah diklik → fokus ke tombol Filter, bukan jatuh ke body.
+  const keepFilterFocus = () => setTimeout(() => {
+    const btn = filterBtnRef.current;
+    const active = document.activeElement;
+    if (btn && btn.isConnected && (!active || active === document.body)) btn.focus({
+      preventScroll: true
+    });
+  }, 0);
   const zenOn = window.TF.focuspage.zenActive({
     enabled: zenEnabled,
     mode: timer.mode,
@@ -11253,10 +11710,22 @@ function TodayFocusView({
   useEffect(() => {
     if (zenOn) setZenWasActive(true);
   }, [zenOn]);
+  // Lembar filter ditutup (state, bukan sekadar disamarkan) setiap kali bar filter tidak dirender —
+  // memuat, cakupan/pool kosong — atau Mode Zen aktif, supaya tidak terbuka sendiri saat bar muncul lagi.
+  const filterBarShown = !loading && pool.length > 0;
+  useEffect(() => {
+    if (zenOn || !filterBarShown) setSheetOpen(false);
+  }, [zenOn, filterBarShown]);
   const zenReveal = !zenOn && (zenEnabled || zenWasActive);
-  const zenHiddenCount = sortedTasks.filter(t => t.id !== focusTask?.id).length + recurringToday.length;
+  // Yang disembunyikan Zen = yang tampil tanpa Zen (Target, pool sebelum filter, "Berulang hari ini"), masing-masing
+  // sekali; task aktif tidak dihitung. Task berulang yang kejadian hari ininya done/skipped tidak tampil → tidak dihitung.
+  const zenHiddenIds = new Set([...target, ...pool, ...recurringToday].map(t => String(t.id)));
+  if (focusTask) zenHiddenIds.delete(String(focusTask.id));
+  const zenHiddenCount = zenHiddenIds.size;
   const zenClass = zenOn ? " is-zen-hidden" : zenReveal ? " is-zen-shown" : "";
-  const [counts, reportCount] = useFocusTaskCounts(sortedTasks.map(t => t.id));
+  // Seksi Target memuat task aktif → tetap tampil di Zen (hanya ⭐ lain yang disembunyikan per item).
+  const targetHasActive = !!focusTask && target.some(t => t.id === focusTask.id);
+  const [counts, reportCount] = useFocusTaskCounts(scope.map(t => t.id));
 
   // Bar ringkas tampil saat kartu Pomodoro penuh sudah tergulir di bawah top bar.
   useEffect(() => {
@@ -11318,6 +11787,29 @@ function TodayFocusView({
     onDone?.(taskId);
   };
   const toggleOpen = id => setOpenId(prev => prev === id ? null : id);
+  // Satu baris task untuk Target dan kelompok; `inGroup` menyembunyikan project (sudah ada di judul kelompok).
+  const renderItem = (task, {
+    inGroup
+  } = {}) => React.createElement(FocusTaskItem, {
+    key: task.id,
+    task: task,
+    open: openId === task.id || zenOn && focusTask?.id === task.id,
+    zenHidden: zenOn && task.id !== focusTask?.id,
+    zenShown: zenReveal && task.id !== focusTask?.id,
+    onToggle: () => toggleOpen(task.id),
+    tab: openTab,
+    onTab: setOpenTab,
+    counts: counts[task.id],
+    onCount: reportCount,
+    onOpenDetail: onTaskClick,
+    onDone: handleTaskDone,
+    onStartFocus: handleStartFocus,
+    onEstimate: handleEstimate,
+    onToggleStar: t => onToggleFocus?.(t.id),
+    hideProject: !!inGroup,
+    isFocusing: focusTask?.id === task.id,
+    hasFocusTask: !!focusTask
+  });
   return React.createElement("div", {
     className: `focus-page fade-in${zenOn ? " is-zen" : ""}`
   }, React.createElement(PomodoroMiniBar, {
@@ -11345,9 +11837,9 @@ function TodayFocusView({
     className: "focus-page-summary"
   }, (() => {
     const hs = window.TF.pomologic.headerSummary({
-      count: sortedTasks.length,
+      count: scope.length,
       done: timer.pomodorosToday,
-      estimate: sortedTasks.reduce((sum, t) => sum + window.TF.pomologic.clampEstimate(t.estimated_pomodoros), 0)
+      estimate: scope.reduce((sum, t) => sum + window.TF.pomologic.clampEstimate(t.estimated_pomodoros), 0)
     });
     return [hs.tasksText, " • ", hs.pomoText, " ", React.createElement(ViewGlyph, {
       key: "g",
@@ -11408,19 +11900,25 @@ function TodayFocusView({
         window.__showToast?.("Gagal: " + e.message, "error");
       }
     }
-  }, "✓ Selesai")))))), React.createElement("section", {
+  }, "✓ Selesai")))))), target.length > 0 && React.createElement(FocusTargetSection, {
+    tasks: target,
+    renderItem: renderItem,
+    zenClass: targetHasActive ? "" : zenClass,
+    zenHidden: zenOn && !targetHasActive
+  }), React.createElement("section", {
     className: "focus-section",
     "data-tour": "today-list"
   }, React.createElement(FocusSectionHead, {
     glyph: "target",
     title: "Task hari ini",
-    count: sortedTasks.length
+    count: shown.length
   }), zenOn && zenHiddenCount > 0 && React.createElement("div", {
     className: "focus-zen-note"
   }, `Mode Zen · ${zenHiddenCount} task lain disembunyikan sampai istirahat`), loading ? React.createElement("div", {
     className: "focus-empty"
-  }, "Loading...") : sortedTasks.length === 0 ? React.createElement("div", {
-    className: "focus-empty"
+  }, "Loading...") : target.length === 0 && pool.length === 0 ? React.createElement("div", {
+    className: `focus-empty${zenClass}`,
+    "aria-hidden": zenOn ? true : undefined
   }, React.createElement("div", {
     style: {
       fontSize: 40,
@@ -11437,26 +11935,79 @@ function TodayFocusView({
     style: {
       fontSize: 14
     }
-  }, "Semua Q1 dan overdue task sudah selesai.")) : React.createElement("div", {
-    className: "ftask-list"
-  }, sortedTasks.map(task => React.createElement(FocusTaskItem, {
-    key: task.id,
-    task: task,
-    open: openId === task.id || zenOn && focusTask?.id === task.id,
-    zenHidden: zenOn && task.id !== focusTask?.id,
-    zenShown: zenReveal && task.id !== focusTask?.id,
-    onToggle: () => toggleOpen(task.id),
-    tab: openTab,
-    onTab: setOpenTab,
-    counts: counts[task.id],
-    onCount: reportCount,
-    onOpenDetail: onTaskClick,
-    onDone: handleTaskDone,
-    onStartFocus: handleStartFocus,
-    onEstimate: handleEstimate,
-    isFocusing: focusTask?.id === task.id,
-    hasFocusTask: !!focusTask
-  })))), React.createElement("p", {
+  }, "Semua Q1, terlambat, dan deadline hari ini sudah selesai.")) : pool.length === 0 ? React.createElement("p", {
+    className: `focus-note${zenClass}`,
+    "aria-hidden": zenOn ? true : undefined
+  }, "Semua task hari ini sudah ada di Target.") : [React.createElement(FocusFilterBar, {
+    key: "bar",
+    filter: filter,
+    query: query,
+    counts: timeCounts,
+    badge: filterBadge,
+    pills: filterPills,
+    sheetOpen: sheetOpen && !zenOn,
+    onTime: time => setFilter({
+      ...filter,
+      time
+    }),
+    onQuery: setQuery,
+    onToggleQuick: (kind, value) => setFilter({
+      ...filter,
+      [kind]: toggleIn(filter[kind], value)
+    }),
+    onRemovePill: removePill,
+    onReset: resetAllFilters,
+    onOpenSheet: () => setSheetOpen(true),
+    filterBtnRef: filterBtnRef,
+    zenClass: zenClass,
+    zenHidden: zenOn
+  }, React.createElement(FocusFilterSheet, {
+    open: sheetOpen && !zenOn,
+    filter: filter,
+    statusCounts: statusCounts,
+    projectOptions: projectOptions,
+    shownCount: shown.length,
+    onChange: setFilter,
+    onResetHidden: () => setFilter({
+      ...window.TF.focusfilter.DEFAULT_FILTER,
+      time: filter.time
+    }),
+    onClose: () => setSheetOpen(false),
+    returnFocusRef: filterBtnRef
+  })), shown.length > 0 ? React.createElement(FocusTaskGroups, {
+    key: "groups",
+    groups: groups,
+    collapsed: collapsed,
+    onToggleGroup: toggleGroup,
+    renderItem: renderItem,
+    zenClass: zenClass,
+    zenHidden: zenOn
+  }) : React.createElement("div", {
+    key: "empty",
+    className: `focus-filter-empty${zenClass}`,
+    "aria-hidden": zenOn ? true : undefined
+  }, React.createElement("span", null, "Tidak ada task yang cocok dengan filter ini."), React.createElement("button", {
+    type: "button",
+    className: "focus-filter-link",
+    onClick: () => {
+      resetAllFilters();
+      keepFilterFocus();
+    }
+  }, "Reset filter")), hiddenByStatus > 0 && React.createElement("p", {
+    key: "hidden",
+    className: `focus-filter-hidden-note${zenClass}`,
+    "aria-hidden": zenOn ? true : undefined
+  }, `${hiddenByStatus} task berstatus lain disembunyikan · `, React.createElement("button", {
+    type: "button",
+    className: "focus-filter-link",
+    onClick: () => {
+      setFilter({
+        ...filter,
+        status: []
+      });
+      keepFilterFocus();
+    }
+  }, "Tampilkan"))]), React.createElement("p", {
     className: `focus-tip${zenClass}`,
     "aria-hidden": zenOn ? true : undefined
   }, "💡 25 menit fokus, lalu pilih istirahat atau lanjut overtime. Setelah 4 pomodoro, istirahat panjang 15 menit."));
@@ -20393,12 +20944,14 @@ function Dashboard({
   };
 
   // ── Prioritas hari ini (dipakai hero ring + kartu Prioritas) ──
-  const todayStr = new Date().toISOString().split("T")[0];
-  const allToday = tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused || t.deadline === todayStr) && t.gtd_status !== "archived");
+  const todayStr = window.TF.tasklogic.todayLocalISO();
+  const allToday = tasks.filter(t => window.TF.focusfilter.inTodayScope(t, { todayISO: todayStr, includeDone: true }));
   const doneToday = allToday.filter(t => t.gtd_status === "done");
   const pendingToday = allToday.filter(t => t.gtd_status !== "done").sort((a, b) => {
-    if (a.is_overdue && !b.is_overdue) return -1;
-    if (!a.is_overdue && b.is_overdue) return 1;
+    const aLate = window.TF.focusfilter.timeBucket(a, todayStr) === "late";
+    const bLate = window.TF.focusfilter.timeBucket(b, todayStr) === "late";
+    if (aLate && !bLate) return -1;
+    if (!aLate && bLate) return 1;
     return SORT_PRI(a, b);
   });
   // Show done tasks on top (max 2), then pending (max 5 total visible)
@@ -24928,7 +25481,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v455-komentar-tooltip"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v456-focus-filter"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -41470,8 +42023,10 @@ function App() {
         return tasks.filter(t => t.is_overdue);
       case "done":
         return tasks.filter(t => t.gtd_status === "done");
-      case "today":
-        return tasks.filter(t => (t.quadrant === "Q1" || t.is_overdue || t.is_focused) && t.gtd_status !== "done" && t.gtd_status !== "archived");
+      case "today": {
+        const todayISO = window.TF.tasklogic.todayLocalISO();
+        return tasks.filter(t => window.TF.focusfilter.inTodayScope(t, { todayISO }));
+      }
       case "all":
         return tasks.filter(t => t.gtd_status !== "done" && t.gtd_status !== "archived");
       default:
@@ -41629,7 +42184,9 @@ function App() {
         timer: timer,
         focusTask: focusTask,
         setFocusTask: t => setFocusTaskId(t ? t.id : null),
-        ambient: ambient
+        ambient: ambient,
+        sharedLists: sharedLists,
+        onToggleFocus: handleToggleFocus
       });
     }
     if (page === "chat") {

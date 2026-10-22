@@ -238,7 +238,15 @@ def run_flow(browser, ctx, p, base, user, titles):
     p.locator(".ftask").first.wait_for(state="visible", timeout=20000)
     p.locator(".pomo-park-input").wait_for(state="visible", timeout=10000)
     n0 = n_tugas(p)
-    check("a0 halaman Fokus: 3 tugas", n0 == 3, summary(p))
+    # Ringkasan menghitung seluruh cakupan (spec 6.1): 3 task Q1 + task harian ber-deadline hari ini = 4.
+    check("a0 halaman Fokus: 4 tugas (3 Q1 + task harian ber-deadline hari ini)", n0 == 4, summary(p))
+    # Task harian hanya tampil di "Berulang hari ini": tidak ikut kelompok, dan jumlah "Task hari ini" = 3.
+    pool_count = p.locator(".focus-section[data-tour=today-list] .focus-section-count").inner_text().strip()
+    check("a0c task harian tidak masuk kelompok 'Task hari ini' (hanya 'Berulang hari ini')",
+          p.locator(".focus-group .ftask").filter(has_text=REC_TITLE).count() == 0
+          and p.locator(".focus-group .ftask").count() == 3 and pool_count == "3"
+          and p.locator(".ftask--recurring").filter(has_text=REC_TITLE).count() == 1,
+          "kelompok=%d, jumlah=%s" % (p.locator(".focus-group .ftask").count(), pool_count))
     check("a0b placeholder Parkir Distraksi",
           p.locator(".pomo-park-input").get_attribute("placeholder") == "Ada pikiran lewat? Ketik & tekan Enter untuk simpan ke Inbox...")
 
@@ -330,10 +338,13 @@ def run_flow(browser, ctx, p, base, user, titles):
     check("e1b 'Berulang hari ini' ada, tidak terlihat, aria-hidden",
           rec_sec.count() == 1 and not rec_sec.first.is_visible() and rec_sec.first.get_attribute("aria-hidden") == "true")
     p.wait_for_timeout(500)
-    list_h = p.evaluate("document.querySelector('.focus-section[data-tour=today-list] .ftask-list').getBoundingClientRect().height")
+    list_h = p.evaluate("""() => { const el = document.querySelector('.focus-target'); const cs = getComputedStyle(el);
+        return el.getBoundingClientRect().height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom); }""")
+    groups_h = p.evaluate("[...document.querySelectorAll('.focus-group')].reduce((a, g) => a + g.getBoundingClientRect().height, 0)")
     act_h = p.locator(".ftask.is-focusing").bounding_box()["height"]
     check("e1a Zen: hanya task aktif yang terlihat dan tinggi daftar ~ tinggi item aktif",
-          visible_titles(p) == [first_title] and abs(list_h - act_h) <= 4, "daftar %.1f vs item %.1f" % (list_h, act_h))
+          visible_titles(p) == [first_title] and abs(list_h - act_h) <= 4 and groups_h <= 4,
+          "daftar %.1f vs item %.1f, kelompok tersembunyi %.1f" % (list_h, act_h, groups_h))
     check("e1c task tersembunyi aria-hidden", p.locator(".ftask.is-zen-hidden[aria-hidden='true']").count() == 2)
     check("e2 .focus-zen-note tampil", p.locator(".focus-zen-note").is_visible(), p.locator(".focus-zen-note").inner_text())
     check("e3 panel task aktif terbuka", p.locator(".ftask.is-focusing.is-open .ftask-panel").is_visible())

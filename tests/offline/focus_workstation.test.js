@@ -91,7 +91,17 @@ test("usePomodoro: start() ditolak tanpa focusTask dan memicu peringatan", () =>
 
 test("TodayFocusView: task yang sedang fokus diposisikan di urutan paling atas", () => {
   const view = fnSource("TodayFocusView");
-  assert.match(view, /if\s*\(focusTask\)\s*\{[\s\S]*a\.id === focusTask\.id[\s\S]*return -1/, "focusTask harus berada di puncak sortedTasks");
+  // Task aktif = anggota pertama Target (splitTarget), dan Target dirender di atas daftar "Task hari ini".
+  assert.match(view, /splitTarget\(scope, focusTask\?\.id\)/, "focusTask harus berada di puncak target");
+  assert.ok(view.indexOf("React.createElement(FocusTargetSection") >= 0);
+  assert.ok(view.indexOf("React.createElement(FocusTargetSection") < view.indexOf('title: "Task hari ini"'));
+  const ff = require("../../static/offline/focusfilter.js");
+  const tasks = [
+    { id: 1, title: "Bintang P1", priority: "P1", is_focused: true },
+    { id: 2, title: "Bintang P2", priority: "P2", is_focused: true },
+    { id: 3, title: "Aktif P4", priority: "P4" }
+  ];
+  assert.equal(ff.splitTarget(tasks, 3).target[0].id, 3, "task aktif mendahului task ⭐ berprioritas lebih tinggi");
 });
 
 test("TodayFocusView: membatalkan fokus atau menyelesaikan task menjeda Pomodoro", () => {
@@ -101,9 +111,9 @@ test("TodayFocusView: membatalkan fokus atau menyelesaikan task menjeda Pomodoro
   assert.match(view, /Task selesai/, "harus memberi toast saat task selesai");
 });
 
-test("sw.js CACHE = taskflow-v455-komentar-tooltip", () => {
+test("sw.js CACHE = taskflow-v456-focus-filter", () => {
   const swJs = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v455-komentar-tooltip";/m);
+  assert.match(swJs, /^const CACHE = "taskflow-v456-focus-filter";/m);
 });
 
 test("App: mengelola timer Pomodoro dan focusTask di level App", () => {
