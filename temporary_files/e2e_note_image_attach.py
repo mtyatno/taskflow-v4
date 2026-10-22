@@ -270,6 +270,8 @@ def main():
             check("h indikator muat di 375 px (gelap), tanpa scroll horizontal", ok_h)
             p.wait_for_function("() => !document.querySelector('.note-upload-status')", timeout=60000)
             throttle(ctx, p, False)
+            puts = [k for k, v in dav.store.items() if v is not None]
+            check("y unggah tersimpan di disk VPS, Nextcloud tidak menerima file", not puts, puts[:3])
             check("z tanpa pageerror", not p.errors, p.errors[:3])
             browser.close()
     finally:

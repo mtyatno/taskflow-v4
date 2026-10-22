@@ -4065,3 +4065,9 @@
 - **Changes:** `asyncio.to_thread` untuk upload/view/delete/pub lampiran note + ekspor DOCX; tes `tests/test_nextcloud_offloop.py` (5, gagal di kode lama); pytest 1167.
 - **Files Touch:** webapp.py, tests/test_nextcloud_offloop.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (draft PR; deploy = restart `taskflow-web` saja)
+
+## 2026-10-23 06:30 WIB — Claude — lampiran note baru ke disk VPS
+- **Task:** Bapak: setelah fast track (#91), lampiran note baru disimpan di disk VPS seperti file workspace, Nextcloud keluar dari jalur unggah.
+- **Changes:** `storage='upload'` di `UPLOAD_DIR` untuk unggah/tampil/pub/hapus/DOCX/Sampah; baris lama tetap Nextcloud; tes `tests/test_note_attachment_disk.py` (12) + `test_nextcloud_offloop.py` ke baris lama; E2E 12/12; pytest 1179.
+- **Files Touch:** webapp.py, tests/test_note_attachment_disk.py, tests/test_nextcloud_offloop.py, temporary_files/e2e_note_image_attach.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR berisi #91; deploy = restart `taskflow-web` saja)

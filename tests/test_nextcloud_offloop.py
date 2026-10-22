@@ -5,6 +5,7 @@ endpoint `async` → selama meneruskan file ke Nextcloud, SEMUA request lain (te
 Tes: Nextcloud palsu lambat (SLOW dtk); sementara endpoint itu berjalan, GET /api/version harus tetap cepat.
 """
 import asyncio
+import io
 import time
 import uuid
 from types import SimpleNamespace
@@ -14,7 +15,7 @@ import pytest
 import requests
 
 import webapp
-from conftest import register_user
+from conftest import db, register_user
 
 SLOW = 1.2
 FAST_LIMIT = 0.8  # sejak request lambat dimulai; tertahan = ≥ SLOW (1,2 dtk)
@@ -28,8 +29,14 @@ class _Resp(SimpleNamespace):
         pass
 
 
-PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
-       b"\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xa7\x35\x81\x84\x00\x00\x00\x00IEND\xaeB`\x82")
+def _png():
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (24, 12), (40, 160, 220)).save(buf, "PNG")
+    return buf.getvalue()
+
+
+PNG = _png()
 
 
 @pytest.fixture
@@ -75,10 +82,19 @@ def owner(client):
 
 
 def _upload(client, owner):
-    r = client.post("/api/scratchpad/%d/attachments" % owner["note"], headers=owner["h"],
-                    files={"file": ("a.png", PNG, "image/png")})
-    assert r.status_code == 200, r.text
-    return r.json()["id"]
+    """Baris lampiran LAMA (storage='nextcloud'): sejak lampiran baru disimpan di disk, Nextcloud hanya dipakai
+    untuk membaca/menghapus lampiran lama — itu yang diuji di sini."""
+    conn = db()
+    try:
+        uid = conn.execute("SELECT user_id FROM scratchpad_notes WHERE id=?", (owner["note"],)).fetchone()[0]
+        cur = conn.execute(
+            "INSERT INTO note_attachments (note_id, user_id, nextcloud_path, original_name, file_size, mime_type) "
+            "VALUES (?,?,?,?,?,?)", (owner["note"], uid, "/TaskFlow/attachments/lama.png", "a.png", len(PNG),
+                                     "image/png"))
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
 
 
 async def _measure(method, path, headers=None, **kw):
@@ -100,6 +116,7 @@ async def _measure(method, path, headers=None, **kw):
 
 
 def test_upload_does_not_block_event_loop(client, slow_nc, owner):
+    # unggah baru ke disk (tanpa Nextcloud) — tetap tidak boleh menahan event loop
     slow_nc["slow"] = True
     quick, slow = asyncio.run(_measure("POST", "/api/scratchpad/%d/attachments" % owner["note"], headers=owner["h"],
                                        files={"file": ("a.png", PNG, "image/png")}))
