@@ -72,10 +72,11 @@ test("shouldRouteLocally: preseden isNoteTagsCall & rute tak terdaftar tetap jar
 });
 
 test("index.html: api wrapper memutuskan lokal vs jaringan lewat shouldRouteLocally", () => {
-  assert.match(indexHtml, /const _local = _R\.shouldRouteLocally\s*\?\s*_R\.shouldRouteLocally\(_router, _method, url\)/);
+  // child-counts (hitungan halaman Fokus) dicek di depan kedua cabang → `!/…child-counts…/.test(url) && (`
+  assert.match(indexHtml, /const _local = [^\n]*\(_R\.shouldRouteLocally\s*\?\s*_R\.shouldRouteLocally\(_router, _method, url\)/);
   assert.match(indexHtml, /if \(_local\) \{/);
   // fallback (taskroutes.js lama dari cache) juga tidak boleh menelan trash
-  const fb = indexHtml.match(/: \(_router\.hasRoute\(_method, url\) && !_R\.isNoteTagsCall\(_method, url\) && !\/(.+?)\/\.test\(url\)\);/);
+  const fb = indexHtml.match(/: \(_router\.hasRoute\(_method, url\) && !_R\.isNoteTagsCall\(_method, url\) && !\/(.+?)\/\.test\(url\)\)\);/);
   assert.ok(fb, "fallback ada");
   const re = new RegExp(fb[1].replace(/\\\//g, "/"));
   for (const [, p] of TRASH_CALLS) assert.equal(re.test(p), true, p);

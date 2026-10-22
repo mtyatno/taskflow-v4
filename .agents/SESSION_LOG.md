@@ -3993,6 +3993,12 @@
 
 ## [2026-10-22 17:40] - Claude
 - **Task:** Fix tambah checklist/catatan di halaman Fokus kena "Request timeout — coba lagi" (ratusan GET hitungan per task saat halaman dibuka) + ganti sebutan "Subtask" → "Checklist" untuk checklist.
-- **Changes:** endpoint batch `GET /api/tasks/child-counts` (sebelum `/api/tasks/{task_id}`); `useFocusTaskCounts` memakai batch (potongan 200, `network: true`) untuk id numerik, cid lokal tetap per task; rename teks checklist di halaman Fokus + seksi Checklist detail task; SW v462 `taskflow-v462-fokus-checklist-hitungan`; tes Python + node baru, pin versi dinaikkan.
+- **Changes:** endpoint batch `GET /api/tasks/child-counts` (sebelum `/api/tasks/{task_id}`); `useFocusTaskCounts` memakai batch (potongan 200; `network: true` dicabut di entri berikut) untuk id numerik, cid lokal tetap per task; rename teks checklist di halaman Fokus + seksi Checklist detail task; SW v462 `taskflow-v462-fokus-checklist-hitungan`; tes Python + node baru, pin versi dinaikkan.
 - **Files Touch:** webapp.py, static/index.html, static/sw.js, tests/test_task_child_counts.py, tests/offline/focus_child_counts.test.js, tests/offline/focus_filter_ui.test.js, tests/test_version.py + 26 tes pin versi, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal di `claude/fokus-checklist-hitungan`, belum push/PR.
+
+## [2026-10-22 18:15] - Claude
+- **Task:** Revisi atas permintaan koordinator: batch hitungan halaman Fokus tanpa `network: true` (badge harus tetap ada saat offline lewat cache SW).
+- **Changes:** `taskroutes.js` `isTaskChildCountsCall` + `shouldRouteLocally` false untuk `GET /api/tasks/child-counts`; `api.fetch` mengecek child-counts di depan kedua cabang keputusan lokal; `useFocusTaskCounts` mengurutkan id numerik sebelum dipotong dan memanggil batch tanpa opsi; tes node diperbarui/ditambah.
+- **Files Touch:** static/offline/taskroutes.js, static/index.html, tests/offline/focus_child_counts.test.js, tests/offline/taskroutes.test.js, tests/offline/note_trash_routing.test.js, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — commit lokal di `claude/fokus-checklist-hitungan`, belum push/PR.

@@ -69,17 +69,21 @@ const flush = async () => { for (let k = 0; k < 5; k++) await new Promise(r => s
 const idsOf = url => url.slice(url.indexOf("?ids=") + 5).split(",");
 const batchCalls = calls => calls.filter(c => c.url.startsWith("/api/tasks/child-counts?ids="));
 
-test("useFocusTaskCounts: id numerik lewat child-counts (network: true), potongan ≤ 200 id, tanpa GET per task", async () => {
+test("useFocusTaskCounts: id numerik lewat child-counts, diurutkan, potongan ≤ 200 id, tanpa GET per task", async () => {
   const { calls, api } = fakeApi(() => Promise.resolve({ counts: {} }));
   const render = loadHook(api);
-  const ids = Array.from({ length: 450 }, (_, k) => k + 1);
-  render(ids);
+  const sorted = Array.from({ length: 450 }, (_, k) => k + 1);
+  // urutan tampil acak (deterministik): URL tetap sama untuk himpunan task yang sama
+  const shuffled = sorted.map((id, k) => ({ id, r: (k * 7919) % 450 })).sort((a, b) => a.r - b.r).map(x => x.id);
+  assert.notDeepEqual(shuffled, sorted);
+  render(shuffled);
   await flush();
   const batch = batchCalls(calls);
   assert.equal(batch.length, 3, "450 id → 3 request");
   assert.deepEqual(batch.map(c => idsOf(c.url).length), [200, 200, 50]);
-  assert.deepEqual(batch.flatMap(c => idsOf(c.url)).map(Number), ids, "semua id tepat sekali");
-  for (const c of batch) assert.deepEqual(c.opts, { network: true });
+  assert.deepEqual(batch.flatMap(c => idsOf(c.url)).map(Number), sorted, "semua id tepat sekali, urut numerik");
+  // tanpa network: true — SW network-first + fallback cache tetap berlaku (badge saat offline)
+  for (const c of batch) assert.equal(c.opts, undefined);
   assert.equal(calls.length, 3, "tidak ada GET /subtasks|/notes|/attachments per task untuk id numerik");
   assert.ok(!calls.some(c => /\/api\/tasks\/\d+\/(subtasks|notes|attachments)/.test(c.url)));
 });
@@ -161,18 +165,52 @@ test("useFocusTaskCounts: id lokal (cid) tetap 3 GET per task tanpa opsi network
   const batch = batchCalls(calls);
   assert.equal(batch.length, 1);
   assert.deepEqual(idsOf(batch[0].url), ["7"]);
+  assert.equal(batch[0].opts, undefined);
   const [counts] = render(["c_abc", "7"]);
   assert.deepEqual(counts.c_abc, { subTotal: 3, subDone: 2, notes: 1 }, "atts gagal → tidak diisi (seperti dulu)");
   assert.deepEqual(counts["7"], { subTotal: 2, subDone: 0, notes: 1, atts: 0 });
 });
 
-test("useFocusTaskCounts (sumber): network: true, ukuran potongan 200, peta sub_total/sub_done", () => {
+test("useFocusTaskCounts (sumber): tanpa network: true, id diurutkan, ukuran potongan 200, peta sub_total/sub_done", () => {
   const src = fnSource("useFocusTaskCounts");
   assert.ok(src.includes("/api/tasks/child-counts?ids="));
-  assert.ok(src.includes("{ network: true }") || src.includes("{\n    network: true\n  }"), "network: true wajib");
+  assert.ok(!/network:\s*true/.test(src), "tanpa network: true (X-TF-Sync membuat SW network-only → badge hilang saat offline)");
   assert.ok(src.includes("200"));
+  assert.ok(src.includes("serverIds.sort((a, b) => Number(a) - Number(b))"), "urut numerik sebelum dipotong");
+  assert.ok(src.indexOf("serverIds.sort(") < src.indexOf("serverIds.slice("), "urutkan dulu, baru potong");
   assert.ok(src.includes("sub_total") && src.includes("sub_done"));
   assert.ok(src.includes("/^\\d+$/"), "pemisahan id numerik vs cid lokal");
+});
+
+test("useFocusTaskCounts: id numerik campuran angka/string diurutkan numerik (bukan leksikal)", async () => {
+  const { calls, api } = fakeApi(() => Promise.resolve({ counts: {} }));
+  const render = loadHook(api);
+  render([30, "4", 200, "12", "c_x"]);
+  await flush();
+  const batch = batchCalls(calls);
+  assert.equal(batch.length, 1);
+  assert.deepEqual(idsOf(batch[0].url), ["4", "12", "30", "200"]);
+});
+
+test("api.fetch: taskroutes.js lama (dengan/tanpa shouldRouteLocally) tidak merutekan child-counts ke lokal", () => {
+  const start = indexHtml.indexOf("const _local = ");
+  assert.ok(start > 0, "ekspresi _local di api.fetch");
+  const stmt = indexHtml.slice(start, indexHtml.indexOf(";\n", start) + 1);
+  const decide = new Function("_R", "_router", "_method", "url", `${stmt}\nreturn _local;`);
+  const oldR = { isNoteTagsCall: () => false };
+  const router = { hasRoute: () => true };
+  assert.equal(decide(oldR, router, "GET", "/api/tasks/child-counts?ids=1,2"), false);
+  assert.equal(decide(oldR, router, "GET", "/api/tasks/child-counts"), false);
+  assert.equal(decide(oldR, router, "GET", "/api/tasks/5"), true, "rute task lain tetap lokal");
+  assert.equal(decide(oldR, router, "GET", "/api/scratchpad/trash"), false, "pengecualian lama tetap");
+  // taskroutes.js baru: keputusan dari shouldRouteLocally
+  const newR = { shouldRouteLocally: (r, m, u) => u === "lokal" };
+  assert.equal(decide(newR, router, "GET", "lokal"), true);
+  assert.equal(decide(newR, router, "GET", "/api/tasks/child-counts?ids=1"), false);
+  // taskroutes.js v461 (shouldRouteLocally tanpa isTaskChildCountsCall → hasRoute GET /api/tasks/:id true)
+  const v461R = { shouldRouteLocally: () => true };
+  assert.equal(decide(v461R, router, "GET", "/api/tasks/child-counts?ids=1,2"), false);
+  assert.equal(decide(v461R, router, "GET", "/api/tasks/5"), true);
 });
 
 // ── "Subtask" → "Checklist" untuk checklist (tabel subtasks) ─────────────────────────────

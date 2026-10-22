@@ -737,11 +737,13 @@ const api = {
       try { _router = api._localRouter || (api._localRouter = _R.buildTaskRouter()); } catch (_) { _router = null; }
       if (_router) {
         const _method = (opts.method || "GET").toUpperCase();
-        // shouldRouteLocally: /api/tags?entity_type=note & /api/scratchpad/trash... selalu ke jaringan.
-        // Fallback untuk taskroutes.js lama dari cache SW (index.html bisa lebih baru dari modulnya).
-        const _local = _R.shouldRouteLocally
+        // shouldRouteLocally: /api/tags?entity_type=note, /api/scratchpad/trash..., /api/tasks/child-counts selalu ke jaringan.
+        // Fallback untuk taskroutes.js lama dari cache SW (index.html bisa lebih baru dari modulnya). child-counts
+        // dicek di luar keduanya: taskroutes.js lama (dengan shouldRouteLocally, tanpa isTaskChildCountsCall)
+        // akan merutekannya ke GET /api/tasks/:id lokal.
+        const _local = !/^\/api\/tasks\/child-counts(\/|\?|$)/.test(url) && (_R.shouldRouteLocally
           ? _R.shouldRouteLocally(_router, _method, url)
-          : (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url) && !/^\/api\/scratchpad\/trash(\/|\?|$)/.test(url));
+          : (_router.hasRoute(_method, url) && !_R.isNoteTagsCall(_method, url) && !/^\/api\/scratchpad\/trash(\/|\?|$)/.test(url)));
         if (_local) {
           const _body = opts.body ? JSON.parse(opts.body) : undefined;
           const _res = await _router.dispatch(_method, url, _body)
@@ -9979,8 +9981,9 @@ function FocusTaskItem({
 // (tanpa polling); panel yang sedang terbuka melaporkan angka terbarunya lewat `report`.
 // Id server (numerik) diambil sekaligus lewat GET /api/tasks/child-counts (≤ 200 id per request),
 // bukan 3 GET per task: ratusan GET serentak memenuhi antrean koneksi browser sehingga POST tambah
-// checklist/catatan tertahan di belakangnya lalu kena timeout 15 dtk. `network: true` wajib: router
-// lokal punya GET /api/tasks/:id yang akan menelan "child-counts", dan X-TF-Sync membuat SW network-only.
+// checklist/catatan tertahan di belakangnya lalu kena timeout 15 dtk. Tanpa `network: true`: SW
+// network-first + fallback cache tetap memberi badge saat offline (router lokal melewatkan child-counts,
+// lihat isTaskChildCountsCall); id diurutkan supaya URL (= kunci cache SW) stabil untuk himpunan task sama.
 // Id lokal (cid, belum tersinkron) tetap 3 GET per task — dilayani router lokal dari IndexedDB.
 function useFocusTaskCounts(taskIds) {
   const [counts, setCounts] = useState({});
@@ -10014,10 +10017,11 @@ function useFocusTaskCounts(taskIds) {
         merge(id, patch);
       });
     });
+    serverIds.sort((a, b) => Number(a) - Number(b));
     const CHUNK = 200; // server menolak > 500 id per request
     for (let i = 0; i < serverIds.length; i += CHUNK) {
       const chunk = serverIds.slice(i, i + CHUNK);
-      api.get(`/api/tasks/child-counts?ids=${chunk.join(",")}`, { network: true }).then(res => {
+      api.get(`/api/tasks/child-counts?ids=${chunk.join(",")}`).then(res => {
         const byId = res && res.counts || {};
         // Id yang tidak dikembalikan (tidak bisa dibaca / sudah dihapus) dibiarkan tanpa hitungan.
         chunk.forEach(id => {
