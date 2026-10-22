@@ -4050,3 +4050,8 @@
 - **Changes:** main tidak bergerak sejak d36ac63, CI hijau di 5ea96f5a, PR ditandai ready lalu di-merge (059aa81c), Deploy Taskflow V4 sukses. SW v464 `taskflow-v464-sw-precache-shell`, app.css 362. PR #89 dan #84 perlu nomor SW berikutnya (v465+).
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server.
+## 2026-10-23 00:30 WIB — Claude — bug lampiran gambar 📎 editor note
+- **Task:** laporan Bapak: unggah gambar dari editor note tanpa indikator, hasilnya teks `![…](…)`, tetap teks setelah disimpan.
+- **Changes:** sisip lampiran lewat parser editor (bukan teks mentah), indikator unggah XHR dengan %, galat via toast, pemulihan note lama yang ter-escape; helper `static/offline/noteattach.js` + tes; SW v465 / `app.css?v=363`; E2E `temporary_files/e2e_note_image_attach.py` 11/11 (main lama 3/11).
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, static/offline/noteattach.js, webapp.py, tests/test_version.py, tests/offline/*.test.js, temporary_files/e2e_note_image_attach.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR; deploy = file statis + restart `taskflow-web` saja)
