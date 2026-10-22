@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v464-sw-precache-shell', () => {
+  test('Service Worker cache version is bumped to taskflow-v466-istilah-sketsa-media', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v464-sw-precache-shell";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v466-istilah-sketsa-media";/m);
   });
 });
 
