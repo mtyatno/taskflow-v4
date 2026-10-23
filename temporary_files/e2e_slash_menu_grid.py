@@ -1,13 +1,13 @@
 """E2E: slash menu editor note — grid 2 kolom + label grup + item Wikilink (2026-10-21). Tidak dijalankan CI.
 
 Alur:
-  a  ketik "/" di paragraf baru → menu tampil, 4 label grup, 15 item, ikon glyph svg (heading teks), grid 2 kolom, tanpa scroll (1280×800)
+  a  ketik "/" di paragraf baru → menu tampil, 4 label grup, 17 item, ikon glyph svg (heading teks), grid 2 kolom, tanpa scroll (1280×800; max-height 480 px)
   b  screenshot terang + gelap; 375×740 → tanpa scroll, menu utuh di dalam viewport (dijepit middleware)
   c  klik Wikilink → "/" hilang, paragraf berisi "[[", dropdown autocomplete wikilink tampil
   d  "and/" → klik Wikilink → "and/" tetap ("/" di tengah teks bukan pemicu)
   k  emulasi keyboard HP (visualViewport 330px) → menu dibatasi + scroll di dalam, Wikilink bisa diklik
   f  Wikilink di dalam `kode` → "[[" tidak ikut mark code
-  e  klik Task → "/" hilang, dropdown task tampil; klik Gambar → "/" hilang, modal Sisipkan Gambar tampil
+  e  klik Task → "/" hilang, dropdown task tampil; klik Sketsa → "/" hilang, modal Sisipkan Sketsa tampil
 
     python temporary_files/e2e_slash_menu_grid.py
   (Playwright dari python sistem; server memakai venv/bin/python bila ada, atau E2E_SERVER_PY)
@@ -25,6 +25,9 @@ import requests
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Penanda modal "Apa yang baru" (#93) = versi SW saat ini, supaya modal tidak menutupi UI yang diuji.
+with open(os.path.join(ROOT, "static", "sw.js"), encoding="utf-8") as _f:
+    SW_VERSION = re.search(r'^const CACHE = "([^"]+)";', _f.read(), re.M).group(1)
 SHOTS = os.path.join(ROOT, "temporary_files")
 PW = "rahasia123"
 SECRET = "e2e-slash-menu-grid-secret-0123456789abcdef"
@@ -95,11 +98,12 @@ def open_app(browser, base, user):
     p.errors = []
     p.on("pageerror", lambda e: p.errors.append(str(e)))
     p.goto(base + "/manifest.json")
-    p.evaluate("""([t, u, tours]) => {
+    p.evaluate("""([t, u, tours, sw]) => {
         localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(u));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
         localStorage.setItem('tf_dismiss_onboarding', '1');
-    }""", [user["token"], user["id"], TOURS])
+        localStorage.setItem('tf_whatsnew_seen', sw);
+    }""", [user["token"], user["id"], TOURS, SW_VERSION])
     p.goto(base + "/")
     p.locator(".sidebar-link").first.wait_for(state="attached", timeout=30000)
     return ctx, p
@@ -185,7 +189,7 @@ def wiki_dropdown_visible(p):
 
 
 EXPECTED_ITEMS = ["Heading 1", "Heading 2", "Heading 3", "Blockquote", "Callout", "Toggle", "Code",
-                  "Bullet", "Numbered", "Checklist", "Tabel", "Divider", "Gambar", "Task", "Wikilink"]
+                  "Bullet", "Numbered", "Checklist", "Tabel", "Divider", "Sketsa", "Task", "Media", "File", "Wikilink"]
 
 
 def main():
@@ -206,25 +210,25 @@ def main():
             open_menu(p)
             m = menu_metrics(p)
             check("a1 4 label grup berurutan", m["labels"] == ["Teks", "Daftar", "Sisipkan", "Tautan"], m["labels"])
-            check("a2 15 item sesuai urutan", m["items"] == EXPECTED_ITEMS, m["items"])
+            check("a2 17 item sesuai urutan", m["items"] == EXPECTED_ITEMS, m["items"])
             ic = p.evaluate("""() => [...document.querySelectorAll(".milkdown-slash-menu[data-show='true'] .milkdown-slash-item")].map(el => {
               const i = el.querySelector('.milkdown-slash-icon'); const svg = i.querySelector('svg');
               const r = svg ? svg.getBoundingClientRect() : null;
               return { label: el.querySelector('.milkdown-slash-label').textContent, text: i.textContent,
                        svg: !!svg, ns: svg ? svg.namespaceURI : null, shapes: svg ? svg.querySelectorAll('path,rect,circle').length : 0,
-                       w: r ? Math.round(r.width) : 0, emoji: /\p{Extended_Pictographic}/u.test(el.textContent) };
+                       w: r ? Math.round(r.width) : 0, emoji: /\\p{Extended_Pictographic}/u.test(el.textContent) };
             })""")
             heads = [x for x in ic if x["label"].startswith("Heading")]
             others = [x for x in ic if not x["label"].startswith("Heading")]
             check("a2b heading tetap ikon teks H1–H3 tanpa svg", [x["text"] for x in heads] == ["H1", "H2", "H3"] and not any(x["svg"] for x in heads),
                   [(x["text"], x["svg"]) for x in heads])
-            check("a2c 12 item lain berisi svg glyph (namespace SVG, ada bentuk, 16px) tanpa teks ikon",
-                  len(others) == 12 and all(x["svg"] and x["ns"] == "http://www.w3.org/2000/svg" and x["shapes"] > 0 and x["w"] == 16 and x["text"] == "" for x in others),
+            check("a2c 14 item lain berisi svg glyph (namespace SVG, ada bentuk, 16px) tanpa teks ikon",
+                  len(others) == 14 and all(x["svg"] and x["ns"] == "http://www.w3.org/2000/svg" and x["shapes"] > 0 and x["w"] == 16 and x["text"] == "" for x in others),
                   [(x["label"], x["svg"], x["shapes"], x["w"], x["text"]) for x in others if not (x["svg"] and x["shapes"] and x["w"] == 16 and x["text"] == "")])
             check("a2d tanpa emoji di item menu", not any(x["emoji"] for x in ic), [x["label"] for x in ic if x["emoji"]])
             check("a3 grid 2 kolom (baris 1 sejajar)", m["row1Top"][0] == m["row1Top"][1] and m["row1Left"][1] > m["row1Left"][0],
                   (m["row1Top"], m["row1Left"]))
-            check("a4 tanpa scroll 1280×800", m["sh"] <= m["ch"], (m["sh"], m["ch"]))
+            check("a4 tanpa scroll 1280×800 (Wikilink tanpa digulir)", m["sh"] <= m["ch"], (m["sh"], m["ch"]))
             check("a4b menu utuh di viewport 1280×800", m["left"] >= 0 and m["right"] <= m["vw"] and m["top"] >= 0 and m["bottom"] <= m["vh"],
                   (m["left"], m["right"], m["top"], m["bottom"]))
             check("a5 Wikilink lebar penuh + hint [[ ]]", m["wlWide"] and m["wlW"] == m["gW"] and m["hint"] == "[[ ]]",
@@ -369,7 +373,7 @@ def main():
                     p.keyboard.press("Backspace")
             p.keyboard.press("End")
 
-            # e: Task + Gambar
+            # e: Task + Sketsa
             open_menu(p)
             click_item(p, "Task")
             p.wait_for_timeout(400)
@@ -381,15 +385,15 @@ def main():
             p.wait_for_timeout(200)
 
             open_menu(p)
-            click_item(p, "Gambar")
+            click_item(p, "Sketsa")
             p.wait_for_timeout(400)
             blk = p.evaluate(CUR_BLOCK_JS)
-            modal = p.get_by_text("🎨 Sisipkan Gambar")
-            check("e3 Gambar: modal Sisipkan Gambar tampil", modal.count() > 0 and modal.first.is_visible())
+            modal = p.get_by_text("🎨 Sisipkan Sketsa")
+            check("e3 Sketsa: modal Sisipkan Sketsa tampil", modal.count() > 0 and modal.first.is_visible())
             stray = p.evaluate("() => [...document.querySelectorAll('.ProseMirror p')].filter(e => e.innerText.trim() === '/').length")
-            check("e4 Gambar: '/' hilang (tak ada paragraf berisi '/')", stray == 0, stray)
+            check("e4 Sketsa: '/' hilang (tak ada paragraf berisi '/')", stray == 0, stray)
             if modal.count():
-                p.locator(".modal-content").filter(has_text="Sisipkan Gambar").locator("button", has_text="✕").first.click()
+                p.locator(".modal-content").filter(has_text="Sisipkan Sketsa").locator("button", has_text="✕").first.click()
 
             check("z tanpa pageerror", not p.errors, p.errors[:3])
             browser.close()

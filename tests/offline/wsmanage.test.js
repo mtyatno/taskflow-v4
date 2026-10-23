@@ -17,7 +17,7 @@ test("impactLines lists every non-zero category", () => {
       "12 task (3 aktif) akan kembali menjadi task pribadi pembuatnya",
       "4 berkas dan 57 pesan chat dihapus permanen",
       "2 project dan 3 tahap dihapus",
-      "5 catatan dan 1 drawing kembali menjadi pribadi",
+      "5 catatan dan 1 sketsa kembali menjadi pribadi",
     ]
   );
 });
@@ -29,7 +29,7 @@ test("impactLines omits zero rows", () => {
       "2 task akan kembali menjadi task pribadi pembuatnya",
       "5 pesan chat dihapus permanen",
       "1 tahap dihapus",
-      "2 drawing kembali menjadi pribadi",
+      "2 sketsa kembali menjadi pribadi",
     ]
   );
 });
@@ -38,11 +38,11 @@ test("impactLines joins notes, drawings and mindmaps returned to personal", () =
   const base = { tasks_total: 0, tasks_active: 0, files: 0, messages: 0, projects: 0, stages: 0 };
   const line = (n, d, m) => wm.impactLines(Object.assign({}, base,
     { notes_to_personal: n, drawings_to_personal: d, mindmaps_to_personal: m }));
-  assert.deepEqual(line(5, 1, 2), ["5 catatan, 1 drawing dan 2 mindmap kembali menjadi pribadi"]);
+  assert.deepEqual(line(5, 1, 2), ["5 catatan, 1 sketsa dan 2 mindmap kembali menjadi pribadi"]);
   assert.deepEqual(line(5, 0, 2), ["5 catatan dan 2 mindmap kembali menjadi pribadi"]);
-  assert.deepEqual(line(0, 1, 2), ["1 drawing dan 2 mindmap kembali menjadi pribadi"]);
+  assert.deepEqual(line(0, 1, 2), ["1 sketsa dan 2 mindmap kembali menjadi pribadi"]);
   assert.deepEqual(line(0, 0, 2), ["2 mindmap kembali menjadi pribadi"]);
-  assert.deepEqual(line(5, 1, 0), ["5 catatan dan 1 drawing kembali menjadi pribadi"]);
+  assert.deepEqual(line(5, 1, 0), ["5 catatan dan 1 sketsa kembali menjadi pribadi"]);
 });
 
 test("impactLines returns the empty-workspace line when all zero or {}", () => {

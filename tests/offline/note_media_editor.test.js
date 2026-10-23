@@ -294,19 +294,25 @@ test("Editor: createMediaPlugin terdaftar di rantai .use(), hidrasi kartu media 
   assert.ok(/closest\('\.editor-media-card'\)/.test(ed), "handleContainerClick punya cabang kartu media");
 });
 
-test("NoteToolbar: tombol \"🎬 Audio/Video\", input accept dari MEDIA_EXTS, title offline persis, listener online/offline", () => {
+// Tombol "🎬 Audio/Video" kini "Media" (gambar + audio/video); detail di note_insert_media_file.test.js.
+test("NoteToolbar: tombol \"Media\", input accept gambar + MEDIA_EXTS, galat offline persis lewat mediaPickAction", () => {
   const tb = slice("function NoteToolbar({", "\nfunction MilkdownEditor({");
   assert.ok(tb.includes("onInsertMedia"), "prop onInsertMedia");
-  assert.ok(tb.includes('"🎬 Audio/Video"'), "label tombol persis");
-  assert.ok(tb.includes("'Butuh koneksi internet untuk mengunggah audio/video'"), "title offline persis");
-  assert.ok(/addEventListener\('online'/.test(tb) && /addEventListener\('offline'/.test(tb), "status online dipantau");
-  assert.ok(/removeEventListener\('online'/.test(tb) && /removeEventListener\('offline'/.test(tb));
-  assert.ok(/accept: mediaAccept/.test(tb), "input media memakai accept dari MEDIA_EXTS");
+  assert.ok(tb.includes('"Media")'), "label tombol persis");
+  assert.ok(tb.includes('"Sisipkan media: gambar, audio, atau video"'), "title persis");
+  assert.ok(/accept: mediaAccept/.test(tb), "input media memakai accept terhitung");
+  assert.ok(/noteMediaAccept\(!!onInsertMedia, window\.TF && window\.TF\.mediadirective\)/.test(tb), "AV hanya bila host punya onInsertMedia");
   // accept terhitung = semua ekstensi .ext
   const accept = MD.MEDIA_EXTS.map((x) => "." + x).join(",");
   assert.ok(accept.includes(".mp3") && accept.includes(".mov"));
-  assert.ok(/MEDIA_EXTS\.map\(x => '\.' \+ x\)\.join\(','\)/.test(tb), "accept dibangun dari MEDIA_EXTS");
-  assert.ok(/disabled: !mediaOnline \|\| !noteId/.test(tb), "nonaktif saat offline / note belum ada");
+  const helper = slice("function noteMediaAccept(", "\n}\n");
+  assert.ok(/MEDIA_EXTS\.map\(x => '\.' \+ x\)\.join\(','\)/.test(helper), "accept dibangun dari MEDIA_EXTS");
+  // offline / note belum tersimpan: tombol tetap aktif; pesan galat lewat toast (mediaPickAction)
+  const pick = slice("function mediaPickAction(", "\n}\n");
+  assert.ok(pick.includes("'Butuh koneksi internet untuk mengunggah audio/video'"), "pesan offline persis");
+  assert.ok(pick.includes("'Simpan note dulu, lalu lampirkan audio/video'"), "pesan note belum tersimpan persis");
+  assert.ok(/mediaPickAction\(f, \{/.test(tb), "toolbar memakai mediaPickAction");
+  assert.equal(/disabled: !mediaOnline/.test(tb), false, "tidak lagi nonaktif saat offline / note belum ada");
 });
 
 test("NoteModal: onInsertMedia ke toolbar, id server untuk kartu editor, pemilik note", () => {

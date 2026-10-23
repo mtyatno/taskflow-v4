@@ -6,7 +6,7 @@
 // 3. selectDrawing mendukung id/cid fallback (d.id != null ? d.id : d.cid)
 // 4. configureFetcher mendukung fallback ke idOrCid langsung jika sid == null (backend FastAPI mendukung integer id & string client_id)
 // 5. useEffect([initialDrawingId, loading]) diguard dengan `if (!initialDrawingId || loading) return;` untuk mencegah mount race condition
-// 6. Gagal buka menampilkan toast error yang sesuai ('Gambar tidak ditemukan' / 'Gambar tidak tersedia')
+// 6. Gagal buka menampilkan toast error yang sesuai ('Sketsa tidak ditemukan' / 'Sketsa tidak tersedia')
 
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
@@ -153,15 +153,15 @@ test("DrawPage open path — multi-identifier matching & standalone open regress
     );
   });
 
-  await t.test("catch kedua effect initialDrawingId menampilkan toast 'Gambar tidak ditemukan' (tidak silent)", () => {
-    const m1 = indexHtml.match(/list\.find\(d => matchesDrawingId\(d, initialDrawingId\)\)[\s\S]{0,600}?showToast\('Gambar tidak ditemukan', 'error'\);/);
-    assert.ok(m1, "catch effect mount (list) harus showToast('Gambar tidak ditemukan', 'error')");
-    const m2 = indexHtml.match(/drawings\.find\(d => matchesDrawingId\(d, initialDrawingId\)\)[\s\S]{0,600}?showToast\('Gambar tidak ditemukan', 'error'\);/);
-    assert.ok(m2, "catch effect kedua (drawings) harus showToast('Gambar tidak ditemukan', 'error')");
+  await t.test("catch kedua effect initialDrawingId menampilkan toast 'Sketsa tidak ditemukan' (tidak silent)", () => {
+    const m1 = indexHtml.match(/list\.find\(d => matchesDrawingId\(d, initialDrawingId\)\)[\s\S]{0,600}?showToast\('Sketsa tidak ditemukan', 'error'\);/);
+    assert.ok(m1, "catch effect mount (list) harus showToast('Sketsa tidak ditemukan', 'error')");
+    const m2 = indexHtml.match(/drawings\.find\(d => matchesDrawingId\(d, initialDrawingId\)\)[\s\S]{0,600}?showToast\('Sketsa tidak ditemukan', 'error'\);/);
+    assert.ok(m2, "catch effect kedua (drawings) harus showToast('Sketsa tidak ditemukan', 'error')");
   });
 
-  await t.test("toast openDrawing menampilkan 'Gambar tidak tersedia' (bukan offline)", () => {
-    assert.ok(indexHtml.includes("showToast('Gambar tidak tersedia', 'error')"), "toast not-found harus 'Gambar tidak tersedia'");
+  await t.test("toast openDrawing menampilkan 'Sketsa tidak tersedia' (bukan offline)", () => {
+    assert.ok(indexHtml.includes("showToast('Sketsa tidak tersedia', 'error')"), "toast not-found harus 'Sketsa tidak tersedia'");
     assert.strictEqual(indexHtml.includes("Gambar tidak tersedia — offline"), false, "pesan lama '— offline' harus hilang");
   });
 });

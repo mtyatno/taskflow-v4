@@ -155,7 +155,7 @@ def test_pub_drawing_not_embedded_is_404(client):
     pub = anon()
     r = pub.get(f"/pub/drawings/{d['id']}")
     assert r.status_code == 404
-    assert r.json()["detail"] == "Drawing tidak ditemukan"
+    assert r.json()["detail"] == "Sketsa tidak ditemukan"
     assert pub.get(f"/pub/drawings/{d['client_id']}").status_code == 404
     assert pub.get("/pub/drawings/a.b").status_code == 404
 
@@ -168,7 +168,7 @@ def test_pub_drawing_unmatchable_tokens_are_404_not_500(client):
     for token in ("9" * 30, "9" * 5000, "\u00b2", "a%20b", "a.b"):
         r = pub.get(f"/pub/drawings/{token}")
         assert r.status_code == 404, (token[:12], r.status_code)
-        assert r.json()["detail"] == "Drawing tidak ditemukan"
+        assert r.json()["detail"] == "Sketsa tidak ditemukan"
 
     tag = _uniq()
     h = _auth(client, f"pubacc1b_{tag}")
@@ -276,7 +276,7 @@ def test_pub_other_users_drawing_not_exposed(client):
     page = pub.get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
     assert marker not in _shown(page.text)
-    assert "Gambar tidak tersedia" in page.text
+    assert "Sketsa tidak tersedia" in page.text
     assert f'data-drawing-preview="{b["id"]}"' not in page.text
     assert f'data-drawing-preview="{b["client_id"]}"' not in page.text
 
@@ -306,7 +306,7 @@ def test_pub_member_injection_blocked(client):
     assert page.status_code == 200
     assert old_content in page.text
     assert marker not in _shown(page.text)
-    assert "Gambar tidak tersedia" in page.text  # penyisipan memang masuk ke isi yang dipublish
+    assert "Sketsa tidak tersedia" in page.text  # penyisipan memang masuk ke isi yang dipublish
     assert pub.get(f"/pub/drawings/{p['id']}").status_code == 404
     assert pub.get(f"/pub/drawings/{p['client_id']}").status_code == 404
 
@@ -347,7 +347,7 @@ def test_pub_workspace_delete_does_not_expose_member_drawings(client):
     assert old_content in page.text
     assert m1 not in page.text and m2 not in page.text
     assert k_slug not in page.text
-    assert page.text.count("Gambar tidak tersedia") == 2
+    assert page.text.count("Sketsa tidak tersedia") == 2
     assert pub.get(f"/pub/drawings/{p1['id']}").status_code == 404
     assert pub.get(f"/pub/drawings/{p2['client_id']}").status_code == 404
 
@@ -379,7 +379,7 @@ def test_pub_unshare_after_member_edit_hides_drawings(client):
     assert page.status_code == 200
     assert old_content in page.text
     assert marker not in _shown(page.text)
-    assert "Gambar tidak tersedia" in page.text
+    assert "Sketsa tidak tersedia" in page.text
     assert pub.get(f"/pub/drawings/{p['id']}").status_code == 404
 
 
@@ -446,7 +446,7 @@ def test_pub_note_published_under_another_user_is_not_trusted(client):
     page = pub.get(f"/pub/{o_name}/{slug}")
     assert page.status_code == 200
     assert marker not in _shown(page.text)
-    assert "Gambar tidak tersedia" in page.text
+    assert "Sketsa tidak tersedia" in page.text
     assert pub.get(f"/pub/drawings/{d['id']}").status_code == 404
 
 
@@ -465,7 +465,7 @@ def test_published_page_resolves_own_cid_reference(client):
     assert page.status_code == 200
     assert marker in _shown(page.text)
     assert f'data-drawing-preview="{a["id"]}"' in page.text
-    assert "Gambar tidak tersedia" not in page.text
+    assert "Sketsa tidak tersedia" not in page.text
 
 
 def test_published_page_resolved_drawing_without_svg_embeds_iframe(client):
@@ -479,7 +479,7 @@ def test_published_page_resolved_drawing_without_svg_embeds_iframe(client):
     assert page.status_code == 200
     assert f'data-drawing-preview="{d["id"]}"' in page.text
     assert f'<iframe src="/static/vendor/tldraw/index.html?noteId={d["id"]}"' in page.text
-    assert "Gambar tidak tersedia" not in page.text
+    assert "Sketsa tidak tersedia" not in page.text
 
 
 def test_published_page_ignores_title_match(client):
@@ -497,7 +497,7 @@ def test_published_page_ignores_title_match(client):
     assert page.status_code == 200
     assert marker_b not in _shown(page.text)
     assert marker_a not in _shown(page.text)
-    assert "Gambar tidak tersedia" in page.text
+    assert "Sketsa tidak tersedia" in page.text
 
 
 def test_published_page_no_note_id_fallback_and_no_legacy_canvas(client):
@@ -536,7 +536,7 @@ def test_published_page_no_note_id_fallback_and_no_legacy_canvas(client):
     assert marker_svg not in _shown(page.text)
     assert marker_data not in _shown(page.text)
     assert 'id="drawing-iframe"' not in page.text
-    assert "Gambar tidak tersedia" in page.text
+    assert "Sketsa tidak tersedia" in page.text
 
 
 class _DrawCardAttrs(HTMLParser):
@@ -556,7 +556,7 @@ class _DrawCardAttrs(HTMLParser):
 
 def test_published_page_unresolved_card_escapes_directive_attributes(client):
     """size/width/height dari direktif berasal dari isi note dan masuk ke atribut HTML kartu.
-    Kartu 'Gambar tidak tersedia' tidak boleh bisa disuntik atribut baru (mis. onmouseover)."""
+    Kartu 'Sketsa tidak tersedia' tidak boleh bisa disuntik atribut baru (mis. onmouseover)."""
     tag = _uniq()
     h = _auth(client, f"pubattr_{tag}")
     content = ('::draw[tidakada]{height=400px"onmouseover=alert(1)}\n\n'
@@ -566,7 +566,7 @@ def test_published_page_unresolved_card_escapes_directive_attributes(client):
 
     page = anon().get(f"/pub/{username}/{slug}")
     assert page.status_code == 200
-    assert page.text.count("Gambar tidak tersedia") == 3
+    assert page.text.count("Sketsa tidak tersedia") == 3
     parser = _DrawCardAttrs()
     parser.feed(page.text)
     assert parser.cards == 3

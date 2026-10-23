@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v467-fokus-parkir-toast";
+const CACHE = "taskflow-v467-istilah-sketsa-media";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 // Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
@@ -36,6 +36,8 @@ const STATIC = [
   "/static/offline/wsmanage.js",
   "/static/offline/introgate.js",
   "/static/offline/accountbanner.js",
+  "/static/offline/whatsnew.js",
+  "/static/offline/appupdate.js",
   "/static/offline/emailadmin.js",
   "/static/offline/focuspage.js",
   "/static/offline/pomologic.js",
@@ -96,6 +98,7 @@ const STATIC = [
   "/static/vendor/katex/katex.min.js",
   "/static/vendor/katex/katex.min.css",
   "/config.js",
+  "/static/whatsnew.json",
 ];
 
 // Aset opsional: boleh diambil belakangan saat dipakai, jadi kegagalannya TIDAK menggagalkan install.

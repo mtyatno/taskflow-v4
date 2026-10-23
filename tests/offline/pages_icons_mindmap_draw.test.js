@@ -24,7 +24,7 @@ const mindmapTab = indexHtml.slice(indexHtml.indexOf("function MindmapTabInstanc
 const mindmap = sliceFn("MindmapListItem") + sliceFn("MindmapPage") + sliceFn("MindmapTrashList") + mindmapTab;
 const draw = sliceFn("DrawingListItem") + sliceFn("DrawPage");
 
-for (const [label, src] of [["Mindmap", mindmap], ["Gambar/Canvas", draw]]) {
+for (const [label, src] of [["Mindmap", mindmap], ["Sketsa", draw]]) {
   test(label + " bebas emoji ikon (literal maupun escape \\u)", () => {
     const lines = ui(src);
     const m = lines.match(/[\u{1F300}-\u{1FAFF}☀-➿⬀-⯿️★✕]/u);
@@ -72,7 +72,7 @@ test("MindmapTabInstance: header tab bebas emoji, memakai ViewGlyph", () => {
   assert.ok((mindmapTab.match(/name: "mUsers", size: 12/g) || []).length >= 3, "badge/tombol share bersvg");
 });
 
-test("Gambar/Canvas memakai ViewGlyph", () => {
+test("Sketsa memakai ViewGlyph", () => {
   gl(draw, "pPalette", 18);
   gl(draw, "fX", 15);
   gl(draw, "fX", 13);
@@ -81,13 +81,12 @@ test("Gambar/Canvas memakai ViewGlyph", () => {
   gl(draw, "mUsers", 12);
   gl(draw, "pPencil", 11);
   assert.match(draw, /className: "wsf-title-ico"/);
-  assert.match(draw, /"Gambar \/ Canvas"/);
+  assert.match(draw, /name: "pPalette", size: 18 \}\)\), "Sketsa"\),/);
   assert.match(draw, /"Pinned"/);
 });
 
-test("cache bust taskflow-v467-fokus-parkir-toast", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v467-fokus-parkir-toast";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v467-fokus-parkir-toast";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v467-fokus-parkir-toast"/);
-  assert.match(webappPy, /sw_cache = "taskflow-v467-fokus-parkir-toast"/);
+test("cache bust taskflow-v467-istilah-sketsa-media", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v467-istilah-sketsa-media";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v467-istilah-sketsa-media";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v467-istilah-sketsa-media"/);
 });

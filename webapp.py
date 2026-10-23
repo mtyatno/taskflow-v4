@@ -554,7 +554,7 @@ def migrate_db():
                         n = conn.execute("SELECT title FROM scratchpad_notes WHERE id = ?", (old_dict["note_id"],)).fetchone()
                         if n and n["title"]:
                             note_title = n["title"]
-                    title = old_dict.get("title") or f"Gambar - {note_title}"
+                    title = old_dict.get("title") or f"Sketsa - {note_title}"
                     created_at = old_dict.get("created_at") or old_dict.get("updated_at") or datetime.now(_TZ_JKT).isoformat()
                     updated_at = old_dict.get("updated_at") or created_at
                     is_pinned = old_dict.get("is_pinned") or 0
@@ -4931,21 +4931,54 @@ async def serve_sw():
     )
 
 
+_SW_CACHE_RE = re.compile(r'^const CACHE = "([^"]+)";', re.M)
+_sw_version_memo: dict = {"key": None, "value": None}
+
+
+def _sw_version() -> str:
+    """Versi SW = nilai `const CACHE` di static/sw.js, dibaca dari disk (bukan literal
+    di sini) agar selalu sama dengan file yang disajikan /sw.js, tanpa restart service.
+    Hasil di-cache per (path, mtime_ns, size) supaya tiap request cukup satu stat()."""
+    path = STATIC_DIR / "sw.js"
+    try:
+        st = path.stat()
+        key = (str(path), st.st_mtime_ns, st.st_size)
+        if _sw_version_memo["key"] == key:
+            return _sw_version_memo["value"]
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as e:
+        raise RuntimeError(f"sw.js tidak terbaca: {e}") from e
+    m = _SW_CACHE_RE.search(text)
+    if not m:
+        raise RuntimeError('baris `const CACHE = "...";` tidak ditemukan di sw.js')
+    _sw_version_memo["key"], _sw_version_memo["value"] = key, m.group(1)
+    return m.group(1)
+
+
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v467-fokus-parkir-toast"
+    no_cache = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+    try:
+        version = _sw_version()
+    except RuntimeError:
+        logger.exception("/api/version: versi SW tidak dapat dibaca dari static/sw.js")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "SW version unavailable"},
+            headers=no_cache,
+        )
     return JSONResponse(
         content={
             "app_version": "4.0.0",
-            "sw_version": sw_cache,
-            "cache_name": sw_cache,
+            "sw_version": version,
+            "cache_name": version,
             "timestamp": int(datetime.utcnow().timestamp()),
         },
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
+        headers=no_cache,
     )
 
 
@@ -5837,7 +5870,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         if d_row and not title:
             title = d_row["title"]
         if not title:
-            title = "Gambar"
+            title = "Sketsa"
 
         safe_title = safehtml.escape_html(title)
         card_style = f"width:{width_val};max-width:{width_val};margin:16px auto;" if width_val != '100%' else "width:100%;margin:16px 0;"
@@ -5851,7 +5884,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
             cards[key] = (
                 f'<div class="note-draw-card" data-size="{a_size}" style="{a_style}">'
                 f'<div class="note-draw-header"><span>🎨 {safe_title}</span></div>'
-                f'<div class="note-draw-preview-container" style="height:{a_height};max-height:{a_height};">Gambar tidak tersedia</div>'
+                f'<div class="note-draw-preview-container" style="height:{a_height};max-height:{a_height};">Sketsa tidak tersedia</div>'
                 f'</div>'
             )
             return key
@@ -5861,7 +5894,7 @@ def _render_published_content(raw_content: str, conn, note_id: int = None, owner
         # SVG tidak pernah ditanam sebagai markup (spec XSS §3): <img data:> base64, alt = judul ter-escape
         svg_html = safehtml.svg_img_tag(d_row["svg_preview"] or "", title, style=_PUB_SVG_IMG_STYLE)
         if svg_html is None:
-            svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={a_id}" style="width:100%;height:{a_height};border:none;" title="Drawing"></iframe>'
+            svg_html = f'<iframe src="/static/vendor/tldraw/index.html?noteId={a_id}" style="width:100%;height:{a_height};border:none;" title="Sketsa"></iframe>'
 
         cards[key] = (
             f'<div class="note-draw-card" data-drawing-id="{a_id}" data-size="{a_size}" style="{a_style}">'
@@ -7584,7 +7617,7 @@ def _make_drawing_resolver(uid: int):
                     (title.strip(), *_dparams, uid)
                 ).fetchone()
                 if not row:
-                    clean_t = re.sub(r'^(?:gambar|canvas)\s*[-:]*\s*', '', title, flags=re.IGNORECASE).strip()
+                    clean_t = re.sub(r'^(?:sketsa|gambar|canvas)\s*[-:]*\s*', '', title, flags=re.IGNORECASE).strip()
                     if clean_t:
                         row = conn.execute(
                             f"SELECT id, title, svg_preview FROM drawings WHERE title LIKE ? AND {_dclause} ORDER BY (user_id = ?) DESC, id LIMIT 1",
@@ -7594,7 +7627,7 @@ def _make_drawing_resolver(uid: int):
             if row:
                 return {
                     "id": row["id"],
-                    "title": row["title"] or title or f"Gambar {did}",
+                    "title": row["title"] or title or f"Sketsa {did}",
                     "svg": row["svg_preview"] or ""
                 }
         return None
@@ -9236,7 +9269,7 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
     var b64;
     try { b64 = _svgBase64(svg); } catch (err) { return; }
     var img = document.createElement('img');
-    img.alt = 'Drawing';
+    img.alt = 'Sketsa';
     img.setAttribute('style', '@@svg_img_style@@');
     img.src = 'data:image/svg+xml;base64,' + b64;
     container.textContent = '';
@@ -9259,7 +9292,7 @@ _PUBLIC_PAGE_HTML = """<!DOCTYPE html>
               var fr = document.createElement('iframe');
               fr.src = '/static/vendor/tldraw/index.html?noteId=' + encodeURIComponent(did);
               fr.setAttribute('style', 'width:100%;height:300px;border:none;');
-              fr.title = 'Drawing';
+              fr.title = 'Sketsa';
               el.textContent = '';
               el.appendChild(fr);
             }
@@ -9393,7 +9426,7 @@ async def get_published_drawing(drawing_id: str, request: Request):
     with get_db() as conn:
         row = _published_drawing_for_request(conn, drawing_id, request)
         if not row:
-            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+            raise HTTPException(status_code=404, detail="Sketsa tidak ditemukan")
         return {
             "id": row["id"],
             "title": row["title"],
@@ -10609,7 +10642,7 @@ async def get_drawing_detail(did: str, user=Depends(get_current_user)):
     with get_db() as conn:
         row = drawing_scope.find_accessible(conn, did, uid)
         if not row:
-            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+            raise HTTPException(status_code=404, detail="Sketsa tidak ditemukan")
         return _drawing_enrich(dict(row), conn, uid)
 
 
@@ -10620,7 +10653,7 @@ async def update_drawing_detail(did: str, req: DrawingUpdate, user=Depends(get_c
     with get_db() as conn:
         row = drawing_scope.find_accessible(conn, did, uid)
         if not row:
-            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+            raise HTTPException(status_code=404, detail="Sketsa tidak ditemukan")
         _check_base_rev(req, row, lambda: _drawing_enrich(dict(row), conn, uid))
         target_id = row["id"]
         new_title = req.title if req.title is not None else row["title"]
@@ -10643,9 +10676,9 @@ def _owned_drawing_or_error(conn, did: str, uid: int, cols: str):
     """Drawing untuk aksi khusus pemilik (pin/hapus): tidak terlihat → 404, terlihat tapi bukan milik → 403."""
     row = drawing_scope.find_accessible(conn, did, uid, cols=cols)
     if not row:
-        raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+        raise HTTPException(status_code=404, detail="Sketsa tidak ditemukan")
     if row["user_id"] != uid:
-        raise HTTPException(status_code=403, detail="Hanya pemilik drawing")
+        raise HTTPException(status_code=403, detail="Hanya pemilik sketsa")
     return row
 
 
@@ -10695,7 +10728,7 @@ async def copy_drawing(did: str, req: DrawingCopyReq, user=Depends(get_current_u
                 return _drawing_enrich(dict(existing), conn, uid)
         src = drawing_scope.find_accessible(conn, did, uid)
         if not src:
-            raise HTTPException(status_code=404, detail="Drawing tidak ditemukan")
+            raise HTTPException(status_code=404, detail="Sketsa tidak ditemukan")
         if req.list_id is not None and not TaskRepository(DB_PATH).is_list_member_or_owner(req.list_id, uid):
             raise HTTPException(status_code=403, detail="Bukan anggota list ini")
         cur = conn.execute(

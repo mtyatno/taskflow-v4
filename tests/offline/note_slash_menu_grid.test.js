@@ -19,9 +19,10 @@ function groupsSource() {
   const end = indexHtml.indexOf("];", start);
   return indexHtml.slice(start, end + 2);
 }
+// Item Media/File bersyarat pada prop host saat mount (onPickMedia/onPickFile); di sini keduanya ada.
 function evalGroups() {
   const src = groupsSource().replace("const SLASH_MENU_GROUPS = ", "return ");
-  return new Function(src)();
+  return new Function("onPickMedia", "onPickFile", "pickMediaAV", src)(() => {}, () => {}, true);
 }
 
 // [ikon teks (heading) | glyph VIEW_GLYPHS, label, tipe, payload]
@@ -43,8 +44,10 @@ const EXPECTED = [
   ["Sisipkan", [
     ["sTable", "Tabel", "table"],
     ["sDivider", "Divider", "hr"],
-    ["pPalette", "Gambar", "draw"],
+    ["pPalette", "Sketsa", "draw"],
     ["nPin", "Task", "task"],
+    ["fImage", "Media", "media"],
+    ["fFile", "File", "file"],
   ]],
   ["Tautan", [
     ["mLink", "Wikilink", "wikilink"],
@@ -62,13 +65,13 @@ function viewGlyphs() {
 test("slash menu: ikon glyph gaya Alurik", async (t) => {
   const groups = evalGroups();
   const items = groups.flatMap(g => g.items);
-  await t.test("12 glyph ada di VIEW_GLYPHS (duotone, viewBox 24)", () => {
+  await t.test("14 glyph ada di VIEW_GLYPHS (duotone, viewBox 24)", () => {
     const G = viewGlyphs();
-    assert.equal(GLYPH_KEYS.length, 12);
+    assert.equal(GLYPH_KEYS.length, 14);
     for (const k of GLYPH_KEYS) {
       assert.ok(typeof G[k] === "string" && G[k].length > 0, "VIEW_GLYPHS." + k);
     }
-    for (const k of ["sQuote", "sLightbulb", "sToggle", "sCode", "sListBullet", "sListOrdered", "sChecklist", "sTable", "sDivider"]) {
+    for (const k of ["sQuote", "sLightbulb", "sToggle", "sCode", "sListBullet", "sListOrdered", "sChecklist", "sTable", "sDivider", "fImage", "fFile"]) {
       assert.match(G[k], /fill="currentColor" fill-opacity="\.22"/, k + " punya isian lembut");
       assert.equal(/<script|on\w+=/i.test(G[k]), false, k + " markup statis aman");
     }
@@ -84,7 +87,8 @@ test("slash menu: ikon glyph gaya Alurik", async (t) => {
       }
     }
     assert.equal(/\p{Extended_Pictographic}/u.test(groupsSource()), false, "tanpa emoji di SLASH_MENU_GROUPS");
-    assert.equal(/[•☑⊞—▶]/.test(groupsSource().replace(/title: '[^']*'/g, "")), false, "tanpa simbol ikon lama");
+    // title boleh memuat "—" (termasuk title Media bersyarat `pickMediaAV ? '…' : '…'`); yang dicek ikon/label saja
+    assert.equal(/[•☑⊞—▶]/.test(groupsSource().replace(/title: (?:\w+ \? )?'[^']*'(?: : '[^']*')?/g, "")), false, "tanpa simbol ikon lama");
   });
   await t.test("makeSlashItem membuat <svg> dari VIEW_GLYPHS (atribut sama dengan ViewGlyph)", () => {
     const start = indexHtml.indexOf("const makeSlashItem = (");
@@ -103,10 +107,10 @@ test("slash menu: grup dan item sesuai urutan", async (t) => {
   await t.test("4 label grup berurutan", () => {
     assert.deepEqual(groups.map(g => g.label), EXPECTED.map(g => g[0]));
   });
-  await t.test("15 item dengan ikon/label/tipe/payload persis", () => {
+  await t.test("17 item dengan ikon/label/tipe/payload persis", () => {
     const flat = groups.flatMap(g => g.items.map(it => [it.glyph || it.icon, it.label, it.type, it.payload]));
     const exp = EXPECTED.flatMap(g => g[1].map(([i, l, ty, p]) => [i, l, ty, p]));
-    assert.equal(flat.length, 15);
+    assert.equal(flat.length, 17);
     assert.deepEqual(flat, exp);
   });
   await t.test("setiap item punya title deskriptif", () => {
@@ -114,8 +118,10 @@ test("slash menu: grup dan item sesuai urutan", async (t) => {
       assert.ok(typeof it.title === "string" && it.title.length > it.label.length - 1, `title untuk ${it.label}`);
     }
     const byType = Object.fromEntries(groups.flatMap(g => g.items).map(it => [it.type, it]));
-    assert.equal(byType.draw.title, "Gambar / Sketsa (/draw)");
+    assert.equal(byType.draw.title, "Sketsa — coretan bebas, diagram, papan tulis");
     assert.equal(byType.task.title, "Tugas / Task (/task, /tasks)");
+    assert.equal(byType.media.title, "Media — gambar, audio, atau video");
+    assert.equal(byType.file.title, "File — PDF/dokumen sebagai lampiran");
     assert.equal(byType.callout.title, "Callout / Info (/callout)");
     assert.equal(byType.toggle.title, "Toggle / Lipatan (/toggle)");
     assert.equal(byType.code_block.title, "Code Block (/code)");
@@ -173,8 +179,8 @@ test("slash menu: aksi wikilink menyisipkan [[ dari state segar", () => {
   assert.match(m[1], /tr\.setStoredMarks\(/);
   assert.match(m[1], /spec\.code/);
   assert.ok(m[1].indexOf("setStoredMarks") < m[1].indexOf("insertText('[['"), "stored marks diatur sebelum insertText");
-  // "/" pemicu dihapus oleh jalur generik (bukan pengecualian draw/task)
-  assert.match(indexHtml, /if \(type !== 'draw' && type !== 'task'\) \{\s*const sel0 = view\.state\.selection;\s*if \(sel0\.empty && isSlashTriggerBefore\(sel0\.\$from\)\)/);
+  // "/" pemicu dihapus oleh jalur generik (bukan pengecualian draw/task/media/file)
+  assert.match(indexHtml, /if \(type !== 'draw' && type !== 'task' && type !== 'media' && type !== 'file'\) \{\s*const sel0 = view\.state\.selection;\s*if \(sel0\.empty && isSlashTriggerBefore\(sel0\.\$from\)\)/);
 });
 
 test("slash menu: posisi dijepit ke dalam viewport (HP)", async (t) => {
@@ -235,7 +241,10 @@ test("CSS slash menu grid", async (t) => {
   const menu = /\.milkdown-slash-menu \{([^}]*)\}/.exec(css);
   await t.test("menu: lebar & max-height baru", () => {
     assert.ok(menu);
-    assert.match(menu[1], /max-height: min\(440px, 70vh\)/);
+    // 17 item butuh ±471 px → 480 px agar seluruh menu (sampai Wikilink) muat tanpa scroll di 1280×800 & 375×740
+    assert.match(menu[1], /max-height: min\(480px, 70vh\)/);
+    assert.match(indexHtml, /const cssMax = Math\.min\(480, Math\.floor\(window\.innerHeight \* 0\.7\)\);/, "clamp JS = max-height CSS");
+    assert.equal(/Math\.min\(440, Math\.floor\(window\.innerHeight/.test(indexHtml), false);
     assert.match(menu[1], /width: min\(340px, calc\(100vw - 24px\)\)/);
     assert.equal(/max-height: 320px/.test(css), false);
   });
@@ -258,9 +267,8 @@ test("CSS slash menu grid", async (t) => {
 });
 
 test("cache bust v450 + app.css?v=365", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v467-fokus-parkir-toast";/m);
-  assert.match(webappPy, /sw_cache = "taskflow-v467-fokus-parkir-toast"/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v467-fokus-parkir-toast";/);
+  assert.match(swJs, /^const CACHE = "taskflow-v467-istilah-sketsa-media";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v467-istilah-sketsa-media";/);
   assert.match(indexHtml, /app\.css\?v=365/);
   assert.equal(/app\.css\?v=352/.test(indexHtml), false);
 });

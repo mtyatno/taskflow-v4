@@ -18,8 +18,8 @@
   const TFdirNode = isNode ? require("./drawdirective.js") : null;
   function dir() { return TFdirNode || (root.TF && root.TF.drawdirective); }
 
-  const OFFLINE_SHARE_MSG = "Butuh koneksi untuk membagikan gambar.";
-  const OFFLINE_DATA_MSG = "Data gambar belum tersedia offline.";
+  const OFFLINE_SHARE_MSG = "Butuh koneksi untuk membagikan sketsa.";
+  const OFFLINE_DATA_MSG = "Data sketsa belum tersedia offline.";
 
   const nn = (v) => (v != null ? v : null);
   const sameList = (a, b) => nn(a) === nn(b) || (a != null && b != null && String(a) === String(b));
@@ -43,11 +43,11 @@
     const w = listName || "workspace";
     switch (notice && notice.kind) {
       case "own_to_ws":
-        return "Gambar ini akan dibagikan ke workspace " + w + " supaya semua anggota bisa melihatnya.";
+        return "Sketsa ini akan dibagikan ke workspace " + w + " supaya semua anggota bisa melihatnya.";
       case "ws_in_personal":
-        return "Gambar ini milik workspace " + w + ". Notemu tetap menautkannya, tetapi hanya anggota " + w + " yang bisa melihatnya.";
+        return "Sketsa ini milik workspace " + w + ". Notemu tetap menautkannya, tetapi hanya anggota " + w + " yang bisa melihatnya.";
       case "other_ws_copy":
-        return "Gambar ini bukan milik " + w + ". Salinannya akan dibuat di " + w + " dan tautan di note diganti.";
+        return "Sketsa ini bukan milik " + w + ". Salinannya akan dibuat di " + w + " dan tautan di note diganti.";
       default:
         return "";
     }
@@ -146,7 +146,7 @@
   function shareDrawing(api, drawing, listId) {
     if (isOffline()) return Promise.resolve({ ok: false, code: "OFFLINE", message: OFFLINE_SHARE_MSG });
     const sid = serverIdOf(drawing);
-    if (sid == null) return Promise.resolve({ ok: false, code: "ERROR", message: "Gambar belum tersinkron ke server." });
+    if (sid == null) return Promise.resolve({ ok: false, code: "ERROR", message: "Sketsa belum tersinkron ke server." });
     return call(api, "PATCH", "/api/drawings/" + sid + "/share", { list_id: nn(listId) }).then((updated) => {
       // Adopsi list_id SAJA. updated_at hasil bump share TIDAK dijadikan base_rev: PUT drawing tidak mengirim
       // base_rev, jadi satu-satunya penjaga adalah gerbang serverNewer di pull + merge 3-arah. Memajukan base_rev

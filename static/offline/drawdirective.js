@@ -24,7 +24,7 @@
     if (!match) return null;
     const id = match[1];
     const attrs = parseAttributes(match[2]);
-    const title = attrs.title || 'Gambar';
+    const title = attrs.title || 'Sketsa';
     const size = (attrs.size || (attrs.width === '40%' || attrs.width === '50%' || attrs.width === 'small' ? 'S' : attrs.width === '70%' || attrs.width === '75%' || attrs.width === 'medium' ? 'M' : 'L')).toUpperCase();
     const width = attrs.width || (size === 'S' ? '50%' : size === 'M' ? '75%' : '100%');
     const height = attrs.height || (size === 'S' ? '200px' : size === 'M' ? '300px' : '400px');
@@ -33,7 +33,7 @@
 
   function formatDirective(attrs) {
     const id = attrs.id || '';
-    const title = attrs.title || 'Gambar';
+    const title = attrs.title || 'Sketsa';
     const size = attrs.size || 'L';
     const width = attrs.width || (size === 'S' ? '50%' : size === 'M' ? '75%' : '100%');
     return `::draw[${id}]{title="${title}" size="${size}" width="${width}"}`;
