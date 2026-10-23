@@ -4075,3 +4075,9 @@
 ## 2026-10-23 05:55 WIB — Claude — merge Nextcloud di thread (#91) + lampiran note ke disk (#92)
 - Bapak: "merge". #91 di-merge (34c804f), lalu #92 (850a930); CI Tests hijau di head masing-masing (f85cfba, e7349b4).
 - **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web`. Cek: unggah gambar 📎 di note → file baru muncul di `uploads/` (nama hex 32 karakter), bukan di Nextcloud; lampiran lama tetap tampil. Masih terbuka: gambar note 401 di browser tanpa cookie; `backup.sh` belum mencadangkan `MEDIA_ROOT`; migrasi file lampiran lama dari Nextcloud (opsional).
+
+## [2026-10-23 10:30] - Claude
+- **Task:** Istilah "Sketsa" (pengganti "Gambar" untuk drawing), Media/📎 File di toolbar & menu blok note, toolbar note fluid tanpa tombol "+".
+- **Changes:** rename UI seluruh app; `mediaPickAction`, `noteMediaAccept`, `pickerRef`, item slash Media/File; handler gambar host `{source:'picker'}` (offline, galat server, 1 MB); quick-note satu note (PUT, `resolveTaskServerIds`, hapus note yatim); toolbar wrap + container query; slash 480 px; merge main (#89 #91 #92); SW v466, app.css 364.
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, static/offline/drawingshare.js, drawdirective.js, drawingtabs.js, syncpush.js, wsmanage.js, webapp.py, docx_exporter.py, tests/offline/*.test.js, tests/*.py, temporary_files/e2e_istilah_sketsa_media.py, e2e_note_toolbar_fluid.py, e2e_slash_menu_grid.py, e2e_note_media.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — draft PR.
