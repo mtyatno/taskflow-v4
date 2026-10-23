@@ -85,8 +85,8 @@ test("Sketsa memakai ViewGlyph", () => {
   assert.match(draw, /"Pinned"/);
 });
 
-test("cache bust taskflow-v466-istilah-sketsa-media", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v466-istilah-sketsa-media";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v466-istilah-sketsa-media";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v466-istilah-sketsa-media"/);
+test("cache bust taskflow-v467-istilah-sketsa-media", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v467-istilah-sketsa-media";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v467-istilah-sketsa-media";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v467-istilah-sketsa-media"/);
 });

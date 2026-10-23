@@ -25,6 +25,9 @@ import requests
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Penanda modal "Apa yang baru" (#93) = versi SW saat ini, supaya modal tidak menutupi UI yang diuji.
+with open(os.path.join(ROOT, "static", "sw.js"), encoding="utf-8") as _f:
+    SW_VERSION = re.search(r'^const CACHE = "([^"]+)";', _f.read(), re.M).group(1)
 SHOTS = os.path.join(ROOT, "temporary_files")
 PW = "rahasia123"
 SECRET = "e2e-slash-menu-grid-secret-0123456789abcdef"
@@ -95,11 +98,12 @@ def open_app(browser, base, user):
     p.errors = []
     p.on("pageerror", lambda e: p.errors.append(str(e)))
     p.goto(base + "/manifest.json")
-    p.evaluate("""([t, u, tours]) => {
+    p.evaluate("""([t, u, tours, sw]) => {
         localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(u));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
         localStorage.setItem('tf_dismiss_onboarding', '1');
-    }""", [user["token"], user["id"], TOURS])
+        localStorage.setItem('tf_whatsnew_seen', sw);
+    }""", [user["token"], user["id"], TOURS, SW_VERSION])
     p.goto(base + "/")
     p.locator(".sidebar-link").first.wait_for(state="attached", timeout=30000)
     return ctx, p

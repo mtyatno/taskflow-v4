@@ -106,8 +106,8 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v466-istilah-sketsa-media in static/sw.js", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v466-istilah-sketsa-media";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v466-istilah-sketsa-media";/);
+  await t.test("Service Worker cache is taskflow-v467-istilah-sketsa-media in static/sw.js", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v467-istilah-sketsa-media";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v467-istilah-sketsa-media";/);
   });
 });

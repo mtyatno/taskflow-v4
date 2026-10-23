@@ -168,11 +168,12 @@ def open_app(browser, base, user, viewport=(1280, 800)):
     p.on("pageerror", lambda e: p.errors.append(str(e)))
     p.on("dialog", lambda d: d.accept())  # beforeunload / confirm
     p.goto(base + "/manifest.json")
-    p.evaluate("""([t, u, tours]) => {
+    p.evaluate("""([t, u, tours, sw]) => {
         localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(u));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
         localStorage.setItem('tf_dismiss_onboarding', '1');
-    }""", [user["token"], user["id"], G.TOURS])
+        localStorage.setItem('tf_whatsnew_seen', sw);
+    }""", [user["token"], user["id"], G.TOURS, G.SW_VERSION])
     p.goto(base + "/")
     p.locator(".sidebar-link").first.wait_for(state="attached", timeout=30000)
     return ctx, p
