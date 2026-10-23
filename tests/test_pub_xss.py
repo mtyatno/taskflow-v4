@@ -208,7 +208,7 @@ def test_fallback_renderer_escapes(client, monkeypatch):
     body = _page_body(client, content)
     assert '<script' not in body.lower()
     assert 'a<br>b <mark>m</mark>' in body
-    assert 'Gambar tidak tersedia' in body
+    assert 'Sketsa tidak tersedia' in body
     assert '<p><div' not in body
     _assert_no_active_markup(body)
 
@@ -340,7 +340,7 @@ def test_public_svg_without_svg_prefix_not_embedded(client):
     assert 'data:image/svg+xml' not in body
     assert '<iframe src="/static/vendor/tldraw/index.html?noteId=' in body
     # iframe tldraw buatan Alurik (style tetap) dibuang dulu; sisanya tidak boleh punya markup aktif
-    body = re.sub(r'<iframe src="/static/vendor/tldraw/index.html\?noteId=\d+" style="[^"]*" title="Drawing"></iframe>', '', body)
+    body = re.sub(r'<iframe src="/static/vendor/tldraw/index.html\?noteId=\d+" style="[^"]*" title="Sketsa"></iframe>', '', body)
     _assert_no_active_markup(body)
 
 

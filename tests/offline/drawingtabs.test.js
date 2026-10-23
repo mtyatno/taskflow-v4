@@ -97,3 +97,8 @@ test("reorderTabs moves tab to new position", () => {
   const reordered = DT.reorderTabs(tabs, 0, 2);
   assert.deepEqual(reordered.map(t => t.id), [2, 3, 1]);
 });
+
+test("openTab tanpa judul memakai fallback tampilan 'Sketsa tanpa judul'", () => {
+  const result = DT.openTab([], 7);
+  assert.equal(result.tabs[0].title, "Sketsa tanpa judul");
+});

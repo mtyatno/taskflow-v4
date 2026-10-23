@@ -95,7 +95,7 @@ def _svg_to_png_bytes(svg_str: str) -> Optional[bytes]:
     return None
 
 
-def _add_svg_to_doc(doc, svg_str: str, title="Drawing"):
+def _add_svg_to_doc(doc, svg_str: str, title="Sketsa"):
     """Embed an SVG drawing into a python-docx Document as high-fidelity PNG."""
     try:
         png_bytes = _svg_to_png_bytes(svg_str)
@@ -104,7 +104,7 @@ def _add_svg_to_doc(doc, svg_str: str, title="Drawing"):
         return _add_raster_image_to_doc(doc, png_bytes, alt_text=f"🎨 {title}" if title else "")
     except Exception as e:
         p_err = doc.add_paragraph()
-        r_err = p_err.add_run(f"🎨 [Gambar/Canvas: {title}]")
+        r_err = p_err.add_run(f"🎨 [Sketsa: {title}]")
         r_err.font.color.rgb = RGBColor(100, 116, 139)
         return p_err
 
@@ -642,7 +642,7 @@ def markdown_to_docx(
 
             # Extract title attribute if present
             title_m = re.search(r'title\s*=\s*(?:"([^"]*)"|\'([^\']*)\')', attr_raw)
-            draw_title = title_m.group(1) or title_m.group(2) if title_m else f"Gambar {draw_id}"
+            draw_title = title_m.group(1) or title_m.group(2) if title_m else f"Sketsa {draw_id}"
 
             resolved_svg = None
             resolved_png = None
@@ -685,7 +685,7 @@ def markdown_to_docx(
                 shd = parse_xml(f'<w:shd {nsdecls("w")} w:fill="F8FAFC"/>')
                 p_draw._element.get_or_add_pPr().append(shd)
 
-                r_d = p_draw.add_run(f"🎨 [Gambar/Canvas: {draw_title}]")
+                r_d = p_draw.add_run(f"🎨 [Sketsa: {draw_title}]")
                 r_d.bold = True
                 r_d.font.color.rgb = RGBColor(100, 116, 139)
 

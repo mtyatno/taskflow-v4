@@ -119,7 +119,7 @@ test("copyDrawing falls back to server copy / refuses offline without data", asy
   const missing = { cid: "m1", server_id: 21, title: "Remote", data_missing: 1, data_json: null };
   setOnline(false);
   const off = await share.copyDrawing({ fetch: async () => { throw new Error("no"); } }, missing, 5);
-  assert.deepEqual(off, { ok: false, code: "OFFLINE", message: "Data gambar belum tersedia offline." });
+  assert.deepEqual(off, { ok: false, code: "OFFLINE", message: "Data sketsa belum tersedia offline." });
   setOnline(true);
   const calls = [];
   const api = { fetch: async (url, opts) => { calls.push({ url, opts }); return { id: 22, client_id: "srv-22", title: "Remote (salinan)", data_json: '{"store":{},"schema":{}}', list_id: 5, user_id: 1, updated_at: "2026-10-19T09:00:00", created_at: "2026-10-19T09:00:00" }; } };

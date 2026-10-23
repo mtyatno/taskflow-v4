@@ -106,46 +106,42 @@ test("Note Editor Toolbar Lucide Icons Modernization", async (t) => {
       "+ Task button should use checkSquare icon"
     );
 
-    // + Gambar button: draw icon
+    // Sketsa button: draw icon
     assert.match(
       toolbarCode,
-      /title:\s*["']Sisipkan atau buat gambar \/ sketsa baru \(\/draw\)["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']draw["']/,
-      "+ Gambar button should use draw icon"
+      /title:\s*["']Sisipkan sketsa yang ada atau buat sketsa baru["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']draw["']/,
+      "Sketsa button should use draw icon"
     );
 
-    // Format lainnya button: plus icon
-    assert.match(
-      toolbarCode,
-      /title:\s*["']Format lainnya["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']plus["']/,
-      "Format lainnya (+) button should use plus icon"
-    );
+    // Tombol "+" (Format lainnya) dihapus (Task 2b, 2026-10-23): isinya tampil langsung di toolbar.
+    assert.doesNotMatch(toolbarCode, /Format lainnya/, "tombol + Format lainnya sudah dihapus");
 
-    // Numbered list button: listOrdered icon
+    // Numbered list button (langsung di toolbar): listOrdered icon
     assert.match(
       toolbarCode,
-      /title:\s*["']Numbered list["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']listOrdered["']/,
-      "Numbered list dropdown button should use listOrdered icon"
+      /title:\s*["']Numbered list["']\s*\},\s*React\.createElement\(Icon,\s*\{\s*name:\s*["']listOrdered["']/,
+      "Numbered list button should use listOrdered icon"
     );
 
     // Strikethrough button: strikethrough icon
     assert.match(
       toolbarCode,
-      /title:\s*["']Strikethrough["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']strikethrough["']/,
-      "Strikethrough dropdown button should use strikethrough icon"
+      /title:\s*["']Strikethrough["']\s*\},\s*React\.createElement\(Icon,\s*\{\s*name:\s*["']strikethrough["']/,
+      "Strikethrough button should use strikethrough icon"
     );
 
     // Table button: table icon
     assert.match(
       toolbarCode,
-      /title:\s*["']Insert table["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']table["']/,
-      "Table dropdown button should use table icon"
+      /title:\s*["']Insert table["']\s*\},\s*React\.createElement\(Icon,\s*\{\s*name:\s*["']table["']/,
+      "Table button should use table icon"
     );
 
     // Wikilink button: link icon
     assert.match(
       toolbarCode,
-      /title:\s*["']Internal link \[\[wiki\]\]["'][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']link["']/,
-      "Wikilink dropdown button should use link icon"
+      /title:\s*["']Internal link \[\[wiki\]\]["'][^}]*\},\s*\[React\.createElement\(Icon,\s*\{\s*name:\s*["']link["']/,
+      "Wikilink button should use link icon"
     );
 
     // Horizontal rule button: minus icon
@@ -155,11 +151,18 @@ test("Note Editor Toolbar Lucide Icons Modernization", async (t) => {
       "Horizontal rule button should use minus icon"
     );
 
-    // Attach file button: paperclip icon
+    // Attach file button (📎 File): paperclip icon
     assert.match(
       toolbarCode,
-      /title:\s*noteId \? ['"]Lampirkan file['"][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']paperclip["']/,
+      /title:\s*noteId \? ['"]Lampirkan file \(PDF, dokumen, spreadsheet\)['"][\s\S]*?React\.createElement\(Icon,\s*\{\s*name:\s*["']paperclip["']/,
       "Attach file button should use paperclip icon"
+    );
+
+    // Media button: ViewGlyph fImage (gaya Alurik)
+    assert.match(
+      toolbarCode,
+      /className:\s*["']note-media-insert-btn["'][\s\S]*?React\.createElement\(ViewGlyph,\s*\{\s*name:\s*["']fImage["']/,
+      "Media button should use fImage glyph"
     );
 
     // Voice dictation mic button: mic icon
@@ -192,6 +195,8 @@ test("Note Editor Toolbar Lucide Icons Modernization", async (t) => {
     assert.doesNotMatch(toolbarCode, /\\uD83D\\uDCC4/, "No legacy paper emoji unicode in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /📄\s*Kertas/, "No literal 📄 Kertas string in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /🎨\s*\+Gambar/, "No literal 🎨 +Gambar string in NoteToolbar buttons");
+    assert.doesNotMatch(toolbarCode, /🎨\s*\+?Sketsa/, "No literal 🎨 Sketsa string in NoteToolbar buttons");
+    assert.doesNotMatch(toolbarCode, /🎬/, "No legacy 🎬 Audio/Video label in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /\\uD83C\\uDF99/, "No legacy microphone emoji in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /\\uD83D\\uDD34/, "No legacy red circle emoji in NoteToolbar buttons");
     assert.doesNotMatch(toolbarCode, /\\uD83D\\uDFE1/, "No legacy yellow circle emoji in NoteToolbar buttons");

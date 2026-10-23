@@ -60,7 +60,7 @@
 
     const returned = [];
     if (notes > 0) returned.push(`${notes} catatan`);
-    if (drawings > 0) returned.push(`${drawings} drawing`);
+    if (drawings > 0) returned.push(`${drawings} sketsa`);
     if (mindmaps > 0) returned.push(`${mindmaps} mindmap`);
     if (returned.length) lines.push(`${joinParts(returned)} kembali menjadi pribadi`);
 

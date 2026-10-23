@@ -10,7 +10,7 @@ import pytest
 
 @pytest.mark.parametrize("url", [
     "/static/app.css",
-    "/static/app.css?v=364",
+    "/static/app.css?v=365",
     "/static/vendor/milkdown.bundle.js?v=289",  # query versi tidak mengganggu ETag/304
 ])
 def test_static_asset_revalidates_with_etag_304(client, url):

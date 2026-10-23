@@ -25,7 +25,7 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
     assert.match(
       indexHtml,
-      /if\s*\(\s*type\s*!==\s*['"]draw['"]\s*&&\s*type\s*!==\s*['"]task['"]\s*\)/
+      /if\s*\(\s*type\s*!==\s*['"]draw['"]\s*&&\s*type\s*!==\s*['"]task['"]\s*&&\s*type\s*!==\s*['"]media['"]\s*&&\s*type\s*!==\s*['"]file['"]\s*\)/
     );
   });
 
@@ -106,8 +106,8 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v466-apa-yang-baru in static/sw.js", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v466-apa-yang-baru";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v466-apa-yang-baru";/);
+  await t.test("Service Worker cache is taskflow-v467-istilah-sketsa-media in static/sw.js", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v467-istilah-sketsa-media";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v467-istilah-sketsa-media";/);
   });
 });

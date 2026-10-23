@@ -4094,3 +4094,16 @@
 - **Changes:** PR #93 dibuat; CI Tests sempat macet di langkah `Install ffmpeg` (apt) → dibatalkan lalu dijalankan ulang → hijau; `main` tidak bergerak sejak eff037b; #93 di-merge (0e4965c); Deploy Taskflow V4 sukses; `/sw.js` live = v466 (`whatsnew.json`, `appupdate.js` di STATIC), `/api/version` masih v465 sampai restart. CURRENT_STATE: status di-merge, catatan PR #94 (v466 bentrok) dan #95 (v467) wajib menambah entri `whatsnew.json`.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` di server (sekali).
+
+## [2026-10-23 10:30] - Claude
+- **Task:** Istilah "Sketsa" (pengganti "Gambar" untuk drawing), Media/📎 File di toolbar & menu blok note, toolbar note fluid tanpa tombol "+".
+- **Changes:** rename UI seluruh app; `mediaPickAction`, `noteMediaAccept`, `pickerRef`, item slash Media/File; handler gambar host `{source:'picker'}` (offline, galat server, 1 MB); quick-note satu note (PUT, `resolveTaskServerIds`, hapus note yatim); toolbar wrap + container query; slash 480 px; merge main (#89 #91 #92); SW v467, app.css 365 (setelah merge #93).
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, static/offline/drawingshare.js, drawdirective.js, drawingtabs.js, syncpush.js, wsmanage.js, webapp.py, docx_exporter.py, tests/offline/*.test.js, tests/*.py, temporary_files/e2e_istilah_sketsa_media.py, e2e_note_toolbar_fluid.py, e2e_slash_menu_grid.py, e2e_note_media.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — draft PR.
+
+## [2026-10-23 11:45] - Claude
+- **Task:** PR #94 `claude/istilah-sketsa-media` — merge `main` 3031fe0 (#93 banner pembaruan + Apa yang baru) dan naik versi (v466/364 kini milik `main`).
+- **Changes:** merge (konflik versi di index.html/sw.js/tes, `sw_cache` webapp.py dibuang, CURRENT_STATE/SESSION_LOG digabung; app.css & .gitignore auto-merge); SW **v467** `taskflow-v467-istilah-sketsa-media`, `app.css?v=365` (index.html, `STATIC`, tes); entri teratas `static/whatsnew.json` v467; harness E2E menandai `tf_whatsnew_seen`.
+- **Verifikasi:** npm 3104/3103 (pra-ada `draw_local_reactive`); pytest 1211 passed 3 skipped; inline OK; E2E 92/92, 93/93, 40/40.
+- **Files Touch:** static/index.html, static/sw.js, static/whatsnew.json, tests/offline/*.test.js, tests/test_static_revalidate.py, temporary_files/e2e_slash_menu_grid.py, temporary_files/e2e_istilah_sketsa_media.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — di-push, siap merge.

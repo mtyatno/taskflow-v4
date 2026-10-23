@@ -1166,7 +1166,7 @@
             const kind = classify(res);
             if (kind === "forbidden") { return accessLost("drawings", op.cid, op, result); }
             // S2: 404 = dihapus di server saat ada edit lokal → conflict "remote_deleted" (record + blob DIPERTAHANKAN,
-            // pull melewatinya); conflict bar: "Buang perubahan" / "Simpan sebagai gambar baru" (keep_as_new).
+            // pull melewatinya); conflict bar: "Buang perubahan" / "Simpan sebagai sketsa baru" (keep_as_new).
             if (kind === "gone") {
               result.failed++;
               return TFrepo.mutateDrawing(rec.cid, (cur) => (cur ? Object.assign({}, cur, { conflict: "remote_deleted" }) : undefined))

@@ -176,13 +176,13 @@ test("hydrateDrawingPreviews replaces previous preview when re-hydrating", async
   assert.equal(decodeSrc(el.children[0].src), "<svg>new</svg>");
 });
 
-test("hydrateDrawingPreviews: invalid svg content → 'Gambar tidak tersedia' card, no markup", async () => {
+test("hydrateDrawingPreviews: invalid svg content → 'Sketsa tidak tersedia' card, no markup", async () => {
   for (const bad of ['<?xml version="1.0"?><svg onload=1></svg>', "<img src=x onerror=1><svg>", "<div>x</div>"]) {
     const { el, dom } = await runHydrate({ id: 42, svg_preview: bad });
     assert.equal(dom.objectUrls.length, 0, bad);
     assert.equal(el.attrs["data-hydrated"], "invalid", bad);
     assert.equal(el.children.length, 1);
-    assert.equal(el.children[0].textContent, "Gambar tidak tersedia");
+    assert.equal(el.children[0].textContent, "Sketsa tidak tersedia");
     assert.ok(el.innerHTMLWrites.every(w => !/<svg|<img/i.test(w)), bad);
   }
   // svg belum ada (null) → placeholder bawaan tetap, bukan kartu tidak tersedia
@@ -208,7 +208,7 @@ test("print path uses img for drawing svg and waits for it", () => {
   assert.match(print, /await Promise\.all\(imgLoads\)[\s\S]*window\.print\(\)/);
 });
 
-test("printDrawingPreview: svg → <img data:>, invalid → 'Gambar tidak tersedia' text card", async () => {
+test("printDrawingPreview: svg → <img data:>, invalid → 'Sketsa tidak tersedia' text card", async () => {
   const fnSrc = src("printDrawingPreview");
   const run = (d, withSh = true) => {
     const dom = makeDom();
@@ -230,13 +230,13 @@ test("printDrawingPreview: svg → <img data:>, invalid → 'Gambar tidak tersed
     ({ c, wait } = run(d));
     assert.equal(wait, null);
     assert.equal(c.children.length, 1, JSON.stringify(d));
-    assert.equal(c.children[0].textContent, "Gambar tidak tersedia");
+    assert.equal(c.children[0].textContent, "Sketsa tidak tersedia");
     assert.equal(c.innerHTMLWrites.length, 0);
     // kartu tercetak: bukan kelas drawing-preview-placeholder (disembunyikan CSS cetak)
     assert.doesNotMatch(c.children[0].className, /drawing-preview-placeholder/);
   }
   ({ c, wait } = run({ svg_preview: EVIL_SVG }, false));
-  assert.equal(c.children[0].textContent, "Gambar tidak tersedia");
+  assert.equal(c.children[0].textContent, "Sketsa tidak tersedia");
 });
 
 test("no svg markup reaches innerHTML/dangerouslySetInnerHTML anywhere in the client", () => {

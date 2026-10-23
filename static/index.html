@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=364">
+  <link rel="stylesheet" href="/static/app.css?v=365">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v466-apa-yang-baru";
+    window.__SW_VERSION = "taskflow-v467-istilah-sketsa-media";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -885,14 +885,14 @@ const api = {
 // dan dibatasi waktu (AbortController) supaya antrian sinkron / jadwal ulang push tidak macet selamanya.
 const SYNC_FETCH_TIMEOUT_MS = 30000;
 const SYNC_UPLOAD_MAX_MS = 600000; // batas atas untuk upload besar di jaringan lambat (10 menit)
-const DRAWING_FETCH_TIMEOUT_MS = 8000; // buka gambar: interaktif → jatuh ke data lokal lebih cepat
+const DRAWING_FETCH_TIMEOUT_MS = 8000; // buka sketsa: interaktif → jatuh ke data lokal lebih cepat
 function syncFetch(url, opts, timeoutMs) {
   // tab akan reload → tolak seperti jaringan putus (syncpush: __network → drain berhenti, op tetap)
   if (__tabReloading) return Promise.reject(new TypeError("Failed to fetch (tab reloading)"));
   const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
   let ms = timeoutMs || SYNC_FETCH_TIMEOUT_MS;
   const body = opts && opts.body;
-  // request ber-body (PUT/POST gambar besar): +1 detik per 20KB, maks SYNC_UPLOAD_MAX_MS
+  // request ber-body (PUT/POST sketsa besar): +1 detik per 20KB, maks SYNC_UPLOAD_MAX_MS
   if (typeof body === "string" && body.length) ms = Math.min(SYNC_UPLOAD_MAX_MS, ms + Math.ceil(body.length / 20480) * 1000);
   const timer = controller ? setTimeout(() => controller.abort(), ms) : null;
   // batas waktu hanya untuk MENUNGGU respons: timer dihentikan begitu respons (headers) tiba,
@@ -1310,7 +1310,7 @@ function sync() {
 }
 // Teks notice (informasi, hanya tombol "Tutup"). conflict_copy (prinsip 7, workstream D): versi lokal yang kalah
 // disimpan sebagai entitas baru "(konflik) <judul>" — tidak ada yang dibuang.
-const __entityNoun = (entity) => (entity === "mindmap" ? "peta" : entity === "note" ? "catatan" : entity === "drawing" ? "gambar" : "item");
+const __entityNoun = (entity) => (entity === "mindmap" ? "peta" : entity === "note" ? "catatan" : entity === "drawing" ? "sketsa" : "item");
 function noticeText(n) {
   const title = n.title || "(tanpa judul)";
   if (n.kind === "merge_conflict") {
@@ -4272,7 +4272,7 @@ function Sidebar({
   }, {
     id: "draw",
     icon: "draw",
-    label: "Draw"
+    label: "Sketsa"
   }, {
     id: "mindmap",
     icon: "mindmap",
@@ -6040,13 +6040,21 @@ function TaskFormModal({
   const noteContentRef = React.useRef(null);
   const noteMilkdownRef = React.useRef(null);
   const noteSavedIdRef = React.useRef(null);
+  // true setelah simpan note sukses. Modal ditutup (batal/X/Esc, atau unggahan ditolak lalu ditinggal) sebelum itu,
+  // padahal gambar sudah membuat note server (noteSavedIdRef) → note yatim itu dihapus (lihat discardOrphanQuickNote).
+  const noteSubmittedRef = React.useRef(false);
+  React.useEffect(() => () => {
+    discardOrphanQuickNote(noteSavedIdRef.current, noteSubmittedRef.current);
+  }, []);
+  // Pemilih file toolbar note ({ media, file }) — dipakai item "Media" menu blok editor.
+  const notePickRef = React.useRef(null);
   const [noteDrawingInsertOpen, setNoteDrawingInsertOpen] = useState(false);
   const [noteQuickDrawState, setNoteQuickDrawState] = useState(null);
   const [notePaperConfig, setNotePaperConfig] = useState({ enabled: true, size: 'A4', orientation: 'portrait' });
   const notePaperWrapRef = React.useRef(null);
 
-  // Klik preview gambar (event editDrawingModal) ditangani SATU QuickDrawModal global di App;
-  // modal milik form ini hanya untuk alur sisip gambar baru (handleNoteDrawingSelected).
+  // Klik preview sketsa (event editDrawingModal) ditangani SATU QuickDrawModal global di App;
+  // modal milik form ini hanya untuk alur sisip sketsa baru (handleNoteDrawingSelected).
 
   const handleOpenNoteInsertDrawing = () => setNoteDrawingInsertOpen(true);
   const handleNoteDrawingSelected = (did, dtitle) => {
@@ -6478,8 +6486,8 @@ function TaskFormModal({
       openNoteTaskDropdown();
       return;
     }
-    // /draw, /canvas, /gambar, /sketsa slash command — buka drawing insert modal
-    const drawMatch = textBefore.match(/(?:^|\n)\/(draw|canvas|gambar|sketsa)$/i);
+    // /draw, /canvas, /sketsa slash command — buka drawing insert modal
+    const drawMatch = textBefore.match(/(?:^|\n)\/(draw|canvas|sketsa)$/i);
     if (drawMatch) {
       editor.action(ctx => {
         const view = ctx.get(MB.editorViewCtx);
@@ -6618,10 +6626,15 @@ function TaskFormModal({
       setCreatingInlineNoteTask(false);
     }
   };
-  const handleNoteImagePaste = async file => {
+  // opts.source === 'picker': gambar dari tombol/menu "Media" (bukan tempel) — toast unggah, offline langsung
+  // data URL, galat server (non-ok) ditampilkan tanpa fallback, dan data URL dibatasi MEDIA_INLINE_IMAGE_MAX_BYTES.
+  // Tempel (tanpa opts) tidak berubah.
+  const handleNoteImagePaste = async (file, opts) => {
     var editor = noteMilkdownRef.current;
     if (!editor) return;
     var MB = window.MilkdownBundle;
+    var fromPicker = !!(opts && opts.source === 'picker');
+    var say = function(m, t) { return typeof showToast === 'function' ? showToast(m, t) : window.__showToast?.(m, t); };
     var insertNoteMd = function(md) {
       editor.action(function(ctx) {
         try {
@@ -6633,37 +6646,60 @@ function TaskFormModal({
         } catch (_) {}
       });
     };
-    // Try server upload first
+    // Gambar pilihan offline: langsung data URL (batas 1 MB) — tanpa membuat note / unggah / toast unggah.
+    var tryServer = !(fromPicker && typeof navigator !== 'undefined' && navigator.onLine === false);
+    // Gambar pilihan ditolak server (non-ok): toast `detail` galat dan berhenti; data URL hanya bila jaringan gagal.
+    var failPicked = async function(res) {
+      var d = null;
+      try { d = await res.json(); } catch (_) {}
+      say(d && typeof d.detail === 'string' && d.detail ? d.detail : 'Unggah gambar gagal', 'error');
+    };
+    // Try server upload first. Note server dibuat dulu untuk id lampiran (tempel: hanya bila sudah ada isi;
+    // pilihan Media: juga saat isi masih kosong). handleSubmit lalu MEMPERBARUI note ini (noteSavedIdRef),
+    // tidak membuat note kedua.
     var noteId = noteSavedIdRef.current;
-    if (!noteId && noteForm.content.trim()) {
+    if (tryServer && !noteId && (noteForm.content.trim() || fromPicker)) {
       try {
         var autoTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(function(t) { return t.slice(1).toLowerCase().trim(); }))].filter(Boolean);
-        var noteTaskIds = extractTaskIdsFromContent(noteForm.content);
+        // id task cid (task inline belum di-push) → id server; body mentah tidak lewat router lokal
+        var taskSrv = await resolveTaskServerIds(extractTaskIdsFromContent(noteForm.content));
         var hdrs = { 'Content-Type': 'application/json' };
         if (typeof __token !== 'undefined' && __token) hdrs['Authorization'] = 'Bearer ' + __token;
-        var createRes = await fetch(apiUrl('/api/scratchpad'), { method: 'POST', headers: hdrs, body: JSON.stringify({ title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: noteTaskIds, linked_task_id: noteTaskIds[0] || null, meta_json: JSON.stringify({ paper_mode: notePaperConfig }) }) });
+        var createRes = await fetch(apiUrl('/api/scratchpad'), { method: 'POST', headers: hdrs, body: JSON.stringify({ title: noteForm.title, content: rewriteTasklinkIds(noteForm.content, taskSrv.map), tags: autoTags, linked_task_ids: taskSrv.ids, linked_task_id: taskSrv.ids[0] || null, meta_json: JSON.stringify({ paper_mode: notePaperConfig }) }) });
         if (createRes.ok) {
           var created = await createRes.json();
           noteId = created.id;
           noteSavedIdRef.current = noteId;
           window.dispatchEvent(new CustomEvent('noteSaved'));
+        } else if (fromPicker) {
+          await failPicked(createRes);
+          return;
         }
       } catch (_) {}
     }
     // Only try server upload for real numeric IDs (not offline UUIDs)
-    if (noteId && /^\d+$/.test(String(noteId))) {
+    if (tryServer && noteId && /^\d+$/.test(String(noteId))) {
       try {
         var formData = new FormData();
         formData.append('file', file);
         var uh = {};
         if (typeof __token !== 'undefined' && __token) uh['Authorization'] = 'Bearer ' + __token;
+        if (fromPicker) say('Mengunggah gambar…', 'info');
         var res = await fetch(apiUrl('/api/scratchpad/' + noteId + '/attachments'), { method: 'POST', headers: uh, body: formData });
         if (res.ok) {
           var att = await res.json();
           insertNoteMd('![' + (att.original_name || 'image') + '](/api/scratchpad/attachments/' + att.id + '/view)');
           return;
         }
+        if (fromPicker) {
+          await failPicked(res);
+          return;
+        }
       } catch (_) {}
+    }
+    if (fromPicker && file.size > MEDIA_INLINE_IMAGE_MAX_BYTES) {
+      say('Gambar lebih dari 1 MB butuh koneksi internet dan catatan yang sudah tersimpan', 'error');
+      return;
     }
     // Offline fallback: base64 data URL
     try {
@@ -6848,14 +6884,42 @@ function TaskFormModal({
       try {
         const autoTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(t => t.slice(1).toLowerCase().trim()))].filter(Boolean);
         const noteTaskIds = extractTaskIdsFromContent(noteForm.content);
-        await api.post("/api/scratchpad", {
+        const noteBody = {
           title: noteForm.title,
           content: noteForm.content,
           tags: autoTags,
           linked_task_ids: noteTaskIds,
           linked_task_id: noteTaskIds[0] || null,
           meta_json: JSON.stringify({ paper_mode: notePaperConfig })
-        });
+        };
+        // Gambar yang disisipkan sudah membuat note di server (handleNoteImagePaste, demi id lampiran):
+        // perbarui note ITU lewat jalur yang sama (fetch langsung), bukan membuat note kedua lewat router lokal.
+        // Note server itu belum ada di IndexedDB → sync pull mengadopsinya (cid baru) dan mengirim noteSaved.
+        // PUT gagal (jaringan / ditolak) → simpan lokal seperti biasa agar isi tidak hilang.
+        const serverNoteId = noteSavedIdRef.current;
+        let updatedServerNote = false;
+        if (serverNoteId && /^\d+$/.test(String(serverNoteId))) {
+          try {
+            // body mentah: id task cid → id server (server: list[int]); router lokal (fallback) tetap menerima cid
+            const taskSrv = await resolveTaskServerIds(noteTaskIds);
+            const putBody = Object.assign({}, noteBody, {
+              content: rewriteTasklinkIds(noteForm.content, taskSrv.map),
+              linked_task_ids: taskSrv.ids,
+              linked_task_id: taskSrv.ids[0] || null
+            });
+            const hdrs = { 'Content-Type': 'application/json' };
+            if (typeof __token !== 'undefined' && __token) hdrs['Authorization'] = 'Bearer ' + __token;
+            const putRes = await fetch(apiUrl('/api/scratchpad/' + serverNoteId), { method: 'PUT', headers: hdrs, body: JSON.stringify(putBody) });
+            updatedServerNote = !!putRes.ok;
+          } catch (_) {}
+        }
+        if (updatedServerNote) {
+          if (typeof window.__syncNow === 'function') Promise.resolve().then(() => window.__syncNow()).catch(() => {});
+        } else {
+          await api.post("/api/scratchpad", noteBody);
+        }
+        // tersimpan (PUT atau lokal; isi lokal bisa merujuk lampiran note server) → jangan hapus saat modal ditutup
+        noteSubmittedRef.current = true;
         window.dispatchEvent(new CustomEvent("noteSaved"));
         onSave();
       } catch (err) {
@@ -7021,6 +7085,8 @@ function TaskFormModal({
       onApplyTemplate: function(tpl) { return setNote("content", tpl); },
       onInsertTask: openNoteTaskDropdown,
       onInsertDrawing: handleOpenNoteInsertDrawing,
+      onInsertImage: f => handleNoteImagePaste(f, { source: 'picker' }),
+      pickerRef: notePickRef,
       voiceState: noteVoiceState,
       onToggleVoice: handleToggleNoteVoice,
       paperConfig: notePaperConfig,
@@ -7060,7 +7126,8 @@ function TaskFormModal({
       onTasklinkClick: function() {},
       onImagePaste: handleNoteImagePaste,
       onInsertDrawing: handleOpenNoteInsertDrawing,
-      onInsertTask: openNoteTaskDropdown
+      onInsertTask: openNoteTaskDropdown,
+      onPickMedia: () => notePickRef.current?.media?.()
     }), notePaperConfig?.enabled && /*#__PURE__*/React.createElement(PaperPageGuides, {
       rootRef: notePaperWrapRef,
       paperConfig: notePaperConfig
@@ -15355,7 +15422,7 @@ function DrawingTabInstance({
   const iframeRef = useRef(null);
   const lastLoadedJsonRef = useRef(null);
   const loadErrorShownRef = useRef(false);
-  const toastLoadFailed = () => showToast('Gagal memuat gambar', 'error');
+  const toastLoadFailed = () => showToast('Gagal memuat sketsa', 'error');
   const [renaming, setRenaming] = useState(false);
   const [renameVal, setRenameVal] = useState(tab?.title || "");
   const [deleteConfirm, setDeleteConfirm] = useState(false);
@@ -15411,7 +15478,7 @@ function DrawingTabInstance({
         // kanvas kosong); gagal memuat → 'loadError' (iframe tetap read-only, data tidak tertimpa).
         try {
           const doc = await api.get(`/api/drawings/${tab.id}`);
-          // data gambar tidak tersedia (detail server belum terambil) → JANGAN buka sebagai kanvas kosong
+          // data sketsa tidak tersedia (detail server belum terambil) → JANGAN buka sebagai kanvas kosong
           if (!doc || doc.data_missing) throw new Error("Drawing data unavailable");
           if (iframeRef.current?.contentWindow) {
             lastLoadedJsonRef.current = doc.data_json || null;
@@ -15427,7 +15494,7 @@ function DrawingTabInstance({
           iframeRef.current?.contentWindow?.postMessage({ type: 'loadError', v: 2 }, window.location.origin);
           if (!loadErrorShownRef.current) {
             loadErrorShownRef.current = true;
-            showToast('Gagal memuat gambar', 'error');
+            showToast('Gagal memuat sketsa', 'error');
           }
         }
       }
@@ -15437,13 +15504,13 @@ function DrawingTabInstance({
   }, [tab?.id]);
 
   const handleRename = async () => {
-    const next = renameVal.trim() || "Untitled Drawing";
+    const next = renameVal.trim() || "Sketsa tanpa judul";
     try {
       await api.put(`/api/drawings/${tab.id}`, { title: next });
       onUpdateTitle && onUpdateTitle(tab.id, next);
       setRenaming(false);
     } catch {
-      showToast("Gagal mengubah nama gambar", "error");
+      showToast("Gagal mengubah nama sketsa", "error");
     }
   };
 
@@ -15452,12 +15519,12 @@ function DrawingTabInstance({
       await api.del(`/api/drawings/${tab.id}`);
       onDeleteDrawing && onDeleteDrawing(tab.id);
     } catch (err) {
-      showToast(err && err.status === 403 ? "Hanya pemilik yang bisa menghapus gambar ini" : "Gagal menghapus gambar", "error");
+      showToast(err && err.status === 403 ? "Hanya pemilik yang bisa menghapus sketsa ini" : "Gagal menghapus sketsa", "error");
     }
   };
 
   // Cache SW campuran (index.html baru, drawingshare.js belum dimuat) → toast, bukan rejection tak tertangani.
-  const DRAWINGSHARE_MISSING_TEXT = "Muat ulang aplikasi untuk membagikan gambar.";
+  const DRAWINGSHARE_MISSING_TEXT = "Muat ulang aplikasi untuk membagikan sketsa.";
   const handleShare = async listId => {
     setShareOpen(false);
     if (!(window.TF && window.TF.drawingshare)) { showToast(DRAWINGSHARE_MISSING_TEXT, "error"); return; }
@@ -15467,7 +15534,7 @@ function DrawingTabInstance({
     } else if (res.code === "DRAWING_IN_USE") {
       setInUse(res);
     } else {
-      showToast(res.message || "Gagal membagikan gambar", "error");
+      showToast(res.message || "Gagal membagikan sketsa", "error");
     }
   };
 
@@ -15573,7 +15640,7 @@ function DrawingTabInstance({
     isOwner && /*#__PURE__*/React.createElement("button", {
       className: "btn btn-secondary btn-sm",
       onClick: () => onPin && onPin(tab),
-      title: tab.is_pinned ? "Lepas pin" : "Sematkan gambar",
+      title: tab.is_pinned ? "Lepas pin" : "Sematkan sketsa",
       style: { fontSize: 11 }
     }, tab.is_pinned ? "📌 Pinned" : "📍 Pin"),
     /*#__PURE__*/React.createElement("div", { style: { display: "flex", gap: 2, background: "var(--bg-primary)", borderRadius: 6, padding: 2 } },
@@ -15602,7 +15669,7 @@ function DrawingTabInstance({
   }, /*#__PURE__*/React.createElement("div", {
     onClick: e => e.stopPropagation(),
     style: { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: 12, padding: 20, maxWidth: 420, width: "calc(100vw - 32px)", display: "flex", flexDirection: "column", gap: 10, color: "var(--text-primary)" }
-  }, /*#__PURE__*/React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, "Drawing masih dipakai"),
+  }, /*#__PURE__*/React.createElement("div", { style: { fontSize: 15, fontWeight: 700 } }, "Sketsa masih dipakai"),
     /*#__PURE__*/React.createElement("ul", { style: { margin: 0, paddingLeft: 18, fontSize: 13 } },
       (inUse.notes || []).map((n, i) => /*#__PURE__*/React.createElement("li", { key: n.id != null ? n.id : i }, n.title || "(tanpa judul)")),
       inUse.hidden_count > 0 && /*#__PURE__*/React.createElement("li", { key: "hidden" }, `dan ${inUse.hidden_count} note lain`)
@@ -15619,7 +15686,7 @@ function DrawingTabInstance({
     ref: iframeRef,
     src: `/static/vendor/tldraw/index.html?noteId=${tab.id}&v=145`,
     style: { flex: 1, border: "none", width: "100%", height: "100%" },
-    title: "Draw editor"
+    title: "Editor sketsa"
   }))
   );
 }
@@ -15668,7 +15735,7 @@ function DrawPage({
         return res.tabs.map(t => (matchesDrawingId(t, targetId) ? { ...full, ...t } : t));
       });
     } catch (e) {
-      showToast("Gagal memuat gambar", "error");
+      showToast("Gagal memuat sketsa", "error");
     }
   };
 
@@ -15697,7 +15764,7 @@ function DrawPage({
               setDrawings(prev => prev.some(d => matchesDrawingId(d, full.id != null ? full.id : full.cid)) ? prev : [full, ...prev]);
               selectDrawing(full);
             }).catch(() => {
-              typeof showToast === 'function' && showToast('Gambar tidak ditemukan', 'error');
+              typeof showToast === 'function' && showToast('Sketsa tidak ditemukan', 'error');
             });
           }
           onInitialDrawingConsumed && onInitialDrawingConsumed();
@@ -15725,7 +15792,7 @@ function DrawPage({
         setDrawings(prev => prev.some(d => matchesDrawingId(d, full.id != null ? full.id : full.cid)) ? prev : [full, ...prev]);
         selectDrawing(full);
       }).catch(() => {
-        typeof showToast === 'function' && showToast('Gambar tidak ditemukan', 'error');
+        typeof showToast === 'function' && showToast('Sketsa tidak ditemukan', 'error');
       }).finally(() => {
         onInitialDrawingConsumed && onInitialDrawingConsumed();
       });
@@ -15753,7 +15820,7 @@ function DrawPage({
           setDrawings(prev => prev.some(d => matchesDrawingId(d, full.id != null ? full.id : full.cid)) ? prev : [full, ...prev]);
           selectDrawing(full);
         }).catch(() => {
-          typeof showToast === 'function' && showToast('Gambar tidak tersedia', 'error');
+          typeof showToast === 'function' && showToast('Sketsa tidak tersedia', 'error');
         });
       }
     };
@@ -15771,7 +15838,7 @@ function DrawPage({
   }, [sharedLists, scopeFilter]);
 
   const handleCreate = async () => {
-    const title = newTitle.trim() || "Untitled Drawing";
+    const title = newTitle.trim() || "Sketsa tanpa judul";
     try {
       const newListId = scopeFilter !== "all" && scopeFilter !== "personal" ? scopeFilter : null;
       const created = await api.post("/api/drawings", { title, data_json: "{}", list_id: newListId });
@@ -15781,7 +15848,7 @@ function DrawPage({
       selectDrawing(created);
       window.dispatchEvent(new CustomEvent("drawingSaved"));
     } catch (e) {
-      showToast("Gagal membuat gambar", "error");
+      showToast("Gagal membuat sketsa", "error");
     }
   };
 
@@ -15793,7 +15860,7 @@ function DrawPage({
       setOpenTabs(prev => prev.map(t => t.id === d.id ? { ...t, is_pinned: updated.is_pinned } : t));
       window.dispatchEvent(new CustomEvent("drawingSaved"));
     } catch (e) {
-      showToast(e && e.status === 403 ? "Hanya pemilik yang bisa mem-pin gambar ini" : "Gagal mem-pin gambar", "error");
+      showToast(e && e.status === 403 ? "Hanya pemilik yang bisa mem-pin sketsa ini" : "Gagal mem-pin sketsa", "error");
     }
   };
 
@@ -15808,7 +15875,7 @@ function DrawPage({
     window.dispatchEvent(new CustomEvent("drawingSaved"));
   };
 
-  // Salinan pribadi dari dialog "Drawing masih dipakai": masukkan ke daftar lalu buka di tab.
+  // Salinan pribadi dari dialog "Sketsa masih dipakai": masukkan ke daftar lalu buka di tab.
   const handleOpenCopy = copy => {
     if (!copy) return;
     const cid = copy.id != null ? copy.id : copy.cid;
@@ -15858,7 +15925,7 @@ function DrawPage({
       /*#__PURE__*/React.createElement("div", {
         style: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 12px", borderBottom: "1px solid var(--border)" }
       },
-        /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, fontSize: 14, display: "inline-flex", alignItems: "center", gap: 8 } }, /*#__PURE__*/React.createElement("span", { className: "wsf-title-ico", style: { display: "inline-flex" } }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "pPalette", size: 18 })), "Gambar / Canvas"),
+        /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, fontSize: 14, display: "inline-flex", alignItems: "center", gap: 8 } }, /*#__PURE__*/React.createElement("span", { className: "wsf-title-ico", style: { display: "inline-flex" } }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "pPalette", size: 18 })), "Sketsa"),
         /*#__PURE__*/React.createElement("button", {
           className: "btn btn-icon btn-sm",
           onClick: () => setSidebarOpen(false),
@@ -15952,7 +16019,7 @@ function DrawPage({
           }
         },
           /*#__PURE__*/React.createElement("input", {
-            placeholder: "Nama gambar baru...",
+            placeholder: "Nama sketsa baru...",
             value: newTitle,
             onChange: e => setNewTitle(e.target.value),
             onKeyDown: e => { if (e.key === "Enter") handleCreate(); if (e.key === "Escape") setCreating(false); },
@@ -15998,13 +16065,13 @@ function DrawPage({
             gap: 6,
             transition: "all 0.15s ease"
           }
-        }, "+ Gambar Baru")
+        }, "+ Sketsa Baru")
       ),
       /*#__PURE__*/React.createElement("div", {
         className: "hide-scrollbar",
         style: { flex: 1, overflowY: "auto", margin: "4px 8px 8px", borderRadius: 10, border: "1px solid var(--border)", background: "var(--bg-primary)" }
       }, loading ? /*#__PURE__*/React.createElement("div", { style: { padding: "8px 12px", color: "var(--text-light)", fontSize: 11 } }, "Memuat...") :
-        filtered.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { padding: "8px 12px", color: "var(--text-light)", fontSize: 11 } }, searchQ ? "Tidak ditemukan" : "Belum ada gambar") :
+        filtered.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { padding: "8px 12px", color: "var(--text-light)", fontSize: 11 } }, searchQ ? "Tidak ditemukan" : "Belum ada sketsa") :
         /*#__PURE__*/React.createElement(React.Fragment, null,
           hasPinnedSection && /*#__PURE__*/React.createElement(React.Fragment, null,
             /*#__PURE__*/React.createElement("div", { style: { padding: "4px 10px 2px", fontSize: 10, fontWeight: 700, color: "var(--text-light)", textTransform: "uppercase", letterSpacing: "0.6px", display: "flex", alignItems: "center", gap: 4 } }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "nStar", size: 10 }), "Pinned"),
@@ -16046,10 +16113,10 @@ function DrawPage({
         style: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 10 }
       },
         /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", color: "var(--text-light)" } }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "pPalette", size: 44 })),
-        /*#__PURE__*/React.createElement("span", { style: { color: "var(--text-light)", fontSize: 13 } }, drawings.length === 0 && !loading ? "Buat gambar pertamamu" : "Pilih gambar dari daftar"),
+        /*#__PURE__*/React.createElement("span", { style: { color: "var(--text-light)", fontSize: 13 } }, drawings.length === 0 && !loading ? "Buat sketsa pertamamu" : "Pilih sketsa dari daftar"),
         drawings.length === 0 && !loading && !creating && /*#__PURE__*/React.createElement("button", {
           className: "btn btn-primary", onClick: () => { setSidebarOpen(true); setCreating(true); }, style: { marginTop: 4 }
-        }, "+ Buat Gambar Pertama")
+        }, "+ Buat Sketsa Pertama")
       ) : /*#__PURE__*/React.createElement("div", { className: "draw-tab-contents", style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" } },
         openTabs.map(tab => /*#__PURE__*/React.createElement(DrawingTabInstance, {
           key: tab.id,
@@ -21055,7 +21122,7 @@ function Dashboard({
   const [pinnedNotes, setPinnedNotes] = useState([]);
   const [pinnedMindmaps, setPinnedMindmaps] = useState([]);
   const [pinnedDrawings, setPinnedDrawings] = useState([]);
-  // Sub-bagian "Disematkan" = akordeon: hanya satu dari Notes/Mindmap/Gambar terbuka sekaligus
+  // Sub-bagian "Disematkan" = akordeon: hanya satu dari Notes/Mindmap/Sketsa terbuka sekaligus
   // (default Notes); klik header grup yang sedang terbuka menutupnya. Tanpa persistensi.
   const [pinOpenKey, setPinOpenKey] = useState("notes");
   const togglePin = key => setPinOpenKey(k => k === key ? null : key);
@@ -21892,15 +21959,15 @@ function Dashboard({
     untitled: m => m.title || "Mindmap tanpa judul"
   }), renderPinnedGroup({
     key: "drawings",
-    label: "Gambar",
-    emptyLabel: "gambar",
+    label: "Sketsa",
+    emptyLabel: "sketsa",
     icon: "draw",
     color: "#ec4899",
     items: pinnedDrawings,
     nav: "draw",
-    navLabel: "Draw",
+    navLabel: "Sketsa",
     onItem: onDrawingClick,
-    untitled: d => d.title || "Gambar tanpa judul"
+    untitled: d => d.title || "Sketsa tanpa judul"
   }))))),
 
   /* ── Analitik ── */
@@ -25883,7 +25950,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v466-apa-yang-baru"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v467-istilah-sketsa-media"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -26305,7 +26372,7 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
     // size/width/height divalidasi TF.safehtml.safeDrawAttrs (nilai lain → default), spec XSS §2.3
     const parsedAttrs = parseDirectiveAttrs(attrRaw);
     const attrs = SH ? SH.safeDrawAttrs(parsedAttrs) : { title: parsedAttrs.title };
-    const titleRaw = attrs.title || 'Gambar';
+    const titleRaw = attrs.title || 'Sketsa';
     const safeTitle = escapeHtml(titleRaw);
     const size = (attrs.size || (attrs.width === '40%' || attrs.width === '50%' || attrs.width === 'small' ? 'S' : attrs.width === '70%' || attrs.width === '75%' || attrs.width === 'medium' ? 'M' : 'L')).toUpperCase();
     const widthVal = attrs.width || (size === 'S' ? '50%' : size === 'M' ? '75%' : '100%');
@@ -26320,17 +26387,17 @@ function prepMarkdownBlocks(text, noteTitles = [], allNotes = [], tasks = []) {
       <div class="note-draw-header">
         <span>🎨 ${safeTitle}</span>
         <div style="display:flex;gap:6px;align-items:center;">
-          <div class="note-draw-size-pills" title="Ubah ukuran frame gambar">
+          <div class="note-draw-size-pills" title="Ubah ukuran frame sketsa">
             <button type="button" class="note-draw-size-btn ${size === 'S' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'S', width: '50%' } }))" title="Kecil (50%)">S</button>
             <button type="button" class="note-draw-size-btn ${size === 'M' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'M', width: '75%' } }))" title="Sedang (75%)">M</button>
             <button type="button" class="note-draw-size-btn ${size === 'L' || size === 'FULL' ? 'active' : ''}" onclick="window.dispatchEvent(new CustomEvent('changeDrawingSize', { detail: { id: '${safeId}', size: 'L', width: '100%' } }))" title="Penuh (100%)">L</button>
           </div>
           <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: ${titleJs}, noteListId: window.noteListIdFromEl ? window.noteListIdFromEl(this) : undefined } }))" style="font-size:11px;padding:2px 8px;cursor:pointer;">✏️ Edit</button>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('openDrawing', { detail: '${safeId}' }))" style="font-size:11px;padding:2px 8px;cursor:pointer;" title="Buka di halaman Draw">↗️ Buka</button>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="window.dispatchEvent(new CustomEvent('openDrawing', { detail: '${safeId}' }))" style="font-size:11px;padding:2px 8px;cursor:pointer;" title="Buka di halaman Sketsa">↗️ Buka</button>
         </div>
       </div>
-      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" style="max-height:${heightVal};resize:vertical;overflow:auto;" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: ${titleJs}, noteListId: window.noteListIdFromEl ? window.noteListIdFromEl(this) : undefined } }))" title="Klik untuk mengedit gambar (bisa ditarik ke bawah untuk memperbesar)">
-        <div class="drawing-preview-placeholder" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">🎨 Klik untuk membuka / mengedit gambar</div>
+      <div class="note-draw-preview-container" data-drawing-preview="${safeId}" style="max-height:${heightVal};resize:vertical;overflow:auto;" onclick="window.dispatchEvent(new CustomEvent('editDrawingModal', { detail: { id: '${safeId}', title: ${titleJs}, noteListId: window.noteListIdFromEl ? window.noteListIdFromEl(this) : undefined } }))" title="Klik untuk mengedit sketsa (bisa ditarik ke bawah untuk memperbesar)">
+        <div class="drawing-preview-placeholder" style="color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;">🎨 Klik untuk membuka / mengedit sketsa</div>
       </div>
     </div>`;
     return key;
@@ -26584,7 +26651,7 @@ function renderMarkdown(text, noteTitles = [], allNotes = [], tasks = []) {
 }
 
 // ── Drawing milik workspace di note (PR 3 Task 4) ──────────────────
-const DRAWING_UNAVAILABLE_TEXT = "Gambar tidak tersedia untukmu: sudah dihapus atau tidak dibagikan ke workspace ini.";
+const DRAWING_UNAVAILABLE_TEXT = "Sketsa tidak tersedia untukmu: sudah dihapus atau tidak dibagikan ke workspace ini.";
 function drawingScopeListName(listId, sharedLists) {
   const hit = (sharedLists || []).find(l => l && listId != null && String(l.id) === String(listId));
   return hit && hit.name ? hit.name : "Workspace";
@@ -26614,7 +26681,7 @@ function drawingInsertToken(d) {
   return d.id;
 }
 function drawingShareLaterText(name) {
-  return "Gambar belum dibagikan ke " + (name || "Workspace") + "; bagikan dari halaman Draw saat online.";
+  return "Sketsa belum dibagikan ke " + (name || "Workspace") + "; bagikan dari halaman Sketsa saat online.";
 }
 // Pilihan galeri yang butuh konfirmasi: own_to_ws → share dulu (gagal tetap sisip + toast);
 // other_ws_copy → salin ke W note lalu sisip salinannya.
@@ -26627,7 +26694,7 @@ async function applyDrawingInsertChoice(TFshare, api, drawing, notice, listName)
   }
   if (notice && notice.kind === "other_ws_copy") {
     const res = await TFshare.copyDrawing(api, d, notice.listId);
-    if (!res || !res.ok) return { ok: false, message: (res && res.message) || "Gagal membuat salinan gambar" };
+    if (!res || !res.ok) return { ok: false, message: (res && res.message) || "Gagal membuat salinan sketsa" };
     return { ok: true, id: drawingInsertToken(res.drawing), title: res.drawing.title || drawing.title, toast: null };
   }
   return { ok: true, id: drawing.id, title: drawing.title, toast: null };
@@ -26650,7 +26717,7 @@ function drawingEmbedScopeUi(drawing, noteListId, sharedLists, myUid) {
 function drawingEditBanner(drawing, noteListId, sharedLists) {
   if (!drawing || drawing.list_id == null || drawing.list_id === "") return null;
   if (noteListId != null && noteListId !== "" && String(noteListId) === String(drawing.list_id)) return null;
-  return "Kamu mengedit drawing milik workspace " + drawingScopeListName(drawing.list_id, sharedLists) + ". Perubahan terlihat oleh semua anggota.";
+  return "Kamu mengedit sketsa milik workspace " + drawingScopeListName(drawing.list_id, sharedLists) + ". Perubahan terlihat oleh semua anggota.";
 }
 // Scope note dari wrapper editor/tampilan: undefined = tak diketahui, null = pribadi.
 function noteListIdFromEl(el) {
@@ -26730,13 +26797,13 @@ function applyDrawingScopeUi(el, drawing) {
 // Aksi "Salin ke W" / "Jadikan salinan pribadi" di kartu editor: salin lalu ganti id node ke token salinan.
 async function copyDrawingIntoEditor(editor, did, targetListId) {
   const TF = window.TF || {};
-  if (!TF.drawingshare) return { ok: false, message: "Gagal membuat salinan gambar" };
+  if (!TF.drawingshare) return { ok: false, message: "Gagal membuat salinan sketsa" };
   const warnRead = err => { console.warn('[drawing] baca sumber salinan gagal', err); return null; };
   let src = TF.drawingrepo ? await TF.drawingrepo.getDrawing(did, { online: false }).catch(warnRead) : null;
   if (!src) src = await api.get(`/api/drawings/${did}`).catch(warnRead);
   if (!src) return { ok: false, message: DRAWING_UNAVAILABLE_TEXT };
   const res = await TF.drawingshare.copyDrawing(api, src, targetListId);
-  if (!res || !res.ok) return { ok: false, message: (res && res.message) || "Gagal membuat salinan gambar" };
+  if (!res || !res.ok) return { ok: false, message: (res && res.message) || "Gagal membuat salinan sketsa" };
   const newId = String(drawingInsertToken(res.drawing));
   const MB = window.MilkdownBundle;
   if (editor && MB) {
@@ -26835,8 +26902,8 @@ async function executeNoteShare({ api, TF, noteId, targetListId, plan, saveConte
     const res = await share.copyDrawing(api, d, targetListId);
     if (!res || !res.ok) {
       const message = pairs.length
-        ? `Gagal menyalin gambar (${pairs.length} salinan sudah dibuat).`
-        : (res && res.message) || "Gagal membuat salinan gambar";
+        ? `Gagal menyalin sketsa (${pairs.length} salinan sudah dibuat).`
+        : (res && res.message) || "Gagal membuat salinan sketsa";
       return { ok: false, message };
     }
     pairs.push({ src: d, token: String(drawingInsertToken(res.drawing)) });
@@ -26855,7 +26922,7 @@ async function executeNoteShare({ api, TF, noteId, targetListId, plan, saveConte
   }
   const unresolved = updated && Array.isArray(updated.unresolved_drawings) ? updated.unresolved_drawings.length : 0;
   const unexpectedMoved = targetListId != null ? noteShareUnexpectedMoved(share, updated && updated.moved_drawings, plan && plan.move) : 0;
-  return { ok: true, updated: updated || {}, warning: unresolved ? `${unresolved} gambar tidak ikut dibagikan.` : null, unexpectedMoved };
+  return { ok: true, updated: updated || {}, warning: unresolved ? `${unresolved} sketsa tidak ikut dibagikan.` : null, unexpectedMoved };
 }
 // Jumlah moved_drawings server yang tidak ada di plan.move (dicocokkan lewat id server / client_id / cid).
 function noteShareUnexpectedMoved(share, moved, planned) {
@@ -26876,7 +26943,7 @@ function noteShareUnexpectedMoved(share, moved, planned) {
 }
 function noteShareDialogSpec(plan, listName) {
   const w = listName || "Workspace";
-  const titleOf = d => (d && d.title) || "Untitled Drawing";
+  const titleOf = d => (d && d.title) || "Sketsa tanpa judul";
   const sections = [];
   if (plan.move.length) sections.push({ label: `Ikut dibagikan ke ${w}:`, items: plan.move.map(titleOf) });
   if (plan.copy.length) sections.push({ label: `Akan disalin ke ${w}:`, items: plan.copy.map(titleOf) });
@@ -26884,7 +26951,7 @@ function noteShareDialogSpec(plan, listName) {
   return {
     title: `Bagikan note ke ${w}?`,
     sections,
-    note: n ? `${n} gambar tidak bisa diperiksa` : null,
+    note: n ? `${n} sketsa tidak bisa diperiksa` : null,
     actions: [{ value: "cancel", label: "Batal" }, { value: "share", label: "Bagikan", primary: true }]
   };
 }
@@ -26892,7 +26959,7 @@ function notePullbackDialogSpec(items, listName) {
   const w = listName || "Workspace";
   return {
     title: "Tarik kembali ke pribadi?",
-    sections: [{ label: `Gambar milikmu di ${w} yang dirujuk note ini:`, items: (items || []).map(d => (d && d.title) || "Untitled Drawing") }],
+    sections: [{ label: `Sketsa milikmu di ${w} yang dirujuk note ini:`, items: (items || []).map(d => (d && d.title) || "Sketsa tanpa judul") }],
     note: null,
     actions: [{ value: "no", label: "Tidak" }, { value: "yes", label: "Ya", primary: true }]
   };
@@ -26906,7 +26973,7 @@ async function pullNoteDrawingsBack(share, api, items, listName) {
       .catch(err => ({ ok: false, code: "ERROR", message: (err && err.message) || "Terjadi kesalahan." }));
     if (res && res.ok) continue;
     const msg = res && res.code === "DRAWING_IN_USE"
-      ? `"${(d && d.title) || "Untitled Drawing"}" masih dipakai note lain di ${w}.`
+      ? `"${(d && d.title) || "Sketsa tanpa judul"}" masih dipakai note lain di ${w}.`
       : (res && res.message) || "Terjadi kesalahan.";
     if (!errors.includes(msg)) errors.push(msg);
   }
@@ -26954,14 +27021,14 @@ async function confirmNoteShareWithDrawings({ note, content, targetListId, listN
     let plan = null;
     let pullback = [];
     if (tf.drawingshare) {
-      if (typeof showToast === "function" && /::draw/i.test(String(body))) showToast("Memeriksa gambar…", "info");
+      if (typeof showToast === "function" && /::draw/i.test(String(body))) showToast("Memeriksa sketsa…", "info");
       const prep = await prepareNoteShare(tf, body, target, prevList);
       // Share ke W: dialog tidak boleh dilewati diam-diam → batal. Unshare: tetap jalan, tawaran tarik kembali dilewati.
-      if (prep.error && target != null) { toast("Tidak bisa memeriksa gambar; coba lagi."); return false; }
+      if (prep.error && target != null) { toast("Tidak bisa memeriksa sketsa; coba lagi."); return false; }
       pullback = prep.error ? [] : prep.pullback;
       if (target != null && !prep.error && (prep.plan.move.length || prep.plan.copy.length)) {
         if (typeof navigator !== "undefined" && navigator && navigator.onLine === false) {
-          toast("Butuh koneksi untuk membagikan gambar.");
+          toast("Butuh koneksi untuk membagikan sketsa.");
           return false;
         }
         const choice = await ask(noteShareDialogSpec(prep.plan, listName));
@@ -26972,7 +27039,7 @@ async function confirmNoteShareWithDrawings({ note, content, targetListId, listN
     const res = await executeNoteShare({ api, TF: tf, noteId: note.id, targetListId: target, plan, saveContent, pushNow });
     if (!res.ok) { toast(res.message); return false; }
     if (res.warning) toast(res.warning);
-    if (res.unexpectedMoved > 0 && typeof showToast === "function") showToast(`${res.unexpectedMoved} gambar ikut dibagikan ke ${listName || "Workspace"}.`, "info");
+    if (res.unexpectedMoved > 0 && typeof showToast === "function") showToast(`${res.unexpectedMoved} sketsa ikut dibagikan ke ${listName || "Workspace"}.`, "info");
     if (typeof onShared === "function") {
       await Promise.resolve().then(() => onShared(res.updated))
         .catch(err => console.warn('[note-share] adopsi hasil share gagal', err));
@@ -27007,9 +27074,9 @@ function leaveImpactDialogSpec(items, listName) {
     title: `Keluar dari ${w}?`,
     sections: [
       { label: "Note terdampak:", items: uniq(it => it.note_id, it => it.note_title || "(tanpa judul)") },
-      { label: "Drawing terdampak:", items: uniq(it => it.drawing_id != null ? it.drawing_id : it.drawing_client_id, it => it.drawing_title || "Untitled Drawing") }
+      { label: "Sketsa terdampak:", items: uniq(it => it.drawing_id != null ? it.drawing_id : it.drawing_client_id, it => it.drawing_title || "Sketsa tanpa judul") }
     ],
-    note: `Note pribadimu menautkan gambar milik ${w}. Setelah keluar, gambar itu tidak bisa kamu buka lagi.`,
+    note: `Note pribadimu menautkan sketsa milik ${w}. Setelah keluar, sketsa itu tidak bisa kamu buka lagi.`,
     actions: [
       { value: "cancel", label: "Batal" },
       { value: "leave", label: "Keluar saja", danger: true },
@@ -27034,7 +27101,7 @@ async function leaveWorkspaceWithDrawings({ listId, listName, api, TF, ask, show
   try {
     if (choice === "copy") {
       const share = TF && TF.drawingshare;
-      if (!share) throw new Error("Gagal membuat salinan gambar");
+      if (!share) throw new Error("Gagal membuat salinan sketsa");
       const copies = new Map();
       const noteIds = [];
       for (const it of items) {
@@ -27049,7 +27116,7 @@ async function leaveWorkspaceWithDrawings({ listId, listName, api, TF, ask, show
       for (const entry of copies.values()) {
         const res = await share.copyDrawing(api, entry.src, null);
         if (!res || !res.ok) {
-          toast(made ? `Gagal menyalin gambar (${made} salinan sudah dibuat).` : (res && res.message) || "Gagal membuat salinan gambar", "error");
+          toast(made ? `Gagal menyalin sketsa (${made} salinan sudah dibuat).` : (res && res.message) || "Gagal membuat salinan sketsa", "error");
           return false;
         }
         made++;
@@ -27138,18 +27205,18 @@ window.hydrateDrawingPreviews = function(root, force) {
       applyDrawingScopeUi(el, found.drawing);
       const svg = found.svg;
       if (!svg || !SH) return;
-      const img = SH.mountSvgImg(el, svg, found.drawing.title || 'Gambar');
+      const img = SH.mountSvgImg(el, svg, found.drawing.title || 'Sketsa');
       if (img) {
         img.setAttribute('data-drawing-img', '');
         el.setAttribute('data-hydrated', 'true');
         return;
       }
-      // isi bukan SVG (tidak diawali <svg) → kartu "Gambar tidak tersedia", sebagai teks
+      // isi bukan SVG (tidak diawali <svg) → kartu "Sketsa tidak tersedia", sebagai teks
       const doc = el.ownerDocument || document;
       const card = doc.createElement('span');
       card.className = 'drawing-preview-placeholder drawing-invalid';
       card.style.cssText = 'color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;';
-      card.textContent = 'Gambar tidak tersedia';
+      card.textContent = 'Sketsa tidak tersedia';
       el.textContent = '';
       el.appendChild(card);
       el.setAttribute('data-hydrated', 'invalid');
@@ -27646,6 +27713,72 @@ async function ensureServerNoteId(noteId) {
   const n = Number(sid);
   return sid != null && sid !== '' && Number.isInteger(n) && n > 0 ? n : null;
 }
+// Quick-note TaskFormModal yang bicara LANGSUNG ke server (note dibuat demi id lampiran gambar): id task dari
+// extractTaskIdsFromContent boleh cid (task inline belum di-push), padahal server menerima linked_task_ids
+// list[int] (cid → 422). Seperti syncpush.linkedTaskServerIds: angka lolos; cid → dorong outbox sekali (maks
+// MEDIA_PUSH_TIMEOUT_MS) lalu idmap / server_id baris task lokal; yang tak terselesaikan dibuang.
+// → { ids: [int unik], map: { cid: sid } } (map dipakai rewriteTasklinkIds pada isi note).
+async function resolveTaskServerIds(ids) {
+  const list = Array.isArray(ids) ? ids : [];
+  const isNum = x => /^\d+$/.test(String(x));
+  const w = typeof window !== 'undefined' ? window : {};
+  if (list.some(x => !isNum(x)) && typeof w.__pushNow === 'function') {
+    let timer = null;
+    await Promise.race([
+      Promise.resolve().then(() => w.__pushNow()).catch(() => null),
+      new Promise(res => { timer = setTimeout(res, MEDIA_PUSH_TIMEOUT_MS); })
+    ]);
+    clearTimeout(timer);
+  }
+  const TF = w.TF || {};
+  const out = [];
+  const map = {};
+  for (const id of list) {
+    let n = null;
+    if (isNum(id)) n = Number(id);
+    else if (id != null && id !== '') {
+      const cid = String(id);
+      let sid = null;
+      try { if (TF.idmap && typeof TF.idmap.serverIdOf === 'function') sid = await TF.idmap.serverIdOf(cid); } catch (_) { sid = null; }
+      if (sid == null) {
+        try {
+          const raw = TF.taskrepo && typeof TF.taskrepo.getRaw === 'function' ? await TF.taskrepo.getRaw(cid) : null;
+          if (raw && raw.server_id != null) sid = raw.server_id;
+        } catch (_) {}
+      }
+      if (sid != null && isNum(sid)) { n = Number(sid); map[cid] = n; }
+    }
+    if (n != null && n > 0 && out.indexOf(n) === -1) out.push(n);
+  }
+  return { ids: out, map };
+}
+// [tasklink:<cid>] → [tasklink:<sid>] (juga bentuk ter-escape \[tasklink:…\]); hanya tautan utuh (seperti
+// noterepo.rewriteTaskLinks), supaya note server yang diadopsi pull merujuk task lewat id server.
+function rewriteTasklinkIds(content, map) {
+  let out = String(content == null ? '' : content);
+  for (const cid of Object.keys(map || {})) {
+    const esc = cid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp('(\\\\?\\[tasklink:)' + esc + '(\\\\?\\])', 'g'), '$1' + map[cid] + '$2');
+  }
+  return out;
+}
+// TaskFormModal ditutup TANPA simpan note sukses, padahal gambar (tempel/Media) sudah membuat note di server
+// demi id lampiran → hapus note itu (masuk Sampah, bisa dipulihkan) agar pull tidak mengadopsi kartu kosong/basi.
+// Hanya id server (angka); gagal diabaikan. Sukses → sync supaya salinan lokal yang sempat diadopsi ikut hilang.
+function discardOrphanQuickNote(serverId, submitted) {
+  if (submitted) return null;
+  const s = serverId == null ? '' : String(serverId);
+  if (!/^\d+$/.test(s) || Number(s) <= 0) return null;
+  try {
+    const hdrs = {};
+    if (typeof __token !== 'undefined' && __token) hdrs['Authorization'] = 'Bearer ' + __token;
+    return fetch(apiUrl('/api/scratchpad/' + s), { method: 'DELETE', headers: hdrs })
+      .then(res => { if (res && res.ok && typeof window.__syncNow === 'function') return window.__syncNow(); })
+      .catch(() => null);
+  } catch (_) {
+    return null;
+  }
+}
 // Alur sisip: validasi → id server (null → toast, TANPA direktif) → direktif ke editor → mulai unggah.
 // insert(md) harus mengembalikan true bila direktif benar-benar masuk; selain itu unggahan tidak dimulai.
 // insertMedia({cid, name}) (bila ada) dipakai lebih dulu: node media disisipkan langsung lewat schema, karena
@@ -27669,6 +27802,32 @@ async function beginNoteMediaUpload({ file, noteId, MD, toast, ensureId, insert,
     if (p && typeof p.catch === 'function') p.catch(err => console.warn('[media] unggah gagal', err));
   } catch (err) { console.warn('[media] unggah gagal', err); }
   return cid;
+}
+// Tombol/menu "Media" note: gambar disisipkan seperti tempel (unggah lampiran server, selain itu data URL).
+// Data URL gambar pilihan dibatasi 1 MB agar isi note tidak membengkak saat offline / note belum tersimpan.
+const MEDIA_INLINE_IMAGE_MAX_BYTES = 1024 * 1024;
+// Sesuai _ALLOWED_ATTACH_MIME server (image/png, image/jpeg, image/webp).
+const NOTE_IMAGE_EXTS = ['png', 'jpg', 'jpeg', 'webp'];
+// File dari pemilih "Media" → { kind: 'image' } | { kind: 'av' } | { kind: 'error', message }.
+// ctx = { allowAV (host punya unggah audio/video), online, hasNote, MD (TF.mediadirective) }.
+function mediaPickAction(file, ctx) {
+  const c = ctx || {};
+  const name = String((file && file.name) || '');
+  const dot = name.lastIndexOf('.');
+  const ext = dot >= 0 ? name.slice(dot + 1).toLowerCase() : '';
+  if (NOTE_IMAGE_EXTS.indexOf(ext) !== -1) return { kind: 'image' };
+  if (c.allowAV && c.MD && typeof c.MD.isMediaFileName === 'function' && c.MD.isMediaFileName(name)) {
+    if (!c.online) return { kind: 'error', message: 'Butuh koneksi internet untuk mengunggah audio/video' };
+    if (!c.hasNote) return { kind: 'error', message: 'Simpan note dulu, lalu lampirkan audio/video' };
+    return { kind: 'av' };
+  }
+  return { kind: 'error', message: 'Format tidak didukung' };
+}
+// Atribut accept input "Media": gambar + (bila allowAV) ekstensi audio/video MD.MEDIA_EXTS.
+function noteMediaAccept(allowAV, MD) {
+  const img = NOTE_IMAGE_EXTS.map(x => '.' + x).join(',');
+  if (!allowAV || !MD || !Array.isArray(MD.MEDIA_EXTS)) return img;
+  return img + ',' + MD.MEDIA_EXTS.map(x => '.' + x).join(',');
 }
 // Satu manajer per tab (dipanggil App; juga sebagai cadangan oleh alur sisip). Modul absen → null.
 function ensureMediaUploadManager() {
@@ -27705,17 +27864,17 @@ function ensureMediaUploadManager() {
 // ── Akhir unggah media dari editor note ──
 // Cetak note: pratinjau drawing d ke container c lewat <img src=data:> (spec XSS §3). Hasil: Promise yang selesai
 // saat gambar termuat/gagal (maks 5 dtk) — pemanggil menunggunya sebelum window.print() — atau null bila isi
-// bukan SVG; saat itu c berisi kartu teks "Gambar tidak tersedia" (tanpa kelas drawing-preview-placeholder,
+// bukan SVG; saat itu c berisi kartu teks "Sketsa tidak tersedia" (tanpa kelas drawing-preview-placeholder,
 // yang disembunyikan CSS cetak).
 function printDrawingPreview(c, d, SH) {
   const svg = d && typeof d.svg_preview === 'string' && d.svg_preview.trim().startsWith('<svg') ? d.svg_preview : null;
-  const img = svg && SH ? SH.mountSvgImg(c, svg, (d && d.title) || 'Gambar') : null;
+  const img = svg && SH ? SH.mountSvgImg(c, svg, (d && d.title) || 'Sketsa') : null;
   if (!img) {
     const doc = c.ownerDocument || document;
     const card = doc.createElement('span');
     card.className = 'drawing-invalid';
     card.style.cssText = 'color:#64748b;font-size:10pt;';
-    card.textContent = 'Gambar tidak tersedia';
+    card.textContent = 'Sketsa tidak tersedia';
     c.textContent = '';
     c.appendChild(card);
     return null;
@@ -27789,6 +27948,20 @@ if (typeof window !== 'undefined') {
   //   - FloatingToc
   // BLOCK LENGTH: ~1344 lines (14828-16174) — Milkdown plugins + editor wrapper
 
+// Dropdown absolut di toolbar note ([data-ntb-pop] di dalam anchor): bila tepi kanannya melewati tepi kanan
+// toolbar, geser ke kiri (left negatif) — tidak pernah melewati tepi kiri toolbar.
+function keepPopInToolbar(anchor) {
+  if (!anchor) return;
+  const pop = anchor.querySelector("[data-ntb-pop]");
+  const tb = anchor.closest(".note-toolbar");
+  if (!pop || !tb) return;
+  pop.style.left = "0px";
+  const a = anchor.getBoundingClientRect();
+  const t = tb.getBoundingClientRect();
+  const p = pop.getBoundingClientRect();
+  const over = p.right - t.right;
+  if (over > 0) pop.style.left = -Math.min(over, Math.max(0, a.left - t.left)) + "px";
+}
 function NoteToolbar({
   milkdownEditorRef,
   noteId,
@@ -27798,33 +27971,59 @@ function NoteToolbar({
   onInsertTask,
   onInsertDrawing,
   onInsertMedia,
+  onInsertImage,
+  pickerRef,
   voiceState,
   onToggleVoice,
 paperConfig,
 onPaperConfigChange
 }) {
   const [hOpen, setHOpen] = React.useState(false);
-  // 🎬 Audio/Video: input sendiri (accept = ekstensi media), nonaktif saat offline / note belum tersimpan.
+  // Media: satu input untuk gambar (onInsertImage) + audio/video (onInsertMedia, bila host punya).
+  // Jenis ditentukan dari ekstensi saat dipilih (mediaPickAction); tombol selalu aktif.
+  const hasMediaBtn = !!(onInsertMedia || onInsertImage);
   const mediaInputRef = React.useRef(null);
-  const [mediaOnline, setMediaOnline] = React.useState(() => typeof navigator === 'undefined' || navigator.onLine !== false);
-  React.useEffect(() => {
-    const upd = () => setMediaOnline(navigator.onLine !== false);
-    window.addEventListener('online', upd);
-    window.addEventListener('offline', upd);
-    return () => {
-      window.removeEventListener('online', upd);
-      window.removeEventListener('offline', upd);
-    };
-  }, []);
-  const mediaAccept = React.useMemo(() => {
-    const MD = window.TF && window.TF.mediadirective;
-    return MD && Array.isArray(MD.MEDIA_EXTS) ? MD.MEDIA_EXTS.map(x => '.' + x).join(',') : '';
-  }, []);
+  const mediaAccept = React.useMemo(() => noteMediaAccept(!!onInsertMedia, window.TF && window.TF.mediadirective), [!!onInsertMedia]);
   const hRef = React.useRef(null);
-  const [moreOpen, setMoreOpen] = React.useState(false);
-  const moreRef = React.useRef(null);
   const fileInputRef = React.useRef(null);
   const [uploading, setUploading] = React.useState(false);
+  const sayToolbarError = m => {
+    try { window.__showToast?.(m, 'error'); } catch (_) {}
+  };
+  const handleMediaPicked = e => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const act = mediaPickAction(f, {
+      allowAV: !!onInsertMedia,
+      online: typeof navigator === 'undefined' || navigator.onLine !== false,
+      hasNote: !!noteId,
+      MD: window.TF && window.TF.mediadirective
+    });
+    if (act.kind === 'image') {
+      if (onInsertImage) onInsertImage(f); else sayToolbarError('Format tidak didukung');
+    } else if (act.kind === 'av') {
+      onInsertMedia(f);
+    } else {
+      sayToolbarError(act.message);
+    }
+  };
+  // Pemilih file dipanggil juga dari menu blok (slash "/" / "+") lewat pickerRef host: input.click()
+  // harus sinkron (tanpa await) agar masih dalam aktivasi pengguna dan dialog file terbuka.
+  const openMediaPicker = () => {
+    if (mediaInputRef.current) mediaInputRef.current.click();
+  };
+  const openFilePicker = () => {
+    if (!noteId) { sayToolbarError('Simpan note dulu, lalu lampirkan file'); return; }
+    if (uploading) return;
+    if (fileInputRef.current) fileInputRef.current.click();
+  };
+  React.useEffect(() => {
+    if (!pickerRef) return undefined;
+    const api = { media: openMediaPicker, file: openFilePicker };
+    pickerRef.current = api;
+    return () => { if (pickerRef.current === api) pickerRef.current = null; };
+  });
   // Indikator unggah lampiran 📎: { name, loaded, total } selama berjalan (null = tidak ada).
   const [uploadInfo, setUploadInfo] = React.useState(null);
   const [templates, setTemplates] = React.useState([]);
@@ -27839,14 +28038,11 @@ onPaperConfigChange
     document.addEventListener("pointerdown", close);
     return () => document.removeEventListener("pointerdown", close);
   }, [hOpen]);
-  React.useEffect(() => {
-    if (!moreOpen) return;
-    const close = e => {
-      if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false);
-    };
-    document.addEventListener("pointerdown", close);
-    return () => document.removeEventListener("pointerdown", close);
-  }, [moreOpen]);
+  // Toolbar bisa wrap ke baris kedua: tombol Heading bisa berada dekat tepi kanan. Geser dropdown ke kiri
+  // seperlunya agar tetap utuh di dalam lebar toolbar (tidak meluber keluar modal/layar).
+  React.useLayoutEffect(() => {
+    if (hOpen) keepPopInToolbar(hRef.current);
+  }, [hOpen]);
   React.useEffect(() => {
     if (_tplCache) {
       setTemplates(_tplCache);
@@ -28044,6 +28240,7 @@ onPaperConfigChange
       if (isEmpty) setTplOpen(o => !o);
     },
     title: "Terapkan template",
+    "aria-label": "Template",
     style: isEmpty ? {
       border: '1.5px solid #b6d400',
       color: '#b6d400',
@@ -28069,7 +28266,7 @@ onPaperConfigChange
       alignItems: 'center',
       gap: 3
     }
-  }, [React.createElement(Icon, { name: "clipboardCheck", size: 13, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 4, marginRight: 2 } }, "Template"), React.createElement(Icon, { name: "chevronDown", size: 10, key: "ch" })]), tplOpen && isEmpty && /*#__PURE__*/React.createElement("div", {
+  }, [React.createElement(Icon, { name: "clipboardCheck", size: 13, key: "ic" }), React.createElement("span", { key: "tx", className: "ntb-label", style: { marginLeft: 4, marginRight: 2 } }, "Template"), React.createElement(Icon, { name: "chevronDown", size: 10, key: "ch" })]), tplOpen && isEmpty && /*#__PURE__*/React.createElement("div", {
     className: "tpl-dropdown"
   }, tplGroupKeys.length === 0 ? /*#__PURE__*/React.createElement("div", {
     style: {
@@ -28119,6 +28316,7 @@ onPaperConfigChange
       letterSpacing: 0.5
     }
   }, [React.createElement(Icon, { name: "heading", size: 13, key: "ic" }), React.createElement(Icon, { name: "chevronDown", size: 10, key: "ch", style: { marginLeft: 2 } })]), hOpen && /*#__PURE__*/React.createElement("div", {
+    "data-ntb-pop": "heading",
     style: {
       position: "absolute",
       top: "calc(100% + 4px)",
@@ -28181,7 +28379,13 @@ onPaperConfigChange
       cmd(window.MilkdownBundle?.toggleInlineCodeCommand?.key);
     },
     title: "Inline code"
-  }, React.createElement(Icon, { name: "code", size: 13 })), /*#__PURE__*/React.createElement("div", {
+  }, React.createElement(Icon, { name: "code", size: 13 })), /*#__PURE__*/React.createElement("button", {
+    onPointerDown: e => {
+      e.preventDefault();
+      cmd(window.MilkdownBundle?.toggleStrikethroughCommand?.key);
+    },
+    title: "Strikethrough"
+  }, React.createElement(Icon, { name: "strikethrough", size: 13 })), /*#__PURE__*/React.createElement("div", {
     className: "sep"
   }), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
@@ -28190,6 +28394,12 @@ onPaperConfigChange
     },
     title: "Bullet list"
   }, React.createElement(Icon, { name: "list", size: 14 })), /*#__PURE__*/React.createElement("button", {
+    onPointerDown: e => {
+      e.preventDefault();
+      cmd(window.MilkdownBundle?.wrapInOrderedListCommand?.key);
+    },
+    title: "Numbered list"
+  }, React.createElement(Icon, { name: "listOrdered", size: 13 })), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
       e.preventDefault();
       insertTaskList();
@@ -28210,6 +28420,7 @@ onPaperConfigChange
       onInsertTask?.();
     },
     title: "Tambah link task inline",
+    "aria-label": "Task",
     style: {
       fontSize: 11,
       fontWeight: 700,
@@ -28223,7 +28434,7 @@ onPaperConfigChange
       display: 'inline-flex',
       alignItems: 'center'
     }
-  }, [React.createElement(Icon, { name: "checkSquare", size: 12, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 4 } }, "Task")]), /*#__PURE__*/React.createElement("div", {
+  }, [React.createElement(Icon, { name: "checkSquare", size: 12, key: "ic" }), React.createElement("span", { key: "tx", className: "ntb-label", style: { marginLeft: 4 } }, "Task")]), /*#__PURE__*/React.createElement("div", {
     className: "sep"
   }), /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -28231,7 +28442,8 @@ onPaperConfigChange
       e.preventDefault();
       onInsertDrawing?.();
     },
-    title: "Sisipkan atau buat gambar / sketsa baru (/draw)",
+    title: "Sisipkan sketsa yang ada atau buat sketsa baru",
+    "aria-label": "Sketsa",
     style: {
       fontSize: 11,
       fontWeight: 700,
@@ -28246,73 +28458,22 @@ onPaperConfigChange
       alignItems: 'center',
       gap: 3
     }
-  }, [React.createElement(Icon, { name: "draw", size: 12, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 4 } }, "Gambar")]), /*#__PURE__*/React.createElement("div", {
-    className: "sep"
-  }), /*#__PURE__*/React.createElement("div", {
-    ref: moreRef,
-    style: {
-      position: "relative",
-      flexShrink: 0
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    onPointerDown: e => {
-      e.preventDefault();
-      setMoreOpen(o => !o);
-    },
-    title: "Format lainnya",
-    style: {
-      fontWeight: 700,
-      fontSize: 14,
-      color: moreOpen ? "var(--accent)" : undefined,
-      borderColor: moreOpen ? "var(--accent)" : undefined
-    }
-  }, React.createElement(Icon, { name: "plus", size: 13 })), moreOpen && /*#__PURE__*/React.createElement("div", {
-    style: {
-      position: "absolute",
-      top: "calc(100% + 6px)",
-      left: 0,
-      zIndex: 300,
-      background: "var(--bg-card)",
-      border: "1px solid var(--border)",
-      borderRadius: 10,
-      boxShadow: "0 6px 24px rgba(0,0,0,0.15)",
-      display: "flex",
-      alignItems: "center",
-      gap: 2,
-      padding: "6px 8px",
-      flexWrap: "nowrap"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    onPointerDown: e => {
-      e.preventDefault();
-      cmd(window.MilkdownBundle?.wrapInOrderedListCommand?.key);
-      setMoreOpen(false);
-    },
-    title: "Numbered list"
-  }, React.createElement(Icon, { name: "listOrdered", size: 13 })), /*#__PURE__*/React.createElement("button", {
-    onPointerDown: e => {
-      e.preventDefault();
-      cmd(window.MilkdownBundle?.toggleStrikethroughCommand?.key);
-      setMoreOpen(false);
-    },
-    title: "Strikethrough"
-  }, React.createElement(Icon, { name: "strikethrough", size: 13 })), /*#__PURE__*/React.createElement("div", {
+  }, [React.createElement(Icon, { name: "draw", size: 12, key: "ic" }), React.createElement("span", { key: "tx", className: "ntb-label", style: { marginLeft: 4 } }, "Sketsa")]), /*#__PURE__*/React.createElement("div", {
     className: "sep"
   }), /*#__PURE__*/React.createElement("button", {
     onPointerDown: e => {
       e.preventDefault();
       cmd(window.MilkdownBundle?.insertTableCommand?.key);
-      setMoreOpen(false);
     },
     title: "Insert table"
   }, React.createElement(Icon, { name: "table", size: 13 })), /*#__PURE__*/React.createElement("button", {
     onPointerDown: e => {
       e.preventDefault();
       insertText('[[');
-      setMoreOpen(false);
     },
-    title: "Internal link [[wiki]]"
-  }, [React.createElement(Icon, { name: "link", size: 12, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 3, fontSize: 11 } }, "Wiki")]))), /*#__PURE__*/React.createElement("div", {
+    title: "Internal link [[wiki]]",
+    "aria-label": "Wiki"
+  }, [React.createElement(Icon, { name: "link", size: 12, key: "ic" }), React.createElement("span", { key: "tx", className: "ntb-label", style: { marginLeft: 3, fontSize: 11 } }, "Wiki")]), /*#__PURE__*/React.createElement("div", {
     className: "sep"
   }), /*#__PURE__*/React.createElement("button", {
     onMouseDown: e => {
@@ -28320,55 +28481,52 @@ onPaperConfigChange
       cmd(window.MilkdownBundle?.insertHrCommand?.key);
     },
     title: "Horizontal rule"
-  }, React.createElement(Icon, { name: "minus", size: 13 })), /*#__PURE__*/React.createElement("input", {
-    ref: fileInputRef,
-    type: "file",
-    accept: ".png,.jpg,.jpeg,.webp,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf",
-    style: {
-      display: 'none'
-    },
-    onChange: handleAttachFile
-  }), /*#__PURE__*/React.createElement("button", {
-    onMouseDown: e => {
-      e.preventDefault();
-      if (noteId) fileInputRef.current?.click();
-    },
-    title: noteId ? 'Lampirkan file' : 'Simpan note dulu',
-    disabled: uploading || !noteId,
-    style: {
-      opacity: noteId ? 1 : 0.4
-    }
-  }, React.createElement(Icon, { name: "paperclip", size: 14 })), onInsertMedia ? React.createElement("input", {
+  }, React.createElement(Icon, { name: "minus", size: 13 })), hasMediaBtn ? React.createElement("input", {
     ref: mediaInputRef,
     type: "file",
     accept: mediaAccept,
     style: {
       display: 'none'
     },
-    onChange: e => {
-      const f = e.target.files && e.target.files[0];
-      e.target.value = '';
-      if (f) onInsertMedia(f);
-    }
-  }) : null, onInsertMedia ? React.createElement("button", {
+    onChange: handleMediaPicked
+  }) : null, hasMediaBtn ? React.createElement("button", {
     type: "button",
     className: "note-media-insert-btn",
     onMouseDown: e => {
       e.preventDefault();
-      if (noteId && mediaOnline) mediaInputRef.current?.click();
+      openMediaPicker();
     },
     onClick: e => {
       // aktivasi keyboard (Enter/Spasi) tidak lewat mousedown
-      if (e.detail === 0 && noteId && mediaOnline) mediaInputRef.current?.click();
+      if (e.detail === 0) openMediaPicker();
     },
-    title: !mediaOnline ? 'Butuh koneksi internet untuk mengunggah audio/video' : noteId ? 'Lampirkan audio/video' : 'Simpan note dulu',
-    disabled: !mediaOnline || !noteId,
+    title: onInsertMedia ? "Sisipkan media: gambar, audio, atau video" : "Sisipkan gambar",
+    "aria-label": "Media"
+  }, [React.createElement(ViewGlyph, { name: "fImage", size: 14, key: "ic" }), React.createElement("span", { key: "tx", className: "ntb-label", style: { marginLeft: 4 } }, "Media")]) : null, /*#__PURE__*/React.createElement("input", {
+    ref: fileInputRef,
+    type: "file",
+    accept: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.vsd,.vsdx,.vsdm,.mpp,.mpt,.dwg,.dxf",
     style: {
-      opacity: mediaOnline && noteId ? 1 : 0.4,
-      fontSize: 12,
-      whiteSpace: 'nowrap'
+      display: 'none'
+    },
+    onChange: handleAttachFile
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    onMouseDown: e => {
+      e.preventDefault();
+      if (noteId) fileInputRef.current?.click();
+    },
+    onClick: e => {
+      // aktivasi keyboard (Enter/Spasi) tidak lewat mousedown — sama seperti tombol Media
+      if (e.detail === 0 && noteId) fileInputRef.current?.click();
+    },
+    title: noteId ? "Lampirkan file (PDF, dokumen, spreadsheet)" : "Simpan note dulu",
+    "aria-label": "File",
+    disabled: uploading || !noteId,
+    style: {
+      opacity: noteId ? 1 : 0.4
     }
-  }, "🎬 Audio/Video") : null, voiceState && voiceState !== 'unsupported' ? /*#__PURE__*/React.createElement("button", {
+  }, [React.createElement(Icon, { name: "paperclip", size: 14, key: "ic" }), React.createElement("span", { key: "tx", className: "ntb-label", style: { marginLeft: 4 } }, "File")]), voiceState && voiceState !== 'unsupported' ? /*#__PURE__*/React.createElement("button", {
     type: "button",
     onPointerDown: function(e) { e.preventDefault(); if (onToggleVoice) onToggleVoice(); },
     className: "note-mic-btn" + (voiceState === 'listening' ? ' listening' : '') + (voiceState === 'paused' ? ' paused' : ''),
@@ -28394,8 +28552,9 @@ onPaperConfigChange
       React.createElement("button", {
         className: paperConfig?.enabled ? "paper-btn-active" : "",
         onPointerDown: (e) => { e.preventDefault(); onPaperConfigChange(p => ({ ...p, enabled: !p.enabled, user_toggled: true })); },
-        title: "Mode Kertas"
-      }, [React.createElement(Icon, { name: "fileText", size: 13, key: "ic" }), React.createElement("span", { key: "tx", style: { marginLeft: 4 } }, "Kertas")]),
+        title: "Mode Kertas",
+        "aria-label": "Kertas"
+      }, [React.createElement(Icon, { name: "fileText", size: 13, key: "ic" }), React.createElement("span", { key: "tx", className: "ntb-label", style: { marginLeft: 4 } }, "Kertas")]),
       paperConfig?.enabled && React.createElement("select", {
         className: "paper-select",
         value: paperConfig.size,
@@ -28533,7 +28692,10 @@ function MilkdownEditor({
   noteListId = null,
   mediaNoteId = null,
   mediaNoteOwnerId = null,
-  onCommentSelection = null
+  onCommentSelection = null,
+  onPickMedia = null,
+  onPickFile = null,
+  pickMediaAV = false
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
@@ -28545,6 +28707,11 @@ function MilkdownEditor({
   React.useEffect(() => { onInsertDrawingRef.current = onInsertDrawing; }, [onInsertDrawing]);
   const onInsertTaskRef = React.useRef(onInsertTask);
   React.useEffect(() => { onInsertTaskRef.current = onInsertTask; }, [onInsertTask]);
+  // Item menu blok "Media"/"File": host membuka pemilih file toolbar (dipanggil sinkron dari klik item).
+  const onPickMediaRef = React.useRef(onPickMedia);
+  React.useEffect(() => { onPickMediaRef.current = onPickMedia; }, [onPickMedia]);
+  const onPickFileRef = React.useRef(onPickFile);
+  React.useEffect(() => { onPickFileRef.current = onPickFile; }, [onPickFile]);
   // Komentar note: tombol "Komentari" di dalam tooltip format (satu toolbar, tidak saling menutupi).
   const onCommentSelectionRef = React.useRef(onCommentSelection);
   React.useEffect(() => { onCommentSelectionRef.current = onCommentSelection; }, [onCommentSelection]);
@@ -28605,8 +28772,8 @@ function MilkdownEditor({
         const view = ctx.get(MB.editorViewCtx);
         if (!view) return;
         // Hapus karakter pemicu "/" sebelum aksi (menu slash tampil bila karakter tepat
-        // sebelum kursor = "/"); "/" asli teks (and/or) dibiarkan. 'draw' dan 'task' menanganinya sendiri.
-        if (type !== 'draw' && type !== 'task') {
+        // sebelum kursor = "/"); "/" asli teks (and/or) dibiarkan. 'draw', 'task', 'media', 'file' menanganinya sendiri.
+        if (type !== 'draw' && type !== 'task' && type !== 'media' && type !== 'file') {
           const sel0 = view.state.selection;
           if (sel0.empty && isSlashTriggerBefore(sel0.$from)) {
             view.dispatch(view.state.tr.delete(sel0.$from.pos - 1, sel0.$from.pos));
@@ -28769,6 +28936,22 @@ function MilkdownEditor({
               return;
             }
             break;
+          case 'media':
+          case 'file':
+            {
+              // Hapus "/" pemicu seperti 'draw', lalu buka pemilih file host. Tetap sinkron di dalam
+              // handler klik item: input.click() hanya diizinkan browser selama aktivasi pengguna.
+              const qFrom2 = state.selection.$from;
+              const qText2 = qFrom2.parent.textBetween(0, qFrom2.parentOffset, null, "￼");
+              const slashIdx2 = qText2.lastIndexOf("/");
+              if (slashIdx2 >= 0 && isSlashTriggerBefore(qFrom2)) {
+                view.dispatch(state.tr.delete(qFrom2.start() + slashIdx2, qFrom2.pos));
+              }
+              const pickRef = type === 'media' ? onPickMediaRef : onPickFileRef;
+              pickRef.current?.();
+              return;
+            }
+            break;
         }
         // Kursor masuk ke blok baru (list/tabel/divider). Default ProseMirror menaruhnya SESUDAH
         // blok baru → ketikan nyasar ke awal blok berikutnya (terlihat saat "+" di tengah dokumen).
@@ -28816,8 +28999,11 @@ function MilkdownEditor({
       { label: 'Sisipkan', items: [
         { glyph: 'sTable', label: 'Tabel', type: 'table', title: 'Tabel 3×3' },
         { glyph: 'sDivider', label: 'Divider', type: 'hr', title: 'Divider / Garis pemisah' },
-        { glyph: 'pPalette', label: 'Gambar', type: 'draw', title: 'Gambar / Sketsa (/draw)' },
-        { glyph: 'nPin', label: 'Task', type: 'task', title: 'Tugas / Task (/task, /tasks)' }
+        { glyph: 'pPalette', label: 'Sketsa', type: 'draw', title: 'Sketsa — coretan bebas, diagram, papan tulis' },
+        { glyph: 'nPin', label: 'Task', type: 'task', title: 'Tugas / Task (/task, /tasks)' },
+        // Media/File hanya bila host memberi pemilihnya (prop saat mount); pickMediaAV = host juga menerima audio/video
+        ...(onPickMedia ? [{ glyph: 'fImage', label: 'Media', type: 'media', title: pickMediaAV ? 'Media — gambar, audio, atau video' : 'Media — gambar' }] : []),
+        ...(onPickFile ? [{ glyph: 'fFile', label: 'File', type: 'file', title: 'File — PDF/dokumen sebagai lampiran' }] : [])
       ] },
       { label: 'Tautan', items: [
         { glyph: 'mLink', label: 'Wikilink', type: 'wikilink', title: 'Wikilink — tautan ke note lain [[judul]]', wide: true, hint: '[[ ]]' }
@@ -28903,7 +29089,7 @@ function MilkdownEditor({
         const vh = vv ? vv.height : window.innerHeight;
         const floatingEl = elements && elements.floating;
         if (floatingEl && floatingEl.style) {
-          const cssMax = Math.min(440, Math.floor(window.innerHeight * 0.7));
+          const cssMax = Math.min(480, Math.floor(window.innerHeight * 0.7));
           const avail = Math.floor(vh - 16);
           const want = avail >= cssMax ? '' : Math.max(120, avail) + 'px';
           if (floatingEl.style.maxHeight !== want) {
@@ -29558,7 +29744,7 @@ function MilkdownEditor({
     const drawCard = e.target.closest('.editor-draw-card');
     if (drawCard) {
       const did = drawCard.getAttribute('data-drawing-id');
-      const dtitle = drawCard.querySelector('.note-draw-header span')?.textContent?.replace(/^🎨\s*/, '') || 'Gambar';
+      const dtitle = drawCard.querySelector('.note-draw-header span')?.textContent?.replace(/^🎨\s*/, '') || 'Sketsa';
       
       const sizeBtn = e.target.closest('[data-size-btn]');
       if (sizeBtn) {
@@ -29616,13 +29802,13 @@ function MilkdownEditor({
         copyDrawingIntoEditor(instanceRef.current, did, targetListId).then(res => {
           if (!res.ok) {
             copyBtn.disabled = false;
-            window.__showToast?.(res.message || "Gagal membuat salinan gambar", "error");
+            window.__showToast?.(res.message || "Gagal membuat salinan sketsa", "error");
           } else {
-            window.__showToast?.("Salinan gambar dibuat");
+            window.__showToast?.("Salinan sketsa dibuat");
           }
         }, err => {
           copyBtn.disabled = false;
-          window.__showToast?.((err && err.message) || "Gagal membuat salinan gambar", "error");
+          window.__showToast?.((err && err.message) || "Gagal membuat salinan sketsa", "error");
         });
         return;
       }
@@ -30146,7 +30332,7 @@ function createDrawingPlugin(MB) {
     atom: true,
     attrs: {
       id: { default: '' },
-      title: { default: 'Gambar' },
+      title: { default: 'Sketsa' },
       size: { default: 'L' },
       width: { default: '100%' },
       height: { default: '400px' }
@@ -30164,7 +30350,7 @@ function createDrawingPlugin(MB) {
         style: cardWidthStyle
       },
         ['span', { class: 'note-draw-header', style: 'display:flex;' },
-          ['span', { class: 'note-draw-title' }, `🎨 ${title || 'Gambar'}`],
+          ['span', { class: 'note-draw-title' }, `🎨 ${title || 'Sketsa'}`],
           ['span', { style: 'display:flex;gap:6px;align-items:center;' },
             ['span', { class: 'note-draw-size-pills', style: 'display:inline-flex;' },
               ['button', { type: 'button', class: `note-draw-size-btn ${size === 'S' ? 'active' : ''}`, 'data-size-btn': 'S' }, 'S'],
@@ -30179,9 +30365,9 @@ function createDrawingPlugin(MB) {
           class: 'note-draw-preview-container',
           'data-drawing-preview': id,
           style: `display:flex;max-height:${heightVal};resize:vertical;overflow:auto;cursor:pointer;`,
-          title: 'Klik untuk membuka / mengedit gambar'
+          title: 'Klik untuk membuka / mengedit sketsa'
         },
-          ['span', { class: 'drawing-preview-placeholder', style: 'color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;' }, '🎨 Memuat gambar...']
+          ['span', { class: 'drawing-preview-placeholder', style: 'color:var(--text-light);font-size:12px;display:flex;align-items:center;gap:6px;' }, '🎨 Memuat sketsa...']
         ]
       ];
     },
@@ -30190,7 +30376,7 @@ function createDrawingPlugin(MB) {
       getAttrs: dom => ({
         id: dom.getAttribute('data-drawing-id') || '',
         size: dom.getAttribute('data-size') || 'L',
-        title: dom.querySelector('.note-draw-header span')?.textContent?.replace(/^🎨\s*/, '') || 'Gambar'
+        title: dom.querySelector('.note-draw-header span')?.textContent?.replace(/^🎨\s*/, '') || 'Sketsa'
       })
     }],
     parseMarkdown: {
@@ -30685,7 +30871,7 @@ function FloatingToc({
   // BLOCK LENGTH: ~2074 lines (16220-18294) — 2nd LARGEST block in codebase
 
 // ── Quick-Draw Modal & Drawing Insert Dialog ────────────────
-// Gambar baru/kosong ('{}' / tanpa data) → iframe boleh langsung dipakai dengan kanvas kosong (flag empty).
+// Sketsa baru/kosong ('{}' / tanpa data) → iframe boleh langsung dipakai dengan kanvas kosong (flag empty).
 function isEmptyDrawingData(s) {
   if (s == null) return true;
   const t = String(s).trim();
@@ -30744,10 +30930,10 @@ function QuickDrawModal({
   const iframeRef = useRef(null);
   const lastLoadedJsonRef = useRef(null);
   const loadErrorShownRef = useRef(false);
-  const toastLoadFailed = () => showToast && showToast('Gagal memuat gambar', 'error');
-  const [title, setTitle] = useState(drawingTitle || "Gambar");
+  const toastLoadFailed = () => showToast && showToast('Gagal memuat sketsa', 'error');
+  const [title, setTitle] = useState(drawingTitle || "Sketsa");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [titleInput, setTitleInput] = useState(drawingTitle || "Gambar");
+  const [titleInput, setTitleInput] = useState(drawingTitle || "Sketsa");
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   // drawing milik workspace lain dari note ini → banner (list_id dibaca dari record)
@@ -30814,7 +31000,7 @@ function QuickDrawModal({
         // kanvas kosong); gagal memuat → 'loadError' (iframe tetap read-only, data tidak tertimpa).
         try {
           const doc = await api.get(`/api/drawings/${drawingId}`);
-          // data gambar tidak tersedia (detail server belum terambil) → JANGAN buka sebagai kanvas kosong
+          // data sketsa tidak tersedia (detail server belum terambil) → JANGAN buka sebagai kanvas kosong
           if (!doc || doc.data_missing) throw new Error("Drawing data unavailable");
           if (iframeRef.current?.contentWindow) {
             lastLoadedJsonRef.current = doc.data_json || null;
@@ -30830,7 +31016,7 @@ function QuickDrawModal({
           iframeRef.current?.contentWindow?.postMessage({ type: 'loadError', v: 2 }, window.location.origin);
           if (!loadErrorShownRef.current) {
             loadErrorShownRef.current = true;
-            showToast && showToast('Gagal memuat gambar', 'error');
+            showToast && showToast('Gagal memuat sketsa', 'error');
           }
         }
       }
@@ -30840,7 +31026,7 @@ function QuickDrawModal({
   }, [drawingId]);
 
   const handleSaveTitle = async () => {
-    const next = titleInput.trim() || "Gambar";
+    const next = titleInput.trim() || "Sketsa";
     try {
       await api.put(`/api/drawings/${drawingId}`, { title: next });
       setTitle(next);
@@ -30896,7 +31082,7 @@ function QuickDrawModal({
       /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: () => setIsEditingTitle(true), style: { fontSize: 11, padding: "2px 6px" } }, "✏️ Ubah Judul")
   ),
   /*#__PURE__*/React.createElement("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
-    /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: handleOpenStandalone, disabled: saving, style: { fontSize: 12 } }, "↗️ Buka di Halaman Draw"),
+    /*#__PURE__*/React.createElement("button", { className: "btn btn-secondary btn-sm", onClick: handleOpenStandalone, disabled: saving, style: { fontSize: 12 } }, "↗️ Buka di Halaman Sketsa"),
     /*#__PURE__*/React.createElement("button", { className: "btn btn-primary btn-sm", onClick: handleClose, disabled: saving, style: { fontSize: 12 } }, saving ? "Menyimpan…" : "✓ Selesai")
   )),
   wsBanner && /*#__PURE__*/React.createElement("div", {
@@ -30909,7 +31095,7 @@ function QuickDrawModal({
       ref: iframeRef,
       src: `/static/vendor/tldraw/index.html?noteId=${drawingId}&v=145`,
       style: { flex: 1, border: "none", width: "100%", height: "100%" },
-      title: "Quick Draw editor"
+      title: "Editor sketsa cepat"
     })
   )));
 }
@@ -30924,7 +31110,7 @@ function DrawingInsertModal({
   showToast
 }) {
   const [tab, setTab] = useState("new");
-  const [newTitle, setNewTitle] = useState(`Gambar - ${noteTitle || "Catatan"}`);
+  const [newTitle, setNewTitle] = useState(`Sketsa - ${noteTitle || "Catatan"}`);
   const [gallery, setGallery] = useState([]);
   const [searchQ, setSearchQ] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30951,7 +31137,7 @@ function DrawingInsertModal({
   }, [tab]);
 
   const handleCreate = async () => {
-    const t = newTitle.trim() || `Gambar - ${noteTitle || "Catatan"}`;
+    const t = newTitle.trim() || `Sketsa - ${noteTitle || "Catatan"}`;
     setCreating(true);
     try {
       // Note milik workspace → drawing baru langsung milik workspace yang sama
@@ -30959,7 +31145,7 @@ function DrawingInsertModal({
       onSelectDrawing && onSelectDrawing(created.id, created.title);
       onClose && onClose();
     } catch {
-      showToast && showToast("Gagal membuat gambar baru", "error");
+      showToast && showToast("Gagal membuat sketsa baru", "error");
     } finally {
       setCreating(false);
     }
@@ -30988,7 +31174,7 @@ function DrawingInsertModal({
       if (res.toast) showToast && showToast(res.toast, "warning");
       insertNow(res.id, res.title);
     } catch (err) {
-      showToast && showToast((err && err.message) || "Gagal menyisipkan gambar", "error");
+      showToast && showToast((err && err.message) || "Gagal menyisipkan sketsa", "error");
     } finally {
       setApplying(false);
     }
@@ -31017,7 +31203,7 @@ function DrawingInsertModal({
     style: { width: 440, maxWidth: "90vw", padding: 20, borderRadius: 12, background: "var(--bg-card)", border: "1px solid var(--border)" }
   }, /*#__PURE__*/React.createElement("div", {
     style: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }
-  }, /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, fontSize: 16 } }, "🎨 Sisipkan Gambar"),
+  }, /*#__PURE__*/React.createElement("span", { style: { fontWeight: 700, fontSize: 16 } }, "🎨 Sisipkan Sketsa"),
      /*#__PURE__*/React.createElement("button", { className: "btn btn-icon btn-sm", onClick: onClose }, "✕")),
   pending ? /*#__PURE__*/React.createElement("div", { className: "drawing-insert-confirm", style: { display: "flex", flexDirection: "column", gap: 12 } },
     /*#__PURE__*/React.createElement("div", { style: { fontSize: 13, fontWeight: 600 } }, "🎨 ", pending.d.title || "(tanpa judul)"),
@@ -31032,14 +31218,14 @@ function DrawingInsertModal({
     className: "btn btn-sm",
     onClick: () => setTab("new"),
     style: { flex: 1, fontSize: 12, fontWeight: 600, background: tab === "new" ? "var(--accent)" : "transparent", color: tab === "new" ? "#fff" : "var(--text-secondary)" }
-  }, "+ Gambar Baru"),
+  }, "+ Sketsa Baru"),
      /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm",
     onClick: () => setTab("gallery"),
     style: { flex: 1, fontSize: 12, fontWeight: 600, background: tab === "gallery" ? "var(--accent)" : "transparent", color: tab === "gallery" ? "#fff" : "var(--text-secondary)" }
   }, "🖼️ Pilih Dari Galeri")),
   tab === "new" ? /*#__PURE__*/React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
-    /*#__PURE__*/React.createElement("label", { className: "input-label", style: { fontSize: 12 } }, "Judul Gambar"),
+    /*#__PURE__*/React.createElement("label", { className: "input-label", style: { fontSize: 12 } }, "Judul Sketsa"),
     /*#__PURE__*/React.createElement("input", {
       className: "input",
       value: newTitle,
@@ -31058,7 +31244,7 @@ function DrawingInsertModal({
       className: "input",
       value: searchQ,
       onChange: e => setSearchQ(e.target.value),
-      placeholder: "Cari gambar yang sudah ada...",
+      placeholder: "Cari sketsa yang sudah ada...",
       autoFocus: true,
       style: { fontSize: 12 }
     }),
@@ -31066,7 +31252,7 @@ function DrawingInsertModal({
       className: "hide-scrollbar",
       style: { maxHeight: 260, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4, border: "1px solid var(--border)", borderRadius: 8, padding: 4 }
     }, loading ? /*#__PURE__*/React.createElement("div", { style: { padding: 12, textAlign: "center", fontSize: 12, color: "var(--text-light)" } }, "Memuat galeri...") :
-       filtered.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { padding: 12, textAlign: "center", fontSize: 12, color: "var(--text-light)" } }, "Tidak ada gambar ditemukan") :
+       filtered.length === 0 ? /*#__PURE__*/React.createElement("div", { style: { padding: 12, textAlign: "center", fontSize: 12, color: "var(--text-light)" } }, "Tidak ada sketsa ditemukan") :
        groups.map(g => /*#__PURE__*/React.createElement(React.Fragment, { key: g.key },
          /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, fontWeight: 700, color: "var(--text-secondary)", padding: "6px 6px 2px", textTransform: "uppercase", letterSpacing: 0.3 } }, g.listId != null ? "👥 " + g.label : g.label),
          groupHint(g) && /*#__PURE__*/React.createElement("div", { style: { fontSize: 11, color: "var(--text-light)", padding: "0 6px 4px", lineHeight: 1.4 } }, groupHint(g)),
@@ -32322,8 +32508,8 @@ function NoteModal({
     return () => window.removeEventListener("tf:note-tasklinks-rewritten", handler);
   }, []);
 
-  // Klik preview gambar (event editDrawingModal) ditangani SATU QuickDrawModal global di App;
-  // modal milik NoteModal hanya untuk alur sisip gambar baru (handleDrawingSelected).
+  // Klik preview sketsa (event editDrawingModal) ditangani SATU QuickDrawModal global di App;
+  // modal milik NoteModal hanya untuk alur sisip sketsa baru (handleDrawingSelected).
 
   const milkdownEditorRef = React.useRef(null);
   const allKnownTasksRef = React.useRef([]);
@@ -32372,7 +32558,7 @@ function NoteModal({
     } catch (_) {}
     return ok;
   };
-  // 🎬 Audio/Video: id server note (cid lokal → push dulu), direktif ::media, lalu unggah lewat __mediaUploads.
+  // Audio/video (tombol/menu "Media"): id server note (cid lokal → push dulu), direktif ::media, lalu unggah lewat __mediaUploads.
   const [mediaServerNoteId, setMediaServerNoteId] = React.useState(null);
   const mediaNoteIdForCards = savedNoteId != null && /^\d+$/.test(String(savedNoteId)) ? Number(savedNoteId) : mediaServerNoteId;
   const mediaNoteOwnerId = note?.user_id != null ? note.user_id : (currentUserId != null ? currentUserId : (Number(localStorage.getItem('tf_user_id')) || null));
@@ -32402,6 +32588,8 @@ function NoteModal({
     }
     return ok;
   };
+  // Pemilih file toolbar ({ media, file } dari NoteToolbar) — dipakai item "Media"/"File" menu blok editor.
+  const notePickRef = React.useRef(null);
   const handleInsertMedia = file => {
     beginNoteMediaUpload({
       file,
@@ -32429,16 +32617,31 @@ function NoteModal({
       } catch (_) {}
     });
   };
-  const handleImagePaste = async file => {
+  // opts.source === 'picker': gambar dari tombol/menu "Media" (bukan tempel):
+  // - offline → langsung data URL (tanpa mencoba unggah / toast "Mengunggah gambar…");
+  // - online + note baru tersimpan lokal (cid) → ensureServerNoteId (dorong outbox) seperti audio/video;
+  // - server menolak (non-ok) → toast `detail` galat, TIDAK disisipkan; data URL hanya bila jaringan gagal;
+  // - data URL dibatasi MEDIA_INLINE_IMAGE_MAX_BYTES.
+  // Tempel (tanpa opts) tidak berubah.
+  const handleImagePaste = async (file, opts) => {
+    const fromPicker = !!(opts && opts.source === 'picker');
+    const say = (m, t) => (typeof showToast === 'function' ? showToast(m, t) : window.__showToast?.(m, t));
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
     // Try server upload first (smaller content, permanent storage)
     // Only if note has a real server ID (numeric), not offline UUID
-    if (savedNoteId && /^\d+$/.test(String(savedNoteId))) {
+    let uploadId = savedNoteId && /^\d+$/.test(String(savedNoteId)) ? savedNoteId : null;
+    if (fromPicker && offline) uploadId = null;
+    else if (fromPicker && uploadId == null && savedNoteId) {
+      try { uploadId = await ensureServerNoteId(savedNoteId); } catch (_) { uploadId = null; }
+    }
+    if (uploadId) {
       try {
         const formData = new FormData();
         formData.append('file', file);
         const headers = {};
         if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
-        const res = await fetch(apiUrl('/api/scratchpad/' + savedNoteId + '/attachments'), {
+        if (fromPicker) say('Mengunggah gambar…', 'info');
+        const res = await fetch(apiUrl('/api/scratchpad/' + uploadId + '/attachments'), {
           method: 'POST', headers, body: formData
         });
         if (res.ok) {
@@ -32446,11 +32649,22 @@ function NoteModal({
           const url = '/api/scratchpad/attachments/' + att.id + '/view';
           const alt = att.original_name || 'image';
           insertImageMd('![' + alt + '](' + url + ')');
+          setAttachments(prev => prev.concat([att]));
+          return;
+        }
+        if (fromPicker) {
+          let d = null;
+          try { d = await res.json(); } catch (_) {}
+          say(d && typeof d.detail === 'string' && d.detail ? d.detail : 'Unggah gambar gagal', 'error');
           return;
         }
       } catch (_) {
         // Server unreachable (offline) — fall through to base64
       }
+    }
+    if (fromPicker && file.size > MEDIA_INLINE_IMAGE_MAX_BYTES) {
+      say('Gambar lebih dari 1 MB butuh koneksi internet dan catatan yang sudah tersimpan', 'error');
+      return;
     }
     // Offline fallback: convert to base64 data URL, insert directly
     try {
@@ -33122,8 +33336,8 @@ function NoteModal({
       return;
     }
 
-    // /draw, /canvas, /gambar, /sketsa slash command — buka drawing insert modal
-    const drawMatch = textBefore.match(/(?:^|\n)\/(draw|canvas|gambar|sketsa)$/i);
+    // /draw, /canvas, /sketsa slash command — buka drawing insert modal
+    const drawMatch = textBefore.match(/(?:^|\n)\/(draw|canvas|sketsa)$/i);
     if (drawMatch) {
       const ed = milkdownEditorRef.current;
       if (ed && window.MilkdownBundle?.editorViewCtx) {
@@ -33778,6 +33992,8 @@ function NoteModal({
     onInsertTask: openTaskDropdown,
     onInsertDrawing: handleOpenInsertDrawing,
     onInsertMedia: handleInsertMedia,
+    onInsertImage: f => handleImagePaste(f, { source: 'picker' }),
+    pickerRef: notePickRef,
     voiceState: voiceState,
     onToggleVoice: handleToggleVoice,
     paperConfig: paperConfig,
@@ -33869,7 +34085,10 @@ function NoteModal({
     onTasklinkClick: handleTasklinkClick,
     onImagePaste: handleImagePaste,
     onInsertDrawing: handleOpenInsertDrawing,
-    onInsertTask: openTaskDropdown
+    onInsertTask: openTaskDropdown,
+    onPickMedia: () => notePickRef.current?.media?.(),
+    onPickFile: () => notePickRef.current?.file?.(),
+    pickMediaAV: true
   }), paperConfig?.enabled && /*#__PURE__*/React.createElement(PaperPageGuides, {
     rootRef: paperWrapRef,
     paperConfig: paperConfig
@@ -39273,7 +39492,7 @@ function SearchModal({
     ref: inputRef,
     value: query,
     onChange: e => search(e.target.value),
-    placeholder: "Cari task, catatan, mindmap, gambar, atau tag…",
+    placeholder: "Cari task, catatan, mindmap, sketsa, atau tag…",
     style: {
       flex: 1,
       border: "none",
@@ -39509,7 +39728,7 @@ function SearchModal({
       letterSpacing: 1,
       padding: "6px 16px 4px"
     }
-  }, "🎨 Gambar / Drawings"), results.drawings.map(d => /*#__PURE__*/React.createElement("div", {
+  }, "🎨 Sketsa"), results.drawings.map(d => /*#__PURE__*/React.createElement("div", {
     key: d.id,
     onClick: () => {
       onClose();
@@ -40275,9 +40494,9 @@ function AdminPage({
 
 const TOUR_STEPS = {
   dashboard: [
-    { element: '[data-tour="sidebar-rail"]', popover: { title: '🗂️ Menu Utama', description: 'Menu utama tampil sebagai bilah ikon ramping: Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes, Draw, Mindmap, dan Diskusi. Arahkan kursor ke ikon untuk melihat namanya, lalu klik untuk berpindah halaman.' } },
+    { element: '[data-tour="sidebar-rail"]', popover: { title: '🗂️ Menu Utama', description: 'Menu utama tampil sebagai bilah ikon ramping: Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes, Sketsa, Mindmap, dan Diskusi. Arahkan kursor ke ikon untuk melihat namanya, lalu klik untuk berpindah halaman.' } },
     { element: '[data-tour="sidebar-expand"]', popover: { title: '› Menu Lengkap', description: 'Klik › (atau tombol ☰ di topbar) untuk membuka menu lengkap: GTD, Project, Workspace, dan Pengaturan. Setelah kamu memilih halaman, menu otomatis kembali menjadi bilah ikon.' } },
-    { element: '[data-tour="sidebar-general"]', popover: { title: '🗂️ Menu Utama', description: 'Navigasi utama Alurik — Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes & Draw, Mindmap, dan Diskusi. Klik salah satu untuk berpindah halaman.' } },
+    { element: '[data-tour="sidebar-general"]', popover: { title: '🗂️ Menu Utama', description: 'Navigasi utama Alurik — Dashboard, Kalender, Fokus Hari Ini, Habit Tracker, Notes & Sketsa, Mindmap, dan Diskusi. Klik salah satu untuk berpindah halaman.' } },
     { element: '[data-tour="sidebar-collapse"]', popover: { title: '◀ Perkecil Menu', description: 'Klik tombol ‹ ini untuk memperkecil sidebar menjadi bilah ikon ramping, sehingga area kerja lebih luas sementara menu utama tetap bisa diklik. Klik ikon › di bilah ikon (atau tombol ☰ di topbar) untuk membuka menu lengkap kembali.' } },
     { element: '[data-tour="task-gtd"]', popover: { title: '🔄 GTD Menu', description: 'Bagian GTD (Getting Things Done) — Inbox, Next Actions, Waiting For, dan Someday. Metodologi GTD membantu mengelola task berdasarkan konteks dan prioritas.' } },
     { element: '[data-tour="sidebar-shared"]', popover: { title: '👥 Workspace', description: 'Kelola workspace bersama — buat Workspace baru, undang anggota, atau bergabung ke workspace milik orang lain. Cocok untuk kolaborasi tim atau keluarga.' } },
@@ -42677,7 +42896,7 @@ function App() {
       today: "Fokus Hari Ini",
       habit: "Habit Tracker",
       notes: "Notes",
-      draw: "Draw",
+      draw: "Sketsa",
       mindmap: "Mindmap",
       chat: "Diskusi",
       inbox: "Inbox",

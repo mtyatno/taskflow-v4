@@ -27,7 +27,7 @@
     // Add new tab
     const newTab = {
       id: drawingId,
-      title: title || "Untitled Drawing"
+      title: title || "Sketsa tanpa judul"
     };
 
     if (list.length >= MAX_TABS) {
