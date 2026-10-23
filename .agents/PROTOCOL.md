@@ -1,6 +1,6 @@
 # AI Agent Collaboration Protocol
 
-Every AI Agent (Claude, DeepSeek, Antigravity / Gemini, Cursor, Copilot, etc.) accessing this workspace MUST adhere to this 3-step workflow.
+Every AI Agent (Claude, DeepSeek, Antigravity / Gemini, Cursor, Copilot, etc.) accessing this workspace MUST adhere to this 4-step workflow.
 
 ---
 
@@ -44,8 +44,8 @@ Before completing your turn or ending a session:
 
 ## 4. CHECKLIST RILIS FRONTEND (setiap kenaikan versi SW)
 
-1. Naikkan `CACHE` di `static/sw.js` dan `window.__SW_VERSION` (beserta fallback-nya) di `static/index.html`, lalu sesuaikan tes yang memeriksa versi.
+1. Naikkan `CACHE` di `static/sw.js` dan `window.__SW_VERSION` (beserta fallback-nya) di `static/index.html`, lalu sesuaikan tes yang memeriksa versi. Bila mengganti string versi lama secara massal (mis. `sed` di seluruh `static/` dan `tests/`), **kecualikan `static/whatsnew.json`**: entri lama menyimpan versinya sendiri, dan rilis baru mendapat entri BARU di paling atas (butir 3).
 2. Bila `app.css` berubah: naikkan `app.css?v=` di `index.html` **dan** entri yang sama di `STATIC`.
-3. Tambahkan entri teratas di `static/whatsnew.json` untuk versi itu, di PR yang sama, sesuai aturan §3.3. Rilis tanpa perubahan yang terasa oleh pengguna ditulis sebagai `{"version", "date", "silent": true}`.
-4. Saat menggabungkan `main` dan nomor versi bentrok: pertahankan entri yang sudah ada di `main` apa adanya, naikkan versi PR ini di semua tempat termasuk `version` entrinya, dan pastikan entri itu tetap paling atas.
-5. Jalankan `python -m pytest tests/test_whatsnew.py tests/test_version.py -q` sebelum push.
+3. Tambahkan entri teratas di `static/whatsnew.json` untuk versi itu, di PR yang sama, sesuai aturan isi di `docs/superpowers/specs/2026-10-23-apa-yang-baru-design.md` §3.3 (dijaga `tests/test_whatsnew.py`). Ringkasnya: teks berbahasa Indonesia dari sudut pandang pengguna, `title` ≤ 60 karakter, tiap poin `new`/`fixed` ≤ 140 karakter, tanpa nama file, PR, atau istilah teknis. Rilis tanpa perubahan yang terasa oleh pengguna ditulis sebagai `{"version", "date", "silent": true}`.
+4. Saat menggabungkan `main` dan nomor versi bentrok: pertahankan entri yang sudah ada di `main` apa adanya, naikkan versi PR ini di semua tempat termasuk `version` entrinya, dan pastikan entri itu tetap paling atas. Ubah hanya `version` pada entri milik PR ini; jangan mengubah `version` entri yang sudah ada di `main` (jangan `sed` massal ke `static/whatsnew.json`).
+5. Jalankan `python -m pytest tests/test_whatsnew.py tests/test_sw_precache_node.py tests/test_app_update_node.py -q` sebelum push.

@@ -15,8 +15,10 @@ WHATSNEW = os.path.join(ROOT, "static", "whatsnew.json")
 SW = os.path.join(ROOT, "static", "sw.js")
 INDEX = os.path.join(ROOT, "static", "index.html")
 
-VERSION_RE = re.compile(r"^taskflow-v(\d+)-[a-z0-9-]+$")
-DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")  # fromisoformat menerima bentuk lain (mis. 20261023), spec hanya YYYY-MM-DD
+# fullmatch + [0-9]: `$` menerima "\n" di akhir dan `\d` menerima angka non-ASCII; versionNumber di JS (whatsnew.js) menolak keduanya,
+# jadi entri seperti itu akan dibuang di perangkat.
+VERSION_RE = re.compile(r"taskflow-v([0-9]+)-[a-z0-9-]+")
+DATE_RE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")  # fromisoformat menerima bentuk lain (mis. 20261023), spec hanya YYYY-MM-DD
 ALLOWED_KEYS = {"version", "date", "title", "new", "fixed", "silent"}
 MAX_TITLE = 60
 MAX_POINT = 140
@@ -33,12 +35,16 @@ def load():
 
 
 def sw_cache():
-    return re.search(r'^const CACHE = "([^"]+)";', read(SW), re.M).group(1)
+    m = re.search(r'^const CACHE = "([^"]+)";', read(SW), re.M)
+    assert m, 'baris `const CACHE = "…";` tidak ditemukan di static/sw.js'
+    return m.group(1)
 
 
 def index_sw_version():
     """Versi dari <script> awal di <body> index.html (`window.__SW_VERSION = "…";`), bukan fallback `|| "…"`."""
-    return re.search(r'window\.__SW_VERSION\s*=\s*"([^"]+)";', read(INDEX)).group(1)
+    m = re.search(r'window\.__SW_VERSION\s*=\s*"([^"]+)";', read(INDEX))
+    assert m, 'penetapan `window.__SW_VERSION = "…";` tidak ditemukan di static/index.html'
+    return m.group(1)
 
 
 def static_entries(sw_src):
@@ -85,7 +91,7 @@ def validate(data, cache, index_version):
             errs.append(f"{label}: kunci tidak dikenal: {', '.join(map(str, unknown))}")
 
         version = e.get("version")  # aturan 2 + 3
-        m = VERSION_RE.match(version) if isinstance(version, str) else None
+        m = VERSION_RE.fullmatch(version) if isinstance(version, str) else None
         if not m:
             errs.append(f"{label}: version {version!r} tidak valid (harus cocok {VERSION_RE.pattern})")
         else:
@@ -96,7 +102,7 @@ def validate(data, cache, index_version):
 
         date = e.get("date")
         try:
-            if not isinstance(date, str) or not DATE_RE.match(date):
+            if not isinstance(date, str) or not DATE_RE.fullmatch(date):
                 raise ValueError(date)
             datetime.date.fromisoformat(date)
         except ValueError:
@@ -178,6 +184,9 @@ GOOD = {"version": "taskflow-v10-a", "date": "2026-10-23", "title": "Judul", "ne
     ({"entries": [dict(GOOD, fixed=[3])]}, "fixed harus array string"),
     ({"entries": [dict(GOOD, date="20261023")]}, "date '20261023'"),  # fromisoformat (3.11+) menerimanya; hanya DATE_RE yang menolak
     ({"entries": [dict(GOOD, silent="ya")]}, "silent harus true atau false"),
+    # `$` dan `\d` terlalu longgar: versionNumber di JS menolak keduanya, entri itu dibuang di perangkat
+    ({"entries": [dict(GOOD, version="taskflow-v10-a\n")]}, "version 'taskflow-v10-a\\n' tidak valid"),
+    ({"entries": [dict(GOOD, version="taskflow-v\u0663-a")]}, "version 'taskflow-v\u0663-a' tidak valid"),  # angka Arab-Indik "٣"
 ])
 def test_validator_rejects(data, needle):
     errs = validate(data, "taskflow-v10-a", "taskflow-v10-a")
