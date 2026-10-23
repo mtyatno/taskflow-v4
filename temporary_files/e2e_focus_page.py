@@ -21,6 +21,9 @@ import requests
 from playwright.sync_api import sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+with open(os.path.join(ROOT, "static", "sw.js"), encoding="utf-8") as _f:
+    # Versi SW saat ini: ditulis ke tf_whatsnew_seen agar modal "Apa yang baru" tidak menutupi UI.
+    SW_VERSION = re.search(r'^const CACHE = "([^"]+)";', _f.read(), re.M).group(1)
 SHOTS = os.path.join(ROOT, "temporary_files", "e2e_focus_page")
 PW = "rahasia123"
 SECRET = "e2e-focus-page-secret"
@@ -104,14 +107,15 @@ def open_app(browser, base, user, theme="light"):
     ctx.add_cookies([{"name": "token", "value": user["token"], "url": base, "httpOnly": True, "sameSite": "Lax"}])
     p = ctx.new_page()
     p.goto(base + "/manifest.json")
-    p.evaluate("""([t, u, tours, theme]) => {
+    p.evaluate("""([t, u, tours, theme, sw]) => {
         localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(u));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
         localStorage.setItem('tf_dismiss_onboarding', '1');
+        localStorage.setItem('tf_whatsnew_seen', sw);
         localStorage.setItem('tf_theme', theme);
         localStorage.setItem('tf_groupby', 'none');
         localStorage.setItem('tf_viewmode', 'normal');
-    }""", [user["token"], user["id"], TOURS, theme])
+    }""", [user["token"], user["id"], TOURS, theme, SW_VERSION])
     p.goto(base + "/")
     p.locator(".sidebar-link, .sidebar-rail-btn").first.wait_for(state="attached", timeout=20000)
     return ctx, p

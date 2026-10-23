@@ -1,5 +1,9 @@
 {
   "entries": [
+    {"version": "taskflow-v468-fokus-parkir-toast", "date": "2026-10-23", "title": "Halaman Fokus lebih ringkas",
+     "new": ["Menulis di kotak Ada pikiran lewat? di halaman Fokus kini memunculkan notifikasi Task Created seperti di Dashboard.",
+             "Bagian atas halaman Fokus kini lebih ringkas di HP dan tablet.",
+             "Di HP, tombol bintang, Fokus, dan buka-tutup di daftar task kini tersusun vertikal sehingga judul task lebih lebar."]},
     {"version": "taskflow-v467-istilah-sketsa-media", "date": "2026-10-23", "title": "Sketsa dan Media di catatan",
      "new": ["Fitur gambar tangan kini bernama Sketsa, supaya tidak tertukar dengan gambar atau foto.",
              "Toolbar catatan dan menu / kini punya tombol Media untuk gambar, audio, dan video, serta tombol File untuk dokumen.",

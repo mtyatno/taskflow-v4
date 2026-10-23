@@ -31,10 +31,11 @@ def open_focus(browser, base, user, vw, vh, theme):
     p = ctx.new_page()
     p.on("pageerror", lambda e: ERRS.append(str(e)[:200]))
     p.goto(base + "/manifest.json")
-    p.evaluate("""([t, uid, tours, theme]) => { localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(uid));
+    p.evaluate("""([t, uid, tours, theme, sw]) => { localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(uid));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
+        localStorage.setItem('tf_whatsnew_seen', sw);
         localStorage.setItem('tf_dismiss_onboarding', '1'); localStorage.setItem('tf_theme', theme); }""",
-               [user["token"], user["id"], h.TOURS, theme])
+               [user["token"], user["id"], h.TOURS, theme, h.SW_VERSION])
     p.goto(base + "/")
     p.locator(".sidebar-link, .sidebar-rail-btn, .mobile-topbar").first.wait_for(state="attached", timeout=20000)
     p.wait_for_timeout(400)
