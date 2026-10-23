@@ -6,7 +6,8 @@ Alur (spec §9, brief Task 7):
   3  unggah 12 MB, jaringan putus di tengah (context.route abort /upload), pulih → selesai tanpa ulang dari 0
   4  reload saat unggah → kartu `uploading-stalled` → file berbeda (ditolak) → file sama (lanjut dari offset)
   5  anggota workspace memutar media note bersama, tanpa tombol Hapus untuk media pemilik
-  6  offline → kartu "Butuh koneksi untuk memutar"; tombol 🎬 nonaktif + tooltip; SW tidak melayani meta dari cache
+  6  offline → kartu "Butuh koneksi untuk memutar"; tombol "Media" tetap aktif, pilih audio/video → toast
+     "Butuh koneksi internet untuk mengunggah audio/video"; SW tidak melayani meta dari cache
   7  direktif dengan nama berbahaya dan cid note lain → teks ter-escape / pesan `missing`
   8  token kedaluwarsa (server kedua MEDIA_URL_TTL_SEC=5) → jeda, tunggu, geser+putar → posisi dipulihkan
   9  nama ber-karakter markdown (_x_, *x*, ~x~, www.) dari editor → isi tersimpan terbaca ulang dengan cid/nama
@@ -16,7 +17,8 @@ Service worker AKTIF (service_workers="allow"); wajib env PW_EXPERIMENTAL_SERVIC
 (diset di skrip) agar context.route juga menangkap fetch dari SW. Chromium Playwright tanpa H.264 → pemutaran
 diuji dengan WebM (VP8/Opus); MP4 hanya dicek sampai `ready`.
 
-    python temporary_files/e2e_note_media.py      (python sistem, bukan venv)
+    E2E_SERVER_PY=<python berisi fastapi/sse_starlette> python3 temporary_files/e2e_note_media.py
+    (browser dari python sistem; server memakai E2E_SERVER_PY bila ada, selain itu python yang sama)
 
 Screenshot ke temporary_files/e2e_note_media/ (di-.gitignore). Keluar non-zero bila ada langkah gagal.
 """
@@ -37,6 +39,9 @@ from playwright.sync_api import sync_playwright  # noqa: E402
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SHOTS = os.path.join(ROOT, "temporary_files", "e2e_note_media")
 PW = "rahasia123"
+SERVER_PY = os.environ.get("E2E_SERVER_PY") or sys.executable
+with open(os.path.join(ROOT, "static", "sw.js"), encoding="utf-8") as _f:  # versi cache SW: baca dari sumber, jangan di-pin
+    SW_VERSION = re.search(r'const CACHE = "([^"]+)"', _f.read()).group(1)
 SECRET = "e2e-note-media-secret-0123456789abcdef"
 TOURS = ['dashboard', 'tasks', 'today', 'calendar', 'kanban', 'notes', 'mindmap', 'chat', 'habits', 'habit',
          'settings', 'draw', 'goals', 'review', 'focus', 'workspace', 'slist']
@@ -101,7 +106,7 @@ def start_server(tmp, name, extra=None):
                MEDIA_ROOT=os.path.join(d, "media"), MEDIA_ACCEL="0", WEB_SECRET_KEY=SECRET,
                WEB_PORT=str(port), TELEGRAM_BOT_TOKEN="", **(extra or {}))
     log = open(os.path.join(d, "server.log"), "w")
-    proc = subprocess.Popen([sys.executable, "-m", "uvicorn", "webapp:app", "--host", "127.0.0.1",
+    proc = subprocess.Popen([SERVER_PY, "-m", "uvicorn", "webapp:app", "--host", "127.0.0.1",
                              "--port", str(port)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
     base = "http://127.0.0.1:%d" % port
     for _ in range(120):
@@ -328,7 +333,7 @@ def main():
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             ctx, a = open_app(browser, base, A)
-            check("0 SW mengontrol halaman (v429)", a.evaluate("() => window.__SW_VERSION") == "taskflow-v429-note-media"
+            check("0 SW mengontrol halaman (%s)" % SW_VERSION, a.evaluate("() => window.__SW_VERSION") == SW_VERSION
                   and a.evaluate("() => !!navigator.serviceWorker.controller"))
 
             # ── 1. unggah mp4 + mp3 dari editor → progres → ready ──────────────────────────
@@ -504,8 +509,17 @@ def main():
             btn.wait_for(timeout=10000)
             ctx.set_offline(True)
             a.wait_for_timeout(500)
-            check("6a offline: 🎬 nonaktif + tooltip persis", btn.is_disabled() and btn.get_attribute("title") == OFFLINE_BTN,
+            check("6a offline: tombol Media tetap aktif (tidak lagi nonaktif)", not btn.is_disabled(),
                   btn.get_attribute("title"))
+            n_cards6 = a.locator(EDIT_CARD).count()
+            with a.expect_file_chooser() as fc6:
+                btn.click()
+            fc6.value.set_files(files["mp3"])
+            seen6 = wait_until(lambda: OFFLINE_BTN in " | ".join(a.locator(".toast").all_inner_texts()), 6)
+            check("6a2 offline: pilih audio → toast 'Butuh koneksi internet untuk mengunggah audio/video'", bool(seen6),
+                  a.locator(".toast").all_inner_texts())
+            check("6a3 offline: tanpa kartu media baru dari pilihan itu", a.locator(EDIT_CARD).count() == n_cards6,
+                  (n_cards6, a.locator(EDIT_CARD).count()))
             shot(a, "06a_tombol_offline.png")
             home(a)  # offline: shell dari cache SW
             open_note(a, "Note Media E2E")
@@ -531,7 +545,8 @@ def main():
 
             # ── 5. anggota workspace memutar media note bersama, tanpa Hapus ─────────────────
             w = api(base, A, "POST", "/api/lists", json={"name": "WS Media"})
-            api(base, A, "POST", "/api/lists/%d/invite" % w["id"], json={"username": B["username"]})
+            inv = api(base, A, "POST", "/api/lists/%d/invite" % w["id"], json={"username": B["username"]})
+            api(base, B, "POST", "/api/invitations/%d/accept" % inv["invitation"]["id"], json={})  # undangan kini perlu diterima
             wn = make_note(base, A, "Note Bersama E2E", "Bersama\n", list_id=w["id"])
             cid5, _att5 = api_upload(base, A, wn["id"], files["webm"], "video/webm")
             api(base, A, "PUT", "/api/scratchpad/%d" % wn["id"],

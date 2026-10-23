@@ -1,13 +1,13 @@
 """E2E: slash menu editor note — grid 2 kolom + label grup + item Wikilink (2026-10-21). Tidak dijalankan CI.
 
 Alur:
-  a  ketik "/" di paragraf baru → menu tampil, 4 label grup, 15 item, ikon glyph svg (heading teks), grid 2 kolom, tanpa scroll (1280×800)
+  a  ketik "/" di paragraf baru → menu tampil, 4 label grup, 17 item, ikon glyph svg (heading teks), grid 2 kolom, luapan ≤ 40 px (1280×800)
   b  screenshot terang + gelap; 375×740 → tanpa scroll, menu utuh di dalam viewport (dijepit middleware)
   c  klik Wikilink → "/" hilang, paragraf berisi "[[", dropdown autocomplete wikilink tampil
   d  "and/" → klik Wikilink → "and/" tetap ("/" di tengah teks bukan pemicu)
   k  emulasi keyboard HP (visualViewport 330px) → menu dibatasi + scroll di dalam, Wikilink bisa diklik
   f  Wikilink di dalam `kode` → "[[" tidak ikut mark code
-  e  klik Task → "/" hilang, dropdown task tampil; klik Gambar → "/" hilang, modal Sisipkan Gambar tampil
+  e  klik Task → "/" hilang, dropdown task tampil; klik Sketsa → "/" hilang, modal Sisipkan Sketsa tampil
 
     python temporary_files/e2e_slash_menu_grid.py
   (Playwright dari python sistem; server memakai venv/bin/python bila ada, atau E2E_SERVER_PY)
@@ -185,7 +185,25 @@ def wiki_dropdown_visible(p):
 
 
 EXPECTED_ITEMS = ["Heading 1", "Heading 2", "Heading 3", "Blockquote", "Callout", "Toggle", "Code",
-                  "Bullet", "Numbered", "Checklist", "Tabel", "Divider", "Gambar", "Task", "Wikilink"]
+                  "Bullet", "Numbered", "Checklist", "Tabel", "Divider", "Sketsa", "Task", "Media", "File", "Wikilink"]
+
+
+SCROLL_SLACK = 40  # px: sejak item Media + File (17 item) konten menu ≈ 471 px > max-height 440 px (css .milkdown-slash-menu)
+
+
+def scroll_check(p, step, vp, m):
+    """Dulu 'tanpa scroll'. Dengan 17 item menu bisa meluap ≤ SCROLL_SLACK px di dalam kotaknya sendiri; yang dijaga:
+    luapan kecil + item terakhir (Wikilink) bisa dijangkau dengan menggulir menu."""
+    over = m["sh"] - m["ch"]
+    reach = p.evaluate("""() => { const mn = document.querySelector(".milkdown-slash-menu[data-show='true']");
+      mn.scrollTop = mn.scrollHeight;
+      const it = [...mn.querySelectorAll('.milkdown-slash-item')].pop().getBoundingClientRect(); const mr = mn.getBoundingClientRect();
+      const ok = it.bottom <= mr.bottom + 1 && it.top >= mr.top; mn.scrollTop = 0; return ok; }""")
+    if over > 0:
+        print("  WARN %s: menu meluap %d px (sh %d > ch %d) — Wikilink di bawah lipatan sampai menu digulir" % (
+            step, over, m["sh"], m["ch"]), flush=True)
+    check("%s meluap ≤ %d px dan item terakhir terjangkau lewat scroll menu %s" % (step, SCROLL_SLACK, vp),
+          over <= SCROLL_SLACK and reach, (m["sh"], m["ch"], reach))
 
 
 def main():
@@ -206,25 +224,25 @@ def main():
             open_menu(p)
             m = menu_metrics(p)
             check("a1 4 label grup berurutan", m["labels"] == ["Teks", "Daftar", "Sisipkan", "Tautan"], m["labels"])
-            check("a2 15 item sesuai urutan", m["items"] == EXPECTED_ITEMS, m["items"])
+            check("a2 17 item sesuai urutan", m["items"] == EXPECTED_ITEMS, m["items"])
             ic = p.evaluate("""() => [...document.querySelectorAll(".milkdown-slash-menu[data-show='true'] .milkdown-slash-item")].map(el => {
               const i = el.querySelector('.milkdown-slash-icon'); const svg = i.querySelector('svg');
               const r = svg ? svg.getBoundingClientRect() : null;
               return { label: el.querySelector('.milkdown-slash-label').textContent, text: i.textContent,
                        svg: !!svg, ns: svg ? svg.namespaceURI : null, shapes: svg ? svg.querySelectorAll('path,rect,circle').length : 0,
-                       w: r ? Math.round(r.width) : 0, emoji: /\p{Extended_Pictographic}/u.test(el.textContent) };
+                       w: r ? Math.round(r.width) : 0, emoji: /\\p{Extended_Pictographic}/u.test(el.textContent) };
             })""")
             heads = [x for x in ic if x["label"].startswith("Heading")]
             others = [x for x in ic if not x["label"].startswith("Heading")]
             check("a2b heading tetap ikon teks H1–H3 tanpa svg", [x["text"] for x in heads] == ["H1", "H2", "H3"] and not any(x["svg"] for x in heads),
                   [(x["text"], x["svg"]) for x in heads])
-            check("a2c 12 item lain berisi svg glyph (namespace SVG, ada bentuk, 16px) tanpa teks ikon",
-                  len(others) == 12 and all(x["svg"] and x["ns"] == "http://www.w3.org/2000/svg" and x["shapes"] > 0 and x["w"] == 16 and x["text"] == "" for x in others),
+            check("a2c 14 item lain berisi svg glyph (namespace SVG, ada bentuk, 16px) tanpa teks ikon",
+                  len(others) == 14 and all(x["svg"] and x["ns"] == "http://www.w3.org/2000/svg" and x["shapes"] > 0 and x["w"] == 16 and x["text"] == "" for x in others),
                   [(x["label"], x["svg"], x["shapes"], x["w"], x["text"]) for x in others if not (x["svg"] and x["shapes"] and x["w"] == 16 and x["text"] == "")])
             check("a2d tanpa emoji di item menu", not any(x["emoji"] for x in ic), [x["label"] for x in ic if x["emoji"]])
             check("a3 grid 2 kolom (baris 1 sejajar)", m["row1Top"][0] == m["row1Top"][1] and m["row1Left"][1] > m["row1Left"][0],
                   (m["row1Top"], m["row1Left"]))
-            check("a4 tanpa scroll 1280×800", m["sh"] <= m["ch"], (m["sh"], m["ch"]))
+            scroll_check(p, "a4", "1280×800", m)
             check("a4b menu utuh di viewport 1280×800", m["left"] >= 0 and m["right"] <= m["vw"] and m["top"] >= 0 and m["bottom"] <= m["vh"],
                   (m["left"], m["right"], m["top"], m["bottom"]))
             check("a5 Wikilink lebar penuh + hint [[ ]]", m["wlWide"] and m["wlW"] == m["gW"] and m["hint"] == "[[ ]]",
@@ -248,7 +266,7 @@ def main():
             open_menu(p)
             p.wait_for_timeout(200)
             m = menu_metrics(p)
-            check("b2 tanpa scroll 375×740", m["sh"] <= m["ch"], (m["sh"], m["ch"]))
+            scroll_check(p, "b2", "375×740", m)
             check("b3 menu di dalam viewport horizontal", m["left"] >= 0 and m["right"] <= m["vw"], (m["left"], m["right"], m["vw"]))
             check("b3b menu di dalam viewport vertikal (Wikilink terlihat)", m["top"] >= 0 and m["bottom"] <= m["vh"], (m["top"], m["bottom"], m["vh"]))
             check("b4 grid 2 kolom di 375 px", m["row1Top"][0] == m["row1Top"][1], m["row1Top"])
@@ -369,7 +387,7 @@ def main():
                     p.keyboard.press("Backspace")
             p.keyboard.press("End")
 
-            # e: Task + Gambar
+            # e: Task + Sketsa
             open_menu(p)
             click_item(p, "Task")
             p.wait_for_timeout(400)
@@ -381,15 +399,15 @@ def main():
             p.wait_for_timeout(200)
 
             open_menu(p)
-            click_item(p, "Gambar")
+            click_item(p, "Sketsa")
             p.wait_for_timeout(400)
             blk = p.evaluate(CUR_BLOCK_JS)
-            modal = p.get_by_text("🎨 Sisipkan Gambar")
-            check("e3 Gambar: modal Sisipkan Gambar tampil", modal.count() > 0 and modal.first.is_visible())
+            modal = p.get_by_text("🎨 Sisipkan Sketsa")
+            check("e3 Sketsa: modal Sisipkan Sketsa tampil", modal.count() > 0 and modal.first.is_visible())
             stray = p.evaluate("() => [...document.querySelectorAll('.ProseMirror p')].filter(e => e.innerText.trim() === '/').length")
-            check("e4 Gambar: '/' hilang (tak ada paragraf berisi '/')", stray == 0, stray)
+            check("e4 Sketsa: '/' hilang (tak ada paragraf berisi '/')", stray == 0, stray)
             if modal.count():
-                p.locator(".modal-content").filter(has_text="Sisipkan Gambar").locator("button", has_text="✕").first.click()
+                p.locator(".modal-content").filter(has_text="Sisipkan Sketsa").locator("button", has_text="✕").first.click()
 
             check("z tanpa pageerror", not p.errors, p.errors[:3])
             browser.close()

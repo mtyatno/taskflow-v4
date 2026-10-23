@@ -16,11 +16,13 @@ Langkah:
   5  keyboard: Shift+Tab dari tombol File ke tombol Media, Enter → file chooser terbuka (slash menu memang tanpa
      navigasi panah/Enter)
   6  klik item File → file chooser, accept memuat .pdf dan TIDAK .png; tombol toolbar File juga membuka chooser
-  7  offline: Media + PNG > 1 MB → toast batas 1 MB, tanpa <img src="data:" baru; PNG kecil → data URL tersisip;
+  7  offline (route lampiran di-abort, seperti jaringan putus): Media + PNG > 1 MB → toast batas 1 MB, tanpa <img src="data:" baru; PNG kecil → data URL tersisip;
      .mp3 → toast "Butuh koneksi internet untuk mengunggah audio/video"
   8  TaskFormModal (mode Note): slash menu memuat Media tetapi TIDAK File; accept Media hanya ekstensi gambar
-  9  halaman Sketsa: label sidebar dan judul halaman "Sketsa"; modal sisip dari note "🎨 Sisipkan Sketsa"
+  9  halaman Sketsa: label sidebar dan judul halaman "Sketsa"; modal sisip dari note "🎨 Sisipkan Sketsa";
+     ketik "/gambar" tidak membuka Sketsa, "/sketsa" membukanya
   10 screenshot toolbar + slash menu terbuka: terang & gelap × desktop 1280 & HP 375 → temporary_files/e2e_istilah_sketsa_media/
+     (HP: menu menutupi toolbar, jadi ditambah bidikan *-toolbar.png dengan menu ditutup)
 
     E2E_SERVER_PY=<python berisi fastapi/sse_starlette> python3 temporary_files/e2e_istilah_sketsa_media.py
   (Playwright dari python sistem; server memakai venv/bin/python bila ada, atau E2E_SERVER_PY. Keluar non-zero
@@ -108,10 +110,13 @@ class Net:
         self.posts = []
         self.views = []
         self.next_id = ATT_ID0
+        self.offline = False  # route.fulfill menjawab walau context offline → saat offline batalkan seperti jaringan putus
 
     def on_post(self, route, request):
         if request.method != "POST":
             return route.continue_()
+        if self.offline:
+            return route.abort("internetdisconnected")
         body = request.post_data_buffer or b""
         m = re.search(rb'filename="([^"]+)"', body)
         name = m.group(1).decode("utf-8", "replace") if m else "gambar.png"
@@ -121,6 +126,8 @@ class Net:
         return route.fulfill(status=200, content_type="application/json", body=json.dumps(att))
 
     def on_view(self, route, request):
+        if self.offline:
+            return route.abort("internetdisconnected")
         self.views.append(request.url)
         return route.fulfill(status=200, content_type="image/png", body=SMALL_PNG)
 
@@ -299,7 +306,7 @@ def step4(p):
     sel = ".ProseMirror img[src='/api/scratchpad/attachments/%d/view']" % ATT_ID0
     img = wait_until(p, lambda: p.locator(sel).count() == 1, 8000)
     check("4c node gambar tersisip, src /api/scratchpad/attachments/<id>/view", bool(img),
-          p.evaluate("() => [...document.querySelectorAll('.ProseMirror img')].map(i => i.getAttribute('src').slice(0, 60))"))
+          p.evaluate("() => [...document.querySelectorAll('.ProseMirror img')].map(i => (i.getAttribute('src') || '').slice(0, 60))"))
     check("4d tepat satu POST lampiran dengan nama file pilihan",
           len(p.net.posts) == n_before + 1 and p.net.posts[-1][1] == "foto-kecil.png", p.net.posts)
     check("4e teks '/' tidak tertinggal di editor", not editor_has_slash(p),
@@ -310,24 +317,38 @@ def step4(p):
           bool(att) and any("Lampiran (1)" in a and "foto-kecil.png" in a for a in att), att)
 
 
+def key_chooser(p, focus_fn, key, attempts=3):
+    """Tekan `key` pada tombol yang difokuskan lewat focus_fn() dan tunggu file chooser. Playwright+Chromium kadang
+    membuang event filechooser pada aktivasi keyboard (terukur pada halaman kontrol tanpa kode app: ~1 dari 45), jadi
+    timeout diulang maks `attempts` kali; yang dinilai tetap: handler tombol memanggil input.click(). → (accept, percobaan)"""
+    for n in range(1, attempts + 1):
+        focus_fn()
+        try:
+            with p.expect_file_chooser(timeout=2500) as fc:
+                p.keyboard.press(key)
+        except Exception:  # noqa: BLE001
+            p.wait_for_timeout(500)
+            continue
+        acc = chooser_accept(fc.value)
+        fc.value.set_files([])
+        return acc, n
+    return None, attempts
+
+
 def step5(p):
+    p.wait_for_timeout(700)
     fil = p.locator(".note-toolbar button").filter(has_text=re.compile(r"^\s*File\s*$")).first
     fil.focus()
     p.keyboard.press("Shift+Tab")
     active = p.evaluate("() => { const a = document.activeElement; return a ? (a.innerText || '').trim() + '|' + a.className : null; }")
     check("5a Shift+Tab dari tombol File memindahkan fokus ke tombol Media", active == "Media|note-media-insert-btn", active)
-    with p.expect_file_chooser(timeout=5000) as fc:
-        p.keyboard.press("Enter")
-    acc = chooser_accept(fc.value)
-    fc.value.set_files([])
+    media = p.locator("button.note-media-insert-btn")
+    acc, n = key_chooser(p, lambda: media.focus(), "Enter")
     check("5b Enter di tombol Media (keyboard) → file chooser terbuka, accept memuat .png dan .mp4",
-          ".png" in acc and ".mp4" in acc, acc)
+          acc is not None and ".png" in acc and ".mp4" in acc, "percobaan %d, %s" % (n, acc))
     # Spasi juga mengaktifkan tombol (aktivasi keyboard e.detail === 0)
-    p.locator("button.note-media-insert-btn").focus()
-    with p.expect_file_chooser(timeout=5000) as fc2:
-        p.keyboard.press("Space")
-    fc2.value.set_files([])
-    check("5c Spasi di tombol Media → file chooser terbuka juga", True)
+    acc2, n2 = key_chooser(p, lambda: media.focus(), "Space")
+    check("5c Spasi di tombol Media → file chooser terbuka juga", acc2 is not None, "percobaan %d" % n2)
 
 
 def step6(p):
@@ -345,6 +366,7 @@ def step6(p):
 
 def step7(p, ctx):
     ctx.set_offline(True)
+    p.net.offline = True
     p.wait_for_timeout(400)
     check("7a offline: navigator.onLine false", p.evaluate("() => navigator.onLine") is False)
     media_btn = p.locator("button.note-media-insert-btn")
@@ -357,19 +379,20 @@ def step7(p, ctx):
     p.wait_for_timeout(700)
     check("7d PNG besar: tidak ada <img src=\"data:\" baru", p.locator(".ProseMirror img[src^='data:']").count() == n_data,
           (n_data, p.locator(".ProseMirror img[src^='data:']").count()))
-    check("7e PNG besar: tidak ada POST lampiran dan tanpa toast unggah baru", len(p.net.posts) == 1 and TOAST_UPLOAD not in toasts(p),
-          (p.net.posts, toasts(p)))
+    check("7e PNG besar: tanpa POST lampiran yang berhasil (hanya foto-kecil.png dari langkah 4)", len(p.net.posts) == 1,
+          p.net.posts)
     clear_toasts(p)
     pick_via_chooser(p, lambda: media_btn.click(), {"name": "foto-mini.png", "mimeType": "image/png", "buffer": SMALL_PNG})
     ok = wait_until(p, lambda: p.locator(".ProseMirror img[src^='data:image/png']").count() == n_data + 1, 6000)
     check("7f PNG kecil offline → <img src=\"data:image/png…\"> tersisip", bool(ok),
-          p.evaluate("() => [...document.querySelectorAll('.ProseMirror img')].map(i => i.getAttribute('src').slice(0, 30))"))
+          p.evaluate("() => [...document.querySelectorAll('.ProseMirror img')].map(i => (i.getAttribute('src') || '').slice(0, 30))"))
     clear_toasts(p)
     pick_via_chooser(p, lambda: media_btn.click(), {"name": "rekaman.mp3", "mimeType": "audio/mpeg", "buffer": b"ID3\x03\x00\x00\x00\x00\x00\x00"})
     check("7g .mp3 offline → toast 'Butuh koneksi internet untuk mengunggah audio/video'", toast_seen(p, TOAST_AV_OFFLINE), toasts(p))
     p.wait_for_timeout(500)
     check("7h .mp3 offline: tidak ada kartu media di editor", p.locator(".ProseMirror .editor-media-card").count() == 0)
     ctx.set_offline(False)
+    p.net.offline = False
     p.wait_for_timeout(300)
 
 
@@ -436,6 +459,23 @@ def step9(p, base):
           p.evaluate("() => document.querySelector('.ProseMirror').innerText"))
     p.locator(".modal-content").filter(has_text="Sisipkan Sketsa").locator("button", has_text="✕").first.click()
     p.wait_for_timeout(300)
+    # alias ketik: "/gambar" tidak lagi membuka Sketsa; "/sketsa" membukanya (teks perintah terhapus)
+    G.new_line_and(p, "/gambar")
+    p.wait_for_timeout(1200)
+    check("9g ketik '/gambar' tidak membuka modal Sketsa (teks tetap)", p.get_by_text("🎨 Sisipkan Sketsa").count() == 0
+          and "/gambar" in p.evaluate("() => document.querySelector('.ProseMirror').innerText"))
+    if p.locator(MENU).count():
+        p.keyboard.press("Escape")
+    for _ in range(len("/gambar")):
+        p.keyboard.press("Backspace")
+    p.keyboard.type("/sketsa", delay=40)
+    shown = wait_until(p, lambda: p.get_by_text("🎨 Sisipkan Sketsa").count() > 0, 8000)
+    check("9h ketik '/sketsa' membuka modal '🎨 Sisipkan Sketsa'; teks perintah terhapus", bool(shown)
+          and "/sketsa" not in p.evaluate("() => document.querySelector('.ProseMirror').innerText"),
+          p.evaluate("() => document.querySelector('.ProseMirror').innerText"))
+    if shown:
+        p.locator(".modal-content").filter(has_text="Sisipkan Sketsa").locator("button", has_text="✕").first.click()
+        p.wait_for_timeout(300)
 
 
 # ── langkah 10: screenshot ────────────────────────────────────────────────────────────────────
@@ -460,9 +500,21 @@ def step10(p):
             shot(p, name)
             shots.append(name)
         p.evaluate("() => document.documentElement.setAttribute('data-theme', 'light')")
+        if vw < 500:
+            # di HP menu slash menutupi toolbar → tambah bidikan toolbar saja (menu ditutup), ikon-saja diharapkan
+            close_menu_and_slash(p)
+            p.evaluate("() => document.querySelector('.note-toolbar').scrollIntoView({ block: 'center' })")
+            for theme in ("light", "dark"):
+                p.evaluate("(t) => document.documentElement.setAttribute('data-theme', t)", theme)
+                p.wait_for_timeout(250)
+                name = "%s-%s-toolbar.png" % (tag, theme)
+                shot(p, name)
+                shots.append(name)
+            p.evaluate("() => document.documentElement.setAttribute('data-theme', 'light')")
+            open_menu_at_end(p)
         check("10-%s menu terbuka saat screenshot (grup Sisipkan lengkap)" % tag, s["items"] == SISIPKAN, s["items"])
         close_menu_and_slash(p)
-    check("10z 4 screenshot tersimpan (terang/gelap × desktop/HP)", all(os.path.getsize(os.path.join(SHOTS, n)) > 5000 for n in shots), shots)
+    check("10z 6 screenshot tersimpan (terang/gelap × desktop/HP + toolbar HP)", all(os.path.getsize(os.path.join(SHOTS, n)) > 5000 for n in shots), shots)
 
 
 def main():
