@@ -4075,3 +4075,9 @@
 ## 2026-10-23 05:55 WIB — Claude — merge Nextcloud di thread (#91) + lampiran note ke disk (#92)
 - Bapak: "merge". #91 di-merge (34c804f), lalu #92 (850a930); CI Tests hijau di head masing-masing (f85cfba, e7349b4).
 - **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web`. Cek: unggah gambar 📎 di note → file baru muncul di `uploads/` (nama hex 32 karakter), bukan di Nextcloud; lampiran lama tetap tampil. Masih terbuka: gambar note 401 di browser tanpa cookie; `backup.sh` belum mencadangkan `MEDIA_ROOT`; migrasi file lampiran lama dari Nextcloud (opsional).
+
+## [2026-10-23 10:30] - Claude
+- **Task:** Halaman Fokus — HUD "Task Created" untuk input Parkir, header ringkas HP/tablet, tombol baris task vertikal di HP.
+- **Changes:** `CenterHudToast`/`useCenterHudToast` bersama Dashboard; `PomoParkInput` memicu HUD; strip header ≤ 1024 px + `headerSummaryShort`; grid baris task ≤ 640 px; merge main; SW v467, app.css 365.
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, static/offline/pomologic.js, webapp.py, tests/offline/*.test.js, tests/test_version.py, temporary_files/e2e_focus_park_hud.py, e2e_focus_header_strip.py, e2e_focus_row_stack.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — draft PR.
