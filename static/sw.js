@@ -47,6 +47,7 @@ const STATIC = [
   "/static/offline/mediadirective.js",
   "/static/offline/mediaupload.js",
   "/static/offline/mediacard.js",
+  "/static/offline/noteattach.js",
   "/static/offline/safehtml.js",
   "/static/offline/habitlogic.js",
   "/static/offline/habitrepo.js",
