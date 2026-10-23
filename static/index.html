@@ -220,6 +220,13 @@
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
     window.__SW_VERSION = "taskflow-v466-istilah-sketsa-media";
+    // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
+    // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
+    try {
+      window.__TF_HAD_USER_AT_LOAD = !!(localStorage.getItem("tf_user_id") || localStorage.getItem("tf_token"));
+    } catch (_) {
+      window.__TF_HAD_USER_AT_LOAD = false;
+    }
     (function() {
       var t = localStorage.getItem('tf_theme') || 'light';
       document.documentElement.setAttribute('data-theme', t);
@@ -309,6 +316,8 @@
   <script src="/static/offline/wsmanage.js"></script>
   <script src="/static/offline/introgate.js"></script>
   <script src="/static/offline/accountbanner.js"></script>
+  <script src="/static/offline/whatsnew.js"></script>
+  <script src="/static/offline/appupdate.js"></script>
   <script src="/static/offline/emailadmin.js"></script>
   <script src="/static/offline/focuspage.js"></script>
   <script src="/static/offline/pomologic.js"></script>
@@ -25421,6 +25430,18 @@ function SettingsPage({
   const [extToken, setExtToken] = useState(null);
   const [extRevoking, setExtRevoking] = useState(false);
   const [downloading, setDownloading] = React.useState(false);
+  // Riwayat "Apa yang baru" (mode riwayat: 10 rilis terakhir, penanda tf_whatsnew_seen tidak disentuh).
+  const [whatsNewHistory, setWhatsNewHistory] = useState(null);
+  const [whatsNewLoading, setWhatsNewLoading] = useState(false);
+  const openWhatsNewHistory = async () => {
+    if (whatsNewLoading) return;
+    setWhatsNewLoading(true);
+    const entries = window.TF && window.TF.whatsnew ? await window.TF.whatsnew.load(window.fetch.bind(window)) : null;
+    const list = entries ? window.TF.whatsnew.history({ entries, current: window.__SW_VERSION }) : [];
+    setWhatsNewLoading(false);
+    if (list.length) setWhatsNewHistory(list);
+    else showToast("Catatan pembaruan belum tersedia", "info");
+  };
   const setL = (k, v) => setLoading(l => ({
     ...l,
     [k]: v
@@ -25935,7 +25956,9 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 14
     }
-  }, "Periksa apakah ada versi terbaru Alurik yang tersedia."), /*#__PURE__*/React.createElement("button", {
+  }, "Periksa apakah ada versi terbaru Alurik yang tersedia."), /*#__PURE__*/React.createElement("div", {
+    className: "whatsnew-settings-actions"
+  }, /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "btn btn-primary",
     onClick: () => {
@@ -25945,7 +25968,17 @@ function SettingsPage({
         showToast("Pemeriksaan pembaruan belum siap", "info");
       }
     }
-  }, "🔍 Cek Pembaruan")));
+  }, React.createElement(Icon, { name: "search", size: 15 }), "Cek Pembaruan"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "btn btn-secondary",
+    // aria-busy, bukan disabled: tombol nonaktif kehilangan fokus, jadi fokus tidak bisa kembali ke sini saat modal ditutup.
+    "aria-busy": whatsNewLoading ? "true" : undefined,
+    onClick: openWhatsNewHistory
+  }, React.createElement(Icon, { name: "sparkles", size: 15 }), "Apa yang baru"))), whatsNewHistory && /*#__PURE__*/React.createElement(WhatsNewModal, {
+    entries: whatsNewHistory,
+    hiddenCount: 0,
+    onClose: () => setWhatsNewHistory(null)
+  }));
 }
 
 // ── Notes / Scratchpad ────────────────────────────────────────
@@ -41060,7 +41093,12 @@ const _lastSavedDrawingSvg = {};
 const _drawingSaveInFlight = {};
 
 function UpdateNotificationBanner({ onClose }) {
+  // applyAppUpdate selalu berakhir dengan muat ulang (controllerchange, atau pengaman 5 dtk), jadi tombol tetap
+  // "Memperbarui…" sampai halaman berganti.
+  const [updating, setUpdating] = useState(false);
   const handleUpdate = () => {
+    if (updating) return;
+    setUpdating(true);
     if (typeof window.applyAppUpdate === "function") {
       window.applyAppUpdate();
     } else {
@@ -41099,8 +41137,9 @@ function UpdateNotificationBanner({ onClose }) {
       fontWeight: 500
     }
   }, /*#__PURE__*/React.createElement("span", {
-    style: { fontSize: 20, flexShrink: 0 }
-  }, "🚀"), /*#__PURE__*/React.createElement("span", null, "Pembaruan Alurik tersedia! Muat ulang untuk mendapatkan fitur-fitur terbaru.")), /*#__PURE__*/React.createElement("div", {
+    "aria-hidden": "true",
+    style: { display: "inline-flex", flexShrink: 0, color: "var(--accent)" }
+  }, React.createElement(Icon, { name: "sparkles", size: 20 })), /*#__PURE__*/React.createElement("span", null, "Pembaruan Alurik tersedia! Muat ulang untuk mendapatkan fitur-fitur terbaru.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       alignItems: "center",
@@ -41115,13 +41154,15 @@ function UpdateNotificationBanner({ onClose }) {
       fontSize: 13,
       fontWeight: 600,
       borderRadius: 8,
-      cursor: "pointer",
+      cursor: updating ? "default" : "pointer",
+      opacity: updating ? 0.75 : 1,
       display: "inline-flex",
       alignItems: "center",
       gap: 6
     },
+    disabled: updating,
     onClick: handleUpdate
-  }, "🔄 Perbarui Sekarang"), /*#__PURE__*/React.createElement("button", {
+  }, React.createElement(Icon, { name: "refresh", size: 14 }), updating ? "Memperbarui…" : "Perbarui Sekarang"), /*#__PURE__*/React.createElement("button", {
     type: "button",
     "aria-label": "Tutup",
     style: {
@@ -41136,6 +41177,137 @@ function UpdateNotificationBanner({ onClose }) {
     },
     onClick: onClose
   }, "✕")));
+}
+
+// Modal "Apa yang baru" (spec apa-yang-baru §3.6). entries = entri TF.whatsnew ternormalkan; poinnya teks polos,
+// dirender sebagai teks React. Tutup lewat "Mengerti", ✕, klik latar, atau Esc — semuanya memanggil onClose.
+function WhatsNewModal({ entries, hiddenCount, onClose }) {
+  const h = React.createElement;
+  const okRef = useRef(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const prevFocus = document.activeElement;
+    if (okRef.current) okRef.current.focus();
+    const onKey = e => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCloseRef.current();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      // Kembalikan fokus ke pemicu (mis. tombol "Apa yang baru" di Pengaturan) bila masih ada di halaman.
+      if (prevFocus && prevFocus !== document.body && document.contains(prevFocus) && typeof prevFocus.focus === "function") {
+        prevFocus.focus();
+      }
+    };
+  }, []);
+  const releaseDate = window.TF && window.TF.whatsnew ? window.TF.whatsnew.formatDate : () => "";
+  const group = (kind, label, icon, items) => items && items.length ? h("div", {
+    className: "whatsnew-group whatsnew-group-" + kind
+  }, h("h4", { className: "whatsnew-group-title" }, icon, label),
+    h("ul", null, items.map((text, i) => h("li", { key: i }, text)))) : null;
+  return h("div", {
+    className: "modal-overlay whatsnew-overlay",
+    onClick: e => { if (e.target === e.currentTarget) onClose(); }
+  }, h("div", {
+    className: "modal-content whatsnew-modal",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-labelledby": "whatsnew-title"
+  }, h("div", { className: "whatsnew-head" },
+    h("h2", { id: "whatsnew-title", className: "whatsnew-title" }, "Apa yang baru di Alurik"),
+    h("button", { type: "button", className: "whatsnew-close", "aria-label": "Tutup", onClick: onClose },
+      h(Icon, { name: "x", size: 18 }))),
+  h("div", { className: "whatsnew-list" },
+    (entries || []).map(e => {
+      const date = releaseDate(e.date);
+      return h("section", { key: e.version, className: "whatsnew-release" },
+        h("div", { className: "whatsnew-release-head" },
+          e.title ? h("h3", { className: "whatsnew-release-title" }, e.title) : null,
+          date ? h("span", { className: "whatsnew-date" }, date) : null),
+        group("new", "Baru", h(Icon, { name: "sparkles", size: 14 }), e.new),
+        group("fixed", "Diperbaiki", h(Icon, { name: "wrench", size: 14 }), e.fixed));
+    }),
+    hiddenCount > 0 ? h("p", { className: "whatsnew-more" }, "dan " + hiddenCount + " pembaruan lain sebelumnya") : null),
+  h("div", { className: "whatsnew-footer" },
+    h("button", { type: "button", ref: okRef, className: "btn btn-primary whatsnew-ok", onClick: onClose }, "Mengerti"))));
+}
+
+// Alur modal "Apa yang baru" setelah pembaruan (spec apa-yang-baru §3.5): sekali per pemuatan halaman, dimulai saat
+// user terisi. Penanda tf_whatsnew_seen hanya ditulis lewat TF.whatsnew.writeSeen dan hanya bila shouldMarkSeen.
+let _whatsNewStarted = false;
+
+function useWhatsNewOnLoad(user) {
+  const [modal, setModal] = useState(null);
+  const hasUser = !!user;
+  useEffect(() => {
+    if (!hasUser) {
+      // Logout saat modal terbuka: jangan muncul lagi untuk akun berikutnya di tab ini (penanda tidak ditulis).
+      setModal(null);
+      return;
+    }
+    if (_whatsNewStarted || !window.TF || !window.TF.whatsnew) return;
+    _whatsNewStarted = true;
+    const current = window.__SW_VERSION;
+    let alive = true;
+    let timer = null;
+    // Tur halaman (driver.js) sedang aktif → tunda, cek ulang tiap 1 dtk.
+    const whenNoTour = fn => {
+      timer = null;
+      if (!alive) return;
+      if (document.body.classList.contains("driver-active")) {
+        timer = setTimeout(() => whenNoTour(fn), 1000);
+        return;
+      }
+      fn();
+    };
+    whenNoTour(async () => {
+      const entries = await window.TF.whatsnew.load(window.fetch.bind(window));
+      if (!alive || !entries) return; // gagal muat → penanda tidak diubah
+      const seen = window.TF.whatsnew.readSeen(localStorage);
+      const picked = window.TF.whatsnew.pickUnseen({
+        entries,
+        current,
+        seen,
+        hadUser: !!window.__TF_HAD_USER_AT_LOAD
+      });
+      if (!picked.entries.length) {
+        if (window.TF.whatsnew.shouldMarkSeen(seen, current)) window.TF.whatsnew.writeSeen(localStorage, current);
+        return;
+      }
+      // Tur bisa mulai selama memuat (startTour menunda 400–600 ms) → cek lagi sebelum tampil.
+      whenNoTour(() => setModal(picked));
+    });
+    return () => {
+      alive = false;
+      if (timer) clearTimeout(timer);
+    };
+  }, [hasUser]);
+  const open = !!modal;
+  // Tab lain sudah menutup modal untuk versi ini (penanda ≥ current) → tutup juga di sini.
+  useEffect(() => {
+    if (!open) return;
+    const wn = window.TF.whatsnew;
+    const cur = wn.versionNumber(window.__SW_VERSION);
+    const onStorage = e => {
+      if (e.key !== wn.SEEN_KEY) return;
+      const n = wn.versionNumber(e.newValue);
+      if (n !== null && cur !== null && n >= cur) setModal(null);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [open]);
+  const close = useCallback(() => {
+    setModal(null);
+    const wn = window.TF && window.TF.whatsnew;
+    if (!wn) return;
+    const current = window.__SW_VERSION;
+    if (wn.shouldMarkSeen(wn.readSeen(localStorage), current)) wn.writeSeen(localStorage, current);
+  }, []);
+  return { modal, close };
 }
 
 // Tandai selesai optimistik di state React: POST /done dilayani router lokal (IndexedDB) dalam ±0,1 dtk,
@@ -41174,6 +41346,9 @@ function App() {
     userRef.current = user;
     if (user && user.id != null) lastUserIdRef.current = user.id;
   }, [user]);
+  // Modal "Apa yang baru" setelah pembaruan. Hook dipanggil sebelum return bersyarat mana pun (halaman login);
+  // modalnya hanya dirender di cabang sudah login.
+  const whatsNew = useWhatsNewOnLoad(user);
   const [theme, setTheme] = useState(() => localStorage.getItem('tf_theme') || 'light');
   const toggleTheme = useCallback(() => {
     setTheme(prev => {
@@ -43619,6 +43794,10 @@ function App() {
       setHasAppUpdate(false);
       window.__APP_UPDATE_AVAILABLE = false;
     }
+  }), whatsNew.modal && /*#__PURE__*/React.createElement(WhatsNewModal, {
+    entries: whatsNew.modal.entries,
+    hiddenCount: whatsNew.modal.hiddenCount,
+    onClose: whatsNew.close
   }));
 }
 
@@ -43762,7 +43941,8 @@ class AppErrorBoundary extends React.Component {
 ReactDOM.render(/*#__PURE__*/React.createElement(AppErrorBoundary, null, /*#__PURE__*/React.createElement(App, null)), document.getElementById("root"));
 </script>
   <script>
-    // Service Worker & App Update Detection
+    // Service Worker & App Update Detection — hanya pemasangan; logika di static/offline/appupdate.js
+    // (TF.appupdate, spec docs/superpowers/specs/2026-10-23-apa-yang-baru-design.md §3.1).
     window.__APP_VERSION = "4.0.0";
     // window.__SW_VERSION di-set di skrip awal <body> (sebelum ReactDOM.render).
     window.__SW_REGISTRATION = null;
@@ -43773,113 +43953,66 @@ ReactDOM.render(/*#__PURE__*/React.createElement(AppErrorBoundary, null, /*#__PU
       window.dispatchEvent(new CustomEvent("appupdateavailable"));
     }
 
-    window.applyAppUpdate = function() {
-      const reg = window.__SW_REGISTRATION;
-      if (reg && reg.waiting) {
-        reg.waiting.postMessage({ type: "SKIP_WAITING" });
-      } else if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: "SKIP_WAITING" });
-        setTimeout(() => window.location.reload(), 300);
-      } else {
-        window.location.reload();
-      }
-    };
+    (function () {
+      // Tanpa modul (gagal dimuat), SW tetap didaftarkan dan controllerchange tetap memuat ulang,
+      // sehingga aplikasi tidak pernah terkunci di versi lama.
+      const updater = window.TF && window.TF.appupdate
+        ? window.TF.appupdate.createAppUpdater({
+            sw: navigator.serviceWorker || null,
+            getRegistration: () => window.__SW_REGISTRATION,
+            fetch: window.fetch.bind(window),
+            reload: () => window.location.reload(),
+            setTimeout: window.setTimeout.bind(window),
+            toast: (message, type) => {
+              const f = window.showToast || window.__showToast;
+              if (typeof f === "function") f(message, type);
+            },
+            pageVersion: window.__SW_VERSION,
+            onReady: notifyAppUpdateAvailable,
+          })
+        : null;
 
-    window.checkForAppUpdate = async function(options) {
-      const isManual = Boolean(options && options.manual);
-      const toastFn = window.showToast || window.__showToast;
-      if (isManual && typeof toastFn === "function") {
-        toastFn("Mengecek pembaruan...", "info");
-      }
-
-      let updateFound = false;
-      const reg = window.__SW_REGISTRATION;
-
-      try {
-        if (reg) {
-          await reg.update().catch(err => console.warn("SW update check failed:", err));
-          if (reg.waiting && navigator.serviceWorker.controller) {
-            updateFound = true;
-          }
-        }
-
-        try {
-          const res = await fetch("/api/version?t=" + Date.now(), {
-            cache: "no-store",
-            headers: { "Cache-Control": "no-cache" }
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.sw_version && data.sw_version !== window.__SW_VERSION) {
-              updateFound = true;
-            }
-          }
-        } catch (e) {
-          console.warn("Fetch /api/version failed:", e);
-        }
-
-        if (updateFound || (reg && reg.waiting && navigator.serviceWorker.controller)) {
-          notifyAppUpdateAvailable();
-          if (isManual && typeof toastFn === "function") {
-            toastFn("Pembaruan tersedia! Silakan muat ulang.", "info");
-          }
-        } else if (isManual && typeof toastFn === "function") {
-          toastFn("Aplikasi sudah dalam versi terbaru", "success");
-        }
-      } catch (err) {
-        console.error("Error checking for update:", err);
-        if (isManual && typeof toastFn === "function") {
-          toastFn("Gagal memeriksa pembaruan", "error");
-        }
-      }
-    };
-
-    if ("serviceWorker" in navigator) {
-      let refreshing = false;
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
-        if (!refreshing) {
-          refreshing = true;
-          window.location.reload();
-        }
-      });
-
-      const trackInstall = (reg) => {
-        window.__SW_REGISTRATION = reg;
-        if (reg.waiting && navigator.serviceWorker.controller) {
-          notifyAppUpdateAvailable();
-        }
-        reg.addEventListener("updatefound", () => {
-          const newWorker = reg.installing;
-          if (!newWorker) return;
-          newWorker.addEventListener("statechange", () => {
-            if (newWorker.state === "installed" && navigator.serviceWorker.controller && reg.waiting) {
-              notifyAppUpdateAvailable();
-            }
-          });
-        });
+      window.applyAppUpdate = function() {
+        if (updater) updater.apply();
+        else window.location.reload();
       };
 
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/sw.js", { scope: "/" })
-          .then(reg => {
-            trackInstall(reg);
-            reg.update().catch(() => {});
-          })
-          .catch(err => console.warn("SW register failed:", err));
-      });
+      window.checkForAppUpdate = function(options) {
+        return updater ? updater.check(options) : Promise.resolve();
+      };
 
-      // Visibility change: saat tab kembali aktif
-      document.addEventListener("visibilitychange", () => {
-        if (document.visibilityState === "visible") {
+      if ("serviceWorker" in navigator) {
+        let refreshing = false;
+        navigator.serviceWorker.addEventListener("controllerchange", () => {
+          if (!refreshing) {
+            refreshing = true;
+            window.location.reload();
+          }
+        });
+
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("/sw.js", { scope: "/" })
+            .then(reg => {
+              window.__SW_REGISTRATION = reg;
+              if (updater) updater.track(reg);
+              reg.update().catch(() => {});
+            })
+            .catch(err => console.warn("SW register failed:", err));
+        });
+
+        // Visibility change: saat tab kembali aktif
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "visible") {
+            window.checkForAppUpdate();
+          }
+        });
+
+        // Auto check setiap 30 menit (1800000 ms)
+        setInterval(() => {
           window.checkForAppUpdate();
-        }
-      });
-
-      // Auto check setiap 30 menit (1800000 ms)
-      setInterval(() => {
-        window.checkForAppUpdate();
-      }, 1800000);
-    }
+        }, 1800000);
+      }
+    })();
   </script>
 
 </body>

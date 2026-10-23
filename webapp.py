@@ -4931,21 +4931,54 @@ async def serve_sw():
     )
 
 
+_SW_CACHE_RE = re.compile(r'^const CACHE = "([^"]+)";', re.M)
+_sw_version_memo: dict = {"key": None, "value": None}
+
+
+def _sw_version() -> str:
+    """Versi SW = nilai `const CACHE` di static/sw.js, dibaca dari disk (bukan literal
+    di sini) agar selalu sama dengan file yang disajikan /sw.js, tanpa restart service.
+    Hasil di-cache per (path, mtime_ns, size) supaya tiap request cukup satu stat()."""
+    path = STATIC_DIR / "sw.js"
+    try:
+        st = path.stat()
+        key = (str(path), st.st_mtime_ns, st.st_size)
+        if _sw_version_memo["key"] == key:
+            return _sw_version_memo["value"]
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as e:
+        raise RuntimeError(f"sw.js tidak terbaca: {e}") from e
+    m = _SW_CACHE_RE.search(text)
+    if not m:
+        raise RuntimeError('baris `const CACHE = "...";` tidak ditemukan di sw.js')
+    _sw_version_memo["key"], _sw_version_memo["value"] = key, m.group(1)
+    return m.group(1)
+
+
 @app.get("/api/version")
 async def get_app_version():
-    sw_cache = "taskflow-v466-istilah-sketsa-media"
+    no_cache = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+    try:
+        version = _sw_version()
+    except RuntimeError:
+        logger.exception("/api/version: versi SW tidak dapat dibaca dari static/sw.js")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "SW version unavailable"},
+            headers=no_cache,
+        )
     return JSONResponse(
         content={
             "app_version": "4.0.0",
-            "sw_version": sw_cache,
-            "cache_name": sw_cache,
+            "sw_version": version,
+            "cache_name": version,
             "timestamp": int(datetime.utcnow().timestamp()),
         },
-        headers={
-            "Cache-Control": "no-cache, no-store, must-revalidate",
-            "Pragma": "no-cache",
-            "Expires": "0",
-        },
+        headers=no_cache,
     )
 
 

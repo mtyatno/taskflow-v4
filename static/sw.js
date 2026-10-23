@@ -36,6 +36,8 @@ const STATIC = [
   "/static/offline/wsmanage.js",
   "/static/offline/introgate.js",
   "/static/offline/accountbanner.js",
+  "/static/offline/whatsnew.js",
+  "/static/offline/appupdate.js",
   "/static/offline/emailadmin.js",
   "/static/offline/focuspage.js",
   "/static/offline/pomologic.js",
@@ -96,6 +98,7 @@ const STATIC = [
   "/static/vendor/katex/katex.min.js",
   "/static/vendor/katex/katex.min.css",
   "/config.js",
+  "/static/whatsnew.json",
 ];
 
 // Aset opsional: boleh diambil belakangan saat dipakai, jadi kegagalannya TIDAK menggagalkan install.

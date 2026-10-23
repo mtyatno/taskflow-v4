@@ -13,3 +13,6 @@
 2. **BEFORE COMPLETING YOUR TURN / SESSION:**
    - Update [.agents/CURRENT_STATE.md](file:///.agents/CURRENT_STATE.md) with updated status and handover notes.
    - Append your session summary to [.agents/SESSION_LOG.md](file:///.agents/SESSION_LOG.md).
+
+3. **FRONTEND RELEASE CHECKLIST (SW VERSION BUMP):**
+   - Setiap kenaikan versi SW wajib mengikuti *Checklist rilis frontend* di `.agents/PROTOCOL.md`, termasuk entri `static/whatsnew.json`. Isinya tampil ke pengguna sebagai modal 'Apa yang baru' setelah mereka memperbarui Alurik.

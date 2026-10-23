@@ -247,7 +247,6 @@ test("MilkdownEditor: wiring dismiss slash menu", async (t) => {
 
 test("cache bust v452", () => {
   assert.match(swJs, /^const CACHE = "taskflow-v466-istilah-sketsa-media";/m);
-  assert.match(webappPy, /sw_cache = "taskflow-v466-istilah-sketsa-media"/);
   assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v466-istilah-sketsa-media";/);
   assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v466-istilah-sketsa-media"/);
 });

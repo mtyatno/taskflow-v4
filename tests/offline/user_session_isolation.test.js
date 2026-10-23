@@ -360,5 +360,4 @@ test("7. Service Worker cache version is taskflow-v466-istilah-sketsa-media", ()
   assert.match(sw, /^const CACHE = "taskflow-v466-istilah-sketsa-media";/m, "sw.js CACHE must be v401");
   assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v466-istilah-sketsa-media";/, "index.html fallback SW version must be v401");
   assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v466-istilah-sketsa-media"/, "index.html About modal SW version fallback must be v401");
-  assert.match(webapp, /sw_cache = "taskflow-v466-istilah-sketsa-media"/, "webapp.py sw_cache must be v401");
 });

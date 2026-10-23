@@ -71,6 +71,5 @@ test("cache bust v450 + app.css?v=364", () => {
   assert.match(swJs, /^const CACHE = "taskflow-v466-istilah-sketsa-media";/m);
   assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v466-istilah-sketsa-media";/);
   assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v466-istilah-sketsa-media"/);
-  assert.match(py, /sw_cache = "taskflow-v466-istilah-sketsa-media"/);
   assert.match(indexHtml, /app\.css\?v=364/);
 });
