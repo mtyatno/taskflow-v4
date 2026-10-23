@@ -4088,3 +4088,9 @@
 - **Changes:** checklist `.agents/PROTOCOL.md` §4 (rujukan eksplisit ke spec §3.3, jangan `sed` massal ke `whatsnew.json`, perintah tes yang tepat); `tests/test_whatsnew.py` regex versi ketat (fullmatch, `[0-9]`) + 2 baris tolak + pesan assert jelas; `whatsnew_ui` masuk `tests/test_app_update_node.py`; merge `main` (konflik hanya di CURRENT_STATE/SESSION_LOG, keduanya dipertahankan); SW tetap v466, `app.css?v=364`.
 - **Files Touch:** .agents/PROTOCOL.md, tests/test_whatsnew.py, tests/test_app_update_node.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — commit lokal, belum push/PR.
+
+## [2026-10-23 08:55] - Claude
+- **Task:** merge dan deploy banner pembaruan + modal "Apa yang baru" (#93).
+- **Changes:** PR #93 dibuat; CI Tests sempat macet di langkah `Install ffmpeg` (apt) → dibatalkan lalu dijalankan ulang → hijau; `main` tidak bergerak sejak eff037b; #93 di-merge (0e4965c); Deploy Taskflow V4 sukses; `/sw.js` live = v466 (`whatsnew.json`, `appupdate.js` di STATIC), `/api/version` masih v465 sampai restart. CURRENT_STATE: status di-merge, catatan PR #94 (v466 bentrok) dan #95 (v467) wajib menambah entri `whatsnew.json`.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — tinggal restart `taskflow-web` di server (sekali).
