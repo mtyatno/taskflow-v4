@@ -41,9 +41,12 @@ test("4. Service Worker: /api/version route is NETWORK-ONLY", () => {
 
 test("5. Frontend: UpdateNotificationBanner component exists with required elements", () => {
   const src = fnSource("UpdateNotificationBanner");
-  assert.match(src, /🚀/, "harus memiliki ikon 🚀");
+  assert.doesNotMatch(src, /🚀|🔄/, "emoji diganti komponen Icon");
+  assert.match(src, /React\.createElement\(Icon, \{ name: "sparkles"/, "harus memiliki ikon sparkles di depan pesan");
   assert.match(src, /Pembaruan Alurik tersedia! Muat ulang untuk mendapatkan fitur-fitur terbaru\./, "harus menampilkan pesan pembaruan");
-  assert.match(src, /🔄 Perbarui Sekarang/, "harus memiliki tombol Perbarui Sekarang");
+  assert.match(src, /React\.createElement\(Icon, \{ name: "refresh"/, "tombol pembaruan memakai ikon refresh");
+  assert.match(src, /updating \? "Memperbarui…" : "Perbarui Sekarang"/, "harus memiliki tombol Perbarui Sekarang → Memperbarui…");
+  assert.match(src, /disabled: updating/, "tombol nonaktif selama memperbarui");
   assert.match(src, /✕/, "harus memiliki tombol tutup ✕");
   assert.match(src, /handleUpdate/, "harus memanggil update handler");
   assert.match(src, /window\.applyAppUpdate/, "harus mendukung applyAppUpdate");
@@ -70,12 +73,14 @@ test("6. Frontend: Service Worker registration and update detection logic exists
   assert.match(appUpdateJs, /\/api\/version\?t=/);
 });
 
-test("7. Frontend: SettingsPage displays app version and has Cek Pembaruan button", () => {
+test("7. Frontend: SettingsPage displays app version, Cek Pembaruan and Apa yang baru buttons", () => {
   const src = fnSource("SettingsPage");
   assert.match(src, /Pembaruan Aplikasi/);
   assert.match(src, /window\.__APP_VERSION/);
   assert.match(src, /window\.__SW_VERSION/);
-  assert.match(src, /🔍 Cek Pembaruan/);
+  assert.doesNotMatch(src, /🔍/, "emoji diganti komponen Icon");
+  assert.match(src, /React\.createElement\(Icon, \{ name: "search", size: 15 \}\), "Cek Pembaruan"/);
+  assert.match(src, /React\.createElement\(Icon, \{ name: "sparkles", size: 15 \}\), "Apa yang baru"/);
   assert.match(src, /window\.checkForAppUpdate\(\{ manual: true \}\)/);
 });
 

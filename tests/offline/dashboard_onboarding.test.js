@@ -13,7 +13,7 @@ test("Service Worker and stylesheet versions are synchronized for v396", () => {
 
   assert.match(sw, /taskflow-v466-apa-yang-baru/);
   assert.match(html, /taskflow-v466-apa-yang-baru/);
-  assert.match(html, /app\.css\?v=363/);
+  assert.match(html, /app\.css\?v=364/);
 });
 
 test("Dashboard contains conditional rendering logic for new users (hasTasks)", () => {
