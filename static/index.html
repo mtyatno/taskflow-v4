@@ -6610,8 +6610,9 @@ function TaskFormModal({
       setCreatingInlineNoteTask(false);
     }
   };
-  // opts.source === 'picker': gambar dari tombol/menu "Media" (bukan tempel) — toast unggah, dan data URL
-  // dibatasi MEDIA_INLINE_IMAGE_MAX_BYTES. Tempel (tanpa opts) tidak berubah.
+  // opts.source === 'picker': gambar dari tombol/menu "Media" (bukan tempel) — toast unggah, offline langsung
+  // data URL, galat server (non-ok) ditampilkan tanpa fallback, dan data URL dibatasi MEDIA_INLINE_IMAGE_MAX_BYTES.
+  // Tempel (tanpa opts) tidak berubah.
   const handleNoteImagePaste = async (file, opts) => {
     var editor = noteMilkdownRef.current;
     if (!editor) return;
@@ -6629,9 +6630,19 @@ function TaskFormModal({
         } catch (_) {}
       });
     };
-    // Try server upload first
+    // Gambar pilihan offline: langsung data URL (batas 1 MB) — tanpa membuat note / unggah / toast unggah.
+    var tryServer = !(fromPicker && typeof navigator !== 'undefined' && navigator.onLine === false);
+    // Gambar pilihan ditolak server (non-ok): toast `detail` galat dan berhenti; data URL hanya bila jaringan gagal.
+    var failPicked = async function(res) {
+      var d = null;
+      try { d = await res.json(); } catch (_) {}
+      say(d && typeof d.detail === 'string' && d.detail ? d.detail : 'Unggah gambar gagal', 'error');
+    };
+    // Try server upload first. Note server dibuat dulu untuk id lampiran (tempel: hanya bila sudah ada isi;
+    // pilihan Media: juga saat isi masih kosong). handleSubmit lalu MEMPERBARUI note ini (noteSavedIdRef),
+    // tidak membuat note kedua.
     var noteId = noteSavedIdRef.current;
-    if (!noteId && noteForm.content.trim()) {
+    if (tryServer && !noteId && (noteForm.content.trim() || fromPicker)) {
       try {
         var autoTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(function(t) { return t.slice(1).toLowerCase().trim(); }))].filter(Boolean);
         var noteTaskIds = extractTaskIdsFromContent(noteForm.content);
@@ -6643,11 +6654,14 @@ function TaskFormModal({
           noteId = created.id;
           noteSavedIdRef.current = noteId;
           window.dispatchEvent(new CustomEvent('noteSaved'));
+        } else if (fromPicker) {
+          await failPicked(createRes);
+          return;
         }
       } catch (_) {}
     }
     // Only try server upload for real numeric IDs (not offline UUIDs)
-    if (noteId && /^\d+$/.test(String(noteId))) {
+    if (tryServer && noteId && /^\d+$/.test(String(noteId))) {
       try {
         var formData = new FormData();
         formData.append('file', file);
@@ -6658,6 +6672,10 @@ function TaskFormModal({
         if (res.ok) {
           var att = await res.json();
           insertNoteMd('![' + (att.original_name || 'image') + '](/api/scratchpad/attachments/' + att.id + '/view)');
+          return;
+        }
+        if (fromPicker) {
+          await failPicked(res);
           return;
         }
       } catch (_) {}
@@ -6849,14 +6867,33 @@ function TaskFormModal({
       try {
         const autoTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(t => t.slice(1).toLowerCase().trim()))].filter(Boolean);
         const noteTaskIds = extractTaskIdsFromContent(noteForm.content);
-        await api.post("/api/scratchpad", {
+        const noteBody = {
           title: noteForm.title,
           content: noteForm.content,
           tags: autoTags,
           linked_task_ids: noteTaskIds,
           linked_task_id: noteTaskIds[0] || null,
           meta_json: JSON.stringify({ paper_mode: notePaperConfig })
-        });
+        };
+        // Gambar yang disisipkan sudah membuat note di server (handleNoteImagePaste, demi id lampiran):
+        // perbarui note ITU lewat jalur yang sama (fetch langsung), bukan membuat note kedua lewat router lokal.
+        // Note server itu belum ada di IndexedDB → sync pull mengadopsinya (cid baru) dan mengirim noteSaved.
+        // PUT gagal (jaringan / ditolak) → simpan lokal seperti biasa agar isi tidak hilang.
+        const serverNoteId = noteSavedIdRef.current;
+        let updatedServerNote = false;
+        if (serverNoteId && /^\d+$/.test(String(serverNoteId))) {
+          try {
+            const hdrs = { 'Content-Type': 'application/json' };
+            if (typeof __token !== 'undefined' && __token) hdrs['Authorization'] = 'Bearer ' + __token;
+            const putRes = await fetch(apiUrl('/api/scratchpad/' + serverNoteId), { method: 'PUT', headers: hdrs, body: JSON.stringify(noteBody) });
+            updatedServerNote = !!putRes.ok;
+          } catch (_) {}
+        }
+        if (updatedServerNote) {
+          if (typeof window.__syncNow === 'function') Promise.resolve().then(() => window.__syncNow()).catch(() => {});
+        } else {
+          await api.post("/api/scratchpad", noteBody);
+        }
         window.dispatchEvent(new CustomEvent("noteSaved"));
         onSave();
       } catch (err) {
@@ -28324,9 +28361,14 @@ onPaperConfigChange
     },
     onChange: handleAttachFile
   }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
     onMouseDown: e => {
       e.preventDefault();
       if (noteId) fileInputRef.current?.click();
+    },
+    onClick: e => {
+      // aktivasi keyboard (Enter/Spasi) tidak lewat mousedown — sama seperti tombol Media
+      if (e.detail === 0 && noteId) fileInputRef.current?.click();
     },
     title: noteId ? "Lampirkan file (PDF, dokumen, spreadsheet)" : "Simpan note dulu",
     "aria-label": "File",
@@ -28483,7 +28525,8 @@ function MilkdownEditor({
   mediaNoteOwnerId = null,
   onCommentSelection = null,
   onPickMedia = null,
-  onPickFile = null
+  onPickFile = null,
+  pickMediaAV = false
 }) {
   const containerRef = React.useRef(null);
   const instanceRef = React.useRef(null);
@@ -28789,8 +28832,8 @@ function MilkdownEditor({
         { glyph: 'sDivider', label: 'Divider', type: 'hr', title: 'Divider / Garis pemisah' },
         { glyph: 'pPalette', label: 'Sketsa', type: 'draw', title: 'Sketsa — coretan bebas, diagram, papan tulis' },
         { glyph: 'nPin', label: 'Task', type: 'task', title: 'Tugas / Task (/task, /tasks)' },
-        // Media/File hanya bila host memberi pemilihnya (prop saat mount)
-        ...(onPickMedia ? [{ glyph: 'fImage', label: 'Media', type: 'media', title: 'Media — gambar, audio, atau video' }] : []),
+        // Media/File hanya bila host memberi pemilihnya (prop saat mount); pickMediaAV = host juga menerima audio/video
+        ...(onPickMedia ? [{ glyph: 'fImage', label: 'Media', type: 'media', title: pickMediaAV ? 'Media — gambar, audio, atau video' : 'Media — gambar' }] : []),
         ...(onPickFile ? [{ glyph: 'fFile', label: 'File', type: 'file', title: 'File — PDF/dokumen sebagai lampiran' }] : [])
       ] },
       { label: 'Tautan', items: [
@@ -28877,7 +28920,7 @@ function MilkdownEditor({
         const vh = vv ? vv.height : window.innerHeight;
         const floatingEl = elements && elements.floating;
         if (floatingEl && floatingEl.style) {
-          const cssMax = Math.min(440, Math.floor(window.innerHeight * 0.7));
+          const cssMax = Math.min(480, Math.floor(window.innerHeight * 0.7));
           const avail = Math.floor(vh - 16);
           const want = avail >= cssMax ? '' : Math.max(120, avail) + 'px';
           if (floatingEl.style.maxHeight !== want) {
@@ -32405,21 +32448,31 @@ function NoteModal({
       } catch (_) {}
     });
   };
-  // opts.source === 'picker': gambar dari tombol/menu "Media" (bukan tempel) — toast unggah, dan data URL
-  // dibatasi MEDIA_INLINE_IMAGE_MAX_BYTES. Tempel (tanpa opts) tidak berubah.
+  // opts.source === 'picker': gambar dari tombol/menu "Media" (bukan tempel):
+  // - offline → langsung data URL (tanpa mencoba unggah / toast "Mengunggah gambar…");
+  // - online + note baru tersimpan lokal (cid) → ensureServerNoteId (dorong outbox) seperti audio/video;
+  // - server menolak (non-ok) → toast `detail` galat, TIDAK disisipkan; data URL hanya bila jaringan gagal;
+  // - data URL dibatasi MEDIA_INLINE_IMAGE_MAX_BYTES.
+  // Tempel (tanpa opts) tidak berubah.
   const handleImagePaste = async (file, opts) => {
     const fromPicker = !!(opts && opts.source === 'picker');
     const say = (m, t) => (typeof showToast === 'function' ? showToast(m, t) : window.__showToast?.(m, t));
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
     // Try server upload first (smaller content, permanent storage)
     // Only if note has a real server ID (numeric), not offline UUID
-    if (savedNoteId && /^\d+$/.test(String(savedNoteId))) {
+    let uploadId = savedNoteId && /^\d+$/.test(String(savedNoteId)) ? savedNoteId : null;
+    if (fromPicker && offline) uploadId = null;
+    else if (fromPicker && uploadId == null && savedNoteId) {
+      try { uploadId = await ensureServerNoteId(savedNoteId); } catch (_) { uploadId = null; }
+    }
+    if (uploadId) {
       try {
         const formData = new FormData();
         formData.append('file', file);
         const headers = {};
         if (typeof __token !== 'undefined' && __token) headers['Authorization'] = 'Bearer ' + __token;
         if (fromPicker) say('Mengunggah gambar…', 'info');
-        const res = await fetch(apiUrl('/api/scratchpad/' + savedNoteId + '/attachments'), {
+        const res = await fetch(apiUrl('/api/scratchpad/' + uploadId + '/attachments'), {
           method: 'POST', headers, body: formData
         });
         if (res.ok) {
@@ -32428,6 +32481,12 @@ function NoteModal({
           const alt = att.original_name || 'image';
           insertImageMd('![' + alt + '](' + url + ')');
           setAttachments(prev => prev.concat([att]));
+          return;
+        }
+        if (fromPicker) {
+          let d = null;
+          try { d = await res.json(); } catch (_) {}
+          say(d && typeof d.detail === 'string' && d.detail ? d.detail : 'Unggah gambar gagal', 'error');
           return;
         }
       } catch (_) {
@@ -33859,7 +33918,8 @@ function NoteModal({
     onInsertDrawing: handleOpenInsertDrawing,
     onInsertTask: openTaskDropdown,
     onPickMedia: () => notePickRef.current?.media?.(),
-    onPickFile: () => notePickRef.current?.file?.()
+    onPickFile: () => notePickRef.current?.file?.(),
+    pickMediaAV: true
   }), paperConfig?.enabled && /*#__PURE__*/React.createElement(PaperPageGuides, {
     rootRef: paperWrapRef,
     paperConfig: paperConfig

@@ -22,7 +22,7 @@ function groupsSource() {
 // Item Media/File bersyarat pada prop host saat mount (onPickMedia/onPickFile); di sini keduanya ada.
 function evalGroups() {
   const src = groupsSource().replace("const SLASH_MENU_GROUPS = ", "return ");
-  return new Function("onPickMedia", "onPickFile", src)(() => {}, () => {});
+  return new Function("onPickMedia", "onPickFile", "pickMediaAV", src)(() => {}, () => {}, true);
 }
 
 // [ikon teks (heading) | glyph VIEW_GLYPHS, label, tipe, payload]
@@ -87,7 +87,8 @@ test("slash menu: ikon glyph gaya Alurik", async (t) => {
       }
     }
     assert.equal(/\p{Extended_Pictographic}/u.test(groupsSource()), false, "tanpa emoji di SLASH_MENU_GROUPS");
-    assert.equal(/[•☑⊞—▶]/.test(groupsSource().replace(/title: '[^']*'/g, "")), false, "tanpa simbol ikon lama");
+    // title boleh memuat "—" (termasuk title Media bersyarat `pickMediaAV ? '…' : '…'`); yang dicek ikon/label saja
+    assert.equal(/[•☑⊞—▶]/.test(groupsSource().replace(/title: (?:\w+ \? )?'[^']*'(?: : '[^']*')?/g, "")), false, "tanpa simbol ikon lama");
   });
   await t.test("makeSlashItem membuat <svg> dari VIEW_GLYPHS (atribut sama dengan ViewGlyph)", () => {
     const start = indexHtml.indexOf("const makeSlashItem = (");
@@ -240,7 +241,10 @@ test("CSS slash menu grid", async (t) => {
   const menu = /\.milkdown-slash-menu \{([^}]*)\}/.exec(css);
   await t.test("menu: lebar & max-height baru", () => {
     assert.ok(menu);
-    assert.match(menu[1], /max-height: min\(440px, 70vh\)/);
+    // 17 item butuh ±471 px → 480 px agar seluruh menu (sampai Wikilink) muat tanpa scroll di 1280×800 & 375×740
+    assert.match(menu[1], /max-height: min\(480px, 70vh\)/);
+    assert.match(indexHtml, /const cssMax = Math\.min\(480, Math\.floor\(window\.innerHeight \* 0\.7\)\);/, "clamp JS = max-height CSS");
+    assert.equal(/Math\.min\(440, Math\.floor\(window\.innerHeight/.test(indexHtml), false);
     assert.match(menu[1], /width: min\(340px, calc\(100vw - 24px\)\)/);
     assert.equal(/max-height: 320px/.test(css), false);
   });

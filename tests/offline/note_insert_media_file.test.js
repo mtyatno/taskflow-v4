@@ -121,8 +121,8 @@ function groupsSource() {
   assert.ok(start > 0);
   return html.slice(start, html.indexOf("];", start) + 2);
 }
-const evalGroups = (onPickMedia, onPickFile) =>
-  new Function("onPickMedia", "onPickFile", groupsSource().replace("const SLASH_MENU_GROUPS = ", "return "))(onPickMedia, onPickFile);
+const evalGroups = (onPickMedia, onPickFile, pickMediaAV = true) =>
+  new Function("onPickMedia", "onPickFile", "pickMediaAV", groupsSource().replace("const SLASH_MENU_GROUPS = ", "return "))(onPickMedia, onPickFile, pickMediaAV);
 const insertItems = (groups) => groups.find((g) => g.label === "Sisipkan").items;
 
 test("menu blok: Sisipkan = Tabel, Divider, Sketsa, Task, Media, File (glyph fImage/fFile)", () => {
@@ -151,6 +151,15 @@ test("menu blok: Media/File bersyarat pada onPickMedia/onPickFile (grup lain tak
   assert.deepEqual(insertItems(evalGroups(undefined, undefined)).map((it) => it.type), ["table", "hr", "draw", "task"]);
   const g = evalGroups(fn, fn);
   assert.deepEqual(g.map((x) => [x.label, x.items.length]), [["Teks", 7], ["Daftar", 3], ["Sisipkan", 6], ["Tautan", 1]]);
+});
+
+test("menu blok: title Media mengikuti kemampuan host (pickMediaAV) — hanya gambar = 'Media — gambar'", () => {
+  const fn = () => {};
+  const media = (av) => insertItems(evalGroups(fn, null, av)).find((it) => it.type === "media");
+  assert.equal(media(true).title, "Media — gambar, audio, atau video");
+  assert.equal(media(false).title, "Media — gambar");
+  const ed = editorSrc();
+  assert.match(ed, /^function MilkdownEditor\(\{[^}]*\bonPickMedia = null,[^}]*\bpickMediaAV = false\b[^}]*\}\)/, "bawaan: hanya gambar");
 });
 
 test("MilkdownEditor: prop onPickMedia/onPickFile disimpan di ref; grup dibangun di efek mount", () => {
@@ -256,7 +265,9 @@ test("NoteToolbar: tombol 📎 File (paperclip + 'File'), title & disabled tetap
   const i = tb.indexOf('title: noteId ? "Lampirkan file (PDF, dokumen, spreadsheet)" : "Simpan note dulu"');
   assert.ok(i > 0, "title 📎 baru");
   const btn = tb.slice(tb.lastIndexOf('React.createElement("button", {', i), tb.indexOf('"File")', i) + 7);
+  assert.match(btn, /type: "button",/);
   assert.match(btn, /onMouseDown: e => \{\s*e\.preventDefault\(\);\s*if \(noteId\) fileInputRef\.current\?\.click\(\);\s*\}/);
+  assert.match(btn, /onClick: e => \{[\s\S]*?if \(e\.detail === 0 && noteId\) fileInputRef\.current\?\.click\(\);\s*\}/, "aktivasi keyboard (Enter/Spasi)");
   assert.match(btn, /disabled: uploading \|\| !noteId,/);
   assert.match(btn, /opacity: noteId \? 1 : 0\.4/);
   assert.match(btn, /React\.createElement\(Icon, \{ name: "paperclip", size: 14, key: "ic" \}\)/);
@@ -373,6 +384,7 @@ test("NoteModal: Media gambar via handleImagePaste(picker), pickerRef, menu blok
   const edEl = blockAfter(nm, "React.createElement(MilkdownEditor, ");
   assert.match(edEl, /onPickMedia: \(\) => notePickRef\.current\?\.media\?\.\(\)/);
   assert.match(edEl, /onPickFile: \(\) => notePickRef\.current\?\.file\?\.\(\)/);
+  assert.match(edEl, /pickMediaAV: true/, "NoteModal menerima audio/video → title Media lengkap");
   assert.match(edEl, /onImagePaste: handleImagePaste,/, "tempel tetap tanpa opts");
 });
 
@@ -387,6 +399,7 @@ test("TaskFormModal: Media hanya gambar; menu blok hanya Media (tanpa File)", ()
   const edEl = blockAfter(tf, "React.createElement(MilkdownEditor, ");
   assert.match(edEl, /onPickMedia: \(\) => notePickRef\.current\?\.media\?\.\(\)/);
   assert.equal(/onPickFile/.test(edEl), false, "📎 selalu nonaktif di TaskFormModal");
+  assert.equal(/pickMediaAV/.test(edEl), false, "hanya gambar → title 'Media — gambar' (bawaan)");
   assert.match(edEl, /onImagePaste: handleNoteImagePaste,/);
 });
 
@@ -395,14 +408,16 @@ const BIG = 3 * 1024 * 1024;
 const OVER_MSG = "Gambar lebih dari 1 MB butuh koneksi internet dan catatan yang sudah tersimpan";
 class FakeReader { readAsDataURL() { this.result = "data:image/png;base64,AAA"; if (this.onload) this.onload(); } }
 
-async function runNoteModalPaste({ savedNoteId, fetchImpl, file, opts }) {
-  const calls = { order: [], toasts: [], inserts: [], atts: [] };
+async function runNoteModalPaste({ savedNoteId, fetchImpl, file, opts, online = true, ensureImpl }) {
+  const calls = { order: [], toasts: [], inserts: [], atts: [], ensured: [] };
   const sandbox = {
     savedNoteId,
     __token: "tok",
+    navigator: { onLine: online },
     apiUrl: (p) => "https://api.test" + p,
     FormData: class { append() {} },
     fetch: async (url) => { calls.order.push("fetch " + url); return fetchImpl(url); },
+    ensureServerNoteId: async (id) => { calls.order.push("ensure " + id); calls.ensured.push(id); return ensureImpl ? ensureImpl(id) : null; },
     insertImageMd: (md) => calls.inserts.push(md),
     showToast: (m, t) => { calls.order.push("toast " + m); calls.toasts.push([m, t]); },
     setAttachments: (fn) => calls.atts.push(fn([{ id: 1 }])),
@@ -416,6 +431,9 @@ async function runNoteModalPaste({ savedNoteId, fetchImpl, file, opts }) {
 }
 const okUpload = async () => ({ ok: true, json: async () => ({ id: 9, original_name: "a.png" }) });
 const offlineFetch = async () => { throw new TypeError("Failed to fetch"); };
+const tooLarge = async () => ({ ok: false, status: 413, json: async () => ({ detail: "File terlalu besar (maks 10 MB)" }) });
+const badGateway = async () => ({ ok: false, status: 502, json: async () => { throw new SyntaxError("Unexpected token <"); } });
+const PICK = { source: "picker" };
 
 test("NoteModal.handleImagePaste: tempel (tanpa opts) tetap — base64 berapa pun ukurannya", async () => {
   const c = await runNoteModalPaste({ savedNoteId: null, fetchImpl: okUpload, file: { name: "s.png", size: BIG } });
@@ -425,34 +443,79 @@ test("NoteModal.handleImagePaste: tempel (tanpa opts) tetap — base64 berapa pu
   assert.deepEqual(c2.toasts, [], "tempel tanpa toast 'Mengunggah gambar…'");
   assert.deepEqual(c2.inserts, ["![a.png](/api/scratchpad/attachments/9/view)"]);
   assert.deepEqual(c2.atts, [[{ id: 1 }, { id: 9, original_name: "a.png" }]], "daftar Lampiran ikut diperbarui");
+  // tempel: server menolak → tetap jatuh ke base64 seperti dulu; cid lokal → tanpa ensureServerNoteId
+  const c3 = await runNoteModalPaste({ savedNoteId: 12, fetchImpl: tooLarge, file: { name: "s.png", size: BIG } });
+  assert.deepEqual(c3.toasts, []);
+  assert.deepEqual(c3.inserts, ["![s.png](data:image/png;base64,AAA)"]);
+  const c4 = await runNoteModalPaste({ savedNoteId: "c-uuid", fetchImpl: okUpload, file: { name: "s.png", size: BIG }, ensureImpl: () => 55 });
+  assert.deepEqual(c4.ensured, []);
+  assert.deepEqual(c4.inserts, ["![s.png](data:image/png;base64,AAA)"]);
+  const c5 = await runNoteModalPaste({ savedNoteId: 12, online: false, fetchImpl: offlineFetch, file: { name: "s.png", size: BIG } });
+  assert.deepEqual(c5.order, ["fetch https://api.test/api/scratchpad/12/attachments"], "tempel offline: tetap mencoba unggah seperti dulu");
+  assert.deepEqual(c5.inserts, ["![s.png](data:image/png;base64,AAA)"]);
 });
 
 test("NoteModal.handleImagePaste picker: toast unggah sebelum fetch; >1 MB tanpa server → galat, tidak disisipkan", async () => {
-  let c = await runNoteModalPaste({ savedNoteId: 12, fetchImpl: okUpload, file: { name: "f.png", size: BIG }, opts: { source: "picker" } });
+  let c = await runNoteModalPaste({ savedNoteId: 12, fetchImpl: okUpload, file: { name: "f.png", size: BIG }, opts: PICK });
   assert.deepEqual(c.order, ["toast Mengunggah gambar…", "fetch https://api.test/api/scratchpad/12/attachments"]);
   assert.deepEqual(c.toasts, [["Mengunggah gambar…", "info"]]);
   assert.deepEqual(c.inserts, ["![a.png](/api/scratchpad/attachments/9/view)"]);
   assert.deepEqual(c.atts, [[{ id: 1 }, { id: 9, original_name: "a.png" }]]);
 
-  c = await runNoteModalPaste({ savedNoteId: null, fetchImpl: okUpload, file: { name: "f.png", size: BIG }, opts: { source: "picker" } });
+  c = await runNoteModalPaste({ savedNoteId: null, fetchImpl: okUpload, file: { name: "f.png", size: BIG }, opts: PICK });
   assert.deepEqual(c.toasts, [[OVER_MSG, "error"]]);
   assert.deepEqual(c.inserts, []);
   assert.ok(!c.order.some((x) => x.startsWith("fetch")));
+  assert.deepEqual(c.ensured, [], "belum ada note sama sekali → tidak perlu ensureServerNoteId");
 
-  c = await runNoteModalPaste({ savedNoteId: 12, fetchImpl: offlineFetch, file: { name: "f.png", size: BIG }, opts: { source: "picker" } });
+  // online tapi jaringan putus (fetch melempar) → satu-satunya jalur fallback base64 (dengan batas 1 MB)
+  c = await runNoteModalPaste({ savedNoteId: 12, fetchImpl: offlineFetch, file: { name: "f.png", size: BIG }, opts: PICK });
   assert.deepEqual(c.toasts, [["Mengunggah gambar…", "info"], [OVER_MSG, "error"]]);
   assert.deepEqual(c.inserts, []);
 
-  c = await runNoteModalPaste({ savedNoteId: "c-uuid", fetchImpl: okUpload, file: { name: "kecil.png", size: 500 * 1024 }, opts: { source: "picker" } });
-  assert.deepEqual(c.toasts, [], "id offline → langsung base64, tanpa toast unggah");
-  assert.deepEqual(c.inserts, ["![kecil.png](data:image/png;base64,AAA)"]);
-
-  c = await runNoteModalPaste({ savedNoteId: null, fetchImpl: okUpload, file: { name: "pas.png", size: 1024 * 1024 }, opts: { source: "picker" } });
+  c = await runNoteModalPaste({ savedNoteId: null, fetchImpl: okUpload, file: { name: "pas.png", size: 1024 * 1024 }, opts: PICK });
   assert.deepEqual(c.inserts, ["![pas.png](data:image/png;base64,AAA)"], "tepat 1 MB masih boleh");
 });
 
-async function runTaskFormPaste({ savedId, content, fetchImpl, file, opts, noShowToast }) {
-  const calls = { order: [], toasts: [], inserts: [], events: [] };
+test("NoteModal.handleImagePaste picker offline: tanpa unggah & tanpa toast 'Mengunggah', langsung base64 (batas 1 MB)", async () => {
+  let c = await runNoteModalPaste({ savedNoteId: 12, online: false, fetchImpl: okUpload, file: { name: "f.png", size: BIG }, opts: PICK });
+  assert.deepEqual(c.order, ["toast " + OVER_MSG]);
+  assert.deepEqual(c.inserts, []);
+  c = await runNoteModalPaste({ savedNoteId: 12, online: false, fetchImpl: okUpload, file: { name: "k.png", size: 300 }, opts: PICK });
+  assert.deepEqual(c.order, []);
+  assert.deepEqual(c.inserts, ["![k.png](data:image/png;base64,AAA)"]);
+  c = await runNoteModalPaste({ savedNoteId: "c-uuid", online: false, fetchImpl: okUpload, file: { name: "k.png", size: 300 }, opts: PICK, ensureImpl: () => 55 });
+  assert.deepEqual(c.ensured, [], "offline → tidak mendorong outbox");
+  assert.deepEqual(c.inserts, ["![k.png](data:image/png;base64,AAA)"]);
+});
+
+test("NoteModal.handleImagePaste picker: server menolak → toast detail galat, tidak disisipkan, tanpa base64", async () => {
+  let c = await runNoteModalPaste({ savedNoteId: 12, fetchImpl: tooLarge, file: { name: "k.png", size: 300 }, opts: PICK });
+  assert.deepEqual(c.toasts, [["Mengunggah gambar…", "info"], ["File terlalu besar (maks 10 MB)", "error"]]);
+  assert.deepEqual(c.inserts, []);
+  assert.deepEqual(c.atts, []);
+  c = await runNoteModalPaste({ savedNoteId: 12, fetchImpl: badGateway, file: { name: "k.png", size: 300 }, opts: PICK });
+  assert.deepEqual(c.toasts, [["Mengunggah gambar…", "info"], ["Unggah gambar gagal", "error"]], "tanpa detail JSON → pesan bawaan");
+  assert.deepEqual(c.inserts, []);
+});
+
+test("NoteModal.handleImagePaste picker: note masih cid lokal + online → ensureServerNoteId lalu unggah", async () => {
+  let c = await runNoteModalPaste({ savedNoteId: "c-uuid", fetchImpl: okUpload, file: { name: "f.png", size: BIG }, opts: PICK, ensureImpl: () => 55 });
+  assert.deepEqual(c.order, ["ensure c-uuid", "toast Mengunggah gambar…", "fetch https://api.test/api/scratchpad/55/attachments"]);
+  assert.deepEqual(c.inserts, ["![a.png](/api/scratchpad/attachments/9/view)"]);
+  assert.deepEqual(c.atts, [[{ id: 1 }, { id: 9, original_name: "a.png" }]]);
+
+  c = await runNoteModalPaste({ savedNoteId: "c-uuid", fetchImpl: okUpload, file: { name: "kecil.png", size: 500 * 1024 }, opts: PICK, ensureImpl: () => null });
+  assert.deepEqual(c.order, ["ensure c-uuid"], "id server belum ada → base64, tanpa toast unggah");
+  assert.deepEqual(c.inserts, ["![kecil.png](data:image/png;base64,AAA)"]);
+
+  c = await runNoteModalPaste({ savedNoteId: "c-uuid", fetchImpl: okUpload, file: { name: "f.png", size: BIG }, opts: PICK, ensureImpl: () => { throw new Error("x"); } });
+  assert.deepEqual(c.toasts, [[OVER_MSG, "error"]], "ensureServerNoteId gagal → seperti tanpa id server");
+  assert.deepEqual(c.inserts, []);
+});
+
+async function runTaskFormPaste({ savedId, content, fetchImpl, file, opts, noShowToast, online = true }) {
+  const calls = { order: [], toasts: [], inserts: [], events: [], bodies: [] };
   const view = {
     state: { tr: { replaceSelection: (sl) => ({ scrollIntoView: () => ({ md: sl }) }) } },
     dispatch: (x) => calls.inserts.push(x.md),
@@ -461,16 +524,22 @@ async function runTaskFormPaste({ savedId, content, fetchImpl, file, opts, noSho
   const parser = (md) => ({ content: { size: 1 }, slice: () => md });
   const editor = { action: (fn) => fn({ get: (k) => (k === "VIEW" ? view : parser) }) };
   const toast = (m, t) => { calls.order.push("toast " + m); calls.toasts.push([m, t]); };
+  const savedRef = { current: savedId };
   const sandbox = {
     noteMilkdownRef: { current: editor },
-    noteSavedIdRef: { current: savedId },
+    noteSavedIdRef: savedRef,
     noteForm: { title: "Judul", content: content || "" },
     notePaperConfig: {},
     extractTaskIdsFromContent: () => [],
     __token: "tok",
+    navigator: { onLine: online },
     apiUrl: (p) => "https://api.test" + p,
     FormData: class { append() {} },
-    fetch: async (url, init) => { calls.order.push("fetch " + url); return fetchImpl(url, init); },
+    fetch: async (url, init) => {
+      calls.order.push("fetch " + url);
+      if (init && typeof init.body === "string") calls.bodies.push(JSON.parse(init.body));
+      return fetchImpl(url, init);
+    },
     FileReader: FakeReader,
     CustomEvent: class { constructor(n) { this.type = n; } },
     window: { MilkdownBundle: { editorViewCtx: "VIEW", parserCtx: "PARSER" }, dispatchEvent: (e) => calls.events.push(e.type) },
@@ -479,43 +548,164 @@ async function runTaskFormPaste({ savedId, content, fetchImpl, file, opts, noSho
   vm.createContext(sandbox);
   vm.runInContext(CONSTS_SRC() + blockAfter(taskFormSrc(), "const handleNoteImagePaste = ") + ";\nthis.fn = handleNoteImagePaste;", sandbox);
   await sandbox.fn(file, opts);
+  calls.savedId = savedRef.current;
   return plain(calls);
 }
+const createThenUpload = async (url) => url.endsWith("/api/scratchpad")
+  ? { ok: true, json: async () => ({ id: 33 }) }
+  : { ok: true, json: async () => ({ id: 4, original_name: "f.png" }) };
 
 test("TaskFormModal.handleNoteImagePaste: tempel tetap; picker → toast unggah / batas 1 MB di base64", async () => {
   let c = await runTaskFormPaste({ savedId: null, fetchImpl: okUpload, file: { name: "s.png", size: BIG } });
   assert.deepEqual(c.inserts, ["![s.png](data:image/png;base64,AAA)"], "tempel: base64 tanpa batas");
   assert.deepEqual(c.toasts, []);
+  assert.deepEqual(c.order, [], "tempel dengan isi kosong: note tidak dibuat (seperti dulu)");
 
-  c = await runTaskFormPaste({ savedId: null, fetchImpl: okUpload, file: { name: "s.png", size: BIG }, opts: { source: "picker" } });
+  c = await runTaskFormPaste({ savedId: null, online: false, fetchImpl: okUpload, file: { name: "s.png", size: BIG }, opts: PICK });
   assert.deepEqual(c.toasts, [[OVER_MSG, "error"]]);
   assert.deepEqual(c.inserts, []);
 
-  c = await runTaskFormPaste({ savedId: null, fetchImpl: okUpload, file: { name: "s.png", size: BIG }, opts: { source: "picker" }, noShowToast: true });
+  c = await runTaskFormPaste({ savedId: null, online: false, fetchImpl: okUpload, file: { name: "s.png", size: BIG }, opts: PICK, noShowToast: true });
   assert.deepEqual(c.toasts, [[OVER_MSG, "error"]], "tanpa prop showToast → window.__showToast");
 
-  c = await runTaskFormPaste({ savedId: null, fetchImpl: okUpload, file: { name: "k.png", size: 200 }, opts: { source: "picker" } });
+  c = await runTaskFormPaste({ savedId: null, online: false, fetchImpl: okUpload, file: { name: "k.png", size: 200 }, opts: PICK });
   assert.deepEqual(c.inserts, ["![k.png](data:image/png;base64,AAA)"]);
 
   // note dibuat dulu (konten ada), lalu toast unggah tepat sebelum fetch lampiran
-  const createThenUpload = async (url) => url.endsWith("/api/scratchpad")
-    ? { ok: true, json: async () => ({ id: 33 }) }
-    : { ok: true, json: async () => ({ id: 4, original_name: "f.png" }) };
-  c = await runTaskFormPaste({ savedId: null, content: "isi", fetchImpl: createThenUpload, file: { name: "f.png", size: BIG }, opts: { source: "picker" } });
+  c = await runTaskFormPaste({ savedId: null, content: "isi", fetchImpl: createThenUpload, file: { name: "f.png", size: BIG }, opts: PICK });
   assert.deepEqual(c.order, [
     "fetch https://api.test/api/scratchpad",
     "toast Mengunggah gambar…",
     "fetch https://api.test/api/scratchpad/33/attachments",
   ]);
   assert.deepEqual(c.inserts, ["![f.png](/api/scratchpad/attachments/4/view)"]);
+  assert.equal(c.savedId, 33);
 
   c = await runTaskFormPaste({ savedId: 33, fetchImpl: okUpload, file: { name: "f.png", size: BIG } });
   assert.deepEqual(c.toasts, [], "tempel: tanpa toast unggah");
   assert.deepEqual(c.inserts, ["![a.png](/api/scratchpad/attachments/9/view)"]);
 
-  c = await runTaskFormPaste({ savedId: 33, fetchImpl: offlineFetch, file: { name: "f.png", size: BIG }, opts: { source: "picker" } });
+  // online tapi fetch melempar (jaringan) → fallback base64 dengan batas 1 MB
+  c = await runTaskFormPaste({ savedId: 33, fetchImpl: offlineFetch, file: { name: "f.png", size: BIG }, opts: PICK });
   assert.deepEqual(c.toasts, [["Mengunggah gambar…", "info"], [OVER_MSG, "error"]]);
   assert.deepEqual(c.inserts, []);
+});
+
+test("TaskFormModal.handleNoteImagePaste picker online + isi kosong: note tetap dibuat lalu gambar diunggah", async () => {
+  const c = await runTaskFormPaste({ savedId: null, content: "", fetchImpl: createThenUpload, file: { name: "f.png", size: BIG }, opts: PICK });
+  assert.deepEqual(c.order, [
+    "fetch https://api.test/api/scratchpad",
+    "toast Mengunggah gambar…",
+    "fetch https://api.test/api/scratchpad/33/attachments",
+  ]);
+  assert.equal(c.bodies[0].content, "");
+  assert.equal(c.bodies[0].title, "Judul");
+  assert.deepEqual(c.inserts, ["![f.png](/api/scratchpad/attachments/4/view)"]);
+  assert.deepEqual(c.toasts, [["Mengunggah gambar…", "info"]], "tanpa toast galat 1 MB");
+  assert.equal(c.savedId, 33);
+  assert.deepEqual(c.events, ["noteSaved"]);
+});
+
+test("TaskFormModal.handleNoteImagePaste picker offline: tanpa membuat note/unggah, tanpa toast 'Mengunggah'", async () => {
+  let c = await runTaskFormPaste({ savedId: null, content: "isi", online: false, fetchImpl: createThenUpload, file: { name: "k.png", size: 300 }, opts: PICK });
+  assert.deepEqual(c.order, []);
+  assert.deepEqual(c.inserts, ["![k.png](data:image/png;base64,AAA)"]);
+  assert.equal(c.savedId, null);
+  c = await runTaskFormPaste({ savedId: 33, online: false, fetchImpl: okUpload, file: { name: "f.png", size: BIG }, opts: PICK });
+  assert.deepEqual(c.order, ["toast " + OVER_MSG]);
+  assert.deepEqual(c.inserts, []);
+});
+
+test("TaskFormModal.handleNoteImagePaste picker: server menolak → toast detail, tidak disisipkan, tanpa base64", async () => {
+  let c = await runTaskFormPaste({ savedId: 33, fetchImpl: tooLarge, file: { name: "k.png", size: 300 }, opts: PICK });
+  assert.deepEqual(c.toasts, [["Mengunggah gambar…", "info"], ["File terlalu besar (maks 10 MB)", "error"]]);
+  assert.deepEqual(c.inserts, []);
+  c = await runTaskFormPaste({ savedId: 33, fetchImpl: badGateway, file: { name: "k.png", size: 300 }, opts: PICK });
+  assert.deepEqual(c.toasts, [["Mengunggah gambar…", "info"], ["Unggah gambar gagal", "error"]]);
+  assert.deepEqual(c.inserts, []);
+  // pembuatan note ditolak server → galat juga, tanpa unggah/base64
+  const createRejected = async (url) => url.endsWith("/api/scratchpad")
+    ? { ok: false, status: 422, json: async () => ({ detail: "Judul terlalu panjang" }) }
+    : { ok: true, json: async () => ({ id: 4 }) };
+  c = await runTaskFormPaste({ savedId: null, content: "isi", fetchImpl: createRejected, file: { name: "k.png", size: 300 }, opts: PICK });
+  assert.deepEqual(c.order, ["fetch https://api.test/api/scratchpad", "toast Judul terlalu panjang"]);
+  assert.deepEqual(c.inserts, []);
+  assert.equal(c.savedId, null);
+  // tempel: server menolak → tetap fallback base64 seperti dulu
+  c = await runTaskFormPaste({ savedId: 33, fetchImpl: tooLarge, file: { name: "k.png", size: 300 } });
+  assert.deepEqual(c.toasts, []);
+  assert.deepEqual(c.inserts, ["![k.png](data:image/png;base64,AAA)"]);
+});
+
+// ── Simpan quick-note TaskFormModal: gambar sudah membuat note server → perbarui note itu, bukan note kedua ──
+async function runQuickNoteSubmit({ savedId, fetchImpl, content }) {
+  const calls = { order: [], posts: [], events: [], saved: 0, alerts: [], loading: [], syncs: 0 };
+  const sandbox = {
+    noteSavedIdRef: { current: savedId },
+    noteForm: { title: "Judul", content: content == null ? "isi #tag ![a](/api/scratchpad/attachments/4/view)" : content },
+    notePaperConfig: { enabled: true },
+    extractTaskIdsFromContent: () => [7],
+    __token: "tok",
+    apiUrl: (p) => "https://api.test" + p,
+    fetch: async (url, init) => {
+      calls.order.push((init && init.method) + " " + url);
+      calls.lastInit = { method: init.method, headers: init.headers, body: JSON.parse(init.body) };
+      return fetchImpl(url, init);
+    },
+    api: { post: async (url, body) => { calls.order.push("api.post " + url); calls.posts.push(body); return { id: "c1" }; } },
+    setLoading: (v) => calls.loading.push(v),
+    alert: (m) => calls.alerts.push(m),
+    onSave: () => { calls.saved++; },
+    CustomEvent: class { constructor(n) { this.type = n; } },
+    window: { dispatchEvent: (e) => calls.events.push(e.type), __syncNow: async () => { calls.syncs++; } },
+  };
+  vm.createContext(sandbox);
+  const tf = taskFormSrc();
+  const block = blockAfter(tf, 'if (mode === "note")', tf.indexOf("const handleSubmit = async (e, opts) => {"));
+  vm.runInContext("this.fn = async function () { const mode = 'note';\n" + block + "\n};", sandbox);
+  await sandbox.fn();
+  await new Promise((r) => setImmediate(r));
+  return plain(calls);
+}
+const EXPECTED_NOTE_BODY = {
+  title: "Judul",
+  content: "isi #tag ![a](/api/scratchpad/attachments/4/view)",
+  tags: ["tag"],
+  linked_task_ids: [7],
+  linked_task_id: 7,
+  meta_json: JSON.stringify({ paper_mode: { enabled: true } }),
+};
+
+test("TaskFormModal simpan quick-note: tanpa note server → api.post lokal seperti dulu", async () => {
+  const c = await runQuickNoteSubmit({ savedId: null, fetchImpl: async () => assert.fail("tanpa fetch mentah") });
+  assert.deepEqual(c.order, ["api.post /api/scratchpad"]);
+  assert.deepEqual(c.posts, [EXPECTED_NOTE_BODY]);
+  assert.deepEqual(c.events, ["noteSaved"]);
+  assert.equal(c.saved, 1);
+  assert.equal(c.syncs, 0);
+});
+
+test("TaskFormModal simpan quick-note: gambar sudah membuat note server → PUT note itu (tanpa note kedua) + sync", async () => {
+  const c = await runQuickNoteSubmit({ savedId: 33, fetchImpl: async () => ({ ok: true, json: async () => ({ id: 33 }) }) });
+  assert.deepEqual(c.order, ["PUT https://api.test/api/scratchpad/33"], "tidak ada api.post → hanya satu note");
+  assert.deepEqual(c.lastInit.body, EXPECTED_NOTE_BODY);
+  assert.equal(c.lastInit.headers.Authorization, "Bearer tok");
+  assert.equal(c.lastInit.headers["Content-Type"], "application/json");
+  assert.equal(c.syncs, 1, "sync pull mengadopsi note server ke daftar lokal");
+  assert.deepEqual(c.events, ["noteSaved"]);
+  assert.equal(c.saved, 1);
+  assert.deepEqual(c.alerts, []);
+});
+
+test("TaskFormModal simpan quick-note: PUT gagal (jaringan / non-ok) → api.post lokal agar isi tidak hilang", async () => {
+  let c = await runQuickNoteSubmit({ savedId: 33, fetchImpl: async () => { throw new TypeError("Failed to fetch"); } });
+  assert.deepEqual(c.order, ["PUT https://api.test/api/scratchpad/33", "api.post /api/scratchpad"]);
+  assert.deepEqual(c.posts, [EXPECTED_NOTE_BODY]);
+  assert.equal(c.saved, 1);
+  assert.equal(c.syncs, 0);
+  c = await runQuickNoteSubmit({ savedId: 33, fetchImpl: async () => ({ ok: false, status: 404, json: async () => ({ detail: "Note not found" }) }) });
+  assert.deepEqual(c.order, ["PUT https://api.test/api/scratchpad/33", "api.post /api/scratchpad"]);
+  assert.equal(c.saved, 1);
 });
 
 // ── Alias ketik "/sketsa": "gambar" kini berarti foto → bukan alias sketsa lagi ──

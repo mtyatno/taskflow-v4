@@ -1,7 +1,7 @@
 """E2E: slash menu editor note — grid 2 kolom + label grup + item Wikilink (2026-10-21). Tidak dijalankan CI.
 
 Alur:
-  a  ketik "/" di paragraf baru → menu tampil, 4 label grup, 17 item, ikon glyph svg (heading teks), grid 2 kolom, luapan ≤ 40 px (1280×800)
+  a  ketik "/" di paragraf baru → menu tampil, 4 label grup, 17 item, ikon glyph svg (heading teks), grid 2 kolom, tanpa scroll (1280×800; max-height 480 px)
   b  screenshot terang + gelap; 375×740 → tanpa scroll, menu utuh di dalam viewport (dijepit middleware)
   c  klik Wikilink → "/" hilang, paragraf berisi "[[", dropdown autocomplete wikilink tampil
   d  "and/" → klik Wikilink → "and/" tetap ("/" di tengah teks bukan pemicu)
@@ -188,24 +188,6 @@ EXPECTED_ITEMS = ["Heading 1", "Heading 2", "Heading 3", "Blockquote", "Callout"
                   "Bullet", "Numbered", "Checklist", "Tabel", "Divider", "Sketsa", "Task", "Media", "File", "Wikilink"]
 
 
-SCROLL_SLACK = 40  # px: sejak item Media + File (17 item) konten menu ≈ 471 px > max-height 440 px (css .milkdown-slash-menu)
-
-
-def scroll_check(p, step, vp, m):
-    """Dulu 'tanpa scroll'. Dengan 17 item menu bisa meluap ≤ SCROLL_SLACK px di dalam kotaknya sendiri; yang dijaga:
-    luapan kecil + item terakhir (Wikilink) bisa dijangkau dengan menggulir menu."""
-    over = m["sh"] - m["ch"]
-    reach = p.evaluate("""() => { const mn = document.querySelector(".milkdown-slash-menu[data-show='true']");
-      mn.scrollTop = mn.scrollHeight;
-      const it = [...mn.querySelectorAll('.milkdown-slash-item')].pop().getBoundingClientRect(); const mr = mn.getBoundingClientRect();
-      const ok = it.bottom <= mr.bottom + 1 && it.top >= mr.top; mn.scrollTop = 0; return ok; }""")
-    if over > 0:
-        print("  WARN %s: menu meluap %d px (sh %d > ch %d) — Wikilink di bawah lipatan sampai menu digulir" % (
-            step, over, m["sh"], m["ch"]), flush=True)
-    check("%s meluap ≤ %d px dan item terakhir terjangkau lewat scroll menu %s" % (step, SCROLL_SLACK, vp),
-          over <= SCROLL_SLACK and reach, (m["sh"], m["ch"], reach))
-
-
 def main():
     tmp = tempfile.mkdtemp(prefix="e2e_slash_menu_grid_")
     proc, base = start_server(tmp)
@@ -242,7 +224,7 @@ def main():
             check("a2d tanpa emoji di item menu", not any(x["emoji"] for x in ic), [x["label"] for x in ic if x["emoji"]])
             check("a3 grid 2 kolom (baris 1 sejajar)", m["row1Top"][0] == m["row1Top"][1] and m["row1Left"][1] > m["row1Left"][0],
                   (m["row1Top"], m["row1Left"]))
-            scroll_check(p, "a4", "1280×800", m)
+            check("a4 tanpa scroll 1280×800 (Wikilink tanpa digulir)", m["sh"] <= m["ch"], (m["sh"], m["ch"]))
             check("a4b menu utuh di viewport 1280×800", m["left"] >= 0 and m["right"] <= m["vw"] and m["top"] >= 0 and m["bottom"] <= m["vh"],
                   (m["left"], m["right"], m["top"], m["bottom"]))
             check("a5 Wikilink lebar penuh + hint [[ ]]", m["wlWide"] and m["wlW"] == m["gW"] and m["hint"] == "[[ ]]",
@@ -266,7 +248,7 @@ def main():
             open_menu(p)
             p.wait_for_timeout(200)
             m = menu_metrics(p)
-            scroll_check(p, "b2", "375×740", m)
+            check("b2 tanpa scroll 375×740", m["sh"] <= m["ch"], (m["sh"], m["ch"]))
             check("b3 menu di dalam viewport horizontal", m["left"] >= 0 and m["right"] <= m["vw"], (m["left"], m["right"], m["vw"]))
             check("b3b menu di dalam viewport vertikal (Wikilink terlihat)", m["top"] >= 0 and m["bottom"] <= m["vh"], (m["top"], m["bottom"], m["vh"]))
             check("b4 grid 2 kolom di 375 px", m["row1Top"][0] == m["row1Top"][1], m["row1Top"])

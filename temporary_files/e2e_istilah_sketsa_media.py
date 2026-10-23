@@ -8,7 +8,8 @@ file_size} / PNG kecil).
 Langkah:
   1  NoteModal (note tersimpan, online): toolbar memuat tombol "Sketsa" < "Media" < "File"; tanpa tombol
      "Gambar" / "Audio/Video" / 🎬; Media dan File aktif
-  2  ketik "/": grup Sisipkan berurutan Tabel, Divider, Sketsa, Task, Media, File (grup lain tak berubah)
+  2  ketik "/": grup Sisipkan berurutan Tabel, Divider, Sketsa, Task, Media, File (grup lain tak berubah); menu
+     17 item tanpa scroll (1280×800)
   3  "+" block handle (desktop) membuka menu yang sama; klik Media dari menu "+" membuka file chooser
   4  klik item Media (slash) → file chooser, accept memuat .png dan .mp4; pilih PNG kecil → toast "Mengunggah
      gambar…", POST lampiran, <img src="/api/scratchpad/attachments/<id>/view"> di editor, tanpa "/" tersisa,
@@ -16,11 +17,20 @@ Langkah:
   5  keyboard: Shift+Tab dari tombol File ke tombol Media, Enter → file chooser terbuka (slash menu memang tanpa
      navigasi panah/Enter)
   6  klik item File → file chooser, accept memuat .pdf dan TIDAK .png; tombol toolbar File juga membuka chooser
+     (klik dan Enter keyboard)
   7  offline (route lampiran di-abort, seperti jaringan putus): Media + PNG > 1 MB → toast batas 1 MB, tanpa <img src="data:" baru; PNG kecil → data URL tersisip;
-     .mp3 → toast "Butuh koneksi internet untuk mengunggah audio/video"
-  8  TaskFormModal (mode Note): slash menu memuat Media tetapi TIDAK File; accept Media hanya ekstensi gambar
+     .mp3 → toast "Butuh koneksi internet untuk mengunggah audio/video"; tanpa percobaan unggah dan tanpa toast
+     "Mengunggah gambar…"
+  8  TaskFormModal (mode Note): slash menu memuat Media tetapi TIDAK File; accept Media hanya ekstensi gambar;
+     title item Media "Media — gambar"
   9  halaman Sketsa: label sidebar dan judul halaman "Sketsa"; modal sisip dari note "🎨 Sisipkan Sketsa";
      ketik "/gambar" tidak membuka Sketsa, "/sketsa" membukanya
+  6r server menolak unggahan (413 + detail / 502 tanpa JSON) → toast galat (detail / "Unggah gambar gagal"),
+     tidak ada gambar tersisip, tanpa data URL
+  8q quick-note TaskFormModal: isi kosong + PNG > 1 MB via Media (online) → note server dibuat + diunggah; "Simpan
+     Note" → TEPAT satu note (server dan daftar lokal), isi memuat lampiran
+  11 NoteModal pada note yang baru tersimpan lokal (cid, dibuat offline) lalu online: Media PNG → id server via
+     push outbox, diunggah ke /api/scratchpad/<id server>/attachments (bukan data URL)
   10 screenshot toolbar + slash menu terbuka: terang & gelap × desktop 1280 & HP 375 → temporary_files/e2e_istilah_sketsa_media/
      (HP: menu menutupi toolbar, jadi ditambah bidikan *-toolbar.png dengan menu ditutup)
 
@@ -48,6 +58,8 @@ GROUPS = ["Teks", "Daftar", "Sisipkan", "Tautan"]
 TOAST_UPLOAD = "Mengunggah gambar…"
 TOAST_1MB = "Gambar lebih dari 1 MB butuh koneksi internet dan catatan yang sudah tersimpan"
 TOAST_AV_OFFLINE = "Butuh koneksi internet untuk mengunggah audio/video"
+REJECT_DETAIL = "File terlalu besar (maks 10 MB)"
+TOAST_UPLOAD_FAIL = "Unggah gambar gagal"
 ATT_ID0 = 9001
 results = []
 
@@ -111,18 +123,24 @@ class Net:
         self.views = []
         self.next_id = ATT_ID0
         self.offline = False  # route.fulfill menjawab walau context offline → saat offline batalkan seperti jaringan putus
+        self.attempts = 0  # semua POST lampiran yang sampai ke route (termasuk yang dibatalkan/ditolak)
+        self.reject = None  # (status, body str, content_type) → server menolak unggahan
 
     def on_post(self, route, request):
         if request.method != "POST":
             return route.continue_()
+        self.attempts += 1
         if self.offline:
             return route.abort("internetdisconnected")
+        if self.reject:
+            st, rb, ct = self.reject
+            return route.fulfill(status=st, content_type=ct, body=rb)
         body = request.post_data_buffer or b""
         m = re.search(rb'filename="([^"]+)"', body)
         name = m.group(1).decode("utf-8", "replace") if m else "gambar.png"
         att = {"id": self.next_id, "original_name": name, "mime_type": "image/png", "file_size": len(body)}
         self.next_id += 1
-        self.posts.append((request.url, name))
+        self.posts.append((request.url, name, att["id"]))
         return route.fulfill(status=200, content_type="application/json", body=json.dumps(att))
 
     def on_view(self, route, request):
@@ -277,6 +295,11 @@ def step2(p):
     no_gambar = p.evaluate("""() => ![...document.querySelectorAll(".milkdown-slash-menu[data-show='true'] .milkdown-slash-label")]
         .some(e => e.textContent.trim() === 'Gambar')""")
     check("2d tidak ada item menu 'Gambar'", no_gambar)
+    check("2e title Media di NoteModal (audio/video diterima)", titles.get("Media") == "Media — gambar, audio, atau video",
+          titles.get("Media"))
+    m = G.menu_metrics(p)
+    check("2f menu 17 item tanpa scroll 1280×800 (Wikilink tanpa digulir)", m["sh"] <= m["ch"] and len(m["items"]) == 17,
+          (m["sh"], m["ch"], len(m["items"])))
     close_menu_and_slash(p)
 
 
@@ -362,6 +385,35 @@ def step6(p):
     acc2 = pick_via_chooser(p, lambda: fbtn.click())
     check("6c tombol toolbar File → chooser, accept memuat .pdf dan .docx, tanpa gambar",
           ".pdf" in acc2 and ".docx" in acc2 and ".png" not in acc2 and ".jpg" not in acc2, acc2)
+    p.wait_for_timeout(500)
+    acc3, n3 = key_chooser(p, lambda: fbtn.focus(), "Enter")
+    check("6d Enter di tombol File (keyboard) → file chooser terbuka, accept memuat .pdf",
+          acc3 is not None and ".pdf" in acc3, "percobaan %d, %s" % (n3, acc3))
+
+
+def step6r(p):
+    """Server menolak unggahan gambar pilihan → toast galat (detail), tidak disisipkan, tanpa data URL."""
+    media_btn = p.locator("button.note-media-insert-btn")
+    n_img = p.locator(".ProseMirror img").count()
+    n_posts = len(p.net.posts)
+    p.net.reject = (413, json.dumps({"detail": REJECT_DETAIL}), "application/json")
+    try:
+        clear_toasts(p)
+        pick_via_chooser(p, lambda: media_btn.click(), {"name": "ditolak.png", "mimeType": "image/png", "buffer": SMALL_PNG})
+        check("6r-a server 413 → toast galat dengan detail server", toast_seen(p, REJECT_DETAIL), toasts(p))
+        p.wait_for_timeout(700)
+        check("6r-b 413: tidak ada gambar tersisip (juga bukan data URL)", p.locator(".ProseMirror img").count() == n_img,
+              (n_img, p.locator(".ProseMirror img").count()))
+        p.net.reject = (502, "<html>Bad Gateway</html>", "text/html")
+        clear_toasts(p)
+        pick_via_chooser(p, lambda: media_btn.click(), {"name": "ditolak2.png", "mimeType": "image/png", "buffer": SMALL_PNG})
+        check("6r-c server 502 tanpa JSON → toast 'Unggah gambar gagal'", toast_seen(p, TOAST_UPLOAD_FAIL), toasts(p))
+        p.wait_for_timeout(700)
+        check("6r-d 502: tidak ada gambar tersisip", p.locator(".ProseMirror img").count() == n_img,
+              (n_img, p.locator(".ProseMirror img").count()))
+        check("6r-e tanpa lampiran baru tercatat", len(p.net.posts) == n_posts, p.net.posts)
+    finally:
+        p.net.reject = None
 
 
 def step7(p, ctx):
@@ -372,6 +424,7 @@ def step7(p, ctx):
     media_btn = p.locator("button.note-media-insert-btn")
     check("7b offline: tombol Media tetap aktif", not media_btn.is_disabled())
     n_data = p.locator(".ProseMirror img[src^='data:']").count()
+    n_attempts = p.net.attempts
     clear_toasts(p)
     acc = pick_via_chooser(p, lambda: media_btn.click(),
                            {"name": "foto-besar.png", "mimeType": "image/png", "buffer": BIG_PNG})
@@ -381,16 +434,17 @@ def step7(p, ctx):
           (n_data, p.locator(".ProseMirror img[src^='data:']").count()))
     check("7e PNG besar: tanpa POST lampiran yang berhasil (hanya foto-kecil.png dari langkah 4)", len(p.net.posts) == 1,
           p.net.posts)
-    clear_toasts(p)
     pick_via_chooser(p, lambda: media_btn.click(), {"name": "foto-mini.png", "mimeType": "image/png", "buffer": SMALL_PNG})
     ok = wait_until(p, lambda: p.locator(".ProseMirror img[src^='data:image/png']").count() == n_data + 1, 6000)
     check("7f PNG kecil offline → <img src=\"data:image/png…\"> tersisip", bool(ok),
           p.evaluate("() => [...document.querySelectorAll('.ProseMirror img')].map(i => (i.getAttribute('src') || '').slice(0, 30))"))
-    clear_toasts(p)
     pick_via_chooser(p, lambda: media_btn.click(), {"name": "rekaman.mp3", "mimeType": "audio/mpeg", "buffer": b"ID3\x03\x00\x00\x00\x00\x00\x00"})
     check("7g .mp3 offline → toast 'Butuh koneksi internet untuk mengunggah audio/video'", toast_seen(p, TOAST_AV_OFFLINE), toasts(p))
     p.wait_for_timeout(500)
     check("7h .mp3 offline: tidak ada kartu media di editor", p.locator(".ProseMirror .editor-media-card").count() == 0)
+    check("7i offline: gambar pilihan tanpa percobaan unggah (langsung data URL)", p.net.attempts == n_attempts,
+          (n_attempts, p.net.attempts))
+    check("7j offline: tanpa toast 'Mengunggah gambar…'", TOAST_UPLOAD not in toasts(p), toasts(p))
     ctx.set_offline(False)
     p.net.offline = False
     p.wait_for_timeout(300)
@@ -419,6 +473,107 @@ def step8(p):
     check("8e item Media → chooser dengan accept hanya gambar", acc == ".png,.jpg,.jpeg,.webp", acc)
     p.wait_for_timeout(300)
     check("8f '/' hilang setelah Media", not editor_has_slash(p), p.evaluate("() => document.querySelector('.ProseMirror').innerText"))
+    G.new_line_and(p, "/")
+    p.locator(MENU).wait_for(timeout=5000)
+    mt = p.evaluate("""() => { const it = [...document.querySelectorAll(".milkdown-slash-menu[data-show='true'] .milkdown-slash-item")]
+        .find(e => e.querySelector('.milkdown-slash-label').textContent === 'Media'); return it ? it.title : null; }""")
+    check("8g title item Media di TaskFormModal = 'Media — gambar' (hanya gambar)", mt == "Media — gambar", mt)
+    close_menu_and_slash(p)
+    media = next((b for b in t["btns"] if b["text"] == "Media"), {})
+    check("8h title tombol Media toolbar = 'Sisipkan gambar'", media.get("title") == "Sisipkan gambar", media)
+
+
+def server_notes(base, user, title):
+    r = G.requests.get(base + "/api/scratchpad", headers={"Authorization": "Bearer " + user["token"]})
+    r.raise_for_status()
+    j = r.json()
+    rows = j if isinstance(j, list) else (j.get("items") or j.get("notes") or [])
+    return [n for n in rows if n.get("title") == title]
+
+
+def local_cards(p, title):
+    return p.locator(".note-card").filter(has=p.locator(".note-card-title", has_text=re.compile("^" + re.escape(title) + "$"))).count()
+
+
+def step8q(p, base, user):
+    """Quick-note TaskFormModal: isi kosong + PNG > 1 MB via Media (online) → satu note, berisi lampiran."""
+    title = "Quick Gambar E2E"
+    ti = p.locator("input[placeholder='Judul catatan...']").filter(visible=True).first
+    ti.fill(title)
+    p.wait_for_timeout(300)
+    n_posts = len(p.net.posts)
+    clear_toasts(p)
+    media_btn = p.locator("button.note-media-insert-btn").filter(visible=True).first
+    pick_via_chooser(p, lambda: media_btn.click(), {"name": "quick-besar.png", "mimeType": "image/png", "buffer": BIG_PNG})
+    up = wait_until(p, lambda: len(p.net.posts) == n_posts + 1, 10000)
+    check("8q-a isi kosong + PNG > 1 MB online → note dibuat lalu diunggah (bukan toast batas 1 MB)",
+          bool(up) and TOAST_1MB not in toasts(p), (p.net.posts[n_posts:], toasts(p)))
+    att_id = p.net.posts[-1][2] if up else None
+    sid_url = p.net.posts[-1][0] if up else ""
+    sel = ".ProseMirror img[src='/api/scratchpad/attachments/%s/view']" % att_id
+    check("8q-b gambar lampiran tersisip di editor quick-note", bool(wait_until(p, lambda: p.locator(sel).count() == 1, 6000)))
+    # markdownUpdated Milkdown di-debounce (±200 ms) sebelum noteForm.content ikut berubah; simpan dalam jendela itu
+    # kehilangan sisipan terakhir (perilaku lama, di luar perbaikan ini) → tunggu seperti pengguna sebelum "Simpan Note".
+    p.wait_for_timeout(1000)
+    pre = server_notes(base, user, title)
+    check("8q-c sebelum simpan: satu note server (dibuat untuk id lampiran)", len(pre) == 1 and
+          ("/api/scratchpad/%s/attachments" % (pre[0]["id"] if pre else "?")) in sid_url, ([n.get("id") for n in pre], sid_url))
+    p.get_by_role("button", name=re.compile(r"^\s*Simpan Note\s*$")).first.click()
+    gone = wait_until(p, lambda: p.locator("input[placeholder='Judul catatan...']").filter(visible=True).count() == 0, 8000)
+    check("8q-d 'Simpan Note' menutup modal tanpa galat", bool(gone))
+    p.wait_for_timeout(1500)
+    post = server_notes(base, user, title)
+    check("8q-e server: TEPAT satu note '%s' (tanpa duplikat)" % title, len(post) == 1, [n.get("id") for n in post])
+    check("8q-f isi note server memuat gambar lampiran", bool(post) and
+          ("/api/scratchpad/attachments/%s/view" % att_id) in (post[0].get("content") or ""), post and post[0].get("content"))
+    G.go_notes(p)
+    one = wait_until(p, lambda: local_cards(p, title) == 1, 20000)
+    check("8q-g daftar lokal: note quick muncul tepat satu kali", bool(one), local_cards(p, title))
+    p.evaluate("() => window.__syncNow && window.__syncNow()")
+    p.wait_for_timeout(2500)
+    check("8q-h setelah sinkron ulang: tetap satu kartu dan satu note server", local_cards(p, title) == 1
+          and len(server_notes(base, user, title)) == 1, (local_cards(p, title), len(server_notes(base, user, title))))
+
+
+def step11(p, ctx, base, user):
+    """NoteModal: note baru tersimpan lokal (cid) saat offline, lalu online → gambar pilihan diunggah ke id server."""
+    title = "Note Cid E2E"
+    G.go_notes(p)
+    p.locator(".note-card").first.wait_for(timeout=20000)
+    ctx.set_offline(True)
+    p.net.offline = True
+    p.wait_for_timeout(400)
+    p.get_by_role("button", name=re.compile("Catatan Baru")).filter(visible=True).first.click()
+    ti = p.locator("input[placeholder='Judul catatan...']").filter(visible=True).first
+    ti.wait_for(timeout=10000)
+    ti.fill(title)
+    p.locator(".ProseMirror").first.wait_for(timeout=15000)
+    p.wait_for_function("() => window.MilkdownBundle && document.querySelector('.ProseMirror[contenteditable=true]')", timeout=15000)
+    p.locator(".ProseMirror").first.click()
+    p.keyboard.type("Isi note lokal", delay=20)
+    p.wait_for_timeout(400)
+    p.get_by_role("button", name=re.compile(r"^\s*Simpan\s*$")).filter(visible=True).first.click()
+    G.card(p, title).wait_for(timeout=15000)
+    check("11a note baru offline tersimpan lokal, belum ada di server", len(server_notes(base, user, title)) == 0)
+    G.open_editor(p, title)
+    ctx.set_offline(False)
+    p.net.offline = False
+    p.wait_for_timeout(500)
+    n_posts = len(p.net.posts)
+    clear_toasts(p)
+    media_btn = p.locator("button.note-media-insert-btn").filter(visible=True).first
+    pick_via_chooser(p, lambda: media_btn.click(), {"name": "cid-foto.png", "mimeType": "image/png", "buffer": SMALL_PNG})
+    up = wait_until(p, lambda: len(p.net.posts) == n_posts + 1, 12000)
+    srv = server_notes(base, user, title)
+    check("11b online: note cid didorong ke server (id server ada)", len(srv) == 1, [n.get("id") for n in srv])
+    check("11c gambar diunggah ke /api/scratchpad/<id server>/attachments + toast unggah",
+          bool(up) and bool(srv) and ("/api/scratchpad/%s/attachments" % srv[0]["id"]) in p.net.posts[-1][0]
+          and TOAST_UPLOAD in toasts(p), (p.net.posts[n_posts:], toasts(p)))
+    att_id = p.net.posts[-1][2] if up else None
+    sel = ".ProseMirror img[src='/api/scratchpad/attachments/%s/view']" % att_id
+    check("11d gambar lampiran tersisip (bukan data URL) dan tanpa toast batas/galat",
+          bool(wait_until(p, lambda: p.locator(sel).count() == 1, 6000)) and
+          p.locator(".ProseMirror img[src^='data:']").count() == 0 and TOAST_1MB not in toasts(p), toasts(p))
 
 
 # ── langkah 9: halaman Sketsa ─────────────────────────────────────────────────────────────────
@@ -493,6 +648,10 @@ def step10(p):
         if vw < 500:
             scroll_toolbar_to_file(p)  # toolbar HP bisa di-scroll horizontal; tampilkan Sketsa…File di layar
         s = sisipkan_items(p)
+        m = G.menu_metrics(p)
+        check("10-%s menu tanpa scroll dan utuh di viewport (Wikilink terlihat)" % tag, m["sh"] <= m["ch"] and m["top"] >= 0
+              and m["bottom"] <= m["vh"] and m["left"] >= 0 and m["right"] <= m["vw"],
+              (m["sh"], m["ch"], m["top"], m["bottom"], m["vh"]))
         for theme in ("light", "dark"):
             p.evaluate("(t) => document.documentElement.setAttribute('data-theme', t)", theme)
             p.wait_for_timeout(250)
@@ -541,16 +700,23 @@ def main():
             run_step("4", step4, p)
             run_step("5", step5, p)
             run_step("6", step6, p)
+            run_step("6r", step6r, p)
             run_step("7", step7, p, ctx)
             check("A (langkah 1–7): tanpa pageerror", not p.errors, p.errors[:3])
             ctx.close()
             # 8: TaskFormModal
             ctx, p = open_app(browser, base, A)
             run_step("8", step8, p)
+            run_step("8q", step8q, p, base, A)
             check("B (langkah 8): tanpa pageerror", not p.errors, p.errors[:3])
             # 9: halaman Sketsa + modal sisip (konteks yang sama, mulai dari muat ulang)
             run_step("9", step9, p, base)
             check("C (langkah 9): tanpa pageerror", not p.errors, p.errors[:3])
+            ctx.close()
+            # 11: NoteModal pada note cid (dibuat offline) → online → unggah ke id server
+            ctx, p = open_app(browser, base, A)
+            run_step("11", step11, p, ctx, base, A)
+            check("E (langkah 11): tanpa pageerror", not p.errors, p.errors[:3])
             ctx.close()
             # 10: screenshot
             ctx, p = open_app(browser, base, A)
