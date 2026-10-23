@@ -6,7 +6,8 @@ mengikuti dua rilis uji tanpa me-restart uvicorn; profil baru (N) untuk login di
          taskflow-v998-e2e. /api/version langsung melaporkan rilis; banner muncul, satu klik → v998; lalu
          visibilitychange + checkForAppUpdate() → tidak ada banner selama 5 dtk (di main /api/version masih
          versi awal → banner kembali).
-  w0–w3  banner hanya dari SW menunggu (bug B): rilis taskflow-v999-e2e, server melaporkan v999 (main: literal
+  w0–w3  banner hanya dari SW menunggu (bug B): halaman dimuat ulang dulu tanpa banner sisa fase d, lalu
+         rilis taskflow-v999-e2e, server melaporkan v999 (main: literal
          `sw_cache` di webapp.py salinan dinaikkan + restart, seperti deploy yang benar). Unduhan tailwind milik
          install SW baru DITAHAN → selama installing tidak boleh ada banner; setelah dilepas banner muncul dengan
          reg.waiting; satu klik → v999; checkForAppUpdate() → tidak ada banner selama 5 dtk.
@@ -280,7 +281,7 @@ OBSERVE_JS = """() => {
         if (window.__e2eBanner.length || !document.querySelector('.update-notification-banner')) return;
         const r = window.__SW_REGISTRATION;
         window.__e2eBanner.push({ waiting: !!(r && r.waiting), installing: !!(r && r.installing),
-                                  page: window.__SW_VERSION });
+                                  page: window.__SW_VERSION, t: Date.now() });
     };
     window.__e2eObs = new MutationObserver(rec);
     window.__e2eObs.observe(document.body, { childList: true, subtree: true });
@@ -419,43 +420,56 @@ def main():
 
             # ── w: banner hanya dari SW menunggu (bug B) ─────────────────────────────────────────────
             def scen_w():
+                # Mulai bersih: banner sisa fase d (main: d3 berakhir dengan banner) tidak boleh terbawa ke w1.
+                # Muat ulang SEBELUM rilis v999 supaya pemuatan ini tidak menemukan SW baru.
+                page.reload()
+                wait_app(page)
+                leftover = page.locator(".update-notification-banner")
+                if leftover.count():
+                    leftover.get_by_role("button", name="Tutup").click()
+                    leftover.wait_for(state="detached", timeout=5000)
+                clean = page.locator(".update-notification-banner").count() == 0
                 cur = page.evaluate("window.__SW_VERSION")
                 release(app_dir, cur, V2)
                 restarted = server_literal(app_dir, V2)
                 if restarted:
                     srv.restart()
                 api = api_version(base)
-                check("w0 /api/version = %s (%s)" % (V2, "literal sw_cache dinaikkan + restart" if restarted
-                                                      else "tanpa restart"), api == V2, "server melaporkan %s" % api)
+                check("w0 /api/version = %s (%s); halaman %s tanpa banner sebelum w" % (
+                    V2, "literal sw_cache dinaikkan + restart" if restarted else "tanpa restart", cur),
+                    api == V2 and clean, "server melaporkan %s; tanpa banner: %s" % (api, clean))
                 held = []
+                inst, during, st_hold, first_click, t_trigger = False, [], None, None, None
                 ctx.route(HOLD, lambda route: held.append(route))
-                page.evaluate(OBSERVE_JS)
-                page.evaluate(TRIGGER_JS, False)
-                end = time.time() + 30
-                inst = False
-                while time.time() < end:
-                    inst = page.evaluate("!!(window.__SW_REGISTRATION && window.__SW_REGISTRATION.installing)")
-                    if inst and held:
-                        break
-                    page.wait_for_timeout(200)
-                page.wait_for_timeout(2000)
-                page.evaluate(TRIGGER_JS, False)  # pengguna berpindah tab lagi selama install
-                page.wait_for_timeout(2000)
-                during = banner_log(page)
-                st_hold = state(page)
-                first_click = None
-                if page.locator(".update-notification-banner").count():
-                    # Banner muncul selama install (perilaku lama): pengguna mengkliknya.
-                    shot(page, "w1-banner-saat-installing.png")
-                    click_banner(page)
-                    first_click = page.evaluate("window.__SW_VERSION")
-                ctx.unroute(HOLD)
-                for r in held:
-                    try:
-                        r.continue_()
-                    except PwError:
-                        pass
-                print("  install ditahan: installing=%s, request tailwind ditahan=%d" % (inst, len(held)), flush=True)
+                try:
+                    page.evaluate(OBSERVE_JS)
+                    t_trigger = page.evaluate("Date.now()")
+                    page.evaluate(TRIGGER_JS, False)
+                    end = time.time() + 30
+                    while time.time() < end:
+                        inst = page.evaluate("!!(window.__SW_REGISTRATION && window.__SW_REGISTRATION.installing)")
+                        if inst and held:
+                            break
+                        page.wait_for_timeout(200)
+                    page.wait_for_timeout(2000)
+                    page.evaluate(TRIGGER_JS, False)  # pengguna berpindah tab lagi selama install
+                    page.wait_for_timeout(2000)
+                    during = banner_log(page)
+                    st_hold = state(page)
+                    if page.locator(".update-notification-banner").count():
+                        # Banner muncul selama install (perilaku lama): pengguna mengkliknya.
+                        shot(page, "w1-banner-saat-installing.png")
+                        click_banner(page)
+                        first_click = page.evaluate("window.__SW_VERSION")
+                finally:
+                    ctx.unroute(HOLD)  # galat di tengah skenario tidak boleh membiarkan tailwind tertahan
+                    for r in held:
+                        try:
+                            r.continue_()
+                        except PwError:
+                            pass
+                print("  install ditahan: installing=%s, request tailwind ditahan=%d, picu pada t=%s"
+                      % (inst, len(held), t_trigger), flush=True)
                 if first_click is None:
                     page.locator(".update-notification-banner").wait_for(state="visible", timeout=90000)
                     after = banner_log(page)
@@ -469,7 +483,7 @@ def main():
                           nav and st["page"] == V2 and st["caches"] == [V2], st)
                 else:
                     check("w1 tanpa banner selama SW baru installing; banner muncul setelah reg.waiting", False,
-                          {"selama_ditahan": during, "state_ditahan": st_hold})
+                          {"picu_t": t_trigger, "selama_ditahan": during, "state_ditahan": st_hold})
                     check("w2 satu klik → __SW_VERSION = %s, cache %s saja" % (V2, V2), first_click == V2,
                           "klik saat installing → versi setelah reload %s; %s" % (first_click, state(page)))
                 ok, log = no_banner_for(page, 5000)
