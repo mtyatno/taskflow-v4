@@ -54,6 +54,19 @@ function constLine(name) {
   return m[0];
 }
 const CONSTS_SRC = () => constLine("MEDIA_INLINE_IMAGE_MAX_BYTES") + "\n" + constLine("NOTE_IMAGE_EXTS") + "\n";
+// id task note → id server (body mentah /api/scratchpad) + rewrite [tasklink:cid]; dipakai runner TaskFormModal
+const TASKID_SRC = () => constLine("MEDIA_PUSH_TIMEOUT_MS") + "\n" + blockAfter(html, "async function resolveTaskServerIds(") + "\n" +
+  blockAfter(html, "function rewriteTasklinkIds(") + "\n";
+// window.TF palsu: idmap (cid → sid) + taskrepo.getRaw (cid → {server_id}); __pushNow dicatat.
+function fakeTF(log, idmap, raws) {
+  return {
+    __pushNow: async () => { log.push("pushNow"); },
+    TF: {
+      idmap: { serverIdOf: async (cid) => { log.push("idmap " + cid); return idmap && idmap[cid]; } },
+      taskrepo: { getRaw: async (cid) => { log.push("raw " + cid); return raws && raws[cid]; } },
+    },
+  };
+}
 const toolbarSrc = () => slice("function NoteToolbar({", "\nfunction isSlashTriggerBefore(");
 const editorSrc = () => slice("function MilkdownEditor({", "\nfunction createDrawingPlugin(MB)");
 const noteModalSrc = () => slice("function NoteModal({", "\nfunction ");
@@ -514,8 +527,8 @@ test("NoteModal.handleImagePaste picker: note masih cid lokal + online → ensur
   assert.deepEqual(c.inserts, []);
 });
 
-async function runTaskFormPaste({ savedId, content, fetchImpl, file, opts, noShowToast, online = true }) {
-  const calls = { order: [], toasts: [], inserts: [], events: [], bodies: [] };
+async function runTaskFormPaste({ savedId, content, fetchImpl, file, opts, noShowToast, online = true, taskIds, idmap, raws }) {
+  const calls = { order: [], toasts: [], inserts: [], events: [], bodies: [], tf: [] };
   const view = {
     state: { tr: { replaceSelection: (sl) => ({ scrollIntoView: () => ({ md: sl }) }) } },
     dispatch: (x) => calls.inserts.push(x.md),
@@ -530,8 +543,9 @@ async function runTaskFormPaste({ savedId, content, fetchImpl, file, opts, noSho
     noteSavedIdRef: savedRef,
     noteForm: { title: "Judul", content: content || "" },
     notePaperConfig: {},
-    extractTaskIdsFromContent: () => [],
+    extractTaskIdsFromContent: () => (taskIds || []).slice(),
     __token: "tok",
+    setTimeout, clearTimeout,
     navigator: { onLine: online },
     apiUrl: (p) => "https://api.test" + p,
     FormData: class { append() {} },
@@ -542,11 +556,12 @@ async function runTaskFormPaste({ savedId, content, fetchImpl, file, opts, noSho
     },
     FileReader: FakeReader,
     CustomEvent: class { constructor(n) { this.type = n; } },
-    window: { MilkdownBundle: { editorViewCtx: "VIEW", parserCtx: "PARSER" }, dispatchEvent: (e) => calls.events.push(e.type) },
+    window: Object.assign({ MilkdownBundle: { editorViewCtx: "VIEW", parserCtx: "PARSER" }, dispatchEvent: (e) => calls.events.push(e.type) },
+      fakeTF(calls.tf, idmap, raws)),
   };
   if (noShowToast) sandbox.window.__showToast = toast; else sandbox.showToast = toast;
   vm.createContext(sandbox);
-  vm.runInContext(CONSTS_SRC() + blockAfter(taskFormSrc(), "const handleNoteImagePaste = ") + ";\nthis.fn = handleNoteImagePaste;", sandbox);
+  vm.runInContext(CONSTS_SRC() + TASKID_SRC() + blockAfter(taskFormSrc(), "const handleNoteImagePaste = ") + ";\nthis.fn = handleNoteImagePaste;", sandbox);
   await sandbox.fn(file, opts);
   calls.savedId = savedRef.current;
   return plain(calls);
@@ -631,20 +646,67 @@ test("TaskFormModal.handleNoteImagePaste picker: server menolak → toast detail
   assert.deepEqual(c.order, ["fetch https://api.test/api/scratchpad", "toast Judul terlalu panjang"]);
   assert.deepEqual(c.inserts, []);
   assert.equal(c.savedId, null);
+  // 422 validasi FastAPI: detail berupa ARRAY → pesan umum, bukan "[object Object]"
+  const create422 = async (url) => url.endsWith("/api/scratchpad")
+    ? { ok: false, status: 422, json: async () => ({ detail: [{ type: "int_parsing", loc: ["body", "linked_task_ids", 1], msg: "Input should be a valid integer", input: "c-1" }] }) }
+    : { ok: true, json: async () => ({ id: 4 }) };
+  c = await runTaskFormPaste({ savedId: null, content: "isi", fetchImpl: create422, file: { name: "k.png", size: 300 }, opts: PICK });
+  assert.deepEqual(c.toasts, [["Unggah gambar gagal", "error"]]);
+  assert.deepEqual(c.inserts, []);
   // tempel: server menolak → tetap fallback base64 seperti dulu
   c = await runTaskFormPaste({ savedId: 33, fetchImpl: tooLarge, file: { name: "k.png", size: 300 } });
   assert.deepEqual(c.toasts, []);
   assert.deepEqual(c.inserts, ["![k.png](data:image/png;base64,AAA)"]);
 });
 
+test("TaskFormModal.handleNoteImagePaste: id task cid (task belum di-push) → id server di body create; tak terselesaikan dibuang", async () => {
+  const c = await runTaskFormPaste({
+    savedId: null, content: "isi [tasklink:7] [tasklink:c-aa] \\[tasklink:c-bb\\] [tasklink:c-zz]", fetchImpl: createThenUpload,
+    file: { name: "f.png", size: 300 }, opts: PICK,
+    taskIds: [7, "c-aa", "c-bb", "c-zz"], idmap: { "c-aa": 41 }, raws: { "c-bb": { server_id: 42 } },
+  });
+  const body = c.bodies[0];
+  assert.deepEqual(body.linked_task_ids, [7, 41, 42], "hanya integer (server: list[int])");
+  assert.equal(body.linked_task_id, 7);
+  assert.equal(body.content, "isi [tasklink:7] [tasklink:41] \\[tasklink:42\\] [tasklink:c-zz]");
+  assert.equal(c.tf[0], "pushNow", "outbox didorong dulu agar task inline punya id server");
+  assert.deepEqual(c.inserts, ["![f.png](/api/scratchpad/attachments/4/view)"]);
+  const c2 = await runTaskFormPaste({ savedId: null, content: "isi", fetchImpl: createThenUpload, file: { name: "f.png", size: 300 }, opts: PICK, taskIds: [7] });
+  assert.deepEqual(c2.tf, [], "semua id sudah angka → tanpa pushNow / idmap");
+  assert.deepEqual(c2.bodies[0].linked_task_ids, [7]);
+});
+
+test("resolveTaskServerIds / rewriteTasklinkIds: angka lolos, cid → idmap lalu server_id task lokal, sisanya dibuang", async () => {
+  const log = [];
+  const sb = Object.assign({ setTimeout, clearTimeout }, { window: fakeTF(log, { "c-aa": 41 }, { "c-bb": { server_id: 42 }, "c-cc": { server_id: null } }) });
+  vm.createContext(sb);
+  vm.runInContext(TASKID_SRC() + "this.resolve = resolveTaskServerIds; this.rewrite = rewriteTasklinkIds;", sb);
+  const r = plain(await sb.resolve([7, "12", "c-aa", "c-bb", "c-cc", "c-zz", 7, "c-aa"]));
+  assert.deepEqual(r.ids, [7, 12, 41, 42]);
+  assert.deepEqual(r.map, { "c-aa": 41, "c-bb": 42 });
+  assert.equal(log.filter((x) => x === "pushNow").length, 1);
+  assert.equal(log[0], "pushNow");
+  assert.equal(sb.rewrite("a [tasklink:c-aa] [tasklink:c-aab] \\[tasklink:c-bb\\] [tasklink:c-zz]", r.map),
+    "a [tasklink:41] [tasklink:c-aab] \\[tasklink:42\\] [tasklink:c-zz]", "hanya tautan utuh");
+  assert.equal(sb.rewrite("tanpa", {}), "tanpa");
+  // tanpa TF / __pushNow menggantung → tetap selesai (batas waktu), cid dibuang
+  const sb2 = { setTimeout: (fn) => setImmediate(fn), clearTimeout: () => {}, window: { __pushNow: () => new Promise(() => {}) } };
+  vm.createContext(sb2);
+  vm.runInContext(TASKID_SRC() + "this.resolve = resolveTaskServerIds;", sb2);
+  assert.deepEqual(plain(await sb2.resolve([5, "c-x"])), { ids: [5], map: {} });
+});
+
 // ── Simpan quick-note TaskFormModal: gambar sudah membuat note server → perbarui note itu, bukan note kedua ──
-async function runQuickNoteSubmit({ savedId, fetchImpl, content }) {
-  const calls = { order: [], posts: [], events: [], saved: 0, alerts: [], loading: [], syncs: 0 };
+async function runQuickNoteSubmit({ savedId, fetchImpl, content, taskIds, idmap, raws, postImpl }) {
+  const calls = { order: [], posts: [], events: [], saved: 0, alerts: [], loading: [], syncs: 0, tf: [] };
+  const submittedRef = { current: false };
   const sandbox = {
     noteSavedIdRef: { current: savedId },
+    noteSubmittedRef: submittedRef,
+    setTimeout, clearTimeout,
     noteForm: { title: "Judul", content: content == null ? "isi #tag ![a](/api/scratchpad/attachments/4/view)" : content },
     notePaperConfig: { enabled: true },
-    extractTaskIdsFromContent: () => [7],
+    extractTaskIdsFromContent: () => (taskIds || [7]).slice(),
     __token: "tok",
     apiUrl: (p) => "https://api.test" + p,
     fetch: async (url, init) => {
@@ -652,19 +714,21 @@ async function runQuickNoteSubmit({ savedId, fetchImpl, content }) {
       calls.lastInit = { method: init.method, headers: init.headers, body: JSON.parse(init.body) };
       return fetchImpl(url, init);
     },
-    api: { post: async (url, body) => { calls.order.push("api.post " + url); calls.posts.push(body); return { id: "c1" }; } },
+    api: { post: async (url, body) => { calls.order.push("api.post " + url); calls.posts.push(body); if (postImpl) return postImpl(); return { id: "c1" }; } },
     setLoading: (v) => calls.loading.push(v),
     alert: (m) => calls.alerts.push(m),
     onSave: () => { calls.saved++; },
     CustomEvent: class { constructor(n) { this.type = n; } },
-    window: { dispatchEvent: (e) => calls.events.push(e.type), __syncNow: async () => { calls.syncs++; } },
+    window: Object.assign({ dispatchEvent: (e) => calls.events.push(e.type), __syncNow: async () => { calls.syncs++; } },
+      fakeTF(calls.tf, idmap, raws)),
   };
   vm.createContext(sandbox);
   const tf = taskFormSrc();
   const block = blockAfter(tf, 'if (mode === "note")', tf.indexOf("const handleSubmit = async (e, opts) => {"));
-  vm.runInContext("this.fn = async function () { const mode = 'note';\n" + block + "\n};", sandbox);
+  vm.runInContext(TASKID_SRC() + "this.fn = async function () { const mode = 'note';\n" + block + "\n};", sandbox);
   await sandbox.fn();
   await new Promise((r) => setImmediate(r));
+  calls.submitted = submittedRef.current;
   return plain(calls);
 }
 const EXPECTED_NOTE_BODY = {
@@ -695,6 +759,23 @@ test("TaskFormModal simpan quick-note: gambar sudah membuat note server → PUT 
   assert.deepEqual(c.events, ["noteSaved"]);
   assert.equal(c.saved, 1);
   assert.deepEqual(c.alerts, []);
+  assert.equal(c.submitted, true, "simpan sukses → note server TIDAK dihapus saat modal ditutup");
+});
+
+test("TaskFormModal simpan quick-note: PUT mentah memetakan id task cid → id server; api.post lokal tetap memakai cid", async () => {
+  const content = "isi [tasklink:7] [tasklink:c-aa] [tasklink:c-zz]";
+  let c = await runQuickNoteSubmit({ savedId: 33, content, taskIds: [7, "c-aa", "c-zz"], idmap: { "c-aa": 41 },
+    fetchImpl: async () => ({ ok: true, json: async () => ({ id: 33 }) }) });
+  assert.deepEqual(c.lastInit.body.linked_task_ids, [7, 41]);
+  assert.equal(c.lastInit.body.linked_task_id, 7);
+  assert.equal(c.lastInit.body.content, "isi [tasklink:7] [tasklink:41] [tasklink:c-zz]");
+  assert.deepEqual(c.order, ["PUT https://api.test/api/scratchpad/33"]);
+  c = await runQuickNoteSubmit({ savedId: 33, content, taskIds: [7, "c-aa", "c-zz"], idmap: { "c-aa": 41 },
+    fetchImpl: async () => { throw new TypeError("Failed to fetch"); } });
+  assert.deepEqual(c.posts[0].linked_task_ids, [7, "c-aa", "c-zz"], "router lokal menerima cid (S15)");
+  assert.equal(c.posts[0].content, content);
+  c = await runQuickNoteSubmit({ savedId: null, content, taskIds: [7, "c-aa"], idmap: { "c-aa": 41 }, fetchImpl: async () => assert.fail() });
+  assert.deepEqual(c.tf, [], "tanpa note server: tidak perlu memetakan id task");
 });
 
 test("TaskFormModal simpan quick-note: PUT gagal (jaringan / non-ok) → api.post lokal agar isi tidak hilang", async () => {
@@ -706,6 +787,50 @@ test("TaskFormModal simpan quick-note: PUT gagal (jaringan / non-ok) → api.pos
   c = await runQuickNoteSubmit({ savedId: 33, fetchImpl: async () => ({ ok: false, status: 404, json: async () => ({ detail: "Note not found" }) }) });
   assert.deepEqual(c.order, ["PUT https://api.test/api/scratchpad/33", "api.post /api/scratchpad"]);
   assert.equal(c.saved, 1);
+  assert.equal(c.submitted, true, "isi lokal merujuk lampiran note server → jangan dihapus");
+  c = await runQuickNoteSubmit({ savedId: 33, fetchImpl: async () => { throw new TypeError("x"); }, postImpl: async () => { throw new Error("gagal lokal"); } });
+  assert.equal(c.saved, 0);
+  assert.equal(c.submitted, false, "simpan gagal → tetap dianggap belum tersimpan");
+});
+
+// ── Modal ditutup tanpa simpan sukses → note server yatim (dibuat demi lampiran) dihapus ──
+function runDiscard(serverId, submitted, fetchImpl) {
+  const calls = { order: [], inits: [], syncs: 0 };
+  const sb = {
+    __token: "tok",
+    apiUrl: (p) => "https://api.test" + p,
+    fetch: (url, init) => { calls.order.push(init.method + " " + url); calls.inits.push(init); return (fetchImpl || (async () => ({ ok: true })))(url, init); },
+    window: { __syncNow: async () => { calls.syncs++; } },
+  };
+  vm.createContext(sb);
+  vm.runInContext(blockAfter(html, "function discardOrphanQuickNote(") + "\nthis.fn = discardOrphanQuickNote;", sb);
+  const ret = sb.fn(serverId, submitted);
+  return { calls, ret };
+}
+
+test("discardOrphanQuickNote: DELETE note server bila belum disimpan; tidak setelah simpan / id lokal / kosong", async () => {
+  let r = runDiscard(33, false);
+  await r.ret;
+  assert.deepEqual(r.calls.order, ["DELETE https://api.test/api/scratchpad/33"]);
+  assert.equal(r.calls.inits[0].headers.Authorization, "Bearer tok");
+  assert.equal(r.calls.syncs, 1, "sync agar note yang sempat diadopsi lokal ikut hilang");
+  for (const [id, sub] of [[33, true], [null, false], ["c-uuid", false], ["0", false], [undefined, false]]) {
+    r = runDiscard(id, sub);
+    assert.equal(r.ret, null);
+    assert.deepEqual(r.calls.order, [], String(id) + "/" + sub);
+  }
+  r = runDiscard("33", false, async () => { throw new TypeError("Failed to fetch"); });
+  await r.ret; // gagal diabaikan (tidak melempar)
+  assert.deepEqual(r.calls.order, ["DELETE https://api.test/api/scratchpad/33"]);
+  assert.equal(r.calls.syncs, 0);
+});
+
+test("TaskFormModal: unmount tanpa simpan sukses → discardOrphanQuickNote; noteSubmittedRef di-set setelah simpan note", () => {
+  const tf = taskFormSrc();
+  assert.match(tf, /const noteSubmittedRef = React\.useRef\(false\);/);
+  assert.match(tf, /React\.useEffect\(\(\) => \(\) => \{\s*discardOrphanQuickNote\(noteSavedIdRef\.current, noteSubmittedRef\.current\);\s*\}, \[\]\);/);
+  const block = blockAfter(tf, 'if (mode === "note")', tf.indexOf("const handleSubmit = async (e, opts) => {"));
+  assert.ok(block.indexOf("noteSubmittedRef.current = true;") < block.indexOf("onSave();"), "ditandai sebelum onSave (modal ditutup)");
 });
 
 // ── Alias ketik "/sketsa": "gambar" kini berarti foto → bukan alias sketsa lagi ──

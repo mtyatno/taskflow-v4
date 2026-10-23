@@ -29,6 +29,10 @@ Langkah:
      tidak ada gambar tersisip, tanpa data URL
   8q quick-note TaskFormModal: isi kosong + PNG > 1 MB via Media (online) → note server dibuat + diunggah; "Simpan
      Note" → TEPAT satu note (server dan daftar lokal), isi memuat lampiran
+  8t quick-note: task inline baru (cid lokal) via "/" Task lalu Media PNG → note server dibuat (bukan 422), simpan →
+     satu note; linked_task_ids server = id server task, isi memuat [tasklink:<id server>]
+  8x quick-note: isi kosong + Media PNG (note server dibuat demi lampiran) lalu "Batal" → note server dihapus (Sampah),
+     daftar Notes tanpa note baru setelah sinkron
   11 NoteModal pada note yang baru tersimpan lokal (cid, dibuat offline) lalu online: Media PNG → id server via
      push outbox, diunggah ke /api/scratchpad/<id server>/attachments (bukan data URL)
   10 screenshot toolbar + slash menu terbuka: terang & gelap × desktop 1280 & HP 375 → temporary_files/e2e_istilah_sketsa_media/
@@ -535,6 +539,87 @@ def step8q(p, base, user):
           and len(server_notes(base, user, title)) == 1, (local_cards(p, title), len(server_notes(base, user, title))))
 
 
+def open_quick_note(p, title):
+    p.get_by_role("button", name=re.compile("Buat Baru")).filter(visible=True).first.click()
+    p.get_by_role("button", name=re.compile(r"^\s*Note\s*$")).first.click()
+    p.wait_for_function("() => window.MilkdownBundle && document.querySelector('.ProseMirror[contenteditable=true]')", timeout=15000)
+    p.wait_for_timeout(1500)
+    p.locator("input[placeholder='Judul catatan...']").filter(visible=True).first.fill(title)
+    p.wait_for_timeout(300)
+
+
+def server_tasks(base, user, title):
+    r = G.requests.get(base + "/api/tasks", headers={"Authorization": "Bearer " + user["token"]})
+    r.raise_for_status()
+    j = r.json()
+    rows = j if isinstance(j, list) else (j.get("items") or j.get("tasks") or [])
+    return [t for t in rows if t.get("title") == title]
+
+
+def step8t(p, base, user):
+    """Quick-note + task inline (cid lokal) + gambar → body mentah memakai id server task (bukan 422)."""
+    title, ttl = "Quick Task E2E", "Tugas Inline E2E"
+    open_quick_note(p, title)
+    G.new_line_and(p, "/")
+    p.locator(MENU).wait_for(timeout=5000)
+    G.click_item(p, "Task")
+    q = p.locator("input[placeholder='Cari task...']").filter(visible=True).first
+    q.wait_for(timeout=5000)
+    q.fill(ttl)
+    q.press("Enter")
+    linked = wait_until(p, lambda: p.locator(".ProseMirror .tasklink-node, .ProseMirror .tasklink-node-fallback").count() > 0, 8000)
+    check("8t-a task inline baru tersisip sebagai tasklink di quick-note", bool(linked))
+    p.wait_for_timeout(600)  # debounce markdownUpdated → noteForm.content memuat [tasklink:<cid>]
+    n_posts = len(p.net.posts)
+    clear_toasts(p)
+    media_btn = p.locator("button.note-media-insert-btn").filter(visible=True).first
+    pick_via_chooser(p, lambda: media_btn.click(), {"name": "quick-task.png", "mimeType": "image/png", "buffer": SMALL_PNG})
+    up = wait_until(p, lambda: len(p.net.posts) == n_posts + 1, 12000)
+    pre = server_notes(base, user, title)
+    check("8t-b note server dibuat (bukan 422) dan gambar diunggah; tanpa toast galat",
+          bool(up) and len(pre) == 1 and "Unggah gambar gagal" not in toasts(p), (len(pre), toasts(p)))
+    p.wait_for_timeout(1000)
+    p.get_by_role("button", name=re.compile(r"^\s*Simpan Note\s*$")).first.click()
+    wait_until(p, lambda: p.locator("input[placeholder='Judul catatan...']").filter(visible=True).count() == 0, 8000)
+    p.wait_for_timeout(1500)
+    post = server_notes(base, user, title)
+    tasks = server_tasks(base, user, ttl)
+    tid = tasks[0]["id"] if tasks else None
+    check("8t-c server: tepat satu note dan task inline sudah ber-id server", len(post) == 1 and tid is not None,
+          ([n.get("id") for n in post], [t.get("id") for t in tasks]))
+    note = post[0] if post else {}
+    check("8t-d linked_task_ids note server = [id server task]", note.get("linked_task_ids") == [tid],
+          (note.get("linked_task_ids"), tid))
+    check("8t-e isi note server memuat [tasklink:<id server>] (bukan cid)", ("tasklink:%s" % tid) in (note.get("content") or "")
+          and not re.search(r"tasklink:[0-9a-f]{8}-", note.get("content") or ""), note.get("content"))
+    G.go_notes(p)
+    check("8t-f daftar lokal: satu kartu quick-task", bool(wait_until(p, lambda: local_cards(p, title) == 1, 20000)), local_cards(p, title))
+
+
+def step8x(p, base, user):
+    """Quick-note: gambar membuat note server lalu modal dibatalkan → note itu dihapus, tanpa kartu kosong."""
+    title = "Quick Batal E2E"
+    open_quick_note(p, title)
+    n_posts = len(p.net.posts)
+    media_btn = p.locator("button.note-media-insert-btn").filter(visible=True).first
+    pick_via_chooser(p, lambda: media_btn.click(), {"name": "batal.png", "mimeType": "image/png", "buffer": SMALL_PNG})
+    up = wait_until(p, lambda: len(p.net.posts) == n_posts + 1, 10000)
+    check("8x-a sebelum batal: note server dibuat demi lampiran", bool(up) and len(server_notes(base, user, title)) == 1,
+          len(server_notes(base, user, title)))
+    p.wait_for_timeout(500)
+    p.get_by_role("button", name=re.compile(r"^\s*Batal\s*$")).filter(visible=True).first.click()
+    gone = wait_until(p, lambda: len(server_notes(base, user, title)) == 0, 8000)
+    check("8x-b 'Batal' → note server yatim dihapus", bool(gone), len(server_notes(base, user, title)))
+    G.go_notes(p)
+    p.locator(".note-card").first.wait_for(timeout=20000)
+    p.evaluate("() => window.__syncNow && window.__syncNow()")
+    p.wait_for_timeout(2500)
+    check("8x-c daftar Notes tanpa note baru setelah sinkron", local_cards(p, title) == 0, local_cards(p, title))
+    tr = G.requests.get(base + "/api/scratchpad/trash", headers={"Authorization": "Bearer " + user["token"]})
+    check("8x-d note ada di Sampah (bisa dipulihkan)", tr.ok and any((x.get("title") == title) for x in (tr.json() or [])),
+          tr.status_code)
+
+
 def step11(p, ctx, base, user):
     """NoteModal: note baru tersimpan lokal (cid) saat offline, lalu online → gambar pilihan diunggah ke id server."""
     title = "Note Cid E2E"
@@ -708,6 +793,8 @@ def main():
             ctx, p = open_app(browser, base, A)
             run_step("8", step8, p)
             run_step("8q", step8q, p, base, A)
+            run_step("8t", step8t, p, base, A)
+            run_step("8x", step8x, p, base, A)
             check("B (langkah 8): tanpa pageerror", not p.errors, p.errors[:3])
             # 9: halaman Sketsa + modal sisip (konteks yang sama, mulai dari muat ulang)
             run_step("9", step9, p, base)

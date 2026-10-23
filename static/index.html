@@ -6030,6 +6030,12 @@ function TaskFormModal({
   const noteContentRef = React.useRef(null);
   const noteMilkdownRef = React.useRef(null);
   const noteSavedIdRef = React.useRef(null);
+  // true setelah simpan note sukses. Modal ditutup (batal/X/Esc, atau unggahan ditolak lalu ditinggal) sebelum itu,
+  // padahal gambar sudah membuat note server (noteSavedIdRef) → note yatim itu dihapus (lihat discardOrphanQuickNote).
+  const noteSubmittedRef = React.useRef(false);
+  React.useEffect(() => () => {
+    discardOrphanQuickNote(noteSavedIdRef.current, noteSubmittedRef.current);
+  }, []);
   // Pemilih file toolbar note ({ media, file }) — dipakai item "Media" menu blok editor.
   const notePickRef = React.useRef(null);
   const [noteDrawingInsertOpen, setNoteDrawingInsertOpen] = useState(false);
@@ -6645,10 +6651,11 @@ function TaskFormModal({
     if (tryServer && !noteId && (noteForm.content.trim() || fromPicker)) {
       try {
         var autoTags = [...new Set((noteForm.content.match(/#([a-zA-Z0-9_À-ɏ]+)/g) || []).map(function(t) { return t.slice(1).toLowerCase().trim(); }))].filter(Boolean);
-        var noteTaskIds = extractTaskIdsFromContent(noteForm.content);
+        // id task cid (task inline belum di-push) → id server; body mentah tidak lewat router lokal
+        var taskSrv = await resolveTaskServerIds(extractTaskIdsFromContent(noteForm.content));
         var hdrs = { 'Content-Type': 'application/json' };
         if (typeof __token !== 'undefined' && __token) hdrs['Authorization'] = 'Bearer ' + __token;
-        var createRes = await fetch(apiUrl('/api/scratchpad'), { method: 'POST', headers: hdrs, body: JSON.stringify({ title: noteForm.title, content: noteForm.content, tags: autoTags, linked_task_ids: noteTaskIds, linked_task_id: noteTaskIds[0] || null, meta_json: JSON.stringify({ paper_mode: notePaperConfig }) }) });
+        var createRes = await fetch(apiUrl('/api/scratchpad'), { method: 'POST', headers: hdrs, body: JSON.stringify({ title: noteForm.title, content: rewriteTasklinkIds(noteForm.content, taskSrv.map), tags: autoTags, linked_task_ids: taskSrv.ids, linked_task_id: taskSrv.ids[0] || null, meta_json: JSON.stringify({ paper_mode: notePaperConfig }) }) });
         if (createRes.ok) {
           var created = await createRes.json();
           noteId = created.id;
@@ -6883,9 +6890,16 @@ function TaskFormModal({
         let updatedServerNote = false;
         if (serverNoteId && /^\d+$/.test(String(serverNoteId))) {
           try {
+            // body mentah: id task cid → id server (server: list[int]); router lokal (fallback) tetap menerima cid
+            const taskSrv = await resolveTaskServerIds(noteTaskIds);
+            const putBody = Object.assign({}, noteBody, {
+              content: rewriteTasklinkIds(noteForm.content, taskSrv.map),
+              linked_task_ids: taskSrv.ids,
+              linked_task_id: taskSrv.ids[0] || null
+            });
             const hdrs = { 'Content-Type': 'application/json' };
             if (typeof __token !== 'undefined' && __token) hdrs['Authorization'] = 'Bearer ' + __token;
-            const putRes = await fetch(apiUrl('/api/scratchpad/' + serverNoteId), { method: 'PUT', headers: hdrs, body: JSON.stringify(noteBody) });
+            const putRes = await fetch(apiUrl('/api/scratchpad/' + serverNoteId), { method: 'PUT', headers: hdrs, body: JSON.stringify(putBody) });
             updatedServerNote = !!putRes.ok;
           } catch (_) {}
         }
@@ -6894,6 +6908,8 @@ function TaskFormModal({
         } else {
           await api.post("/api/scratchpad", noteBody);
         }
+        // tersimpan (PUT atau lokal; isi lokal bisa merujuk lampiran note server) → jangan hapus saat modal ditutup
+        noteSubmittedRef.current = true;
         window.dispatchEvent(new CustomEvent("noteSaved"));
         onSave();
       } catch (err) {
@@ -27657,6 +27673,72 @@ async function ensureServerNoteId(noteId) {
   }
   const n = Number(sid);
   return sid != null && sid !== '' && Number.isInteger(n) && n > 0 ? n : null;
+}
+// Quick-note TaskFormModal yang bicara LANGSUNG ke server (note dibuat demi id lampiran gambar): id task dari
+// extractTaskIdsFromContent boleh cid (task inline belum di-push), padahal server menerima linked_task_ids
+// list[int] (cid → 422). Seperti syncpush.linkedTaskServerIds: angka lolos; cid → dorong outbox sekali (maks
+// MEDIA_PUSH_TIMEOUT_MS) lalu idmap / server_id baris task lokal; yang tak terselesaikan dibuang.
+// → { ids: [int unik], map: { cid: sid } } (map dipakai rewriteTasklinkIds pada isi note).
+async function resolveTaskServerIds(ids) {
+  const list = Array.isArray(ids) ? ids : [];
+  const isNum = x => /^\d+$/.test(String(x));
+  const w = typeof window !== 'undefined' ? window : {};
+  if (list.some(x => !isNum(x)) && typeof w.__pushNow === 'function') {
+    let timer = null;
+    await Promise.race([
+      Promise.resolve().then(() => w.__pushNow()).catch(() => null),
+      new Promise(res => { timer = setTimeout(res, MEDIA_PUSH_TIMEOUT_MS); })
+    ]);
+    clearTimeout(timer);
+  }
+  const TF = w.TF || {};
+  const out = [];
+  const map = {};
+  for (const id of list) {
+    let n = null;
+    if (isNum(id)) n = Number(id);
+    else if (id != null && id !== '') {
+      const cid = String(id);
+      let sid = null;
+      try { if (TF.idmap && typeof TF.idmap.serverIdOf === 'function') sid = await TF.idmap.serverIdOf(cid); } catch (_) { sid = null; }
+      if (sid == null) {
+        try {
+          const raw = TF.taskrepo && typeof TF.taskrepo.getRaw === 'function' ? await TF.taskrepo.getRaw(cid) : null;
+          if (raw && raw.server_id != null) sid = raw.server_id;
+        } catch (_) {}
+      }
+      if (sid != null && isNum(sid)) { n = Number(sid); map[cid] = n; }
+    }
+    if (n != null && n > 0 && out.indexOf(n) === -1) out.push(n);
+  }
+  return { ids: out, map };
+}
+// [tasklink:<cid>] → [tasklink:<sid>] (juga bentuk ter-escape \[tasklink:…\]); hanya tautan utuh (seperti
+// noterepo.rewriteTaskLinks), supaya note server yang diadopsi pull merujuk task lewat id server.
+function rewriteTasklinkIds(content, map) {
+  let out = String(content == null ? '' : content);
+  for (const cid of Object.keys(map || {})) {
+    const esc = cid.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp('(\\\\?\\[tasklink:)' + esc + '(\\\\?\\])', 'g'), '$1' + map[cid] + '$2');
+  }
+  return out;
+}
+// TaskFormModal ditutup TANPA simpan note sukses, padahal gambar (tempel/Media) sudah membuat note di server
+// demi id lampiran → hapus note itu (masuk Sampah, bisa dipulihkan) agar pull tidak mengadopsi kartu kosong/basi.
+// Hanya id server (angka); gagal diabaikan. Sukses → sync supaya salinan lokal yang sempat diadopsi ikut hilang.
+function discardOrphanQuickNote(serverId, submitted) {
+  if (submitted) return null;
+  const s = serverId == null ? '' : String(serverId);
+  if (!/^\d+$/.test(s) || Number(s) <= 0) return null;
+  try {
+    const hdrs = {};
+    if (typeof __token !== 'undefined' && __token) hdrs['Authorization'] = 'Bearer ' + __token;
+    return fetch(apiUrl('/api/scratchpad/' + s), { method: 'DELETE', headers: hdrs })
+      .then(res => { if (res && res.ok && typeof window.__syncNow === 'function') return window.__syncNow(); })
+      .catch(() => null);
+  } catch (_) {
+    return null;
+  }
 }
 // Alur sisip: validasi → id server (null → toast, TANPA direktif) → direktif ke editor → mulai unggah.
 // insert(md) harus mengembalikan true bila direktif benar-benar masuk; selain itu unggahan tidak dimulai.
