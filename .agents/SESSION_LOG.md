@@ -4120,3 +4120,9 @@
 - **Verifikasi:** npm 3118/3117 (pra-ada `draw_local_reactive`); pytest 1211 passed 3 skipped; PROTOCOL §4 33 passed; inline OK; E2E 68/0, 101/0, 31/0, 36/0.
 - **Files Touch:** static/index.html, static/sw.js, static/whatsnew.json, tests/offline/*.test.js, tests/test_static_revalidate.py, temporary_files/e2e_focus_page.py, temporary_files/e2e_focus_header_strip.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — di-push, siap merge.
+
+## [2026-10-23 09:35] - Claude
+- **Task:** Merge dan deploy PR #94 (Sketsa/Media/toolbar fluid) dan #95 (halaman Fokus) atas instruksi Bapak.
+- **Changes:** #94 di-merge main 3031fe0 (#93) → v467 `taskflow-v467-istilah-sketsa-media`, app.css 365 + entri whatsnew; CI hijau, merge 4e8b623. #95 di-merge main 4e8b623 → v468 `taskflow-v468-fokus-parkir-toast`, app.css 366 + entri whatsnew; CI hijau, merge 45822d2. Deploy Taskflow V4 sukses untuk keduanya.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — tinggal restart `taskflow-web` sekali.
