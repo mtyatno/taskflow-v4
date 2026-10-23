@@ -255,7 +255,8 @@ test("Task 1: Vendor Assets, Styling, and Markdown Parser for Rich Blocks", asyn
     assert.match(block, /schema\.nodes\.blockquote/);
     assert.match(block, /\[!NOTE\]/);
     assert.match(indexHtml, /\.use\(createCalloutBlockquotePlugin\(\)\)/, "editor uses the callout node view");
-    assert.match(indexHtml, /defaultValueCtx, repairQuoteMarkdown\(/, "editor repairs escaped quotes on load");
+    assert.match(indexHtml, /defaultValueCtx, repairNoteMarkdown\(/, "editor repairs escaped quotes on load");
+    assert.match(indexHtml, /function repairNoteMarkdown\(md\) \{[\s\S]{0,240}return repairQuoteMarkdown\(/, "repairNoteMarkdown tetap memanggil repairQuoteMarkdown");
     assert.match(appCss, /blockquote\.note-callout-editing::before\s*\{[^}]*attr\(data-callout-icon\)/);
   });
 

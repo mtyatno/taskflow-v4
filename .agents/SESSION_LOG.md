@@ -4043,3 +4043,35 @@
 - **Files Touch:** static/sw.js, static/index.html (versi), webapp.py (`sw_cache`), tests/offline/sw_precache_shell.test.js, tests/test_sw_precache_node.py, tests/test_static_revalidate.py, tests/test_version.py + pin versi, temporary_files/e2e_sw_precache_shell.py, .gitignore, docs/superpowers/specs/2026-10-22-sw-precache-shell-design.md, docs/superpowers/plans/2026-10-22-sw-precache-shell.md, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Verifikasi:** npm 2989/2988 (pra-ada `draw_local_reactive`); pytest 1162 passed 1 skipped; inline OK; E2E branch 13/13, main 8/13.
 - **Status:** Needs Review — draft PR, tunggu "merge dan deploy".
+
+
+## [2026-10-23 04:52] - Claude
+- **Task:** Merge PR #90 (precache shell SW atomik + revalidasi) atas instruksi Bapak ("merge").
+- **Changes:** main tidak bergerak sejak d36ac63, CI hijau di 5ea96f5a, PR ditandai ready lalu di-merge (059aa81c), Deploy Taskflow V4 sukses. SW v464 `taskflow-v464-sw-precache-shell`, app.css 362. PR #89 dan #84 perlu nomor SW berikutnya (v465+).
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — tinggal restart `taskflow-web` di server.
+## 2026-10-23 00:30 WIB — Claude — bug lampiran gambar 📎 editor note
+- **Task:** laporan Bapak: unggah gambar dari editor note tanpa indikator, hasilnya teks `![…](…)`, tetap teks setelah disimpan.
+- **Changes:** sisip lampiran lewat parser editor (bukan teks mentah), indikator unggah XHR dengan %, galat via toast, pemulihan note lama yang ter-escape; helper `static/offline/noteattach.js` + tes; SW v465 / `app.css?v=363`; E2E `temporary_files/e2e_note_image_attach.py` 11/11 (main lama 3/11).
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, static/offline/noteattach.js, webapp.py, tests/test_version.py, tests/offline/*.test.js, temporary_files/e2e_note_image_attach.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR; deploy = file statis + restart `taskflow-web` saja)
+
+## 2026-10-23 05:10 WIB — Claude — merge bug lampiran gambar 📎 (#89)
+- Bapak memilih "Merge #89 saja dulu". Dua kali merge `main` (#88 v463, #90 v464) → SW **v465** `taskflow-v465-note-lampiran-gambar` / `app.css?v=363`; CI Tests hijau di 5109987; #89 di-merge (f61c3c8).
+- **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web`. Masih terbuka: gambar note 401 di browser tanpa cookie (opsi di CURRENT_STATE).
+
+## 2026-10-23 05:40 WIB — Claude — Nextcloud lampiran note di thread terpisah
+- **Task:** Bapak: fast track — panggilan Nextcloud dijalankan di thread terpisah; lalu lampiran note baru ke disk VPS (PR berikutnya).
+- **Changes:** `asyncio.to_thread` untuk upload/view/delete/pub lampiran note + ekspor DOCX; tes `tests/test_nextcloud_offloop.py` (5, gagal di kode lama); pytest 1167.
+- **Files Touch:** webapp.py, tests/test_nextcloud_offloop.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR; deploy = restart `taskflow-web` saja)
+
+## 2026-10-23 06:30 WIB — Claude — lampiran note baru ke disk VPS
+- **Task:** Bapak: setelah fast track (#91), lampiran note baru disimpan di disk VPS seperti file workspace, Nextcloud keluar dari jalur unggah.
+- **Changes:** `storage='upload'` di `UPLOAD_DIR` untuk unggah/tampil/pub/hapus/DOCX/Sampah; baris lama tetap Nextcloud; tes `tests/test_note_attachment_disk.py` (12) + `test_nextcloud_offloop.py` ke baris lama; E2E 12/12; pytest 1179.
+- **Files Touch:** webapp.py, tests/test_note_attachment_disk.py, tests/test_nextcloud_offloop.py, temporary_files/e2e_note_image_attach.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR berisi #91; deploy = restart `taskflow-web` saja)
+
+## 2026-10-23 05:55 WIB — Claude — merge Nextcloud di thread (#91) + lampiran note ke disk (#92)
+- Bapak: "merge". #91 di-merge (34c804f), lalu #92 (850a930); CI Tests hijau di head masing-masing (f85cfba, e7349b4).
+- **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web`. Cek: unggah gambar 📎 di note → file baru muncul di `uploads/` (nama hex 32 karakter), bukan di Nextcloud; lampiran lama tetap tampil. Masih terbuka: gambar note 401 di browser tanpa cookie; `backup.sh` belum mencadangkan `MEDIA_ROOT`; migrasi file lampiran lama dari Nextcloud (opsional).
