@@ -1,0 +1,31 @@
+{
+  "entries": [
+    {"version": "taskflow-v466-apa-yang-baru", "date": "2026-10-23", "title": "Catatan pembaruan",
+     "new": ["Setelah Alurik diperbarui, muncul ringkasan fitur baru dan perbaikan seperti ini.",
+             "Riwayat pembaruan bisa dibuka lagi lewat tombol Apa yang baru di Pengaturan."],
+     "fixed": ["Tombol Perbarui Sekarang kini selalu memasang versi terbaru, dan pemberitahuannya tidak muncul berulang-ulang."]},
+    {"version": "taskflow-v465-note-lampiran-gambar", "date": "2026-10-23", "title": "Lampiran gambar di catatan",
+     "fixed": ["Gambar yang dilampirkan di catatan kini tampil sebagai gambar, bukan teks.",
+               "Saat melampirkan file di catatan, kini terlihat proses unggah beserta persentasenya.",
+               "Catatan lama yang lampirannya tampil sebagai teks dipulihkan otomatis saat dibuka."]},
+    {"version": "taskflow-v464-sw-precache-shell", "date": "2026-10-23", "title": "Tampilan lebih andal setelah pembaruan",
+     "fixed": ["Alurik tidak lagi tampil tanpa gaya saat dibuka dengan internet lambat setelah HP dinyalakan ulang.",
+               "Pembaruan kini lebih hemat kuota karena file yang tidak berubah tidak diunduh ulang."]},
+    {"version": "taskflow-v463-lampiran-tanpa-cookie", "date": "2026-10-22", "title": "Membuka lampiran task",
+     "fixed": ["Lampiran task kini terbuka di dalam Alurik dan tidak lagi gagal dengan pesan Not authenticated."]},
+    {"version": "taskflow-v462-fokus-checklist-hitungan", "date": "2026-10-22", "title": "Checklist di halaman Fokus",
+     "new": ["Daftar centang di dalam task kini disebut Checklist."],
+     "fixed": ["Menambah checklist atau catatan di halaman Fokus tidak lagi gagal karena request timeout."]},
+    {"version": "taskflow-v461-task-selesai-instan", "date": "2026-10-22", "title": "Tandai selesai lebih cepat",
+     "fixed": ["Task yang ditandai selesai kini langsung hilang dari daftar, tanpa menunggu beberapa detik."]},
+    {"version": "taskflow-v460-fokus-hero-mobile", "date": "2026-10-22", "title": "Kartu Pomodoro ringkas di HP",
+     "new": ["Di HP, kartu Pomodoro halaman Fokus kini lebih ringkas: mode, suara latar, dan task aktif dalam satu kartu."]},
+    {"version": "taskflow-v458-fokus-filter-redesign", "date": "2026-10-22", "title": "Tampilan filter halaman Fokus",
+     "new": ["Bar filter halaman Fokus kini satu kartu yang rapi, dan task dikelompokkan per workspace dan project."]},
+    {"version": "taskflow-v457-task-pindah-workspace", "date": "2026-10-22", "title": "Pindah task ke workspace",
+     "new": ["Task pribadi kini bisa dipindahkan ke workspace lewat tombol Pindah ke Workspace di detail task."]},
+    {"version": "taskflow-v456-focus-filter", "date": "2026-10-22", "title": "Pilih task di halaman Fokus",
+     "new": ["Tandai task dengan bintang untuk menjadikannya Target hari ini di halaman Fokus.",
+             "Halaman Fokus kini punya tab Semua, Hari ini, dan Terlambat, kolom cari, serta filter prioritas."]}
+  ]
+}

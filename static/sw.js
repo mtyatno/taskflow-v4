@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v465-note-lampiran-gambar";
+const CACHE = "taskflow-v466-apa-yang-baru";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 // Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
@@ -8,7 +8,7 @@ const AMBIENT_CACHE = "alurik-ambient-v1";
 // tests/offline/sw_precache_shell.test.js, ikut CI lewat tests/test_sw_precache_node.py (spec §3).
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
-  "/static/app.css?v=363",  // query HARUS sama persis dengan <link> app.css di index.html (catch-all mencocokkan URL persis)
+  "/static/app.css?v=364",  // query HARUS sama persis dengan <link> app.css di index.html (catch-all mencocokkan URL persis)
   "/static/ui-components.js",
   "/static/offline/ids.js",
   "/static/offline/db.js",
@@ -36,6 +36,8 @@ const STATIC = [
   "/static/offline/wsmanage.js",
   "/static/offline/introgate.js",
   "/static/offline/accountbanner.js",
+  "/static/offline/whatsnew.js",
+  "/static/offline/appupdate.js",
   "/static/offline/emailadmin.js",
   "/static/offline/focuspage.js",
   "/static/offline/pomologic.js",
@@ -96,6 +98,7 @@ const STATIC = [
   "/static/vendor/katex/katex.min.js",
   "/static/vendor/katex/katex.min.css",
   "/config.js",
+  "/static/whatsnew.json",
 ];
 
 // Aset opsional: boleh diambil belakangan saat dipakai, jadi kegagalannya TIDAK menggagalkan install.
