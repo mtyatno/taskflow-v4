@@ -4107,3 +4107,16 @@
 - **Verifikasi:** npm 3104/3103 (pra-ada `draw_local_reactive`); pytest 1211 passed 3 skipped; inline OK; E2E 92/92, 93/93, 40/40.
 - **Files Touch:** static/index.html, static/sw.js, static/whatsnew.json, tests/offline/*.test.js, tests/test_static_revalidate.py, temporary_files/e2e_slash_menu_grid.py, temporary_files/e2e_istilah_sketsa_media.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — di-push, siap merge.
+
+## [2026-10-23 10:30] - Claude
+- **Task:** Halaman Fokus — HUD "Task Created" untuk input Parkir, header ringkas HP/tablet, tombol baris task vertikal di HP.
+- **Changes:** `CenterHudToast`/`useCenterHudToast` bersama Dashboard; `PomoParkInput` memicu HUD; strip header ≤ 1024 px + `headerSummaryShort`; grid baris task ≤ 640 px; merge main; SW v468, app.css 366.
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, static/offline/pomologic.js, webapp.py, tests/offline/*.test.js, tests/test_version.py, temporary_files/e2e_focus_park_hud.py, e2e_focus_header_strip.py, e2e_focus_row_stack.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — draft PR.
+
+## [2026-10-23 12:30] - Claude
+- **Task:** PR #95 `claude/fokus-parkir-toast` — merge `main` 4e8b623 (#93 Apa yang baru, #94 Sketsa/Media) dan naik versi (v467/365 kini milik `main`).
+- **Changes:** merge (konflik versi di index.html/sw.js/tes diambil dari main, `sw_cache` webapp.py dibuang, `tests/test_version.py` versi main, CURRENT_STATE/SESSION_LOG/.gitignore digabung; app.css auto-merge); SW **v468** `taskflow-v468-fokus-parkir-toast`, `app.css?v=366` (index.html, `STATIC`, tes); entri teratas `static/whatsnew.json` v468; harness E2E Fokus menandai `tf_whatsnew_seen`.
+- **Verifikasi:** npm 3118/3117 (pra-ada `draw_local_reactive`); pytest 1211 passed 3 skipped; PROTOCOL §4 33 passed; inline OK; E2E 68/0, 101/0, 31/0, 36/0.
+- **Files Touch:** static/index.html, static/sw.js, static/whatsnew.json, tests/offline/*.test.js, tests/test_static_revalidate.py, temporary_files/e2e_focus_page.py, temporary_files/e2e_focus_header_strip.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — di-push, siap merge.

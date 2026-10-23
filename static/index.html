@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=365">
+  <link rel="stylesheet" href="/static/app.css?v=366">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v467-istilah-sketsa-media";
+    window.__SW_VERSION = "taskflow-v468-fokus-parkir-toast";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -10799,8 +10799,42 @@ const formatFocusTime = secs => {
   return `${mins}m`;
 };
 
+// HUD tengah layar "Task Created" (dipakai Dashboard & input Parkir Distraksi halaman Fokus).
+function useCenterHudToast() {
+  const [toast, setToast] = React.useState(null);
+  React.useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => {
+      setToast(null);
+    }, 2800);
+    return () => clearTimeout(timer);
+  }, [toast]);
+  return [toast, setToast];
+}
+function CenterHudToast({
+  toast,
+  portal
+}) {
+  if (!toast) return null;
+  const el = React.createElement("div", {
+    key: toast.id,
+    className: `center-hud-toast center-hud-${toast.type}`,
+    role: "status",
+    "aria-live": "polite"
+  }, React.createElement("div", {
+    className: `center-hud-icon-wrap center-hud-icon-${toast.type}`
+  }, React.createElement(Icon, {
+    name: toast.type === "task" ? "clipboardCheck" : toast.type === "habit" ? "activity" : "notes",
+    size: 18
+  })), React.createElement("span", {
+    className: "center-hud-title"
+  }, toast.title));
+  return portal && typeof document !== "undefined" && document.body ? ReactDOM.createPortal(el, document.body) : el;
+}
+
 // Parkir Distraksi: tangkap pikiran yang lewat ke Inbox tanpa keluar dari sesi fokus
 function PomoParkInput() {
+  const [hud, setHud] = useCenterHudToast();
   const [text, setText] = React.useState("");
   const [status, setStatus] = React.useState("idle"); // "idle" | "ok" | "error"
   const busy = React.useRef(false);
@@ -10817,6 +10851,11 @@ function PomoParkInput() {
       await api.post("/api/tasks", body);
       setText("");
       setStatus("ok");
+      setHud({
+        id: Date.now(),
+        type: "task",
+        title: "Task Created"
+      });
       window.__refreshTasks?.();
       if (okTimer.current) clearTimeout(okTimer.current);
       okTimer.current = setTimeout(() => setStatus("idle"), 1500);
@@ -10840,7 +10879,7 @@ function PomoParkInput() {
       e.target.blur();
     }
   };
-  return React.createElement("div", {
+  return React.createElement(React.Fragment, null, React.createElement("div", {
     className: `pomo-park${status === "ok" ? " is-ok" : ""}${status === "error" ? " is-error" : ""}`
   }, React.createElement("span", {
     className: "pomo-park-icon",
@@ -10878,10 +10917,10 @@ function PomoParkInput() {
   }, React.createElement(ViewGlyph, {
     name: "send",
     size: 16
-  })), React.createElement("span", {
-    className: "sr-only",
-    "aria-live": "polite"
-  }, status === "ok" ? "Tersimpan ke Inbox" : ""));
+  }))), React.createElement(CenterHudToast, {
+    toast: hud,
+    portal: true
+  }));
 }
 
 // Kartu Pomodoro penuh (di atas halaman)
@@ -12302,7 +12341,37 @@ function TodayFocusView({
       name: "pomoTomato",
       size: 14
     }), " hari ini", hs.hoursText ? " (" + hs.hoursText + ")" : ""];
-  })()))), React.createElement(PomodoroTimer, {
+  })())), React.createElement("p", {
+    className: "focus-page-strip",
+    "aria-hidden": "true"
+  }, (() => {
+    // HP & tablet (<= 1024 px): satu baris ringkas; kalimat lengkap di atas tetap untuk pembaca layar
+    const hs = window.TF.pomologic.headerSummaryShort({
+      count: scope.length,
+      done: timer.pomodorosToday,
+      estimate: scope.reduce((sum, t) => sum + window.TF.pomologic.clampEstimate(t.estimated_pomodoros), 0)
+    });
+    return [React.createElement("span", {
+      key: "d",
+      className: "fps-date"
+    }, new Date().toLocaleDateString("id-ID", {
+      weekday: "short",
+      day: "numeric",
+      month: "short"
+    })), React.createElement("span", {
+      key: "t",
+      className: "fps-tasks"
+    }, " · ", hs.tasksText), React.createElement("span", {
+      key: "p",
+      className: "fps-pomo"
+    }, " · ", React.createElement(ViewGlyph, {
+      name: "pomoTomato",
+      size: 13
+    }), " ", hs.pomoText), hs.hoursText ? React.createElement("span", {
+      key: "h",
+      className: "fps-hours"
+    }, " · ", hs.hoursText) : null];
+  })())), React.createElement(PomodoroTimer, {
     timer: timer,
     focusTask: focusTask,
     cardRef: pomoRef,
@@ -21117,7 +21186,7 @@ function Dashboard({
   const [inboxWizardOpen, setInboxWizardOpen] = useState(false);
   const [dashModal, setDashModal] = useState(null);
   const [scratchInput, setScratchInput] = useState("");
-  const [centerToast, setCenterToast] = useState(null);
+  const [centerToast, setCenterToast] = useCenterHudToast();
   const [recentNotes, setRecentNotes] = useState([]);
   const [pinnedNotes, setPinnedNotes] = useState([]);
   const [pinnedMindmaps, setPinnedMindmaps] = useState([]);
@@ -21179,13 +21248,6 @@ function Dashboard({
     window.addEventListener("habitSaved", fetchHabits);
     return () => window.removeEventListener("habitSaved", fetchHabits);
   }, []);
-  useEffect(() => {
-    if (!centerToast) return;
-    const timer = setTimeout(() => {
-      setCenterToast(null);
-    }, 2800);
-    return () => clearTimeout(timer);
-  }, [centerToast]);
   const handleScratch = async e => {
     if (e.key !== "Enter" || !scratchInput.trim()) return;
     const text = scratchInput.trim();
@@ -22304,19 +22366,9 @@ function Dashboard({
   })))))),
 
   /* ── Center HUD Toast (Task / Note Created notification) ── */
-  centerToast && /*#__PURE__*/React.createElement("div", {
-    key: centerToast.id,
-    className: `center-hud-toast center-hud-${centerToast.type}`,
-    role: "status",
-    "aria-live": "polite"
-  }, /*#__PURE__*/React.createElement("div", {
-    className: `center-hud-icon-wrap center-hud-icon-${centerToast.type}`
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: centerToast.type === "task" ? "clipboardCheck" : centerToast.type === "habit" ? "activity" : "notes",
-    size: 18
-  })), /*#__PURE__*/React.createElement("span", {
-    className: "center-hud-title"
-  }, centerToast.title)),
+  /*#__PURE__*/React.createElement(CenterHudToast, {
+    toast: centerToast
+  }),
 
   inboxWizardOpen && /*#__PURE__*/React.createElement(GtdInboxWizardModal, {
     tasks: inboxTasks,
@@ -25950,7 +26002,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v467-istilah-sketsa-media"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v468-fokus-parkir-toast"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

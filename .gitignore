@@ -45,6 +45,9 @@ temporary_files/e2e_komentar_note/
 temporary_files/e2e_sw_precache_shell/
 temporary_files/e2e_istilah_sketsa_media/
 temporary_files/e2e_slash_menu_*.png
+temporary_files/e2e_focus_park_hud/
+temporary_files/e2e_focus_header_strip/
+temporary_files/e2e_focus_row_stack/
 temporary_files/e2e_note_toolbar_fluid/
 temporary_files/e2e_note_image_attach/
 temporary_files/e2e_apa_yang_baru/

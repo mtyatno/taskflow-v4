@@ -51,8 +51,8 @@ test("NotesPage memakai glyph yang ditentukan", () => {
 });
 
 test("versi SW di-bump", () => {
-  assert.match(sw, /taskflow-v467-istilah-sketsa-media/);
-  assert.match(indexHtml, /taskflow-v467-istilah-sketsa-media/);
+  assert.match(sw, /taskflow-v468-fokus-parkir-toast/);
+  assert.match(indexHtml, /taskflow-v468-fokus-parkir-toast/);
   assert.ok(!/taskflow-v44[0-3]-/.test(indexHtml));
 });
 

@@ -85,8 +85,8 @@ test("Sketsa memakai ViewGlyph", () => {
   assert.match(draw, /"Pinned"/);
 });
 
-test("cache bust taskflow-v467-istilah-sketsa-media", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v467-istilah-sketsa-media";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v467-istilah-sketsa-media";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v467-istilah-sketsa-media"/);
+test("cache bust taskflow-v468-fokus-parkir-toast", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v468-fokus-parkir-toast";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v468-fokus-parkir-toast";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v468-fokus-parkir-toast"/);
 });

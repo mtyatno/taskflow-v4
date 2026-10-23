@@ -43,6 +43,19 @@
     return { tasksText, pomoText: String(done), hoursText: null };
   }
 
+  // Varian pendek untuk strip header HP/tablet: "27 task", "0/27", "~11,5 j" (desimal koma id-ID).
+  function headerSummaryShort(o) {
+    const count = (o && o.count) || 0;
+    const done = (o && o.done) || 0;
+    const estimate = (o && o.estimate) || 0;
+    const tasksText = count + " task";
+    if (count > 0) {
+      const hours = estimateHoursLabel(estimate).replace(/ jam$/, " j").replace(".", ",");
+      return { tasksText, pomoText: done + "/" + estimate, hoursText: hours };
+    }
+    return { tasksText, pomoText: String(done), hoursText: null };
+  }
+
   function sessionClientId(userId, workStartedAt) {
     return "pomo-" + userId + "-" + workStartedAt + "-s";
   }
@@ -140,7 +153,7 @@
   }
 
   return { POMO_SECONDS, EST_MIN, EST_MAX, clampEstimate, nextEstimate, estimateHoursLabel,
-    headerSummary, sessionClientId, isOverEstimate,
+    headerSummary, headerSummaryShort, sessionClientId, isOverEstimate,
     OVERTIME_CAP, OVERTIME_MIN_LOG, overtimeSeconds, overtimePomodoros, formatOvertime,
     overtimeProgress, overtimeClientId, breakAfter, overtimeLogEntry, staleSessionLogs, localDateISO };
 });

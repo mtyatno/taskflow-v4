@@ -99,10 +99,10 @@ test("accountbanner.js dimuat dan di-precache service worker", () => {
   assert.match(sw, /"\/static\/offline\/accountbanner\.js"/);
 });
 
-test("cache bust v450 + app.css?v=365", () => {
-  assert.match(sw, /^const CACHE = "taskflow-v467-istilah-sketsa-media";/m);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v467-istilah-sketsa-media";/);
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v467-istilah-sketsa-media"/);
-  assert.match(html, /app\.css\?v=365/);
+test("cache bust v450 + app.css?v=366", () => {
+  assert.match(sw, /^const CACHE = "taskflow-v468-fokus-parkir-toast";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v468-fokus-parkir-toast";/);
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v468-fokus-parkir-toast"/);
+  assert.match(html, /app\.css\?v=366/);
   assert.doesNotMatch(html, /v437|app\.css\?v=345/);
 });
