@@ -4059,3 +4059,10 @@
 ## 2026-10-23 05:10 WIB — Claude — merge bug lampiran gambar 📎 (#89)
 - Bapak memilih "Merge #89 saja dulu". Dua kali merge `main` (#88 v463, #90 v464) → SW **v465** `taskflow-v465-note-lampiran-gambar` / `app.css?v=363`; CI Tests hijau di 5109987; #89 di-merge (f61c3c8).
 - **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web`. Masih terbuka: gambar note 401 di browser tanpa cookie (opsi di CURRENT_STATE).
+
+## [2026-10-23 07:33] - Claude
+- **Task:** Banner pembaruan selalu berhasil + modal "Apa yang baru" (Task 6 dari 6): E2E Playwright, ADR-030, verifikasi penuh, handover.
+- **Changes:** E2E baru `temporary_files/e2e_apa_yang_baru.py` (salinan repo + uvicorn, dua rilis uji v998/v999 tanpa restart; d0–d3 bug A, w0–w3 bug B dengan install SW ditahan, m1–m3 modal + offline, t1 dua tab, s1–s3 riwayat 375 px terang/gelap, n1 perangkat baru): branch 17/17 (2×), `main` eff037b 4/17. ADR-030. Entri CURRENT_STATE. Task 1–5 sudah ter-commit sebelumnya di branch yang sama (`/api/version` dari sw.js, `whatsnew.json` + tes + checklist PROTOCOL §4, `TF.whatsnew`, `TF.appupdate`, modal + Pengaturan; SW v466, `app.css?v=364`).
+- **Verifikasi:** pytest 1194 passed 1 skipped; npm 3049/3048 (pra-ada `draw_local_reactive`); inline OK (5 skrip); build-tauri 3/3.
+- **Files Touch:** temporary_files/e2e_apa_yang_baru.py, .gitignore, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal di `claude/apa-yang-baru`, belum push/PR; merge `main` (eff037b) dulu.
