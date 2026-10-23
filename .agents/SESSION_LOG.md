@@ -4060,9 +4060,31 @@
 - Bapak memilih "Merge #89 saja dulu". Dua kali merge `main` (#88 v463, #90 v464) → SW **v465** `taskflow-v465-note-lampiran-gambar` / `app.css?v=363`; CI Tests hijau di 5109987; #89 di-merge (f61c3c8).
 - **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web`. Masih terbuka: gambar note 401 di browser tanpa cookie (opsi di CURRENT_STATE).
 
+## 2026-10-23 05:40 WIB — Claude — Nextcloud lampiran note di thread terpisah
+- **Task:** Bapak: fast track — panggilan Nextcloud dijalankan di thread terpisah; lalu lampiran note baru ke disk VPS (PR berikutnya).
+- **Changes:** `asyncio.to_thread` untuk upload/view/delete/pub lampiran note + ekspor DOCX; tes `tests/test_nextcloud_offloop.py` (5, gagal di kode lama); pytest 1167.
+- **Files Touch:** webapp.py, tests/test_nextcloud_offloop.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR; deploy = restart `taskflow-web` saja)
+
+## 2026-10-23 06:30 WIB — Claude — lampiran note baru ke disk VPS
+- **Task:** Bapak: setelah fast track (#91), lampiran note baru disimpan di disk VPS seperti file workspace, Nextcloud keluar dari jalur unggah.
+- **Changes:** `storage='upload'` di `UPLOAD_DIR` untuk unggah/tampil/pub/hapus/DOCX/Sampah; baris lama tetap Nextcloud; tes `tests/test_note_attachment_disk.py` (12) + `test_nextcloud_offloop.py` ke baris lama; E2E 12/12; pytest 1179.
+- **Files Touch:** webapp.py, tests/test_note_attachment_disk.py, tests/test_nextcloud_offloop.py, temporary_files/e2e_note_image_attach.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (draft PR berisi #91; deploy = restart `taskflow-web` saja)
+
+## 2026-10-23 05:55 WIB — Claude — merge Nextcloud di thread (#91) + lampiran note ke disk (#92)
+- Bapak: "merge". #91 di-merge (34c804f), lalu #92 (850a930); CI Tests hijau di head masing-masing (f85cfba, e7349b4).
+- **Berikutnya (di server, oleh Bapak):** tanpa migrasi — `sudo systemctl restart taskflow-web`. Cek: unggah gambar 📎 di note → file baru muncul di `uploads/` (nama hex 32 karakter), bukan di Nextcloud; lampiran lama tetap tampil. Masih terbuka: gambar note 401 di browser tanpa cookie; `backup.sh` belum mencadangkan `MEDIA_ROOT`; migrasi file lampiran lama dari Nextcloud (opsional).
+
 ## [2026-10-23 07:33] - Claude
 - **Task:** Banner pembaruan selalu berhasil + modal "Apa yang baru" (Task 6 dari 6): E2E Playwright, ADR-030, verifikasi penuh, handover.
 - **Changes:** E2E baru `temporary_files/e2e_apa_yang_baru.py` (salinan repo + uvicorn, dua rilis uji v998/v999 tanpa restart; d0–d3 bug A, w0–w3 bug B dengan install SW ditahan, m1–m3 modal + offline, t1 dua tab, s1–s3 riwayat 375 px terang/gelap, n1 perangkat baru): branch 17/17 (2×), `main` eff037b 4/17. ADR-030. Entri CURRENT_STATE. Task 1–5 sudah ter-commit sebelumnya di branch yang sama (`/api/version` dari sw.js, `whatsnew.json` + tes + checklist PROTOCOL §4, `TF.whatsnew`, `TF.appupdate`, modal + Pengaturan; SW v466, `app.css?v=364`).
 - **Verifikasi:** pytest 1194 passed 1 skipped; npm 3049/3048 (pra-ada `draw_local_reactive`); inline OK (5 skrip); build-tauri 3/3.
 - **Files Touch:** temporary_files/e2e_apa_yang_baru.py, .gitignore, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — commit lokal di `claude/apa-yang-baru`, belum push/PR; merge `main` (eff037b) dulu.
+
+## [2026-10-23 08:10] - Claude
+- **Task:** Perbaikan review akhir `claude/apa-yang-baru` + merge `main` (eff037b, #91 #92).
+- **Changes:** checklist `.agents/PROTOCOL.md` §4 (rujukan eksplisit ke spec §3.3, jangan `sed` massal ke `whatsnew.json`, perintah tes yang tepat); `tests/test_whatsnew.py` regex versi ketat (fullmatch, `[0-9]`) + 2 baris tolak + pesan assert jelas; `whatsnew_ui` masuk `tests/test_app_update_node.py`; merge `main` (konflik hanya di CURRENT_STATE/SESSION_LOG, keduanya dipertahankan); SW tetap v466, `app.css?v=364`.
+- **Files Touch:** .agents/PROTOCOL.md, tests/test_whatsnew.py, tests/test_app_update_node.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal, belum push/PR.
