@@ -36,14 +36,20 @@
     }));
   }
 
-  // Replace the entity's links with the given tag names (normalized). Upserts `tags` by name.
-  function setEntityTags(entityType, entityCid, tagNames) {
+  // Trimmed, lowercased, de-duplicated, non-empty tag names (first-seen order).
+  function normalizeNames(tagNames) {
     const names = [];
     const seen = {};
     for (const raw of (tagNames || [])) {
       const n = String(raw).trim().toLowerCase();
       if (n && !seen[n]) { seen[n] = true; names.push(n); }
     }
+    return names;
+  }
+
+  // Replace the entity's links with the given tag names (normalized). Upserts `tags` by name.
+  function setEntityTags(entityType, entityCid, tagNames) {
+    const names = normalizeNames(tagNames);
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
       const tx = db.transaction(["tags", "entity_tags"], "readwrite");
       const tagStore = tx.objectStore("tags");
@@ -74,6 +80,54 @@
             entity_type: entityType, entity_cid: entityCid, dirty: 1,
           });
           upsertNext(i + 1);
+        };
+      }
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    }));
+  }
+
+  // Add links for the given tag names (normalized) without touching the entity's existing links: names already
+  // linked are skipped, so there are no duplicates. Upserts `tags` by name. Satu transaksi: penghapusan tag lain yang
+  // berjalan bersamaan (chip ×) tidak dibatalkan. Dipakai updateTask: #tag di judul menambah tag task.
+  function addEntityTags(entityType, entityCid, tagNames) {
+    const names = normalizeNames(tagNames);
+    if (!names.length) return Promise.resolve();
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction(["tags", "entity_tags"], "readwrite");
+      const tagStore = tx.objectStore("tags");
+      const etStore = tx.objectStore("entity_tags");
+      const nameIdx = tagStore.index("name");
+      const linked = {}; // tag_cid → true untuk tautan entity yang sudah ada
+
+      const curReq = etStore.index("entity").openCursor(IDBKeyRange.only([entityType, entityCid]));
+      curReq.onsuccess = (e) => {
+        const cur = e.target.result;
+        if (cur) { linked[cur.value.tag_cid] = true; cur.continue(); }
+        else { addNext(0); }
+      };
+
+      function addNext(i) {
+        if (i >= names.length) return; // done — tx.oncomplete resolves
+        const g = nameIdx.get(names[i]);
+        g.onsuccess = () => {
+          let tagCid;
+          if (g.result) {
+            tagCid = g.result.cid;
+          } else {
+            tagCid = TFids.newCid();
+            tagStore.add({ cid: tagCid, server_id: null, name: names[i], color: null, dirty: 1 });
+          }
+          if (!linked[tagCid]) {
+            linked[tagCid] = true;
+            etStore.add({
+              cid: TFids.newCid(), tag_cid: tagCid,
+              entity_type: entityType, entity_cid: entityCid, dirty: 1,
+            });
+          }
+          addNext(i + 1);
         };
       }
 
@@ -140,7 +194,7 @@
     });
   }
 
-  const exported = { extractTags, setEntityTags, getEntityTags, getAllTags, removeEntityTag, cidsForTag };
+  const exported = { extractTags, setEntityTags, addEntityTags, getEntityTags, getAllTags, removeEntityTag, cidsForTag };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.tagrepo = exported; }
   return exported;
 });

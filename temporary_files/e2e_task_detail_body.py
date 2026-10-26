@@ -7,9 +7,13 @@ Empat kombinasi: 1280 px dan 375 px, masing-masing terang dan gelap. Tiap kombin
   b  ✕ menutup modal; klik overlay (di luar modal) juga menutup
   d  klik tag → overlay "Task dengan tag" menutupi seluruh `.modal-content` (bounding box sama); × menutup overlay
   e  klik task anak di bagian Subtask → modal berpindah ke task anak (judul + id anak)
-  c  ✏️ Edit → ubah Priority ke P1 → 💾 Simpan → modal tertutup; server P1; setelah reload badge P1 tampil
-     (dikerjakan terakhir: PUT form dari modal ke router lokal menimpa tag task dengan tag dari judul)
+  c  ✏️ Edit → ubah Priority ke P1 → 💾 Simpan → modal tertutup; server P1; setelah reload badge P1 dan chip tag
+     tetap tampil (bug lama 2026-10-26: simpan form dulu menghapus semua tag task)
   f  tidak ada error konsol / pageerror dari aplikasi (permintaan ke host luar diblokir; errornya diabaikan)
+  g  (1280 px, user sendiri) tag task tetap saat task disimpan: task dibuat di aplikasi dengan `#tag` di judul →
+     💾 Simpan modal / body form edit lengkap (TaskFormModal) / chip triage "⚡ Next" di Inbox → tag tetap di lokal,
+     server (setelah sync), dan chip setelah reload; tag yang dihapus lewat chip × lalu simpan perubahan lain →
+     tidak kembali, juga di server
 
 Tag task hidup di IndexedDB (GET /api/tasks/:id/tags dilayani router lokal; tag dari server tidak turun), jadi
 skrip memasangnya lewat TF.tagrepo setelah daftar task termuat.
@@ -217,6 +221,186 @@ def server_priority(base, user, task_id):
     return api(base, user, "GET", "/api/tasks/%d" % task_id).get("priority")
 
 
+def server_task(base, user, task_id):
+    return api(base, user, "GET", "/api/tasks/%d" % task_id)
+
+
+def server_tags(base, user, task_id):
+    return sorted(t["name"] for t in api(base, user, "GET", "/api/tasks/%d/tags" % task_id))
+
+
+def server_row(base, user, title):
+    for t in api(base, user, "GET", "/api/tasks?include_done=true"):
+        if t["title"] == title:
+            return t
+    return None
+
+
+def local_tags(page, task_id):
+    """Tag task seperti dilihat aplikasi (router lokal / IndexedDB)."""
+    return page.evaluate("""async (id) => (await api.get('/api/tasks/' + id + '/tags')).map(t => t.name).sort()""",
+                         task_id)
+
+
+def local_task(page, task_id):
+    """Task seperti dilihat aplikasi (router lokal / IndexedDB), bukan server."""
+    return page.evaluate("async (id) => await api.get('/api/tasks/' + id)", task_id)
+
+
+def chip_tags(scope):
+    """Nama tag pada chip di detail task (`scope` = locator modal / panel)."""
+    spans = scope.locator("span[title='Klik untuk lihat semua task dengan tag ini']")
+    return sorted(re.sub(r"[#×\s]", "", spans.nth(i).inner_text()) for i in range(spans.count()))
+
+
+def go_sidebar(page, label):
+    """Buka halaman lewat sidebar lebar (1280 px)."""
+    expand = page.locator("button[aria-label='Tampilkan semua menu']")
+    if expand.count() and expand.first.is_visible():
+        expand.first.click()
+    label_span = page.locator("span", has_text=re.compile("^" + re.escape(label) + "$"))
+    page.locator(".sidebar-link").filter(has=label_span).first.click()
+    page.locator(".task-row").first.wait_for(timeout=15000)
+
+
+def reload_app(page):
+    page.reload()
+    page.locator(".sidebar-link").first.wait_for(state="attached", timeout=20000)
+
+
+# Bug lama (2026-10-26): menyimpan task lewat form (💾 Simpan modal, form edit lengkap, ubah status GTD dari daftar)
+# mengirim judul TANPA #tag → router lokal mengganti tag task dengan [] dan push ikut menghapusnya di server.
+TG_MODAL = ("Rapikan arsip kontrak", ["arsip", "legal"], "next")
+TG_FORM = ("Perbarui daftar vendor", ["pengadaan", "vendor"], "next")
+TG_INBOX = ("Tanya jadwal audit", ["audit", "keuangan"], "inbox")
+TG_REMOVE = ("Susun agenda rapat", ["mingguan", "rapat"], "next")
+
+
+def run_tags(browser, base, user):
+    """g: tag task tetap saat task disimpan lewat form; tag yang dihapus lewat chip × tidak kembali (lokal + server)."""
+    tag = "g-1280"
+    errors = []
+    ctx, p = open_app(browser, base, user, 1280, 860, "light", errors)
+    try:
+        p.wait_for_timeout(1500)  # router lokal siap
+        # Seed lewat judul `#tag` saat dibuat di aplikasi (router lokal → tag lokal, push → tag server).
+        for title, tags, gtd in (TG_MODAL, TG_FORM, TG_INBOX, TG_REMOVE):
+            p.evaluate("async (b) => { await api.post('/api/tasks', b); }",
+                       {"title": title + "".join(" #" + t for t in tags), "priority": "P3", "gtd_status": gtd})
+        ids = {}
+        for title, tags, _gtd in (TG_MODAL, TG_FORM, TG_INBOX, TG_REMOVE):
+            row = wait_until(lambda: server_row(base, user, title), 20)
+            ids[title] = row["id"] if row else None
+        seeded = all(ids.values()) and all(
+            wait_until(lambda: server_tags(base, user, ids[t]) == tags and local_tags(p, ids[t]) == tags, 15)
+            for t, tags, _g in (TG_MODAL, TG_FORM, TG_INBOX, TG_REMOVE))
+        check("%s g0 setup: 4 task bertag dibuat di aplikasi (#tag di judul), tersinkron; tag lokal = server" % tag,
+              seeded, repr(ids))
+        reload_app(p)
+        go_all_tasks(p, False)
+
+        # ── g1. modal: ✏️ Edit → Priority → 💾 Simpan → tag tetap (lokal, server, chip setelah reload) ──
+        title, tags, _g = TG_MODAL
+        mid = ids[title]
+        modal = open_task(p, title)
+        check("%s g1a chip tag tampil sebelum simpan" % tag,
+              wait_until(lambda: chip_tags(modal) == tags, 8), repr(chip_tags(modal)))
+        modal.get_by_role("button", name=re.compile("Edit")).first.click()
+        modal.locator("select").first.select_option("P1")
+        modal.locator("button", has_text="\U0001F4BE Simpan").first.click()
+        wait_closed(p)
+        check("%s g1b 💾 Simpan modal: tag lokal tetap" % tag,
+              wait_until(lambda: local_tags(p, mid) == tags, 6), repr(local_tags(p, mid)))
+        check("%s g1c server: Priority P1 tersimpan DAN tag tetap" % tag,
+              wait_until(lambda: server_priority(base, user, mid) == "P1" and server_tags(base, user, mid) == tags, 15),
+              "pri=%r tag=%r" % (server_priority(base, user, mid), server_tags(base, user, mid)))
+        reload_app(p)
+        go_all_tasks(p, False)
+        modal = open_task(p, title)
+        check("%s g1d setelah reload: chip tag dan badge P1 tampil" % tag,
+              wait_until(lambda: chip_tags(modal) == tags, 8) and modal.locator(".badge-p1").first.is_visible(),
+              repr(chip_tags(modal)))
+        close_btn(p).click()
+        wait_closed(p)
+
+        # ── g2. form edit lengkap (TaskFormModal): payload sama persis dengan handleSubmit mode edit ──
+        # Catatan: di main tidak ada tombol yang membuka TaskFormModal mode edit (prop onEdit TaskDetailModal tidak
+        # dipakai TaskDetailBody), jadi body `{...form, ...recurrencePayload}` dikirim lewat `api.put` aplikasi.
+        title, tags, _g = TG_FORM
+        fid = ids[title]
+        p.evaluate("""async (id) => {
+            const task = await api.get('/api/tasks/' + id);
+            const form = { title: task.title || "", description: task.description || "", priority: "P1",
+              gtd_status: task.gtd_status || "inbox", project: task.project || "", context: task.context || "",
+              deadline: task.deadline || "", waiting_for: task.waiting_for || "", list_id: task.list_id || null,
+              assigned_to: task.assigned_to || null, progress: task.progress || 0 };
+            await api.put('/api/tasks/' + id, { ...form, recurrence_type: null, recurrence_days: null });
+        }""", fid)
+        check("%s g2a simpan form edit lengkap: tag lokal tetap" % tag,
+              wait_until(lambda: local_tags(p, fid) == tags, 6), repr(local_tags(p, fid)))
+        check("%s g2b server: P1 DAN tag tetap" % tag,
+              wait_until(lambda: server_priority(base, user, fid) == "P1" and server_tags(base, user, fid) == tags, 15),
+              "pri=%r tag=%r" % (server_priority(base, user, fid), server_tags(base, user, fid)))
+
+        # ── g3. ubah status GTD dari daftar: chip triage "⚡ Next" di Inbox (App.handleUpdateTaskGtd) ──
+        title, tags, _g = TG_INBOX
+        iid = ids[title]
+        go_sidebar(p, "Inbox")
+        row = p.locator(".task-row", has_text=title).first
+        row.locator("button.gtd-chip-next").click()
+        # tunggu PUT lokal selesai (status lokal berubah) sebelum memeriksa tag, supaya tidak lolos lebih dulu
+        moved = wait_until(lambda: local_task(p, iid)["gtd_status"] == "next", 8)
+        check("%s g3a chip triage ⚡ Next: status lokal next DAN tag lokal tetap" % tag,
+              moved and local_tags(p, iid) == tags, "gtd=%r tag=%r" % (local_task(p, iid)["gtd_status"],
+                                                                     local_tags(p, iid)))
+        check("%s g3b server: status next DAN tag tetap" % tag,
+              wait_until(lambda: server_task(base, user, iid)["gtd_status"] == "next"
+                         and server_tags(base, user, iid) == tags, 15),
+              "gtd=%r tag=%r" % (server_task(base, user, iid)["gtd_status"], server_tags(base, user, iid)))
+
+        # ── g4. hapus satu tag lewat chip × lalu simpan perubahan lain → tag itu tidak kembali ──
+        title, tags, _g = TG_REMOVE
+        rid = ids[title]
+        go_all_tasks(p, False)
+        modal = open_task(p, title)
+        wait_until(lambda: chip_tags(modal) == tags, 8)
+        chip = modal.locator("span[title='Klik untuk lihat semua task dengan tag ini']", has_text="mingguan").first
+        chip.locator("span").filter(has_text=re.compile(r"^×$")).first.click()
+        check("%s g4a chip × menghapus tag 'mingguan' (chip + lokal)" % tag,
+              wait_until(lambda: chip_tags(modal) == ["rapat"] and local_tags(p, rid) == ["rapat"], 6),
+              "chip=%r lokal=%r" % (chip_tags(modal), local_tags(p, rid)))
+        modal.get_by_role("button", name=re.compile("Edit")).first.click()
+        modal.locator("select").first.select_option("P1")
+        modal.locator("button", has_text="\U0001F4BE Simpan").first.click()
+        wait_closed(p)
+        check("%s g4b simpan sesudahnya: tag lokal = rapat saja ('mingguan' tidak kembali, 'rapat' tidak hilang)" % tag,
+              wait_until(lambda: local_tags(p, rid) == ["rapat"], 6), repr(local_tags(p, rid)))
+        check("%s g4c server setelah sync: P1 dan tag = rapat saja" % tag,
+              wait_until(lambda: server_priority(base, user, rid) == "P1"
+                         and server_tags(base, user, rid) == ["rapat"], 15),
+              "pri=%r tag=%r" % (server_priority(base, user, rid), server_tags(base, user, rid)))
+        reload_app(p)
+        go_all_tasks(p, False)
+        modal = open_task(p, title)
+        check("%s g4d setelah reload: chip = rapat saja" % tag,
+              wait_until(lambda: chip_tags(modal) == ["rapat"], 8), repr(chip_tags(modal)))
+        shot(p, "%s_tags_after_reload.png" % tag)
+        close_btn(p).click()
+        wait_closed(p)
+
+        check("%s f1 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
+    except Exception as e:  # langkah yang melempar = gagal
+        import traceback
+        traceback.print_exc()
+        check("%s exception" % tag, False, "%s: %s" % (type(e).__name__, str(e)[:300]))
+        try:
+            shot(p, "%s_zz_error.png" % tag)
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        ctx.close()
+
+
 def run_combo(browser, base, user, parent, child, label, w, h, theme):
     tag = "%s-%s" % (label, theme)
     mobile = w < 500
@@ -292,7 +476,7 @@ def run_combo(browser, base, user, parent, child, label, w, h, theme):
         close_btn(p).click()
         wait_closed(p)
 
-        # ── c. Edit → priority P1 → Simpan (dikerjakan setelah d/e: menyimpan form lokal menghapus tag) ───
+        # ── c. Edit → priority P1 → Simpan → tag task tetap ───────────────────────────
         modal = open_task(p, T_PARENT)
         modal.get_by_role("button", name=re.compile("Edit")).first.click()
         sel = modal.locator("select").first
@@ -311,6 +495,8 @@ def run_combo(browser, base, user, parent, child, label, w, h, theme):
         modal = open_task(p, T_PARENT)
         check("%s c4 setelah reload badge P1 tampil di detail" % tag,
               modal.locator(".badge-p1").first.is_visible() and not modal.locator(".badge-p3").count())
+        check("%s c5 setelah Simpan + reload chip #%s tetap (dulu simpan form menghapus tag)" % (tag, TAG),
+              wait_until(lambda: chip_tags(modal) == [TAG], 8), repr(chip_tags(modal)))
 
         # ── f. konsol bersih ─────────────────────────────────────────────────────
         check("%s f1 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
@@ -324,6 +510,12 @@ def run_combo(browser, base, user, parent, child, label, w, h, theme):
             pass
     finally:
         ctx.close()
+
+
+def want(name):
+    """E2E_ONLY=combo,tags,... menjalankan sebagian skenario (debug); kosong = semua."""
+    only = [x for x in os.environ.get("E2E_ONLY", "").split(",") if x]
+    return not only or name in only
 
 
 def main():
@@ -348,8 +540,13 @@ def main():
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for label, w, h, theme in COMBOS:
+                if not want("combo"):
+                    break
                 print("== %s px %s ==" % (label, theme), flush=True)
                 run_combo(browser, base, A, parent, child, label, w, h, theme)
+            if want("tags"):
+                print("== g: tag tetap saat task disimpan (1280 px) ==", flush=True)
+                run_tags(browser, base, register(base, "gita"))
             browser.close()
     except Exception as e:  # noqa: BLE001
         import traceback
