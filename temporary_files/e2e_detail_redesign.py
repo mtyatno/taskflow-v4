@@ -62,6 +62,19 @@ Kelompok (E2E_ONLY=autosave,... menjalankan sebagian; kosong = semua). Tiap kelo
     G-6  ketik deskripsi lalu (< 1 dtk) tambah tag → deskripsi dan tag sama-sama tersimpan (lokal dan server)
     G-7  tanpa error konsol/pageerror
 
+  tabs  (Task 6) deskripsi tanpa bingkai + tab Subtask/Checklist/Catatan/Lampiran. Panel Live Edit 1280 px terang
+        dan modal 375 px gelap:
+    B-1  task dengan 2 anak, 3 butir checklist, 1 catatan → label "Subtask (2)", "Checklist (3)", "Catatan (1)",
+         "Lampiran"; aktif "Subtask"; deadline anak terlambat merah; task hanya bercatatan → aktif "Catatan"
+    B-2  "+ Buat subtask baru…" "Anak C" Enter → baris `#<id> Anak C` chip Inbox, "Subtask (3)"; centang → dicoret +
+         server done; centang lagi → server next; tombol buka → panel/modal menampilkan Anak C
+    B-3  checklist: "Butir 4" lalu "Butir 5" tanpa membuka ulang, Escape → "Checklist (5)"; centang → aria-checked
+         dan lokal selesai; × → "Checklist (4)"; 375 px (sentuh): × terlihat tanpa hover
+    B-4  tambah catatan di tab Catatan → "Catatan (2)"
+    B-6  fokus tab "Subtask", ArrowRight → "Checklist" aria-selected dan terfokus; ArrowLeft → kembali
+    B-5  deskripsi: placeholder persis; 5 baris → tinggi bertambah; 30 baris → tinggi = 12 baris, bisa digulir
+    B-7  tanpa error konsol/pageerror
+
 Pengecualian cek konsol (sama dengan e2e_live_edit.py), jumlahnya dicetak di akhir:
   (1) pra-ada: setelah hapus + sync, syncpull mencatat 404 untuk `GET /api/tasks/:id` (konfirmasi task hilang). Akhir
       skrip menegaskan lewat `BAD_RESPONSES` bahwa SETIAP respons >= 400 pada `/api/tasks/<id>` adalah `GET` 404;
@@ -1383,12 +1396,242 @@ def run_tags(browser, base):
             ctx.close()
 
 
+# ── kelompok: tabs (Task 6) ────────────────────────────────────────────────────
+TS_MAIN = "Rencanakan pelatihan staf"
+TS_NOTES = "Catat hasil wawancara"
+TS_DESC = "Tulis ringkasan kebijakan"
+TS_CHILDREN = ["Anak A", "Anak B"]
+DESC_PLACEHOLDER = "Tulis deskripsi atau catatan lingkup tugas di sini…"
+
+
+def seed_tabs(base, name):
+    import datetime
+    user = register(base, name)
+    ids = {}
+    for title in [TS_MAIN, TS_NOTES, TS_DESC]:
+        ids[title] = api(base, user, "POST", "/api/tasks", json={
+            "title": title, "priority": "P3", "gtd_status": "next", "description": ""})["id"]
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    for i, child in enumerate(TS_CHILDREN):
+        body = {"title": child, "priority": "P3", "gtd_status": "next", "parent_id": ids[TS_MAIN]}
+        if i == 0:
+            body["deadline"] = yesterday  # deadline singkat merah (terlambat)
+        ids[child] = api(base, user, "POST", "/api/tasks", json=body)["id"]
+    for i in range(1, 4):
+        api(base, user, "POST", "/api/tasks/%d/subtasks" % ids[TS_MAIN], json={"title": "Butir %d" % i})
+    api(base, user, "POST", "/api/tasks/%d/notes" % ids[TS_MAIN], json={"content": "Catatan pertama"})
+    api(base, user, "POST", "/api/tasks/%d/notes" % ids[TS_NOTES], json={"content": "Hanya catatan"})
+    return user, ids
+
+
+def tab_labels(page, scope):
+    return [x.strip() for x in page.locator(scope + ' [role="tablist"] [role="tab"]').all_inner_texts()]
+
+
+def active_tab(page, scope):
+    t = page.locator(scope + ' [role="tab"][aria-selected="true"]')
+    return t.first.inner_text().strip() if t.count() else None
+
+
+def tab_btn(page, scope, name):
+    return page.locator(scope + ' [role="tab"]', has_text=re.compile("^" + name)).first
+
+
+def visible_panels(page, scope):
+    return page.locator(scope + ' [role="tabpanel"]:not([hidden])').count()
+
+
+def sub_row(page, scope, title):
+    return page.locator(scope + " .td-sub-row", has=page.locator(".td-sub-title", has_text=re.compile("^%s$" % re.escape(title)))).first
+
+
+def check_row(page, scope, title):
+    return page.locator(scope + " .td-check-row", has=page.locator(".td-check-title", has_text=re.compile("^%s$" % re.escape(title)))).first
+
+
+def run_tabs(browser, base):
+    combos = [("panel", 1280, 860, "light", "panel"), ("375", 375, 812, "dark", "modal")]
+    for label, w, h, theme, kind in combos:
+        tag = "B[%s %s]" % (label, theme)
+        mobile = w < 500
+        scope = MODAL if kind == "modal" else PANEL
+        user, ids = seed_tabs(base, "tb%s%s" % (label[:3], theme[0]))
+        errors = []
+        ctx, p = open_app(browser, base, user, w, h, theme, errors, live="1" if kind == "panel" else "0")
+
+        def reopen(title):
+            if kind == "modal" and modal_count(p):
+                close_btn(p).click()
+                wait_closed(p)
+            return scope_open(p, scope, title)
+
+        try:
+            go_all_tasks(p, mobile)
+            # Data server (anak, checklist, catatan) turun lewat sync ke IndexedDB.
+            wait_until(lambda: p.locator(".task-row", has_text=TS_MAIN).count() > 0, 15)
+            p.wait_for_timeout(1500)
+
+            # ── B-1: label, jumlah, tab awal ──
+            want_labels = ["Subtask (2)", "Checklist (3)", "Catatan (1)", "Lampiran"]
+            reopen(TS_MAIN)
+            check("%s B-1a label tab %r" % (tag, want_labels),
+                  wait_until(lambda: tab_labels(p, scope) == want_labels, 10), repr(tab_labels(p, scope)))
+            check("%s B-1b tab aktif 'Subtask', satu panel terlihat, 2 baris anak" % tag,
+                  active_tab(p, scope) == "Subtask (2)" and visible_panels(p, scope) == 1
+                  and p.locator(scope + " .td-sub-row").count() == 2,
+                  "aktif=%r panel=%d" % (active_tab(p, scope), visible_panels(p, scope)))
+            check("%s B-1c deadline singkat anak terlambat merah; tanpa warna per prioritas" % tag,
+                  sub_row(p, scope, "Anak A").locator(".td-sub-date.is-danger").count() == 1
+                  and re.fullmatch(r"\d{1,2} (%s)" % MONTHS,
+                                   sub_row(p, scope, "Anak A").locator(".td-sub-date").inner_text().strip()) is not None,
+                  repr(sub_row(p, scope, "Anak A").inner_text()))
+            p.locator(scope + ' [role="tablist"]').first.scroll_into_view_if_needed()
+            shot(p, "B_%s_%s_tabs.png" % (label, theme))
+            reopen(TS_NOTES)
+            check("%s B-1d task hanya bercatatan → tab aktif 'Catatan'" % tag,
+                  wait_until(lambda: active_tab(p, scope) == "Catatan (1)", 10), repr(active_tab(p, scope)))
+            check("%s B-1e panel Catatan tanpa judul bagian lama" % tag,
+                  "📓" not in p.locator(scope + ' [role="tabpanel"]:not([hidden])').first.inner_text())
+
+            # ── B-2: subtask baru, centang, buka ──
+            reopen(TS_MAIN)
+            wait_until(lambda: tab_labels(p, scope) == want_labels, 10)
+            add = p.locator(scope + ' input[aria-label="Buat subtask baru"]').first
+            check("%s B-2a placeholder '+ Buat subtask baru…'" % tag, add.get_attribute("placeholder") == "+ Buat subtask baru…")
+            add.click()
+            p.keyboard.type("Anak C")
+            p.keyboard.press("Enter")
+            row = sub_row(p, scope, "Anak C")
+            check("%s B-2b baris '#<id> Anak C' chip Inbox, label 'Subtask (3)'" % tag,
+                  wait_until(lambda: row.count() == 1 and tab_labels(p, scope)[0] == "Subtask (3)", 8)
+                  and re.fullmatch(r"#\S+\s*Anak C", row.locator(".td-sub-main").inner_text().strip()) is not None
+                  and "Inbox" in row.locator(".badge").inner_text(),
+                  "row=%r labels=%r" % (row.inner_text() if row.count() else None, tab_labels(p, scope)))
+            check("%s B-2c input kosong lagi" % tag, add.input_value() == "")
+            shot(p, "B_%s_%s_subtask_new.png" % (label, theme))
+            row.locator('[role="checkbox"]').click()
+            check("%s B-2d centang → dicoret, aria-checked=true" % tag,
+                  wait_until(lambda: "is-done" in (row.get_attribute("class") or "")
+                             and row.locator('[role="checkbox"]').get_attribute("aria-checked") == "true"
+                             and "line-through" in (row.locator(".td-sub-title").get_attribute("style") or ""), 8))
+            push_now(p)
+            check("%s B-2e server: Anak C done" % tag,
+                  wait_until(lambda: (server_row(base, user, "Anak C") or {}).get("gtd_status") == "done", 25),
+                  repr(server_row(base, user, "Anak C")))
+            row.locator('[role="checkbox"]').click()
+            check("%s B-2f centang lagi → tidak dicoret" % tag,
+                  wait_until(lambda: row.locator('[role="checkbox"]').get_attribute("aria-checked") == "false", 8))
+            push_now(p)
+            check("%s B-2g server: Anak C next" % tag,
+                  wait_until(lambda: (server_row(base, user, "Anak C") or {}).get("gtd_status") == "next", 25),
+                  repr(server_row(base, user, "Anak C")))
+            row.locator('button[aria-label="Buka subtask"]').click()
+            check("%s B-2h tombol buka → %s menampilkan Anak C" % (tag, kind),
+                  wait_until(lambda: title_value(p, scope) == "Anak C", 8), repr(title_value(p, scope)))
+
+            # ── B-3: checklist ──
+            reopen(TS_MAIN)
+            wait_until(lambda: tab_labels(p, scope)[:2] == ["Subtask (3)", "Checklist (3)"], 10)
+            tab_btn(p, scope, "Checklist").click()
+            check("%s B-3a klik tab Checklist → aktif, bar progress" % tag,
+                  active_tab(p, scope) == "Checklist (3)" and p.locator(scope + " .td-check-bar").count() == 1)
+            p.locator(scope + " button.td-add", has_text="+ Tambah butir checklist baru").first.click()
+            inp = p.locator(scope + ' input[aria-label="Butir checklist baru"]')
+            inp.first.wait_for(timeout=3000)
+            p.keyboard.type("Butir 4")
+            p.keyboard.press("Enter")
+            wait_until(lambda: p.locator(scope + " .td-check-row").count() == 4, 5)
+            p.keyboard.type("Butir 5")
+            p.keyboard.press("Enter")
+            check("%s B-3b 'Butir 4' lalu 'Butir 5' tanpa membuka ulang → 5 baris, input tetap terbuka" % tag,
+                  wait_until(lambda: p.locator(scope + " .td-check-row").count() == 5, 5)
+                  and inp.count() == 1 and inp.first.input_value() == "",
+                  repr(p.locator(scope + " .td-check-title").all_inner_texts()))
+            p.keyboard.press("Escape")
+            check("%s B-3c Escape → input tertutup, label 'Checklist (5)'" % tag,
+                  wait_until(lambda: inp.count() == 0, 3) and tab_labels(p, scope)[1] == "Checklist (5)",
+                  repr(tab_labels(p, scope)))
+            shot(p, "B_%s_%s_checklist.png" % (label, theme))
+            cb = check_row(p, scope, "Butir 1").locator('[role="checkbox"]')
+            cb.click()
+            mid = ids[TS_MAIN]
+            check("%s B-3d centang Butir 1 → aria-checked=true dan lokal selesai" % tag,
+                  wait_until(lambda: cb.get_attribute("aria-checked") == "true" and p.evaluate(
+                      "async (id) => (await api.get('/api/tasks/' + id + '/subtasks')).some(s => s.title === 'Butir 1' && s.is_done)",
+                      mid), 5))
+            r5 = check_row(p, scope, "Butir 5")
+            r5.hover()
+            r5.locator('button[aria-label="Hapus butir"]').click()
+            check("%s B-3e × Butir 5 → 'Checklist (4)'" % tag,
+                  wait_until(lambda: tab_labels(p, scope)[1] == "Checklist (4)"
+                             and p.locator(scope + " .td-check-row").count() == 4, 5), repr(tab_labels(p, scope)))
+            if mobile:
+                check("%s B-3f perangkat sentuh: × terlihat tanpa hover" % tag,
+                      p.evaluate("""(sel) => { const b = document.querySelector(sel + ' .td-check-del');
+                          return !!b && getComputedStyle(b).opacity === '1'; }""", scope))
+
+            # ── B-4: catatan baru ──
+            tab_btn(p, scope, "Catatan").click()
+            note = p.locator(scope + ' [role="tabpanel"]:not([hidden]) input[placeholder="Tulis catatan..."]').first
+            note.click()
+            p.keyboard.type("Catatan kedua")
+            p.keyboard.press("Enter")
+            check("%s B-4 tambah catatan → 'Catatan (2)'" % tag,
+                  wait_until(lambda: tab_labels(p, scope)[2] == "Catatan (2)", 8), repr(tab_labels(p, scope)))
+
+            # ── B-6: tab dengan panah ──
+            tab_btn(p, scope, "Subtask").click()
+            tab_btn(p, scope, "Subtask").focus()
+            p.keyboard.press("ArrowRight")
+            check("%s B-6a ArrowRight dari Subtask → Checklist aria-selected, fokus pindah" % tag,
+                  wait_until(lambda: tab_btn(p, scope, "Checklist").get_attribute("aria-selected") == "true", 3)
+                  and p.evaluate("() => (document.activeElement && document.activeElement.textContent || '').startsWith('Checklist')"))
+            p.keyboard.press("ArrowLeft")
+            check("%s B-6b ArrowLeft → Subtask" % tag,
+                  wait_until(lambda: tab_btn(p, scope, "Subtask").get_attribute("aria-selected") == "true", 3))
+
+            # ── B-5: deskripsi tumbuh lalu bergulir ──
+            reopen(TS_DESC)
+            area = p.locator(scope + " " + DESC_AREA).first
+            check("%s B-5a placeholder persis" % tag, area.get_attribute("placeholder") == DESC_PLACEHOLDER,
+                  repr(area.get_attribute("placeholder")))
+            dims = lambda: p.evaluate("""(sel) => { const t = document.querySelector(sel); const cs = getComputedStyle(t);
+                return {h: t.getBoundingClientRect().height, sh: t.scrollHeight, ch: t.clientHeight,
+                        lh: parseFloat(cs.lineHeight), pad: parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom),
+                        bord: parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth), ov: cs.overflowY}; }""",
+                                      scope + " " + DESC_AREA)  # noqa: E731
+            d0 = dims()
+            area.fill("\n".join("Baris %d" % i for i in range(1, 6)))
+            p.wait_for_timeout(200)
+            d5 = dims()
+            check("%s B-5b 5 baris → tinggi bertambah, tanpa gulir" % tag,
+                  d5["h"] > d0["h"] + d0["lh"] and d5["sh"] <= d5["ch"] + 1, "d0=%r d5=%r" % (d0, d5))
+            area.fill("\n".join("Baris %d" % i for i in range(1, 31)))
+            p.wait_for_timeout(200)
+            d30 = dims()
+            cap = 12 * d30["lh"] + d30["pad"] + d30["bord"]
+            check("%s B-5c 30 baris → tinggi berhenti ≤ 12 baris, textarea bisa digulir" % tag,
+                  d30["h"] <= cap + 1 and d30["h"] >= cap - 1 and d30["sh"] > d30["ch"] + 50 and d30["ov"] == "auto",
+                  "d30=%r cap=%.1f" % (d30, cap))
+            shot(p, "B_%s_%s_desc.png" % (label, theme))
+            area.fill("")
+            p.locator(scope + " " + TITLE_INPUT).first.click()
+
+            check("%s B-7 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
+        except Exception as e:  # langkah yang melempar = gagal
+            OFFLINE["on"] = False
+            fail_exc(tag, e, p)
+        finally:
+            ctx.close()
+
+
 # Urutan kelompok; task berikutnya menambah (nama, fungsi(browser, base)).
 GROUPS = [
     ("autosave", run_autosave),
     ("topbar", run_topbar),
     ("props", run_props),
     ("tags", run_tags),
+    ("tabs", run_tabs),
 ]
 
 

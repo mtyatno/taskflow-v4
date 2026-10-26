@@ -153,3 +153,42 @@ test("baris Tag: chip di kisi (bukan di bawah chip), × ber-aria, pengendali men
   for (const c of [".td-tags", ".td-tag", ".td-tag-x", ".td-tag-add", ".td-pop-err"]) assert.ok(block.includes(c + " {") || block.includes(c + "{") || block.includes(c + ","), c);
   assert.match(block, /\.td-tag\s*\{[^}]*color-mix\(in srgb, var\(--accent\) 14%, transparent\)/);
 });
+
+// ── Task 6: deskripsi tanpa bingkai dan tab isi (spec §4.5, §4.6, §8) ──
+test("deskripsi tanpa bingkai, tinggi mengikuti isi", () => {
+  const s = fnSource("TaskDetailBody");
+  assert.match(s, /className: "td-desc"/);
+  assert.match(s, /placeholder: "Tulis deskripsi atau catatan lingkup tugas di sini(?:…|\\u2026)"/);
+  assert.match(s, /querySelector\("textarea"\)[\s\S]{0,200}scrollHeight/);
+});
+test("tab: urutan, jumlah, hidden, tab awal sekali setelah empat muatan, pilihan pengguna menang", () => {
+  const s = fnSource("TaskDetailBody");
+  for (const re of [/React\.createElement\(DetailTabs/, /TF\.taskdetail\.initialTab\(/, /role: "tabpanel"/, /hidden: tab !== /,
+    /tabPickedRef\.current/, /onCount: setNotesCount/, /onCount: setAttCount/, /bare: true/, /"\+ Buat subtask baru(?:…|\\u2026)"/,
+    /"\+ Tambah butir checklist baru"/, /"Belum ada subtask"/, /"Belum ada checklist"/, /gtd_status: "inbox",\s*parent_id: task\.id/])
+    assert.match(s, re);
+  for (const re of [/newChildGtd/, /"Judul subtask baru\.\.\."/, /\\uD83D\\uDCCC Subtask/, /priColor/]) assert.doesNotMatch(s, re);
+  const t = fnSource("DetailTabs");
+  for (const re of [/role: "tablist"/, /role: "tab"/, /"aria-selected"/, /"aria-controls"/, /"ArrowRight"/, /"ArrowLeft"/]) assert.match(t, re);
+});
+test("SubtaskRow / ChecklistRow", () => {
+  const r = fnSource("SubtaskRow");
+  for (const re of [/"aria-label": "Buka subtask"/, /StatusBadge/, /TF\.taskdetail\.formatShortDate\(/, /line-through/, /role: "checkbox"/]) assert.match(r, re);
+  const c = fnSource("ChecklistRow");
+  for (const re of [/"aria-label": "Hapus butir"/, /role: "checkbox"/, /"aria-checked"/]) assert.match(c, re);
+  for (const n of ["DetailTabs", "SubtaskRow", "ChecklistRow"]) assert.doesNotMatch(fnSource(n), EMOJI, n);
+});
+test("ModalNotes / ModalAttachments: bare + onCount, bawaan tetap", () => {
+  for (const n of ["ModalNotes", "ModalAttachments"]) {
+    const m = fnSource(n); assert.match(m, /bare = false/); assert.match(m, /onCount/); assert.match(m, /!bare &&/);
+  }
+});
+test("CSS tab/deskripsi/baris: di blok detail, × checklist selalu tampil tanpa hover", () => {
+  const a = appCss.indexOf("/* ── Detail task: awal ── */"), b = appCss.indexOf("/* ── Detail task: akhir ── */");
+  const block = appCss.slice(a, b);
+  for (const c of [".td-desc", ".td-tabs", ".td-tab", ".td-tabpanel", ".td-sub-row", ".td-check-row", ".td-add"])
+    assert.ok(block.includes(c + " {"), c);
+  assert.match(block, /\.td-desc\s*\{[^}]*resize:\s*none;[^}]*overflow-y:\s*auto/);
+  assert.match(block, /\.td-tabpanel\[hidden\]\s*\{\s*display:\s*none;/);
+  assert.match(block, /@media \(hover: none\)\s*\{\s*\.td-check-del\s*\{\s*opacity:\s*1;/);
+});
