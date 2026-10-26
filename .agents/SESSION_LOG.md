@@ -4194,3 +4194,5 @@
 - **Files Touch:** .gitignore, static/app.css, static/index.html, static/sw.js, static/whatsnew.json, tests/offline/*.test.js (versi), tests/offline/task_detail_redesign.test.js, docs/superpowers/specs/2026-10-26-redesain-detail-task-design.md, docs/superpowers/plans/2026-10-26-redesain-detail-task.md, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — commit lokal, belum push/PR (kontroler).
 - **Perbaikan review akhir:** DatePicker mengabaikan `validity.badInput` dan tak terkendali (`defaultValue`) — tanggal setengah diketik tidak lagi menghapus deadline saat popover ditutup (E2E P-8 baru, gagal sebelum perbaikan); tambah checklist/subtask/tag hanya mengosongkan input bila masih berisi teks yang dikirim; komentar & baris kosong dirapikan.
+
+- 2026-10-27 04:40 WIB (Claude): PR #100 (redesain detail task, SW v473) di-merge atas "merge dan deploy" Bapak; workflow Deploy sukses (file statis, tanpa restart). Tindak lanjut terbuka: "Lepas" assignee belum sampai ke server (push mengirim null); subtask antrean TaskFormModal yatim di lokal; tombol .fab menutupi pojok modal di HP.
