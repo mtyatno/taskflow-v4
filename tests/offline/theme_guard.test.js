@@ -93,14 +93,28 @@ test("guard: Chart.js tidak menerima var()", () => { const chart = html.slice(ht
 // Plan memperkirakan ≤ 80 entri, tetapi aturan "warna bermakna" saja sudah 83 → batas dipisah per alasan.
 // Ratchet: angka = jumlah saat Task 5 (tanpa ruang sisa) dan harus sama persis; PR B hanya boleh menurunkannya
 // (menghapus entri allowlist wajib diiringi menurunkan konstanta, agar ruang kosong tidak bisa diisi literal baru).
-// PR B Task 3: angka tetap 144/61 — aturan gelap yang literalnya kini hanya fallback token opsional
-// (var(--border-hover, #525252), var(--accent-text-bright, #D9EE6A), var(--chat-self-bg, #4a7000), …) sengaja
-// tetap dihitung berliteral (Default memakai fallback itu); tidak ada aturan gelap lain yang kehilangan literalnya.
-const ALLOW_MAX_TOTAL = 144, ALLOW_MAX_NON_BERMAKNA = 61;
+// PR B Task 3: fallback token opsional palet (var(--border-hover, #525252), var(--accent-text-bright, #D9EE6A), …)
+// TIDAK dihitung literal — palet bisa menimpanya. Guard S1 di bawah tetap melarang literal mentah tabel S1.
+// 9 entri keluar (5 hover #525252 "netral tanpa token", 4 teks aktif "lime-adjacent") → 135/52.
+const ALLOW_MAX_TOTAL = 135, ALLOW_MAX_NON_BERMAKNA = 52;
 const ALLOW_REASONS = ["warna bermakna", "netral tanpa token", "lime-adjacent", "blok token gelap"];
 const allowList = JSON.parse(read("tests/offline/theme_dark_allowlist.json"));
 const allow = new Set(allowList.map(e => e.selector));
-const darkRules = [...css.matchAll(/(\[data-theme="dark"\][^{]*)\{([^}]*)\}/g)].map(m => [m[1].trim(), m[2]]);
+// Buang var(--<token opsional>, …) beserta fallback-nya (kurung seimbang: fallback bisa berisi rgba(...)).
+const OPTIONAL_TOKENS = ["accent-on", "accent-text-deep", "accent-text-bright", "accent-2-rgb", "chat-self-bg", "border-hover"];
+const stripOptionalFallbacks = (body) => {
+  const re = new RegExp(`var\\(--(${OPTIONAL_TOKENS.join("|")})\\s*,`, "g");
+  let out = "", last = 0, m;
+  while ((m = re.exec(body))) {
+    let depth = 1, i = m.index + 4; // tepat setelah "var("
+    for (; i < body.length && depth > 0; i++) { if (body[i] === "(") depth++; else if (body[i] === ")") depth--; }
+    assert.equal(depth, 0, "kurung var() tidak seimbang: " + body.slice(m.index, m.index + 60));
+    out += body.slice(last, m.index) + `var(--${m[1]})`;
+    last = re.lastIndex = i;
+  }
+  return out + body.slice(last);
+};
+const darkRules = [...css.matchAll(/(\[data-theme="dark"\][^{]*)\{([^}]*)\}/g)].map(m => [m[1].trim(), stripOptionalFallbacks(m[2])]);
 const LITERAL = /#[0-9a-f]{3,8}\b|rgba?\(\s*\d/i;
 test("guard: aturan gelap berliteral hanya yang di-allowlist", () => { const bad = darkRules.filter(([s, b]) => LITERAL.test(b) && !allow.has(s)).map(([s]) => s); assert.deepEqual(bad, []); });
 test("guard: allowlist tidak basi (selektor ada dan masih berliteral), alasan baku, ratchet jumlah", () => {
