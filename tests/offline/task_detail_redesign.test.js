@@ -151,7 +151,9 @@ test("baris Tag: chip di kisi (bukan di bawah chip), × ber-aria, pengendali men
   const a = appCss.indexOf("/* ── Detail task: awal ── */"), b = appCss.indexOf("/* ── Detail task: akhir ── */");
   const block = appCss.slice(a, b);
   for (const c of [".td-tags", ".td-tag", ".td-tag-x", ".td-tag-add", ".td-pop-err"]) assert.ok(block.includes(c + " {") || block.includes(c + "{") || block.includes(c + ","), c);
-  assert.match(block, /\.td-tag\s*\{[^}]*color-mix\(in srgb, var\(--accent\) 14%, transparent\)/);
+  assert.match(block, /\.td-tag\s*\{[^}]*background: var\(--accent-soft\)/);
+  // Latar lembut beraksen = token --accent-soft (ADR-033, "latar chip/aktif"), bukan color-mix ad hoc.
+  assert.doesNotMatch(block, /color-mix\(in srgb, var\(--accent\) 14%/);
 });
 
 // ── Task 6: deskripsi tanpa bingkai dan tab isi (spec §4.5, §4.6, §8) ──
