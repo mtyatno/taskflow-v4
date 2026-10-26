@@ -63,6 +63,19 @@ test("pinOverlayToScrollBox: ukur ulang saat wadah berubah ukuran, jendela di-re
   assert.deepEqual(places.slice(1), [{ top: 340, height: 420 }, { top: 340, height: 380 }, { top: 300, height: 380 }]);
 });
 
+test("pinOverlayToScrollBox: detak tanpa perubahan top/height tidak memanggil onPlace (tanpa render ulang)", () => {
+  const env = fakeEnv();
+  const places = [];
+  env.pin(env.overlay, (pos) => places.push(pos));
+  env.observers[0].cb([]);
+  fire(env.listeners.win, "resize");
+  fire(env.listeners.box, "scroll");
+  assert.deepEqual(places, [{ top: 340, height: 500 }], "hanya penempatan awal");
+  env.box.clientHeight = 450; fire(env.listeners.win, "resize");
+  fire(env.listeners.win, "resize");
+  assert.deepEqual(places, [{ top: 340, height: 500 }, { top: 340, height: 450 }], "satu panggilan per perubahan");
+});
+
 test("pinOverlayToScrollBox: pembersih mengembalikan overflow semula dan melepas semua listener", () => {
   const env = fakeEnv({ overflow: "auto" });
   const release = env.pin(env.overlay, () => {});

@@ -13,7 +13,7 @@ test("Service Worker and stylesheet versions are synchronized for v396", () => {
 
   assert.match(sw, /taskflow-v471-simpan-tag/);
   assert.match(html, /taskflow-v471-simpan-tag/);
-  assert.match(html, /app\.css\?v=367/);
+  assert.match(html, /app\.css\?v=368/);
 });
 
 test("Dashboard contains conditional rendering logic for new users (hasTasks)", () => {

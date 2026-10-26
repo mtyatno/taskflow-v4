@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=367">
+  <link rel="stylesheet" href="/static/app.css?v=368">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -8422,9 +8422,9 @@ async function moveTaskToWorkspace({ api, task, listId, pushNow, syncNow, server
 }
 // Live Edit (spec §7.2–§7.4, ruling R2): pembungkus React tipis untuk TF.liveedit.createAutosaver. Satu pengendali
 // per mount; null bila !enabled (modal). put memakai id task terkini (cid → id server setelah sync) dan, bila judul
-// ikut dikirim, menambahkan #tag yang sudah ada karena simpan judul mengganti tag task dengan #tag di judul (R9).
-// getTags() boleh async (Promise daftar tag, dimuat ulang tiap simpan judul: R21); bila menolak, put ikut menolak dan
-// judul tidak dikirim (R14).
+// ikut dikirim, menambahkan #tag yang sudah ada (R9): store lokal kini MENAMBAH #tag dari judul (ADR-032), tetapi
+// server mengganti tag task dengan #tag di judul yang di-push. getTags() boleh async (Promise daftar tag, dimuat ulang
+// tiap simpan judul: R21); bila menolak, put ikut menolak dan judul tidak dikirim (R14).
 // Unmount, tab disembunyikan, dan pagehide mengirim semua perubahan yang tertunda (flush).
 function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
   const taskIdRef = useRef(task && task.id);
@@ -8440,7 +8440,8 @@ function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
         let body = patch;
         if (patch.title != null) {
           // R14/R21: hanya simpan yang membawa judul menunggu daftar tag task terkini (getTags async; menolak bila tag
-          // tidak bisa dimuat), supaya titleWithTags tidak memakai daftar kosong/basi dan menghapus atau memulihkan tag.
+          // tidak bisa dimuat), supaya titleWithTags tidak memakai daftar basi: tag yang sudah dihapus di tempat lain
+          // akan DITAMBAHKAN kembali (store lokal menambah #tag dari judul, ADR-032).
           const tagsOf = cbRef.current.getTags;
           const tags = tagsOf ? await tagsOf() : [];
           body = { ...patch, title: window.TF.liveedit.titleWithTags(patch.title, tags) };
@@ -8522,14 +8523,21 @@ function TaskSaveIndicator({ saveState, error, onRetry }) {
 // overlay (`.modal-content` di modal, `aside.tl-live-panel` di panel; TaskDetailBody mengembalikan Fragment). Dengan
 // `inset: 0` overlay berada di bagian atas isi, jadi saat wadah sudah digulir area yang terlihat tidak tertutup.
 // Overlay ditaruh di area terlihat wadah (onPlace({ top: scrollTop, height: clientHeight })), gulir wadah dikunci
-// selama overlay terbuka, dan ukuran diukur ulang saat wadah/jendela berubah. Mengembalikan pembersih yang
-// mengembalikan `overflow` inline semula.
+// selama overlay terbuka, dan ukuran diukur ulang saat wadah/jendela berubah. onPlace hanya dipanggil bila top/height
+// berubah, jadi detak ResizeObserver/scroll/resize yang tidak menggeser apa pun tidak me-render ulang TaskDetailBody.
+// Mengembalikan pembersih yang mengembalikan `overflow` inline semula.
 function pinOverlayToScrollBox(overlay, onPlace) {
   const box = overlay && overlay.parentElement;
   if (!box) return () => {};
   const prevOverflow = box.style.overflow;
   box.style.overflow = "hidden";
-  const place = () => onPlace({ top: box.scrollTop, height: box.clientHeight });
+  let last = null;
+  const place = () => {
+    const top = box.scrollTop, height = box.clientHeight;
+    if (last && last.top === top && last.height === height) return;
+    last = { top, height };
+    onPlace(last);
+  };
   place();
   const ro = typeof ResizeObserver === "function" ? new ResizeObserver(place) : null;
   if (ro) ro.observe(box);
@@ -8682,8 +8690,9 @@ function TaskDetailBody({
     setTaskTags(list);
     return list;
   });
-  // R21 (+R14): simpan judul mengganti tag task dengan #tag di judul. Chip di panel bisa basi (tag diubah lewat modal
-  // atau perangkat lain), jadi setiap simpan judul memuat ulang tag task tepat sebelum judul disusun
+  // R21 (+R14): #tag di judul yang disimpan ditambahkan ke tag task (store lokal, ADR-032). Chip di panel bisa basi
+  // (tag dihapus lewat modal atau di tempat lain); daftar basi akan menambahkan kembali tag yang sudah dihapus, jadi
+  // setiap simpan judul memuat ulang tag task tepat sebelum judul disusun
   // (GET lokal, jalan offline) dan memakai hasil muatan itu sendiri. Gagal → muat ulang sekali (R14); gagal lagi →
   // put ditolak, indikator "Gagal menyimpan", tag tetap utuh; "Coba lagi" mencoba memuat lagi.
   const tagsForTitle = async () => {

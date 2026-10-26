@@ -8,7 +8,7 @@ const AMBIENT_CACHE = "alurik-ambient-v1";
 // tests/offline/sw_precache_shell.test.js, ikut CI lewat tests/test_sw_precache_node.py (spec §3).
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
-  "/static/app.css?v=367",  // query HARUS sama persis dengan <link> app.css di index.html (catch-all mencocokkan URL persis)
+  "/static/app.css?v=368",  // query HARUS sama persis dengan <link> app.css di index.html (catch-all mencocokkan URL persis)
   "/static/ui-components.js",
   "/static/offline/ids.js",
   "/static/offline/db.js",
