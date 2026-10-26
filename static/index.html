@@ -18156,13 +18156,50 @@ function TaskDetailPanel({
   onDeleted
 }) {
   const note = emptyText || (gone ? "Task ini sudah dihapus atau tidak bisa diakses lagi." : !task ? "Pilih task di daftar" : null);
+  // R15: max-height dari posisi panel sekarang, bukan posisi menempel. Sebelum halaman digulir panel berada lebih
+  // rendah dari `top`; tinggi "100vh − top" membuat dasar panel (dan bar aksi Hapus/Done yang menempel di dasarnya)
+  // jatuh di bawah layar. Ditulis langsung ke DOM (bukan prop style) supaya render React tidak menimpanya.
+  const asideRef = useRef(null);
+  const topRef = useRef(top);
+  topRef.current = top;
+  const fitRef = useRef(null);
+  fitRef.current = () => {
+    const el = asideRef.current;
+    if (!el) return;
+    const h = window.innerHeight - Math.max(topRef.current, el.getBoundingClientRect().top) - 16;
+    // Batas bawah 200 px: viewport sangat pendek tidak membuat panel kosong (sisanya terlihat setelah halaman digulir).
+    const next = Math.max(200, Math.floor(h)) + "px";
+    if (el.style.maxHeight !== next) el.style.maxHeight = next;
+  };
+  React.useLayoutEffect(() => {
+    let raf = 0;
+    const onMove = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        fitRef.current();
+      });
+    };
+    fitRef.current();
+    window.addEventListener("scroll", onMove, { passive: true });
+    window.addEventListener("resize", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onMove);
+      window.removeEventListener("resize", onMove);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [top]);
+  // Konten di atas panel bisa berubah tinggi tanpa scroll/resize (panel filter dibuka, data baru): ukur ulang tiap render.
+  React.useLayoutEffect(() => {
+    fitRef.current();
+  });
   return /*#__PURE__*/React.createElement("aside", {
+    ref: asideRef,
     className: "tl-live-panel",
     "aria-label": "Detail task",
     style: {
       width,
-      top,
-      maxHeight: "calc(100vh - " + (top + 16) + "px)"
+      top
     }
   }, note ? /*#__PURE__*/React.createElement("div", {
     className: "tl-live-empty"
@@ -18539,14 +18576,21 @@ function TaskListView({
   const selMissingId = liveOn && sel.ref && !selFound ? sel.ref.id : null;
   useEffect(() => {
     // Sekali per periode "tidak ada": task ditemukan lagi (atau pilihan pindah) → pemeriksaan berikutnya boleh jalan.
+    // R16: task ditemukan lagi atau pilihan berganti (panel tampil) → "tidak tersedia" lama dibuang, supaya task yang
+    // muncul lagi lalu keluar lagi diperiksa ulang dari nol. Panel disembunyikan (layar sempit) → goneId dipertahankan:
+    // saat panel kembali, teksnya tetap tampil selama pemeriksaan ulang (body task yang sudah dihapus tidak di-mount).
     if (!selMissingId) {
       checkedIdRef.current = null;
+      if (liveOn) setGoneId(null);
       return;
     }
     if (checkedIdRef.current === selMissingId) return;
     checkedIdRef.current = selMissingId;
     api.get("/api/tasks/" + encodeURIComponent(selMissingId)).then(task => {
-      if (task) dispatchSel({ type: "snapshot", task });else setGoneId(selMissingId);
+      if (task) {
+        setGoneId(null);
+        dispatchSel({ type: "snapshot", task });
+      } else setGoneId(selMissingId);
     }).catch(err => {
       if (window.TF.liveedit.isNotFound(err)) setGoneId(selMissingId);
     });

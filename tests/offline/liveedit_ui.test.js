@@ -137,7 +137,13 @@ test("App: handleDelete mengembalikan boolean, detailProps ke kedua TaskListView
 test("CSS tata letak Live Edit", () => {
   for (const re of [/\.tl-live\s*\{[^}]*display:\s*flex/, /\.tl-live-panel\s*\{[^}]*position:\s*sticky/, /\.tl-live-sep\s*\{/, /\.tl-live-label/])
     assert.match(appCss, re);
-  assert.doesNotMatch(appCss.slice(appCss.indexOf(".tl-live")), /border-left/);
+  // R16: hanya blok CSS Live Edit (penanda awal/akhir), bukan sampai akhir app.css.
+  const lsStart = appCss.indexOf("/* ── Live Edit:");
+  const lsEnd = appCss.indexOf("/* ── Live Edit: akhir ── */");
+  assert.ok(lsStart >= 0 && lsEnd > lsStart, "blok CSS Live Edit bertanda awal dan akhir");
+  const block = appCss.slice(lsStart, lsEnd);
+  assert.match(block, /\.tl-live-panel\s*\{/);
+  assert.doesNotMatch(block, /border-left/);
 });
 // Review mandiri Task 7: scrollbar halaman yang muncul karena panel tidak boleh menyembunyikan panel itu sendiri
 // (berkedip di dekat ambang 760 px); "tidak tersedia" hanya selama task memang tidak ada di allTasks.
@@ -150,4 +156,29 @@ test("useLiveEdit: lebar seolah tanpa scrollbar halaman; gone hanya bila task ti
   assert.match(v, /if \(!selMissingId\) \{\s*checkedIdRef\.current = null;/);
   // daftar kosong → berisi (task pertama tiba setelah panel tampil): pilih ulang, bukan "Tidak ada task" di samping daftar berisi
   assert.match(v, /\}, \[liveOn, page, loading, hasVisible\]\);/);
+});
+// Ruling R15: max-height panel dari posisi panel sekarang (bar aksi terlihat di scrollTop 0 dan setelah gulir).
+test("R15: TaskDetailPanel max-height dari posisi sekarang, scroll/resize pasif + rAF, tanpa maxHeight di style", () => {
+  const s = fnSource("TaskDetailPanel");
+  assert.match(s, /ref: asideRef/);
+  assert.match(s, /window\.innerHeight - Math\.max\(topRef\.current, el\.getBoundingClientRect\(\)\.top\) - 16/);
+  assert.match(s, /el\.style\.maxHeight = next/);
+  assert.match(s, /window\.addEventListener\("scroll", onMove, \{ passive: true \}\)/);
+  assert.match(s, /window\.addEventListener\("resize", onMove, \{ passive: true \}\)/);
+  assert.match(s, /window\.removeEventListener\("scroll", onMove\)/);
+  assert.match(s, /window\.removeEventListener\("resize", onMove\)/);
+  assert.match(s, /raf = requestAnimationFrame\(/);
+  assert.match(s, /if \(raf\) cancelAnimationFrame\(raf\)/);
+  assert.match(s, /\}, \[top\]\);/, "dihitung ulang saat top berubah");
+  const style = s.slice(s.indexOf("style: {"), s.indexOf("}", s.indexOf("style: {")));
+  assert.match(style, /width,\s*top/);
+  assert.doesNotMatch(s, /maxHeight:/, "max-height tidak lagi lewat prop style React");
+});
+// Ruling R16: pemeriksaan "tidak tersedia" yang berhasil (atau dipersenjatai ulang) membuang goneId lama.
+test("R16: goneId dibuang saat task ditemukan lagi", () => {
+  const v = fnSource("TaskListView");
+  assert.match(v, /if \(task\) \{\s*setGoneId\(null\);\s*dispatchSel\(\{ type: "snapshot", task \}\);/);
+  // dipersenjatai ulang: dibuang hanya saat panel tampil (task ditemukan lagi / pilihan berganti), bukan saat panel
+  // disembunyikan — kalau tidak, body task yang sudah dihapus sempat di-mount saat layar melebar lagi.
+  assert.match(v, /if \(!selMissingId\) \{\s*checkedIdRef\.current = null;\s*if \(liveOn\) setGoneId\(null\);/);
 });

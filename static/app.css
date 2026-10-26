@@ -5036,3 +5036,4 @@
 .tl-live-sep { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
 .tl-live-btn { gap: 6px; }
 @media (max-width: 1100px) { .tl-live-label { display: none; } }
+/* ── Live Edit: akhir ── */
