@@ -4140,3 +4140,8 @@
 - **Verifikasi:** npm 3197/3196 (pra-ada `draw_local_reactive`); pytest 1215 passed 1 skipped; PROTOCOL §4 33 passed; inline OK (5); E2E 106/106 ×2.
 - **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js, tests/test_static_revalidate.py, temporary_files/e2e_live_edit.py, .gitignore, docs/superpowers/specs/2026-10-26-live-edit-design.md, docs/superpowers/plans/2026-10-26-live-edit.md, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — commit lokal, belum push/PR.
+
+## [2026-10-26 19:40] - Claude
+- **Task:** Live Edit PR B `claude/live-edit` — perbaikan tinjauan akhir (R19–R21). Klien: nama project/context yang diketik hanya tersimpan saat keluar field/Enter/flush, opsi yang ada langsung (R19, cegah project/tahap "setengah jadi" di server); tag dimuat ulang sebelum setiap simpan judul + chip dimuat ulang saat `updated_at` berubah (R21). Spec/plan/ADR-031/E2E diperbarui.
+- **Verifikasi:** node liveedit 80/80; npm 3202/3201 (pra-ada `draw_local_reactive`); inline OK; E2E 118/118.
+- **Status:** Needs Review — commit lokal, belum push.

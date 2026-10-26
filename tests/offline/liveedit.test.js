@@ -86,9 +86,9 @@ test("formFromTask / changedFields / buildPatch", () => {
   assert.deepEqual(le.buildPatch({ title: "  X  ", deadline: "", assigned_to: null, progress: "40", priority: "P1" },
     ["title", "deadline", "assigned_to", "progress"]), { title: "X", deadline: "", assigned_to: 0, progress: 40 });
 });
-test("saveTrigger (R1)", () => {
+test("saveTrigger (R1, R19: project/context selalu blur)", () => {
   for (const [f, v, want] of [["title", "x", "blur"], ["progress", 10, "blur"], ["description", "x", "idle"], ["waiting_for", "x", "idle"],
-    ["project", "Alpha", "idle"], ["project", "", "blur"], ["context", "", "blur"], ["context", "Rapat", "idle"],
+    ["project", "Alpha", "blur"], ["project", "", "blur"], ["project", "   ", "blur"], ["context", "", "blur"], ["context", "Rapat", "blur"],
     ["priority", "P1", "now"], ["gtd_status", "done", "now"], ["deadline", "2026-10-30", "now"], ["assigned_to", 3, "now"]])
     assert.equal(le.saveTrigger(f, v), want, f + "=" + v);
 });
@@ -200,9 +200,29 @@ test("perubahan luar saat simpan berjalan", async () => {
   s.change("priority", "P1"); s.external(T({ title: "Remote", priority: "P1" })); d.res(); await tick(); await tick();
   const st = s.getState(); assert.equal(st.form.title, "Remote"); assert.equal(st.form.priority, "P1"); assert.equal(calls.length, 1);
 });
-test('project kosong dari "+ Baru" tidak tersimpan sebelum blur', async () => {
+test('project kosong dari "+ Baru" tidak tersimpan sebelum blur; nama baru tersimpan saat commit', async () => {
   const { s, t, calls } = mk(T({ project: "Alpha" })); s.change("project", ""); assert.equal(t.q.length, 0); assert.equal(calls.length, 0);
-  s.change("project", "Gamma"); t.run(); await tick(); assert.deepEqual(calls, [{ project: "Gamma" }]);
+  s.change("project", "Gamma"); assert.equal(t.q.length, 0); assert.equal(calls.length, 0);
+  s.commit("project"); await tick(); assert.deepEqual(calls, [{ project: "Gamma" }]);
+});
+// R19 (tinjauan akhir #1): server membuat project/tahap untuk setiap nama yang belum ada, jadi nama yang sedang diketik
+// ("Mark" sebelum "Marketing") tidak boleh tersimpan karena diam atau ikut simpan non-eksplisit field lain.
+test("R19: project/context yang diketik tidak pernah tersimpan oleh timer idle; hanya commit/flush", async () => {
+  const { s, t, calls } = mk(T({ project: "Alpha", context: "Kantor" }));
+  s.change("project", "Mark"); s.change("context", "Ra");
+  assert.equal(t.q.length, 0, "project/context tidak memasang timer idle"); assert.equal(calls.length, 0);
+  s.change("description", "d"); assert.equal(t.q.length, 1);
+  s.change("project", "Marketing");
+  t.run(); await tick();
+  assert.deepEqual(calls, [{ description: "d" }], "timer idle field lain tidak membawa project/context setengah jadi");
+  s.change("priority", "P1"); await tick();
+  assert.deepEqual(calls[1], { priority: "P1" }, "simpan 'now' juga tidak membawanya");
+  s.commit("project"); await tick();
+  assert.deepEqual(calls[2], { project: "Marketing", context: "Ra" }, "commit eksplisit mengirim nama lengkap");
+  s.change("context", "Rapat"); await s.flush();
+  assert.deepEqual(calls[3], { context: "Rapat" });
+  assert.equal(calls.length, 4);
+  assert.ok(!calls.some(c => c.project === "Mark"), "nama setengah jadi tidak pernah terkirim");
 });
 test("dispose membatalkan timer tanpa put", () => { const { s, t, calls } = mk(T()); s.change("description", "x"); s.dispose(); assert.equal(t.q.length, 0); assert.equal(calls.length, 0); });
 
@@ -308,9 +328,9 @@ test("R11: judul hanya #tag ditolak di klien (titleError, tanpa put)", async () 
 });
 test("R11 (a): timer idle yang sudah terpasang tidak menyimpan project kosong; commit menyimpannya", async () => {
   const { s, t, calls } = mk(T({ project: "Alpha" }));
-  s.change("project", "Beta"); s.change("project", ""); assert.equal(t.q.length, 1);
-  t.run(); await tick(); assert.equal(calls.length, 0);
-  s.commit("project"); await tick(); assert.deepEqual(calls, [{ project: "" }]);
+  s.change("description", "d"); s.change("project", "Beta"); s.change("project", ""); assert.equal(t.q.length, 1);
+  t.run(); await tick(); assert.deepEqual(calls, [{ description: "d" }]);
+  s.commit("project"); await tick(); assert.deepEqual(calls[1], { project: "" });
 });
 test("R11 (a): project kosong ikut tersimpan saat flush; context kosong sama", async () => {
   const { s, calls } = mk(T({ project: "Alpha", context: "Kantor" })); s.change("project", ""); s.change("context", ""); await s.flush();

@@ -70,27 +70,67 @@ test("Panel judul: Enter dengan judul tidak valid tidak blur; pesan bertahan set
   assert.match(s, /titleAlert && (\/\*#__PURE__\*\/)?React\.createElement\("div", \{\s*role: "alert"[\s\S]{0,160}\}, titleAlert\)/);
 });
 
-// Perbaikan review Task 5 #2 (ruling R14): judul tidak dikirim sebelum daftar tag task diketahui.
-test("R14: put menunggu daftar tag hanya bila patch membawa judul", () => {
+// Perbaikan review Task 5 #2 (ruling R14) dan tinjauan akhir #3 (ruling R21): judul tidak dikirim dengan daftar tag
+// kosong atau basi. Setiap simpan judul memuat ulang tag task tepat sebelum judul disusun; gagal → sekali lagi; gagal
+// lagi → put ditolak.
+test("R14/R21: put menunggu daftar tag hanya bila patch membawa judul", () => {
   const h = fnSource("useTaskAutosave");
   const put = h.slice(h.indexOf("put: async patch =>"), h.indexOf('api.put("/api/tasks/" + taskIdRef.current'));
   const check = put.indexOf("if (patch.title != null) {");
   assert.ok(check >= 0, "cek patch.title ada di jalur put");
   assert.ok(put.indexOf("await ") > check, "tidak ada await sebelum cek judul: simpan tanpa judul tidak menunggu");
   assert.match(put.slice(check), /await tagsOf\(\)[\s\S]{0,160}titleWithTags\(patch\.title, tags\)/);
-
   const s = fnSource("TaskDetailBody");
   assert.match(s, /getTags: tagsForTitle/);
-  assert.doesNotMatch(s, /getTags: \(\) => taskTagsRef\.current/);
-  const fn = s.slice(s.indexOf("const tagsForTitle = async () =>"), s.indexOf("const liveMountedRef"));
-  assert.match(fn, /await \(tagsLoadRef\.current \|\| Promise\.resolve\(false\)\)/, "menunggu pemuatan tag task ini");
-  assert.match(fn, /if \(known\) return taskTagsRef\.current/);
-  assert.equal((fn.match(/loadTags\(task\.id\)/g) || []).length, 1, "muat ulang sekali bila pemuatan awal gagal");
-  assert.match(fn, /throw new Error\(/, "gagal lagi → put ditolak, bukan mengirim judul tanpa tag");
-  assert.match(s, /taskTagsRef\.current = list;/, "loadTags mengisi ref sebelum promise selesai");
-  assert.match(s, /tagsLoadRef\.current = loadTags\(task\.id\)\.catch\(\(\) => \{\s*setTaskTags\(\[\]\);\s*return false;/);
-  assert.match(s, /patch\.title != null\) \{[\s\S]{0,200}tagsLoadRef\.current = loadTags\(task\.id\)\.catch\(\(\) => false\)/,
-    "muat ulang tag setelah simpan judul ikut ditunggu simpan judul berikutnya");
+  assert.doesNotMatch(s, /taskTagsRef|tagsLoadRef/, "tidak ada daftar tag tersimpan yang dipakai simpan judul");
+});
+
+// Jalankan loadTags + tagsForTitle dari sumber TaskDetailBody dengan api.get palsu.
+function tagHelpers(get) {
+  const s = fnSource("TaskDetailBody");
+  const code = s.slice(s.indexOf("const loadTags = id =>"), s.indexOf("const liveMountedRef"));
+  assert.ok(code.indexOf("const tagsForTitle = async () =>") > 0, "tagsForTitle sesudah loadTags");
+  const chips = [], urls = [];
+  const make = new Function("api", "setTaskTags", "task", code + "\nreturn { loadTags, tagsForTitle };");
+  const out = make({ get: url => { urls.push(url); return get(urls.length); } }, l => chips.push(l), { id: 7 });
+  return Object.assign(out, { chips, urls });
+}
+test("R21: setiap simpan judul memuat tag segar (bukan daftar yang dimuat saat mount) dan memakai hasilnya", async () => {
+  const lists = [[{ name: "a" }], [{ name: "b" }], null];
+  const t = tagHelpers(n => Promise.resolve(lists[n - 1]));
+  assert.deepEqual(await t.tagsForTitle(), [{ name: "a" }]);
+  assert.deepEqual(await t.tagsForTitle(), [{ name: "b" }], "tag yang berubah di tempat lain ikut terbaca");
+  assert.deepEqual(await t.tagsForTitle(), [], "null → daftar kosong");
+  assert.deepEqual(t.urls, ["/api/tasks/7/tags", "/api/tasks/7/tags", "/api/tasks/7/tags"], "satu GET per simpan judul");
+  assert.deepEqual(t.chips, [[{ name: "a" }], [{ name: "b" }], []], "chip ikut hasil muatan");
+});
+test("R21 → R14: muat gagal → dicoba sekali lagi; gagal lagi → ditolak (judul tidak dikirim)", async () => {
+  const once = tagHelpers(n => (n === 1 ? Promise.reject(new Error("db")) : Promise.resolve([{ name: "kerja" }])));
+  assert.deepEqual(await once.tagsForTitle(), [{ name: "kerja" }]);
+  assert.equal(once.urls.length, 2);
+  const twice = tagHelpers(() => Promise.reject(new Error("db")));
+  await assert.rejects(twice.tagsForTitle(), /Tag task belum termuat/);
+  assert.equal(twice.urls.length, 2, "hanya sekali coba ulang");
+  assert.deepEqual(twice.chips, [], "chip tidak dikosongkan oleh muatan yang gagal");
+});
+test("R21: chip dimuat ulang saat updated_at berubah (panel), dan sesudah simpan judul", () => {
+  const s = fnSource("TaskDetailBody");
+  assert.match(s, /const tagsVersion = isPanel \? task\?\.updated_at : null;/, "modal: dependensi tetap task.id saja");
+  assert.match(s, /if \(task\?\.id\) \{\s*const sameTaskReload = tagsIdRef\.current === task\.id;[\s\S]{0,120}loadTags\(task\.id\)\.catch\(\(\) => \{\s*if \(!sameTaskReload\) setTaskTags\(\[\]\);\s*\}\);\s*\}\s*\}, \[task\?\.id, tagsVersion\]\);/);
+  assert.equal((s.match(/\[task\?\.id, tagsVersion\]/g) || []).length, 1, "satu efek: mount = satu muat");
+  assert.match(s, /patch\.title != null\) \{[\s\S]{0,200}loadTags\(task\.id\)\.catch\(\(\) => \{\}\)/);
+});
+
+// Ruling R19 (tinjauan akhir #1): nama project/context yang diketik hanya tersimpan saat keluar field, Enter, atau
+// flush; memilih opsi yang sudah ada di scope tersimpan langsung.
+test("R19: project/context — opsi scope yang ada disimpan langsung, nama diketik saat blur/Enter", () => {
+  const s = fnSource("TaskDetailBody");
+  for (const [f, list] of [["project", "scopeProjects"], ["context", "scopeContexts"]]) {
+    assert.match(s, new RegExp(`value: fv\\.${f},\\s*onChange: v => \\{\\s*sf\\("${f}", v\\);\\s*if \\(isPanel && v && ${list}\\.includes\\(v\\)\\) auto\\.commit\\("${f}"\\);\\s*\\},\\s*options: ${list},`),
+      f + ": commit hanya untuk opsi yang sama dengan options ComboSelect");
+    assert.match(s, new RegExp(`if \\(!e\\.currentTarget\\.contains\\(e\\.relatedTarget\\)\\) auto\\.commit\\("${f}"\\);\\s*\\},\\s*onKeyDown: e => \\{\\s*if \\(e\\.key === "Enter" && !\\(e\\.nativeEvent && e\\.nativeEvent\\.isComposing\\)\\) auto\\.commit\\("${f}"\\);`),
+      f + ": blur dan Enter di pembungkus");
+  }
 });
 
 // Task 6: penanda task terpilih di baris dan kartu (spec §6.5). Tanpa prop selected/isSelected tampilan tidak berubah.

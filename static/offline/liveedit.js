@@ -165,22 +165,24 @@
     return patch;
   }
 
-  // Kapan perubahan sebuah field disimpan (R1):
+  // Kapan perubahan sebuah field disimpan (R1, R19):
   //  - "now": langsung setelah onChange (pilihan diskret);
   //  - "idle": TEXT_IDLE_MS setelah perubahan terakhir, atau saat keluar field/flush;
-  //  - "blur": hanya saat keluar field/flush (judul tidak boleh disimpan setengah jalan; progress = slider;
-  //    nilai kosong project/context datang dari "+ Baru" dan tidak boleh menghapus nilai lama bila pengguna diam).
-  function saveTrigger(field, value) {
+  //  - "blur": hanya saat keluar field/Enter/flush (commit eksplisit). Judul tidak boleh disimpan setengah jalan;
+  //    progress = slider; project/context (R19): ComboSelect memanggil onChange di setiap ketikan nama baru dan
+  //    server membuat setiap nama yang belum ada (project / tahap Kanban), jadi nama setengah jadi ("Mark" sebelum
+  //    "Marketing") tidak boleh tersimpan karena diam; "" dari "+ Baru" tidak boleh menghapus nilai lama.
+  //    Memilih opsi yang sudah ada disimpan langsung oleh panel lewat commit (bukan lewat pemicu ini).
+  function saveTrigger(field, _value) {
     switch (field) {
       case "title":
       case "progress":
+      case "project":
+      case "context":
         return "blur";
       case "description":
       case "waiting_for":
         return "idle";
-      case "project":
-      case "context":
-        return value == null || String(value).trim() === "" ? "blur" : "idle";
       default:
         return "now";
     }
@@ -241,8 +243,9 @@
   // titleWithTags, router lokal); hasilnya row server/lokal atau undefined.
   //
   // Simpan "eksplisit" (commit, flush, retry) mengirim semua field yang berubah. Simpan non-eksplisit (pilihan "now"
-  // dan timer idle) membuang field yang pemicunya "blur" (R1/R11): judul dan progress yang masih diketik/digeser,
-  // serta project/context kosong dari "+ Baru". Permintaan yang antre ikut eksplisit bila salah satunya eksplisit.
+  // dan timer idle) membuang field yang pemicunya "blur" (R1/R11/R19): judul dan progress yang masih diketik/digeser,
+  // serta project/context (nama yang sedang diketik atau "" dari "+ Baru"). Permintaan yang antre ikut eksplisit bila
+  // salah satunya eksplisit.
   function errorMessage(err) {
     if (err == null) return "Gagal menyimpan";
     if (typeof err === "string") return err || "Gagal menyimpan";

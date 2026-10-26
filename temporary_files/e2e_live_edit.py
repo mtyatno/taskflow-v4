@@ -13,8 +13,10 @@ kecuali dicatat lain. Server lokal dijalankan sendiri (uvicorn webapp:app, DB se
   B  sidebar lebar dan sidebar ikon × Normal / Compact / Kanban: task pertama terbuka, klik mengganti panel + sorotan,
      lebar panel = clamp(round(w × 0.5), 420, 680)
   C  Priority langsung, deskripsi setelah diam, judul saat blur → reload → bertahan; tag task tetap saat judul diubah;
-     `#tagbaru` di judul menjadi tag
-  K  "+ Baru" project lalu diam 2 dtk → project lama tidak hilang (nama baru tersimpan setelah diam)
+     `#tagbaru` di judul menjadi tag; tag dihapus di luar panel tidak dipulihkan oleh simpan judul berikutnya (R21)
+  K  "+ Baru" project lalu diam 2 dtk → project lama tidak hilang; nama baru yang diketik TIDAK tersimpan karena diam,
+     hanya saat keluar field / Enter (R19); nama diketik dua bagian dengan jeda 2 dtk → server hanya punya nama lengkap
+     (project dan context/tahap, tanpa nama setengah jadi); memilih opsi yang sudah ada tersimpan langsung
   E  offline (CDP) → edit → outbox bertambah, server belum berubah → online → tersinkron
   F  Done → task tetap di panel dan hilang dari Next, status dikembalikan → muncul lagi; Hapus → "Pilih task di daftar";
      task terpilih dihapus di tempat lain → hanya teks "sudah dihapus"; drag kartu Kanban → pilihan tidak berubah
@@ -656,6 +658,24 @@ def scen_edit(browser, base, A, ids):
               and wait_until(lambda: panel_tags(p) == ["kerja", "tagbaru"], 8),
               "judul=%r pri=%r tag=%r" % (panel_title(p), pri_select(p).input_value(), panel_tags(p)))
 
+        # ── R21: tag dihapus di luar panel (rute lokal, seperti modal) → simpan judul di panel tidak memulihkannya ──
+        p.evaluate("async (id) => await api.del('/api/tasks/' + id + '/tags/tagbaru')", aid)
+        check("C9 prasyarat: tag 'tagbaru' terhapus di luar panel (lokal)", local_tags(p, aid) == ["kerja"],
+              "lokal=%r panel=%r (chip dimuat saat mount)" % (local_tags(p, aid), panel_tags(p)))
+        for t_new in (new_title + " lagi", new_title):
+            tin = p.locator(PANEL + " input[aria-label='Judul task']").first
+            tin.click()
+            tin.fill(t_new)
+            tin.press("Tab")
+            if not wait_until(lambda: local_task(p, aid)["title"] == t_new, 3):
+                break
+        check("C9a simpan judul sesudahnya memuat tag segar: 'tagbaru' tidak kembali (lokal, chip, server)",
+              local_task(p, aid)["title"] == new_title
+              and wait_until(lambda: local_tags(p, aid) == ["kerja"] and panel_tags(p) == ["kerja"], 6)
+              and wait_until(lambda: server_tags(base, A, aid) == ["kerja"], 15),
+              "judul=%r lokal=%r panel=%r server=%r" % (local_task(p, aid)["title"], local_tags(p, aid), panel_tags(p),
+                                                       server_tags(base, A, aid)))
+
         # ── K. "+ Baru" project lalu diam: project lama tidak hilang ──
         proj_sel = p.locator(PANEL + " select:has(option[value='Proyek Satu'])").first
         check("K0 project awal 'Proyek Satu'", proj_sel.input_value() == "Proyek Satu", proj_sel.input_value())
@@ -667,10 +687,66 @@ def scen_edit(browser, base, A, ids):
         shot(p, "K_new_project_idle.png")
         new_input = p.locator(PANEL + " input[placeholder='— Project —']").first
         new_input.fill("Proyek Baru")
-        check("K2 nama baru diketik lalu diam → tersimpan lokal (idle ±1,5 dtk)",
-              wait_until(lambda: local_task(p, aid)["project"] == "Proyek Baru", 3.5), repr(local_task(p, aid)["project"]))
+        p.wait_for_timeout(2300)  # > TEXT_IDLE_MS
+        check("K2 nama baru diketik lalu diam 2,3 dtk → BELUM tersimpan (R19: hanya saat keluar field/Enter)",
+              local_task(p, aid)["project"] == "Proyek Satu", repr(local_task(p, aid)["project"]))
+        new_input.press("Tab")
+        check("K2a keluar field → nama baru tersimpan lokal (dalam 1,5 dtk)",
+              wait_until(lambda: local_task(p, aid)["project"] == "Proyek Baru", 1.5), repr(local_task(p, aid)["project"]))
         check("K2b nama project baru sampai ke server",
               wait_until(lambda: server_task(base, A, aid)["project"] == "Proyek Baru", 12),
+              repr(server_task(base, A, aid)["project"]))
+
+        # ── R19: nama diketik dua bagian dengan jeda 2 dtk → server tidak membuat project/tahap setengah jadi ──
+        full_proj = "Pemasaran Kuartal"
+        new_input = p.locator(PANEL + " input[placeholder='— Project —']").first
+        new_input.click()
+        new_input.press("Control+a")
+        new_input.press_sequentially("Pema", delay=40)
+        p.wait_for_timeout(2000)
+        check("K3 project 'Pema' + jeda 2 dtk → belum tersimpan (lokal tetap 'Proyek Baru')",
+              local_task(p, aid)["project"] == "Proyek Baru", repr(local_task(p, aid)["project"]))
+        new_input.press_sequentially("saran Kuartal", delay=40)
+        new_input.press("Tab")
+        check("K3a keluar field → server menerima nama lengkap",
+              wait_until(lambda: server_task(base, A, aid)["project"] == full_proj, 12),
+              repr(server_task(base, A, aid)["project"]))
+        settle_outbox(p)
+        projs = api(base, A, "GET", "/api/projects")
+        check("K3b daftar project server: hanya nama lengkap, tanpa 'Pema…' setengah jadi",
+              [n for n in projs if n.lower().startswith("pema")] == [full_proj], repr(projs))
+
+        ctx_sel = p.locator(PANEL + " select:has(option[value='@kantor'])").first
+        check("K4 context awal '@kantor'", ctx_sel.input_value() == "@kantor", ctx_sel.input_value())
+        ctx_sel.select_option("__new__")
+        ctx_input = p.locator(PANEL + " input[placeholder='— Context —']").first
+        ctx_input.wait_for(state="visible", timeout=3000)
+        ctx_input.click()
+        ctx_input.press_sequentially("@gud", delay=40)
+        p.wait_for_timeout(2000)
+        check("K4a context '@gud' + jeda 2 dtk → belum tersimpan (lokal tetap '@kantor')",
+              local_task(p, aid)["context"] == "@kantor", repr(local_task(p, aid)["context"]))
+        ctx_input.press_sequentially("ang", delay=40)
+        ctx_input.press("Enter")
+        check("K4b Enter di field context → tersimpan lokal (dalam 1,5 dtk) dan sampai ke server",
+              wait_until(lambda: local_task(p, aid)["context"] == "@gudang", 1.5)
+              and wait_until(lambda: server_task(base, A, aid)["context"] == "@gudang", 12),
+              repr((local_task(p, aid)["context"], server_task(base, A, aid)["context"])))
+        settle_outbox(p)
+        ctxs = api(base, A, "GET", "/api/contexts")
+        names = [c if isinstance(c, str) else c.get("name") for c in ctxs]
+        check("K4c daftar context/tahap server: hanya '@gudang', tanpa '@gud' setengah jadi",
+              [n for n in names if n and n.lower().startswith("@gud")] == ["@gudang"], repr(names))
+
+        # Opsi yang sudah ada di scope: tersimpan langsung tanpa keluar field.
+        p.locator(PANEL + " span[title='Kembali ke daftar']").first.click()
+        proj_sel = p.locator(PANEL + " select:has(option[value='Proyek Dua'])").first
+        proj_sel.wait_for(state="visible", timeout=3000)
+        proj_sel.select_option("Proyek Dua")
+        check("K5 memilih project yang sudah ada → tersimpan lokal langsung (dalam 1 dtk, tanpa keluar field)",
+              wait_until(lambda: local_task(p, aid)["project"] == "Proyek Dua", 1), repr(local_task(p, aid)["project"]))
+        check("K5b project 'Proyek Dua' sampai ke server",
+              wait_until(lambda: server_task(base, A, aid)["project"] == "Proyek Dua", 12),
               repr(server_task(base, A, aid)["project"]))
 
         # ── E. offline (CDP) → edit → online → tersinkron ──

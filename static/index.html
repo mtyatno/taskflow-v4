@@ -8423,7 +8423,8 @@ async function moveTaskToWorkspace({ api, task, listId, pushNow, syncNow, server
 // Live Edit (spec §7.2–§7.4, ruling R2): pembungkus React tipis untuk TF.liveedit.createAutosaver. Satu pengendali
 // per mount; null bila !enabled (modal). put memakai id task terkini (cid → id server setelah sync) dan, bila judul
 // ikut dikirim, menambahkan #tag yang sudah ada karena simpan judul mengganti tag task dengan #tag di judul (R9).
-// getTags() boleh async (Promise daftar tag); bila menolak, put ikut menolak dan judul tidak dikirim (R14).
+// getTags() boleh async (Promise daftar tag, dimuat ulang tiap simpan judul: R21); bila menolak, put ikut menolak dan
+// judul tidak dikirim (R14).
 // Unmount, tab disembunyikan, dan pagehide mengirim semua perubahan yang tertunda (flush).
 function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
   const taskIdRef = useRef(task && task.id);
@@ -8438,8 +8439,8 @@ function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
       put: async patch => {
         let body = patch;
         if (patch.title != null) {
-          // R14: hanya simpan yang membawa judul menunggu daftar tag task diketahui (getTags async; menolak bila tag
-          // tidak bisa dimuat), supaya titleWithTags tidak memakai daftar kosong dan menghapus semua tag.
+          // R14/R21: hanya simpan yang membawa judul menunggu daftar tag task terkini (getTags async; menolak bila tag
+          // tidak bisa dimuat), supaya titleWithTags tidak memakai daftar kosong/basi dan menghapus atau memulihkan tag.
           const tagsOf = cbRef.current.getTags;
           const tags = tagsOf ? await tagsOf() : [];
           body = { ...patch, title: window.TF.liveedit.titleWithTags(patch.title, tags) };
@@ -8639,30 +8640,27 @@ function TaskDetailBody({
   const [taskTags, setTaskTags] = useState([]);
   const [tagsExpanded, setTagsExpanded] = useState(false);
   const [tagTasksModal, setTagTasksModal] = useState(null); // { tagName, tasks }
-  const taskTagsRef = useRef(taskTags);
-  taskTagsRef.current = taskTags;
-  // R14: simpan judul mengganti tag task dengan #tag di judul, jadi panel baru boleh mengirim judul setelah daftar tag
-  // task ini diketahui. tagsLoadRef = Promise<boolean> pemuatan tag terakhir (true = taskTagsRef berisi tag task ini).
-  const tagsLoadRef = useRef(null);
+  // Memuat tag task ke chip; Promise berisi daftar yang dimuat (dipakai langsung oleh simpan judul, R21).
   const loadTags = id => api.get(`/api/tasks/${id}/tags`).then(data => {
     const list = data || [];
-    taskTagsRef.current = list; // langsung, tanpa menunggu render: put yang menunggu promise ini membacanya
     setTaskTags(list);
-    return true;
+    return list;
   });
+  // R21 (+R14): simpan judul mengganti tag task dengan #tag di judul. Chip di panel bisa basi (tag diubah lewat modal
+  // atau perangkat lain), jadi setiap simpan judul memuat ulang tag task tepat sebelum judul disusun
+  // (GET lokal, jalan offline) dan memakai hasil muatan itu sendiri. Gagal → muat ulang sekali (R14); gagal lagi →
+  // put ditolak, indikator "Gagal menyimpan", tag tetap utuh; "Coba lagi" mencoba memuat lagi.
   const tagsForTitle = async () => {
-    const known = await (tagsLoadRef.current || Promise.resolve(false));
-    if (known) return taskTagsRef.current;
-    // Pemuatan awal gagal (taskTags [] bukan daftar tag sebenarnya): muat ulang sekali. Gagal lagi → put ditolak,
-    // indikator "Gagal menyimpan", tag tetap utuh; "Coba lagi" mencoba memuat lagi.
-    const retry = loadTags(task.id);
-    tagsLoadRef.current = retry.catch(() => false);
     try {
-      await retry;
+      return await loadTags(task.id);
+    } catch (_) {
+      // dicoba sekali lagi di bawah
+    }
+    try {
+      return await loadTags(task.id);
     } catch (_) {
       throw new Error("Tag task belum termuat, judul belum disimpan");
     }
-    return taskTagsRef.current;
   };
 
   // Live Edit: simpan otomatis di panel. Tiap simpan sukses memberi tahu pendengar taskUpdated dan memuat ulang
@@ -8691,8 +8689,8 @@ function TaskDetailBody({
       return;
     }
     if (patch && patch.title != null) {
-      // Simpan judul berikutnya (mis. yang antre) menunggu muat ulang ini, supaya #tag baru dari judul ini ikut terkirim.
-      tagsLoadRef.current = loadTags(task.id).catch(() => false);
+      // Chip ikut #tag baru dari judul ini (simpan judul berikutnya memuat tag sendiri, R21).
+      loadTags(task.id).catch(() => {});
     }
     clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(() => {
@@ -8734,14 +8732,20 @@ function TaskDetailBody({
   useEffect(() => {
     fetchChildTasks();
   }, [task?.id]);
+  // Chip tag dimuat saat task berganti; di panel juga saat task berubah dari luar (updated_at: sync, modal, perangkat
+  // lain) supaya tidak basi (R21). Satu efek dengan dua dependensi: mount = satu muat. Modal: dependensi tetap task.id.
+  // Gagal memuat ulang task yang sama → chip lama dipertahankan; task lain → kosong (seperti sebelumnya).
+  const tagsVersion = isPanel ? task?.updated_at : null;
+  const tagsIdRef = useRef(null);
   useEffect(() => {
     if (task?.id) {
-      tagsLoadRef.current = loadTags(task.id).catch(() => {
-        setTaskTags([]);
-        return false;
+      const sameTaskReload = tagsIdRef.current === task.id;
+      tagsIdRef.current = task.id;
+      loadTags(task.id).catch(() => {
+        if (!sameTaskReload) setTaskTags([]);
       });
     }
-  }, [task?.id]);
+  }, [task?.id, tagsVersion]);
   const removeTag = async tagName => {
     try {
       await api.del(`/api/tasks/${task.id}/tags/${encodeURIComponent(tagName)}`);
@@ -9069,27 +9073,41 @@ function TaskDetailBody({
       marginBottom: 10
     }
   }, /*#__PURE__*/React.createElement("div", isPanel ? {
+    // R19: nama yang diketik (server membuat project/tahap yang belum ada) hanya tersimpan saat keluar field
+    // (ComboSelect tanpa onBlur: blur dari select/input di dalamnya naik ke sini; pindah fokus di dalam field
+    // diabaikan), Enter, atau flush. Memilih opsi yang sudah ada tersimpan langsung lewat onChange di bawah.
     onBlur: e => {
-      // ComboSelect tanpa onBlur: blur dari select/input di dalamnya naik ke sini. Pindah fokus di dalam field diabaikan.
       if (!e.currentTarget.contains(e.relatedTarget)) auto.commit("project");
+    },
+    onKeyDown: e => {
+      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) auto.commit("project");
     }
   } : null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
   }, projectScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
     value: fv.project,
-    onChange: v => sf("project", v),
+    onChange: v => {
+      sf("project", v);
+      if (isPanel && v && scopeProjects.includes(v)) auto.commit("project");
+    },
     options: scopeProjects,
     placeholder: "\u2014 Project \u2014",
     icon: "\uD83D\uDCC1"
   })), /*#__PURE__*/React.createElement("div", isPanel ? {
     onBlur: e => {
       if (!e.currentTarget.contains(e.relatedTarget)) auto.commit("context");
+    },
+    onKeyDown: e => {
+      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) auto.commit("context");
     }
   } : null, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
   }, contextScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
     value: fv.context,
-    onChange: v => sf("context", v),
+    onChange: v => {
+      sf("context", v);
+      if (isPanel && v && scopeContexts.includes(v)) auto.commit("context");
+    },
     options: scopeContexts,
     placeholder: "\u2014 Context \u2014",
     icon: "\uD83C\uDFF7\uFE0F"
