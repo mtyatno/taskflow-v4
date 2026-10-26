@@ -5027,3 +5027,12 @@
 [data-theme="dark"] .tl-save-retry:focus-visible { outline-color: #A8C500; }
 /* Aksi bawah menempel di dasar panel saat isi panel di-scroll (padding panel 20 px). */
 .tl-live-panel .task-detail-actions { position: sticky; bottom: -20px; background: var(--bg-card); padding: 12px 0; margin-top: 12px; box-shadow: inset 0 1px 0 var(--border); z-index: 2; }
+/* Tata letak dua kolom saat panel tampil: daftar kiri (ikut gulir halaman), panel kanan sticky di bawah topbar (top/lebar/max-height inline dari useLiveEdit). */
+.tl-live { display: flex; gap: 16px; align-items: flex-start; }
+.tl-live-list { flex: 1; min-width: 0; }
+.tl-live-panel { position: sticky; flex-shrink: 0; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+.tl-live-empty { color: var(--text-light); text-align: center; padding: 48px 12px; font-size: 14px; }
+/* Tombol Live Edit setelah segmen tampilan, dipisah garis tipis; teks disembunyikan saat baris alat sempit. */
+.tl-live-sep { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }
+.tl-live-btn { gap: 6px; }
+@media (max-width: 1100px) { .tl-live-label { display: none; } }

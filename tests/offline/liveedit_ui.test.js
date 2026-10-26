@@ -107,3 +107,47 @@ test("CSS sorotan terang/gelap", () => {
   assert.match(appCss, /\.task-row\.is-selected\s*\{[^}]*var\(--bg-selected\)/); assert.match(appCss, /\.compact-row\.is-selected\s*\{/);
   assert.match(appCss, /\.compact-row:hover\s*\{[^}]*var\(--bg-primary\)/);
 });
+
+// Task 7: tombol Live Edit, tata letak dua kolom, pilihan task (spec §4–§6, R3/R4/R6).
+test("useLiveEdit: ResizeObserver, storage aman, panelTop dari desktop-topbar", () => {
+  const s = fnSource("useLiveEdit");
+  for (const re of [/ResizeObserver/, /TF\.liveedit\.isAvailable/, /TF\.liveedit\.panelWidth/, /TF\.liveedit\.readOn/, /TF\.liveedit\.writeOn/, /"\.desktop-topbar"/, /try \{/])
+    assert.match(s, re);
+});
+test("TaskDetailPanel: aside, key cid, varian panel, teks keadaan", () => {
+  const s = fnSource("TaskDetailPanel");
+  for (const re of [/"aria-label": "Detail task"/, /key: task\.cid \|\| String\(task\.id\)/, /variant: "panel"/,
+    /"Task ini sudah dihapus atau tidak bisa diakses lagi\."/, /onClose: \(\) => \{\}/, /await detailProps\.onDelete\(task\.id\)/])
+    assert.match(s, re);
+});
+test("TaskListView: tombol Live Edit, reducer pilihan, pembungkus dua kolom", () => {
+  const s = fnSource("TaskListView");
+  for (const re of [/useLiveEdit\(rootRef\)/, /className: "tl-view-btn tl-live-btn"/, /"aria-pressed": live\.on/, /"aria-label": "Live Edit"/,
+    /"Sembunyikan panel detail"/, /"Tampilkan panel detail di samping"/, /TF\.liveedit\.selectionReducer/, /type: "init"/, /type: "deleted"/,
+    /className: "tl-live"/, /className: "tl-live-list"/, /React\.createElement\(TaskDetailPanel/, /"Pilih task di daftar"/, /"Tidak ada task"/,
+    /isSelected: liveOn \? isSel : null/, /TF\.liveedit\.isNotFound/])
+    assert.match(s, re);
+  assert.equal((s.match(/buildGroups\(filtered\)/g) || []).length, 1, "grup dihitung sekali");
+});
+test("App: handleDelete mengembalikan boolean, detailProps ke kedua TaskListView", () => {
+  const s = fnSource("App");
+  assert.match(s, /if \(!confirm\("Hapus task ini\?"\)\) return false;/);
+  assert.equal((s.match(/detailProps: taskDetailProps/g) || []).length, 2);
+});
+test("CSS tata letak Live Edit", () => {
+  for (const re of [/\.tl-live\s*\{[^}]*display:\s*flex/, /\.tl-live-panel\s*\{[^}]*position:\s*sticky/, /\.tl-live-sep\s*\{/, /\.tl-live-label/])
+    assert.match(appCss, re);
+  assert.doesNotMatch(appCss.slice(appCss.indexOf(".tl-live")), /border-left/);
+});
+// Review mandiri Task 7: scrollbar halaman yang muncul karena panel tidak boleh menyembunyikan panel itu sendiri
+// (berkedip di dekat ambang 760 px); "tidak tersedia" hanya selama task memang tidak ada di allTasks.
+test("useLiveEdit: lebar seolah tanpa scrollbar halaman; gone hanya bila task tidak ditemukan", () => {
+  const s = fnSource("useLiveEdit");
+  assert.match(s, /window\.innerWidth - document\.documentElement\.clientWidth/);
+  assert.match(s, /const w = el\.clientWidth \+ pageScrollbar;/);
+  const v = fnSource("TaskListView");
+  assert.match(v, /const gone = !selFound && goneId != null/);
+  assert.match(v, /if \(!selMissingId\) \{\s*checkedIdRef\.current = null;/);
+  // daftar kosong → berisi (task pertama tiba setelah panel tampil): pilih ulang, bukan "Tidak ada task" di samping daftar berisi
+  assert.match(v, /\}, \[liveOn, page, loading, hasVisible\]\);/);
+});

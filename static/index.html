@@ -10101,7 +10101,9 @@ const VIEW_GLYPHS = {
   sDivider: '<rect x="4" y="3" width="16" height="5" rx="1.5" fill="currentColor" fill-opacity=".22" stroke="none"/><rect x="4" y="16" width="16" height="5" rx="1.5" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M3 12h18"/>',
   // Kolom parkir pikiran (kartu Pomodoro ringkas di HP)
   sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" fill="currentColor" fill-opacity=".22"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
-  send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>'
+  send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+  // Tombol Live Edit di toolbar daftar task: daftar + panel detail kanan (isian lembut)
+  live: '<rect x="3" y="4" width="18" height="16" rx="2"/><rect x="13" y="4" width="8" height="16" rx="2" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M13 4v16"/><path d="M6.5 9h3"/><path d="M6.5 13h3"/>'
 };
 function ViewGlyph({
   name,
@@ -18079,6 +18081,110 @@ function contextKeyOrder(keys, items, page) {
   rest.sort((a, b) => pc.nocaseCompare(a, b) || (a < b ? -1 : a > b ? 1 : 0));
   return ranked.concat(rest);
 }
+// ── Live Edit: panel detail task di samping daftar (spec live-edit §4–§6) ──
+// Lebar area konten diukur dari rootRef (ResizeObserver; tanpa itu: event resize window + ukur ulang setelah
+// setiap render, menangkap perubahan lebar sidebar). Nyala/mati tersimpan di localStorage ("tf_liveedit").
+// panelTop = tinggi .desktop-topbar (sticky) + 12 px supaya panel sticky tidak tertutup topbar.
+function useLiveEdit(rootRef) {
+  const hasLib = !!(window.TF && window.TF.liveedit);
+  const [width, setWidth] = useState(0);
+  const [panelTop, setPanelTop] = useState(12);
+  const [on, setOn] = useState(() => {
+    if (!hasLib) return false;
+    try {
+      return window.TF.liveedit.readOn(localStorage);
+    } catch (_) {
+      return false;
+    }
+  });
+  const measureRef = useRef(null);
+  measureRef.current = () => {
+    const el = rootRef.current;
+    if (!el) return;
+    // Lebar dihitung seolah tanpa scrollbar halaman: panel yang memanjangkan halaman memunculkan scrollbar klasik
+    // (±6–17 px) dan, di dekat ambang 760 px, menyembunyikan panelnya sendiri → panel berkedip terus-menerus.
+    const pageScrollbar = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+    const w = el.clientWidth + pageScrollbar;
+    setWidth(prev => prev === w ? prev : w);
+    const bar = document.querySelector(".desktop-topbar");
+    const top = (bar && bar.offsetHeight || 0) + 12;
+    setPanelTop(prev => prev === top ? prev : top);
+  };
+  const hasObserver = typeof ResizeObserver === "function";
+  React.useLayoutEffect(() => {
+    const measure = () => measureRef.current();
+    measure();
+    if (hasObserver && rootRef.current) {
+      const ro = new ResizeObserver(measure);
+      ro.observe(rootRef.current);
+      return () => ro.disconnect();
+    }
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  useEffect(() => {
+    if (!hasObserver) measureRef.current();
+  });
+  const available = hasLib && window.TF.liveedit.isAvailable(width);
+  const toggle = () => {
+    const next = !on;
+    setOn(next);
+    try {
+      window.TF.liveedit.writeOn(localStorage, next);
+    } catch (_) {}
+  };
+  return {
+    available,
+    on,
+    active: available && on,
+    panelWidth: hasLib ? window.TF.liveedit.panelWidth(width) : 0,
+    panelTop,
+    toggle
+  };
+}
+// Panel kanan Live Edit. Keadaan kosong / tidak terpilih / tidak tersedia hanya teks (R6): TaskDetailBody tidak
+// pernah di-mount dengan task null. key = cid || id agar pergantian cid → id server setelah sync tidak me-mount
+// ulang form (edit yang belum tersimpan tidak hilang).
+function TaskDetailPanel({
+  task,
+  emptyText,
+  gone,
+  width,
+  top,
+  detailProps,
+  onSelectTask,
+  onDeleted
+}) {
+  const note = emptyText || (gone ? "Task ini sudah dihapus atau tidak bisa diakses lagi." : !task ? "Pilih task di daftar" : null);
+  return /*#__PURE__*/React.createElement("aside", {
+    className: "tl-live-panel",
+    "aria-label": "Detail task",
+    style: {
+      width,
+      top,
+      maxHeight: "calc(100vh - " + (top + 16) + "px)"
+    }
+  }, note ? /*#__PURE__*/React.createElement("div", {
+    className: "tl-live-empty"
+  }, note) : /*#__PURE__*/React.createElement(TaskDetailBody, {
+    key: task.cid || String(task.id),
+    task: task,
+    variant: "panel",
+    onClose: () => {},
+    onDone: () => detailProps.onDone(task.id),
+    onDelete: async () => {
+      if (await detailProps.onDelete(task.id)) onDeleted();
+    },
+    onOpenTask: onSelectTask,
+    onToggleFocus: detailProps.onToggleFocus,
+    onRefresh: detailProps.onRefresh,
+    onOfflineEdit: detailProps.onOfflineEdit,
+    projects: detailProps.projects,
+    contexts: detailProps.contexts,
+    collaborators: detailProps.collaborators,
+    sharedLists: detailProps.sharedLists
+  }));
+}
 // ── Task List view with filters ─────────────────────────────
   // ═══ DEPENDENCIES: TaskListView ═══
   // uses:
@@ -18092,6 +18198,7 @@ function contextKeyOrder(keys, items, page) {
   //   - FilterChip
   //   - ICONS
   //   - ComboSelect
+  //   - useLiveEdit, TaskDetailPanel (Live Edit)
   // emits:
   //   - TaskListView
   // BLOCK LENGTH: ~517 lines (10132-10649)
@@ -18123,10 +18230,22 @@ function TaskListView({
   contextItems = [],
   onManageStages = null,
   titleAvatarList = null,
-  description = ""
+  description = "",
+  // Live Edit: props panel detail dari App (onDone, onDelete, onToggleFocus, onRefresh, onOfflineEdit, projects, …).
+  detailProps = null
 }) {
   const isInbox = page === "inbox" || title === "Inbox";
   const [wizardOpen, setWizardOpen] = useState(false);
+  // Live Edit (spec §4–§6): panel detail di kanan daftar saat area konten cukup lebar dan tombol dinyalakan.
+  const rootRef = React.useRef(null);
+  const live = useLiveEdit(rootRef);
+  const liveOn = live.active && !!detailProps;
+  const liveLib = window.TF && window.TF.liveedit;
+  // Pilihan task = reducer murni (R3) {ref, snapshot, cleared}.
+  const [sel, dispatchSel] = React.useReducer(liveLib ? window.TF.liveedit.selectionReducer : s => s, liveLib ? window.TF.liveedit.EMPTY_SELECTION : { ref: null, snapshot: null, cleared: false });
+  const prevPageRef = React.useRef(page);
+  const [goneId, setGoneId] = useState(null);
+  const checkedIdRef = React.useRef(null);
   const [fPriority, setFPriority] = useState("");
   const [fQuadrant, setFQuadrant] = useState("");
   const [fProject, setFProject] = useState("");
@@ -18396,8 +18515,66 @@ function TaskListView({
     archive: item => runStageOp(() => api.patch(stageUrl(item), { archived: true }), "Tahap diarsipkan", false),
     remove: item => runStageOp(() => api.del(stageUrl(item)), "Tahap dihapus", true)
   } : null;
+
+  // Grup mode daftar dihitung sekali (render + urutan task tampil untuk Live Edit). Mode Kanban memakai papan.
+  const listGroups = groupBy === "none" || kanbanOn ? null : buildGroups(filtered);
+  // Urutan task yang tampil di kiri (grup terlipat dilewati; Kanban: kolom berurutan, kartu teratas dulu).
+  const visibleTasks = kanbanOn ? (kanbanBoard ? kanbanBoard.columns : []).reduce((acc, c) => acc.concat(c.tasks || []), []) : groupBy === "none" ? filtered : (listGroups || []).reduce((acc, g) => {
+    const isTanpa = g.key.startsWith("(Tanpa");
+    const isCollapsed = isTanpa ? collapsed[g.key] !== false : !!collapsed[g.key];
+    return isCollapsed ? acc : acc.concat(g.tasks);
+  }, []);
+  const hasVisible = visibleTasks.length > 0;
+  // Panel dinyalakan, halaman berganti, atau data pertama tiba (daftar kosong → berisi): pilih ulang (spec §6.2).
+  // prevPageRef = halaman saat pemilihan terakhir: halaman berganti selagi panel tersembunyi → task pertama.
+  // Layout effect: pilihan awal sudah ada sebelum panel pertama kali digambar (tanpa kilasan "Tidak ada task").
+  React.useLayoutEffect(() => {
+    if (!liveOn || loading) return;
+    dispatchSel({ type: "init", visible: visibleTasks, all: allTasks || [], keep: prevPageRef.current === page });
+    prevPageRef.current = page;
+  }, [liveOn, page, loading, hasVisible]);
+  // sel.ref hanya terisi lewat dispatch saat panel tampil, jadi TF.liveedit pasti ada di sini.
+  const selFound = sel.ref ? window.TF.liveedit.findTask(allTasks || [], sel.ref) : null;
+  // Task terpilih tidak ada di allTasks (task anak, task dihapus / keluar workspace): periksa sekali lewat rute lokal (R6).
+  const selMissingId = liveOn && sel.ref && !selFound ? sel.ref.id : null;
+  useEffect(() => {
+    // Sekali per periode "tidak ada": task ditemukan lagi (atau pilihan pindah) → pemeriksaan berikutnya boleh jalan.
+    if (!selMissingId) {
+      checkedIdRef.current = null;
+      return;
+    }
+    if (checkedIdRef.current === selMissingId) return;
+    checkedIdRef.current = selMissingId;
+    api.get("/api/tasks/" + encodeURIComponent(selMissingId)).then(task => {
+      if (task) dispatchSel({ type: "snapshot", task });else setGoneId(selMissingId);
+    }).catch(err => {
+      if (window.TF.liveedit.isNotFound(err)) setGoneId(selMissingId);
+    });
+  }, [selMissingId]);
+  const gone = !selFound && goneId != null && goneId === (sel.ref && sel.ref.id);
+  // Objek task stabil dari allTasks (bukan salinan): body menggabungkan perubahan luar per identitas objek.
+  const panelTask = sel.ref ? selFound || sel.snapshot : null;
+  const emptyText = !sel.ref ? sel.cleared ? "Pilih task di daftar" : "Tidak ada task" : null;
+  const rowClick = liveOn ? t => dispatchSel({ type: "select", task: t }) : onTaskClick;
+  const isSel = t => liveOn && window.TF.liveedit.sameTask(t, sel.ref);
+  // Panel tampil: isi daftar (Loading / Kanban / kosong / grup) di kolom kiri, panel detail di kanan.
+  const liveWrap = content => liveOn ? /*#__PURE__*/React.createElement("div", {
+    className: "tl-live"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tl-live-list"
+  }, content), /*#__PURE__*/React.createElement(TaskDetailPanel, {
+    task: panelTask,
+    emptyText: emptyText,
+    gone: gone,
+    width: live.panelWidth,
+    top: live.panelTop,
+    detailProps: detailProps,
+    onSelectTask: t => dispatchSel({ type: "select", task: t }),
+    onDeleted: () => dispatchSel({ type: "deleted" })
+  })) : content;
   return /*#__PURE__*/React.createElement("div", {
-    className: "fade-in"
+    className: "fade-in",
+    ref: rootRef
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -18549,7 +18726,22 @@ function TaskListView({
       name: "kanban",
       size: 16
     }));
-  })())), showFilters !== false && /*#__PURE__*/React.createElement("div", {
+  })()), live.available && detailProps && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    className: "tl-live-sep",
+    "aria-hidden": "true"
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tl-view-btn tl-live-btn",
+    onClick: live.toggle,
+    title: live.on ? "Sembunyikan panel detail" : "Tampilkan panel detail di samping",
+    "aria-label": "Live Edit",
+    "aria-pressed": live.on
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "live",
+    size: 16
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "tl-live-label"
+  }, "Live Edit")))), showFilters !== false && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 12
     }
@@ -18713,7 +18905,7 @@ function TaskListView({
       cursor: "pointer",
       fontWeight: 600
     }
-  }, "\u2715 Reset semua filter")))), loading ? /*#__PURE__*/React.createElement("div", {
+  }, "\u2715 Reset semua filter")))), liveWrap(loading ? /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
       padding: 40,
@@ -18731,11 +18923,12 @@ function TaskListView({
     todayIso: kanbanToday,
     currentUser: currentUser,
     collaborators: collaborators,
-    onTaskClick: onTaskClick,
+    onTaskClick: rowClick,
     onCheck: onKanbanCheck,
     onMoveTask: onMoveTask,
     stageOps: stageOps,
-    onCreateStage: groupBy === "context" ? createStage : null
+    onCreateStage: groupBy === "context" ? createStage : null,
+    isSelected: liveOn ? isSel : null
   })) : filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
@@ -18757,27 +18950,29 @@ function TaskListView({
   }, filtered.map(t => viewMode === "compact" ? /*#__PURE__*/React.createElement(CompactRow, {
     key: t.id,
     task: t,
-    onTaskClick: onTaskClick,
+    onTaskClick: rowClick,
     onDone: onDone,
     isInbox: isInbox,
-    onUpdateGtdStatus: onUpdateGtdStatus
+    onUpdateGtdStatus: onUpdateGtdStatus,
+    selected: isSel(t)
   }) : /*#__PURE__*/React.createElement(TaskRow, {
     key: t.id,
     task: t,
-    onClick: onTaskClick,
+    onClick: rowClick,
     onDone: onDone,
     onToggleFocus: onToggleFocus,
     focusTask: focusTask,
     onStartFocus: onStartFocus,
     isInbox: isInbox,
-    onUpdateGtdStatus: onUpdateGtdStatus
+    onUpdateGtdStatus: onUpdateGtdStatus,
+    selected: isSel(t)
   }))) : /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       overflow: "hidden",
       padding: 0
     }
-  }, buildGroups(filtered).map(({
+  }, listGroups.map(({
     key,
     label,
     badge,
@@ -18806,22 +19001,24 @@ function TaskListView({
     }, groupTasks.map(t => viewMode === "compact" ? /*#__PURE__*/React.createElement(CompactRow, {
       key: t.id,
       task: t,
-      onTaskClick: onTaskClick,
+      onTaskClick: rowClick,
       onDone: onDone,
       isInbox: isInbox,
-      onUpdateGtdStatus: onUpdateGtdStatus
+      onUpdateGtdStatus: onUpdateGtdStatus,
+      selected: isSel(t)
     }) : /*#__PURE__*/React.createElement(TaskRow, {
       key: t.id,
       task: t,
-      onClick: onTaskClick,
+      onClick: rowClick,
       onDone: onDone,
       onToggleFocus: onToggleFocus,
       focusTask: focusTask,
       onStartFocus: onStartFocus,
       isInbox: isInbox,
-      onUpdateGtdStatus: onUpdateGtdStatus
+      onUpdateGtdStatus: onUpdateGtdStatus,
+      selected: isSel(t)
     }))));
-  })), wizardOpen && isInbox && /*#__PURE__*/React.createElement(GtdInboxWizardModal, {
+  }))), wizardOpen && isInbox && /*#__PURE__*/React.createElement(GtdInboxWizardModal, {
     tasks: filtered,
     onClose: () => setWizardOpen(false),
     onUpdateGtdStatus: onUpdateGtdStatus,
@@ -43041,15 +43238,18 @@ function App() {
       }
     }
   };
+  // true bila task terhapus; false bila confirm dibatalkan atau gagal (panel Live Edit mengosongkan pilihan hanya bila true).
   const handleDelete = async taskId => {
-    if (!confirm("Hapus task ini?")) return;
+    if (!confirm("Hapus task ini?")) return false;
     try {
       await api.del(`/api/tasks/${taskId}`);
       showToast("Task dihapus 🗑️");
       fetchAll();
       setSelectedTask(null);
+      return true;
     } catch (err) {
       showToast(err.message, "error");
+      return false;
     }
   };
   const handleToggleFocus = async taskId => {
@@ -43060,6 +43260,18 @@ function App() {
     } catch (err) {
       showToast(err.message, "error");
     }
+  };
+  // Live Edit: panel detail di TaskListView memakai handler yang sama dengan modal detail task.
+  const taskDetailProps = {
+    onDone: handleDone,
+    onDelete: handleDelete,
+    onToggleFocus: handleToggleFocus,
+    onRefresh: fetchAll,
+    onOfflineEdit: handleOfflineEdit,
+    projects,
+    contexts,
+    collaborators,
+    sharedLists
   };
   const handleReviewCreate = ({ title, project }) =>
     api.post("/api/tasks", { title: title, gtd_status: "next", project: project || "", priority: "P2" })
@@ -43537,7 +43749,8 @@ function App() {
         onUpdateTask: handleUpdateTaskFields,
         sharedLists: sharedLists,
         currentUser: user,
-        contextItems: contextItems
+        contextItems: contextItems,
+        detailProps: taskDetailProps
       }));
     }
     return /*#__PURE__*/React.createElement(TaskListView, {
@@ -43563,7 +43776,8 @@ function App() {
       sharedLists: sharedLists,
       currentUser: user,
       contextItems: contextItems,
-      onManageStages: openStageManager
+      onManageStages: openStageManager,
+      detailProps: taskDetailProps
     });
   };
   return /*#__PURE__*/React.createElement("div", null, extAuthState && user && /*#__PURE__*/React.createElement(ExtAuthOverlay, {

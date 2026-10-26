@@ -32,12 +32,13 @@ test("VIEW_GLYPHS + ViewGlyph (inline, meniru FocusGlyph)", async (t) => {
       "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "mMail", "pomoTomato", "pomoBreak",
       "nNote", "nTag", "nTagOff", "nStar", "nChevronDown", "nChevronUp", "nBacklink", "nPin", "nBrain", "headphones",
       "pPalette", "pChat", "pCalendar", "pRepeat", "pDot", "pTarget", "pFlame", "pHourglass", "pSprout", "pZap", "pCheckCircle", "pPencil",
-      "sQuote", "sLightbulb", "sToggle", "sCode", "sListBullet", "sListOrdered", "sChecklist", "sTable", "sDivider", "sparkles", "send"]);
+      "sQuote", "sLightbulb", "sToggle", "sCode", "sListBullet", "sListOrdered", "sChecklist", "sTable", "sDivider", "sparkles", "send",
+      "live"]);
   });
 
   await t.test("VIEW_GLYPHS bisa dievaluasi dan setiap glyph berisi markup SVG", () => {
     const glyphs = new Function(mapSrc + "}; return VIEW_GLYPHS;")();
-    for (const k of ["normal", "compact", "kanban", "wsTasks", "wsFiles"]) {
+    for (const k of ["normal", "compact", "kanban", "wsTasks", "wsFiles", "live"]) {
       assert.match(glyphs[k], /^<(rect|path)\b/, k + " harus markup SVG");
       assert.match(glyphs[k], /fill-opacity="\.22"/, k + " harus duotone (isian lembut)");
     }
@@ -87,7 +88,9 @@ test("Toggle tampilan di toolbar task list", async (t) => {
     assert.match(toolbar, /"aria-pressed":\s*viewMode\s*===\s*"kanban"/);
     assert.match(toolbar, /"aria-label":\s*label/);
     assert.match(toolbar, /"aria-label":\s*"Kanban"/);
-    assert.equal((toolbar.slice(toolbar.indexOf('className: "tl-view-seg"')).match(/type:\s*"button"/g) || []).length, 2, "dua createElement button (mapped + Kanban) bertipe button");
+    // Live Edit (tombol setelah segmen, dipisah span.tl-live-sep) tidak ikut dihitung.
+    const seg = between(toolbar, 'className: "tl-view-seg"', 'className: "tl-live-sep"');
+    assert.equal((seg.match(/type:\s*"button"/g) || []).length, 2, "dua createElement button (mapped + Kanban) bertipe button");
     assert.match(toolbar, /React\.createElement\(ViewGlyph,\s*\{\s*name:\s*mode,\s*size:\s*16\s*\}\)/);
     assert.match(toolbar, /React\.createElement\(ViewGlyph,\s*\{\s*name:\s*"kanban",\s*size:\s*16\s*\}\)/);
   });
