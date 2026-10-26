@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
 const {
-  extractTags, setEntityTags, getEntityTags, getAllTags, removeEntityTag, cidsForTag,
+  extractTags, setEntityTags, addEntityTags, getEntityTags, getAllTags, removeEntityTag, cidsForTag,
 } = require("../../static/offline/tagrepo.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
@@ -68,6 +68,31 @@ test("removeEntityTag removes only that relation and keeps the global tag", asyn
   await removeEntityTag("task", "t1", "A"); // case-insensitive
   assert.deepEqual((await getEntityTags("task", "t1")).map((t) => t.name), ["b"]);
   assert.equal(await countStore("tags"), 2); // tag 'a' still exists globally
+});
+
+// Bug lama "simpan task menghapus tag" (2026-10-26): #tag di judul task menambah tag, tidak mengganti.
+test("addEntityTags adds links without removing existing ones (normalized, no duplicates)", async () => {
+  await setEntityTags("task", "t1", ["a", "b"]);
+  await addEntityTags("task", "t1", [" C ", "A", "c", ""]);
+  assert.deepEqual((await getEntityTags("task", "t1")).map((t) => t.name), ["a", "b", "c"]);
+  assert.equal(await countStore("entity_tags"), 3, "tidak ada tautan ganda");
+  assert.equal(await countStore("tags"), 3);
+});
+
+test("addEntityTags reuses an existing tag row and leaves other entities alone", async () => {
+  await setEntityTags("task", "t2", ["kerja", "lain"]);
+  await addEntityTags("task", "t1", ["Kerja"]);
+  assert.equal(await countStore("tags"), 2);
+  assert.deepEqual((await getEntityTags("task", "t1")).map((t) => t.name), ["kerja"]);
+  assert.deepEqual((await getEntityTags("task", "t2")).map((t) => t.name), ["kerja", "lain"]);
+});
+
+test("addEntityTags with an empty list changes nothing", async () => {
+  await setEntityTags("task", "t1", ["a"]);
+  await addEntityTags("task", "t1", []);
+  await addEntityTags("task", "t1", null);
+  assert.deepEqual((await getEntityTags("task", "t1")).map((t) => t.name), ["a"]);
+  assert.equal(await countStore("entity_tags"), 1);
 });
 
 test("cidsForTag returns the set of entity cids for a tag name", async () => {

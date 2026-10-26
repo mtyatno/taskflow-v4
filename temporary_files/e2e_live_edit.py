@@ -43,6 +43,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from urllib.parse import urlsplit
 
 import requests
 from playwright.sync_api import sync_playwright
@@ -360,6 +361,30 @@ def local_rec(page, title):
         const t = all.find(x => !x.deleted && x.title === title);
         return t ? {updated_at: t.updated_at, rev: t.rev == null ? null : t.rev, dirty: t.dirty == null ? null : t.dirty} : null;
     }""", title)
+
+
+def wait_child_lists(page, task_id, act, timeout=10):
+    """Jalankan `act()` lalu tunggu sampai GET notes/attachments/subtasks task `task_id` mendapat respons. Body panel
+    memanggil ketiganya saat dipasang, lewat jaringan karena id numerik (K6). Dipakai sebelum task itu dihapus di
+    server: tanpa menunggu, GET yang tiba sesudah DELETE menjadi 404 di konsol (race lama F6e → Z[3]).
+    Mengembalikan path yang belum mendapat respons (kosong = semua sudah)."""
+    want = {"/api/tasks/%d/%s" % (task_id, k) for k in ("notes", "attachments", "subtasks")}
+    got = set()
+
+    def on_resp(r):
+        path = urlsplit(r.url).path
+        if path in want:
+            got.add(path)
+
+    page.on("response", on_resp)
+    try:
+        act()
+        end = time.time() + timeout
+        while not want <= got and time.time() < end:
+            page.wait_for_timeout(100)  # API sync Playwright hanya memompa event saat menunggu di Playwright
+        return want - got
+    finally:
+        page.remove_listener("response", on_resp)
 
 
 def net_offline(cdp, offline):
@@ -860,7 +885,10 @@ def scen_actions(browser, base, A, ids):
         check("F6d klik task lain sesudah Hapus → panel menampilkannya", wait_title(p, T_CHARLIE))
 
         # ── task terpilih dihapus di perangkat lain (R6/R16): hanya teks, tanpa body ──
-        click_row(p, T_FOX)
+        # tunggu GET anak panel (notes/attachments/subtasks) selesai dulu: yang tiba sesudah DELETE menjadi 404
+        missing = wait_child_lists(p, ids[T_FOX], lambda: click_row(p, T_FOX))
+        if missing:
+            print("  catatan F6e: respons anak panel belum tiba sebelum DELETE: %r" % sorted(missing), flush=True)
         api(base, A, "DELETE", "/api/tasks/%d" % ids[T_FOX])
         p.evaluate("() => window.__refreshTasks && window.__refreshTasks()")
         check("F6e task terpilih dihapus di tempat lain → teks 'sudah dihapus', tanpa body",

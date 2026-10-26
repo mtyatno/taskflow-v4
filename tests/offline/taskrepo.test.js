@@ -242,16 +242,82 @@ test("createTask persists #tags from the title", async () => {
   assert.deepEqual((await getEntityTags("task", t.cid)).map((x) => x.name), ["kopi", "susu"]);
 });
 
-test("updateTask rewrites tags when the title changes", async () => {
+// Bug lama "simpan task menghapus tag" (2026-10-26): judul tersimpan tanpa #tag (tag di store entity_tags), jadi
+// form yang mengirim judul tidak memuat tag. #tag di judul kini MENAMBAH tag task; judul tanpa #tag tidak menyentuh
+// tag. Hapus tag hanya lewat removeEntityTag (chip ×); push tetap mengirim himpunan tag lokal lengkap.
+test("updateTask adds #tags from a new title to the existing tags", async () => {
   const t = await createTask({ title: "A #one" }, { today: TODAY, now: NOW });
   await updateTask(t.cid, { title: "B #two #three" }, { today: TODAY, now: NOW });
-  assert.deepEqual((await getEntityTags("task", t.cid)).map((x) => x.name), ["three", "two"]);
+  assert.deepEqual((await getEntityTags("task", t.cid)).map((x) => x.name), ["one", "three", "two"]);
 });
 
 test("updateTask leaves tags untouched when the title is absent", async () => {
   const t = await createTask({ title: "A #keep" }, { today: TODAY, now: NOW });
   await updateTask(t.cid, { priority: "P1" }, { today: TODAY, now: NOW });
   assert.deepEqual((await getEntityTags("task", t.cid)).map((x) => x.name), ["keep"]);
+});
+
+const { removeEntityTag } = require("../../static/offline/tagrepo.js");
+const tagNamesOf = async (cid) => (await getEntityTags("task", cid)).map((x) => x.name);
+
+test("updateTask: judul tanpa #tag (form modal/GTD) tidak menghapus tag lokal", async () => {
+  const t = await createTask({ title: "A #a #b" }, { today: TODAY, now: NOW });
+  const u = await updateTask(t.cid, { title: "X", priority: "P1" }, { today: TODAY, now: LATER });
+  assert.equal(u.title, "X");
+  assert.equal(u.priority, "P1");
+  assert.deepEqual(await tagNamesOf(t.cid), ["a", "b"]);
+});
+
+test("updateTask: #tag baru di judul ditambahkan ke tag yang ada; judul tersimpan tanpa #tag", async () => {
+  const t = await createTask({ title: "A #a #b" }, { today: TODAY, now: NOW });
+  const u = await updateTask(t.cid, { title: "X #c" }, { today: TODAY, now: LATER });
+  assert.equal(u.title, "X");
+  assert.equal((await getRaw(t.cid)).title, "X");
+  assert.deepEqual(await tagNamesOf(t.cid), ["a", "b", "c"]);
+});
+
+test("updateTask: #tag yang sudah ada (huruf besar) tidak menggandakan tag", async () => {
+  const t = await createTask({ title: "A #a #b" }, { today: TODAY, now: NOW });
+  await updateTask(t.cid, { title: "X #A #b" }, { today: TODAY, now: LATER });
+  assert.deepEqual(await tagNamesOf(t.cid), ["a", "b"]);
+});
+
+test("updateTask: tag yang dihapus lewat chip × tidak kembali saat judul tanpa #tag disimpan", async () => {
+  const t = await createTask({ title: "A #a #b" }, { today: TODAY, now: NOW });
+  await removeEntityTag("task", t.cid, "b");
+  await updateTask(t.cid, { title: "X", priority: "P1" }, { today: TODAY, now: LATER });
+  assert.deepEqual(await tagNamesOf(t.cid), ["a"]);
+});
+
+test("push sesudah updateTask membawa semua tag lokal di judul (server mengganti dengan himpunan itu)", async () => {
+  const { pushOutbox } = require("../../static/offline/syncpush.js");
+  const calls = [];
+  const tr = {
+    request(method, path, body) {
+      calls.push({ method, path, body });
+      return Promise.resolve(method === "POST" ? { status: 201, data: { id: 100 } } : { status: 200, data: { id: 100 } });
+    },
+  };
+  const lastPut = () => calls.filter((c) => c.method === "PUT").pop();
+  const t = await createTask({ title: "A #a #b" }, { today: TODAY, now: NOW });
+  await pushOutbox(tr);
+  assert.equal(calls[0].method, "POST");
+  assert.equal(calls[0].body.title, "A #a #b");
+
+  await updateTask(t.cid, { title: "X", priority: "P1" }, { today: TODAY, now: LATER });
+  await pushOutbox(tr);
+  assert.equal(lastPut().path, "/api/tasks/100");
+  assert.equal(lastPut().body.title, "X #a #b", "judul form tanpa #tag tetap mengirim tag lokal");
+  assert.equal(lastPut().body.priority, "P1");
+
+  await updateTask(t.cid, { title: "X #c" }, { today: TODAY, now: LATER });
+  await pushOutbox(tr);
+  assert.equal(lastPut().body.title, "X #a #b #c");
+
+  await removeEntityTag("task", t.cid, "b");
+  await updateTask(t.cid, { title: "X", description: "d" }, { today: TODAY, now: LATER });
+  await pushOutbox(tr);
+  assert.equal(lastPut().body.title, "X #a #c", "tag yang dihapus ikut terhapus di server lewat himpunan lengkap");
 });
 
 test("updateTask sets recurrence (type + monthly day clamp + end_date)", async () => {

@@ -138,8 +138,8 @@ test("Interactive Note Viewer Specifications", async (t) => {
   await t.test("7. Service Worker Cache Version Bumped", () => {
     assert.match(
       swJs,
-      /taskflow-v470-live-edit/,
-      "sw.js should be bumped to taskflow-v470-live-edit"
+      /taskflow-v471-simpan-tag/,
+      "sw.js should be bumped to taskflow-v471-simpan-tag"
     );
   });
 

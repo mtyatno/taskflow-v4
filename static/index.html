@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=367">
+  <link rel="stylesheet" href="/static/app.css?v=368">
   <link rel="stylesheet" href="/static/themes.css?v=1">
 
 <style>
@@ -220,7 +220,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v470-live-edit";
+    window.__SW_VERSION = "taskflow-v471-simpan-tag";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -8456,9 +8456,9 @@ async function moveTaskToWorkspace({ api, task, listId, pushNow, syncNow, server
 }
 // Live Edit (spec §7.2–§7.4, ruling R2): pembungkus React tipis untuk TF.liveedit.createAutosaver. Satu pengendali
 // per mount; null bila !enabled (modal). put memakai id task terkini (cid → id server setelah sync) dan, bila judul
-// ikut dikirim, menambahkan #tag yang sudah ada karena simpan judul mengganti tag task dengan #tag di judul (R9).
-// getTags() boleh async (Promise daftar tag, dimuat ulang tiap simpan judul: R21); bila menolak, put ikut menolak dan
-// judul tidak dikirim (R14).
+// ikut dikirim, menambahkan #tag yang sudah ada (R9): store lokal kini MENAMBAH #tag dari judul (ADR-032), tetapi
+// server mengganti tag task dengan #tag di judul yang di-push. getTags() boleh async (Promise daftar tag, dimuat ulang
+// tiap simpan judul: R21); bila menolak, put ikut menolak dan judul tidak dikirim (R14).
 // Unmount, tab disembunyikan, dan pagehide mengirim semua perubahan yang tertunda (flush).
 function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
   const taskIdRef = useRef(task && task.id);
@@ -8474,7 +8474,8 @@ function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
         let body = patch;
         if (patch.title != null) {
           // R14/R21: hanya simpan yang membawa judul menunggu daftar tag task terkini (getTags async; menolak bila tag
-          // tidak bisa dimuat), supaya titleWithTags tidak memakai daftar kosong/basi dan menghapus atau memulihkan tag.
+          // tidak bisa dimuat), supaya titleWithTags tidak memakai daftar basi: tag yang sudah dihapus di tempat lain
+          // akan DITAMBAHKAN kembali (store lokal menambah #tag dari judul, ADR-032).
           const tagsOf = cbRef.current.getTags;
           const tags = tagsOf ? await tagsOf() : [];
           body = { ...patch, title: window.TF.liveedit.titleWithTags(patch.title, tags) };
@@ -8551,6 +8552,37 @@ function TaskSaveIndicator({ saveState, error, onRetry }) {
     className: "tl-save-ind" + (saveState === "error" ? " is-error" : ""),
     "aria-live": "polite"
   }, content);
+}
+// Overlay "Task dengan tag" di TaskDetailBody (`position: absolute`) berjangkar ke wadah gulirnya = parentElement
+// overlay (`.modal-content` di modal, `aside.tl-live-panel` di panel; TaskDetailBody mengembalikan Fragment). Dengan
+// `inset: 0` overlay berada di bagian atas isi, jadi saat wadah sudah digulir area yang terlihat tidak tertutup.
+// Overlay ditaruh di area terlihat wadah (onPlace({ top: scrollTop, height: clientHeight })), gulir wadah dikunci
+// selama overlay terbuka, dan ukuran diukur ulang saat wadah/jendela berubah. onPlace hanya dipanggil bila top/height
+// berubah, jadi detak ResizeObserver/scroll/resize yang tidak menggeser apa pun tidak me-render ulang TaskDetailBody.
+// Mengembalikan pembersih yang mengembalikan `overflow` inline semula.
+function pinOverlayToScrollBox(overlay, onPlace) {
+  const box = overlay && overlay.parentElement;
+  if (!box) return () => {};
+  const prevOverflow = box.style.overflow;
+  box.style.overflow = "hidden";
+  let last = null;
+  const place = () => {
+    const top = box.scrollTop, height = box.clientHeight;
+    if (last && last.top === top && last.height === height) return;
+    last = { top, height };
+    onPlace(last);
+  };
+  place();
+  const ro = typeof ResizeObserver === "function" ? new ResizeObserver(place) : null;
+  if (ro) ro.observe(box);
+  box.addEventListener("scroll", place);
+  window.addEventListener("resize", place);
+  return () => {
+    if (ro) ro.disconnect();
+    box.removeEventListener("scroll", place);
+    window.removeEventListener("resize", place);
+    box.style.overflow = prevOverflow;
+  };
 }
 function TaskDetailBody({
   task,
@@ -8674,14 +8706,27 @@ function TaskDetailBody({
   const [taskTags, setTaskTags] = useState([]);
   const [tagsExpanded, setTagsExpanded] = useState(false);
   const [tagTasksModal, setTagTasksModal] = useState(null); // { tagName, tasks }
+  // Overlay tag menutupi area terlihat wadah gulir (bukan bagian atas isi) dan mengunci gulirnya selama terbuka.
+  const tagOverlayRef = useRef(null);
+  const [tagOverlayPos, setTagOverlayPos] = useState(null);
+  const tagOverlayOpen = !!tagTasksModal;
+  React.useLayoutEffect(() => {
+    if (!tagOverlayOpen) return undefined;
+    const release = pinOverlayToScrollBox(tagOverlayRef.current, setTagOverlayPos);
+    return () => {
+      release();
+      setTagOverlayPos(null);
+    };
+  }, [tagOverlayOpen]);
   // Memuat tag task ke chip; Promise berisi daftar yang dimuat (dipakai langsung oleh simpan judul, R21).
   const loadTags = id => api.get(`/api/tasks/${id}/tags`).then(data => {
     const list = data || [];
     setTaskTags(list);
     return list;
   });
-  // R21 (+R14): simpan judul mengganti tag task dengan #tag di judul. Chip di panel bisa basi (tag diubah lewat modal
-  // atau perangkat lain), jadi setiap simpan judul memuat ulang tag task tepat sebelum judul disusun
+  // R21 (+R14): #tag di judul yang disimpan ditambahkan ke tag task (store lokal, ADR-032). Chip di panel bisa basi
+  // (tag dihapus lewat modal atau di tempat lain); daftar basi akan menambahkan kembali tag yang sudah dihapus, jadi
+  // setiap simpan judul memuat ulang tag task tepat sebelum judul disusun
   // (GET lokal, jalan offline) dan memakai hasil muatan itu sendiri. Gagal → muat ulang sekali (R14); gagal lagi →
   // put ditolak, indikator "Gagal menyimpan", tag tetap utuh; "Coba lagi" mencoba memuat lagi.
   const tagsForTitle = async () => {
@@ -9719,9 +9764,13 @@ function TaskDetailBody({
     className: "btn btn-success btn-sm",
     onClick: onDone
   }, "\u2705 Done")), tagTasksModal && /*#__PURE__*/React.createElement("div", {
+    ref: tagOverlayRef,
     style: {
       position: "absolute",
-      inset: 0,
+      left: 0,
+      right: 0,
+      top: tagOverlayPos ? tagOverlayPos.top : 0,
+      height: tagOverlayPos ? tagOverlayPos.height : "100%",
       background: "rgba(0,0,0,0.6)",
       borderRadius: "inherit",
       zIndex: 10,
@@ -26638,7 +26687,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v470-live-edit"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v471-simpan-tag"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

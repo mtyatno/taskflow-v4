@@ -217,9 +217,10 @@
     return /not found|tidak ditemukan/i.test(String(msg == null ? "" : msg));
   }
 
-  // R9: menyimpan `title` membuat server dan store lokal MENGGANTI tag task dengan #tag yang di-parse dari judul,
-  // sedangkan judul tersimpan tidak memuat #tag. Tag yang belum ada di judul ditambahkan di belakang supaya
-  // simpan judul tidak menghapus tag.
+  // R9: judul tersimpan tidak memuat #tag. Store lokal MENAMBAH #tag yang di-parse dari judul ke tag task (ADR-032),
+  // tetapi server MENGGANTI tag task dengan #tag di judul yang di-push. Tag yang belum ada di judul ditambahkan di
+  // belakang supaya simpan judul membawa himpunan tag lengkap; daftar tag harus segar (R21), karena daftar basi akan
+  // menambahkan kembali tag yang sudah dihapus di tempat lain.
   function titleHasTag(title, name) {
     const esc = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     return new RegExp("#" + esc + "(?![" + TAG_CHARS + "])", "i").test(title);
