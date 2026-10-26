@@ -65,11 +65,11 @@ test("CSS ikon chip Pomodoro", () => {
   assert.match(appCss, /\.topbar-pomo-chip\.is-break \.topbar-pomo-icon\s*\{\s*color:\s*var\(--break\);\s*\}/);
 });
 
-test("cache bust v450 + app.css?v=366", () => {
+test("cache bust v450 + app.css?v=367", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v469-task-detail-body";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v469-task-detail-body";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v469-task-detail-body"/);
-  assert.match(indexHtml, /app\.css\?v=366/);
+  assert.match(swJs, /^const CACHE = "taskflow-v470-live-edit";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v470-live-edit";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v470-live-edit"/);
+  assert.match(indexHtml, /app\.css\?v=367/);
 });
