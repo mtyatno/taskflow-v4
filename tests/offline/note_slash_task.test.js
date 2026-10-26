@@ -106,8 +106,8 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v468-fokus-parkir-toast in static/sw.js", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v468-fokus-parkir-toast";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v468-fokus-parkir-toast";/);
+  await t.test("Service Worker cache is taskflow-v469-task-detail-body in static/sw.js", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v469-task-detail-body";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v469-task-detail-body";/);
   });
 });
