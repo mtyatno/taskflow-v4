@@ -23,6 +23,7 @@
       --break-light: #f0fdf4;
       --bg-hover: rgba(15, 23, 42, 0.05);
       --bg-subtle: rgba(15, 23, 42, 0.025);
+      --bg-selected: rgba(15, 23, 42, 0.07);
       --radius-lg: 16px;
     }
     [data-theme="dark"] {
@@ -39,6 +40,7 @@
       --outline-guide: #555555;
       --bg-hover: rgba(255, 255, 255, 0.08);
       --bg-subtle: rgba(255, 255, 255, 0.03);
+      --bg-selected: rgba(255, 255, 255, 0.10);
     }
     [data-theme="dark"] body { background: #171717; }
     [data-theme="dark"] .input { background: #171717 !important; color: var(--text-primary); }
@@ -547,6 +549,12 @@
       .task-row { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 6px; }
       .task-row:hover { background: var(--bg-primary); }
     }
+    /* Live Edit: task yang sedang tampil di panel detail. Sesudah :hover (dan blok mobile) agar sorotan tetap saat kursor di atasnya. */
+    .task-row.is-selected { background: var(--bg-selected); border-color: var(--border); }
+    [data-theme="dark"] .task-row.is-selected { background: var(--bg-selected); border-color: var(--border); }
+    .compact-row { transition: background 0.1s; }
+    .compact-row:hover { background: var(--bg-primary); }
+    .compact-row.is-selected { background: var(--bg-selected); }
 
     /* Toast */
     .toast { position: fixed; bottom: calc(24px + env(safe-area-inset-bottom, 0px)); right: 24px; padding: 12px 20px; border-radius: 10px; color: white; font-weight: 600; font-size: 14px; z-index: 100; animation: fadeIn 0.3s ease-out; }

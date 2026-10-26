@@ -92,3 +92,18 @@ test("R14: put menunggu daftar tag hanya bila patch membawa judul", () => {
   assert.match(s, /patch\.title != null\) \{[\s\S]{0,200}tagsLoadRef\.current = loadTags\(task\.id\)\.catch\(\(\) => false\)/,
     "muat ulang tag setelah simpan judul ikut ditunggu simpan judul berikutnya");
 });
+
+// Task 6: penanda task terpilih di baris dan kartu (spec §6.5). Tanpa prop selected/isSelected tampilan tidak berubah.
+test("baris & kartu menerima selected + aria-current, tanpa border-left", () => {
+  const row = fnSource("TaskRow"), comp = fnSource("CompactRow"), card = fnSource("KanbanCard");
+  assert.match(row, /selected = false/); assert.match(row, /" is-selected"/); assert.match(row, /"aria-current": selected \? "true" : undefined/);
+  assert.match(comp, /className: "compact-row" \+ \(selected \? " is-selected" : ""\)/); assert.doesNotMatch(comp, /onMouseLeave/);
+  assert.match(card, /linear-gradient\(var\(--bg-selected\), var\(--bg-selected\)\), var\(--bg-card\)/);
+  assert.match(fnSource("KanbanView"), /isSelected/);
+  for (const s of [row, comp, card]) assert.doesNotMatch(s, /borderLeft/);
+});
+test("CSS sorotan terang/gelap", () => {
+  assert.match(appCss, /--bg-selected:\s*rgba\(15, 23, 42, 0\.07\)/); assert.match(appCss, /--bg-selected:\s*rgba\(255, 255, 255, 0\.10\)/);
+  assert.match(appCss, /\.task-row\.is-selected\s*\{[^}]*var\(--bg-selected\)/); assert.match(appCss, /\.compact-row\.is-selected\s*\{/);
+  assert.match(appCss, /\.compact-row:hover\s*\{[^}]*var\(--bg-primary\)/);
+});

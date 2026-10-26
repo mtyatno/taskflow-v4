@@ -9803,11 +9803,13 @@ function TaskRow({
   focusTask,
   onStartFocus,
   isInbox,
-  onUpdateGtdStatus
+  onUpdateGtdStatus,
+  selected = false
 }) {
   const isFocusing = focusTask?.id === task.id;
   return /*#__PURE__*/React.createElement("div", {
-    className: "task-row fade-in",
+    className: "task-row fade-in" + (selected ? " is-selected" : ""),
+    "aria-current": selected ? "true" : undefined,
     "data-tour": "task-list",
     onClick: () => onClick(task)
   }, /*#__PURE__*/React.createElement("div", {
@@ -16502,10 +16504,13 @@ function CompactRow({
   onTaskClick,
   onDone,
   isInbox,
-  onUpdateGtdStatus
+  onUpdateGtdStatus,
+  selected = false
 }) {
   const dateStr = task.deadline ? formatDate(task.deadline) : null;
   return /*#__PURE__*/React.createElement("div", {
+    className: "compact-row" + (selected ? " is-selected" : ""),
+    "aria-current": selected ? "true" : undefined,
     onClick: () => onTaskClick(task),
     style: {
       display: "flex",
@@ -16513,11 +16518,8 @@ function CompactRow({
       gap: 10,
       padding: "8px 12px",
       cursor: "pointer",
-      borderBottom: "1px solid var(--border)",
-      transition: "background 0.1s"
-    },
-    onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
-    onMouseLeave: e => e.currentTarget.style.background = "transparent"
+      borderBottom: "1px solid var(--border)"
+    }
   }, /*#__PURE__*/React.createElement("div", {
     className: "check-btn",
     onClick: e => {
@@ -16854,7 +16856,8 @@ function KanbanCard({
   onTaskClick,
   onCheck,
   onMove,
-  onHoverColumn
+  onHoverColumn,
+  selected = false
 }) {
   // Menu "Pindah ke…": null = tertutup, selain itu posisi tetap (fixed) di bawah tombol agar tidak terpotong kolom.
   const [menuPos, setMenuPos] = React.useState(null);
@@ -17083,9 +17086,11 @@ function KanbanCard({
       if (e.key === "Enter" && e.target === e.currentTarget) onTaskClick(task);
     },
     "data-kanban-task": String(task.id),
+    "aria-current": selected ? "true" : undefined,
     style: {
       position: "relative",
-      background: "var(--bg-card)",
+      // Kartu terpilih (Live Edit): lapisan --bg-selected di atas --bg-card; border/shadow tetap milik handler hover.
+      background: selected ? "linear-gradient(var(--bg-selected), var(--bg-selected)), var(--bg-card)" : "var(--bg-card)",
       border: "1px solid var(--border)",
       borderRadius: 8,
       padding: "8px 10px",
@@ -17280,7 +17285,8 @@ function KanbanColumn({
   onTaskClick,
   onCheck,
   onMoveTask,
-  stageOps
+  stageOps,
+  isSelected
 }) {
   const {
     key: groupKey,
@@ -17515,7 +17521,8 @@ function KanbanColumn({
     onTaskClick: onTaskClick,
     onCheck: onCheck,
     onMove: onMoveTask,
-    onHoverColumn: onHoverColumn
+    onHoverColumn: onHoverColumn,
+    selected: !!(isSelected && isSelected(t))
   })), isDragOver && /*#__PURE__*/React.createElement("div", {
     style: {
       height: 48,
@@ -17542,7 +17549,8 @@ function KanbanView({
   onCheck,
   onMoveTask,
   stageOps,
-  onCreateStage
+  onCreateStage,
+  isSelected = null
 }) {
   const [overKey, setOverKey] = React.useState(null);
   // Kolom tipis "+ Tahap" (hanya Group by Context) sebelum "Selesai"; bukan target drop (tanpa data-kanban-col).
@@ -17650,7 +17658,8 @@ function KanbanView({
       onTaskClick: onTaskClick,
       onCheck: onCheck,
       onMoveTask: onMoveTask,
-      stageOps: stageOps
+      stageOps: stageOps,
+      isSelected: isSelected
     }));
   });
   if (addColumn && !addPlaced) cols.push(addColumn);
