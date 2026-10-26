@@ -37,6 +37,20 @@ Kelompok (E2E_ONLY=autosave,... menjalankan sebagian; kosong = semua). Tiap kelo
          Fokus → rekaman lokal is_focused; Selesai → modal tertutup, lokal done; online → server is_focused + done
     T-9  tanpa error konsol/pageerror
 
+  props  (Task 4) kisi properti + popover picker. Panel Live Edit 1280 px terang dan modal 375 px gelap:
+    P-1  Status → Waiting, Prioritas → P1 Critical → server waiting/P1; Menunggu "Budi" + Enter → server waiting_for
+    P-2  (Review Focus 3) proyek "Pemasaran" ada: ketik "Pema", diam 2 dtk, Escape → tanpa proyek "Pema", proyek task
+         tetap; "pemasaran" + Enter → "Pemasaran" (satu nama di server); "+ Buat 'Riset Pasar'" → dibuat sekali;
+         Tahap → Kosongkan → context kosong di server
+    P-3  offline: Deadline diketik digit demi digit (11152026) → `_outbox` tetap selama mengetik, naik tepat 1 saat
+         popover ditutup (klik di luar); online → server deadline 2026-11-15
+    P-4  (Review Focus 5) P1 + "Hari ini" → chip Q1 tanpa reload; tanggal kemarin diketik → chip "Terlambat" dan nilai
+         Deadline is-danger; "Hapus deadline" → chip hilang, nilai "+ Tambah"
+    P-5  workspace dua anggota: Assign ke anggota → server assigned_to; "Lepas" → task lokal tanpa assignee (server
+         tidak ikut: bug pra-ada syncpush.js mengirim assigned_to null yang diabaikan PUT; dicetak di akhir)
+    P-6  Escape menutup popover dan fokus kembali ke tombol nilai; detail tanpa select / .input-label
+    P-7  tanpa error konsol/pageerror
+
 Pengecualian cek konsol (sama dengan e2e_live_edit.py), jumlahnya dicetak di akhir:
   (1) pra-ada: setelah hapus + sync, syncpull mencatat 404 untuk `GET /api/tasks/:id` (konfirmasi task hilang). Akhir
       skrip menegaskan lewat `BAD_RESPONSES` bahwa SETIAP respons >= 400 pada `/api/tasks/<id>` adalah `GET` 404;
@@ -78,6 +92,7 @@ known_404 = []  # 404 `GET /api/tasks/:id` pra-ada (syncpull confirm-gone) yang 
 OFFLINE = {"on": False}  # True selama emulasi offline CDP; error jaringan di jendela ini dicatat terpisah
 offline_noise = []  # `net::ERR_INTERNET_DISCONNECTED` milik fetch jaringan selama emulasi offline
 BAD_RESPONSES = []  # semua respons >= 400 dari server lokal (diagnostik)
+KNOWN_ISSUES = []  # temuan pra-ada di luar cakupan (dicetak di akhir, tidak menggagalkan run)
 
 
 # ── dasar ───────────────────────────────────────────────────────────────────────
@@ -863,10 +878,302 @@ def run_topbar(browser, base):
             ctx.close()
 
 
+# ── kelompok: props (Task 4) ───────────────────────────────────────────────────
+PR_MAIN = "Susun proposal pameran"
+PR_NAME = "Riset vendor panggung"
+PR_DATE = "Kirim brosur cetak"
+PR_QUAD = "Siapkan materi presentasi"
+PR_WS = "Bagi tugas dekorasi"
+PR_PROJECT = "Pemasaran"
+PR_NEW_PROJECT = "Riset Pasar"
+
+
+def seed_props(base, name):
+    user = register(base, name)
+    ids = {}
+    api(base, user, "POST", "/api/projects", json={"name": PR_PROJECT})
+    for title, extra in [(PR_MAIN, {}), (PR_NAME, {"context": "Rapat"}), (PR_DATE, {}), (PR_QUAD, {})]:
+        body = {"title": title, "priority": "P3", "gtd_status": "next"}
+        body.update(extra)
+        ids[title] = api(base, user, "POST", "/api/tasks", json=body)["id"]
+    # Workspace dua anggota (P-5): pemilik = user ini, anggota bergabung lewat kode undangan.
+    member = register(base, name + "m")
+    ws = api(base, user, "POST", "/api/lists", json={"name": "Tim Pameran"})
+    code = api(base, user, "POST", "/api/lists/%d/generate-link" % ws["id"], json={})["code"]
+    api(base, member, "POST", "/api/lists/join", json={"code": code})
+    ids[PR_WS] = api(base, user, "POST", "/api/tasks", json={
+        "title": PR_WS, "priority": "P3", "gtd_status": "next", "list_id": ws["id"]})["id"]
+    return user, member, ws, ids
+
+
+def prop_btn(page, scope, label):
+    return page.locator('%s button.td-prop-val[aria-label^="%s: "]' % (scope, label)).first
+
+
+def pop_item(page, text):
+    return page.locator(POP + " button", has_text=re.compile(r"^\s*%s\s*$" % re.escape(text))).first
+
+
+def server_projects(base, user):
+    return api(base, user, "GET", "/api/projects")
+
+
+def type_date(page, mmddyyyy):
+    """Klik input tanggal di popover lalu ketik digit demi digit (locale en-US: bulan/hari/tahun)."""
+    inp = page.locator(POP + ' input[type="date"]').first
+    inp.click()
+    for ch in mmddyyyy:
+        page.keyboard.type(ch)
+        page.wait_for_timeout(60)
+    return inp
+
+
+def click_outside(page, scope):
+    """pointerdown di luar popover dan jangkar (judul detail) → popover ditutup (commit)."""
+    page.locator(scope + " .td-meta").first.click()
+
+
+def run_props(browser, base):
+    combos = [("panel", 1280, 860, "light", "panel"), ("375", 375, 812, "dark", "modal")]
+    for label, w, h, theme, kind in combos:
+        tag = "P[%s %s]" % (label, theme)
+        mobile = w < 500
+        scope = MODAL if kind == "modal" else PANEL
+        user, member, ws, ids = seed_props(base, "pr%s%s" % (label[:3], theme[0]))
+        errors = []
+        ctx, p = open_app(browser, base, user, w, h, theme, errors, live="1" if kind == "panel" else "0")
+
+        def reopen(title):
+            """Modal: tutup dulu bila terbuka, lalu buka task; panel: klik baris."""
+            if kind == "modal" and modal_count(p):
+                close_btn(p).click()
+                wait_closed(p)
+            return scope_open(p, scope, title)
+
+        try:
+            go_all_tasks(p, mobile)
+            p.wait_for_timeout(800)
+
+            # ── P-6: Escape menutup, fokus kembali ke nilai; tanpa select/.input-label ──
+            box = reopen(PR_MAIN)
+            check("%s P-6a kisi properti: Status, Prioritas, Tahap, Proyek, Deadline, Menunggu (tanpa Assign di task pribadi)"
+                  % tag, [x.strip() for x in box.locator(".td-prop-label").all_inner_texts()][:6]
+                  == ["Status", "Prioritas", "Tahap", "Proyek", "Deadline", "Menunggu"]
+                  and box.locator('button.td-prop-val[aria-label^="Assign ke: "]').count() == 0,
+                  repr(box.locator(".td-prop-label").all_inner_texts()))
+            check("%s P-6b detail tanpa select / .input-label" % tag,
+                  box.locator("select").count() == 0 and box.locator(".input-label").count() == 0,
+                  "select=%d label=%d" % (box.locator("select").count(), box.locator(".input-label").count()))
+            check("%s P-6c nilai kosong '+ Tambah' (Proyek, Deadline, Menunggu)" % tag,
+                  all(prop_btn(p, scope, l).inner_text().strip() == "+ Tambah" for l in ("Proyek", "Deadline", "Menunggu")))
+            sbtn = prop_btn(p, scope, "Status")
+            sbtn.click()
+            p.locator(POP).first.wait_for(timeout=3000)
+            check("%s P-6d popover Status terbuka, aria-expanded=true" % tag,
+                  pops(p) == 1 and sbtn.get_attribute("aria-expanded") == "true")
+            shot(p, "P_%s_%s_status_pop.png" % (label, theme))
+            p.keyboard.press("Escape")
+            check("%s P-6e Escape → popover tertutup, fokus kembali ke tombol Status" % tag,
+                  wait_until(lambda: pops(p) == 0, 3) and p.evaluate(
+                      "() => (document.activeElement.getAttribute('aria-label') || '').startsWith('Status: ')"))
+
+            # ── P-1: Status Waiting, Prioritas P1 Critical, Menunggu Budi ──
+            tid = ids[PR_MAIN]
+            prop_btn(p, scope, "Status").click()
+            pop_item(p, "Waiting").click()
+            check("%s P-1a pilih Waiting → popover tertutup, nilai 'Waiting'" % tag,
+                  wait_until(lambda: pops(p) == 0 and prop_btn(p, scope, "Status").inner_text().strip() == "Waiting", 3),
+                  prop_btn(p, scope, "Status").inner_text())
+            prop_btn(p, scope, "Prioritas").click()
+            pop_item(p, "P1 Critical").click()
+            check("%s P-1b pilih P1 Critical → nilai 'P1 Critical'" % tag,
+                  wait_until(lambda: prop_btn(p, scope, "Prioritas").inner_text().strip() == "P1 Critical", 3))
+            check("%s P-1c server: gtd_status waiting, priority P1" % tag,
+                  wait_until(lambda: (lambda t: t["gtd_status"] == "waiting" and t["priority"] == "P1")(
+                      server_task(base, user, tid)), 20), repr({k: server_task(base, user, tid).get(k)
+                                                               for k in ("gtd_status", "priority")}))
+            prop_btn(p, scope, "Menunggu").click()
+            winp = p.locator(POP + " input").first
+            winp.wait_for(timeout=3000)
+            check("%s P-1d popover Menunggu: input terfokus" % tag,
+                  p.evaluate("() => document.activeElement && document.activeElement.closest('.td-pop') !== null"))
+            p.keyboard.type("Budi")
+            shot(p, "P_%s_%s_menunggu_pop.png" % (label, theme))
+            p.keyboard.press("Enter")
+            check("%s P-1e Enter → popover tertutup, nilai 'Budi'" % tag,
+                  wait_until(lambda: pops(p) == 0 and prop_btn(p, scope, "Menunggu").inner_text().strip() == "Budi", 3))
+            check("%s P-1f server waiting_for == 'Budi'" % tag,
+                  wait_until(lambda: server_task(base, user, tid).get("waiting_for") == "Budi", 20),
+                  repr(server_task(base, user, tid).get("waiting_for")))
+
+            # ── P-2: NamePicker (Review Focus 3) ──
+            nid = ids[PR_NAME]
+            box = reopen(PR_NAME)
+            before_proj = server_task(base, user, nid).get("project")
+            prop_btn(p, scope, "Proyek").click()
+            p.locator(POP + " input").first.wait_for(timeout=3000)
+            p.keyboard.type("Pema")
+            check("%s P-2a cari 'Pema' menyaring: opsi 'Pemasaran' tampil, '+ Buat 'Pema'' tampil" % tag,
+                  pop_item(p, PR_PROJECT).count() == 1 and p.locator(POP, has_text="+ Buat 'Pema'").count() == 1)
+            shot(p, "P_%s_%s_proyek_pop.png" % (label, theme))
+            p.wait_for_timeout(2000)
+            p.keyboard.press("Escape")
+            wait_until(lambda: pops(p) == 0, 3)
+            p.wait_for_timeout(2500)
+            projs = server_projects(base, user)
+            check("%s P-2b ketik 'Pema' + diam 2 dtk + Escape → tanpa proyek 'Pema', proyek task tetap" % tag,
+                  "Pema" not in projs and server_task(base, user, nid).get("project") == before_proj
+                  and prop_btn(p, scope, "Proyek").inner_text().strip() == "+ Tambah",
+                  "proyek=%r task=%r" % (projs, server_task(base, user, nid).get("project")))
+            prop_btn(p, scope, "Proyek").click()
+            p.locator(POP + " input").first.wait_for(timeout=3000)
+            p.keyboard.type("pemasaran")
+            p.keyboard.press("Enter")
+            check("%s P-2c 'pemasaran' + Enter → nilai 'Pemasaran'" % tag,
+                  wait_until(lambda: pops(p) == 0 and prop_btn(p, scope, "Proyek").inner_text().strip() == PR_PROJECT, 3),
+                  prop_btn(p, scope, "Proyek").inner_text())
+            check("%s P-2d server: proyek task 'Pemasaran', hanya satu nama itu (tanpa beda huruf)" % tag,
+                  wait_until(lambda: server_task(base, user, nid).get("project") == PR_PROJECT, 20)
+                  and [x for x in server_projects(base, user) if x.lower() == "pemasaran"] == [PR_PROJECT],
+                  "task=%r proyek=%r" % (server_task(base, user, nid).get("project"), server_projects(base, user)))
+            prop_btn(p, scope, "Proyek").click()
+            p.locator(POP + " input").first.wait_for(timeout=3000)
+            p.keyboard.type(PR_NEW_PROJECT)
+            p.locator(POP + " button", has_text="+ Buat '%s'" % PR_NEW_PROJECT).first.click()
+            check("%s P-2e + Buat 'Riset Pasar' → nilai 'Riset Pasar'" % tag,
+                  wait_until(lambda: prop_btn(p, scope, "Proyek").inner_text().strip() == PR_NEW_PROJECT, 3))
+            check("%s P-2f server: proyek task 'Riset Pasar', dibuat sekali" % tag,
+                  wait_until(lambda: server_task(base, user, nid).get("project") == PR_NEW_PROJECT, 20)
+                  and server_projects(base, user).count(PR_NEW_PROJECT) == 1,
+                  "task=%r proyek=%r" % (server_task(base, user, nid).get("project"), server_projects(base, user)))
+            check("%s P-2g prasyarat: Tahap 'Rapat'" % tag, prop_btn(p, scope, "Tahap").inner_text().strip() == "Rapat")
+            prop_btn(p, scope, "Tahap").click()
+            pop_item(p, "Kosongkan").click()
+            check("%s P-2h Tahap → Kosongkan → nilai '+ Tambah'" % tag,
+                  wait_until(lambda: prop_btn(p, scope, "Tahap").inner_text().strip() == "+ Tambah", 3))
+            check("%s P-2i server: context kosong" % tag,
+                  wait_until(lambda: not server_task(base, user, nid).get("context"), 20),
+                  repr(server_task(base, user, nid).get("context")))
+
+            # ── P-4: chip kuadran / Terlambat ikut nilai form (Review Focus 5) ──
+            qid = ids[PR_QUAD]
+            box = reopen(PR_QUAD)
+            chips = lambda: box.locator(".td-chips").first.inner_text()  # noqa: E731
+            check("%s P-4a prasyarat: P3 tanpa deadline → bukan Q1" % tag, "Q1" not in chips(), repr(chips()))
+            prop_btn(p, scope, "Prioritas").click()
+            pop_item(p, "P1 Critical").click()
+            prop_btn(p, scope, "Deadline").click()
+            pop_item(p, "Hari ini").click()
+            check("%s P-4b P1 + Hari ini → chip 'Q1' tanpa reload" % tag, wait_until(lambda: "Q1" in chips(), 3),
+                  repr(chips()))
+            prop_btn(p, scope, "Deadline").click()
+            p.locator(POP + ' input[type="date"]').first.wait_for(timeout=3000)
+            y = time.localtime(time.time() - 86400)
+            type_date(p, "%02d%02d%04d" % (y.tm_mon, y.tm_mday, y.tm_year))
+            check("%s P-4c tanggal kemarin diketik → chip 'Terlambat' (popover masih terbuka)" % tag,
+                  wait_until(lambda: "Terlambat" in chips(), 3) and pops(p) == 1, repr(chips()))
+            shot(p, "P_%s_%s_deadline_pop.png" % (label, theme))
+            click_outside(p, scope)
+            check("%s P-4d tutup popover → nilai Deadline ber-kelas is-danger" % tag,
+                  wait_until(lambda: pops(p) == 0 and "is-danger" in (prop_btn(p, scope, "Deadline").get_attribute("class") or ""), 3),
+                  prop_btn(p, scope, "Deadline").get_attribute("class"))
+            yiso = "%04d-%02d-%02d" % (y.tm_year, y.tm_mon, y.tm_mday)
+            check("%s P-4e server: deadline kemarin, priority P1" % tag,
+                  wait_until(lambda: (lambda t: t.get("deadline", "")[:10] == yiso and t["priority"] == "P1")(
+                      server_task(base, user, qid)), 20), repr(server_task(base, user, qid).get("deadline")))
+            shot(p, "P_%s_%s_terlambat.png" % (label, theme))
+            prop_btn(p, scope, "Deadline").click()
+            pop_item(p, "Hapus deadline").click()
+            check("%s P-4f Hapus deadline → chip 'Terlambat' hilang, nilai '+ Tambah'" % tag,
+                  wait_until(lambda: "Terlambat" not in chips()
+                             and prop_btn(p, scope, "Deadline").inner_text().strip() == "+ Tambah", 3), repr(chips()))
+            check("%s P-4g server: deadline kosong" % tag,
+                  wait_until(lambda: not server_task(base, user, qid).get("deadline"), 20),
+                  repr(server_task(base, user, qid).get("deadline")))
+
+            # ── P-3: offline, ketik tanggal per digit → satu op outbox saat popover ditutup ──
+            did = ids[PR_DATE]
+            box = reopen(PR_DATE)
+            before = settle_outbox(p)
+            cdp = ctx.new_cdp_session(p)
+            OFFLINE["on"] = True
+            net_offline(cdp, True)
+            p.wait_for_timeout(500)
+            prop_btn(p, scope, "Deadline").click()
+            p.locator(POP + ' input[type="date"]').first.wait_for(timeout=3000)
+            type_date(p, "11152026")
+            p.wait_for_timeout(2000)
+            mid = outbox_count(p)
+            check("%s P-3a selama mengetik (popover terbuka) `_outbox` tetap" % tag, mid == before,
+                  "%r→%r" % (before, mid))
+            click_outside(p, scope)
+            wait_until(lambda: pops(p) == 0, 3)
+            p.wait_for_timeout(2000)
+            after = outbox_count(p)
+            check("%s P-3b tutup popover (klik di luar) → `_outbox` naik tepat 1" % tag, after == before + 1,
+                  "%r→%r" % (before, after))
+            check("%s P-3c nilai Deadline '15 Nov 2026'" % tag,
+                  prop_btn(p, scope, "Deadline").inner_text().strip() == "15 Nov 2026",
+                  prop_btn(p, scope, "Deadline").inner_text())
+            net_offline(cdp, False)
+            p.wait_for_timeout(1000)
+            OFFLINE["on"] = False
+            p.evaluate("() => window.__pushNow && window.__pushNow()")
+            check("%s P-3d online → server deadline 2026-11-15" % tag,
+                  wait_until(lambda: (server_task(base, user, did).get("deadline") or "")[:10] == "2026-11-15", 30),
+                  repr(server_task(base, user, did).get("deadline")))
+
+            # ── P-5: Assign ke anggota workspace, lalu Lepas ──
+            wid = ids[PR_WS]
+            if kind == "modal" and modal_count(p):
+                close_btn(p).click()
+                wait_closed(p)
+            p.locator(".task-row", has_text=PR_WS).first.wait_for(timeout=15000)
+            box = scope_open(p, scope, PR_WS)
+            abtn = prop_btn(p, scope, "Assign ke")
+            check("%s P-5a task workspace: baris 'Assign ke' ada, kosong" % tag,
+                  abtn.count() == 1 and abtn.inner_text().strip() == "+ Tambah")
+            abtn.click()
+            p.locator(POP).first.wait_for(timeout=3000)
+            check("%s P-5b daftar anggota memuat '(Saya)' dan anggota lain" % tag,
+                  wait_until(lambda: p.locator(POP, has_text="(Saya)").count() == 1
+                             and p.locator(POP, has_text="@" + member["username"]).count() == 1, 5))
+            shot(p, "P_%s_%s_assign_pop.png" % (label, theme))
+            p.locator(POP + " button", has_text="@" + member["username"]).first.click()
+            check("%s P-5c pilih anggota → popover tertutup, nilai nama anggota" % tag,
+                  wait_until(lambda: pops(p) == 0 and abtn.inner_text().strip() not in ("", "+ Tambah"), 3),
+                  abtn.inner_text())
+            check("%s P-5d server assigned_to = anggota" % tag,
+                  wait_until(lambda: server_task(base, user, wid).get("assigned_to") == member["id"], 20),
+                  repr(server_task(base, user, wid).get("assigned_to")))
+            abtn.click()
+            pop_item(p, "Lepas").click()
+            check("%s P-5e Lepas → nilai '+ Tambah'" % tag,
+                  wait_until(lambda: abtn.inner_text().strip() == "+ Tambah", 3))
+            check("%s P-5f task lokal (router lokal) tanpa assignee" % tag,
+                  wait_until(lambda: not local_task(p, wid).get("assigned_to"), 5),
+                  repr(local_task(p, wid).get("assigned_to")))
+            # Pra-ada, di luar cakupan (syncpush.js tidak boleh diubah): taskToUpdatePayload mengirim
+            # assigned_to: null untuk task tanpa assignee dan PUT server mengabaikan null (hanya 0 = lepas), jadi
+            # "Lepas" tidak sampai ke server. Dicatat sebagai diagnostik, bukan langkah.
+            p.wait_for_timeout(4000)
+            KNOWN_ISSUES.append("%s P-5 Lepas: server assigned_to tetap %r (syncpush mengirim null)"
+                                % (tag, server_task(base, user, wid).get("assigned_to")))
+            shot(p, "P_%s_%s_grid.png" % (label, theme))
+
+            check("%s P-7 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
+        except Exception as e:  # langkah yang melempar = gagal
+            OFFLINE["on"] = False
+            fail_exc(tag, e, p)
+        finally:
+            ctx.close()
+
+
 # Urutan kelompok; task berikutnya menambah (nama, fungsi(browser, base)).
 GROUPS = [
     ("autosave", run_autosave),
     ("topbar", run_topbar),
+    ("props", run_props),
 ]
 
 
@@ -911,6 +1218,8 @@ def main():
     print("404 pra-ada yang dikecualikan dari cek konsol: %d %r" % (len(known_404), known_404))
     print("net::ERR_INTERNET_DISCONNECTED /api/... selama emulasi offline yang dikecualikan: %d %r"
           % (len(offline_noise), sorted(set(offline_noise))))
+    for k in KNOWN_ISSUES:
+        print("pra-ada (di luar cakupan):", k)
     failed = [r for r in results if not r[1]]
     print("\n%d langkah, %d gagal" % (len(results), len(failed)))
     for r in failed:

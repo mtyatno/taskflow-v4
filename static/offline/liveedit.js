@@ -165,23 +165,24 @@
     return patch;
   }
 
-  // Kapan perubahan sebuah field disimpan (R1, R19):
-  //  - "now": langsung setelah onChange (pilihan diskret);
-  //  - "idle": TEXT_IDLE_MS setelah perubahan terakhir, atau saat keluar field/flush;
-  //  - "blur": hanya saat keluar field/Enter/flush (commit eksplisit). Judul tidak boleh disimpan setengah jalan;
-  //    progress = slider; project/context (R19): ComboSelect memanggil onChange di setiap ketikan nama baru dan
-  //    server membuat setiap nama yang belum ada (project / tahap Kanban), jadi nama setengah jadi ("Mark" sebelum
-  //    "Marketing") tidak boleh tersimpan karena diam; "" dari "+ Baru" tidak boleh menghapus nilai lama.
-  //    Memilih opsi yang sudah ada disimpan langsung oleh panel lewat commit (bukan lewat pemicu ini).
+  // Kapan perubahan sebuah field disimpan (R1, R19, redesain detail task §6.2):
+  //  - "now": langsung setelah onChange (pilihan diskret: status, prioritas, assign);
+  //  - "idle": TEXT_IDLE_MS setelah perubahan terakhir, atau saat keluar field/flush (deskripsi);
+  //  - "blur": hanya saat commit eksplisit (keluar field/Enter/popover properti ditutup) atau flush. Judul tidak
+  //    boleh disimpan setengah jalan; progress = slider; project/context (R19): nama setengah jadi ("Mark" sebelum
+  //    "Marketing") tidak boleh membuat project / tahap Kanban di server; deadline: `input type=date` mengubah nilai
+  //    di setiap digit tahun, jadi tanggal disimpan saat popover ditutup, bukan per digit; waiting_for: tersimpan
+  //    saat Enter / Simpan / popover ditutup. Simpan non-eksplisit (pilihan "now") membuang field "blur" (R11).
   function saveTrigger(field, _value) {
     switch (field) {
       case "title":
       case "progress":
       case "project":
       case "context":
+      case "deadline":
+      case "waiting_for":
         return "blur";
       case "description":
-      case "waiting_for":
         return "idle";
       default:
         return "now";

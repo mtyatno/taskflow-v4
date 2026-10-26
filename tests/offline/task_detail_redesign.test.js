@@ -80,3 +80,36 @@ test("CSS blok detail: hanya token, bar atas menempel di panel, popover fixed z 
   assert.doesNotMatch(block.replace(/var\(--danger, #dc2626\)/g, ""), /#[0-9a-fA-F]{3,8}\b/);
   assert.doesNotMatch(appCss, /\.task-detail-actions|\.task-detail-title-input/);
 });
+
+// ── Task 4: kisi properti dengan popover (spec §4.4, §6.2) ──
+test("kisi properti: label, picker, tanpa select/ComboSelect/label input", () => {
+  const s = fnSource("TaskDetailBody");
+  for (const l of ["Status", "Prioritas", "Tahap", "Proyek", "Deadline", "Assign ke", "Menunggu"])
+    assert.match(s, new RegExp(`label: "${l}"`), l);
+  for (const re of [/React\.createElement\(NamePicker, \{\s*value: fv\.project,\s*options: scopeProjects,\s*title: projectScopeLabel\(task\.list_id, scopeLists\)/,
+    /React\.createElement\(NamePicker, \{\s*value: fv\.context,\s*options: scopeContexts,\s*title: contextScopeLabel\(task\.list_id, scopeLists\)/,
+    /onPick: pick\("gtd_status"\)/, /onPick: pick\("priority"\)/, /onPick: pick\("deadline"\)/, /onPick: pick\("assigned_to"\)/,
+    /onChange: v => sf\("deadline", v\)/, /onDone: closeProp\("waiting_for"\)/, /TF\.taskdetail\.STATUS_ORDER/, /TF\.taskdetail\.PRIORITY_ORDER/])
+    assert.match(s, re);
+  for (const re of [/ComboSelect/, /createElement\("select"/, /className: "input-label"/, /type: "date"/]) assert.doesNotMatch(s, re);
+});
+test("NamePicker: cari tidak mengubah form; Enter = opsi sama persis atau + Buat; Kosongkan", () => {
+  const n = fnSource("NamePicker");
+  for (const re of [/TF\.taskdetail\.filterOptions\(/, /TF\.taskdetail\.exactOption\(/, /TF\.taskdetail\.canCreate\(/,
+    /placeholder: "Cari atau buat baru(?:…|\\u2026)"/, /\+ Buat '/, /"Kosongkan"/, /onPick\(""\)/, /e\.key === "Enter"/, /autoFocus: true/])
+    assert.match(n, re);
+});
+test("PropertyRow: nilai kosong '+ Tambah', tombol ber-aria", () => {
+  const p = fnSource("PropertyRow");
+  for (const re of [/"\+ Tambah"/, /"aria-haspopup": "dialog"/, /"aria-expanded": open/, /React\.createElement\(DetailPopover/]) assert.match(p, re);
+});
+test("DatePicker / MemberPicker / TextPicker / OptionPicker", () => {
+  const d = fnSource("DatePicker");
+  for (const re of [/taskDatePromptQuickPicks\(/, /type: "date"/, /"Hapus deadline"/, /onPick\(""\)/, /onChange\(e\.target\.value\)/]) assert.match(d, re);
+  const m = fnSource("MemberPicker"); assert.match(m, /"Lepas"/); assert.match(m, /onPick\(null\)/); assert.match(m, /\(Saya\)/);
+  assert.match(m, /"Tidak bisa memuat anggota"/);
+  const t = fnSource("TextPicker"); assert.match(t, /"Simpan"/); assert.match(t, /e\.key === "Enter"/);
+  const o = fnSource("OptionPicker"); assert.match(o, /"aria-pressed": /);
+  for (const nm of ["PropertyRow", "OptionPicker", "NamePicker", "DatePicker", "MemberPicker", "TextPicker"])
+    assert.doesNotMatch(fnSource(nm), EMOJI, nm);
+});

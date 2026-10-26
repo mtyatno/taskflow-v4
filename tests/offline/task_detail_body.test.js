@@ -36,8 +36,11 @@ test("TaskDetailModal hanya pembungkus overlay + ✕", () => {
 test("TaskDetailBody memuat isi detail dan slot headerAction, tanpa overlay", () => {
   const s = fnSource("TaskDetailBody");
   assert.match(s, /variant = "modal"/); assert.match(s, /headerAction = null/);
-  for (const re of [/ModalNotes/, /ModalAttachments/, /"Pindah ke Workspace"/])
+  for (const re of [/ModalNotes/, /ModalAttachments/, /moveOpen && (\/\*#__PURE__\*\/)?React\.createElement\(TaskMovePanel, \{/, /onMove: handleMove/])
     assert.match(s, re);
+  // Panel Pindah dipisah ke TaskMovePanel (redesain detail Task 4: isi detail tanpa select); isinya tetap.
+  for (const re of [/"Pindah ke Workspace"/, /"aria-label": "Workspace tujuan"/, /"Pindahkan"/, /"Batal"/])
+    assert.match(fnSource("TaskMovePanel"), re);
   // Redesain detail (spec §6.1): mode lihat → ✏️ Edit → 💾 Simpan dihapus, modal ikut simpan otomatis.
   for (const re of [/handleSave/, /"💾 Simpan"/, /"\\u270F\\uFE0F Edit"/])
     assert.doesNotMatch(s, re);

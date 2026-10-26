@@ -5093,4 +5093,35 @@
 .td-range.is-full { accent-color: var(--success); }
 .td-presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
 .td-presets .td-pop-item { justify-content: center; padding: 6px 0; border: 1px solid var(--border); font-weight: 600; }
+/* Kisi properti (spec §4.4): label kecil di atas nilai; nilai = tombol teks yang membuka popover. 1 kolom ≤ 640 px. */
+.td-props { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin: 4px 0 16px; }
+@media (max-width: 640px) { .td-props { grid-template-columns: 1fr; } }
+.td-prop { min-width: 0; }
+.td-prop.is-wide { grid-column: 1 / -1; }
+.td-prop-label { margin-bottom: 2px; font-size: 11.5px; font-weight: 600; color: var(--text-light); letter-spacing: 0.01em; }
+.td-desc-label { margin-bottom: 6px; }
+.td-prop-val { display: flex; align-items: center; gap: 8px; width: calc(100% + 16px); min-width: 0; box-sizing: border-box; min-height: 32px; margin: 0 -8px; padding: 4px 8px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text-primary); font: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; transition: background 0.15s; }
+.td-prop-val:hover, .td-prop-val[aria-expanded="true"] { background: var(--bg-hover); }
+.td-prop-val:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.td-prop-val > svg { flex-shrink: 0; color: var(--text-secondary); }
+.td-prop-val.is-empty { color: var(--text-light); font-weight: 400; }
+.td-prop-val.is-danger, .td-prop-val.is-danger > svg { color: var(--danger, #dc2626); }
+.td-prop-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-dot { display: inline-block; flex-shrink: 0; width: 9px; height: 9px; border-radius: 50%; }
+/* Isi popover properti. */
+.td-pop-input { display: block; width: 100%; box-sizing: border-box; margin: 0 0 6px; }
+.td-pop-list { display: flex; flex-direction: column; gap: 2px; }
+.td-pop-list:empty { display: none; }
+.td-pop-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-pop-sub { color: var(--text-light); font-weight: 400; }
+.td-pop-check { flex-shrink: 0; color: var(--accent); }
+.td-pop-item > svg { flex-shrink: 0; }
+.td-pop-create { color: var(--accent); font-weight: 600; }
+.td-pop-clear { color: var(--text-secondary); }
+.td-pop-list .td-pop-clear, .td-pop-list .td-pop-create { margin-top: 2px; }
+.td-pop-note { padding: 6px 10px; font-size: 12px; color: var(--danger, #dc2626); }
+.td-pop-row { display: flex; align-items: center; gap: 6px; }
+.td-pop-row .td-pop-input { flex: 1 1 auto; min-width: 0; margin: 0; }
+.td-quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 8px; }
+.td-quick .td-pop-item { justify-content: center; padding: 6px 4px; border: 1px solid var(--border); font-weight: 600; white-space: nowrap; }
 /* ── Detail task: akhir ── */

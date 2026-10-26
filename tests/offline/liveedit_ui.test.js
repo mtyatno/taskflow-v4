@@ -36,7 +36,9 @@ test("TaskDetailBody: simpan otomatis (kedua variant)", () => {
   const s = fnSource("TaskDetailBody");
   for (const re of [/const isPanel = variant === "panel"/, /useTaskAutosave\(task, true/,
     /auto\.commit\("title"\)/, /auto\.revertTitle\(\)/, /e\.key === "Enter"/, /e\.key === "Escape"/, /role: "alert"/,
-    /React\.createElement\(TaskSaveIndicator/, /auto\.commit\("project"\)/, /auto\.commit\("context"\)/, /auto\.commit\("progress"\)/,
+    /React\.createElement\(TaskSaveIndicator/, /auto\.commit\("progress"\)/,
+    // Proyek/Tahap (redesain detail §4.4): pilihan di NamePicker = change + tutup + commit field itu.
+    /onPick: pick\("project"\)/, /onPick: pick\("context"\)/, /const pick = field => v => \{ sf\(field, v\); setOpenPop\(null\); auto\.commit\(field\); \};/,
     /const tagChips = \(\) =>/, /\[task\?\.list_id\]/])
     assert.match(s, re);
   // Slider progress pindah ke popover ProgressPill (redesain detail §4.3); commit lepas-geser tetap di sana.
@@ -124,16 +126,15 @@ test("R21: chip dimuat ulang saat updated_at berubah (modal dan panel), dan sesu
   assert.match(s, /patch\.title != null\) \{[\s\S]{0,200}loadTags\(task\.id\)\.catch\(\(\) => \{\}\)/);
 });
 
-// Ruling R19 (tinjauan akhir #1): nama project/context yang diketik hanya tersimpan saat keluar field, Enter, atau
-// flush; memilih opsi yang sudah ada di scope tersimpan langsung.
-test("R19: project/context — opsi scope yang ada disimpan langsung, nama diketik saat blur/Enter", () => {
+// Ruling R19 (tinjauan akhir #1): nama project/context yang diketik tidak boleh tersimpan sebelum dipilih. Sejak redesain
+// detail task (spec 2026-10-26 §4.4, D4) ComboSelect diganti NamePicker: mengetik di kotak cari tidak mengubah form;
+// nilai hanya berubah lewat pilihan (opsi, "+ Buat", Enter, "Kosongkan") yang langsung dikomit.
+test("R19 → redesain: nama proyek/tahap hanya dari NamePicker (pilih = simpan, ketik = tidak)", () => {
   const s = fnSource("TaskDetailBody");
-  for (const [f, list] of [["project", "scopeProjects"], ["context", "scopeContexts"]]) {
-    assert.match(s, new RegExp(`value: fv\\.${f},\\s*onChange: v => \\{\\s*sf\\("${f}", v\\);\\s*if \\(v && ${list}\\.includes\\(v\\)\\) auto\\.commit\\("${f}"\\);\\s*\\},\\s*options: ${list},`),
-      f + ": commit hanya untuk opsi yang sama dengan options ComboSelect");
-    assert.match(s, new RegExp(`if \\(!e\\.currentTarget\\.contains\\(e\\.relatedTarget\\)\\) auto\\.commit\\("${f}"\\);\\s*\\},\\s*onKeyDown: e => \\{\\s*if \\(e\\.key === "Enter" && !\\(e\\.nativeEvent && e\\.nativeEvent\\.isComposing\\)\\) auto\\.commit\\("${f}"\\);`),
-      f + ": blur dan Enter di pembungkus");
-  }
+  assert.match(s, /onPick: pick\("project"\)/);
+  assert.match(s, /onPick: pick\("context"\)/);
+  const n = fnSource("NamePicker");
+  assert.doesNotMatch(n, /onChange: e => \{?[^}]*onPick/);
 });
 
 // Task 6: penanda task terpilih di baris dan kartu (spec §6.5). Tanpa prop selected/isSelected tampilan tidak berubah.
