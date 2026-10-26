@@ -191,3 +191,48 @@ test("guard: #f1f5f9/#e2e8f0 di lokasi S5 diganti token", () => {
   const rest = html.slice(html.indexOf("</head>")).replace(/bg: "#f1f5f9",\n\s*color: "#475569",/, "");
   assert.equal(rest.match(/#f1f5f9|#e2e8f0/gi), null);
 });
+
+// PR B Task 4: radius & font judul lewat token. Nilai Default token = literal lama (tampilan identik);
+// palet lain menimpa lewat themes.css. Hanya komponen yang literalnya sama dengan Default token yang dialihkan.
+const ruleBodies = (sel) => [...css.matchAll(new RegExp(`(?:^|\\n)\\s*${esc(sel)} \\{([^}]*)\\}`, "g"))].map((m) => m[1]);
+test("guard: komponen inti memakai token radius", () => {
+  const MAP = {
+    ".btn": "--radius-control", ".input": "--radius-control", ".sidebar-link": "--radius-control",
+    ".card": "--radius-card", ".stat-card": "--radius-card", ".ftask": "--radius-card",
+    ".task-row": "--radius-md", ".modal-content": "--radius-lg",
+    ".badge": "--radius-sm", ".tl-view-btn": "--radius-sm",
+  };
+  for (const [sel, tok] of Object.entries(MAP)) {
+    const bodies = ruleBodies(sel).filter((b) => /(^|[\s;])border-radius:/.test(b));
+    assert.ok(bodies.length >= 1, sel);
+    for (const b of bodies) {
+      assert.match(b, new RegExp(`border-radius: var\\(${tok}\\)`), `${sel} → ${tok}`);
+      assert.doesNotMatch(b, /border-radius: \d/, sel);
+    }
+  }
+  // .task-row punya dua aturan ber-radius (dasar + override mobile).
+  assert.equal(ruleBodies(".task-row").filter((b) => /border-radius:/.test(b)).length, 2);
+});
+
+test("guard: --radius-control 8px, --radius-card 14px di :root", () => {
+  for (const d of ["--radius-control: 8px", "--radius-card: 14px", "--radius-lg: 16px"]) assert.ok(declares(root, d), d);
+});
+
+test("guard: aturan font-heading ada", () => {
+  const m = css.match(/\n\s*h1, h2, h3, \.dash-hero-greet, \.focus-page-title \{([^}]*)\}/);
+  assert.ok(m, "aturan font-heading");
+  assert.match(m[1], /font-family: var\(--font-heading\);/);
+});
+
+test("guard: link Google Fonts memuat Nunito 700;800 (satu link, display=swap)", () => {
+  const links = html.match(/<link href="https:\/\/fonts\.googleapis\.com\/css2[^"]*"/g) || [];
+  assert.equal(links.length, 1);
+  assert.ok(links[0].includes("&family=Nunito:wght@700;800"), links[0]);
+  assert.ok(links[0].includes("display=swap"));
+});
+
+test("guard: palet non-Default mendefinisikan lima token radius & font-heading", () => {
+  for (const t of ["--radius-control", "--radius-card", "--radius-md", "--radius-lg", "--radius-sm", "--font-heading"]) {
+    assert.ok(new RegExp(`\\[data-palette="(sakura|lavender)"\\][^{]*\\{[^}]*${t}:`).test(tcss), t);
+  }
+});

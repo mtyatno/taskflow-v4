@@ -39,6 +39,8 @@
       --border-strong: #DDDDD5;
       --radius-sm: 6px;
       --radius-md: 10px;
+      --radius-control: 8px;
+      --radius-card: 14px;
       --radius-pill: 999px;
       --font-heading: inherit;
       /* Garis pemisah lembut & track progress (PR B S5; palet menimpa lewat themes.css) */
@@ -87,6 +89,8 @@
     [data-theme="dark"] .badge-done { background: rgba(22,163,74,0.18); color: #4ade80; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 15px; font-optical-sizing: auto; background: var(--bg-page); color: var(--text-primary); }
+    /* Font judul lewat token (Default: inherit = sama dengan body; Sakura/Lavender: Nunito) */
+    h1, h2, h3, .dash-hero-greet, .focus-page-title { font-family: var(--font-heading); }
     code, .mono { font-family: 'JetBrains Mono', 'Cascadia Code', 'Consolas', monospace; }
 
     /* Scrollbar */
@@ -132,7 +136,7 @@
     .sidebar.collapsed { width: var(--sidebar-rail-w); }
     .sidebar-scroll { flex: 1; overflow-y: auto; padding: 8px 0; scrollbar-width: none; }
     .sidebar-scroll::-webkit-scrollbar { display: none; }
-    .sidebar-link { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #4A4A40; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; border-radius: 8px; margin: 2px 12px; }
+    .sidebar-link { display: flex; align-items: center; gap: 10px; padding: 10px 20px; color: #4A4A40; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; border-radius: var(--radius-control); margin: 2px 12px; }
     .sidebar-link:hover { background: rgba(0,0,0,0.05); color: var(--text-primary); }
     .sidebar-link.active { background: rgba(var(--accent-rgb), 0.2); color: var(--accent-text-strong); }
     .sidebar-section { font-size: 9.5px; text-transform: uppercase; letter-spacing: 1.8px; color: #aaa89f; padding: 18px 20px 5px; font-weight: 700; }
@@ -285,18 +289,18 @@
     /* /Admin: kartu Email */
 
     /* Cards */
-    .card { background: var(--bg-card); border-radius: 14px; border: 1px solid rgba(0,0,0,0.06); padding: 20px; min-width: 0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 8px -2px rgba(0,0,0,0.03); }
+    .card { background: var(--bg-card); border-radius: var(--radius-card); border: 1px solid rgba(0,0,0,0.06); padding: 20px; min-width: 0; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 8px -2px rgba(0,0,0,0.03); }
     .card-hover { transition: all 0.2s; }
     .card-hover:hover { box-shadow: 0 4px 20px rgba(0,0,0,0.08); transform: translateY(-1px); }
 
     /* Stat card */
-    .stat-card { padding: 20px 22px; border-radius: 14px; background: var(--bg-card); border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 8px -2px rgba(0,0,0,0.04); position: relative; overflow: hidden; transition: transform 0.18s, box-shadow 0.18s; cursor: default; }
+    .stat-card { padding: 20px 22px; border-radius: var(--radius-card); background: var(--bg-card); border: none; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 8px -2px rgba(0,0,0,0.04); position: relative; overflow: hidden; transition: transform 0.18s, box-shadow 0.18s; cursor: default; }
     .stat-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,0.1); }
     .stat-number { font-size: 30px; font-weight: 700; line-height: 1; }
     .stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 5px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
 
     /* Badge */
-    .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 600; }
+    .badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 600; }
 
     /* Priority badges */
     .badge-p1 { background: #fef2f2; color: #dc2626; box-shadow: 0 0 0 1px rgba(220,38,38,0.2); font-weight: 700; }
@@ -319,7 +323,7 @@
     .badge-done { background: #f0fdf4; color: #16a34a; }
 
     /* Button */
-    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
+    .btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: var(--radius-control); font-size: 14px; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s; }
     .btn-primary { background: var(--accent); color: white; }
     .btn-primary:hover { background: var(--accent-hover); }
     .btn-secondary { background: #F0F0E8; color: #475569; }
@@ -526,7 +530,7 @@
     .btn-break:hover { background: linear-gradient(135deg, #16a34a 0%, #15803d 100%); }
 
     /* Input */
-    .input { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; font-family: inherit; transition: border-color 0.15s; outline: none; background: white; }
+    .input { width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--radius-control); font-size: 14px; font-family: inherit; transition: border-color 0.15s; outline: none; background: white; }
     .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15); }
     .input-label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px; }
 
@@ -535,7 +539,7 @@
 
     /* Modal */
     .modal-overlay { position: fixed; inset: 0; background: rgba(15,23,42,0.5); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 50; }
-    .modal-content { background: var(--bg-card); border-radius: 16px; width: 90%; max-width: 520px; max-height: 90vh; overflow-y: auto; padding: 28px; scrollbar-width: none; position: relative; }
+    .modal-content { background: var(--bg-card); border-radius: var(--radius-lg); width: 90%; max-width: 520px; max-height: 90vh; overflow-y: auto; padding: 28px; scrollbar-width: none; position: relative; }
     .modal-content::-webkit-scrollbar { display: none; }
 
     /* Eisenhower grid */
@@ -548,7 +552,7 @@
     .eq4 { }
 
     /* Task row */
-    .task-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 10px; cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
+    .task-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: var(--radius-md); cursor: pointer; transition: all 0.15s; border: 1px solid transparent; }
     .task-row:hover { background: var(--bg-primary); border-color: var(--border); }
     .task-row.focusing { background: linear-gradient(135deg, #fef2f2 0%, #fff7ed 100%); border-color: #fecaca; box-shadow: 0 2px 12px rgba(239,68,68,0.1); }
     [data-theme="dark"] .task-row.focusing { background: rgba(239,68,68,0.12); border-color: rgba(239,68,68,0.3); }
@@ -563,7 +567,7 @@
       .task-row-badges { align-self: flex-start; }
       .task-row-badges .dash-focus-label { display: none; }
       .task-row-badges .dash-focus-btn { padding: 0 8px; height: 22px; }
-      .task-row { background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 6px; }
+      .task-row { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: 6px; }
       .task-row:hover { background: var(--bg-primary); }
     }
     /* Live Edit: task yang sedang tampil di panel detail. Sesudah :hover (dan blok mobile) agar sorotan tetap saat kursor di atasnya. */
@@ -3711,7 +3715,7 @@
 
 /* Daftar task ringkas */
 .ftask-list { display: flex; flex-direction: column; gap: 8px; }
-.ftask { background: var(--bg-card); border: 1px solid var(--border); border-radius: 14px; transition: box-shadow .15s, border-color .15s; }
+.ftask { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-card); transition: box-shadow .15s, border-color .15s; }
 .ftask:hover { border-color: #d6d6cc; }
 [data-theme="dark"] .ftask:hover { border-color: var(--border-hover, #525252); }
 .ftask.is-open { box-shadow: 0 6px 20px rgba(15,23,42,0.07); }
@@ -4758,7 +4762,7 @@
 
 /* Toggle tampilan halaman Tasks (Normal / Compact / Kanban) — segmented */
 .tl-view-seg { display: inline-flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); }
-.tl-view-btn { display: inline-flex; align-items: center; justify-content: center; height: 28px; min-width: 34px; padding: 0 9px; border: none; border-radius: 6px; background: transparent; color: var(--text-secondary); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.tl-view-btn { display: inline-flex; align-items: center; justify-content: center; height: 28px; min-width: 34px; padding: 0 9px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-secondary); cursor: pointer; transition: background 0.15s, color 0.15s; }
 .tl-view-btn:hover:not([aria-pressed="true"]):not([aria-disabled="true"]) { background: var(--bg-hover); color: var(--text-primary); }
 .tl-view-btn[aria-pressed="true"] { background: var(--accent); color: var(--accent-on, #1a2a00); }
 .tl-view-btn[aria-disabled="true"] { color: var(--text-light); cursor: not-allowed; opacity: 0.45; }
