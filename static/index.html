@@ -8419,7 +8419,7 @@ async function moveTaskToWorkspace({ api, task, listId, pushNow, syncNow, server
   }
   return { ok: true, updated: updated || {} };
 }
-function TaskDetailModal({
+function TaskDetailBody({
   task,
   onClose,
   onEdit,
@@ -8432,7 +8432,9 @@ function TaskDetailModal({
   projects = [],
   contexts = [],
   collaborators = [],
-  sharedLists
+  sharedLists,
+  variant = "modal",
+  headerAction = null
 }) {
   if (!task) return null;
   const [isEditing, setIsEditing] = useState(false);
@@ -8657,13 +8659,7 @@ function TaskDetailModal({
   const doneCount = subtasks.filter(s => s.is_done).length;
   const totalSubs = subtasks.length;
   const progress = totalSubs > 0 ? Math.round(doneCount / totalSubs * 100) : 0;
-  return /*#__PURE__*/React.createElement("div", {
-    className: "modal-overlay",
-    onClick: onClose
-  }, /*#__PURE__*/React.createElement("div", {
-    className: "modal-content scale-in",
-    onClick: e => e.stopPropagation()
-  }, /*#__PURE__*/React.createElement("div", {
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       justifyContent: "space-between",
@@ -8697,14 +8693,7 @@ function TaskDetailModal({
       fontWeight: 700,
       lineHeight: 1.3
     }
-  }, task.title)), /*#__PURE__*/React.createElement("span", {
-    onClick: onClose,
-    style: {
-      cursor: "pointer",
-      fontSize: 20,
-      color: "var(--text-light)"
-    }
-  }, "\u2715")), task.parent_id && /*#__PURE__*/React.createElement("div", {
+  }, task.title)), headerAction), task.parent_id && /*#__PURE__*/React.createElement("div", {
     style: {
       background: "#eff6ff",
       border: "1px solid #bfdbfe",
@@ -9495,7 +9484,28 @@ function TaskDetailModal({
       fontSize: 11,
       color: "var(--text-light)"
     }
-  }, "\uD83D\uDCC1 ", t.project))))))));
+  }, "\uD83D\uDCC1 ", t.project)))))));
+}
+function TaskDetailModal(props) {
+  if (!props.task) return null;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "modal-overlay",
+    onClick: props.onClose
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "modal-content scale-in",
+    onClick: e => e.stopPropagation()
+  }, /*#__PURE__*/React.createElement(TaskDetailBody, {
+    ...props,
+    variant: "modal",
+    headerAction: /*#__PURE__*/React.createElement("span", {
+      onClick: props.onClose,
+      style: {
+        cursor: "pointer",
+        fontSize: 20,
+        color: "var(--text-light)"
+      }
+    }, "\u2715")
+  })));
 }
 
 // ── Task Row ────────────────────────────────────────────────

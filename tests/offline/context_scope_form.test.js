@@ -59,7 +59,7 @@ test("TaskFormModal: context per scope + changeScope mengosongkan context di lua
 });
 
 test("TaskDetailModal: context mengikuti scope task", () => {
-  const detail = sliceFn("function TaskDetailModal({", "\nfunction ");
+  const detail = sliceFn("function TaskDetailBody({", "\nfunction ");
   assert.match(detail, /useScopeContexts\(task\.list_id\)/);
   assert.match(detail, /contextScopeLabel\(task\.list_id, scopeLists\)/);
   assert.match(detail, /options: scopeContexts/);

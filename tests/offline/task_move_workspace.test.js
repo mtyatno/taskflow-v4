@@ -65,7 +65,7 @@ test("error offline dan error server diteruskan sebagai pesan", async () => {
 });
 
 test("TaskDetailModal: tombol hanya untuk task pribadi tingkat atas, tanpa garis warna", () => {
-  const src = fnSource("TaskDetailModal");
+  const src = fnSource("TaskDetailBody");
   assert.match(src, /const canMove = \(task\.list_id == null \|\| task\.list_id === ""\) && !task\.parent_id && !task\.parent_cid/);
   assert.match(src, /canMove && !moveOpen &&/);
   assert.match(src, /"Pindah ke Workspace"/);
