@@ -14,6 +14,9 @@ Empat kombinasi: 1280 px dan 375 px, masing-masing terang dan gelap. Tiap kombin
      💾 Simpan modal / body form edit lengkap (TaskFormModal) / chip triage "⚡ Next" di Inbox → tag tetap di lokal,
      server (setelah sync), dan chip setelah reload; tag yang dihapus lewat chip × lalu simpan perubahan lain →
      tidak kembali, juga di server
+  h  overlay "Task dengan tag" saat wadah sudah digulir (modal 375 px, panel Live Edit 1280 px): bounding box overlay =
+     area terlihat wadah, gulir wadah terkunci selama overlay terbuka, × → overflow semula dan bisa digulir lagi;
+     pindah task di panel saat overlay terbuka → overflow aside kembali (bug lama 2026-10-26: overlay di atas isi)
 
 Tag task hidup di IndexedDB (GET /api/tasks/:id/tags dilayani router lokal; tag dari server tidak turun), jadi
 skrip memasangnya lewat TF.tagrepo setelah daftar task termuat.
@@ -22,6 +25,7 @@ Server lokal dijalankan sendiri (uvicorn webapp:app, DB sementara). Screenshot: 
 (atau $E2E_SHOTS_DIR). Keluar non-zero bila ada langkah gagal.
 
     python3 temporary_files/e2e_task_detail_body.py
+    E2E_ONLY=tags,overlay python3 temporary_files/e2e_task_detail_body.py   # sebagian (combo | tags | overlay)
 """
 import os
 import re
@@ -108,8 +112,9 @@ def api(base, user, method, path, **kw):
     return r.json()
 
 
-def open_app(browser, base, user, w, h, theme, errors):
-    """Konteks baru; error konsol/pageerror milik aplikasi (host lokal) dikumpulkan ke `errors`."""
+def open_app(browser, base, user, w, h, theme, errors, live=None):
+    """Konteks baru; error konsol/pageerror milik aplikasi (host lokal) dikumpulkan ke `errors`.
+    `live` = nilai awal tf_liveedit ("1" panel Live Edit nyala; None tidak diisi → mati)."""
     mobile = w < 500
     ctx = browser.new_context(service_workers="block", viewport={"width": w, "height": h},
                               device_scale_factor=1, is_mobile=mobile, has_touch=mobile)
@@ -130,7 +135,7 @@ def open_app(browser, base, user, w, h, theme, errors):
     p.on("pageerror", lambda e: errors.append("pageerror: " + str(e)[:200]))
     p.on("dialog", lambda d: d.accept())
     p.goto(base + "/manifest.json")
-    p.evaluate("""([t, u, tours, theme, sw]) => {
+    p.evaluate("""([t, u, tours, theme, sw, live]) => {
         localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(u));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
         localStorage.setItem('tf_dismiss_onboarding', '1'); localStorage.setItem('tf_onboarded', '1');
@@ -138,7 +143,8 @@ def open_app(browser, base, user, w, h, theme, errors):
         localStorage.setItem('tf_whatsnew_seen', sw);
         localStorage.setItem('tf_theme', theme);
         localStorage.setItem('tf_groupby', 'none'); localStorage.setItem('tf_viewmode', 'normal');
-    }""", [user["token"], user["id"], TOURS, theme, SW_VERSION])
+        if (live !== null) localStorage.setItem('tf_liveedit', live);
+    }""", [user["token"], user["id"], TOURS, theme, SW_VERSION, live])
     p.goto(base + "/")
     p.locator(".sidebar-link").first.wait_for(state="attached", timeout=20000)
     return ctx, p
@@ -437,8 +443,7 @@ def run_combo(browser, base, user, parent, child, label, w, h, theme):
         modal = open_task(p, T_PARENT)
         chip = modal.locator("span[title='Klik untuk lihat semua task dengan tag ini']").first
         chip.wait_for(timeout=10000)
-        # dispatch_event: klik tanpa menggulir modal. Overlay `position: absolute` ikut tergulir bersama isi
-        # `.modal-content` (perilaku lama, sama di main), jadi bounding box hanya sama saat scrollTop = 0.
+        # dispatch_event: klik tanpa menggulir modal (scrollTop 0). Kasus wadah sudah digulir: skenario h.
         chip.dispatch_event("click")
         p.get_by_text("Task dengan tag", exact=False).first.wait_for(timeout=10000)
         boxes = p.evaluate("""() => {
@@ -512,6 +517,150 @@ def run_combo(browser, base, user, parent, child, label, w, h, theme):
         ctx.close()
 
 
+# Bug lama (2026-10-26): overlay "Task dengan tag" (`position: absolute`) berjangkar ke wadah gulir (`.modal-content` /
+# `aside.tl-live-panel`); dengan `inset: 0` overlay berada di bagian atas isi, jadi saat wadah sudah digulir area yang
+# terlihat tidak tertutup.
+T_TALL = "Catatan rapat panjang"
+T_TALL_OTHER = "Tindak lanjut rapat"
+TAG_TALL = "rapat"
+OVERLAY_GEOM_JS = """(sel) => {
+    const box = document.querySelector(sel);
+    if (!box) return null;
+    const lab = Array.from(box.querySelectorAll('span')).find(s => (s.textContent || '').startsWith('Task dengan tag'));
+    let o = lab;
+    while (o && o !== box && getComputedStyle(o).position !== 'absolute') o = o.parentElement;
+    const r = box.getBoundingClientRect();
+    const vis = [r.x + box.clientLeft, r.y + box.clientTop, box.clientWidth, box.clientHeight];
+    const q = o && o !== box ? o.getBoundingClientRect() : null;
+    return {o: q ? [q.x, q.y, q.width, q.height] : null, vis: vis, scrollTop: box.scrollTop,
+            scrollH: box.scrollHeight, clientH: box.clientHeight, overflowY: getComputedStyle(box).overflowY,
+            inline: box.style.overflow, isParent: !!(o && o.parentElement === box)};
+}"""
+
+
+def seed_tall(base, name):
+    user = register(base, name)
+    desc = "\n".join("Baris catatan nomor %d supaya detail task cukup tinggi untuk digulir." % i for i in range(40))
+    t = api(base, user, "POST", "/api/tasks", json={"title": T_TALL, "priority": "P2", "gtd_status": "next",
+                                                    "description": desc})
+    for i in range(7):
+        api(base, user, "POST", "/api/tasks/%d/subtasks" % t["id"], json={"title": "Poin rapat %d" % (i + 1)})
+    api(base, user, "POST", "/api/tasks", json={"title": T_TALL_OTHER, "priority": "P3", "gtd_status": "next"})
+    return user
+
+
+def same_box(a, b, tol=1.5):
+    return bool(a) and bool(b) and all(abs(x - y) <= tol for x, y in zip(a, b))
+
+
+def check_overlay_scrolled(p, tag, box_sel, scope):
+    """Gulir wadah ke bawah → buka overlay tag → overlay = area terlihat wadah, gulir wadah terkunci → × → normal."""
+    p.evaluate("(sel) => { const b = document.querySelector(sel); b.scrollTop = b.scrollHeight; }", box_sel)
+    p.wait_for_timeout(300)
+    g0 = p.evaluate(OVERLAY_GEOM_JS, box_sel)
+    check("%s h1 isi wadah lebih tinggi dari wadah dan sudah digulir ke bawah" % tag,
+          g0["scrollH"] > g0["clientH"] + 100 and g0["scrollTop"] > 100, repr(g0))
+    chip = p.locator(scope + " span[title='Klik untuk lihat semua task dengan tag ini']").first
+    chip.dispatch_event("click")  # chip ada di atas isi (sudah tergulir keluar): klik tanpa menggulir wadah
+    p.get_by_text("Task dengan tag", exact=False).first.wait_for(timeout=10000)
+    p.wait_for_timeout(300)
+    g = p.evaluate(OVERLAY_GEOM_JS, box_sel)
+    check("%s h2 overlay 'Task dengan tag' = area terlihat wadah (bounding box) saat wadah tergulir" % tag,
+          same_box(g["o"], g["vis"]) and g["isParent"], repr(g))
+    check("%s h3 gulir wadah terkunci selama overlay terbuka (overflow hidden, scrollTop tetap)" % tag,
+          g["overflowY"] == "hidden" and abs(g["scrollTop"] - g0["scrollTop"]) <= 1, repr(g))
+    o = g["o"] or [0, 0, 0, 0]
+    p.mouse.move(o[0] + o[2] / 2, o[1] + 30)
+    p.mouse.wheel(0, -400)
+    p.wait_for_timeout(400)
+    g2 = p.evaluate(OVERLAY_GEOM_JS, box_sel)
+    check("%s h4 roda tetikus di atas overlay tidak menggulir wadah; overlay tetap menutupi area terlihat" % tag,
+          abs(g2["scrollTop"] - g0["scrollTop"]) <= 1 and same_box(g2["o"], g2["vis"]), repr(g2))
+    shot(p, "%s_overlay_scrolled.png" % tag)
+    p.locator(scope + " button").filter(has_text=re.compile(r"^×$")).last.click()
+    closed = wait_until(lambda: not p.get_by_text("Task dengan tag", exact=False).count(), 5)
+    g3 = p.evaluate(OVERLAY_GEOM_JS, box_sel)
+    check("%s h5 × menutup overlay; overflow wadah kembali semula (inline kosong, auto)" % tag,
+          closed and g3["inline"] == "" and g3["overflowY"] == "auto", repr(g3))
+    check("%s h5b posisi gulir wadah tidak berubah oleh buka/tutup overlay" % tag,
+          abs(g3["scrollTop"] - g0["scrollTop"]) <= 1, "awal=%r sesudah=%r" % (g0["scrollTop"], g3["scrollTop"]))
+    up = g3["scrollTop"] > 100  # gulir ke arah yang masih tersedia
+    p.mouse.move(g3["vis"][0] + g3["vis"][2] / 2, g3["vis"][1] + g3["vis"][3] / 2)
+    p.mouse.wheel(0, -400 if up else 400)
+    p.wait_for_timeout(400)
+    g4 = p.evaluate(OVERLAY_GEOM_JS, box_sel)
+    moved = (g3["scrollTop"] - g4["scrollTop"]) if up else (g4["scrollTop"] - g3["scrollTop"])
+    check("%s h6 setelah overlay ditutup wadah bisa digulir lagi (roda tetikus)" % tag,
+          moved > 50, "sebelum=%r sesudah=%r" % (g3["scrollTop"], g4["scrollTop"]))
+
+
+def run_overlay(browser, base, user):
+    """h: overlay tag menutupi area terlihat wadah yang sudah digulir — modal 375 px dan panel Live Edit 1280 px."""
+    # ── modal 375 px ──
+    tag = "h-375-modal"
+    errors = []
+    ctx, p = open_app(browser, base, user, 375, 812, "light", errors)
+    try:
+        go_all_tasks(p, True)
+        n = seed_local_tags(p, [T_TALL, T_TALL_OTHER], TAG_TALL)
+        check("%s setup: tag #%s dipasang di 2 task" % (tag, TAG_TALL), n == 2, repr(n))
+        open_task(p, T_TALL)
+        p.locator(".modal-content span", has_text="Poin rapat 7").first.wait_for(timeout=10000)
+        check_overlay_scrolled(p, tag, ".modal-content", ".modal-content")
+        check("%s f1 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
+    except Exception as e:  # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        check("%s exception" % tag, False, "%s: %s" % (type(e).__name__, str(e)[:300]))
+        try:
+            shot(p, "%s_zz_error.png" % tag)
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        ctx.close()
+
+    # ── panel Live Edit 1280 px ──
+    tag = "h-1280-panel"
+    errors = []
+    panel = "aside.tl-live-panel"
+    ctx, p = open_app(browser, base, user, 1280, 860, "light", errors, live="1")
+    try:
+        go_sidebar(p, "Next Actions")
+        # IndexedDB per konteks: pasang tag lalu muat ulang supaya panel memuat chip saat task dibuka
+        n = seed_local_tags(p, [T_TALL, T_TALL_OTHER], TAG_TALL)
+        reload_app(p)
+        go_sidebar(p, "Next Actions")
+        p.locator(".task-row", has_text=T_TALL).first.click()
+        p.locator(panel + " span", has_text="Poin rapat 7").first.wait_for(timeout=10000)
+        check("%s setup: tag #%s di 2 task; panel Live Edit menampilkan task tinggi" % (tag, TAG_TALL),
+              n == 2 and wait_until(lambda: p.locator(panel + " input[aria-label='Judul task']").first.input_value()
+                                    == T_TALL, 8), repr(n))
+        p.locator(panel + " span[title='Klik untuk lihat semua task dengan tag ini']").first.wait_for(timeout=10000)
+        check_overlay_scrolled(p, tag, panel, panel)
+        # overlay terbuka lalu pindah task (TaskDetailBody di-mount ulang, aside tetap) → overflow aside kembali
+        p.evaluate("(sel) => { const b = document.querySelector(sel); b.scrollTop = b.scrollHeight; }", panel)
+        p.locator(panel + " span[title='Klik untuk lihat semua task dengan tag ini']").first.dispatch_event("click")
+        p.get_by_text("Task dengan tag", exact=False).first.wait_for(timeout=10000)
+        locked = p.evaluate(OVERLAY_GEOM_JS, panel)["overflowY"] == "hidden"
+        p.locator(".task-row", has_text=T_TALL_OTHER).first.click()
+        switched = wait_until(lambda: p.locator(panel + " input[aria-label='Judul task']").first.input_value()
+                              == T_TALL_OTHER, 8)
+        g = p.evaluate(OVERLAY_GEOM_JS, panel)
+        check("%s h7 overlay terbuka lalu pindah task: overlay hilang, overflow aside kembali (inline kosong, auto)" % tag,
+              locked and switched and g["o"] is None and g["inline"] == "" and g["overflowY"] == "auto", repr(g))
+        check("%s f1 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
+    except Exception as e:  # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        check("%s exception" % tag, False, "%s: %s" % (type(e).__name__, str(e)[:300]))
+        try:
+            shot(p, "%s_zz_error.png" % tag)
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        ctx.close()
+
+
 def want(name):
     """E2E_ONLY=combo,tags,... menjalankan sebagian skenario (debug); kosong = semua."""
     only = [x for x in os.environ.get("E2E_ONLY", "").split(",") if x]
@@ -547,6 +696,9 @@ def main():
             if want("tags"):
                 print("== g: tag tetap saat task disimpan (1280 px) ==", flush=True)
                 run_tags(browser, base, register(base, "gita"))
+            if want("overlay"):
+                print("== h: overlay tag saat wadah tergulir (modal 375 px, panel 1280 px) ==", flush=True)
+                run_overlay(browser, base, seed_tall(base, "hana"))
             browser.close()
     except Exception as e:  # noqa: BLE001
         import traceback

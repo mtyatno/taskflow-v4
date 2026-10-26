@@ -8518,6 +8518,30 @@ function TaskSaveIndicator({ saveState, error, onRetry }) {
     "aria-live": "polite"
   }, content);
 }
+// Overlay "Task dengan tag" di TaskDetailBody (`position: absolute`) berjangkar ke wadah gulirnya = parentElement
+// overlay (`.modal-content` di modal, `aside.tl-live-panel` di panel; TaskDetailBody mengembalikan Fragment). Dengan
+// `inset: 0` overlay berada di bagian atas isi, jadi saat wadah sudah digulir area yang terlihat tidak tertutup.
+// Overlay ditaruh di area terlihat wadah (onPlace({ top: scrollTop, height: clientHeight })), gulir wadah dikunci
+// selama overlay terbuka, dan ukuran diukur ulang saat wadah/jendela berubah. Mengembalikan pembersih yang
+// mengembalikan `overflow` inline semula.
+function pinOverlayToScrollBox(overlay, onPlace) {
+  const box = overlay && overlay.parentElement;
+  if (!box) return () => {};
+  const prevOverflow = box.style.overflow;
+  box.style.overflow = "hidden";
+  const place = () => onPlace({ top: box.scrollTop, height: box.clientHeight });
+  place();
+  const ro = typeof ResizeObserver === "function" ? new ResizeObserver(place) : null;
+  if (ro) ro.observe(box);
+  box.addEventListener("scroll", place);
+  window.addEventListener("resize", place);
+  return () => {
+    if (ro) ro.disconnect();
+    box.removeEventListener("scroll", place);
+    window.removeEventListener("resize", place);
+    box.style.overflow = prevOverflow;
+  };
+}
 function TaskDetailBody({
   task,
   onClose,
@@ -8640,6 +8664,18 @@ function TaskDetailBody({
   const [taskTags, setTaskTags] = useState([]);
   const [tagsExpanded, setTagsExpanded] = useState(false);
   const [tagTasksModal, setTagTasksModal] = useState(null); // { tagName, tasks }
+  // Overlay tag menutupi area terlihat wadah gulir (bukan bagian atas isi) dan mengunci gulirnya selama terbuka.
+  const tagOverlayRef = useRef(null);
+  const [tagOverlayPos, setTagOverlayPos] = useState(null);
+  const tagOverlayOpen = !!tagTasksModal;
+  React.useLayoutEffect(() => {
+    if (!tagOverlayOpen) return undefined;
+    const release = pinOverlayToScrollBox(tagOverlayRef.current, setTagOverlayPos);
+    return () => {
+      release();
+      setTagOverlayPos(null);
+    };
+  }, [tagOverlayOpen]);
   // Memuat tag task ke chip; Promise berisi daftar yang dimuat (dipakai langsung oleh simpan judul, R21).
   const loadTags = id => api.get(`/api/tasks/${id}/tags`).then(data => {
     const list = data || [];
@@ -9685,9 +9721,13 @@ function TaskDetailBody({
     className: "btn btn-success btn-sm",
     onClick: onDone
   }, "\u2705 Done")), tagTasksModal && /*#__PURE__*/React.createElement("div", {
+    ref: tagOverlayRef,
     style: {
       position: "absolute",
-      inset: 0,
+      left: 0,
+      right: 0,
+      top: tagOverlayPos ? tagOverlayPos.top : 0,
+      height: tagOverlayPos ? tagOverlayPos.height : "100%",
       background: "rgba(0,0,0,0.6)",
       borderRadius: "inherit",
       zIndex: 10,
