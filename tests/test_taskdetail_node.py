@@ -9,7 +9,7 @@ import subprocess
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-NODE_TESTS = ["taskdetail"]
+NODE_TESTS = ["taskdetail", "task_detail_redesign", "context_scope_form", "project_scope_form", "task_move_workspace"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node tidak ada di PATH")
@@ -25,7 +25,7 @@ def test_taskdetail_node_tests():
     assert m and int(m.group(1)) > 0, "tidak ada tes yang berjalan:\n" + out[-3000:]
 
 
-EXPECTED_NODE_TESTS = {"taskdetail"}
+EXPECTED_NODE_TESTS = {"taskdetail", "task_detail_redesign", "context_scope_form", "project_scope_form", "task_move_workspace"}
 
 
 def test_taskdetail_bridge_lists_all_files():

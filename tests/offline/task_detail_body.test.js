@@ -36,8 +36,11 @@ test("TaskDetailModal hanya pembungkus overlay + ✕", () => {
 test("TaskDetailBody memuat isi detail dan slot headerAction, tanpa overlay", () => {
   const s = fnSource("TaskDetailBody");
   assert.match(s, /variant = "modal"/); assert.match(s, /headerAction = null/);
-  for (const re of [/ModalNotes/, /ModalAttachments/, /const handleSave = async/, /"💾 Simpan"/, /"\\u270F\\uFE0F Edit"/, /"Pindah ke Workspace"/])
+  for (const re of [/ModalNotes/, /ModalAttachments/, /"Pindah ke Workspace"/])
     assert.match(s, re);
+  // Redesain detail (spec §6.1): mode lihat → ✏️ Edit → 💾 Simpan dihapus, modal ikut simpan otomatis.
+  for (const re of [/handleSave/, /"💾 Simpan"/, /"\\u270F\\uFE0F Edit"/])
+    assert.doesNotMatch(s, re);
   assert.doesNotMatch(s, /modal-overlay|modal-content/);
   assert.ok(s.lastIndexOf("return /*#__PURE__*/React.createElement(React.Fragment, null,") > s.indexOf("const progress ="), "root = Fragment (R4)");
 });

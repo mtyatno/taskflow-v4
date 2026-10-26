@@ -1,7 +1,8 @@
 "use strict";
 
 // Live Edit, Task 5: varian `panel` di TaskDetailBody. Field utama selalu bisa diedit dan tersimpan otomatis lewat
-// TF.liveedit.createAutosaver (dibungkus useTaskAutosave); modal (variant "modal") tetap lihat → ✏️ Edit → 💾 Simpan.
+// TF.liveedit.createAutosaver (dibungkus useTaskAutosave). Sejak redesain detail task (spec 2026-10-26 §6.1) modal
+// (variant "modal") ikut simpan otomatis; mode lihat → ✏️ Edit → 💾 Simpan dihapus.
 // Spec docs/superpowers/specs/2026-10-26-live-edit-design.md §7.
 
 const { test } = require("node:test");
@@ -31,22 +32,22 @@ test("TaskSaveIndicator: teks, aria-live, Coba lagi, 2000 ms", () => {
   for (const re of [/"Menyimpan…"/, /"Tersimpan"/, /"Gagal menyimpan"/, /"Coba lagi"/, /"aria-live": "polite"/, /2000/]) assert.match(s, re);
 });
 
-test("TaskDetailBody: varian panel", () => {
+test("TaskDetailBody: simpan otomatis (kedua variant)", () => {
   const s = fnSource("TaskDetailBody");
-  for (const re of [/const isPanel = variant === "panel"/, /const editing = isPanel \|\| isEditing/, /useTaskAutosave\(task, isPanel/,
+  for (const re of [/const isPanel = variant === "panel"/, /useTaskAutosave\(task, true/,
     /auto\.commit\("title"\)/, /auto\.revertTitle\(\)/, /e\.key === "Enter"/, /e\.key === "Escape"/, /role: "alert"/,
     /React\.createElement\(TaskSaveIndicator/, /auto\.commit\("project"\)/, /auto\.commit\("context"\)/, /auto\.commit\("progress"\)/,
-    /onPointerUp/, /className: "task-detail-actions"/, /const tagChips = \(\) =>/, /\[editing, task\?\.list_id\]/])
+    /onPointerUp/, /className: "task-detail-actions"/, /const tagChips = \(\) =>/, /\[task\?\.list_id\]/])
     assert.match(s, re);
-  assert.ok((s.match(/tagChips\(\)/g) || []).length >= 2, "chip tag dipakai mode lihat + panel");
-  assert.match(s, /!isPanel && (\/\*#__PURE__\*\/)?React\.createElement\("button", \{[\s\S]{0,160}setIsEditing\(true\)/);
+  assert.ok((s.match(/tagChips\(\)/g) || []).length >= 1, "chip tag dipakai (mode lihat sudah tidak ada)");
   assert.match(s, /if \(!isPanel\) onClose\(\)/);
   assert.doesNotMatch(s, /borderLeft/);
 });
 
-test("Modal tetap: TaskDetailModal variant modal, handleSave menutup", () => {
+test("Modal: variant modal, ✕ lewat headerAction, tanpa handleSave", () => {
   assert.match(fnSource("TaskDetailModal"), /variant: "modal"/);
-  assert.match(fnSource("TaskDetailBody"), /const handleSave = async[\s\S]{0,200}onClose\(\)/);
+  assert.match(fnSource("TaskDetailModal"), /headerAction:/);
+  assert.doesNotMatch(fnSource("TaskDetailBody"), /handleSave/);
 });
 
 test("CSS indikator + aksi menempel di panel", () => {
@@ -66,7 +67,7 @@ test("Panel judul: Enter dengan judul tidak valid tidak blur; pesan bertahan set
   assert.match(s, /const \[titleNotice, setTitleNotice\] = useState\(null\)/);
   assert.match(s, /auto\.revertTitle\(\);\s*auto\.retry\(\);\s*setTitleNotice\(invalid\)/, "blur mengembalikan judul dan menyimpan pesannya");
   assert.match(s, /sf\("title", e\.target\.value\);\s*if \(titleNotice\) setTitleNotice\(null\)/, "ketikan berikutnya menghapus pesan");
-  assert.match(s, /const titleAlert = isPanel \? titleNotice \|\|/);
+  assert.match(s, /const titleAlert = titleNotice \|\|/);
   assert.match(s, /titleAlert && (\/\*#__PURE__\*\/)?React\.createElement\("div", \{\s*role: "alert"[\s\S]{0,160}\}, titleAlert\)/);
 });
 
@@ -113,9 +114,9 @@ test("R21 → R14: muat gagal → dicoba sekali lagi; gagal lagi → ditolak (ju
   assert.equal(twice.urls.length, 2, "hanya sekali coba ulang");
   assert.deepEqual(twice.chips, [], "chip tidak dikosongkan oleh muatan yang gagal");
 });
-test("R21: chip dimuat ulang saat updated_at berubah (panel), dan sesudah simpan judul", () => {
+test("R21: chip dimuat ulang saat updated_at berubah (modal dan panel), dan sesudah simpan judul", () => {
   const s = fnSource("TaskDetailBody");
-  assert.match(s, /const tagsVersion = isPanel \? task\?\.updated_at : null;/, "modal: dependensi tetap task.id saja");
+  assert.match(s, /const tagsVersion = task\?\.updated_at;/, "modal ikut memuat ulang chip saat updated_at berubah");
   assert.match(s, /if \(task\?\.id\) \{\s*const sameTaskReload = tagsIdRef\.current === task\.id;[\s\S]{0,120}loadTags\(task\.id\)\.catch\(\(\) => \{\s*if \(!sameTaskReload\) setTaskTags\(\[\]\);\s*\}\);\s*\}\s*\}, \[task\?\.id, tagsVersion\]\);/);
   assert.equal((s.match(/\[task\?\.id, tagsVersion\]/g) || []).length, 1, "satu efek: mount = satu muat");
   assert.match(s, /patch\.title != null\) \{[\s\S]{0,200}loadTags\(task\.id\)\.catch\(\(\) => \{\}\)/);
@@ -126,7 +127,7 @@ test("R21: chip dimuat ulang saat updated_at berubah (panel), dan sesudah simpan
 test("R19: project/context — opsi scope yang ada disimpan langsung, nama diketik saat blur/Enter", () => {
   const s = fnSource("TaskDetailBody");
   for (const [f, list] of [["project", "scopeProjects"], ["context", "scopeContexts"]]) {
-    assert.match(s, new RegExp(`value: fv\\.${f},\\s*onChange: v => \\{\\s*sf\\("${f}", v\\);\\s*if \\(isPanel && v && ${list}\\.includes\\(v\\)\\) auto\\.commit\\("${f}"\\);\\s*\\},\\s*options: ${list},`),
+    assert.match(s, new RegExp(`value: fv\\.${f},\\s*onChange: v => \\{\\s*sf\\("${f}", v\\);\\s*if \\(v && ${list}\\.includes\\(v\\)\\) auto\\.commit\\("${f}"\\);\\s*\\},\\s*options: ${list},`),
       f + ": commit hanya untuk opsi yang sama dengan options ComboSelect");
     assert.match(s, new RegExp(`if \\(!e\\.currentTarget\\.contains\\(e\\.relatedTarget\\)\\) auto\\.commit\\("${f}"\\);\\s*\\},\\s*onKeyDown: e => \\{\\s*if \\(e\\.key === "Enter" && !\\(e\\.nativeEvent && e\\.nativeEvent\\.isComposing\\)\\) auto\\.commit\\("${f}"\\);`),
       f + ": blur dan Enter di pembungkus");

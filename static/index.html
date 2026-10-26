@@ -8554,11 +8554,9 @@ function pinOverlayToScrollBox(overlay, onPlace) {
 function TaskDetailBody({
   task,
   onClose,
-  onEdit,
   onDone,
   onDelete,
   onRefresh,
-  onOfflineEdit,
   onToggleFocus,
   onOpenTask,
   projects = [],
@@ -8569,26 +8567,13 @@ function TaskDetailBody({
   headerAction = null
 }) {
   if (!task) return null;
-  // Live Edit (spec §7): panel = field utama selalu bisa diedit dan tersimpan otomatis; modal = lihat → ✏️ Edit → 💾 Simpan.
+  // Redesain detail (spec §6.1): modal dan panel sama-sama selalu bisa diedit dan tersimpan otomatis (useTaskAutosave,
+  // aturan Live Edit R9–R21). variant hanya mengatur hal khusus wadah: modal ditutup setelah Pindah/Fokus, ✕ lewat
+  // headerAction (null di panel).
   const isPanel = variant === "panel";
-  const [isEditing, setIsEditing] = useState(false);
-  const editing = isPanel || isEditing;
-  // Panel: pesan judul tidak valid tetap tampil setelah blur mengembalikan judul; hilang saat judul diubah lagi.
+  // Pesan judul tidak valid tetap tampil setelah blur mengembalikan judul; hilang saat judul diubah lagi.
   const [titleNotice, setTitleNotice] = useState(null);
   const [listMembers, setListMembers] = useState([]);
-  const [form, setForm] = useState({
-    title: task.title || "",
-    description: task.description || "",
-    priority: task.priority || "P3",
-    gtd_status: task.gtd_status || "inbox",
-    project: task.project || "",
-    context: task.context || "",
-    deadline: task.deadline || "",
-    waiting_for: task.waiting_for || "",
-    assigned_to: task.assigned_to || null,
-    progress: task.progress || 0
-  });
-  const [saving, setSaving] = useState(false);
   // Pindah ke workspace: hanya task pribadi tingkat atas (child ikut induknya).
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState("");
@@ -8643,22 +8628,6 @@ function TaskDetailBody({
   const scopeProjects = useScopeProjects(task.list_id);
   const scopeContexts = useScopeContexts(task.list_id);
   const scopeLists = useScopeLists(task.list_id, sharedLists);
-  const setF = (k, v) => setForm(f => ({
-    ...f,
-    [k]: v
-  }));
-  const resetForm = () => setForm({
-    title: task.title || "",
-    description: task.description || "",
-    priority: task.priority || "P3",
-    gtd_status: task.gtd_status || "inbox",
-    project: task.project || "",
-    context: task.context || "",
-    deadline: task.deadline || "",
-    waiting_for: task.waiting_for || "",
-    assigned_to: task.assigned_to || null,
-    progress: task.progress || 0
-  });
   const [subtasks, setSubtasks] = useState([]);
   const [newSub, setNewSub] = useState("");
   const [adding, setAdding] = useState(false);
@@ -8709,7 +8678,7 @@ function TaskDetailBody({
     }
   };
 
-  // Live Edit: simpan otomatis di panel. Tiap simpan sukses memberi tahu pendengar taskUpdated dan memuat ulang
+  // Simpan otomatis (modal dan panel). Tiap simpan sukses memberi tahu pendengar taskUpdated dan memuat ulang
   // daftar (onRefresh, debounce 500 ms); simpan yang membawa judul memuat ulang tag (#tag baru di judul jadi chip).
   // Setelah unmount (flush terakhir) onRefresh dipanggil langsung supaya daftar tidak tertinggal.
   const liveMountedRef = useRef(true);
@@ -8744,19 +8713,19 @@ function TaskDetailBody({
       onRefreshRef.current?.();
     }, 500);
   };
-  const auto = useTaskAutosave(task, isPanel, {
+  const auto = useTaskAutosave(task, true, {
     onSaved,
     getTags: tagsForTitle
   });
-  const fv = isPanel ? auto.form : form;
-  const sf = isPanel ? auto.change : setF;
+  const fv = auto.form;
+  const sf = auto.change;
 
-  // Fetch list members for assignee dropdown when entering edit mode
+  // Anggota workspace untuk pilihan "Assign ke" (field selalu tampil di task workspace).
   useEffect(() => {
-    if (editing && task?.list_id) {
+    if (task?.list_id) {
       api.get(`/api/lists/${task.list_id}/members`).then(setListMembers).catch(() => setListMembers([]));
     }
-  }, [editing, task?.list_id]);
+  }, [task?.list_id]);
 
   // Fetch subtasks (checklist)
   useEffect(() => {
@@ -8778,10 +8747,10 @@ function TaskDetailBody({
   useEffect(() => {
     fetchChildTasks();
   }, [task?.id]);
-  // Chip tag dimuat saat task berganti; di panel juga saat task berubah dari luar (updated_at: sync, modal, perangkat
-  // lain) supaya tidak basi (R21). Satu efek dengan dua dependensi: mount = satu muat. Modal: dependensi tetap task.id.
+  // Chip tag dimuat saat task berganti dan saat task berubah dari luar (updated_at: sync, simpan, perangkat lain)
+  // supaya tidak basi (R21), di modal maupun panel. Satu efek dengan dua dependensi: mount = satu muat.
   // Gagal memuat ulang task yang sama → chip lama dipertahankan; task lain → kosong (seperti sebelumnya).
-  const tagsVersion = isPanel ? task?.updated_at : null;
+  const tagsVersion = task?.updated_at;
   const tagsIdRef = useRef(null);
   useEffect(() => {
     if (task?.id) {
@@ -8863,31 +8832,10 @@ function TaskDetailBody({
       setAddingChild(false);
     }
   };
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await api.put(`/api/tasks/${task.id}`, form);
-      onRefresh?.();
-      onClose();
-    } catch (err) {
-      if (isOfflineErr(err) && onOfflineEdit) {
-        await OfflineDB.queueAdd({
-          method: "PUT",
-          url: `/api/tasks/${task.id}`,
-          body: form
-        });
-        onOfflineEdit(task.id, form);
-        onClose();
-      } else {
-        alert(err.message);
-      }
-    }
-    setSaving(false);
-  };
-  // Panel: pesan di bawah judul. titleError dari pengendali hanya selama judul di form masih tidak valid (pengendali
+  // Pesan di bawah judul. titleError dari pengendali hanya selama judul di form masih tidak valid (pengendali
   // baru memperbaruinya saat simpan berikutnya, jadi tanpa syarat ini pesan basi tetap tampil saat judul sudah diperbaiki).
-  const titleAlert = isPanel ? titleNotice || (auto.titleError && window.TF.liveedit.validateTitle(fv.title) ? auto.titleError : null) : null;
-  // Chip tag (klik = task lain dengan tag ini, × = hapus tag): mode lihat modal dan panel.
+  const titleAlert = titleNotice || (auto.titleError && window.TF.liveedit.validateTitle(fv.title) ? auto.titleError : null);
+  // Chip tag (klik = task lain dengan tag ini, × = hapus tag).
   const tagChips = () => taskTags.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -8975,7 +8923,7 @@ function TaskDetailBody({
       color: "var(--text-light)",
       marginBottom: 4
     }
-  }, "#", task.id), isPanel ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
+  }, "#", task.id), /*#__PURE__*/React.createElement("input", {
     className: "input task-detail-title-input",
     "aria-label": "Judul task",
     value: fv.title,
@@ -9018,26 +8966,11 @@ function TaskDetailBody({
       color: "var(--danger, #dc2626)",
       marginTop: 4
     }
-  }, titleAlert)) : isEditing ? /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    value: form.title,
-    onChange: e => setF("title", e.target.value),
-    style: {
-      fontSize: 16,
-      fontWeight: 700,
-      width: "100%"
-    }
-  }) : /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontSize: 20,
-      fontWeight: 700,
-      lineHeight: 1.3
-    }
-  }, task.title)), isPanel ? /*#__PURE__*/React.createElement(TaskSaveIndicator, {
+  }, titleAlert)), /*#__PURE__*/React.createElement(TaskSaveIndicator, {
     saveState: auto.saveState,
     error: auto.error,
     onRetry: () => auto.retry()
-  }) : headerAction), task.parent_id && /*#__PURE__*/React.createElement("div", {
+  }), headerAction), task.parent_id && /*#__PURE__*/React.createElement("div", {
     style: {
       background: "#eff6ff",
       border: "1px solid #bfdbfe",
@@ -9047,7 +8980,7 @@ function TaskDetailBody({
       fontSize: 13,
       color: "#1d4ed8"
     }
-  }, "\u21B3 Subtask dari: ", /*#__PURE__*/React.createElement("b", null, "#", task.parent_id), " ", task.parent_title && `— ${task.parent_title}`), isPanel && /*#__PURE__*/React.createElement("div", {
+  }, "\u21B3 Subtask dari: ", /*#__PURE__*/React.createElement("b", null, "#", task.parent_id), " ", task.parent_title && `— ${task.parent_title}`), /*#__PURE__*/React.createElement("div", {
     className: "task-detail-meta",
     style: {
       display: "flex",
@@ -9070,7 +9003,7 @@ function TaskDetailBody({
     }
   }, /*#__PURE__*/React.createElement("span", {
     className: "overdue-indicator"
-  }), "Terlambat"), task.created_at && /*#__PURE__*/React.createElement("span", null, "\uD83D\uDD50 Created: ", task.created_at.split("T")[0]), task.completed_at && /*#__PURE__*/React.createElement("span", null, "\u2705 Done: ", task.completed_at.split("T")[0])), isPanel && tagChips(), editing ? /*#__PURE__*/React.createElement("div", {
+  }), "Terlambat"), task.created_at && /*#__PURE__*/React.createElement("span", null, "\uD83D\uDD50 Created: ", task.created_at.split("T")[0]), task.completed_at && /*#__PURE__*/React.createElement("span", null, "\u2705 Done: ", task.completed_at.split("T")[0])), tagChips(), /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16
     }
@@ -9118,7 +9051,7 @@ function TaskDetailBody({
       gap: 10,
       marginBottom: 10
     }
-  }, /*#__PURE__*/React.createElement("div", isPanel ? {
+  }, /*#__PURE__*/React.createElement("div", {
     // R19: nama yang diketik (server membuat project/tahap yang belum ada) hanya tersimpan saat keluar field
     // (ComboSelect tanpa onBlur: blur dari select/input di dalamnya naik ke sini; pindah fokus di dalam field
     // diabaikan), Enter, atau flush. Memilih opsi yang sudah ada tersimpan langsung lewat onChange di bawah.
@@ -9128,31 +9061,31 @@ function TaskDetailBody({
     onKeyDown: e => {
       if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) auto.commit("project");
     }
-  } : null, /*#__PURE__*/React.createElement("label", {
+  }, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
   }, projectScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
     value: fv.project,
     onChange: v => {
       sf("project", v);
-      if (isPanel && v && scopeProjects.includes(v)) auto.commit("project");
+      if (v && scopeProjects.includes(v)) auto.commit("project");
     },
     options: scopeProjects,
     placeholder: "\u2014 Project \u2014",
     icon: "\uD83D\uDCC1"
-  })), /*#__PURE__*/React.createElement("div", isPanel ? {
+  })), /*#__PURE__*/React.createElement("div", {
     onBlur: e => {
       if (!e.currentTarget.contains(e.relatedTarget)) auto.commit("context");
     },
     onKeyDown: e => {
       if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) auto.commit("context");
     }
-  } : null, /*#__PURE__*/React.createElement("label", {
+  }, /*#__PURE__*/React.createElement("label", {
     className: "input-label"
   }, contextScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
     value: fv.context,
     onChange: v => {
       sf("context", v);
-      if (isPanel && v && scopeContexts.includes(v)) auto.commit("context");
+      if (v && scopeContexts.includes(v)) auto.commit("context");
     },
     options: scopeContexts,
     placeholder: "\u2014 Context \u2014",
@@ -9178,7 +9111,7 @@ function TaskDetailBody({
     className: "input",
     value: fv.waiting_for,
     onChange: e => sf("waiting_for", e.target.value),
-    onBlur: isPanel ? () => auto.commit("waiting_for") : undefined,
+    onBlur: () => auto.commit("waiting_for"),
     placeholder: "Menunggu siapa/apa"
   })), task.list_id && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -9223,9 +9156,9 @@ function TaskDetailBody({
     step: "5",
     value: fv.progress || 0,
     onChange: e => sf("progress", parseInt(e.target.value)),
-    onPointerUp: isPanel ? () => auto.commit("progress") : undefined,
-    onKeyUp: isPanel ? () => auto.commit("progress") : undefined,
-    onBlur: isPanel ? () => auto.commit("progress") : undefined,
+    onPointerUp: () => auto.commit("progress"),
+    onKeyUp: () => auto.commit("progress"),
+    onBlur: () => auto.commit("progress"),
     style: {
       width: "100%",
       accentColor: fv.progress === 100 ? "#22c55e" : "var(--accent)"
@@ -9246,118 +9179,13 @@ function TaskDetailBody({
     className: "input",
     value: fv.description,
     onChange: e => sf("description", e.target.value),
-    onBlur: isPanel ? () => auto.commit("description") : undefined,
-    rows: isPanel ? 4 : 3,
+    onBlur: () => auto.commit("description"),
+    rows: 4,
+    "aria-label": "Deskripsi",
     style: {
       resize: "vertical"
     }
-  }))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8,
-      flexWrap: "wrap",
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement(StatusBadge, {
-    s: task.gtd_status
-  }), /*#__PURE__*/React.createElement(PriBadge, {
-    p: task.priority
-  }), /*#__PURE__*/React.createElement(QuadBadge, {
-    q: task.quadrant
-  })), tagChips(), task.description && /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: 12,
-      background: "var(--bg-primary)",
-      borderRadius: 8,
-      fontSize: 14,
-      marginBottom: 14,
-      lineHeight: 1.6
-    }
-  }, task.description), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 8,
-      fontSize: 14,
-      marginBottom: 16
-    }
-  }, task.project && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\uD83D\uDCC1 Project:"), " ", task.project), task.context && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\uD83C\uDFF7\uFE0F Context:"), " ", task.context), task.deadline && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\uD83D\uDCC5 Deadline:"), " ", formatDate(task.deadline), " ", task.is_overdue && /*#__PURE__*/React.createElement("span", {
-    className: "overdue-indicator"
-  })), task.waiting_for && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\u23F3 Waiting:"), " ", task.waiting_for), task.assigned_to && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\uD83D\uDC64 Assigned:"), " ", /*#__PURE__*/React.createElement("b", null, task.assigned_to_name || "?")), task.created_at && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\uD83D\uDD50 Created:"), " ", task.created_at?.split("T")[0])), task.gtd_status !== "done" && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 6
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 600,
-      color: "var(--text-secondary)"
-    }
-  }, "Progress"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 700,
-      color: (task.progress || 0) === 100 ? "#22c55e" : "var(--accent)"
-    }
-  }, task.progress || 0, "%")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 8,
-      background: "#e2e8f0",
-      borderRadius: 4,
-      overflow: "hidden"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: "100%",
-      width: `${task.progress || 0}%`,
-      background: (task.progress || 0) === 100 ? "#22c55e" : "var(--accent)",
-      borderRadius: 4,
-      transition: "width 0.4s"
-    }
   }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 8,
-      fontSize: 14,
-      marginBottom: 16
-    }
-  }, task.completed_at && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\u2705 Done:"), " ", task.completed_at?.split("T")[0]))), /*#__PURE__*/React.createElement("div", {
     style: {
       borderTop: "1px solid var(--border)",
       paddingTop: 14,
@@ -9615,7 +9443,7 @@ function TaskDetailBody({
     collaborators: collaborators
   }), /*#__PURE__*/React.createElement(ModalAttachments, {
     taskId: task.id
-  }), !isEditing && moveOpen && /*#__PURE__*/React.createElement("div", {
+  }), moveOpen && /*#__PURE__*/React.createElement("div", {
     className: "task-move-panel",
     ref: movePanelRef,
     style: {
@@ -9681,25 +9509,7 @@ function TaskDetailBody({
     className: "btn btn-primary btn-sm",
     onClick: handleMove,
     disabled: moving || !moveTarget
-  }, moving ? "Memindahkan..." : "Pindahkan"))), isEditing ? /*#__PURE__*/React.createElement("div", {
-    className: "task-detail-actions",
-    style: {
-      display: "flex",
-      gap: 8,
-      justifyContent: "flex-end",
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => {
-      setIsEditing(false);
-      resetForm();
-    }
-  }, "Batal"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary btn-sm",
-    onClick: handleSave,
-    disabled: saving
-  }, saving ? "Menyimpan..." : "💾 Simpan")) : /*#__PURE__*/React.createElement("div", {
+  }, moving ? "Memindahkan..." : "Pindahkan"))), /*#__PURE__*/React.createElement("div", {
     className: "task-detail-actions",
     style: {
       display: "flex",
@@ -9724,10 +9534,7 @@ function TaskDetailBody({
       color: task.is_focused ? "#b45309" : "var(--text-secondary)",
       border: task.is_focused ? "1px solid #fde68a" : "1px solid var(--border)"
     }
-  }, /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } }, /*#__PURE__*/React.createElement(Icon, { name: "star", size: 13, style: { fill: task.is_focused ? "currentColor" : "none" } }), "Fokus")), !isPanel && /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => setIsEditing(true)
-  }, "\u270F\uFE0F Edit"), task.gtd_status !== "done" && /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } }, /*#__PURE__*/React.createElement(Icon, { name: "star", size: 13, style: { fill: task.is_focused ? "currentColor" : "none" } }), "Fokus")), task.gtd_status !== "done" && /*#__PURE__*/React.createElement("button", {
     className: "btn btn-success btn-sm",
     onClick: onDone
   }, "\u2705 Done")), tagTasksModal && /*#__PURE__*/React.createElement("div", {
