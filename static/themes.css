@@ -7,6 +7,11 @@
  * Nilai palet Default ada di app.css :root dan [data-theme="dark"], bukan di sini; blok default
  * di bawah sengaja kosong. Palet lain ditambahkan sebagai blok baru di berkas ini.
  *
+ * Token opsional (--accent-on, --accent-text-deep, --accent-text-bright, --accent-2-rgb, --chat-self-bg,
+ * --border-hover) hanya didefinisikan di sini: app.css memakainya sebagai var(--token, <literal Default>), jadi
+ * Default tetap memakai literal lama. --chat-self-bg/--border-hover hanya di blok gelap (pemakainya aturan gelap).
+ * --line-soft = --border; --track = --border-strong (terang) / --border (gelap).
+ *
  * Rujukan: docs/superpowers/specs/2026-10-26-tema-palet-dekorasi-design.md §3.3.
  */
 
@@ -44,6 +49,12 @@
   --accent-rgb: 176, 40, 126;
   --accent-2: #B0287E;
   --accent-2-hover: #9A2070;
+  --accent-on: #FFFFFF;
+  --accent-text-deep: #8E1F63;
+  --accent-text-bright: #F5B3DA;
+  --accent-2-rgb: 176, 40, 126;
+  --line-soft: #F0D2E5;
+  --track: #E6C0D8;
   --radius-sm: 10px;
   --radius-control: 12px;
   --radius-md: 14px;
@@ -77,6 +88,14 @@
   --accent-rgb: 238, 143, 203;
   --accent-2: #EE8FCB;
   --accent-2-hover: #F5A6D7;
+  --accent-on: #2B0F24;
+  --accent-text-deep: #F5B3DA;
+  --accent-text-bright: #F5B3DA;
+  --accent-2-rgb: 238, 143, 203;
+  --chat-self-bg: #5A2A4A;
+  --border-hover: #5A3E52;
+  --line-soft: #3E2A3A;
+  --track: #3E2A3A;
 }
 
 /* Lavender — ungu. Pola turunan sama dengan Sakura. */
@@ -106,6 +125,12 @@
   --accent-rgb: 138, 58, 174;
   --accent-2: #8A3AAE;
   --accent-2-hover: #742F93;
+  --accent-on: #FFFFFF;
+  --accent-text-deep: #6A2B88;
+  --accent-text-bright: #E0C6F8;
+  --accent-2-rgb: 138, 58, 174;
+  --line-soft: #E2D4F0;
+  --track: #D5C2E8;
   --radius-sm: 10px;
   --radius-control: 12px;
   --radius-md: 14px;
@@ -139,4 +164,12 @@
   --accent-rgb: 205, 162, 242;
   --accent-2: #CDA2F2;
   --accent-2-hover: #DDBBF7;
+  --accent-on: #22113A;
+  --accent-text-deep: #E0C6F8;
+  --accent-text-bright: #E0C6F8;
+  --accent-2-rgb: 205, 162, 242;
+  --chat-self-bg: #3F2D5C;
+  --border-hover: #4E3F63;
+  --line-soft: #382D45;
+  --track: #382D45;
 }

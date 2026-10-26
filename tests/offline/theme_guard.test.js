@@ -78,7 +78,8 @@ const stripRoot = (s) => s.replace(/:root \{[\s\S]*?\}\s*\[data-theme="dark"\] \
 //                               gelap; --accent-text-strong gelap = #A8C500.
 //   .cmt-mention color #5d6e00 — tidak ada token bernilai #5D6E00 (--accent-text-strong = #6B8000, selisih kanal 18).
 // Pengecualian harus tetap cocok persis (gagal bila basi), lalu dihapus dari teks sebelum guard dijalankan.
-const LIME_KEEP = [/(\n\s*\.badge-q2 \{[^}]*color: )#6B8000;/, /(\n\.cmt-mention \{ color: )#5d6e00;/];
+// PR B (S1): keduanya kini fallback token opsional var(--accent-text-deep, …) — Default tetap memakai literal itu.
+const LIME_KEEP = [/(\n\s*\.badge-q2 \{[^}]*color: )var\(--accent-text-deep, #6B8000\);/, /(\n\.cmt-mention \{ color: )var\(--accent-text-deep, #5d6e00\);/];
 test("guard: tidak ada literal lime di app.css di luar blok token", () => {
   let s = stripRoot(css);
   for (const re of LIME_KEEP) { assert.match(s, re, "pengecualian basi: " + re); s = s.replace(re, "$1;"); }
@@ -92,6 +93,9 @@ test("guard: Chart.js tidak menerima var()", () => { const chart = html.slice(ht
 // Plan memperkirakan ≤ 80 entri, tetapi aturan "warna bermakna" saja sudah 83 → batas dipisah per alasan.
 // Ratchet: angka = jumlah saat Task 5 (tanpa ruang sisa) dan harus sama persis; PR B hanya boleh menurunkannya
 // (menghapus entri allowlist wajib diiringi menurunkan konstanta, agar ruang kosong tidak bisa diisi literal baru).
+// PR B Task 3: angka tetap 144/61 — aturan gelap yang literalnya kini hanya fallback token opsional
+// (var(--border-hover, #525252), var(--accent-text-bright, #D9EE6A), var(--chat-self-bg, #4a7000), …) sengaja
+// tetap dihitung berliteral (Default memakai fallback itu); tidak ada aturan gelap lain yang kehilangan literalnya.
 const ALLOW_MAX_TOTAL = 144, ALLOW_MAX_NON_BERMAKNA = 61;
 const ALLOW_REASONS = ["warna bermakna", "netral tanpa token", "lime-adjacent", "blok token gelap"];
 const allowList = JSON.parse(read("tests/offline/theme_dark_allowlist.json"));
@@ -112,4 +116,64 @@ test("guard: allowlist tidak basi (selektor ada dan masih berliteral), alasan ba
   const nonBermakna = allowList.filter(e => e.reason !== "warna bermakna").length;
   assert.equal(nonBermakna, ALLOW_MAX_NON_BERMAKNA,
     `entri bukan "warna bermakna" ${nonBermakna}, ALLOW_MAX_NON_BERMAKNA ${ALLOW_MAX_NON_BERMAKNA}: bila entri dihapus, turunkan ALLOW_MAX_NON_BERMAKNA ke ${nonBermakna}; entri baru tidak boleh ditambah`);
+});
+
+// PR B Task 3 (plan 2026-10-27 S1): literal lime-adjacent / tinta di atas aksen / hover gelap → token opsional
+// berfallback. Token ini tidak ada di :root (Default = fallback = literal lama, identik); hanya blok palet
+// themes.css yang mendefinisikannya. Setiap kemunculan literal tabel S1 di app.css (di luar blok token) dan
+// index.html wajib berupa fallback `var(--<token>, <literal>)`, dan tiap token minimal dipakai sekali.
+const S1_FALLBACK = {
+  "--accent-on": [/#1a1f00(?![0-9a-f])/gi, /#1a2a00(?![0-9a-f])/gi, /#1F2116(?![0-9a-f])/gi],
+  "--accent-text-deep": [/#4d5c00(?![0-9a-f])/gi, /#4E5C00(?![0-9a-f])/gi, /#5D6E00(?![0-9a-f])/gi, /#6B8000(?![0-9a-f])/gi, /#364d00(?![0-9a-f])/gi, /rgba\(\s*54\s*,\s*77\s*,\s*0\s*,\s*0?\.7\s*\)/gi],
+  "--accent-text-bright": [/#d4e85c(?![0-9a-f])/gi, /#D9EE6A(?![0-9a-f])/gi],
+  "--accent-2-rgb": [/182\s*,\s*212\s*,\s*0(?![\d.])/g],
+  "--chat-self-bg": [/#4a7000(?![0-9a-f])/gi],
+  "--border-hover": [/#525252(?![0-9a-f])/gi],
+};
+test("guard: literal tabel S1 hanya muncul sebagai fallback var(--…, literal)", () => {
+  const bad = [], used = {};
+  for (const [file, src] of [["app.css", stripRoot(css)], ["index.html", html]]) {
+    for (const [tok, res] of Object.entries(S1_FALLBACK)) {
+      const prefix = `var(${tok}, `;
+      for (const re of res) for (const m of src.matchAll(re)) {
+        if (src.slice(m.index - prefix.length, m.index) === prefix) { used[tok] = (used[tok] || 0) + 1; continue; }
+        bad.push(`${file}:${src.slice(0, m.index).split("\n").length} ${m[0]} (harus var(${tok}, ${m[0]}))`);
+      }
+    }
+  }
+  assert.deepEqual(bad, []);
+  for (const tok of Object.keys(S1_FALLBACK)) assert.ok(used[tok] > 0, "token opsional tidak dipakai: " + tok);
+  // Bentuk rgba beralpha: rgba(var(--accent-2-rgb, 182, 212, 0), a) — bukan rgba(182,212,0,a) apa pun.
+  assert.doesNotMatch(css + html, /rgba\(\s*182\s*,/);
+});
+
+// Kelas .dark tidak pernah dipasang index.html (tema gelap = [data-theme="dark"]); aturan .dark … mati dihapus.
+test("guard: tidak ada aturan .dark (selektor diawali .dark )", () => {
+  assert.equal(css.match(/(^|[}\n,])\s*\.dark[\s.,{:]/g), null);
+});
+
+test("guard: hover sidebar terang memakai var(--text-primary), bukan #0f172a", () => {
+  for (const sel of [".sidebar-link:hover", ".sidebar-rail-btn:hover"]) {
+    const m = css.match(new RegExp(`\\n\\s*${esc(sel)} \\{([^}]*)\\}`));
+    assert.ok(m, sel);
+    assert.match(m[1], /color: var\(--text-primary\);/, sel);
+  }
+});
+
+// S5: garis/track terang di mode gelap (tabel sisa-hex, "salah") → --line-soft / --track. Tiga lokasi TaskDetailBody
+// di tabel itu sudah hilang oleh redesain detail task (#100, kini .td-check-bar berbasis token).
+const fnBody = (name) => { const i = html.indexOf(`function ${name}(`); assert.ok(i > -1, name); return html.slice(i, html.indexOf("\nfunction ", i + 1)); };
+test("guard: #f1f5f9/#e2e8f0 di lokasi S5 diganti token", () => {
+  for (const name of ["ModalAttachments", "ModalNotes"]) {
+    const b = fnBody(name);
+    assert.ok(b.includes('borderBottom: "1px solid var(--line-soft)"'), name);
+    assert.doesNotMatch(b, /#f1f5f9|#e2e8f0/i, name);
+  }
+  const row = fnBody("TaskRow");
+  assert.match(row, /height: 4,\n\s*background: "var\(--track\)",/);
+  assert.doesNotMatch(row, /#f1f5f9|#e2e8f0/i);
+  assert.match(html, /borderBottom: "1px solid var\(--line-soft\)",\n\s*background: n\.is_read \? "var\(--bg-card\)"/);
+  // Sisa yang sah: blok <style> mode kertas di <head> (kertas selalu putih) dan chipColor kalender (di luar cakupan).
+  const rest = html.slice(html.indexOf("</head>")).replace(/bg: "#f1f5f9",\n\s*color: "#475569",/, "");
+  assert.equal(rest.match(/#f1f5f9|#e2e8f0/gi), null);
 });

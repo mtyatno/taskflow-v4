@@ -78,7 +78,7 @@ const MODES = ["light", "dark"];
 const REQUIRED = ["--bg-page", "--bg-primary", "--bg-secondary", "--bg-card", "--bg-sidebar", "--border", "--border-strong",
   "--text-primary", "--text-secondary", "--text-light", "--outline-guide", "--bg-hover", "--bg-subtle", "--bg-selected",
   "--accent", "--accent-hover", "--accent-ink", "--accent-text", "--accent-text-strong", "--accent-soft", "--accent-duo",
-  "--accent-ring", "--accent-rgb", "--accent-2", "--accent-2-hover"];
+  "--accent-ring", "--accent-rgb", "--accent-2", "--accent-2-hover", "--line-soft", "--track"];
 const REQUIRED_LIGHT_ONLY = ["--radius-sm", "--radius-control", "--radius-md", "--radius-card", "--radius-lg", "--font-heading"];
 const PAIRS = [["--text-primary", "--bg-page"], ["--text-primary", "--bg-card"], ["--text-secondary", "--bg-card"],
   ["--text-light", "--bg-page"], ["--accent-text", "--bg-card"], ["--accent-text", "--accent-soft"], ["--accent-ink", "--accent"]];
@@ -144,5 +144,53 @@ test("turunan: --bg-primary/--bg-secondary, --outline-guide, --accent-text-stron
     assert.equal(b["--accent-text-strong"], b["--accent-text"], `${id} ${mode} --accent-text-strong`);
     assert.equal(b["--accent-2"], b["--accent"], `${id} ${mode} --accent-2`);
     assert.equal(b["--accent-2-hover"], b["--accent-hover"], `${id} ${mode} --accent-2-hover`);
+  }
+});
+
+// PR B Task 3 (plan 2026-10-27 S1): token opsional — tidak ada di :root (Default memakai fallback literal lama di
+// var(--t, literal)), wajib ada di blok palet. null = tidak perlu di mode itu (aturan pemakainya hanya gelap).
+// Nilai = tabel brief Task 3 (dipin persis).
+const OPTIONAL = {
+  "--accent-on":          { sakura: ["#FFFFFF", "#2B0F24"], lavender: ["#FFFFFF", "#22113A"] },
+  "--accent-text-deep":   { sakura: ["#8E1F63", "#F5B3DA"], lavender: ["#6A2B88", "#E0C6F8"] },
+  "--accent-text-bright": { sakura: ["#F5B3DA", "#F5B3DA"], lavender: ["#E0C6F8", "#E0C6F8"] },
+  "--accent-2-rgb":       { sakura: ["176, 40, 126", "238, 143, 203"], lavender: ["138, 58, 174", "205, 162, 242"] },
+  "--chat-self-bg":       { sakura: [null, "#5A2A4A"], lavender: [null, "#3F2D5C"] },
+  "--border-hover":       { sakura: [null, "#5A3E52"], lavender: [null, "#4E3F63"] },
+};
+
+test("token opsional: tiap blok palet (terang+gelap sesuai tabel) mendefinisikannya", () => {
+  assert.deepEqual(Object.keys(OPTIONAL[Object.keys(OPTIONAL)[0]]), NON_DEFAULT);
+  for (const [tok, per] of Object.entries(OPTIONAL)) for (const id of NON_DEFAULT) MODES.forEach((mode, i) => {
+    const want = per[id][i], got = palettes[id][mode][tok];
+    if (want === null) assert.equal(got, undefined, `${id} ${mode}: ${tok} tidak perlu (blok terang palet juga berlaku di mode gelap)`);
+    else assert.equal(got, want, `${id} ${mode}: ${tok}`);
+  });
+  // --accent-2-rgb = komponen RGB --accent-2 di blok yang sama (dipakai sebagai rgba(var(--accent-2-rgb), a)).
+  for (const id of NON_DEFAULT) for (const mode of MODES) {
+    const [r, g, b] = parseColor(palettes[id][mode]["--accent-2"]);
+    assert.equal(palettes[id][mode]["--accent-2-rgb"].replace(/\s+/g, ""), `${r},${g},${b}`, `${id} ${mode}`);
+  }
+});
+
+test(":root tidak mendefinisikan token opsional", () => {
+  for (const tok of Object.keys(OPTIONAL)) {
+    assert.ok(!(tok in appRoot), ":root " + tok);
+    assert.ok(!(tok in appDark), "blok gelap app.css " + tok);
+    assert.doesNotMatch(css, new RegExp(`(^|[\\s;{])${tok}\\s*:`), "app.css mendefinisikan " + tok);
+  }
+});
+
+test("--line-soft/--track ada di :root, blok gelap, dan tiap palet", () => {
+  assert.equal(appRoot["--line-soft"], "#f1f5f9");
+  assert.equal(appRoot["--track"], "#e2e8f0");
+  assert.equal(appDark["--line-soft"], "#333333");
+  assert.equal(appDark["--track"], "#404040");
+  for (const id of NON_DEFAULT) {
+    const l = palettes[id].light, d = palettes[id].dark;
+    assert.equal(l["--line-soft"], l["--border"], `${id} terang --line-soft = --border`);
+    assert.equal(l["--track"], l["--border-strong"], `${id} terang --track = --border-strong`);
+    assert.equal(d["--line-soft"], d["--border"], `${id} gelap --line-soft = --border`);
+    assert.equal(d["--track"], d["--border"], `${id} gelap --track = --border`);
   }
 });
