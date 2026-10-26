@@ -106,7 +106,7 @@ test("Floating ToC CSS — tombol melayang ala Medium", async (t) => {
   await t.test("item aktif ter-highlight dengan tint accent", () => {
     const m = /\.note-toc-item\.active \{([^}]*)\}/.exec(appCss);
     assert.ok(m, "rule .note-toc-item.active unscoped ada");
-    assert.ok(/rgba\(168,197,0,0\.12\)/.test(m[1]), "background tint accent");
+    assert.ok(/rgba\(var\(--accent-rgb\), 0\.12\)/.test(m[1]), "background tint accent");
     assert.ok(/color:\s*var\(--accent\)/.test(m[1]), "teks accent");
   });
 
@@ -581,8 +581,8 @@ test("jumpToEditorHeading — lompat ke DOM heading editor (fungsional)", async 
 });
 
 test("cache bust: app.css & service worker", async (t) => {
-  await t.test("index.html memuat app.css?v=368", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=368">/);
+  await t.test("index.html memuat app.css?v=369", () => {
+    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=369">/);
   });
   await t.test("sw.js CACHE di-bump untuk floating ToC (v332 atau lebih baru)", () => {
     const m = swJs.match(/^const CACHE = "taskflow-v(\d+)-[^"]+";/m);

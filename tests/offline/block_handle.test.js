@@ -464,7 +464,7 @@ test("static/app.css: style block handle, gutter & drop cursor", async (t) => {
     assert.match(cssContent, /@media \(hover: none\) \{\s*\.milkdown-editor\.has-block-handle \.ProseMirror \{ padding-left: 44px; \}/);
   });
   await t.test("drop cursor memakai warna aksen", () => {
-    assert.match(cssContent, /\.milkdown-drop-cursor \{ background: var\(--accent, #a8c500\); \}/);
+    assert.match(cssContent, /\.milkdown-drop-cursor \{ background: var\(--accent\); \}/);
   });
   await t.test("section ditempatkan setelah .milkdown-tooltip-btn:hover, sebelum dark mode slash/tooltip", () => {
     const hover = cssContent.indexOf(".milkdown-tooltip-btn:hover {");

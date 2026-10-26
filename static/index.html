@@ -8,6 +8,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Alurik</title>
   <meta name="theme-color" content="#0f172a">
+  <script id="tf-theme-boot">
+    // Boot tema di <head> tepat setelah meta theme-color, sebelum stylesheet aplikasi/vendor dan React: pasang
+    // data-theme/data-palette/data-decor di <html> dan warna meta theme-color
+    // agar tidak ada kilatan tema yang salah. Modul /static/offline/themes.js belum dimuat di sini, jadi aturannya
+    // disalin dan harus sama persis dengan readPrefs + resolve modul itu (dijaga tests/offline/theme_boot.test.js).
+    // ES5 saja.
+    // Daftar palet dan tabel warna meta ditulis literal; tambahkan palet baru di sini juga.
+    (function () {
+      try {
+        var palettes = ["default"];
+        var themeColors = { "default": { light: "#0f172a", dark: "#0f172a" } };
+        var ls = null;
+        try { ls = window.localStorage; } catch (_) { ls = null; } // Safari: akses propertinya pun bisa melempar
+        var get = function (k) {
+          try { return ls ? ls.getItem(k) : null; } catch (_) { return null; }
+        };
+        var mode = get("tf_theme");
+        var palette = get("tf_palette");
+        var decor = get("tf_decor") === "off" ? "off" : "on";
+        if (mode !== "light" && mode !== "dark" && mode !== "system") mode = "light";
+        if (palettes.indexOf(palette) < 0) palette = "default";
+        var dark = mode === "dark";
+        if (mode === "system") {
+          try {
+            dark = typeof window.matchMedia === "function" && !!window.matchMedia("(prefers-color-scheme: dark)").matches;
+          } catch (_) { dark = false; }
+        }
+        var theme = dark ? "dark" : "light";
+        var el = document.documentElement;
+        el.setAttribute("data-theme", theme);
+        el.setAttribute("data-palette", palette);
+        el.setAttribute("data-decor", decor);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", themeColors[palette][theme]);
+      } catch (_) {}
+    })();
+  </script>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -52,7 +89,8 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=368">
+  <link rel="stylesheet" href="/static/app.css?v=369">
+  <link rel="stylesheet" href="/static/themes.css?v=1">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -145,7 +183,7 @@
     .paper-mode-active .paper-inner-wrap .wikilink-node,
     .paper-mode-active .paper-inner-wrap .note-rendered .wikilink-node {
         color: #4d7c0f !important;
-        background: rgba(168,197,0,0.18) !important;
+        background: rgba(var(--accent-rgb), 0.18) !important;
         border-bottom-color: #4d7c0f !important;
     }
     .paper-mode-active .paper-inner-wrap .tasklink-node,
@@ -219,7 +257,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v471-simpan-tag";
+    window.__SW_VERSION = "taskflow-v472-tema-fondasi";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -227,12 +265,7 @@
     } catch (_) {
       window.__TF_HAD_USER_AT_LOAD = false;
     }
-    (function() {
-      var t = localStorage.getItem('tf_theme') || 'light';
-      document.documentElement.setAttribute('data-theme', t);
-    })();
   </script>
-
   <script>
     // Monkey-patch katex.render so it NEVER throws.
     // @milkdown/plugin-math's toDOM calls katex.render() WITHOUT throwOnError:false,
@@ -337,6 +370,7 @@
   <script src="/static/offline/mediacard.js"></script>
   <script src="/static/offline/noteattach.js"></script>
   <script src="/static/offline/safehtml.js"></script>
+  <script src="/static/offline/themes.js"></script>
   <script src="/static/ui-components.js"></script>
   <script>
   // ═══ DEPENDENCIES: Foundation ═══
@@ -7229,7 +7263,7 @@ function TaskFormModal({
       style: { fontSize: 11, color: "var(--text-light)" }
     }, "Tag terdeteksi:"), detectedTags.map(t => /*#__PURE__*/React.createElement("span", {
       key: t,
-      style: { fontSize: 11, fontWeight: 600, background: "rgba(168,197,0,0.15)", color: "var(--accent)", borderRadius: 6, padding: "2px 8px" }
+      style: { fontSize: 11, fontWeight: 600, background: "rgba(var(--accent-rgb), 0.15)", color: "var(--accent)", borderRadius: 6, padding: "2px 8px" }
     }, "#", t))), /*#__PURE__*/React.createElement("div", {
       style: { display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }
     }, /*#__PURE__*/React.createElement("button", {
@@ -7402,7 +7436,7 @@ function TaskFormModal({
     size: 14
   }), showHabitAdvanced ? "Sembunyikan Opsi Lanjutan" : "Opsi Lanjutan (Micro Target, Hari Khusus, Identity Pillar)"), !showHabitAdvanced && habitAdvancedFilledCount > 0 && /*#__PURE__*/React.createElement("span", {
     style: {
-      background: "rgba(168,197,0,0.18)",
+      background: "rgba(var(--accent-rgb), 0.18)",
       color: "var(--accent)",
       padding: "2px 8px",
       borderRadius: 12,
@@ -8903,9 +8937,9 @@ function TaskDetailBody({
       display: "inline-flex",
       alignItems: "center",
       gap: 4,
-      background: "rgba(168,197,0,0.10)",
+      background: "rgba(var(--accent-rgb), 0.10)",
       color: "var(--accent)",
-      border: "1px solid rgba(168,197,0,0.25)",
+      border: "1px solid rgba(var(--accent-rgb), 0.25)",
       borderRadius: 999,
       fontSize: 11,
       fontWeight: 600,
@@ -8914,8 +8948,8 @@ function TaskDetailBody({
       userSelect: "none",
       transition: "background 0.15s"
     },
-    onMouseEnter: e => e.currentTarget.style.background = "rgba(168,197,0,0.22)",
-    onMouseLeave: e => e.currentTarget.style.background = "rgba(168,197,0,0.10)"
+    onMouseEnter: e => e.currentTarget.style.background = "rgba(var(--accent-rgb), 0.22)",
+    onMouseLeave: e => e.currentTarget.style.background = "rgba(var(--accent-rgb), 0.10)"
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       opacity: 0.7
@@ -12946,7 +12980,7 @@ function PetakanButton({ noteId, variant = "panel" }) {
       alignItems: "center",
       gap: 5
     } : {
-      background: linkedId != null ? "rgba(168,197,0,0.10)" : "none",
+      background: linkedId != null ? "rgba(var(--accent-rgb), 0.10)" : "none",
       border: linkedId != null ? "1.5px solid var(--accent)" : "1px solid var(--border)",
       borderRadius: 7,
       fontSize: 11,
@@ -12981,7 +13015,7 @@ function MindmapListItem({
       cursor: "pointer",
       borderRadius: 6,
       transition: "background 0.1s",
-      background: isSelected ? "rgba(168,197,0,0.1)" : "transparent"
+      background: isSelected ? "rgba(var(--accent-rgb), 0.1)" : "transparent"
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
@@ -13788,7 +13822,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
         display: "flex", alignItems: "center", gap: 4,
         padding: "4px 8px 4px 2px",
         borderRadius: 6, cursor: "pointer", fontSize: 13,
-        background: dropMark === "into" ? "rgba(168,197,0,0.22)" : isActive ? "rgba(168,197,0,0.10)" : "transparent",
+        background: dropMark === "into" ? "rgba(var(--accent-rgb), 0.22)" : isActive ? "rgba(var(--accent-rgb), 0.10)" : "transparent",
         boxShadow: dropMark === "into" ? "inset 0 0 0 2px var(--accent)" : "none",
         borderTop: dropMark === "before" ? "2px solid var(--accent)" : "2px solid transparent",
         borderBottom: dropMark === "after" ? "2px solid var(--accent)" : "2px solid transparent",
@@ -14788,7 +14822,7 @@ function MindmapTabInstance({
     };
     postTheme();
     const mo = new MutationObserver(postTheme);
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette"] });
     return () => mo.disconnect();
   }, []);
 
@@ -15788,7 +15822,7 @@ function DrawingListItem({ d, isSelected, onSelect, onPin, sharedLists = [], cur
       cursor: "pointer",
       borderRadius: 6,
       transition: "background 0.1s",
-      background: isSelected ? "rgba(168,197,0,0.1)" : "transparent"
+      background: isSelected ? "rgba(var(--accent-rgb), 0.1)" : "transparent"
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
@@ -16683,7 +16717,7 @@ function GroupHeader({
       userSelect: "none",
       transition: "background 0.1s"
     },
-    onMouseEnter: e => e.currentTarget.style.background = "rgba(168,197,0,0.07)",
+    onMouseEnter: e => e.currentTarget.style.background = "rgba(var(--accent-rgb), 0.07)",
     onMouseLeave: e => e.currentTarget.style.background = "var(--bg-primary)"
   }, /*#__PURE__*/React.createElement("span", {
     style: {
@@ -18884,7 +18918,7 @@ function TaskListView({
       border: "1px solid var(--border)",
       cursor: "pointer",
       fontSize: 13,
-      background: showFilterPanel || activeFilterCount > 0 ? "rgba(168,197,0,0.12)" : "var(--bg-card)",
+      background: showFilterPanel || activeFilterCount > 0 ? "rgba(var(--accent-rgb), 0.12)" : "var(--bg-card)",
       color: activeFilterCount > 0 ? "var(--accent)" : "var(--text-secondary)",
       fontWeight: activeFilterCount > 0 ? 600 : 400,
       whiteSpace: "nowrap",
@@ -19158,20 +19192,73 @@ function useThemeName() {
   const [theme, setTheme] = useState(read);
   useEffect(() => {
     const mo = new MutationObserver(() => setTheme(read()));
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette"] });
     return () => mo.disconnect();
   }, []);
   return theme;
+}
+
+// window.localStorage atau null: akses propertinya bisa melempar (Safari dengan penyimpanan situs diblokir).
+function safeLocalStorage() {
+  try {
+    return window.localStorage || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// prefers-color-scheme: dark yang terkini, hanya diamati saat enabled (mode tema "system"); false bila dimatikan
+// atau matchMedia tidak tersedia.
+function useSystemDark(enabled) {
+  const query = "(prefers-color-scheme: dark)";
+  const read = () => {
+    try {
+      return typeof window.matchMedia === "function" && !!window.matchMedia(query).matches;
+    } catch (_) {
+      return false;
+    }
+  };
+  const [dark, setDark] = useState(() => enabled && read());
+  useEffect(() => {
+    if (!enabled || typeof window.matchMedia !== "function") {
+      setDark(false);
+      return undefined;
+    }
+    let mql;
+    try {
+      mql = window.matchMedia(query);
+    } catch (_) {
+      setDark(false);
+      return undefined;
+    }
+    const onChange = () => setDark(!!mql.matches);
+    onChange();
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    if (typeof mql.addListener === "function") {
+      mql.addListener(onChange);
+      return () => mql.removeListener(onChange);
+    }
+    return undefined;
+  }, [enabled]);
+  return enabled ? dark : false;
 }
 function dashChartColors(theme) {
   const cs = getComputedStyle(document.documentElement);
   const tok = (name, fb) => (cs.getPropertyValue(name) || "").trim() || fb;
   const dark = theme === "dark";
+  // Aksen tema untuk canvas (Chart.js tidak bisa membaca var()). Cadangan bila token tidak terbaca = lime Default,
+  // diturunkan dari satu triplet agar --accent dan --accent-rgb tidak bisa berselisih.
+  const accentRgb = tok("--accent-rgb", "168, 197, 0");
   return {
     text: tok("--text-secondary", dark ? "#a3a3a3" : "#64748b"),
     textStrong: tok("--text-primary", dark ? "#e5e5e5" : "#0f172a"),
     grid: dark ? "rgba(255,255,255,0.07)" : "rgba(15,23,42,0.06)",
     card: tok("--bg-card", dark ? "#262626" : "#ffffff"),
+    accent: tok("--accent", `rgb(${accentRgb})`),
+    accentRgb,
     font: "'Nunito Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
   };
 }
@@ -19215,8 +19302,8 @@ function ProductivityChart({
     gradGreen.addColorStop(0, "rgba(34,197,94,0.26)");
     gradGreen.addColorStop(1, "rgba(34,197,94,0)");
     const gradLime = ctx.createLinearGradient(0, 0, 0, 190);
-    gradLime.addColorStop(0, "rgba(168,197,0,0.14)");
-    gradLime.addColorStop(1, "rgba(168,197,0,0)");
+    gradLime.addColorStop(0, `rgba(${c.accentRgb}, 0.14)`);
+    gradLime.addColorStop(1, `rgba(${c.accentRgb}, 0)`);
     chartRef.current = new Chart(canvasRef.current, {
       type: "line",
       data: {
@@ -19238,7 +19325,7 @@ function ProductivityChart({
         }, {
           label: "Dibuat",
           data: created,
-          borderColor: "#A8C500",
+          borderColor: c.accent,
           borderWidth: 2,
           backgroundColor: gradLime,
           fill: true,
@@ -19246,7 +19333,7 @@ function ProductivityChart({
           cubicInterpolationMode: "monotone",
           pointRadius: 3,
           pointHoverRadius: 5,
-          pointBackgroundColor: "#A8C500",
+          pointBackgroundColor: c.accent,
           pointBorderColor: c.card,
           pointBorderWidth: 1.5,
           borderDash: [5, 4]
@@ -19325,7 +19412,7 @@ function CompletionDonut({
         labels: ["Selesai", "Aktif", "Terlambat"],
         datasets: [{
           data: [done, Math.max(active, 0), overdue],
-          backgroundColor: ["#22c55e", "#A8C500", "#ef4444"],
+          backgroundColor: ["#22c55e", c.accent, "#ef4444"],
           borderColor: c.card,
           borderWidth: 3,
           borderRadius: 4,
@@ -20146,7 +20233,7 @@ function CalendarView({
         flexDirection: "column",
         minHeight: 440,
         borderRadius: 12,
-        background: day.isToday ? "rgba(168,197,0,0.06)" : "var(--surface)",
+        background: day.isToday ? "rgba(var(--accent-rgb), 0.06)" : "var(--surface)",
         border: day.isToday ? "2px solid var(--accent)" : day.holiday && !day.isWeekend ? "1.5px solid rgba(239,68,68,0.4)" : "1px solid var(--border)",
         overflow: "hidden"
       }
@@ -20382,7 +20469,7 @@ function CalendarView({
           flexDirection: "column",
           alignItems: "center",
           cursor: day ? "pointer" : "default",
-          background: isSelected ? "rgba(168,197,0,0.15)" : isWorkdayHoliday ? "rgba(239,68,68,0.08)" : day ? "var(--bg-primary)" : "transparent",
+          background: isSelected ? "rgba(var(--accent-rgb), 0.15)" : isWorkdayHoliday ? "rgba(239,68,68,0.08)" : day ? "var(--bg-primary)" : "transparent",
           border: isSelected ? "1.5px solid var(--accent)" : isToday ? "1.5px solid var(--accent)" : isWorkdayHoliday ? "1.5px solid rgba(239,68,68,0.35)" : "1.5px solid transparent",
           transition: "background 0.15s",
           position: "relative",
@@ -20457,7 +20544,7 @@ function CalendarView({
         borderRadius: 6,
         padding: "4px 6px",
         cursor: day ? "pointer" : "default",
-        background: isSelected ? "rgba(168,197,0,0.12)" : isWorkdayHoliday ? "rgba(239,68,68,0.06)" : isToday ? "rgba(168,197,0,0.06)" : day ? "var(--surface)" : "transparent",
+        background: isSelected ? "rgba(var(--accent-rgb), 0.12)" : isWorkdayHoliday ? "rgba(239,68,68,0.06)" : isToday ? "rgba(var(--accent-rgb), 0.06)" : day ? "var(--surface)" : "transparent",
         border: isSelected ? "2px solid var(--accent)" : isWorkdayHoliday ? "1.5px solid rgba(239,68,68,0.4)" : isToday ? "2px solid var(--accent)" : "1px solid var(--border)",
         borderColor: day ? undefined : "transparent",
         transition: "background 0.15s"
@@ -21105,7 +21192,9 @@ const SORT_PRI = (a, b) => ({
   P4: 3
 }[b.priority] ?? 9);
 // Hex color → rgba tint (dashboard chips/pills stay readable in light & dark).
+// Token aksen tema `var(--accent)` → `rgba(var(--accent-rgb), a)`: hasilnya selalu dipakai di style (konteks CSS).
 const dashTint = (hex, a) => {
+  if (hex === "var(--accent)") return `rgba(var(--accent-rgb),${a})`;
   const h = String(hex || "#94a3b8").replace("#", "");
   const n = parseInt(h.length === 3 ? h.split("").map(x => x + x).join("") : h, 16);
   return `rgba(${n >> 16 & 255},${n >> 8 & 255},${n & 255},${a})`;
@@ -21229,7 +21318,7 @@ function DashLink({
 }
 function DashCardHead({
   icon,
-  color = "#A8C500",
+  color = "var(--accent)",
   title,
   sub,
   titleTip,
@@ -22598,7 +22687,7 @@ function Dashboard({
     label: "Notes",
     emptyLabel: "note",
     icon: "notes",
-    color: "#A8C500",
+    color: "var(--accent)",
     items: pinnedNotes,
     nav: "notes",
     navLabel: "Notes",
@@ -22648,7 +22737,7 @@ function Dashboard({
     className: "dash-card"
   }, /*#__PURE__*/React.createElement(DashCardHead, {
     icon: "target",
-    color: "#A8C500",
+    color: "var(--accent)",
     title: "Penyelesaian",
     sub: "Semua task"
   }), /*#__PURE__*/React.createElement(CompletionDonut, {
@@ -22688,7 +22777,7 @@ function Dashboard({
     sub: "Penting, tidak mendesak > 7 hari",
     tip: eisenTooltip.Rencanakan,
     icon: "calendar",
-    color: "#A8C500",
+    color: "var(--accent)",
     list: q2Tasks
   }), renderListCard({
     key: "q3",
@@ -23481,7 +23570,7 @@ function renderMessageContent(content, currentUsername) {
         style: {
           color: "var(--accent)",
           fontWeight: 600,
-          background: isMe ? "rgba(168,197,0,0.2)" : "transparent",
+          background: isMe ? "rgba(var(--accent-rgb), 0.2)" : "transparent",
           borderRadius: 3,
           padding: isMe ? "0 2px" : 0
         }
@@ -23876,7 +23965,7 @@ function ChatRoom({
             block: 'center'
           });
           el.style.transition = 'background 0.4s';
-          el.style.background = 'rgba(168,197,0,0.18)';
+          el.style.background = 'rgba(var(--accent-rgb), 0.18)';
           setTimeout(() => {
             el.style.background = '';
           }, 1400);
@@ -25284,7 +25373,7 @@ function DmRoom({
             block: 'center'
           });
           el.style.transition = 'background 0.4s';
-          el.style.background = 'rgba(168,197,0,0.18)';
+          el.style.background = 'rgba(var(--accent-rgb), 0.18)';
           setTimeout(() => {
             el.style.background = '';
           }, 1400);
@@ -25903,7 +25992,7 @@ function NoteTemplatesSettings({
   }, t.name), /*#__PURE__*/React.createElement("span", {
     style: {
       fontSize: 11,
-      color: t.is_default ? '#9ca3af' : '#b6d400',
+      color: t.is_default ? '#9ca3af' : 'var(--accent-2)',
       marginRight: 4
     }
   }, t.is_default ? 'default' : 'custom'), /*#__PURE__*/React.createElement("button", {
@@ -26598,7 +26687,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v471-simpan-tag"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v472-tema-fondasi"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -28890,8 +28979,8 @@ onPaperConfigChange
     title: "Terapkan template",
     "aria-label": "Template",
     style: isEmpty ? {
-      border: '1.5px solid #b6d400',
-      color: '#b6d400',
+      border: '1.5px solid var(--accent-2)',
+      color: 'var(--accent-2)',
       background: 'rgba(182,212,0,0.08)',
       borderRadius: 6,
       padding: '2px 9px',
@@ -31736,7 +31825,7 @@ function QuickDrawModal({
   wsBanner && /*#__PURE__*/React.createElement("div", {
     className: "quickdraw-ws-banner",
     role: "status",
-    style: { padding: "6px 16px", fontSize: 12, background: "rgba(168,197,0,0.12)", color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }
+    style: { padding: "6px 16px", fontSize: 12, background: "rgba(var(--accent-rgb), 0.12)", color: "var(--text-primary)", borderBottom: "1px solid var(--border)" }
   }, wsBanner),
   /*#__PURE__*/React.createElement("div", { style: { flex: 1, display: "flex", flexDirection: "column", overflow: "hidden", position: "relative" } },
     /*#__PURE__*/React.createElement("iframe", {
@@ -32783,7 +32872,7 @@ function NoteCommentsButton({
     "aria-pressed": active ? "true" : "false",
     "aria-label": `Komentar, ${count} terbuka`,
     style: {
-      background: active ? "rgba(168,197,0,0.15)" : "none",
+      background: active ? "rgba(var(--accent-rgb), 0.15)" : "none",
       border: "1.5px solid var(--accent)",
       borderRadius: 20,
       cursor: "pointer",
@@ -36446,14 +36535,14 @@ function NotePanel({
           display: "flex",
           alignItems: "center",
           gap: 8,
-          background: isCurrent ? "rgba(168,197,0,0.08)" : undefined,
+          background: isCurrent ? "rgba(var(--accent-rgb), 0.08)" : undefined,
           color: isCurrent ? "var(--accent)" : "var(--text-primary)"
         },
         onMouseEnter: e => {
           if (!isCurrent) e.currentTarget.style.background = "var(--bg-primary)";
         },
         onMouseLeave: e => {
-          if (!isCurrent) e.currentTarget.style.background = isCurrent ? "rgba(168,197,0,0.08)" : "transparent";
+          if (!isCurrent) e.currentTarget.style.background = isCurrent ? "rgba(var(--accent-rgb), 0.08)" : "transparent";
         }
       }, child.pinned && /*#__PURE__*/React.createElement("span", {
         style: {
@@ -36549,7 +36638,7 @@ function NotePanel({
     onClick: () => setShareOpen(o => !o),
     title: note.list_id ? "Atur berbagi" : "Bagikan ke list",
     style: {
-      background: note.list_id ? "rgba(168,197,0,0.12)" : "none",
+      background: note.list_id ? "rgba(var(--accent-rgb), 0.12)" : "none",
       border: "1px solid var(--border)",
       borderRadius: 7,
       fontSize: 12,
@@ -36618,7 +36707,7 @@ function NotePanel({
     "aria-label": note.pinned ? "Unpin" : "Pin",
     "aria-pressed": !!note.pinned,
     style: {
-      background: note.pinned ? "rgba(168,197,0,0.15)" : "none",
+      background: note.pinned ? "rgba(var(--accent-rgb), 0.15)" : "none",
       border: "1px solid var(--border)",
       borderRadius: 7,
       fontSize: 12,
@@ -36647,7 +36736,7 @@ function NotePanel({
     },
     title: publishedMeta ? "Publish Settings" : "Publish Note",
     style: {
-      background: publishedMeta ? "rgba(168,197,0,0.10)" : "none",
+      background: publishedMeta ? "rgba(var(--accent-rgb), 0.10)" : "none",
       border: publishedMeta ? "1.5px solid var(--accent)" : "1px solid var(--border)",
       borderRadius: 7,
       fontSize: 11,
@@ -36712,7 +36801,7 @@ function NotePanel({
     title: viewerPaperConfig?.enabled ? "Matikan Mode Kertas" : "Mode Kertas",
     className: viewerPaperConfig?.enabled ? "paper-controls paper-btn-active" : "paper-controls",
     style: {
-      background: viewerPaperConfig?.enabled ? "rgba(168,197,0,0.15)" : "none",
+      background: viewerPaperConfig?.enabled ? "rgba(var(--accent-rgb), 0.15)" : "none",
       border: viewerPaperConfig?.enabled ? "1.5px solid var(--accent)" : "1px solid var(--border)",
       borderRadius: 7,
       fontSize: 12,
@@ -38234,7 +38323,7 @@ function NotesPage({
                 justifyContent: "space-between",
                 padding: "6px 10px",
                 cursor: "pointer",
-                background: isActive ? "rgba(168,197,0,0.15)" : "transparent",
+                background: isActive ? "rgba(var(--accent-rgb), 0.15)" : "transparent",
                 gap: 8
               }
             },
@@ -38447,7 +38536,7 @@ function NotesPage({
             },
             style: {
               borderColor: isSelected ? "var(--accent)" : undefined,
-              background: isSelected ? "rgba(168,197,0,0.06)" : undefined
+              background: isSelected ? "rgba(var(--accent-rgb), 0.06)" : undefined
             }
           },
             /*#__PURE__*/React.createElement("div", {
@@ -38891,9 +38980,9 @@ function HabitCard({
       display: "inline-flex",
       alignItems: "center",
       gap: 3,
-      background: "rgba(168,197,0,0.10)",
+      background: "rgba(var(--accent-rgb), 0.10)",
       color: "var(--accent)",
-      border: "1px solid rgba(168,197,0,0.25)",
+      border: "1px solid rgba(var(--accent-rgb), 0.25)",
       borderRadius: 999,
       fontSize: 10,
       fontWeight: 600,
@@ -39251,7 +39340,7 @@ function HabitEditModal({
       cursor: "pointer",
       transition: "all 0.15s",
       borderColor: form.frequency.includes(d) ? "var(--accent)" : "var(--border)",
-      background: form.frequency.includes(d) ? "rgba(168,197,0,0.12)" : "transparent",
+      background: form.frequency.includes(d) ? "rgba(var(--accent-rgb), 0.12)" : "transparent",
       color: form.frequency.includes(d) ? "var(--accent)" : "var(--text-secondary)"
     },
     onClick: () => toggleDay(d)
@@ -40984,7 +41073,7 @@ function AdminPage({
       fontSize: 11,
       padding: '2px 6px',
       borderRadius: 4,
-      background: t.type === 'habit' ? 'rgba(168,197,0,0.15)' : 'rgba(100,149,237,0.15)',
+      background: t.type === 'habit' ? 'rgba(var(--accent-rgb), 0.15)' : 'rgba(100,149,237,0.15)',
       color: t.type === 'habit' ? 'var(--accent)' : '#6495ed'
     }
   }, t.type)), /*#__PURE__*/React.createElement("td", {
@@ -41997,15 +42086,22 @@ function App() {
   // Modal "Apa yang baru" setelah pembaruan. Hook dipanggil sebelum return bersyarat mana pun (halaman login);
   // modalnya hanya dirender di cabang sudah login.
   const whatsNew = useWhatsNewOnLoad(user);
-  const [theme, setTheme] = useState(() => localStorage.getItem('tf_theme') || 'light');
-  const toggleTheme = useCallback(() => {
-    setTheme(prev => {
-      const next = prev === 'light' ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem('tf_theme', next);
-      return next;
-    });
+  // Preferensi tema (mode light/dark/system, palet, dekorasi) lewat TF.themes; atribut <html> sudah dipasang skrip
+  // boot di <head> (sebelum stylesheet) dengan aturan yang sama, efek di bawah hanya menyentuh yang berubah.
+  const [themePrefs, setThemePrefsState] = useState(() => window.TF.themes.readPrefs(safeLocalStorage()));
+  const systemDark = useSystemDark(themePrefs.mode === "system");
+  const resolvedTheme = useMemo(() => window.TF.themes.resolve(themePrefs, systemDark), [themePrefs, systemDark]);
+  useEffect(() => {
+    window.TF.themes.apply(resolvedTheme, document);
+  }, [resolvedTheme]);
+  const theme = resolvedTheme.theme;
+  // Hanya kunci yang diubah yang ditulis ke storage: nilai palet/dekorasi tak dikenal yang dinormalkan readPrefs
+  // tidak ikut ditimpa saat toggle mode (mis. palet dari versi lebih baru tetap tersimpan).
+  const setThemePrefs = useCallback(patch => {
+    window.TF.themes.writePrefs(safeLocalStorage(), patch);
+    setThemePrefsState(p => ({ ...p, ...patch }));
   }, []);
+  const toggleTheme = useCallback(() => setThemePrefs({ mode: resolvedTheme.theme === "dark" ? "light" : "dark" }), [resolvedTheme.theme, setThemePrefs]);
   const [authPage, setAuthPage] = useState("login");
   const [page, setPage] = useState("dashboard");
   const [workspaceTab, setWorkspaceTab] = useState("tasks");

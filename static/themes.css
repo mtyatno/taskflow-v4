@@ -1,0 +1,13 @@
+/*
+ * themes.css — blok palet warna Alurik (tema = mode terang/gelap × palet × dekorasi).
+ *
+ * Aturan berkas ini: hanya selektor [data-palette="…"] dan [data-palette="…"][data-theme="dark"]
+ * yang berisi deklarasi --* (token warna/permukaan/radius/font). Tidak ada aturan komponen,
+ * tidak ada selektor lain — dijaga tests/offline/theme_guard.test.js.
+ * Nilai palet Default ada di app.css :root dan [data-theme="dark"], bukan di sini; blok default
+ * di bawah sengaja kosong. Palet lain ditambahkan sebagai blok baru di berkas ini.
+ *
+ * Rujukan: docs/superpowers/specs/2026-10-26-tema-palet-dekorasi-design.md §3.3.
+ */
+
+[data-palette="default"] {}

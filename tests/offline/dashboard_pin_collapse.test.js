@@ -238,7 +238,7 @@ test("Dashboard: modal \"Lihat semua\" / Disematkan ramah keyboard & pembaca lay
   assert.match(src, /untitled\s*\}\) => \{\s*dashModalOpenerRef\.current = document\.activeElement;\s*setDashModal\(\{\s*title,\s*pins: \{/);
   // Cincin fokus baris modal terlihat (meniru .dash-pin-toggle), juga di dark mode. Offset negatif:
   // baris memenuhi lebar daftar modal yang ber-overflow, cincin di luar baris akan terpotong.
-  assert.match(appCss, /\.dash-modal-row:focus-visible\s*\{\s*outline:\s*2px solid #7E9400;\s*outline-offset:\s*-2px;?\s*\}/);
+  assert.match(appCss, /\.dash-modal-row:focus-visible\s*\{\s*outline:\s*2px solid var\(--accent-text\);\s*outline-offset:\s*-2px;?\s*\}/);
   assert.match(appCss, /\[data-theme="dark"\] \.dash-modal-row:focus-visible\s*\{\s*outline-color:\s*var\(--accent\);?\s*\}/);
 });
 

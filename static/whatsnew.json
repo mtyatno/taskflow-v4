@@ -1,5 +1,6 @@
 {
   "entries": [
+    {"version": "taskflow-v472-tema-fondasi", "date": "2026-10-27", "silent": true},
     {"version": "taskflow-v471-simpan-tag", "date": "2026-10-26", "title": "Tag task tidak hilang lagi",
      "fixed": ["Menyimpan perubahan task kini tidak lagi menghapus tag-nya.",
                "Daftar task bertag kini menutupi layar dengan benar meski detail task sedang digulir."]},

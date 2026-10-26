@@ -1,0 +1,107 @@
+"use strict";
+// Penjaga fondasi tema (spec docs/superpowers/specs/2026-10-26-tema-palet-dekorasi-design.md):
+// token semantik ada di :root, warna bermakna tidak ikut tema, themes.css hanya berisi token palet,
+// dan kedua berkas tema dimuat index.html. Tes di Task 4–5 ditambahkan di bawah konstanta bersama ini.
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const read = (rel) => fs.readFileSync(path.join(__dirname, "..", "..", rel), "utf8");
+const css = read("static/app.css"), tcss = read("static/themes.css"), html = read("static/index.html").replace(/\r\n/g, "\n");
+const root = css.slice(css.indexOf(":root {"), css.indexOf("}", css.indexOf(":root {")));
+// Blok token gelap = blok `[data-theme="dark"] {` pertama (tepat setelah :root).
+const darkTok = css.slice(css.indexOf('[data-theme="dark"] {'), css.indexOf("}", css.indexOf('[data-theme="dark"] {')));
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const declares = (block, decl) => new RegExp(`\\n\\s*${esc(decl)};`).test(block);
+
+test("token baru ada di :root", () => {
+  for (const t of ["--accent-rgb", "--accent-ink", "--accent-text", "--accent-text-strong", "--accent-2", "--accent-2-hover", "--accent-soft", "--accent-duo", "--accent-ring", "--bg-sidebar", "--border-strong", "--radius-sm", "--radius-md", "--radius-pill", "--font-heading"]) {
+    assert.match(root, new RegExp(`\\n\\s*${t}:`), t);
+  }
+});
+
+test("warna bermakna di :root tidak berubah", () => {
+  for (const d of ["--p1: #ef4444", "--p2: #f97316", "--p3: #eab308", "--p4: #22c55e", "--q1: #ef4444", "--q3: #f97316", "--q4: #94a3b8", "--success: #22c55e", "--pomodoro: #ef4444", "--pomodoro-light: #fef2f2", "--break: #22c55e", "--break-light: #f0fdf4"]) {
+    assert.ok(root.includes(d), d);
+  }
+  assert.ok(root.includes("--q2: var(--accent)"));
+  // Aksen dan Q2 sama di kedua mode: blok gelap tidak boleh menimpanya (termasuk turunan aksen yang mode-bebas).
+  for (const t of ["--accent", "--q2", "--accent-rgb", "--accent-hover", "--accent-2", "--accent-2-hover"]) {
+    assert.doesNotMatch(darkTok, new RegExp(`(^|[\\s;{])${t}\\s*:`), "blok gelap menimpa " + t);
+  }
+});
+
+test("nilai token :root dan blok gelap dipin (= literal Default yang digantikannya)", () => {
+  for (const d of ["--accent: #A8C500", "--accent-hover: #95AD00", "--accent-rgb: 168, 197, 0", "--accent-ink: #ffffff", "--accent-text: #7E9400", "--accent-text-strong: #6B8000", "--accent-2: #B6D400", "--accent-2-hover: #A3C100", "--accent-soft: #F4FAD6", "--accent-duo: rgba(168,197,0,0.22)", "--accent-ring: rgba(168,197,0,0.35)", "--bg-sidebar: var(--bg-primary)", "--border-strong: #DDDDD5", "--radius-sm: 6px", "--radius-md: 10px", "--radius-pill: 999px", "--font-heading: inherit"]) {
+    assert.ok(declares(root, d), ":root " + d);
+  }
+  for (const d of ["--accent-text: #A8C500", "--accent-text-strong: #A8C500", "--accent-soft: rgba(168,197,0,0.18)", "--border-strong: #404040"]) {
+    assert.ok(declares(darkTok, d), "gelap " + d);
+  }
+});
+
+test("themes.css dimuat setelah app.css (token palet menimpa token Default)", () => {
+  const a = html.indexOf("/static/app.css"), t = html.indexOf("/static/themes.css");
+  assert.ok(a > -1 && t > -1);
+  assert.ok(a < t);
+});
+
+test("themes.css hanya blok [data-palette] berisi deklarasi --*", () => {
+  const body = tcss.replace(/\/\*[\s\S]*?\*\//g, "");
+  for (const m of body.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+    assert.match(m[1].trim(), /^\[data-palette="[a-z]+"\](\[data-theme="dark"\])?$/);
+    for (const d of m[2].split(";").map(s => s.trim()).filter(Boolean)) assert.match(d, /^--[a-z0-9-]+\s*:/, d);
+  }
+});
+
+test("themes.css dan themes.js dimuat index.html", () => {
+  assert.match(html, /<link rel="stylesheet" href="\/static\/themes\.css\?v=1">/);
+  assert.ok(html.includes('<script src="/static/offline/themes.js">'), "tag themes.js tidak ada");
+  assert.ok(html.indexOf('<script src="/static/offline/themes.js">') < html.indexOf('<script src="/static/ui-components.js">'));
+});
+
+// Task 4: literal keluarga aksen lime → token (--accent*, --accent-rgb). Hanya blok token yang boleh berliteral.
+const LIME = /#(A8C500|95AD00|7E9400|6B8000|5D6E00|6B7F00|B6D400|A3C100|F4FAD6)\b|rgba\(\s*168\s*,\s*197\s*,\s*0\s*,/i;
+const stripRoot = (s) => s.replace(/:root \{[\s\S]*?\}\s*\[data-theme="dark"\] \{[\s\S]*?\}/, "");
+// Dua deklarasi terang dibiarkan berliteral: token mana pun mengubah tampilan Default (spec §2.3: Default identik
+// piksel; §3.2: perbaikan kontras Default = PR terpisah). Lihat bagian DILEWATI di temporary_files/tema_migrasi_aksen.txt.
+//   .badge-q2 color #6B8000   — aturan gelap .badge-q2 hanya menimpa background, jadi warna ini juga tampil di mode
+//                               gelap; --accent-text-strong gelap = #A8C500.
+//   .cmt-mention color #5d6e00 — tidak ada token bernilai #5D6E00 (--accent-text-strong = #6B8000, selisih kanal 18).
+// Pengecualian harus tetap cocok persis (gagal bila basi), lalu dihapus dari teks sebelum guard dijalankan.
+const LIME_KEEP = [/(\n\s*\.badge-q2 \{[^}]*color: )#6B8000;/, /(\n\.cmt-mention \{ color: )#5d6e00;/];
+test("guard: tidak ada literal lime di app.css di luar blok token", () => {
+  let s = stripRoot(css);
+  for (const re of LIME_KEEP) { assert.match(s, re, "pengecualian basi: " + re); s = s.replace(re, "$1;"); }
+  assert.equal(s.match(new RegExp(LIME.source, "gi")), null);
+});
+test("guard: tidak ada literal lime di index.html kecuali fallback var(--accent, #A8C500)", () => { const h = html.replace(/var\(--accent, #A8C500\)/g, ""); assert.equal(h.match(new RegExp(LIME.source, "gi")), null); });
+test("guard: Chart.js tidak menerima var()", () => { const chart = html.slice(html.indexOf("function ProductivityChart("), html.indexOf("function DashCardHead(")); assert.doesNotMatch(chart, /addColorStop\([^)]*var\(|borderColor:\s*"var\(|backgroundColor:\s*\[[^\]]*var\(/); });
+
+// Task 5: aturan gelap berliteral hanya kelas 2 (warna bermakna) atau 4 (netral tanpa token) — daftar + alasan di
+// tests/offline/theme_dark_allowlist.json. Literal permukaan lain sudah memakai token (atau aturan gelapnya dihapus).
+// Plan memperkirakan ≤ 80 entri, tetapi aturan "warna bermakna" saja sudah 83 → batas dipisah per alasan.
+// Ratchet: angka = jumlah saat Task 5 (tanpa ruang sisa) dan harus sama persis; PR B hanya boleh menurunkannya
+// (menghapus entri allowlist wajib diiringi menurunkan konstanta, agar ruang kosong tidak bisa diisi literal baru).
+const ALLOW_MAX_TOTAL = 144, ALLOW_MAX_NON_BERMAKNA = 61;
+const ALLOW_REASONS = ["warna bermakna", "netral tanpa token", "lime-adjacent", "blok token gelap"];
+const allowList = JSON.parse(read("tests/offline/theme_dark_allowlist.json"));
+const allow = new Set(allowList.map(e => e.selector));
+const darkRules = [...css.matchAll(/(\[data-theme="dark"\][^{]*)\{([^}]*)\}/g)].map(m => [m[1].trim(), m[2]]);
+const LITERAL = /#[0-9a-f]{3,8}\b|rgba?\(\s*\d/i;
+test("guard: aturan gelap berliteral hanya yang di-allowlist", () => { const bad = darkRules.filter(([s, b]) => LITERAL.test(b) && !allow.has(s)).map(([s]) => s); assert.deepEqual(bad, []); });
+test("guard: allowlist tidak basi (selektor ada dan masih berliteral), alasan baku, ratchet jumlah", () => {
+  const body = new Map(darkRules);
+  for (const s of allow) {
+    assert.ok(body.has(s), "basi: " + s);
+    assert.ok(LITERAL.test(body.get(s)), "tidak berliteral lagi, hapus dari allowlist: " + s);
+  }
+  for (const e of allowList) assert.ok(ALLOW_REASONS.includes(e.reason), `alasan tidak baku: ${e.reason} (${e.selector})`);
+  assert.equal(allow.size, allowList.length, "selektor ganda di allowlist");
+  assert.equal(allow.size, ALLOW_MAX_TOTAL,
+    `allowlist berisi ${allow.size} entri, ALLOW_MAX_TOTAL ${ALLOW_MAX_TOTAL}: bila entri dihapus, turunkan ALLOW_MAX_TOTAL ke ${allow.size}; entri baru tidak boleh ditambah`);
+  const nonBermakna = allowList.filter(e => e.reason !== "warna bermakna").length;
+  assert.equal(nonBermakna, ALLOW_MAX_NON_BERMAKNA,
+    `entri bukan "warna bermakna" ${nonBermakna}, ALLOW_MAX_NON_BERMAKNA ${ALLOW_MAX_NON_BERMAKNA}: bila entri dihapus, turunkan ALLOW_MAX_NON_BERMAKNA ke ${nonBermakna}; entri baru tidak boleh ditambah`);
+});
