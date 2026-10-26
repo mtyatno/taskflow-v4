@@ -168,8 +168,8 @@ test("blok NoteComments tanpa emoji", () => {
 });
 
 test("app.css: aturan .cmt-* dan highlight, tanpa border-left", () => {
-  assert.ok(/::highlight\(cmt\)\s*\{[^}]*rgba\(168,\s*197,\s*0,\s*0\.25\)/.test(appCss));
-  assert.ok(/::highlight\(cmt-active\)\s*\{[^}]*rgba\(168,\s*197,\s*0,\s*0\.55\)/.test(appCss));
+  assert.ok(/::highlight\(cmt\)\s*\{[^}]*rgba\(var\(--accent-rgb\),\s*0\.25\)/.test(appCss));
+  assert.ok(/::highlight\(cmt-active\)\s*\{[^}]*rgba\(var\(--accent-rgb\),\s*0\.55\)/.test(appCss));
   for (const sel of [".cmt-panel", ".cmt-panel--side", ".cmt-sheet", ".cmt-sheet-backdrop", ".cmt-card", ".cmt-card.is-active",
     ".cmt-quote", ".cmt-quote.is-lost", ".cmt-mention", ".cmt-pending", ".cmt-failed", ".cmt-tabs", ".cmt-composer",
     ".cmt-badge", ".cmt-bubble", ".cmt-touchbar"]) {
