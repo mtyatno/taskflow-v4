@@ -4133,3 +4133,18 @@
 - **Verifikasi:** npm 3122/3121 (pra-ada `draw_local_reactive`); pytest 1215 passed 1 skipped; PROTOCOL §4 33 passed; inline OK.
 - **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js, temporary_files/e2e_task_detail_body.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — commit lokal, belum push/PR.
+
+## [2026-10-26 18:40] - Claude
+- **Task:** Live Edit PR B `claude/live-edit` — rilis v470 (Task 8): versi, `whatsnew.json`, ADR-031, E2E, dokumen serah terima. Task 3–7 (modul `liveedit.js`, autosave, panel, penanda terpilih, tombol + tata letak) sudah di-commit di branch sebelumnya.
+- **Changes:** SW **v470** `taskflow-v470-live-edit` (sw.js, index.html + fallback, 26 tes `tests/offline/*.test.js`; `whatsnew.json` tidak disentuh `sed`); `app.css?v=367` di `index.html`, `STATIC`, dan 13 file tes yang mengunci `?v=366` (12 `tests/offline/*.test.js` + `tests/test_static_revalidate.py`; total 29 file tes berubah, hanya baris versi). Entri teratas `whatsnew.json` v470 (2026-10-26, "Edit task langsung di samping daftar"). ADR-031 di `DECISIONS.md` (spec §13 + R1/R2 + R9 + R11). Spec diperbarui (status + R9–R16, dua penyimpangan Task 7, temuan modal menghapus tag dan overlay tag ikut tergulir); plan mendapat bagian "Rulings saat eksekusi". E2E baru `temporary_files/e2e_live_edit.py` (106 langkah; 2 kali berturut-turut 106/106; uji mutasi: tanpa kompensasi lebar scrollbar cek kedip gagal, tanpa `hasVisible` cek task pertama gagal) + `.gitignore` untuk screenshot. CURRENT_STATE entri baru di atas; entri v469 diperbarui jadi draft PR #96. Belum push, PR B belum dibuka.
+- **Verifikasi:** npm 3197/3196 (pra-ada `draw_local_reactive`); pytest 1215 passed 1 skipped; PROTOCOL §4 33 passed; inline OK (5); E2E 106/106 ×2.
+- **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js, tests/test_static_revalidate.py, temporary_files/e2e_live_edit.py, .gitignore, docs/superpowers/specs/2026-10-26-live-edit-design.md, docs/superpowers/plans/2026-10-26-live-edit.md, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal, belum push/PR.
+
+## [2026-10-26 19:40] - Claude
+- **Task:** Live Edit PR B `claude/live-edit` — perbaikan tinjauan akhir (R19–R21). Klien: nama project/context yang diketik hanya tersimpan saat keluar field/Enter/flush, opsi yang ada langsung (R19, cegah project/tahap "setengah jadi" di server); tag dimuat ulang sebelum setiap simpan judul + chip dimuat ulang saat `updated_at` berubah (R21). Spec/plan/ADR-031/E2E diperbarui.
+- **Verifikasi:** node liveedit 80/80; npm 3202/3201 (pra-ada `draw_local_reactive`); inline OK; E2E 118/118.
+- **Server (commit terpisah, boleh di-drop):** R20 — `update_task` menggabungkan notifikasi "✏️ … memperbarui task …" per aktor per task per 10 menit (`TASK_UPDATE_NOTIFY_WINDOW_MIN`), Telegram ikut; tes `tests/test_task_update_notify_coalesce.py` (8). Deploy PR B kini butuh `sudo systemctl restart taskflow-web`.
+- **Status:** Needs Review — commit lokal, belum push.
+
+- 2026-10-26 (Claude, kontroler): PR A = draft #96 (`claude/task-detail-body`), PR B = draft #97 (`claude/live-edit`, basis #96). Review akhir seluruh branch + satu gelombang perbaikan (R19–R21) bersih. Spec/plan Project claude.ai disamakan.

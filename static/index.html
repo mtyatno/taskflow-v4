@@ -52,7 +52,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=366">
+  <link rel="stylesheet" href="/static/app.css?v=367">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -219,7 +219,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v469-task-detail-body";
+    window.__SW_VERSION = "taskflow-v470-live-edit";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -277,6 +277,7 @@
   <script src="/static/offline/projectcache.js"></script>
   <script src="/static/offline/contextcache.js"></script>
   <script src="/static/offline/kanbanboard.js"></script>
+  <script src="/static/offline/liveedit.js"></script>
   <script src="/static/offline/recurrence.js"></script>
   <script src="/static/offline/habitlogic.js"></script>
   <script src="/static/offline/habitrepo.js"></script>
@@ -8419,6 +8420,104 @@ async function moveTaskToWorkspace({ api, task, listId, pushNow, syncNow, server
   }
   return { ok: true, updated: updated || {} };
 }
+// Live Edit (spec §7.2–§7.4, ruling R2): pembungkus React tipis untuk TF.liveedit.createAutosaver. Satu pengendali
+// per mount; null bila !enabled (modal). put memakai id task terkini (cid → id server setelah sync) dan, bila judul
+// ikut dikirim, menambahkan #tag yang sudah ada karena simpan judul mengganti tag task dengan #tag di judul (R9).
+// getTags() boleh async (Promise daftar tag, dimuat ulang tiap simpan judul: R21); bila menolak, put ikut menolak dan
+// judul tidak dikirim (R14).
+// Unmount, tab disembunyikan, dan pagehide mengirim semua perubahan yang tertunda (flush).
+function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
+  const taskIdRef = useRef(task && task.id);
+  taskIdRef.current = task && task.id;
+  const cbRef = useRef(null);
+  cbRef.current = { onSaved, getTags };
+  const saverRef = useRef(null);
+  const [state, setState] = useState(null);
+  if (enabled && !saverRef.current) {
+    saverRef.current = window.TF.liveedit.createAutosaver({
+      task,
+      put: async patch => {
+        let body = patch;
+        if (patch.title != null) {
+          // R14/R21: hanya simpan yang membawa judul menunggu daftar tag task terkini (getTags async; menolak bila tag
+          // tidak bisa dimuat), supaya titleWithTags tidak memakai daftar kosong/basi dan menghapus atau memulihkan tag.
+          const tagsOf = cbRef.current.getTags;
+          const tags = tagsOf ? await tagsOf() : [];
+          body = { ...patch, title: window.TF.liveedit.titleWithTags(patch.title, tags) };
+        }
+        const row = await api.put("/api/tasks/" + taskIdRef.current, body);
+        try { if (cbRef.current.onSaved) cbRef.current.onSaved(patch); } catch (err) { console.error(err); }
+        return row;
+      },
+      onChange: setState
+    });
+  }
+  const saver = saverRef.current;
+  // Objek task baru dari luar (sync, daftar dimuat ulang): field yang tidak sedang diubah ikut data baru.
+  const firstTaskRef = useRef(true);
+  useEffect(() => {
+    if (firstTaskRef.current) {
+      firstTaskRef.current = false;
+      return;
+    }
+    if (saverRef.current) saverRef.current.external(task);
+  }, [task]);
+  useEffect(() => {
+    const s = saverRef.current;
+    if (!s) return undefined;
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") s.flush();
+    };
+    const onPageHide = () => s.flush();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+      // Urutan penting: flush mengantre simpan terakhir, dispose tetap mengirimnya (R12) tanpa memperbarui state.
+      s.flush();
+      s.dispose();
+    };
+  }, [enabled]);
+  if (!saver) return null;
+  const st = state || saver.getState();
+  return {
+    form: st.form,
+    saveState: st.saveState,
+    error: st.error,
+    titleError: st.titleError,
+    getState: saver.getState,
+    change: saver.change,
+    commit: saver.commit,
+    revertTitle: saver.revertTitle,
+    retry: saver.retry
+  };
+}
+// Live Edit (spec §7.5): indikator simpan di baris judul panel. Kosong sebelum ada edit; "Tersimpan" hilang 2 dtk
+// setelah sukses; gagal → "Coba lagi" + pesan error (bila lebih spesifik dari "Gagal menyimpan").
+function TaskSaveIndicator({ saveState, error, onRetry }) {
+  const [savedExpired, setSavedExpired] = useState(false);
+  useEffect(() => {
+    setSavedExpired(false);
+    if (saveState !== "saved") return undefined;
+    const h = setTimeout(() => setSavedExpired(true), 2000);
+    return () => clearTimeout(h);
+  }, [saveState]);
+  let content = null;
+  if (saveState === "saving") content = "Menyimpan…";
+  else if (saveState === "saved" && !savedExpired) content = "Tersimpan";
+  else if (saveState === "error") content = React.createElement(React.Fragment, null, "Gagal menyimpan", " ", React.createElement("button", {
+    type: "button",
+    className: "tl-save-retry",
+    onClick: () => onRetry && onRetry()
+  }, "Coba lagi"), error && error !== "Gagal menyimpan" && React.createElement("div", {
+    className: "tl-save-err"
+  }, error));
+  return React.createElement("span", {
+    className: "tl-save-ind" + (saveState === "error" ? " is-error" : ""),
+    "aria-live": "polite"
+  }, content);
+}
 function TaskDetailBody({
   task,
   onClose,
@@ -8437,7 +8536,12 @@ function TaskDetailBody({
   headerAction = null
 }) {
   if (!task) return null;
+  // Live Edit (spec §7): panel = field utama selalu bisa diedit dan tersimpan otomatis; modal = lihat → ✏️ Edit → 💾 Simpan.
+  const isPanel = variant === "panel";
   const [isEditing, setIsEditing] = useState(false);
+  const editing = isPanel || isEditing;
+  // Panel: pesan judul tidak valid tetap tampil setelah blur mengembalikan judul; hilang saat judul diubah lagi.
+  const [titleNotice, setTitleNotice] = useState(null);
   const [listMembers, setListMembers] = useState([]);
   const [form, setForm] = useState({
     title: task.title || "",
@@ -8495,7 +8599,12 @@ function TaskDetailBody({
     const ws = (moveLists || []).find(l => String(l.id) === String(moveTarget));
     window.__showToast?.(`Task dipindahkan ke ${ws ? ws.name : "workspace"}`);
     onRefresh?.();
-    onClose();
+    if (!isPanel) onClose();
+    else {
+      // Panel tetap menampilkan task (kini task workspace); form pindah ditutup.
+      setMoveOpen(false);
+      setMoveTarget("");
+    }
   };
   // Scope task tetap (dari task.list_id); opsi project mengikuti scope itu.
   const scopeProjects = useScopeProjects(task.list_id);
@@ -8531,13 +8640,77 @@ function TaskDetailBody({
   const [taskTags, setTaskTags] = useState([]);
   const [tagsExpanded, setTagsExpanded] = useState(false);
   const [tagTasksModal, setTagTasksModal] = useState(null); // { tagName, tasks }
+  // Memuat tag task ke chip; Promise berisi daftar yang dimuat (dipakai langsung oleh simpan judul, R21).
+  const loadTags = id => api.get(`/api/tasks/${id}/tags`).then(data => {
+    const list = data || [];
+    setTaskTags(list);
+    return list;
+  });
+  // R21 (+R14): simpan judul mengganti tag task dengan #tag di judul. Chip di panel bisa basi (tag diubah lewat modal
+  // atau perangkat lain), jadi setiap simpan judul memuat ulang tag task tepat sebelum judul disusun
+  // (GET lokal, jalan offline) dan memakai hasil muatan itu sendiri. Gagal → muat ulang sekali (R14); gagal lagi →
+  // put ditolak, indikator "Gagal menyimpan", tag tetap utuh; "Coba lagi" mencoba memuat lagi.
+  const tagsForTitle = async () => {
+    try {
+      return await loadTags(task.id);
+    } catch (_) {
+      // dicoba sekali lagi di bawah
+    }
+    try {
+      return await loadTags(task.id);
+    } catch (_) {
+      throw new Error("Tag task belum termuat, judul belum disimpan");
+    }
+  };
+
+  // Live Edit: simpan otomatis di panel. Tiap simpan sukses memberi tahu pendengar taskUpdated dan memuat ulang
+  // daftar (onRefresh, debounce 500 ms); simpan yang membawa judul memuat ulang tag (#tag baru di judul jadi chip).
+  // Setelah unmount (flush terakhir) onRefresh dipanggil langsung supaya daftar tidak tertinggal.
+  const liveMountedRef = useRef(true);
+  const refreshTimerRef = useRef(null);
+  const onRefreshRef = useRef(onRefresh);
+  onRefreshRef.current = onRefresh;
+  useEffect(() => () => {
+    liveMountedRef.current = false;
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+      onRefreshRef.current?.();
+    }
+  }, []);
+  const onSaved = patch => {
+    window.dispatchEvent(new CustomEvent("taskUpdated", {
+      detail: {
+        taskId: task.id
+      }
+    }));
+    if (!liveMountedRef.current) {
+      onRefreshRef.current?.();
+      return;
+    }
+    if (patch && patch.title != null) {
+      // Chip ikut #tag baru dari judul ini (simpan judul berikutnya memuat tag sendiri, R21).
+      loadTags(task.id).catch(() => {});
+    }
+    clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      onRefreshRef.current?.();
+    }, 500);
+  };
+  const auto = useTaskAutosave(task, isPanel, {
+    onSaved,
+    getTags: tagsForTitle
+  });
+  const fv = isPanel ? auto.form : form;
+  const sf = isPanel ? auto.change : setF;
 
   // Fetch list members for assignee dropdown when entering edit mode
   useEffect(() => {
-    if (isEditing && task?.list_id) {
+    if (editing && task?.list_id) {
       api.get(`/api/lists/${task.list_id}/members`).then(setListMembers).catch(() => setListMembers([]));
     }
-  }, [isEditing, task?.list_id]);
+  }, [editing, task?.list_id]);
 
   // Fetch subtasks (checklist)
   useEffect(() => {
@@ -8559,11 +8732,20 @@ function TaskDetailBody({
   useEffect(() => {
     fetchChildTasks();
   }, [task?.id]);
+  // Chip tag dimuat saat task berganti; di panel juga saat task berubah dari luar (updated_at: sync, modal, perangkat
+  // lain) supaya tidak basi (R21). Satu efek dengan dua dependensi: mount = satu muat. Modal: dependensi tetap task.id.
+  // Gagal memuat ulang task yang sama → chip lama dipertahankan; task lain → kosong (seperti sebelumnya).
+  const tagsVersion = isPanel ? task?.updated_at : null;
+  const tagsIdRef = useRef(null);
   useEffect(() => {
     if (task?.id) {
-      api.get(`/api/tasks/${task.id}/tags`).then(data => setTaskTags(data || [])).catch(() => setTaskTags([]));
+      const sameTaskReload = tagsIdRef.current === task.id;
+      tagsIdRef.current = task.id;
+      loadTags(task.id).catch(() => {
+        if (!sameTaskReload) setTaskTags([]);
+      });
     }
-  }, [task?.id]);
+  }, [task?.id, tagsVersion]);
   const removeTag = async tagName => {
     try {
       await api.del(`/api/tasks/${task.id}/tags/${encodeURIComponent(tagName)}`);
@@ -8656,220 +8838,11 @@ function TaskDetailBody({
     }
     setSaving(false);
   };
-  const doneCount = subtasks.filter(s => s.is_done).length;
-  const totalSubs = subtasks.length;
-  const progress = totalSubs > 0 ? Math.round(doneCount / totalSubs * 100) : 0;
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "start",
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0,
-      marginRight: 12
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)",
-      marginBottom: 4
-    }
-  }, "#", task.id), isEditing ? /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    value: form.title,
-    onChange: e => setF("title", e.target.value),
-    style: {
-      fontSize: 16,
-      fontWeight: 700,
-      width: "100%"
-    }
-  }) : /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontSize: 20,
-      fontWeight: 700,
-      lineHeight: 1.3
-    }
-  }, task.title)), headerAction), task.parent_id && /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: "#eff6ff",
-      border: "1px solid #bfdbfe",
-      borderRadius: 8,
-      padding: "7px 12px",
-      marginBottom: 14,
-      fontSize: 13,
-      color: "#1d4ed8"
-    }
-  }, "\u21B3 Subtask dari: ", /*#__PURE__*/React.createElement("b", null, "#", task.parent_id), " ", task.parent_title && `— ${task.parent_title}`), isEditing ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 10,
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Priority"), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: form.priority,
-    onChange: e => setF("priority", e.target.value)
-  }, /*#__PURE__*/React.createElement("option", {
-    value: "P1"
-  }, "\uD83D\uDD34 P1 Critical"), /*#__PURE__*/React.createElement("option", {
-    value: "P2"
-  }, "\uD83D\uDFE0 P2 High"), /*#__PURE__*/React.createElement("option", {
-    value: "P3"
-  }, "\uD83D\uDFE1 P3 Medium"), /*#__PURE__*/React.createElement("option", {
-    value: "P4"
-  }, "\uD83D\uDFE2 P4 Low"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "GTD Status"), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: form.gtd_status,
-    onChange: e => setF("gtd_status", e.target.value)
-  }, /*#__PURE__*/React.createElement("option", {
-    value: "inbox"
-  }, "\uD83D\uDCE5 Inbox"), /*#__PURE__*/React.createElement("option", {
-    value: "next"
-  }, "\u25B6\uFE0F Next"), /*#__PURE__*/React.createElement("option", {
-    value: "waiting"
-  }, "\u23F3 Waiting"), /*#__PURE__*/React.createElement("option", {
-    value: "someday"
-  }, "\uD83D\uDCAD Someday"), /*#__PURE__*/React.createElement("option", {
-    value: "done"
-  }, "\u2705 Done")))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 10,
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, projectScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
-    value: form.project,
-    onChange: v => setF("project", v),
-    options: scopeProjects,
-    placeholder: "\u2014 Project \u2014",
-    icon: "\uD83D\uDCC1"
-  })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, contextScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
-    value: form.context,
-    onChange: v => setF("context", v),
-    options: scopeContexts,
-    placeholder: "\u2014 Context \u2014",
-    icon: "\uD83C\uDFF7\uFE0F"
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Deadline"), /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    type: "date",
-    value: form.deadline,
-    onChange: e => setF("deadline", e.target.value)
-  })), form.gtd_status === "waiting" && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Waiting For"), /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    value: form.waiting_for,
-    onChange: e => setF("waiting_for", e.target.value),
-    placeholder: "Menunggu siapa/apa"
-  })), task.list_id && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Assign ke"), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: form.assigned_to || "",
-    onChange: e => setF("assigned_to", e.target.value ? parseInt(e.target.value) : null)
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "\u2014 Tidak ada \u2014"), listMembers.map(u => /*#__PURE__*/React.createElement("option", {
-    key: u.id,
-    value: u.id
-  }, u.display_name || u.username, " ", u.is_self ? "(Saya)" : `(@${u.username})`)))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      marginBottom: 4
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "input-label",
-    style: {
-      marginBottom: 0
-    }
-  }, "Progress"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 700,
-      color: form.progress === 100 ? "#22c55e" : "var(--accent)"
-    }
-  }, form.progress || 0, "%")), /*#__PURE__*/React.createElement("input", {
-    type: "range",
-    min: "0",
-    max: "100",
-    step: "5",
-    value: form.progress || 0,
-    onChange: e => setF("progress", parseInt(e.target.value)),
-    style: {
-      width: "100%",
-      accentColor: form.progress === 100 ? "#22c55e" : "var(--accent)"
-    }
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      fontSize: 10,
-      color: "var(--text-light)",
-      marginTop: 2
-    }
-  }, /*#__PURE__*/React.createElement("span", null, "0%"), /*#__PURE__*/React.createElement("span", null, "50%"), /*#__PURE__*/React.createElement("span", null, "100%"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Deskripsi"), /*#__PURE__*/React.createElement(MentionInput, {
-    as: "textarea",
-    collaborators: collaborators,
-    className: "input",
-    value: form.description,
-    onChange: e => setF("description", e.target.value),
-    rows: 3,
-    style: {
-      resize: "vertical"
-    }
-  }))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8,
-      flexWrap: "wrap",
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement(StatusBadge, {
-    s: task.gtd_status
-  }), /*#__PURE__*/React.createElement(PriBadge, {
-    p: task.priority
-  }), /*#__PURE__*/React.createElement(QuadBadge, {
-    q: task.quadrant
-  })), taskTags.length > 0 && /*#__PURE__*/React.createElement("div", {
+  // Panel: pesan di bawah judul. titleError dari pengendali hanya selama judul di form masih tidak valid (pengendali
+  // baru memperbaruinya saat simpan berikutnya, jadi tanpa syarat ini pesan basi tetap tampil saat judul sudah diperbaiki).
+  const titleAlert = isPanel ? titleNotice || (auto.titleError && window.TF.liveedit.validateTitle(fv.title) ? auto.titleError : null) : null;
+  // Chip tag (klik = task lain dengan tag ini, × = hapus tag): mode lihat modal dan panel.
+  const tagChips = () => taskTags.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
       flexWrap: "wrap",
@@ -8933,7 +8906,319 @@ function TaskDetailBody({
       borderRadius: 999,
       border: "1px solid var(--border)"
     }
-  }, tagsExpanded ? "‹ less" : `+${taskTags.length - 3} more`)), task.description && /*#__PURE__*/React.createElement("div", {
+  }, tagsExpanded ? "‹ less" : `+${taskTags.length - 3} more`));
+  const doneCount = subtasks.filter(s => s.is_done).length;
+  const totalSubs = subtasks.length;
+  const progress = totalSubs > 0 ? Math.round(doneCount / totalSubs * 100) : 0;
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "start",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1,
+      minWidth: 0,
+      marginRight: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-light)",
+      marginBottom: 4
+    }
+  }, "#", task.id), isPanel ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
+    className: "input task-detail-title-input",
+    "aria-label": "Judul task",
+    value: fv.title,
+    onChange: e => {
+      sf("title", e.target.value);
+      if (titleNotice) setTitleNotice(null);
+    },
+    onBlur: () => {
+      auto.commit("title");
+      // Judul tidak valid (kosong / hanya #tag) tidak dikirim; keluar field → kembali ke judul tersimpan (§7.4 langkah 2)
+      // dan pesannya tetap tampil (titleNotice; revertTitle menghapus titleError). Dicek dari form terkini, bukan
+      // auto.titleError hasil render: nilai itu bisa basi dan membalikkan judul valid yang sedang dikirim.
+      // retry() membersihkan "Gagal menyimpan" basi atau mengirim field lain yang masih berubah.
+      const invalid = window.TF.liveedit.validateTitle(auto.getState().form.title);
+      if (invalid) {
+        auto.revertTitle();
+        auto.retry();
+        setTitleNotice(invalid);
+      }
+    },
+    onKeyDown: e => {
+      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
+        e.preventDefault();
+        auto.commit("title");
+        // Judul tidak valid: fokus tetap di input supaya pesan terlihat (perbaiki, atau Escape untuk mengembalikan).
+        const invalid = window.TF.liveedit.validateTitle(auto.getState().form.title);
+        if (invalid) setTitleNotice(invalid);
+        else e.currentTarget.blur();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        auto.revertTitle();
+        auto.retry();
+        setTitleNotice(null);
+      }
+    }
+  }), titleAlert && /*#__PURE__*/React.createElement("div", {
+    role: "alert",
+    style: {
+      fontSize: 12,
+      color: "var(--danger, #dc2626)",
+      marginTop: 4
+    }
+  }, titleAlert)) : isEditing ? /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    value: form.title,
+    onChange: e => setF("title", e.target.value),
+    style: {
+      fontSize: 16,
+      fontWeight: 700,
+      width: "100%"
+    }
+  }) : /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontSize: 20,
+      fontWeight: 700,
+      lineHeight: 1.3
+    }
+  }, task.title)), isPanel ? /*#__PURE__*/React.createElement(TaskSaveIndicator, {
+    saveState: auto.saveState,
+    error: auto.error,
+    onRetry: () => auto.retry()
+  }) : headerAction), task.parent_id && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "#eff6ff",
+      border: "1px solid #bfdbfe",
+      borderRadius: 8,
+      padding: "7px 12px",
+      marginBottom: 14,
+      fontSize: 13,
+      color: "#1d4ed8"
+    }
+  }, "\u21B3 Subtask dari: ", /*#__PURE__*/React.createElement("b", null, "#", task.parent_id), " ", task.parent_title && `— ${task.parent_title}`), isPanel && /*#__PURE__*/React.createElement("div", {
+    className: "task-detail-meta",
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 12,
+      fontSize: 12,
+      color: "var(--text-light)"
+    }
+  }, /*#__PURE__*/React.createElement(QuadBadge, {
+    q: task.quadrant
+  }), task.is_overdue && /*#__PURE__*/React.createElement("span", {
+    style: {
+      display: "inline-flex",
+      alignItems: "center",
+      gap: 5,
+      color: "#ef4444",
+      fontWeight: 600
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "overdue-indicator"
+  }), "Terlambat"), task.created_at && /*#__PURE__*/React.createElement("span", null, "\uD83D\uDD50 Created: ", task.created_at.split("T")[0]), task.completed_at && /*#__PURE__*/React.createElement("span", null, "\u2705 Done: ", task.completed_at.split("T")[0])), isPanel && tagChips(), editing ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, "Priority"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    value: fv.priority,
+    onChange: e => sf("priority", e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "P1"
+  }, "\uD83D\uDD34 P1 Critical"), /*#__PURE__*/React.createElement("option", {
+    value: "P2"
+  }, "\uD83D\uDFE0 P2 High"), /*#__PURE__*/React.createElement("option", {
+    value: "P3"
+  }, "\uD83D\uDFE1 P3 Medium"), /*#__PURE__*/React.createElement("option", {
+    value: "P4"
+  }, "\uD83D\uDFE2 P4 Low"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, "GTD Status"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    value: fv.gtd_status,
+    onChange: e => sf("gtd_status", e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: "inbox"
+  }, "\uD83D\uDCE5 Inbox"), /*#__PURE__*/React.createElement("option", {
+    value: "next"
+  }, "\u25B6\uFE0F Next"), /*#__PURE__*/React.createElement("option", {
+    value: "waiting"
+  }, "\u23F3 Waiting"), /*#__PURE__*/React.createElement("option", {
+    value: "someday"
+  }, "\uD83D\uDCAD Someday"), /*#__PURE__*/React.createElement("option", {
+    value: "done"
+  }, "\u2705 Done")))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", isPanel ? {
+    // R19: nama yang diketik (server membuat project/tahap yang belum ada) hanya tersimpan saat keluar field
+    // (ComboSelect tanpa onBlur: blur dari select/input di dalamnya naik ke sini; pindah fokus di dalam field
+    // diabaikan), Enter, atau flush. Memilih opsi yang sudah ada tersimpan langsung lewat onChange di bawah.
+    onBlur: e => {
+      if (!e.currentTarget.contains(e.relatedTarget)) auto.commit("project");
+    },
+    onKeyDown: e => {
+      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) auto.commit("project");
+    }
+  } : null, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, projectScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
+    value: fv.project,
+    onChange: v => {
+      sf("project", v);
+      if (isPanel && v && scopeProjects.includes(v)) auto.commit("project");
+    },
+    options: scopeProjects,
+    placeholder: "\u2014 Project \u2014",
+    icon: "\uD83D\uDCC1"
+  })), /*#__PURE__*/React.createElement("div", isPanel ? {
+    onBlur: e => {
+      if (!e.currentTarget.contains(e.relatedTarget)) auto.commit("context");
+    },
+    onKeyDown: e => {
+      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) auto.commit("context");
+    }
+  } : null, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, contextScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
+    value: fv.context,
+    onChange: v => {
+      sf("context", v);
+      if (isPanel && v && scopeContexts.includes(v)) auto.commit("context");
+    },
+    options: scopeContexts,
+    placeholder: "\u2014 Context \u2014",
+    icon: "\uD83C\uDFF7\uFE0F"
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, "Deadline"), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    type: "date",
+    value: fv.deadline,
+    onChange: e => sf("deadline", e.target.value)
+  })), fv.gtd_status === "waiting" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, "Waiting For"), /*#__PURE__*/React.createElement("input", {
+    className: "input",
+    value: fv.waiting_for,
+    onChange: e => sf("waiting_for", e.target.value),
+    onBlur: isPanel ? () => auto.commit("waiting_for") : undefined,
+    placeholder: "Menunggu siapa/apa"
+  })), task.list_id && /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, "Assign ke"), /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    value: fv.assigned_to || "",
+    onChange: e => sf("assigned_to", e.target.value ? parseInt(e.target.value) : null)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, "\u2014 Tidak ada \u2014"), listMembers.map(u => /*#__PURE__*/React.createElement("option", {
+    key: u.id,
+    value: u.id
+  }, u.display_name || u.username, " ", u.is_self ? "(Saya)" : `(@${u.username})`)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      marginBottom: 4
+    }
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "input-label",
+    style: {
+      marginBottom: 0
+    }
+  }, "Progress"), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      color: fv.progress === 100 ? "#22c55e" : "var(--accent)"
+    }
+  }, fv.progress || 0, "%")), /*#__PURE__*/React.createElement("input", {
+    type: "range",
+    min: "0",
+    max: "100",
+    step: "5",
+    value: fv.progress || 0,
+    onChange: e => sf("progress", parseInt(e.target.value)),
+    onPointerUp: isPanel ? () => auto.commit("progress") : undefined,
+    onKeyUp: isPanel ? () => auto.commit("progress") : undefined,
+    onBlur: isPanel ? () => auto.commit("progress") : undefined,
+    style: {
+      width: "100%",
+      accentColor: fv.progress === 100 ? "#22c55e" : "var(--accent)"
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      fontSize: 10,
+      color: "var(--text-light)",
+      marginTop: 2
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "0%"), /*#__PURE__*/React.createElement("span", null, "50%"), /*#__PURE__*/React.createElement("span", null, "100%"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    className: "input-label"
+  }, "Deskripsi"), /*#__PURE__*/React.createElement(MentionInput, {
+    as: "textarea",
+    collaborators: collaborators,
+    className: "input",
+    value: fv.description,
+    onChange: e => sf("description", e.target.value),
+    onBlur: isPanel ? () => auto.commit("description") : undefined,
+    rows: isPanel ? 4 : 3,
+    style: {
+      resize: "vertical"
+    }
+  }))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      flexWrap: "wrap",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement(StatusBadge, {
+    s: task.gtd_status
+  }), /*#__PURE__*/React.createElement(PriBadge, {
+    p: task.priority
+  }), /*#__PURE__*/React.createElement(QuadBadge, {
+    q: task.quadrant
+  })), tagChips(), task.description && /*#__PURE__*/React.createElement("div", {
     style: {
       padding: 12,
       background: "var(--bg-primary)",
@@ -9351,6 +9636,7 @@ function TaskDetailBody({
     onClick: handleMove,
     disabled: moving || !moveTarget
   }, moving ? "Memindahkan..." : "Pindahkan"))), isEditing ? /*#__PURE__*/React.createElement("div", {
+    className: "task-detail-actions",
     style: {
       display: "flex",
       gap: 8,
@@ -9368,6 +9654,7 @@ function TaskDetailBody({
     onClick: handleSave,
     disabled: saving
   }, saving ? "Menyimpan..." : "💾 Simpan")) : /*#__PURE__*/React.createElement("div", {
+    className: "task-detail-actions",
     style: {
       display: "flex",
       gap: 8,
@@ -9384,14 +9671,14 @@ function TaskDetailBody({
     className: "btn btn-sm",
     onClick: () => {
       onToggleFocus(task.id);
-      onClose();
+      if (!isPanel) onClose();
     },
     style: {
       background: task.is_focused ? "#fef3c7" : "#f8fafc",
       color: task.is_focused ? "#b45309" : "var(--text-secondary)",
       border: task.is_focused ? "1px solid #fde68a" : "1px solid var(--border)"
     }
-  }, /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } }, /*#__PURE__*/React.createElement(Icon, { name: "star", size: 13, style: { fill: task.is_focused ? "currentColor" : "none" } }), "Fokus")), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } }, /*#__PURE__*/React.createElement(Icon, { name: "star", size: 13, style: { fill: task.is_focused ? "currentColor" : "none" } }), "Fokus")), !isPanel && /*#__PURE__*/React.createElement("button", {
     className: "btn btn-secondary btn-sm",
     onClick: () => setIsEditing(true)
   }, "\u270F\uFE0F Edit"), task.gtd_status !== "done" && /*#__PURE__*/React.createElement("button", {
@@ -9534,11 +9821,13 @@ function TaskRow({
   focusTask,
   onStartFocus,
   isInbox,
-  onUpdateGtdStatus
+  onUpdateGtdStatus,
+  selected = false
 }) {
   const isFocusing = focusTask?.id === task.id;
   return /*#__PURE__*/React.createElement("div", {
-    className: "task-row fade-in",
+    className: "task-row fade-in" + (selected ? " is-selected" : ""),
+    "aria-current": selected ? "true" : undefined,
     "data-tour": "task-list",
     onClick: () => onClick(task)
   }, /*#__PURE__*/React.createElement("div", {
@@ -9830,7 +10119,9 @@ const VIEW_GLYPHS = {
   sDivider: '<rect x="4" y="3" width="16" height="5" rx="1.5" fill="currentColor" fill-opacity=".22" stroke="none"/><rect x="4" y="16" width="16" height="5" rx="1.5" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M3 12h18"/>',
   // Kolom parkir pikiran (kartu Pomodoro ringkas di HP)
   sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" fill="currentColor" fill-opacity=".22"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
-  send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>'
+  send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
+  // Tombol Live Edit di toolbar daftar task: daftar + panel detail kanan (isian lembut)
+  live: '<rect x="3" y="4" width="18" height="16" rx="2"/><rect x="13" y="4" width="8" height="16" rx="2" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M13 4v16"/><path d="M6.5 9h3"/><path d="M6.5 13h3"/>'
 };
 function ViewGlyph({
   name,
@@ -16233,10 +16524,13 @@ function CompactRow({
   onTaskClick,
   onDone,
   isInbox,
-  onUpdateGtdStatus
+  onUpdateGtdStatus,
+  selected = false
 }) {
   const dateStr = task.deadline ? formatDate(task.deadline) : null;
   return /*#__PURE__*/React.createElement("div", {
+    className: "compact-row" + (selected ? " is-selected" : ""),
+    "aria-current": selected ? "true" : undefined,
     onClick: () => onTaskClick(task),
     style: {
       display: "flex",
@@ -16244,11 +16538,8 @@ function CompactRow({
       gap: 10,
       padding: "8px 12px",
       cursor: "pointer",
-      borderBottom: "1px solid var(--border)",
-      transition: "background 0.1s"
-    },
-    onMouseEnter: e => e.currentTarget.style.background = "var(--bg-primary)",
-    onMouseLeave: e => e.currentTarget.style.background = "transparent"
+      borderBottom: "1px solid var(--border)"
+    }
   }, /*#__PURE__*/React.createElement("div", {
     className: "check-btn",
     onClick: e => {
@@ -16585,7 +16876,8 @@ function KanbanCard({
   onTaskClick,
   onCheck,
   onMove,
-  onHoverColumn
+  onHoverColumn,
+  selected = false
 }) {
   // Menu "Pindah ke…": null = tertutup, selain itu posisi tetap (fixed) di bawah tombol agar tidak terpotong kolom.
   const [menuPos, setMenuPos] = React.useState(null);
@@ -16814,9 +17106,11 @@ function KanbanCard({
       if (e.key === "Enter" && e.target === e.currentTarget) onTaskClick(task);
     },
     "data-kanban-task": String(task.id),
+    "aria-current": selected ? "true" : undefined,
     style: {
       position: "relative",
-      background: "var(--bg-card)",
+      // Kartu terpilih (Live Edit): lapisan --bg-selected di atas --bg-card; border/shadow tetap milik handler hover.
+      background: selected ? "linear-gradient(var(--bg-selected), var(--bg-selected)), var(--bg-card)" : "var(--bg-card)",
       border: "1px solid var(--border)",
       borderRadius: 8,
       padding: "8px 10px",
@@ -17011,7 +17305,8 @@ function KanbanColumn({
   onTaskClick,
   onCheck,
   onMoveTask,
-  stageOps
+  stageOps,
+  isSelected
 }) {
   const {
     key: groupKey,
@@ -17246,7 +17541,8 @@ function KanbanColumn({
     onTaskClick: onTaskClick,
     onCheck: onCheck,
     onMove: onMoveTask,
-    onHoverColumn: onHoverColumn
+    onHoverColumn: onHoverColumn,
+    selected: !!(isSelected && isSelected(t))
   })), isDragOver && /*#__PURE__*/React.createElement("div", {
     style: {
       height: 48,
@@ -17273,7 +17569,8 @@ function KanbanView({
   onCheck,
   onMoveTask,
   stageOps,
-  onCreateStage
+  onCreateStage,
+  isSelected = null
 }) {
   const [overKey, setOverKey] = React.useState(null);
   // Kolom tipis "+ Tahap" (hanya Group by Context) sebelum "Selesai"; bukan target drop (tanpa data-kanban-col).
@@ -17381,7 +17678,8 @@ function KanbanView({
       onTaskClick: onTaskClick,
       onCheck: onCheck,
       onMoveTask: onMoveTask,
-      stageOps: stageOps
+      stageOps: stageOps,
+      isSelected: isSelected
     }));
   });
   if (addColumn && !addPlaced) cols.push(addColumn);
@@ -17801,6 +18099,147 @@ function contextKeyOrder(keys, items, page) {
   rest.sort((a, b) => pc.nocaseCompare(a, b) || (a < b ? -1 : a > b ? 1 : 0));
   return ranked.concat(rest);
 }
+// ── Live Edit: panel detail task di samping daftar (spec live-edit §4–§6) ──
+// Lebar area konten diukur dari rootRef (ResizeObserver; tanpa itu: event resize window + ukur ulang setelah
+// setiap render, menangkap perubahan lebar sidebar). Nyala/mati tersimpan di localStorage ("tf_liveedit").
+// panelTop = tinggi .desktop-topbar (sticky) + 12 px supaya panel sticky tidak tertutup topbar.
+function useLiveEdit(rootRef) {
+  const hasLib = !!(window.TF && window.TF.liveedit);
+  const [width, setWidth] = useState(0);
+  const [panelTop, setPanelTop] = useState(12);
+  const [on, setOn] = useState(() => {
+    if (!hasLib) return false;
+    try {
+      return window.TF.liveedit.readOn(localStorage);
+    } catch (_) {
+      return false;
+    }
+  });
+  const measureRef = useRef(null);
+  measureRef.current = () => {
+    const el = rootRef.current;
+    if (!el) return;
+    // Lebar dihitung seolah tanpa scrollbar halaman: panel yang memanjangkan halaman memunculkan scrollbar klasik
+    // (±6–17 px) dan, di dekat ambang 760 px, menyembunyikan panelnya sendiri → panel berkedip terus-menerus.
+    const pageScrollbar = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+    const w = el.clientWidth + pageScrollbar;
+    setWidth(prev => prev === w ? prev : w);
+    const bar = document.querySelector(".desktop-topbar");
+    const top = (bar && bar.offsetHeight || 0) + 12;
+    setPanelTop(prev => prev === top ? prev : top);
+  };
+  const hasObserver = typeof ResizeObserver === "function";
+  React.useLayoutEffect(() => {
+    const measure = () => measureRef.current();
+    measure();
+    if (hasObserver && rootRef.current) {
+      const ro = new ResizeObserver(measure);
+      ro.observe(rootRef.current);
+      return () => ro.disconnect();
+    }
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, []);
+  useEffect(() => {
+    if (!hasObserver) measureRef.current();
+  });
+  const available = hasLib && window.TF.liveedit.isAvailable(width);
+  const toggle = () => {
+    const next = !on;
+    setOn(next);
+    try {
+      window.TF.liveedit.writeOn(localStorage, next);
+    } catch (_) {}
+  };
+  return {
+    available,
+    on,
+    active: available && on,
+    panelWidth: hasLib ? window.TF.liveedit.panelWidth(width) : 0,
+    panelTop,
+    toggle
+  };
+}
+// Panel kanan Live Edit. Keadaan kosong / tidak terpilih / tidak tersedia hanya teks (R6): TaskDetailBody tidak
+// pernah di-mount dengan task null. key = cid || id agar pergantian cid → id server setelah sync tidak me-mount
+// ulang form (edit yang belum tersimpan tidak hilang).
+function TaskDetailPanel({
+  task,
+  emptyText,
+  gone,
+  width,
+  top,
+  detailProps,
+  onSelectTask,
+  onDeleted
+}) {
+  const note = emptyText || (gone ? "Task ini sudah dihapus atau tidak bisa diakses lagi." : !task ? "Pilih task di daftar" : null);
+  // R15: max-height dari posisi panel sekarang, bukan posisi menempel. Sebelum halaman digulir panel berada lebih
+  // rendah dari `top`; tinggi "100vh − top" membuat dasar panel (dan bar aksi Hapus/Done yang menempel di dasarnya)
+  // jatuh di bawah layar. Ditulis langsung ke DOM (bukan prop style) supaya render React tidak menimpanya.
+  const asideRef = useRef(null);
+  const topRef = useRef(top);
+  topRef.current = top;
+  const fitRef = useRef(null);
+  fitRef.current = () => {
+    const el = asideRef.current;
+    if (!el) return;
+    const h = window.innerHeight - Math.max(topRef.current, el.getBoundingClientRect().top) - 16;
+    // Batas bawah 200 px: viewport sangat pendek tidak membuat panel kosong (sisanya terlihat setelah halaman digulir).
+    const next = Math.max(200, Math.floor(h)) + "px";
+    if (el.style.maxHeight !== next) el.style.maxHeight = next;
+  };
+  React.useLayoutEffect(() => {
+    let raf = 0;
+    const onMove = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        fitRef.current();
+      });
+    };
+    fitRef.current();
+    window.addEventListener("scroll", onMove, { passive: true });
+    window.addEventListener("resize", onMove, { passive: true });
+    return () => {
+      window.removeEventListener("scroll", onMove);
+      window.removeEventListener("resize", onMove);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [top]);
+  // Konten di atas panel bisa berubah tinggi tanpa scroll/resize (panel filter dibuka, data baru): ukur ulang tiap render.
+  React.useLayoutEffect(() => {
+    fitRef.current();
+  });
+  return /*#__PURE__*/React.createElement("aside", {
+    ref: asideRef,
+    className: "tl-live-panel",
+    "aria-label": "Detail task",
+    style: {
+      width,
+      top
+    }
+  }, note ? /*#__PURE__*/React.createElement("div", {
+    className: "tl-live-empty"
+  }, note) : /*#__PURE__*/React.createElement(TaskDetailBody, {
+    key: task.cid || String(task.id),
+    task: task,
+    variant: "panel",
+    onClose: () => {},
+    onDone: () => detailProps.onDone(task.id),
+    onDelete: async () => {
+      if (await detailProps.onDelete(task.id)) onDeleted();
+    },
+    onOpenTask: onSelectTask,
+    onToggleFocus: detailProps.onToggleFocus,
+    onRefresh: detailProps.onRefresh,
+    onOfflineEdit: detailProps.onOfflineEdit,
+    projects: detailProps.projects,
+    contexts: detailProps.contexts,
+    collaborators: detailProps.collaborators,
+    sharedLists: detailProps.sharedLists
+  }));
+}
 // ── Task List view with filters ─────────────────────────────
   // ═══ DEPENDENCIES: TaskListView ═══
   // uses:
@@ -17814,6 +18253,7 @@ function contextKeyOrder(keys, items, page) {
   //   - FilterChip
   //   - ICONS
   //   - ComboSelect
+  //   - useLiveEdit, TaskDetailPanel (Live Edit)
   // emits:
   //   - TaskListView
   // BLOCK LENGTH: ~517 lines (10132-10649)
@@ -17845,10 +18285,22 @@ function TaskListView({
   contextItems = [],
   onManageStages = null,
   titleAvatarList = null,
-  description = ""
+  description = "",
+  // Live Edit: props panel detail dari App (onDone, onDelete, onToggleFocus, onRefresh, onOfflineEdit, projects, …).
+  detailProps = null
 }) {
   const isInbox = page === "inbox" || title === "Inbox";
   const [wizardOpen, setWizardOpen] = useState(false);
+  // Live Edit (spec §4–§6): panel detail di kanan daftar saat area konten cukup lebar dan tombol dinyalakan.
+  const rootRef = React.useRef(null);
+  const live = useLiveEdit(rootRef);
+  const liveOn = live.active && !!detailProps;
+  const liveLib = window.TF && window.TF.liveedit;
+  // Pilihan task = reducer murni (R3) {ref, snapshot, cleared}.
+  const [sel, dispatchSel] = React.useReducer(liveLib ? window.TF.liveedit.selectionReducer : s => s, liveLib ? window.TF.liveedit.EMPTY_SELECTION : { ref: null, snapshot: null, cleared: false });
+  const prevPageRef = React.useRef(page);
+  const [goneId, setGoneId] = useState(null);
+  const checkedIdRef = React.useRef(null);
   const [fPriority, setFPriority] = useState("");
   const [fQuadrant, setFQuadrant] = useState("");
   const [fProject, setFProject] = useState("");
@@ -18118,8 +18570,73 @@ function TaskListView({
     archive: item => runStageOp(() => api.patch(stageUrl(item), { archived: true }), "Tahap diarsipkan", false),
     remove: item => runStageOp(() => api.del(stageUrl(item)), "Tahap dihapus", true)
   } : null;
+
+  // Grup mode daftar dihitung sekali (render + urutan task tampil untuk Live Edit). Mode Kanban memakai papan.
+  const listGroups = groupBy === "none" || kanbanOn ? null : buildGroups(filtered);
+  // Urutan task yang tampil di kiri (grup terlipat dilewati; Kanban: kolom berurutan, kartu teratas dulu).
+  const visibleTasks = kanbanOn ? (kanbanBoard ? kanbanBoard.columns : []).reduce((acc, c) => acc.concat(c.tasks || []), []) : groupBy === "none" ? filtered : (listGroups || []).reduce((acc, g) => {
+    const isTanpa = g.key.startsWith("(Tanpa");
+    const isCollapsed = isTanpa ? collapsed[g.key] !== false : !!collapsed[g.key];
+    return isCollapsed ? acc : acc.concat(g.tasks);
+  }, []);
+  const hasVisible = visibleTasks.length > 0;
+  // Panel dinyalakan, halaman berganti, atau data pertama tiba (daftar kosong → berisi): pilih ulang (spec §6.2).
+  // prevPageRef = halaman saat pemilihan terakhir: halaman berganti selagi panel tersembunyi → task pertama.
+  // Layout effect: pilihan awal sudah ada sebelum panel pertama kali digambar (tanpa kilasan "Tidak ada task").
+  React.useLayoutEffect(() => {
+    if (!liveOn || loading) return;
+    dispatchSel({ type: "init", visible: visibleTasks, all: allTasks || [], keep: prevPageRef.current === page });
+    prevPageRef.current = page;
+  }, [liveOn, page, loading, hasVisible]);
+  // sel.ref hanya terisi lewat dispatch saat panel tampil, jadi TF.liveedit pasti ada di sini.
+  const selFound = sel.ref ? window.TF.liveedit.findTask(allTasks || [], sel.ref) : null;
+  // Task terpilih tidak ada di allTasks (task anak, task dihapus / keluar workspace): periksa sekali lewat rute lokal (R6).
+  const selMissingId = liveOn && sel.ref && !selFound ? sel.ref.id : null;
+  useEffect(() => {
+    // Sekali per periode "tidak ada": task ditemukan lagi (atau pilihan pindah) → pemeriksaan berikutnya boleh jalan.
+    // R16: task ditemukan lagi atau pilihan berganti (panel tampil) → "tidak tersedia" lama dibuang, supaya task yang
+    // muncul lagi lalu keluar lagi diperiksa ulang dari nol. Panel disembunyikan (layar sempit) → goneId dipertahankan:
+    // saat panel kembali, teksnya tetap tampil selama pemeriksaan ulang (body task yang sudah dihapus tidak di-mount).
+    if (!selMissingId) {
+      checkedIdRef.current = null;
+      if (liveOn) setGoneId(null);
+      return;
+    }
+    if (checkedIdRef.current === selMissingId) return;
+    checkedIdRef.current = selMissingId;
+    api.get("/api/tasks/" + encodeURIComponent(selMissingId)).then(task => {
+      if (task) {
+        setGoneId(null);
+        dispatchSel({ type: "snapshot", task });
+      } else setGoneId(selMissingId);
+    }).catch(err => {
+      if (window.TF.liveedit.isNotFound(err)) setGoneId(selMissingId);
+    });
+  }, [selMissingId]);
+  const gone = !selFound && goneId != null && goneId === (sel.ref && sel.ref.id);
+  // Objek task stabil dari allTasks (bukan salinan): body menggabungkan perubahan luar per identitas objek.
+  const panelTask = sel.ref ? selFound || sel.snapshot : null;
+  const emptyText = !sel.ref ? sel.cleared ? "Pilih task di daftar" : "Tidak ada task" : null;
+  const rowClick = liveOn ? t => dispatchSel({ type: "select", task: t }) : onTaskClick;
+  const isSel = t => liveOn && window.TF.liveedit.sameTask(t, sel.ref);
+  // Panel tampil: isi daftar (Loading / Kanban / kosong / grup) di kolom kiri, panel detail di kanan.
+  const liveWrap = content => liveOn ? /*#__PURE__*/React.createElement("div", {
+    className: "tl-live"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "tl-live-list"
+  }, content), /*#__PURE__*/React.createElement(TaskDetailPanel, {
+    task: panelTask,
+    emptyText: emptyText,
+    gone: gone,
+    width: live.panelWidth,
+    top: live.panelTop,
+    detailProps: detailProps,
+    onSelectTask: t => dispatchSel({ type: "select", task: t }),
+    onDeleted: () => dispatchSel({ type: "deleted" })
+  })) : content;
   return /*#__PURE__*/React.createElement("div", {
-    className: "fade-in"
+    className: "fade-in",
+    ref: rootRef
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
@@ -18271,7 +18788,22 @@ function TaskListView({
       name: "kanban",
       size: 16
     }));
-  })())), showFilters !== false && /*#__PURE__*/React.createElement("div", {
+  })()), live.available && detailProps && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+    className: "tl-live-sep",
+    "aria-hidden": "true"
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "tl-view-btn tl-live-btn",
+    onClick: live.toggle,
+    title: live.on ? "Sembunyikan panel detail" : "Tampilkan panel detail di samping",
+    "aria-label": "Live Edit",
+    "aria-pressed": live.on
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "live",
+    size: 16
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "tl-live-label"
+  }, "Live Edit")))), showFilters !== false && /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 12
     }
@@ -18435,7 +18967,7 @@ function TaskListView({
       cursor: "pointer",
       fontWeight: 600
     }
-  }, "\u2715 Reset semua filter")))), loading ? /*#__PURE__*/React.createElement("div", {
+  }, "\u2715 Reset semua filter")))), liveWrap(loading ? /*#__PURE__*/React.createElement("div", {
     style: {
       textAlign: "center",
       padding: 40,
@@ -18453,11 +18985,12 @@ function TaskListView({
     todayIso: kanbanToday,
     currentUser: currentUser,
     collaborators: collaborators,
-    onTaskClick: onTaskClick,
+    onTaskClick: rowClick,
     onCheck: onKanbanCheck,
     onMoveTask: onMoveTask,
     stageOps: stageOps,
-    onCreateStage: groupBy === "context" ? createStage : null
+    onCreateStage: groupBy === "context" ? createStage : null,
+    isSelected: liveOn ? isSel : null
   })) : filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
@@ -18479,27 +19012,29 @@ function TaskListView({
   }, filtered.map(t => viewMode === "compact" ? /*#__PURE__*/React.createElement(CompactRow, {
     key: t.id,
     task: t,
-    onTaskClick: onTaskClick,
+    onTaskClick: rowClick,
     onDone: onDone,
     isInbox: isInbox,
-    onUpdateGtdStatus: onUpdateGtdStatus
+    onUpdateGtdStatus: onUpdateGtdStatus,
+    selected: isSel(t)
   }) : /*#__PURE__*/React.createElement(TaskRow, {
     key: t.id,
     task: t,
-    onClick: onTaskClick,
+    onClick: rowClick,
     onDone: onDone,
     onToggleFocus: onToggleFocus,
     focusTask: focusTask,
     onStartFocus: onStartFocus,
     isInbox: isInbox,
-    onUpdateGtdStatus: onUpdateGtdStatus
+    onUpdateGtdStatus: onUpdateGtdStatus,
+    selected: isSel(t)
   }))) : /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       overflow: "hidden",
       padding: 0
     }
-  }, buildGroups(filtered).map(({
+  }, listGroups.map(({
     key,
     label,
     badge,
@@ -18528,22 +19063,24 @@ function TaskListView({
     }, groupTasks.map(t => viewMode === "compact" ? /*#__PURE__*/React.createElement(CompactRow, {
       key: t.id,
       task: t,
-      onTaskClick: onTaskClick,
+      onTaskClick: rowClick,
       onDone: onDone,
       isInbox: isInbox,
-      onUpdateGtdStatus: onUpdateGtdStatus
+      onUpdateGtdStatus: onUpdateGtdStatus,
+      selected: isSel(t)
     }) : /*#__PURE__*/React.createElement(TaskRow, {
       key: t.id,
       task: t,
-      onClick: onTaskClick,
+      onClick: rowClick,
       onDone: onDone,
       onToggleFocus: onToggleFocus,
       focusTask: focusTask,
       onStartFocus: onStartFocus,
       isInbox: isInbox,
-      onUpdateGtdStatus: onUpdateGtdStatus
+      onUpdateGtdStatus: onUpdateGtdStatus,
+      selected: isSel(t)
     }))));
-  })), wizardOpen && isInbox && /*#__PURE__*/React.createElement(GtdInboxWizardModal, {
+  }))), wizardOpen && isInbox && /*#__PURE__*/React.createElement(GtdInboxWizardModal, {
     tasks: filtered,
     onClose: () => setWizardOpen(false),
     onUpdateGtdStatus: onUpdateGtdStatus,
@@ -26012,7 +26549,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v469-task-detail-body"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v470-live-edit"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -42763,15 +43300,18 @@ function App() {
       }
     }
   };
+  // true bila task terhapus; false bila confirm dibatalkan atau gagal (panel Live Edit mengosongkan pilihan hanya bila true).
   const handleDelete = async taskId => {
-    if (!confirm("Hapus task ini?")) return;
+    if (!confirm("Hapus task ini?")) return false;
     try {
       await api.del(`/api/tasks/${taskId}`);
       showToast("Task dihapus 🗑️");
       fetchAll();
       setSelectedTask(null);
+      return true;
     } catch (err) {
       showToast(err.message, "error");
+      return false;
     }
   };
   const handleToggleFocus = async taskId => {
@@ -42782,6 +43322,18 @@ function App() {
     } catch (err) {
       showToast(err.message, "error");
     }
+  };
+  // Live Edit: panel detail di TaskListView memakai handler yang sama dengan modal detail task.
+  const taskDetailProps = {
+    onDone: handleDone,
+    onDelete: handleDelete,
+    onToggleFocus: handleToggleFocus,
+    onRefresh: fetchAll,
+    onOfflineEdit: handleOfflineEdit,
+    projects,
+    contexts,
+    collaborators,
+    sharedLists
   };
   const handleReviewCreate = ({ title, project }) =>
     api.post("/api/tasks", { title: title, gtd_status: "next", project: project || "", priority: "P2" })
@@ -43259,7 +43811,8 @@ function App() {
         onUpdateTask: handleUpdateTaskFields,
         sharedLists: sharedLists,
         currentUser: user,
-        contextItems: contextItems
+        contextItems: contextItems,
+        detailProps: taskDetailProps
       }));
     }
     return /*#__PURE__*/React.createElement(TaskListView, {
@@ -43285,7 +43838,8 @@ function App() {
       sharedLists: sharedLists,
       currentUser: user,
       contextItems: contextItems,
-      onManageStages: openStageManager
+      onManageStages: openStageManager,
+      detailProps: taskDetailProps
     });
   };
   return /*#__PURE__*/React.createElement("div", null, extAuthState && user && /*#__PURE__*/React.createElement(ExtAuthOverlay, {

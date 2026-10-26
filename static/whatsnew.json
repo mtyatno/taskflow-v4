@@ -1,5 +1,8 @@
 {
   "entries": [
+    {"version": "taskflow-v470-live-edit", "date": "2026-10-26", "title": "Edit task langsung di samping daftar",
+     "new": ["Tombol Live Edit di halaman task: pilih task di kiri, lalu edit detailnya langsung di kanan tanpa membuka jendela.",
+             "Perubahan di panel tersimpan otomatis, juga saat offline."]},
     {"version": "taskflow-v469-task-detail-body", "date": "2026-10-26", "silent": true},
     {"version": "taskflow-v468-fokus-parkir-toast", "date": "2026-10-23", "title": "Halaman Fokus lebih ringkas",
      "new": ["Menulis di kotak Ada pikiran lewat? di halaman Fokus kini memunculkan notifikasi Task Created seperti di Dashboard.",

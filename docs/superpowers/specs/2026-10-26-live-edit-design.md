@@ -2,7 +2,7 @@
 
 - **Tanggal:** 2026-10-26
 - **Basis kode:** `main` @ `0ab062d` (mtyatno/taskflow-v4; SW v468 `taskflow-v468-fokus-parkir-toast`, `app.css?v=366`)
-- **Status:** desain disetujui per bagian dalam sesi brainstorming 2026-10-26 (pemilik + Claude): tata letak, struktur komponen, edit/autosave, pengujian/rilis/cakupan. Spec tertulis disetujui pemilik 2026-10-26 13:41 WIB. Keputusan rencana R1, R6, R7 (`claude/plan-live-edit-2026-10-26.md`) sudah dilebur ke §5.5, §6.4, §7.1, §7.3.
+- **Status:** diimplementasikan di branch `claude/live-edit` (PR B, ditumpuk di atas PR A `claude/task-detail-body` = draft PR #96; SW `taskflow-v470-live-edit`, `app.css?v=367`), belum di-merge. Desain disetujui per bagian dalam sesi brainstorming 2026-10-26 (pemilik + Claude): tata letak, struktur komponen, edit/autosave, pengujian/rilis/cakupan. Spec tertulis disetujui pemilik 2026-10-26 13:41 WIB. Keputusan rencana R1, R6, R7 (`claude/plan-live-edit-2026-10-26.md`) sudah dilebur ke §5.5, §6.4, §7.1, §7.3. Keputusan pelaksanaan R9–R16 (daftar di bagian "Rulings saat eksekusi" pada plan) dan dua penyimpangan Task 7 dilebur ke §4.2, §4.3, §5.5, §6.2, §6.4, §7.3, §7.4; temuan baru di §12. Keputusan tinjauan akhir R19 (project/context hanya tersimpan saat keluar field/Enter/flush, opsi yang ada langsung) dan R21 (tag dimuat ulang sebelum setiap simpan judul) dilebur ke §5.5, §7.3, §7.4.
 - **Salinan:** Project claude.ai "alurik" `claude/spec-live-edit-2026-10-26.md`; ikut di-commit ke repo `docs/superpowers/specs/2026-10-26-live-edit-design.md` saat implementasi dimulai di branch. Isi keduanya sama.
 - **Istilah:**
   - *daftar task* = `TaskListView` (`static/index.html`), dipakai halaman seperti Inbox, Next Actions, Waiting, Someday, Project, Tag, dan tab Task halaman workspace (`slist_<W>`);
@@ -46,7 +46,7 @@ Pengguna ingin mengedit satu task cukup lama dengan konsentrasi, lalu berpindah 
 | K10 | Logika murni di modul baru `static/offline/liveedit.js` (`TF.liveedit`), UI di `index.html`. | Pola `kanbanboard.js` / `focusfilter.js`: diuji di Node tanpa React. |
 | K11 | Cakupan halaman = halaman yang merender `TaskListView`. Fokus Hari Ini, Dashboard, Kalender tidak berubah. | Tiga view hanya ada di `TaskListView`. |
 | K12 | Dua PR: PR A pemisahan isi modal tanpa perubahan perilaku; PR B Live Edit. | Pemisahan ~1.080 baris isi modal paling berisiko; tes lama menjaga modal tetap sama sebelum fitur baru ditumpuk. |
-| K13 | Hanya klien. Tidak ada perubahan server, skema, atau API. | `PUT /api/tasks/:id` (rute lokal) sudah menerima patch sebagian. |
+| K13 | Hanya klien. Tidak ada perubahan server, skema, atau API. *(Pengecualian R20, commit tersendiri yang boleh di-drop: server menggabungkan notifikasi "memperbarui task" per aktor per task per 10 menit, §10.)* | `PUT /api/tasks/:id` (rute lokal) sudah menerima patch sebagian. |
 
 ## 3. Kondisi sekarang
 
@@ -79,7 +79,7 @@ STORAGE_KEY       = "tf_liveedit"   // "1" | "0"
 ### 4.2 Ketersediaan
 
 - Hook `useLiveEdit(rootRef)` di `TaskListView`:
-  - mengukur lebar `rootRef` dengan `ResizeObserver` (fallback: event `resize` window), menghitung `available = TF.liveedit.isAvailable(width)`;
+  - mengukur lebar `rootRef` dengan `ResizeObserver` (fallback: event `resize` window), menghitung `available = TF.liveedit.isAvailable(width)`. Lebar yang diukur = `clientWidth` + lebar scrollbar halaman (`innerWidth − documentElement.clientWidth`), yaitu lebar seolah tanpa scrollbar (penyimpangan Task 7). Tanpa itu panel yang memanjangkan halaman memunculkan scrollbar klasik (±6–17 px), di dekat 760 px area konten jatuh di bawah ambang, panel mematikan dirinya sendiri, scrollbar hilang, panel menyala lagi, dan seterusnya (kedip; terukur 37–48 mutasi panel per detik). Konsekuensinya ambang menghitung lebar tanpa scrollbar halaman (selisih paling banyak ±6–17 px, diserap kolom daftar yang `flex: 1; min-width: 0`);
   - membaca/menulis `on` lewat `readOn/writeOn(storage)`;
   - mengembalikan `{ available, on, active: available && on, panelWidth, toggle }`.
 - `active` = panel tampil. Bila `!available`: tombol Live Edit tidak dirender, panel tidak dirender, klik task memanggil `onTaskClick` (modal). Nilai `on` tetap tersimpan; begitu `available` lagi, panel tampil lagi.
@@ -89,7 +89,8 @@ STORAGE_KEY       = "tf_liveedit"   // "1" | "0"
 - Judul halaman, baris Group by/view/Live Edit, cari, dan filter tetap di atas selebar area konten (tidak berubah).
 - Di bawahnya `div.tl-live` (flex, `gap: 16px`, `align-items: flex-start`):
   - kiri `div.tl-live-list` (`flex: 1; min-width: 0`): isi view aktif apa adanya (daftar grup Normal/Compact atau `KanbanView`); mengikuti gulir halaman seperti sekarang; Kanban tetap bergulir horizontal di dalamnya;
-  - kanan `aside.tl-live-panel` (`aria-label="Detail task"`): `width = panelWidth` (`clamp(round(w × 0.5), 420, 680)`), `flex-shrink: 0`, `position: sticky`, `top` = `offsetHeight` `.desktop-topbar` (diukur di `useLiveEdit`; 0 bila tidak ada) + 12 px, `max-height: calc(100vh − top − 16px)`, `overflow-y: auto`, kartu (`--bg-card`, `1px solid var(--border)`, radius 12 px, padding 20 px).
+  - kanan `aside.tl-live-panel` (`aria-label="Detail task"`): `width = panelWidth` (`clamp(round(w × 0.5), 420, 680)`), `flex-shrink: 0`, `position: sticky`, `top` = `offsetHeight` `.desktop-topbar` (diukur di `useLiveEdit`; 0 bila tidak ada) + 12 px, `max-height` diukur langsung (R15, lihat di bawah), `overflow-y: auto`, kartu (`--bg-card`, `1px solid var(--border)`, radius 12 px, padding 20 px).
+- **Tinggi maksimum panel (R15).** `max-height = max(200, innerHeight − max(top, rect.top panel) − 16)` px, ditulis langsung ke elemen (bukan style React) oleh pendengar `scroll` dan `resize` yang pasif dan di-throttle `requestAnimationFrame`, diukur juga saat mount, saat `top` berubah, dan setelah tiap render (isi di atas panel, mis. panel Filter, bisa menggeser panel tanpa gulir atau resize). Rumus statis `calc(100vh − top − 16px)` dari desain awal membuat dasar panel, dan bar aksi (Hapus … Done) yang menempel di dasarnya, jatuh di bawah layar selama halaman belum digulir, karena panel masih berada lebih rendah dari posisi menempelnya. Dengan rumus ini dasar panel selalu 16 px di atas dasar viewport; lantai 200 px menjaga viewport sangat pendek.
 - Tombol aksi panel menempel di bawah panel (`position: sticky; bottom: 0` di dalam panel, latar `--bg-card`, garis atas `inset 0 1px 0 var(--border)`).
 - Tanpa pembatas kolom yang bisa digeser (di luar cakupan).
 
@@ -140,12 +141,16 @@ formFromTask(task) -> form                       // default sama dengan modal: p
 changedFields(saved, form) -> string[]           // urutan EDITABLE_FIELDS; title dibandingkan setelah trim; lainnya ===
 buildPatch(form, fields) -> object               // title trim; deadline kosong -> ""; assigned_to null/"" -> 0; progress Number
 saveTrigger(field, value) -> "now" | "idle" | "blur"
-                                                 // title, progress -> "blur"; description, waiting_for -> "idle";
-                                                 // project, context -> "idle" (nilai kosong -> "blur"); lainnya -> "now"
+                                                 // title, progress, project, context -> "blur" (R19);
+                                                 // description, waiting_for -> "idle"; lainnya -> "now"
 mergeExternal({form, saved}, incomingTask) -> {form, saved}
                                                  // saved' = formFromTask(incoming); untuk tiap field:
                                                  // bila form[f] === saved[f] (tidak dirty) -> form'[f] = saved'[f], selain itu form[f] tetap
-validateTitle(title) -> string|null              // trim kosong -> "Judul tidak boleh kosong"
+validateTitle(title) -> string|null              // kosong, atau kosong setelah `#tag` dibuang (regex server
+                                                 // #([a-zA-Z0-9_À-ɏ]+)) -> "Judul tidak boleh kosong" (R13: judul
+                                                 // hanya-tag membuat setiap autosave berikutnya gagal)
+titleWithTags(title, tags) -> string             // R9: menambah " #nama" untuk tiap tag yang belum ada di judul;
+                                                 // pemanggil memanggil validateTitle lebih dulu
 isNotFound(err) -> boolean                       // status 404 atau pesan "not found"
 selectionReducer(sel, action) -> sel             // sel = {ref, snapshot, cleared}; aksi select | init | deleted | snapshot (§6.2)
 createAutosaver({task, put, onChange, ...}) -> Autosaver   // orkestrasi §7.2–§7.4, diuji di Node
@@ -177,6 +182,7 @@ createAutosaver({task, put, onChange, ...}) -> Autosaver   // orkestrasi §7.2�
   - pilihan sekarang masih ada di `allTasks` dan halaman sama → tetap;
   - selain itu task pertama sesuai urutan tampil (grup terlipat dilewati; Kanban: kartu teratas di kolom pertama yang berisi kartu);
   - tidak ada task → `null` ("Tidak ada task").
+  - Efek init (layout effect, agar tidak ada satu frame "Tidak ada task") juga berjalan saat `visibleTasks` pertama kali berubah dari kosong ke berisi (`hasVisible`): App memulai dengan `loading = false`, jadi task bisa tiba sesudah panel tampil; init itu memakai `keep = true` (halaman sama) sehingga pilihan yang ada, atau keadaan "Pilih task di daftar" setelah Hapus, tidak diganti. Penanda halaman sebelumnya diperbarui hanya saat init benar-benar dikirim, jadi pindah halaman selagi panel tersembunyi (area konten sempit) memilih task pertama halaman baru begitu panel kembali (penyimpangan Task 7).
 - Hapus lewat panel yang berhasil → `null` ("Pilih task di daftar").
 - **Tidak** mengubah pilihan: centang selesai (di baris atau panel), edit yang membuat task keluar dari daftar/filter/cari, drag kartu Kanban, sync, perubahan Group by atau view (bila task masih ada di `allTasks`).
 - `visibleTasks` = urutan task yang sedang dirender di sisi kiri (dibangun bersamaan dengan render grup/papan).
@@ -192,6 +198,7 @@ createAutosaver({task, put, onChange, ...}) -> Autosaver   // orkestrasi §7.2�
 ### 6.4 Task tidak ada di `allTasks`
 
 - Bila `findTask(allTasks, selRef)` null dan `selSnapshot` ada: panel memakai `selSnapshot` dan sekali memeriksa `api.get('/api/tasks/'+ref.id)` (rute lokal). Respons ada → dipakai sebagai snapshot baru; 404/"not found" → keadaan "Task ini sudah dihapus atau tidak bisa diakses lagi." (hanya teks, tanpa isi detail, sama dengan §5.3). Respons `null` juga dianggap tidak ditemukan.
+- **R16.** Keadaan "sudah dihapus" dibuang begitu task ditemukan lagi (di `allTasks` atau lewat pemeriksaan) atau pilihan berganti, dan pemeriksaan satu kali itu dipasang ulang sehingga task yang kemudian benar-benar hilang diperiksa lagi (bukan terus mengedit snapshot basi). Selama panel tersembunyi (area konten sempit) keadaan itu dipertahankan agar panel yang kembali tidak me-mount body task yang sudah dihapus (yang akan meminta catatan/lampiran/checklist dan mendapat 404).
 - Teks keadaan ini menggantikan "Task ini sudah dihapus" yang disebut saat brainstorming, karena task juga bisa hilang dari `allTasks` setelah keluar dari workspace.
 
 ## 7. Edit dan simpan otomatis (variant panel)
@@ -212,18 +219,20 @@ createAutosaver({task, put, onChange, ...}) -> Autosaver   // orkestrasi §7.2�
 
 - `saveTrigger(f) === "now"` (priority, status, deadline, assignee): simpan setelah `onChange`.
 - Progress (`"blur"`): simpan saat `pointerup`, `keyup`, atau `blur` slider, bukan setiap `input`.
-- Project dan Context (`"idle"`): `ComboSelect` mengirim perubahan di setiap ketikan saat membuat nama baru dan nilai kosong saat "+ Baru" dipilih, jadi disimpan 1,5 dtk setelah perubahan terakhir atau saat keluar dari field. Nilai kosong hanya disimpan saat keluar field atau flush, supaya memilih "+ Baru" lalu diam tidak menghapus project lama.
+- Project dan Context (`"blur"`, R19): `ComboSelect` mengirim perubahan di setiap ketikan saat membuat nama baru dan nilai kosong saat "+ Baru" dipilih, sedangkan server membuat project / tahap Kanban untuk setiap nama yang belum ada (`repository.py` resolve project/context). Karena itu nama yang diketik hanya disimpan saat keluar field (blur pembungkus field, pindah fokus di dalamnya diabaikan), `Enter` di dalam field, atau flush; diam tidak menyimpan apa pun, sehingga "Mark" lalu jeda lalu "Marketing" tidak membuat project "Mark". Memilih opsi yang sudah ada di scope (nilai ada di daftar `options` yang sama dengan yang diterima `ComboSelect`) langsung di-`commit`. Nilai kosong dari "+ Baru" juga hanya tersimpan saat keluar field atau flush, supaya memilih "+ Baru" lalu diam tidak menghapus project lama.
 - `"idle"`: simpan `TEXT_IDLE_MS` setelah ketikan terakhir, atau saat `blur`, mana yang lebih dulu.
 - `"blur"` (judul): simpan saat `blur` atau `Enter`. `Escape` di judul mengembalikan judul ke `saved.title`.
 - Flush seketika (semua field dirty dikirim): unmount body (pindah task, panel dimatikan, halaman berganti, area konten menyempit), `visibilitychange` → `hidden`, `pagehide`.
+- **Simpan eksplisit vs bukan (R11).** `commit(field)` (Enter, blur, `pointerup`/`keyup` progress), `flush`, dan `retry` = eksplisit; perubahan "now" dan timer idle bukan. Simpan yang bukan eksplisit membuang field yang `saveTrigger(f, form[f]) === "blur"` (judul, progress, project/context): memilih Priority selagi judul sedang diketik tidak mengirim judul setengah jadi, dan "+ Baru" (project kosong) lalu diam tidak menghapus project lama. Permintaan eksplisit yang tertunda dibawa ke simpan berikutnya.
+- **Flush dan dispose (R12).** `dispose()` (unmount) tetap mengirim flush yang sudah antre: loop tetap memanggil `put` (fire-and-forget, tanpa state atau emit sesudah dispose); flush eksplisit yang antre juga dicoba setelah `put` yang gagal.
 
 ### 7.4 Proses simpan
 
 1. `fields = changedFields(saved, form)`; kosong → selesai tanpa request.
 2. Bila `title` ada di `fields` dan `validateTitle(form.title)` mengembalikan pesan → `title` dikeluarkan dari `fields`, pesan tampil di bawah input judul (`role="alert"`); saat `blur`, `form.title = saved.title`.
-3. `patch = buildPatch(form, fields)` → `api.put('/api/tasks/'+task.id, patch)` (rute lokal; offline aman).
+3. `patch = buildPatch(form, fields)` → `api.put('/api/tasks/'+task.id, patch)` (rute lokal; offline aman). Bila `patch.title` ada, judulnya menjadi `titleWithTags(title, tag task sekarang)` (R9): `PUT /api/tasks/:id` yang memuat `title` menimpa tag task dengan `#tag` dari judul itu (server `webapp.py` dan `TFrepo.updateTask` lewat `extractTags`), dan judul yang tersimpan tidak memuat `#tag`, jadi tanpa ini tiap simpan judul menghapus semua tag. Sebelum setiap simpan judul, tag task dimuat ulang (R21; `GET /api/tasks/:id/tags` rute lokal, jalan offline) dan judul disusun dari hasil muatan itu, bukan dari chip yang dimuat saat mount: tag bisa diubah lewat modal atau perangkat lain, dan daftar basi akan memulihkan tag yang sudah dihapus atau menghapus tag baru. Gagal dimuat → diambil ulang sekali; gagal lagi → `put` ditolak (indikator "Gagal menyimpan", tag tetap utuh, "Coba lagi" memuat lagi) (R14: tanpa daftar tag, `titleWithTags(title, [])` menghapus semua tag). Sesudah simpan yang mengirim judul chip tag dimuat ulang (judul dengan `#tagbaru` menjadi tag); di panel chip juga dimuat ulang setiap kali `task.updated_at` berubah (sync, modal, perangkat lain).
 4. Satu simpan berjalan pada satu waktu per panel; pemicu yang datang saat simpan berjalan ditandai dan dijalankan sekali setelah selesai (dengan `changedFields` terbaru).
-5. Sukses → untuk tiap field di `fields`: `saved[f] = nilai yang dikirim`, kecuali judul: `saved.title = form.title = respons.title` bila respons membawa judul (karena `#tag` dipisah menjadi tag), sehingga input judul menampilkan judul tanpa tag; `window.dispatchEvent(new CustomEvent("taskUpdated", {detail: {taskId}}))` dan `onRefresh()` di-debounce 500 ms agar daftar kiri ikut terbarui.
+5. Sukses → untuk tiap field di `fields`: `saved[f] = nilai yang dikirim` (R10: dan `form[f] = saved[f]` bila nilai form-nya belum berubah sejak dikirim, sehingga nilai yang dinormalkan, mis. judul yang di-trim, tidak tersisa sebagai field "dirty" basi bagi `mergeExternal`; UI menyimpan progress dan assignee sebagai angka seperti `parseInt` yang sudah ada), kecuali judul: `saved.title = form.title = respons.title` bila respons membawa judul (karena `#tag` dipisah menjadi tag), sehingga input judul menampilkan judul tanpa tag; `window.dispatchEvent(new CustomEvent("taskUpdated", {detail: {taskId}}))` dan `onRefresh()` di-debounce 500 ms agar daftar kiri ikut terbarui.
 6. Gagal → `saved` tidak berubah, nilai form tidak dibuang, indikator "Gagal menyimpan" + tombol "Coba lagi" (menjalankan langkah 1–5 lagi). Pesan error lokal (mis. "Judul tidak boleh kosong setelah strip tag") ditampilkan di bawah indikator.
 - Saat unmount, flush memanggil `api.put` tanpa menunggu hasil (fire-and-forget); router lokal menulis IndexedDB secara asinkron sehingga tetap tersimpan.
 
@@ -293,6 +302,7 @@ createAutosaver({task, put, onChange, ...}) -> Autosaver   // orkestrasi §7.2�
   - drag kartu Kanban saat panel tampil → pilihan tidak berubah;
   - 375 px dan 900 px dengan sidebar lebar (< 760 px area konten) → tombol tidak ada, klik membuka modal;
   - mode gelap; tanpa error konsol/pageerror.
+- **Realisasi** (`temporary_files/e2e_live_edit.py`, 118 langkah) menambah kasus dari tinjauan tiap task: task pertama terbuka juga saat daftar tiba sesudah panel tampil (muat segar dengan Live Edit nyala, dan daftar kosong lalu task tiba); task terpilih dihapus di tempat lain → hanya teks "sudah dihapus" (R6/R16); tanpa kedip di sekitar ambang 760 px (scrollbar klasik sungguhan, daftar pendek berjudul panjang; diuji kena bila kompensasi lebar scrollbar dicabut); bar aksi (Hapus … Done) di dalam viewport pada scrollTop 0 dan sesudah digulir dengan task tinggi; mengganti judul mempertahankan tag dan `#tagbaru` di judul menjadi tag (lokal dan server); "+ Baru" project lalu diam 2 dtk tidak menghapus project lama; nama project baru yang diketik lalu diam tidak tersimpan sampai keluar field, nama project dan context yang diketik dua bagian dengan jeda 2 dtk lalu blur/Enter hanya membuat nama lengkap di server (tanpa "Pema"/"@gud"), memilih project yang sudah ada tersimpan langsung (R19); tag yang dihapus di luar panel tidak dipulihkan oleh simpan judul berikutnya (R21) — kasus R19/R21 diuji kena pada kode klien sebelum perbaikan (8 langkah gagal); membuka 3 task tidak menyimpan apa pun, diuji dengan halaman OFFLINE (CDP) supaya op tidak terkuras oleh push 1,5 dtk setelah mutasi: `_outbox` (basis data IndexedDB `taskflow-offline`) tetap dan `updated_at`/`rev`/`dirty` rekaman lokal tiap task tetap (diuji kena bila panel menyimpan saat dibuka); berpindah view/task secara online tidak mengirim request tulis ke `/api/tasks*`. Catatan harness: memilih menu di sidebar selalu melipat sidebar ke bilah ikon (efek `[page]` di App), jadi "sidebar lebar" didapat dengan menekan › sesudah berpindah halaman; di 900 px bilah ikon masih memberi area konten ≈ 780 px (Live Edit tersedia), baru sidebar lebar menurunkannya di bawah 760 px. Pengecualian konsol: 404 pra-ada `GET /api/tasks/:id` dari `syncpull` (konfirmasi "task benar-benar hilang") setelah hapus + sync, dan `net::ERR_INTERNET_DISCONNECTED` untuk URL `/api/...` selama emulasi offline; akhir skrip menegaskan bahwa setiap respons >= 400 pada `/api/tasks/<id>` adalah `GET` 404.
 
 ## 10. Rilis
 
@@ -301,9 +311,9 @@ createAutosaver({task, put, onChange, ...}) -> Autosaver   // orkestrasi §7.2�
   - `static/offline/liveedit.js` masuk `STATIC` di `sw.js` (URL persis) dan dimuat lewat `<script>` di `index.html` bersama modul offline lain;
   - CSS baru di `static/app.css` (`.tl-live*`, `.tl-live-btn`, `.is-selected`, `.compact-row`, token `--bg-selected` terang/gelap) → `app.css?v=` naik di `index.html` dan `STATIC`;
   - versi SW naik (nama cache `taskflow-v<N>-live-edit`), tes versi disesuaikan;
-  - entri teratas `static/whatsnew.json` untuk pengguna, contoh: judul "Edit task langsung di samping daftar", poin baru "Tombol Live Edit di halaman task: pilih task di kiri, edit detailnya langsung di kanan tanpa membuka jendela." dan "Perubahan di panel tersimpan otomatis.";
+  - entri teratas `static/whatsnew.json` untuk pengguna: judul "Edit task langsung di samping daftar", poin baru "Tombol Live Edit di halaman task: pilih task di kiri, lalu edit detailnya langsung di kanan tanpa membuka jendela." dan "Perubahan di panel tersimpan otomatis, juga saat offline.";
   - ADR di `.agents/DECISIONS.md` (§13).
-- Keduanya file statis saja: tanpa migrasi, tanpa perubahan `webapp.py`, tanpa restart `taskflow-web` (`/api/version` membaca `sw.js`).
+- Keduanya file statis saja: tanpa migrasi, tanpa perubahan `webapp.py`, tanpa restart `taskflow-web` (`/api/version` membaca `sw.js`). **Pengecualian R20 (PR B, commit tersendiri):** autosave panel membuat banyak `PUT` per sesi edit, dan setiap `PUT` task workspace mengirim notifikasi "✏️ … memperbarui task …" (in-app + Telegram) ke semua anggota; `update_task` di `webapp.py` melewatinya bila aktor yang sama sudah memicunya untuk task yang sama dalam `TASK_UPDATE_NOTIFY_WINDOW_MIN = 10` menit terakhir (notifikasi penugasan tidak terpengaruh). Dengan commit ini deploy PR B butuh `sudo systemctl restart taskflow-web`; tanpa commit ini (di-drop) PR B kembali file statis saja.
 - Merge hanya setelah pemilik bilang "merge dan deploy". `CURRENT_STATE.md` dan `SESSION_LOG.md` diperbarui di tiap PR.
 
 ## 11. Di luar cakupan
@@ -321,10 +331,12 @@ createAutosaver({task, put, onChange, ...}) -> Autosaver   // orkestrasi §7.2�
 
 - `TaskDetailModal.handleSave` mengirim `assigned_to: null` saat assignee dikosongkan, sedangkan `updateTask` hanya melepas assignee dengan `0`; kemungkinan assignee tidak bisa dilepas lewat modal. Panel memakai `0` lewat `buildPatch`.
 - Cabang offline `handleSave` (`OfflineDB.queueAdd`) tampak tidak terpakai karena `PUT /api/tasks/:id` dilayani rute lokal.
+- **Bug lama di modal (ada di `main`, tidak diperbaiki di fitur ini; tindak lanjut terpisah):** menyimpan lewat modal (💾 Simpan) selalu mengirim `title`, dan server maupun store lokal (`TFrepo.updateTask` lewat `extractTags`) mengganti tag task dengan `#tag` yang ada di judul itu. Judul yang tersimpan tidak memuat `#tag`, jadi **semua tag task terhapus pada setiap simpan lewat modal**. Dicek di `main`: tag terpasang → ✏️ Edit → Simpan → tag kosong. Panel Live Edit menghindarinya lewat `titleWithTags` (R9) dan tidak mengirim judul bila judul tidak berubah; perilaku modal sengaja tidak diubah (K3, PR A).
+- Overlay "Task dengan tag" (`position: absolute; inset: 0`) ikut tergulir bersama isi `.modal-content` / `aside.tl-live-panel` (ada di `main`): saat kotak tergulir, overlay tidak menutupi seluruh area yang terlihat; bounding box sama dengan kotak hanya pada scrollTop 0. Perilaku panel sama dengan modal.
 
 ## 13. ADR
 
 **ADR-031 (atau nomor kosong berikutnya): Satu isi detail task untuk modal dan panel; panel Live Edit menyimpan otomatis per field yang berubah.**
 - **Konteks:** Pengguna ingin mengedit detail task di samping daftar tanpa membuka/menutup modal. Isi modal ±1.080 baris; menyalinnya untuk panel berarti dua salinan yang harus dirawat. Simpan task lokal menambah op outbox penuh tanpa penggabungan; autosave note pernah menimpa edit orang lain karena menyimpan saat dibuka.
-- **Keputusan:** `TaskDetailBody` dengan `variant: "modal" | "panel"`; modal tetap lihat → Edit → Simpan; panel langsung edit dengan autosave yang hanya mengirim field berubah (judul saat blur/Enter, teks panjang saat blur/1,5 dtk diam, pilihan langsung) dan tidak pernah menyimpan saat dibuka. Panel Live Edit adalah toggle per perangkat (`tf_liveedit`) yang terpisah dari view, tersedia bila area konten ≥ 760 px.
+- **Keputusan:** `TaskDetailBody` dengan `variant: "modal" | "panel"`; modal tetap lihat → Edit → Simpan; panel langsung edit dengan autosave yang hanya mengirim field berubah (judul dan nama project/context yang diketik saat blur/Enter, teks panjang saat blur/1,5 dtk diam, pilihan langsung) dan tidak pernah menyimpan saat dibuka. Panel Live Edit adalah toggle per perangkat (`tf_liveedit`) yang terpisah dari view, tersedia bila area konten ≥ 760 px.
 - **Konsekuensi:** Satu tempat untuk mengubah isi detail task. Ada percabangan `variant` di dalam body. Edit panjang di panel menghasilkan beberapa op outbox (bukan satu per huruf). Memperluas autosave ke modal cukup mengganti cabang `variant`.

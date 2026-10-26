@@ -51,8 +51,8 @@ test("NotesPage memakai glyph yang ditentukan", () => {
 });
 
 test("versi SW di-bump", () => {
-  assert.match(sw, /taskflow-v469-task-detail-body/);
-  assert.match(indexHtml, /taskflow-v469-task-detail-body/);
+  assert.match(sw, /taskflow-v470-live-edit/);
+  assert.match(indexHtml, /taskflow-v470-live-edit/);
   assert.ok(!/taskflow-v44[0-3]-/.test(indexHtml));
 });
 
