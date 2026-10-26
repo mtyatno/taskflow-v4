@@ -86,10 +86,10 @@ test("formFromTask / changedFields / buildPatch", () => {
   assert.deepEqual(le.buildPatch({ title: "  X  ", deadline: "", assigned_to: null, progress: "40", priority: "P1" },
     ["title", "deadline", "assigned_to", "progress"]), { title: "X", deadline: "", assigned_to: 0, progress: 40 });
 });
-test("saveTrigger (R1, R19: project/context selalu blur)", () => {
-  for (const [f, v, want] of [["title", "x", "blur"], ["progress", 10, "blur"], ["description", "x", "idle"], ["waiting_for", "x", "idle"],
+test("saveTrigger (R1, R19: project/context selalu blur; redesain detail §6.2: deadline & waiting_for blur)", () => {
+  for (const [f, v, want] of [["title", "x", "blur"], ["progress", 10, "blur"], ["description", "x", "idle"], ["waiting_for", "x", "blur"],
     ["project", "Alpha", "blur"], ["project", "", "blur"], ["project", "   ", "blur"], ["context", "", "blur"], ["context", "Rapat", "blur"],
-    ["priority", "P1", "now"], ["gtd_status", "done", "now"], ["deadline", "2026-10-30", "now"], ["assigned_to", 3, "now"]])
+    ["priority", "P1", "now"], ["gtd_status", "done", "now"], ["deadline", "2026-10-30", "blur"], ["assigned_to", 3, "now"]])
     assert.equal(le.saveTrigger(f, v), want, f + "=" + v);
 });
 test("mergeExternal: field dirty dipertahankan, lainnya ikut data baru", () => {
@@ -157,6 +157,15 @@ function mk(task, putImpl) {
 }
 const tick = () => new Promise(r => setImmediate(r));
 
+test("deadline & waiting_for: tidak ikut simpan non-eksplisit; commit mengirimnya", async () => {
+  const { s, calls } = mk(T());
+  s.change("deadline", "0002-11-15"); s.change("deadline", "2026-11-15"); await tick();
+  assert.equal(calls.length, 0, "ketikan tanggal tidak tersimpan per digit");
+  s.change("priority", "P1"); await tick();
+  assert.deepEqual(calls, [{ priority: "P1" }], "pilihan 'now' tidak membawa deadline yang belum dikomit");
+  s.change("waiting_for", "Budi"); s.commit("deadline"); await tick();
+  assert.deepEqual(calls[1], { deadline: "2026-11-15", waiting_for: "Budi" });
+});
 test("dibuka tanpa diubah: flush tidak memanggil put", async () => { const { s, calls } = mk(T()); await s.flush(); assert.equal(calls.length, 0); });
 test("pilihan langsung tersimpan", async () => {
   const { s, calls, states } = mk(T()); s.change("priority", "P1"); await tick();
