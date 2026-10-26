@@ -9079,7 +9079,10 @@ function DatePicker({
     className: "input td-pop-input",
     type: "date",
     "aria-label": "Tanggal deadline",
-    value: value || "",
+    // Tak terkendali: input terkendali akan dikembalikan React ke nilai lama setiap kali perubahan badInput
+    // diabaikan, sehingga segmen tidak bisa diketik ulang (mis. 31 Jan → bulan 02). Popover dipasang ulang tiap dibuka
+    // dan nilai hanya berubah lewat input ini atau onPick (yang menutup popover).
+    defaultValue: value || "",
     onKeyDown: e => {
       // Tanggal setengah diketik bernilai "": Enter tidak boleh menghapus deadline.
       if (e.key === "Enter" && e.currentTarget.value) {
@@ -9087,7 +9090,12 @@ function DatePicker({
         onPick(e.currentTarget.value);
       }
     },
-    onChange: e => onChange(e.target.value)
+    // Segmen yang dikosongkan / tanggal tidak valid (mis. 31 Februari) dilaporkan sebagai "" + validity.badInput:
+    // abaikan, supaya menutup popover tidak menghapus deadline. Menghapus sengaja lewat "Hapus deadline".
+    onChange: e => {
+      if (e.target.validity && e.target.validity.badInput) return;
+      onChange(e.target.value);
+    }
   }), value && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "td-pop-item is-danger",
@@ -9185,6 +9193,7 @@ function TagAdder({
   const submit = async raw => {
     if (busyRef.current) return;
     busyRef.current = true;
+    const typed = text; // isi input saat dikirim (raw bisa berupa saran yang diklik)
     let msg = null;
     try {
       msg = await onAdd(raw);
@@ -9194,7 +9203,8 @@ function TagAdder({
     busyRef.current = false;
     if (!aliveRef.current) return;
     setErr(msg || null);
-    if (!msg) setText("");
+    // Hanya kosongkan bila input masih berisi teks yang dikirim (ketikan baru selama menunggu tidak terhapus).
+    if (!msg) setText(t => t === typed ? "" : t);
   };
   return /*#__PURE__*/React.createElement("div", {
     className: "td-tag-adder"
@@ -9452,7 +9462,7 @@ function TaskDetailBody({
 }) {
   if (!task) return null;
   // Redesain detail (spec §6.1): modal dan panel sama-sama selalu bisa diedit dan tersimpan otomatis (useTaskAutosave,
-  // aturan Live Edit R9–R21). variant hanya mengatur hal khusus wadah: modal ditutup setelah Pindah/Fokus, ✕ lewat
+  // aturan Live Edit R9–R21). variant hanya mengatur hal khusus wadah: modal ditutup setelah Pindah, ✕ lewat
   // headerAction (null di panel).
   const isPanel = variant === "panel";
   // Pesan judul tidak valid tetap tampil setelah blur mengembalikan judul; hilang saat judul diubah lagi.
@@ -9721,14 +9731,16 @@ function TaskDetailBody({
   };
   const handleAddSub = async () => {
     if (!newSub.trim() || addingSub) return;
+    const submitted = newSub;
     setAddingSub(true);
     try {
       const result = await api.post(`/api/tasks/${task.id}/subtasks`, {
-        title: newSub.trim(),
+        title: submitted.trim(),
         client_id: subClientId.current
       });
       setSubtasks(prev => [...prev, result]);
-      setNewSub("");
+      // Ketikan baru selama menunggu tidak terhapus: kosongkan hanya bila input masih berisi teks yang dikirim.
+      setNewSub(t => t === submitted ? "" : t);
       // Input tetap terbuka untuk butir berikutnya (Escape menutup).
       subClientId.current = genId();
     } catch (err) {
@@ -9790,17 +9802,18 @@ function TaskDetailBody({
   }, [fv.description]);
   const handleAddChildTask = async () => {
     if (!newChildTitle.trim() || addingChild) return;
+    const submitted = newChildTitle;
     setAddingChild(true);
     try {
       // Rute lokal (TF.taskrepo.createTask) hanya membaca parent_cid; parent_id saja menghasilkan task yatim lokal.
       // Push mengubah parent_cid kembali menjadi parent_id server.
       await api.post("/api/tasks", {
-        title: newChildTitle.trim(),
+        title: submitted.trim(),
         gtd_status: "inbox",
         parent_id: task.id,
         parent_cid: task.cid || null
       });
-      setNewChildTitle("");
+      setNewChildTitle(t => t === submitted ? "" : t);
       fetchChildTasks();
     } catch (err) {
       console.error(err);
@@ -9908,7 +9921,6 @@ function TaskDetailBody({
   const assigneeMember = fv.assigned_to ? listMembers.find(u => String(u.id) === String(fv.assigned_to)) : null;
   const assigneeName = assigneeMember ? assigneeMember.display_name || assigneeMember.username : fv.assigned_to ? task.assigned_to_name || "Anggota" : "";
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DetailTopBar, {
-
     task: parentInfo ? {
       ...task,
       parent_id: parentInfo.id,

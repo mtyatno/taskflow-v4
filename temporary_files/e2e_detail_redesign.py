@@ -46,6 +46,8 @@ Kelompok (E2E_ONLY=autosave,... menjalankan sebagian; kosong = semua). Tiap kelo
          popover ditutup (klik di luar); online → server deadline 2026-11-15
     P-4  (Review Focus 5) P1 + "Hari ini" → chip Q1 tanpa reload; tanggal kemarin diketik → chip "Terlambat" dan nilai
          Deadline is-danger; "Hapus deadline" → chip hilang, nilai "+ Tambah"
+    P-8  (review akhir) deadline 2026-11-15: segmen hari dikosongkan (Backspace → value "" + badInput) lalu klik di
+         luar → nilai tetap "15 Nov 2026", deadline lokal dan server tetap
     P-5  workspace dua anggota: Assign ke anggota → server assigned_to; "Lepas" → task lokal tanpa assignee (server
          tidak ikut: bug pra-ada syncpush.js mengirim assigned_to null yang diabaikan PUT; dicetak di akhir)
     P-6  Escape menutup popover dan fokus kembali ke tombol nilai; detail tanpa select / .input-label
@@ -1147,6 +1149,30 @@ def run_props(browser, base):
             check("%s P-3d online → server deadline 2026-11-15" % tag,
                   wait_until(lambda: (server_task(base, user, did).get("deadline") or "")[:10] == "2026-11-15", 30),
                   repr(server_task(base, user, did).get("deadline")))
+
+            # ── P-8: segmen hari dikosongkan (value "" + validity.badInput) lalu klik di luar → deadline tetap ──
+            prop_btn(p, scope, "Deadline").click()
+            dinp = p.locator(POP + ' input[type="date"]').first
+            dinp.wait_for(timeout=3000)
+            dinp.focus()  # fokus ke segmen pertama (bulan, en-US)
+            p.keyboard.press("ArrowRight")  # → segmen hari
+            p.keyboard.press("Backspace")
+            p.wait_for_timeout(300)
+            st = dinp.evaluate("e => ({v: e.value, bad: e.validity.badInput})")
+            check("%s P-8a prasyarat: segmen hari kosong → input value '' + badInput" % tag,
+                  st.get("v") == "" and st.get("bad") is True, repr(st))
+            click_outside(p, scope)
+            wait_until(lambda: pops(p) == 0, 3)
+            p.wait_for_timeout(2500)
+            p.evaluate("() => window.__pushNow && window.__pushNow()")
+            p.wait_for_timeout(2500)
+            check("%s P-8b nilai Deadline tetap '15 Nov 2026' (bukan '+ Tambah')" % tag,
+                  prop_btn(p, scope, "Deadline").inner_text().strip() == "15 Nov 2026",
+                  prop_btn(p, scope, "Deadline").inner_text())
+            check("%s P-8c lokal dan server deadline tetap 2026-11-15" % tag,
+                  (local_task(p, did).get("deadline") or "")[:10] == "2026-11-15"
+                  and (server_task(base, user, did).get("deadline") or "")[:10] == "2026-11-15",
+                  "lokal=%r server=%r" % (local_task(p, did).get("deadline"), server_task(base, user, did).get("deadline")))
 
             # ── P-5: Assign ke anggota workspace, lalu Lepas ──
             wid = ids[PR_WS]

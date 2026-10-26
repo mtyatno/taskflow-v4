@@ -114,6 +114,25 @@ test("DatePicker / MemberPicker / TextPicker / OptionPicker", () => {
     assert.doesNotMatch(fnSource(nm), EMOJI, nm);
 });
 
+test("DatePicker: tanggal setengah diketik (validity.badInput) tidak masuk form", () => {
+  const d = fnSource("DatePicker");
+  const i = d.indexOf("e.target.validity && e.target.validity.badInput"), j = d.indexOf("onChange(e.target.value)");
+  assert.ok(i > 0 && j > i, "badInput dicek sebelum onChange");
+  assert.match(d, /if \(e\.target\.validity && e\.target\.validity\.badInput\) return;/);
+  // Tak terkendali: input terkendali dikembalikan React ke nilai lama, segmen tidak bisa diketik ulang.
+  assert.match(d, /defaultValue: value \|\| ""/); assert.doesNotMatch(d, /\bvalue: value \|\| ""/);
+});
+test("tambah checklist / subtask / tag: input dikosongkan hanya bila masih berisi teks yang dikirim", () => {
+  const s = fnSource("TaskDetailBody");
+  assert.match(s, /setNewSub\(t => t === submitted \? "" : t\)/);
+  assert.match(s, /setNewChildTitle\(t => t === submitted \? "" : t\)/);
+  assert.doesNotMatch(s, /setNewSub\(""\);\s*\/\/ Input tetap terbuka/);
+  assert.doesNotMatch(s, /setNewChildTitle\(""\);\s*fetchChildTasks/);
+  const t = fnSource("TagAdder");
+  assert.match(t, /const typed = text;/); assert.match(t, /setText\(t => t === typed \? "" : t\)/);
+  assert.doesNotMatch(t, /if \(!msg\) setText\(""\)/);
+});
+
 // ── Task 5: baris Tag dan tambah tag lewat judul #tag (spec §4.4, §6.3, ADR-032) ──
 test("addTag: normalisasi, lewati yang sudah ada, flush dulu, tag segar, PUT judul tersimpan + #tag", () => {
   const s = fnSource("TaskDetailBody");
