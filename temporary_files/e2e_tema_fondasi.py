@@ -3,12 +3,19 @@
 Refactor token warna tidak boleh mengubah satu piksel pun tampilan Default terang/gelap. Skrip ini mengambil
 16 screenshot (1280x900, full page) dari server lokal bertemp DB, lalu membandingkannya:
 
-    python3 temporary_files/e2e_tema_fondasi.py baseline        # dari main (static/ belum diubah) -> baseline/
-    python3 temporary_files/e2e_tema_fondasi.py compare         # pohon kerja sekarang -> after/, lalu PASS/FAIL per gambar
+    python3 temporary_files/e2e_tema_fondasi.py baseline --ref 64f3782   # commit itu -> baseline/ (aman dijalankan kapan saja)
+    python3 temporary_files/e2e_tema_fondasi.py compare                  # pohon kerja sekarang -> after/, PASS/FAIL per gambar
     python3 temporary_files/e2e_tema_fondasi.py compare --tolerance 3
 
+`baseline --ref` men-checkout commit ke `git worktree` sementara dan menjalankan uvicorn dari sana (static/ dan webapp.py
+milik commit itu), lalu menghapus worktree-nya. Tanpa --ref skrip menolak jalan, kecuali `--force` (ambil dari pohon
+kerja; bila static/ sudah diubah, compare berikutnya lolos tanpa makna). Asal baseline dicatat di baseline/meta.json
+({"ref", "static_tree", "date"}) dan dicetak di kepala `compare`. Screenshot ditulis ke direktori staging dan baru
+menggantikan baseline/ (atau after/) bila 16 gambarnya lengkap: kegagalan di tengah jalan tidak merusak yang lama.
+
 `compare` keluar non-zero bila ada gambar yang beda: piksel beda = ada kanal RGB selisih > tolerance (default 3);
-ukuran berbeda atau berkas hilang = FAIL. Gambar beda ditulis ke diff/ (piksel beda merah di atas baseline redup).
+ukuran berbeda atau berkas hilang = FAIL. Tiap baris memuat jumlah piksel beda dan selisih kanal terbesar
+(seluruh gambar). Gambar beda ditulis ke diff/ (piksel beda merah di atas baseline redup).
 
 Halaman (nama berkas `<halaman>-<mode>.png`; semuanya lewat link sidebar kecuali halaman awal). Aplikasi tidak punya
 id halaman `focus`/`kanban`/`tasks` sendiri, jadi dipetakan ke tampilan yang berbeda dari halaman yang sama:
@@ -18,14 +25,17 @@ id halaman `focus`/`kanban`/`tasks` sendiri, jadi dipetakan ke tampilan yang ber
   tasks      "Semua Task", view Normal, kelompok Kuadran (bawaan)
   kanban     "Semua Task", view Kanban, kelompok Priority
 Server uvicorn: E2E_PYTHON bila diset, lalu venv repo bila dependensi webapp-nya lengkap, lalu interpreter ini.
+Banner onboarding Dashboard ikut tampil bila kondisinya terpenuhi (tf_dismiss_onboarding tidak diset).
 Penentu determinisme: tanpa animasi (reduced_motion + animations="disabled"), tema lewat localStorage.tf_theme,
 font Google diblokir (selalu font cadangan, tak bergantung jaringan), data seed tetap (judul tetap; deadline = hari ini),
 jam browser dibekukan pada 10.00 hari ini (sapaan "Selamat pagi") dan jam pada kartu note diganti teks tetap.
 Tanggal hari ini ikut tampil (kalender, header, deadline): baseline dan compare harus dijalankan pada hari kalender
-yang sama; compare menolak berjalan bila baseline dibuat pada hari lain.
+yang sama; compare menolak berjalan bila baseline dibuat pada hari lain (ulangi `baseline --ref`).
 """
 import argparse
 import datetime
+import glob
+import json
 import os
 import re
 import shutil
@@ -37,12 +47,9 @@ import time
 
 import requests
 from PIL import Image, ImageChops
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import TimeoutError as PlaywrightTimeout, sync_playwright
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-with open(os.path.join(ROOT, "static", "sw.js"), encoding="utf-8") as _f:
-    # Versi SW saat ini: ditulis ke tf_whatsnew_seen agar modal "Apa yang baru" tidak menutupi UI.
-    SW_VERSION = re.search(r'^const CACHE = "([^"]+)";', _f.read(), re.M).group(1)
 SHOTS = os.path.join(ROOT, "temporary_files", "e2e_tema_fondasi")
 PW = "rahasia123"
 SECRET = "e2e-tema-fondasi-secret-0123456789abcd"
@@ -66,7 +73,7 @@ PAGES = [
     ("kanban", "Semua Task", "priority", "kanban", TASKS[0][0]),
     ("settings", "Pengaturan", "quadrant", "normal", None),
 ]
-DATE_FILE = "tanggal.txt"
+META_FILE = "meta.json"
 FONT_HOSTS = re.compile(r"https://fonts\.(googleapis|gstatic)\.com/")
 # Jam server pada kartu note ("26 Okt 2026, 21.03") berubah tiap menit: teksnya diganti konstanta, gayanya tetap.
 FREEZE_CLOCK_TEXT_JS = """() => {
@@ -76,6 +83,25 @@ FREEZE_CLOCK_TEXT_JS = """() => {
 }"""
 
 results = []
+
+
+def sw_version(repo):
+    """Versi SW milik `repo`: ditulis ke tf_whatsnew_seen agar modal "Apa yang baru" tidak menutupi UI."""
+    with open(os.path.join(repo, "static", "sw.js"), encoding="utf-8") as f:
+        return re.search(r'^const CACHE = "([^"]+)";', f.read(), re.M).group(1)
+
+
+def git(*args):
+    r = subprocess.run(["git", "-C", ROOT] + list(args), capture_output=True, text=True)
+    if r.returncode:
+        raise RuntimeError("git %s gagal: %s" % (" ".join(args), r.stderr.strip()))
+    return r.stdout.strip()
+
+
+def working_tree_meta():
+    """Asal pohon kerja sekarang: HEAD, hash static/ di HEAD, dan `dirty` bila static/ berbeda dari HEAD."""
+    return {"ref": git("rev-parse", "HEAD"), "static_tree": git("rev-parse", "HEAD:static"),
+            "dirty": bool(git("status", "--porcelain", "--", "static")), "date": datetime.date.today().isoformat()}
 
 
 def check(step, ok, note=""):
@@ -103,14 +129,14 @@ def server_python():
     return sys.executable
 
 
-def start_server(tmp):
+def start_server(tmp, repo):
     port = free_port()
     env = dict(os.environ, DB_PATH=os.path.join(tmp, "e2e.db"), UPLOAD_DIR=os.path.join(tmp, "uploads"),
                WEB_SECRET_KEY=SECRET, TELEGRAM_BOT_TOKEN="")
     os.makedirs(env["UPLOAD_DIR"], exist_ok=True)
     log = open(os.path.join(tmp, "server.log"), "w")
     proc = subprocess.Popen([server_python(), "-m", "uvicorn", "webapp:app", "--host", "127.0.0.1",
-                             "--port", str(port)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT)
+                             "--port", str(port)], cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT)
     base = "http://127.0.0.1:%d" % port
     for _ in range(120):
         try:
@@ -149,7 +175,7 @@ def seed(base):
     return user
 
 
-def open_app(browser, base, user, mode, groupby, viewmode):
+def open_app(browser, base, user, mode, groupby, viewmode, sw):
     ctx = browser.new_context(service_workers="block", viewport=VIEWPORT, reduced_motion="reduce")
     ctx.route(FONT_HOSTS, lambda route: route.abort())
     ctx.clock.set_fixed_time(datetime.datetime.combine(datetime.date.today(), datetime.time(10, 0)))
@@ -159,12 +185,11 @@ def open_app(browser, base, user, mode, groupby, viewmode):
     p.evaluate("""([t, u, tours, mode, sw, groupby, viewmode]) => {
         localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(u));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
-        localStorage.setItem('tf_dismiss_onboarding', '1');
         localStorage.setItem('tf_whatsnew_seen', sw);
         localStorage.setItem('tf_theme', mode);
         localStorage.setItem('tf_groupby', groupby);
         localStorage.setItem('tf_viewmode', viewmode);
-    }""", [user["token"], user["id"], TOURS, mode, SW_VERSION, groupby, viewmode])
+    }""", [user["token"], user["id"], TOURS, mode, sw, groupby, viewmode])
     p.goto(base + "/")
     p.locator(".sidebar-link, .sidebar-rail-btn").first.wait_for(state="attached", timeout=20000)
     return ctx, p
@@ -178,43 +203,77 @@ def nav(page, label):
     link.click()
 
 
-def shoot(browser, base, user, name, label, groupby, viewmode, ready_text, mode, out_dir):
-    ctx, p = open_app(browser, base, user, mode, groupby, viewmode)
+def stable_screenshot(page, path):
+    """Screenshot full page yang dua kali berturut-turut identik: membuang keadaan antara (transisi/render yang belum
+    selesai) yang pernah menyisakan 2 piksel beda di satu gambar. Halaman yang tak kunjung stabil = error, bukan flake."""
+    prev = None
+    for _ in range(5):
+        data = page.screenshot(full_page=True, animations="disabled", caret="hide", scale="css")
+        if data == prev:
+            with open(path, "wb") as f:
+                f.write(data)
+            return
+        prev = data
+        page.wait_for_timeout(300)
+    raise RuntimeError("halaman tidak stabil, screenshot terus berubah: " + os.path.basename(path))
+
+
+def focus_first_task(page):
+    """Klik Fokus pada task pertama; klik yang jatuh ke baris yang sedang dirender ulang diulang (tanpa toggle ganda)."""
+    for attempt in range(3):
+        page.locator(".ftask").first.locator(".ftask-focus-btn").click()
+        try:
+            page.locator(".ftask.is-focusing").wait_for(state="attached", timeout=5000)
+            return
+        except PlaywrightTimeout:
+            if attempt == 2:
+                raise
+
+
+def shoot(browser, base, user, page, mode, out_dir, sw):
+    name, label, groupby, viewmode, ready_text = page
+    ctx, p = open_app(browser, base, user, mode, groupby, viewmode, sw)
     try:
         if label:
             nav(p, label)
         if ready_text:
             p.get_by_text(ready_text).first.wait_for(state="visible", timeout=20000)
         if name == "focus":
-            p.locator(".ftask").first.locator(".ftask-focus-btn").click()
-            p.locator(".ftask.is-focusing").wait_for(state="attached", timeout=10000)
+            focus_first_task(p)
         p.mouse.move(5, 5)
         p.wait_for_timeout(600)
         p.evaluate(FREEZE_CLOCK_TEXT_JS)
         path = os.path.join(out_dir, "%s-%s.png" % (name, mode))
-        p.screenshot(path=path, full_page=True, animations="disabled", caret="hide", scale="css")
-        print("  screenshot", os.path.relpath(path, ROOT), flush=True)
+        stable_screenshot(p, path)
+        print("  screenshot", os.path.basename(path), flush=True)
     finally:
         ctx.close()
 
 
-def capture(out_dir):
-    """Ambil 16 screenshot dari pohon kerja sekarang ke out_dir (dikosongkan dulu); tanggalnya dicatat di tanggal.txt."""
-    shutil.rmtree(out_dir, ignore_errors=True)
-    os.makedirs(out_dir)
-    with open(os.path.join(out_dir, DATE_FILE), "w") as f:
-        f.write(datetime.date.today().isoformat())
+def capture(out_dir, repo, meta):
+    """Ambil 16 screenshot dari server yang melayani `repo` ke direktori staging, lalu pindahkan ke out_dir
+    (menggantikan isi lamanya) hanya bila semuanya berhasil, bersama meta.json; kegagalan tidak menyentuh out_dir."""
+    os.makedirs(SHOTS, exist_ok=True)
+    for stale in glob.glob(os.path.join(SHOTS, ".staging-*")):  # sisa proses yang dimatikan paksa
+        shutil.rmtree(stale, ignore_errors=True)
+    sw = sw_version(repo)
     tmp = tempfile.mkdtemp(prefix="e2e_tema_fondasi_")
-    proc, base = start_server(tmp)
-    print("server", base, "->", os.path.relpath(out_dir, ROOT), flush=True)
+    proc, base = start_server(tmp, repo)
+    print("server", base, "dari", repo, "->", os.path.relpath(out_dir, ROOT), flush=True)
+    staging = None
     try:
+        staging = tempfile.mkdtemp(prefix=".staging-", dir=SHOTS)
         user = seed(base)
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for mode in MODES:
-                for name, label, groupby, viewmode, ready_text in PAGES:
-                    shoot(browser, base, user, name, label, groupby, viewmode, ready_text, mode, out_dir)
+                for page in PAGES:
+                    shoot(browser, base, user, page, mode, staging, sw)
             browser.close()
+        with open(os.path.join(staging, META_FILE), "w") as f:
+            json.dump(meta, f, indent=2)
+        shutil.rmtree(out_dir, ignore_errors=True)
+        os.replace(staging, out_dir)
     finally:
         proc.terminate()
         try:
@@ -222,6 +281,26 @@ def capture(out_dir):
         except subprocess.TimeoutExpired:
             proc.kill()
         shutil.rmtree(tmp, ignore_errors=True)
+        if staging:
+            shutil.rmtree(staging, ignore_errors=True)  # sudah tak ada bila berhasil dipindah
+
+
+def baseline(ref):
+    """Baseline dari commit `ref` (git worktree sementara), atau dari pohon kerja sekarang bila ref kosong (--force)."""
+    out_dir = os.path.join(SHOTS, "baseline")
+    if not ref:
+        capture(out_dir, ROOT, dict(working_tree_meta(), forced=True))
+        return
+    sha = git("rev-parse", "--verify", ref + "^{commit}")
+    meta = {"ref": sha, "static_tree": git("rev-parse", sha + ":static"), "date": datetime.date.today().isoformat()}
+    parent = tempfile.mkdtemp(prefix="e2e_tema_fondasi_wt_")
+    worktree = os.path.join(parent, "repo")
+    try:
+        git("worktree", "add", "--detach", worktree, sha)
+        capture(out_dir, worktree, meta)
+    finally:
+        subprocess.run(["git", "-C", ROOT, "worktree", "remove", "--force", worktree], capture_output=True)
+        shutil.rmtree(parent, ignore_errors=True)
 
 
 def expected_names():
@@ -229,44 +308,51 @@ def expected_names():
 
 
 def count_diff_pixels(base_img, after_img, tolerance):
-    """Jumlah piksel yang punya kanal RGB selisih > tolerance; juga gambar penanda (merah = beda)."""
+    """(jumlah piksel dengan kanal RGB selisih > tolerance, selisih kanal terbesar, gambar penanda merah = beda)."""
     diff = ImageChops.difference(base_img, after_img)
+    max_delta = max(hi for _, hi in diff.getextrema())
     over = [band.point(lambda v: 255 if v > tolerance else 0) for band in diff.split()]
     mask = ImageChops.lighter(ImageChops.lighter(over[0], over[1]), over[2])
     count = mask.histogram()[255]
     marked = Image.blend(base_img, Image.new("RGB", base_img.size, (255, 255, 255)), 0.7)
     marked.paste(Image.new("RGB", base_img.size, (255, 0, 0)), mask=mask)
-    return count, marked
+    return count, max_delta, marked
 
 
 def compare(tolerance):
     base_dir, after_dir, diff_dir = (os.path.join(SHOTS, d) for d in ("baseline", "after", "diff"))
-    missing = [n for n in expected_names() + [DATE_FILE] if not os.path.exists(os.path.join(base_dir, n))]
+    missing = [n for n in expected_names() + [META_FILE] if not os.path.exists(os.path.join(base_dir, n))]
     if missing:
-        print("baseline belum lengkap (%d berkas hilang, mis. %s): jalankan `baseline` lebih dulu" % (len(missing), missing[0]))
+        print("baseline belum lengkap (%d berkas hilang, mis. %s): jalankan `baseline --ref <commit>` lebih dulu" %
+              (len(missing), missing[0]))
         return 1
-    with open(os.path.join(base_dir, DATE_FILE)) as f:
-        base_date = f.read().strip()
-    if base_date != datetime.date.today().isoformat():
-        print("baseline dibuat tanggal %s, hari ini %s: tanggal tampil di UI, jalankan ulang `baseline` dari main" %
-              (base_date, datetime.date.today().isoformat()))
+    with open(os.path.join(base_dir, META_FILE)) as f:
+        meta = json.load(f)
+    print("baseline: ref %s, static %s, tanggal %s" % (meta["ref"], meta["static_tree"], meta["date"]), flush=True)
+    if meta.get("forced"):
+        print("PERINGATAN: baseline diambil dari pohon kerja (--force)" +
+              (" dan static/ sudah berubah dari HEAD" if meta.get("dirty") else "") + ": gerbang bisa lolos tanpa makna")
+    if meta["date"] != datetime.date.today().isoformat():
+        print("baseline dibuat tanggal %s, hari ini %s: tanggal tampil di UI, jalankan ulang `baseline --ref <commit>`" %
+              (meta["date"], datetime.date.today().isoformat()))
         return 1
-    capture(after_dir)
+    capture(after_dir, ROOT, working_tree_meta())
     shutil.rmtree(diff_dir, ignore_errors=True)
     for name in expected_names():
+        label = os.path.splitext(name)[0]
         a_path, b_path = os.path.join(after_dir, name), os.path.join(base_dir, name)
         if not os.path.exists(a_path):
-            check(name, False, "tidak ada di after/")
+            check(label, False, "tidak ada di after/")
             continue
         base_img, after_img = Image.open(b_path).convert("RGB"), Image.open(a_path).convert("RGB")
         if base_img.size != after_img.size:
-            check(name, False, "ukuran beda: baseline %dx%d, after %dx%d" % (base_img.size + after_img.size))
+            check(label, False, "ukuran beda: baseline %dx%d, after %dx%d" % (base_img.size + after_img.size))
             continue
-        count, marked = count_diff_pixels(base_img, after_img, tolerance)
+        count, max_delta, marked = count_diff_pixels(base_img, after_img, tolerance)
         if count:
             os.makedirs(diff_dir, exist_ok=True)
             marked.save(os.path.join(diff_dir, name))
-        check(name, count == 0, "%d px" % count if count else "")
+        check(label, count == 0, "%d px, max delta %d" % (count, max_delta))
     failed = [r for r in results if not r[1]]
     print("\n%d gambar, %d gagal (tolerance %d)" % (len(results), len(failed), tolerance))
     return 1 if failed else 0
@@ -275,12 +361,18 @@ def compare(tolerance):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("baseline", help="simpan 16 screenshot ke baseline/ (jalankan dari main)")
+    base_ = sub.add_parser("baseline", help="simpan 16 screenshot ke baseline/ dari satu commit")
+    src = base_.add_mutually_exclusive_group()
+    src.add_argument("--ref", help="commit/branch/tag untuk baseline, di-checkout ke git worktree sementara (mis. 64f3782)")
+    src.add_argument("--force", action="store_true",
+                     help="tanpa --ref: ambil dari pohon kerja sekarang (gerbang bisa lolos tanpa makna bila static/ berubah)")
     cmp_ = sub.add_parser("compare", help="ambil after/ dari pohon kerja, bandingkan dengan baseline/")
     cmp_.add_argument("--tolerance", type=int, default=3, help="selisih kanal maksimum yang masih dianggap sama")
     args = ap.parse_args()
     if args.cmd == "baseline":
-        capture(os.path.join(SHOTS, "baseline"))
+        if not args.ref and not args.force:
+            base_.error("butuh --ref <commit> (mis. --ref 64f3782); --force hanya untuk mengambil dari pohon kerja")
+        baseline(args.ref)
         sys.exit(0)
     sys.exit(compare(args.tolerance))
 
