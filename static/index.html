@@ -228,9 +228,41 @@
     } catch (_) {
       window.__TF_HAD_USER_AT_LOAD = false;
     }
-    (function() {
-      var t = localStorage.getItem('tf_theme') || 'light';
-      document.documentElement.setAttribute('data-theme', t);
+  </script>
+  <script id="tf-theme-boot">
+    // Boot tema sebelum CSS/React: pasang data-theme/data-palette/data-decor di <html> dan warna meta theme-color
+    // agar tidak ada kilatan tema yang salah. Modul /static/offline/themes.js belum dimuat di sini, jadi aturannya
+    // disalin dan harus sama persis dengan readPrefs + resolve modul itu (dijaga tests/offline/theme_boot.test.js).
+    // ES5 saja.
+    // Daftar palet dan tabel warna meta ditulis literal; tambahkan palet baru di sini juga.
+    (function () {
+      try {
+        var palettes = ["default"];
+        var themeColors = { "default": { light: "#0f172a", dark: "#0f172a" } };
+        var ls = null;
+        try { ls = window.localStorage; } catch (_) { ls = null; } // Safari: akses propertinya pun bisa melempar
+        var get = function (k) {
+          try { return ls ? ls.getItem(k) : null; } catch (_) { return null; }
+        };
+        var mode = get("tf_theme");
+        var palette = get("tf_palette");
+        var decor = get("tf_decor") === "off" ? "off" : "on";
+        if (mode !== "light" && mode !== "dark" && mode !== "system") mode = "light";
+        if (palettes.indexOf(palette) < 0) palette = "default";
+        var dark = mode === "dark";
+        if (mode === "system") {
+          try {
+            dark = typeof window.matchMedia === "function" && !!window.matchMedia("(prefers-color-scheme: dark)").matches;
+          } catch (_) { dark = false; }
+        }
+        var theme = dark ? "dark" : "light";
+        var el = document.documentElement;
+        el.setAttribute("data-theme", theme);
+        el.setAttribute("data-palette", palette);
+        el.setAttribute("data-decor", decor);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", themeColors[palette][theme]);
+      } catch (_) {}
     })();
   </script>
 
@@ -14741,7 +14773,7 @@ function MindmapTabInstance({
     };
     postTheme();
     const mo = new MutationObserver(postTheme);
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette"] });
     return () => mo.disconnect();
   }, []);
 
@@ -19111,10 +19143,58 @@ function useThemeName() {
   const [theme, setTheme] = useState(read);
   useEffect(() => {
     const mo = new MutationObserver(() => setTheme(read()));
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette"] });
     return () => mo.disconnect();
   }, []);
   return theme;
+}
+
+// window.localStorage atau null: akses propertinya bisa melempar (Safari dengan penyimpanan situs diblokir).
+function safeLocalStorage() {
+  try {
+    return window.localStorage || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// prefers-color-scheme: dark yang terkini, hanya diamati saat enabled (mode tema "system"); false bila dimatikan
+// atau matchMedia tidak tersedia.
+function useSystemDark(enabled) {
+  const query = "(prefers-color-scheme: dark)";
+  const read = () => {
+    try {
+      return typeof window.matchMedia === "function" && !!window.matchMedia(query).matches;
+    } catch (_) {
+      return false;
+    }
+  };
+  const [dark, setDark] = useState(() => enabled && read());
+  useEffect(() => {
+    if (!enabled || typeof window.matchMedia !== "function") {
+      setDark(false);
+      return undefined;
+    }
+    let mql;
+    try {
+      mql = window.matchMedia(query);
+    } catch (_) {
+      setDark(false);
+      return undefined;
+    }
+    const onChange = () => setDark(!!mql.matches);
+    onChange();
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    if (typeof mql.addListener === "function") {
+      mql.addListener(onChange);
+      return () => mql.removeListener(onChange);
+    }
+    return undefined;
+  }, [enabled]);
+  return enabled ? dark : false;
 }
 function dashChartColors(theme) {
   const cs = getComputedStyle(document.documentElement);
@@ -41957,15 +42037,21 @@ function App() {
   // Modal "Apa yang baru" setelah pembaruan. Hook dipanggil sebelum return bersyarat mana pun (halaman login);
   // modalnya hanya dirender di cabang sudah login.
   const whatsNew = useWhatsNewOnLoad(user);
-  const [theme, setTheme] = useState(() => localStorage.getItem('tf_theme') || 'light');
-  const toggleTheme = useCallback(() => {
-    setTheme(prev => {
-      const next = prev === 'light' ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', next);
-      localStorage.setItem('tf_theme', next);
-      return next;
-    });
-  }, []);
+  // Preferensi tema (mode light/dark/system, palet, dekorasi) lewat TF.themes; atribut <html> sudah dipasang skrip
+  // boot di <head> dengan aturan yang sama, efek di bawah hanya menyentuh yang berubah.
+  const [themePrefs, setThemePrefsState] = useState(() => window.TF.themes.readPrefs(safeLocalStorage()));
+  const systemDark = useSystemDark(themePrefs.mode === "system");
+  const resolvedTheme = useMemo(() => window.TF.themes.resolve(themePrefs, systemDark), [themePrefs, systemDark]);
+  useEffect(() => {
+    window.TF.themes.apply(resolvedTheme, document);
+  }, [resolvedTheme]);
+  const theme = resolvedTheme.theme;
+  const setThemePrefs = useCallback(patch => setThemePrefsState(p => {
+    const next = { ...p, ...patch };
+    window.TF.themes.writePrefs(safeLocalStorage(), next);
+    return next;
+  }), []);
+  const toggleTheme = useCallback(() => setThemePrefs({ mode: resolvedTheme.theme === "dark" ? "light" : "dark" }), [resolvedTheme.theme, setThemePrefs]);
   const [authPage, setAuthPage] = useState("login");
   const [page, setPage] = useState("dashboard");
   const [workspaceTab, setWorkspaceTab] = useState("tasks");
