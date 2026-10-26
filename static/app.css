@@ -5016,8 +5016,7 @@
 }
 
 /* ── Live Edit: detail task di panel samping (spec live-edit §7) ── */
-/* Judul panel = input bergaya judul; indikator simpan di kanan baris judul (lebar dicadangkan: input judul tidak bergeser saat "Menyimpan…"/"Tersimpan" muncul). */
-.task-detail-title-input { font-size: 18px; font-weight: 700; width: 100%; }
+/* Indikator simpan di bar atas detail (td-top); lebar dicadangkan supaya tombol di kanannya tidak bergeser. */
 .tl-save-ind { font-size: 12px; color: var(--text-light); white-space: nowrap; text-align: right; min-width: 72px; flex-shrink: 0; }
 .tl-save-ind.is-error { color: var(--danger, #dc2626); }
 .tl-save-retry { margin-left: 4px; padding: 0; border: none; background: none; font: inherit; font-weight: 600; color: var(--danger, #dc2626); text-decoration: underline; cursor: pointer; }
@@ -5025,8 +5024,6 @@
 .tl-save-err { margin-top: 2px; max-width: 220px; font-size: 12px; color: var(--danger, #dc2626); white-space: normal; overflow-wrap: anywhere; }
 [data-theme="dark"] .tl-save-ind.is-error, [data-theme="dark"] .tl-save-retry, [data-theme="dark"] .tl-save-err { color: #f87171; }
 [data-theme="dark"] .tl-save-retry:focus-visible { outline-color: #A8C500; }
-/* Aksi bawah menempel di dasar panel saat isi panel di-scroll (padding panel 20 px). */
-.tl-live-panel .task-detail-actions { position: sticky; bottom: -20px; background: var(--bg-card); padding: 12px 0; margin-top: 12px; box-shadow: inset 0 1px 0 var(--border); z-index: 2; }
 /* Tata letak dua kolom saat panel tampil: daftar kiri (ikut gulir halaman), panel kanan sticky di bawah topbar (top/lebar/max-height inline dari useLiveEdit). */
 .tl-live { display: flex; gap: 16px; align-items: flex-start; }
 .tl-live-list { flex: 1; min-width: 0; }
@@ -5038,3 +5035,62 @@
 .tl-live-btn { gap: 6px; }
 @media (max-width: 1100px) { .tl-live-label { display: none; } }
 /* ── Live Edit: akhir ── */
+
+/* ── Detail task: awal ── */
+/* Redesain detail task (spec redesain-detail-task §4.1–§4.3, §5, §7): hanya token warna, tanpa garis aksen di sisi kiri. */
+/* Bar atas: meta kiri (#id • Dibuat …), aksi kanan (indikator, Fokus, Selesai/Buka lagi, ⋯, ✕ modal). */
+.td-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; min-width: 0; }
+.tl-live-panel .td-top { position: sticky; top: -20px; z-index: 3; background: var(--bg-card); margin: -20px -20px 12px; padding: 20px 20px 10px; box-shadow: inset 0 -1px 0 var(--border); }
+.td-top-info { flex: 1 1 auto; min-width: 0; padding-top: 7px; overflow: hidden; }
+/* Meta = teks sebaris biasa (bukan flex, supaya teksnya "#id • Dibuat …" utuh); boleh turun baris di layar sempit. */
+.td-meta { font-size: 12px; line-height: 18px; color: var(--text-light); min-width: 0; overflow-wrap: anywhere; }
+.td-id { display: inline-block; max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
+/* Tiap bagian (" • Dibuat …") utuh; di layar sempit turun baris di antara bagian, bukan di tengah tanggal. */
+.td-meta-part { display: inline-block; white-space: pre; vertical-align: top; }
+.td-parent { margin-top: 2px; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-top-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.td-top .tl-save-ind { min-width: 0; }
+/* Layar sempit (modal 375 px): aksi di baris pertama (rata kanan, dekat ✕), meta selebar penuh di bawahnya. */
+@media (max-width: 520px) {
+  .td-top { flex-wrap: wrap; row-gap: 4px; }
+  .td-top-actions { flex: 1 1 100%; justify-content: flex-end; }
+  .td-top-info { order: 2; flex-basis: 100%; padding-top: 0; }
+}
+.td-top-actions > span:last-child { line-height: 1; padding: 0 2px; }
+.td-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.15s; }
+.td-btn:hover { background: var(--bg-hover); }
+.td-btn .td-btn-check { color: var(--success); }
+.td-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text-secondary); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.td-icon-btn:hover, .td-icon-btn[aria-expanded="true"] { background: var(--bg-hover); color: var(--text-primary); }
+.td-icon-btn[aria-pressed="true"] { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.td-btn:focus-visible, .td-icon-btn:focus-visible, .td-pill:focus-visible, .td-pop-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Judul: input bergaya teks, bingkai hanya saat hover/fokus. */
+.td-title { display: block; box-sizing: border-box; width: calc(100% + 16px); margin: 0 -8px 4px; padding: 4px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-primary); font: inherit; font-size: 20px; font-weight: 700; line-height: 1.3; transition: border-color 0.15s, background 0.15s; }
+.td-title:hover { border-color: var(--border); }
+.td-title:focus { outline: none; border-color: var(--accent); background: var(--bg-card); }
+.td-title-alert { margin: 0 0 6px; font-size: 12px; color: var(--danger, #dc2626); }
+/* Chip: kuadran, Terlambat, pill progress. */
+.td-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 12px; }
+.td-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.td-chip.is-danger { color: var(--danger, #dc2626); }
+.td-pill { display: inline-flex; align-items: center; gap: 8px; height: 24px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-card); color: var(--text-secondary); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.td-pill:hover, .td-pill[aria-expanded="true"] { background: var(--bg-hover); }
+.td-pill-bar { position: relative; display: inline-block; width: 40px; height: 4px; border-radius: 2px; background: var(--bg-selected); overflow: hidden; }
+.td-pill-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--accent); transition: width 0.2s; }
+.td-pill.is-full .td-pill-fill { background: var(--success); }
+.td-pill.is-full { color: var(--success); }
+/* Popover bersama (portal ke body, di atas .modal-overlay z 50). Posisi inline dari TF.taskdetail.popoverPosition. */
+.td-pop { position: fixed; z-index: 60; overflow-y: auto; box-sizing: border-box; padding: 8px; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 32px color-mix(in srgb, var(--text-primary) 18%, transparent), 0 2px 6px color-mix(in srgb, var(--text-primary) 8%, transparent); font-size: 13px; }
+.td-pop-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 8px; font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.td-pop-value { color: var(--accent); }
+.td-pop-value.is-full { color: var(--success); }
+.td-pop-item { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; min-height: 36px; padding: 6px 10px; border: none; border-radius: 8px; background: none; color: var(--text-primary); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.td-pop-item:hover { background: var(--bg-hover); }
+.td-pop-item.is-danger { color: var(--danger, #dc2626); }
+.td-pop-item[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text-primary); font-weight: 700; }
+.td-menu { padding: 6px; }
+.td-range { display: block; width: calc(100% - 12px); margin: 4px 6px 10px; accent-color: var(--accent); }
+.td-range.is-full { accent-color: var(--success); }
+.td-presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.td-presets .td-pop-item { justify-content: center; padding: 6px 0; border: 1px solid var(--border); font-weight: 600; }
+/* ── Detail task: akhir ── */

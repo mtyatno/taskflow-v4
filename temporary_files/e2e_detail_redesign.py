@@ -19,6 +19,22 @@ Kelompok (E2E_ONLY=autosave,... menjalankan sebagian; kosong = semua). Tiap kelo
     A-4  modal tidak memuat teks "✏️ Edit", "💾 Simpan", "Batal"
     A-5  tanpa error konsol/pageerror
 
+  topbar  (Task 3) bar atas, chip, pill progress, popover, menu ⋯. Modal 1280 px terang, modal 375 px gelap, panel
+          Live Edit 1280 px terang:
+    T-1  teks bar atas `#<id> • Dibuat <d Mmm yyyy>`; tanpa "🗑️ Hapus" / "✅ Done"
+    T-2  Fokus → aria-pressed="true", modal tetap terbuka, server is_focused benar setelah sync; klik lagi → salah
+    T-3  pill → "75%" → pill "75%"; reload → lokal dan server 75; slider: fokus + ArrowRight ×2 → 85 tersimpan
+    T-4  modal: Selesai → modal tertutup, server done; panel: Selesai → panel tetap, "Buka lagi" → server next,
+         tombol kembali "Selesai"
+    T-5  ⋯ → Hapus (confirm diterima) → task hilang di server; ⋯ task anak tanpa "Pindah ke Workspace";
+         ⋯ → Pindah ke Workspace membuka panel Pindah
+    T-6  (Review Focus 1) panel: ⋯ terbuka lalu klik baris lain → tidak ada .td-pop; modal: pill terbuka lalu ✕ → 0
+    T-7  (Review Focus 2) panel berisi tinggi digulir 40 px → pill → |pop.top − (pill.bottom + 4)| ≤ 2; gulir 30 px
+         lagi → tetap ≤ 2; modal 375 px: left 8, lebar 359, dasar popover ≤ tinggi viewport
+    T-8  (Review Focus 4) offline: task dibuat lewat api.post (id = cid) → modal 375 px: .td-top tidak meluber, Fokus
+         bisa diklik; online → tersinkron tanpa error
+    T-9  tanpa error konsol/pageerror
+
 Pengecualian cek konsol (sama dengan e2e_live_edit.py), jumlahnya dicetak di akhir:
   (1) pra-ada: setelah hapus + sync, syncpull mencatat 404 untuk `GET /api/tasks/:id` (konfirmasi task hilang). Akhir
       skrip menegaskan lewat `BAD_RESPONSES` bahwa SETIAP respons >= 400 pada `/api/tasks/<id>` adalah `GET` 404;
@@ -27,6 +43,7 @@ Pengecualian cek konsol (sama dengan e2e_live_edit.py), jumlahnya dicetak di akh
 
     python3 temporary_files/e2e_detail_redesign.py
     E2E_ONLY=autosave python3 temporary_files/e2e_detail_redesign.py
+    E2E_ONLY=autosave,topbar python3 temporary_files/e2e_detail_redesign.py
 """
 import os
 import re
@@ -467,9 +484,340 @@ def run_autosave(browser, base):
             ctx.close()
 
 
+# ── kelompok: topbar (Task 3) ──────────────────────────────────────────────────
+TOP_BAR = ".td-top"
+POP = ".td-pop"
+MONTHS = "Jan|Feb|Mar|Apr|Mei|Jun|Jul|Agu|Sep|Okt|Nov|Des"
+TB_MAIN = "Siapkan laporan bulanan"
+TB_FOCUS = "Telepon vendor katering"
+TB_PROG = "Perbarui dokumen SOP"
+TB_DONE = "Kirim undangan rapat"
+TB_DEL = "Arsipkan berkas lama"
+TB_PARENT = "Rencana acara kantor"
+TB_CHILD = "Pesan konsumsi acara"
+TB_MOVE = "Susun anggaran tim"
+TB_LONG = "Tinjau kontrak sewa gedung"
+TB_OTHER = "Cek jadwal servis AC"
+TB_LOCAL = "Lokal"
+
+
+def seed_topbar(base, name):
+    user = register(base, name)
+    ids = {}
+    for title in [TB_MAIN, TB_FOCUS, TB_PROG, TB_DONE, TB_DEL, TB_PARENT, TB_MOVE, TB_OTHER]:
+        ids[title] = api(base, user, "POST", "/api/tasks", json={
+            "title": title, "priority": "P2", "gtd_status": "next"})["id"]
+        api(base, user, "PUT", "/api/tasks/%d" % ids[title], json={"progress": 15})  # POST mengabaikan progress
+    ids[TB_CHILD] = api(base, user, "POST", "/api/tasks", json={
+        "title": TB_CHILD, "priority": "P3", "gtd_status": "next", "parent_id": ids[TB_PARENT]})["id"]
+    long_desc = "\n".join("Baris catatan lingkup %d: periksa pasal, tanggal, dan lampiran." % i for i in range(1, 31))
+    ids[TB_LONG] = api(base, user, "POST", "/api/tasks", json={
+        "title": TB_LONG, "priority": "P2", "gtd_status": "next", "description": long_desc})["id"]
+    for i in range(1, 13):
+        api(base, user, "POST", "/api/tasks/%d/subtasks" % ids[TB_LONG], json={"title": "Butir periksa %d" % i})
+    # Workspace supaya menu Pindah punya tujuan (panel Pindah tetap terbuka walau daftar kosong).
+    try:
+        api(base, user, "POST", "/api/lists", json={"name": "Tim Umum"})
+    except Exception:  # noqa: BLE001
+        pass
+    return user, ids
+
+
+def scope_open(page, scope, title):
+    if scope == MODAL:
+        return open_task(page, title)
+    if not click_row(page, title):
+        raise AssertionError("panel tidak menampilkan %r" % title)
+    return page.locator(PANEL).first
+
+
+def pops(page):
+    return page.evaluate("() => document.querySelectorAll('.td-pop').length")
+
+
+def rect(page, selector):
+    return page.evaluate("""(sel) => { const el = document.querySelector(sel); if (!el) return null;
+        const r = el.getBoundingClientRect(); return {top: r.top, bottom: r.bottom, left: r.left, width: r.width}; }""",
+                         selector)
+
+
+def pill_text(page, scope):
+    return page.locator(scope + " .td-pill").first.inner_text().strip()
+
+
+def run_topbar(browser, base):
+    combos = [("1280", 1280, 860, "light", "modal"), ("375", 375, 812, "dark", "modal"),
+              ("panel", 1280, 860, "light", "panel")]
+    for label, w, h, theme, kind in combos:
+        tag = "T[%s %s]" % (label, theme)
+        mobile = w < 500
+        scope = MODAL if kind == "modal" else PANEL
+        user, ids = seed_topbar(base, "tb%s%s" % (label[:3], theme[0]))
+        errors = []
+        ctx, p = open_app(browser, base, user, w, h, theme, errors, live="1" if kind == "panel" else "0")
+        try:
+            go_all_tasks(p, mobile)
+            p.wait_for_timeout(800)
+
+            # ── T-1 ──
+            box = scope_open(p, scope, TB_MAIN)
+            meta = box.locator(TOP_BAR + " .td-meta").first.inner_text().strip()
+            check("%s T-1a bar atas `#id • Dibuat d Mmm yyyy`" % tag,
+                  re.match(r"^#\d+ • Dibuat \d{1,2} (%s) \d{4}" % MONTHS, meta), repr(meta))
+            txt = box.inner_text()
+            check("%s T-1b tanpa '🗑️ Hapus' / '✅ Done'" % tag, "🗑️ Hapus" not in txt and "✅ Done" not in txt)
+            shot(p, "T_%s_%s_%s.png" % (label, theme, kind))
+
+            # ── T-3 pill + preset + slider ──
+            pid = ids[TB_PROG]
+            if kind == "modal":
+                close_btn(p).click()
+                wait_closed(p)
+            box = scope_open(p, scope, TB_PROG)
+            check("%s T-3a pill awal '15%%'" % tag, pill_text(p, scope) == "15%", pill_text(p, scope))
+            p.locator(scope + " .td-pill").first.click()
+            p.locator(POP).first.wait_for(timeout=3000)
+            check("%s T-3b popover 'Ubah Progress' (role dialog) terbuka dan fokus di slider" % tag,
+                  p.locator(POP + '[role="dialog"][aria-label="Ubah Progress"]').count() == 1
+                  and p.evaluate("() => document.activeElement && document.activeElement.type === 'range'"))
+            shot(p, "T_%s_%s_%s_progress.png" % (label, theme, kind))
+            p.locator(POP + " button", has_text=re.compile(r"^75%$")).first.click()
+            check("%s T-3c pill '75%%' setelah preset" % tag,
+                  wait_until(lambda: pill_text(p, scope) == "75%", 3), pill_text(p, scope))
+            check("%s T-3d preset 75%% aria-pressed" % tag,
+                  p.locator(POP + ' button[aria-pressed="true"]', has_text="75%").count() == 1)
+            p.keyboard.press("Escape")
+            check("%s T-3e Escape menutup popover, fokus kembali ke pill" % tag,
+                  wait_until(lambda: pops(p) == 0, 3)
+                  and p.evaluate("() => document.activeElement && document.activeElement.classList.contains('td-pill')"))
+            check("%s T-3f lokal 75" % tag, wait_until(lambda: local_task(p, pid).get("progress") == 75, 6),
+                  repr(local_task(p, pid).get("progress")))
+            check("%s T-3g server 75" % tag,
+                  wait_until(lambda: server_task(base, user, pid).get("progress") == 75, 20),
+                  repr(server_task(base, user, pid).get("progress")))
+            if kind == "modal":
+                close_btn(p).click()
+                wait_closed(p)
+            reload_app(p)
+            go_all_tasks(p, mobile)
+            p.wait_for_timeout(800)
+            box = scope_open(p, scope, TB_PROG)
+            check("%s T-3h reload → pill '75%%'" % tag, wait_until(lambda: pill_text(p, scope) == "75%", 5),
+                  pill_text(p, scope))
+            p.locator(scope + " .td-pill").first.click()
+            rng = p.locator(POP + ' input[type="range"]').first
+            rng.focus()
+            rng.press("ArrowRight")
+            rng.press("ArrowRight")
+            check("%s T-3i slider ArrowRight ×2 → pill '85%%'" % tag,
+                  wait_until(lambda: pill_text(p, scope) == "85%", 3), pill_text(p, scope))
+            check("%s T-3j server 85 (commit saat keyup)" % tag,
+                  wait_until(lambda: server_task(base, user, pid).get("progress") == 85, 20),
+                  repr(server_task(base, user, pid).get("progress")))
+            p.keyboard.press("Escape")
+            wait_until(lambda: pops(p) == 0, 3)
+
+            # ── T-2 Fokus ──
+            fid = ids[TB_FOCUS]
+            if kind == "modal":
+                close_btn(p).click()
+                wait_closed(p)
+            box = scope_open(p, scope, TB_FOCUS)
+            fbtn = p.locator(scope + ' button[aria-label="Fokus"]').first
+            check("%s T-2a Fokus awal aria-pressed=false" % tag, fbtn.get_attribute("aria-pressed") == "false")
+            fbtn.click()
+            check("%s T-2b Fokus → aria-pressed=true" % tag,
+                  wait_until(lambda: fbtn.get_attribute("aria-pressed") == "true", 3))
+            p.wait_for_timeout(600)
+            if kind == "modal":
+                check("%s T-2c modal tetap terbuka" % tag, modal_count(p) == 1 and title_value(p, MODAL) == TB_FOCUS)
+            else:
+                check("%s T-2c panel tetap pada task" % tag, title_value(p, PANEL) == TB_FOCUS)
+            check("%s T-2d server is_focused benar" % tag,
+                  wait_until(lambda: server_task(base, user, fid).get("is_focused") is True, 20),
+                  repr(server_task(base, user, fid).get("is_focused")))
+            fbtn = p.locator(scope + ' button[aria-label="Fokus"]').first
+            fbtn.click()
+            check("%s T-2e klik lagi → aria-pressed=false" % tag,
+                  wait_until(lambda: fbtn.get_attribute("aria-pressed") == "false", 3))
+            check("%s T-2f server is_focused salah" % tag,
+                  wait_until(lambda: server_task(base, user, fid).get("is_focused") is False, 20),
+                  repr(server_task(base, user, fid).get("is_focused")))
+
+            # ── T-6 popover yatim ──
+            if kind == "panel":
+                p.locator(PANEL + ' button[aria-label="Aksi lain"]').first.click()
+                p.locator(POP + '[role="menu"]').first.wait_for(timeout=3000)
+                shot(p, "T_%s_%s_%s_menu.png" % (label, theme, kind))
+                click_row(p, TB_OTHER)
+                p.wait_for_timeout(300)
+                check("%s T-6a panel: ⋯ terbuka lalu klik baris lain → 0 .td-pop" % tag, pops(p) == 0, str(pops(p)))
+            else:
+                p.locator(MODAL + " .td-pill").first.click()
+                p.locator(POP).first.wait_for(timeout=3000)
+                close_btn(p).click()
+                wait_closed(p)
+                p.wait_for_timeout(200)
+                check("%s T-6b modal: pill terbuka lalu ✕ → 0 .td-pop" % tag, pops(p) == 0, str(pops(p)))
+
+            # ── T-7 popover menempel pada jangkar ──
+            if kind == "panel":
+                click_row(p, TB_LONG)
+                p.wait_for_timeout(500)
+                sh = p.evaluate("(sel) => { const a = document.querySelector(sel); return [a.scrollHeight, a.clientHeight]; }",
+                                PANEL)
+                check("%s T-7a prasyarat: panel bisa digulir (isi tinggi)" % tag, sh[0] - sh[1] > 200, repr(sh))
+                p.evaluate("(sel) => { document.querySelector(sel).scrollTop = 40; }", PANEL)
+                p.wait_for_timeout(200)
+                p.locator(PANEL + " .td-pill").first.click()
+                p.locator(POP).first.wait_for(timeout=3000)
+                p.wait_for_timeout(150)
+                st = p.evaluate("(sel) => document.querySelector(sel).scrollTop", PANEL)
+                a, b = rect(p, PANEL + " .td-pill"), rect(p, POP)
+                check("%s T-7b panel digulir %d px: |pop.top − (pill.bottom + 4)| ≤ 2" % (tag, st),
+                      st >= 38 and abs(b["top"] - (a["bottom"] + 4)) <= 2, "pill=%r pop=%r" % (a, b))
+                shot(p, "T_%s_%s_%s_scrolled_progress.png" % (label, theme, kind))
+                p.evaluate("(sel) => { document.querySelector(sel).scrollTop += 30; }", PANEL)
+                p.wait_for_timeout(250)
+                st2 = p.evaluate("(sel) => document.querySelector(sel).scrollTop", PANEL)
+                a, b = rect(p, PANEL + " .td-pill"), rect(p, POP)
+                check("%s T-7c gulir lagi (%d px): selisih tetap ≤ 2" % (tag, st2),
+                      st2 >= st + 28 and b is not None and abs(b["top"] - (a["bottom"] + 4)) <= 2,
+                      "pill=%r pop=%r" % (a, b))
+                p.keyboard.press("Escape")
+                wait_until(lambda: pops(p) == 0, 3)
+            elif mobile:
+                box = scope_open(p, scope, TB_LONG)
+                p.locator(MODAL + " .td-pill").first.click()
+                p.locator(POP).first.wait_for(timeout=3000)
+                p.wait_for_timeout(150)
+                b = rect(p, POP)
+                vh = p.evaluate("() => window.innerHeight")
+                check("%s T-7d modal 375: left 8, lebar 359, dasar ≤ tinggi viewport" % tag,
+                      b and round(b["left"]) == 8 and round(b["width"]) == 359 and b["bottom"] <= vh,
+                      "pop=%r vh=%r" % (b, vh))
+                p.keyboard.press("Escape")
+                wait_until(lambda: pops(p) == 0, 3)
+                close_btn(p).click()
+                wait_closed(p)
+
+            # ── T-5 menu ⋯ ──
+            box = scope_open(p, scope, TB_MOVE)
+            p.locator(scope + ' button[aria-label="Aksi lain"]').first.click()
+            menu = p.locator(POP + '[role="menu"][aria-label="Aksi lain"]').first
+            menu.wait_for(timeout=3000)
+            check("%s T-5a menu task pribadi: Pindah ke Workspace + Hapus" % tag,
+                  menu.locator('[role="menuitem"]', has_text="Pindah ke Workspace").count() == 1
+                  and menu.locator('[role="menuitem"]', has_text="Hapus").count() == 1)
+            menu.locator('[role="menuitem"]', has_text="Pindah ke Workspace").first.click()
+            check("%s T-5b Pindah ke Workspace membuka panel Pindah, menu tertutup" % tag,
+                  wait_until(lambda: p.locator(scope + " .task-move-panel").count() == 1, 3) and pops(p) == 0)
+            p.locator(scope + " .task-move-panel button", has_text="Batal").first.click()
+            if kind == "modal":
+                close_btn(p).click()
+                wait_closed(p)
+            box = scope_open(p, scope, TB_PARENT)
+            if kind == "modal":
+                p.locator(MODAL).get_by_text(TB_CHILD, exact=True).first.click()
+                check("%s T-5c buka task anak" % tag, wait_until(lambda: title_value(p, MODAL) == TB_CHILD, 6))
+            else:
+                p.locator(PANEL).get_by_text(TB_CHILD, exact=True).first.click()
+                check("%s T-5c buka task anak" % tag, wait_until(lambda: title_value(p, PANEL) == TB_CHILD, 6))
+            check("%s T-5d task anak: baris '↳ Subtask dari #%d'" % (tag, ids[TB_PARENT]),
+                  ("↳ Subtask dari #%d" % ids[TB_PARENT]) in p.locator(scope + " .td-parent").first.inner_text())
+            p.locator(scope + ' button[aria-label="Aksi lain"]').first.click()
+            menu = p.locator(POP + '[role="menu"]').first
+            menu.wait_for(timeout=3000)
+            check("%s T-5e menu task anak tanpa 'Pindah ke Workspace'" % tag,
+                  "Pindah ke Workspace" not in menu.inner_text() and "Hapus" in menu.inner_text())
+            p.keyboard.press("Escape")
+            wait_until(lambda: pops(p) == 0, 3)
+            if kind == "modal":
+                close_btn(p).click()
+                wait_closed(p)
+            did = ids[TB_DEL]
+            box = scope_open(p, scope, TB_DEL)
+            p.locator(scope + ' button[aria-label="Aksi lain"]').first.click()
+            p.locator(POP + ' [role="menuitem"]', has_text="Hapus").first.click()
+            check("%s T-5f Hapus (confirm diterima) → task hilang di server" % tag,
+                  wait_until(lambda: server_row(base, user, TB_DEL) is None, 20))
+            if kind == "modal":
+                check("%s T-5g modal tertutup setelah Hapus" % tag, wait_closed(p))
+
+            # ── T-4 Selesai / Buka lagi ──
+            xid = ids[TB_DONE]
+            box = scope_open(p, scope, TB_DONE)
+            p.locator(scope + " .td-top button", has_text="Selesai").first.click()
+            if kind == "modal":
+                check("%s T-4a modal: Selesai → modal tertutup" % tag, wait_closed(p))
+                check("%s T-4b server done" % tag,
+                      wait_until(lambda: server_task(base, user, xid).get("gtd_status") == "done", 20),
+                      repr(server_task(base, user, xid).get("gtd_status")))
+            else:
+                reopen = p.locator(PANEL + " .td-top button", has_text="Buka lagi")
+                check("%s T-4c panel: Selesai → panel tetap, tombol 'Buka lagi'" % tag,
+                      wait_until(lambda: reopen.count() == 1, 8) and title_value(p, PANEL) == TB_DONE)
+                check("%s T-4d panel: Fokus disembunyikan saat done" % tag,
+                      p.locator(PANEL + ' button[aria-label="Fokus"]').count() == 0)
+                check("%s T-4e server done" % tag,
+                      wait_until(lambda: server_task(base, user, xid).get("gtd_status") == "done", 20),
+                      repr(server_task(base, user, xid).get("gtd_status")))
+                meta = p.locator(PANEL + " .td-meta").first.inner_text()
+                check("%s T-4f bar atas memuat '• Selesai <tanggal>'" % tag,
+                      re.search(r" • Selesai \d{1,2} (%s) \d{4}" % MONTHS, meta), repr(meta))
+                shot(p, "T_%s_%s_%s_done.png" % (label, theme, kind))
+                reopen.first.click()
+                check("%s T-4g Buka lagi → server next" % tag,
+                      wait_until(lambda: server_task(base, user, xid).get("gtd_status") == "next", 20),
+                      repr(server_task(base, user, xid).get("gtd_status")))
+                check("%s T-4h tombol kembali 'Selesai'" % tag,
+                      wait_until(lambda: p.locator(PANEL + " .td-top button", has_text="Selesai").count() == 1, 5))
+
+            # ── T-8 task belum tersinkron (id = cid), modal 375 px ──
+            if kind == "modal" and mobile:
+                cdp = ctx.new_cdp_session(p)
+                OFFLINE["on"] = True
+                net_offline(cdp, True)
+                p.wait_for_timeout(500)
+                created = p.evaluate("""async (title) => { const r = await api.post('/api/tasks', {title});
+                    window.dispatchEvent(new CustomEvent('taskSaved')); return r; }""", TB_LOCAL)
+                p.locator(".task-row", has_text=TB_LOCAL).first.wait_for(timeout=10000)
+                box = open_task(p, TB_LOCAL)
+                idtxt = box.locator(".td-id").first.inner_text()
+                check("%s T-8a id task lokal = cid (bukan angka)" % tag, not re.fullmatch(r"#\d+", idtxt),
+                      "%r / %r" % (idtxt, (created or {}).get("id")))
+                ov = p.evaluate("""() => { const t = document.querySelector('.modal-content .td-top');
+                    const id = t.querySelector('.td-id');
+                    return {sw: t.scrollWidth, cw: t.clientWidth, idsw: id.scrollWidth, idcw: id.clientWidth,
+                            right: t.getBoundingClientRect().right, vw: innerWidth}; }""")
+                check("%s T-8b .td-top tidak meluber (scrollWidth ≤ clientWidth + 1), #cid berelipsis" % tag,
+                      ov["sw"] <= ov["cw"] + 1 and ov["right"] <= ov["vw"], repr(ov))
+                shot(p, "T_%s_%s_%s_cid.png" % (label, theme, kind))
+                fbtn = p.locator(MODAL + ' button[aria-label="Fokus"]').first
+                fbtn.click()
+                check("%s T-8c Fokus bisa diklik (aria-pressed=true)" % tag,
+                      wait_until(lambda: fbtn.get_attribute("aria-pressed") == "true", 3))
+                close_btn(p).click()
+                wait_closed(p)
+                net_offline(cdp, False)
+                p.wait_for_timeout(1000)
+                OFFLINE["on"] = False
+                p.evaluate("() => window.__pushNow && window.__pushNow()")
+                check("%s T-8d online → task 'Lokal' tersinkron ke server" % tag,
+                      wait_until(lambda: server_row(base, user, TB_LOCAL) is not None, 25))
+
+            check("%s T-9 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
+        except Exception as e:  # langkah yang melempar = gagal
+            OFFLINE["on"] = False
+            fail_exc(tag, e, p)
+        finally:
+            ctx.close()
+
+
 # Urutan kelompok; task berikutnya menambah (nama, fungsi(browser, base)).
 GROUPS = [
     ("autosave", run_autosave),
+    ("topbar", run_topbar),
 ]
 
 

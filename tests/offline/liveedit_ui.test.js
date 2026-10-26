@@ -37,8 +37,10 @@ test("TaskDetailBody: simpan otomatis (kedua variant)", () => {
   for (const re of [/const isPanel = variant === "panel"/, /useTaskAutosave\(task, true/,
     /auto\.commit\("title"\)/, /auto\.revertTitle\(\)/, /e\.key === "Enter"/, /e\.key === "Escape"/, /role: "alert"/,
     /React\.createElement\(TaskSaveIndicator/, /auto\.commit\("project"\)/, /auto\.commit\("context"\)/, /auto\.commit\("progress"\)/,
-    /onPointerUp/, /className: "task-detail-actions"/, /const tagChips = \(\) =>/, /\[task\?\.list_id\]/])
+    /const tagChips = \(\) =>/, /\[task\?\.list_id\]/])
     assert.match(s, re);
+  // Slider progress pindah ke popover ProgressPill (redesain detail §4.3); commit lepas-geser tetap di sana.
+  assert.match(fnSource("ProgressPill"), /onPointerUp/);
   assert.ok((s.match(/tagChips\(\)/g) || []).length >= 1, "chip tag dipakai (mode lihat sudah tidak ada)");
   assert.match(s, /if \(!isPanel\) onClose\(\)/);
   assert.doesNotMatch(s, /borderLeft/);
@@ -50,9 +52,9 @@ test("Modal: variant modal, ✕ lewat headerAction, tanpa handleSave", () => {
   assert.doesNotMatch(fnSource("TaskDetailBody"), /handleSave/);
 });
 
-test("CSS indikator + aksi menempel di panel", () => {
-  assert.match(appCss, /\.tl-save-ind\s*\{/); assert.match(appCss, /\.tl-live-panel \.task-detail-actions\s*\{[^}]*position:\s*sticky/);
-  assert.match(appCss, /\.task-detail-title-input\s*\{/);
+// Bar atas yang menempel di panel dijaga tes "CSS blok detail" di task_detail_redesign.test.js.
+test("CSS indikator simpan", () => {
+  assert.match(appCss, /\.tl-save-ind\s*\{/);
 });
 
 // Perbaikan review Task 5 #1: "Judul tidak boleh kosong" (spec §7.4 langkah 2, role="alert") harus terlihat.
