@@ -4146,3 +4146,5 @@
 - **Verifikasi:** node liveedit 80/80; npm 3202/3201 (pra-ada `draw_local_reactive`); inline OK; E2E 118/118.
 - **Server (commit terpisah, boleh di-drop):** R20 — `update_task` menggabungkan notifikasi "✏️ … memperbarui task …" per aktor per task per 10 menit (`TASK_UPDATE_NOTIFY_WINDOW_MIN`), Telegram ikut; tes `tests/test_task_update_notify_coalesce.py` (8). Deploy PR B kini butuh `sudo systemctl restart taskflow-web`.
 - **Status:** Needs Review — commit lokal, belum push.
+
+- 2026-10-26 (Claude, kontroler): PR A = draft #96 (`claude/task-detail-body`), PR B = draft #97 (`claude/live-edit`, basis #96). Review akhir seluruh branch + satu gelombang perbaikan (R19–R21) bersih. Spec/plan Project claude.ai disamakan.
