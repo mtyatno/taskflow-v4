@@ -82,7 +82,8 @@ test("guard: Chart.js tidak menerima var()", () => { const chart = html.slice(ht
 // Task 5: aturan gelap berliteral hanya kelas 2 (warna bermakna) atau 4 (netral tanpa token) — daftar + alasan di
 // tests/offline/theme_dark_allowlist.json. Literal permukaan lain sudah memakai token (atau aturan gelapnya dihapus).
 // Plan memperkirakan ≤ 80 entri, tetapi aturan "warna bermakna" saja sudah 83 → batas dipisah per alasan.
-// Ratchet: angka = jumlah saat Task 5 (tanpa ruang sisa); PR B hanya boleh menurunkannya.
+// Ratchet: angka = jumlah saat Task 5 (tanpa ruang sisa) dan harus sama persis; PR B hanya boleh menurunkannya
+// (menghapus entri allowlist wajib diiringi menurunkan konstanta, agar ruang kosong tidak bisa diisi literal baru).
 const ALLOW_MAX_TOTAL = 144, ALLOW_MAX_NON_BERMAKNA = 61;
 const ALLOW_REASONS = ["warna bermakna", "netral tanpa token", "lime-adjacent", "blok token gelap"];
 const allowList = JSON.parse(read("tests/offline/theme_dark_allowlist.json"));
@@ -98,7 +99,9 @@ test("guard: allowlist tidak basi (selektor ada dan masih berliteral), alasan ba
   }
   for (const e of allowList) assert.ok(ALLOW_REASONS.includes(e.reason), `alasan tidak baku: ${e.reason} (${e.selector})`);
   assert.equal(allow.size, allowList.length, "selektor ganda di allowlist");
-  assert.ok(allow.size <= ALLOW_MAX_TOTAL, "total " + allow.size);
+  assert.equal(allow.size, ALLOW_MAX_TOTAL,
+    `allowlist berisi ${allow.size} entri, ALLOW_MAX_TOTAL ${ALLOW_MAX_TOTAL}: bila entri dihapus, turunkan ALLOW_MAX_TOTAL ke ${allow.size}; entri baru tidak boleh ditambah`);
   const nonBermakna = allowList.filter(e => e.reason !== "warna bermakna").length;
-  assert.ok(nonBermakna <= ALLOW_MAX_NON_BERMAKNA, "bukan warna bermakna " + nonBermakna);
+  assert.equal(nonBermakna, ALLOW_MAX_NON_BERMAKNA,
+    `entri bukan "warna bermakna" ${nonBermakna}, ALLOW_MAX_NON_BERMAKNA ${ALLOW_MAX_NON_BERMAKNA}: bila entri dihapus, turunkan ALLOW_MAX_NON_BERMAKNA ke ${nonBermakna}; entri baru tidak boleh ditambah`);
 });

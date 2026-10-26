@@ -77,3 +77,16 @@ test("boot script: ES5 dan tidak memakai TF.themes", () => {
 });
 // Brief menulis readPrefs(localStorage); App memakai safeLocalStorage() (akses window.localStorage bisa melempar).
 test("App memakai TF.themes dan pengamat mengawasi data-palette", () => { assert.match(html, /TF\.themes\.readPrefs\(safeLocalStorage\(\)\)/); assert.match(html, /TF\.themes\.apply\(resolvedTheme, document\)/); assert.doesNotMatch(html, /attributeFilter: \["data-theme"\]\s*\}/); assert.doesNotMatch(html, /localStorage\.setItem\('tf_theme'/); });
+// Toggle hanya menulis kunci yang diubah (patch), bukan prefs hasil normalisasi: palet/dekorasi tak dikenal tidak ditimpa.
+test("setThemePrefs menulis patch saja ke storage", () => { assert.match(html, /TF\.themes\.writePrefs\(safeLocalStorage\(\), patch\)/); assert.doesNotMatch(html, /TF\.themes\.writePrefs\(safeLocalStorage\(\), next\)/); });
+// Skrip boot harus berjalan sebelum stylesheet aplikasi/vendor dipakai menggambar (tepat setelah meta theme-color).
+test("boot script di <head> sebelum stylesheet aplikasi/vendor", () => {
+  const boot = html.indexOf('<script id="tf-theme-boot">');
+  const meta = html.indexOf('<meta name="theme-color"');
+  assert.ok(meta >= 0 && meta < boot, "meta theme-color harus sebelum skrip boot");
+  assert.ok(boot < html.indexOf("</head>"), "skrip boot harus di <head>");
+  for (const href of ["/static/vendor/", "/static/app.css", "/static/themes.css"]) {
+    const i = html.indexOf(href);
+    assert.ok(i > boot, "skrip boot harus sebelum " + href);
+  }
+});

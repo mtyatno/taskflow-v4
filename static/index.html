@@ -8,6 +8,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Alurik</title>
   <meta name="theme-color" content="#0f172a">
+  <script id="tf-theme-boot">
+    // Boot tema di <head> tepat setelah meta theme-color, sebelum stylesheet aplikasi/vendor dan React: pasang
+    // data-theme/data-palette/data-decor di <html> dan warna meta theme-color
+    // agar tidak ada kilatan tema yang salah. Modul /static/offline/themes.js belum dimuat di sini, jadi aturannya
+    // disalin dan harus sama persis dengan readPrefs + resolve modul itu (dijaga tests/offline/theme_boot.test.js).
+    // ES5 saja.
+    // Daftar palet dan tabel warna meta ditulis literal; tambahkan palet baru di sini juga.
+    (function () {
+      try {
+        var palettes = ["default"];
+        var themeColors = { "default": { light: "#0f172a", dark: "#0f172a" } };
+        var ls = null;
+        try { ls = window.localStorage; } catch (_) { ls = null; } // Safari: akses propertinya pun bisa melempar
+        var get = function (k) {
+          try { return ls ? ls.getItem(k) : null; } catch (_) { return null; }
+        };
+        var mode = get("tf_theme");
+        var palette = get("tf_palette");
+        var decor = get("tf_decor") === "off" ? "off" : "on";
+        if (mode !== "light" && mode !== "dark" && mode !== "system") mode = "light";
+        if (palettes.indexOf(palette) < 0) palette = "default";
+        var dark = mode === "dark";
+        if (mode === "system") {
+          try {
+            dark = typeof window.matchMedia === "function" && !!window.matchMedia("(prefers-color-scheme: dark)").matches;
+          } catch (_) { dark = false; }
+        }
+        var theme = dark ? "dark" : "light";
+        var el = document.documentElement;
+        el.setAttribute("data-theme", theme);
+        el.setAttribute("data-palette", palette);
+        el.setAttribute("data-decor", decor);
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", themeColors[palette][theme]);
+      } catch (_) {}
+    })();
+  </script>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -229,43 +266,6 @@
       window.__TF_HAD_USER_AT_LOAD = false;
     }
   </script>
-  <script id="tf-theme-boot">
-    // Boot tema sebelum CSS/React: pasang data-theme/data-palette/data-decor di <html> dan warna meta theme-color
-    // agar tidak ada kilatan tema yang salah. Modul /static/offline/themes.js belum dimuat di sini, jadi aturannya
-    // disalin dan harus sama persis dengan readPrefs + resolve modul itu (dijaga tests/offline/theme_boot.test.js).
-    // ES5 saja.
-    // Daftar palet dan tabel warna meta ditulis literal; tambahkan palet baru di sini juga.
-    (function () {
-      try {
-        var palettes = ["default"];
-        var themeColors = { "default": { light: "#0f172a", dark: "#0f172a" } };
-        var ls = null;
-        try { ls = window.localStorage; } catch (_) { ls = null; } // Safari: akses propertinya pun bisa melempar
-        var get = function (k) {
-          try { return ls ? ls.getItem(k) : null; } catch (_) { return null; }
-        };
-        var mode = get("tf_theme");
-        var palette = get("tf_palette");
-        var decor = get("tf_decor") === "off" ? "off" : "on";
-        if (mode !== "light" && mode !== "dark" && mode !== "system") mode = "light";
-        if (palettes.indexOf(palette) < 0) palette = "default";
-        var dark = mode === "dark";
-        if (mode === "system") {
-          try {
-            dark = typeof window.matchMedia === "function" && !!window.matchMedia("(prefers-color-scheme: dark)").matches;
-          } catch (_) { dark = false; }
-        }
-        var theme = dark ? "dark" : "light";
-        var el = document.documentElement;
-        el.setAttribute("data-theme", theme);
-        el.setAttribute("data-palette", palette);
-        el.setAttribute("data-decor", decor);
-        var meta = document.querySelector('meta[name="theme-color"]');
-        if (meta) meta.setAttribute("content", themeColors[palette][theme]);
-      } catch (_) {}
-    })();
-  </script>
-
   <script>
     // Monkey-patch katex.render so it NEVER throws.
     // @milkdown/plugin-math's toDOM calls katex.render() WITHOUT throwOnError:false,
@@ -42087,7 +42087,7 @@ function App() {
   // modalnya hanya dirender di cabang sudah login.
   const whatsNew = useWhatsNewOnLoad(user);
   // Preferensi tema (mode light/dark/system, palet, dekorasi) lewat TF.themes; atribut <html> sudah dipasang skrip
-  // boot di <head> dengan aturan yang sama, efek di bawah hanya menyentuh yang berubah.
+  // boot di <head> (sebelum stylesheet) dengan aturan yang sama, efek di bawah hanya menyentuh yang berubah.
   const [themePrefs, setThemePrefsState] = useState(() => window.TF.themes.readPrefs(safeLocalStorage()));
   const systemDark = useSystemDark(themePrefs.mode === "system");
   const resolvedTheme = useMemo(() => window.TF.themes.resolve(themePrefs, systemDark), [themePrefs, systemDark]);
@@ -42095,11 +42095,12 @@ function App() {
     window.TF.themes.apply(resolvedTheme, document);
   }, [resolvedTheme]);
   const theme = resolvedTheme.theme;
-  const setThemePrefs = useCallback(patch => setThemePrefsState(p => {
-    const next = { ...p, ...patch };
-    window.TF.themes.writePrefs(safeLocalStorage(), next);
-    return next;
-  }), []);
+  // Hanya kunci yang diubah yang ditulis ke storage: nilai palet/dekorasi tak dikenal yang dinormalkan readPrefs
+  // tidak ikut ditimpa saat toggle mode (mis. palet dari versi lebih baru tetap tersimpan).
+  const setThemePrefs = useCallback(patch => {
+    window.TF.themes.writePrefs(safeLocalStorage(), patch);
+    setThemePrefsState(p => ({ ...p, ...patch }));
+  }, []);
   const toggleTheme = useCallback(() => setThemePrefs({ mode: resolvedTheme.theme === "dark" ? "light" : "dark" }), [resolvedTheme.theme, setThemePrefs]);
   const [authPage, setAuthPage] = useState("login");
   const [page, setPage] = useState("dashboard");
