@@ -34,15 +34,50 @@ test("isOverdue", () => {
   assert.equal(td.isOverdue("", "next", today), false);
   assert.equal(td.isOverdue(null, "next", today), false);
 });
+const MON = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
+// Tanggal kalender lokal (zona proses Node) dari instan UTC: harapan yang tidak bergantung zona.
+function localExpected(utcMs) {
+  const d = new Date(utcMs);
+  return `${d.getDate()} ${MON[d.getMonth()]} ${d.getFullYear()}`;
+}
 test("format tanggal", () => {
   assert.equal(td.formatCreated("2026-10-21T08:30:00"), "21 Okt 2026");
-  assert.equal(td.formatCreated("2026-01-05 03:00:00"), "5 Jan 2026");
+  // Dulu menegaskan potong-tanggal UTC ("5 Jan 2026" di zona mana pun); kini tanggal lokal dari instan UTC itu.
+  assert.equal(td.formatCreated("2026-01-05 03:00:00"), localExpected(Date.UTC(2026, 0, 5, 3, 0, 0)));
   for (const bad of ["", null, undefined, "kemarin"]) assert.equal(td.formatCreated(bad), "");
   assert.equal(td.formatDeadline("2026-12-31"), "31 Des 2026");
   assert.equal(td.formatDeadline(""), "");
   assert.equal(td.formatShortDate("2026-10-21", "2026-10-26"), "21 Okt");
   assert.equal(td.formatShortDate("2027-02-03", "2026-10-26"), "3 Feb 2027");
   assert.equal(td.formatShortDate("", "2026-10-26"), "");
+});
+test("formatCreated: stempel waktu UTC → tanggal lokal; tanggal saja apa adanya", () => {
+  const cases = [
+    ["2026-10-26 20:00:00", Date.UTC(2026, 9, 26, 20, 0, 0)],
+    ["2026-10-26T20:00:00", Date.UTC(2026, 9, 26, 20, 0, 0)],
+    ["2026-10-26T20:00:00Z", Date.UTC(2026, 9, 26, 20, 0, 0)],
+    ["2026-10-26T20:00:00.123Z", Date.UTC(2026, 9, 26, 20, 0, 0, 123)],
+    ["2026-10-26T20:00", Date.UTC(2026, 9, 26, 20, 0, 0)],
+    ["2026-10-27T03:00:00+07:00", Date.UTC(2026, 9, 26, 20, 0, 0)],
+    ["2026-10-26T12:00:00-08:00", Date.UTC(2026, 9, 26, 20, 0, 0)],
+    ["2026-12-31 23:30:00", Date.UTC(2026, 11, 31, 23, 30, 0)],
+  ];
+  for (const [iso, ms] of cases) assert.equal(td.formatCreated(iso), localExpected(ms), iso);
+  // Siang UTC → tanggal sama di zona -8..+12.
+  const off = new Date(Date.UTC(2026, 9, 21, 8, 30)).getTimezoneOffset();
+  if (off <= 480 && off >= -720) assert.equal(td.formatCreated("2026-10-21T08:30:00"), "21 Okt 2026");
+  // Zona yang dikenal (dijalankan dengan TZ=Asia/Jakarta / America/Los_Angeles).
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (tz === "Asia/Jakarta") {
+    assert.equal(td.formatCreated("2026-10-26 20:00:00"), "27 Okt 2026");
+    assert.equal(td.formatCreated("2026-12-31 23:30:00"), "1 Jan 2027");
+  }
+  if (tz === "America/Los_Angeles") assert.equal(td.formatCreated("2026-10-27 03:00:00"), "26 Okt 2026");
+  // Tanggal saja tidak dikonversi; tidak valid → "".
+  assert.equal(td.formatCreated("2026-10-21"), "21 Okt 2026");
+  for (const bad of ["2026-13-01T10:00:00", "2026-10-21T25:00:00", "2026-10-21Tjam", "21/10/2026 10:00"])
+    assert.equal(td.formatCreated(bad), "", bad);
+  assert.equal(td.formatDeadline("2026-10-21"), "21 Okt 2026");
 });
 test("filterOptions / exactOption / canCreate (tanpa beda huruf, trim)", () => {
   const opts = ["Pemasaran", "Keuangan", "pemasaran digital"];

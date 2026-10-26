@@ -28,11 +28,13 @@ Kelompok (E2E_ONLY=autosave,... menjalankan sebagian; kosong = semua). Tiap kelo
          tombol kembali "Selesai"
     T-5  ⋯ → Hapus (confirm diterima) → task hilang di server; ⋯ task anak tanpa "Pindah ke Workspace";
          ⋯ → Pindah ke Workspace membuka panel Pindah
-    T-6  (Review Focus 1) panel: ⋯ terbuka lalu klik baris lain → tidak ada .td-pop; modal: pill terbuka lalu ✕ → 0
+    T-6  (Review Focus 1) popover terbuka lalu detail berganti/ditutup lewat el.click() (tanpa pointerdown, jadi
+         penutup klik-di-luar tidak ikut): panel baris lain / task anak (onOpenTask); modal ✕ / task anak / Selesai
+         → 0 .td-pop
     T-7  (Review Focus 2) panel berisi tinggi digulir 40 px → pill → |pop.top − (pill.bottom + 4)| ≤ 2; gulir 30 px
          lagi → tetap ≤ 2; modal 375 px: left 8, lebar 359, dasar popover ≤ tinggi viewport
-    T-8  (Review Focus 4) offline: task dibuat lewat api.post (id = cid) → modal 375 px: .td-top tidak meluber, Fokus
-         bisa diklik; online → tersinkron tanpa error
+    T-8  (Review Focus 4) offline: task dibuat lewat api.post (id = cid) → modal 375 px: .td-top tidak meluber;
+         Fokus → rekaman lokal is_focused; Selesai → modal tertutup, lokal done; online → server is_focused + done
     T-9  tanpa error konsol/pageerror
 
 Pengecualian cek konsol (sama dengan e2e_live_edit.py), jumlahnya dicetak di akhir:
@@ -541,6 +543,14 @@ def rect(page, selector):
                          selector)
 
 
+def js_click(page, selector, text):
+    """el.click() lewat evaluate: hanya event click (tanpa pointerdown/mousedown). Elemen = yang teksnya persis
+    `text`, kalau tidak ada yang pertama yang memuatnya. True bila ada yang diklik."""
+    return page.evaluate("""([sel, text]) => { const els = [...document.querySelectorAll(sel)];
+        const el = els.find(e => e.textContent.trim() === text) || els.find(e => e.textContent.includes(text));
+        if (!el) return false; el.click(); return true; }""", [selector, text])
+
+
 def pill_text(page, scope):
     return page.locator(scope + " .td-pill").first.inner_text().strip()
 
@@ -644,21 +654,51 @@ def run_topbar(browser, base):
                   wait_until(lambda: server_task(base, user, fid).get("is_focused") is False, 20),
                   repr(server_task(base, user, fid).get("is_focused")))
 
-            # ── T-6 popover yatim ──
+            # ── T-6 popover yatim (Review Focus 1) ──
+            # Detail berganti / ditutup TANPA pointerdown (el.click() lewat evaluate): penutup "klik di luar" milik
+            # popover tidak ikut bekerja, jadi 0 .td-pop hanya bisa berasal dari portal yang ikut di-unmount.
+            def orphan_case(step, open_sel, trigger_sel, trigger_text, after):
+                p.locator(open_sel).first.click()
+                p.locator(POP).first.wait_for(timeout=3000)
+                before = pops(p)
+                pd0 = p.evaluate("() => window.__pdCount || 0")
+                clicked = js_click(p, trigger_sel, trigger_text)
+                ok_after = after()
+                p.wait_for_timeout(300)
+                pd1 = p.evaluate("() => window.__pdCount || 0")
+                check("%s %s → 0 .td-pop (tanpa pointerdown)" % (tag, step),
+                      before == 1 and clicked and ok_after and pd1 == pd0 and pops(p) == 0,
+                      "sebelum=%r diklik=%r sesudah-ok=%r pointerdown=%d .td-pop=%d"
+                      % (before, clicked, ok_after, pd1 - pd0, pops(p)))
+
+            p.evaluate("""() => { if (!window.__pdHooked) { window.__pdHooked = 1;
+                document.addEventListener('pointerdown', () => { window.__pdCount = (window.__pdCount || 0) + 1; }, true); } }""")
             if kind == "panel":
                 p.locator(PANEL + ' button[aria-label="Aksi lain"]').first.click()
                 p.locator(POP + '[role="menu"]').first.wait_for(timeout=3000)
                 shot(p, "T_%s_%s_%s_menu.png" % (label, theme, kind))
-                click_row(p, TB_OTHER)
-                p.wait_for_timeout(300)
-                check("%s T-6a panel: ⋯ terbuka lalu klik baris lain → 0 .td-pop" % tag, pops(p) == 0, str(pops(p)))
+                p.keyboard.press("Escape")
+                wait_until(lambda: pops(p) == 0, 3)
+                orphan_case("T-6a panel: ⋯ terbuka, baris lain diklik (el.click)",
+                            PANEL + ' button[aria-label="Aksi lain"]', ".task-row", TB_OTHER,
+                            lambda: wait_until(lambda: title_value(p, PANEL) == TB_OTHER, 6))
+                click_row(p, TB_PARENT)
+                orphan_case("T-6b panel: pill terbuka, task anak dibuka (onOpenTask, el.click)",
+                            PANEL + " .td-pill", PANEL + " span", TB_CHILD,
+                            lambda: wait_until(lambda: title_value(p, PANEL) == TB_CHILD, 6))
             else:
-                p.locator(MODAL + " .td-pill").first.click()
-                p.locator(POP).first.wait_for(timeout=3000)
+                orphan_case("T-6c modal: pill terbuka lalu ✕ (el.click)", MODAL + " .td-pill",
+                            MODAL + " .td-top-actions > span", "✕", lambda: wait_closed(p))
+                open_task(p, TB_PARENT)
+                orphan_case("T-6d modal: pill terbuka, task anak dibuka (↗/onOpenTask, el.click)", MODAL + " .td-pill",
+                            MODAL + " span", TB_CHILD,
+                            lambda: wait_until(lambda: title_value(p, MODAL) == TB_CHILD, 6))
                 close_btn(p).click()
                 wait_closed(p)
-                p.wait_for_timeout(200)
-                check("%s T-6b modal: pill terbuka lalu ✕ → 0 .td-pop" % tag, pops(p) == 0, str(pops(p)))
+                open_task(p, TB_OTHER)
+                orphan_case("T-6e modal: menu ⋯ terbuka lalu Selesai (el.click) → modal tertutup",
+                            MODAL + ' button[aria-label="Aksi lain"]', MODAL + " .td-top button", "Selesai",
+                            lambda: wait_closed(p))
 
             # ── T-7 popover menempel pada jangkar ──
             if kind == "panel":
@@ -793,18 +833,27 @@ def run_topbar(browser, base):
                 check("%s T-8b .td-top tidak meluber (scrollWidth ≤ clientWidth + 1), #cid berelipsis" % tag,
                       ov["sw"] <= ov["cw"] + 1 and ov["right"] <= ov["vw"], repr(ov))
                 shot(p, "T_%s_%s_%s_cid.png" % (label, theme, kind))
+                cid = created["id"]
                 fbtn = p.locator(MODAL + ' button[aria-label="Fokus"]').first
                 fbtn.click()
                 check("%s T-8c Fokus bisa diklik (aria-pressed=true)" % tag,
                       wait_until(lambda: fbtn.get_attribute("aria-pressed") == "true", 3))
-                close_btn(p).click()
-                wait_closed(p)
+                check("%s T-8d rekaman lokal (cid) is_focused benar" % tag,
+                      wait_until(lambda: local_task(p, cid).get("is_focused") is True, 5),
+                      repr(local_task(p, cid).get("is_focused")))
+                p.locator(MODAL + " .td-top button", has_text="Selesai").first.click()
+                check("%s T-8e Selesai pada task cid (offline) → modal tertutup" % tag, wait_closed(p))
+                check("%s T-8f rekaman lokal (cid) gtd_status done" % tag,
+                      wait_until(lambda: local_task(p, cid).get("gtd_status") == "done", 5),
+                      repr(local_task(p, cid).get("gtd_status")))
                 net_offline(cdp, False)
                 p.wait_for_timeout(1000)
                 OFFLINE["on"] = False
                 p.evaluate("() => window.__pushNow && window.__pushNow()")
-                check("%s T-8d online → task 'Lokal' tersinkron ke server" % tag,
-                      wait_until(lambda: server_row(base, user, TB_LOCAL) is not None, 25))
+                check("%s T-8g online → server: task 'Lokal' ada, is_focused benar, gtd_status done" % tag,
+                      wait_until(lambda: (lambda r: r is not None and r.get("is_focused") is True
+                                          and r.get("gtd_status") == "done")(server_row(base, user, TB_LOCAL)), 30),
+                      repr(server_row(base, user, TB_LOCAL)))
 
             check("%s T-9 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
         except Exception as e:  # langkah yang melempar = gagal

@@ -43,11 +43,38 @@
     return { y: m[1], mon: MONTHS_SHORT[mo - 1], d: Number(m[3]) };
   }
 
+  // Stempel waktu server (`datetime('now')` → "YYYY-MM-DD HH:MM:SS", tanpa zona = UTC) dan lokal (`toISOString()`,
+  // "…Z") sama-sama UTC; tanpa konversi task yang dibuat 00:00–07:00 WIB tampil "kemarin". Bagian jam ada → dibaca
+  // sebagai UTC (kecuali ada offset eksplisit ±hh:mm) lalu diambil tanggal kalender LOKAL. Tanggal saja
+  // ("YYYY-MM-DD") apa adanya. Tidak valid → "".
+  const STAMP_RE = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,6}))?)?\s*(Z|[+-]\d{2}:?\d{2})?$/i;
+  function localDateParts(iso) {
+    const m = STAMP_RE.exec(typeof iso === "string" ? iso.trim() : "");
+    if (!m) return null;
+    const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]), h = Number(m[4]), mi = Number(m[5]);
+    const sec = Number(m[6] || 0), ms = m[7] ? Number((m[7] + "00").slice(0, 3)) : 0;
+    if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59 || sec > 59) return null;
+    let t = Date.UTC(y, mo - 1, d, h, mi, sec, ms);
+    const z = m[8];
+    if (z && z.toUpperCase() !== "Z") {
+      const sign = z[0] === "-" ? -1 : 1, digits = z.slice(1).replace(":", "");
+      t -= sign * (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2, 4))) * 60000;
+    }
+    const dt = new Date(t);
+    if (isNaN(dt.getTime())) return null;
+    return { y: String(dt.getFullYear()), mon: MONTHS_SHORT[dt.getMonth()], d: dt.getDate() };
+  }
+
   function formatCreated(iso) {
+    const s = typeof iso === "string" ? iso.trim() : "";
+    const p = /^\d{4}-\d{2}-\d{2}$/.test(s) ? parts(s) : localDateParts(s);
+    return p ? `${p.d} ${p.mon} ${p.y}` : "";
+  }
+  // Deadline = tanggal kalender (bukan stempel waktu): tidak dikonversi zona.
+  function formatDeadline(iso) {
     const p = parts(iso);
     return p ? `${p.d} ${p.mon} ${p.y}` : "";
   }
-  const formatDeadline = formatCreated;
 
   function formatShortDate(iso, todayISO) {
     const p = parts(iso);
