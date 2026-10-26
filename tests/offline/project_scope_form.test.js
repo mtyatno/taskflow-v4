@@ -103,7 +103,7 @@ test("TaskFormModal: \"Assign ke\" di baris atribut cepat setelah Project saat l
 });
 
 test("TaskDetailModal: label dan opsi project mengikuti scope task", () => {
-  const detail = sliceFn("function TaskDetailModal({", "\nfunction ");
+  const detail = sliceFn("function TaskDetailBody({", "\nfunction ");
   assert.match(detail, /useScopeProjects\(task\.list_id\)/);
   assert.match(detail, /projectScopeLabel\(task\.list_id, scopeLists\)/);
   assert.match(detail, /options: scopeProjects/);

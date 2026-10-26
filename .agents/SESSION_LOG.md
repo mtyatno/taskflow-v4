@@ -4126,3 +4126,10 @@
 - **Changes:** #94 di-merge main 3031fe0 (#93) → v467 `taskflow-v467-istilah-sketsa-media`, app.css 365 + entri whatsnew; CI hijau, merge 4e8b623. #95 di-merge main 4e8b623 → v468 `taskflow-v468-fokus-parkir-toast`, app.css 366 + entri whatsnew; CI hijau, merge 45822d2. Deploy Taskflow V4 sukses untuk keduanya.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — tinggal restart `taskflow-web` sekali.
+
+## [2026-10-26 16:50] - Claude
+- **Task:** Live Edit PR A `claude/task-detail-body` — rilis v469: isi modal detail task dipisah ke `TaskDetailBody` tanpa perubahan perilaku (Task 1 sudah di commit 77cd8c2; ini Task 2 = rilis + E2E + dokumen serah terima).
+- **Changes:** SW **v469** `taskflow-v469-task-detail-body` (sw.js, index.html + fallback, 26 tes di `tests/offline/`; `whatsnew.json` tidak disentuh `sed`), entri teratas `whatsnew.json` `silent` tanggal 2026-10-26; `app.css` tetap `?v=366`. E2E baru `temporary_files/e2e_task_detail_body.py` (1280/375 px × terang/gelap) + `.gitignore` untuk screenshot; dijalankan di branch (61/61) dan `main` 0ab062d (61/61), 16 screenshot dibanding piksel (15 identik, 1 beda 8 piksel anti-alias). CURRENT_STATE entri baru di atas. Temuan lama untuk PR B: simpan form lokal dengan `title` menimpa tag task; overlay tag ikut tergulir. Belum push, PR belum dibuka.
+- **Verifikasi:** npm 3122/3121 (pra-ada `draw_local_reactive`); pytest 1215 passed 1 skipped; PROTOCOL §4 33 passed; inline OK.
+- **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js, temporary_files/e2e_task_detail_body.py, .gitignore, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal, belum push/PR.
