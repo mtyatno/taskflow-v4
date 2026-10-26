@@ -4158,3 +4158,5 @@
 - **Status:** Needs Review — 3 commit lokal, belum push/PR.
 
 - 2026-10-26 22:30 WIB (Claude): #96, #97 (dengan notifikasi R20) dan #98 (bug tag + overlay) di-merge atas "merge dan deploy" Bapak; ketiga deploy sukses. Server perlu `sudo systemctl restart taskflow-web` untuk notifikasi #97. CI #98 sempat tertahan di langkah apt ffmpeg runner GitHub (dibatalkan + dijalankan ulang). Berikutnya: redesain detail task dari mockup Bapak (brainstorming).
+
+- 2026-10-27 00:15 WIB (Claude): brainstorming redesain detail task selesai (A + pendekatan 1, bagian 1–4); spec dan plan ditulis di branch `claude/redesain-detail-task` dan disalin ke Project. Keputusan tambahan saat menulis: aturan simpan properti tunggal (menutup popover = commit field; deadline & menunggu jadi pemicu "blur"), posisi popover lewat fungsi murni `TF.taskdetail.popoverPosition`, harness E2E baru `temporary_files/e2e_detail_redesign.py`. Menunggu review Bapak sebelum eksekusi.
