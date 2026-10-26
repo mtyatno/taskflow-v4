@@ -53,3 +53,42 @@ test("CSS indikator + aksi menempel di panel", () => {
   assert.match(appCss, /\.tl-save-ind\s*\{/); assert.match(appCss, /\.tl-live-panel \.task-detail-actions\s*\{[^}]*position:\s*sticky/);
   assert.match(appCss, /\.task-detail-title-input\s*\{/);
 });
+
+// Perbaikan review Task 5 #1: "Judul tidak boleh kosong" (spec §7.4 langkah 2, role="alert") harus terlihat.
+test("Panel judul: Enter dengan judul tidak valid tidak blur; pesan bertahan setelah blur (titleNotice)", () => {
+  const s = fnSource("TaskDetailBody");
+  const row = s.slice(s.indexOf('"aria-label": "Judul task"'));
+  const enter = row.slice(row.indexOf('e.key === "Enter"'), row.indexOf('e.key === "Escape"'));
+  const v = enter.indexOf("validateTitle(auto.getState().form.title)");
+  const b = enter.indexOf("e.currentTarget.blur()");
+  assert.ok(v >= 0 && b > v, "cabang Enter memeriksa validateTitle sebelum blur()");
+  assert.match(enter, /if \(invalid\) setTitleNotice\(invalid\);\s*else e\.currentTarget\.blur\(\)/);
+  assert.match(s, /const \[titleNotice, setTitleNotice\] = useState\(null\)/);
+  assert.match(s, /auto\.revertTitle\(\);\s*auto\.retry\(\);\s*setTitleNotice\(invalid\)/, "blur mengembalikan judul dan menyimpan pesannya");
+  assert.match(s, /sf\("title", e\.target\.value\);\s*if \(titleNotice\) setTitleNotice\(null\)/, "ketikan berikutnya menghapus pesan");
+  assert.match(s, /const titleAlert = isPanel \? titleNotice \|\|/);
+  assert.match(s, /titleAlert && (\/\*#__PURE__\*\/)?React\.createElement\("div", \{\s*role: "alert"[\s\S]{0,160}\}, titleAlert\)/);
+});
+
+// Perbaikan review Task 5 #2 (ruling R14): judul tidak dikirim sebelum daftar tag task diketahui.
+test("R14: put menunggu daftar tag hanya bila patch membawa judul", () => {
+  const h = fnSource("useTaskAutosave");
+  const put = h.slice(h.indexOf("put: async patch =>"), h.indexOf('api.put("/api/tasks/" + taskIdRef.current'));
+  const check = put.indexOf("if (patch.title != null) {");
+  assert.ok(check >= 0, "cek patch.title ada di jalur put");
+  assert.ok(put.indexOf("await ") > check, "tidak ada await sebelum cek judul: simpan tanpa judul tidak menunggu");
+  assert.match(put.slice(check), /await tagsOf\(\)[\s\S]{0,160}titleWithTags\(patch\.title, tags\)/);
+
+  const s = fnSource("TaskDetailBody");
+  assert.match(s, /getTags: tagsForTitle/);
+  assert.doesNotMatch(s, /getTags: \(\) => taskTagsRef\.current/);
+  const fn = s.slice(s.indexOf("const tagsForTitle = async () =>"), s.indexOf("const liveMountedRef"));
+  assert.match(fn, /await \(tagsLoadRef\.current \|\| Promise\.resolve\(false\)\)/, "menunggu pemuatan tag task ini");
+  assert.match(fn, /if \(known\) return taskTagsRef\.current/);
+  assert.equal((fn.match(/loadTags\(task\.id\)/g) || []).length, 1, "muat ulang sekali bila pemuatan awal gagal");
+  assert.match(fn, /throw new Error\(/, "gagal lagi → put ditolak, bukan mengirim judul tanpa tag");
+  assert.match(s, /taskTagsRef\.current = list;/, "loadTags mengisi ref sebelum promise selesai");
+  assert.match(s, /tagsLoadRef\.current = loadTags\(task\.id\)\.catch\(\(\) => \{\s*setTaskTags\(\[\]\);\s*return false;/);
+  assert.match(s, /patch\.title != null\) \{[\s\S]{0,200}tagsLoadRef\.current = loadTags\(task\.id\)\.catch\(\(\) => false\)/,
+    "muat ulang tag setelah simpan judul ikut ditunggu simpan judul berikutnya");
+});

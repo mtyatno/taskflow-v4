@@ -8423,6 +8423,7 @@ async function moveTaskToWorkspace({ api, task, listId, pushNow, syncNow, server
 // Live Edit (spec §7.2–§7.4, ruling R2): pembungkus React tipis untuk TF.liveedit.createAutosaver. Satu pengendali
 // per mount; null bila !enabled (modal). put memakai id task terkini (cid → id server setelah sync) dan, bila judul
 // ikut dikirim, menambahkan #tag yang sudah ada karena simpan judul mengganti tag task dengan #tag di judul (R9).
+// getTags() boleh async (Promise daftar tag); bila menolak, put ikut menolak dan judul tidak dikirim (R14).
 // Unmount, tab disembunyikan, dan pagehide mengirim semua perubahan yang tertunda (flush).
 function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
   const taskIdRef = useRef(task && task.id);
@@ -8435,8 +8436,14 @@ function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
     saverRef.current = window.TF.liveedit.createAutosaver({
       task,
       put: async patch => {
-        const tagsOf = cbRef.current.getTags;
-        const body = patch.title != null ? { ...patch, title: window.TF.liveedit.titleWithTags(patch.title, tagsOf ? tagsOf() : []) } : patch;
+        let body = patch;
+        if (patch.title != null) {
+          // R14: hanya simpan yang membawa judul menunggu daftar tag task diketahui (getTags async; menolak bila tag
+          // tidak bisa dimuat), supaya titleWithTags tidak memakai daftar kosong dan menghapus semua tag.
+          const tagsOf = cbRef.current.getTags;
+          const tags = tagsOf ? await tagsOf() : [];
+          body = { ...patch, title: window.TF.liveedit.titleWithTags(patch.title, tags) };
+        }
         const row = await api.put("/api/tasks/" + taskIdRef.current, body);
         try { if (cbRef.current.onSaved) cbRef.current.onSaved(patch); } catch (err) { console.error(err); }
         return row;
@@ -8532,6 +8539,8 @@ function TaskDetailBody({
   const isPanel = variant === "panel";
   const [isEditing, setIsEditing] = useState(false);
   const editing = isPanel || isEditing;
+  // Panel: pesan judul tidak valid tetap tampil setelah blur mengembalikan judul; hilang saat judul diubah lagi.
+  const [titleNotice, setTitleNotice] = useState(null);
   const [listMembers, setListMembers] = useState([]);
   const [form, setForm] = useState({
     title: task.title || "",
@@ -8632,6 +8641,29 @@ function TaskDetailBody({
   const [tagTasksModal, setTagTasksModal] = useState(null); // { tagName, tasks }
   const taskTagsRef = useRef(taskTags);
   taskTagsRef.current = taskTags;
+  // R14: simpan judul mengganti tag task dengan #tag di judul, jadi panel baru boleh mengirim judul setelah daftar tag
+  // task ini diketahui. tagsLoadRef = Promise<boolean> pemuatan tag terakhir (true = taskTagsRef berisi tag task ini).
+  const tagsLoadRef = useRef(null);
+  const loadTags = id => api.get(`/api/tasks/${id}/tags`).then(data => {
+    const list = data || [];
+    taskTagsRef.current = list; // langsung, tanpa menunggu render: put yang menunggu promise ini membacanya
+    setTaskTags(list);
+    return true;
+  });
+  const tagsForTitle = async () => {
+    const known = await (tagsLoadRef.current || Promise.resolve(false));
+    if (known) return taskTagsRef.current;
+    // Pemuatan awal gagal (taskTags [] bukan daftar tag sebenarnya): muat ulang sekali. Gagal lagi → put ditolak,
+    // indikator "Gagal menyimpan", tag tetap utuh; "Coba lagi" mencoba memuat lagi.
+    const retry = loadTags(task.id);
+    tagsLoadRef.current = retry.catch(() => false);
+    try {
+      await retry;
+    } catch (_) {
+      throw new Error("Tag task belum termuat, judul belum disimpan");
+    }
+    return taskTagsRef.current;
+  };
 
   // Live Edit: simpan otomatis di panel. Tiap simpan sukses memberi tahu pendengar taskUpdated dan memuat ulang
   // daftar (onRefresh, debounce 500 ms); simpan yang membawa judul memuat ulang tag (#tag baru di judul jadi chip).
@@ -8659,9 +8691,8 @@ function TaskDetailBody({
       return;
     }
     if (patch && patch.title != null) {
-      api.get(`/api/tasks/${task.id}/tags`).then(data => {
-        if (liveMountedRef.current) setTaskTags(data || []);
-      }).catch(() => {});
+      // Simpan judul berikutnya (mis. yang antre) menunggu muat ulang ini, supaya #tag baru dari judul ini ikut terkirim.
+      tagsLoadRef.current = loadTags(task.id).catch(() => false);
     }
     clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(() => {
@@ -8671,7 +8702,7 @@ function TaskDetailBody({
   };
   const auto = useTaskAutosave(task, isPanel, {
     onSaved,
-    getTags: () => taskTagsRef.current
+    getTags: tagsForTitle
   });
   const fv = isPanel ? auto.form : form;
   const sf = isPanel ? auto.change : setF;
@@ -8705,7 +8736,10 @@ function TaskDetailBody({
   }, [task?.id]);
   useEffect(() => {
     if (task?.id) {
-      api.get(`/api/tasks/${task.id}/tags`).then(data => setTaskTags(data || [])).catch(() => setTaskTags([]));
+      tagsLoadRef.current = loadTags(task.id).catch(() => {
+        setTaskTags([]);
+        return false;
+      });
     }
   }, [task?.id]);
   const removeTag = async tagName => {
@@ -8800,6 +8834,9 @@ function TaskDetailBody({
     }
     setSaving(false);
   };
+  // Panel: pesan di bawah judul. titleError dari pengendali hanya selama judul di form masih tidak valid (pengendali
+  // baru memperbaruinya saat simpan berikutnya, jadi tanpa syarat ini pesan basi tetap tampil saat judul sudah diperbaiki).
+  const titleAlert = isPanel ? titleNotice || (auto.titleError && window.TF.liveedit.validateTitle(fv.title) ? auto.titleError : null) : null;
   // Chip tag (klik = task lain dengan tag ini, × = hapus tag): mode lihat modal dan panel.
   const tagChips = () => taskTags.length > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
@@ -8892,36 +8929,46 @@ function TaskDetailBody({
     className: "input task-detail-title-input",
     "aria-label": "Judul task",
     value: fv.title,
-    onChange: e => sf("title", e.target.value),
+    onChange: e => {
+      sf("title", e.target.value);
+      if (titleNotice) setTitleNotice(null);
+    },
     onBlur: () => {
       auto.commit("title");
-      // Judul tidak valid (kosong / hanya #tag) tidak dikirim; keluar field → kembali ke judul tersimpan (§7.4 langkah 2).
-      // Dicek dari form terkini, bukan auto.titleError hasil render: nilai itu bisa basi dan membalikkan judul valid
-      // yang sedang dikirim. retry() membersihkan "Gagal menyimpan" basi atau mengirim field lain yang masih berubah.
-      if (window.TF.liveedit.validateTitle(auto.getState().form.title)) {
+      // Judul tidak valid (kosong / hanya #tag) tidak dikirim; keluar field → kembali ke judul tersimpan (§7.4 langkah 2)
+      // dan pesannya tetap tampil (titleNotice; revertTitle menghapus titleError). Dicek dari form terkini, bukan
+      // auto.titleError hasil render: nilai itu bisa basi dan membalikkan judul valid yang sedang dikirim.
+      // retry() membersihkan "Gagal menyimpan" basi atau mengirim field lain yang masih berubah.
+      const invalid = window.TF.liveedit.validateTitle(auto.getState().form.title);
+      if (invalid) {
         auto.revertTitle();
         auto.retry();
+        setTitleNotice(invalid);
       }
     },
     onKeyDown: e => {
       if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
         e.preventDefault();
         auto.commit("title");
-        e.currentTarget.blur();
+        // Judul tidak valid: fokus tetap di input supaya pesan terlihat (perbaiki, atau Escape untuk mengembalikan).
+        const invalid = window.TF.liveedit.validateTitle(auto.getState().form.title);
+        if (invalid) setTitleNotice(invalid);
+        else e.currentTarget.blur();
       } else if (e.key === "Escape") {
         e.preventDefault();
         auto.revertTitle();
         auto.retry();
+        setTitleNotice(null);
       }
     }
-  }), auto.titleError && /*#__PURE__*/React.createElement("div", {
+  }), titleAlert && /*#__PURE__*/React.createElement("div", {
     role: "alert",
     style: {
       fontSize: 12,
       color: "var(--danger, #dc2626)",
       marginTop: 4
     }
-  }, auto.titleError)) : isEditing ? /*#__PURE__*/React.createElement("input", {
+  }, titleAlert)) : isEditing ? /*#__PURE__*/React.createElement("input", {
     className: "input",
     value: form.title,
     onChange: e => setF("title", e.target.value),
