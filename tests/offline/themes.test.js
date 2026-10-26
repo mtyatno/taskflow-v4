@@ -11,7 +11,7 @@ test("readPrefs: nilai asing → bawaan", () => assert.deepEqual(th.readPrefs(me
 test("readPrefs: storage melempar → bawaan", () => assert.equal(th.readPrefs({ getItem() { throw new Error("blocked"); } }).palette, "default"));
 test("readPrefs: null storage → bawaan", () => assert.equal(th.readPrefs(null).mode, "light"));
 test("resolve: system mengikuti systemDark", () => { assert.equal(th.resolve({ mode: "system", palette: "default", decor: "on" }, true).theme, "dark"); assert.equal(th.resolve({ mode: "system", palette: "default", decor: "on" }, false).theme, "light"); });
-test("resolve: light/dark mengabaikan systemDark; themeColor dari registri", () => { const r = th.resolve({ mode: "light", palette: "default", decor: "off" }, true); assert.equal(r.theme, "light"); assert.equal(r.decor, "off"); assert.equal(r.themeColor, "#0f172a"); });
+test("resolve: light/dark mengabaikan systemDark; themeColor dari registri", () => { const r = th.resolve({ mode: "light", palette: "default", decor: "off" }, true); assert.equal(r.theme, "light"); assert.equal(r.decor, "off"); assert.equal(r.themeColor, "#FCFCFB"); });
 test("apply: memasang 3 atribut + meta, lalu nilai sama → tanpa setAttribute", () => {
   const calls = []; const el = { attrs: {}, getAttribute(k) { return this.attrs[k] ?? null; }, setAttribute(k, v) { calls.push(k); this.attrs[k] = v; } };
   const meta = { content: "#000", getAttribute(k) { return k === "content" ? this.content : null; }, setAttribute(k, v) { calls.push("meta"); this.content = v; } };
@@ -42,13 +42,49 @@ test("registri: swatch default sesuai nilai :root dan gelap", () => {
   const d = th.paletteById("default");
   assert.deepEqual(d.swatch.light, { accent: "#A8C500", soft: "#F4FAD6", bg: "#FCFCFB" });
   assert.deepEqual(d.swatch.dark, { accent: "#A8C500", soft: "rgba(168,197,0,0.18)", bg: "#171717" });
-  assert.deepEqual(d.themeColor, { light: "#0f172a", dark: "#0f172a" });
+  assert.deepEqual(d.themeColor, { light: "#FCFCFB", dark: "#0f172a" });
   assert.deepEqual(d.decor, {});
   assert.equal(th.PALETTES[0].id, "default");
 });
+
+// --- PR B Task 1: palet Sakura + Lavender ---
+const PETAL_DECOR = { "page-corner": "petals", "empty-done": "mascot-happy", "empty-empty": "mascot-happy", "empty-filter": "mascot-search", "pomo-glyph": "petal" };
+test("registri: urutan id default,sakura,lavender", () => assert.deepEqual(th.PALETTES.map((p) => p.id), ["default", "sakura", "lavender"]));
+test("themeColor Default terang #FCFCFB (gelap tetap #0f172a)", () => {
+  assert.equal(th.paletteById("default").themeColor.light, "#FCFCFB");
+  assert.equal(th.paletteById("default").themeColor.dark, "#0f172a");
+});
+test("swatch + themeColor sakura sesuai", () => {
+  const p = th.paletteById("sakura");
+  assert.equal(p.name, "Sakura");
+  assert.deepEqual(p.swatch.light, { accent: "#B0287E", soft: "#F9E1F0", bg: "#FDF5FA" });
+  assert.deepEqual(p.swatch.dark, { accent: "#EE8FCB", soft: "#3A2236", bg: "#1C1219" });
+  assert.deepEqual(p.themeColor, { light: "#FDF5FA", dark: "#1C1219" });
+  assert.deepEqual(p.decor, PETAL_DECOR);
+});
+test("swatch + themeColor lavender sesuai", () => {
+  const p = th.paletteById("lavender");
+  assert.equal(p.name, "Lavender");
+  assert.deepEqual(p.swatch.light, { accent: "#8A3AAE", soft: "#F1E4FA", bg: "#FAF6FD" });
+  assert.deepEqual(p.swatch.dark, { accent: "#CDA2F2", soft: "#2F2440", bg: "#18131D" });
+  assert.deepEqual(p.themeColor, { light: "#FAF6FD", dark: "#18131D" });
+  assert.deepEqual(p.decor, PETAL_DECOR);
+});
+test("isDecorAvailable(sakura|lavender) true, default false; decorFor sakura pomo-glyph = petal", () => {
+  assert.equal(th.isDecorAvailable("sakura"), true);
+  assert.equal(th.isDecorAvailable("lavender"), true);
+  assert.equal(th.isDecorAvailable("default"), false);
+  assert.equal(th.decorFor("sakura", "pomo-glyph"), "petal");
+  assert.equal(th.decorFor("lavender", "page-corner"), "petals");
+});
+test("readPrefs/resolve mengenali palet baru; themeColor mengikuti mode", () => {
+  assert.equal(th.readPrefs(mem({ tf_palette: "sakura" })).palette, "sakura");
+  assert.equal(th.resolve({ mode: "dark", palette: "lavender", decor: "on" }, false).themeColor, "#18131D");
+  assert.equal(th.resolve({ mode: "light", palette: "sakura", decor: "on" }, false).themeColor, "#FDF5FA");
+});
 test("resolve: palette asing jatuh ke default; decor selain \"off\" menjadi on; mode asing = light", () => {
   const r = th.resolve({ mode: "blue", palette: "zzz", decor: "maybe" }, true);
-  assert.deepEqual(r, { theme: "light", palette: "default", decor: "on", themeColor: "#0f172a" });
+  assert.deepEqual(r, { theme: "light", palette: "default", decor: "on", themeColor: "#FCFCFB" });
 });
 test("resolve: mode dark → dark; tanpa argumen tidak melempar", () => {
   assert.equal(th.resolve({ mode: "dark", palette: "default", decor: "on" }, false).theme, "dark");

@@ -14,11 +14,16 @@
     // agar tidak ada kilatan tema yang salah. Modul /static/offline/themes.js belum dimuat di sini, jadi aturannya
     // disalin dan harus sama persis dengan readPrefs + resolve modul itu (dijaga tests/offline/theme_boot.test.js).
     // ES5 saja.
-    // Daftar palet dan tabel warna meta ditulis literal; tambahkan palet baru di sini juga.
+    // Daftar palet dan tabel warna meta ditulis literal dan harus sama dengan PALETTES (id dan themeColor) di
+    // themes.js; tambahkan palet baru di kedua tempat (dijaga tests/offline/theme_boot.test.js).
     (function () {
       try {
-        var palettes = ["default"];
-        var themeColors = { "default": { light: "#0f172a", dark: "#0f172a" } };
+        var palettes = ["default", "sakura", "lavender"];
+        var themeColors = {
+          "default": { light: "#FCFCFB", dark: "#0f172a" },
+          "sakura": { light: "#FDF5FA", dark: "#1C1219" },
+          "lavender": { light: "#FAF6FD", dark: "#18131D" }
+        };
         var ls = null;
         try { ls = window.localStorage; } catch (_) { ls = null; } // Safari: akses propertinya pun bisa melempar
         var get = function (k) {
