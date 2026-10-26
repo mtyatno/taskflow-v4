@@ -26,9 +26,10 @@ test("warna bermakna di :root tidak berubah", () => {
     assert.ok(root.includes(d), d);
   }
   assert.ok(root.includes("--q2: var(--accent)"));
-  // Aksen dan Q2 sama di kedua mode: blok gelap tidak boleh menimpanya.
-  assert.doesNotMatch(darkTok, /(^|[\s;{])--accent\s*:/);
-  assert.doesNotMatch(darkTok, /(^|[\s;{])--q2\s*:/);
+  // Aksen dan Q2 sama di kedua mode: blok gelap tidak boleh menimpanya (termasuk turunan aksen yang mode-bebas).
+  for (const t of ["--accent", "--q2", "--accent-rgb", "--accent-hover", "--accent-2", "--accent-2-hover"]) {
+    assert.doesNotMatch(darkTok, new RegExp(`(^|[\\s;{])${t}\\s*:`), "blok gelap menimpa " + t);
+  }
 });
 
 test("nilai token :root dan blok gelap dipin (= literal Default yang digantikannya)", () => {
@@ -77,3 +78,27 @@ test("guard: tidak ada literal lime di app.css di luar blok token", () => {
 });
 test("guard: tidak ada literal lime di index.html kecuali fallback var(--accent, #A8C500)", () => { const h = html.replace(/var\(--accent, #A8C500\)/g, ""); assert.equal(h.match(new RegExp(LIME.source, "gi")), null); });
 test("guard: Chart.js tidak menerima var()", () => { const chart = html.slice(html.indexOf("function ProductivityChart("), html.indexOf("function DashCardHead(")); assert.doesNotMatch(chart, /addColorStop\([^)]*var\(|borderColor:\s*"var\(|backgroundColor:\s*\[[^\]]*var\(/); });
+
+// Task 5: aturan gelap berliteral hanya kelas 2 (warna bermakna) atau 4 (netral tanpa token) — daftar + alasan di
+// tests/offline/theme_dark_allowlist.json. Literal permukaan lain sudah memakai token (atau aturan gelapnya dihapus).
+// Plan memperkirakan ≤ 80 entri, tetapi aturan "warna bermakna" saja sudah 83 → batas dipisah per alasan.
+// Ratchet: angka = jumlah saat Task 5 (tanpa ruang sisa); PR B hanya boleh menurunkannya.
+const ALLOW_MAX_TOTAL = 144, ALLOW_MAX_NON_BERMAKNA = 61;
+const ALLOW_REASONS = ["warna bermakna", "netral tanpa token", "lime-adjacent", "blok token gelap"];
+const allowList = JSON.parse(read("tests/offline/theme_dark_allowlist.json"));
+const allow = new Set(allowList.map(e => e.selector));
+const darkRules = [...css.matchAll(/(\[data-theme="dark"\][^{]*)\{([^}]*)\}/g)].map(m => [m[1].trim(), m[2]]);
+const LITERAL = /#[0-9a-f]{3,8}\b|rgba?\(\s*\d/i;
+test("guard: aturan gelap berliteral hanya yang di-allowlist", () => { const bad = darkRules.filter(([s, b]) => LITERAL.test(b) && !allow.has(s)).map(([s]) => s); assert.deepEqual(bad, []); });
+test("guard: allowlist tidak basi (selektor ada dan masih berliteral), alasan baku, ratchet jumlah", () => {
+  const body = new Map(darkRules);
+  for (const s of allow) {
+    assert.ok(body.has(s), "basi: " + s);
+    assert.ok(LITERAL.test(body.get(s)), "tidak berliteral lagi, hapus dari allowlist: " + s);
+  }
+  for (const e of allowList) assert.ok(ALLOW_REASONS.includes(e.reason), `alasan tidak baku: ${e.reason} (${e.selector})`);
+  assert.equal(allow.size, allowList.length, "selektor ganda di allowlist");
+  assert.ok(allow.size <= ALLOW_MAX_TOTAL, "total " + allow.size);
+  const nonBermakna = allowList.filter(e => e.reason !== "warna bermakna").length;
+  assert.ok(nonBermakna <= ALLOW_MAX_NON_BERMAKNA, "bukan warna bermakna " + nonBermakna);
+});
