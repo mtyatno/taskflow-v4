@@ -25,6 +25,7 @@ const STATIC = [
   "/static/offline/projectcache.js",
   "/static/offline/contextcache.js",
   "/static/offline/kanbanboard.js",
+  "/static/offline/liveedit.js",
   "/static/offline/recurrence.js",
   "/static/offline/taskroutes.js",
   "/static/offline/hydrate.js",
