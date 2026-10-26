@@ -47,12 +47,20 @@ test("themes.css dimuat setelah app.css (token palet menimpa token Default)", ()
   assert.ok(a < t);
 });
 
-test("themes.css hanya blok [data-palette] berisi deklarasi --*", () => {
+test("themes.css hanya blok [data-palette] berisi deklarasi --*; tiap palet non-Default punya blok", () => {
   const body = tcss.replace(/\/\*[\s\S]*?\*\//g, "");
+  const seen = new Set();
   for (const m of body.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    assert.match(m[1].trim(), /^\[data-palette="[a-z]+"\](\[data-theme="dark"\])?$/);
+    const sel = m[1].trim().match(/^\[data-palette="([a-z]+)"\](\[data-theme="dark"\])?$/);
+    assert.ok(sel, "selektor asing: " + m[1].trim());
+    seen.add(sel[1]);
     for (const d of m[2].split(";").map(s => s.trim()).filter(Boolean)) assert.match(d, /^--[a-z0-9-]+\s*:/, d);
   }
+  // Sisa teks di luar blok (mis. aturan tanpa kurung tutup) juga ditolak.
+  assert.equal(body.replace(/([^{}]+)\{([^{}]*)\}/g, "").trim(), "", "teks di luar blok");
+  const ids = require("../../static/offline/themes.js").PALETTES.map(p => p.id).filter(id => id !== "default");
+  assert.ok(ids.length > 0);
+  for (const id of ids) assert.ok(seen.has(id), "themes.css tanpa blok palet " + id);
 });
 
 test("themes.css dan themes.js dimuat index.html", () => {

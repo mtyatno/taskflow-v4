@@ -11,3 +11,132 @@
  */
 
 [data-palette="default"] {}
+
+/*
+ * Sakura — pink. Nilai spec §3.3; turunan: --bg-primary/--bg-secondary = --bg-page (terang) / --bg-card (gelap),
+ * --outline-guide = --text-light, --bg-hover/--bg-subtle/--bg-selected = rgb --text-primary 0.05/0.025/0.07
+ * (terang) dan putih 0.08/0.03/0.10 (gelap, sama dengan Default). Radius dan font judul hanya di blok terang
+ * (blok gelap mewarisinya). Kontras dijaga tests/offline/theme_palettes.test.js.
+ */
+[data-palette="sakura"] {
+  --bg-page: #FDF5FA;
+  --bg-primary: #FDF5FA;
+  --bg-secondary: #FDF5FA;
+  --bg-card: #FFFFFF;
+  --bg-sidebar: #FBEAF4;
+  --border: #F0D2E5;
+  --border-strong: #E6C0D8;
+  --text-primary: #3A2438;
+  --text-secondary: #694763;
+  --text-light: #83607A;
+  --outline-guide: #83607A;
+  --bg-hover: rgba(58,36,56,0.05);
+  --bg-subtle: rgba(58,36,56,0.025);
+  --bg-selected: rgba(58,36,56,0.07);
+  --accent: #B0287E;
+  --accent-hover: #9A2070;
+  --accent-ink: #FFFFFF;
+  --accent-text: #B0287E;
+  --accent-text-strong: #B0287E;
+  --accent-soft: #F9E1F0;
+  --accent-duo: #F2C4E1;
+  --accent-ring: rgba(176,40,126,0.35);
+  --accent-rgb: 176, 40, 126;
+  --accent-2: #B0287E;
+  --accent-2-hover: #9A2070;
+  --radius-sm: 10px;
+  --radius-control: 12px;
+  --radius-md: 14px;
+  --radius-card: 18px;
+  --radius-lg: 22px;
+  --font-heading: "Nunito", "Nunito Sans", sans-serif;
+}
+[data-palette="sakura"][data-theme="dark"] {
+  --bg-page: #1C1219;
+  --bg-primary: #291B26;
+  --bg-secondary: #291B26;
+  --bg-card: #291B26;
+  --bg-sidebar: #22161F;
+  --border: #3E2A3A;
+  --border-strong: #3E2A3A;
+  --text-primary: #FBEAF5;
+  --text-secondary: #DDBCD3;
+  --text-light: #B992AC;
+  --outline-guide: #B992AC;
+  --bg-hover: rgba(255,255,255,0.08);
+  --bg-subtle: rgba(255,255,255,0.03);
+  --bg-selected: rgba(255,255,255,0.10);
+  --accent: #EE8FCB;
+  --accent-hover: #F5A6D7;
+  --accent-ink: #2B0F24;
+  --accent-text: #EE8FCB;
+  --accent-text-strong: #EE8FCB;
+  --accent-soft: #3A2236;
+  --accent-duo: #573150;
+  --accent-ring: rgba(238,143,203,0.35);
+  --accent-rgb: 238, 143, 203;
+  --accent-2: #EE8FCB;
+  --accent-2-hover: #F5A6D7;
+}
+
+/* Lavender — ungu. Pola turunan sama dengan Sakura. */
+[data-palette="lavender"] {
+  --bg-page: #FAF6FD;
+  --bg-primary: #FAF6FD;
+  --bg-secondary: #FAF6FD;
+  --bg-card: #FFFFFF;
+  --bg-sidebar: #F3EBFA;
+  --border: #E2D4F0;
+  --border-strong: #D5C2E8;
+  --text-primary: #30243C;
+  --text-secondary: #5B4870;
+  --text-light: #75638A;
+  --outline-guide: #75638A;
+  --bg-hover: rgba(48,36,60,0.05);
+  --bg-subtle: rgba(48,36,60,0.025);
+  --bg-selected: rgba(48,36,60,0.07);
+  --accent: #8A3AAE;
+  --accent-hover: #742F93;
+  --accent-ink: #FFFFFF;
+  --accent-text: #8A3AAE;
+  --accent-text-strong: #8A3AAE;
+  --accent-soft: #F1E4FA;
+  --accent-duo: #DFC6F2;
+  --accent-ring: rgba(138,58,174,0.35);
+  --accent-rgb: 138, 58, 174;
+  --accent-2: #8A3AAE;
+  --accent-2-hover: #742F93;
+  --radius-sm: 10px;
+  --radius-control: 12px;
+  --radius-md: 14px;
+  --radius-card: 18px;
+  --radius-lg: 22px;
+  --font-heading: "Nunito", "Nunito Sans", sans-serif;
+}
+[data-palette="lavender"][data-theme="dark"] {
+  --bg-page: #18131D;
+  --bg-primary: #231C2B;
+  --bg-secondary: #231C2B;
+  --bg-card: #231C2B;
+  --bg-sidebar: #1D1724;
+  --border: #382D45;
+  --border-strong: #382D45;
+  --text-primary: #F3EAFB;
+  --text-secondary: #D3C3E6;
+  --text-light: #AE9BC4;
+  --outline-guide: #AE9BC4;
+  --bg-hover: rgba(255,255,255,0.08);
+  --bg-subtle: rgba(255,255,255,0.03);
+  --bg-selected: rgba(255,255,255,0.10);
+  --accent: #CDA2F2;
+  --accent-hover: #DDBBF7;
+  --accent-ink: #22113A;
+  --accent-text: #CDA2F2;
+  --accent-text-strong: #CDA2F2;
+  --accent-soft: #2F2440;
+  --accent-duo: #47375F;
+  --accent-ring: rgba(205,162,242,0.35);
+  --accent-rgb: 205, 162, 242;
+  --accent-2: #CDA2F2;
+  --accent-2-hover: #DDBBF7;
+}
