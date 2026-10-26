@@ -7,7 +7,9 @@ kecuali dicatat lain. Server lokal dijalankan sendiri (uvicorn webapp:app, DB se
 
   A  muat segar dengan Live Edit sudah nyala: task pertama langsung terbuka; daftar kosong lalu task pertama tiba
      sesudah panel tampil → panel memilihnya
-  D  membuka 3 task tanpa mengubah apa pun → jumlah op IndexedDB `_outbox` tidak berubah
+  D  membuka 3 task tanpa mengubah apa pun, dengan halaman OFFLINE (CDP) supaya op tidak terkuras oleh push 1,5 dtk:
+     jumlah op IndexedDB `_outbox` tidak berubah DAN `updated_at`/`rev`/`dirty` rekaman lokal tiap task tidak berubah;
+     sepanjang B (online) tidak ada request tulis ke /api/tasks*
   B  sidebar lebar dan sidebar ikon × Normal / Compact / Kanban: task pertama terbuka, klik mengganti panel + sorotan,
      lebar panel = clamp(round(w × 0.5), 420, 680)
   C  Priority langsung, deskripsi setelah diam, judul saat blur → reload → bertahan; tag task tetap saat judul diubah;
@@ -22,9 +24,11 @@ kecuali dicatat lain. Server lokal dijalankan sendiri (uvicorn webapp:app, DB se
      digulir; tanpa kedip panel di sekitar ambang 760 px (scrollbar klasik sungguhan, bukan `--hide-scrollbars`)
   Z  tanpa error konsol/pageerror. Dua pengecualian, keduanya dicetak jumlahnya di akhir:
      (1) pra-ada, juga dengan Live Edit mati: setelah hapus + sync, syncpull mencatat 404 untuk `GET /api/tasks/:id`
-         (konfirmasi "task benar-benar hilang");
-     (2) selama emulasi offline CDP (skenario E) fetch jaringan yang tidak dilayani router lokal (mis. `fetchAll` →
-         `/api/collaborators`, juga setelah simpan dari modal) gagal `net::ERR_INTERNET_DISCONNECTED`.
+         (konfirmasi "task benar-benar hilang"). Pengecualian konsol hanya berdasarkan path; karena itu akhir skrip
+         menegaskan lewat `BAD_RESPONSES` bahwa SETIAP respons >= 400 pada `/api/tasks/<id>` adalah `GET` 404;
+     (2) selama emulasi offline CDP (skenario D dan E) fetch jaringan yang tidak dilayani router lokal (mis.
+         `fetchAll` → `/api/collaborators`, sub-daftar task `/api/tasks/<id>/subtasks`) gagal
+         `net::ERR_INTERNET_DISCONNECTED`; hanya untuk URL `/api/...` di jendela offline itu (R17).
   Catatan: memilih menu di sidebar selalu melipat sidebar kembali ke bilah ikon (index.html: efek `[page]`); sidebar
   lebar hanya didapat dengan menekan › sesudah berpindah halaman.
 
@@ -170,8 +174,8 @@ def open_app(browser, base, user, w, h, theme, errors, live="1", scrollbars=Fals
         if url and not url.startswith(base):
             return  # muat sumber luar yang kita blokir
         path = url[len(base):].split("?")[0] if url else ""
-        if OFFLINE["on"] and "ERR_INTERNET_DISCONNECTED" in msg.text:
-            offline_noise.append(path)  # fetch jaringan yang memang diputus oleh emulasi, bukan bug aplikasi
+        if OFFLINE["on"] and "ERR_INTERNET_DISCONNECTED" in msg.text and path.startswith("/api/"):
+            offline_noise.append(path)  # fetch API yang memang diputus oleh emulasi (R17: hanya /api/), bukan bug aplikasi
             return
         if (msg.text.startswith("Failed to load resource") and "404" in msg.text
                 and re.fullmatch(r"/api/tasks/[^/]+", path)):
@@ -342,6 +346,25 @@ def local_tags(page, task_id):
     return page.evaluate("""async (id) => (await api.get('/api/tasks/' + id + '/tags')).map(t => t.name).sort()""", task_id)
 
 
+def local_rec(page, title):
+    """Rekaman mentah task di IndexedDB (bukan baris API): `updated_at`, `rev`, `dirty`. Berubah pada SETIAP simpan lokal,
+    jadi tidak berubah = tidak ada simpan. None bila rekaman tidak ada."""
+    return page.evaluate("""async (title) => {
+        const db = await TF.db.openDB();
+        const all = await new Promise((res, rej) => {
+            const q = db.transaction('tasks', 'readonly').objectStore('tasks').getAll();
+            q.onsuccess = () => res(q.result || []); q.onerror = () => rej(q.error);
+        });
+        const t = all.find(x => !x.deleted && x.title === title);
+        return t ? {updated_at: t.updated_at, rev: t.rev == null ? null : t.rev, dirty: t.dirty == null ? null : t.dirty} : null;
+    }""", title)
+
+
+def net_offline(cdp, offline):
+    cdp.send("Network.emulateNetworkConditions", {"offline": offline, "latency": 0, "downloadThroughput": -1,
+                                                   "uploadThroughput": -1})
+
+
 def local_task(page, task_id):
     """Task seperti dilihat aplikasi (router lokal / IndexedDB), bukan server: bukti simpan lokal sudah terjadi."""
     return page.evaluate("async (id) => await api.get('/api/tasks/' + id)", task_id)
@@ -405,6 +428,9 @@ def scen_fresh_and_views(browser, base, A, ids):
     """A (muat segar, Live Edit nyala), D (outbox), B (3 view × sidebar lebar/ikon)."""
     errors = []
     ctx, p = open_app(browser, base, A, 1280, 860, "light", errors, live="1")
+    writes = []  # request tulis (bukan GET) ke /api/tasks* sejak penanda direset: simpan lokal yang terkuras ke server
+    p.on("request", lambda r: writes.append((r.method, r.url.replace(base, "").split("?")[0]))
+         if r.method != "GET" and "/api/tasks" in r.url else None)
     try:
         # ── A. muat segar dengan tf_liveedit=1: task pertama langsung terbuka ──
         go_next(p)
@@ -423,21 +449,41 @@ def scen_fresh_and_views(browser, base, A, ids):
         check("A4 TF.db memakai basis data 'taskflow-offline' (sumber hitungan _outbox)",
               p.evaluate("() => TF.db.DB_NAME") == "taskflow-offline")
 
-        # ── D. membuka 3 task tanpa edit tidak menambah op _outbox ──
+        # ── D. membuka 3 task tanpa edit tidak menyimpan apa pun ──
+        # Online, aplikasi mendorong op `_outbox` ke server 1,5 dtk setelah mutasi (schedulePush) sehingga op "simpan saat
+        # dibuka" terkuras dan jumlahnya tampak tetap. Karena itu D dijalankan OFFLINE (op tidak bisa terkuras) dan
+        # ditegaskan juga rekaman lokal tiap task (`updated_at`/`rev`/`dirty` berubah pada setiap simpan lokal).
         before = settle_outbox(p)
         titles = [t for _, t, *_ in SEED]
+        recs_before = {t: local_rec(p, t) for t in titles[:3]}
+        check("D0 prasyarat: rekaman lokal 3 task ada dan `_outbox` kosong sebelum membuka",
+              all(recs_before.values()) and before == 0, "outbox=%r recs=%r" % (before, recs_before))
+        cdp = ctx.new_cdp_session(p)
+        OFFLINE["on"] = True
+        net_offline(cdp, True)
+        p.wait_for_timeout(500)
+        check("D0b halaman offline (navigator.onLine=false) selama D", p.evaluate("() => navigator.onLine") is False)
         for t in titles[:3]:
             click_row(p, t)
             p.wait_for_timeout(500)
         p.wait_for_timeout(2500)  # lewat TEXT_IDLE_MS (1,5 dtk): simpan diam-diam akan terlihat di sini
         after = outbox_count(p)
-        check("D1 buka 3 task tanpa mengubah apa pun → jumlah _outbox tetap", before == after,
-              "sebelum=%r sesudah=%r" % (before, after))
+        recs_after = {t: local_rec(p, t) for t in titles[:3]}
+        check("D1 buka 3 task tanpa mengubah apa pun (OFFLINE) → `_outbox` tetap dan updated_at/rev/dirty tiap task tetap",
+              before == after and recs_before == recs_after,
+              "outbox %r→%r; rekaman sama=%r" % (before, after, recs_before == recs_after))
         check("D2 tidak ada indikator 'Menyimpan…'/'Tersimpan' sesudah hanya membuka",
               p.locator(PANEL + " .tl-save-ind").first.inner_text().strip() == "")
+        net_offline(cdp, False)
+        p.wait_for_timeout(1500)
+        OFFLINE["on"] = False
+        before = settle_outbox(p)  # sync saat online lagi selesai; dasar untuk B (online)
+        recs_b0 = {t: local_rec(p, t) for t in titles[:4]}
+        del writes[:]
 
         # ── B. Normal / Compact / Kanban × sidebar lebar dan ikon ──
         # Memilih menu melipat sidebar ke bilah ikon, jadi putaran pertama = sidebar ikon; "›" membuka sidebar lebar.
+        root_w = {}
         for side in ("ikon", "lebar"):
             if side == "lebar":
                 expand_sidebar(p)
@@ -445,6 +491,7 @@ def scen_fresh_and_views(browser, base, A, ids):
             tag = "B[%s]" % side
             click_row(p, T_ALPHA)
             rw = root_width(p)
+            root_w[side] = rw
             g = panel_geom(p)
             check("%s panel lebar = clamp(round(w×0.5),420,680)" % tag, abs(g["width"] - expected_panel_width(rw)) <= 1,
                   "root=%d panel=%d" % (rw, g["width"]))
@@ -487,10 +534,15 @@ def scen_fresh_and_views(browser, base, A, ids):
                   panel_title(p) == T_DELTA, repr(panel_title(p)))
             set_view(p, "normal")
 
-        check("B-lebar sidebar lebar benar-benar terbuka (area konten lebih sempit dari bilah ikon)",
-              p.locator("button[aria-label='Perkecil menu']").first.is_visible())
-        check("B-end Live Edit tidak menulis apa pun ke _outbox selama berpindah view/task",
-              outbox_count(p) == before, "sebelum=%r sekarang=%r" % (before, outbox_count(p)))
+        check("B-lebar sidebar lebar terbuka (tombol 'Perkecil menu' tampak) dan area konten lebih sempit dari bilah ikon",
+              p.locator("button[aria-label='Perkecil menu']").first.is_visible()
+              and root_w.get("lebar") is not None and root_w["lebar"] < root_w["ikon"], repr(root_w))
+        after_b = settle_outbox(p)  # online: op yang tersisa akan terkuras; tulis ke server tertangkap di `writes`
+        recs_b1 = {t: local_rec(p, t) for t in titles[:4]}
+        check("B-end berpindah view/task (online) tidak menyimpan apa pun: tanpa request tulis ke /api/tasks*, `_outbox` tetap, "
+              "updated_at/rev/dirty 4 task tetap",
+              not writes and after_b == before and recs_b0 == recs_b1,
+              "writes=%r outbox %r→%r rekaman sama=%r" % (writes[:3], before, after_b, recs_b0 == recs_b1))
         # Toggle: matikan → klik membuka modal; nyalakan lagi → panel kembali
         live_btn(p).click()
         check("B-toggle mati: panel hilang, aria-pressed=false", p.locator(PANEL).count() == 0
@@ -789,12 +841,15 @@ def scen_dark(browser, base, A):
             const sel = document.querySelector('.task-row.is-selected');
             const rows = Array.from(document.querySelectorAll('.task-row:not(.is-selected)'));
             const bg = el => el ? getComputedStyle(el).backgroundColor : null;
-            return {theme: document.documentElement.getAttribute('data-theme'), panel: bg(a), panelLum: lum(bg(a)),
+            const probe = document.createElement('div'); probe.style.background = 'var(--bg-card)'; document.body.appendChild(probe);
+            const card = getComputedStyle(probe).backgroundColor; probe.remove();
+            return {theme: document.documentElement.getAttribute('data-theme'), panel: bg(a), panelLum: lum(bg(a)), card,
                     sel: bg(sel), other: rows.length ? bg(rows[0]) : null, btnBorder: a ? getComputedStyle(a).borderTopColor : null};
         }""")
         check("H1 mode gelap aktif (data-theme=dark)", info["theme"] == "dark", repr(info["theme"]))
-        check("H2 panel memakai token --bg-card gelap (bukan putih)",
-              info["panelLum"] is not None and info["panelLum"]["l"] < 0.35, repr(info["panel"]))
+        check("H2 panel berlatar token --bg-card (tidak transparan, gelap), bukan putih",
+              info["panelLum"] is not None and info["panelLum"]["a"] > 0 and info["panelLum"]["l"] < 0.35
+              and info["panel"] == info["card"], "panel=%r --bg-card=%r" % (info["panel"], info["card"]))
         check("H3 baris terpilih berlatar berbeda dari baris lain", info["sel"] and info["sel"] != info["other"],
               "terpilih=%r lain=%r" % (info["sel"], info["other"]))
         shot(p, "H_dark_normal.png")
@@ -1047,11 +1102,17 @@ def main():
             proc.kill()
         print("server log:", os.path.join(tmp, "server.log"))
 
+    # Pengecualian konsol untuk 404 hanya mencocokkan path; di sini dipastikan setiap respons >= 400 pada
+    # `/api/tasks/<id>` memang `GET` 404 (404 dari PUT/DELETE = bug nyata dan harus menggagalkan run).
+    odd = [r for r in BAD_RESPONSES if re.fullmatch(r"/api/tasks/[^/?]+", r[1].split("?")[0])
+           and not (r[0] == "GET" and r[2] == 404)]
+    check("Z[resp] setiap respons >= 400 pada /api/tasks/<id> adalah GET 404 (confirm-gone pra-ada), bukan PUT/DELETE/lainnya",
+          not odd, "aneh=%r semua=%r" % (odd, BAD_RESPONSES))
     print("\nrespons >= 400 dari server lokal (diagnostik): %r" % BAD_RESPONSES)
     print("404 pra-ada yang dikecualikan dari cek konsol (syncpull confirm-gone, GET /api/tasks/:id): %d %r"
           % (len(known_404), known_404))
-    print("net::ERR_INTERNET_DISCONNECTED selama emulasi offline (fetch jaringan, mis. fetchAll → /api/collaborators) "
-          "yang dikecualikan: %d %r" % (len(offline_noise), sorted(set(offline_noise))))
+    print("net::ERR_INTERNET_DISCONNECTED /api/... selama emulasi offline (D, E) yang dikecualikan: %d %r"
+          % (len(offline_noise), sorted(set(offline_noise))))
     failed = [r for r in results if not r[1]]
     print("\n%d langkah, %d gagal" % (len(results), len(failed)))
     for r in failed:
