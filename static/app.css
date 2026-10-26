@@ -5030,7 +5030,8 @@
 /* Tata letak dua kolom saat panel tampil: daftar kiri (ikut gulir halaman), panel kanan sticky di bawah topbar (top/lebar/max-height inline dari useLiveEdit). */
 .tl-live { display: flex; gap: 16px; align-items: flex-start; }
 .tl-live-list { flex: 1; min-width: 0; }
-.tl-live-panel { position: sticky; flex-shrink: 0; overflow-y: auto; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+/* scrollbar-gutter: kunci gulir (overflow hidden) saat overlay "Task dengan tag" terbuka tidak menggeser isi panel. */
+.tl-live-panel { position: sticky; flex-shrink: 0; overflow-y: auto; scrollbar-gutter: stable; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
 .tl-live-empty { color: var(--text-light); text-align: center; padding: 48px 12px; font-size: 14px; }
 /* Tombol Live Edit setelah segmen tampilan, dipisah garis tipis; teks disembunyikan saat baris alat sempit. */
 .tl-live-sep { width: 1px; height: 20px; background: var(--border); margin: 0 6px; }

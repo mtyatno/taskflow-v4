@@ -7,9 +7,16 @@ Empat kombinasi: 1280 px dan 375 px, masing-masing terang dan gelap. Tiap kombin
   b  ✕ menutup modal; klik overlay (di luar modal) juga menutup
   d  klik tag → overlay "Task dengan tag" menutupi seluruh `.modal-content` (bounding box sama); × menutup overlay
   e  klik task anak di bagian Subtask → modal berpindah ke task anak (judul + id anak)
-  c  ✏️ Edit → ubah Priority ke P1 → 💾 Simpan → modal tertutup; server P1; setelah reload badge P1 tampil
-     (dikerjakan terakhir: PUT form dari modal ke router lokal menimpa tag task dengan tag dari judul)
+  c  ✏️ Edit → ubah Priority ke P1 → 💾 Simpan → modal tertutup; server P1; setelah reload badge P1 dan chip tag
+     tetap tampil (bug lama 2026-10-26: simpan form dulu menghapus semua tag task)
   f  tidak ada error konsol / pageerror dari aplikasi (permintaan ke host luar diblokir; errornya diabaikan)
+  g  (1280 px, user sendiri) tag task tetap saat task disimpan: task dibuat di aplikasi dengan `#tag` di judul →
+     💾 Simpan modal / body form edit lengkap (TaskFormModal) / chip triage "⚡ Next" di Inbox → tag tetap di lokal,
+     server (setelah sync), dan chip setelah reload; tag yang dihapus lewat chip × lalu simpan perubahan lain →
+     tidak kembali, juga di server
+  h  overlay "Task dengan tag" saat wadah sudah digulir (modal 375 px, panel Live Edit 1280 px): bounding box overlay =
+     area terlihat wadah, gulir wadah terkunci selama overlay terbuka, × → overflow semula dan bisa digulir lagi;
+     pindah task di panel saat overlay terbuka → overflow aside kembali (bug lama 2026-10-26: overlay di atas isi)
 
 Tag task hidup di IndexedDB (GET /api/tasks/:id/tags dilayani router lokal; tag dari server tidak turun), jadi
 skrip memasangnya lewat TF.tagrepo setelah daftar task termuat.
@@ -18,6 +25,7 @@ Server lokal dijalankan sendiri (uvicorn webapp:app, DB sementara). Screenshot: 
 (atau $E2E_SHOTS_DIR). Keluar non-zero bila ada langkah gagal.
 
     python3 temporary_files/e2e_task_detail_body.py
+    E2E_ONLY=tags,overlay python3 temporary_files/e2e_task_detail_body.py   # sebagian (combo | tags | overlay)
 """
 import os
 import re
@@ -104,8 +112,9 @@ def api(base, user, method, path, **kw):
     return r.json()
 
 
-def open_app(browser, base, user, w, h, theme, errors):
-    """Konteks baru; error konsol/pageerror milik aplikasi (host lokal) dikumpulkan ke `errors`."""
+def open_app(browser, base, user, w, h, theme, errors, live=None):
+    """Konteks baru; error konsol/pageerror milik aplikasi (host lokal) dikumpulkan ke `errors`.
+    `live` = nilai awal tf_liveedit ("1" panel Live Edit nyala; None tidak diisi → mati)."""
     mobile = w < 500
     ctx = browser.new_context(service_workers="block", viewport={"width": w, "height": h},
                               device_scale_factor=1, is_mobile=mobile, has_touch=mobile)
@@ -126,7 +135,7 @@ def open_app(browser, base, user, w, h, theme, errors):
     p.on("pageerror", lambda e: errors.append("pageerror: " + str(e)[:200]))
     p.on("dialog", lambda d: d.accept())
     p.goto(base + "/manifest.json")
-    p.evaluate("""([t, u, tours, theme, sw]) => {
+    p.evaluate("""([t, u, tours, theme, sw, live]) => {
         localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(u));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
         localStorage.setItem('tf_dismiss_onboarding', '1'); localStorage.setItem('tf_onboarded', '1');
@@ -134,7 +143,8 @@ def open_app(browser, base, user, w, h, theme, errors):
         localStorage.setItem('tf_whatsnew_seen', sw);
         localStorage.setItem('tf_theme', theme);
         localStorage.setItem('tf_groupby', 'none'); localStorage.setItem('tf_viewmode', 'normal');
-    }""", [user["token"], user["id"], TOURS, theme, SW_VERSION])
+        if (live !== null) localStorage.setItem('tf_liveedit', live);
+    }""", [user["token"], user["id"], TOURS, theme, SW_VERSION, live])
     p.goto(base + "/")
     p.locator(".sidebar-link").first.wait_for(state="attached", timeout=20000)
     return ctx, p
@@ -217,6 +227,186 @@ def server_priority(base, user, task_id):
     return api(base, user, "GET", "/api/tasks/%d" % task_id).get("priority")
 
 
+def server_task(base, user, task_id):
+    return api(base, user, "GET", "/api/tasks/%d" % task_id)
+
+
+def server_tags(base, user, task_id):
+    return sorted(t["name"] for t in api(base, user, "GET", "/api/tasks/%d/tags" % task_id))
+
+
+def server_row(base, user, title):
+    for t in api(base, user, "GET", "/api/tasks?include_done=true"):
+        if t["title"] == title:
+            return t
+    return None
+
+
+def local_tags(page, task_id):
+    """Tag task seperti dilihat aplikasi (router lokal / IndexedDB)."""
+    return page.evaluate("""async (id) => (await api.get('/api/tasks/' + id + '/tags')).map(t => t.name).sort()""",
+                         task_id)
+
+
+def local_task(page, task_id):
+    """Task seperti dilihat aplikasi (router lokal / IndexedDB), bukan server."""
+    return page.evaluate("async (id) => await api.get('/api/tasks/' + id)", task_id)
+
+
+def chip_tags(scope):
+    """Nama tag pada chip di detail task (`scope` = locator modal / panel)."""
+    spans = scope.locator("span[title='Klik untuk lihat semua task dengan tag ini']")
+    return sorted(re.sub(r"[#×\s]", "", spans.nth(i).inner_text()) for i in range(spans.count()))
+
+
+def go_sidebar(page, label):
+    """Buka halaman lewat sidebar lebar (1280 px)."""
+    expand = page.locator("button[aria-label='Tampilkan semua menu']")
+    if expand.count() and expand.first.is_visible():
+        expand.first.click()
+    label_span = page.locator("span", has_text=re.compile("^" + re.escape(label) + "$"))
+    page.locator(".sidebar-link").filter(has=label_span).first.click()
+    page.locator(".task-row").first.wait_for(timeout=15000)
+
+
+def reload_app(page):
+    page.reload()
+    page.locator(".sidebar-link").first.wait_for(state="attached", timeout=20000)
+
+
+# Bug lama (2026-10-26): menyimpan task lewat form (💾 Simpan modal, form edit lengkap, ubah status GTD dari daftar)
+# mengirim judul TANPA #tag → router lokal mengganti tag task dengan [] dan push ikut menghapusnya di server.
+TG_MODAL = ("Rapikan arsip kontrak", ["arsip", "legal"], "next")
+TG_FORM = ("Perbarui daftar vendor", ["pengadaan", "vendor"], "next")
+TG_INBOX = ("Tanya jadwal audit", ["audit", "keuangan"], "inbox")
+TG_REMOVE = ("Susun agenda rapat", ["mingguan", "rapat"], "next")
+
+
+def run_tags(browser, base, user):
+    """g: tag task tetap saat task disimpan lewat form; tag yang dihapus lewat chip × tidak kembali (lokal + server)."""
+    tag = "g-1280"
+    errors = []
+    ctx, p = open_app(browser, base, user, 1280, 860, "light", errors)
+    try:
+        p.wait_for_timeout(1500)  # router lokal siap
+        # Seed lewat judul `#tag` saat dibuat di aplikasi (router lokal → tag lokal, push → tag server).
+        for title, tags, gtd in (TG_MODAL, TG_FORM, TG_INBOX, TG_REMOVE):
+            p.evaluate("async (b) => { await api.post('/api/tasks', b); }",
+                       {"title": title + "".join(" #" + t for t in tags), "priority": "P3", "gtd_status": gtd})
+        ids = {}
+        for title, tags, _gtd in (TG_MODAL, TG_FORM, TG_INBOX, TG_REMOVE):
+            row = wait_until(lambda: server_row(base, user, title), 20)
+            ids[title] = row["id"] if row else None
+        seeded = all(ids.values()) and all(
+            wait_until(lambda: server_tags(base, user, ids[t]) == tags and local_tags(p, ids[t]) == tags, 15)
+            for t, tags, _g in (TG_MODAL, TG_FORM, TG_INBOX, TG_REMOVE))
+        check("%s g0 setup: 4 task bertag dibuat di aplikasi (#tag di judul), tersinkron; tag lokal = server" % tag,
+              seeded, repr(ids))
+        reload_app(p)
+        go_all_tasks(p, False)
+
+        # ── g1. modal: ✏️ Edit → Priority → 💾 Simpan → tag tetap (lokal, server, chip setelah reload) ──
+        title, tags, _g = TG_MODAL
+        mid = ids[title]
+        modal = open_task(p, title)
+        check("%s g1a chip tag tampil sebelum simpan" % tag,
+              wait_until(lambda: chip_tags(modal) == tags, 8), repr(chip_tags(modal)))
+        modal.get_by_role("button", name=re.compile("Edit")).first.click()
+        modal.locator("select").first.select_option("P1")
+        modal.locator("button", has_text="\U0001F4BE Simpan").first.click()
+        wait_closed(p)
+        check("%s g1b 💾 Simpan modal: tag lokal tetap" % tag,
+              wait_until(lambda: local_tags(p, mid) == tags, 6), repr(local_tags(p, mid)))
+        check("%s g1c server: Priority P1 tersimpan DAN tag tetap" % tag,
+              wait_until(lambda: server_priority(base, user, mid) == "P1" and server_tags(base, user, mid) == tags, 15),
+              "pri=%r tag=%r" % (server_priority(base, user, mid), server_tags(base, user, mid)))
+        reload_app(p)
+        go_all_tasks(p, False)
+        modal = open_task(p, title)
+        check("%s g1d setelah reload: chip tag dan badge P1 tampil" % tag,
+              wait_until(lambda: chip_tags(modal) == tags, 8) and modal.locator(".badge-p1").first.is_visible(),
+              repr(chip_tags(modal)))
+        close_btn(p).click()
+        wait_closed(p)
+
+        # ── g2. form edit lengkap (TaskFormModal): payload sama persis dengan handleSubmit mode edit ──
+        # Catatan: di main tidak ada tombol yang membuka TaskFormModal mode edit (prop onEdit TaskDetailModal tidak
+        # dipakai TaskDetailBody), jadi body `{...form, ...recurrencePayload}` dikirim lewat `api.put` aplikasi.
+        title, tags, _g = TG_FORM
+        fid = ids[title]
+        p.evaluate("""async (id) => {
+            const task = await api.get('/api/tasks/' + id);
+            const form = { title: task.title || "", description: task.description || "", priority: "P1",
+              gtd_status: task.gtd_status || "inbox", project: task.project || "", context: task.context || "",
+              deadline: task.deadline || "", waiting_for: task.waiting_for || "", list_id: task.list_id || null,
+              assigned_to: task.assigned_to || null, progress: task.progress || 0 };
+            await api.put('/api/tasks/' + id, { ...form, recurrence_type: null, recurrence_days: null });
+        }""", fid)
+        check("%s g2a simpan form edit lengkap: tag lokal tetap" % tag,
+              wait_until(lambda: local_tags(p, fid) == tags, 6), repr(local_tags(p, fid)))
+        check("%s g2b server: P1 DAN tag tetap" % tag,
+              wait_until(lambda: server_priority(base, user, fid) == "P1" and server_tags(base, user, fid) == tags, 15),
+              "pri=%r tag=%r" % (server_priority(base, user, fid), server_tags(base, user, fid)))
+
+        # ── g3. ubah status GTD dari daftar: chip triage "⚡ Next" di Inbox (App.handleUpdateTaskGtd) ──
+        title, tags, _g = TG_INBOX
+        iid = ids[title]
+        go_sidebar(p, "Inbox")
+        row = p.locator(".task-row", has_text=title).first
+        row.locator("button.gtd-chip-next").click()
+        # tunggu PUT lokal selesai (status lokal berubah) sebelum memeriksa tag, supaya tidak lolos lebih dulu
+        moved = wait_until(lambda: local_task(p, iid)["gtd_status"] == "next", 8)
+        check("%s g3a chip triage ⚡ Next: status lokal next DAN tag lokal tetap" % tag,
+              moved and local_tags(p, iid) == tags, "gtd=%r tag=%r" % (local_task(p, iid)["gtd_status"],
+                                                                     local_tags(p, iid)))
+        check("%s g3b server: status next DAN tag tetap" % tag,
+              wait_until(lambda: server_task(base, user, iid)["gtd_status"] == "next"
+                         and server_tags(base, user, iid) == tags, 15),
+              "gtd=%r tag=%r" % (server_task(base, user, iid)["gtd_status"], server_tags(base, user, iid)))
+
+        # ── g4. hapus satu tag lewat chip × lalu simpan perubahan lain → tag itu tidak kembali ──
+        title, tags, _g = TG_REMOVE
+        rid = ids[title]
+        go_all_tasks(p, False)
+        modal = open_task(p, title)
+        wait_until(lambda: chip_tags(modal) == tags, 8)
+        chip = modal.locator("span[title='Klik untuk lihat semua task dengan tag ini']", has_text="mingguan").first
+        chip.locator("span").filter(has_text=re.compile(r"^×$")).first.click()
+        check("%s g4a chip × menghapus tag 'mingguan' (chip + lokal)" % tag,
+              wait_until(lambda: chip_tags(modal) == ["rapat"] and local_tags(p, rid) == ["rapat"], 6),
+              "chip=%r lokal=%r" % (chip_tags(modal), local_tags(p, rid)))
+        modal.get_by_role("button", name=re.compile("Edit")).first.click()
+        modal.locator("select").first.select_option("P1")
+        modal.locator("button", has_text="\U0001F4BE Simpan").first.click()
+        wait_closed(p)
+        check("%s g4b simpan sesudahnya: tag lokal = rapat saja ('mingguan' tidak kembali, 'rapat' tidak hilang)" % tag,
+              wait_until(lambda: local_tags(p, rid) == ["rapat"], 6), repr(local_tags(p, rid)))
+        check("%s g4c server setelah sync: P1 dan tag = rapat saja" % tag,
+              wait_until(lambda: server_priority(base, user, rid) == "P1"
+                         and server_tags(base, user, rid) == ["rapat"], 15),
+              "pri=%r tag=%r" % (server_priority(base, user, rid), server_tags(base, user, rid)))
+        reload_app(p)
+        go_all_tasks(p, False)
+        modal = open_task(p, title)
+        check("%s g4d setelah reload: chip = rapat saja" % tag,
+              wait_until(lambda: chip_tags(modal) == ["rapat"], 8), repr(chip_tags(modal)))
+        shot(p, "%s_tags_after_reload.png" % tag)
+        close_btn(p).click()
+        wait_closed(p)
+
+        check("%s f1 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
+    except Exception as e:  # langkah yang melempar = gagal
+        import traceback
+        traceback.print_exc()
+        check("%s exception" % tag, False, "%s: %s" % (type(e).__name__, str(e)[:300]))
+        try:
+            shot(p, "%s_zz_error.png" % tag)
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        ctx.close()
+
+
 def run_combo(browser, base, user, parent, child, label, w, h, theme):
     tag = "%s-%s" % (label, theme)
     mobile = w < 500
@@ -253,8 +443,7 @@ def run_combo(browser, base, user, parent, child, label, w, h, theme):
         modal = open_task(p, T_PARENT)
         chip = modal.locator("span[title='Klik untuk lihat semua task dengan tag ini']").first
         chip.wait_for(timeout=10000)
-        # dispatch_event: klik tanpa menggulir modal. Overlay `position: absolute` ikut tergulir bersama isi
-        # `.modal-content` (perilaku lama, sama di main), jadi bounding box hanya sama saat scrollTop = 0.
+        # dispatch_event: klik tanpa menggulir modal (scrollTop 0). Kasus wadah sudah digulir: skenario h.
         chip.dispatch_event("click")
         p.get_by_text("Task dengan tag", exact=False).first.wait_for(timeout=10000)
         boxes = p.evaluate("""() => {
@@ -292,7 +481,7 @@ def run_combo(browser, base, user, parent, child, label, w, h, theme):
         close_btn(p).click()
         wait_closed(p)
 
-        # ── c. Edit → priority P1 → Simpan (dikerjakan setelah d/e: menyimpan form lokal menghapus tag) ───
+        # ── c. Edit → priority P1 → Simpan → tag task tetap ───────────────────────────
         modal = open_task(p, T_PARENT)
         modal.get_by_role("button", name=re.compile("Edit")).first.click()
         sel = modal.locator("select").first
@@ -311,6 +500,8 @@ def run_combo(browser, base, user, parent, child, label, w, h, theme):
         modal = open_task(p, T_PARENT)
         check("%s c4 setelah reload badge P1 tampil di detail" % tag,
               modal.locator(".badge-p1").first.is_visible() and not modal.locator(".badge-p3").count())
+        check("%s c5 setelah Simpan + reload chip #%s tetap (dulu simpan form menghapus tag)" % (tag, TAG),
+              wait_until(lambda: chip_tags(modal) == [TAG], 8), repr(chip_tags(modal)))
 
         # ── f. konsol bersih ─────────────────────────────────────────────────────
         check("%s f1 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
@@ -324,6 +515,156 @@ def run_combo(browser, base, user, parent, child, label, w, h, theme):
             pass
     finally:
         ctx.close()
+
+
+# Bug lama (2026-10-26): overlay "Task dengan tag" (`position: absolute`) berjangkar ke wadah gulir (`.modal-content` /
+# `aside.tl-live-panel`); dengan `inset: 0` overlay berada di bagian atas isi, jadi saat wadah sudah digulir area yang
+# terlihat tidak tertutup.
+T_TALL = "Catatan rapat panjang"
+T_TALL_OTHER = "Tindak lanjut rapat"
+TAG_TALL = "rapat"
+OVERLAY_GEOM_JS = """(sel) => {
+    const box = document.querySelector(sel);
+    if (!box) return null;
+    const lab = Array.from(box.querySelectorAll('span')).find(s => (s.textContent || '').startsWith('Task dengan tag'));
+    let o = lab;
+    while (o && o !== box && getComputedStyle(o).position !== 'absolute') o = o.parentElement;
+    const r = box.getBoundingClientRect();
+    const vis = [r.x + box.clientLeft, r.y + box.clientTop, box.clientWidth, box.clientHeight];
+    const q = o && o !== box ? o.getBoundingClientRect() : null;
+    return {o: q ? [q.x, q.y, q.width, q.height] : null, vis: vis, scrollTop: box.scrollTop,
+            scrollH: box.scrollHeight, clientH: box.clientHeight, overflowY: getComputedStyle(box).overflowY,
+            inline: box.style.overflow, isParent: !!(o && o.parentElement === box)};
+}"""
+
+
+def seed_tall(base, name):
+    user = register(base, name)
+    desc = "\n".join("Baris catatan nomor %d supaya detail task cukup tinggi untuk digulir." % i for i in range(40))
+    t = api(base, user, "POST", "/api/tasks", json={"title": T_TALL, "priority": "P2", "gtd_status": "next",
+                                                    "description": desc})
+    for i in range(7):
+        api(base, user, "POST", "/api/tasks/%d/subtasks" % t["id"], json={"title": "Poin rapat %d" % (i + 1)})
+    api(base, user, "POST", "/api/tasks", json={"title": T_TALL_OTHER, "priority": "P3", "gtd_status": "next"})
+    return user
+
+
+def same_box(a, b, tol=1.5):
+    return bool(a) and bool(b) and all(abs(x - y) <= tol for x, y in zip(a, b))
+
+
+def check_overlay_scrolled(p, tag, box_sel, scope):
+    """Gulir wadah ke bawah → buka overlay tag → overlay = area terlihat wadah, gulir wadah terkunci → × → normal."""
+    p.evaluate("(sel) => { const b = document.querySelector(sel); b.scrollTop = b.scrollHeight; }", box_sel)
+    p.wait_for_timeout(300)
+    g0 = p.evaluate(OVERLAY_GEOM_JS, box_sel)
+    check("%s h1 isi wadah lebih tinggi dari wadah dan sudah digulir ke bawah" % tag,
+          g0["scrollH"] > g0["clientH"] + 100 and g0["scrollTop"] > 100, repr(g0))
+    chip = p.locator(scope + " span[title='Klik untuk lihat semua task dengan tag ini']").first
+    chip.dispatch_event("click")  # chip ada di atas isi (sudah tergulir keluar): klik tanpa menggulir wadah
+    p.get_by_text("Task dengan tag", exact=False).first.wait_for(timeout=10000)
+    p.wait_for_timeout(300)
+    g = p.evaluate(OVERLAY_GEOM_JS, box_sel)
+    check("%s h2 overlay 'Task dengan tag' = area terlihat wadah (bounding box) saat wadah tergulir" % tag,
+          same_box(g["o"], g["vis"]) and g["isParent"], repr(g))
+    check("%s h3 gulir wadah terkunci selama overlay terbuka (overflow hidden, scrollTop tetap)" % tag,
+          g["overflowY"] == "hidden" and abs(g["scrollTop"] - g0["scrollTop"]) <= 1, repr(g))
+    o = g["o"] or [0, 0, 0, 0]
+    p.mouse.move(o[0] + o[2] / 2, o[1] + 30)
+    p.mouse.wheel(0, -400)
+    p.wait_for_timeout(400)
+    g2 = p.evaluate(OVERLAY_GEOM_JS, box_sel)
+    check("%s h4 roda tetikus di atas overlay tidak menggulir wadah; overlay tetap menutupi area terlihat" % tag,
+          abs(g2["scrollTop"] - g0["scrollTop"]) <= 1 and same_box(g2["o"], g2["vis"]), repr(g2))
+    shot(p, "%s_overlay_scrolled.png" % tag)
+    p.locator(scope + " button").filter(has_text=re.compile(r"^×$")).last.click()
+    closed = wait_until(lambda: not p.get_by_text("Task dengan tag", exact=False).count(), 5)
+    g3 = p.evaluate(OVERLAY_GEOM_JS, box_sel)
+    check("%s h5 × menutup overlay; overflow wadah kembali semula (inline kosong, auto)" % tag,
+          closed and g3["inline"] == "" and g3["overflowY"] == "auto", repr(g3))
+    check("%s h5b posisi gulir wadah tidak berubah oleh buka/tutup overlay" % tag,
+          abs(g3["scrollTop"] - g0["scrollTop"]) <= 1, "awal=%r sesudah=%r" % (g0["scrollTop"], g3["scrollTop"]))
+    up = g3["scrollTop"] > 100  # gulir ke arah yang masih tersedia
+    p.mouse.move(g3["vis"][0] + g3["vis"][2] / 2, g3["vis"][1] + g3["vis"][3] / 2)
+    p.mouse.wheel(0, -400 if up else 400)
+    p.wait_for_timeout(400)
+    g4 = p.evaluate(OVERLAY_GEOM_JS, box_sel)
+    moved = (g3["scrollTop"] - g4["scrollTop"]) if up else (g4["scrollTop"] - g3["scrollTop"])
+    check("%s h6 setelah overlay ditutup wadah bisa digulir lagi (roda tetikus)" % tag,
+          moved > 50, "sebelum=%r sesudah=%r" % (g3["scrollTop"], g4["scrollTop"]))
+
+
+def run_overlay(browser, base, user):
+    """h: overlay tag menutupi area terlihat wadah yang sudah digulir — modal 375 px dan panel Live Edit 1280 px."""
+    # ── modal 375 px ──
+    tag = "h-375-modal"
+    errors = []
+    ctx, p = open_app(browser, base, user, 375, 812, "light", errors)
+    try:
+        go_all_tasks(p, True)
+        n = seed_local_tags(p, [T_TALL, T_TALL_OTHER], TAG_TALL)
+        check("%s setup: tag #%s dipasang di 2 task" % (tag, TAG_TALL), n == 2, repr(n))
+        open_task(p, T_TALL)
+        p.locator(".modal-content span", has_text="Poin rapat 7").first.wait_for(timeout=10000)
+        check_overlay_scrolled(p, tag, ".modal-content", ".modal-content")
+        check("%s f1 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
+    except Exception as e:  # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        check("%s exception" % tag, False, "%s: %s" % (type(e).__name__, str(e)[:300]))
+        try:
+            shot(p, "%s_zz_error.png" % tag)
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        ctx.close()
+
+    # ── panel Live Edit 1280 px ──
+    tag = "h-1280-panel"
+    errors = []
+    panel = "aside.tl-live-panel"
+    ctx, p = open_app(browser, base, user, 1280, 860, "light", errors, live="1")
+    try:
+        go_sidebar(p, "Next Actions")
+        # IndexedDB per konteks: pasang tag lalu muat ulang supaya panel memuat chip saat task dibuka
+        n = seed_local_tags(p, [T_TALL, T_TALL_OTHER], TAG_TALL)
+        reload_app(p)
+        go_sidebar(p, "Next Actions")
+        p.locator(".task-row", has_text=T_TALL).first.click()
+        p.locator(panel + " span", has_text="Poin rapat 7").first.wait_for(timeout=10000)
+        check("%s setup: tag #%s di 2 task; panel Live Edit menampilkan task tinggi" % (tag, TAG_TALL),
+              n == 2 and wait_until(lambda: p.locator(panel + " input[aria-label='Judul task']").first.input_value()
+                                    == T_TALL, 8), repr(n))
+        p.locator(panel + " span[title='Klik untuk lihat semua task dengan tag ini']").first.wait_for(timeout=10000)
+        check_overlay_scrolled(p, tag, panel, panel)
+        # overlay terbuka lalu pindah task (TaskDetailBody di-mount ulang, aside tetap) → overflow aside kembali
+        p.evaluate("(sel) => { const b = document.querySelector(sel); b.scrollTop = b.scrollHeight; }", panel)
+        p.locator(panel + " span[title='Klik untuk lihat semua task dengan tag ini']").first.dispatch_event("click")
+        p.get_by_text("Task dengan tag", exact=False).first.wait_for(timeout=10000)
+        locked = p.evaluate(OVERLAY_GEOM_JS, panel)["overflowY"] == "hidden"
+        p.locator(".task-row", has_text=T_TALL_OTHER).first.click()
+        switched = wait_until(lambda: p.locator(panel + " input[aria-label='Judul task']").first.input_value()
+                              == T_TALL_OTHER, 8)
+        g = p.evaluate(OVERLAY_GEOM_JS, panel)
+        check("%s h7 overlay terbuka lalu pindah task: overlay hilang, overflow aside kembali (inline kosong, auto)" % tag,
+              locked and switched and g["o"] is None and g["inline"] == "" and g["overflowY"] == "auto", repr(g))
+        check("%s f1 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
+    except Exception as e:  # noqa: BLE001
+        import traceback
+        traceback.print_exc()
+        check("%s exception" % tag, False, "%s: %s" % (type(e).__name__, str(e)[:300]))
+        try:
+            shot(p, "%s_zz_error.png" % tag)
+        except Exception:  # noqa: BLE001
+            pass
+    finally:
+        ctx.close()
+
+
+def want(name):
+    """E2E_ONLY=combo,tags,... menjalankan sebagian skenario (debug); kosong = semua."""
+    only = [x for x in os.environ.get("E2E_ONLY", "").split(",") if x]
+    return not only or name in only
 
 
 def main():
@@ -348,8 +689,16 @@ def main():
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for label, w, h, theme in COMBOS:
+                if not want("combo"):
+                    break
                 print("== %s px %s ==" % (label, theme), flush=True)
                 run_combo(browser, base, A, parent, child, label, w, h, theme)
+            if want("tags"):
+                print("== g: tag tetap saat task disimpan (1280 px) ==", flush=True)
+                run_tags(browser, base, register(base, "gita"))
+            if want("overlay"):
+                print("== h: overlay tag saat wadah tergulir (modal 375 px, panel 1280 px) ==", flush=True)
+                run_overlay(browser, base, seed_tall(base, "hana"))
             browser.close()
     except Exception as e:  # noqa: BLE001
         import traceback

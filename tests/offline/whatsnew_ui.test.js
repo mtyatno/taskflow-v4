@@ -63,5 +63,5 @@ test("UpdateNotificationBanner: ikon, bukan emoji; status Memperbarui…", () =>
 
 test("app.css: gaya modal + mode gelap + versi cocok dengan STATIC", () => {
   assert.match(appCss, /\.whatsnew-modal\s*\{/); assert.match(appCss, /\[data-theme="dark"\][^{]*\.whatsnew-/);
-  assert.match(indexHtml, /app\.css\?v=367/); assert.match(swJs, /"\/static\/app\.css\?v=367"/);
+  assert.match(indexHtml, /app\.css\?v=368/); assert.match(swJs, /"\/static\/app\.css\?v=368"/);
 });

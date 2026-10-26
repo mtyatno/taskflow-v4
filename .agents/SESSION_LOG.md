@@ -4148,3 +4148,11 @@
 - **Status:** Needs Review — commit lokal, belum push.
 
 - 2026-10-26 (Claude, kontroler): PR A = draft #96 (`claude/task-detail-body`), PR B = draft #97 (`claude/live-edit`, basis #96). Review akhir seluruh branch + satu gelombang perbaikan (R19–R21) bersih. Spec/plan Project claude.ai disamakan.
+
+## [2026-10-26 21:30] - Claude
+- **Task:** Bug lama `claude/modal-simpan-tag` (dari `main` 64f3782): (1) simpan task lewat form menghapus semua tag-nya; (2) overlay "Task dengan tag" tidak menutupi area terlihat saat detail task digulir. Rilis v471.
+- **Changes:** `tagrepo.addEntityTags` + `taskrepo.updateTask` memakai semantik tambah untuk `#tag` di judul (server tidak diubah, ADR-032). `pinOverlayToScrollBox` + efek di `TaskDetailBody` (overlay di area terlihat wadah, gulir wadah dikunci). SW v471 `taskflow-v471-simpan-tag`, entri `whatsnew.json` v471; `app.css` tetap `?v=367`. Spec live edit §12 ditandai diperbaiki. E2E `e2e_task_detail_body.py` + skenario g (tag) dan h (overlay) + c5.
+- **Verifikasi:** npm 3218/3217 (pra-ada `draw_local_reactive`); pytest 1225 passed 1 skipped; PROTOCOL §4 33 passed; inline OK (5); E2E task detail 98/98; E2E live edit 118/118 tiga kali berturut-turut sesudah race F6e diperbaiki (sebelumnya 1 dari 6 run gagal Z[3]).
+- **Rapikan (sesudah review):** `place()` hanya memanggil `setTagOverlayPos` bila top/height berubah; `.tl-live-panel` `scrollbar-gutter: stable` → `app.css?v=368`; komentar R9/R21 disesuaikan dengan ADR-032; jembatan CI `tests/test_tag_node.py`; race F6e di `e2e_live_edit.py` diperbaiki; ADR-032 + CURRENT_STATE: catatan per perangkat + 2 tindak lanjut.
+- **Files Touch:** static/offline/tagrepo.js, static/offline/taskrepo.js, static/offline/liveedit.js, static/index.html, static/app.css, static/sw.js, static/whatsnew.json, tests/offline/taskrepo.test.js, tests/offline/tagrepo.test.js, tests/offline/tag_tasks_overlay.test.js, tests/offline/*.test.js (versi), tests/test_static_revalidate.py, tests/test_tag_node.py, temporary_files/e2e_task_detail_body.py, temporary_files/e2e_live_edit.py, docs/superpowers/specs/2026-10-26-live-edit-design.md, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — 3 commit lokal, belum push/PR.

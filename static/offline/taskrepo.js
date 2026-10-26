@@ -192,6 +192,10 @@
       }
       const next = Object.assign({}, rec);
 
+      // Judul tersimpan tanpa #tag (tag di store entity_tags), jadi judul dari form tidak memuat tag task: #tag di
+      // judul MENAMBAH tag (tanpa duplikat), judul tanpa #tag tidak menyentuh tag. Dulu tag diganti dengan #tag di
+      // judul → setiap simpan form menghapus semua tag, dan push (himpunan tag lokal lengkap) ikut menghapusnya di
+      // server. Hapus tag tetap lewat chip × (removeEntityTag).
       let newTags = null;
       if (patch.title != null) {
         const ex = TFtagrepo.extractTags(patch.title);
@@ -272,7 +276,7 @@
 
       return putRaw(next)
         .then(() => TFoutbox.outboxAdd({ op: "update", entity_type: "task", cid: cid, payload: next }))
-        .then(() => (newTags != null ? TFtagrepo.setEntityTags("task", cid, newTags) : null))
+        .then(() => (newTags != null && newTags.length ? TFtagrepo.addEntityTags("task", cid, newTags) : null))
         .then(() => assemble(next, opts && opts.today));
     });
   }
