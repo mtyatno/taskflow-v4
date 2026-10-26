@@ -46,7 +46,7 @@ Pengguna ingin mengedit satu task cukup lama dengan konsentrasi, lalu berpindah 
 | K10 | Logika murni di modul baru `static/offline/liveedit.js` (`TF.liveedit`), UI di `index.html`. | Pola `kanbanboard.js` / `focusfilter.js`: diuji di Node tanpa React. |
 | K11 | Cakupan halaman = halaman yang merender `TaskListView`. Fokus Hari Ini, Dashboard, Kalender tidak berubah. | Tiga view hanya ada di `TaskListView`. |
 | K12 | Dua PR: PR A pemisahan isi modal tanpa perubahan perilaku; PR B Live Edit. | Pemisahan ~1.080 baris isi modal paling berisiko; tes lama menjaga modal tetap sama sebelum fitur baru ditumpuk. |
-| K13 | Hanya klien. Tidak ada perubahan server, skema, atau API. | `PUT /api/tasks/:id` (rute lokal) sudah menerima patch sebagian. |
+| K13 | Hanya klien. Tidak ada perubahan server, skema, atau API. *(Pengecualian R20, commit tersendiri yang boleh di-drop: server menggabungkan notifikasi "memperbarui task" per aktor per task per 10 menit, §10.)* | `PUT /api/tasks/:id` (rute lokal) sudah menerima patch sebagian. |
 
 ## 3. Kondisi sekarang
 
@@ -313,7 +313,7 @@ createAutosaver({task, put, onChange, ...}) -> Autosaver   // orkestrasi §7.2�
   - versi SW naik (nama cache `taskflow-v<N>-live-edit`), tes versi disesuaikan;
   - entri teratas `static/whatsnew.json` untuk pengguna: judul "Edit task langsung di samping daftar", poin baru "Tombol Live Edit di halaman task: pilih task di kiri, lalu edit detailnya langsung di kanan tanpa membuka jendela." dan "Perubahan di panel tersimpan otomatis, juga saat offline.";
   - ADR di `.agents/DECISIONS.md` (§13).
-- Keduanya file statis saja: tanpa migrasi, tanpa perubahan `webapp.py`, tanpa restart `taskflow-web` (`/api/version` membaca `sw.js`).
+- Keduanya file statis saja: tanpa migrasi, tanpa perubahan `webapp.py`, tanpa restart `taskflow-web` (`/api/version` membaca `sw.js`). **Pengecualian R20 (PR B, commit tersendiri):** autosave panel membuat banyak `PUT` per sesi edit, dan setiap `PUT` task workspace mengirim notifikasi "✏️ … memperbarui task …" (in-app + Telegram) ke semua anggota; `update_task` di `webapp.py` melewatinya bila aktor yang sama sudah memicunya untuk task yang sama dalam `TASK_UPDATE_NOTIFY_WINDOW_MIN = 10` menit terakhir (notifikasi penugasan tidak terpengaruh). Dengan commit ini deploy PR B butuh `sudo systemctl restart taskflow-web`; tanpa commit ini (di-drop) PR B kembali file statis saja.
 - Merge hanya setelah pemilik bilang "merge dan deploy". `CURRENT_STATE.md` dan `SESSION_LOG.md` diperbarui di tiap PR.
 
 ## 11. Di luar cakupan

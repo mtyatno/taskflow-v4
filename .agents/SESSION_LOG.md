@@ -4144,4 +4144,5 @@
 ## [2026-10-26 19:40] - Claude
 - **Task:** Live Edit PR B `claude/live-edit` — perbaikan tinjauan akhir (R19–R21). Klien: nama project/context yang diketik hanya tersimpan saat keluar field/Enter/flush, opsi yang ada langsung (R19, cegah project/tahap "setengah jadi" di server); tag dimuat ulang sebelum setiap simpan judul + chip dimuat ulang saat `updated_at` berubah (R21). Spec/plan/ADR-031/E2E diperbarui.
 - **Verifikasi:** node liveedit 80/80; npm 3202/3201 (pra-ada `draw_local_reactive`); inline OK; E2E 118/118.
+- **Server (commit terpisah, boleh di-drop):** R20 — `update_task` menggabungkan notifikasi "✏️ … memperbarui task …" per aktor per task per 10 menit (`TASK_UPDATE_NOTIFY_WINDOW_MIN`), Telegram ikut; tes `tests/test_task_update_notify_coalesce.py` (8). Deploy PR B kini butuh `sudo systemctl restart taskflow-web`.
 - **Status:** Needs Review — commit lokal, belum push.

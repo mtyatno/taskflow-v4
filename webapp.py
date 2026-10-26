@@ -1622,6 +1622,28 @@ def _esc_msg(v) -> str:
     return html.escape(str(v if v is not None else ""), quote=False)
 
 
+# R20 (Live Edit): panel detail menyimpan otomatis per field, jadi satu sesi edit task workspace menghasilkan banyak
+# PUT /api/tasks/:id. Notifikasi "✏️ … memperbarui task …" (in-app dan Telegram, keduanya lewat _notify_members_bg)
+# dilewati bila aktor yang sama sudah memicunya untuk task yang sama dalam jendela ini. Notifikasi penugasan tidak
+# terpengaruh.
+TASK_UPDATE_NOTIFY_WINDOW_MIN = 10
+
+
+def _task_update_notified_recently(task_id: int, prefix: str) -> bool:
+    """True bila notifikasi task ini yang diawali `prefix` dibuat dalam TASK_UPDATE_NOTIFY_WINDOW_MIN menit terakhir.
+
+    `created_at` ditulis notify_list_members sebagai datetime.now().isoformat() (waktu lokal server), jadi batasnya
+    dihitung dengan cara yang sama dan dibandingkan sebagai string ISO. Awalan dibandingkan dengan substr (bukan LIKE)
+    supaya `_`/`%` di username tidak menjadi wildcard."""
+    since = (datetime.now() - timedelta(minutes=TASK_UPDATE_NOTIFY_WINDOW_MIN)).isoformat()
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM notifications WHERE task_id = ? AND created_at >= ? "
+            "AND substr(message, 1, length(?)) = ? LIMIT 1",
+            (task_id, since, prefix, prefix)).fetchone()
+    return row is not None
+
+
 async def _notify_members_bg(list_id: int, actor_user_id: int, message: str, task_id: Optional[int] = None):
     """Write in-app notifications + send Telegram to all list members except the actor."""
     if not list_id:
@@ -2668,11 +2690,15 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
                 task_id=task_id
             )
         else:
-            background_tasks.add_task(
-                _notify_members_bg, existing["list_id"], uid,
-                f"✏️ <b>{_esc_msg(actor)}</b> memperbarui task <b>{_esc_msg(existing['title'])}</b>.",
-                task_id=task_id
-            )
+            # R20: satu notifikasi "memperbarui task" per aktor per task per TASK_UPDATE_NOTIFY_WINDOW_MIN menit
+            # (autosave Live Edit); dilewati sebelum dijadwalkan, jadi Telegram ikut tidak terkirim.
+            update_prefix = f"✏️ <b>{_esc_msg(actor)}</b> memperbarui task"
+            if not _task_update_notified_recently(task_id, update_prefix):
+                background_tasks.add_task(
+                    _notify_members_bg, existing["list_id"], uid,
+                    f"{update_prefix} <b>{_esc_msg(existing['title'])}</b>.",
+                    task_id=task_id
+                )
     return task_row_to_dict(row)
 
 
