@@ -206,9 +206,12 @@ def nav(page, label):
 
 def stable_screenshot(page, path):
     """Screenshot full page yang dua kali berturut-turut identik: membuang keadaan antara (transisi/render yang belum
-    selesai) yang pernah menyisakan 2 piksel beda di satu gambar. Halaman yang tak kunjung stabil = error, bukan flake."""
+    selesai) yang pernah menyisakan 2 piksel beda di satu gambar. Halaman yang tak kunjung stabil = error, bukan flake.
+    Teks versi SW di kartu Pengaturan "Pembaruan Aplikasi" diganti teks tetap agar kenaikan versi bukan selisih."""
     prev = None
     for _ in range(5):
+        page.evaluate("""() => { for (const c of document.querySelectorAll('code'))
+            if (/^taskflow-v\\d+-/.test(c.textContent)) c.textContent = 'taskflow-vNNN-versi'; }""")
         data = page.screenshot(full_page=True, animations="disabled", caret="hide", scale="css")
         if data == prev:
             with open(path, "wb") as f:
