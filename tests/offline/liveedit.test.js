@@ -186,9 +186,9 @@ test("satu simpan berjalan; perubahan saat berjalan dikirim sekali sesudahnya", 
   d.res(); await tick(); await tick(); assert.deepEqual(calls, [{ priority: "P1" }, { priority: "P2" }]);
 });
 test("gagal → error, form tetap, retry", async () => {
-  let fail = true; const { s, calls } = mk(T(), () => (fail ? Promise.reject(new Error("Judul tidak boleh kosong setelah strip tag")) : Promise.resolve()));
-  s.change("title", "#x"); s.commit("title"); await tick();
-  const st = s.getState(); assert.equal(st.saveState, "error"); assert.match(st.error, /strip tag/); assert.equal(st.form.title, "#x"); assert.equal(st.saved.title, "A");
+  let fail = true; const { s, calls } = mk(T(), () => (fail ? Promise.reject(new Error("Gagal terhubung ke server")) : Promise.resolve()));
+  s.change("title", "Rapat"); s.commit("title"); await tick();
+  const st = s.getState(); assert.equal(st.saveState, "error"); assert.match(st.error, /terhubung/); assert.equal(st.form.title, "Rapat"); assert.equal(st.saved.title, "A");
   fail = false; s.change("title", "Benar #x"); await s.retry(); assert.equal(calls.length, 2); assert.equal(s.getState().saveState, "saved");
 });
 test("flush mengirim perubahan idle yang tertunda dan membatalkan timer", async () => {
@@ -225,12 +225,19 @@ test("R10: assigned_to dinormalkan ke nilai terkirim sehingga bukan dirty bagi m
   s.external(T({ assigned_to: null, priority: "P1" })); assert.equal(s.getState().form.assigned_to, null);
   assert.equal(s.getState().form.priority, "P1");
 });
-test("judul tidak valid dikeluarkan, field lain tetap tersimpan, titleError hilang setelah judul benar tersimpan", async () => {
+test("judul tidak valid dikeluarkan saat commit; simpan non-commit tidak menyentuh judul maupun titleError", async () => {
   const { s, calls } = mk(T()); s.change("title", "  "); s.change("priority", "P1"); await tick();
-  assert.deepEqual(calls, [{ priority: "P1" }]);
-  let st = s.getState(); assert.equal(st.titleError, "Judul tidak boleh kosong"); assert.equal(st.saveState, "saved");
+  assert.deepEqual(calls, [{ priority: "P1" }]); assert.equal(s.getState().titleError, null, "belum commit: belum divalidasi");
+  s.commit("title"); await tick();
+  assert.equal(calls.length, 1); assert.equal(s.getState().titleError, "Judul tidak boleh kosong");
+  s.change("gtd_status", "done"); await tick();
+  assert.deepEqual(calls[1], { gtd_status: "done" }); assert.equal(s.getState().titleError, "Judul tidak boleh kosong", "simpan non-commit tidak menghapus error judul");
   s.change("title", "Baik"); s.commit("title"); await tick();
-  assert.deepEqual(calls[1], { title: "Baik" }); assert.equal(s.getState().titleError, null);
+  assert.deepEqual(calls[2], { title: "Baik" }); assert.equal(s.getState().titleError, null);
+});
+test("commit bersama field lain: judul tidak valid dikeluarkan, field lain tersimpan", async () => {
+  const { s, calls } = mk(T()); s.change("title", "#x"); s.change("description", "d"); await s.flush();
+  assert.deepEqual(calls, [{ description: "d" }]); assert.equal(s.getState().titleError, "Judul tidak boleh kosong"); assert.equal(s.getState().saveState, "saved");
 });
 test("titleError hilang bila judul kembali sama dengan yang tersimpan", async () => {
   const { s, calls } = mk(T()); s.change("title", ""); s.commit("title"); await tick();
@@ -283,4 +290,97 @@ test("tanpa setTimer/clearTimer/idleMs bawaan memakai timer global dan TEXT_IDLE
   s.change("description", "x"); assert.equal(calls.length, 0);
   await new Promise(r => setTimeout(r, 40)); assert.deepEqual(calls, [{ description: "x" }]);
   const s2 = le.createAutosaver({ task: T(), put: () => Promise.resolve() }); s2.change("description", "y"); s2.dispose();
+});
+
+// ---- perbaikan review Task 4 (R11-R13) ----
+test("R13: validateTitle menolak judul yang kosong setelah #tag dibuang", () => {
+  assert.equal(le.validateTitle("#x"), "Judul tidak boleh kosong");
+  assert.equal(le.validateTitle("  #a #b "), "Judul tidak boleh kosong");
+  assert.equal(le.validateTitle("#Café_1"), "Judul tidak boleh kosong");
+  assert.equal(le.validateTitle("Rapat #x"), null);
+  assert.equal(le.validateTitle("#x Rapat"), null);
+  assert.equal(le.validateTitle("#"), null);
+  assert.equal(le.validateTitle(null), "Judul tidak boleh kosong");
+});
+test("R11: judul hanya #tag ditolak di klien (titleError, tanpa put)", async () => {
+  const { s, calls } = mk(T()); s.change("title", "#x"); s.commit("title"); await tick();
+  assert.equal(calls.length, 0); assert.equal(s.getState().titleError, "Judul tidak boleh kosong"); assert.equal(s.getState().saveState, "idle");
+});
+test("R11 (a): timer idle yang sudah terpasang tidak menyimpan project kosong; commit menyimpannya", async () => {
+  const { s, t, calls } = mk(T({ project: "Alpha" }));
+  s.change("project", "Beta"); s.change("project", ""); assert.equal(t.q.length, 1);
+  t.run(); await tick(); assert.equal(calls.length, 0);
+  s.commit("project"); await tick(); assert.deepEqual(calls, [{ project: "" }]);
+});
+test("R11 (a): project kosong ikut tersimpan saat flush; context kosong sama", async () => {
+  const { s, calls } = mk(T({ project: "Alpha", context: "Kantor" })); s.change("project", ""); s.change("context", ""); await s.flush();
+  assert.deepEqual(calls, [{ project: "", context: "" }]);
+});
+test("R11 (b): simpan tertunda non-commit tidak mengirim judul yang belum di-commit", async () => {
+  const d = deferred(); let n = 0; const { s, calls } = mk(T(), () => (n++ === 0 ? d.p : Promise.resolve()));
+  s.change("priority", "P1"); s.change("gtd_status", "done"); s.change("title", "Rapat #ka");
+  d.res(); await tick(); await tick();
+  assert.deepEqual(calls, [{ priority: "P1" }, { gtd_status: "done" }]); assert.equal(s.getState().form.title, "Rapat #ka");
+});
+test("R11 (b): timer idle tidak mengirim judul yang belum di-commit", async () => {
+  const { s, t, calls } = mk(T()); s.change("description", "d"); s.change("title", "Baru"); t.run(); await tick();
+  assert.deepEqual(calls, [{ description: "d" }]);
+});
+test("R11 (b): permintaan commit yang antre membuat putaran berikutnya eksplisit", async () => {
+  const d = deferred(); let n = 0; const { s, calls } = mk(T(), () => (n++ === 0 ? d.p : Promise.resolve()));
+  s.change("priority", "P1"); s.change("title", "Baru"); s.commit("title");
+  d.res(); await tick(); await tick();
+  assert.deepEqual(calls, [{ priority: "P1" }, { title: "Baru" }]);
+});
+test("R11 (b): permintaan non-eksplisit sesudah commit yang antre tidak menurunkan putaran berikutnya", async () => {
+  const d = deferred(); let n = 0; const { s, calls } = mk(T(), () => (n++ === 0 ? d.p : Promise.resolve()));
+  s.change("priority", "P1"); s.change("title", "Baru"); s.commit("title"); s.change("gtd_status", "done");
+  d.res(); await tick(); await tick();
+  assert.deepEqual(calls, [{ priority: "P1" }, { title: "Baru", gtd_status: "done" }]);
+});
+test("R11 (c): flush mengirim judul", async () => {
+  const { s, calls } = mk(T()); s.change("title", "X"); await s.flush(); assert.deepEqual(calls, [{ title: "X" }]);
+});
+test("R11 (d): progress hanya tersimpan saat commit/flush", async () => {
+  const { s, t, calls } = mk(T()); s.change("progress", 40); await tick();
+  assert.equal(calls.length, 0); assert.equal(t.q.length, 0);
+  s.change("priority", "P1"); await tick(); assert.deepEqual(calls, [{ priority: "P1" }], "progress di tengah drag tidak ikut");
+  s.commit("progress"); await tick(); assert.deepEqual(calls[1], { progress: 40 });
+});
+test("R12: flush() lalu dispose() tetap mengirim perubahan yang antre di belakang simpan berjalan", async () => {
+  const d = deferred(); let n = 0; const { s, calls, states } = mk(T(), () => (n++ === 0 ? d.p : Promise.resolve()));
+  s.change("priority", "P1"); s.change("description", "draf"); const f = s.flush(); s.dispose(); const len = states.length;
+  d.res(); await f;
+  assert.deepEqual(calls, [{ priority: "P1" }, { description: "draf" }]);
+  assert.equal(states.length, len, "tanpa onChange setelah dispose"); assert.equal(s.getState().saveState, "saving", "state beku saat dispose");
+});
+test("R12: flush yang antre tetap dicoba bila put yang berjalan gagal", async () => {
+  const d = deferred(); let n = 0; const { s, calls } = mk(T(), () => (n++ === 0 ? d.p : Promise.resolve()));
+  s.change("priority", "P1"); s.change("description", "draf"); const f = s.flush();
+  d.rej(new Error("offline")); await f;
+  assert.equal(calls.length, 2); assert.equal(calls[1].description, "draf"); assert.equal(s.getState().saveState, "saved");
+});
+test("R12: dispose tanpa flush membuang antrean non-eksplisit", async () => {
+  const d = deferred(); const { s, calls } = mk(T(), () => d.p);
+  s.change("priority", "P1"); s.change("priority", "P2"); s.dispose(); d.res(); await tick(); await tick(); assert.equal(calls.length, 1);
+});
+test("R12: flush yang antre dan put berjalan gagal setelah dispose tetap dicoba tanpa onChange", async () => {
+  const d = deferred(); let n = 0; const { s, calls, states } = mk(T(), () => (n++ === 0 ? d.p : Promise.resolve()));
+  s.change("priority", "P1"); s.change("description", "draf"); const f = s.flush(); s.dispose(); const len = states.length;
+  d.rej(new Error("x")); await f; assert.equal(calls.length, 2); assert.equal(states.length, len);
+});
+test("error: judul dikembalikan lalu retry → idle, error null", async () => {
+  const { s, calls } = mk(T(), () => Promise.reject(new Error("Gagal terhubung")));
+  s.change("title", "Rapat"); s.commit("title"); await tick(); assert.equal(s.getState().saveState, "error");
+  s.revertTitle(); assert.equal(s.getState().saveState, "error", "revertTitle saja belum menghapus error");
+  await s.retry(); const st = s.getState(); assert.equal(st.saveState, "idle"); assert.equal(st.error, null); assert.equal(calls.length, 1);
+});
+test("error: field dikembalikan ke nilai tersimpan lewat change → idle, error null", async () => {
+  const { s, states } = mk(T(), () => Promise.reject(new Error("x"))); s.change("priority", "P1"); await tick();
+  assert.equal(s.getState().saveState, "error"); s.change("priority", "P3"); await tick();
+  assert.equal(s.getState().saveState, "idle"); assert.equal(s.getState().error, null); assert.equal(states[states.length - 1], "idle");
+});
+test("error tetap bila judul yang gagal masih belum tersimpan dan simpan non-commit tidak punya apa-apa", async () => {
+  const { s } = mk(T(), () => Promise.reject(new Error("x"))); s.change("title", "Rapat"); s.commit("title"); await tick();
+  s.change("priority", "P3"); await tick(); assert.equal(s.getState().saveState, "error"); assert.equal(s.getState().error, "x");
 });

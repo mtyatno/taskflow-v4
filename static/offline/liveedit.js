@@ -201,8 +201,11 @@
     return { form: nextForm, saved: nextSaved };
   }
 
+  // Judul wajib punya teks selain #tag: server membuang #tag dari judul (regex yang sama dengan TAG_CHARS) dan
+  // menolak hasil yang kosong, jadi "#x" atau "  #a #b " ditolak di klien tanpa memanggil put.
   function validateTitle(title) {
-    return String(title == null ? "" : title).trim() === "" ? TITLE_REQUIRED : null;
+    const text = String(title == null ? "" : title).replace(new RegExp("#[" + TAG_CHARS + "]+", "g"), "");
+    return text.trim() === "" ? TITLE_REQUIRED : null;
   }
 
   function isNotFound(err) {
@@ -236,6 +239,10 @@
   // Orkestrasi simpan otomatis tanpa React/DOM: timer idle (satu, dibagi semua field idle), satu simpan berjalan
   // dengan satu simpan tertunda, flush, retry, dan gabung perubahan luar. `put(patch)` milik pemanggil (URL/id,
   // titleWithTags, router lokal); hasilnya row server/lokal atau undefined.
+  //
+  // Simpan "eksplisit" (commit, flush, retry) mengirim semua field yang berubah. Simpan non-eksplisit (pilihan "now"
+  // dan timer idle) membuang field yang pemicunya "blur" (R1/R11): judul dan progress yang masih diketik/digeser,
+  // serta project/context kosong dari "+ Baru". Permintaan yang antre ikut eksplisit bila salah satunya eksplisit.
   function errorMessage(err) {
     if (err == null) return "Gagal menyimpan";
     if (typeof err === "string") return err || "Gagal menyimpan";
@@ -258,10 +265,17 @@
     let timer = null;
     let running = null; // promise gelung simpan yang sedang berjalan
     let pending = false; // ada permintaan simpan saat running: dijalankan sekali setelah selesai
+    let pendingExplicit = false; // salah satu permintaan yang antre eksplisit
     let disposed = false;
+    let frozen = null; // state saat dispose: setelah itu pengamat tidak melihat perubahan apa pun
+
+    function current() {
+      return { form: Object.assign({}, form), saved: Object.assign({}, saved), saveState, error, titleError };
+    }
 
     function snapshot() {
-      return { form: Object.assign({}, form), saved: Object.assign({}, saved), saveState, error, titleError };
+      const s = frozen || current();
+      return { form: Object.assign({}, s.form), saved: Object.assign({}, s.saved), saveState: s.saveState, error: s.error, titleError: s.titleError };
     }
 
     function emit() {
@@ -275,18 +289,29 @@
       clearTimer(h);
     }
 
-    // Satu putaran simpan. Mengembalikan false bila gagal (gelung tidak menjalankan simpan tertunda).
-    async function saveOnce() {
-      let fields = changedFields(saved, form);
-      let nextTitleError = null;
-      if (fields.indexOf("title") !== -1) {
+    // Satu putaran simpan. Mengembalikan false bila gagal.
+    // Setelah dispose putaran yang antre tetap berjalan (R12), tetapi emit() diam dan getState() beku.
+    async function saveOnce(explicit) {
+      const dirty = changedFields(saved, form);
+      let fields = explicit ? dirty : dirty.filter(function (f) { return saveTrigger(f, form[f]) !== "blur"; });
+      let nextTitleError = titleError;
+      if (dirty.indexOf("title") === -1) {
+        nextTitleError = null;
+      } else if (explicit) {
         nextTitleError = validateTitle(form.title);
         if (nextTitleError) fields = fields.filter(function (f) { return f !== "title"; });
       }
-      const titleErrorChanged = nextTitleError !== titleError;
+      let changed = nextTitleError !== titleError;
       titleError = nextTitleError;
       if (!fields.length) {
-        if (titleErrorChanged) emit();
+        // Tidak ada yang dikirim: error lama sudah basi bila pengguna yang meminta (retry/flush/commit) atau
+        // tidak ada lagi field yang berubah. Simpan non-eksplisit yang hanya membuang field "blur" membiarkannya.
+        if (saveState === "error" && (explicit || !dirty.length)) {
+          saveState = "idle";
+          error = null;
+          changed = true;
+        }
+        if (changed) emit();
         return true;
       }
 
@@ -301,13 +326,11 @@
       try {
         row = await put(patch);
       } catch (err) {
-        if (disposed) return false;
         saveState = "error";
         error = errorMessage(err);
         emit();
         return false;
       }
-      if (disposed) return false;
 
       // `form`/`saved` bisa sudah diganti oleh external() selama put berjalan, jadi dibaca ulang di sini.
       const titleUntouched = fields.indexOf("title") !== -1 && form.title === sent.title;
@@ -327,33 +350,40 @@
       return true;
     }
 
-    // Satu gelung: simpan, lalu sekali lagi bila ada permintaan masuk saat berjalan.
-    async function drain() {
+    // Satu gelung: simpan, lalu sekali lagi bila ada permintaan masuk saat berjalan. Setelah put gagal hanya
+    // permintaan eksplisit yang tetap dicoba; yang non-eksplisit (pilihan, timer idle) dibuang dan pengguna memakai retry.
+    async function drain(first) {
+      let explicit = first;
       try {
-        let ok = true;
-        do {
+        for (;;) {
           pending = false;
-          ok = await saveOnce();
-        } while (pending && ok && !disposed);
+          pendingExplicit = false;
+          const ok = await saveOnce(explicit);
+          if (!pending) break;
+          if (!ok && !pendingExplicit) break;
+          explicit = pendingExplicit;
+        }
       } finally {
         // Tanpa await antara pemeriksaan `pending` dan baris ini, jadi tidak ada permintaan yang hilang.
         running = null;
         pending = false;
+        pendingExplicit = false;
       }
     }
 
-    function save() {
+    function save(explicit) {
       if (disposed) return Promise.resolve();
       if (running) {
         pending = true;
+        pendingExplicit = pendingExplicit || !!explicit;
         return running;
       }
-      running = drain();
+      running = drain(!!explicit);
       return running;
     }
 
-    function saveSilently() {
-      save().catch(function () { /* hasil simpan sudah tercermin di state */ });
+    function saveSilently(explicit) {
+      save(explicit).catch(function () { /* hasil simpan sudah tercermin di state */ });
     }
 
     function change(field, value) {
@@ -362,12 +392,12 @@
       emit();
       const trigger = saveTrigger(field, value);
       if (trigger === "now") {
-        saveSilently();
+        saveSilently(false);
       } else if (trigger === "idle") {
         cancelTimer();
         timer = setTimer(function () {
           timer = null;
-          if (!disposed) saveSilently();
+          if (!disposed) saveSilently(false);
         }, idleMs);
       }
     }
@@ -375,17 +405,17 @@
     function commit(_field) {
       if (disposed) return;
       cancelTimer();
-      saveSilently();
+      saveSilently(true);
     }
 
     function flush() {
       if (disposed) return Promise.resolve();
       cancelTimer();
-      return save();
+      return save(true);
     }
 
     function retry() {
-      return save();
+      return save(true);
     }
 
     function revertTitle() {
@@ -403,9 +433,13 @@
       emit();
     }
 
+    // Cleanup unmount (`flush(); dispose()`): timer dibatalkan dan hasil put tidak lagi terlihat (tanpa onChange,
+    // getState beku). Simpan yang sudah diantre lewat flush/commit/retry tetap dikirim (R12); antrean non-eksplisit dibuang.
     function dispose() {
+      if (disposed) return;
+      frozen = current();
       disposed = true;
-      pending = false;
+      if (!pendingExplicit) pending = false;
       cancelTimer();
     }
 
