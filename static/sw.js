@@ -18,6 +18,7 @@ const STATIC = [
   "/static/offline/blobstore.js",
   "/static/offline/router.js",
   "/static/offline/tasklogic.js",
+  "/static/offline/taskdetail.js",
   "/static/offline/focusfilter.js",
   "/static/offline/tagrepo.js",
   "/static/offline/taskrepo.js",
