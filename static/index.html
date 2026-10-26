@@ -8492,7 +8492,8 @@ function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
     change: saver.change,
     commit: saver.commit,
     revertTitle: saver.revertTitle,
-    retry: saver.retry
+    retry: saver.retry,
+    flush: saver.flush
   };
 }
 // Live Edit (spec §7.5): indikator simpan di baris judul panel. Kosong sebelum ada edit; "Tersimpan" hilang 2 dtk
@@ -8889,14 +8890,18 @@ function PropertyRow({
   onToggle,
   onClose,
   popLabel,
+  content = null,
+  anchorRef = null,
   children
 }) {
+  // content (baris Tag): isi baris menggantikan tombol nilai; popover berjangkar pada anchorRef milik isi itu.
   const btnRef = useRef(null);
+  const ref = anchorRef || btnRef;
   return /*#__PURE__*/React.createElement("div", {
     className: "td-prop" + (wide ? " is-wide" : "")
   }, /*#__PURE__*/React.createElement("div", {
     className: "td-prop-label"
-  }, label), /*#__PURE__*/React.createElement("button", {
+  }, label), content ?? /*#__PURE__*/React.createElement("button", {
     type: "button",
     ref: btnRef,
     className: "td-prop-val" + (isEmpty ? " is-empty" : "") + (danger && !isEmpty ? " is-danger" : ""),
@@ -8907,7 +8912,7 @@ function PropertyRow({
   }, isEmpty ? "+ Tambah" : /*#__PURE__*/React.createElement(React.Fragment, null, icon, /*#__PURE__*/React.createElement("span", {
     className: "td-prop-text"
   }, text))), /*#__PURE__*/React.createElement(DetailPopover, {
-    anchorRef: btnRef,
+    anchorRef: ref,
     open: open,
     onClose: onClose,
     label: popLabel || label
@@ -9086,6 +9091,79 @@ function TextPicker({
     className: "td-btn",
     onClick: onDone
   }, "Simpan"));
+}
+// Tambah tag (spec §4.4, §6.3): input + saran dari GET /api/tags (dimuat sekali saat popover terbuka) yang belum
+// terpasang dan cocok dengan ketikan, paling banyak 8. Enter / klik saran = onAdd(nama) → null (sukses: input
+// dikosongkan, popover tetap terbuka untuk tag berikutnya) atau pesan galat (tampil di bawah input).
+function TagAdder({
+  existing,
+  onAdd
+}) {
+  const [text, setText] = useState("");
+  const [err, setErr] = useState(null);
+  const [all, setAll] = useState([]);
+  const busyRef = useRef(false);
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    api.get("/api/tags").then(d => {
+      if (aliveRef.current) setAll((Array.isArray(d) ? d : []).map(t => t && t.name).filter(Boolean));
+    }).catch(() => {});
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+  const have = new Set((existing || []).map(n => String(n).toLowerCase()));
+  const query = text.trim().replace(/^#+/, "");
+  const suggestions = window.TF.taskdetail.filterOptions(all.filter(n => !have.has(String(n).toLowerCase())), query).slice(0, 8);
+  const submit = async raw => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    let msg = null;
+    try {
+      msg = await onAdd(raw);
+    } catch (e) {
+      msg = e && e.message || "Gagal menambah tag";
+    }
+    busyRef.current = false;
+    if (!aliveRef.current) return;
+    setErr(msg || null);
+    if (!msg) setText("");
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "td-tag-adder"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "input td-pop-input",
+    autoFocus: true,
+    "aria-label": "Nama tag",
+    placeholder: "Nama tag\u2026",
+    value: text,
+    onKeyDown: e => {
+      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
+        e.preventDefault();
+        submit(text);
+      }
+    },
+    onChange: e => {
+      setText(e.target.value);
+      if (err) setErr(null);
+    }
+  }), err && /*#__PURE__*/React.createElement("div", {
+    className: "td-pop-err",
+    role: "alert"
+  }, err), /*#__PURE__*/React.createElement("div", {
+    className: "td-pop-list"
+  }, suggestions.map(n => /*#__PURE__*/React.createElement("button", {
+    key: n,
+    type: "button",
+    className: "td-pop-item",
+    onClick: () => submit(n)
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "tag",
+    size: 14
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "td-pop-label"
+  }, n)))));
 }
 // Panel "Pindah ke Workspace" (isi dan perilaku sama seperti sebelumnya; dipisah dari TaskDetailBody supaya isi
 // detail tidak memuat select, spec §4.4/§4.7).
@@ -9472,72 +9550,76 @@ function TaskDetailBody({
   // Pesan di bawah judul. titleError dari pengendali hanya selama judul di form masih tidak valid (pengendali
   // baru memperbaruinya saat simpan berikutnya, jadi tanpa syarat ini pesan basi tetap tampil saat judul sudah diperbaiki).
   const titleAlert = titleNotice || (auto.titleError && window.TF.liveedit.validateTitle(fv.title) ? auto.titleError : null);
-  // Chip tag (klik = task lain dengan tag ini, × = hapus tag).
-  const tagChips = () => taskTags.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 6,
-      marginBottom: 12,
-      alignItems: "center"
+  // Tambah tag (spec §6.3, ADR-032): nama dinormalkan; tag yang sudah terpasang (tanpa beda huruf) tidak dikirim.
+  // Perubahan tertunda di-flush dulu, lalu judul TERSIMPAN + semua tag segar + tag baru dikirim ke rute lokal: store
+  // lokal MENAMBAH #tag dari judul, push mengirim himpunan lengkap. Mengembalikan null (sukses) atau pesan galat.
+  const addTag = async raw => {
+    const norm = window.TF.taskdetail.normalizeTagName(raw);
+    if (norm.error) return norm.error;
+    const name = norm.name;
+    const same = t => String(t && t.name).toLowerCase() === name.toLowerCase();
+    if (taskTags.some(same)) return null;
+    try {
+      await auto.flush();
+      if (auto.getState().saveState === "error") return "Perubahan lain belum tersimpan. Coba lagi dulu.";
+      const tags = await tagsForTitle();
+      if (tags.some(same)) return null;
+      const title = window.TF.liveedit.titleWithTags(auto.getState().saved.title, [...tags, {
+        name
+      }]);
+      await api.put(`/api/tasks/${task.id}`, {
+        title
+      });
+      onSaved({
+        title
+      });
+      return null;
+    } catch (err) {
+      return err && err.message || "Gagal menambah tag";
     }
+  };
+  // Isi baris Tag di kisi: chip (klik = task lain dengan tag ini, × = hapus tag), "+N more"/"‹ less", tombol "+"
+  // (jangkar popover TagAdder).
+  const tagAddRef = useRef(null);
+  const tagChips = () => /*#__PURE__*/React.createElement("div", {
+    className: "td-tags"
   }, (tagsExpanded ? taskTags : taskTags.slice(0, 3)).map(tag => /*#__PURE__*/React.createElement("span", {
-    key: tag.id,
+    key: tag.id || tag.name,
+    className: "td-tag",
     title: "Klik untuk lihat semua task dengan tag ini",
-    onClick: () => showTagTasks(tag.name),
-    style: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 4,
-      background: "rgba(168,197,0,0.10)",
-      color: "var(--accent)",
-      border: "1px solid rgba(168,197,0,0.25)",
-      borderRadius: 999,
-      fontSize: 11,
-      fontWeight: 600,
-      padding: "2px 8px 2px 6px",
-      cursor: "pointer",
-      userSelect: "none",
-      transition: "background 0.15s"
-    },
-    onMouseEnter: e => e.currentTarget.style.background = "rgba(168,197,0,0.22)",
-    onMouseLeave: e => e.currentTarget.style.background = "rgba(168,197,0,0.10)"
+    onClick: () => showTagTasks(tag.name)
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-tag-name"
   }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      opacity: 0.7
-    }
-  }, "#"), tag.name, /*#__PURE__*/React.createElement("span", {
+    className: "td-tag-hash"
+  }, "#"), tag.name), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-tag-x",
+    "aria-label": "Hapus tag " + tag.name,
     onClick: e => {
       e.stopPropagation();
       removeTag(tag.name);
-    },
-    style: {
-      marginLeft: 2,
-      opacity: 0.5,
-      fontWeight: 400,
-      fontSize: 13,
-      lineHeight: 1,
-      cursor: "pointer"
-    },
-    onMouseEnter: e => {
-      e.stopPropagation();
-      e.currentTarget.style.opacity = "1";
-    },
-    onMouseLeave: e => {
-      e.stopPropagation();
-      e.currentTarget.style.opacity = "0.5";
     }
-  }, "\xD7"))), taskTags.length > 3 && /*#__PURE__*/React.createElement("span", {
-    onClick: () => setTagsExpanded(e => !e),
-    style: {
-      fontSize: 11,
-      color: "var(--text-light)",
-      cursor: "pointer",
-      padding: "2px 6px",
-      borderRadius: 999,
-      border: "1px solid var(--border)"
-    }
-  }, tagsExpanded ? "‹ less" : `+${taskTags.length - 3} more`));
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "x",
+    size: 12
+  })))), taskTags.length > 3 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-tag-more",
+    onClick: () => setTagsExpanded(e => !e)
+  }, tagsExpanded ? "‹ less" : `+${taskTags.length - 3} more`), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    ref: tagAddRef,
+    className: "td-tag-add",
+    "aria-label": "Tambah tag",
+    "aria-haspopup": "dialog",
+    "aria-expanded": openPop === "tag",
+    onClick: () => setOpenPop(o => o === "tag" ? null : "tag")
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "plus",
+    size: 14
+  })));
   const doneCount = subtasks.filter(s => s.is_done).length;
   const totalSubs = subtasks.length;
   const progress = totalSubs > 0 ? Math.round(doneCount / totalSubs * 100) : 0;
@@ -9653,7 +9735,7 @@ function TaskDetailBody({
     },
     onProgressChange: p => sf("progress", p),
     onProgressCommit: () => auto.commit("progress")
-  }), tagChips(), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("div", {
     className: "td-props"
   }, /*#__PURE__*/React.createElement(PropertyRow, {
     label: "Status",
@@ -9759,6 +9841,17 @@ function TaskDetailBody({
     placeholder: "Menunggu siapa/apa",
     onChange: v => sf("waiting_for", v),
     onDone: closeProp("waiting_for")
+  })), /*#__PURE__*/React.createElement(PropertyRow, {
+    label: "Tag",
+    wide: true,
+    content: tagChips(),
+    anchorRef: tagAddRef,
+    open: openPop === "tag",
+    onClose: () => setOpenPop(o => o === "tag" ? null : o),
+    popLabel: "Tambah tag"
+  }, /*#__PURE__*/React.createElement(TagAdder, {
+    existing: taskTags.map(t => t.name),
+    onAdd: addTag
   }))), /*#__PURE__*/React.createElement("div", {
     style: {
       marginBottom: 16

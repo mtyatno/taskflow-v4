@@ -51,6 +51,17 @@ Kelompok (E2E_ONLY=autosave,... menjalankan sebagian; kosong = semua). Tiap kelo
     P-6  Escape menutup popover dan fokus kembali ke tombol nilai; detail tanpa select / .input-label
     P-7  tanpa error konsol/pageerror
 
+  tags  (Task 5) baris Tag + TagAdder (judul tersimpan + #tag, ADR-032). Modal 375 px gelap dan panel Live Edit
+        1280 px terang. Tag lokal dinormalkan huruf kecil (tagrepo), jadi "Rapat" tampil/tersimpan sebagai `rapat`:
+    G-1  task bertag lokal `kerja` → "+" → "Rapat" Enter → chip #kerja dan #rapat, popover tetap terbuka dengan input
+         kosong; tag lokal dua; setelah sync tag server dua; judul lokal (input) dan server tanpa `#`
+    G-3  "dua kata" Enter → alert "Tag hanya boleh huruf, angka, dan _"; kosong + Enter → "Tulis nama tag"
+    G-4  task lain bertag `proyekx` → ketik "proy" → saran `proyekx` (tag terpasang tidak disarankan) → klik → terpasang
+    G-2  (Review Focus 3) offline: "#KERJA" Enter → tanpa chip baru, tanpa alert, `_outbox` dan `updated_at` lokal tetap
+    G-5  × pada #rapat → hilang (lokal); lalu ubah judul → #rapat tidak kembali (lokal dan server)
+    G-6  ketik deskripsi lalu (< 1 dtk) tambah tag → deskripsi dan tag sama-sama tersimpan (lokal dan server)
+    G-7  tanpa error konsol/pageerror
+
 Pengecualian cek konsol (sama dengan e2e_live_edit.py), jumlahnya dicetak di akhir:
   (1) pra-ada: setelah hapus + sync, syncpull mencatat 404 untuk `GET /api/tasks/:id` (konfirmasi task hilang). Akhir
       skrip menegaskan lewat `BAD_RESPONSES` bahwa SETIAP respons >= 400 pada `/api/tasks/<id>` adalah `GET` 404;
@@ -60,6 +71,7 @@ Pengecualian cek konsol (sama dengan e2e_live_edit.py), jumlahnya dicetak di akh
     python3 temporary_files/e2e_detail_redesign.py
     E2E_ONLY=autosave python3 temporary_files/e2e_detail_redesign.py
     E2E_ONLY=autosave,topbar python3 temporary_files/e2e_detail_redesign.py
+    E2E_ONLY=tags,props python3 temporary_files/e2e_detail_redesign.py
 """
 import os
 import re
@@ -1169,11 +1181,214 @@ def run_props(browser, base):
             ctx.close()
 
 
+# ── kelompok: tags (Task 5) ────────────────────────────────────────────────────
+TG_MAIN = "Siapkan agenda rapat"
+TG_OTHER = "Kumpulkan data proyek"
+TG_DESC = "Tulis notulen singkat"
+
+
+def seed_tags(base, name):
+    user = register(base, name)
+    ids = {}
+    # Tag server ikut dibuat (#tag di judul POST) agar server dan lokal sejalan; tag lokal dipasang di halaman.
+    for server_title, title in [(TG_MAIN + " #kerja", TG_MAIN), (TG_OTHER + " #proyekx", TG_OTHER), (TG_DESC, TG_DESC)]:
+        ids[title] = api(base, user, "POST", "/api/tasks", json={
+            "title": server_title, "priority": "P3", "gtd_status": "next", "description": "Awal"})["id"]
+    return user, ids
+
+
+def tag_chips(page, scope):
+    return [x.strip().lower() for x in page.locator(scope + " .td-tag .td-tag-name").all_inner_texts()]
+
+
+def tag_input(page):
+    return page.locator(POP + ' input[aria-label="Nama tag"]').first
+
+
+def pop_alert(page):
+    a = page.locator(POP + ' [role="alert"]')
+    return a.first.inner_text().strip() if a.count() else ""
+
+
+def push_now(page):
+    page.evaluate("() => window.__pushNow && window.__pushNow()")
+
+
+def run_tags(browser, base):
+    combos = [("375", 375, 812, "dark", "modal"), ("panel", 1280, 860, "light", "panel")]
+    for label, w, h, theme, kind in combos:
+        tag = "G[%s %s]" % (label, theme)
+        mobile = w < 500
+        scope = MODAL if kind == "modal" else PANEL
+        user, ids = seed_tags(base, "tg%s%s" % (label[:3], theme[0]))
+        errors = []
+        ctx, p = open_app(browser, base, user, w, h, theme, errors, live="1" if kind == "panel" else "0")
+
+        def reopen(title):
+            if kind == "modal" and modal_count(p):
+                close_btn(p).click()
+                wait_closed(p)
+            return scope_open(p, scope, title)
+
+        def add_btn():
+            return p.locator(scope + ' button.td-tag-add[aria-label="Tambah tag"]').first
+
+        try:
+            # Tag lokal dipasang lalu halaman dimuat ulang: panel Live Edit bisa sudah memuat chip task pertama
+            # sebelum tag dipasang (task yang sama tidak memuat ulang chip saat barisnya diklik lagi).
+            check("%s G-0 prasyarat: tag lokal dipasang" % tag,
+                  wait_until(lambda: seed_local_tag(p, TG_MAIN, "kerja") == 1, 15)
+                  and seed_local_tag(p, TG_OTHER, "proyekx") == 1)
+            reload_app(p)
+            go_all_tasks(p, mobile)
+            p.wait_for_timeout(800)
+            mid = ids[TG_MAIN]
+
+            # ── G-1: "+" → "Rapat" Enter ──
+            box = reopen(TG_MAIN)
+            check("%s G-1a baris Tag terakhir di kisi, selebar kisi; chip #kerja" % tag,
+                  wait_until(lambda: tag_chips(p, scope) == ["#kerja"], 5)
+                  and box.locator(".td-props > .td-prop").last.locator(".td-prop-label").inner_text().strip() == "Tag"
+                  and "is-wide" in (box.locator(".td-props > .td-prop").last.get_attribute("class") or ""),
+                  repr(tag_chips(p, scope)))
+            add_btn().click()
+            tag_input(p).wait_for(timeout=3000)
+            check("%s G-1b popover 'Tambah tag' terbuka, input terfokus, aria-expanded=true" % tag,
+                  pops(p) == 1 and p.locator(POP).first.get_attribute("aria-label") == "Tambah tag"
+                  and p.evaluate("() => document.activeElement && document.activeElement.getAttribute('aria-label') === 'Nama tag'")
+                  and add_btn().get_attribute("aria-expanded") == "true")
+            p.keyboard.type("Rapat")
+            p.keyboard.press("Enter")
+            check("%s G-1c chip #kerja dan #rapat; popover tetap terbuka, input kosong" % tag,
+                  wait_until(lambda: sorted(tag_chips(p, scope)) == ["#kerja", "#rapat"], 5)
+                  and pops(p) == 1 and tag_input(p).input_value() == "", repr(tag_chips(p, scope)))
+            check("%s G-1d tag lokal == [kerja, rapat]" % tag,
+                  wait_until(lambda: local_tags(p, mid) == ["kerja", "rapat"], 5), repr(local_tags(p, mid)))
+            check("%s G-1e judul lokal (input) tanpa '#'" % tag, title_value(p, scope) == TG_MAIN, repr(title_value(p, scope)))
+            push_now(p)
+            check("%s G-1f setelah sync: tag server [kerja, rapat], judul server tanpa '#'" % tag,
+                  wait_until(lambda: [x.lower() for x in server_tags(base, user, mid)] == ["kerja", "rapat"]
+                             and server_task(base, user, mid)["title"] == TG_MAIN, 25),
+                  "tags=%r title=%r" % (server_tags(base, user, mid), server_task(base, user, mid)["title"]))
+            shot(p, "G_%s_%s_tag_pop.png" % (label, theme))
+
+            # ── G-3: galat validasi ──
+            tag_input(p).fill("dua kata")
+            p.keyboard.press("Enter")
+            check("%s G-3a 'dua kata' → alert 'Tag hanya boleh huruf, angka, dan _'" % tag,
+                  wait_until(lambda: pop_alert(p) == "Tag hanya boleh huruf, angka, dan _", 3), repr(pop_alert(p)))
+            shot(p, "G_%s_%s_tag_error.png" % (label, theme))
+            tag_input(p).fill("")
+            check("%s G-3b mengetik menghapus alert" % tag, pop_alert(p) == "", repr(pop_alert(p)))
+            p.keyboard.press("Enter")
+            check("%s G-3c kosong + Enter → alert 'Tulis nama tag'" % tag,
+                  wait_until(lambda: pop_alert(p) == "Tulis nama tag", 3), repr(pop_alert(p)))
+            check("%s G-3d chip tetap [kerja, rapat]" % tag, sorted(tag_chips(p, scope)) == ["#kerja", "#rapat"])
+
+            # ── G-4: saran dari tag task lain ──
+            sugg = lambda: [x.strip().lower() for x in p.locator(POP + " .td-pop-list button").all_inner_texts()]  # noqa: E731
+            check("%s G-4a saran tanpa tag yang sudah terpasang (kerja/rapat), memuat proyekx" % tag,
+                  wait_until(lambda: "proyekx" in sugg(), 3) and "kerja" not in sugg() and "rapat" not in sugg(),
+                  repr(sugg()))
+            tag_input(p).fill("proy")
+            check("%s G-4b ketik 'proy' → saran [proyekx]" % tag, wait_until(lambda: sugg() == ["proyekx"], 3), repr(sugg()))
+            shot(p, "G_%s_%s_tag_suggest.png" % (label, theme))
+            p.locator(POP + " .td-pop-list button", has_text="proyekx").first.click()
+            check("%s G-4c klik saran → chip #proyekx, input kosong" % tag,
+                  wait_until(lambda: "#proyekx" in tag_chips(p, scope), 5) and tag_input(p).input_value() == "",
+                  repr(tag_chips(p, scope)))
+            check("%s G-4d tag lokal == [kerja, proyekx, rapat]" % tag,
+                  wait_until(lambda: local_tags(p, mid) == ["kerja", "proyekx", "rapat"], 5), repr(local_tags(p, mid)))
+
+            # ── G-2: duplikat beda huruf, offline (Review Focus 3) ──
+            push_now(p)
+            before = settle_outbox(p)
+            rec = local_rec(p, TG_MAIN)
+            cdp = ctx.new_cdp_session(p)
+            OFFLINE["on"] = True
+            net_offline(cdp, True)
+            p.wait_for_timeout(500)
+            tag_input(p).fill("#KERJA")
+            p.keyboard.press("Enter")
+            p.wait_for_timeout(1500)
+            check("%s G-2a '#KERJA' → tanpa chip baru, tanpa alert, input dikosongkan" % tag,
+                  sorted(tag_chips(p, scope)) == ["#kerja", "#proyekx", "#rapat"] and pop_alert(p) == ""
+                  and tag_input(p).input_value() == "", "chips=%r alert=%r" % (tag_chips(p, scope), pop_alert(p)))
+            after = outbox_count(p)
+            rec2 = local_rec(p, TG_MAIN)
+            check("%s G-2b `_outbox` dan updated_at/rev lokal tetap" % tag, after == before and rec2 == rec,
+                  "outbox %r→%r rec %r→%r" % (before, after, rec, rec2))
+            net_offline(cdp, False)
+            p.wait_for_timeout(800)
+            OFFLINE["on"] = False
+
+            # ── G-5: × lalu ubah judul → tag tidak kembali ──
+            p.keyboard.press("Escape")
+            check("%s G-5a Escape → popover tertutup, fokus kembali ke '+'" % tag,
+                  wait_until(lambda: pops(p) == 0, 3) and p.evaluate(
+                      "() => document.activeElement && document.activeElement.getAttribute('aria-label') === 'Tambah tag'"))
+            p.locator(scope + ' button.td-tag-x[aria-label="Hapus tag rapat"]').first.click()
+            check("%s G-5b × #rapat → chip hilang, tag lokal tanpa rapat" % tag,
+                  wait_until(lambda: "#rapat" not in tag_chips(p, scope) and local_tags(p, mid) == ["kerja", "proyekx"], 5),
+                  "chips=%r local=%r" % (tag_chips(p, scope), local_tags(p, mid)))
+            new_title = TG_MAIN + " pekan ini"
+            ti = p.locator(scope + " " + TITLE_INPUT).first
+            ti.click()
+            ti.press("End")
+            p.keyboard.type(" pekan ini")
+            p.keyboard.press("Enter")
+            check("%s G-5c ubah judul → lokal: judul baru, tag [kerja, proyekx] (rapat tidak kembali)" % tag,
+                  wait_until(lambda: local_task(p, mid)["title"] == new_title and local_tags(p, mid) == ["kerja", "proyekx"], 8),
+                  "title=%r tags=%r" % (local_task(p, mid)["title"], local_tags(p, mid)))
+            push_now(p)
+            check("%s G-5d server: judul baru, tag [kerja, proyekx]" % tag,
+                  wait_until(lambda: server_task(base, user, mid)["title"] == new_title
+                             and [x.lower() for x in server_tags(base, user, mid)] == ["kerja", "proyekx"], 25),
+                  "title=%r tags=%r" % (server_task(base, user, mid)["title"], server_tags(base, user, mid)))
+            check("%s G-5e chip tetap [kerja, proyekx] setelah simpan judul" % tag,
+                  wait_until(lambda: sorted(tag_chips(p, scope)) == ["#kerja", "#proyekx"], 5), repr(tag_chips(p, scope)))
+            shot(p, "G_%s_%s_tag_row.png" % (label, theme))
+
+            # ── G-6: deskripsi baru diketik lalu langsung tambah tag ──
+            did = ids[TG_DESC]
+            reopen(TG_DESC)
+            area = p.locator(scope + " " + DESC_AREA).first
+            area.click()
+            area.press("End")
+            p.keyboard.type(" lalu cepat")
+            add_btn().click()
+            tag_input(p).wait_for(timeout=3000)
+            p.keyboard.type("cepat")
+            p.keyboard.press("Enter")
+            check("%s G-6a chip #cepat" % tag, wait_until(lambda: tag_chips(p, scope) == ["#cepat"], 5),
+                  repr(tag_chips(p, scope)))
+            check("%s G-6b lokal: deskripsi 'Awal lalu cepat' dan tag [cepat]" % tag,
+                  wait_until(lambda: local_task(p, did)["description"] == "Awal lalu cepat"
+                             and local_tags(p, did) == ["cepat"], 5),
+                  "desc=%r tags=%r" % (local_task(p, did)["description"], local_tags(p, did)))
+            push_now(p)
+            check("%s G-6c server: deskripsi dan tag tersimpan, judul tanpa '#'" % tag,
+                  wait_until(lambda: (lambda t: t["description"] == "Awal lalu cepat" and t["title"] == TG_DESC)(
+                      server_task(base, user, did)) and [x.lower() for x in server_tags(base, user, did)] == ["cepat"], 25),
+                  "task=%r tags=%r" % ({k: server_task(base, user, did).get(k) for k in ("title", "description")},
+                                       server_tags(base, user, did)))
+            p.keyboard.press("Escape")
+            wait_until(lambda: pops(p) == 0, 3)
+
+            check("%s G-7 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
+        except Exception as e:  # langkah yang melempar = gagal
+            OFFLINE["on"] = False
+            fail_exc(tag, e, p)
+        finally:
+            ctx.close()
+
+
 # Urutan kelompok; task berikutnya menambah (nama, fungsi(browser, base)).
 GROUPS = [
     ("autosave", run_autosave),
     ("topbar", run_topbar),
     ("props", run_props),
+    ("tags", run_tags),
 ]
 
 

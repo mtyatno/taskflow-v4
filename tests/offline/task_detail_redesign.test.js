@@ -113,3 +113,43 @@ test("DatePicker / MemberPicker / TextPicker / OptionPicker", () => {
   for (const nm of ["PropertyRow", "OptionPicker", "NamePicker", "DatePicker", "MemberPicker", "TextPicker"])
     assert.doesNotMatch(fnSource(nm), EMOJI, nm);
 });
+
+// ── Task 5: baris Tag dan tambah tag lewat judul #tag (spec §4.4, §6.3, ADR-032) ──
+test("addTag: normalisasi, lewati yang sudah ada, flush dulu, tag segar, PUT judul tersimpan + #tag", () => {
+  const s = fnSource("TaskDetailBody");
+  const a = s.slice(s.indexOf("const addTag = async raw =>"));
+  assert.ok(a.length > 30, "addTag ada");
+  const order = ["TF.taskdetail.normalizeTagName(raw)", ".toLowerCase()", "await auto.flush()", '"Perubahan lain belum tersimpan. Coba lagi dulu."',
+    "await tagsForTitle()", "TF.liveedit.titleWithTags(", "api.put(`/api/tasks/${task.id}`", "onSaved({"];
+  let at = 0; for (const k of order) { const i = a.indexOf(k, at); assert.ok(i >= at, k); at = i; }
+  assert.match(a, /auto\.getState\(\)\.saved\.title/);
+});
+test("baris Tag: chip + tombol Tambah tag + TagAdder", () => {
+  const s = fnSource("TaskDetailBody");
+  assert.match(s, /label: "Tag"/); assert.match(s, /"aria-label": "Tambah tag"/); assert.match(s, /React\.createElement\(TagAdder/);
+  const t = fnSource("TagAdder");
+  for (const re of [/api\.get\("\/api\/tags"\)/, /TF\.taskdetail\.filterOptions\(/, /role: "alert"/, /e\.key === "Enter"/, /autoFocus: true/])
+    assert.match(t, re);
+  assert.doesNotMatch(s, /rgba\(168,197,0/, "chip tag lewat kelas token");
+  assert.doesNotMatch(t, EMOJI);
+});
+test("baris Tag: chip di kisi (bukan di bawah chip), × ber-aria, pengendali mengekspos flush, CSS token", () => {
+  const s = fnSource("TaskDetailBody");
+  // Tag = baris terakhir kisi, selebar kisi; chip tag tidak lagi dirender di antara DetailChips dan kisi.
+  assert.doesNotMatch(s, /\}\), tagChips\(\), \/\*#__PURE__\*\/React\.createElement\("div", \{\s*className: "td-props"/);
+  assert.match(s, /label: "Tag",\s*wide: true,\s*content: tagChips\(\),\s*anchorRef: tagAddRef,/);
+  const pr = fnSource("PropertyRow");
+  assert.match(pr, /const ref = anchorRef \|\| btnRef;/); assert.match(pr, /anchorRef: ref/); assert.match(pr, /content \?\? /);
+  // Tag = baris terakhir kisi.
+  const g = s.slice(s.indexOf('className: "td-props"'));
+  assert.ok(g.indexOf('label: "Tag"') > g.indexOf('label: "Menunggu"'), "Tag setelah Menunggu");
+  assert.match(s, /"aria-label": "Hapus tag " \+ /); assert.match(s, /className: "td-tag-x"/); assert.match(s, /className: "td-tag-add"/);
+  assert.match(s, /openPop === "tag"/); assert.match(s, /"\+\$\{taskTags\.length - 3\} more"|`\+\$\{taskTags\.length - 3\} more`/);
+  assert.match(fnSource("useTaskAutosave"), /flush: saver\.flush/);
+  const t = fnSource("TagAdder");
+  assert.match(t, /"aria-label": "Nama tag"/); assert.match(t, /placeholder: "Nama tag(?:…|\\u2026)"/); assert.match(t, /\.slice\(0, 8\)/);
+  const a = appCss.indexOf("/* ── Detail task: awal ── */"), b = appCss.indexOf("/* ── Detail task: akhir ── */");
+  const block = appCss.slice(a, b);
+  for (const c of [".td-tags", ".td-tag", ".td-tag-x", ".td-tag-add", ".td-pop-err"]) assert.ok(block.includes(c + " {") || block.includes(c + "{") || block.includes(c + ","), c);
+  assert.match(block, /\.td-tag\s*\{[^}]*color-mix\(in srgb, var\(--accent\) 14%, transparent\)/);
+});
