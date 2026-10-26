@@ -98,6 +98,18 @@ test("mergeExternal: field dirty dipertahankan, lainnya ikut data baru", () => {
   assert.equal(out.form.title, "Draft"); assert.equal(out.form.priority, "P1");
   assert.equal(out.saved.title, "Remote"); assert.equal(out.saved.priority, "P1");
 });
+test("mergeExternal: spasi di ujung judul yang sedang diketik tidak hilang (dirty = perbandingan mentah)", () => {
+  const saved = le.formFromTask(T({ title: "Rapat" }));
+  const form = Object.assign({}, saved, { title: "Rapat " });
+  const out = le.mergeExternal({ form, saved }, T({ title: "Rapat", priority: "P1" }));
+  assert.equal(out.form.title, "Rapat ");
+  assert.equal(out.form.priority, "P1", "field yang tidak dirty tetap ikut data baru");
+  assert.equal(out.saved.title, "Rapat");
+  // changedFields (jalur simpan) tetap membandingkan judul setelah trim
+  assert.deepEqual(le.changedFields(saved, form), []);
+  // tanpa state / incoming kosong tidak melempar
+  assert.doesNotThrow(() => le.mergeExternal(null, null));
+});
 test("validateTitle / isNotFound", () => {
   assert.equal(le.validateTitle("  "), "Judul tidak boleh kosong"); assert.equal(le.validateTitle("A"), null);
   assert.equal(le.isNotFound({ status: 404 }), true); assert.equal(le.isNotFound(new Error("Task not found")), true);

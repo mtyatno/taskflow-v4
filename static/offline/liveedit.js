@@ -187,15 +187,16 @@
   }
 
   // Data task baru dari luar (sync, modal): field yang tidak sedang diubah pengguna ikut data baru,
-  // field yang dirty tetap; `saved` selalu data baru.
+  // field yang dirty tetap; `saved` selalu data baru. Dirty = perbandingan mentah (form[k] !== saved[k], spec §5.5),
+  // BUKAN changedFields: judul dibanding setelah trim di jalur simpan, tetapi di sini spasi ujung yang sedang
+  // diketik ("Rapat ") harus bertahan agar kata berikutnya tidak menempel ("Rapatbesok").
   function mergeExternal(state, incoming) {
     const saved = (state && state.saved) || {};
     const form = (state && state.form) || {};
     const nextSaved = formFromTask(incoming);
-    const dirty = changedFields(saved, form);
     const nextForm = Object.assign({}, form);
     for (const k of EDITABLE_FIELDS) {
-      if (dirty.indexOf(k) === -1) nextForm[k] = nextSaved[k];
+      if (form[k] === saved[k]) nextForm[k] = nextSaved[k];
     }
     return { form: nextForm, saved: nextSaved };
   }
