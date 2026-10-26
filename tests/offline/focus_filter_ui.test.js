@@ -378,7 +378,7 @@ test("app.css: Target, kelompok, ⭐, dan chevron tanpa transisi saat reduced-mo
     return m[2];
   };
   const target = rule(".focus-target");
-  assert.match(target, /rgba\(168, ?197, ?0, ?0\.10?\)/);
+  assert.match(target, /rgba\(var\(--accent-rgb\), ?0\.10?\)/);
   assert.match(target, /border-radius: 14px/);
   assert.match(target, /padding: 8px/);
   assert.ok(appCss.includes('[data-theme="dark"] .focus-target'), "varian gelap Target");
@@ -392,10 +392,10 @@ test("app.css: Target, kelompok, ⭐, dan chevron tanpa transisi saat reduced-mo
   const star = rule(".ftask-star");
   assert.match(star, /width: 36px/);
   assert.match(star, /height: 36px/);
-  assert.match(appCss, /\.ftask-star\.is-on \{[^}]*#6B8000/);
+  assert.match(appCss, /\.ftask-star\.is-on \{[^}]*var\(--accent-text-strong\)/);
   assert.match(appCss, /\[data-theme="dark"\] \.ftask-star\.is-on \{[^}]*#D9EE6A/);
   assert.equal((appCss.match(/\[data-theme="dark"\] \.ftask-star\.is-on \{/g) || []).length, 1, "satu aturan ⭐ gelap");
-  assert.match(appCss, /\.ftask-star\.is-on svg path \{[^}]*fill: #A8C500/);
+  assert.match(appCss, /\.ftask-star\.is-on svg path \{[^}]*fill: var\(--accent\)/);
   assert.match(appCss, /@media \(prefers-reduced-motion: reduce\) \{\s*\.focus-group-chevron \{ transition: none; \}\s*\}/);
 });
 
@@ -681,7 +681,7 @@ test("app.css: bar filter, chip, badge, lembar HP/desktop, tema gelap, reduced-m
   assert.match(rule(".focus-filter-chip.is-pill"), /background: var\(--text-primary\);[^}]*color: var\(--bg-card\)/);
   assert.match(rule(".focus-filter-chip.is-reset"), /border-style: dashed/);
   const badge = rule(".focus-filter-badge");
-  assert.match(badge, /background: #A8C500/);
+  assert.match(badge, /background: var\(--accent\)/);
   assert.match(badge, /color: #1F2116/);
   // desktop: panel di bawah tombol Filter, rata kanan, 340 px, latar transparan penangkap klik luar
   const sheet = rule(".focus-filter-sheet");
@@ -736,7 +736,7 @@ test("app.css: :hover blok Fokus (filter, ⭐, kelompok) hanya di @media (hover:
   for (const cls of ["chip", "btn"]) {
     const on = appCss.match(new RegExp(`\\n\\[data-theme="dark"\\] \\.focus-filter-${cls}\\.is-on[^{]*\\{([^}]*)\\}`));
     assert.ok(on, `aturan .is-on gelap untuk ${cls}`);
-    assert.match(on[1], /border-color: #A8C500/, `.is-on gelap ${cls} harus ber-border-color aksen`);
+    assert.match(on[1], /border-color: var\(--accent\)/, `.is-on gelap ${cls} harus ber-border-color aksen`);
     const hoverAt = appCss.indexOf(`[data-theme="dark"] .focus-filter-${cls}:hover`);
     const onAt = appCss.indexOf(`[data-theme="dark"] .focus-filter-${cls}.is-on`);
     assert.ok(hoverAt >= 0 && onAt > hoverAt, `hover gelap ${cls} harus mendahului .is-on gelap`);

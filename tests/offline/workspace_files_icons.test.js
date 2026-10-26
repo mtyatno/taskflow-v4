@@ -62,7 +62,7 @@ test("header, tombol, chip, state kosong, provenance, aksi memakai ViewGlyph", (
 });
 
 test("CSS wsf-title-ico terang + gelap", () => {
-  assert.match(appCss, /\.wsf-title-ico\s*\{\s*color:\s*#7E9400;\s*\}/);
+  assert.match(appCss, /\.wsf-title-ico\s*\{\s*color:\s*var\(--accent-text\);\s*\}/);
   assert.match(appCss, /\[data-theme="dark"\]\s*\.wsf-title-ico\s*\{\s*color:\s*var\(--accent\);\s*\}/);
 });
 
