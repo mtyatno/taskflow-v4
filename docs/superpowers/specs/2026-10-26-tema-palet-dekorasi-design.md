@@ -63,7 +63,7 @@ Asumsi yang dibenarkan pemilik: Default (lime) tetap bawaan; tema per perangkat;
 
 - `localStorage.tf_theme` kini menerima `light` \| `dark` \| `system`. Nilai lama (`light`/`dark`) tetap terbaca; nilai lain → `light`.
 - Nilai `tf_palette` yang tidak ada di registri → `default`; `tf_decor` selain `off` → `on`. Semua akses localStorage dalam `try/catch`.
-- Skrip inline `<head>` (yang sekarang memasang `data-theme`) diperluas: membaca ketiga kunci, menghitung mode efektif, memasang ketiga atribut **sebelum** stylesheet dipakai menggambar, dan memasang `<meta name="theme-color">` awal. Modul `TF.themes` mengulang logika yang sama setelah dimuat (fungsi murni dipakai keduanya lewat salinan kecil di inline; tes memastikan hasilnya sama).
+- Skrip inline `<head>` (yang sekarang memasang `data-theme`) diperluas: membaca ketiga kunci, menghitung mode efektif, memasang ketiga atribut **sebelum** stylesheet dipakai menggambar, dan memasang `<meta name="theme-color">` awal. Di PR A skrip ini `<script id="tf-theme-boot">` di `<head>` tepat setelah `<meta name="theme-color">`, sebelum stylesheet aplikasi/vendor (hanya preconnect + font Google di atasnya). Modul `TF.themes` mengulang logika yang sama setelah dimuat (fungsi murni dipakai keduanya lewat salinan kecil di inline; tes memastikan hasilnya sama).
 - "Ikuti sistem": `matchMedia("(prefers-color-scheme: dark)")` didengarkan; perubahan sistem → `data-theme` berganti → semua pengamat `data-theme` yang sudah ada ikut (iframe, grafik).
 - Preferensi tema **tidak dihapus saat logout** dan **tidak disinkron ke server** (per perangkat; tanpa endpoint, skema, atau perubahan `webapp.py`).
 
@@ -75,29 +75,33 @@ Nilai Default = tampilan sekarang, persis.
 |---|---|---|---|
 | `--bg-page`, `--bg-primary`, `--bg-secondary`, `--bg-card`, `--border`, `--text-primary`, `--text-secondary`, `--text-light`, `--bg-hover`, `--bg-subtle`, `--bg-selected`, `--outline-guide` | sudah ada | sudah ada | permukaan & teks (`--bg-selected` dari Live Edit #97) |
 | `--bg-sidebar` | `var(--bg-primary)` | `var(--bg-primary)` | latar sidebar |
-| `--border-strong` | `#DDDDD5` | `#404040` | garis tepi sidebar/rail (sekarang hard-coded) |
+| `--border-strong` | `#DDDDD5` | `#404040` | garis tepi sidebar/rail, latar hover baris gelap (sebelumnya hard-coded) |
 | `--accent` | `#A8C500` | `#A8C500` | sudah ada |
 | `--accent-hover` | `#95AD00` | `#95AD00` | sudah ada |
 | `--accent-ink` | `#FFFFFF` | `#FFFFFF` | teks/ikon di atas tombol aksen |
-| `--accent-text` | `#6B8000` | `#A8C500` | aksen sebagai teks (badge Q2/Next, link aktif) |
+| `--accent-rgb` | `168, 197, 0` | `168, 197, 0` | komponen RGB aksen; **setiap** tint alfa aksen di aturan ditulis `rgba(var(--accent-rgb), a)`, bukan literal `rgba(168,197,0,a)` |
+| `--accent-text` | `#7E9400` | `#A8C500` | aksen sebagai teks (badge Q2/Next, link aktif) |
+| `--accent-text-strong` | `#6B8000` | `#A8C500` | teks aksen pekat (sidebar/rail aktif, badge Next, ikon seksi Fokus; dulu literal `#6B8000`) |
+| `--accent-2` | `#B6D400` | `#B6D400` | aksen kedua (pil tag aktif, tautan template; dulu literal `#B6D400`) |
+| `--accent-2-hover` | `#A3C100` | `#A3C100` | hover `--accent-2` |
 | `--accent-soft` | `#F4FAD6` | `rgba(168,197,0,0.18)` | latar chip/sidebar aktif |
 | `--accent-duo` | `rgba(168,197,0,0.22)` | `rgba(168,197,0,0.22)` | isian lembut ikon duotone |
 | `--accent-ring` | `rgba(168,197,0,0.35)` | `rgba(168,197,0,0.35)` | cincin fokus, bayangan tombol |
-| `--radius-sm`, `--radius-md`, `--radius-lg`, `--radius-pill` | `6px`, `10px`, `16px`, `999px` | sama | sudut (`--radius-lg` sudah ada) |
+| `--radius-sm`, `--radius-md`, `--radius-lg`, `--radius-pill` | `6px`, `10px`, `16px`, `999px` | sama | sudut (`--radius-lg` sudah ada; `--radius-md` `10px` seperti yang diimplementasi PR A) |
 | `--font-heading` | `inherit` | `inherit` | font judul halaman/kartu |
 
-Tabel nilai pasti untuk Default diisi saat PR A dari nilai yang ditemukan di kode; aturan: tidak ada nilai baru, hanya nama baru untuk nilai lama. `--accent-ink` putih di atas lime (kontras ±2:1) **dipertahankan** di Default karena Default harus identik; perbaikan kontras Default = PR terpisah bila pemilik mau.
+Nilai di tabel = yang diimplementasi PR A di `app.css` `:root` dan blok `[data-theme="dark"]` (token yang tidak ditimpa blok gelap memakai nilai terang); aturan: tidak ada nilai baru, hanya nama baru untuk nilai lama. `--accent-ink` putih di atas lime (kontras ±2:1) **dipertahankan** di Default karena Default harus identik; perbaikan kontras Default = PR terpisah bila pemilik mau.
 
 ### 3.3 Palet — `static/themes.css`
 
 Satu palet = dua blok yang **hanya** mengganti token, tanpa selektor komponen:
 
 ```css
-[data-palette="sakura"] { --bg-page: #FDF5FA; --bg-card: #FFFFFF; --bg-sidebar: #FBEAF4; --border: #F0D2E5; --text-primary: #3A2438; --text-secondary: #694763; --text-light: #83607A; --accent: #B0287E; --accent-hover: #9A2070; --accent-ink: #FFFFFF; --accent-text: #B0287E; --accent-soft: #F9E1F0; --accent-duo: #F2C4E1; --accent-ring: rgba(176,40,126,0.35); --radius-sm: 10px; --radius-md: 14px; --radius-lg: 22px; --font-heading: "Nunito", "Nunito Sans", sans-serif; }
-[data-palette="sakura"][data-theme="dark"] { --bg-page: #1C1219; --bg-card: #291B26; --bg-sidebar: #22161F; --border: #3E2A3A; --text-primary: #FBEAF5; --text-secondary: #DDBCD3; --text-light: #B992AC; --accent: #EE8FCB; --accent-hover: #F5A6D7; --accent-ink: #2B0F24; --accent-text: #EE8FCB; --accent-soft: #3A2236; --accent-duo: #573150; --accent-ring: rgba(238,143,203,0.35); }
+[data-palette="sakura"] { --bg-page: #FDF5FA; --bg-card: #FFFFFF; --bg-sidebar: #FBEAF4; --border: #F0D2E5; --text-primary: #3A2438; --text-secondary: #694763; --text-light: #83607A; --accent: #B0287E; --accent-hover: #9A2070; --accent-ink: #FFFFFF; --accent-text: #B0287E; --accent-soft: #F9E1F0; --accent-duo: #F2C4E1; --accent-ring: rgba(176,40,126,0.35); --accent-rgb: 176, 40, 126; --accent-text-strong: #B0287E; --accent-2: #B0287E; --accent-2-hover: #9A2070; --border-strong: #E6C0D8; --radius-sm: 10px; --radius-md: 14px; --radius-lg: 22px; --font-heading: "Nunito", "Nunito Sans", sans-serif; }
+[data-palette="sakura"][data-theme="dark"] { --bg-page: #1C1219; --bg-card: #291B26; --bg-sidebar: #22161F; --border: #3E2A3A; --text-primary: #FBEAF5; --text-secondary: #DDBCD3; --text-light: #B992AC; --accent: #EE8FCB; --accent-hover: #F5A6D7; --accent-ink: #2B0F24; --accent-text: #EE8FCB; --accent-soft: #3A2236; --accent-duo: #573150; --accent-ring: rgba(238,143,203,0.35); --accent-rgb: 238, 143, 203; --accent-text-strong: #EE8FCB; --accent-2: #EE8FCB; --accent-2-hover: #F5A6D7; --border-strong: #3E2A3A; }
 ```
 
-Lavender: terang `--bg-page #FAF6FD`, `--bg-sidebar #F3EBFA`, `--border #E2D4F0`, teks `#30243C / #5B4870 / #75638A`, `--accent #8A3AAE`, `--accent-soft #F1E4FA`, `--accent-duo #DFC6F2`; gelap `--bg-page #18131D`, `--bg-card #231C2B`, `--bg-sidebar #1D1724`, `--border #382D45`, teks `#F3EAFB / #D3C3E6 / #AE9BC4`, `--accent #CDA2F2`, `--accent-ink #22113A`, `--accent-soft #2F2440`, `--accent-duo #47375F`. Radius dan font judul sama dengan Sakura. Nilai `--bg-primary/secondary`, `--bg-hover`, `--bg-subtle`, `--outline-guide`, `--accent-hover` gelap, dan `--accent-ring` Lavender diturunkan dengan pola yang sama saat implementasi dan diverifikasi skrip kontras (§5).
+Lavender: terang `--bg-page #FAF6FD`, `--bg-sidebar #F3EBFA`, `--border #E2D4F0`, teks `#30243C / #5B4870 / #75638A`, `--accent #8A3AAE`, `--accent-rgb 138, 58, 174`, `--accent-text-strong` = `--accent-text`, `--accent-2 #8A3AAE`, `--accent-2-hover` = `--accent-hover` terang Lavender, `--border-strong #D5C2E8`, `--accent-soft #F1E4FA`, `--accent-duo #DFC6F2`; gelap `--bg-page #18131D`, `--bg-card #231C2B`, `--bg-sidebar #1D1724`, `--border #382D45`, teks `#F3EAFB / #D3C3E6 / #AE9BC4`, `--accent #CDA2F2`, `--accent-rgb 205, 162, 242`, `--accent-text-strong` = `--accent-text`, `--accent-2 #CDA2F2`, `--accent-2-hover` = `--accent-hover` gelap Lavender, `--border-strong #382D45` (= `--border`), `--accent-ink #22113A`, `--accent-soft #2F2440`, `--accent-duo #47375F`. Radius dan font judul sama dengan Sakura. Nilai `--bg-primary/secondary`, `--bg-hover`, `--bg-subtle`, `--outline-guide`, `--accent-hover` gelap, dan `--accent-ring` Lavender diturunkan dengan pola yang sama saat implementasi dan diverifikasi skrip kontras (§5). Token keluarga aksen tambahan PR A di kedua palet adalah **nilai awal, diverifikasi tes kontras PR B**: `--accent-rgb` = komponen RGB `--accent` blok itu, `--accent-text-strong` = `--accent-text`, `--accent-2` = `--accent`, `--accent-2-hover` = `--accent-hover`, `--border-strong` = satu langkah lebih gelap dari `--border` di terang dan sama dengan `--border` di gelap. Setiap blok palet WAJIB menetapkan semua token keluarga aksen + permukaan; PR B menambah tes kelengkapan.
 
 Kontras terukur (WCAG, dihitung 2026-10-26): Sakura terang — aksen/latar 5,69, putih/aksen 6,09, aksen/chip 4,94, teks redup/latar 5,01; Sakura gelap — ink/aksen 7,88, aksen/kartu 7,37; Lavender terang — 5,96 / 6,37 / 5,22 / 5,03; Lavender gelap — 8,31 / 7,90. Jarak hue dari merah P1: Sakura ±40°, Lavender ±74° (rose awal ±20°, ditolak).
 
@@ -113,7 +117,7 @@ Fungsi murni, tanpa DOM kecuali `apply`:
 - `apply(resolved, doc)` → memasang tiga atribut `<html>` dan `content` meta `theme-color`; tidak mengubah atribut yang nilainya sudah sama (menghindari `MutationObserver` palsu).
 - `decorFor(palette, slot)` → id dekorasi atau `null`.
 - `isDecorAvailable(palette)` → `true` bila `decor` palet tidak kosong (Default: `false`).
-- App: state `themePrefs` menggantikan `theme`; `setThemePrefs(patch)` menulis localStorage, memanggil `resolve` + `apply`. `toggleTheme` (header): mode efektif `dark` → set `light`, selain itu → `dark` (keluar dari `system`). Pendengar `matchMedia` aktif hanya saat `mode === "system"`.
+- App: state `themePrefs` menggantikan `theme`; `setThemePrefs(patch)` menulis **hanya kunci di `patch`** ke localStorage (`writePrefs(storage, patch)`; nilai yang dinormalkan `readPrefs` tidak ditimpa), memanggil `resolve` + `apply`. `toggleTheme` (header): mode efektif `dark` → set `light`, selain itu → `dark` (keluar dari `system`). Pendengar `matchMedia` aktif hanya saat `mode === "system"`.
 - `useThemeName` dan pengamat iframe menambahkan `"data-palette"` ke `attributeFilter`; `postMessage` ke iframe mindmap membawa `accent` (nilai `--accent` dan `--accent-soft` dari `getComputedStyle`), dan `static/vendor/mind-elixir/index.html` menulisnya ke `--side-accent`/`--side-hover`. Sketsa dan editor note hanya menerima mode (tidak berubah).
 
 ### 3.5 Registri dekorasi — `static/offline/decor.js` (`window.TF.decor`)
@@ -174,7 +178,8 @@ Setiap PR mengikuti checklist `.agents/PROTOCOL.md` §4; nomor versi dicek terha
 - **Node (`npm test`):** `tests/offline/themes.test.js` — `readPrefs`/`resolve` untuk semua kombinasi (nilai lama, asing, `system` × sistem terang/gelap), `apply` tidak menulis atribut yang sama, registri lengkap (tiap palet: semua token §3.2 di kedua blok, `themeColor` kedua mode, `decor` hanya merujuk id yang ada di `TF.decor`), `decorFor`/`isDecorAvailable`. `tests/offline/decor.test.js` — semua SVG registri tanpa hex/`<script>`/`url(`; `Decor` → `null` saat `data-decor="off"` atau slot tak dipetakan. Keduanya ikut CI lewat jembatan pytest (pola `tests/test_app_update_node.py`).
 - **Penjaga warna:** `tests/offline/theme_guard.test.js` — `app.css`, `themes.css`, `index.html` tidak memuat hex keluarga lime atau `rgba(168,197,0` di luar `:root`/`themes.css`; daftar putih warna bermakna tidak berubah; `themes.css` hanya berisi selektor `[data-palette…]` dengan deklarasi `--*`.
 - **Kontras:** `tests/offline/theme_contrast.test.js` menghitung rasio WCAG dari `themes.css` + `:root` untuk pasangan: `--text-primary`/`--bg-page`, `--text-primary`/`--bg-card`, `--text-light`/`--bg-page`, `--accent-text`/`--accent-soft`, `--accent-text`/`--bg-card`, `--accent-ink`/`--accent` (≥ 4,5:1 untuk Sakura/Lavender kedua mode; Default dikecualikan untuk `--accent-ink`/`--accent` dengan catatan).
-- **E2E Playwright `temporary_files/e2e_tema.py`:** (1) PR A: screenshot 8 halaman (Dashboard, Hari Ini, Fokus, Mendatang, Catatan, Workspace, Kanban, Pengaturan) × 2 mode sebelum dan sesudah, selisih piksel 0; (2) ganti palet di Pengaturan → `data-palette` dan `--accent` terhitung berubah tanpa reload, meta `theme-color` berubah; (3) muat ulang dengan `tf_palette=sakura` → atribut sudah terpasang sebelum first paint (tidak ada frame Default); (4) `tf_theme=system` + `emulateMedia(colorScheme)` → `data-theme` mengikuti, iframe menerima `setTheme`; (5) sakelar dekorasi off → tidak ada `.decor` di DOM; (6) Fokus 375 px tiap palet: kelopak tidak menutupi judul/tombol; (7) toggle header saat `system` → keluar ke mode kebalikan; (8) logout → preferensi tetap.
+- **E2E Playwright PR A `temporary_files/e2e_tema_fondasi.py`:** `baseline --ref <ref>` memotret 8 halaman (Dashboard, Hari Ini, Fokus, Mendatang, Catatan, Workspace, Kanban, Pengaturan) × 2 mode dari ref pembanding (`origin/main`), `compare` memotret branch dan membandingkan dengan toleransi 3 per kanal (bukan 0: render alfa/antialias), `verify` mengecek skrip boot, toggle header, mode system, dan logout di browser.
+- **E2E Playwright PR B/C (perluasan, `temporary_files/e2e_tema.py`):** (2) ganti palet di Pengaturan → `data-palette` dan `--accent` terhitung berubah tanpa reload, meta `theme-color` berubah; (3) muat ulang dengan `tf_palette=sakura` → atribut sudah terpasang sebelum first paint (tidak ada frame Default); (4) `tf_theme=system` + `emulateMedia(colorScheme)` → `data-theme` mengikuti, iframe menerima `setTheme`; (5) sakelar dekorasi off → tidak ada `.decor` di DOM; (6) Fokus 375 px tiap palet: kelopak tidak menutupi judul/tombol; (7) toggle header saat `system` → keluar ke mode kebalikan; (8) logout → preferensi tetap.
 - **Audit visual manual** sebelum merge B dan C: 3 palet × 2 mode, halaman di atas + modal task + editor note + Sketsa + mindmap.
 - Verifikasi standar: `npm test`, `python -m pytest tests/ -q`, `node temporary_files/check_inline_scripts.js`.
 
@@ -192,4 +197,4 @@ Sinkron preferensi tema ke akun; palet selain tiga ini; dekorasi khusus Lavender
 
 ## 8. ADR
 
-ADR-032 "Tema = mode × palet × dekorasi: token semantik + registri" ditulis saat PR A dimerge: `data-theme` tetap satu-satunya sumbu yang dibaca pihak ketiga; palet hanya mengganti token; dekorasi lewat slot yang dipetakan palet; warna bermakna di luar sistem palet.
+ADR-033 "Tema = mode × palet × dekorasi: token semantik + registri" (ADR-032 sudah dipakai #98) ditulis di PR A: `data-theme` tetap satu-satunya sumbu yang dibaca pihak ketiga; palet hanya mengganti token; dekorasi lewat slot yang dipetakan palet; warna bermakna di luar sistem palet.
