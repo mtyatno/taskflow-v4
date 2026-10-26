@@ -2,7 +2,7 @@
 
 - **Tanggal:** 2026-10-26
 - **Basis kode:** `main` @ `ff0d317` (mtyatno/taskflow-v4; SW `taskflow-v471-simpan-tag`, `app.css?v=368`). Live Edit (#96/#97) dan perbaikan tag (#98) sudah di `main`.
-- **Status:** desain disetujui per bagian dalam sesi brainstorming 2026-10-26 (pemilik + Claude): bagian 1 kepala + properti ("ok"), bagian 2 deskripsi + tab ("ok"), bagian 3 perilaku simpan + struktur ("pas"), bagian 4 pengujian/rilis/cakupan. Spec tertulis dan rencana implementasi (`docs/superpowers/plans/2026-10-26-redesain-detail-task.md`, Project `claude/plan-redesain-detail-task-2026-10-26.md`) menunggu review pemilik.
+- **Status:** **diimplementasikan di branch `claude/redesain-detail-task`** (2026-10-27, Task 1–8 dengan review per task); `origin/main` b365263 (tema PR A #99) sudah di-merge ke branch, sehingga rilisnya **SW `taskflow-v473-detail-baru`, `app.css?v=370`, ADR-034** (v472/369/ADR-033 sudah dipakai tema PR A). Menunggu review akhir dan PR draft; merge hanya setelah pemilik bilang "merge dan deploy". Desain disetujui per bagian dalam sesi brainstorming 2026-10-26 (bagian 1 "ok", bagian 2 "ok", bagian 3 "pas", bagian 4 pengujian/rilis/cakupan); lihat "Keputusan pelaksanaan" di bawah §12.
 - **Salinan:** Project claude.ai "alurik" `claude/spec-redesain-detail-task-2026-10-26.md`; repo `docs/superpowers/specs/2026-10-26-redesain-detail-task-design.md`. Isi keduanya sama.
 - **Sumber desain:** dua mockup pemilik (2026-10-26). Mockup 1: bar atas `#239 • Dibuat …` + Fokus / Selesai / ⋯, judul besar, chip Q1 / Terlambat / progress, kisi properti dua kolom, deskripsi tanpa bingkai, tab. Mockup 2 (dipilih sebagai arah): pill progress membuka popover "Ubah Progress" (slider + 0/25/50/75/100%), baris Menunggu dan Tag dengan "+", tab Subtask (2) / Checklist (3) / Catatan / Lampiran, baris subtask dengan centang, `#id`, chip status, tanggal, ↗, dan "+ Buat subtask baru…".
 - **Istilah:**
@@ -182,7 +182,7 @@ Deadline menjadi `"blur"` supaya mengetik tanggal di `input type=date` (tahun di
   ```
   Dimuat lewat `<script src="/static/offline/taskdetail.js">` sesudah `tasklogic.js` dan masuk `STATIC` di `sw.js`.
 - **`TF.liveedit.saveTrigger`**: deadline dan waiting_for → `"blur"` (§6.2). Tes unit yang ada disesuaikan.
-- **CSS** (`app.css`, blok baru bertanda `/* ── Detail task: awal ── */` … `/* ── Detail task: akhir ── */` di akhir berkas): `.td-top`, `.td-title`, `.td-chips`, `.td-pill`, `.td-props`, `.td-prop`, `.td-prop-val`, `.td-empty`, `.td-desc`, `.td-tabs`, `.td-tab`, `.td-sub-row`, `.td-check-row`, `.td-pop`, `.td-pop-item`, `.td-menu` dsb.; hanya token (`--bg-card`, `--bg-hover`, `--bg-subtle`, `--bg-selected`, `--border`, `--text-*`, `--accent`, `--success`, `var(--danger, #dc2626)`), latar lembut beraksen lewat `color-mix(in srgb, var(--accent) 14%, transparent)` (bukan `rgba` lime tetap), tanpa `border-left`; tombol "Selesai" netral (latar `--bg-card`, garis `--border`, ikon centang `--success`) supaya tidak butuh warna teks di atas aksen; `@media (max-width: 640px)` untuk kisi satu kolom; `@media (hover: none)` untuk × checklist. `#id` panjang (task belum tersinkron, id = cid) dipotong dengan elipsis. CSS `.tl-live-panel .task-detail-actions` dihapus.
+- **CSS** (`app.css`, blok baru bertanda `/* ── Detail task: awal ── */` … `/* ── Detail task: akhir ── */` di akhir berkas): `.td-top`, `.td-title`, `.td-chips`, `.td-pill`, `.td-props`, `.td-prop`, `.td-prop-val`, `.td-empty`, `.td-desc`, `.td-tabs`, `.td-tab`, `.td-sub-row`, `.td-check-row`, `.td-pop`, `.td-pop-item`, `.td-menu` dsb.; hanya token (`--bg-card`, `--bg-hover`, `--bg-subtle`, `--bg-selected`, `--border`, `--text-*`, `--accent`, `--success`, `var(--danger, #dc2626)`), latar lembut beraksen lewat token `--accent-soft` (ADR-033; awalnya `color-mix(in srgb, var(--accent) 14%, transparent)`, diganti saat merge tema PR A), bukan `rgba` lime tetap, tanpa `border-left`; tombol "Selesai" netral (latar `--bg-card`, garis `--border`, ikon centang `--success`) supaya tidak butuh warna teks di atas aksen; `@media (max-width: 640px)` untuk kisi satu kolom; `@media (hover: none)` untuk × checklist. `#id` panjang (task belum tersinkron, id = cid) dipotong dengan elipsis. CSS `.tl-live-panel .task-detail-actions` dihapus.
 
 ## 8. Error dan kasus tepi
 
@@ -240,10 +240,10 @@ Deadline menjadi `"blur"` supaya mengetik tanggal di `input type=date` (tahun di
 
 - Satu PR `claude/redesain-detail-task`, frontend saja (tanpa restart `taskflow-web`).
 - `static/offline/taskdetail.js` masuk `STATIC` (URL persis) dan `<script>` di `index.html`.
-- SW naik ke nomor kosong berikutnya (v472 bila belum terpakai di `main`/PR terbuka saat rilis), nama `taskflow-v472-detail-baru`; `app.css?v=369` di `index.html` dan `STATIC`; tes versi disesuaikan (sed massal tanpa `static/whatsnew.json`).
+- SW naik ke nomor kosong berikutnya: **`taskflow-v473-detail-baru`** (v472 dipakai tema PR A `taskflow-v472-tema-fondasi`); **`app.css?v=370`** di `index.html` dan `STATIC`; tes versi disesuaikan (sed massal tanpa `static/whatsnew.json`).
 - Entri teratas `static/whatsnew.json`: judul "Tampilan detail task baru"; `new`: "Klik nilai mana pun di detail task untuk mengubahnya; perubahan tersimpan otomatis, juga di jendela detail di HP.", "Subtask, checklist, catatan, dan lampiran kini dalam tab dengan jumlah isinya.", "Atur progress dengan cepat lewat pilihan 0, 25, 50, 75, atau 100%.".
-- ADR-033 di `.agents/DECISIONS.md` (§12). `CURRENT_STATE.md`, `SESSION_LOG.md` diperbarui. Merge hanya setelah pemilik bilang "merge dan deploy".
-- **Koordinasi tema:** rencana tema (branch `claude/tema-spec`, belum ada kode) akan mengganti warna lime menjadi token; detail baru sejak awal memakai token sehingga tidak bentrok.
+- ADR-034 di `.agents/DECISIONS.md` (§12; ADR-033 dipakai tema). `CURRENT_STATE.md`, `SESSION_LOG.md` diperbarui. Merge hanya setelah pemilik bilang "merge dan deploy".
+- **Koordinasi tema:** tema PR A (#99, ADR-033) sudah di `main` dan di-merge ke branch ini. Detail baru sejak awal memakai token; saat merge, latar lembut beraksen `color-mix(in srgb, var(--accent) 14%, transparent)` diganti token `--accent-soft` (peran "latar chip/aktif") agar palet PR B mengaturnya. Hover 22% dan garis 30% tetap `color-mix(var(--accent))` (tanpa token setara; tetap mengikuti palet lewat `--accent`).
 
 ## 11. Di luar cakupan
 
@@ -257,7 +257,26 @@ Deadline menjadi `"blur"` supaya mengetik tanggal di `input type=date` (tahun di
 
 ## 12. ADR
 
-**ADR-033: Detail task satu tampilan klik-untuk-ubah dengan simpan otomatis di modal dan panel.**
+**ADR-034: Detail task satu tampilan klik-untuk-ubah dengan simpan otomatis di modal dan panel.**
 - **Konteks:** ADR-031 menyatukan isi detail untuk modal dan panel, tetapi modal masih lihat → Edit → Simpan dan tampilannya berupa formulir. Pemilik ingin tampilan yang lebih rapi dan sama di kedua tempat.
 - **Keputusan:** `TaskDetailBody` menampilkan nilai sebagai teks yang membuka popover saat diklik; modal ikut memakai pengendali simpan otomatis Live Edit. Nilai hanya berubah saat dipilih di popover (nama baru lewat "+ Buat"), deadline dan "menunggu" dikomit saat popover ditutup, tag ditambah lewat jalur judul `#tag`. Isi bawah dikelompokkan dalam tab yang dimuat sekaligus.
 - **Konsekuensi:** Tidak ada lagi dua mode di modal; menutup modal mengirim perubahan tertunda. Komponen picker kecil menjadi pola untuk tampilan detail lain. Op outbox di modal kini per field (bukan satu op seluruh form).
+
+## Keputusan pelaksanaan (2026-10-27)
+
+Keputusan kontroler selama eksekusi Task 1–8 (ledger `.superpowers/sdd/2026-10-26-redesain-detail-task/progress.md`):
+
+- `<script>` `taskdetail.js` ditaruh setelah `focusfilter.js` (bukan tepat setelah `tasklogic.js`): tes lama mengunci `focusfilter.js` tepat setelah `tasklogic.js`; spec hanya butuh setelah `tasklogic.js`.
+- Opsi status GTD "✅ Done" → "Done" (tanpa emoji); select itu sendiri diganti popover di Task 4.
+- Baris "↳ Subtask dari" mencari induk lewat GET lokal (baris lokal hanya punya `parent_cid`): satu GET lokal tambahan saat membuka anak.
+- `TF.taskdetail.formatCreated` menampilkan tanggal kalender **lokal** untuk stempel berjam (`YYYY-MM-DD HH:MM:SS` tanpa zona = UTC); tanggal tanpa jam tidak diubah. Mengalahkan "tanpa Date" di §7, agar task yang dibuat 00:00–07:00 WIB tidak tampil sebagai kemarin.
+- `TaskMovePanel` diekstrak dan select status di tambah-subtask dihapus lebih awal (Task 4, bukan Task 6) karena tes "tanpa select di `TaskDetailBody`".
+- Menutup popover properti dengan mengeklik ulang tombol nilainya juga mengomit field itu (§4.4 "menutup popover dengan cara apa pun").
+- Tag tampil huruf kecil (`#rapat`) mengikuti normalisasi `tagrepo` yang ada; contoh "#Rapat" di spec tidak mengikat.
+- Membuat subtask dari detail mengirim `parent_cid` bersama `parent_id` (router lokal mengabaikan `parent_id`), sekaligus memperbaiki subtask lokal yatim yang sudah ada sebelumnya.
+- Rilis dinomori ulang setelah `main` bergerak ke b365263 (tema PR A): merge commit (tanpa rebase/force-push), `taskflow-v473-detail-baru`, `app.css?v=370`, ADR-034.
+
+**Tindak lanjut yang diketahui (di luar branch ini):**
+
+- **"Lepas" (unassign) tidak sampai ke server.** `syncpush` `taskToUpdatePayload` mengirim `assigned_to: null` dan PUT server mengabaikan `null`, jadi lepas-assign hanya mengubah toko lokal (sudah terjadi di panel Live Edit sejak #97). Mengirim `0` untuk setiap `null` berisiko perangkat basi menghapus assignment dari perangkat lain, jadi butuh desain sendiri.
+- **Subtask antre di `TaskFormModal` yatim secara lokal.** Form buat task (di luar cakupan, §11) masih membuat subtask antre hanya dengan `parent_id`, sehingga di toko lokal subtask itu tidak tertaut ke induk sampai sinkron; perbaikan `parent_cid` di branch ini hanya untuk jalur detail.

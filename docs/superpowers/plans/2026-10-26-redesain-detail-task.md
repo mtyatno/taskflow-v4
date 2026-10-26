@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Penomoran ulang rilis (2026-10-27):** `main` bergerak ke b365263 (tema PR A #99: `taskflow-v472-tema-fondasi`, `app.css?v=369`, ADR-033). Task 8 me-merge `origin/main` dan merilis sebagai **`taskflow-v473-detail-baru`, `app.css?v=370`, ADR-034**. Sebutan v472/369/ADR-033 di Task 8 di bawah dibaca sebagai v473/370/ADR-034.
+
 **Goal:** Detail task (modal dan panel Live Edit) menjadi satu tampilan klik-nilai-untuk-mengubah dengan simpan otomatis di keduanya: bar atas, chip, kisi properti ber-popover, deskripsi tanpa bingkai, dan tab Subtask / Checklist / Catatan / Lampiran.
 
 **Architecture:** Logika `TaskDetailBody` (pengendali simpan Live Edit, `tagsForTitle`, overlay tag, Pindah ke Workspace, pemuatan isi) dipertahankan; tampilannya diganti komponen kecil baru yang ditaruh tepat sebelum `TaskDetailBody` di `static/index.html`. Logika murni (tab awal, terlambat, format tanggal, saring opsi, nama tag, posisi popover) masuk modul UMD baru `static/offline/taskdetail.js` yang diuji di Node. Modal ikut memakai `useTaskAutosave`; mode lihat → Edit → Simpan dihapus.

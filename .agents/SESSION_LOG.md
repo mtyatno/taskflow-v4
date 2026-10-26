@@ -4186,3 +4186,10 @@
 - **Changes:** PR #99 di-merge (7364f7c); workflow Deploy Taskflow V4 dan Tests di main sukses. SW v472 `taskflow-v472-tema-fondasi`, `app.css?v=369`.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed. Berikutnya: PR B (palet Sakura + Lavender, kartu Tampilan) — lihat "Sisa untuk PR B" di CURRENT_STATE.
+
+## [2026-10-27] - Claude
+- **Task:** Redesain detail task `claude/redesain-detail-task` — Task 8 rilis: merge `origin/main` b365263 (tema PR A #99), rilis v473, dokumen.
+- **Changes:** merge commit (konflik `.gitignore`, `app.css`, `index.html`, `CURRENT_STATE.md`, `SESSION_LOG.md`: token tema main + tampilan detail branch); latar lembut beraksen di blok Detail task → `var(--accent-soft)`; SW `taskflow-v473-detail-baru`, `app.css?v=370`, entri `whatsnew.json` teratas; ADR-034; spec (status, keputusan pelaksanaan, tindak lanjut) + plan (penomoran ulang).
+- **Verifikasi:** PROTOCOL §4 33 passed; npm 3288/3287 (pra-ada `draw_local_reactive`); pytest 1230 passed 1 skipped; inline OK (6); E2E detail 310/0, task_detail_body 104/0, live_edit 122/0.
+- **Files Touch:** .gitignore, static/app.css, static/index.html, static/sw.js, static/whatsnew.json, tests/offline/*.test.js (versi), tests/offline/task_detail_redesign.test.js, docs/superpowers/specs/2026-10-26-redesain-detail-task-design.md, docs/superpowers/plans/2026-10-26-redesain-detail-task.md, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal, belum push/PR (kontroler).
