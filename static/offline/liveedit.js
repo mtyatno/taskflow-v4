@@ -232,12 +232,192 @@
     return out;
   }
 
+  // ---- pengendali autosave (R2) ----
+  // Orkestrasi simpan otomatis tanpa React/DOM: timer idle (satu, dibagi semua field idle), satu simpan berjalan
+  // dengan satu simpan tertunda, flush, retry, dan gabung perubahan luar. `put(patch)` milik pemanggil (URL/id,
+  // titleWithTags, router lokal); hasilnya row server/lokal atau undefined.
+  function errorMessage(err) {
+    if (err == null) return "Gagal menyimpan";
+    if (typeof err === "string") return err || "Gagal menyimpan";
+    return err.message ? String(err.message) : "Gagal menyimpan";
+  }
+
+  function createAutosaver(opts) {
+    const o = opts || {};
+    const put = o.put;
+    const onChange = typeof o.onChange === "function" ? o.onChange : function () {};
+    const idleMs = o.idleMs == null ? TEXT_IDLE_MS : o.idleMs;
+    const setTimer = typeof o.setTimer === "function" ? o.setTimer : function (fn, ms) { return setTimeout(fn, ms); };
+    const clearTimer = typeof o.clearTimer === "function" ? o.clearTimer : function (h) { clearTimeout(h); };
+
+    let form = formFromTask(o.task);
+    let saved = formFromTask(o.task);
+    let saveState = "idle";
+    let error = null;
+    let titleError = null;
+    let timer = null;
+    let running = null; // promise gelung simpan yang sedang berjalan
+    let pending = false; // ada permintaan simpan saat running: dijalankan sekali setelah selesai
+    let disposed = false;
+
+    function snapshot() {
+      return { form: Object.assign({}, form), saved: Object.assign({}, saved), saveState, error, titleError };
+    }
+
+    function emit() {
+      if (!disposed) onChange(snapshot());
+    }
+
+    function cancelTimer() {
+      if (timer == null) return;
+      const h = timer;
+      timer = null;
+      clearTimer(h);
+    }
+
+    // Satu putaran simpan. Mengembalikan false bila gagal (gelung tidak menjalankan simpan tertunda).
+    async function saveOnce() {
+      let fields = changedFields(saved, form);
+      let nextTitleError = null;
+      if (fields.indexOf("title") !== -1) {
+        nextTitleError = validateTitle(form.title);
+        if (nextTitleError) fields = fields.filter(function (f) { return f !== "title"; });
+      }
+      const titleErrorChanged = nextTitleError !== titleError;
+      titleError = nextTitleError;
+      if (!fields.length) {
+        if (titleErrorChanged) emit();
+        return true;
+      }
+
+      const patch = buildPatch(form, fields);
+      const sent = {};
+      for (const f of fields) sent[f] = form[f];
+      saveState = "saving";
+      error = null;
+      emit();
+
+      let row;
+      try {
+        row = await put(patch);
+      } catch (err) {
+        if (disposed) return false;
+        saveState = "error";
+        error = errorMessage(err);
+        emit();
+        return false;
+      }
+      if (disposed) return false;
+
+      // `form`/`saved` bisa sudah diganti oleh external() selama put berjalan, jadi dibaca ulang di sini.
+      const titleUntouched = fields.indexOf("title") !== -1 && form.title === sent.title;
+      for (const f of fields) {
+        saved[f] = patch[f];
+        // R10: field yang belum diketik ulang sejak dikirim ikut nilai tersimpan (judul ber-trim, assigned_to 0).
+        if (form[f] === sent[f]) form[f] = saved[f];
+      }
+      // Judul dari server/store bisa berbeda dari yang dikirim (#tag dibuang); ikuti bila belum diubah lagi.
+      if (titleUntouched && row && row.title) {
+        saved.title = row.title;
+        form.title = row.title;
+      }
+      saveState = "saved";
+      error = null;
+      emit();
+      return true;
+    }
+
+    // Satu gelung: simpan, lalu sekali lagi bila ada permintaan masuk saat berjalan.
+    async function drain() {
+      try {
+        let ok = true;
+        do {
+          pending = false;
+          ok = await saveOnce();
+        } while (pending && ok && !disposed);
+      } finally {
+        // Tanpa await antara pemeriksaan `pending` dan baris ini, jadi tidak ada permintaan yang hilang.
+        running = null;
+        pending = false;
+      }
+    }
+
+    function save() {
+      if (disposed) return Promise.resolve();
+      if (running) {
+        pending = true;
+        return running;
+      }
+      running = drain();
+      return running;
+    }
+
+    function saveSilently() {
+      save().catch(function () { /* hasil simpan sudah tercermin di state */ });
+    }
+
+    function change(field, value) {
+      if (disposed) return;
+      form[field] = value;
+      emit();
+      const trigger = saveTrigger(field, value);
+      if (trigger === "now") {
+        saveSilently();
+      } else if (trigger === "idle") {
+        cancelTimer();
+        timer = setTimer(function () {
+          timer = null;
+          if (!disposed) saveSilently();
+        }, idleMs);
+      }
+    }
+
+    function commit(_field) {
+      if (disposed) return;
+      cancelTimer();
+      saveSilently();
+    }
+
+    function flush() {
+      if (disposed) return Promise.resolve();
+      cancelTimer();
+      return save();
+    }
+
+    function retry() {
+      return save();
+    }
+
+    function revertTitle() {
+      if (disposed) return;
+      form.title = saved.title;
+      titleError = null;
+      emit();
+    }
+
+    function external(task) {
+      if (disposed) return;
+      const merged = mergeExternal({ form, saved }, task);
+      form = merged.form;
+      saved = merged.saved;
+      emit();
+    }
+
+    function dispose() {
+      disposed = true;
+      pending = false;
+      cancelTimer();
+    }
+
+    return { getState: snapshot, change, commit, revertTitle, external, flush, retry, dispose };
+  }
+
   return {
     MIN_CONTENT_WIDTH, PANEL_RATIO, PANEL_MIN, PANEL_MAX, TEXT_IDLE_MS, STORAGE_KEY,
     EDITABLE_FIELDS, EMPTY_SELECTION,
     isAvailable, panelWidth, readOn, writeOn,
     taskRef, sameTask, findTask, pickInitial, selectionReducer,
     formFromTask, changedFields, buildPatch, saveTrigger, mergeExternal,
-    validateTitle, isNotFound, titleWithTags,
+    validateTitle, isNotFound, titleWithTags, createAutosaver,
   };
 });
