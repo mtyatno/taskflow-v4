@@ -89,7 +89,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=369">
+  <link rel="stylesheet" href="/static/app.css?v=370">
   <link rel="stylesheet" href="/static/themes.css?v=1">
 
 <style>
@@ -257,7 +257,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v472-tema-fondasi";
+    window.__SW_VERSION = "taskflow-v473-detail-baru";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -304,6 +304,7 @@
   <script src="/static/offline/router.js"></script>
   <script src="/static/offline/tasklogic.js"></script>
   <script src="/static/offline/focusfilter.js"></script>
+  <script src="/static/offline/taskdetail.js"></script>
   <script src="/static/offline/tagrepo.js"></script>
   <script src="/static/offline/taskrepo.js"></script>
   <script src="/static/offline/taskquery.js"></script>
@@ -8093,15 +8094,29 @@ function TaskFormModal({
   //   - ModalAttachments
   // BLOCK LENGTH: ~143 lines (6133-6276)
 
+// bare (tab Lampiran di detail task): tanpa garis atas dan judul bagian, tombol Upload tetap. onCount(n) dipanggil
+// sesudah muat pertama (sukses atau gagal → 0) dan setiap jumlah berubah. Tanpa kedua prop tampilannya tidak berubah.
 function ModalAttachments({
-  taskId
+  taskId,
+  bare = false,
+  onCount
 }) {
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const fileInputRef = useRef(null);
   useEffect(() => {
-    api.get(`/api/tasks/${taskId}/attachments`).then(data => setAttachments(data)).catch(() => {});
+    api.get(`/api/tasks/${taskId}/attachments`).then(data => {
+      setAttachments(data);
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
   }, [taskId]);
+  const onCountRef = useRef(onCount);
+  onCountRef.current = onCount;
+  const attN = loaded ? (attachments || []).length : null;
+  useEffect(() => {
+    if (attN !== null && onCountRef.current) onCountRef.current(attN);
+  }, [loaded, attN]);
   const handleUpload = async e => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -8145,7 +8160,9 @@ function ModalAttachments({
   };
   const isImage = mime => mime && mime.startsWith("image/");
   return /*#__PURE__*/React.createElement("div", {
-    style: {
+    style: bare ? {
+      marginBottom: 8
+    } : {
       borderTop: "1px solid var(--border)",
       paddingTop: 14,
       marginBottom: 16
@@ -8153,11 +8170,11 @@ function ModalAttachments({
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       display: "flex",
-      justifyContent: "space-between",
+      justifyContent: bare ? "flex-end" : "space-between",
       alignItems: "center",
       marginBottom: 10
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, !bare && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 14,
       fontWeight: 700
@@ -8247,18 +8264,32 @@ function ModalAttachments({
   //   - ModalNotes
   // BLOCK LENGTH: ~159 lines (6276-6435)
 
+// bare (tab Catatan di detail task): tanpa garis atas dan judul bagian. onCount(n) dipanggil sesudah muat pertama
+// (sukses atau gagal → 0) dan setiap jumlah berubah. Tanpa kedua prop tampilannya tidak berubah.
 function ModalNotes({
   taskId,
-  collaborators = []
+  collaborators = [],
+  bare = false,
+  onCount
 }) {
   const [notes, setNotes] = useState([]);
   const [newNote, setNewNote] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const noteClientId = useRef(genId());
   useEffect(() => {
-    api.get(`/api/tasks/${taskId}/notes`).then(data => setNotes(data)).catch(() => {});
+    api.get(`/api/tasks/${taskId}/notes`).then(data => {
+      setNotes(data);
+      setLoaded(true);
+    }).catch(() => setLoaded(true));
   }, [taskId]);
+  const onCountRef = useRef(onCount);
+  onCountRef.current = onCount;
+  const notesN = loaded ? (notes || []).length : null;
+  useEffect(() => {
+    if (notesN !== null && onCountRef.current) onCountRef.current(notesN);
+  }, [loaded, notesN]);
   const handleAdd = async () => {
     if (!newNote.trim() || submitting) return;
     setSubmitting(true);
@@ -8294,12 +8325,14 @@ function ModalNotes({
   };
   const shown = expanded ? notes : notes.slice(0, 3);
   return /*#__PURE__*/React.createElement("div", {
-    style: {
+    style: bare ? {
+      marginBottom: 8
+    } : {
       borderTop: "1px solid var(--border)",
       paddingTop: 14,
       marginBottom: 16
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, !bare && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 14,
       fontWeight: 700,
@@ -8525,7 +8558,8 @@ function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
     change: saver.change,
     commit: saver.commit,
     revertTitle: saver.revertTitle,
-    retry: saver.retry
+    retry: saver.retry,
+    flush: saver.flush
   };
 }
 // Live Edit (spec §7.5): indikator simpan di baris judul panel. Kosong sebelum ada edit; "Tersimpan" hilang 2 dtk
@@ -8584,14 +8618,839 @@ function pinOverlayToScrollBox(overlay, onPlace) {
     box.style.overflow = prevOverflow;
   };
 }
+// Redesain detail task (spec §5): popover bersama untuk bar atas, chip, dan (Task 4–5) properti. Dirender lewat portal
+// ke document.body (position: fixed, di atas .modal-overlay) supaya tidak terpotong wadah gulir modal/panel. Render
+// pertama di luar layar (top -10000, bukan visibility hidden, supaya autoFocus tetap jalan), lalu layout effect
+// mengukur jangkar + popover dan menghitung posisi dengan TF.taskdetail.popoverPosition sebelum tampil. Gulir (capture,
+// termasuk wadah modal/panel) dan resize menghitung ulang. Escape / pointerdown di luar popover dan jangkar → onClose.
+// Popover ikut hilang saat detail di-unmount (portal milik pohon React detail), jadi tidak ada popover yatim.
+function DetailPopover({
+  anchorRef,
+  open,
+  onClose,
+  label,
+  role = "dialog",
+  className = "",
+  children
+}) {
+  const popRef = useRef(null);
+  const [pos, setPos] = useState(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  // true selama fokus terakhir berada di dalam popover (focusin dokumen); elemen terfokus yang dilepas dari DOM tidak
+  // memicu focusin lain, jadi nilai ini bertahan sampai pembersihan dan fokus bisa dikembalikan ke jangkar.
+  const focusInsideRef = useRef(false);
+  React.useLayoutEffect(() => {
+    if (!open) return undefined;
+    const el = popRef.current;
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const anchor = anchorRef.current;
+      if (!anchor || !el) return;
+      const r = anchor.getBoundingClientRect();
+      const next = window.TF.taskdetail.popoverPosition({
+        anchor: { top: r.top, bottom: r.bottom, left: r.left },
+        size: { height: Math.max(el.offsetHeight, el.scrollHeight) },
+        viewport: { width: window.innerWidth, height: window.innerHeight }
+      });
+      setPos(prev => prev && prev.top === next.top && prev.left === next.left && prev.width === next.width &&
+        prev.maxHeight === next.maxHeight && prev.placement === next.placement ? prev : next);
+    };
+    const schedule = () => {
+      if (!raf) raf = requestAnimationFrame(measure);
+    };
+    measure();
+    const restoreFocus = () => {
+      const anchor = anchorRef.current;
+      if (focusInsideRef.current && anchor && anchor.isConnected && anchor.focus) anchor.focus({ preventScroll: true });
+      focusInsideRef.current = false;
+    };
+    const onKey = e => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        restoreFocus();
+        onCloseRef.current && onCloseRef.current();
+      }
+    };
+    const onPointer = e => {
+      const anchor = anchorRef.current;
+      if (el && el.contains(e.target)) return;
+      if (anchor && anchor.contains(e.target)) return;
+      restoreFocus();
+      onCloseRef.current && onCloseRef.current();
+    };
+    const onFocusIn = e => {
+      focusInsideRef.current = !!(el && el.contains(e.target));
+    };
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(schedule) : null;
+    if (ro && el) ro.observe(el);
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointer, true);
+    document.addEventListener("focusin", onFocusIn, true);
+    window.addEventListener("scroll", schedule, true);
+    window.addEventListener("resize", schedule);
+    // Fokus ke elemen pertama bila belum ada di dalam (autoFocus milik isi popover didahulukan).
+    if (el && !el.contains(document.activeElement)) {
+      const first = el.querySelector("input, button");
+      if (first) first.focus({ preventScroll: true });
+    }
+    focusInsideRef.current = !!(el && el.contains(document.activeElement));
+    return () => {
+      if (raf) cancelAnimationFrame(raf);
+      if (ro) ro.disconnect();
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointer, true);
+      document.removeEventListener("focusin", onFocusIn, true);
+      window.removeEventListener("scroll", schedule, true);
+      window.removeEventListener("resize", schedule);
+      // Tertutup karena pilihan / unmount: fokus yang masih di popover (atau hilang bersama popover) kembali ke jangkar.
+      const ae = document.activeElement;
+      focusInsideRef.current = !!el && (el.contains(ae) || ((!ae || ae === document.body) && focusInsideRef.current));
+      restoreFocus();
+      setPos(null);
+    };
+  }, [open]);
+  if (!open) return null;
+  return ReactDOM.createPortal(/*#__PURE__*/React.createElement("div", {
+    ref: popRef,
+    className: "td-pop" + (className ? " " + className : ""),
+    role: role,
+    "aria-label": label,
+    "data-placement": pos ? pos.placement : undefined,
+    style: pos ? {
+      top: pos.top,
+      left: pos.left,
+      width: pos.width,
+      maxHeight: pos.maxHeight
+    } : {
+      top: -10000,
+      left: 8
+    }
+  }, children), document.body);
+}
+// Bar atas detail (spec §4.1): "#id • Dibuat …" (+ "• Selesai …"), baris induk subtask; kanan: indikator simpan,
+// Fokus, Selesai/Buka lagi, menu ⋯ (Pindah ke Workspace, Hapus), lalu ✕ modal (headerAction).
+function DetailTopBar({
+  task,
+  isDone,
+  focused,
+  canMove,
+  menuOpen,
+  onMenuToggle,
+  onMenuClose,
+  onToggleFocus,
+  onDone,
+  onReopen,
+  onMove,
+  onDelete,
+  indicator,
+  headerAction
+}) {
+  const menuRef = useRef(null);
+  const created = window.TF.taskdetail.formatCreated(task.created_at);
+  const completed = isDone ? window.TF.taskdetail.formatCreated(task.completed_at) : "";
+  // Panah atas/bawah berpindah antar-butir menu (pola role="menu").
+  const onMenuKey = e => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const items = Array.from(e.currentTarget.querySelectorAll('[role="menuitem"]'));
+    if (!items.length) return;
+    e.preventDefault();
+    const i = items.indexOf(document.activeElement);
+    const next = e.key === "ArrowDown" ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+    items[next].focus();
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "td-top"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "td-top-info"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "td-meta"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "td-id",
+    title: "#" + task.id
+  }, "#" + task.id), created && /*#__PURE__*/React.createElement("span", {
+    className: "td-meta-part"
+  }, " • Dibuat " + created), completed && /*#__PURE__*/React.createElement("span", {
+    className: "td-meta-part"
+  }, " • Selesai " + completed)), task.parent_id && /*#__PURE__*/React.createElement("div", {
+    className: "td-parent"
+  }, "↳ Subtask dari #" + task.parent_id + (task.parent_title ? " — " + task.parent_title : ""))), /*#__PURE__*/React.createElement("div", {
+    className: "td-top-actions"
+  }, indicator, !isDone && onToggleFocus && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-icon-btn",
+    "aria-label": "Fokus",
+    "aria-pressed": focused,
+    title: focused ? "Hapus dari Fokus" : "Tambahkan ke Fokus",
+    onClick: onToggleFocus
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "star",
+    size: 16,
+    style: {
+      fill: focused ? "currentColor" : "none"
+    }
+  })), isDone ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-btn",
+    onClick: onReopen
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "refresh",
+    size: 14
+  }), "Buka lagi") : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-btn",
+    onClick: onDone
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 14,
+    className: "td-btn-check"
+  }), "Selesai"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    ref: menuRef,
+    className: "td-icon-btn",
+    "aria-label": "Aksi lain",
+    "aria-haspopup": "menu",
+    "aria-expanded": menuOpen,
+    title: "Aksi lain",
+    onClick: onMenuToggle
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "menu",
+    size: 16
+  })), /*#__PURE__*/React.createElement(DetailPopover, {
+    anchorRef: menuRef,
+    open: menuOpen,
+    onClose: onMenuClose,
+    label: "Aksi lain",
+    role: "menu",
+    className: "td-menu"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "td-menu-list",
+    onKeyDown: onMenuKey
+  }, canMove && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "menuitem",
+    className: "td-pop-item",
+    onClick: onMove
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "users",
+    size: 15
+  }), "Pindah ke Workspace"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "menuitem",
+    className: "td-pop-item is-danger",
+    onClick: onDelete
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "trash",
+    size: 15
+  }), "Hapus"))), headerAction));
+}
+// Chip di bawah judul (spec §4.3): kuadran dan "Terlambat" dihitung dari nilai form saat ini (bukan prop task yang
+// bisa basi), lalu pill progress.
+function DetailChips({
+  priority,
+  deadline,
+  status,
+  progress,
+  todayISO,
+  progressOpen,
+  onProgressToggle,
+  onProgressClose,
+  onProgressChange,
+  onProgressCommit
+}) {
+  const quadrant = window.TF.tasklogic.calculateQuadrant({ priority, deadline }, todayISO);
+  const late = window.TF.taskdetail.isOverdue(deadline, status, todayISO);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "td-chips"
+  }, /*#__PURE__*/React.createElement(QuadBadge, {
+    q: quadrant
+  }), late && /*#__PURE__*/React.createElement("span", {
+    className: "td-chip is-danger"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "overdue-indicator"
+  }), "Terlambat"), /*#__PURE__*/React.createElement(ProgressPill, {
+    value: progress,
+    open: progressOpen,
+    onToggle: onProgressToggle,
+    onClose: onProgressClose,
+    onChange: onProgressChange,
+    onCommit: onProgressCommit
+  }));
+}
+// Pill progress + popover "Ubah Progress": slider 0–100 langkah 5 (onChange saat geser, onCommit saat lepas / keyup /
+// blur) dan preset 0/25/50/75/100% (onChange + onCommit). Menutup popover juga commit (di TaskDetailBody).
+function ProgressPill({
+  value,
+  open,
+  onToggle,
+  onClose,
+  onChange,
+  onCommit
+}) {
+  const pillRef = useRef(null);
+  const v = window.TF.taskdetail.clampProgress(value);
+  const full = v >= 100;
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    ref: pillRef,
+    className: "td-pill" + (full ? " is-full" : ""),
+    "aria-haspopup": "dialog",
+    "aria-expanded": open,
+    "aria-label": "Progress " + v + "%",
+    title: "Ubah Progress",
+    onClick: onToggle
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "td-pill-bar",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "td-pill-fill",
+    style: {
+      width: v + "%"
+    }
+  })), v + "%"), /*#__PURE__*/React.createElement(DetailPopover, {
+    anchorRef: pillRef,
+    open: open,
+    onClose: onClose,
+    label: "Ubah Progress",
+    className: "td-progress-pop"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "td-pop-title"
+  }, /*#__PURE__*/React.createElement("span", null, "Ubah Progress"), /*#__PURE__*/React.createElement("span", {
+    className: "td-pop-value" + (full ? " is-full" : "")
+  }, v + "%")), /*#__PURE__*/React.createElement("input", {
+    type: "range",
+    className: "td-range" + (full ? " is-full" : ""),
+    min: 0,
+    max: 100,
+    step: 5,
+    value: v,
+    "aria-label": "Progress",
+    onChange: e => onChange(window.TF.taskdetail.clampProgress(e.target.value)),
+    onPointerUp: () => onCommit(),
+    onKeyUp: () => onCommit(),
+    onBlur: () => onCommit()
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "td-presets"
+  }, window.TF.taskdetail.PROGRESS_PRESETS.map(p => /*#__PURE__*/React.createElement("button", {
+    key: p,
+    type: "button",
+    className: "td-pop-item",
+    "aria-pressed": v === p,
+    onClick: () => {
+      onChange(p);
+      onCommit();
+    }
+  }, p + "%")))));
+}
+// Kisi properti detail (spec §4.4): label kecil + nilai berupa tombol yang membuka popover di bawahnya. Nilai kosong
+// tampil "+ Tambah". Isi popover (children) baru di-mount saat terbuka, jadi state picker (kotak cari) mulai bersih.
+function PropertyRow({
+  label,
+  text,
+  icon = null,
+  isEmpty,
+  danger = false,
+  wide = false,
+  open,
+  onToggle,
+  onClose,
+  popLabel,
+  content = null,
+  anchorRef = null,
+  children
+}) {
+  // content (baris Tag): isi baris menggantikan tombol nilai; popover berjangkar pada anchorRef milik isi itu.
+  const btnRef = useRef(null);
+  const ref = anchorRef || btnRef;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "td-prop" + (wide ? " is-wide" : "")
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "td-prop-label"
+  }, label), content ?? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    ref: btnRef,
+    className: "td-prop-val" + (isEmpty ? " is-empty" : "") + (danger && !isEmpty ? " is-danger" : ""),
+    "aria-haspopup": "dialog",
+    "aria-expanded": open,
+    "aria-label": label + ": " + (isEmpty ? "kosong" : text),
+    onClick: onToggle
+  }, isEmpty ? "+ Tambah" : /*#__PURE__*/React.createElement(React.Fragment, null, icon, /*#__PURE__*/React.createElement("span", {
+    className: "td-prop-text"
+  }, text))), /*#__PURE__*/React.createElement(DetailPopover, {
+    anchorRef: ref,
+    open: open,
+    onClose: onClose,
+    label: popLabel || label
+  }, children));
+}
+// Daftar pilihan tetap (Status, Prioritas): klik = onPick(value). Pilihan aktif ber-aria-pressed.
+function OptionPicker({
+  options,
+  value,
+  onPick
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "td-pop-list"
+  }, options.map(o => /*#__PURE__*/React.createElement("button", {
+    key: o.value,
+    type: "button",
+    className: "td-pop-item",
+    "aria-pressed": o.value === value,
+    onClick: () => onPick(o.value)
+  }, o.icon, /*#__PURE__*/React.createElement("span", {
+    className: "td-pop-label"
+  }, o.label), o.value === value && /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 14,
+    className: "td-pop-check"
+  }))));
+}
+// Proyek / Tahap (spec §4.4, D4): kotak cari hanya menyaring (tidak mengubah form). Nilai berubah lewat pilihan:
+// opsi yang ada, "+ Buat '<teks>'", Enter (opsi yang sama persis tanpa beda huruf dipakai apa adanya, selain itu
+// buat dengan teks di-trim; kotak kosong tidak melakukan apa pun), atau "Kosongkan".
+function NamePicker({
+  value,
+  options,
+  title,
+  onPick
+}) {
+  const [q, setQ] = useState("");
+  const shown = window.TF.taskdetail.filterOptions(options, q);
+  const create = window.TF.taskdetail.canCreate(q, options);
+  const onKey = e => {
+    if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
+      e.preventDefault();
+      const exact = window.TF.taskdetail.exactOption(q, options);
+      if (exact !== null) onPick(exact);else if (create) onPick(q.trim());
+    }
+  };
+  return /*#__PURE__*/React.createElement(React.Fragment, null, title && /*#__PURE__*/React.createElement("div", {
+    className: "td-pop-title"
+  }, title), /*#__PURE__*/React.createElement("input", {
+    className: "input td-pop-input",
+    autoFocus: true,
+    "aria-label": title || "Cari",
+    placeholder: "Cari atau buat baru…",
+    value: q,
+    onKeyDown: onKey,
+    onChange: e => setQ(e.target.value)
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "td-pop-list"
+  }, shown.map(o => /*#__PURE__*/React.createElement("button", {
+    key: o,
+    type: "button",
+    className: "td-pop-item",
+    "aria-pressed": o === value,
+    onClick: () => onPick(o)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "td-pop-label"
+  }, o), o === value && /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 14,
+    className: "td-pop-check"
+  }))), create && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-pop-item td-pop-create",
+    onClick: () => onPick(q.trim())
+  }, "+ Buat '" + q.trim() + "'"), value && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-pop-item td-pop-clear",
+    onClick: () => onPick("")
+  }, "Kosongkan")));
+}
+// Deadline: tombol cepat / "Hapus deadline" = onPick (ubah + tutup); input tanggal hanya onChange (field "blur",
+// tersimpan saat popover ditutup, bukan per digit tahun). Enter di input = pakai tanggal itu dan tutup.
+function DatePicker({
+  value,
+  onChange,
+  onPick
+}) {
+  const quick = taskDatePromptQuickPicks(new Date());
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "td-quick"
+  }, quick.map(p => /*#__PURE__*/React.createElement("button", {
+    key: p.label,
+    type: "button",
+    className: "td-pop-item",
+    "aria-pressed": value === p.key,
+    onClick: () => onPick(p.key)
+  }, p.label))), /*#__PURE__*/React.createElement("input", {
+    className: "input td-pop-input",
+    type: "date",
+    "aria-label": "Tanggal deadline",
+    // Tak terkendali: input terkendali akan dikembalikan React ke nilai lama setiap kali perubahan badInput
+    // diabaikan, sehingga segmen tidak bisa diketik ulang (mis. 31 Jan → bulan 02). Popover dipasang ulang tiap dibuka
+    // dan nilai hanya berubah lewat input ini atau onPick (yang menutup popover).
+    defaultValue: value || "",
+    onKeyDown: e => {
+      // Tanggal setengah diketik bernilai "": Enter tidak boleh menghapus deadline.
+      if (e.key === "Enter" && e.currentTarget.value) {
+        e.preventDefault();
+        onPick(e.currentTarget.value);
+      }
+    },
+    // Segmen yang dikosongkan / tanggal tidak valid (mis. 31 Februari) dilaporkan sebagai "" + validity.badInput:
+    // abaikan, supaya menutup popover tidak menghapus deadline. Menghapus sengaja lewat "Hapus deadline".
+    onChange: e => {
+      if (e.target.validity && e.target.validity.badInput) return;
+      onChange(e.target.value);
+    }
+  }), value && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-pop-item is-danger",
+    onClick: () => onPick("")
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "x",
+    size: 14
+  }), "Hapus deadline"));
+}
+// Assign ke (task workspace): anggota dari GET /api/lists/:id/members; "Lepas" = tanpa assignee (null → 0 lewat
+// buildPatch). Daftar gagal dimuat → pesan, nilai lama tetap.
+function MemberPicker({
+  members,
+  value,
+  failed,
+  onPick
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "td-pop-list"
+  }, failed && /*#__PURE__*/React.createElement("div", {
+    className: "td-pop-note"
+  }, "Tidak bisa memuat anggota"), (members || []).map(u => /*#__PURE__*/React.createElement("button", {
+    key: u.id,
+    type: "button",
+    className: "td-pop-item",
+    "aria-pressed": String(u.id) === String(value),
+    onClick: () => onPick(u.id)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "td-pop-label"
+  }, u.display_name || u.username, /*#__PURE__*/React.createElement("span", {
+    className: "td-pop-sub"
+  }, u.is_self ? " (Saya)" : " (@" + u.username + ")")), String(u.id) === String(value) && /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 14,
+    className: "td-pop-check"
+  }))), value ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-pop-item td-pop-clear",
+    onClick: () => onPick(null)
+  }, "Lepas") : null);
+}
+// Menunggu: satu input (onChange per ketikan, field "blur"); Enter / "Simpan" = onDone (tutup + simpan). Escape atau
+// klik di luar juga menutup dan menyimpan (ketikan tidak dibuang).
+function TextPicker({
+  value,
+  placeholder,
+  onChange,
+  onDone
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "td-pop-row"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "input td-pop-input",
+    autoFocus: true,
+    "aria-label": placeholder,
+    placeholder: placeholder,
+    value: value || "",
+    onKeyDown: e => {
+      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
+        e.preventDefault();
+        onDone();
+      }
+    },
+    onChange: e => onChange(e.target.value)
+  }), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-btn",
+    onClick: onDone
+  }, "Simpan"));
+}
+// Tambah tag (spec §4.4, §6.3): input + saran dari GET /api/tags (dimuat sekali saat popover terbuka) yang belum
+// terpasang dan cocok dengan ketikan, paling banyak 8. Enter / klik saran = onAdd(nama) → null (sukses: input
+// dikosongkan, popover tetap terbuka untuk tag berikutnya) atau pesan galat (tampil di bawah input).
+function TagAdder({
+  existing,
+  onAdd
+}) {
+  const [text, setText] = useState("");
+  const [err, setErr] = useState(null);
+  const [all, setAll] = useState([]);
+  const busyRef = useRef(false);
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    api.get("/api/tags").then(d => {
+      if (aliveRef.current) setAll((Array.isArray(d) ? d : []).map(t => t && t.name).filter(Boolean));
+    }).catch(() => {});
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+  const have = new Set((existing || []).map(n => String(n).toLowerCase()));
+  const query = text.trim().replace(/^#+/, "");
+  const suggestions = window.TF.taskdetail.filterOptions(all.filter(n => !have.has(String(n).toLowerCase())), query).slice(0, 8);
+  const submit = async raw => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const typed = text; // isi input saat dikirim (raw bisa berupa saran yang diklik)
+    let msg = null;
+    try {
+      msg = await onAdd(raw);
+    } catch (e) {
+      msg = e && e.message || "Gagal menambah tag";
+    }
+    busyRef.current = false;
+    if (!aliveRef.current) return;
+    setErr(msg || null);
+    // Hanya kosongkan bila input masih berisi teks yang dikirim (ketikan baru selama menunggu tidak terhapus).
+    if (!msg) setText(t => t === typed ? "" : t);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "td-tag-adder"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "input td-pop-input",
+    autoFocus: true,
+    "aria-label": "Nama tag",
+    placeholder: "Nama tag\u2026",
+    value: text,
+    onKeyDown: e => {
+      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
+        e.preventDefault();
+        submit(text);
+      }
+    },
+    onChange: e => {
+      setText(e.target.value);
+      if (err) setErr(null);
+    }
+  }), err && /*#__PURE__*/React.createElement("div", {
+    className: "td-pop-err",
+    role: "alert"
+  }, err), /*#__PURE__*/React.createElement("div", {
+    className: "td-pop-list"
+  }, suggestions.map(n => /*#__PURE__*/React.createElement("button", {
+    key: n,
+    type: "button",
+    className: "td-pop-item",
+    onClick: () => submit(n)
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "tag",
+    size: 14
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "td-pop-label"
+  }, n)))));
+}
+// Panel "Pindah ke Workspace" (isi dan perilaku sama seperti sebelumnya; dipisah dari TaskDetailBody supaya isi
+// detail tidak memuat select, spec §4.4/§4.7).
+function TaskMovePanel({
+  panelRef,
+  moveLists,
+  moveTarget,
+  moving,
+  onTarget,
+  onCancel,
+  onMove
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "task-move-panel",
+    ref: panelRef,
+    style: {
+      border: "1px solid var(--border)",
+      borderRadius: 10,
+      padding: 12,
+      marginBottom: 12,
+      background: "var(--bg-subtle)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6,
+      fontWeight: 700,
+      fontSize: 14,
+      marginBottom: 8
+    }
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "users",
+    size: 15,
+    style: {
+      color: "var(--accent)"
+    }
+  }), "Pindah ke Workspace"), moveLists && moveLists.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 13,
+      color: "var(--text-light)"
+    }
+  }, "Kamu belum punya workspace. Buat atau gabung workspace dulu.") : /*#__PURE__*/React.createElement("select", {
+    className: "input",
+    "aria-label": "Workspace tujuan",
+    value: moveTarget,
+    disabled: moving || !moveLists,
+    onChange: e => onTarget(e.target.value)
+  }, /*#__PURE__*/React.createElement("option", {
+    value: ""
+  }, moveLists ? "— Pilih workspace —" : "Memuat…"), (moveLists || []).map(l => /*#__PURE__*/React.createElement("option", {
+    key: l.id,
+    value: l.id
+  }, projectScopeOptionLabel(l)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-light)",
+      marginTop: 8,
+      lineHeight: 1.5
+    }
+  }, "Task akan terlihat oleh semua anggota workspace. Sub-task, checklist, catatan dan lampiran ikut pindah; project dan tahap memakai nama yang sama di workspace."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8,
+      justifyContent: "flex-end",
+      marginTop: 10
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-secondary btn-sm",
+    onClick: onCancel,
+    disabled: moving
+  }, "Batal"), /*#__PURE__*/React.createElement("button", {
+    className: "btn btn-primary btn-sm",
+    onClick: onMove,
+    disabled: moving || !moveTarget
+  }, moving ? "Memindahkan..." : "Pindahkan")));
+}
+// Tab isi detail (spec §4.6, §8): tablist standar dengan roving tabindex; panah kiri/kanan (dan Home/End) memindah
+// pilihan dan fokus. tabs = [{ id, label, count }]; jumlah tampil dalam kurung bila > 0. Panel ber-id
+// `${idBase}-panel-${id}` dirender oleh pemanggil.
+function DetailTabs({
+  tabs,
+  active,
+  onSelect,
+  idBase
+}) {
+  const btnRefs = useRef({});
+  const onKeyDown = (e, i) => {
+    const n = tabs.length;
+    let j = null;
+    if (e.key === "ArrowRight") j = (i + 1) % n;
+    else if (e.key === "ArrowLeft") j = (i - 1 + n) % n;
+    else if (e.key === "Home") j = 0;
+    else if (e.key === "End") j = n - 1;
+    if (j === null) return;
+    e.preventDefault();
+    const id = tabs[j].id;
+    onSelect(id);
+    const el = btnRefs.current[id];
+    if (el) el.focus();
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "td-tabs",
+    role: "tablist",
+    "aria-label": "Isi task"
+  }, tabs.map((t, i) => /*#__PURE__*/React.createElement("button", {
+    key: t.id,
+    ref: el => {
+      btnRefs.current[t.id] = el;
+    },
+    type: "button",
+    role: "tab",
+    id: `${idBase}-tab-${t.id}`,
+    className: "td-tab",
+    "aria-selected": active === t.id,
+    "aria-controls": `${idBase}-panel-${t.id}`,
+    tabIndex: active === t.id ? 0 : -1,
+    onClick: () => onSelect(t.id),
+    onKeyDown: e => onKeyDown(e, i)
+  }, t.label, t.count > 0 && /*#__PURE__*/React.createElement("span", {
+    className: "td-tab-count"
+  }, " (", t.count, ")"))));
+}
+// Baris task anak di tab Subtask (spec §4.6): centang (selesai / buka lagi), #id + judul (dicoret bila done, klik =
+// buka), StatusBadge, deadline singkat (merah bila terlambat), tombol buka. Tanpa warna per prioritas.
+function SubtaskRow({
+  task,
+  todayISO,
+  onToggle,
+  onOpen
+}) {
+  const done = task.gtd_status === "done";
+  const due = task.deadline ? window.TF.taskdetail.formatShortDate(task.deadline, todayISO) : "";
+  const late = window.TF.taskdetail.isOverdue(task.deadline, task.gtd_status, todayISO);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "td-sub-row" + (done ? " is-done" : "")
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "checkbox",
+    className: "td-check",
+    "aria-checked": done,
+    "aria-label": (done ? "Buka lagi: " : "Tandai selesai: ") + task.title,
+    onClick: onToggle
+  }, done && /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 13
+  })), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-sub-main",
+    onClick: onOpen
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "td-sub-id"
+  }, "#", task.id), /*#__PURE__*/React.createElement("span", {
+    className: "td-sub-title",
+    style: {
+      textDecoration: done ? "line-through" : "none"
+    }
+  }, task.title)), /*#__PURE__*/React.createElement(StatusBadge, {
+    s: task.gtd_status
+  }), due && /*#__PURE__*/React.createElement("span", {
+    className: "td-sub-date" + (late ? " is-danger" : "")
+  }, due), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-icon-btn td-sub-open",
+    "aria-label": "Buka subtask",
+    title: "Buka subtask",
+    onClick: onOpen
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "arrowUpRight",
+    size: 15
+  })));
+}
+// Baris butir checklist (spec §4.6): kotak centang + judul + tombol hapus (tampil saat hover; selalu di perangkat
+// tanpa hover, lewat CSS).
+function ChecklistRow({
+  item,
+  onToggle,
+  onDelete
+}) {
+  const done = !!item.is_done;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "td-check-row" + (done ? " is-done" : "")
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "checkbox",
+    className: "td-check",
+    "aria-checked": done,
+    "aria-label": item.title,
+    onClick: onToggle
+  }, done && /*#__PURE__*/React.createElement(Icon, {
+    name: "check",
+    size: 13
+  })), /*#__PURE__*/React.createElement("span", {
+    className: "td-check-title"
+  }, item.title), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-icon-btn td-check-del",
+    "aria-label": "Hapus butir",
+    title: "Hapus butir",
+    onClick: onDelete
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "x",
+    size: 14
+  })));
+}
 function TaskDetailBody({
   task,
   onClose,
-  onEdit,
   onDone,
   onDelete,
   onRefresh,
-  onOfflineEdit,
   onToggleFocus,
   onOpenTask,
   projects = [],
@@ -8602,26 +9461,36 @@ function TaskDetailBody({
   headerAction = null
 }) {
   if (!task) return null;
-  // Live Edit (spec §7): panel = field utama selalu bisa diedit dan tersimpan otomatis; modal = lihat → ✏️ Edit → 💾 Simpan.
+  // Redesain detail (spec §6.1): modal dan panel sama-sama selalu bisa diedit dan tersimpan otomatis (useTaskAutosave,
+  // aturan Live Edit R9–R21). variant hanya mengatur hal khusus wadah: modal ditutup setelah Pindah, ✕ lewat
+  // headerAction (null di panel).
   const isPanel = variant === "panel";
-  const [isEditing, setIsEditing] = useState(false);
-  const editing = isPanel || isEditing;
-  // Panel: pesan judul tidak valid tetap tampil setelah blur mengembalikan judul; hilang saat judul diubah lagi.
+  // Pesan judul tidak valid tetap tampil setelah blur mengembalikan judul; hilang saat judul diubah lagi.
   const [titleNotice, setTitleNotice] = useState(null);
+  // Satu popover terbuka per detail (spec §5): "menu", "progress", lalu nama field (Task 4) dan "tag" (Task 5).
+  const [openPop, setOpenPop] = useState(null);
+  // Bintang Fokus tampil langsung lewat state lokal dan mengikuti task.is_focused saat prop berubah (fetchAll).
+  const [focused, setFocused] = useState(!!task.is_focused);
+  useEffect(() => {
+    setFocused(!!task.is_focused);
+  }, [task.is_focused]);
+  // Induk untuk baris "↳ Subtask dari #…" di bar atas. Rekaman lokal hanya membawa parent_cid (tanpa parent_id /
+  // parent_title), jadi induk dimuat lewat rute lokal (GET /api/tasks/:id, jalan offline) bila belum lengkap.
+  const [parentInfo, setParentInfo] = useState(null);
+  const parentRef = task.parent_id || task.parent_cid || null;
+  useEffect(() => {
+    setParentInfo(null);
+    if (!parentRef || (task.parent_id && task.parent_title)) return undefined;
+    let alive = true;
+    api.get("/api/tasks/" + parentRef).then(p => {
+      if (alive && p && p.id != null) setParentInfo({ id: p.id, title: p.title || "" });
+    }).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [parentRef]);
   const [listMembers, setListMembers] = useState([]);
-  const [form, setForm] = useState({
-    title: task.title || "",
-    description: task.description || "",
-    priority: task.priority || "P3",
-    gtd_status: task.gtd_status || "inbox",
-    project: task.project || "",
-    context: task.context || "",
-    deadline: task.deadline || "",
-    waiting_for: task.waiting_for || "",
-    assigned_to: task.assigned_to || null,
-    progress: task.progress || 0
-  });
-  const [saving, setSaving] = useState(false);
+  const [membersFailed, setMembersFailed] = useState(false);
   // Pindah ke workspace: hanya task pribadi tingkat atas (child ikut induknya).
   const [moveOpen, setMoveOpen] = useState(false);
   const [moveTarget, setMoveTarget] = useState("");
@@ -8676,22 +9545,6 @@ function TaskDetailBody({
   const scopeProjects = useScopeProjects(task.list_id);
   const scopeContexts = useScopeContexts(task.list_id);
   const scopeLists = useScopeLists(task.list_id, sharedLists);
-  const setF = (k, v) => setForm(f => ({
-    ...f,
-    [k]: v
-  }));
-  const resetForm = () => setForm({
-    title: task.title || "",
-    description: task.description || "",
-    priority: task.priority || "P3",
-    gtd_status: task.gtd_status || "inbox",
-    project: task.project || "",
-    context: task.context || "",
-    deadline: task.deadline || "",
-    waiting_for: task.waiting_for || "",
-    assigned_to: task.assigned_to || null,
-    progress: task.progress || 0
-  });
   const [subtasks, setSubtasks] = useState([]);
   const [newSub, setNewSub] = useState("");
   const [adding, setAdding] = useState(false);
@@ -8700,9 +9553,23 @@ function TaskDetailBody({
   const subClientId = useRef(genId());
   // Child tasks (subtasks as full tasks)
   const [childTasks, setChildTasks] = useState([]);
+  const [childLoaded, setChildLoaded] = useState(false);
   const [newChildTitle, setNewChildTitle] = useState("");
-  const [newChildGtd, setNewChildGtd] = useState("inbox");
   const [addingChild, setAddingChild] = useState(false);
+  // Tab isi (spec §4.6): Subtask aktif sampai keempat muatan selesai (gagal = 0), lalu sekali
+  // TF.taskdetail.initialTab — kecuali pengguna sudah memilih tab sendiri. Jumlah catatan/lampiran dari onCount.
+  const [tab, setTab] = useState("subtask");
+  const tabPickedRef = useRef(false);
+  const autoTabDoneRef = useRef(false);
+  const tabIdBase = useRef("td" + genId()).current;
+  const [notesCount, setNotesCount] = useState(null);
+  const [attCount, setAttCount] = useState(null);
+  const pickTab = id => {
+    tabPickedRef.current = true;
+    setTab(id);
+  };
+  // Deskripsi: tinggi mengikuti isi sampai 12 baris, lalu bergulir (CSS overflow-y: auto).
+  const descWrapRef = useRef(null);
   const [taskTags, setTaskTags] = useState([]);
   const [tagsExpanded, setTagsExpanded] = useState(false);
   const [tagTasksModal, setTagTasksModal] = useState(null); // { tagName, tasks }
@@ -8742,7 +9609,7 @@ function TaskDetailBody({
     }
   };
 
-  // Live Edit: simpan otomatis di panel. Tiap simpan sukses memberi tahu pendengar taskUpdated dan memuat ulang
+  // Simpan otomatis (modal dan panel). Tiap simpan sukses memberi tahu pendengar taskUpdated dan memuat ulang
   // daftar (onRefresh, debounce 500 ms); simpan yang membawa judul memuat ulang tag (#tag baru di judul jadi chip).
   // Setelah unmount (flush terakhir) onRefresh dipanggil langsung supaya daftar tidak tertinggal.
   const liveMountedRef = useRef(true);
@@ -8777,19 +9644,23 @@ function TaskDetailBody({
       onRefreshRef.current?.();
     }, 500);
   };
-  const auto = useTaskAutosave(task, isPanel, {
+  const auto = useTaskAutosave(task, true, {
     onSaved,
     getTags: tagsForTitle
   });
-  const fv = isPanel ? auto.form : form;
-  const sf = isPanel ? auto.change : setF;
+  const fv = auto.form;
+  const sf = auto.change;
 
-  // Fetch list members for assignee dropdown when entering edit mode
+  // Anggota workspace untuk pilihan "Assign ke" (field selalu tampil di task workspace).
   useEffect(() => {
-    if (editing && task?.list_id) {
-      api.get(`/api/lists/${task.list_id}/members`).then(setListMembers).catch(() => setListMembers([]));
+    setMembersFailed(false);
+    if (task?.list_id) {
+      api.get(`/api/lists/${task.list_id}/members`).then(m => setListMembers(Array.isArray(m) ? m : [])).catch(() => {
+        setListMembers([]);
+        setMembersFailed(true);
+      });
     }
-  }, [editing, task?.list_id]);
+  }, [task?.list_id]);
 
   // Fetch subtasks (checklist)
   useEffect(() => {
@@ -8805,16 +9676,22 @@ function TaskDetailBody({
   // Fetch child tasks (full tasks with parent_id)
   const fetchChildTasks = () => {
     if (task?.id) {
-      api.get(`/api/tasks/${task.id}/child-tasks`).then(setChildTasks).catch(() => setChildTasks([]));
+      api.get(`/api/tasks/${task.id}/child-tasks`).then(r => {
+        setChildTasks(Array.isArray(r) ? r : []);
+        setChildLoaded(true);
+      }).catch(() => {
+        setChildTasks([]);
+        setChildLoaded(true);
+      });
     }
   };
   useEffect(() => {
     fetchChildTasks();
   }, [task?.id]);
-  // Chip tag dimuat saat task berganti; di panel juga saat task berubah dari luar (updated_at: sync, modal, perangkat
-  // lain) supaya tidak basi (R21). Satu efek dengan dua dependensi: mount = satu muat. Modal: dependensi tetap task.id.
+  // Chip tag dimuat saat task berganti dan saat task berubah dari luar (updated_at: sync, simpan, perangkat lain)
+  // supaya tidak basi (R21), di modal maupun panel. Satu efek dengan dua dependensi: mount = satu muat.
   // Gagal memuat ulang task yang sama → chip lama dipertahankan; task lain → kosong (seperti sebelumnya).
-  const tagsVersion = isPanel ? task?.updated_at : null;
+  const tagsVersion = task?.updated_at;
   const tagsIdRef = useRef(null);
   useEffect(() => {
     if (task?.id) {
@@ -8854,15 +9731,17 @@ function TaskDetailBody({
   };
   const handleAddSub = async () => {
     if (!newSub.trim() || addingSub) return;
+    const submitted = newSub;
     setAddingSub(true);
     try {
       const result = await api.post(`/api/tasks/${task.id}/subtasks`, {
-        title: newSub.trim(),
+        title: submitted.trim(),
         client_id: subClientId.current
       });
       setSubtasks(prev => [...prev, result]);
-      setNewSub("");
-      setAdding(false);
+      // Ketikan baru selama menunggu tidak terhapus: kosongkan hanya bila input masih berisi teks yang dikirim.
+      setNewSub(t => t === submitted ? "" : t);
+      // Input tetap terbuka untuk butir berikutnya (Escape menutup).
       subClientId.current = genId();
     } catch (err) {
       console.error(err);
@@ -8878,17 +9757,63 @@ function TaskDetailBody({
       console.error(err);
     }
   };
+  // Centang task anak: selesai → POST done; buka lagi → PUT gtd_status next; lalu muat ulang anak + daftar.
+  const childBusyRef = useRef(new Set());
+  const handleToggleChild = async ct => {
+    if (childBusyRef.current.has(ct.id)) return;
+    childBusyRef.current.add(ct.id);
+    try {
+      if (ct.gtd_status === "done") await api.put(`/api/tasks/${ct.id}`, {
+        gtd_status: "next"
+      });else await api.post(`/api/tasks/${ct.id}/done`);
+      fetchChildTasks();
+      onRefresh?.();
+    } catch (err) {
+      if (window.__showToast) window.__showToast(err && err.message || "Gagal memperbarui subtask", "error");else console.error(err);
+    } finally {
+      childBusyRef.current.delete(ct.id);
+    }
+  };
+  const openChild = ct => {
+    onOpenTask ? onOpenTask(ct) : onClose();
+  };
+  useEffect(() => {
+    if (autoTabDoneRef.current || !childLoaded || loadingSubs || notesCount === null || attCount === null) return;
+    autoTabDoneRef.current = true;
+    if (tabPickedRef.current) return;
+    setTab(window.TF.taskdetail.initialTab({
+      subtask: childTasks.length,
+      checklist: subtasks.length,
+      notes: notesCount,
+      attachments: attCount
+    }));
+  }, [childLoaded, loadingSubs, notesCount, attCount]);
+  React.useLayoutEffect(() => {
+    const ta = descWrapRef.current && descWrapRef.current.querySelector("textarea");
+    if (!ta) return;
+    ta.style.height = "auto";
+    const full = ta.scrollHeight; // isi + padding (tanpa border)
+    const cs = getComputedStyle(ta);
+    const lh = parseFloat(cs.lineHeight) || 1.6 * parseFloat(cs.fontSize) || 22;
+    const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) || 0;
+    const bord = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth) || 0;
+    // box-sizing: border-box → tinggi = isi + padding + border; maksimum 12 baris.
+    ta.style.height = Math.min(full + bord, 12 * lh + pad + bord) + "px";
+  }, [fv.description]);
   const handleAddChildTask = async () => {
     if (!newChildTitle.trim() || addingChild) return;
+    const submitted = newChildTitle;
     setAddingChild(true);
     try {
+      // Rute lokal (TF.taskrepo.createTask) hanya membaca parent_cid; parent_id saja menghasilkan task yatim lokal.
+      // Push mengubah parent_cid kembali menjadi parent_id server.
       await api.post("/api/tasks", {
-        title: newChildTitle.trim(),
-        gtd_status: newChildGtd,
-        parent_id: task.id
+        title: submitted.trim(),
+        gtd_status: "inbox",
+        parent_id: task.id,
+        parent_cid: task.cid || null
       });
-      setNewChildTitle("");
-      setNewChildGtd("inbox");
+      setNewChildTitle(t => t === submitted ? "" : t);
       fetchChildTasks();
     } catch (err) {
       console.error(err);
@@ -8896,120 +9821,151 @@ function TaskDetailBody({
       setAddingChild(false);
     }
   };
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await api.put(`/api/tasks/${task.id}`, form);
-      onRefresh?.();
-      onClose();
-    } catch (err) {
-      if (isOfflineErr(err) && onOfflineEdit) {
-        await OfflineDB.queueAdd({
-          method: "PUT",
-          url: `/api/tasks/${task.id}`,
-          body: form
-        });
-        onOfflineEdit(task.id, form);
-        onClose();
-      } else {
-        alert(err.message);
-      }
-    }
-    setSaving(false);
-  };
-  // Panel: pesan di bawah judul. titleError dari pengendali hanya selama judul di form masih tidak valid (pengendali
+  // Pesan di bawah judul. titleError dari pengendali hanya selama judul di form masih tidak valid (pengendali
   // baru memperbaruinya saat simpan berikutnya, jadi tanpa syarat ini pesan basi tetap tampil saat judul sudah diperbaiki).
-  const titleAlert = isPanel ? titleNotice || (auto.titleError && window.TF.liveedit.validateTitle(fv.title) ? auto.titleError : null) : null;
-  // Chip tag (klik = task lain dengan tag ini, × = hapus tag): mode lihat modal dan panel.
-  const tagChips = () => taskTags.length > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      gap: 6,
-      marginBottom: 12,
-      alignItems: "center"
+  const titleAlert = titleNotice || (auto.titleError && window.TF.liveedit.validateTitle(fv.title) ? auto.titleError : null);
+  // Tambah tag (spec §6.3, ADR-032): nama dinormalkan; tag yang sudah terpasang (tanpa beda huruf) tidak dikirim.
+  // Perubahan tertunda di-flush dulu, lalu judul TERSIMPAN + semua tag segar + tag baru dikirim ke rute lokal: store
+  // lokal MENAMBAH #tag dari judul, push mengirim himpunan lengkap. Mengembalikan null (sukses) atau pesan galat.
+  const addTag = async raw => {
+    const norm = window.TF.taskdetail.normalizeTagName(raw);
+    if (norm.error) return norm.error;
+    const name = norm.name;
+    const same = t => String(t && t.name).toLowerCase() === name.toLowerCase();
+    if (taskTags.some(same)) return null;
+    try {
+      await auto.flush();
+      if (auto.getState().saveState === "error") return "Perubahan lain belum tersimpan. Coba lagi dulu.";
+      const tags = await tagsForTitle();
+      if (tags.some(same)) return null;
+      const title = window.TF.liveedit.titleWithTags(auto.getState().saved.title, [...tags, {
+        name
+      }]);
+      await api.put(`/api/tasks/${task.id}`, {
+        title
+      });
+      onSaved({
+        title
+      });
+      return null;
+    } catch (err) {
+      return err && err.message || "Gagal menambah tag";
     }
+  };
+  // Isi baris Tag di kisi: chip (klik = task lain dengan tag ini, × = hapus tag), "+N more"/"‹ less", tombol "+"
+  // (jangkar popover TagAdder).
+  const tagAddRef = useRef(null);
+  const tagChips = () => /*#__PURE__*/React.createElement("div", {
+    className: "td-tags"
   }, (tagsExpanded ? taskTags : taskTags.slice(0, 3)).map(tag => /*#__PURE__*/React.createElement("span", {
-    key: tag.id,
+    key: tag.id || tag.name,
+    className: "td-tag",
     title: "Klik untuk lihat semua task dengan tag ini",
-    onClick: () => showTagTasks(tag.name),
-    style: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 4,
-      background: "rgba(var(--accent-rgb), 0.10)",
-      color: "var(--accent)",
-      border: "1px solid rgba(var(--accent-rgb), 0.25)",
-      borderRadius: 999,
-      fontSize: 11,
-      fontWeight: 600,
-      padding: "2px 8px 2px 6px",
-      cursor: "pointer",
-      userSelect: "none",
-      transition: "background 0.15s"
-    },
-    onMouseEnter: e => e.currentTarget.style.background = "rgba(var(--accent-rgb), 0.22)",
-    onMouseLeave: e => e.currentTarget.style.background = "rgba(var(--accent-rgb), 0.10)"
+    onClick: () => showTagTasks(tag.name)
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-tag-name"
   }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      opacity: 0.7
-    }
-  }, "#"), tag.name, /*#__PURE__*/React.createElement("span", {
+    className: "td-tag-hash"
+  }, "#"), tag.name), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-tag-x",
+    "aria-label": "Hapus tag " + tag.name,
     onClick: e => {
       e.stopPropagation();
       removeTag(tag.name);
-    },
-    style: {
-      marginLeft: 2,
-      opacity: 0.5,
-      fontWeight: 400,
-      fontSize: 13,
-      lineHeight: 1,
-      cursor: "pointer"
-    },
-    onMouseEnter: e => {
-      e.stopPropagation();
-      e.currentTarget.style.opacity = "1";
-    },
-    onMouseLeave: e => {
-      e.stopPropagation();
-      e.currentTarget.style.opacity = "0.5";
     }
-  }, "\xD7"))), taskTags.length > 3 && /*#__PURE__*/React.createElement("span", {
-    onClick: () => setTagsExpanded(e => !e),
-    style: {
-      fontSize: 11,
-      color: "var(--text-light)",
-      cursor: "pointer",
-      padding: "2px 6px",
-      borderRadius: 999,
-      border: "1px solid var(--border)"
-    }
-  }, tagsExpanded ? "‹ less" : `+${taskTags.length - 3} more`));
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "x",
+    size: 12
+  })))), taskTags.length > 3 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-tag-more",
+    onClick: () => setTagsExpanded(e => !e)
+  }, tagsExpanded ? "‹ less" : `+${taskTags.length - 3} more`), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    ref: tagAddRef,
+    className: "td-tag-add",
+    "aria-label": "Tambah tag",
+    "aria-haspopup": "dialog",
+    "aria-expanded": openPop === "tag",
+    onClick: () => setOpenPop(o => o === "tag" ? null : "tag")
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: "plus",
+    size: 14
+  })));
   const doneCount = subtasks.filter(s => s.is_done).length;
   const totalSubs = subtasks.length;
   const progress = totalSubs > 0 ? Math.round(doneCount / totalSubs * 100) : 0;
-  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "start",
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      flex: 1,
-      minWidth: 0,
-      marginRight: 12
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)",
-      marginBottom: 4
-    }
-  }, "#", task.id), isPanel ? /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("input", {
-    className: "input task-detail-title-input",
+  const todayISO = window.TF.tasklogic.todayLocalISO();
+  // Aturan simpan properti (spec §4.4): memilih = change + tutup + commit; menutup popover properti dengan cara apa
+  // pun (Enter, Escape, klik di luar, klik nilai lagi) = commit field itu. Commit tanpa perubahan tidak mengirim apa pun.
+  const pick = field => v => { sf(field, v); setOpenPop(null); auto.commit(field); };
+  const closeProp = field => () => { setOpenPop(p => (p === field ? null : p)); auto.commit(field); };
+  const propRow = field => ({
+    open: openPop === field,
+    onToggle: () => {
+      if (openPop === field) closeProp(field)();else setOpenPop(field);
+    },
+    onClose: closeProp(field)
+  });
+  // Panel tab: keempatnya tetap ter-mount (D6), yang tidak aktif ber-atribut hidden.
+  const tabPanel = (id, ...children) => /*#__PURE__*/React.createElement("div", {
+    key: id,
+    role: "tabpanel",
+    id: `${tabIdBase}-panel-${id}`,
+    "aria-labelledby": `${tabIdBase}-tab-${id}`,
+    className: "td-tabpanel",
+    hidden: tab !== id
+  }, ...children);
+  const assigneeMember = fv.assigned_to ? listMembers.find(u => String(u.id) === String(fv.assigned_to)) : null;
+  const assigneeName = assigneeMember ? assigneeMember.display_name || assigneeMember.username : fv.assigned_to ? task.assigned_to_name || "Anggota" : "";
+  return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DetailTopBar, {
+    task: parentInfo ? {
+      ...task,
+      parent_id: parentInfo.id,
+      parent_title: parentInfo.title
+    } : task,
+    isDone: fv.gtd_status === "done",
+    focused: focused,
+    canMove: canMove && !moveOpen,
+    menuOpen: openPop === "menu",
+    onMenuToggle: () => setOpenPop(o => o === "menu" ? null : "menu"),
+    onMenuClose: () => setOpenPop(null),
+    // Fokus tidak menutup modal (spec §4.1); bintang berubah langsung, App menyimpan + memuat ulang daftar.
+    onToggleFocus: onToggleFocus ? () => {
+      setFocused(f => !f);
+      onToggleFocus(task.id);
+    } : null,
+    onDone: onDone,
+    onReopen: () => sf("gtd_status", "next"),
+    onMove: () => {
+      setOpenPop(null);
+      setMoveOpen(true);
+    },
+    onDelete: () => {
+      setOpenPop(null);
+      onDelete();
+    },
+    indicator: /*#__PURE__*/React.createElement(TaskSaveIndicator, {
+      saveState: auto.saveState,
+      error: auto.error,
+      onRetry: () => auto.retry()
+    }),
+    headerAction: headerAction
+  }), moveOpen && /*#__PURE__*/React.createElement(TaskMovePanel, {
+    panelRef: movePanelRef,
+    moveLists: moveLists,
+    moveTarget: moveTarget,
+    moving: moving,
+    onTarget: setMoveTarget,
+    onCancel: () => {
+      setMoveOpen(false);
+      setMoveTarget("");
+    },
+    onMove: handleMove
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "td-title",
     "aria-label": "Judul task",
     value: fv.title,
     onChange: e => {
@@ -9046,724 +10002,255 @@ function TaskDetailBody({
     }
   }), titleAlert && /*#__PURE__*/React.createElement("div", {
     role: "alert",
-    style: {
-      fontSize: 12,
-      color: "var(--danger, #dc2626)",
-      marginTop: 4
-    }
-  }, titleAlert)) : isEditing ? /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    value: form.title,
-    onChange: e => setF("title", e.target.value),
-    style: {
-      fontSize: 16,
-      fontWeight: 700,
-      width: "100%"
-    }
-  }) : /*#__PURE__*/React.createElement("h2", {
-    style: {
-      fontSize: 20,
-      fontWeight: 700,
-      lineHeight: 1.3
-    }
-  }, task.title)), isPanel ? /*#__PURE__*/React.createElement(TaskSaveIndicator, {
-    saveState: auto.saveState,
-    error: auto.error,
-    onRetry: () => auto.retry()
-  }) : headerAction), task.parent_id && /*#__PURE__*/React.createElement("div", {
-    style: {
-      background: "#eff6ff",
-      border: "1px solid #bfdbfe",
-      borderRadius: 8,
-      padding: "7px 12px",
-      marginBottom: 14,
-      fontSize: 13,
-      color: "#1d4ed8"
-    }
-  }, "\u21B3 Subtask dari: ", /*#__PURE__*/React.createElement("b", null, "#", task.parent_id), " ", task.parent_title && `— ${task.parent_title}`), isPanel && /*#__PURE__*/React.createElement("div", {
-    className: "task-detail-meta",
-    style: {
-      display: "flex",
-      flexWrap: "wrap",
-      alignItems: "center",
-      gap: 8,
-      marginBottom: 12,
-      fontSize: 12,
-      color: "var(--text-light)"
-    }
-  }, /*#__PURE__*/React.createElement(QuadBadge, {
-    q: task.quadrant
-  }), task.is_overdue && /*#__PURE__*/React.createElement("span", {
-    style: {
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 5,
-      color: "#ef4444",
-      fontWeight: 600
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "overdue-indicator"
-  }), "Terlambat"), task.created_at && /*#__PURE__*/React.createElement("span", null, "\uD83D\uDD50 Created: ", task.created_at.split("T")[0]), task.completed_at && /*#__PURE__*/React.createElement("span", null, "\u2705 Done: ", task.completed_at.split("T")[0])), isPanel && tagChips(), editing ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 10,
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Priority"), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: fv.priority,
-    onChange: e => sf("priority", e.target.value)
-  }, /*#__PURE__*/React.createElement("option", {
-    value: "P1"
-  }, "\uD83D\uDD34 P1 Critical"), /*#__PURE__*/React.createElement("option", {
-    value: "P2"
-  }, "\uD83D\uDFE0 P2 High"), /*#__PURE__*/React.createElement("option", {
-    value: "P3"
-  }, "\uD83D\uDFE1 P3 Medium"), /*#__PURE__*/React.createElement("option", {
-    value: "P4"
-  }, "\uD83D\uDFE2 P4 Low"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "GTD Status"), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: fv.gtd_status,
-    onChange: e => sf("gtd_status", e.target.value)
-  }, /*#__PURE__*/React.createElement("option", {
-    value: "inbox"
-  }, "\uD83D\uDCE5 Inbox"), /*#__PURE__*/React.createElement("option", {
-    value: "next"
-  }, "\u25B6\uFE0F Next"), /*#__PURE__*/React.createElement("option", {
-    value: "waiting"
-  }, "\u23F3 Waiting"), /*#__PURE__*/React.createElement("option", {
-    value: "someday"
-  }, "\uD83D\uDCAD Someday"), /*#__PURE__*/React.createElement("option", {
-    value: "done"
-  }, "\u2705 Done")))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 10,
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", isPanel ? {
-    // R19: nama yang diketik (server membuat project/tahap yang belum ada) hanya tersimpan saat keluar field
-    // (ComboSelect tanpa onBlur: blur dari select/input di dalamnya naik ke sini; pindah fokus di dalam field
-    // diabaikan), Enter, atau flush. Memilih opsi yang sudah ada tersimpan langsung lewat onChange di bawah.
-    onBlur: e => {
-      if (!e.currentTarget.contains(e.relatedTarget)) auto.commit("project");
+    className: "td-title-alert"
+  }, titleAlert), /*#__PURE__*/React.createElement(DetailChips, {
+    priority: fv.priority,
+    deadline: fv.deadline,
+    status: fv.gtd_status,
+    progress: fv.progress,
+    todayISO: todayISO,
+    progressOpen: openPop === "progress",
+    onProgressToggle: () => setOpenPop(o => o === "progress" ? null : "progress"),
+    onProgressClose: () => {
+      setOpenPop(null);
+      auto.commit("progress");
     },
-    onKeyDown: e => {
-      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) auto.commit("project");
-    }
-  } : null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, projectScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
-    value: fv.project,
-    onChange: v => {
-      sf("project", v);
-      if (isPanel && v && scopeProjects.includes(v)) auto.commit("project");
-    },
-    options: scopeProjects,
-    placeholder: "\u2014 Project \u2014",
-    icon: "\uD83D\uDCC1"
-  })), /*#__PURE__*/React.createElement("div", isPanel ? {
-    onBlur: e => {
-      if (!e.currentTarget.contains(e.relatedTarget)) auto.commit("context");
-    },
-    onKeyDown: e => {
-      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) auto.commit("context");
-    }
-  } : null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, contextScopeLabel(task.list_id, scopeLists)), /*#__PURE__*/React.createElement(ComboSelect, {
-    value: fv.context,
-    onChange: v => {
-      sf("context", v);
-      if (isPanel && v && scopeContexts.includes(v)) auto.commit("context");
-    },
-    options: scopeContexts,
-    placeholder: "\u2014 Context \u2014",
-    icon: "\uD83C\uDFF7\uFE0F"
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Deadline"), /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    type: "date",
-    value: fv.deadline,
-    onChange: e => sf("deadline", e.target.value)
-  })), fv.gtd_status === "waiting" && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Waiting For"), /*#__PURE__*/React.createElement("input", {
-    className: "input",
-    value: fv.waiting_for,
-    onChange: e => sf("waiting_for", e.target.value),
-    onBlur: isPanel ? () => auto.commit("waiting_for") : undefined,
-    placeholder: "Menunggu siapa/apa"
-  })), task.list_id && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
-  }, "Assign ke"), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: fv.assigned_to || "",
-    onChange: e => sf("assigned_to", e.target.value ? parseInt(e.target.value) : null)
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, "\u2014 Tidak ada \u2014"), listMembers.map(u => /*#__PURE__*/React.createElement("option", {
-    key: u.id,
-    value: u.id
-  }, u.display_name || u.username, " ", u.is_self ? "(Saya)" : `(@${u.username})`)))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      marginBottom: 4
-    }
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "input-label",
-    style: {
-      marginBottom: 0
-    }
-  }, "Progress"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 700,
-      color: fv.progress === 100 ? "#22c55e" : "var(--accent)"
-    }
-  }, fv.progress || 0, "%")), /*#__PURE__*/React.createElement("input", {
-    type: "range",
-    min: "0",
-    max: "100",
-    step: "5",
-    value: fv.progress || 0,
-    onChange: e => sf("progress", parseInt(e.target.value)),
-    onPointerUp: isPanel ? () => auto.commit("progress") : undefined,
-    onKeyUp: isPanel ? () => auto.commit("progress") : undefined,
-    onBlur: isPanel ? () => auto.commit("progress") : undefined,
-    style: {
-      width: "100%",
-      accentColor: fv.progress === 100 ? "#22c55e" : "var(--accent)"
-    }
+    onProgressChange: p => sf("progress", p),
+    onProgressCommit: () => auto.commit("progress")
   }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      fontSize: 10,
-      color: "var(--text-light)",
-      marginTop: 2
-    }
-  }, /*#__PURE__*/React.createElement("span", null, "0%"), /*#__PURE__*/React.createElement("span", null, "50%"), /*#__PURE__*/React.createElement("span", null, "100%"))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    className: "input-label"
+    className: "td-props"
+  }, /*#__PURE__*/React.createElement(PropertyRow, {
+    label: "Status",
+    text: GTD_LABELS[fv.gtd_status] || fv.gtd_status,
+    icon: /*#__PURE__*/React.createElement(Icon, {
+      name: GTD_ICON[fv.gtd_status] || "inbox",
+      size: 15
+    }),
+    isEmpty: !fv.gtd_status,
+    ...propRow("gtd_status")
+  }, /*#__PURE__*/React.createElement(OptionPicker, {
+    options: window.TF.taskdetail.STATUS_ORDER.map(st => ({
+      value: st,
+      label: GTD_LABELS[st],
+      icon: /*#__PURE__*/React.createElement(Icon, {
+        name: GTD_ICON[st],
+        size: 15
+      })
+    })),
+    value: fv.gtd_status,
+    onPick: pick("gtd_status")
+  })), /*#__PURE__*/React.createElement(PropertyRow, {
+    label: "Prioritas",
+    text: `${fv.priority} ${PRI_LABELS[fv.priority] || ""}`.trim(),
+    icon: /*#__PURE__*/React.createElement("span", {
+      className: "td-dot",
+      style: {
+        background: PRI_DOT[fv.priority]
+      }
+    }),
+    isEmpty: !fv.priority,
+    ...propRow("priority")
+  }, /*#__PURE__*/React.createElement(OptionPicker, {
+    options: window.TF.taskdetail.PRIORITY_ORDER.map(p => ({
+      value: p,
+      label: `${p} ${PRI_LABELS[p]}`,
+      icon: /*#__PURE__*/React.createElement("span", {
+        className: "td-dot",
+        style: {
+          background: PRI_DOT[p]
+        }
+      })
+    })),
+    value: fv.priority,
+    onPick: pick("priority")
+  })), /*#__PURE__*/React.createElement(PropertyRow, {
+    label: "Tahap",
+    text: fv.context,
+    isEmpty: !fv.context,
+    popLabel: contextScopeLabel(task.list_id, scopeLists),
+    ...propRow("context")
+  }, /*#__PURE__*/React.createElement(NamePicker, {
+    value: fv.context,
+    options: scopeContexts,
+    title: contextScopeLabel(task.list_id, scopeLists),
+    onPick: pick("context")
+  })), /*#__PURE__*/React.createElement(PropertyRow, {
+    label: "Proyek",
+    text: fv.project,
+    isEmpty: !fv.project,
+    popLabel: projectScopeLabel(task.list_id, scopeLists),
+    ...propRow("project")
+  }, /*#__PURE__*/React.createElement(NamePicker, {
+    value: fv.project,
+    options: scopeProjects,
+    title: projectScopeLabel(task.list_id, scopeLists),
+    onPick: pick("project")
+  })), /*#__PURE__*/React.createElement(PropertyRow, {
+    label: "Deadline",
+    text: window.TF.taskdetail.formatDeadline(fv.deadline) || fv.deadline,
+    icon: /*#__PURE__*/React.createElement(Icon, {
+      name: "calendar",
+      size: 15
+    }),
+    isEmpty: !fv.deadline,
+    danger: window.TF.taskdetail.isOverdue(fv.deadline, fv.gtd_status, todayISO),
+    ...propRow("deadline")
+  }, /*#__PURE__*/React.createElement(DatePicker, {
+    value: fv.deadline,
+    onChange: v => sf("deadline", v),
+    onPick: pick("deadline")
+  })), task.list_id && /*#__PURE__*/React.createElement(PropertyRow, {
+    label: "Assign ke",
+    text: assigneeName,
+    icon: /*#__PURE__*/React.createElement(Icon, {
+      name: "users",
+      size: 15
+    }),
+    isEmpty: !fv.assigned_to,
+    ...propRow("assigned_to")
+  }, /*#__PURE__*/React.createElement(MemberPicker, {
+    members: listMembers,
+    value: fv.assigned_to,
+    failed: membersFailed,
+    onPick: pick("assigned_to")
+  })), /*#__PURE__*/React.createElement(PropertyRow, {
+    label: "Menunggu",
+    text: fv.waiting_for,
+    isEmpty: !String(fv.waiting_for || "").trim(),
+    ...propRow("waiting_for")
+  }, /*#__PURE__*/React.createElement(TextPicker, {
+    value: fv.waiting_for,
+    placeholder: "Menunggu siapa/apa",
+    onChange: v => sf("waiting_for", v),
+    onDone: closeProp("waiting_for")
+  })), /*#__PURE__*/React.createElement(PropertyRow, {
+    label: "Tag",
+    wide: true,
+    content: tagChips(),
+    anchorRef: tagAddRef,
+    open: openPop === "tag",
+    onClose: () => setOpenPop(o => o === "tag" ? null : o),
+    popLabel: "Tambah tag"
+  }, /*#__PURE__*/React.createElement(TagAdder, {
+    existing: taskTags.map(t => t.name),
+    onAdd: addTag
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "td-desc-wrap",
+    ref: descWrapRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "td-prop-label td-desc-label"
   }, "Deskripsi"), /*#__PURE__*/React.createElement(MentionInput, {
     as: "textarea",
     collaborators: collaborators,
-    className: "input",
+    className: "td-desc",
     value: fv.description,
     onChange: e => sf("description", e.target.value),
-    onBlur: isPanel ? () => auto.commit("description") : undefined,
-    rows: isPanel ? 4 : 3,
-    style: {
-      resize: "vertical"
-    }
-  }))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8,
-      flexWrap: "wrap",
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement(StatusBadge, {
-    s: task.gtd_status
-  }), /*#__PURE__*/React.createElement(PriBadge, {
-    p: task.priority
-  }), /*#__PURE__*/React.createElement(QuadBadge, {
-    q: task.quadrant
-  })), tagChips(), task.description && /*#__PURE__*/React.createElement("div", {
-    style: {
-      padding: 12,
-      background: "var(--bg-primary)",
-      borderRadius: 8,
-      fontSize: 14,
-      marginBottom: 14,
-      lineHeight: 1.6
-    }
-  }, task.description), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 8,
-      fontSize: 14,
-      marginBottom: 16
-    }
-  }, task.project && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\uD83D\uDCC1 Project:"), " ", task.project), task.context && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\uD83C\uDFF7\uFE0F Context:"), " ", task.context), task.deadline && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\uD83D\uDCC5 Deadline:"), " ", formatDate(task.deadline), " ", task.is_overdue && /*#__PURE__*/React.createElement("span", {
-    className: "overdue-indicator"
-  })), task.waiting_for && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\u23F3 Waiting:"), " ", task.waiting_for), task.assigned_to && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\uD83D\uDC64 Assigned:"), " ", /*#__PURE__*/React.createElement("b", null, task.assigned_to_name || "?")), task.created_at && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\uD83D\uDD50 Created:"), " ", task.created_at?.split("T")[0])), task.gtd_status !== "done" && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 6
-    }
-  }, /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 600,
-      color: "var(--text-secondary)"
-    }
-  }, "Progress"), /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontSize: 13,
-      fontWeight: 700,
-      color: (task.progress || 0) === 100 ? "#22c55e" : "var(--accent)"
-    }
-  }, task.progress || 0, "%")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 8,
-      background: "#e2e8f0",
-      borderRadius: 4,
-      overflow: "hidden"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: "100%",
-      width: `${task.progress || 0}%`,
-      background: (task.progress || 0) === 100 ? "#22c55e" : "var(--accent)",
-      borderRadius: 4,
-      transition: "width 0.4s"
-    }
-  }))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "grid",
-      gridTemplateColumns: "1fr 1fr",
-      gap: 8,
-      fontSize: 14,
-      marginBottom: 16
-    }
-  }, task.completed_at && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "var(--text-light)"
-    }
-  }, "\u2705 Done:"), " ", task.completed_at?.split("T")[0]))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      borderTop: "1px solid var(--border)",
-      paddingTop: 14,
-      marginBottom: 16
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 14,
-      fontWeight: 700,
-      marginBottom: 10
-    }
-  }, "\uD83D\uDCCC Subtask", childTasks.length > 0 && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 400,
-      color: "var(--text-light)",
-      fontSize: 13
-    }
-  }, " (", childTasks.length, ")")), childTasks.map(ct => {
-    const priColor = {
-      P1: "#fee2e2",
-      P2: "#ffedd5",
-      P3: "#fef9c3",
-      P4: "#dcfce7"
-    };
-    return /*#__PURE__*/React.createElement("div", {
-      key: ct.id,
-      onClick: () => {
-        onOpenTask ? onOpenTask(ct) : onClose();
-      },
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-        padding: "6px 10px",
-        borderRadius: 6,
-        marginBottom: 4,
-        cursor: "pointer",
-        background: priColor[ct.priority] || "var(--bg-page)",
-        border: "1px solid var(--border)",
-        transition: "opacity 0.15s"
-      },
-      onMouseEnter: e => e.currentTarget.style.opacity = "0.75",
-      onMouseLeave: e => e.currentTarget.style.opacity = "1"
-    }, /*#__PURE__*/React.createElement(PriBadge, {
-      p: ct.priority
-    }), /*#__PURE__*/React.createElement("span", {
-      style: {
-        flex: 1,
-        fontSize: 13,
-        overflow: "hidden",
-        textOverflow: "ellipsis",
-        whiteSpace: "nowrap",
-        textDecoration: ct.gtd_status === "done" ? "line-through" : "none",
-        color: ct.gtd_status === "done" ? "var(--text-light)" : "var(--text-primary)"
-      }
-    }, ct.title), /*#__PURE__*/React.createElement(StatusBadge, {
-      s: ct.gtd_status
-    }));
-  }), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 6,
-      marginTop: 8
-    }
-  }, /*#__PURE__*/React.createElement("input", {
-    className: "input",
+    onBlur: () => auto.commit("description"),
+    rows: 3,
+    placeholder: "Tulis deskripsi atau catatan lingkup tugas di sini…",
+    "aria-label": "Deskripsi"
+  })), /*#__PURE__*/React.createElement(DetailTabs, {
+    idBase: tabIdBase,
+    active: tab,
+    onSelect: pickTab,
+    tabs: [{
+      id: "subtask",
+      label: "Subtask",
+      count: childTasks.length
+    }, {
+      id: "checklist",
+      label: "Checklist",
+      count: totalSubs
+    }, {
+      id: "notes",
+      label: "Catatan",
+      count: notesCount || 0
+    }, {
+      id: "attachments",
+      label: "Lampiran",
+      count: attCount || 0
+    }]
+  }), tabPanel("subtask", childTasks.map(ct => /*#__PURE__*/React.createElement(SubtaskRow, {
+    key: ct.id,
+    task: ct,
+    todayISO: todayISO,
+    onToggle: () => handleToggleChild(ct),
+    onOpen: () => openChild(ct)
+  })), childLoaded && childTasks.length === 0 && /*#__PURE__*/React.createElement("div", {
+    className: "td-empty"
+  }, "Belum ada subtask"), /*#__PURE__*/React.createElement("input", {
+    className: "td-add-input",
+    "aria-label": "Buat subtask baru",
     value: newChildTitle,
     onChange: e => setNewChildTitle(e.target.value),
-    placeholder: "Judul subtask baru...",
+    placeholder: "+ Buat subtask baru…",
     onKeyDown: e => {
-      if (e.key === "Enter") handleAddChildTask();
-    },
-    style: {
-      flex: 1,
-      padding: "5px 8px",
-      fontSize: 13
+      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
+        e.preventDefault();
+        handleAddChildTask();
+      } else if (e.key === "Escape" && newChildTitle) {
+        e.preventDefault();
+        setNewChildTitle("");
+      }
     }
-  }), /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    value: newChildGtd,
-    onChange: e => setNewChildGtd(e.target.value),
-    style: {
-      width: 100,
-      padding: "5px 6px",
-      fontSize: 12
-    }
-  }, /*#__PURE__*/React.createElement("option", {
-    value: "inbox"
-  }, "\uD83D\uDCE5 Inbox"), /*#__PURE__*/React.createElement("option", {
-    value: "next"
-  }, "\u25B6\uFE0F Next"), /*#__PURE__*/React.createElement("option", {
-    value: "waiting"
-  }, "\u23F3 Waiting"), /*#__PURE__*/React.createElement("option", {
-    value: "someday"
-  }, "\uD83D\uDCAD Someday")), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary btn-sm",
-    onClick: handleAddChildTask,
-    disabled: addingChild || !newChildTitle.trim(),
-    style: {
-      fontSize: 12,
-      whiteSpace: "nowrap"
-    }
-  }, addingChild ? "..." : "＋"))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      borderTop: "1px solid var(--border)",
-      paddingTop: 14,
-      marginBottom: 16
-    }
+  })), tabPanel("checklist", totalSubs > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "td-check-head"
   }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 10
-    }
+    className: "td-check-bar" + (progress === 100 ? " is-full" : ""),
+    role: "progressbar",
+    "aria-label": `${doneCount} dari ${totalSubs} butir selesai`,
+    "aria-valuemin": 0,
+    "aria-valuemax": totalSubs,
+    "aria-valuenow": doneCount
   }, /*#__PURE__*/React.createElement("div", {
+    className: "td-check-fill",
     style: {
-      fontSize: 14,
-      fontWeight: 700
+      width: `${progress}%`
     }
-  }, "\u2705 Checklist ", totalSubs > 0 && /*#__PURE__*/React.createElement("span", {
-    style: {
-      fontWeight: 400,
-      color: "var(--text-light)"
-    }
-  }, doneCount, "/", totalSubs)), !adding && /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-sm btn-secondary",
-    onClick: () => setAdding(true),
-    style: {
-      fontSize: 12
-    }
-  }, "\uFF0B Tambah")), totalSubs > 0 && /*#__PURE__*/React.createElement("div", {
-    style: {
-      marginBottom: 10
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: 6,
-      background: "#e2e8f0",
-      borderRadius: 3,
-      overflow: "hidden"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      height: "100%",
-      width: `${progress}%`,
-      background: progress === 100 ? "var(--success)" : "var(--accent)",
-      borderRadius: 3,
-      transition: "width 0.3s"
-    }
-  }))), loadingSubs ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: "var(--text-light)",
-      padding: "8px 0"
-    }
-  }, "Loading...") : subtasks.map(s => /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("span", null, doneCount, "/", totalSubs)), loadingSubs ? /*#__PURE__*/React.createElement("div", {
+    className: "td-empty"
+  }, "Memuat…") : subtasks.map(s => /*#__PURE__*/React.createElement(ChecklistRow, {
     key: s.id,
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      padding: "6px 0",
-      borderBottom: "1px solid #f1f5f9"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    onClick: () => handleToggle(s.id),
-    style: {
-      width: 20,
-      height: 20,
-      borderRadius: 4,
-      flexShrink: 0,
-      cursor: "pointer",
-      border: s.is_done ? "2px solid var(--success)" : "2px solid #d1d5db",
-      background: s.is_done ? "var(--success)" : "transparent",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      transition: "all 0.15s"
-    }
-  }, s.is_done && /*#__PURE__*/React.createElement("span", {
-    style: {
-      color: "white",
-      fontSize: 12,
-      lineHeight: 1
-    }
-  }, "\u2713")), /*#__PURE__*/React.createElement("span", {
-    style: {
-      flex: 1,
-      fontSize: 14,
-      lineHeight: 1.4,
-      textDecoration: s.is_done ? "line-through" : "none",
-      color: s.is_done ? "var(--text-light)" : "var(--text-primary)"
-    }
-  }, s.title), /*#__PURE__*/React.createElement("span", {
-    onClick: () => handleDeleteSub(s.id),
-    style: {
-      cursor: "pointer",
-      fontSize: 14,
-      color: "var(--text-light)",
-      padding: "0 4px"
-    },
-    title: "Hapus item checklist"
-  }, "\u2715"))), adding && /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8,
-      marginTop: 8
-    }
-  }, /*#__PURE__*/React.createElement(MentionInput, {
+    item: s,
+    onToggle: () => handleToggle(s.id),
+    onDelete: () => handleDeleteSub(s.id)
+  })), !loadingSubs && totalSubs === 0 && !adding && /*#__PURE__*/React.createElement("div", {
+    className: "td-empty"
+  }, "Belum ada checklist"), adding ? /*#__PURE__*/React.createElement(MentionInput, {
     collaborators: collaborators,
-    className: "input",
+    className: "td-add-input",
     value: newSub,
     onChange: e => setNewSub(e.target.value),
-    placeholder: "Item checklist baru...",
+    placeholder: "Butir checklist baru",
+    "aria-label": "Butir checklist baru",
     autoFocus: true,
     onKeyDown: e => {
-      if (e.key === "Enter") handleAddSub();
-      if (e.key === "Escape") {
+      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
+        e.preventDefault();
+        handleAddSub();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
         setAdding(false);
         setNewSub("");
       }
     },
-    style: {
-      flex: 1,
-      padding: "6px 10px",
-      fontSize: 13
+    onBlur: () => {
+      if (!newSub.trim() && !addingSub) setAdding(false);
     }
-  }), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary btn-sm",
-    onClick: handleAddSub,
-    disabled: addingSub || !newSub.trim(),
-    style: {
-      fontSize: 12
-    }
-  }, addingSub ? "..." : "Tambah"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => {
-      setAdding(false);
-      setNewSub("");
-    },
-    disabled: addingSub,
-    style: {
-      fontSize: 12
-    }
-  }, "Batal")), !loadingSubs && totalSubs === 0 && !adding && /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: "var(--text-light)",
-      fontStyle: "italic",
-      padding: "4px 0"
-    }
-  }, "Belum ada checklist")), /*#__PURE__*/React.createElement(ModalNotes, {
+  }) : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-add",
+    onClick: () => setAdding(true)
+  }, "+ Tambah butir checklist baru")), tabPanel("notes", /*#__PURE__*/React.createElement(ModalNotes, {
     taskId: task.id,
-    collaborators: collaborators
-  }), /*#__PURE__*/React.createElement(ModalAttachments, {
-    taskId: task.id
-  }), !isEditing && moveOpen && /*#__PURE__*/React.createElement("div", {
-    className: "task-move-panel",
-    ref: movePanelRef,
-    style: {
-      border: "1px solid var(--border)",
-      borderRadius: 10,
-      padding: 12,
-      marginBottom: 12,
-      background: "var(--bg-subtle)"
-    }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 6,
-      fontWeight: 700,
-      fontSize: 14,
-      marginBottom: 8
-    }
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "users",
-    size: 15,
-    style: {
-      color: "var(--accent)"
-    }
-  }), "Pindah ke Workspace"), moveLists && moveLists.length === 0 ? /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 13,
-      color: "var(--text-light)"
-    }
-  }, "Kamu belum punya workspace. Buat atau gabung workspace dulu.") : /*#__PURE__*/React.createElement("select", {
-    className: "input",
-    "aria-label": "Workspace tujuan",
-    value: moveTarget,
-    disabled: moving || !moveLists,
-    onChange: e => setMoveTarget(e.target.value)
-  }, /*#__PURE__*/React.createElement("option", {
-    value: ""
-  }, moveLists ? "\u2014 Pilih workspace \u2014" : "Memuat\u2026"), (moveLists || []).map(l => /*#__PURE__*/React.createElement("option", {
-    key: l.id,
-    value: l.id
-  }, projectScopeOptionLabel(l)))), /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 12,
-      color: "var(--text-light)",
-      marginTop: 8,
-      lineHeight: 1.5
-    }
-  }, "Task akan terlihat oleh semua anggota workspace. Sub-task, checklist, catatan dan lampiran ikut pindah; project dan tahap memakai nama yang sama di workspace."), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      gap: 8,
-      justifyContent: "flex-end",
-      marginTop: 10
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => {
-      setMoveOpen(false);
-      setMoveTarget("");
-    },
-    disabled: moving
-  }, "Batal"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary btn-sm",
-    onClick: handleMove,
-    disabled: moving || !moveTarget
-  }, moving ? "Memindahkan..." : "Pindahkan"))), isEditing ? /*#__PURE__*/React.createElement("div", {
-    className: "task-detail-actions",
-    style: {
-      display: "flex",
-      gap: 8,
-      justifyContent: "flex-end",
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => {
-      setIsEditing(false);
-      resetForm();
-    }
-  }, "Batal"), /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-primary btn-sm",
-    onClick: handleSave,
-    disabled: saving
-  }, saving ? "Menyimpan..." : "💾 Simpan")) : /*#__PURE__*/React.createElement("div", {
-    className: "task-detail-actions",
-    style: {
-      display: "flex",
-      gap: 8,
-      justifyContent: "flex-end",
-      flexWrap: "wrap"
-    }
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-danger btn-sm",
-    onClick: onDelete
-  }, "\uD83D\uDDD1\uFE0F Hapus"), canMove && !moveOpen && /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => setMoveOpen(true)
-  }, /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } }, /*#__PURE__*/React.createElement(Icon, { name: "users", size: 13 }), "Pindah ke Workspace")), task.gtd_status !== "done" && onToggleFocus && /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-sm",
-    onClick: () => {
-      onToggleFocus(task.id);
-      if (!isPanel) onClose();
-    },
-    style: {
-      background: task.is_focused ? "#fef3c7" : "#f8fafc",
-      color: task.is_focused ? "#b45309" : "var(--text-secondary)",
-      border: task.is_focused ? "1px solid #fde68a" : "1px solid var(--border)"
-    }
-  }, /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", alignItems: "center", gap: 5 } }, /*#__PURE__*/React.createElement(Icon, { name: "star", size: 13, style: { fill: task.is_focused ? "currentColor" : "none" } }), "Fokus")), !isPanel && /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-secondary btn-sm",
-    onClick: () => setIsEditing(true)
-  }, "\u270F\uFE0F Edit"), task.gtd_status !== "done" && /*#__PURE__*/React.createElement("button", {
-    className: "btn btn-success btn-sm",
-    onClick: onDone
-  }, "\u2705 Done")), tagTasksModal && /*#__PURE__*/React.createElement("div", {
+    collaborators: collaborators,
+    bare: true,
+    onCount: setNotesCount
+  })), tabPanel("attachments", /*#__PURE__*/React.createElement(ModalAttachments, {
+    taskId: task.id,
+    bare: true,
+    onCount: setAttCount
+  })), tagTasksModal && /*#__PURE__*/React.createElement("div", {
     ref: tagOverlayRef,
     style: {
       position: "absolute",
@@ -26687,7 +27174,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v472-tema-fondasi"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v473-detail-baru"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

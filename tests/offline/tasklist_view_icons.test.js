@@ -155,14 +155,14 @@ test("CSS segmented toggle", async (t) => {
   });
 });
 
-test("cache bust v432 + app.css?v=369", async (t) => {
+test("cache bust v432 + app.css?v=370", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v472-tema-fondasi";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v472-tema-fondasi";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v472-tema-fondasi"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v473-detail-baru";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v473-detail-baru";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v473-detail-baru"/);
   });
 
-  await t.test("index.html memuat app.css?v=369", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=369">/);
+  await t.test("index.html memuat app.css?v=370", () => {
+    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=370">/);
   });
 });

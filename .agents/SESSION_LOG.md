@@ -4172,6 +4172,8 @@
 - **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js (versi), tests/test_static_revalidate.py, tests/test_theme_node.py, temporary_files/e2e_tema_fondasi.py, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — commit lokal, belum push/PR (kontroler membuka PR draft setelah review akhir).
 
+- 2026-10-27 00:15 WIB (Claude): brainstorming redesain detail task selesai (A + pendekatan 1, bagian 1–4); spec dan plan ditulis di branch `claude/redesain-detail-task` dan disalin ke Project. Keputusan tambahan saat menulis: aturan simpan properti tunggal (menutup popover = commit field; deadline & menunggu jadi pemicu "blur"), posisi popover lewat fungsi murni `TF.taskdetail.popoverPosition`, harness E2E baru `temporary_files/e2e_detail_redesign.py`. Menunggu review Bapak sebelum eksekusi.
+
 ## [2026-10-27 01:00] - Claude
 - **Task:** Tema PR A `claude/tema-fondasi-token` — perbaikan temuan review akhir seluruh branch.
 - **Changes:** skrip boot `tf-theme-boot` dipindah ke `<head>` tepat setelah meta `theme-color` (sebelum stylesheet aplikasi/vendor; isi sama, komentar diperjelas); `setThemePrefs` menulis hanya kunci patch (`writePrefs(safeLocalStorage(), patch)`); ratchet allowlist `===`; tes posisi boot + tulis patch di `theme_boot.test.js`; spec §3.1/§3.2/§3.3/§3.4/§5/§8 diselaraskan (token aksen tambahan, ADR-033, harness `e2e_tema_fondasi.py` toleransi 3); ADR-033 (7)/(8), CURRENT_STATE (judul, catatan piksel, sisa PR B (9)); entri SESSION_LOG 2026-10-26 22:50 dipindah ke urutan kronologis.
@@ -4184,3 +4186,11 @@
 - **Changes:** PR #99 di-merge (7364f7c); workflow Deploy Taskflow V4 dan Tests di main sukses. SW v472 `taskflow-v472-tema-fondasi`, `app.css?v=369`.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed. Berikutnya: PR B (palet Sakura + Lavender, kartu Tampilan) — lihat "Sisa untuk PR B" di CURRENT_STATE.
+
+## [2026-10-27 02:10] - Claude
+- **Task:** Redesain detail task `claude/redesain-detail-task` — Task 8 rilis: merge `origin/main` b365263 (tema PR A #99), rilis v473, dokumen.
+- **Changes:** merge commit (konflik `.gitignore`, `app.css`, `index.html`, `CURRENT_STATE.md`, `SESSION_LOG.md`: token tema main + tampilan detail branch); latar lembut beraksen di blok Detail task → `var(--accent-soft)`; SW `taskflow-v473-detail-baru`, `app.css?v=370`, entri `whatsnew.json` teratas; ADR-034; spec (status, keputusan pelaksanaan, tindak lanjut) + plan (penomoran ulang).
+- **Verifikasi:** PROTOCOL §4 33 passed; npm 3288/3287 (pra-ada `draw_local_reactive`); pytest 1230 passed 1 skipped; inline OK (6); E2E detail 310/0, task_detail_body 104/0, live_edit 122/0.
+- **Files Touch:** .gitignore, static/app.css, static/index.html, static/sw.js, static/whatsnew.json, tests/offline/*.test.js (versi), tests/offline/task_detail_redesign.test.js, docs/superpowers/specs/2026-10-26-redesain-detail-task-design.md, docs/superpowers/plans/2026-10-26-redesain-detail-task.md, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal, belum push/PR (kontroler).
+- **Perbaikan review akhir:** DatePicker mengabaikan `validity.badInput` dan tak terkendali (`defaultValue`) — tanggal setengah diketik tidak lagi menghapus deadline saat popover ditutup (E2E P-8 baru, gagal sebelum perbaikan); tambah checklist/subtask/tag hanya mengosongkan input bila masih berisi teks yang dikirim; komentar & baris kosong dirapikan.

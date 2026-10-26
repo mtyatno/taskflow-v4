@@ -1,4 +1,7 @@
 """E2E "Live Edit" (PR B): tombol Live Edit + panel detail task di samping daftar, autosave. Tidak dijalankan CI.
+Disesuaikan dengan redesain detail task 2026-10-26: properti diubah lewat popover kisi properti (tanpa select),
+Proyek/Tahap lewat NamePicker ("Cari atau buat baru…"), Selesai/Buka lagi dan ⋯ "Aksi lain" → Hapus di bar atas
+`.td-top` (bar aksi bawah sudah tidak ada).
 
 Spec §9.4 (docs/superpowers/specs/2026-10-26-live-edit-design.md) plus kasus dari review tiap task. Browser 1280 px
 kecuali dicatat lain. Server lokal dijalankan sendiri (uvicorn webapp:app, DB sementara); host luar diblokir;
@@ -12,18 +15,21 @@ kecuali dicatat lain. Server lokal dijalankan sendiri (uvicorn webapp:app, DB se
      sepanjang B (online) tidak ada request tulis ke /api/tasks*
   B  sidebar lebar dan sidebar ikon × Normal / Compact / Kanban: task pertama terbuka, klik mengganti panel + sorotan,
      lebar panel = clamp(round(w × 0.5), 420, 680)
-  C  Priority langsung, deskripsi setelah diam, judul saat blur → reload → bertahan; tag task tetap saat judul diubah;
+  C  Prioritas (popover) langsung, deskripsi setelah diam, judul saat blur → reload → bertahan; tag task tetap saat judul diubah;
      `#tagbaru` di judul menjadi tag; tag dihapus di luar panel tidak dipulihkan oleh simpan judul berikutnya (R21)
-  K  "+ Baru" project lalu diam 2 dtk → project lama tidak hilang; nama baru yang diketik TIDAK tersimpan karena diam,
-     hanya saat keluar field / Enter (R19); nama diketik dua bagian dengan jeda 2 dtk → server hanya punya nama lengkap
-     (project dan context/tahap, tanpa nama setengah jadi); memilih opsi yang sudah ada tersimpan langsung
+  K  popover Proyek dibuka lalu diam 2 dtk → project lama tidak hilang; nama baru yang diketik TIDAK tersimpan karena
+     diam, hanya saat Enter (R19); nama diketik dua bagian dengan jeda 2 dtk → server hanya punya nama lengkap
+     (project dan context/tahap, tanpa nama setengah jadi); setengah diketik lalu klik di luar → tidak tersimpan;
+     memilih opsi yang sudah ada tersimpan langsung
   E  offline (CDP) → edit → outbox bertambah, server belum berubah → online → tersinkron
-  F  Done → task tetap di panel dan hilang dari Next, status dikembalikan → muncul lagi; Hapus → "Pilih task di daftar";
+  F  Selesai → task tetap di panel dan hilang dari Next, tombol menjadi "Buka lagi" → muncul lagi; ⋯ → Hapus →
+     "Pilih task di daftar";
      task terpilih dihapus di tempat lain → hanya teks "sudah dihapus"; drag kartu Kanban → pilihan tidak berubah
   H  mode gelap (warna panel dan sorotan lewat token)
   G  375 px dan 900 px dengan sidebar lebar → tidak ada tombol/panel, klik membuka modal
-  I  task tinggi (deskripsi panjang + checklist): bar aksi (Hapus … Done) di dalam viewport pada scrollTop 0 dan setelah
-     digulir; tanpa kedip panel di sekitar ambang 760 px (scrollbar klasik sungguhan, bukan `--hide-scrollbars`)
+  I  task tinggi (deskripsi panjang + checklist): bar atas `.td-top` (Fokus, Selesai, ⋯) terlihat pada scrollTop 0,
+     tetap di viewport saat halaman digulir, dan menempel di puncak aside (top ≈ aside.top) saat isi panel digulir;
+     tanpa kedip panel di sekitar ambang 760 px (scrollbar klasik sungguhan, bukan `--hide-scrollbars`)
   Z  tanpa error konsol/pageerror. Dua pengecualian, keduanya dicetak jumlahnya di akhir:
      (1) pra-ada, juga dengan Live Edit mati: setelah hapus + sync, syncpull mencatat 404 untuk `GET /api/tasks/:id`
          (konfirmasi "task benar-benar hilang"). Pengecualian konsol hanya berdasarkan path; karena itu akhir skrip
@@ -64,7 +70,7 @@ EMPTY_TEXT = "Tidak ada task"
 PANEL = "aside.tl-live-panel"
 
 T_ALPHA = "Alpha rapat mingguan"      # P1, @kantor, Proyek Satu, tag #kerja (lokal), punya task anak
-T_BRAVO = "Bravo beli kertas"          # P2, @toko, Proyek Satu   → Done
+T_BRAVO = "Bravo beli kertas"          # P2, @toko, Proyek Satu   → Selesai
 T_CHARLIE = "Charlie telepon vendor"   # P3, @kantor              → drag Kanban
 T_DELTA = "Delta rapikan berkas"       # P4, @rumah, Proyek Dua   → Hapus
 T_FOX = "Foxtrot cadangan"             # P3, @rumah               → edit offline
@@ -273,24 +279,62 @@ def selected_text(page, sel):
     return loc.first.inner_text() if loc.count() == 1 else None
 
 
-def pri_select(page):
-    return page.locator(PANEL + " select:has(option[value='P1'])").first
+POP = ".td-pop"
 
 
-def gtd_select(page):
-    return page.locator(PANEL + " select:has(option[value='someday'])").first
+def prop_btn(page, label):
+    """Tombol nilai properti di kisi detail panel (aria-label "<Label>: <nilai|kosong>")."""
+    return page.locator('%s button.td-prop-val[aria-label^="%s: "]' % (PANEL, label)).first
+
+
+def prop_text(page, label):
+    return prop_btn(page, label).inner_text().strip()
+
+
+def pops(page):
+    return page.locator(POP).count()
+
+
+def set_priority(page, pri):
+    """Popover Prioritas → pilih `pri` ("P1".."P4"); tersimpan langsung (pilihan popover)."""
+    prop_btn(page, "Prioritas").click()
+    page.locator(POP).first.wait_for(timeout=3000)
+    page.locator(POP + " button", has_text=re.compile(r"^\s*%s\b" % pri)).first.click()
+    wait_until(lambda: pops(page) == 0, 3)
+
+
+def open_name_picker(page, label):
+    """Popover Proyek/Tahap (NamePicker): input cari terfokus. Mengembalikan input."""
+    prop_btn(page, label).click()
+    inp = page.locator(POP + " input[placeholder='Cari atau buat baru…']").first
+    inp.wait_for(state="visible", timeout=3000)
+    return inp
+
+
+def pop_option(page, text):
+    return page.locator(POP + " button", has=page.locator(".td-pop-label", has_text=re.compile(
+        "^" + re.escape(text) + "$"))).first
 
 
 def desc_area(page):
-    return page.locator(PANEL + " textarea").first
+    return page.locator(PANEL + " textarea[aria-label='Deskripsi']").first
+
+
+def top_btn(page, text):
+    """Tombol teks di bar atas panel (Selesai / Buka lagi)."""
+    return page.locator(PANEL + " .td-top button", has_text=text).first
+
+
+def menu_action(page, text):
+    """⋯ "Aksi lain" → butir menu `text` (Pindah ke Workspace / Hapus)."""
+    page.locator(PANEL + " button[aria-label='Aksi lain']").first.click()
+    page.locator(POP + " [role='menuitem']", has_text=text).first.click()
 
 
 def panel_tags(page):
+    # Sekali baca (all_inner_texts): count() lalu nth(i).inner_text() menunggu hingga 30 dtk bila chip hilang di antaranya.
     spans = page.locator(PANEL + " span[title='Klik untuk lihat semua task dengan tag ini']")
-    out = []
-    for i in range(spans.count()):
-        out.append(re.sub(r"[#×\s]", "", spans.nth(i).inner_text()))
-    return sorted(out)
+    return sorted(re.sub(r"[#×\s]", "", t) for t in spans.all_inner_texts())
 
 
 def row(page, title):
@@ -300,10 +344,6 @@ def row(page, title):
 def click_row(page, title):
     row(page, title).click()
     return wait_title(page, title)
-
-
-def panel_btn(page, text):
-    return page.locator(PANEL + " button", has_text=text).first
 
 
 def outbox_count(page):
@@ -405,12 +445,14 @@ def shot(page, name):
 
 
 def panel_geom(page):
+    """Geometri aside panel dan bar atas `.td-top` (Fokus, Selesai, ⋯) di dalamnya."""
     return page.evaluate("""() => {
         const a = document.querySelector('aside.tl-live-panel');
         if (!a) return null;
-        const bar = a.querySelector('.task-detail-actions');
+        const bar = a.querySelector('.td-top');
         const r = a.getBoundingClientRect(), b = bar && bar.getBoundingClientRect();
         return {scrollY: Math.round(scrollY), vh: innerHeight, asideTop: Math.round(r.top), asideBottom: Math.round(r.bottom),
+                asideInnerTop: Math.round(r.top + a.clientTop), asideScroll: Math.round(a.scrollTop),
                 barTop: b ? Math.round(b.top) : null, barBottom: b ? Math.round(b.bottom) : null,
                 scrollH: a.scrollHeight, clientH: a.clientHeight, docH: document.documentElement.scrollHeight,
                 width: Math.round(r.width)};
@@ -418,8 +460,14 @@ def panel_geom(page):
 
 
 def bar_in_viewport(g):
+    """Bar atas terlihat: di dalam viewport, di dalam aside, dan aside seluruhnya di dalam viewport."""
     return bool(g) and g["barTop"] is not None and g["barTop"] >= 0 and g["barBottom"] <= g["vh"] \
-        and g["asideBottom"] <= g["vh"]
+        and g["barTop"] >= g["asideTop"] - 1 and g["barBottom"] <= g["asideBottom"] and g["asideBottom"] <= g["vh"]
+
+
+def bar_stuck(g, tol=2):
+    """Bar atas menempel di puncak aside (top ≈ aside.top) walau isi aside sudah digulir."""
+    return bar_in_viewport(g) and abs(g["barTop"] - g["asideInnerTop"]) <= tol
 
 
 def root_width(page):
@@ -615,8 +663,8 @@ def scen_edit(browser, base, A, ids):
         check("C0 task Alpha: tag #kerja tampil di panel", wait_until(lambda: panel_tags(p) == ["kerja"], 8),
               repr(panel_tags(p)))
 
-        # ── Priority: tersimpan langsung ──
-        pri_select(p).select_option("P2")
+        # ── Priority: tersimpan langsung (popover Prioritas) ──
+        set_priority(p, "P2")
         check("C1 Priority diubah → tersimpan lokal dalam 1 dtk (langsung, tanpa menunggu diam 1,5 dtk)",
               wait_until(lambda: local_task(p, aid)["priority"] == "P2", 1), "lokal=" + local_task(p, aid)["priority"])
         check("C1a Priority P2 sampai ke server (push outbox)",
@@ -678,10 +726,10 @@ def scen_edit(browser, base, A, ids):
         go_next(p)
         click_row(p, new_title)
         check("C8 reload: judul, Priority P2, deskripsi, dan tag bertahan",
-              panel_title(p) == new_title and pri_select(p).input_value() == "P2"
+              panel_title(p) == new_title and prop_text(p, "Prioritas").startswith("P2 ")
               and desc_area(p).input_value() == new_desc
               and wait_until(lambda: panel_tags(p) == ["kerja", "tagbaru"], 8),
-              "judul=%r pri=%r tag=%r" % (panel_title(p), pri_select(p).input_value(), panel_tags(p)))
+              "judul=%r pri=%r tag=%r" % (panel_title(p), prop_text(p, "Prioritas"), panel_tags(p)))
 
         # ── R21: tag dihapus di luar panel (rute lokal, seperti modal) → simpan judul di panel tidak memulihkannya ──
         p.evaluate("async (id) => await api.del('/api/tasks/' + id + '/tags/tagbaru')", aid)
@@ -701,59 +749,64 @@ def scen_edit(browser, base, A, ids):
               "judul=%r lokal=%r panel=%r server=%r" % (local_task(p, aid)["title"], local_tags(p, aid), panel_tags(p),
                                                        server_tags(base, A, aid)))
 
-        # ── K. "+ Baru" project lalu diam: project lama tidak hilang ──
-        proj_sel = p.locator(PANEL + " select:has(option[value='Proyek Satu'])").first
-        check("K0 project awal 'Proyek Satu'", proj_sel.input_value() == "Proyek Satu", proj_sel.input_value())
-        proj_sel.select_option("__new__")
+        # ── K. popover Proyek (NamePicker) terbuka lalu diam: project lama tidak hilang ──
+        check("K0 project awal 'Proyek Satu'", prop_text(p, "Proyek") == "Proyek Satu", prop_text(p, "Proyek"))
+        inp = open_name_picker(p, "Proyek")
         p.wait_for_timeout(2300)  # > TEXT_IDLE_MS
-        check("K1 '+ Baru' dipilih lalu diam 2,3 dtk → project lama masih ada (lokal dan server)",
+        check("K1 popover Proyek dibuka lalu diam 2,3 dtk → project lama masih ada (lokal dan server)",
               local_task(p, aid)["project"] == "Proyek Satu" and server_task(base, A, aid)["project"] == "Proyek Satu",
               repr((local_task(p, aid)["project"], server_task(base, A, aid)["project"])))
         shot(p, "K_new_project_idle.png")
-        new_input = p.locator(PANEL + " input[placeholder='— Project —']").first
-        new_input.fill("Proyek Baru")
+        inp.fill("Proyek Baru")
         p.wait_for_timeout(2300)  # > TEXT_IDLE_MS
-        check("K2 nama baru diketik lalu diam 2,3 dtk → BELUM tersimpan (R19: hanya saat keluar field/Enter)",
-              local_task(p, aid)["project"] == "Proyek Satu", repr(local_task(p, aid)["project"]))
-        new_input.press("Tab")
-        check("K2a keluar field → nama baru tersimpan lokal (dalam 1,5 dtk)",
-              wait_until(lambda: local_task(p, aid)["project"] == "Proyek Baru", 1.5), repr(local_task(p, aid)["project"]))
+        check("K2 nama baru diketik lalu diam 2,3 dtk → BELUM tersimpan (R19: hanya saat Enter / '+ Buat')",
+              local_task(p, aid)["project"] == "Proyek Satu"
+              and p.locator(POP, has_text="+ Buat 'Proyek Baru'").count() == 1, repr(local_task(p, aid)["project"]))
+        inp.press("Enter")
+        check("K2a Enter → nama baru tersimpan lokal (dalam 1,5 dtk), popover tertutup",
+              wait_until(lambda: local_task(p, aid)["project"] == "Proyek Baru" and pops(p) == 0, 1.5),
+              repr(local_task(p, aid)["project"]))
         check("K2b nama project baru sampai ke server",
               wait_until(lambda: server_task(base, A, aid)["project"] == "Proyek Baru", 12),
               repr(server_task(base, A, aid)["project"]))
 
         # ── R19: nama diketik dua bagian dengan jeda 2 dtk → server tidak membuat project/tahap setengah jadi ──
         full_proj = "Pemasaran Kuartal"
-        new_input = p.locator(PANEL + " input[placeholder='— Project —']").first
-        new_input.click()
-        new_input.press("Control+a")
-        new_input.press_sequentially("Pema", delay=40)
+        inp = open_name_picker(p, "Proyek")
+        inp.press_sequentially("Pema", delay=40)
         p.wait_for_timeout(2000)
         check("K3 project 'Pema' + jeda 2 dtk → belum tersimpan (lokal tetap 'Proyek Baru')",
               local_task(p, aid)["project"] == "Proyek Baru", repr(local_task(p, aid)["project"]))
-        new_input.press_sequentially("saran Kuartal", delay=40)
-        new_input.press("Tab")
-        check("K3a keluar field → server menerima nama lengkap",
+        inp.press_sequentially("saran Kuartal", delay=40)
+        inp.press("Enter")
+        check("K3a Enter → server menerima nama lengkap",
               wait_until(lambda: server_task(base, A, aid)["project"] == full_proj, 12),
               repr(server_task(base, A, aid)["project"]))
         settle_outbox(p)
         projs = api(base, A, "GET", "/api/projects")
         check("K3b daftar project server: hanya nama lengkap, tanpa 'Pema…' setengah jadi",
               [n for n in projs if n.lower().startswith("pema")] == [full_proj], repr(projs))
+        # setengah diketik lalu popover ditutup (klik di luar) → tidak tersimpan sama sekali
+        inp = open_name_picker(p, "Proyek")
+        inp.press_sequentially("Setengah", delay=40)
+        p.locator(PANEL + " .td-meta").first.click()
+        p.wait_for_timeout(2300)
+        settle_outbox(p)
+        check("K3c 'Setengah' diketik lalu klik di luar popover → popover tertutup, project tetap, tanpa project baru",
+              pops(p) == 0 and local_task(p, aid)["project"] == full_proj
+              and server_task(base, A, aid)["project"] == full_proj
+              and not [n for n in api(base, A, "GET", "/api/projects") if n.lower().startswith("setengah")],
+              repr((local_task(p, aid)["project"], api(base, A, "GET", "/api/projects"))))
 
-        ctx_sel = p.locator(PANEL + " select:has(option[value='@kantor'])").first
-        check("K4 context awal '@kantor'", ctx_sel.input_value() == "@kantor", ctx_sel.input_value())
-        ctx_sel.select_option("__new__")
-        ctx_input = p.locator(PANEL + " input[placeholder='— Context —']").first
-        ctx_input.wait_for(state="visible", timeout=3000)
-        ctx_input.click()
+        check("K4 context/tahap awal '@kantor'", prop_text(p, "Tahap") == "@kantor", prop_text(p, "Tahap"))
+        ctx_input = open_name_picker(p, "Tahap")
         ctx_input.press_sequentially("@gud", delay=40)
         p.wait_for_timeout(2000)
-        check("K4a context '@gud' + jeda 2 dtk → belum tersimpan (lokal tetap '@kantor')",
+        check("K4a tahap '@gud' + jeda 2 dtk → belum tersimpan (lokal tetap '@kantor')",
               local_task(p, aid)["context"] == "@kantor", repr(local_task(p, aid)["context"]))
         ctx_input.press_sequentially("ang", delay=40)
         ctx_input.press("Enter")
-        check("K4b Enter di field context → tersimpan lokal (dalam 1,5 dtk) dan sampai ke server",
+        check("K4b Enter di popover Tahap → tersimpan lokal (dalam 1,5 dtk) dan sampai ke server",
               wait_until(lambda: local_task(p, aid)["context"] == "@gudang", 1.5)
               and wait_until(lambda: server_task(base, A, aid)["context"] == "@gudang", 12),
               repr((local_task(p, aid)["context"], server_task(base, A, aid)["context"])))
@@ -763,12 +816,10 @@ def scen_edit(browser, base, A, ids):
         check("K4c daftar context/tahap server: hanya '@gudang', tanpa '@gud' setengah jadi",
               [n for n in names if n and n.lower().startswith("@gud")] == ["@gudang"], repr(names))
 
-        # Opsi yang sudah ada di scope: tersimpan langsung tanpa keluar field.
-        p.locator(PANEL + " span[title='Kembali ke daftar']").first.click()
-        proj_sel = p.locator(PANEL + " select:has(option[value='Proyek Dua'])").first
-        proj_sel.wait_for(state="visible", timeout=3000)
-        proj_sel.select_option("Proyek Dua")
-        check("K5 memilih project yang sudah ada → tersimpan lokal langsung (dalam 1 dtk, tanpa keluar field)",
+        # Opsi yang sudah ada di scope: tersimpan langsung saat diklik.
+        open_name_picker(p, "Proyek")
+        pop_option(p, "Proyek Dua").click()
+        check("K5 memilih project yang sudah ada → tersimpan lokal langsung (dalam 1 dtk)",
               wait_until(lambda: local_task(p, aid)["project"] == "Proyek Dua", 1), repr(local_task(p, aid)["project"]))
         check("K5b project 'Proyek Dua' sampai ke server",
               wait_until(lambda: server_task(base, A, aid)["project"] == "Proyek Dua", 12),
@@ -784,7 +835,7 @@ def scen_edit(browser, base, A, ids):
         p.wait_for_timeout(500)
         check("E0 offline: navigator.onLine=false", p.evaluate("() => navigator.onLine") is False)
         fid = ids[T_FOX]
-        pri_select(p).select_option("P1")
+        set_priority(p, "P1")
         check("E1 offline: Priority P1 tersimpan lokal (_outbox bertambah)",
               wait_until(lambda: outbox_count(p) > base_n, 6), "sebelum=%r sekarang=%r" % (base_n, outbox_count(p)))
         check("E2 offline: server belum berubah", server_task(base, A, fid)["priority"] == "P3",
@@ -841,38 +892,40 @@ def mouse_drag_card(page, title, col_key):
 
 
 def scen_actions(browser, base, A, ids):
-    """F: Done, Hapus, drag Kanban."""
+    """F: Selesai / Buka lagi, Hapus, drag Kanban."""
     errors = []
     ctx, p = open_app(browser, base, A, 1280, 860, "light", errors, live="1")
     try:
         go_next(p)
         p.wait_for_timeout(500)
-        # ── Done ──
+        # ── Selesai (bar atas) ──
         bid = ids[T_BRAVO]
         click_row(p, T_BRAVO)
-        panel_btn(p, "Done").click()
-        check("F1 Done di panel: task hilang dari Next Actions",
+        top_btn(p, "Selesai").click()
+        check("F1 Selesai di panel: task hilang dari Next Actions",
               wait_until(lambda: p.locator(".task-row", has_text=T_BRAVO).count() == 0, 10))
-        check("F2 Done di panel: task tetap tampil di panel", panel_title(p) == T_BRAVO, repr(panel_title(p)))
+        check("F2 Selesai di panel: task tetap tampil di panel", panel_title(p) == T_BRAVO, repr(panel_title(p)))
         check("F3 server: status done", wait_until(lambda: server_task(base, A, bid)["gtd_status"] == "done", 10),
               server_task(base, A, bid)["gtd_status"])
-        check("F4 panel menampilkan status 'done' (data terbaru) dan tombol Done hilang",
-              wait_until(lambda: gtd_select(p).input_value() == "done", 8)
-              and p.locator(PANEL + " button", has_text="Done").count() == 0,
-              repr(gtd_select(p).input_value()))
+        check("F4 panel menampilkan status 'Done' (data terbaru), tombol 'Selesai' diganti 'Buka lagi'",
+              wait_until(lambda: prop_text(p, "Status") == "Done", 8)
+              and p.locator(PANEL + " .td-top button", has_text="Selesai").count() == 0
+              and top_btn(p, "Buka lagi").is_visible(),
+              repr(prop_text(p, "Status")))
         shot(p, "F_done_in_panel.png")
-        gtd_select(p).select_option("next")
-        check("F5 status dikembalikan ke Next → server next dan task muncul lagi di daftar",
+        top_btn(p, "Buka lagi").click()
+        check("F5 Buka lagi → server next dan task muncul lagi di daftar; tombol kembali 'Selesai'",
               wait_until(lambda: server_task(base, A, bid)["gtd_status"] == "next", 8)
-              and wait_until(lambda: p.locator(".task-row", has_text=T_BRAVO).count() == 1, 10),
+              and wait_until(lambda: p.locator(".task-row", has_text=T_BRAVO).count() == 1, 10)
+              and wait_until(lambda: top_btn(p, "Selesai").is_visible(), 5),
               server_task(base, A, bid)["gtd_status"])
         check("F5b panel tetap di task yang sama", panel_title(p) == T_BRAVO)
 
         # ── Hapus ──
         did = ids[T_DELTA]
         click_row(p, T_DELTA)
-        panel_btn(p, "Hapus").click()
-        check("F6 Hapus (konfirmasi diterima) → panel 'Pilih task di daftar'",
+        menu_action(p, "Hapus")
+        check("F6 ⋯ Aksi lain → Hapus (konfirmasi diterima) → panel 'Pilih task di daftar'",
               wait_until(lambda: p.locator(PANEL + " .tl-live-empty", has_text=PICK_TEXT).count() == 1, 8),
               repr(panel_text(p)))
         check("F6b task hilang dari daftar dan tidak ada sorotan",
@@ -1044,7 +1097,8 @@ def seed_tall(base, name):
 
 
 def scen_tall(browser, base, T):
-    """I (bagian 1): bar aksi panel di dalam viewport pada scrollTop 0 dan setelah digulir; task tinggi."""
+    """I (bagian 1): bar atas panel (Fokus, Selesai, ⋯) terlihat pada scrollTop 0, tetap di viewport saat halaman
+    digulir, dan menempel di puncak aside saat isi panel digulir; task tinggi."""
     errors = []
     ctx, p = open_app(browser, base, T, 1280, 800, "light", errors, live="1")
     try:
@@ -1053,25 +1107,35 @@ def scen_tall(browser, base, T):
         p.locator(PANEL + " span", has_text="Langkah checklist 7").first.wait_for(timeout=10000)
         p.wait_for_timeout(500)
         g0 = panel_geom(p)
-        check("I1 konten panel lebih tinggi dari viewport (task tinggi sungguhan)", g0["scrollH"] > g0["clientH"], repr(g0))
-        check("I2 scrollTop 0: dasar panel dan bar aksi (Hapus … Done) di dalam viewport", bar_in_viewport(g0), repr(g0))
+        check("I1 konten panel lebih tinggi dari panel (task tinggi sungguhan)", g0["scrollH"] > g0["clientH"] + 100,
+              repr(g0))
+        check("I2 scrollTop 0: aside dan bar atas (Fokus … ⋯) di dalam viewport, bar di puncak aside",
+              bar_stuck(g0) and g0["asideScroll"] == 0, repr(g0))
         shot(p, "I_tall_scroll0.png")
         for y in (120, 400, 5000):
             p.evaluate("(y) => window.scrollTo(0, y)", y)
             p.wait_for_timeout(350)
             g = panel_geom(p)
-            check("I3 setelah menggulir ke y=%d (scrollY=%d): bar aksi tetap di dalam viewport" % (y, g["scrollY"]),
+            check("I3 halaman digulir ke y=%d (scrollY=%d): aside dan bar atas tetap di dalam viewport" % (y, g["scrollY"]),
                   bar_in_viewport(g), repr(g))
-        shot(p, "I_tall_scrolled.png")
         p.evaluate("() => window.scrollTo(0, 0)")
         p.wait_for_timeout(350)
-        check("I4 kembali ke scrollTop 0: bar aksi terlihat lagi", bar_in_viewport(panel_geom(p)), repr(panel_geom(p)))
-        # bar aksi benar-benar dapat diklik (tidak tertutup): tombol Done menerima klik di titik tengahnya
-        hit = p.evaluate("""() => { const b = Array.from(document.querySelectorAll('aside.tl-live-panel button'))
-            .find(x => /Done$/.test(x.textContent.trim())); if (!b) return null; const r = b.getBoundingClientRect();
+        for y in (60, 300, 100000):
+            p.evaluate("(y) => { document.querySelector('aside.tl-live-panel').scrollTop = y; }", y)
+            p.wait_for_timeout(350)
+            g = panel_geom(p)
+            check("I3b isi panel digulir (aside.scrollTop=%d): bar atas menempel di puncak aside (top ≈ aside.top)"
+                  % g["asideScroll"], g["asideScroll"] > 0 and bar_stuck(g), repr(g))
+        shot(p, "I_tall_scrolled.png")
+        # bar atas benar-benar dapat diklik saat isi digulir (tidak tertutup isi yang lewat di bawahnya)
+        hit = p.evaluate("""() => { const b = Array.from(document.querySelectorAll('aside.tl-live-panel .td-top button'))
+            .find(x => x.textContent.trim() === 'Selesai'); if (!b) return null; const r = b.getBoundingClientRect();
             const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
             return !!el && (el === b || b.contains(el)); }""")
-        check("I5 tombol Done di bar aksi tidak tertutup elemen lain", hit is True, repr(hit))
+        check("I5 tombol Selesai di bar atas tidak tertutup elemen lain saat isi panel digulir", hit is True, repr(hit))
+        p.evaluate("() => { document.querySelector('aside.tl-live-panel').scrollTop = 0; }")
+        p.wait_for_timeout(350)
+        check("I4 kembali ke scrollTop 0: bar atas di puncak aside", bar_stuck(panel_geom(p)), repr(panel_geom(p)))
         check("Z[6] tanpa error konsol/pageerror (I)", not errors, "; ".join(errors[:5]))
     except Exception as e:  # noqa: BLE001
         fail_exc("I-tall", e, p)
@@ -1179,7 +1243,7 @@ def main():
                 print("== C/K/E: edit, '+ Baru', offline ==", flush=True)
                 scen_edit(browser, base, A, ids)
             if want("actions"):
-                print("== F: Done, Hapus, drag Kanban ==", flush=True)
+                print("== F: Selesai, Hapus, drag Kanban ==", flush=True)
                 scen_actions(browser, base, A, ids)
             if want("dark"):
                 print("== H: mode gelap ==", flush=True)
@@ -1188,7 +1252,7 @@ def main():
                 print("== G: 375 px dan 900 px ==", flush=True)
                 scen_narrow(browser, base, A)
             if want("tall"):
-                print("== I: task tinggi, bar aksi ==", flush=True)
+                print("== I: task tinggi, bar atas ==", flush=True)
                 scen_tall(browser, base, T)
             browser.close()
             if want("flicker"):

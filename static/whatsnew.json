@@ -1,5 +1,9 @@
 {
   "entries": [
+    {"version": "taskflow-v473-detail-baru", "date": "2026-10-27", "title": "Tampilan detail task baru",
+     "new": ["Klik nilai mana pun di detail task untuk mengubahnya; perubahan tersimpan otomatis, juga di jendela detail di HP.",
+             "Subtask, checklist, catatan, dan lampiran kini dalam tab dengan jumlah isinya.",
+             "Atur progress dengan cepat lewat pilihan 0, 25, 50, 75, atau 100%."]},
     {"version": "taskflow-v472-tema-fondasi", "date": "2026-10-27", "silent": true},
     {"version": "taskflow-v471-simpan-tag", "date": "2026-10-26", "title": "Tag task tidak hilang lagi",
      "fixed": ["Menyimpan perubahan task kini tidak lagi menghapus tag-nya.",

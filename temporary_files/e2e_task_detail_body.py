@@ -1,19 +1,20 @@
-"""E2E modal detail task setelah isinya dipisah ke TaskDetailBody (PR A "Live Edit"): perilaku harus sama
-dengan sebelum refaktor. Tidak dijalankan CI. Bisa dijalankan juga di `main` (salin skrip ke worktree main)
-untuk membandingkan screenshot secara visual.
+"""E2E modal detail task (TaskDetailBody), disesuaikan dengan redesain detail task 2026-10-26 (bar atas, kisi
+properti klik-untuk-ubah dengan popover, simpan otomatis di modal, tab Subtask/Checklist/Catatan/Lampiran; mode
+✏️ Edit / 💾 Simpan sudah tidak ada). Tidak dijalankan CI.
 
 Empat kombinasi: 1280 px dan 375 px, masing-masing terang dan gelap. Tiap kombinasi:
-  a  buka task dari daftar "Semua Task" → modal tampil, judul benar, ✕ ada di KANAN judul (di dalam modal)
+  a  buka task dari daftar "Semua Task" → modal tampil, input "Judul task" berisi judul, ✕ ada di ujung KANAN bar
+     atas `.td-top` (di dalam modal, di atas judul)
   b  ✕ menutup modal; klik overlay (di luar modal) juga menutup
   d  klik tag → overlay "Task dengan tag" menutupi seluruh `.modal-content` (bounding box sama); × menutup overlay
-  e  klik task anak di bagian Subtask → modal berpindah ke task anak (judul + id anak)
-  c  ✏️ Edit → ubah Priority ke P1 → 💾 Simpan → modal tertutup; server P1; setelah reload badge P1 dan chip tag
-     tetap tampil (bug lama 2026-10-26: simpan form dulu menghapus semua tag task)
+  e  tab Subtask → ↗ "Buka subtask" pada baris task anak → modal berpindah ke task anak (judul + `#id` anak)
+  c  popover Prioritas → "P1 Critical" (tersimpan otomatis) → ✕ → server P1; setelah reload nilai Prioritas
+     "P1 Critical" dan chip tag tetap tampil (bug lama 2026-10-26: simpan form dulu menghapus semua tag task)
   f  tidak ada error konsol / pageerror dari aplikasi (permintaan ke host luar diblokir; errornya diabaikan)
   g  (1280 px, user sendiri) tag task tetap saat task disimpan: task dibuat di aplikasi dengan `#tag` di judul →
-     💾 Simpan modal / body form edit lengkap (TaskFormModal) / chip triage "⚡ Next" di Inbox → tag tetap di lokal,
-     server (setelah sync), dan chip setelah reload; tag yang dihapus lewat chip × lalu simpan perubahan lain →
-     tidak kembali, juga di server
+     ubah judul + Prioritas di modal (simpan otomatis) / body form edit lengkap (TaskFormModal, tidak berubah) /
+     chip triage "⚡ Next" di Inbox → tag tetap di lokal, server (setelah sync), dan chip setelah reload; tag yang
+     dihapus lewat × "Hapus tag <nama>" lalu simpan perubahan lain (Prioritas) → tidak kembali, juga di server
   h  overlay "Task dengan tag" saat wadah sudah digulir (modal 375 px, panel Live Edit 1280 px): bounding box overlay =
      area terlihat wadah, gulir wadah terkunci selama overlay terbuka, × → overflow semula dan bisa digulir lagi;
      pindah task di panel saat overlay terbuka → overflow aside kembali (bug lama 2026-10-26: overlay di atas isi)
@@ -163,12 +164,45 @@ def go_all_tasks(page, mobile):
     page.locator(".task-row").first.wait_for(timeout=15000)
 
 
+TITLE_INPUT = "input[aria-label='Judul task']"
+POP = ".td-pop"
+
+
+def title_value(page, scope=".modal-content"):
+    """Isi input "Judul task" di `scope`; None bila tidak ada."""
+    inp = page.locator(scope + " " + TITLE_INPUT)
+    return inp.first.input_value() if inp.count() else None
+
+
 def open_task(page, title):
     page.locator(".task-row", has_text=title).first.click()
     modal = page.locator(".modal-content").first
     modal.wait_for(timeout=10000)
-    page.locator(".modal-content h2", has_text=title).wait_for(timeout=10000)
+    if not wait_until(lambda: title_value(page) == title, 10):
+        raise AssertionError("modal tidak menampilkan judul %r (ada %r)" % (title, title_value(page)))
     return modal
+
+
+def prop_btn(scope, label):
+    """Tombol nilai properti di kisi detail (aria-label "<Label>: <nilai|kosong>")."""
+    return scope.locator('button.td-prop-val[aria-label^="%s: "]' % label).first
+
+
+def pick_priority(page, scope, pri):
+    """Popover Prioritas → pilih `pri` ("P1".."P4"); tersimpan otomatis. True bila nilai tombol berubah."""
+    prop_btn(scope, "Prioritas").click()
+    page.locator(POP).first.wait_for(timeout=3000)
+    page.locator(POP + " button", has_text=re.compile(r"^\s*%s\b" % pri)).first.click()
+    return wait_until(lambda: prop_btn(scope, "Prioritas").inner_text().strip().startswith(pri + " ")
+                      and not page.locator(POP).count(), 3)
+
+
+def set_title(scope, text):
+    """Ganti isi input "Judul task" lalu Enter (simpan judul)."""
+    inp = scope.locator(TITLE_INPUT).first
+    inp.click()
+    inp.fill(text)
+    inp.press("Enter")
 
 
 def seed_local_tags(page, titles, tag):
@@ -255,8 +289,10 @@ def local_task(page, task_id):
 
 def chip_tags(scope):
     """Nama tag pada chip di detail task (`scope` = locator modal / panel)."""
+    # Sekali baca (all_inner_texts): count() lalu nth(i).inner_text() menunggu hingga 30 dtk bila chip hilang di
+    # antaranya (mis. tepat sesudah × diklik) dan menghabiskan jendela wait_until.
     spans = scope.locator("span[title='Klik untuk lihat semua task dengan tag ini']")
-    return sorted(re.sub(r"[#×\s]", "", spans.nth(i).inner_text()) for i in range(spans.count()))
+    return sorted(re.sub(r"[#×\s]", "", t) for t in spans.all_inner_texts())
 
 
 def go_sidebar(page, label):
@@ -305,32 +341,41 @@ def run_tags(browser, base, user):
         reload_app(p)
         go_all_tasks(p, False)
 
-        # ── g1. modal: ✏️ Edit → Priority → 💾 Simpan → tag tetap (lokal, server, chip setelah reload) ──
+        # ── g1. modal: ubah judul (Enter) + Prioritas lewat popover (simpan otomatis) → tag tetap (lokal, server, chip) ──
         title, tags, _g = TG_MODAL
         mid = ids[title]
+        new_title = title + " baru"
         modal = open_task(p, title)
         check("%s g1a chip tag tampil sebelum simpan" % tag,
               wait_until(lambda: chip_tags(modal) == tags, 8), repr(chip_tags(modal)))
-        modal.get_by_role("button", name=re.compile("Edit")).first.click()
-        modal.locator("select").first.select_option("P1")
-        modal.locator("button", has_text="\U0001F4BE Simpan").first.click()
+        set_title(modal, new_title)
+        check("%s g1b ubah judul di modal (Enter): judul lokal baru, tag lokal tetap, chip tetap" % tag,
+              wait_until(lambda: local_task(p, mid)["title"] == new_title and local_tags(p, mid) == tags
+                         and chip_tags(modal) == tags, 6),
+              "judul=%r tag=%r chip=%r" % (local_task(p, mid)["title"], local_tags(p, mid), chip_tags(modal)))
+        check("%s g1c popover Prioritas → P1 (simpan otomatis)" % tag, pick_priority(p, modal, "P1"),
+              prop_btn(modal, "Prioritas").inner_text())
+        close_btn(p).click()
         wait_closed(p)
-        check("%s g1b 💾 Simpan modal: tag lokal tetap" % tag,
+        check("%s g1d setelah ✕: tag lokal tetap" % tag,
               wait_until(lambda: local_tags(p, mid) == tags, 6), repr(local_tags(p, mid)))
-        check("%s g1c server: Priority P1 tersimpan DAN tag tetap" % tag,
-              wait_until(lambda: server_priority(base, user, mid) == "P1" and server_tags(base, user, mid) == tags, 15),
-              "pri=%r tag=%r" % (server_priority(base, user, mid), server_tags(base, user, mid)))
+        check("%s g1e server: judul baru dan Priority P1 tersimpan DAN tag tetap" % tag,
+              wait_until(lambda: server_priority(base, user, mid) == "P1" and server_tags(base, user, mid) == tags
+                         and server_task(base, user, mid)["title"] == new_title, 15),
+              "pri=%r tag=%r judul=%r" % (server_priority(base, user, mid), server_tags(base, user, mid),
+                                         server_task(base, user, mid)["title"]))
         reload_app(p)
         go_all_tasks(p, False)
-        modal = open_task(p, title)
-        check("%s g1d setelah reload: chip tag dan badge P1 tampil" % tag,
-              wait_until(lambda: chip_tags(modal) == tags, 8) and modal.locator(".badge-p1").first.is_visible(),
-              repr(chip_tags(modal)))
+        modal = open_task(p, new_title)
+        check("%s g1f setelah reload: chip tag dan Prioritas 'P1 Critical' tampil" % tag,
+              wait_until(lambda: chip_tags(modal) == tags, 8)
+              and prop_btn(modal, "Prioritas").inner_text().strip() == "P1 Critical",
+              "chip=%r pri=%r" % (chip_tags(modal), prop_btn(modal, "Prioritas").inner_text()))
         close_btn(p).click()
         wait_closed(p)
 
         # ── g2. form edit lengkap (TaskFormModal): payload sama persis dengan handleSubmit mode edit ──
-        # Catatan: di main tidak ada tombol yang membuka TaskFormModal mode edit (prop onEdit TaskDetailModal tidak
+        # Catatan: tidak ada tombol yang membuka TaskFormModal mode edit (prop onEdit TaskDetailModal tidak
         # dipakai TaskDetailBody), jadi body `{...form, ...recurrencePayload}` dikirim lewat `api.put` aplikasi.
         title, tags, _g = TG_FORM
         fid = ids[title]
@@ -370,14 +415,12 @@ def run_tags(browser, base, user):
         go_all_tasks(p, False)
         modal = open_task(p, title)
         wait_until(lambda: chip_tags(modal) == tags, 8)
-        chip = modal.locator("span[title='Klik untuk lihat semua task dengan tag ini']", has_text="mingguan").first
-        chip.locator("span").filter(has_text=re.compile(r"^×$")).first.click()
-        check("%s g4a chip × menghapus tag 'mingguan' (chip + lokal)" % tag,
+        modal.locator("button[aria-label='Hapus tag mingguan']").first.click()
+        check("%s g4a × 'Hapus tag mingguan' menghapus tag (chip + lokal)" % tag,
               wait_until(lambda: chip_tags(modal) == ["rapat"] and local_tags(p, rid) == ["rapat"], 6),
               "chip=%r lokal=%r" % (chip_tags(modal), local_tags(p, rid)))
-        modal.get_by_role("button", name=re.compile("Edit")).first.click()
-        modal.locator("select").first.select_option("P1")
-        modal.locator("button", has_text="\U0001F4BE Simpan").first.click()
+        pick_priority(p, modal, "P1")
+        close_btn(p).click()
         wait_closed(p)
         check("%s g4b simpan sesudahnya: tag lokal = rapat saja ('mingguan' tidak kembali, 'rapat' tidak hilang)" % tag,
               wait_until(lambda: local_tags(p, rid) == ["rapat"], 6), repr(local_tags(p, rid)))
@@ -418,18 +461,24 @@ def run_combo(browser, base, user, parent, child, label, w, h, theme):
         n_tagged = seed_local_tags(p, [T_PARENT, T_OTHER], TAG)
         check("%s setup: tag #%s dipasang di task induk dan task lain" % (tag, TAG), n_tagged == 2, repr(n_tagged))
 
-        # ── a. modal tampil, ✕ di kanan judul ─────────────────────────────────────
+        # ── a. modal tampil, ✕ di ujung kanan bar atas ─────────────────────────────
         modal = open_task(p, T_PARENT)
-        check("%s a1 modal tampil dengan judul task" % tag,
-              modal.is_visible() and p.locator(".modal-content h2").first.inner_text().strip() == T_PARENT)
+        check("%s a1 modal tampil dengan judul task (input 'Judul task')" % tag,
+              modal.is_visible() and title_value(p) == T_PARENT, repr(title_value(p)))
         mb = modal.bounding_box()
-        hb = p.locator(".modal-content h2").first.bounding_box()
+        tb = p.locator(".modal-content .td-top").first.bounding_box()
+        ib = p.locator(".modal-content " + TITLE_INPUT).first.bounding_box()
         cb = close_btn(p).bounding_box()
+        # tombol lain di bar atas (Fokus, Selesai, ⋯) semuanya di kiri ✕
+        others = p.evaluate("""() => Array.from(document.querySelectorAll('.modal-content .td-top-actions button'))
+            .map(b => b.getBoundingClientRect().right)""")
         in_modal = cb["x"] >= mb["x"] and cb["x"] + cb["width"] <= mb["x"] + mb["width"] + 0.5
-        check("%s a2 ✕ di kanan judul dan di dalam modal" % tag,
-              cb["x"] >= hb["x"] + hb["width"] - 1 and in_modal and cb["y"] < hb["y"] + hb["height"],
-              "h2 kanan=%.0f ✕ x=%.0f..%.0f modal %.0f..%.0f" % (hb["x"] + hb["width"], cb["x"], cb["x"] + cb["width"],
-                                                              mb["x"], mb["x"] + mb["width"]))
+        check("%s a2 ✕ di ujung kanan bar atas, di dalam modal, di atas judul" % tag,
+              in_modal and all(r <= cb["x"] + 1 for r in others) and cb["y"] >= tb["y"] - 1
+              and cb["y"] + cb["height"] <= tb["y"] + tb["height"] + 1 and cb["y"] + cb["height"] <= ib["y"] + 1,
+              "✕ x=%.0f..%.0f y=%.0f..%.0f tombol lain kanan=%r td-top y=%.0f..%.0f judul y=%.0f modal %.0f..%.0f" % (
+                  cb["x"], cb["x"] + cb["width"], cb["y"], cb["y"] + cb["height"], [round(r) for r in others],
+                  tb["y"], tb["y"] + tb["height"], ib["y"], mb["x"], mb["x"] + mb["width"]))
         shot(p, "%s_01_detail.png" % tag)
 
         # ── b. ✕ dan klik overlay menutup ──────────────────────────────────────────
@@ -466,41 +515,51 @@ def run_combo(browser, base, user, parent, child, label, w, h, theme):
         check("%s d3 × menutup overlay (modal tetap)" % tag,
               wait_until(lambda: not p.get_by_text("Task dengan tag", exact=False).count(), 5) and modal_count(p) == 1)
 
-        # ── e. klik task anak membuka task anak ─────────────────────────────────
-        child_row = modal.locator("span", has_text=re.compile("^" + re.escape(T_CHILD) + "$")).first
-        child_row.scroll_into_view_if_needed()
-        child_row.click()
-        check("%s e1 klik task anak → modal berpindah ke task anak" % tag,
-              wait_until(lambda: p.locator(".modal-content h2").count() == 1
-                         and p.locator(".modal-content h2").first.inner_text().strip() == T_CHILD, 8),
-              p.locator(".modal-content h2").first.inner_text() if p.locator(".modal-content h2").count() else "tanpa h2")
-        check("%s e2 modal task anak menampilkan id anak (#%d)" % (tag, child["id"]),
-              p.locator(".modal-content").first.inner_text().strip().startswith("#%d\n" % child["id"]),
-              repr(p.locator(".modal-content").first.inner_text()[:12]))
+        # ── e. tab Subtask → ↗ "Buka subtask" membuka task anak ─────────────────────
+        tab = modal.locator('[role="tab"]', has_text=re.compile("^Subtask")).first
+        tab.click()
+        sub = modal.locator(".td-sub-row", has=p.locator(".td-sub-title", has_text=re.compile(
+            "^" + re.escape(T_CHILD) + "$"))).first
+        sub.scroll_into_view_if_needed()
+        check("%s e0 tab Subtask aktif dan memuat baris task anak" % tag,
+              tab.get_attribute("aria-selected") == "true" and sub.is_visible())
+        sub.locator("button[aria-label='Buka subtask']").click()
+        check("%s e1 ↗ Buka subtask → modal berpindah ke task anak" % tag,
+              wait_until(lambda: p.locator(".modal-content " + TITLE_INPUT).count() == 1
+                         and title_value(p) == T_CHILD, 8), repr(title_value(p)))
+        id_text = lambda: p.locator(".modal-content .td-top .td-id").first.inner_text().strip()  # noqa: E731
+        check("%s e2 modal task anak menampilkan id anak (#%d) di bar atas" % (tag, child["id"]),
+              wait_until(lambda: id_text() == "#%d" % child["id"], 5) and modal_count(p) == 1, repr(id_text()))
         shot(p, "%s_03_child.png" % tag)
         close_btn(p).click()
         wait_closed(p)
 
-        # ── c. Edit → priority P1 → Simpan → tag task tetap ───────────────────────────
+        # ── c. popover Prioritas → P1 (simpan otomatis) → ✕ → tag task tetap ───────────
         modal = open_task(p, T_PARENT)
-        modal.get_by_role("button", name=re.compile("Edit")).first.click()
-        sel = modal.locator("select").first
-        sel.wait_for(timeout=5000)
-        check("%s c1 mode edit: field judul + select Priority tampil" % tag,
-              modal.locator("input.input").first.is_visible() and sel.input_value() == "P3", sel.input_value())
-        sel.select_option("P1")
-        shot(p, "%s_04_edit.png" % tag)
-        modal.locator("button", has_text="\U0001F4BE Simpan").first.click()  # bukan tombol "Simpan" lain (sub-task/catatan)
-        check("%s c2 Simpan menutup modal" % tag, wait_closed(p))
+        check("%s c1 nilai Prioritas awal 'P3 …'; detail tanpa select dan tanpa ✏️ Edit / 💾 Simpan" % tag,
+              prop_btn(modal, "Prioritas").inner_text().strip().startswith("P3 ") and modal.locator("select").count() == 0
+              and "\u270f" not in modal.inner_text() and "\U0001F4BE" not in modal.inner_text(),
+              prop_btn(modal, "Prioritas").inner_text())
+        prop_btn(modal, "Prioritas").click()
+        p.locator(POP).first.wait_for(timeout=3000)
+        shot(p, "%s_04_priority_pop.png" % tag)
+        p.locator(POP + " button", has_text=re.compile(r"^\s*P1\b")).first.click()
+        check("%s c2 pilih P1 → popover tertutup, nilai 'P1 Critical', modal tetap terbuka" % tag,
+              wait_until(lambda: prop_btn(modal, "Prioritas").inner_text().strip() == "P1 Critical"
+                         and not p.locator(POP).count(), 3) and modal_count(p) == 1,
+              prop_btn(modal, "Prioritas").inner_text())
+        close_btn(p).click()
+        wait_closed(p)
         check("%s c3 server menyimpan P1" % tag, wait_until(lambda: server_priority(base, user, parent["id"]) == "P1", 10),
               repr(server_priority(base, user, parent["id"])))
         p.reload()
         p.locator(".sidebar-link").first.wait_for(state="attached", timeout=20000)
         go_all_tasks(p, mobile)
         modal = open_task(p, T_PARENT)
-        check("%s c4 setelah reload badge P1 tampil di detail" % tag,
-              modal.locator(".badge-p1").first.is_visible() and not modal.locator(".badge-p3").count())
-        check("%s c5 setelah Simpan + reload chip #%s tetap (dulu simpan form menghapus tag)" % (tag, TAG),
+        check("%s c4 setelah reload nilai Prioritas 'P1 Critical' di detail" % tag,
+              prop_btn(modal, "Prioritas").inner_text().strip() == "P1 Critical",
+              prop_btn(modal, "Prioritas").inner_text())
+        check("%s c5 setelah simpan + reload chip #%s tetap (dulu simpan form menghapus tag)" % (tag, TAG),
               wait_until(lambda: chip_tags(modal) == [TAG], 8), repr(chip_tags(modal)))
 
         # ── f. konsol bersih ─────────────────────────────────────────────────────

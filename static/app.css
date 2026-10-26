@@ -5025,8 +5025,7 @@
 }
 
 /* ── Live Edit: detail task di panel samping (spec live-edit §7) ── */
-/* Judul panel = input bergaya judul; indikator simpan di kanan baris judul (lebar dicadangkan: input judul tidak bergeser saat "Menyimpan…"/"Tersimpan" muncul). */
-.task-detail-title-input { font-size: 18px; font-weight: 700; width: 100%; }
+/* Indikator simpan di bar atas detail (td-top); lebar dicadangkan supaya tombol di kanannya tidak bergeser. */
 .tl-save-ind { font-size: 12px; color: var(--text-light); white-space: nowrap; text-align: right; min-width: 72px; flex-shrink: 0; }
 .tl-save-ind.is-error { color: var(--danger, #dc2626); }
 .tl-save-retry { margin-left: 4px; padding: 0; border: none; background: none; font: inherit; font-weight: 600; color: var(--danger, #dc2626); text-decoration: underline; cursor: pointer; }
@@ -5034,8 +5033,6 @@
 .tl-save-err { margin-top: 2px; max-width: 220px; font-size: 12px; color: var(--danger, #dc2626); white-space: normal; overflow-wrap: anywhere; }
 [data-theme="dark"] .tl-save-ind.is-error, [data-theme="dark"] .tl-save-retry, [data-theme="dark"] .tl-save-err { color: #f87171; }
 [data-theme="dark"] .tl-save-retry:focus-visible { outline-color: var(--accent); }
-/* Aksi bawah menempel di dasar panel saat isi panel di-scroll (padding panel 20 px). */
-.tl-live-panel .task-detail-actions { position: sticky; bottom: -20px; background: var(--bg-card); padding: 12px 0; margin-top: 12px; box-shadow: inset 0 1px 0 var(--border); z-index: 2; }
 /* Tata letak dua kolom saat panel tampil: daftar kiri (ikut gulir halaman), panel kanan sticky di bawah topbar (top/lebar/max-height inline dari useLiveEdit). */
 .tl-live { display: flex; gap: 16px; align-items: flex-start; }
 .tl-live-list { flex: 1; min-width: 0; }
@@ -5047,3 +5044,166 @@
 .tl-live-btn { gap: 6px; }
 @media (max-width: 1100px) { .tl-live-label { display: none; } }
 /* ── Live Edit: akhir ── */
+
+/* ── Detail task: awal ── */
+/* Redesain detail task (spec redesain-detail-task §4.1–§4.3, §5, §7): hanya token warna, tanpa garis aksen di sisi kiri. */
+/* Bar atas: meta kiri (#id • Dibuat …), aksi kanan (indikator, Fokus, Selesai/Buka lagi, ⋯, ✕ modal). */
+.td-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; min-width: 0; }
+.tl-live-panel .td-top { position: sticky; top: -20px; z-index: 3; background: var(--bg-card); margin: -20px -20px 12px; padding: 20px 20px 10px; box-shadow: inset 0 -1px 0 var(--border); }
+.td-top-info { flex: 1 1 auto; min-width: 0; padding-top: 7px; overflow: hidden; }
+/* Meta = teks sebaris biasa (bukan flex, supaya teksnya "#id • Dibuat …" utuh); boleh turun baris di layar sempit. */
+.td-meta { font-size: 12px; line-height: 18px; color: var(--text-light); min-width: 0; overflow-wrap: anywhere; }
+.td-id { display: inline-block; max-width: 14ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: top; }
+/* Tiap bagian (" • Dibuat …") utuh; di layar sempit turun baris di antara bagian, bukan di tengah tanggal. */
+.td-meta-part { display: inline-block; white-space: pre; vertical-align: top; }
+.td-parent { margin-top: 2px; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-top-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.td-top .tl-save-ind { min-width: 0; }
+/* Layar sempit (modal 375 px): aksi di baris pertama (rata kanan, dekat ✕), meta selebar penuh di bawahnya. */
+@media (max-width: 520px) {
+  .td-top { flex-wrap: wrap; row-gap: 4px; }
+  .td-top-actions { flex: 1 1 100%; justify-content: flex-end; }
+  .td-top-info { order: 2; flex-basis: 100%; padding-top: 0; }
+}
+.td-top-actions > span:last-child { line-height: 1; padding: 0 2px; }
+.td-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; transition: background 0.15s; }
+.td-btn:hover { background: var(--bg-hover); }
+.td-btn .td-btn-check { color: var(--success); }
+.td-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text-secondary); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.td-icon-btn:hover, .td-icon-btn[aria-expanded="true"] { background: var(--bg-hover); color: var(--text-primary); }
+.td-icon-btn[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); }
+.td-btn:focus-visible, .td-icon-btn:focus-visible, .td-pill:focus-visible, .td-pop-item:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Judul: input bergaya teks, bingkai hanya saat hover/fokus. */
+.td-title { display: block; box-sizing: border-box; width: calc(100% + 16px); margin: 0 -8px 4px; padding: 4px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-primary); font: inherit; font-size: 20px; font-weight: 700; line-height: 1.3; transition: border-color 0.15s, background 0.15s; }
+.td-title:hover { border-color: var(--border); }
+.td-title:focus { outline: none; border-color: var(--accent); background: var(--bg-card); }
+.td-title-alert { margin: 0 0 6px; font-size: 12px; color: var(--danger, #dc2626); }
+/* Chip: kuadran, Terlambat, pill progress. */
+.td-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0 12px; }
+.td-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+.td-chip.is-danger { color: var(--danger, #dc2626); }
+.td-pill { display: inline-flex; align-items: center; gap: 8px; height: 24px; padding: 0 10px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-card); color: var(--text-secondary); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.td-pill:hover, .td-pill[aria-expanded="true"] { background: var(--bg-hover); }
+.td-pill-bar { position: relative; display: inline-block; width: 40px; height: 4px; border-radius: 2px; background: var(--bg-selected); overflow: hidden; }
+.td-pill-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--accent); transition: width 0.2s; }
+.td-pill.is-full .td-pill-fill { background: var(--success); }
+.td-pill.is-full { color: var(--success); }
+/* Popover bersama (portal ke body, di atas .modal-overlay z 50). Posisi inline dari TF.taskdetail.popoverPosition. */
+.td-pop { position: fixed; z-index: 60; overflow-y: auto; box-sizing: border-box; padding: 8px; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 32px color-mix(in srgb, var(--text-primary) 18%, transparent), 0 2px 6px color-mix(in srgb, var(--text-primary) 8%, transparent); font-size: 13px; }
+.td-pop-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 4px 6px 8px; font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.td-pop-value { color: var(--accent); }
+.td-pop-value.is-full { color: var(--success); }
+.td-pop-item { display: flex; align-items: center; gap: 8px; width: 100%; box-sizing: border-box; min-height: 36px; padding: 6px 10px; border: none; border-radius: 8px; background: none; color: var(--text-primary); font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.td-pop-item:hover { background: var(--bg-hover); }
+.td-pop-item.is-danger { color: var(--danger, #dc2626); }
+.td-pop-item[aria-pressed="true"] { background: var(--accent-soft); color: var(--text-primary); font-weight: 700; }
+.td-menu { padding: 6px; }
+.td-range { display: block; width: calc(100% - 12px); margin: 4px 6px 10px; accent-color: var(--accent); }
+.td-range.is-full { accent-color: var(--success); }
+.td-presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+.td-presets .td-pop-item { justify-content: center; padding: 6px 0; border: 1px solid var(--border); font-weight: 600; }
+/* Kisi properti (spec §4.4): label kecil di atas nilai; nilai = tombol teks yang membuka popover. 1 kolom ≤ 640 px. */
+.td-props { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 16px; margin: 4px 0 16px; }
+@media (max-width: 640px) { .td-props { grid-template-columns: 1fr; } }
+.td-prop { min-width: 0; }
+.td-prop.is-wide { grid-column: 1 / -1; }
+.td-prop-label { margin-bottom: 2px; font-size: 11.5px; font-weight: 600; color: var(--text-light); letter-spacing: 0.01em; }
+.td-desc-label { margin-bottom: 6px; }
+.td-prop-val { display: flex; align-items: center; gap: 8px; width: calc(100% + 16px); min-width: 0; box-sizing: border-box; min-height: 32px; margin: 0 -8px; padding: 4px 8px; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text-primary); font: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; transition: background 0.15s; }
+.td-prop-val:hover, .td-prop-val[aria-expanded="true"] { background: var(--bg-hover); }
+.td-prop-val:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; }
+.td-prop-val > svg { flex-shrink: 0; color: var(--text-secondary); }
+.td-prop-val.is-empty { color: var(--text-light); font-weight: 400; }
+.td-prop-val.is-danger, .td-prop-val.is-danger > svg { color: var(--danger, #dc2626); }
+.td-prop-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-dot { display: inline-block; flex-shrink: 0; width: 9px; height: 9px; border-radius: 50%; }
+/* Isi popover properti. */
+.td-pop-input { display: block; width: 100%; box-sizing: border-box; margin: 0 0 6px; }
+.td-pop-list { display: flex; flex-direction: column; gap: 2px; }
+.td-pop-list:empty { display: none; }
+.td-pop-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-pop-sub { color: var(--text-light); font-weight: 400; }
+.td-pop-check { flex-shrink: 0; color: var(--accent); }
+.td-pop-item > svg { flex-shrink: 0; }
+.td-pop-create { color: var(--accent); font-weight: 600; }
+.td-pop-clear { color: var(--text-secondary); }
+.td-pop-list .td-pop-clear, .td-pop-list .td-pop-create { margin-top: 2px; }
+.td-pop-note { padding: 6px 10px; font-size: 12px; color: var(--danger, #dc2626); }
+.td-pop-row { display: flex; align-items: center; gap: 6px; }
+.td-pop-row .td-pop-input { flex: 1 1 auto; min-width: 0; margin: 0; }
+.td-quick { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 8px; }
+.td-quick .td-pop-item { justify-content: center; padding: 6px 4px; border: 1px solid var(--border); font-weight: 600; white-space: nowrap; }
+/* Baris Tag (spec §4.4, §6.3): chip #nama (klik = task lain dengan tag ini, × = hapus) + tombol "+" (TagAdder). */
+.td-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 32px; }
+.td-tag { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; height: 26px; box-sizing: border-box; padding: 0 4px 0 10px; border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent); border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 12px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.td-tag:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.td-tag-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; border: none; background: none; color: inherit; font: inherit; cursor: pointer; }
+.td-tag-hash { opacity: 0.7; }
+.td-tag-x { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 20px; height: 20px; padding: 0; border: none; border-radius: 50%; background: none; color: inherit; opacity: 0.6; cursor: pointer; transition: opacity 0.15s, background 0.15s; }
+.td-tag-x:hover { opacity: 1; background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.td-tag-more { height: 26px; padding: 0 8px; border: 1px solid var(--border); border-radius: 999px; background: none; color: var(--text-light); font: inherit; font-size: 12px; cursor: pointer; }
+.td-tag-more:hover { background: var(--bg-hover); }
+.td-tag-add { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 1px dashed var(--border); border-radius: 50%; background: none; color: var(--text-secondary); cursor: pointer; transition: background 0.15s, color 0.15s; }
+.td-tag-add:hover, .td-tag-add[aria-expanded="true"] { background: var(--bg-hover); color: var(--accent); border-color: var(--accent); }
+.td-tag-name:focus-visible, .td-tag-x:focus-visible, .td-tag-more:focus-visible, .td-tag-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.td-tag-adder .td-pop-input { margin-bottom: 4px; }
+.td-pop-err { padding: 2px 6px 6px; font-size: 12px; color: var(--danger, #dc2626); }
+/* Deskripsi (spec §4.5): tanpa bingkai dan latar, garis tipis hanya saat fokus; tinggi diatur JS (≤ 12 baris). */
+.td-desc-wrap { margin: 0 0 14px; }
+.td-desc { display: block; box-sizing: border-box; width: calc(100% + 16px); margin: 0 -8px; padding: 6px 8px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--text-primary); font: inherit; font-size: 14px; line-height: 1.6; resize: none; overflow-y: auto; transition: border-color 0.15s; }
+.td-desc::placeholder { color: var(--text-light); }
+.td-desc:focus { outline: none; border-color: var(--border); }
+/* Tab isi (spec §4.6): Subtask / Checklist / Catatan / Lampiran; panel tidak aktif ber-atribut hidden. */
+.td-tabs { display: flex; gap: 2px; margin: 4px 0 10px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+.td-tabs::-webkit-scrollbar { display: none; }
+.td-tab { flex-shrink: 0; margin-bottom: -1px; padding: 8px 10px; border: none; border-bottom: 2px solid transparent; background: none; color: var(--text-secondary); font: inherit; font-size: 13px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+.td-tab:hover { color: var(--text-primary); }
+.td-tab[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.td-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px 6px 0 0; }
+.td-tab-count { font-weight: 500; color: var(--text-light); }
+.td-tab[aria-selected="true"] .td-tab-count { color: inherit; opacity: 0.8; }
+/* Modal 375 px (isi ±281 px): tab lebih rapat dan melebar ke padding wadah agar keempatnya muat; sisa → gulir. */
+@media (max-width: 400px) {
+  .td-tabs { gap: 0; margin-left: -16px; margin-right: -16px; padding: 0 6px; scroll-padding: 0 6px; }
+  .td-tab { padding: 8px 5px; font-size: 12px; }
+}
+.td-tabpanel { margin-bottom: 12px; }
+.td-tabpanel[hidden] { display: none; }
+.td-empty { padding: 6px 0; font-size: 13px; color: var(--text-light); }
+/* Kotak centang bersama (task anak, butir checklist). */
+.td-check { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 18px; height: 18px; padding: 0; box-sizing: border-box; border: 1.5px solid var(--text-light); border-radius: 5px; background: none; color: var(--bg-card); cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.td-check:hover { border-color: var(--accent); }
+.td-check[aria-checked="true"] { background: var(--success); border-color: var(--success); }
+.td-check:focus-visible, .td-sub-main:focus-visible, .td-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Baris task anak. */
+.td-sub-row { display: flex; align-items: center; gap: 8px; min-width: 0; min-height: 36px; margin: 0 -6px; padding: 2px 6px; border-radius: 8px; transition: background 0.15s; }
+.td-sub-row:hover { background: var(--bg-hover); }
+.td-sub-main { display: flex; align-items: baseline; gap: 6px; flex: 1 1 auto; min-width: 0; padding: 4px 0; border: none; background: none; color: var(--text-primary); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.td-sub-id { flex-shrink: 0; max-width: 9ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-light); }
+.td-sub-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td-sub-row.is-done .td-sub-title { color: var(--text-light); }
+.td-sub-row .badge { flex-shrink: 0; }
+.td-sub-date { flex-shrink: 0; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
+.td-sub-date.is-danger { color: var(--danger, #dc2626); font-weight: 600; }
+.td-sub-open { flex-shrink: 0; width: 28px; height: 28px; }
+/* Checklist: bar tipis selesai/total, baris butir, × saat hover (selalu tampil tanpa hover). */
+.td-check-head { display: flex; align-items: center; gap: 10px; margin: 2px 0 6px; font-size: 12px; color: var(--text-light); }
+.td-check-bar { position: relative; flex: 1 1 auto; height: 4px; border-radius: 2px; background: var(--bg-selected); overflow: hidden; }
+.td-check-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.3s; }
+.td-check-bar.is-full .td-check-fill { background: var(--success); }
+.td-check-row { display: flex; align-items: center; gap: 8px; min-height: 34px; margin: 0 -6px; padding: 2px 6px; border-radius: 8px; transition: background 0.15s; }
+.td-check-row:hover { background: var(--bg-hover); }
+.td-check-title { flex: 1 1 auto; min-width: 0; font-size: 13.5px; line-height: 1.4; color: var(--text-primary); overflow-wrap: anywhere; }
+.td-check-row.is-done .td-check-title { color: var(--text-light); text-decoration: line-through; }
+.td-check-del { flex-shrink: 0; width: 28px; height: 28px; opacity: 0; }
+.td-check-row:hover .td-check-del, .td-check-del:focus-visible { opacity: 1; }
+@media (hover: none) { .td-check-del { opacity: 1; } }
+/* Tambah: tombol teks (checklist) dan input bergaya teks (subtask, butir baru). */
+.td-add { display: flex; align-items: center; width: calc(100% + 12px); min-height: 34px; margin: 2px -6px 0; padding: 6px; box-sizing: border-box; border: none; border-radius: 8px; background: none; color: var(--text-secondary); font: inherit; font-size: 13px; text-align: left; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.td-add:hover { background: var(--bg-hover); color: var(--accent); }
+.td-add-input { display: block; width: calc(100% + 12px); min-height: 34px; margin: 2px -6px 0; padding: 6px; box-sizing: border-box; border: 1px solid transparent; border-radius: 8px; background: none; color: var(--text-primary); font: inherit; font-size: 13px; transition: border-color 0.15s, background 0.15s; }
+.td-add-input::placeholder { color: var(--text-secondary); }
+.td-add-input:hover { background: var(--bg-hover); }
+.td-add-input:focus { outline: none; border-color: var(--accent); background: var(--bg-card); }
+.td-add-input:focus::placeholder { color: var(--text-light); }
+/* ── Detail task: akhir ── */

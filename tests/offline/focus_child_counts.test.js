@@ -232,19 +232,27 @@ test("FocusSubtasks: teks checklist (aria progres, kosong, placeholder, aria inp
   assert.ok(head.includes("Checklist") && !head.includes("Inline Subtask Checklist"), "komentar judul blok");
 });
 
-test("Detail task: seksi ✅ Checklist memakai 'item checklist'; seksi subtask (task anak) tidak berubah", () => {
-  const start = indexHtml.indexOf('"\\u2705 Checklist "');
-  assert.ok(start > 0, "header seksi Checklist");
-  const end = indexHtml.indexOf('"Belum ada checklist")', start);
-  assert.ok(end > start, "akhir seksi Checklist");
-  const section = indexHtml.slice(start, end);
-  for (const fn of ["handleToggle(s.id)", "handleDeleteSub(s.id)", "handleAddSub"]) assert.ok(section.includes(fn), fn);
-  assert.ok(section.includes('title: "Hapus item checklist"'));
-  assert.ok(section.includes('placeholder: "Item checklist baru..."'));
-  assert.ok(!/subtask/i.test(section.replace(/Subs\b|setNewSub|newSub|addingSub|loadingSubs|subtasks\.map/g, "")),
-    "tidak ada teks 'subtask' di seksi Checklist");
+test("Detail task: tab Checklist memakai 'butir checklist'; tab Subtask (task anak) tetap 'subtask'", () => {
+  // Redesain detail (Task 6): bagian ✅ Checklist / 📌 Subtask kini panel tab di TaskDetailBody.
+  const body = fnSource("TaskDetailBody");
+  const start = body.indexOf('tabPanel("checklist",');
+  assert.ok(start > 0, "panel tab Checklist");
+  const end = body.indexOf('tabPanel("notes",', start);
+  assert.ok(end > start, "akhir panel Checklist");
+  const section = body.slice(start, end);
+  for (const fn of ["handleToggle(s.id)", "handleDeleteSub(s.id)", "handleAddSub()", "React.createElement(ChecklistRow"])
+    assert.ok(section.includes(fn), fn);
+  assert.ok(section.includes('"+ Tambah butir checklist baru"'));
+  assert.ok(section.includes('placeholder: "Butir checklist baru"'));
+  assert.ok(section.includes('"Belum ada checklist"'));
+  assert.ok(!/subtask/i.test(section.replace(/Subs\b|setNewSub|newSub|addingSub|loadingSubs|subtasks\.map|handleDeleteSub|handleAddSub/g, "")),
+    "tidak ada teks 'subtask' di panel Checklist");
+  const row = fnSource("ChecklistRow");
+  assert.ok(row.includes('"aria-label": "Hapus butir"'));
+  assert.ok(!/subtask/i.test(row), "tidak ada teks 'subtask' di ChecklistRow");
   // Task anak (parent_id) tetap "subtask".
-  assert.ok(indexHtml.includes('placeholder: "Judul subtask baru..."'), "seksi task anak di detail modal");
+  const sub = body.slice(body.indexOf('tabPanel("subtask",'), start);
+  assert.ok(sub.includes('placeholder: "+ Buat subtask baru…"') && sub.includes('"Belum ada subtask"'), "panel task anak di detail");
   assert.ok(indexHtml.includes('placeholder: "Judul subtask...",\n    onKeyDown: e => {\n      if (e.key === "Enter") {\n        e.preventDefault();\n        if (pendingSubTitle.trim())'),
     "form task: subtask tertunda (task anak) tetap");
   assert.ok(indexHtml.includes("Task & semua subtask selesai"));
