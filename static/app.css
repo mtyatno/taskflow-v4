@@ -11,7 +11,7 @@
       --accent: #A8C500;
       --accent-hover: #95AD00;
       --p1: #ef4444; --p2: #f97316; --p3: #eab308; --p4: #22c55e;
-      --q1: #ef4444; --q2: #A8C500; --q3: #f97316; --q4: #94a3b8;
+      --q1: #ef4444; --q2: var(--accent); --q3: #f97316; --q4: #94a3b8;
       --border: #E8E8E0;
       --outline-guide: #94a3b8;
       --success: #22c55e;
@@ -25,6 +25,22 @@
       --bg-subtle: rgba(15, 23, 42, 0.025);
       --bg-selected: rgba(15, 23, 42, 0.07);
       --radius-lg: 16px;
+      /* Token semantik tema (nilai Default = literal yang sudah dipakai di kode; palet lain menimpa lewat themes.css) */
+      --accent-rgb: 168, 197, 0;
+      --accent-ink: #ffffff;
+      --accent-text: #7E9400;
+      --accent-text-strong: #6B8000;
+      --accent-2: #B6D400;
+      --accent-2-hover: #A3C100;
+      --accent-soft: #F4FAD6;
+      --accent-duo: rgba(168,197,0,0.22);
+      --accent-ring: rgba(168,197,0,0.35);
+      --bg-sidebar: var(--bg-primary);
+      --border-strong: #DDDDD5;
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-pill: 999px;
+      --font-heading: inherit;
     }
     [data-theme="dark"] {
       --bg-page: #171717;
@@ -41,6 +57,10 @@
       --bg-hover: rgba(255, 255, 255, 0.08);
       --bg-subtle: rgba(255, 255, 255, 0.03);
       --bg-selected: rgba(255, 255, 255, 0.10);
+      --accent-text: #A8C500;
+      --accent-text-strong: #A8C500;
+      --accent-soft: rgba(168,197,0,0.18);
+      --border-strong: #404040;
     }
     [data-theme="dark"] body { background: #171717; }
     [data-theme="dark"] .input { background: #171717 !important; color: var(--text-primary); }

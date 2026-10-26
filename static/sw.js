@@ -9,6 +9,7 @@ const AMBIENT_CACHE = "alurik-ambient-v1";
 const STATIC = [
   "/",  // app shell — di-cache saat install agar offline-first dari kunjungan pertama
   "/static/app.css?v=367",  // query HARUS sama persis dengan <link> app.css di index.html (catch-all mencocokkan URL persis)
+  "/static/themes.css?v=1",  // palet tema; query HARUS sama persis dengan <link> themes.css di index.html
   "/static/ui-components.js",
   "/static/offline/ids.js",
   "/static/offline/db.js",
@@ -38,6 +39,7 @@ const STATIC = [
   "/static/offline/introgate.js",
   "/static/offline/accountbanner.js",
   "/static/offline/whatsnew.js",
+  "/static/offline/themes.js",
   "/static/offline/appupdate.js",
   "/static/offline/emailadmin.js",
   "/static/offline/focuspage.js",
