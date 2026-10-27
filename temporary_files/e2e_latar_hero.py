@@ -406,7 +406,12 @@ def open_focus(browser, base, user, palette, mode, kind, mobile=False):
     row = p.locator(".ftask").filter(has_text=FOCUS_TITLE).first
     row.wait_for(state="visible", timeout=30000)
     row.locator(".ftask-focus-btn").click()
-    p.locator(".focus-pomo .focus-pomo-task").wait_for(state="visible", timeout=10000)
+    try:
+        p.locator(".focus-pomo .focus-pomo-task").wait_for(state="visible", timeout=10000)
+    except PlaywrightTimeout:
+        # Sesekali klik pertama jatuh saat daftar masih dirender ulang (sinkron awal): ulangi sekali.
+        row.locator(".ftask-focus-btn").click()
+        p.locator(".focus-pomo .focus-pomo-task").wait_for(state="visible", timeout=10000)
     p.evaluate("() => document.fonts.ready")
     p.wait_for_timeout(300)
     return ctx, p
