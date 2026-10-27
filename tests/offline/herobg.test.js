@@ -10,6 +10,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const { execFileSync } = require("node:child_process");
+const zlib = require("node:zlib");
 
 const ROOT = path.resolve(__dirname, "../..");
 const hb = require("../../static/offline/herobg.js");
@@ -296,17 +297,71 @@ test("Kontur: 11 garis topografi sama dengan mockup (= hero Dashboard lama)", ()
   assert.deepEqual(got, want);
 });
 
-test("Gradasi: data garis kontur = topo_gradasi_d.txt", () => {
-  const want = fs.readFileSync(path.join(MOCK_DIR, "topo_gradasi_d.txt"), "utf8").trim();
-  const amb = hb.render({ kind: "gradasi", palette: "default", mode: "light", place: "hero", uid: "g" }).ambient;
-  const d = amb.match(/<path d="([^"]*)"/);
-  assert.ok(d);
-  assert.equal(d[1], want);
+// Jalur SVG M/L/Q/T (absolut atau relatif) → daftar subjalur; tiap subjalur = [perintah absolut, titik akhir/kendali
+// absolut]. T relatif dihitung dari titik sekarang; titik kendali T (pantulan) ikut dikembalikan untuk uji kotak cembung.
+function parsePath(d) {
+  const subs = [];
+  let cur = null, x = 0, y = 0, qx = 0, qy = 0, prev = "";
+  for (const m of d.matchAll(/([MLQTmlqt])([^MLQTmlqt]*)/g)) {
+    const c = m[1], up = c.toUpperCase(), rel = c !== up;
+    const a = (m[2].match(/-?\d+(?:\.\d+)?/g) || []).map(Number);
+    const per = up === "Q" ? 4 : 2;
+    assert.equal(a.length % per, 0, "jumlah angka " + c);
+    for (let i = 0; i < a.length; i += per) {
+      const ox = rel ? x : 0, oy = rel ? y : 0;
+      if (up === "M" && i === 0) { cur = { cmds: [], pts: [] }; subs.push(cur); }
+      const kind = up === "M" && i > 0 ? "L" : up;
+      if (kind === "Q") { qx = ox + a[i]; qy = oy + a[i + 1]; x = ox + a[i + 2]; y = oy + a[i + 3]; cur.cmds.push(["Q", qx, qy, x, y]); cur.pts.push([qx, qy], [x, y]); }
+      else if (kind === "T") {
+        if (prev === "Q" || prev === "T") { qx = 2 * x - qx; qy = 2 * y - qy; } else { qx = x; qy = y; }
+        x = ox + a[i]; y = oy + a[i + 1]; cur.cmds.push(["T", x, y]); cur.pts.push([qx, qy], [x, y]);
+      } else { x = ox + a[i]; y = oy + a[i + 1]; qx = x; qy = y; cur.cmds.push([kind, x, y]); cur.pts.push([x, y]); }
+      prev = kind;
+    }
+  }
+  return subs;
+}
+
+test("Gradasi: garis kontur = topo_gradasi_d.txt, dipadatkan tanpa mengubah gambar (×2 bulat, relatif, subjalur tak tampak dibuang)", () => {
+  const mock = parsePath(fs.readFileSync(path.join(MOCK_DIR, "topo_gradasi_d.txt"), "utf8").trim());
+  assert.equal(mock.length, 51);
+  for (const place of PLACES) {
+    const amb = hb.render({ kind: "gradasi", palette: "default", mode: "light", place, uid: "g" }).ambient;
+    // viewBox dua kali mockup (1440×225) dan tebal garis ikut ×2 → ukuran tampil sama; slice = tak ada yang di luar viewBox tampil.
+    assert.match(amb, /viewBox="0 0 2880 450" preserveAspectRatio="xMaxYMid slice"/);
+    assert.match(amb, /style="stroke-width: 2\.2; stroke-opacity: /);
+    const d = amb.match(/<path d="([^"]*)"/)[1];
+    assert.doesNotMatch(d, /\./, "hanya bilangan bulat");
+    assert.match(d, /^M-?\d/);
+    assert.doesNotMatch(d.slice(1), /[MLQT]/, "selain M pertama semua perintah relatif");
+    const got = parsePath(d);
+    // Subjalur mockup yang dibuang = seluruh titik akhir + titik kendalinya (kotak cembung kurva) di luar viewBox 1440×225
+    // pada sisi yang sama (margin 2 > setengah tebal garis 0,55) → tidak pernah tampil.
+    const M = 2;
+    const outside = (pts) => pts.every((p) => p[1] < -M) || pts.every((p) => p[1] > 225 + M) || pts.every((p) => p[0] < -M) || pts.every((p) => p[0] > 1440 + M);
+    const keep = mock.filter((s) => !outside(s.pts));
+    assert.equal(mock.length - keep.length, 14);
+    assert.equal(got.length, keep.length);
+    got.forEach((s, i) => assert.deepEqual(s.cmds.map(([c, ...v]) => [c, ...v.map((n) => n / 2)]), keep[i].cmds, `subjalur ${i}`));
+  }
 });
 
-test("ukuran modul ≤ 60 KB mentah (spec §3)", () => {
-  const size = fs.statSync(path.join(ROOT, "static/offline/herobg.js")).size;
-  assert.ok(size <= 60 * 1024, `herobg.js ${size} byte`);
+test("ukuran modul ≤ 60 KB mentah, ≤ 16 KB gzip (spec §3)", () => {
+  const src = fs.readFileSync(path.join(ROOT, "static/offline/herobg.js"));
+  assert.ok(src.length <= 60 * 1024, `herobg.js ${src.length} byte`);
+  const gz = zlib.gzipSync(src).length;
+  assert.ok(gz <= 16 * 1024, `herobg.js ${gz} byte gzip (anggaran 16 KB)`);
+});
+
+test("Lanskap Pomodoro: pohon pojok kiri bawah (ambient) berkelas hb-trees agar bisa disembunyikan di HP", () => {
+  for (const mode of MODES) {
+    const amb = hb.render({ kind: "lanskap", palette: "sakura", mode, place: "pomo", uid: "t" }).ambient;
+    const svgs = [...amb.matchAll(/<svg aria-hidden="true" focusable="false"( class="([^"]*)")?[^>]*>/g)];
+    const trees = svgs.filter((m) => m[2] === "hb-trees");
+    assert.equal(trees.length, 1, mode);
+    assert.match(trees[0][0], /left: 0; bottom: 0; width: 170px; height: 64px;/);
+    for (const place of ["hero", "thumb"]) assert.doesNotMatch(hb.render({ kind: "lanskap", palette: "sakura", mode, place, uid: "t" }).ambient, /hb-trees/);
+  }
 });
 
 // Penyimpangan sengaja dari mockup: warna Default terang dicerahkan minimal (dicampur putih) agar --text-secondary

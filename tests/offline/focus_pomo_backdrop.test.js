@@ -177,6 +177,9 @@ test("HP (≤768px): struktur grid tetap, latar dipotong .hb sendiri, isi grid d
   assert.match(rule(".focus-pomo", mobile), /grid-template-areas: "modes modes zen amb" "ring ctrl ctrl ctrl" "ring task task task" "stats stats stats stats" "park park park park"/);
   assert.match(rule(".focus-pomo", mobile), /overflow: visible/);
   assert.match(rule(".focus-pomo > .hb", mobile), /border-radius: 15px;/);
+  // Pohon Lanskap (lapisan ambient, pojok kiri bawah) tampak menembus input parkir di HP → disembunyikan; desktop tetap.
+  assert.match(rule(".focus-pomo > .hb .hb-trees", mobile), /^\s*display: none;\s*$/);
+  assert.ok(!css.slice(0, css.indexOf("/* Kartu Pomodoro ringkas di HP */")).includes(".hb-trees"), "pohon hanya disembunyikan di HP");
   assert.match(rule(".focus-pomo-head-tools > *, .focus-pomo-body > *", mobile), /position: relative;/);
   assert.match(rule(".focus-pomo-head-tools .pomo-modes", mobile), /background: var\(--pomo-ctl-bg\); box-shadow: inset 0 0 0 1px var\(--pomo-line\);/);
   assert.match(rule(".pomo-amb-pop", mobile), /background: var\(--bg-card\);[^}]*color: var\(--text-primary\);/);

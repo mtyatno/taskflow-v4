@@ -169,6 +169,13 @@ test("render HeroBackdrop: uid dibuat sekali per instance (useRef), tetap sama s
 });
 
 
+test("HP (≤640px): Galaksi ambient hanya di bagian bawah (mask); ambient Objek 3D disembunyikan (bola tunggal di antara chip dan tangkap cepat)", () => {
+  const m = css.match(/\n@media \(max-width: 640px\) \{\n  \.hb-hero\.hb-k-galaksi \.hb-ambient \{([^}]*)\}\n  ([^\n]*)\n\}\n/);
+  assert.ok(m, "blok ≤640 latar hero");
+  assert.match(m[1], /mask-image: linear-gradient\(to bottom, transparent 42%, #000 68%\);/);
+  assert.equal(m[2], ".hb-hero.hb-k-objek .hb-ambient { display: none; }");
+});
+
 test("chip Fokus: aktif (judul → today, Mulai/Jeda → timer) atau ajakan; hanya saat intro dashboard + ada task", () => {
   assert.match(dash, /const showFocusChip = intro === "dashboard" && hasTasks;/);
   assert.match(hero, /showFocusChip && \(heroFocus\.kind === "active"/);

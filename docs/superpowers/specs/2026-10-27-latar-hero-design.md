@@ -44,7 +44,7 @@ Modul UMD murni (pola `decor.js`/`habitlogic.js`), di-precache di `sw.js` dengan
   - `place` ∈ `hero | pomo | thumb` menentukan komposisi (lihat `place_boxes` dan cabang `place` di `mockup_gen.py`: mis. Galaksi di Pomodoro tanpa jalur di atas isi, piksel hanya tepi kanan; Objek 3D di Pomodoro berupa baris kecil; Lanskap di Pomodoro: bukit mulai 48% tinggi, pohon di pojok kiri bawah).
   - Semua `id` SVG diawali `uid` (unik per instance) — banyak latar bisa tampil bersamaan (pratinjau Pengaturan).
   - Deterministik (RNG berbiji); tanpa `<script`, tanpa `url(` selain rujukan internal `url(#<uid>…)`, tanpa sumber eksternal; tanpa animasi.
-- Ukuran: total modul ≲ 60 KB mentah (≲ 15 KB gzip).
+- Ukuran: total modul ≲ 60 KB mentah, **≤ 16 KB gzip** (terukur 2026-10-27: 47,8 KB mentah / 15,8 KB gzip; dijaga `herobg.test.js`). Target awal ≲ 15 KB gzip tidak tercapai: logika render 6 latar × 3 tempat beserta komentarnya sendiri ±13 KB gzip; data kontur Gradasi sudah dipadatkan tanpa mengubah gambar (koordinat ×2 bulat, perintah relatif, subjalur di luar viewBox dibuang: 5,9 → 2,1 KB gzip).
 
 ## 4. Komponen `HeroBackdrop({ place, kind })` (index.html)
 

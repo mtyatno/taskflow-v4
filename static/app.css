@@ -2650,10 +2650,12 @@
    18px warisan memotong garis kontur di sudut lebih banyak daripada svg topografi lama. */
 .dash-hero > .hb { border-radius: 0; }
 /* HP (<= 640 px): hero bertumpuk lebih tinggi daripada lebarnya, jadi ambient (viewBox 1440x300, slice) membesar dan jalur
-   misi Galaksi / bola Objek 3D jatuh tepat di atas sapaan dan cincin progres (tanpa kartu kaca di HP). Ambient keduanya
-   hanya tampil di bagian bawah (di balik chip dan tangkap cepat); zona teks atas tetap = base. */
+   misi Galaksi / bola Objek 3D jatuh tepat di atas sapaan dan cincin progres (tanpa kartu kaca di HP). Ambient Galaksi hanya
+   tampil di bagian bawah (di balik chip dan tangkap cepat); zona teks atas tetap = base. Ambient Objek 3D disembunyikan:
+   bola kanan atas sudah tertutup mask itu, sisanya satu bola tunggal di antara chip dan tangkap cepat. */
 @media (max-width: 640px) {
-  .hb-hero.hb-k-galaksi .hb-ambient, .hb-hero.hb-k-objek .hb-ambient { -webkit-mask-image: linear-gradient(to bottom, transparent 42%, #000 68%); mask-image: linear-gradient(to bottom, transparent 42%, #000 68%); }
+  .hb-hero.hb-k-galaksi .hb-ambient { -webkit-mask-image: linear-gradient(to bottom, transparent 42%, #000 68%); mask-image: linear-gradient(to bottom, transparent 42%, #000 68%); }
+  .hb-hero.hb-k-objek .hb-ambient { display: none; }
 }
 .dash-hero-top { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .dash-hero-text { min-width: 0; max-width: 420px; }
@@ -3887,6 +3889,8 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
   /* Kartu tidak memotong isinya (popover suara): .hb memotong sendiri di radius dalam garis (16 - 1). Isi kartu = item grid
      di dalam elemen display: contents, jadi diposisikan agar dilukis di atas .hb (urutan DOM sesudahnya). */
   .focus-pomo > .hb { border-radius: 15px; }
+  /* Pohon Lanskap (ambient, pojok kiri bawah) jatuh tepat di balik input parkir → disembunyikan; desktop tetap. */
+  .focus-pomo > .hb .hb-trees { display: none; }
   .focus-pomo-head-tools > *, .focus-pomo-body > * { position: relative; }
   .focus-pomo .focus-pomo-body, .focus-pomo .focus-pomo-head, .focus-pomo .focus-pomo-head-tools { display: contents; }
   .focus-pomo-headline { display: none; }
