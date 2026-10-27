@@ -1,6 +1,9 @@
+## 🟢 Bug: modal detail task terpotong di halaman workspace (HP) — `claude/ws-modal-terpotong` — 2026-10-28 (Claude) — DI-MERGE (#112, 7a225ca) atas "merge dan deploy" Bapak 05:29 WIB; deploy sukses (file statis)
+- Laporan Bapak: task yang sama tampil normal dari Semua Task, terpotong/bergeser dari halaman workspace (HP). Akar: baris tombol `.workspace-nav-tabs` (Tasks, Files, Di-pin, Kelola, Kelola project, Kelola tahap) meluber ke 508 px pada layar 393 px → viewport tata letak HP ikut melebar → modal 90% lebar viewport tampil keluar layar. Perbaikan CSS: baris itu `flex-wrap: nowrap; overflow-x: auto` (scrollbar tersembunyi), anak `flex-shrink: 0; white-space: nowrap`. Repro Playwright 393 px: scrollWidth 508 → 393, modal 457 → 354 px. SW `taskflow-v484-ws-modal`, `app.css?v=380`.
+
 ## 🟡 Hero Dashboard di HP: 1 chip habit + "+N", tanpa pil terpotong — `claude/hero-habit-hp` — 2026-10-28 (Claude) — PR DRAFT, menunggu "merge dan deploy"
 - Permintaan Bapak (screenshot HP): pil habit kedua terpotong di tepi hero. Kini ≤640 px menampilkan 1 chip habit (batas `heroHabitLimit` dari hook baru `useMediaMatch("(max-width: 640px)")`) + "+N"; chip habit menyusut dengan elipsis (tanpa baris geser). Placeholder tangkap cepat dipendekkan di HP ("Tulis apa saja...").
-- Rilis: SW `taskflow-v484-hero-habit-hp`, `app.css?v=380`, whatsnew v484. File statis saja.
+- Rilis: SW `taskflow-v485-hero-habit-hp`, `app.css?v=381`, whatsnew v485 (v484 dipakai #112). File statis saja.
 - Verifikasi: npm (semua lulus kecuali pra-ada `draw_local_reactive.test.js`), pytest 1240/1 skip, `check_inline_scripts`, E2E `e2e_hero_dashboard.py` (cek baru 6c/6d/6e: 375 px dan 320 px), `e2e_latar_hero.py` 652.
 
 ## 🟢 (DI-MERGE #110 f273351, deploy sukses 2026-10-28 04:5x WIB) Latar hero bisa dipilih (Dashboard + kartu Pomodoro) + kartu Pomodoro terang — `claude/latar-hero` — 2026-10-27 (Claude)
