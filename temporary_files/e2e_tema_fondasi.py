@@ -6,17 +6,17 @@ Refactor token warna tidak boleh mengubah satu piksel pun tampilan Default teran
     python3 temporary_files/e2e_tema_fondasi.py baseline --ref 64f3782   # commit itu -> baseline/ (aman dijalankan kapan saja)
     python3 temporary_files/e2e_tema_fondasi.py compare                  # pohon kerja sekarang -> after/, PASS/FAIL per gambar
     python3 temporary_files/e2e_tema_fondasi.py compare --tolerance 3
-    python3 temporary_files/e2e_tema_fondasi.py verify                   # perilaku tema (PR A Task 6 + PR B Task 7)
-    python3 temporary_files/e2e_tema_fondasi.py shots --palette sakura   # 28 screenshot audit -> shots/sakura/
+    python3 temporary_files/e2e_tema_fondasi.py verify                   # perilaku tema (PR A Task 6 + PR B Task 7 + PR C Task 5)
+    python3 temporary_files/e2e_tema_fondasi.py shots --palette sakura   # 32 screenshot audit -> shots/sakura/
 
 `--palette sakura|lavender` (baseline/compare/shots) menulis localStorage.tf_palette sebelum halaman dimuat. Tanpa
 --palette (= default) tf_palette tidak ditulis dan direktorinya tetap baseline/, after/, diff/; dengan palet lain
 direktorinya baseline-<palet>/, after-<palet>/, diff-<palet>/ (gerbang piksel palet itu sendiri, baseline dari commit
 yang sudah memuat paletnya). `shots` hanya memotret untuk audit manual (tanpa pembanding): 8 halaman x 2 mode pada
 1280x900 ditambah Fokus & Pengaturan pada 375x812 (`<halaman>-375-<mode>.png`) x 2 mode, ditambah EXTRA_SHOTS
-(modal detail task, note terbuka di editor, Sketsa dengan gambar terbuka, mindmap terbuka) x 2 mode = 28 gambar, ke
-shots/<palet>/, lalu lembar kontak berlabel shots/<palet>-sheet.png (20 gambar halaman) dan shots/<palet>-sheet-2.png
-(EXTRA_SHOTS). Sketsa butuh bundel tldraw (`static/vendor/tldraw/`, di-.gitignore; `cd draw-app && npm ci && npm run
+(modal detail task, note terbuka di editor, Sketsa dengan gambar terbuka, mindmap terbuka, lalu Inbox kosong dan
+Fokus Hari Ini kosong dari akun kedua tanpa task) x 2 mode = 32 gambar, ke shots/<palet>/, lalu lembar kontak berlabel
+shots/<palet>-sheet.png (20 gambar halaman) dan shots/<palet>-sheet-2.png (EXTRA_SHOTS). Sketsa butuh bundel tldraw (`static/vendor/tldraw/`, di-.gitignore; `cd draw-app && npm ci && npm run
 build`); tanpa itu iframe-nya menampilkan 404.
 
 `baseline --ref` men-checkout commit ke `git worktree` sementara dan menjalankan uvicorn dari sana (static/ dan webapp.py
@@ -293,8 +293,7 @@ def capture(out_dir, repo, meta, palette="default", mobile_pages=(), extra_shots
     try:
         staging = tempfile.mkdtemp(prefix=".staging-", dir=SHOTS)
         user = seed(base)
-        if extra_shots:
-            seed_shots_extra(base, user)
+        empty_user = seed_shots_extra(base, user) if extra_shots else None
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for mode in MODES:
@@ -305,7 +304,7 @@ def capture(out_dir, repo, meta, palette="default", mobile_pages=(), extra_shots
                         shoot(browser, base, user, page, mode, staging, sw, palette, mobile=True)
                 if extra_shots:
                     for name in EXTRA_SHOTS:
-                        shoot_extra(browser, base, user, name, mode, staging, sw, palette)
+                        shoot_extra(browser, base, user, name, mode, staging, sw, palette, empty_user)
             browser.close()
         with open(os.path.join(staging, META_FILE), "w") as f:
             json.dump(dict(meta, palette=palette), f, indent=2)
@@ -406,7 +405,10 @@ MODE_LABEL = {"light": "terang", "dark": "gelap"}
 
 # Tangkapan tambahan khusus `shots` (audit final review PR B), 1280 px x 2 mode. Datanya (mindmap + sketsa) hanya
 # di-seed untuk `shots`, jadi baseline/compare tidak berubah.
-EXTRA_SHOTS = ("taskdetail", "noteeditor", "sketsa", "mindmap")
+# Layar kosong (dekorasi PR C: maskot + kelopak) dari akun kedua EMPTY_USERNAME yang tidak punya task sama sekali.
+EMPTY_SHOTS = ("inbox-kosong", "today-kosong")
+EXTRA_SHOTS = ("taskdetail", "noteeditor", "sketsa", "mindmap") + EMPTY_SHOTS
+EMPTY_USERNAME = "kosong"
 DRAW_TITLE = "Sketsa tema"
 EDITOR_NOTE_TITLE = "Catatan audit tema"
 EDITOR_NOTE_TAG = "audit-tema"
@@ -415,8 +417,8 @@ EDITOR_NOTE_CONTENT = ("## Ringkasan rapat\n\nPembuka dengan **tebal** dan `kode
 
 
 def shot_names():
-    """28 nama berkas `shots`: 8 halaman x 2 mode (1280 px), Fokus & Pengaturan 375 px x 2 mode, lalu EXTRA_SHOTS
-    (detail task, editor note, Sketsa, mindmap) x 2 mode."""
+    """32 nama berkas `shots`: 8 halaman x 2 mode (1280 px), Fokus & Pengaturan 375 px x 2 mode, lalu EXTRA_SHOTS
+    (detail task, editor note, Sketsa, mindmap, Inbox kosong, Fokus Hari Ini kosong) x 2 mode."""
     desk = ["%s-%s.png" % (page[0], mode) for page in PAGES for mode in MODES]
     mob = ["%s-375-%s.png" % (name, mode) for name in SHOT_MOBILE_PAGES for mode in MODES]
     extra = ["%s-%s.png" % (name, mode) for name in EXTRA_SHOTS for mode in MODES]
@@ -425,13 +427,24 @@ def shot_names():
 
 def seed_shots_extra(base, user):
     """Data tambahan `shots`: satu mindmap (MAP_TITLE), satu sketsa kosong (DRAW_TITLE) dan satu note berjudul,
-    berdaftar dan bertag (EDITOR_NOTE_TITLE) untuk tangkapan editor."""
+    berdaftar dan bertag (EDITOR_NOTE_TITLE) untuk tangkapan editor; lalu akun kedua tanpa task (EMPTY_SHOTS).
+    Mengembalikan akun kedua itu."""
     api(base, user, "POST", "/api/scratchpad", json={"title": EDITOR_NOTE_TITLE, "content": EDITOR_NOTE_CONTENT,
                                                      "tags": [EDITOR_NOTE_TAG]})
     tree = {"nodeData": {"id": "root", "topic": "Akar tema", "root": True,
                          "children": [{"id": "a", "topic": "Cabang A"}, {"id": "b", "topic": "Cabang B"}]}}
     api(base, user, "POST", "/api/mindmaps", json={"title": MAP_TITLE, "data_json": json.dumps(tree)})
     api(base, user, "POST", "/api/drawings", json={"title": DRAW_TITLE, "data_json": "{}"})
+    return register(base, EMPTY_USERNAME, "Kosong")
+
+
+def register(base, username, display_name):
+    """Akun baru tanpa data: {"username", "id", "token"}."""
+    r = requests.post(base + "/api/auth/register", json={"username": username, "password": PW,
+                                                         "email": username + "@ex.com", "display_name": display_name})
+    r.raise_for_status()
+    j = r.json()
+    return {"username": username, "id": j["user_id"], "token": j["token"]}
 
 
 def loose_screenshot(page, path):
@@ -444,12 +457,19 @@ def loose_screenshot(page, path):
         print("  (tidak stabil, dipotret apa adanya)", flush=True)
 
 
-def shoot_extra(browser, base, user, name, mode, out_dir, sw, palette="default"):
-    """Satu tangkapan EXTRA_SHOTS: halaman dibuka lewat sidebar lalu item seed diklik."""
-    ctx, p = open_app(browser, base, user, mode, "quadrant", "normal", sw, palette)
+def shoot_extra(browser, base, user, name, mode, out_dir, sw, palette="default", empty_user=None):
+    """Satu tangkapan EXTRA_SHOTS: halaman dibuka lewat sidebar lalu item seed diklik; EMPTY_SHOTS memakai empty_user."""
+    ctx, p = open_app(browser, base, empty_user if name in EMPTY_SHOTS else user, mode, "quadrant", "normal", sw, palette)
     try:
-        p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
-        if name == "taskdetail":
+        if name not in EMPTY_SHOTS:
+            p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+        if name == "inbox-kosong":
+            nav(p, "Inbox")
+            p.get_by_text("Kotak Masuk bersih!").first.wait_for(state="visible", timeout=20000)
+        elif name == "today-kosong":
+            nav(p, "Fokus Hari Ini")
+            p.get_by_text("Tidak ada task urgent!").first.wait_for(state="visible", timeout=20000)
+        elif name == "taskdetail":
             nav(p, "Semua Task")
             p.locator(".task-row", has_text=TASKS[0][0]).first.click()
             p.locator(".modal-content").first.wait_for(state="visible", timeout=20000)
@@ -527,7 +547,7 @@ def contact_sheet(src_dir, out_path, title, names):
 
 
 def shots(palette):
-    """28 screenshot audit palet ke shots/<palet>/ + lembar kontak shots/<palet>-sheet.png (20 halaman) dan
+    """32 screenshot audit palet ke shots/<palet>/ + lembar kontak shots/<palet>-sheet.png (20 halaman) dan
     shots/<palet>-sheet-2.png (EXTRA_SHOTS). Tanpa pembanding."""
     out_dir = os.path.join(SHOTS, "shots", palette)
     os.makedirs(os.path.dirname(out_dir), exist_ok=True)
@@ -542,7 +562,7 @@ def shots(palette):
                           "Alurik — palet %s (1280x900 dan 375x812, bagian atas halaman)" % palette.capitalize(),
                           names[:-n_extra])
     sheet2 = contact_sheet(out_dir, os.path.join(SHOTS, "shots", palette + "-sheet-2.png"),
-                           "Alurik — palet %s: modal detail task, editor note, Sketsa, mindmap (1280x900)"
+                           "Alurik — palet %s: detail task, editor note, Sketsa, mindmap, Inbox & Fokus kosong (1280x900)"
                            % palette.capitalize(), names[-n_extra:])
     print("%d gambar di %s\nlembar kontak: %s, %s" % (len(names), os.path.relpath(out_dir, ROOT),
                                                       os.path.relpath(sheet, ROOT), os.path.relpath(sheet2, ROOT)))
@@ -777,10 +797,198 @@ def verify_palettes(browser, base, user, sw):
         ctx.close()
 
 
+# ── PR C Task 5: dekorasi (kelopak pojok halaman, maskot layar kosong, glyph kelopak Pomodoro) ──
+RECT_JS = """(sel) => [...document.querySelectorAll(sel)].map(el => { const b = el.getBoundingClientRect();
+    return {l: b.left, r: b.right, t: b.top, b: b.bottom, w: b.width, h: b.height}; })"""
+DECOR_COUNT_JS = "() => document.querySelectorAll('.decor').length"
+NO_RELOAD_JS = "() => window.__tfNoReload === true"
+# Glyph kelopak (pomoPetal: elips) vs tomat (pomoTomato: tangkai 'M12 8V4.5') di dalam `sel`.
+GLYPHS_IN_JS = """(sel) => [...document.querySelectorAll(sel + ' svg')].map(s => s.innerHTML)
+    .map(h => /<ellipse/.test(h) ? 'petal' : /M12 8V4\\.5/.test(h) ? 'tomato' : null).filter(Boolean)"""
+
+
+def rects(p, sel):
+    return p.evaluate(RECT_JS, sel)
+
+
+def intersects(a, b):
+    return a["l"] < b["r"] and b["l"] < a["r"] and a["t"] < b["b"] and b["t"] < a["b"]
+
+
+def open_inbox(p):
+    nav(p, "Inbox")
+    p.get_by_text("Kotak Masuk bersih!").first.wait_for(state="visible", timeout=20000)
+    p.wait_for_timeout(300)
+
+
+def open_today(p):
+    nav(p, "Fokus Hari Ini")
+    p.locator(".focus-page-title").first.wait_for(state="attached", timeout=20000)
+    p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+    p.wait_for_timeout(300)
+
+
+def empty_state_parts(p):
+    return p.evaluate("""() => { const es = [...document.querySelectorAll('.empty-state')]
+        .find(e => e.textContent.includes('Kotak Masuk bersih!'));
+        return es ? {mascot: es.querySelectorAll('.empty-state-mascot.decor svg').length,
+                     icon: es.querySelectorAll('.empty-state-icon svg').length} : null; }""")
+
+
+def verify_decor(browser, base, user, sw):
+    """Cek PR C Task 5: d-show, d-toggle, d-palette, d-motion, d-zen, d-375, d-glyph (Sakura terang, user seed)."""
+    # d-show: kelopak pojok di Dashboard (hero) dan Fokus Hari Ini (judul), maskot di Inbox kosong.
+    ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, "sakura")
+    try:
+        p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+        p.wait_for_timeout(300)
+        hero = rects(p, ".dash-hero-top > .decor-page-corner")
+        open_today(p)
+        title = rects(p, ".focus-page-title > .decor-page-corner")
+        open_inbox(p)
+        es = empty_state_parts(p)
+        check("d-show sakura + dekorasi on: .decor-page-corner di hero Dashboard & judul Fokus Hari Ini, maskot di Inbox kosong",
+              len(hero) == 1 and hero[0]["w"] > 0 and len(title) == 1 and title[0]["w"] == 130
+              and es == {"mascot": 1, "icon": 0}, "hero %r, judul %r, inbox %r" % (hero, title, es))
+    finally:
+        ctx.close()
+
+    # d-toggle: sakelar "Dekorasi tema" di Pengaturan -> off: tak ada .decor di DOM (tanpa reload); on: kembali.
+    ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, "sakura")
+    try:
+        p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+        before = p.evaluate(DECOR_COUNT_JS)
+        open_settings(p)
+        p.evaluate("() => { window.__tfNoReload = true; }")
+        switch = p.get_by_role("switch", name="Dekorasi tema")
+        on_before = switch.get_attribute("aria-checked")
+        switch.click()
+        p.wait_for_function("() => document.documentElement.dataset.decor === 'off'", timeout=5000)
+        off_state = [switch.get_attribute("aria-checked"), p.evaluate(THEME_KEYS_JS)["tf_decor"], p.evaluate(DECOR_COUNT_JS)]
+        open_today(p)
+        off_today = p.evaluate(DECOR_COUNT_JS)
+        open_inbox(p)
+        off_inbox = [p.evaluate(DECOR_COUNT_JS), empty_state_parts(p)]
+        nav(p, "Dashboard")
+        p.locator(".dash-hero").first.wait_for(state="visible", timeout=20000)
+        off_dash = p.evaluate(DECOR_COUNT_JS)
+        open_settings(p)
+        p.get_by_role("switch", name="Dekorasi tema").click()
+        p.wait_for_function("() => document.documentElement.dataset.decor === 'on'", timeout=5000)
+        open_inbox(p)
+        on_inbox = empty_state_parts(p)
+        open_today(p)
+        on_today = len(rects(p, ".focus-page-title > .decor-page-corner"))
+        no_reload = p.evaluate(NO_RELOAD_JS)
+        check("d-toggle sakelar 'Dekorasi tema' off: 0 .decor di Fokus/Inbox/Dashboard (Inbox -> ikon), on lagi: kembali, tanpa reload",
+              before >= 1 and on_before == "true" and off_state == ["false", "off", 0] and off_today == 0
+              and off_inbox == [0, {"mascot": 0, "icon": 1}] and off_dash == 0
+              and on_inbox == {"mascot": 1, "icon": 0} and on_today == 1 and no_reload,
+              "awal %r/%r, off %r fokus %r inbox %r dash %r, on inbox %r fokus %r, tanpa reload %r" % (
+                  before, on_before, off_state, off_today, off_inbox, off_dash, on_inbox, on_today, no_reload))
+    finally:
+        ctx.close()
+
+    # d-palette: Inbox kosong bermaskot (Sakura) -> ganti palet ke Default -> ikon duotone, tanpa .decor.
+    ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, "sakura")
+    try:
+        p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+        open_inbox(p)
+        sak = empty_state_parts(p)
+        open_settings(p)
+        p.evaluate("() => { window.__tfNoReload = true; }")
+        pick_palette(p, "Default")
+        open_inbox(p)
+        dflt = [empty_state_parts(p), p.evaluate(DECOR_COUNT_JS), p.evaluate(NO_RELOAD_JS)]
+        check("d-palette ganti Sakura -> Default: maskot Inbox kosong berganti ikon duotone (0 .decor), tanpa reload",
+              sak == {"mascot": 1, "icon": 0} and dflt == [{"mascot": 0, "icon": 1}, 0, True], "%r -> %r" % (sak, dflt))
+    finally:
+        ctx.close()
+
+    # d-motion: tanpa preferensi -> animasi decor-float; prefers-reduced-motion: reduce -> animation-name none.
+    anim_js = """() => [...document.querySelectorAll('.decor-page-corner')].map(el => getComputedStyle(el).animationName)"""
+    ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, "sakura")
+    try:
+        p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+        p.emulate_media(reduced_motion="no-preference")
+        dash_free = p.evaluate(anim_js)
+        open_today(p)
+        free = p.evaluate(anim_js)
+        p.emulate_media(reduced_motion="reduce")
+        reduced = p.evaluate(anim_js)
+        nav(p, "Dashboard")
+        p.locator(".dash-hero").first.wait_for(state="visible", timeout=20000)
+        dash_reduced = p.evaluate(anim_js)
+        check("d-motion kelopak: decor-float tanpa preferensi, animation-name none saat prefers-reduced-motion: reduce",
+              dash_free == ["decor-float"] and free == ["decor-float"] and reduced == ["none"] and dash_reduced == ["none"],
+              "dashboard %r -> %r, fokus %r -> %r" % (dash_free, dash_reduced, free, reduced))
+    finally:
+        ctx.close()
+
+    # d-375: titlebar Fokus visually-hidden di <= 1024 px (kelopaknya ikut terpotong) -> cek kelopak hero Dashboard:
+    # kotaknya tidak berpotongan dengan sapaan (h1), teks hero, kartu progres, atau tombol/tautan hero; tanpa scroll horizontal.
+    ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, "sakura", mobile=True)
+    try:
+        p.locator(".dash-hero").first.wait_for(state="visible", timeout=20000)
+        p.get_by_text(TASKS[0][0]).first.wait_for(state="attached", timeout=20000)
+        p.wait_for_timeout(500)
+        pet = rects(p, ".dash-hero .decor-page-corner")
+        others = {sel: rects(p, sel) for sel in (".dash-hero-greet", ".dash-hero-text", ".dash-hero-progress",
+                                                  ".dash-hero button", ".dash-hero a", ".dash-hero .dash-capture")}
+        hits = [sel for sel, rs in others.items() for r in rs if pet and intersects(pet[0], r)]
+        hscroll = p.evaluate("() => document.documentElement.scrollWidth > window.innerWidth")
+        open_today(p)
+        bar = rects(p, ".focus-page-titlebar")
+        check("d-375 kelopak hero tampil dan tidak berpotongan dengan sapaan/teks/kartu progres/tombol hero; "
+              "titlebar Fokus visually-hidden (kelopak terpotong); tanpa scroll horizontal",
+              len(pet) == 1 and pet[0]["w"] > 0 and not hits and not hscroll and len(bar) == 1 and bar[0]["w"] <= 1,
+              "kelopak %r, sapaan %r, progres %r, berpotongan %r, titlebar %r, hscroll %r" % (
+                  pet, others[".dash-hero-greet"], others[".dash-hero-progress"], hits, bar, hscroll))
+    finally:
+        ctx.close()
+
+    # d-glyph + d-zen: kartu Pomodoro (task difokuskan) memuat glyph kelopak; dekorasi off -> tomat seketika;
+    # Zen (sakelar Zen + Work berjalan) -> kelopak judul display:none.
+    ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, "sakura")
+    try:
+        p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+        open_today(p)
+        focus_first_task(p)
+        p.locator(".focus-pomo-task-count svg").first.wait_for(state="attached", timeout=10000)
+        card = p.evaluate(GLYPHS_IN_JS, ".focus-pomo")
+        summary = p.evaluate(GLYPHS_IN_JS, ".focus-page-summary")
+        p.evaluate("() => { document.documentElement.dataset.decor = 'off'; }")
+        try:
+            p.wait_for_function("(js) => (eval(js))('.focus-pomo').includes('tomato')", arg=GLYPHS_IN_JS, timeout=5000)
+        except PlaywrightTimeout:
+            pass
+        card_off = p.evaluate(GLYPHS_IN_JS, ".focus-pomo")
+        p.evaluate("() => { document.documentElement.dataset.decor = 'on'; }")
+        p.wait_for_function("() => !!document.querySelector('.focus-page-title > .decor-page-corner')", timeout=5000)
+        check("d-glyph sakura: kartu Pomodoro & ringkasan memuat glyph kelopak (tanpa tomat); dekorasi off -> tomat",
+              card and set(card) == {"petal"} and summary == ["petal"] and card_off and set(card_off) == {"tomato"},
+              "kartu %r, ringkasan %r, off %r" % (card, summary, card_off))
+
+        disp_js = "() => [...document.querySelectorAll('.focus-page-title > .decor-page-corner')].map(el => getComputedStyle(el).display)"
+        before = p.evaluate(disp_js)
+        p.locator(".focus-zen-btn").click()
+        p.evaluate("document.querySelector('.focus-pomo .pomo-btn-main').click()")
+        p.wait_for_selector(".focus-page.is-zen", timeout=5000)
+        zen = p.evaluate(disp_js)
+        p.locator(".focus-pomo .pomo-btn-main.is-pause").first.click()
+        p.wait_for_function("() => !document.querySelector('.focus-page.is-zen')", timeout=5000)
+        after = p.evaluate(disp_js)
+        check("d-zen Zen aktif (Work berjalan): kelopak judul display:none; jeda -> tampil lagi",
+              len(before) == 1 and before[0] != "none" and zen == ["none"] and after == before,
+              "%r -> %r -> %r" % (before, zen, after))
+    finally:
+        ctx.close()
+
+
 def verify():
     """Cek perilaku tema di browser: (a) skrip boot memasang atribut sebelum React, (b) toggle header menulis tf_theme
     dan mengganti data-theme, (c) mode system mengikuti prefers-color-scheme tanpa reload, (d) logout tidak menghapus
-    kunci tema, lalu cek palet v-* (verify_palettes). Keluar non-zero bila ada cek gagal."""
+    kunci tema, lalu cek palet v-* (verify_palettes) dan dekorasi d-* (verify_decor). Keluar non-zero bila ada cek gagal."""
     sw = sw_version(ROOT)
     tmp = tempfile.mkdtemp(prefix="e2e_tema_fondasi_verify_")
     proc, base = start_server(tmp, ROOT)
@@ -862,6 +1070,7 @@ def verify():
             finally:
                 ctx.close()
             verify_palettes(browser, base, user, sw)
+            verify_decor(browser, base, user, sw)
             browser.close()
     finally:
         proc.terminate()
@@ -888,7 +1097,7 @@ def main():
     cmp_ = sub.add_parser("compare", help="ambil after/ dari pohon kerja, bandingkan dengan baseline/")
     cmp_.add_argument("--tolerance", type=int, default=3, help="selisih kanal maksimum yang masih dianggap sama")
     cmp_.add_argument("--palette", **pal)
-    shots_ = sub.add_parser("shots", help="28 screenshot audit satu palet ke shots/<palet>/ + lembar kontak")
+    shots_ = sub.add_parser("shots", help="32 screenshot audit satu palet ke shots/<palet>/ + lembar kontak")
     shots_.add_argument("--palette", **pal)
     sub.add_parser("verify", help="cek perilaku tema di browser (skrip boot, toggle, mode system, logout, palet)")
     args = ap.parse_args()
