@@ -236,3 +236,116 @@ test("guard: palet non-Default mendefinisikan lima token radius & font-heading",
     assert.ok(new RegExp(`\\[data-palette="(sakura|lavender)"\\][^{]*\\{[^}]*${t}:`).test(tcss), t);
   }
 });
+
+// Final review PR B: teks putih di atas aksen gagal kontras di Sakura/Lavender gelap (aksen terang, ±2,1:1).
+// Latar var(--accent…) (termasuk gradien yang memakainya) wajib berteks var(--accent-ink) — Default tetap putih
+// (--accent-ink: #ffffff). Dipindai: tiap aturan app.css + <style> index.html, dan tiap objek style index.html yang
+// properti background/backgroundColor-nya memuat var(--accent…). Tanpa allowlist.
+const WHITE = /^(white|#fff|#ffffff)$/i;
+const BG_ACCENT = /(^|[\s;{])background(-color)?\s*:\s*[^;]*var\(--accent/;
+test("guard: aturan CSS berlatar var(--accent…) tidak berteks putih", () => {
+  const styleBlocks = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => ["index.html <style>", m[1]]);
+  const bad = [];
+  for (const [file, src] of [["app.css", css], ...styleBlocks]) {
+    const body = src.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
+    for (const m of body.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!BG_ACCENT.test(m[2])) continue;
+      for (const c of m[2].matchAll(/(?:^|[\s;{])color\s*:\s*([^;]+)/g)) {
+        if (WHITE.test(c[1].replace(/\s*!important\s*$/, "").trim())) bad.push(`${file}: ${m[1].trim()} (color: ${c[1].trim()})`);
+      }
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
+// Nilai satu properti objek JS mulai indeks i: sampai koma/kurung tutup tingkat-atas (string dilompati utuh).
+const propValueEnd = (src, i) => {
+  let d = 0;
+  for (let j = i; j < src.length; j++) {
+    const c = src[j];
+    if ("([{".includes(c)) d++;
+    else if (")]}".includes(c)) { if (d === 0) return j; d--; }
+    else if (c === "," && d === 0) return j;
+    else if (c === '"' || c === "'" || c === "`") { j++; while (j < src.length && src[j] !== c) { if (src[j] === "\\") j++; j++; } }
+  }
+  return src.length;
+};
+// Objek {…} yang membungkus indeks i (kurung kurawal seimbang; cukup untuk objek style hasil kompilasi Babel).
+const enclosingObject = (src, i) => {
+  let s = i, d = 0;
+  for (; s > 0; s--) { if (src[s] === "}") d++; else if (src[s] === "{") { if (d === 0) break; d--; } }
+  let e = i; d = 0;
+  for (; e < src.length; e++) { if (src[e] === "{") d++; else if (src[e] === "}") { if (d === 0) break; d--; } }
+  return [s, src.slice(s, e + 1)];
+};
+// Cabang ekspresi ternary tingkat-atas: "a ? x : b ? y : z" → [["a","x"],["b","y"],[null,"z"]] (string dilompati).
+const ternaryBranches = (v) => {
+  const parts = [], seps = [];
+  let d = 0, last = 0;
+  for (let j = 0; j < v.length; j++) {
+    const c = v[j];
+    if ("([{".includes(c)) d++;
+    else if (")]}".includes(c)) d--;
+    else if (c === '"' || c === "'" || c === "`") { j++; while (j < v.length && v[j] !== c) { if (v[j] === "\\") j++; j++; } }
+    else if (d === 0 && (c === "?" || c === ":")) { parts.push(v.slice(last, j).trim()); seps.push(c); last = j + 1; }
+  }
+  parts.push(v.slice(last).trim());
+  // Hanya bentuk rantai kanan sederhana (? : ? : …); selain itu satu cabang utuh.
+  if (!seps.every((c, i) => c === (i % 2 ? ":" : "?"))) return [[null, v.trim()]];
+  const out = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) out.push([parts[i], parts[i + 1]]);
+  out.push([null, parts[parts.length - 1]]);
+  return out;
+};
+const IS_WHITE_LIT = /^(["'`])(white|#fff|#ffffff)\1$/i;
+test("guard: objek style index.html berlatar var(--accent…) tidak berteks putih", () => {
+  const bad = [], seen = new Set();
+  let hits = 0;
+  for (const m of html.matchAll(/\bbackground(?:Color)?\s*:\s*/g)) {
+    const at = m.index + m[0].length;
+    if (!/var\(--accent/.test(html.slice(at, propValueEnd(html, at)))) continue;
+    const [s, obj] = enclosingObject(html, m.index);
+    if (seen.has(s)) continue;
+    seen.add(s);
+    hits++;
+    const bgVal = html.slice(at, propValueEnd(html, at));
+    for (const c of obj.matchAll(/(?:^|[\s,{])color\s*:\s*/g)) {
+      const v = obj.slice(c.index + c[0].length, propValueEnd(obj, c.index + c[0].length));
+      if (!/(["'`])(white|#fff|#ffffff)\1/i.test(v)) continue;
+      // Ternary berkondisi sama (bg: a ? aksen : b ? x : y, color: a ? tinta : putih) → warna yang mungkin tampil
+      // saat cabang latar aksen terpilih: cabang color berkondisi sama dipakai, berkondisi cabang latar sebelumnya
+      // (pasti salah) dilewati, berkondisi lain dianggap mungkin.
+      const bb = ternaryBranches(bgVal), cb = ternaryBranches(v), conds = bb.map(([k]) => k);
+      const colorsUnder = (i) => {
+        const out = [];
+        for (const [k, cv] of cb) {
+          const at2 = k === null ? -1 : conds.indexOf(k);
+          if (k === null || at2 === i) { out.push(cv); break; }
+          if (at2 > -1 && at2 < i) continue;
+          out.push(cv);
+        }
+        return out;
+      };
+      const clash = bb.some(([, bv], i) => /var\(--accent/.test(bv) && colorsUnder(i).some((cv) => IS_WHITE_LIT.test(cv)));
+      if (clash) bad.push(`index.html:${html.slice(0, s).split("\n").length} color: ${v.trim()}`);
+    }
+  }
+  assert.ok(hits > 10, "pemindai tidak menemukan objek style berlatar aksen: " + hits);
+  assert.deepEqual(bad, []);
+});
+
+// Final review PR B: latar baris notifikasi lewat token opsional (Default terang = fallback; Default gelap & palet
+// di app.css/themes.css, nilainya dijaga theme_palettes.test.js).
+test("guard: baris notifikasi memakai var(--notif-unread-bg/--notif-hover-bg, fallback)", () => {
+  const item = html.slice(html.indexOf('background: n.is_read ? "var(--bg-card)"'), html.indexOf("dangerouslySetInnerHTML", html.indexOf('background: n.is_read ? "var(--bg-card)"')));
+  assert.equal((item.match(/"var\(--notif-unread-bg, #f0fdf4\)"/g) || []).length, 2, "unread (style + onMouseLeave)");
+  assert.equal((item.match(/"var\(--notif-hover-bg, #e0f2fe\)"/g) || []).length, 1, "hover (onMouseEnter)");
+  assert.doesNotMatch(item.replace(/var\(--notif-(unread|hover)-bg, #[0-9a-f]{6}\)/g, ""), /#f0fdf4|#e0f2fe/i);
+  assert.equal(html.match(/#e0f2fe/gi).length, 1, "#e0f2fe hanya sebagai fallback hover notifikasi");
+});
+
+test("guard: sidebar memakai var(--bg-sidebar)", () => {
+  const m = css.match(/\n\s*\.sidebar \{([^}]*)\}/);
+  assert.ok(m);
+  assert.match(m[1], /background: var\(--bg-sidebar\);/);
+});

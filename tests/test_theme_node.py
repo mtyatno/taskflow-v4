@@ -1,6 +1,7 @@
 """Jalankan tes node fondasi tema (registri TF.themes, guard literal/aturan gelap, boot script) dari pytest, supaya
 ikut CI (workflow test.yml hanya menjalankan pytest). Spec docs/superpowers/specs/2026-10-26-tema-palet-dekorasi-design.md.
 File tes yang hilang = gagal (bukan dilewati); dilewati seluruhnya bila node tidak ada."""
+import glob
 import os
 import re
 import shutil
@@ -25,10 +26,12 @@ def test_theme_node_tests():
     assert m and int(m.group(1)) > 0, "tidak ada tes yang berjalan:\n" + out[-3000:]
 
 
-EXPECTED_NODE_TESTS = {"themes", "theme_guard", "theme_boot", "theme_palettes", "theme_react", "theme_settings_ui"}
-
-
 def test_theme_bridge_lists_all_files():
-    assert set(NODE_TESTS) == EXPECTED_NODE_TESTS
+    # Semua tests/offline/theme*.test.js wajib terdaftar di NODE_TESTS, supaya tes tema baru tidak diam-diam
+    # tertinggal dari CI (dan sebaliknya: entri NODE_TESTS tanpa berkas = gagal).
+    on_disk = {os.path.basename(f)[: -len(".test.js")] for f in glob.glob(os.path.join(ROOT, "tests", "offline", "theme*.test.js"))}
+    assert on_disk, "glob theme*.test.js kosong"
+    assert set(NODE_TESTS) == on_disk, f"NODE_TESTS {sorted(NODE_TESTS)} != berkas {sorted(on_disk)}"
+    assert len(NODE_TESTS) == len(set(NODE_TESTS)), "NODE_TESTS berisi nama ganda"
     missing = [n for n in NODE_TESTS if not os.path.exists(os.path.join(ROOT, "tests", "offline", f"{n}.test.js"))]
     assert not missing, f"file tes hilang: {missing}"

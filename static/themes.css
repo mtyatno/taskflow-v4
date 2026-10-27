@@ -11,6 +11,10 @@
  * --border-hover) hanya didefinisikan di sini: app.css memakainya sebagai var(--token, <literal Default>), jadi
  * Default tetap memakai literal lama. --chat-self-bg/--border-hover hanya di blok gelap (pemakainya aturan gelap).
  * --line-soft = --border; --track = --border-strong (terang) / --border (gelap).
+ * --notif-unread-bg/--notif-hover-bg (baris notifikasi): terang = rgba(<--accent-rgb>, 0.10) / nilai --bg-hover;
+ * gelap = rgba(<--accent-rgb>, 0.14) / rgba(255,255,255,0.06). Terang sengaja bukan --accent-soft: --text-light
+ * (waktu notifikasi) di atas --accent-soft hanya 4,35–4,41:1. Default terang memakai fallback di index.html;
+ * Default gelap didefinisikan di blok gelap app.css.
  *
  * Rujukan: docs/superpowers/specs/2026-10-26-tema-palet-dekorasi-design.md §3.3.
  */
@@ -55,6 +59,8 @@
   --accent-2-rgb: 176, 40, 126;
   --line-soft: #F0D2E5;
   --track: #E6C0D8;
+  --notif-unread-bg: rgba(176,40,126,0.10);
+  --notif-hover-bg: rgba(58,36,56,0.05);
   --radius-sm: 10px;
   --radius-control: 12px;
   --radius-md: 14px;
@@ -96,6 +102,8 @@
   --border-hover: #5A3E52;
   --line-soft: #3E2A3A;
   --track: #3E2A3A;
+  --notif-unread-bg: rgba(238,143,203,0.14);
+  --notif-hover-bg: rgba(255,255,255,0.06);
 }
 
 /* Lavender — ungu. Pola turunan sama dengan Sakura. */
@@ -131,6 +139,8 @@
   --accent-2-rgb: 138, 58, 174;
   --line-soft: #E2D4F0;
   --track: #D5C2E8;
+  --notif-unread-bg: rgba(138,58,174,0.10);
+  --notif-hover-bg: rgba(48,36,60,0.05);
   --radius-sm: 10px;
   --radius-control: 12px;
   --radius-md: 14px;
@@ -172,4 +182,6 @@
   --border-hover: #4E3F63;
   --line-soft: #382D45;
   --track: #382D45;
+  --notif-unread-bg: rgba(205,162,242,0.14);
+  --notif-hover-bg: rgba(255,255,255,0.06);
 }

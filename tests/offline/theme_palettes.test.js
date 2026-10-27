@@ -81,7 +81,14 @@ const REQUIRED = ["--bg-page", "--bg-primary", "--bg-secondary", "--bg-card", "-
   "--accent-ring", "--accent-rgb", "--accent-2", "--accent-2-hover", "--line-soft", "--track"];
 const REQUIRED_LIGHT_ONLY = ["--radius-sm", "--radius-control", "--radius-md", "--radius-card", "--radius-lg", "--font-heading"];
 const PAIRS = [["--text-primary", "--bg-page"], ["--text-primary", "--bg-card"], ["--text-secondary", "--bg-card"],
-  ["--text-light", "--bg-page"], ["--accent-text", "--bg-card"], ["--accent-text", "--accent-soft"], ["--accent-ink", "--accent"]];
+  ["--text-light", "--bg-page"], ["--text-light", "--bg-card"], ["--accent-text", "--bg-card"], ["--accent-text", "--accent-soft"],
+  ["--accent-ink", "--accent"], ["--accent-on", "--accent"], ["--accent-text-deep", "--accent-soft"],
+  ["--text-secondary", "--bg-sidebar"], ["--text-light", "--bg-sidebar"],
+  // Baris notifikasi (pesan = --text-primary, waktu = --text-light) di atas latar belum-dibaca dan hover.
+  ["--text-primary", "--notif-unread-bg"], ["--text-light", "--notif-unread-bg"],
+  ["--text-primary", "--notif-hover-bg"], ["--text-light", "--notif-hover-bg"]];
+// Pasangan yang hanya bermakna di satu mode (--accent-text-bright dipakai aturan gelap saja).
+const PAIRS_DARK = [["--accent-text-bright", "--bg-card"]];
 
 // Tabel kontras terukur (juga dicetak untuk laporan: `node --test … --test-reporter=spec`).
 const measure = (id, mode) => {
@@ -89,7 +96,7 @@ const measure = (id, mode) => {
   const card = parseColor(v("--bg-card"));
   assert.equal(card[3], 1, `${id} ${mode}: --bg-card harus opak`);
   const solid = (n) => over(parseColor(v(n)), card);
-  return PAIRS.map(([fg, bg]) => ({ fg, bg, ratio: contrast(solid(fg), solid(bg)) }));
+  return [...PAIRS, ...(mode === "dark" ? PAIRS_DARK : [])].map(([fg, bg]) => ({ fg, bg, ratio: contrast(solid(fg), solid(bg)) }));
 };
 
 test("registri punya palet non-Default (sakura, lavender)", () => {
@@ -192,5 +199,24 @@ test("--line-soft/--track ada di :root, blok gelap, dan tiap palet", () => {
     assert.equal(l["--track"], l["--border-strong"], `${id} terang --track = --border-strong`);
     assert.equal(d["--line-soft"], d["--border"], `${id} gelap --line-soft = --border`);
     assert.equal(d["--track"], d["--border"], `${id} gelap --track = --border`);
+  }
+});
+
+// Final review PR B: latar baris notifikasi (index.html NotificationItem) lewat token opsional
+// var(--notif-unread-bg, #f0fdf4) / var(--notif-hover-bg, #e0f2fe). Default terang = fallback (tidak ada di :root);
+// Default gelap didefinisikan di blok gelap app.css (perbaikan: hijau/biru muda tak terbaca di gelap).
+// Palet: terang = rgba(--accent-rgb, 0.10) / nilai --bg-hover blok itu; gelap = rgba(--accent-rgb, 0.14) /
+// rgba(255,255,255,0.06). Terang bukan --accent-soft karena --text-light di atasnya < 4,5:1 (4,35 Sakura, 4,41 Lavender).
+const NOTIF = ["--notif-unread-bg", "--notif-hover-bg"];
+test("token notifikasi: tidak ada di :root, dipin di blok gelap app.css, turunan di tiap palet", () => {
+  for (const t of NOTIF) assert.ok(!(t in appRoot), ":root " + t);
+  assert.equal(appDark["--notif-unread-bg"], "rgba(168,197,0,0.10)");
+  assert.equal(appDark["--notif-hover-bg"], "rgba(255,255,255,0.06)");
+  for (const id of NON_DEFAULT) {
+    const l = palettes[id].light, d = palettes[id].dark;
+    assert.equal(l["--notif-unread-bg"].replace(/\s+/g, ""), `rgba(${l["--accent-rgb"].replace(/\s+/g, "")},0.10)`, `${id} terang --notif-unread-bg`);
+    assert.equal(l["--notif-hover-bg"], l["--bg-hover"], `${id} terang --notif-hover-bg = --bg-hover`);
+    assert.equal(d["--notif-unread-bg"].replace(/\s+/g, ""), `rgba(${d["--accent-rgb"].replace(/\s+/g, "")},0.14)`, `${id} gelap --notif-unread-bg`);
+    assert.equal(d["--notif-hover-bg"], "rgba(255,255,255,0.06)", `${id} gelap --notif-hover-bg`);
   }
 });
