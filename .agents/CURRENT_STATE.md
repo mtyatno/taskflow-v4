@@ -1,4 +1,4 @@
-## 🟡 Detail task padat — `claude/detail-padat` — 2026-10-27 (Claude) — PR draft, menunggu "merge dan deploy"
+## 🟢 Detail task padat — `claude/detail-padat` — 2026-10-27 (Claude) — DI-MERGE (#101, 093bad8) oleh Bapak 2026-10-27 08:03 WIB; Deploy sukses (file statis, tanpa restart). SW `taskflow-v474-detail-padat`, `app.css?v=371`.
 - **Permintaan Bapak (laptop 14"):** deskripsi + tab tertutup di panel; disetujui: properti satu baris (label kiri, nilai kanan; dua kolom hanya bila wadah ≥ 560 px lewat container query), jarak dirapatkan, Assign/Menunggu/Tag kosong diringkas jadi tombol "+ …" (spec redesain §13).
 - **Rilis:** SW `taskflow-v474-detail-padat`, `app.css?v=371`, entri whatsnew "Detail task lebih ringkas". File statis saja.
 - **Verifikasi:** `npm test` 3291/3292 (hanya `draw_local_reactive`), pytest 1230 lulus; E2E `e2e_detail_redesign.py` 316/0, `e2e_live_edit.py` 122/0, `e2e_task_detail_body.py` 104/0 (helper E2E kini juga menemukan tombol ringkas).
