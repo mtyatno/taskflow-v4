@@ -85,8 +85,8 @@ test("Sketsa memakai ViewGlyph", () => {
   assert.match(draw, /"Pinned"/);
 });
 
-test("cache bust taskflow-v476-catatan-input-atas", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v476-catatan-input-atas";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v476-catatan-input-atas";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v476-catatan-input-atas"/);
+test("cache bust taskflow-v477-label-workspace", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v477-label-workspace";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v477-label-workspace";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v477-label-workspace"/);
 });

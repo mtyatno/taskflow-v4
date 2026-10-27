@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v401", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v476-catatan-input-atas";/m,
-      "sw.js CACHE must be taskflow-v476-catatan-input-atas"
+      /^const CACHE = "taskflow-v477-label-workspace";/m,
+      "sw.js CACHE must be taskflow-v477-label-workspace"
     );
   });
 });
