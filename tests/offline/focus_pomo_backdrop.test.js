@@ -37,11 +37,13 @@ const mobile = (() => {
   return css.slice(s, css.indexOf("\n}\n", s));
 })();
 
-test("PomodoroTimer: latar HeroBackdrop place pomo sebagai anak pertama, kartu melukis base yang sama (cardBase)", () => {
+test("PomodoroTimer: satu useHeroBackdrop(\"pomo\") → kartu melukis base + HeroBackdropLayer (hasil yang sama) sebagai anak pertama", () => {
   const src = fnSource("PomodoroTimer");
   assert.match(src, /const pomoBg = useHeroBackdrop\("pomo"\);/);
-  assert.match(src, /React\.createElement\("section", \{\s*ref: cardRef,\s*className: `focus-pomo scale-in[^`]*`,\s*style: pomoBg \? \{\s*background: pomoBg\.base\s*\} : undefined,\s*"aria-label": "Pomodoro"\s*\}, React\.createElement\(HeroBackdrop, \{\s*place: "pomo",\s*cardBase: !!pomoBg\s*\}\), React\.createElement\("div", \{\s*className: "focus-pomo-ring"/);
-  assert.equal(src.split("React.createElement(HeroBackdrop").length - 1, 1, "satu latar di kartu");
+  assert.equal(src.split("useHeroBackdrop(").length - 1, 1, "latar kartu dihitung sekali (satu hook, satu MutationObserver, satu uid)");
+  assert.match(src, /React\.createElement\("section", \{\s*ref: cardRef,\s*className: `focus-pomo scale-in[^`]*`,\s*style: pomoBg \? \{\s*background: pomoBg\.base\s*\} : undefined,\s*"aria-label": "Pomodoro"\s*\}, React\.createElement\(HeroBackdropLayer, \{\s*bd: pomoBg,\s*cardBase: true\s*\}\), React\.createElement\("div", \{\s*className: "focus-pomo-ring"/);
+  assert.equal(src.split("React.createElement(HeroBackdropLayer,").length - 1, 1, "satu latar di kartu");
+  assert.equal(src.split("React.createElement(HeroBackdrop,").length - 1, 0, "kartu tidak memakai HeroBackdrop (hook kedua)");
   // Bar ringkas tanpa latar ilustrasi.
   assert.ok(!fnSource("PomodoroMiniBar").includes("HeroBackdrop"), "bar ringkas tanpa HeroBackdrop");
   assert.ok(!fnSource("PomodoroMiniBar").includes("useHeroBackdrop"));

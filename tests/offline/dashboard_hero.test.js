@@ -19,6 +19,7 @@ function fnSource(name) {
 }
 const dash = fnSource("Dashboard");
 const backdrop = fnSource("HeroBackdrop");
+const backdropLayer = fnSource("HeroBackdropLayer");
 const backdropHook = fnSource("useHeroBackdrop");
 const heroStart = dash.indexOf("/* ── Hero ── */");
 const heroEnd = dash.indexOf("/* ── KPI ── */");
@@ -57,11 +58,13 @@ test("ringkasan: cabang prioritas tidak lagi menyebut terlambat; chip terlambat 
   assert.ok(dash.includes('"Menyinkronkan datamu…"'));
 });
 
-test("latar: HeroBackdrop place hero (latar terpilih), section memakai base yang sama; topografi/ilustrasi lama pindah ke registri", () => {
+test("latar: hero = satu useHeroBackdrop(\"hero\") → section (base) + HeroBackdropLayer (hasil yang sama); topografi/ilustrasi lama pindah ke registri", () => {
   // Spec latar-hero §5: Kontur (bawaan) = topografi + ilustrasi palet lama, kini cabang "kontur" TF.herobg.
   assert.match(dash, /const heroBg = useHeroBackdrop\("hero"\);/);
-  assert.match(hero, /React\.createElement\("section", \{\s*className: "dash-hero",\s*style: heroBg \? \{\s*background: heroBg\.base\s*\} : undefined\s*\}, \/\*#__PURE__\*\/React\.createElement\(HeroBackdrop, \{\s*place: "hero",\s*cardBase: !!heroBg\s*\}\), \/\*#__PURE__\*\/React\.createElement\("div", \{\s*className: "dash-hero-top"/);
-  assert.equal(hero.split("React.createElement(HeroBackdrop").length - 1, 1, "satu latar di hero");
+  assert.equal(dash.split("useHeroBackdrop(").length - 1, 1, "latar hero dihitung sekali (satu hook, satu MutationObserver, satu uid)");
+  assert.match(hero, /React\.createElement\("section", \{\s*className: "dash-hero",\s*style: heroBg \? \{\s*background: heroBg\.base\s*\} : undefined\s*\}, \/\*#__PURE__\*\/React\.createElement\(HeroBackdropLayer, \{\s*bd: heroBg,\s*cardBase: true\s*\}\), \/\*#__PURE__\*\/React\.createElement\("div", \{\s*className: "dash-hero-top"/);
+  assert.equal(hero.split("React.createElement(HeroBackdropLayer,").length - 1, 1, "satu latar di hero");
+  assert.equal(hero.split("React.createElement(HeroBackdrop,").length - 1, 0, "hero tidak memakai HeroBackdrop (hook kedua)");
   // Kelopak tema tetap (item flex di .dash-hero-top).
   assert.match(hero, /React\.createElement\(Decor, \{\s*slot: "page-corner"\s*\}\)/);
   for (const old of ["DASH_HERO_TOPO", "DashHeroIllus", "dash-hero-topo", "dash-hero-illus", "dhi-", "heroPalette"]) {
@@ -70,24 +73,27 @@ test("latar: HeroBackdrop place hero (latar terpilih), section memakai base yang
   }
 });
 
-test("HeroBackdrop: div.hb aria-hidden + ambient/fitur dari registri; useHeroBackdrop memo per kombinasi, uid per instance", () => {
-  assert.match(backdrop, /^function HeroBackdrop\(\{\s*place,\s*kind,\s*cardBase\s*\}\)/);
-  assert.match(backdrop, /const bd = useHeroBackdrop\(place, kind\);\s*if \(!bd\) return null;/);
-  assert.match(backdrop, /className: `hb hb-\$\{place\} hb-k-\$\{bd\.kind\}`,\s*"aria-hidden": "true",\s*style: cardBase \? undefined : \{\s*background: bd\.base\s*\}/);
-  assert.match(backdrop, /className: "hb-ambient",\s*dangerouslySetInnerHTML: \{\s*__html: bd\.ambient\s*\}/);
-  assert.match(backdrop, /className: "hb-feature",\s*dangerouslySetInnerHTML: \{\s*__html: bd\.feature\s*\}/);
+test("HeroBackdropLayer: div.hb aria-hidden + ambient/fitur dari hasil hook; HeroBackdrop = hook + layer; useHeroBackdrop memo per kombinasi, uid per instance", () => {
+  assert.match(backdropLayer, /^function HeroBackdropLayer\(\{\s*bd,\s*cardBase\s*\}\)/);
+  assert.match(backdropLayer, /^function HeroBackdropLayer\([^)]*\) \{\s*if \(!bd\) return null;/);
+  assert.match(backdropLayer, /className: `hb hb-\$\{bd\.place\} hb-k-\$\{bd\.kind\}`,\s*"aria-hidden": "true",\s*style: cardBase \? undefined : \{\s*background: bd\.base\s*\}/);
+  assert.match(backdropLayer, /className: "hb-ambient",\s*dangerouslySetInnerHTML: \{\s*__html: bd\.ambient\s*\}/);
+  assert.match(backdropLayer, /className: "hb-feature",\s*dangerouslySetInnerHTML: \{\s*__html: bd\.feature\s*\}/);
+  assert.doesNotMatch(backdropLayer, /use[A-Z]\w*\(/, "layer presentasional: tanpa hook");
+  assert.match(backdrop, /^function HeroBackdrop\(\{\s*place,\s*kind\s*\}\) \{\s*return React\.createElement\(HeroBackdropLayer, \{\s*bd: useHeroBackdrop\(place, kind\)\s*\}\);$/);
   assert.match(backdropHook, /\} = useThemeAttrs\(\);/);
   assert.match(backdropHook, /const uid = useRef\(null\);\s*if \(uid\.current === null\) uid\.current = "hb" \+ \+\+heroBackdropSeq;/);
   assert.match(backdropHook, /const reg = window\.TF && window\.TF\.herobg;/);
   assert.match(backdropHook, /const want = kind \|\| herobg;/);
   assert.match(backdropHook, /reg\.KINDS\.some\(k => k\.id === want\) \? want : "kontur"/);
-  assert.match(backdropHook, /reg\.render\(\{\s*kind: id,\s*palette,\s*mode: theme,\s*place,\s*uid: uid\.current\s*\}\)/);
+  assert.match(backdropHook, /\{\s*place,\s*kind: id,\s*\.\.\.reg\.render\(\{\s*kind: id,\s*palette,\s*mode: theme,\s*place,\s*uid: uid\.current\s*\}\)/);
   assert.match(backdropHook, /\[reg, id, palette, theme, place\]\);/);
   // Tanpa literal warna di komponen (warna ada di registri/token).
-  assert.doesNotMatch(backdrop + backdropHook, /#[0-9a-f]{3,8}\b|rgba?\(/i);
+  assert.doesNotMatch(backdrop + backdropLayer + backdropHook, /#[0-9a-f]{3,8}\b|rgba?\(/i);
 });
 
 // Render HeroBackdrop di sandbox vm: React tiruan (createElement → objek), hook tiruan, registri TF.herobg asli.
+// HB(props) = render HeroBackdrop lalu jalankan elemen HeroBackdropLayer yang dikembalikannya (satu tingkat).
 function renderBackdrop(props, { attrs = { theme: "light", palette: "sakura", decor: "on", herobg: "lanskap" }, registry = true, refs } = {}) {
   const hb = require("../../static/offline/herobg.js");
   const sandbox = {
@@ -97,7 +103,9 @@ function renderBackdrop(props, { attrs = { theme: "light", palette: "sakura", de
     useMemo: fn => fn(),
     window: { TF: registry ? { herobg: hb } : {} },
   };
-  vm.runInNewContext("let heroBackdropSeq = 0;\n" + backdropHook + "\n}\n" + backdrop + "\n}\nthis.HB = HeroBackdrop;", sandbox);
+  vm.runInNewContext("let heroBackdropSeq = 0;\n" + backdropHook + "\n}\n" + backdropLayer + "\n}\n" + backdrop + "\n}\n" +
+    "this.useHB = useHeroBackdrop; this.Layer = HeroBackdropLayer;\n" +
+    "this.HB = (props) => { const el = HeroBackdrop(props); if (el.type !== HeroBackdropLayer) throw new Error('bukan HeroBackdropLayer'); return el.type(el.props); };", sandbox);
   return { sandbox, hb };
 }
 
@@ -121,15 +129,30 @@ test("render HeroBackdrop: struktur div.hb > hb-ambient + hb-feature, latar terp
   const t = sandbox.HB({ place: "thumb", kind: "objek" });
   assert.equal(t.props.className, "hb hb-thumb hb-k-objek");
   assert.equal(sandbox.HB({ place: "thumb", kind: "foto" }).props.className, "hb hb-thumb hb-k-kontur");
-  // cardBase: induk sudah memasang base → div.hb tanpa style inline.
-  assert.equal(sandbox.HB({ place: "hero", cardBase: true }).props.style, undefined);
   // Atribut <html data-herobg> asing (versi lebih baru) → kontur.
   const odd = renderBackdrop({}, { attrs: { theme: "dark", palette: "zzz", decor: "on", herobg: "foto" } });
   const k = odd.sandbox.HB({ place: "hero" });
   assert.equal(k.props.className, "hb hb-hero hb-k-kontur");
   assert.equal(k.props.style.background, odd.hb.render({ kind: "kontur", palette: "zzz", mode: "dark", place: "hero" }).base);
-  // Registri belum termuat → null (tampilan lama, tanpa error).
-  assert.equal(renderBackdrop({}, { registry: false }).sandbox.HB({ place: "hero" }), null);
+  // Registri belum termuat → hook null → layer null (tampilan lama, tanpa error).
+  const none = renderBackdrop({}, { registry: false }).sandbox;
+  assert.equal(none.useHB("hero"), null);
+  assert.equal(none.HB({ place: "hero" }), null);
+});
+
+test("HeroBackdropLayer: merender hasil hook yang diberikan (tanpa menghitung ulang); cardBase → tanpa base inline", () => {
+  const { sandbox } = renderBackdrop();
+  const bd = sandbox.useHB("pomo", "galaksi");
+  assert.deepEqual(Object.keys(bd).sort(), ["ambient", "base", "feature", "kind", "place"]);
+  assert.equal(bd.place, "pomo");
+  const el = sandbox.Layer({ bd });
+  assert.equal(el.props.className, "hb hb-pomo hb-k-galaksi");
+  assert.equal(el.props.style.background, bd.base);
+  assert.equal(el.props.children[0].props.dangerouslySetInnerHTML.__html, bd.ambient);
+  assert.equal(el.props.children[1].props.dangerouslySetInnerHTML.__html, bd.feature);
+  // Kartu yang melukis base sendiri (hero Dashboard, kartu Pomodoro): div.hb tanpa style inline.
+  assert.equal(sandbox.Layer({ bd, cardBase: true }).props.style, undefined);
+  assert.equal(sandbox.Layer({ bd: null, cardBase: true }), null);
 });
 
 test("render HeroBackdrop: uid dibuat sekali per instance (useRef), tetap sama saat render ulang", () => {

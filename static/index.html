@@ -12199,8 +12199,9 @@ function PomodoroTimer({
   onCompleteTask
 }) {
   const t = timer;
-  // Latar terpilih (spec latar-hero §6): kartu melukis base yang sama dengan HeroBackdrop (garis kartu rgba dipadu dengan
-  // latar kartu itu sendiri, seperti hero Dashboard); CSS .focus-pomo = cadangan bila registri belum termuat.
+  // Latar terpilih (spec latar-hero §6), dihitung sekali: kartu melukis base-nya (garis kartu rgba dipadu dengan latar kartu
+  // itu sendiri, seperti hero Dashboard) dan HeroBackdropLayer menggambar ambient + fitur dari hasil yang sama; CSS
+  // .focus-pomo = cadangan bila registri belum termuat.
   const pomoBg = useHeroBackdrop("pomo");
   return React.createElement("section", {
     ref: cardRef,
@@ -12209,9 +12210,9 @@ function PomodoroTimer({
       background: pomoBg.base
     } : undefined,
     "aria-label": "Pomodoro"
-  }, React.createElement(HeroBackdrop, {
-    place: "pomo",
-    cardBase: !!pomoBg
+  }, React.createElement(HeroBackdropLayer, {
+    bd: pomoBg,
+    cardBase: true
   }), React.createElement("div", {
     className: "focus-pomo-ring"
   }, React.createElement(PomoRing, {
@@ -22640,9 +22641,10 @@ function DashSyncCard({ mode, onRetry }) {
 // latar Kontur = garis topografi + ilustrasi palet hero Dashboard lama (spec hero-dashboard §3).
 let heroBackdropSeq = 0;
 // TF.herobg.render untuk `place` dengan latar `kind` (bawaan: pilihan Pengaturan di <html data-herobg>), palet dan mode
-// aktif, di-memo per kombinasi → { kind, base, ambient, feature }. uid stabil per instance supaya id SVG tetap unik walau
-// banyak latar tampil bersamaan (kartu pilihan di Pengaturan). null bila registri belum termuat: pemanggil tampil tanpa
-// latar (gaya CSS lama), tidak error.
+// aktif, di-memo per kombinasi → { place, kind, base, ambient, feature }. uid stabil per instance supaya id SVG tetap unik
+// walau banyak latar tampil bersamaan (kartu pilihan di Pengaturan). null bila registri belum termuat: pemanggil tampil
+// tanpa latar (gaya CSS lama), tidak error. Kartu yang juga memakai base untuk latarnya sendiri (hero Dashboard, kartu
+// Pomodoro) memanggil hook ini SEKALI lalu meneruskan hasilnya ke HeroBackdropLayer (satu render SVG, satu observer, satu uid).
 function useHeroBackdrop(place, kind) {
   const {
     theme,
@@ -22655,6 +22657,7 @@ function useHeroBackdrop(place, kind) {
   const want = kind || herobg;
   const id = reg && reg.KINDS.some(k => k.id === want) ? want : "kontur";
   return useMemo(() => reg ? {
+    place,
     kind: id,
     ...reg.render({
       kind: id,
@@ -22666,20 +22669,19 @@ function useHeroBackdrop(place, kind) {
   } : null, [reg, id, palette, theme, place]);
 }
 
-// Lapisan latar dekoratif (aria-hidden): div.hb (base = background inline) berisi ambient (memenuhi kartu) dan fitur (kotak
-// per tempat, posisi di app.css). Induk: position relative + overflow hidden, isinya z-index ≥ 1. String SVG berasal dari
-// registri statis internal (bukan data pengguna; sama dengan Decor), dijaga tests/offline/herobg.test.js.
-// cardBase: induk sudah memasang base yang sama sebagai latarnya sendiri (kartu bergaris rgba: garis dipadu dengan latar
-// induk) → div.hb tidak melukis base lagi, sehingga sudut membulat dan gradien persis seperti latar kartu itu sendiri.
-function HeroBackdrop({
-  place,
-  kind,
+// Lapisan latar dekoratif (aria-hidden) dari hasil useHeroBackdrop (`bd`, presentasional, tanpa hook): div.hb (base =
+// background inline) berisi ambient (memenuhi kartu) dan fitur (kotak per tempat, posisi di app.css). Induk: position
+// relative + overflow hidden, isinya z-index ≥ 1. String SVG berasal dari registri statis internal (bukan data pengguna;
+// sama dengan Decor), dijaga tests/offline/herobg.test.js. cardBase: induk sudah memasang base yang sama sebagai latarnya
+// sendiri (kartu bergaris rgba: garis dipadu dengan latar induk) → div.hb tidak melukis base lagi, sehingga sudut membulat
+// dan gradien persis seperti latar kartu itu sendiri.
+function HeroBackdropLayer({
+  bd,
   cardBase
 }) {
-  const bd = useHeroBackdrop(place, kind);
   if (!bd) return null;
   return React.createElement("div", {
-    className: `hb hb-${place} hb-k-${bd.kind}`,
+    className: `hb hb-${bd.place} hb-k-${bd.kind}`,
     "aria-hidden": "true",
     style: cardBase ? undefined : {
       background: bd.base
@@ -22695,6 +22697,16 @@ function HeroBackdrop({
       __html: bd.feature
     }
   }));
+}
+
+// Latar mandiri (hook + lapisan) untuk pratinjau Pengaturan: kartu pilihan (place thumb, kind per kartu) dan strip hero mini.
+function HeroBackdrop({
+  place,
+  kind
+}) {
+  return React.createElement(HeroBackdropLayer, {
+    bd: useHeroBackdrop(place, kind)
+  });
 }
 
 function Dashboard({
@@ -22731,8 +22743,9 @@ function Dashboard({
     } catch (_) {}
   };
   const intro = useIntroState(tasks);
-  // Latar hero terpilih. Garis .dash-hero (rgba aksen) dipadu dengan latar section di bawahnya (background-clip border-box),
-  // jadi section memakai base yang sama dengan HeroBackdrop; CSS .dash-hero = cadangan bila registri belum termuat.
+  // Latar hero terpilih, dihitung sekali. Garis .dash-hero (rgba aksen) dipadu dengan latar section di bawahnya
+  // (background-clip border-box), jadi section melukis base-nya sendiri dan HeroBackdropLayer menggambar ambient + fitur dari
+  // hasil yang sama; CSS .dash-hero = cadangan bila registri belum termuat.
   const heroBg = useHeroBackdrop("hero");
   const hasTasks = tasks.length > 0;
   const hasCompletedTasks = (summary.done_last_7_days ?? 0) > 0 || tasks.some(t => t.gtd_status === "done");
@@ -23397,9 +23410,9 @@ function Dashboard({
     style: heroBg ? {
       background: heroBg.base
     } : undefined
-  }, /*#__PURE__*/React.createElement(HeroBackdrop, {
-    place: "hero",
-    cardBase: !!heroBg
+  }, /*#__PURE__*/React.createElement(HeroBackdropLayer, {
+    bd: heroBg,
+    cardBase: true
   }), /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-top"
   }, /*#__PURE__*/React.createElement("div", {
