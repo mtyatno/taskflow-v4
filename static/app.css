@@ -2099,11 +2099,12 @@
   background-color: rgba(0, 0, 0, 0.05);
   color: var(--text-primary, #111827);
 }
+/* --accent-color tidak pernah didefinisikan: Default tetap lime #84cc16 (fallback), palet lain lewat token opsional. */
 .mindmap-tab-item.active {
   background-color: var(--bg-primary, #ffffff);
-  color: var(--accent-color, #84cc16);
+  color: var(--accent-text-deep, #84cc16);
   font-weight: 600;
-  border-bottom: 2px solid var(--accent-color, #84cc16);
+  border-bottom: 2px solid var(--accent-text-deep, #84cc16);
 }
 .mindmap-tab-title {
   white-space: nowrap;
