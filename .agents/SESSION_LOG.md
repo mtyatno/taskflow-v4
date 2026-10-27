@@ -4196,3 +4196,4 @@
 - **Perbaikan review akhir:** DatePicker mengabaikan `validity.badInput` dan tak terkendali (`defaultValue`) — tanggal setengah diketik tidak lagi menghapus deadline saat popover ditutup (E2E P-8 baru, gagal sebelum perbaikan); tambah checklist/subtask/tag hanya mengosongkan input bila masih berisi teks yang dikirim; komentar & baris kosong dirapikan.
 
 - 2026-10-27 04:40 WIB (Claude): PR #100 (redesain detail task, SW v473) di-merge atas "merge dan deploy" Bapak; workflow Deploy sukses (file statis, tanpa restart). Tindak lanjut terbuka: "Lepas" assignee belum sampai ke server (push mengirim null); subtask antrean TaskFormModal yatim di lokal; tombol .fab menutupi pojok modal di HP.
+- 2026-10-27 08:30 WIB (Claude): detail task padat (permintaan Bapak, laptop 14"): properti satu baris + container query, jarak dirapatkan, properti opsional kosong diringkas. SW v474. Branch `claude/detail-padat`, PR draft.

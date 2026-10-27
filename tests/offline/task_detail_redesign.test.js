@@ -213,3 +213,24 @@ test("CSS tab/deskripsi/baris: di blok detail, × checklist selalu tampil tanpa 
   assert.match(block, /\.td-tabpanel\[hidden\]\s*\{\s*display:\s*none;/);
   assert.match(block, /@media \(hover: none\)\s*\{\s*\.td-check-del\s*\{\s*opacity:\s*1;/);
 });
+
+// Detail padat (permintaan pemilik 2026-10-27, layar laptop 14"): properti satu baris (label kiri, nilai kanan), dua
+// pasang kolom hanya bila wadah lebar (container query), dan properti opsional kosong diringkas jadi tombol "+ …".
+test("detail padat: properti opsional kosong diringkas, baris penuh saat popover terbuka atau terisi", () => {
+  const s = fnSource("TaskDetailBody");
+  for (const re of [/const collapsedProps = optionalProps\.filter\(c => c\.empty && openPop !== c\.field\);/,
+    /showProp\("assigned_to"\) &&/, /showProp\("waiting_for"\) &&/, /showProp\("tag"\) &&/, /className: "td-prop-adds"/,
+    /text: "\+ Assign"/, /text: "\+ Menunggu"/, /text: "\+ Tag"/, /aria: "Menunggu: kosong"/, /aria: "Tambah tag"/,
+    /onClick: \(\) => setOpenPop\(c\.field\)/, /className: "td-props-box"/])
+    assert.match(s, re);
+  assert.doesNotMatch(s, /task\.list_id && (\/\*#__PURE__\*\/)?React\.createElement\(PropertyRow/, "Assign ke hanya lewat optionalProps");
+});
+test("detail padat: CSS satu baris + container query, tanpa media query lebar layar untuk kisi", () => {
+  const a = appCss.indexOf("/* ── Detail task: awal ── */"), b = appCss.indexOf("/* ── Detail task: akhir ── */");
+  const block = appCss.slice(a, b);
+  assert.match(block, /\.td-props-box\s*\{[^}]*container-type:\s*inline-size/);
+  assert.match(block, /@container \(min-width: 560px\)\s*\{\s*\.td-props\s*\{\s*grid-template-columns: 1fr 1fr;/);
+  assert.match(block, /\.td-prop\s*\{[^}]*grid-template-columns: 84px minmax\(0, 1fr\)/);
+  assert.match(block, /\.td-prop-add\s*\{/);
+  assert.doesNotMatch(block, /@media \(max-width: 640px\) \{ \.td-props/);
+});

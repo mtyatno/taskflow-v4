@@ -280,3 +280,11 @@ Keputusan kontroler selama eksekusi Task 1–8 (ledger `.superpowers/sdd/2026-10
 
 - **"Lepas" (unassign) tidak sampai ke server.** `syncpush` `taskToUpdatePayload` mengirim `assigned_to: null` dan PUT server mengabaikan `null`, jadi lepas-assign hanya mengubah toko lokal (sudah terjadi di panel Live Edit sejak #97). Mengirim `0` untuk setiap `null` berisiko perangkat basi menghapus assignment dari perangkat lain, jadi butuh desain sendiri.
 - **Subtask antre di `TaskFormModal` yatim secara lokal.** Form buat task (di luar cakupan, §11) masih membuat subtask antre hanya dengan `parent_id`, sehingga di toko lokal subtask itu tidak tertaut ke induk sampai sinkron; perbaikan `parent_cid` di branch ini hanya untuk jalur detail.
+
+## 13. Revisi 2026-10-27: detail padat (SW `taskflow-v474-detail-padat`, `app.css?v=371`)
+
+Permintaan pemilik setelah memakai v473 di laptop 14": deskripsi dan tab tertutup di bawah lipatan panel karena tiap properti memakan dua baris. Disetujui ketiganya:
+1. **Properti satu baris** — label kiri (84 px), nilai kanan (`.td-prop` grid). Kisi dua pasang kolom hanya bila wadah ≥ 560 px (`@container` pada `.td-props-box`, bukan lebar layar), selain itu satu kolom (modal, HP, panel sempit).
+2. **Jarak dirapatkan** — bar atas panel, judul (19 px), chip, kisi, dan deskripsi.
+3. **Properti opsional kosong diringkas** — Assign ke (task workspace), Menunggu, dan Tag yang kosong tampil sebagai satu baris tombol kecil "+ Assign · + Menunggu · + Tag" (`.td-prop-add`, aria-label sama dengan tombol nilainya: "Assign ke: kosong", "Menunggu: kosong", "Tambah tag"). Klik membuka baris penuhnya beserta popover; baris tetap penuh selama popover terbuka atau setelah terisi, dan kembali diringkas bila ditutup dalam keadaan kosong.
+
