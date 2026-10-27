@@ -64,7 +64,7 @@ test("themes.css hanya blok [data-palette] berisi deklarasi --*; tiap palet non-
 });
 
 test("themes.css dan themes.js dimuat index.html", () => {
-  assert.match(html, /<link rel="stylesheet" href="\/static\/themes\.css\?v=1">/);
+  assert.match(html, /<link rel="stylesheet" href="\/static\/themes\.css\?v=2">/);
   assert.ok(html.includes('<script src="/static/offline/themes.js">'), "tag themes.js tidak ada");
   assert.ok(html.indexOf('<script src="/static/offline/themes.js">') < html.indexOf('<script src="/static/ui-components.js">'));
 });

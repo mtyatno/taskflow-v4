@@ -9,7 +9,7 @@ import subprocess
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-NODE_TESTS = ["themes", "theme_guard", "theme_boot"]
+NODE_TESTS = ["themes", "theme_guard", "theme_boot", "theme_palettes", "theme_react", "theme_settings_ui"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node tidak ada di PATH")
@@ -25,7 +25,7 @@ def test_theme_node_tests():
     assert m and int(m.group(1)) > 0, "tidak ada tes yang berjalan:\n" + out[-3000:]
 
 
-EXPECTED_NODE_TESTS = {"themes", "theme_guard", "theme_boot"}
+EXPECTED_NODE_TESTS = {"themes", "theme_guard", "theme_boot", "theme_palettes", "theme_react", "theme_settings_ui"}
 
 
 def test_theme_bridge_lists_all_files():

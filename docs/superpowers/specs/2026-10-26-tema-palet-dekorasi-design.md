@@ -105,6 +105,8 @@ Lavender: terang `--bg-page #FAF6FD`, `--bg-sidebar #F3EBFA`, `--border #E2D4F0`
 
 Kontras terukur (WCAG, dihitung 2026-10-26): Sakura terang — aksen/latar 5,69, putih/aksen 6,09, aksen/chip 4,94, teks redup/latar 5,01; Sakura gelap — ink/aksen 7,88, aksen/kartu 7,37; Lavender terang — 5,96 / 6,37 / 5,22 / 5,03; Lavender gelap — 8,31 / 7,90. Jarak hue dari merah P1: Sakura ±40°, Lavender ±74° (rose awal ±20°, ditolak).
 
+Radius tambahan (PR B, S3): `--radius-control` (tombol, input, link sidebar; Default `8px`, Sakura/Lavender `12px`) dan `--radius-card` (kartu; Default `14px`, Sakura/Lavender `18px`). Token opsional berfallback (S1: `--accent-on`, `--accent-text-deep`, dll., tidak ada di `:root`, dipakai `var(--token, <literal lama>)`) dan `--line-soft`/`--track` (S5) tercantum di `docs/superpowers/plans/2026-10-27-tema-sakura-lavender.md` (tabel S1/S5) dan didefinisikan di `themes.css`.
+
 Font Nunito (judul) ditambahkan ke `<link>` Google Fonts yang sudah ada (bobot 700, 800) — ikut catatan tindak lanjut self-host font di spec precache §7 D.
 
 ### 3.4 Registri palet — `static/offline/themes.js` (`window.TF.themes`)
@@ -138,9 +140,9 @@ Dimigrasi di rilis ini (PR C): (1) Hari Ini "Tidak ada task urgent!" + kalimat b
 ### 3.7 Kartu "Tampilan" di Pengaturan
 
 Kartu pertama `SettingsPage` (sebelum "Ganti Username"), judul "Tampilan":
-1. **Mode** — `role="radiogroup"` `aria-label="Mode"`, tiga pil `Terang · Gelap · Ikuti sistem`, `aria-checked`; pil aktif latar `--accent`, teks `--accent-ink`.
+1. **Mode** — `role="radiogroup"` `aria-label="Mode"`, tiga pil `Terang · Gelap · Ikuti sistem`, `aria-checked`; pil aktif latar `--accent`, teks `var(--accent-on, #1a2a00)` (bukan `--accent-ink`: putih di atas lime Default ≈ 1,8:1 gagal AA; token opsional tak didefinisikan di palet, jadi kontras terjaga di semua palet).
 2. **Palet** — grid 3 kolom (1 kolom < 420 px), tombol `aria-pressed`, tiap kartu: tiga bulatan contoh dari `swatch[mode efektif]` (aksen, soft, bg) + nama. Terpilih: `border: 2px solid var(--accent)` + `--accent-ring`.
-3. **Dekorasi tema** — baris `role="switch"` `aria-checked`, label "Dekorasi tema", keterangan "Kelopak dan maskot di layar kosong" (palet berdekorasi) / "Tersedia untuk palet Sakura dan Lavender" (Default, sakelar `disabled`).
+3. **Dekorasi tema** (S2: baris ini baru dirender di PR C, bersama `decor.js`; di PR B tidak tampil) — baris `role="switch"` `aria-checked`, label "Dekorasi tema", keterangan "Kelopak dan maskot di layar kosong" (palet berdekorasi) / "Tersedia untuk palet Sakura dan Lavender" (Default, sakelar `disabled`).
 4. **Pratinjau** — kotak `--bg-card` berisi dua baris task contoh dan satu chip, memakai token hidup (tanpa warna tetap).
 
 Setiap perubahan langsung `setThemePrefs` (tanpa tombol Simpan, tanpa toast). Teks UI persis: `"Tampilan"`, `"Mode"`, `"Terang"`, `"Gelap"`, `"Ikuti sistem"`, `"Palet"`, `"Default"`, `"Sakura"`, `"Lavender"`, `"Dekorasi tema"`, `"Kelopak dan maskot di layar kosong"`, `"Tersedia untuk palet Sakura dan Lavender"`, `"Pratinjau"`.

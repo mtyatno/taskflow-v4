@@ -4196,3 +4196,10 @@
 - **Perbaikan review akhir:** DatePicker mengabaikan `validity.badInput` dan tak terkendali (`defaultValue`) — tanggal setengah diketik tidak lagi menghapus deadline saat popover ditutup (E2E P-8 baru, gagal sebelum perbaikan); tambah checklist/subtask/tag hanya mengosongkan input bila masih berisi teks yang dikirim; komentar & baris kosong dirapikan.
 
 - 2026-10-27 04:40 WIB (Claude): PR #100 (redesain detail task, SW v473) di-merge atas "merge dan deploy" Bapak; workflow Deploy sukses (file statis, tanpa restart). Tindak lanjut terbuka: "Lepas" assignee belum sampai ke server (push mengirim null); subtask antrean TaskFormModal yatim di lokal; tombol .fab menutupi pojok modal di HP.
+
+## [2026-10-27 14:00] - Claude
+- **Task:** Tema PR B (`claude/tema-sakura-lavender`) Task 8 — rilis v474 + jembatan CI + handover.
+- **Changes:** SW `taskflow-v474-tema-sakura-lavender`, `app.css?v=371`, `themes.css?v=2` (`sw.js`, `index.html` + fallback, `STATIC`, tes versi `tests/offline/` + `tests/test_static_revalidate.py` + `theme_guard.test.js`); entri `whatsnew.json` "Tema Sakura dan Lavender" di paling atas (entri lama tak disentuh); `tests/test_theme_node.py` NODE_TESTS + theme_palettes/theme_react/theme_settings_ui; spec tema §3.3 (radius-control/card, tabel token opsional) dan §3.7 (pil `--accent-on`, sakelar dekorasi di PR C); CURRENT_STATE entri PR B + koreksi "Berikutnya" PR A.
+- **Verifikasi:** PROTOCOL §4 40 passed; npm 3338/3337 (pra-ada `draw_local_reactive`); pytest 1230 passed 1 skipped; inline OK (6); compare gagal hanya tasks-dark, settings-light, settings-dark (disengaja; kanban-light flake run pertama); verify 18/0.
+- **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js (versi), tests/test_static_revalidate.py, tests/test_theme_node.py, docs/superpowers/specs/2026-10-26-tema-palet-dekorasi-design.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md.
+- **Status:** Needs Review — commit lokal, belum push/PR (kontroler). Sisa PR C + tindak lanjut audit di CURRENT_STATE.
