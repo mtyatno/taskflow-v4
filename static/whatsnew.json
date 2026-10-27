@@ -3,7 +3,7 @@
     {"version": "taskflow-v474-tema-sakura-lavender", "date": "2026-10-27", "title": "Tema Sakura dan Lavender",
      "new": ["Pilih palet Sakura (pink) atau Lavender (ungu) di Pengaturan › Tampilan.",
              "Mode tampilan kini bisa Terang, Gelap, atau Ikuti sistem."],
-     "fixed": ["Garis dan bar progres di mode gelap tidak lagi tampak terang."]},
+     "fixed": ["Bar progres di daftar task serta garis pemisah lampiran, catatan, dan notifikasi di mode gelap tidak lagi tampak terang."]},
     {"version": "taskflow-v473-detail-baru", "date": "2026-10-27", "title": "Tampilan detail task baru",
      "new": ["Klik nilai mana pun di detail task untuk mengubahnya; perubahan tersimpan otomatis, juga di jendela detail di HP.",
              "Subtask, checklist, catatan, dan lampiran kini dalam tab dengan jumlah isinya.",
