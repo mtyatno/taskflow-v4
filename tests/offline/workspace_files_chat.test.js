@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v479-tema-sakura-lavender', () => {
+  test('Service Worker cache version is bumped to taskflow-v480-tema-dekorasi', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v479-tema-sakura-lavender";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v480-tema-dekorasi";/m);
   });
 });
 

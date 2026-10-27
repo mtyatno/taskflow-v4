@@ -51,8 +51,8 @@ test("NotesPage memakai glyph yang ditentukan", () => {
 });
 
 test("versi SW di-bump", () => {
-  assert.match(sw, /taskflow-v479-tema-sakura-lavender/);
-  assert.match(indexHtml, /taskflow-v479-tema-sakura-lavender/);
+  assert.match(sw, /taskflow-v480-tema-dekorasi/);
+  assert.match(indexHtml, /taskflow-v480-tema-dekorasi/);
   assert.ok(!/taskflow-v44[0-3]-/.test(indexHtml));
 });
 
