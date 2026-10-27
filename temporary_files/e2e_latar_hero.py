@@ -13,9 +13,9 @@ hero      tangkapan .dash-hero untuk 6 latar x 3 palet x 2 mode @1280x900 (hero-
           Lebar hero sempit (cek "lebar hero"): pengguna bernama tampilan panjang, 1101/1180/1280 px dengan menu lengkap
           + 1101 px sidebar ikon, 6 latar: gambar fitur tidak beririsan dengan kolom teks (.dash-hero-text).
 settings  Pengaturan > Tampilan, Sakura terang: tangkapan kartu Tampilan dengan Lanskap terpilih @1280 dan @375
-          (settings-<lebar>.png); cek teks/peran radiogroup, klik kartu Lanskap -> html[data-herobg] + strip pratinjau
-          + hero Dashboard berubah tanpa muat ulang, tersimpan setelah muat ulang; panah kanan/kiri memindah pilihan +
-          fokus; tanpa scroll horizontal di 375.
+          (settings-<lebar>.png); cek teks/peran radiogroup (nama dari label tampak lewat aria-labelledby), klik kartu
+          Lanskap -> html[data-herobg] + strip pratinjau + hero Dashboard berubah tanpa muat ulang, tersimpan setelah
+          muat ulang; panah kanan/kiri dan Home/End memindah pilihan + fokus; tanpa scroll horizontal di 375.
 pomo      kartu Pomodoro Fokus Hari Ini (spec §6) dengan task "Laporan bulanan" difokuskan; jam Playwright dipasang ke
           tengah hari. Latar diganti lewat <html data-herobg> (diamati useThemeAttrs, sama dengan jalur Pengaturan).
           - berjalan 18:42 untuk 6 latar x 3 palet x 2 mode @1280x900 (pomo-<latar>-<palet>-<mode>.png) + lembar kontak
@@ -284,6 +284,10 @@ def run_settings(browser, base, user):
         exact = [group.get_by_role("radio", name=n, exact=True).count() for n in want]
         check("s1 radiogroup Latar berisi 6 radio sesuai urutan, nama aksesibel persis", names == want and exact == [1] * 6,
               repr((names, exact)))
+        lab = group.evaluate("""(g) => [g.getAttribute('aria-label'), g.getAttribute('aria-labelledby'),
+            (document.getElementById(g.getAttribute('aria-labelledby')) || {}).textContent]""")
+        check("s1b nama radiogroup dari label tampak (aria-labelledby, tanpa aria-label)",
+              lab == [None, "theme-herobg-label", "Latar"], repr(lab))
         card = p.locator(".theme-card")
         txt = card.inner_text()
         check("s2 teks persis: Latar + keterangan + Bawaan",
@@ -321,6 +325,14 @@ def run_settings(browser, base, user):
         f2 = p.evaluate("() => document.activeElement && document.activeElement.textContent")
         check("s6 panah kanan/kiri memindah pilihan + fokus", "Galaksi" in (f1 or "") and "Gradasi" in (f2 or ""),
               repr((f1, f2)))
+        p.keyboard.press("End")
+        p.wait_for_function("() => document.documentElement.dataset.herobg === 'polos'", timeout=5000)
+        f3 = p.evaluate("() => document.activeElement && document.activeElement.textContent")
+        p.keyboard.press("Home")
+        p.wait_for_function("() => document.documentElement.dataset.herobg === 'kontur'", timeout=5000)
+        f4 = p.evaluate("() => document.activeElement && document.activeElement.textContent")
+        check("s6b End/Home -> pilihan terakhir/pertama + fokus", "Polos" in (f3 or "") and "Kontur" in (f4 or ""),
+              repr((f3, f4)))
         group.get_by_role("radio", name="Lanskap").click()
         p.wait_for_function("() => document.documentElement.dataset.herobg === 'lanskap'", timeout=5000)
         nav_dashboard(p)

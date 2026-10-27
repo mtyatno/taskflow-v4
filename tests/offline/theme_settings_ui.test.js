@@ -72,8 +72,14 @@ function renderCard({ prefs, systemDark = false, decorModule = false, herobgModu
 }
 
 const PREFS = { mode: "light", palette: "default", decor: "on", herobg: "kontur" };
+// Nama aksesibel radiogroup: aria-label, atau teks elemen yang dirujuk aria-labelledby (label tampak).
+const groupName = (tree, g) => {
+  if (g.props["aria-label"] !== undefined) return g.props["aria-label"];
+  const ref = findAll(tree, n => n.props.id === g.props["aria-labelledby"]);
+  return ref.length === 1 ? text(ref[0]) : undefined;
+};
 const group = (tree, label) => {
-  const g = findAll(tree, n => n.props.role === "radiogroup" && n.props["aria-label"] === label);
+  const g = findAll(tree, n => n.props.role === "radiogroup" && groupName(tree, n) === label);
   assert.equal(g.length, 1, "radiogroup " + label);
   return g[0];
 };
@@ -103,7 +109,7 @@ test("render: judul, radiogroup Mode dengan 3 radio, roving tabIndex", () => {
   assert.ok(cls(tree).includes("theme-card"), "akar .theme-card");
   assert.ok(text(tree).includes("Tampilan"));
   const groups = findAll(tree, n => n.props.role === "radiogroup");
-  assert.deepEqual(groups.map(g => g.props["aria-label"]), ["Mode", "Latar"]);
+  assert.deepEqual(groups.map(g => groupName(tree, g)), ["Mode", "Latar"]);
   assert.equal(findAll(renderCard({ prefs: PREFS, herobgModule: false }).tree, n => n.props.role === "radiogroup").length, 1, "tanpa registri latar: hanya Mode");
   const radios = findAll(groups[0], n => n.props.role === "radio");
   assert.equal(radios.length, 3);
@@ -190,6 +196,9 @@ test("Latar: radiogroup 6 radio (button type=button) dengan pratinjau thumb, ari
   for (const sel of ["kontur", "lanskap", "polos", "zzz"]) {
     const { tree, resolvedTheme } = renderCard({ prefs: { ...PREFS, palette: "sakura", herobg: sel } });
     const g = group(tree, "Latar");
+    // Nama dari label tampak "Latar" (aria-labelledby), bukan aria-label ganda.
+    assert.equal(g.props["aria-labelledby"], "theme-herobg-label");
+    assert.equal(g.props["aria-label"], undefined);
     assert.equal(g.props["aria-describedby"], "theme-herobg-hint");
     assert.equal(findAll(tree, n => n.props.id === "theme-herobg-hint").length, 1);
     const radios = findAll(g, n => n.props.role === "radio");
@@ -248,6 +257,21 @@ test("Latar: klik → onThemePrefs({herobg}); panah memindah pilihan + fokus (me
   const lr = findAll(group(last.tree, "Latar"), n => n.props.role === "radio");
   lr[5].props.onKeyDown({ key: "ArrowRight", preventDefault() {} });
   assert.deepEqual(last.calls.pop(), { herobg: "kontur" });
+});
+
+test("Latar: Home/End → pilihan pertama/terakhir + fokus", () => {
+  const { tree, calls } = renderCard({ prefs: { ...PREFS, herobg: "galaksi" } });
+  const radios = findAll(group(tree, "Latar"), n => n.props.role === "radio");
+  const focused = [];
+  radios.forEach((r, i) => r.props.ref({ focus: () => focused.push(i) }));
+  const key = k => { let prevented = false; radios[3].props.onKeyDown({ key: k, preventDefault: () => { prevented = true; } }); return prevented; };
+  assert.equal(key("End"), true);
+  assert.deepEqual(calls.pop(), { herobg: "polos" });
+  assert.deepEqual(focused.pop(), 5);
+  assert.equal(key("Home"), true);
+  assert.deepEqual(calls.pop(), { herobg: "kontur" });
+  assert.deepEqual(focused.pop(), 0);
+  assert.equal(calls.length, 0);
 });
 
 test("Pratinjau: strip hero mini (HeroBackdrop place hero, latar terpilih) + sapaan contoh di atas baris task", () => {

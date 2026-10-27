@@ -27128,7 +27128,8 @@ function ThemeSettingsCard({
     e.preventDefault();
     pickMode((modeIdx + step + modes.length) % modes.length);
   };
-  // Latar hero Dashboard + kartu Pomodoro: radiogroup yang sama polanya dengan Mode (roving tabIndex + panah).
+  // Latar hero Dashboard + kartu Pomodoro: radiogroup yang sama polanya dengan Mode (roving tabIndex + panah), plus
+  // Home/End ke pilihan pertama/terakhir.
   const heroKinds = window.TF.herobg ? window.TF.herobg.KINDS : null;
   const herobgRefs = useRef([]);
   const herobgIdx = heroKinds ? Math.max(0, heroKinds.findIndex(k => k.id === resolvedTheme.herobg)) : 0;
@@ -27138,10 +27139,12 @@ function ThemeSettingsCard({
     if (btn) btn.focus();
   };
   const onHerobgKey = e => {
+    const n = heroKinds.length;
     const step = radioStep(e.key);
-    if (!step) return;
+    const to = e.key === "Home" ? 0 : e.key === "End" ? n - 1 : step ? (herobgIdx + step + n) % n : -1;
+    if (to < 0) return;
     e.preventDefault();
-    pickHerobg((herobgIdx + step + heroKinds.length) % heroKinds.length);
+    pickHerobg(to);
   };
   const palette = resolvedTheme.palette;
   // Plan S2: sakelar dekorasi baru berarti setelah modul dekorasi (PR C) ada.
@@ -27214,7 +27217,7 @@ function ThemeSettingsCard({
   }, "Untuk bagian atas Dashboard dan kartu Pomodoro di Fokus Hari Ini."), /*#__PURE__*/React.createElement("div", {
     className: "theme-card-herobgs",
     role: "radiogroup",
-    "aria-label": "Latar",
+    "aria-labelledby": "theme-herobg-label",
     "aria-describedby": "theme-herobg-hint"
   }, heroKinds.map((k, i) => {
     const on = i === herobgIdx;

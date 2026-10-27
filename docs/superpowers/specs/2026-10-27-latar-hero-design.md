@@ -74,7 +74,7 @@ Acuan: `pomodoro_mockup.dc.html` + kartu Pomodoro di `mockup_gen.py` (`pomo()`).
 
 ## 7. Pengaturan › Tampilan
 
-- Bagian **"Latar"** setelah "Palet": keterangan "Untuk bagian atas Dashboard dan kartu Pomodoro di Fokus Hari Ini."; `role="radiogroup" aria-label="Latar"`, grid 3 kolom (2 kolom < 560 px); tiap kartu = `<button role="radio" aria-checked>` berisi pratinjau `HeroBackdrop place="thumb" kind=<id>` (dengan palet & mode aktif) + nama + lencana "Bawaan" untuk Kontur; terpilih: garis 2 px `--accent` + cincin `--accent-ring` + centang. Panah kiri/kanan berpindah pilihan (pola radiogroup Mode bila ada).
+- Bagian **"Latar"** setelah "Palet": keterangan "Untuk bagian atas Dashboard dan kartu Pomodoro di Fokus Hari Ini."; `role="radiogroup" aria-labelledby` → label tampak "Latar" (`#theme-herobg-label`), grid 3 kolom (2 kolom < 560 px); tiap kartu = `<button role="radio" aria-checked>` berisi pratinjau `HeroBackdrop place="thumb" kind=<id>` (dengan palet & mode aktif) + nama + lencana "Bawaan" untuk Kontur; terpilih: garis 2 px `--accent` + cincin `--accent-ring` + centang. Panah kiri/kanan berpindah pilihan (pola radiogroup Mode bila ada); Home/End ke pilihan pertama/terakhir.
 - Pratinjau Tampilan menambah strip hero mini (latar terpilih + sapaan contoh) di atas pratinjau yang sudah ada.
 - Teks UI persis: `"Latar"`, `"Untuk bagian atas Dashboard dan kartu Pomodoro di Fokus Hari Ini."`, `"Kontur"`, `"Bawaan"`, `"Gradasi"`, `"Lanskap"`, `"Galaksi"`, `"Objek 3D"`, `"Polos"`.
 
