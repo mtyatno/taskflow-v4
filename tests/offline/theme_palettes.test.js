@@ -86,9 +86,17 @@ const PAIRS = [["--text-primary", "--bg-page"], ["--text-primary", "--bg-card"],
   ["--text-secondary", "--bg-sidebar"], ["--text-light", "--bg-sidebar"],
   // Baris notifikasi (pesan = --text-primary, waktu = --text-light) di atas latar belum-dibaca dan hover.
   ["--text-primary", "--notif-unread-bg"], ["--text-light", "--notif-unread-bg"],
-  ["--text-primary", "--notif-hover-bg"], ["--text-light", "--notif-hover-bg"]];
-// Pasangan yang hanya bermakna di satu mode (--accent-text-bright dipakai aturan gelap saja).
-const PAIRS_DARK = [["--accent-text-bright", "--bg-card"]];
+  ["--text-primary", "--notif-hover-bg"], ["--text-light", "--notif-hover-bg"],
+  // Header chat (.chat-room-header, gradien --accent → --accent-hover): nama = --accent-ink, meta + tombol
+  // Kembali/Opsi = --accent-ink-soft (rgba, dikomposit di atas latarnya), di kedua ujung gradien.
+  ["--accent-ink", "--accent-hover"], ["--accent-ink-soft", "--accent"], ["--accent-ink-soft", "--accent-hover"]];
+// Latar beralpha di atas permukaan selain --bg-card: { rgb, a, over } = rgba(var(rgb), a) dikomposit di atas `over`.
+// Pasangan yang hanya bermakna di satu mode: aturan terang .sidebar-link.active/.sidebar-rail-btn.active
+// (--accent-text-strong di atas rgba(--accent-rgb, 0.2) pada --bg-sidebar) ditimpa aturan gelap
+// [data-theme="dark"] .sidebar-link.active (--accent di atas rgba(--accent-rgb, 0.18)); --accent-text-bright
+// dipakai aturan gelap saja. Default tidak diukur (pasangan Default pra-ada, di luar PR B).
+const PAIRS_LIGHT = [["--accent-text-strong", { rgb: "--accent-rgb", a: 0.2, over: "--bg-sidebar" }]];
+const PAIRS_DARK = [["--accent-text-bright", "--bg-card"], ["--accent", { rgb: "--accent-rgb", a: 0.18, over: "--bg-sidebar" }]];
 
 // Tabel kontras terukur (juga dicetak untuk laporan: `node --test … --test-reporter=spec`).
 const measure = (id, mode) => {
@@ -96,7 +104,14 @@ const measure = (id, mode) => {
   const card = parseColor(v("--bg-card"));
   assert.equal(card[3], 1, `${id} ${mode}: --bg-card harus opak`);
   const solid = (n) => over(parseColor(v(n)), card);
-  return [...PAIRS, ...(mode === "dark" ? PAIRS_DARK : [])].map(([fg, bg]) => ({ fg, bg, ratio: contrast(solid(fg), solid(bg)) }));
+  const opaque = (n) => { const c = parseColor(v(n)); assert.equal(c[3], 1, `${id} ${mode}: ${n} harus opak`); return c; };
+  const bgOf = (b) => typeof b === "string" ? solid(b) : over([...v(b.rgb).split(",").map(Number), b.a], opaque(b.over));
+  const name = (b) => typeof b === "string" ? b : `rgba(${b.rgb},${b.a})@${b.over}`;
+  // Teks beralpha dikomposit di atas latarnya sendiri (bukan --bg-card).
+  return [...PAIRS, ...(mode === "dark" ? PAIRS_DARK : PAIRS_LIGHT)].map(([fg, bg]) => {
+    const B = bgOf(bg);
+    return { fg, bg: name(bg), ratio: contrast(over(parseColor(v(fg)), B), B) };
+  });
 };
 
 test("registri punya palet non-Default (sakura, lavender)", () => {
@@ -148,7 +163,9 @@ test("turunan: --bg-primary/--bg-secondary, --outline-guide, --accent-text-stron
     assert.equal(b["--bg-primary"], surface, `${id} ${mode} --bg-primary`);
     assert.equal(b["--bg-secondary"], surface, `${id} ${mode} --bg-secondary`);
     assert.equal(b["--outline-guide"], b["--text-light"], `${id} ${mode} --outline-guide`);
-    assert.equal(b["--accent-text-strong"], b["--accent-text"], `${id} ${mode} --accent-text-strong`);
+    // Terang: lebih tua dari --accent-text (= --accent-text-deep) agar link sidebar aktif ≥ 4,5:1 di atas tint
+    // rgba(--accent-rgb, 0.2) pada --bg-sidebar; gelap: = --accent-text.
+    assert.equal(b["--accent-text-strong"], mode === "light" ? b["--accent-text-deep"] : b["--accent-text"], `${id} ${mode} --accent-text-strong`);
     assert.equal(b["--accent-2"], b["--accent"], `${id} ${mode} --accent-2`);
     assert.equal(b["--accent-2-hover"], b["--accent-hover"], `${id} ${mode} --accent-2-hover`);
   }
@@ -164,6 +181,9 @@ const OPTIONAL = {
   "--accent-2-rgb":       { sakura: ["176, 40, 126", "238, 143, 203"], lavender: ["138, 58, 174", "205, 162, 242"] },
   "--chat-self-bg":       { sakura: [null, "#5A2A4A"], lavender: [null, "#3F2D5C"] },
   "--border-hover":       { sakura: [null, "#5A3E52"], lavender: [null, "#4E3F63"] },
+  // Integrasi PR B: teks sekunder di atas aksen (meta + tombol header chat). Default: fallback
+  // rgba(255,255,255,0.8) / var(--text-secondary). Alpha 0,88 agar ≥ 4,5:1 di ujung gradien yang paling terang.
+  "--accent-ink-soft":    { sakura: ["rgba(255,255,255,0.88)", "rgba(43,15,36,0.88)"], lavender: ["rgba(255,255,255,0.88)", "rgba(34,17,58,0.88)"] },
 };
 
 test("token opsional: tiap blok palet (terang+gelap sesuai tabel) mendefinisikannya", () => {

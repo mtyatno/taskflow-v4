@@ -334,6 +334,36 @@ test("guard: objek style index.html berlatar var(--accent…) tidak berteks puti
   assert.deepEqual(bad, []);
 });
 
+// Integrasi PR B (ruling kontroler): .chat-room-header berlatar gradien aksen, tetapi teksnya ada di aturan
+// turunan (.chat-room-header .header-name/.header-meta) dan objek style tombol Kembali/Opsi — dua guard di atas
+// hanya memeriksa aturan/objek yang sama dengan latarnya. Turunan header wajib bertinta aksen: nama =
+// var(--accent-ink) (Default #ffffff), meta = var(--accent-ink-soft, rgba(255,255,255,0.8)), tombol =
+// var(--accent-ink-soft, var(--text-secondary)) (Default identik; nilai palet dijaga theme_palettes.test.js).
+// Avatar (.chat-room-header-avatar) berlatar avatarColor() inline, bukan aksen — tetap putih.
+test("guard: turunan .chat-room-header (latar gradien aksen) bertinta aksen, bukan putih", () => {
+  const body = css.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
+  const head = [...body.matchAll(/(?<=^|\})\s*\.chat-room-header\s*\{([^{}]*)\}/g)].map((m) => m[1]);
+  assert.ok(head.length && /var\(--accent/.test(head[head.length - 1]), "aturan .chat-room-header terakhir berlatar aksen");
+  const rules = [...body.matchAll(/(?<=^|\})\s*(\.chat-room-header\s+[^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim(), m[2]]);
+  const colorOf = (sel) => { const r = rules.filter(([s]) => s === sel).pop(); assert.ok(r, sel); return (r[1].match(/(?:^|[\s;])color\s*:\s*([^;]+)/) || [])[1]; };
+  const bad = rules.flatMap(([s, b]) => [...b.matchAll(/(?:^|[\s;])color\s*:\s*([^;]+)/g)]
+    .filter((c) => /^(white|#fff|#ffffff)$|rgba\(\s*255\s*,\s*255\s*,\s*255\s*,/i.test(c[1].trim()) && !/^var\(/.test(c[1].trim()))
+    .map((c) => `${s} (color: ${c[1].trim()})`));
+  assert.deepEqual(bad, []);
+  assert.equal(colorOf(".chat-room-header .header-name"), "var(--accent-ink)");
+  assert.equal(colorOf(".chat-room-header .header-meta"), "var(--accent-ink-soft, rgba(255,255,255,0.8))");
+  // index.html: subpohon header ChatRoom + DM (dari className sampai tombol "Opsi").
+  let n = 0;
+  for (const m of html.matchAll(/className: "chat-room-header"\n/g)) {
+    const sub = html.slice(m.index, html.indexOf('title: "Opsi"', m.index));
+    n++;
+    assert.doesNotMatch(sub, /color:\s*"(white|#fff|#ffffff)"/i, "teks putih di header chat");
+    assert.doesNotMatch(sub, /color:\s*"var\(--text-secondary\)"/, "tombol header chat harus var(--accent-ink-soft, var(--text-secondary))");
+    assert.equal((sub.match(/color: "var\(--accent-ink-soft, var\(--text-secondary\)\)"/g) || []).length, 2, "tombol Kembali + Opsi");
+  }
+  assert.equal(n, 2, "header ChatRoom + DM");
+});
+
 // Final review PR B: latar baris notifikasi lewat token opsional (Default terang = fallback; Default gelap & palet
 // di app.css/themes.css, nilainya dijaga theme_palettes.test.js).
 test("guard: baris notifikasi memakai var(--notif-unread-bg/--notif-hover-bg, fallback)", () => {

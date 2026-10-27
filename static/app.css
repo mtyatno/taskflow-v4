@@ -495,8 +495,8 @@
     /* ── Chat Header (Gradient) ── */
     .chat-room-header { background: linear-gradient(135deg, var(--accent), var(--accent-hover)); padding: 10px 16px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; border-radius: 0; border-bottom: 1px solid var(--border); }
     .chat-room-header-avatar { width: 32px; height: 32px; border-radius: 50%; background: rgba(255,255,255,0.25); display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 13px; flex-shrink: 0; }
-    .chat-room-header .header-name { font-weight: 700; color: white; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .chat-room-header .header-meta { font-size: 11px; color: rgba(255,255,255,0.8); }
+    .chat-room-header .header-name { font-weight: 700; color: var(--accent-ink); font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .chat-room-header .header-meta { font-size: 11px; color: var(--accent-ink-soft, rgba(255,255,255,0.8)); }
     /* ── Chat Send Button ── */
     .chat-send-btn { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; background: linear-gradient(135deg, var(--accent), var(--accent-hover)); color: var(--accent-ink); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; box-shadow: 0 2px 6px rgba(var(--accent-rgb), 0.35); transition: transform 0.15s, box-shadow 0.15s; }
     .chat-send-btn:hover { transform: scale(1.08); box-shadow: 0 4px 10px rgba(var(--accent-rgb), 0.45); }

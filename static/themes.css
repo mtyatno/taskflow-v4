@@ -8,13 +8,16 @@
  * di bawah sengaja kosong. Palet lain ditambahkan sebagai blok baru di berkas ini.
  *
  * Token opsional (--accent-on, --accent-text-deep, --accent-text-bright, --accent-2-rgb, --chat-self-bg,
- * --border-hover) hanya didefinisikan di sini: app.css memakainya sebagai var(--token, <literal Default>), jadi
+ * --border-hover, --accent-ink-soft) hanya didefinisikan di sini: app.css memakainya sebagai var(--token, <literal Default>), jadi
  * Default tetap memakai literal lama. --chat-self-bg/--border-hover hanya di blok gelap (pemakainya aturan gelap).
  * --line-soft = --border; --track = --border-strong (terang) / --border (gelap).
  * --notif-unread-bg/--notif-hover-bg (baris notifikasi): terang = rgba(<--accent-rgb>, 0.10) / nilai --bg-hover;
  * gelap = rgba(<--accent-rgb>, 0.14) / rgba(255,255,255,0.06). Terang sengaja bukan --accent-soft: --text-light
  * (waktu notifikasi) di atas --accent-soft hanya 4,35–4,41:1. Default terang memakai fallback di index.html;
  * Default gelap didefinisikan di blok gelap app.css.
+ * --accent-ink-soft = --accent-ink beralpha 0.88 (meta + tombol header chat di atas gradien aksen; Default memakai
+ * fallback rgba(255,255,255,0.8) / var(--text-secondary)). --accent-text-strong terang = --accent-text-deep (link
+ * sidebar aktif ≥ 4,5:1 di atas tint aksen pada --bg-sidebar); gelap = --accent-text.
  * --border-color = --border (garis bawah tab bar mindmap/Sketsa; app.css memakai var(--border-color, #e5e7eb) dan
  * Default tidak pernah mendefinisikannya, jadi Default tetap #e5e7eb).
  *
@@ -47,8 +50,9 @@
   --accent: #B0287E;
   --accent-hover: #9A2070;
   --accent-ink: #FFFFFF;
+  --accent-ink-soft: rgba(255,255,255,0.88);
   --accent-text: #B0287E;
-  --accent-text-strong: #B0287E;
+  --accent-text-strong: #8E1F63;
   --accent-soft: #F9E1F0;
   --accent-duo: #F2C4E1;
   --accent-ring: rgba(176,40,126,0.35);
@@ -89,6 +93,7 @@
   --accent: #EE8FCB;
   --accent-hover: #F5A6D7;
   --accent-ink: #2B0F24;
+  --accent-ink-soft: rgba(43,15,36,0.88);
   --accent-text: #EE8FCB;
   --accent-text-strong: #EE8FCB;
   --accent-soft: #3A2236;
@@ -129,8 +134,9 @@
   --accent: #8A3AAE;
   --accent-hover: #742F93;
   --accent-ink: #FFFFFF;
+  --accent-ink-soft: rgba(255,255,255,0.88);
   --accent-text: #8A3AAE;
-  --accent-text-strong: #8A3AAE;
+  --accent-text-strong: #6A2B88;
   --accent-soft: #F1E4FA;
   --accent-duo: #DFC6F2;
   --accent-ring: rgba(138,58,174,0.35);
@@ -171,6 +177,7 @@
   --accent: #CDA2F2;
   --accent-hover: #DDBBF7;
   --accent-ink: #22113A;
+  --accent-ink-soft: rgba(34,17,58,0.88);
   --accent-text: #CDA2F2;
   --accent-text-strong: #CDA2F2;
   --accent-soft: #2F2440;
