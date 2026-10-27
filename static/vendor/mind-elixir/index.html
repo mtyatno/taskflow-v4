@@ -1351,10 +1351,30 @@
       } catch (_) {}
     }
 
+    // Aksen palet dari aplikasi induk (setTheme: accent/accentSoft/accentInk). Aksen kosong/tidak ada (palet Default,
+    // pesan lama) → hapus properti inline sehingga --side-* kembali ke nilai CSS bawaan iframe di atas.
+    function applySideAccent(d) {
+      const st = document.documentElement.style;
+      const str = (v) => (typeof v === 'string' ? v.trim() : '');
+      const accent = str(d.accent);
+      if (!accent) {
+        st.removeProperty('--side-accent');
+        st.removeProperty('--side-hover');
+        st.removeProperty('--side-accent-ink');
+        return;
+      }
+      const soft = str(d.accentSoft);
+      const ink = str(d.accentInk);
+      st.setProperty('--side-accent', accent);
+      if (soft) st.setProperty('--side-hover', soft); else st.removeProperty('--side-hover');
+      if (ink) st.setProperty('--side-accent-ink', ink); else st.removeProperty('--side-accent-ink');
+    }
+
     window.addEventListener('message', (e) => {
       if (e.origin !== window.location.origin) return;
       if (e.data && e.data.type === 'setTheme') {
         document.documentElement.setAttribute('data-theme', e.data.theme === 'dark' ? 'dark' : 'light');
+        applySideAccent(e.data);
         applyMapTheme(e.data.theme === 'dark');
       }
       if (e.data && e.data.type === 'linkInfo') {

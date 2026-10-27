@@ -41,7 +41,7 @@ function runBoot(storage, systemDark) {
 
 const cases = [];
 for (const mode of ["light", "dark", "system", "blue", null]) {
-  for (const palette of ["default", "mint", null]) {
+  for (const palette of [...th.PALETTES.map((p) => p.id), "mint", null]) {
     for (const decor of ["on", "off", "x"]) {
       for (const systemDark of [true, false]) {
         const storage = {};
@@ -54,13 +54,25 @@ for (const mode of ["light", "dark", "system", "blue", null]) {
   }
 }
 
-test("matriks berisi 90 kasus", () => assert.equal(cases.length, 90));
+test("matriks berisi 150 kasus (5 mode x (registri + mint + null) x 3 decor x 2 sistem)", () => assert.equal(cases.length, 5 * (th.PALETTES.length + 2) * 3 * 2));
 test("boot script = TF.themes.resolve untuk seluruh matriks", () => { for (const c of cases) { const got = runBoot(c.storage, c.systemDark); const want = th.resolve(th.readPrefs(mem(c.storage)), c.systemDark); assert.deepEqual(got.attrs, { "data-theme": want.theme, "data-palette": want.palette, "data-decor": want.decor }, JSON.stringify(c)); assert.equal(got.meta, want.themeColor); } });
+// Tabel themeColors di skrip boot (literal) harus sama dengan themeColor registri; daftar palet juga.
+test("boot themeColors = registri untuk tiap palet x mode", () => {
+  const src = bootSource();
+  const m = src.match(/var themeColors = (\{[\s\S]*?\});\n/);
+  assert.ok(m, "literal themeColors tidak ditemukan di skrip boot");
+  const table = vm.runInNewContext("(" + m[1] + ")");
+  assert.deepEqual([...Object.keys(table)], th.PALETTES.map((p) => p.id));
+  for (const p of th.PALETTES) for (const mode of ["light", "dark"]) assert.equal(table[p.id][mode], p.themeColor[mode], p.id + "/" + mode);
+  const pm = src.match(/var palettes = (\[[^\]]*\]);/);
+  assert.ok(pm, "literal palettes tidak ditemukan");
+  assert.deepEqual([...vm.runInNewContext(pm[1])], th.PALETTES.map((p) => p.id));
+});
 test("boot script: storage melempar → atribut bawaan", () => assert.deepEqual(runBoot({ getItem() { throw new Error(); } }, false).attrs, { "data-theme": "light", "data-palette": "default", "data-decor": "on" }));
 test("boot script: akses window.localStorage melempar → atribut bawaan", () => {
   const got = runBoot(THROWING_GETTER, true);
   assert.deepEqual(got.attrs, { "data-theme": "light", "data-palette": "default", "data-decor": "on" });
-  assert.equal(got.meta, "#0f172a");
+  assert.equal(got.meta, "#FCFCFB");
 });
 test("boot script: tanpa matchMedia, mode system → terang", () => {
   const src = bootSource();

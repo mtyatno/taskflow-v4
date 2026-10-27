@@ -47,16 +47,24 @@ test("themes.css dimuat setelah app.css (token palet menimpa token Default)", ()
   assert.ok(a < t);
 });
 
-test("themes.css hanya blok [data-palette] berisi deklarasi --*", () => {
+test("themes.css hanya blok [data-palette] berisi deklarasi --*; tiap palet non-Default punya blok", () => {
   const body = tcss.replace(/\/\*[\s\S]*?\*\//g, "");
+  const seen = new Set();
   for (const m of body.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-    assert.match(m[1].trim(), /^\[data-palette="[a-z]+"\](\[data-theme="dark"\])?$/);
+    const sel = m[1].trim().match(/^\[data-palette="([a-z]+)"\](\[data-theme="dark"\])?$/);
+    assert.ok(sel, "selektor asing: " + m[1].trim());
+    seen.add(sel[1]);
     for (const d of m[2].split(";").map(s => s.trim()).filter(Boolean)) assert.match(d, /^--[a-z0-9-]+\s*:/, d);
   }
+  // Sisa teks di luar blok (mis. aturan tanpa kurung tutup) juga ditolak.
+  assert.equal(body.replace(/([^{}]+)\{([^{}]*)\}/g, "").trim(), "", "teks di luar blok");
+  const ids = require("../../static/offline/themes.js").PALETTES.map(p => p.id).filter(id => id !== "default");
+  assert.ok(ids.length > 0);
+  for (const id of ids) assert.ok(seen.has(id), "themes.css tanpa blok palet " + id);
 });
 
 test("themes.css dan themes.js dimuat index.html", () => {
-  assert.match(html, /<link rel="stylesheet" href="\/static\/themes\.css\?v=1">/);
+  assert.match(html, /<link rel="stylesheet" href="\/static\/themes\.css\?v=2">/);
   assert.ok(html.includes('<script src="/static/offline/themes.js">'), "tag themes.js tidak ada");
   assert.ok(html.indexOf('<script src="/static/offline/themes.js">') < html.indexOf('<script src="/static/ui-components.js">'));
 });
@@ -70,7 +78,8 @@ const stripRoot = (s) => s.replace(/:root \{[\s\S]*?\}\s*\[data-theme="dark"\] \
 //                               gelap; --accent-text-strong gelap = #A8C500.
 //   .cmt-mention color #5d6e00 — tidak ada token bernilai #5D6E00 (--accent-text-strong = #6B8000, selisih kanal 18).
 // Pengecualian harus tetap cocok persis (gagal bila basi), lalu dihapus dari teks sebelum guard dijalankan.
-const LIME_KEEP = [/(\n\s*\.badge-q2 \{[^}]*color: )#6B8000;/, /(\n\.cmt-mention \{ color: )#5d6e00;/];
+// PR B (S1): keduanya kini fallback token opsional var(--accent-text-deep, …) — Default tetap memakai literal itu.
+const LIME_KEEP = [/(\n\s*\.badge-q2 \{[^}]*color: )var\(--accent-text-deep, #6B8000\);/, /(\n\.cmt-mention \{ color: )var\(--accent-text-deep, #5d6e00\);/];
 test("guard: tidak ada literal lime di app.css di luar blok token", () => {
   let s = stripRoot(css);
   for (const re of LIME_KEEP) { assert.match(s, re, "pengecualian basi: " + re); s = s.replace(re, "$1;"); }
@@ -84,11 +93,28 @@ test("guard: Chart.js tidak menerima var()", () => { const chart = html.slice(ht
 // Plan memperkirakan ≤ 80 entri, tetapi aturan "warna bermakna" saja sudah 83 → batas dipisah per alasan.
 // Ratchet: angka = jumlah saat Task 5 (tanpa ruang sisa) dan harus sama persis; PR B hanya boleh menurunkannya
 // (menghapus entri allowlist wajib diiringi menurunkan konstanta, agar ruang kosong tidak bisa diisi literal baru).
-const ALLOW_MAX_TOTAL = 144, ALLOW_MAX_NON_BERMAKNA = 61;
+// PR B Task 3: fallback token opsional palet (var(--border-hover, #525252), var(--accent-text-bright, #D9EE6A), …)
+// TIDAK dihitung literal — palet bisa menimpanya. Guard S1 di bawah tetap melarang literal mentah tabel S1.
+// 9 entri keluar (5 hover #525252 "netral tanpa token", 4 teks aktif "lime-adjacent") → 135/52.
+const ALLOW_MAX_TOTAL = 135, ALLOW_MAX_NON_BERMAKNA = 52;
 const ALLOW_REASONS = ["warna bermakna", "netral tanpa token", "lime-adjacent", "blok token gelap"];
 const allowList = JSON.parse(read("tests/offline/theme_dark_allowlist.json"));
 const allow = new Set(allowList.map(e => e.selector));
-const darkRules = [...css.matchAll(/(\[data-theme="dark"\][^{]*)\{([^}]*)\}/g)].map(m => [m[1].trim(), m[2]]);
+// Buang var(--<token opsional>, …) beserta fallback-nya (kurung seimbang: fallback bisa berisi rgba(...)).
+const OPTIONAL_TOKENS = ["accent-on", "accent-text-deep", "accent-text-bright", "accent-2-rgb", "chat-self-bg", "border-hover"];
+const stripOptionalFallbacks = (body) => {
+  const re = new RegExp(`var\\(--(${OPTIONAL_TOKENS.join("|")})\\s*,`, "g");
+  let out = "", last = 0, m;
+  while ((m = re.exec(body))) {
+    let depth = 1, i = m.index + 4; // tepat setelah "var("
+    for (; i < body.length && depth > 0; i++) { if (body[i] === "(") depth++; else if (body[i] === ")") depth--; }
+    assert.equal(depth, 0, "kurung var() tidak seimbang: " + body.slice(m.index, m.index + 60));
+    out += body.slice(last, m.index) + `var(--${m[1]})`;
+    last = re.lastIndex = i;
+  }
+  return out + body.slice(last);
+};
+const darkRules = [...css.matchAll(/(\[data-theme="dark"\][^{]*)\{([^}]*)\}/g)].map(m => [m[1].trim(), stripOptionalFallbacks(m[2])]);
 const LITERAL = /#[0-9a-f]{3,8}\b|rgba?\(\s*\d/i;
 test("guard: aturan gelap berliteral hanya yang di-allowlist", () => { const bad = darkRules.filter(([s, b]) => LITERAL.test(b) && !allow.has(s)).map(([s]) => s); assert.deepEqual(bad, []); });
 test("guard: allowlist tidak basi (selektor ada dan masih berliteral), alasan baku, ratchet jumlah", () => {
@@ -104,4 +130,252 @@ test("guard: allowlist tidak basi (selektor ada dan masih berliteral), alasan ba
   const nonBermakna = allowList.filter(e => e.reason !== "warna bermakna").length;
   assert.equal(nonBermakna, ALLOW_MAX_NON_BERMAKNA,
     `entri bukan "warna bermakna" ${nonBermakna}, ALLOW_MAX_NON_BERMAKNA ${ALLOW_MAX_NON_BERMAKNA}: bila entri dihapus, turunkan ALLOW_MAX_NON_BERMAKNA ke ${nonBermakna}; entri baru tidak boleh ditambah`);
+});
+
+// PR B Task 3 (plan 2026-10-27 S1): literal lime-adjacent / tinta di atas aksen / hover gelap → token opsional
+// berfallback. Token ini tidak ada di :root (Default = fallback = literal lama, identik); hanya blok palet
+// themes.css yang mendefinisikannya. Setiap kemunculan literal tabel S1 di app.css (di luar blok token) dan
+// index.html wajib berupa fallback `var(--<token>, <literal>)`, dan tiap token minimal dipakai sekali.
+const S1_FALLBACK = {
+  "--accent-on": [/#1a1f00(?![0-9a-f])/gi, /#1a2a00(?![0-9a-f])/gi, /#1F2116(?![0-9a-f])/gi],
+  "--accent-text-deep": [/#4d5c00(?![0-9a-f])/gi, /#4E5C00(?![0-9a-f])/gi, /#5D6E00(?![0-9a-f])/gi, /#6B8000(?![0-9a-f])/gi, /#364d00(?![0-9a-f])/gi, /rgba\(\s*54\s*,\s*77\s*,\s*0\s*,\s*0?\.7\s*\)/gi],
+  "--accent-text-bright": [/#d4e85c(?![0-9a-f])/gi, /#D9EE6A(?![0-9a-f])/gi],
+  "--accent-2-rgb": [/182\s*,\s*212\s*,\s*0(?![\d.])/g],
+  "--chat-self-bg": [/#4a7000(?![0-9a-f])/gi],
+  "--border-hover": [/#525252(?![0-9a-f])/gi],
+};
+test("guard: literal tabel S1 hanya muncul sebagai fallback var(--…, literal)", () => {
+  const bad = [], used = {};
+  for (const [file, src] of [["app.css", stripRoot(css)], ["index.html", html]]) {
+    for (const [tok, res] of Object.entries(S1_FALLBACK)) {
+      const prefix = `var(${tok}, `;
+      for (const re of res) for (const m of src.matchAll(re)) {
+        if (src.slice(m.index - prefix.length, m.index) === prefix) { used[tok] = (used[tok] || 0) + 1; continue; }
+        bad.push(`${file}:${src.slice(0, m.index).split("\n").length} ${m[0]} (harus var(${tok}, ${m[0]}))`);
+      }
+    }
+  }
+  assert.deepEqual(bad, []);
+  for (const tok of Object.keys(S1_FALLBACK)) assert.ok(used[tok] > 0, "token opsional tidak dipakai: " + tok);
+  // Bentuk rgba beralpha: rgba(var(--accent-2-rgb, 182, 212, 0), a) — bukan rgba(182,212,0,a) apa pun.
+  assert.doesNotMatch(css + html, /rgba\(\s*182\s*,/);
+});
+
+// Kelas .dark tidak pernah dipasang index.html (tema gelap = [data-theme="dark"]); aturan .dark … mati dihapus.
+test("guard: tidak ada aturan .dark (selektor diawali .dark )", () => {
+  assert.equal(css.match(/(^|[}\n,])\s*\.dark[\s.,{:]/g), null);
+});
+
+test("guard: hover sidebar terang memakai var(--text-primary), bukan #0f172a", () => {
+  for (const sel of [".sidebar-link:hover", ".sidebar-rail-btn:hover"]) {
+    const m = css.match(new RegExp(`\\n\\s*${esc(sel)} \\{([^}]*)\\}`));
+    assert.ok(m, sel);
+    assert.match(m[1], /color: var\(--text-primary\);/, sel);
+  }
+});
+
+// S5: garis/track terang di mode gelap (tabel sisa-hex, "salah") → --line-soft / --track. Tiga lokasi TaskDetailBody
+// di tabel itu sudah hilang oleh redesain detail task (#100, kini .td-check-bar berbasis token).
+const fnBody = (name) => { const i = html.indexOf(`function ${name}(`); assert.ok(i > -1, name); return html.slice(i, html.indexOf("\nfunction ", i + 1)); };
+test("guard: #f1f5f9/#e2e8f0 di lokasi S5 diganti token", () => {
+  for (const name of ["ModalAttachments", "ModalNotes"]) {
+    const b = fnBody(name);
+    assert.ok(b.includes('borderBottom: "1px solid var(--line-soft)"'), name);
+    assert.doesNotMatch(b, /#f1f5f9|#e2e8f0/i, name);
+  }
+  const row = fnBody("TaskRow");
+  assert.match(row, /height: 4,\n\s*background: "var\(--track\)",/);
+  assert.doesNotMatch(row, /#f1f5f9|#e2e8f0/i);
+  assert.match(html, /borderBottom: "1px solid var\(--line-soft\)",\n\s*background: n\.is_read \? "var\(--bg-card\)"/);
+  // Sisa yang sah: blok <style> mode kertas di <head> (kertas selalu putih) dan chipColor kalender (di luar cakupan).
+  const rest = html.slice(html.indexOf("</head>")).replace(/bg: "#f1f5f9",\n\s*color: "#475569",/, "");
+  assert.equal(rest.match(/#f1f5f9|#e2e8f0/gi), null);
+});
+
+// PR B Task 4: radius & font judul lewat token. Nilai Default token = literal lama (tampilan identik);
+// palet lain menimpa lewat themes.css. Hanya komponen yang literalnya sama dengan Default token yang dialihkan.
+const ruleBodies = (sel) => [...css.matchAll(new RegExp(`(?:^|\\n)\\s*${esc(sel)} \\{([^}]*)\\}`, "g"))].map((m) => m[1]);
+test("guard: komponen inti memakai token radius", () => {
+  const MAP = {
+    ".btn": "--radius-control", ".input": "--radius-control", ".sidebar-link": "--radius-control",
+    ".card": "--radius-card", ".stat-card": "--radius-card", ".ftask": "--radius-card",
+    ".task-row": "--radius-md", ".modal-content": "--radius-lg",
+    ".badge": "--radius-sm", ".tl-view-btn": "--radius-sm",
+  };
+  for (const [sel, tok] of Object.entries(MAP)) {
+    const bodies = ruleBodies(sel).filter((b) => /(^|[\s;])border-radius:/.test(b));
+    assert.ok(bodies.length >= 1, sel);
+    for (const b of bodies) {
+      assert.match(b, new RegExp(`border-radius: var\\(${tok}\\)`), `${sel} → ${tok}`);
+      assert.doesNotMatch(b, /border-radius: \d/, sel);
+    }
+  }
+  // .task-row punya dua aturan ber-radius (dasar + override mobile).
+  assert.equal(ruleBodies(".task-row").filter((b) => /border-radius:/.test(b)).length, 2);
+});
+
+test("guard: --radius-control 8px, --radius-card 14px di :root", () => {
+  for (const d of ["--radius-control: 8px", "--radius-card: 14px", "--radius-lg: 16px"]) assert.ok(declares(root, d), d);
+});
+
+test("guard: aturan font-heading ada", () => {
+  const m = css.match(/\n\s*h1, h2, h3, \.dash-hero-greet, \.focus-page-title \{([^}]*)\}/);
+  assert.ok(m, "aturan font-heading");
+  assert.match(m[1], /font-family: var\(--font-heading\);/);
+});
+
+test("guard: link Google Fonts memuat Nunito 700;800 (satu link, display=swap)", () => {
+  const links = html.match(/<link href="https:\/\/fonts\.googleapis\.com\/css2[^"]*"/g) || [];
+  assert.equal(links.length, 1);
+  assert.ok(links[0].includes("&family=Nunito:wght@700;800"), links[0]);
+  assert.ok(links[0].includes("display=swap"));
+});
+
+test("guard: palet non-Default mendefinisikan lima token radius & font-heading", () => {
+  for (const t of ["--radius-control", "--radius-card", "--radius-md", "--radius-lg", "--radius-sm", "--font-heading"]) {
+    assert.ok(new RegExp(`\\[data-palette="(sakura|lavender)"\\][^{]*\\{[^}]*${t}:`).test(tcss), t);
+  }
+});
+
+// Final review PR B: teks putih di atas aksen gagal kontras di Sakura/Lavender gelap (aksen terang, ±2,1:1).
+// Latar var(--accent…) (termasuk gradien yang memakainya) wajib berteks var(--accent-ink) — Default tetap putih
+// (--accent-ink: #ffffff). Dipindai: tiap aturan app.css + <style> index.html, dan tiap objek style index.html yang
+// properti background/backgroundColor-nya memuat var(--accent…). Tanpa allowlist.
+const WHITE = /^(white|#fff|#ffffff)$/i;
+const BG_ACCENT = /(^|[\s;{])background(-color)?\s*:\s*[^;]*var\(--accent/;
+test("guard: aturan CSS berlatar var(--accent…) tidak berteks putih", () => {
+  const styleBlocks = [...html.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => ["index.html <style>", m[1]]);
+  const bad = [];
+  for (const [file, src] of [["app.css", css], ...styleBlocks]) {
+    const body = src.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
+    for (const m of body.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!BG_ACCENT.test(m[2])) continue;
+      for (const c of m[2].matchAll(/(?:^|[\s;{])color\s*:\s*([^;]+)/g)) {
+        if (WHITE.test(c[1].replace(/\s*!important\s*$/, "").trim())) bad.push(`${file}: ${m[1].trim()} (color: ${c[1].trim()})`);
+      }
+    }
+  }
+  assert.deepEqual(bad, []);
+});
+
+// Nilai satu properti objek JS mulai indeks i: sampai koma/kurung tutup tingkat-atas (string dilompati utuh).
+const propValueEnd = (src, i) => {
+  let d = 0;
+  for (let j = i; j < src.length; j++) {
+    const c = src[j];
+    if ("([{".includes(c)) d++;
+    else if (")]}".includes(c)) { if (d === 0) return j; d--; }
+    else if (c === "," && d === 0) return j;
+    else if (c === '"' || c === "'" || c === "`") { j++; while (j < src.length && src[j] !== c) { if (src[j] === "\\") j++; j++; } }
+  }
+  return src.length;
+};
+// Objek {…} yang membungkus indeks i (kurung kurawal seimbang; cukup untuk objek style hasil kompilasi Babel).
+const enclosingObject = (src, i) => {
+  let s = i, d = 0;
+  for (; s > 0; s--) { if (src[s] === "}") d++; else if (src[s] === "{") { if (d === 0) break; d--; } }
+  let e = i; d = 0;
+  for (; e < src.length; e++) { if (src[e] === "{") d++; else if (src[e] === "}") { if (d === 0) break; d--; } }
+  return [s, src.slice(s, e + 1)];
+};
+// Cabang ekspresi ternary tingkat-atas: "a ? x : b ? y : z" → [["a","x"],["b","y"],[null,"z"]] (string dilompati).
+const ternaryBranches = (v) => {
+  const parts = [], seps = [];
+  let d = 0, last = 0;
+  for (let j = 0; j < v.length; j++) {
+    const c = v[j];
+    if ("([{".includes(c)) d++;
+    else if (")]}".includes(c)) d--;
+    else if (c === '"' || c === "'" || c === "`") { j++; while (j < v.length && v[j] !== c) { if (v[j] === "\\") j++; j++; } }
+    else if (d === 0 && (c === "?" || c === ":")) { parts.push(v.slice(last, j).trim()); seps.push(c); last = j + 1; }
+  }
+  parts.push(v.slice(last).trim());
+  // Hanya bentuk rantai kanan sederhana (? : ? : …); selain itu satu cabang utuh.
+  if (!seps.every((c, i) => c === (i % 2 ? ":" : "?"))) return [[null, v.trim()]];
+  const out = [];
+  for (let i = 0; i + 1 < parts.length; i += 2) out.push([parts[i], parts[i + 1]]);
+  out.push([null, parts[parts.length - 1]]);
+  return out;
+};
+const IS_WHITE_LIT = /^(["'`])(white|#fff|#ffffff)\1$/i;
+test("guard: objek style index.html berlatar var(--accent…) tidak berteks putih", () => {
+  const bad = [], seen = new Set();
+  let hits = 0;
+  for (const m of html.matchAll(/\bbackground(?:Color)?\s*:\s*/g)) {
+    const at = m.index + m[0].length;
+    if (!/var\(--accent/.test(html.slice(at, propValueEnd(html, at)))) continue;
+    const [s, obj] = enclosingObject(html, m.index);
+    if (seen.has(s)) continue;
+    seen.add(s);
+    hits++;
+    const bgVal = html.slice(at, propValueEnd(html, at));
+    for (const c of obj.matchAll(/(?:^|[\s,{])color\s*:\s*/g)) {
+      const v = obj.slice(c.index + c[0].length, propValueEnd(obj, c.index + c[0].length));
+      if (!/(["'`])(white|#fff|#ffffff)\1/i.test(v)) continue;
+      // Ternary berkondisi sama (bg: a ? aksen : b ? x : y, color: a ? tinta : putih) → warna yang mungkin tampil
+      // saat cabang latar aksen terpilih: cabang color berkondisi sama dipakai, berkondisi cabang latar sebelumnya
+      // (pasti salah) dilewati, berkondisi lain dianggap mungkin.
+      const bb = ternaryBranches(bgVal), cb = ternaryBranches(v), conds = bb.map(([k]) => k);
+      const colorsUnder = (i) => {
+        const out = [];
+        for (const [k, cv] of cb) {
+          const at2 = k === null ? -1 : conds.indexOf(k);
+          if (k === null || at2 === i) { out.push(cv); break; }
+          if (at2 > -1 && at2 < i) continue;
+          out.push(cv);
+        }
+        return out;
+      };
+      const clash = bb.some(([, bv], i) => /var\(--accent/.test(bv) && colorsUnder(i).some((cv) => IS_WHITE_LIT.test(cv)));
+      if (clash) bad.push(`index.html:${html.slice(0, s).split("\n").length} color: ${v.trim()}`);
+    }
+  }
+  assert.ok(hits > 10, "pemindai tidak menemukan objek style berlatar aksen: " + hits);
+  assert.deepEqual(bad, []);
+});
+
+// Integrasi PR B (ruling kontroler): .chat-room-header berlatar gradien aksen, tetapi teksnya ada di aturan
+// turunan (.chat-room-header .header-name/.header-meta) dan objek style tombol Kembali/Opsi — dua guard di atas
+// hanya memeriksa aturan/objek yang sama dengan latarnya. Turunan header wajib bertinta aksen: nama =
+// var(--accent-ink) (Default #ffffff), meta = var(--accent-ink-soft, rgba(255,255,255,0.8)), tombol =
+// var(--accent-ink-soft, var(--text-secondary)) (Default identik; nilai palet dijaga theme_palettes.test.js).
+// Avatar (.chat-room-header-avatar) berlatar avatarColor() inline, bukan aksen — tetap putih.
+test("guard: turunan .chat-room-header (latar gradien aksen) bertinta aksen, bukan putih", () => {
+  const body = css.replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "));
+  const head = [...body.matchAll(/(?<=^|\})\s*\.chat-room-header\s*\{([^{}]*)\}/g)].map((m) => m[1]);
+  assert.ok(head.length && /var\(--accent/.test(head[head.length - 1]), "aturan .chat-room-header terakhir berlatar aksen");
+  const rules = [...body.matchAll(/(?<=^|\})\s*(\.chat-room-header\s+[^{}]+)\{([^{}]*)\}/g)].map((m) => [m[1].trim(), m[2]]);
+  const colorOf = (sel) => { const r = rules.filter(([s]) => s === sel).pop(); assert.ok(r, sel); return (r[1].match(/(?:^|[\s;])color\s*:\s*([^;]+)/) || [])[1]; };
+  const bad = rules.flatMap(([s, b]) => [...b.matchAll(/(?:^|[\s;])color\s*:\s*([^;]+)/g)]
+    .filter((c) => /^(white|#fff|#ffffff)$|rgba\(\s*255\s*,\s*255\s*,\s*255\s*,/i.test(c[1].trim()) && !/^var\(/.test(c[1].trim()))
+    .map((c) => `${s} (color: ${c[1].trim()})`));
+  assert.deepEqual(bad, []);
+  assert.equal(colorOf(".chat-room-header .header-name"), "var(--accent-ink)");
+  assert.equal(colorOf(".chat-room-header .header-meta"), "var(--accent-ink-soft, rgba(255,255,255,0.8))");
+  // index.html: subpohon header ChatRoom + DM (dari className sampai tombol "Opsi").
+  let n = 0;
+  for (const m of html.matchAll(/className: "chat-room-header"\n/g)) {
+    const sub = html.slice(m.index, html.indexOf('title: "Opsi"', m.index));
+    n++;
+    assert.doesNotMatch(sub, /color:\s*"(white|#fff|#ffffff)"/i, "teks putih di header chat");
+    assert.doesNotMatch(sub, /color:\s*"var\(--text-secondary\)"/, "tombol header chat harus var(--accent-ink-soft, var(--text-secondary))");
+    assert.equal((sub.match(/color: "var\(--accent-ink-soft, var\(--text-secondary\)\)"/g) || []).length, 2, "tombol Kembali + Opsi");
+  }
+  assert.equal(n, 2, "header ChatRoom + DM");
+});
+
+// Final review PR B: latar baris notifikasi lewat token opsional (Default terang = fallback; Default gelap & palet
+// di app.css/themes.css, nilainya dijaga theme_palettes.test.js).
+test("guard: baris notifikasi memakai var(--notif-unread-bg/--notif-hover-bg, fallback)", () => {
+  const item = html.slice(html.indexOf('background: n.is_read ? "var(--bg-card)"'), html.indexOf("dangerouslySetInnerHTML", html.indexOf('background: n.is_read ? "var(--bg-card)"')));
+  assert.equal((item.match(/"var\(--notif-unread-bg, #f0fdf4\)"/g) || []).length, 2, "unread (style + onMouseLeave)");
+  assert.equal((item.match(/"var\(--notif-hover-bg, #e0f2fe\)"/g) || []).length, 1, "hover (onMouseEnter)");
+  assert.doesNotMatch(item.replace(/var\(--notif-(unread|hover)-bg, #[0-9a-f]{6}\)/g, ""), /#f0fdf4|#e0f2fe/i);
+  assert.equal(html.match(/#e0f2fe/gi).length, 1, "#e0f2fe hanya sebagai fallback hover notifikasi");
+});
+
+test("guard: sidebar memakai var(--bg-sidebar)", () => {
+  const m = css.match(/\n\s*\.sidebar \{([^}]*)\}/);
+  assert.ok(m);
+  assert.match(m[1], /background: var\(--bg-sidebar\);/);
 });

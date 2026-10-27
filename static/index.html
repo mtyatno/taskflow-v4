@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,500;0,6..12,600;0,6..12,700;1,6..12,400;1,6..12,600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito+Sans:ital,opsz,wght@0,6..12,400;0,6..12,500;0,6..12,600;0,6..12,700;1,6..12,400;1,6..12,600&family=Nunito:wght@700;800&display=swap" rel="stylesheet">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Alurik</title>
   <meta name="theme-color" content="#0f172a">
@@ -14,11 +14,16 @@
     // agar tidak ada kilatan tema yang salah. Modul /static/offline/themes.js belum dimuat di sini, jadi aturannya
     // disalin dan harus sama persis dengan readPrefs + resolve modul itu (dijaga tests/offline/theme_boot.test.js).
     // ES5 saja.
-    // Daftar palet dan tabel warna meta ditulis literal; tambahkan palet baru di sini juga.
+    // Daftar palet dan tabel warna meta ditulis literal dan harus sama dengan PALETTES (id dan themeColor) di
+    // themes.js; tambahkan palet baru di kedua tempat (dijaga tests/offline/theme_boot.test.js).
     (function () {
       try {
-        var palettes = ["default"];
-        var themeColors = { "default": { light: "#0f172a", dark: "#0f172a" } };
+        var palettes = ["default", "sakura", "lavender"];
+        var themeColors = {
+          "default": { light: "#FCFCFB", dark: "#0f172a" },
+          "sakura": { light: "#FDF5FA", dark: "#1C1219" },
+          "lavender": { light: "#FAF6FD", dark: "#18131D" }
+        };
         var ls = null;
         try { ls = window.localStorage; } catch (_) { ls = null; } // Safari: akses propertinya pun bisa melempar
         var get = function (k) {
@@ -89,8 +94,8 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=374">
-  <link rel="stylesheet" href="/static/themes.css?v=1">
+  <link rel="stylesheet" href="/static/app.css?v=375">
+  <link rel="stylesheet" href="/static/themes.css?v=2">
 
 <style>
 /* Petakan: sorot sesaat heading tujuan saat catatan dibuka dari peta (tanpa garis aksen kiri). */
@@ -257,7 +262,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v478-pindah-cepat";
+    window.__SW_VERSION = "taskflow-v479-tema-sakura-lavender";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -1513,22 +1518,33 @@ function ThemeToggle({
   onToggle
 }) {
   const isDark = theme === 'dark';
-  return /*#__PURE__*/React.createElement("div", {
+  // Tombol (bukan div) supaya bisa difokus & dibaca pembaca layar; gaya bawaan tombol direset agar tampilan sama.
+  const label = isDark ? "Ganti ke mode terang" : "Ganti ke mode gelap";
+  return /*#__PURE__*/React.createElement("button", {
+    type: "button",
     style: {
       display: 'flex',
       alignItems: 'center',
       gap: 6,
-      cursor: 'pointer'
+      cursor: 'pointer',
+      border: 0,
+      background: "transparent",
+      padding: 0,
+      margin: 0,
+      font: "inherit",
+      color: "inherit"
     },
     onClick: onToggle,
-    title: isDark ? 'Switch to Light' : 'Switch to Dark'
+    "aria-label": label,
+    title: label
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       lineHeight: 1,
       color: isDark ? "var(--text-light)" : "#f59e0b"
     }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "sun", size: 15 })), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "sun", size: 15 })), /*#__PURE__*/React.createElement("span", {
     style: {
+      display: 'block',
       width: 36,
       height: 20,
       borderRadius: 10,
@@ -1536,8 +1552,9 @@ function ThemeToggle({
       transition: 'background 0.2s',
       background: isDark ? 'var(--accent)' : '#d1d5db'
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
     style: {
+      display: 'block',
       position: 'absolute',
       top: 2,
       width: 16,
@@ -4496,7 +4513,7 @@ function Sidebar({
         style: {
           fontSize: 10,
           background: "var(--accent)",
-          color: "white",
+          color: "var(--accent-ink)",
           padding: "1px 5px",
           borderRadius: 3,
           marginRight: 4
@@ -7341,7 +7358,7 @@ function TaskFormModal({
       fontWeight: 600,
       fontSize: 13,
       background: mode === m ? "var(--accent)" : "transparent",
-      color: mode === m ? "#fff" : "var(--text-secondary)",
+      color: mode === m ? "var(--accent-ink)" : "var(--text-secondary)",
       transition: "all 0.15s"
     }
   }, /*#__PURE__*/React.createElement("span", {
@@ -7508,7 +7525,7 @@ function TaskFormModal({
       cursor: "pointer",
       fontSize: 12,
       background: habitForm.frequency.includes(d.key) ? "var(--accent)" : "var(--bg-primary)",
-      color: habitForm.frequency.includes(d.key) ? "#fff" : "var(--text-secondary)",
+      color: habitForm.frequency.includes(d.key) ? "var(--accent-ink)" : "var(--text-secondary)",
       fontWeight: habitForm.frequency.includes(d.key) ? 600 : 400
     }
   }, d.label))), /*#__PURE__*/React.createElement("label", {
@@ -8205,7 +8222,7 @@ function ModalAttachments({
       alignItems: "center",
       gap: 10,
       padding: "8px 0",
-      borderBottom: "1px solid #f1f5f9"
+      borderBottom: "1px solid var(--line-soft)"
     }
   }, /*#__PURE__*/React.createElement("span", {
     style: {
@@ -8482,7 +8499,7 @@ function ModalNotes({
     key: n.id,
     style: {
       padding: "8px 0",
-      borderBottom: "1px solid #f1f5f9",
+      borderBottom: "1px solid var(--line-soft)",
       display: "flex",
       gap: 8,
       alignItems: "flex-start"
@@ -10709,7 +10726,7 @@ function TaskRow({
     style: {
       fontSize: 11,
       background: "var(--accent)",
-      color: "white",
+      color: "var(--accent-ink)",
       padding: "1px 5px",
       borderRadius: 3
     }
@@ -10750,7 +10767,7 @@ function TaskRow({
     style: {
       flex: 1,
       height: 4,
-      background: "#e2e8f0",
+      background: "var(--track)",
       borderRadius: 2,
       overflow: "hidden"
     }
@@ -13918,7 +13935,7 @@ function LinkPickerModal({
       fontWeight: 600,
       cursor: 'pointer',
       background: tab === t ? 'var(--accent)' : 'var(--bg-primary)',
-      color: tab === t ? 'white' : 'var(--text-secondary)',
+      color: tab === t ? 'var(--accent-ink)' : 'var(--text-secondary)',
       border: '1px solid var(--border)'
     }
   }, t === 'all' ? 'Semua' : t === 'notes' ? 'Notes' : t === 'tasks' ? 'Tasks' : 'Mindmaps'))), /*#__PURE__*/React.createElement("div", {
@@ -14677,7 +14694,7 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     }, /*#__PURE__*/React.createElement("span", {
       style: {
         background: l.type === "note" ? "var(--accent)" : l.type === "mindmap" ? "#8b5cf6" : "#e0a06c",
-        color: l.type === "note" ? "#1a2a00" : "white",
+        color: l.type === "note" ? "var(--accent-on, #1a2a00)" : "white",
         borderRadius: 3, padding: "1px 5px", fontSize: 9, fontWeight: 700, flexShrink: 0
       }
     }, l.type === "note" ? "NOTE" : l.type === "mindmap" ? "MAP" : "TASK"), /*#__PURE__*/React.createElement("span", {
@@ -14739,6 +14756,18 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     menuItem("📋 Copy branch", () => copyOp(activeId), false, menuIsRoot),
     menuItem("📥 Paste branch", () => pasteOp(activeId), false, !clipboard),
     menuItem("🗑 Hapus", () => deleteOp(activeId), true, menuIsRoot))));
+}
+
+// Pesan setTheme untuk iframe mindmap: mode + aksen palet terhitung (iframe menulisnya ke --side-accent/-hover/-accent-ink).
+// Palet Default mengirim aksen kosong → iframe memakai warna CSS bawaannya (Default identik; --accent-ink Default putih,
+// sedangkan iframe memakai tinta hitam di atas lime).
+function mindmapThemeMessage() {
+  const el = document.documentElement;
+  const theme = el.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  const palette = el.getAttribute("data-palette") || "default";
+  const cs = palette === "default" ? null : getComputedStyle(document.documentElement);
+  const tok = name => cs ? (cs.getPropertyValue(name) || "").trim() : "";
+  return { type: "setTheme", theme, accent: tok("--accent"), accentSoft: tok("--accent-soft"), accentInk: tok("--accent-ink") };
 }
 
 function MindmapTabInstance({
@@ -15488,10 +15517,7 @@ function MindmapTabInstance({
 
   useEffect(() => {
     const postTheme = () => {
-      iframeRef.current?.contentWindow?.postMessage({
-        type: "setTheme",
-        theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
-      }, window.location.origin);
+      iframeRef.current?.contentWindow?.postMessage(mindmapThemeMessage(), window.location.origin);
     };
     postTheme();
     const mo = new MutationObserver(postTheme);
@@ -15567,10 +15593,7 @@ function MindmapTabInstance({
       if (e.data && e.data.type === "ready") iframeReadyRef.current = true;
       if (e.data && e.data.type === "ready" && tab && isLinked) {
         if (outlineTreeRef.current) postLinkedLoad(outlineTreeRef.current);
-        iframeRef.current?.contentWindow?.postMessage({
-          type: "setTheme",
-          theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
-        }, window.location.origin);
+        iframeRef.current?.contentWindow?.postMessage(mindmapThemeMessage(), window.location.origin);
       } else if (e.data && e.data.type === "ready" && tab) {
         // remoteUpdate yang terkirim sebelum iframe siap hilang → dianggap dilewati (basis tidak maju), coba lagi
         if (pendingRemoteRef.current.size) {
@@ -15586,10 +15609,7 @@ function MindmapTabInstance({
             data: tree,
             title: tab?.title || ""
           }, window.location.origin);
-          iframeRef.current?.contentWindow?.postMessage({
-            type: "setTheme",
-            theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
-          }, window.location.origin);
+          iframeRef.current?.contentWindow?.postMessage(mindmapThemeMessage(), window.location.origin);
           iframeRef.current?.contentWindow?.postMessage({ type: "linkInfo", info: linkInfoRef.current }, window.location.origin);
         } catch (_) {}
       }
@@ -15857,7 +15877,7 @@ function MindmapTabInstance({
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=146",
+    src: "/static/vendor/mind-elixir/index.html?v=147",
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
@@ -17106,7 +17126,7 @@ function DrawPage({
             padding: "2px 8px", borderRadius: 12, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap",
             display: "inline-flex", alignItems: "center", gap: 4,
             background: on ? "var(--accent)" : "var(--bg-secondary)",
-            color: on ? "#fff" : "var(--text-secondary)"
+            color: on ? "var(--accent-ink)" : "var(--text-secondary)"
           }
         }, opt.ws && /*#__PURE__*/React.createElement(ViewGlyph, { name: "mUsers", size: 12 }), opt.label);
       })),
@@ -17119,7 +17139,7 @@ function DrawPage({
           style: {
             padding: "2px 8px", borderRadius: 12, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap",
             background: !selectedTag ? "var(--accent)" : "var(--bg-secondary)",
-            color: !selectedTag ? "#fff" : "var(--text-secondary)"
+            color: !selectedTag ? "var(--accent-ink)" : "var(--text-secondary)"
           }
         }, "Semua"),
         allTags.map(t => /*#__PURE__*/React.createElement("span", {
@@ -17128,7 +17148,7 @@ function DrawPage({
           style: {
             padding: "2px 8px", borderRadius: 12, fontSize: 11, cursor: "pointer", whiteSpace: "nowrap",
             background: selectedTag === t ? "var(--accent)" : "var(--bg-secondary)",
-            color: selectedTag === t ? "#fff" : "var(--text-secondary)"
+            color: selectedTag === t ? "var(--accent-ink)" : "var(--text-secondary)"
           }
         }, "#", t))
       ),
@@ -19600,7 +19620,7 @@ function TaskListView({
   }, "Filter", activeFilterCount > 0 && /*#__PURE__*/React.createElement("span", {
     style: {
       background: "var(--accent)",
-      color: "#1a2a00",
+      color: "var(--accent-on, #1a2a00)",
       borderRadius: 99,
       fontSize: 11,
       fontWeight: 700,
@@ -19859,16 +19879,31 @@ function TaskListView({
   // BLOCK LENGTH: ~310 lines (10649-10959) — depends on Chart.js
 
 // Theme-aware chart helpers: Chart.js draws onto a canvas, so CSS tokens don't
-// reach it. Read the current tokens and re-render when <html data-theme> flips.
-function useThemeName() {
-  const read = () => document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-  const [theme, setTheme] = useState(read);
+// reach it. Read the current tokens and re-render when <html data-theme/data-palette/data-decor> flips.
+// Atribut tema <html> terkini; objek state hanya diganti bila salah satu nilai berubah (grafik tidak digambar ulang
+// karena mutasi tanpa perubahan nilai).
+function useThemeAttrs() {
+  const read = () => {
+    const el = document.documentElement;
+    return {
+      theme: el.getAttribute("data-theme") === "dark" ? "dark" : "light",
+      palette: el.getAttribute("data-palette") || "default",
+      decor: el.getAttribute("data-decor") === "off" ? "off" : "on"
+    };
+  };
+  const [attrs, setAttrs] = useState(read);
   useEffect(() => {
-    const mo = new MutationObserver(() => setTheme(read()));
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette"] });
+    const sync = () => {
+      const next = read();
+      setAttrs(prev => prev.theme === next.theme && prev.palette === next.palette && prev.decor === next.decor ? prev : next);
+    };
+    const mo = new MutationObserver(sync);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette", "data-decor"] });
+    // Atribut bisa berganti antara render pertama dan efek ini terpasang.
+    sync();
     return () => mo.disconnect();
   }, []);
-  return theme;
+  return attrs;
 }
 
 // window.localStorage atau null: akses propertinya bisa melempar (Safari dengan penyimpanan situs diblokir).
@@ -19881,7 +19916,8 @@ function safeLocalStorage() {
 }
 
 // prefers-color-scheme: dark yang terkini, hanya diamati saat enabled (mode tema "system"); false bila dimatikan
-// atau matchMedia tidak tersedia.
+// atau matchMedia tidak tersedia. Derived state: render yang pertama melihat `enabled` baru sudah membaca matchMedia
+// (tanpa menunggu efek), jadi App tidak sempat menerapkan tema dari nilai basi.
 function useSystemDark(enabled) {
   const query = "(prefers-color-scheme: dark)";
   const read = () => {
@@ -19891,20 +19927,24 @@ function useSystemDark(enabled) {
       return false;
     }
   };
-  const [dark, setDark] = useState(() => enabled && read());
+  const [state, setState] = useState(() => ({ enabled, dark: enabled && read() }));
+  let current = state;
+  if (state.enabled !== enabled) {
+    current = { enabled, dark: enabled && read() };
+    setState(current);
+  }
   useEffect(() => {
-    if (!enabled || typeof window.matchMedia !== "function") {
-      setDark(false);
-      return undefined;
-    }
+    if (!enabled || typeof window.matchMedia !== "function") return undefined;
     let mql;
     try {
       mql = window.matchMedia(query);
     } catch (_) {
-      setDark(false);
       return undefined;
     }
-    const onChange = () => setDark(!!mql.matches);
+    const onChange = () => {
+      const dark = !!mql.matches;
+      setState(s => s.enabled === enabled && s.dark === dark ? s : { enabled, dark });
+    };
     onChange();
     if (typeof mql.addEventListener === "function") {
       mql.addEventListener("change", onChange);
@@ -19916,7 +19956,7 @@ function useSystemDark(enabled) {
     }
     return undefined;
   }, [enabled]);
-  return enabled ? dark : false;
+  return enabled ? current.dark : false;
 }
 function dashChartColors(theme) {
   const cs = getComputedStyle(document.documentElement);
@@ -19941,7 +19981,7 @@ function ProductivityChart({
 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
-  const theme = useThemeName();
+  const { theme, palette } = useThemeAttrs();
   const weekData = useMemo(() => {
     const result = [];
     for (let w = 3; w >= 0; w--) {
@@ -20049,7 +20089,7 @@ function ProductivityChart({
     return () => {
       if (chartRef.current) chartRef.current.destroy();
     };
-  }, [weekData, theme]);
+  }, [weekData, theme, palette]);
   return /*#__PURE__*/React.createElement("div", null, (lastWeek > 0 || thisWeek > 0) && /*#__PURE__*/React.createElement("div", {
     className: "dash-trend"
   }, /*#__PURE__*/React.createElement("span", {
@@ -20071,7 +20111,7 @@ function CompletionDonut({
 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
-  const theme = useThemeName();
+  const { theme, palette } = useThemeAttrs();
   useEffect(() => {
     if (!canvasRef.current) return;
     const c = dashChartColors(theme);
@@ -20131,7 +20171,7 @@ function CompletionDonut({
     return () => {
       if (chartRef.current) chartRef.current.destroy();
     };
-  }, [summary, theme]);
+  }, [summary, theme, palette]);
   const total = (summary.total_active || 0) + (summary.total_done || 0);
   const pct = total > 0 ? Math.round((summary.total_done || 0) / total * 100) : 0;
   return /*#__PURE__*/React.createElement("div", {
@@ -20153,7 +20193,7 @@ function StatusBarChart({
 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
-  const theme = useThemeName();
+  const { theme, palette } = useThemeAttrs();
   useEffect(() => {
     if (!canvasRef.current) return;
     const c = dashChartColors(theme);
@@ -20201,7 +20241,7 @@ function StatusBarChart({
     return () => {
       if (chartRef.current) chartRef.current.destroy();
     };
-  }, [summary, theme]);
+  }, [summary, theme, palette]);
   return /*#__PURE__*/React.createElement("div", {
     style: {
       height: 220
@@ -24086,7 +24126,7 @@ function ChatListPanel({
         padding: "0 5px",
         borderRadius: 9,
         background: "var(--accent)",
-        color: "#fff",
+        color: "var(--accent-ink)",
         fontSize: 11,
         fontWeight: 700,
         display: "inline-flex",
@@ -24537,7 +24577,7 @@ function ChatRoom({
       background: "none",
       border: "none",
       cursor: "pointer",
-      color: "var(--text-secondary)",
+      color: "var(--accent-ink-soft, var(--text-secondary))",
       fontSize: 22,
       padding: "0 4px 0 0",
       lineHeight: 1
@@ -24562,7 +24602,7 @@ function ChatRoom({
       background: "none",
       border: "none",
       cursor: "pointer",
-      color: "var(--text-secondary)",
+      color: "var(--accent-ink-soft, var(--text-secondary))",
       fontSize: 20,
       padding: "4px 6px",
       borderRadius: 8,
@@ -25217,7 +25257,7 @@ function ChatInputBar({
     onClick: () => setShowAttach(v => !v),
     style: {
       background: showAttach ? "var(--accent)" : "var(--bg-primary)",
-      color: showAttach ? "white" : "var(--text-secondary)",
+      color: showAttach ? "var(--accent-ink)" : "var(--text-secondary)",
       border: "1px solid var(--border)",
       borderRadius: 8,
       padding: "8px 10px",
@@ -25899,7 +25939,7 @@ function DmRoom({
       background: "none",
       border: "none",
       cursor: "pointer",
-      color: "var(--text-secondary)",
+      color: "var(--accent-ink-soft, var(--text-secondary))",
       fontSize: 22,
       padding: "0 4px 0 0",
       lineHeight: 1
@@ -25933,7 +25973,7 @@ function DmRoom({
       background: "none",
       border: "none",
       cursor: "pointer",
-      color: "var(--text-secondary)",
+      color: "var(--accent-ink-soft, var(--text-secondary))",
       fontSize: 20,
       padding: "4px 6px",
       borderRadius: 8,
@@ -26799,11 +26839,144 @@ function ExtAuthOverlay({
   }, "Batal"))));
 }
 
+// ── Kartu "Tampilan" (Pengaturan) ───────────────────────────
+// Mode (terang/gelap/ikuti sistem), palet, dekorasi (hanya bila modul TF.decor ada), pratinjau bertoken.
+// Setiap pilihan langsung onThemePrefs(patch) — tanpa tombol Simpan, tanpa toast (spec §3.7).
+function ThemeSettingsCard({
+  themePrefs,
+  resolvedTheme,
+  onThemePrefs
+}) {
+  const T = window.TF.themes;
+  const modes = [["light", "Terang"], ["dark", "Gelap"], ["system", "Ikuti sistem"]];
+  const modeRefs = useRef([]);
+  const modeIdx = Math.max(0, modes.findIndex(m => m[0] === themePrefs.mode));
+  const pickMode = i => {
+    onThemePrefs({ mode: modes[i][0] });
+    const btn = modeRefs.current[i];
+    if (btn) btn.focus();
+  };
+  // Pola radiogroup WAI-ARIA: panah memindah pilihan sekaligus fokus (melingkar); Tab masuk/keluar grup.
+  const onModeKey = e => {
+    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    pickMode((modeIdx + step + modes.length) % modes.length);
+  };
+  const palette = resolvedTheme.palette;
+  // Plan S2: sakelar dekorasi baru berarti setelah modul dekorasi (PR C) ada.
+  const showDecor = !!(window.TF && window.TF.decor);
+  const decorAvailable = T.isDecorAvailable(palette);
+  const decorOn = decorAvailable && themePrefs.decor !== "off";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card theme-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-title"
+  }, "Tampilan"), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-label"
+  }, "Mode"), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-modes",
+    role: "radiogroup",
+    "aria-label": "Mode"
+  }, modes.map(([id, label], i) => /*#__PURE__*/React.createElement("button", {
+    key: id,
+    type: "button",
+    role: "radio",
+    className: "theme-card-mode",
+    "aria-checked": i === modeIdx ? "true" : "false",
+    tabIndex: i === modeIdx ? 0 : -1,
+    ref: el => {
+      modeRefs.current[i] = el;
+    },
+    onClick: () => onThemePrefs({ mode: id }),
+    onKeyDown: onModeKey
+  }, label)))), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-label"
+  }, "Palet"), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-palettes",
+    role: "group",
+    "aria-label": "Palet"
+  }, T.PALETTES.map(p => {
+    const sw = p.swatch[resolvedTheme.theme];
+    return /*#__PURE__*/React.createElement("button", {
+      key: p.id,
+      type: "button",
+      className: "theme-card-palette",
+      "aria-pressed": p.id === palette ? "true" : "false",
+      onClick: () => onThemePrefs({ palette: p.id })
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-swatches",
+      "aria-hidden": "true"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "theme-swatch",
+      style: { background: sw.accent }
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "theme-swatch",
+      style: { background: sw.soft }
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "theme-swatch theme-swatch-bg",
+      style: { background: sw.bg }
+    })), /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-palette-name"
+    }, p.name));
+  }))), showDecor && /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-decor"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "theme-card-decor-text"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "theme-card-decor-title",
+    id: "theme-decor-label"
+  }, "Dekorasi tema"), /*#__PURE__*/React.createElement("span", {
+    className: "theme-card-decor-hint",
+    id: "theme-decor-hint"
+  }, decorAvailable ? "Kelopak dan maskot di layar kosong" : "Tersedia untuk palet Sakura dan Lavender")), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "switch",
+    className: "theme-card-switch",
+    "aria-checked": decorOn ? "true" : "false",
+    "aria-labelledby": "theme-decor-label",
+    "aria-describedby": "theme-decor-hint",
+    disabled: !decorAvailable,
+    onClick: () => onThemePrefs({ decor: decorOn ? "off" : "on" })
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "theme-card-switch-knob"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-label"
+  }, "Pratinjau"), /*#__PURE__*/React.createElement("div", {
+    className: "theme-preview"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-preview-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-check",
+    "aria-hidden": "true"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-title"
+  }, "Kerjakan tugas Biologi bab 4")), /*#__PURE__*/React.createElement("div", {
+    className: "theme-preview-row is-done"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-check",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement(Icon, { name: "check", size: 12 })), /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-title"
+  }, "Bayar iuran kas kelas"), /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-chip"
+  }, "#sekolah")))));
+}
+
 // ── Settings Page ───────────────────────────────────────────
 function SettingsPage({
   user,
   onUsernameChange,
-  showToast
+  showToast,
+  themePrefs,
+  resolvedTheme,
+  onThemePrefs
 }) {
   const [unForm, setUnForm] = useState({
     new_username: "",
@@ -27032,7 +27205,11 @@ function SettingsPage({
       fontSize: 13,
       color: "var(--text-secondary)"
     }
-  }, "Login sebagai ", /*#__PURE__*/React.createElement("strong", null, user?.username), user?.email ? ` · ${user.email}` : "")), needsSetup ? /*#__PURE__*/React.createElement("div", {
+  }, "Login sebagai ", /*#__PURE__*/React.createElement("strong", null, user?.username), user?.email ? ` · ${user.email}` : "")), /*#__PURE__*/React.createElement(ThemeSettingsCard, {
+    themePrefs: themePrefs,
+    resolvedTheme: resolvedTheme,
+    onThemePrefs: onThemePrefs
+  }), needsSetup ? /*#__PURE__*/React.createElement("div", {
     className: "card account-setup-card",
     style: {
       marginBottom: 20
@@ -27360,7 +27537,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v478-pindah-cepat"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v479-tema-sakura-lavender"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -29654,7 +29831,7 @@ onPaperConfigChange
     style: isEmpty ? {
       border: '1.5px solid var(--accent-2)',
       color: 'var(--accent-2)',
-      background: 'rgba(182,212,0,0.08)',
+      background: 'rgba(var(--accent-2-rgb, 182, 212, 0), 0.08)',
       borderRadius: 6,
       padding: '2px 9px',
       cursor: 'pointer',
@@ -32627,12 +32804,12 @@ function DrawingInsertModal({
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm",
     onClick: () => setTab("new"),
-    style: { flex: 1, fontSize: 12, fontWeight: 600, background: tab === "new" ? "var(--accent)" : "transparent", color: tab === "new" ? "#fff" : "var(--text-secondary)" }
+    style: { flex: 1, fontSize: 12, fontWeight: 600, background: tab === "new" ? "var(--accent)" : "transparent", color: tab === "new" ? "var(--accent-ink)" : "var(--text-secondary)" }
   }, "+ Sketsa Baru"),
      /*#__PURE__*/React.createElement("button", {
     className: "btn btn-sm",
     onClick: () => setTab("gallery"),
-    style: { flex: 1, fontSize: 12, fontWeight: 600, background: tab === "gallery" ? "var(--accent)" : "transparent", color: tab === "gallery" ? "#fff" : "var(--text-secondary)" }
+    style: { flex: 1, fontSize: 12, fontWeight: 600, background: tab === "gallery" ? "var(--accent)" : "transparent", color: tab === "gallery" ? "var(--accent-ink)" : "var(--text-secondary)" }
   }, "🖼️ Pilih Dari Galeri")),
   tab === "new" ? /*#__PURE__*/React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: 12 } },
     /*#__PURE__*/React.createElement("label", { className: "input-label", style: { fontSize: 12 } }, "Judul Sketsa"),
@@ -37769,7 +37946,7 @@ function NotePanel({
         }),
         /*#__PURE__*/React.createElement("button", {
           onClick: () => { navigator.clipboard.writeText(WEBAPP_URL + '/pub/' + (publishUsername || (publishedMeta && publishedMeta.username) || '') + '/' + publishSlug); showToast('Link disalin'); },
-          style: { padding: '6px 12px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 11, fontWeight: 600, cursor: 'pointer' }
+          style: { padding: '6px 12px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-ink)', fontSize: 11, fontWeight: 600, cursor: 'pointer' }
         }, "📋 Copy")
       )
     ),
@@ -37820,7 +37997,7 @@ function NotePanel({
           setPublishWorking(false);
         },
         disabled: publishWorking,
-        style: { padding: '6px 18px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
+        style: { padding: '6px 18px', background: 'var(--accent)', border: 'none', borderRadius: 6, color: 'var(--accent-ink)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }
       }, publishWorking ? "Menyimpan..." : "💾 Simpan")
     )
   ))), drawingScopeDialogEl, !cmtWide ? cmtPanelEl : null);
@@ -44432,7 +44609,10 @@ function App() {
       return /*#__PURE__*/React.createElement(SettingsPage, {
         user: user,
         onUsernameChange: u => setUser(u),
-        showToast: showToast
+        showToast: showToast,
+        themePrefs: themePrefs,
+        resolvedTheme: resolvedTheme,
+        onThemePrefs: setThemePrefs
       });
     }
     if (page === "dashboard") {
@@ -45012,12 +45192,12 @@ function App() {
     } : undefined,
     style: {
       padding: "10px 16px",
-      borderBottom: "1px solid #f1f5f9",
-      background: n.is_read ? "var(--bg-card)" : "#f0fdf4",
+      borderBottom: "1px solid var(--line-soft)",
+      background: n.is_read ? "var(--bg-card)" : "var(--notif-unread-bg, #f0fdf4)",
       cursor: clickable ? "pointer" : "default"
     },
-    onMouseEnter: clickable ? e => e.currentTarget.style.background = "#e0f2fe" : undefined,
-    onMouseLeave: clickable ? e => e.currentTarget.style.background = n.is_read ? "var(--bg-card)" : "#f0fdf4" : undefined
+    onMouseEnter: clickable ? e => e.currentTarget.style.background = "var(--notif-hover-bg, #e0f2fe)" : undefined,
+    onMouseLeave: clickable ? e => e.currentTarget.style.background = n.is_read ? "var(--bg-card)" : "var(--notif-unread-bg, #f0fdf4)" : undefined
   }, /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 13,
@@ -45364,7 +45544,7 @@ class AppErrorBoundary extends React.Component {
     }, React.createElement("button", {
       type: "button",
       onClick: this.handleReload,
-      style: { ...btn, background: "var(--accent, #A8C500)", borderColor: "var(--accent, #A8C500)", color: "#ffffff" }
+      style: { ...btn, background: "var(--accent, #A8C500)", borderColor: "var(--accent, #A8C500)", color: "var(--accent-ink, #ffffff)" }
     }, "Muat ulang"), React.createElement("button", {
       type: "button",
       onClick: this.handleCopy,

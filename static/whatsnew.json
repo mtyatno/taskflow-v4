@@ -1,5 +1,9 @@
 {
   "entries": [
+    {"version": "taskflow-v479-tema-sakura-lavender", "date": "2026-10-27", "title": "Tema Sakura dan Lavender",
+     "new": ["Pilih palet Sakura (pink) atau Lavender (ungu) di Pengaturan › Tampilan.",
+             "Mode tampilan kini bisa Terang, Gelap, atau Ikuti sistem."],
+     "fixed": ["Bar progres di daftar task serta garis pemisah lampiran, catatan, dan notifikasi di mode gelap tidak lagi tampak terang."]},
     {"version": "taskflow-v478-pindah-cepat", "date": "2026-10-27", "title": "Pindah task ke workspace lebih cepat",
      "fixed": ["Memindahkan task ke workspace kini langsung selesai, tidak lagi tertahan di Memindahkan... sampai sinkronisasi penuh selesai."]},
     {"version": "taskflow-v477-label-workspace", "date": "2026-10-27", "title": "Nama workspace di detail task",

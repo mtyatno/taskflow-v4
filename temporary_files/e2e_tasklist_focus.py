@@ -374,7 +374,7 @@ def run_flow(p, ws):
         tag = "terang" if theme == "light" else "gelap"
         cur = p.evaluate("() => document.documentElement.getAttribute('data-theme')")
         if cur != theme:
-            p.locator("[title='Switch to Dark'], [title='Switch to Light']").locator("visible=true").first.click()
+            p.locator("[title='Ganti ke mode gelap'], [title='Ganti ke mode terang']").locator("visible=true").first.click()
             p.wait_for_timeout(500)
         got = p.evaluate("() => document.documentElement.getAttribute('data-theme')")
         check("10a [%s] tema aktif" % tag, got == theme, repr(got))

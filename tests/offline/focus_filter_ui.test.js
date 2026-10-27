@@ -682,7 +682,7 @@ test("app.css: bar filter, chip, badge, lembar HP/desktop, tema gelap, reduced-m
   assert.match(rule(".focus-filter-chip.is-reset"), /border-style: dashed/);
   const badge = rule(".focus-filter-badge");
   assert.match(badge, /background: var\(--accent\)/);
-  assert.match(badge, /color: #1F2116/);
+  assert.match(badge, /color: var\(--accent-on, #1F2116\);/);
   // desktop: panel di bawah tombol Filter, rata kanan, 340 px, latar transparan penangkap klik luar
   const sheet = rule(".focus-filter-sheet");
   assert.match(sheet, /position: absolute/);

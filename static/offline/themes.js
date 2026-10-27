@@ -15,7 +15,16 @@
   const MODES = Object.freeze(["light", "dark", "system"]);
   const DEFAULT_PREFS = Object.freeze({ mode: "light", palette: "default", decor: "on" });
 
-  // PR A hanya berisi palet Default; Sakura/Lavender menyusul. swatch = contoh warna di pemilih tema.
+  // Registri palet (urutan = urutan di pemilih tema). swatch = contoh warna di pemilih tema; themeColor =
+  // warna meta theme-color per mode; decor = slot dekorasi milik palet (kosong = tanpa dekorasi).
+  // Sakura dan Lavender berbagi set slot dekorasi yang sama (bentuk dan warnanya diatur themes.css).
+  const PETAL_DECOR = Object.freeze({
+    "page-corner": "petals",
+    "empty-done": "mascot-happy",
+    "empty-empty": "mascot-happy",
+    "empty-filter": "mascot-search",
+    "pomo-glyph": "petal",
+  });
   const PALETTES = Object.freeze([
     {
       id: "default",
@@ -24,8 +33,28 @@
         light: { accent: "#A8C500", soft: "#F4FAD6", bg: "#FCFCFB" },
         dark: { accent: "#A8C500", soft: "rgba(168,197,0,0.18)", bg: "#171717" },
       },
-      themeColor: { light: "#0f172a", dark: "#0f172a" },
+      themeColor: { light: "#FCFCFB", dark: "#0f172a" },
       decor: {},
+    },
+    {
+      id: "sakura",
+      name: "Sakura",
+      swatch: {
+        light: { accent: "#B0287E", soft: "#F9E1F0", bg: "#FDF5FA" },
+        dark: { accent: "#EE8FCB", soft: "#3A2236", bg: "#1C1219" },
+      },
+      themeColor: { light: "#FDF5FA", dark: "#1C1219" },
+      decor: PETAL_DECOR,
+    },
+    {
+      id: "lavender",
+      name: "Lavender",
+      swatch: {
+        light: { accent: "#8A3AAE", soft: "#F1E4FA", bg: "#FAF6FD" },
+        dark: { accent: "#CDA2F2", soft: "#2F2440", bg: "#18131D" },
+      },
+      themeColor: { light: "#FAF6FD", dark: "#18131D" },
+      decor: PETAL_DECOR,
     },
   ]);
 
