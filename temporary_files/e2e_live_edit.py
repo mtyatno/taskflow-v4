@@ -284,7 +284,8 @@ POP = ".td-pop"
 
 def prop_btn(page, label):
     """Tombol nilai properti di kisi detail panel (aria-label "<Label>: <nilai|kosong>")."""
-    return page.locator('%s button.td-prop-val[aria-label^="%s: "]' % (PANEL, label)).first
+    return page.locator('%s button.td-prop-val[aria-label^="%s: "], %s button.td-prop-add[aria-label^="%s: "]'
+                        % (PANEL, label, PANEL, label)).first
 
 
 def prop_text(page, label):

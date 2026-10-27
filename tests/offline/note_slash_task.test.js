@@ -106,8 +106,8 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v474-tema-sakura-lavender in static/sw.js", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v474-tema-sakura-lavender";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v474-tema-sakura-lavender";/);
+  await t.test("Service Worker cache is taskflow-v477-tema-sakura-lavender in static/sw.js", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v477-tema-sakura-lavender";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v477-tema-sakura-lavender";/);
   });
 });
