@@ -99,7 +99,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=381">
+  <link rel="stylesheet" href="/static/app.css?v=382">
   <link rel="stylesheet" href="/static/themes.css?v=2">
 
 <style>
@@ -267,7 +267,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v485-ws-dropdown";
+    window.__SW_VERSION = "taskflow-v486-ws-dropdown";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -20014,6 +20014,39 @@ function safeLocalStorage() {
   }
 }
 
+// true bila media query cocok, ikut berubah saat ukuran layar berubah; false bila matchMedia tidak tersedia.
+function useMediaMatch(query) {
+  const read = () => {
+    try {
+      return typeof window.matchMedia === "function" && !!window.matchMedia(query).matches;
+    } catch (_) {
+      return false;
+    }
+  };
+  const [matches, setMatches] = useState(read);
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return undefined;
+    let mql;
+    try {
+      mql = window.matchMedia(query);
+    } catch (_) {
+      return undefined;
+    }
+    const onChange = () => setMatches(!!mql.matches);
+    onChange();
+    if (typeof mql.addEventListener === "function") {
+      mql.addEventListener("change", onChange);
+      return () => mql.removeEventListener("change", onChange);
+    }
+    if (typeof mql.addListener === "function") {
+      mql.addListener(onChange);
+      return () => mql.removeListener(onChange);
+    }
+    return undefined;
+  }, [query]);
+  return matches;
+}
+
 // prefers-color-scheme: dark yang terkini, hanya diamati saat enabled (mode tema "system"); false bila dimatikan
 // atau matchMedia tidak tersedia. Derived state: render yang pertama melihat `enabled` baru sudah membaca matchMedia
 // (tanpa menunggu efek), jadi App tidak sempat menerapkan tema dari nilai basi.
@@ -22780,6 +22813,9 @@ function Dashboard({
       localStorage.setItem("tf_dismiss_onboarding", "true");
     } catch (_) {}
   };
+  // HP: chip habit kedua dst. akan terpotong di tepi hero → tampilkan 1 chip saja (+N untuk sisanya).
+  const heroPhone = useMediaMatch("(max-width: 640px)");
+  const heroHabitLimit = heroPhone ? 1 : 3;
   const intro = useIntroState(tasks);
   // Latar hero terpilih, dihitung sekali. Garis .dash-hero (rgba aksen) dipadu dengan latar section di bawahnya
   // (background-clip border-box), jadi section melukis base-nya sendiri dan HeroBackdropLayer menggambar ambient + fitur dari
@@ -23115,9 +23151,9 @@ function Dashboard({
   // Logika chip hero di modul murni static/offline/herologic.js; cadangan sederhana bila modul belum termuat.
   const heroLogic = window.TF && window.TF.hero || null;
   const heroStreak = heroLogic ? heroLogic.bestStreak(habits) : null;
-  const heroHabits = heroLogic ? heroLogic.habitChips(habits, currentPhase, 3) : {
-    shown: (habits || []).filter(Boolean).slice(0, 3).map(h => ({ ...h, done: h.today_status === "done", skipped: h.today_status === "skipped" })),
-    more: Math.max(0, (habits || []).filter(Boolean).length - 3)
+  const heroHabits = heroLogic ? heroLogic.habitChips(habits, currentPhase, heroHabitLimit) : {
+    shown: (habits || []).filter(Boolean).slice(0, heroHabitLimit).map(h => ({ ...h, done: h.today_status === "done", skipped: h.today_status === "skipped" })),
+    more: Math.max(0, (habits || []).filter(Boolean).length - heroHabitLimit)
   };
   // Semua chip yang tampil sudah selesai/dilewati → hero tetap memberi jalan ke halaman Habit.
   const heroHabitsAllSettled = heroHabits.shown.length > 0 && heroHabits.shown.every(h => h.done || h.skipped);
@@ -23590,7 +23626,7 @@ function Dashboard({
     value: scratchInput,
     onChange: e => setScratchInput(e.target.value),
     onKeyDown: handleScratch,
-    placeholder: !hasTasks ? "Awali 'tugas: ...' untuk tugas, atau tulis apa saja untuk catatan..." : "Tulis apa saja... (tekan Enter untuk simpan)"
+    placeholder: !hasTasks ? "Awali 'tugas: ...' untuk tugas, atau tulis apa saja untuk catatan..." : heroPhone ? "Tulis apa saja..." : "Tulis apa saja... (tekan Enter untuk simpan)"
   }), /*#__PURE__*/React.createElement("kbd", {
     className: "dash-kbd"
   }, "Enter"))),
@@ -27906,7 +27942,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v485-ws-dropdown"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v486-ws-dropdown"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

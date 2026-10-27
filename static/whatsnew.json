@@ -1,7 +1,9 @@
 {
   "entries": [
-    {"version": "taskflow-v485-ws-dropdown", "date": "2026-10-28", "title": "Menu workspace ringkas di HP",
+    {"version": "taskflow-v486-ws-dropdown", "date": "2026-10-28", "title": "Menu workspace ringkas di HP",
      "new": ["Di HP, tombol Tasks, Files, Pin, Kelola, Kelola project, dan Kelola tahap di halaman workspace kini ada dalam satu menu dropdown."]},
+    {"version": "taskflow-v485-hero-habit-hp", "date": "2026-10-28", "title": "Bagian atas Dashboard lebih rapi di HP",
+     "fixed": ["Di HP, bagian atas Dashboard kini menampilkan satu habit beserta jumlah habit lainnya, tanpa pil yang terpotong."]},
     {"version": "taskflow-v484-ws-modal", "date": "2026-10-28", "title": "Detail task di halaman workspace",
      "fixed": ["Di HP, jendela detail task yang dibuka dari halaman workspace kini tampil utuh, tidak terpotong lagi."]},
     {"version": "taskflow-v483-latar-hero", "date": "2026-10-27", "title": "Latar Dashboard dan Pomodoro bisa dipilih",

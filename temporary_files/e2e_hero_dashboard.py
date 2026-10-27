@@ -274,6 +274,44 @@ def run_checks(browser, base, user):
         illus = p.locator(".dash-hero .hb-feature")
         hidden = illus.count() == 0 or not illus.first.is_visible()
         check("6b 375px ilustrasi hero (fitur latar) tersembunyi", hidden)
+        # 6c/6d (2026-10-28): di HP hanya 1 chip habit + "+N", dan tidak ada chip yang terpotong tepi hero.
+        info = p.evaluate("""() => {
+            const row = document.querySelector('.dash-hero .dash-hero-habits');
+            if (!row) return null;
+            const r = row.getBoundingClientRect();
+            const hero = document.querySelector('.dash-hero').getBoundingClientRect();
+            const chips = [...row.querySelectorAll('.dash-hero-chip')].map(c => {
+                const b = c.getBoundingClientRect();
+                const name = c.querySelector('.dash-hero-habit-name');
+                return { habit: c.classList.contains('dash-hero-habit'), more: c.classList.contains('dash-hero-more'), left: b.left, right: b.right,
+                         nameFits: !name || name.scrollWidth <= name.clientWidth + 1 || getComputedStyle(name).textOverflow === 'ellipsis' };
+            });
+            return { left: r.left, right: r.right, heroRight: hero.right, scroll: row.scrollWidth, client: row.clientWidth,
+                     habits: chips.filter(c => c.habit).length, more: chips.filter(c => c.more).length, chips };
+        }""")
+        ok_one = bool(info) and info["habits"] == 1 and info["more"] == 1
+        check("6c 375px hanya 1 chip habit + chip +N", ok_one, repr(info and {k: info[k] for k in ("habits", "more")}))
+        inside = bool(info) and info["scroll"] <= info["client"] and all(
+            c["left"] >= info["left"] - 0.5 and c["right"] <= min(info["right"], info["heroRight"]) + 0.5 and c["nameFits"]
+            for c in info["chips"])
+        check("6d 375px tidak ada chip habit yang terpotong", inside,
+              repr(info and [(round(c["left"]), round(c["right"])) for c in info["chips"]] + [round(info["right"])]))
+    finally:
+        ctx.close()
+
+    # 6e: lebar HP paling sempit yang umum (320 px) juga tanpa chip terpotong.
+    ctx, p = open_dashboard(browser, base, user, "sakura", "light", mobile=True)
+    try:
+        p.set_viewport_size({"width": 320, "height": 700})
+        p.wait_for_timeout(400)
+        res = p.evaluate("""() => {
+            const row = document.querySelector('.dash-hero .dash-hero-habits');
+            if (!row) return null;
+            const r = row.getBoundingClientRect();
+            return [...row.querySelectorAll('.dash-hero-chip')].every(c => { const b = c.getBoundingClientRect(); return b.left >= r.left - 0.5 && b.right <= r.right + 0.5; })
+                && row.scrollWidth <= row.clientWidth && document.documentElement.scrollWidth <= document.documentElement.clientWidth;
+        }""")
+        check("6e 320px chip habit utuh, tanpa overflow", bool(res))
     finally:
         ctx.close()
 
