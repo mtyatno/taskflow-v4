@@ -1,4 +1,8 @@
-## 🟡 Label workspace di bar atas + placeholder catatan rata tengah — `claude/label-workspace` — 2026-10-27 (Claude) — susulan #103 (commit ddeef8b ter-push sesudah #103 di-merge). SW `taskflow-v477-label-workspace`, `app.css?v=374`. Menunggu "merge dan deploy".
+## 🟡 Pindah task ke workspace tanpa menunggu sync penuh — `claude/pindah-workspace-cepat` — 2026-10-27 (Claude) — port PR #84 ke main terkini atas permintaan Bapak ("check dan jika ok, merge & deploy")
+- PR #84 (2026-10-22, basis v457) sudah jauh tertinggal (versi, TaskDetailModal → TaskDetailBody/TaskMovePanel, menu ⋯), jadi logikanya di-port ulang: `moveTaskToWorkspace` hanya push outbox bila ada op task tertunda / task belum ber-id server, PATCH, `applyMovedTasksLocal` menulis scope baru + base_rev ke IndexedDB, `__syncNow` dipicu di latar tanpa ditunggu. Tes `task_move_workspace.test.js` dari #84 (9/9). E2E `e2e_task_move_workspace.py` disesuaikan (menu ⋯, judul input, whatsnew) 6/6, modal tertutup 0,1 dtk walau sync dibuat lambat 30 dtk.
+- Catatan: server `main` mengembalikan `moved_ids` (bukan baris `moved` seperti deskripsi #84; perubahan server #84 tidak ada di PR-nya), jadi yang langsung ditulis lokal hanya baris task utama; sub-task ikut lewat sync latar. Tanpa perubahan `webapp.py` → tanpa restart. SW `taskflow-v478-pindah-cepat`.
+
+## 🟢 (DI-MERGE #104 f104538) Label workspace di bar atas + placeholder catatan rata tengah — `claude/label-workspace` — 2026-10-27 (Claude) — susulan #103 (commit ddeef8b ter-push sesudah #103 di-merge). SW `taskflow-v477-label-workspace`, `app.css?v=374`. Menunggu "merge dan deploy".
 
 ## 🟢 (DI-MERGE #103 81132cb, deploy sukses) Catatan: kotak tulis di atas — `claude/catatan-input-atas` — 2026-10-27 (Claude) — susulan #102 (commit 16d26ca ter-push sesudah #102 di-merge); di-merge + deploy atas "merge dan deploy" Bapak 08:22 WIB. SW `taskflow-v476-catatan-input-atas`, `app.css?v=373`.
 

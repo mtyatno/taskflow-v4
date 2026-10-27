@@ -1,5 +1,7 @@
 {
   "entries": [
+    {"version": "taskflow-v478-pindah-cepat", "date": "2026-10-27", "title": "Pindah task ke workspace lebih cepat",
+     "fixed": ["Memindahkan task ke workspace kini langsung selesai, tidak lagi tertahan di Memindahkan... sampai sinkronisasi penuh selesai."]},
     {"version": "taskflow-v477-label-workspace", "date": "2026-10-27", "title": "Nama workspace di detail task",
      "new": ["Bagian atas detail task kini menampilkan nama workspace task itu, atau Pribadi untuk task pribadi."],
      "fixed": ["Tulisan petunjuk di kotak tulis catatan kini rata tengah."]},
