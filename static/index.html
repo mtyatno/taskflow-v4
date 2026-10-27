@@ -1518,22 +1518,33 @@ function ThemeToggle({
   onToggle
 }) {
   const isDark = theme === 'dark';
-  return /*#__PURE__*/React.createElement("div", {
+  // Tombol (bukan div) supaya bisa difokus & dibaca pembaca layar; gaya bawaan tombol direset agar tampilan sama.
+  const label = isDark ? "Ganti ke mode terang" : "Ganti ke mode gelap";
+  return /*#__PURE__*/React.createElement("button", {
+    type: "button",
     style: {
       display: 'flex',
       alignItems: 'center',
       gap: 6,
-      cursor: 'pointer'
+      cursor: 'pointer',
+      border: 0,
+      background: "transparent",
+      padding: 0,
+      margin: 0,
+      font: "inherit",
+      color: "inherit"
     },
     onClick: onToggle,
-    title: isDark ? 'Switch to Light' : 'Switch to Dark'
+    "aria-label": label,
+    title: label
   }, /*#__PURE__*/React.createElement("span", {
     style: {
       lineHeight: 1,
       color: isDark ? "var(--text-light)" : "#f59e0b"
     }
-  }, /*#__PURE__*/React.createElement(Icon, { name: "sun", size: 15 })), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon, { name: "sun", size: 15 })), /*#__PURE__*/React.createElement("span", {
     style: {
+      display: 'block',
       width: 36,
       height: 20,
       borderRadius: 10,
@@ -1541,8 +1552,9 @@ function ThemeToggle({
       transition: 'background 0.2s',
       background: isDark ? 'var(--accent)' : '#d1d5db'
     }
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", {
     style: {
+      display: 'block',
       position: 'absolute',
       top: 2,
       width: 16,
@@ -26641,11 +26653,142 @@ function ExtAuthOverlay({
   }, "Batal"))));
 }
 
+// ── Kartu "Tampilan" (Pengaturan) ───────────────────────────
+// Mode (terang/gelap/ikuti sistem), palet, dekorasi (hanya bila modul TF.decor ada), pratinjau bertoken.
+// Setiap pilihan langsung onThemePrefs(patch) — tanpa tombol Simpan, tanpa toast (spec §3.7).
+function ThemeSettingsCard({
+  themePrefs,
+  resolvedTheme,
+  onThemePrefs
+}) {
+  const T = window.TF.themes;
+  const modes = [["light", "Terang"], ["dark", "Gelap"], ["system", "Ikuti sistem"]];
+  const modeRefs = useRef([]);
+  const modeIdx = Math.max(0, modes.findIndex(m => m[0] === themePrefs.mode));
+  const pickMode = i => {
+    onThemePrefs({ mode: modes[i][0] });
+    const btn = modeRefs.current[i];
+    if (btn) btn.focus();
+  };
+  // Pola radiogroup WAI-ARIA: panah memindah pilihan sekaligus fokus (melingkar); Tab masuk/keluar grup.
+  const onModeKey = e => {
+    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    pickMode((modeIdx + step + modes.length) % modes.length);
+  };
+  const palette = resolvedTheme.palette;
+  // Plan S2: sakelar dekorasi baru berarti setelah modul dekorasi (PR C) ada.
+  const showDecor = !!(window.TF && window.TF.decor);
+  const decorAvailable = T.isDecorAvailable(palette);
+  const decorOn = decorAvailable && themePrefs.decor !== "off";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "card theme-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-title"
+  }, "Tampilan"), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-label"
+  }, "Mode"), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-modes",
+    role: "radiogroup",
+    "aria-label": "Mode"
+  }, modes.map(([id, label], i) => /*#__PURE__*/React.createElement("button", {
+    key: id,
+    type: "button",
+    role: "radio",
+    className: "theme-card-mode",
+    "aria-checked": i === modeIdx ? "true" : "false",
+    tabIndex: i === modeIdx ? 0 : -1,
+    ref: el => {
+      modeRefs.current[i] = el;
+    },
+    onClick: () => onThemePrefs({ mode: id }),
+    onKeyDown: onModeKey
+  }, label)))), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-label"
+  }, "Palet"), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-palettes",
+    role: "group",
+    "aria-label": "Palet"
+  }, T.PALETTES.map(p => {
+    const sw = p.swatch[resolvedTheme.theme];
+    return /*#__PURE__*/React.createElement("button", {
+      key: p.id,
+      type: "button",
+      className: "theme-card-palette",
+      "aria-pressed": p.id === palette ? "true" : "false",
+      onClick: () => onThemePrefs({ palette: p.id })
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-swatches",
+      "aria-hidden": "true"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "theme-swatch",
+      style: { background: sw.accent }
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "theme-swatch",
+      style: { background: sw.soft }
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "theme-swatch theme-swatch-bg",
+      style: { background: sw.bg }
+    })), /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-palette-name"
+    }, p.name));
+  }))), showDecor && /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-decor"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "theme-card-decor-text",
+    id: "theme-decor-label"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "theme-card-decor-title"
+  }, "Dekorasi tema"), /*#__PURE__*/React.createElement("span", {
+    className: "theme-card-decor-hint"
+  }, decorAvailable ? "Kelopak dan maskot di layar kosong" : "Tersedia untuk palet Sakura dan Lavender")), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "switch",
+    className: "theme-card-switch",
+    "aria-checked": decorOn ? "true" : "false",
+    "aria-labelledby": "theme-decor-label",
+    disabled: !decorAvailable,
+    onClick: () => onThemePrefs({ decor: decorOn ? "off" : "on" })
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "theme-card-switch-knob"
+  }))), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-label"
+  }, "Pratinjau"), /*#__PURE__*/React.createElement("div", {
+    className: "theme-preview"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-preview-row"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-check",
+    "aria-hidden": "true"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-title"
+  }, "Kerjakan tugas Biologi bab 4")), /*#__PURE__*/React.createElement("div", {
+    className: "theme-preview-row is-done"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-check",
+    "aria-hidden": "true"
+  }, /*#__PURE__*/React.createElement(Icon, { name: "check", size: 12 })), /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-title"
+  }, "Bayar iuran kas kelas"), /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-chip"
+  }, "#sekolah")))));
+}
+
 // ── Settings Page ───────────────────────────────────────────
 function SettingsPage({
   user,
   onUsernameChange,
-  showToast
+  showToast,
+  themePrefs,
+  resolvedTheme,
+  onThemePrefs
 }) {
   const [unForm, setUnForm] = useState({
     new_username: "",
@@ -26874,7 +27017,11 @@ function SettingsPage({
       fontSize: 13,
       color: "var(--text-secondary)"
     }
-  }, "Login sebagai ", /*#__PURE__*/React.createElement("strong", null, user?.username), user?.email ? ` · ${user.email}` : "")), needsSetup ? /*#__PURE__*/React.createElement("div", {
+  }, "Login sebagai ", /*#__PURE__*/React.createElement("strong", null, user?.username), user?.email ? ` · ${user.email}` : "")), /*#__PURE__*/React.createElement(ThemeSettingsCard, {
+    themePrefs: themePrefs,
+    resolvedTheme: resolvedTheme,
+    onThemePrefs: onThemePrefs
+  }), needsSetup ? /*#__PURE__*/React.createElement("div", {
     className: "card account-setup-card",
     style: {
       marginBottom: 20
@@ -44274,7 +44421,10 @@ function App() {
       return /*#__PURE__*/React.createElement(SettingsPage, {
         user: user,
         onUsernameChange: u => setUser(u),
-        showToast: showToast
+        showToast: showToast,
+        themePrefs: themePrefs,
+        resolvedTheme: resolvedTheme,
+        onThemePrefs: setThemePrefs
       });
     }
     if (page === "dashboard") {

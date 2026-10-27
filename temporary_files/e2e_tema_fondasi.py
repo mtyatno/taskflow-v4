@@ -418,12 +418,12 @@ def verify():
             try:
                 p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
                 before = (p.evaluate(THEME_KEYS_JS)["tf_theme"], p.evaluate(DATASET_JS).get("theme"))
-                p.locator("[title='Switch to Dark']:visible").first.click()
+                p.locator("[title='Ganti ke mode gelap']:visible").first.click()
                 p.wait_for_function("() => document.documentElement.dataset.theme === 'dark'", timeout=5000)
                 after = (p.evaluate(THEME_KEYS_JS)["tf_theme"], p.evaluate(DATASET_JS).get("theme"))
                 check("b1 toggle header terang → gelap: tf_theme dan data-theme", before == ("light", "light") and
                       after == ("dark", "dark"), "%r -> %r" % (before, after))
-                p.locator("[title='Switch to Light']:visible").first.click()
+                p.locator("[title='Ganti ke mode terang']:visible").first.click()
                 p.wait_for_function("() => document.documentElement.dataset.theme === 'light'", timeout=5000)
                 back = (p.evaluate(THEME_KEYS_JS)["tf_theme"], p.evaluate(DATASET_JS).get("theme"))
                 check("b2 toggle header gelap → terang", back == ("light", "light"), repr(back))

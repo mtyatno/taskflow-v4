@@ -303,7 +303,7 @@ def wait_marker(p, timeout_ms=20000):
 
 
 def toggle_theme(p):
-    p.locator("[title='Switch to Dark'], [title='Switch to Light']").locator("visible=true").first.click()
+    p.locator("[title='Ganti ke mode gelap'], [title='Ganti ke mode terang']").locator("visible=true").first.click()
     p.wait_for_timeout(400)
 
 

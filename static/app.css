@@ -5178,3 +5178,45 @@
 .td-add-input:focus { outline: none; border-color: var(--accent); background: var(--bg-card); }
 .td-add-input:focus::placeholder { color: var(--text-light); }
 /* ── Detail task: akhir ── */
+/* ── Kartu "Tampilan" di Pengaturan (tema PR B, spec §3.7): hanya token, bentuk ikut radius palet ── */
+.theme-card { margin-bottom: 20px; }
+.theme-card-title { margin-bottom: 16px; font-family: var(--font-heading); font-size: 16px; font-weight: 700; }
+.theme-card-section { margin-bottom: 18px; }
+.theme-card-section:last-child { margin-bottom: 0; }
+.theme-card-label { margin-bottom: 8px; font-size: 13px; font-weight: 600; color: var(--text-secondary); }
+.theme-card-modes { display: flex; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--bg-subtle); }
+.theme-card-mode { flex: 1 1 0; min-width: 0; min-height: 40px; padding: 0 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border: 0; border-radius: var(--radius-pill); background: transparent; color: var(--text-secondary); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; transition: background 0.15s, color 0.15s; }
+.theme-card-mode:hover { color: var(--text-primary); }
+.theme-card-mode[aria-checked="true"] { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+.theme-card-palettes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.theme-card-palette { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; min-width: 0; min-height: 84px; padding: 12px; box-sizing: border-box; border: 2px solid var(--border); border-radius: var(--radius-card); background: var(--bg-card); color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.theme-card-palette:hover { border-color: var(--border-strong); }
+.theme-card-palette[aria-pressed="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.theme-card-swatches { display: flex; gap: 4px; }
+.theme-swatch { width: 22px; height: 22px; box-sizing: border-box; border-radius: 50%; flex-shrink: 0; }
+.theme-swatch-bg { border: 1px solid var(--border-strong); }
+.theme-card-palette-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; }
+.theme-card-decor { display: flex; align-items: center; gap: 12px; min-height: 56px; margin-bottom: 18px; padding: 8px 14px; box-sizing: border-box; border: 1px solid var(--border); border-radius: var(--radius-card); }
+.theme-card-decor-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+.theme-card-decor-title { font-size: 14px; font-weight: 700; }
+.theme-card-decor-hint { font-size: 12px; color: var(--text-secondary); }
+.theme-card-switch { display: flex; justify-content: flex-start; flex-shrink: 0; width: 44px; height: 26px; padding: 3px; box-sizing: border-box; border: 0; border-radius: var(--radius-pill); background: var(--border-strong); cursor: pointer; transition: background 0.15s; }
+.theme-card-switch[aria-checked="true"] { justify-content: flex-end; background: var(--accent); }
+.theme-card-switch:disabled { opacity: 0.5; cursor: not-allowed; }
+.theme-card-switch-knob { width: 20px; height: 20px; border-radius: 50%; background: var(--bg-card); }
+.theme-card-switch[aria-checked="true"] .theme-card-switch-knob { background: var(--accent-ink); }
+.theme-card-mode:focus-visible, .theme-card-palette:focus-visible, .theme-card-switch:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+.theme-preview { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-card); }
+.theme-preview-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 4px 6px; border-radius: var(--radius-control); }
+.theme-preview-row:first-child { background: var(--bg-subtle); }
+.theme-preview-check { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; box-sizing: border-box; flex-shrink: 0; border: 2px solid var(--accent); border-radius: 50%; background: var(--accent-soft); }
+.theme-preview-row.is-done .theme-preview-check { background: var(--accent); color: var(--accent-ink); }
+.theme-preview-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.theme-preview-row.is-done .theme-preview-title { font-weight: 400; color: var(--text-light); text-decoration: line-through; }
+.theme-preview-chip { flex-shrink: 0; padding: 2px 10px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 700; }
+@media (max-width: 419px) {
+  .theme-card-palettes { grid-template-columns: minmax(0, 1fr); }
+  .theme-card-mode { padding: 0 4px; font-size: 13px; }
+  .theme-card-palette { flex-direction: row; align-items: center; min-height: 52px; }
+}
+/* ── Kartu "Tampilan": akhir ── */
