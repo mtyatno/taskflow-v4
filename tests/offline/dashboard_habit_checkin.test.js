@@ -15,19 +15,19 @@ function fnSource(name, src) {
   return src.slice(start, end);
 }
 
-test("1. static/app.css defines quick habit pill and center hud habit classes", () => {
+test("1. static/app.css defines hero habit chip and center hud habit classes", () => {
   const css = fs.readFileSync(cssPath, "utf8");
 
-  assert.match(css, /\.dash-hero-habit-strip\s*\{/);
-  assert.match(css, /\.dash-hero-habit-pill\s*\{/);
-  assert.match(css, /\.dash-hero-habit-pill:hover\s*\{/);
-  assert.match(css, /\.dash-hero-habit-pill\.is-completed\s*\{/);
+  // Hero baru (spec 2026-10-27-hero-dashboard §3): pil tunggal lama diganti chip per habit
+  assert.match(css, /\.dash-hero-chips\s*\{/);
+  assert.match(css, /\.dash-hero-habits\s*\{/);
+  assert.match(css, /\.dash-hero-chip\s*\{/);
+  assert.match(css, /button\.dash-hero-chip:hover\s*\{/);
+  assert.match(css, /\.dash-hero-habit\.is-done\s*\{/);
   assert.match(css, /\.dash-hero-habit-check\s*\{/);
-  assert.match(css, /\.dash-hero-habit-check\.is-done\s*\{/);
-  assert.match(css, /\.dash-hero-habit-tag\s*\{/);
+  assert.match(css, /\.dash-hero-habit\.is-done \.dash-hero-habit-check\s*\{/);
   assert.match(css, /\.dash-hero-habit-name\s*\{/);
-  assert.match(css, /\.dash-hero-habit-count\s*\{/);
-  assert.match(css, /\.dash-hero-habit-cta\s*\{/);
+  assert.match(css, /\.dash-hero-more\s*\{/);
   assert.match(css, /\.center-hud-icon-habit\s*\{/);
   assert.match(css, /\[data-theme="dark"\]\s+\.center-hud-icon-habit\s*\{/);
 });
@@ -36,8 +36,8 @@ test("2. NO border-left or borderLeft in habit styles and components", () => {
   const css = fs.readFileSync(cssPath, "utf8");
   const html = fs.readFileSync(htmlPath, "utf8");
 
-  // Check the CSS block for habit pill
-  const habitCssBlock = css.match(/\.dash-hero-habit-strip[\s\S]*?\.dash-hero-habit-pill:hover \.dash-hero-habit-cta\s*\{[^}]+\}/);
+  // Check the CSS block for hero habit chips
+  const habitCssBlock = css.match(/\.dash-hero-chips\s*\{[\s\S]*?\.dash-hero-more\s*\{[^}]+\}/);
   assert.ok(habitCssBlock, "Habit CSS block must be found");
   assert.doesNotMatch(habitCssBlock[0], /border-left/i, "Habit CSS must not have border-left");
 
@@ -63,11 +63,10 @@ test("3. Dashboard component in static/index.html implements habit checkin and C
   assert.match(dashSrc, /window\.addEventListener\(["']habitSaved["'],\s*fetchHabits\)/);
 
   // Status calculation
-  assert.match(dashSrc, /const\s+pendingHabits\s*=\s*\(habits\s*\|\|\s*\[\]\)\.filter\(h\s*=>\s*!h\.today_status\);/);
-  assert.match(dashSrc, /const\s+doneHabits\s*=\s*\(habits\s*\|\|\s*\[\]\)\.filter\(h\s*=>\s*h\.today_status\s*===\s*["']done["']\);/);
   assert.match(dashSrc, /const\s+totalHabits\s*=\s*\(habits\s*\|\|\s*\[\]\)\.length;/);
   assert.match(dashSrc, /const\s+currentPhase\s*=\s*hour\s*<\s*11\s*\?\s*["']pagi["']\s*:\s*hour\s*<\s*17\s*\?\s*["']siang["']\s*:\s*["']malam["'];/);
-  assert.match(dashSrc, /const\s+nextHabit\s*=\s*pendingHabits\.find\(h\s*=>\s*h\.phase\s*===\s*currentPhase\)\s*\|\|\s*pendingHabits\[0\];/);
+  // Urutan chip (fase sekarang dulu, lalu belum selesai lain, lalu selesai) di herologic.habitChips
+  assert.match(dashSrc, /const\s+heroHabits\s*=\s*heroLogic\s*\?\s*heroLogic\.habitChips\(habits,\s*currentPhase,\s*3\)/);
 
   // Handler handleCheckinHabit
   assert.match(dashSrc, /const\s+handleCheckinHabit\s*=\s*async\s+habit\s*=>/);
@@ -77,20 +76,19 @@ test("3. Dashboard component in static/index.html implements habit checkin and C
 
   // Hero strip rendering
   assert.match(dashSrc, /totalHabits\s*>\s*0\s*&&/);
-  assert.match(dashSrc, /dash-hero-habit-strip/);
-  assert.match(dashSrc, /dash-hero-habit-pill/);
-  assert.match(dashSrc, /title:\s*`Klik untuk selesaikan habit: \$\{nextHabit\.title\s*\|\|\s*nextHabit\.name\s*\|\|\s*["']Habit["']\}`/);
-  assert.match(dashSrc, /["']aria-label["']:\s*`Selesaikan habit \$\{nextHabit\.title\s*\|\|\s*nextHabit\.name\s*\|\|\s*["']Habit["']\}`/);
-  assert.match(dashSrc, /className:\s*["']dash-hero-habit-name["']/);
-  assert.match(dashSrc, /nextHabit\.title\s*\|\|\s*nextHabit\.name\s*\|\|\s*["']Habit["']/);
-  assert.match(dashSrc, /Semua habit hari ini selesai/);
+  assert.match(dashSrc, /className:\s*["']dash-hero-habits["']/);
+  assert.match(dashSrc, /const\s+hTitle\s*=\s*h\.title\s*\|\|\s*h\.name\s*\|\|\s*["']Habit["'];/);
+  // Habit belum selesai = tombol check-in langsung dari hero
+  assert.match(dashSrc, /className:\s*["']dash-hero-chip dash-hero-habit["'],\s*onClick:\s*\(\)\s*=>\s*handleCheckinHabit\(h\),\s*title:\s*`Klik untuk selesaikan habit: \$\{hTitle\}`,\s*["']aria-label["']:\s*`Selesaikan habit \$\{hTitle\}`/);
+  assert.match(dashSrc, /className:\s*["']dash-hero-habit-name["']\s*\},\s*hTitle\)/);
+  // Habit selesai = chip non-interaktif (span, tanpa onClick) bercoret
+  const doneChip = dashSrc.match(/React\.createElement\("span", \{\s*key: h\.id,\s*className: "dash-hero-chip dash-hero-habit is-done",[^}]*\}/);
+  assert.ok(doneChip, "chip habit selesai harus span");
+  assert.doesNotMatch(doneChip[0], /onClick/);
 
-  // Completed habit text has dash-hero-habit-name class
-  assert.match(dashSrc, /React\.createElement\(["']span["'],\s*\{\s*className:\s*["']dash-hero-habit-name["']\s*\},\s*`Semua habit hari ini selesai/);
-
-  // Layout order: dash-hero-top closes BEFORE dash-hero-habit-strip, which is BEFORE dash-capture
+  // Layout order: dash-hero-top closes BEFORE the habit chips, which are BEFORE dash-capture
   const topIdx = dashSrc.indexOf('className: "dash-hero-top"');
-  const stripIdx = dashSrc.indexOf('className: "dash-hero-habit-strip"');
+  const stripIdx = dashSrc.indexOf('className: "dash-hero-habits"');
   const captureIdx = dashSrc.indexOf('dash-capture');
   assert.ok(topIdx >= 0 && stripIdx > topIdx && captureIdx > stripIdx, "habit strip must be between hero-top and dash-capture");
 
@@ -107,34 +105,25 @@ test("4. Service Worker and index.html cache version is taskflow-v479-tema-sakur
   assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v479-tema-sakura-lavender";/);
 });
 
-test("5. Habit pill CSS anti-overflow and responsive media queries", () => {
+test("5. Habit chip CSS anti-overflow and responsive media queries", () => {
   const css = fs.readFileSync(cssPath, "utf8");
 
   // Base anti-overflow
-  assert.match(css, /\.dash-hero-habit-strip\s*\{[^}]*width:\s*100%;/);
-  assert.match(css, /\.dash-hero-habit-strip\s*\{[^}]*max-width:\s*100%;/);
-  assert.match(css, /\.dash-hero-habit-strip\s*\{[^}]*box-sizing:\s*border-box;/);
-
-  assert.match(css, /\.dash-hero-habit-pill\s*\{[^}]*min-width:\s*0;/);
-  assert.match(css, /\.dash-hero-habit-pill\s*\{[^}]*box-sizing:\s*border-box;/);
-  assert.match(css, /\.dash-hero-habit-pill\s*\{[^}]*max-width:\s*100%;/);
+  assert.match(css, /\.dash-hero-chip\s*\{[^}]*min-width:\s*0;/);
+  assert.match(css, /\.dash-hero-chip\s*\{[^}]*box-sizing:\s*border-box;/);
+  assert.match(css, /\.dash-hero-chip\s*\{[^}]*max-width:\s*100%;/);
+  assert.match(css, /\.dash-hero-habits\s*\{[^}]*min-width:\s*0;/);
 
   assert.match(css, /\.dash-hero-habit-name\s*\{[^}]*min-width:\s*0;/);
-  assert.match(css, /\.dash-hero-habit-name\s*\{[^}]*flex:\s*1\s+1\s+auto;/);
   assert.match(css, /\.dash-hero-habit-name\s*\{[^}]*white-space:\s*nowrap;/);
   assert.match(css, /\.dash-hero-habit-name\s*\{[^}]*overflow:\s*hidden;/);
   assert.match(css, /\.dash-hero-habit-name\s*\{[^}]*text-overflow:\s*ellipsis;/);
+  assert.match(css, /\.dash-hero-habit-check\s*\{[^}]*flex-shrink:\s*0;/);
 
-  assert.match(css, /\.dash-hero-habit-tag\s*\{[^}]*flex-shrink:\s*0;/);
-  assert.match(css, /\.dash-hero-habit-cta\s*\{[^}]*flex-shrink:\s*0;/);
-  assert.match(css, /\.dash-hero-habit-count\s*\{[^}]*flex-shrink:\s*0;/);
-
-  // Mobile media queries (640px and 420px)
-  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habit-strip\s*\{[^}]*gap:\s*6px;/);
-  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habit-pill\s*\{[^}]*padding:\s*5px\s+10px\s+5px\s+8px;/);
-  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habit-name\s*\{[^}]*max-width:\s*180px;/);
+  // Mobile media queries (640px and 420px): satu baris yang bisa digeser, chip tidak menyusut
+  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habits\s*\{[^}]*gap:\s*6px;/);
+  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-chip\s*\{[^}]*flex-shrink:\s*0;/);
+  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habit-name\s*\{[^}]*max-width:\s*160px;/);
 
   assert.match(css, /@media\s*\(max-width:\s*420px\)[\s\S]*?\.dash-hero-habit-name\s*\{[^}]*max-width:\s*120px;/);
-  assert.match(css, /@media\s*\(max-width:\s*420px\)[\s\S]*?\.dash-hero-habit-cta\s*\{[^}]*font-size:\s*10\.5px;/);
-  assert.match(css, /@media\s*\(max-width:\s*420px\)[\s\S]*?\.dash-hero-habit-count\s*\{[^}]*font-size:\s*11px;/);
 });

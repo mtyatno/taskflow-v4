@@ -1,4 +1,4 @@
-"""Jalankan tes node hero dashboard (herologic + streak habitlogic) dari pytest, supaya ikut CI
+"""Jalankan tes node hero dashboard (herologic + streak habitlogic + UI hero) dari pytest, supaya ikut CI
 (workflow test.yml hanya menjalankan pytest). Spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md.
 File tes yang hilang = gagal (bukan dilewati); dilewati seluruhnya bila node tidak ada."""
 import os
@@ -9,7 +9,7 @@ import subprocess
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-NODE_TESTS = ["herologic", "habitlogic"]
+NODE_TESTS = ["herologic", "habitlogic", "dashboard_hero"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node tidak ada di PATH")
@@ -25,7 +25,7 @@ def test_hero_node_tests():
     assert m and int(m.group(1)) > 0, "tidak ada tes yang berjalan:\n" + out[-3000:]
 
 
-EXPECTED_NODE_TESTS = {"herologic", "habitlogic"}
+EXPECTED_NODE_TESTS = {"herologic", "habitlogic", "dashboard_hero"}
 
 
 def test_hero_bridge_lists_all_files():
