@@ -2814,7 +2814,6 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .dash-more:hover { text-decoration: underline; }
 [data-theme="dark"] .dash-more { color: var(--accent); }
 .dash-empty { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 18px 0 10px; font-size: 13px; color: var(--text-light); }
-.dash-empty svg { color: #22c55e; opacity: 0.75; }
 .dash-celebrate { text-align: center; padding: 10px 0; color: #16a34a; font-size: 14px; font-weight: 700; }
 [data-theme="dark"] .dash-celebrate { color: #4ade80; }
 
@@ -5219,3 +5218,59 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
   .theme-card-mode, .theme-card-palette, .theme-card-switch { transition: none; }
 }
 /* ── Kartu "Tampilan": akhir ── */
+
+/* ── Dekorasi tema (slot Decor): awal ── */
+.decor { display: inline-block; pointer-events: none; user-select: none; line-height: 0; }
+.decor svg { width: 100%; height: 100%; }
+.decor-page-corner { position: absolute; top: 0; right: 12px; z-index: 0; width: 130px; height: 90px; animation: decor-float 6s ease-in-out infinite; }
+@keyframes decor-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .decor-page-corner { animation: none; } }
+@media (max-width: 479px) { .decor-page-corner { width: 88px; height: 61px; right: 4px; } }
+.is-zen .decor-page-corner { display: none; }
+/* Fokus Hari Ini: kelopak di dalam h1, dijangkar ke kanan teks judul dan di tengah vertikalnya (tinggi 90px).
+   Margin kanan judul mencadangkan ruangnya (24 + 130px) supaya ringkasan rata kanan yang panjangnya berubah-ubah
+   tidak pernah menimpa kelopak. Kelas --decor dipasang TodayFocusView hanya bila kelopak tampil (tanpa :has()).
+   Di <= 1024px titlebar visually-hidden: kelopak disembunyikan juga supaya animasinya tidak terus berjalan. */
+.focus-page-title { position: relative; }
+.focus-page-title > .decor-page-corner { left: calc(100% + 24px); right: auto; top: calc(50% - 45px); }
+.focus-page-title--decor { margin-right: 154px; }
+@media (max-width: 1024px) { .focus-page-title > .decor-page-corner { display: none; } }
+/* Dashboard: kelopak = item flex di .dash-hero-top antara sapaan dan kartu progres. Basis 0 + grow (maks 130px): kelopak
+   hanya memakai ruang sisa, jadi sapaan panjang mendorong/mengecilkannya sampai 0 tanpa membuat sapaan membungkus lebih
+   awal; margin kanan negatif = gap baris, sehingga jejak kelopak tepat selebar kotaknya (lebar 0 = tata letak Default).
+   svg absolut (10px dari kartu progres) → tinggi kelopak mengikuti baris, tidak menambah tinggi hero. Float -6px tetap di
+   dalam padding atas hero (24px / 16px di HP), jadi tidak terpotong overflow:hidden. */
+.dash-hero-top > .decor-page-corner { position: relative; top: auto; right: auto; z-index: auto; margin: 0 -20px 0 auto; flex: 1 1 0; min-width: 0; max-width: 130px; width: auto; height: auto; align-self: stretch; }
+.dash-hero-top > .decor-page-corner svg { position: absolute; top: 0; left: 0; width: calc(100% - 10px); height: 100%; }
+@media (max-width: 640px) { .dash-hero-top > .decor-page-corner { margin-right: -12px; } }
+@media (max-width: 479px) { .dash-hero-top > .decor-page-corner { max-width: 88px; } }
+/* Belum ada task hari ini: kartu progres tidak dirender, kelopak jadi item terakhir → tanpa margin negatif agar tetap di
+   dalam hero (padding kanan). */
+.dash-hero-top > .decor-page-corner:last-child { margin-right: 0; }
+/* > 1100 px hero menampilkan ilustrasi palet (.dash-hero-illus: absolut, right 228px, lebar 150px = tepat di kiri kartu
+   progres ±196px). Kelopak pindah ke KIRI ilustrasi (seolah kelopak tertiup dari ranting): kotak item boleh sampai
+   164 + 120px, svg dijangkar 164px dari kanan item (≈8px dari ilustrasi) dan lebarnya = sisa ruang (maks 120px, 0 bila
+   sempit). Item tetap basis 0 → tidak pernah menyempitkan sapaan; tinggi baris tidak berubah. Tanpa kartu progres
+   (anak terakhir) kelopak tetap di pojok kanan: ilustrasi berada di kirinya, tidak bertumpuk. */
+@media (min-width: 1101px) {
+  .dash-hero-top > .decor-page-corner { max-width: 284px; }
+  .dash-hero-top > .decor-page-corner svg { left: auto; right: 164px; width: calc(100% - 164px); max-width: 120px; }
+  .dash-hero-top > .decor-page-corner:last-child { max-width: 130px; }
+  .dash-hero-top > .decor-page-corner:last-child svg { left: 0; right: auto; width: calc(100% - 10px); max-width: none; }
+}
+/* Mode gelap: --accent-duo palet (mis. Sakura #573150 di atas #291B26 ≈ 1,5:1) terlalu samar untuk kelopak. Timpa lokal
+   hanya di kelopak pojok: aksen 46% ≈ 2,6–2,8:1 terhadap latar kartu/halaman — jelas tetapi tetap lembut. Maskot tidak
+   terpengaruh; Default tidak pernah merender kelopak. */
+[data-theme="dark"] .decor-page-corner { --accent-duo: rgba(var(--accent-rgb), 0.46); }
+/* ── Dekorasi tema (slot Decor): akhir ── */
+
+/* ── Layar kosong bersama (EmptyState): awal ── */
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; }
+.empty-state-icon { display: inline-flex; color: var(--accent-text); line-height: 0; }
+.empty-state-mascot { flex-shrink: 0; }
+.empty-state-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.empty-state-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+.empty-state-hint { font-size: 14px; color: var(--text-light); }
+.empty-state-compact { flex-direction: row; gap: 8px; text-align: left; }
+.empty-state-compact .empty-state-title { font-size: inherit; font-weight: inherit; color: inherit; }
+/* ── Layar kosong bersama (EmptyState): akhir ── */

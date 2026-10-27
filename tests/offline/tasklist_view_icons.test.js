@@ -29,11 +29,11 @@ test("VIEW_GLYPHS + ViewGlyph (inline, meniru FocusGlyph)", async (t) => {
     const keys = [...mapSrc.matchAll(/^\s{2}(\w+):\s*'/gm)].map(m => m[1]);
     assert.deepEqual(keys, ["normal", "compact", "kanban", "wsTasks", "wsFiles",
       "fFolder", "fPdf", "fSheet", "fImage", "fFile", "fSearch", "fUpload", "fDownload", "fEye", "fChat", "fPin", "fTrash", "fX",
-      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "mMail", "pomoTomato", "pomoBreak",
+      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "mMail", "pomoTomato", "pomoPetal", "pomoBreak",
       "nNote", "nTag", "nTagOff", "nStar", "nChevronDown", "nChevronUp", "nBacklink", "nPin", "nBrain", "headphones",
       "pPalette", "pChat", "pCalendar", "pRepeat", "pDot", "pTarget", "pFlame", "pAlert", "pHourglass", "pSprout", "pZap", "pCheckCircle", "pPencil",
       "sQuote", "sLightbulb", "sToggle", "sCode", "sListBullet", "sListOrdered", "sChecklist", "sTable", "sDivider", "sparkles", "send",
-      "live"]);
+      "live", "emptyDone", "emptySearch", "emptyInbox"]);
   });
 
   await t.test("VIEW_GLYPHS bisa dievaluasi dan setiap glyph berisi markup SVG", () => {
@@ -155,14 +155,14 @@ test("CSS segmented toggle", async (t) => {
   });
 });
 
-test("cache bust v432 + app.css?v=377", async (t) => {
+test("cache bust v432 + app.css?v=378", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v481-badge-rail";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v481-badge-rail";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v481-badge-rail"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v482-tema-dekorasi";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v482-tema-dekorasi";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v482-tema-dekorasi"/);
   });
 
-  await t.test("index.html memuat app.css?v=377", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=377">/);
+  await t.test("index.html memuat app.css?v=378", () => {
+    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=378">/);
   });
 });

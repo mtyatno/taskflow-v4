@@ -129,6 +129,11 @@ Fungsi murni, tanpa DOM kecuali `apply`:
 - CSS `.decor { pointer-events:none; user-select:none }`; `.decor-page-corner { position:absolute; top:…; right:…; }` dengan animasi melayang pelan, dimatikan di `@media (prefers-reduced-motion: reduce)`; disembunyikan saat Zen Mode (`.zen-on .decor-page-corner { display:none }`) dan di lebar < 480 px bila menabrak judul (dicek E2E 375 px).
 - Glyph kelopak: `VIEW_GLYPHS.pomoPetal` baru; `ViewGlyph` memetakan `name === "pomoTomato"` → `pomoPetal` bila `decorFor(palette,"pomo-glyph") === "petal"` dan `data-decor="on"`. Pemanggil tidak berubah.
 
+**Catatan implementasi PR C (v480, 2026-10-27):**
+- **C1 — "Hari Ini" dan "Fokus" satu halaman** (`page === "today"`, judul "Fokus Hari Ini"). Kelopak `page-corner` dipasang di dua tempat: titlebar halaman itu dan hero Dashboard (`.dash-hero`).
+- **Penjangkaran kelopak:** di titlebar, kelopak berada di dalam `h1` `.focus-page-title` dan dijangkar ke kanan teks judul (`left: calc(100% + 24px)`), bukan offset piksel tetap; `margin-right: 154px` pada judul mencadangkan ruangnya sehingga ringkasan rata kanan tidak menimpanya; di Dashboard, kelopak adalah item flex di `.dash-hero-top` (`flex: 1 1 0; max-width: 130px` + margin negatif; tinggi baris tidak bertambah). Setelah hero Dashboard baru (main #107, spec `2026-10-27-hero-dashboard-design.md`) hero punya ilustrasi palet `.dash-hero-illus` (absolut `right: 228px`, 150 × 110 px, tampil > 1100 px, tepat di kiri kartu progres): kelopak tetap item flex yang sama di antara `.dash-hero-text` dan `.dash-hero-progress`, di atas latar topografi (`.dash-hero-top` z-index 1), tetapi pada `@media (min-width: 1101px)` kotaknya boleh sampai 284 px dan svg-nya dijangkar `right: 164px` (lebar `calc(100% - 164px)`, maks 120 px) sehingga kelopak berada di KIRI ilustrasi (seolah tertiup dari ranting), bukan menumpuk di atasnya; tanpa kartu progres (anak terakhir) kelopak tetap di pojok kanan dan ilustrasi di kirinya. ≤ 1100 px (ilustrasi tersembunyi) perilaku lama berlaku. Dicek E2E `d-hero-layout` (Sakura/Lavender pada 375/768/1025/1101/1280/1440 px: tidak menimpa isi hero maupun ilustrasi, tinggi hero sama dengan dekorasi off). Sembunyi saat Zen (`.is-zen .decor-page-corner`); di ≤1024 px titlebar visually-hidden sehingga kelopaknya ikut tersembunyi, di 375 px kelopak hero tetap tampil tanpa berpotongan (dicek E2E `d-375`).
+- **`pomoPetal` = bunga lima kelopak** (stroke 1.5, mengikuti ikon penghitung sesi di mockup yang disetujui), bukan satu kelopak. Pemetaan dilakukan oleh komponen `PomoGlyph` terpisah sehingga hanya glyph `pomoTomato` yang memakai hook `useThemeAttrs` (bukan setiap `ViewGlyph`).
+
 ### 3.6 `EmptyState` bersama
 
 `EmptyState({ kind, title, hint, action })`, `kind` ∈ `done` | `filter` | `empty`:
@@ -136,6 +141,13 @@ Fungsi murni, tanpa DOM kecuali `apply`:
 - selain itu → ikon duotone `ViewGlyph` (`done`: centang bulat, `filter`: kaca pembesar, `empty`: kotak masuk) 36 px dengan `--accent-duo`. Emoji 🎉/🔍 **diganti** di tempat yang dimigrasi (sejalan arah ikon duotone; tampilan Default berubah di empat tempat ini saja dan dicatat di `whatsnew`).
 
 Dimigrasi di rilis ini (PR C): (1) Hari Ini "Tidak ada task urgent!" + kalimat bawahnya (`done`); (2) daftar task "Tidak ada task" (`empty`) / "Tidak ada task yang cocok dengan filter" (`filter`); (3) `DashEmpty` dashboard (`empty`); (4) Kotak Masuk kosong (`done`, judul "Kotak Masuk bersih!"). Layar kosong lain menyusul halaman demi halaman (pola ikon).
+
+**Catatan implementasi PR C (v480, 2026-10-27):**
+- **C2 — Kotak Masuk kosong** = `TaskListView` dengan `isInbox`; tidak ada komponen terpisah. Empat tempat di atas menjadi **tiga pemanggil** `EmptyState`: (1) `focus-empty` Fokus Hari Ini (`done`); (2) kosong `TaskListView` (`filter` bila ada filter; `done` + judul "Kotak Masuk bersih!" bila Inbox; selain itu `empty` "Tidak ada task"); (3) `DashEmpty` dashboard (`empty`, varian kecil).
+- **C3 — `DashEmpty` varian kecil (`compact`):** maskot 40 px sebaris dengan teks (bukan 96 px) agar kartu dashboard tidak melar; di Default ikon duotone 18 px (kotak masuk, menggantikan ikon centang lama). Judul varian kecil tidak tebal (mewarisi gaya `.dash-empty`).
+- **C4 — Default ikut berubah sedikit (disengaja):** emoji 🎉/🔍 di Fokus Hari Ini dan daftar task diganti ikon duotone; gerbang piksel Default berubah hanya di gambar yang memuat layar kosong (Dashboard) dan kartu Tampilan (baris sakelar "Dekorasi tema"). Dicatat di `whatsnew` v480.
+- Judul daftar task kosong (`TaskListView`) kini **tebal** `--text-primary` juga di Default, selaras dengan Fokus Hari Ini.
+- `EmptyState` menentukan maskot vs ikon sendiri lewat `useThemeAttrs` + `TF.themes.decorFor` + `TF.decor.svgFor` (bukan memeriksa hasil render `Decor`).
 
 ### 3.7 Kartu "Tampilan" di Pengaturan
 

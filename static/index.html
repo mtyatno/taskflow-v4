@@ -94,7 +94,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=377">
+  <link rel="stylesheet" href="/static/app.css?v=378">
   <link rel="stylesheet" href="/static/themes.css?v=2">
 
 <style>
@@ -262,7 +262,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v481-badge-rail";
+    window.__SW_VERSION = "taskflow-v482-tema-dekorasi";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -378,6 +378,7 @@
   <script src="/static/offline/noteattach.js"></script>
   <script src="/static/offline/safehtml.js"></script>
   <script src="/static/offline/themes.js"></script>
+  <script src="/static/offline/decor.js"></script>
   <script src="/static/ui-components.js"></script>
   <script>
   // ═══ DEPENDENCIES: Foundation ═══
@@ -10864,6 +10865,8 @@ const VIEW_GLYPHS = {
   mUser: '<circle cx="12" cy="8" r="5" fill="currentColor" fill-opacity=".22"/><path d="M20 21a8 8 0 0 0-16 0"/>',
   mMail: '<rect x="2" y="4" width="20" height="16" rx="2" fill="currentColor" fill-opacity=".22"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
   pomoTomato: '<circle cx="12" cy="13.5" r="7.5" fill="currentColor" fill-opacity=".22"/><path d="M12 8V4.5"/><path d="M8.5 6.5 12 8l3.5-1.5"/>',
+  // Pengganti pomoTomato di palet Sakura/Lavender (slot "pomo-glyph"): bunga lima kelopak, isian lembut + garis
+  pomoPetal: '<g fill="currentColor" fill-opacity=".22" stroke-width="1.5"><ellipse cx="12" cy="6.6" rx="3.3" ry="4.4"/><ellipse cx="12" cy="6.6" rx="3.3" ry="4.4" transform="rotate(72 12 12)"/><ellipse cx="12" cy="6.6" rx="3.3" ry="4.4" transform="rotate(144 12 12)"/><ellipse cx="12" cy="6.6" rx="3.3" ry="4.4" transform="rotate(216 12 12)"/><ellipse cx="12" cy="6.6" rx="3.3" ry="4.4" transform="rotate(288 12 12)"/></g><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
   pomoBreak: '<path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" fill="currentColor" fill-opacity=".22"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3"/><path d="M12 2v3"/>',
   nNote: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" fill="currentColor" fill-opacity=".22"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M8 9h2"/>',
   nTag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" fill="currentColor" fill-opacity=".22"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/>',
@@ -10902,12 +10905,19 @@ const VIEW_GLYPHS = {
   sparkles: '<path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" fill="currentColor" fill-opacity=".22"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
   send: '<path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/>',
   // Tombol Live Edit di toolbar daftar task: daftar + panel detail kanan (isian lembut)
-  live: '<rect x="3" y="4" width="18" height="16" rx="2"/><rect x="13" y="4" width="8" height="16" rx="2" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M13 4v16"/><path d="M6.5 9h3"/><path d="M6.5 13h3"/>'
+  live: '<rect x="3" y="4" width="18" height="16" rx="2"/><rect x="13" y="4" width="8" height="16" rx="2" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M13 4v16"/><path d="M6.5 9h3"/><path d="M6.5 13h3"/>',
+  // Layar kosong EmptyState (palet Default / dekorasi mati): selesai, filter tanpa hasil, daftar kosong
+  emptyDone: '<circle cx="11" cy="13" r="8" fill="currentColor" fill-opacity=".22"/><path d="m7.5 13 2.5 2.5 4.5-5"/><path d="M20 2v4"/><path d="M22 4h-4"/>',
+  emptySearch: '<circle cx="11" cy="11" r="7" fill="currentColor" fill-opacity=".22"/><path d="m20 20-4.3-4.3"/><path d="M8.5 11h5"/>',
+  emptyInbox: '<path d="M2 12h6l2 3h4l2-3h6v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2Z" fill="currentColor" fill-opacity=".22" stroke="none"/><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'
 };
 function ViewGlyph({
   name,
-  size = 16
+  size = 16,
+  themed = true
 }) {
+  // Hanya pomoTomato bergantung tema (slot "pomo-glyph") → PomoGlyph; glyph lain tanpa hook/observer tema.
+  if (name === "pomoTomato" && themed) return React.createElement(PomoGlyph, { size });
   return React.createElement("svg", {
     width: size,
     height: size,
@@ -10921,6 +10931,16 @@ function ViewGlyph({
     focusable: "false",
     dangerouslySetInnerHTML: { __html: VIEW_GLYPHS[name] || "" }
   });
+}
+
+// Penghitung sesi Pomodoro: tomat, atau bunga kelopak (pomoPetal) di palet Sakura/Lavender bila dekorasi menyala.
+// Hook tanpa syarat: PomoGlyph hanya dipakai sebagai komponen (lewat ViewGlyph name "pomoTomato").
+function PomoGlyph({
+  size = 16
+}) {
+  const { palette, decor } = useThemeAttrs();
+  const petal = decor === "on" && window.TF && window.TF.themes && window.TF.themes.decorFor(palette, "pomo-glyph") === "petal";
+  return React.createElement(ViewGlyph, { name: petal ? "pomoPetal" : "pomoTomato", size, themed: false });
 }
 
 // ── Task item for the Today page: ringkas, detail dibuka per task ─────────
@@ -13112,6 +13132,9 @@ function TodayFocusView({
   onToggleFocus
 }) {
   const [localFocusTask, setLocalFocusTask] = useState(null);
+  // Judul mencadangkan ruang kelopak hanya bila kelopak pojok benar-benar tampil (Default: tanpa kelas tambahan).
+  const themeAttrs = useThemeAttrs();
+  const hasCornerDecor = !!decorSvgFor(themeAttrs.palette, themeAttrs.decor, "page-corner");
   const focusTask = propsFocusTask !== undefined ? propsFocusTask : localFocusTask;
   const setFocusTask = propsSetFocusTask || setLocalFocusTask;
   const [todayExceptions, setTodayExceptions] = useState({});
@@ -13406,11 +13429,11 @@ function TodayFocusView({
   })), React.createElement("div", {
     className: "focus-page-titlebar"
   }, React.createElement("h1", {
-    className: "focus-page-title"
+    className: "focus-page-title" + (hasCornerDecor ? " focus-page-title--decor" : "")
   }, React.createElement(Icon, {
     name: "target",
     size: 22
-  }), "Fokus Hari Ini"), React.createElement("span", {
+  }), "Fokus Hari Ini", React.createElement(Decor, { slot: "page-corner" })), React.createElement("span", {
     className: "focus-page-summary"
   }, (() => {
     const hs = window.TF.pomologic.headerSummary({
@@ -13527,23 +13550,11 @@ function TodayFocusView({
   }, "Loading...") : target.length === 0 && pool.length === 0 ? React.createElement("div", {
     className: `focus-empty${zenClass}`,
     "aria-hidden": zenOn ? true : undefined
-  }, React.createElement("div", {
-    style: {
-      fontSize: 40,
-      marginBottom: 10
-    }
-  }, "🎉"), React.createElement("div", {
-    style: {
-      fontSize: 16,
-      fontWeight: 600,
-      marginBottom: 4,
-      color: "var(--text-primary)"
-    }
-  }, "Tidak ada task urgent!"), React.createElement("div", {
-    style: {
-      fontSize: 14
-    }
-  }, "Semua Q1, terlambat, dan deadline hari ini sudah selesai.")) : pool.length === 0 ? React.createElement("p", {
+  }, React.createElement(EmptyState, {
+    kind: "done",
+    title: "Tidak ada task urgent!",
+    hint: "Semua Q1, terlambat, dan deadline hari ini sudah selesai."
+  })) : pool.length === 0 ? React.createElement("p", {
     className: `focus-note${zenClass}`,
     "aria-hidden": zenOn ? true : undefined
   }, "Semua task hari ini sudah ada di Target.") : [React.createElement(FocusFilterBar, {
@@ -19782,12 +19793,16 @@ function TaskListView({
       padding: 48,
       color: "var(--text-light)"
     }
-  }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      fontSize: 36,
-      marginBottom: 8
-    }
-  }, hasFilters ? "🔍" : "🎉"), /*#__PURE__*/React.createElement("div", null, hasFilters ? "Tidak ada task yang cocok dengan filter" : "Tidak ada task")) : groupBy === "none" ? /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(EmptyState, hasFilters ? {
+    kind: "filter",
+    title: "Tidak ada task yang cocok dengan filter"
+  } : isInbox ? {
+    kind: "done",
+    title: "Kotak Masuk bersih!"
+  } : {
+    kind: "empty",
+    title: "Tidak ada task"
+  })) : groupBy === "none" ? /*#__PURE__*/React.createElement("div", {
     className: "card",
     style: {
       padding: viewMode === "compact" ? 0 : 8,
@@ -19912,6 +19927,26 @@ function useThemeAttrs() {
     return () => mo.disconnect();
   }, []);
   return attrs;
+}
+
+// Slot dekorasi tema (spec §3.5): span dekoratif dari registri TF.decor; null bila palet Default, dekorasi mati, atau slot tak dipetakan.
+function Decor({ slot, size, className }) {
+  const { palette, decor } = useThemeAttrs();
+  const svg = decorSvgFor(palette, decor, slot);
+  if (!svg) return null;
+  return React.createElement("span", {
+    className: `decor decor-${slot}${className ? " " + className : ""}`,
+    "aria-hidden": "true",
+    style: size ? { width: size, height: size } : undefined,
+    dangerouslySetInnerHTML: { __html: svg }
+  });
+}
+
+// String SVG dekorasi untuk slot, atau null (palet Default, dekorasi mati, modul belum ada, slot tak dipetakan).
+// Satu-satunya syarat render Decor; dipakai juga pemanggil yang perlu tahu apakah slot benar-benar tampil.
+function decorSvgFor(palette, decor, slot) {
+  const id = decor === "on" && window.TF && window.TF.decor && window.TF.themes ? window.TF.themes.decorFor(palette, slot) : null;
+  return id && window.TF.decor.svgFor(id) || null;
 }
 
 // window.localStorage atau null: akses propertinya bisa melempar (Safari dengan penyimpanan situs diblokir).
@@ -22095,15 +22130,50 @@ function DashSection({
     onClick: onLink
   }, link));
 }
+// Layar kosong bersama (spec §3.5/§3.6): maskot slot "empty-<kind>" bila palet bertema dan dekorasi aktif, selain itu
+// ikon duotone. kind: "done" | "filter" | "empty". compact = satu baris kecil untuk kartu dashboard.
+function EmptyState({
+  kind,
+  title,
+  hint,
+  compact = false
+}) {
+  const { palette, decor } = useThemeAttrs();
+  const slot = "empty-" + kind;
+  const TFm = window.TF;
+  const id = decor === "on" && TFm && TFm.themes ? TFm.themes.decorFor(palette, slot) : null;
+  const hasMascot = !!(id && TFm.decor && TFm.decor.svgFor(id));
+  const glyph = kind === "filter" ? "emptySearch" : kind === "done" ? "emptyDone" : "emptyInbox";
+  return React.createElement("div", {
+    className: `empty-state${compact ? " empty-state-compact" : ""}`
+  }, hasMascot ? React.createElement(Decor, {
+    slot: slot,
+    size: compact ? 40 : 96,
+    className: "empty-state-mascot"
+  }) : React.createElement("span", {
+    className: "empty-state-icon",
+    "aria-hidden": "true"
+  }, React.createElement(ViewGlyph, {
+    name: glyph,
+    size: compact ? 18 : 36
+  })), React.createElement("div", {
+    className: "empty-state-text"
+  }, React.createElement("div", {
+    className: "empty-state-title"
+  }, title), hint ? React.createElement("div", {
+    className: "empty-state-hint"
+  }, hint) : null));
+}
 function DashEmpty({
   text = "Belum ada task"
 }) {
   return /*#__PURE__*/React.createElement("div", {
     className: "dash-empty"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "check",
-    size: 18
-  }), /*#__PURE__*/React.createElement("span", null, text));
+  }, /*#__PURE__*/React.createElement(EmptyState, {
+    kind: "empty",
+    title: text,
+    compact: true
+  }));
 }
 function DashTaskRow({
   t,
@@ -23341,7 +23411,7 @@ function Dashboard({
   }, /*#__PURE__*/React.createElement(ViewGlyph, {
     name: "pAlert",
     size: 13
-  }), `${overdueCount} terlambat`))), totalToday > 0 && /*#__PURE__*/React.createElement("button", {
+  }), `${overdueCount} terlambat`))), /*#__PURE__*/React.createElement(Decor, { slot: "page-corner" }), totalToday > 0 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "dash-hero-progress",
     onClick: () => onNav("today"),
@@ -27700,7 +27770,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v481-badge-rail"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v482-tema-dekorasi"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

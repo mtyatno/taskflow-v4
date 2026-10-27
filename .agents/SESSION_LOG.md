@@ -4235,3 +4235,17 @@
 - **Changes:** badge pakai --accent-on; onNav("habit"); tes guard + hero + E2E; rilis v481.
 - **Files Touch:** static/app.css, static/index.html, static/sw.js, static/whatsnew.json, tests/offline/{theme_guard,dashboard_hero,whatsnew_ui}.test.js, tes versi, temporary_files/e2e_hero_dashboard.py, .agents/*
 - **Status:** Needs Review (PR draft)
+## [2026-10-27 18:30] - Claude
+- **Task:** Tema PR C (`claude/tema-dekorasi`) Task 6 — rilis v480 + jembatan CI + spec + handover.
+- **Changes:** SW `taskflow-v480-tema-dekorasi`, `app.css?v=376` (`sw.js`, `index.html` + fallback, `STATIC`, tes versi `tests/offline/` + `tests/test_static_revalidate.py`); entri `whatsnew.json` "Dekorasi tema Sakura dan Lavender" paling atas (entri lama tak disentuh); `tests/test_theme_node.py` NODE_TESTS + decor/decor_ui/empty_state_ui dan glob kesamaan `theme*`/`decor*`/`empty_state*`; spec §3.5/§3.6 catatan implementasi (C1–C4, penjangkaran kelopak, `pomoPetal`, judul kosong tebal).
+- **Verifikasi:** PROTOCOL §4 40 passed; npm 3400/3400; pytest 1230 passed 1 skipped; inline OK (6); compare gagal hanya dashboard-light/dark + settings-light/dark (disengaja); verify 25/0.
+- **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js (versi), tests/test_static_revalidate.py, tests/test_theme_node.py, docs/superpowers/specs/2026-10-26-tema-palet-dekorasi-design.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md.
+- **Status:** Needs Review — commit lokal, belum push/PR (kontroler). Tindak lanjut minor di CURRENT_STATE.
+- 2026-10-27 (Claude, fix-wave akhir PR C): tanpa `:has()` (kelas `focus-page-title--decor` via `decorSvgFor`), kelopak Fokus `display:none` ≤1024 px, kelopak hero anak terakhir `margin-right:0`, kelopak gelap `--accent-duo` lokal rgba(aksen, 0.46) (≈2,6–2,8:1), whatsnew v480 poin 3 + Dashboard, komentar decor.js → app.css; E2E `d-fokus-class/overlap/mobile`, `d-hero-empty`, `d-dark` + frame `dashboard-kosong`. Tetap v480 / `app.css?v=376`. npm 3407/3407; pytest 1230 passed 1 skipped; verify 30/0; compare = sebelumnya (dashboard/settings saja).
+
+## [2026-10-27 19:30] - Claude
+- **Task:** Tema PR C (`claude/tema-dekorasi`) — merge `origin/main` f6282aa (PR #107 hero dashboard, SW `taskflow-v480-hero-dashboard`, `app.css?v=376`); versi bentrok.
+- **Changes:** konflik versi di `sw.js`, `index.html`, 26 tes versi, `whatsnew.json`, `.agents/` diselesaikan; rilis PR ini jadi SW `taskflow-v482-tema-dekorasi`, `app.css?v=378` (juga `tests/test_static_revalidate.py`, `note_toc`, `whatsnew_ui`); entri whatsnew v480 hero tetap, entri dekorasi (v481) paling atas. Hero baru dari main dipertahankan utuh; kelopak hero sementara tetap item flex di `.dash-hero-top` (penyesuaian penempatan di commit lanjutan).
+- **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js (versi), tests/offline/decor_ui.test.js, tests/test_static_revalidate.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal, belum push.
+- 2026-10-27 (Claude, lanjutan merge): kelopak hero > 1100 px digeser ke kiri ilustrasi palet hero baru (`@media (min-width: 1101px)` di blok dekorasi `app.css`), tes CSS `decor_ui` + E2E `d-hero-layout` (375–1440 px, Sakura/Lavender) dan `d-hero-empty` + cek ilustrasi; spec §3.5 catatan penjangkaran diperbarui. npm 3441/3441; pytest 1239 passed 1 skipped; verify 31/0; compare: dashboard×2 + settings×2 (disengaja) + today-dark 4 px anti-alias (sama dengan pra-merge/d5a8872).
