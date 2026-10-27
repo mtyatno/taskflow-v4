@@ -155,14 +155,14 @@ test("CSS segmented toggle", async (t) => {
   });
 });
 
-test("cache bust v432 + app.css?v=372", async (t) => {
+test("cache bust v432 + app.css?v=373", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v475-panel-tanpa-scrollbar";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v475-panel-tanpa-scrollbar";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v475-panel-tanpa-scrollbar"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v476-catatan-input-atas";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v476-catatan-input-atas";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v476-catatan-input-atas"/);
   });
 
-  await t.test("index.html memuat app.css?v=372", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=372">/);
+  await t.test("index.html memuat app.css?v=373", () => {
+    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=373">/);
   });
 });

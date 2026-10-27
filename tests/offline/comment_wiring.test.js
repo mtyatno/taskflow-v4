@@ -32,6 +32,6 @@ test("fullSync memanggil pullComments setelah pullNotesAndReconcile dan sebelum 
 
 test("sw.js mem-precache ketiga modul komentar dan versi v457", () => {
   for (const f of FILES) assert.ok(swJs.includes(`"/static/offline/${f}"`), f);
-  assert.ok(swJs.includes('"taskflow-v475-panel-tanpa-scrollbar"'));
-  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v475-panel-tanpa-scrollbar"'));
+  assert.ok(swJs.includes('"taskflow-v476-catatan-input-atas"'));
+  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v476-catatan-input-atas"'));
 });

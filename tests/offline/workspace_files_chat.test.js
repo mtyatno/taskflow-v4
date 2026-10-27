@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v475-panel-tanpa-scrollbar', () => {
+  test('Service Worker cache version is bumped to taskflow-v476-catatan-input-atas', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v475-panel-tanpa-scrollbar";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v476-catatan-input-atas";/m);
   });
 });
 

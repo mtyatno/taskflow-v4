@@ -236,12 +236,15 @@ test("detail padat: CSS satu baris + container query, tanpa media query lebar la
 });
 
 // Permintaan pemilik 2026-10-27: tab Catatan tampil seperti percakapan.
-test("Catatan (bare): tampilan chat — urutan lama→baru, milik sendiri di kanan, kotak tulis + tombol kirim", () => {
+test("Catatan (bare): tampilan chat — kotak tulis di atas, terbaru tepat di bawahnya, milik sendiri di kanan", () => {
   const m = fnSource("ModalNotes");
-  for (const re of [/if \(bare\) \{/, /className: "td-chat"/, /className: "td-chat-list"/, /\(notes \|\| \[\]\)\.slice\(\)\.reverse\(\)/,
+  for (const re of [/if \(bare\) \{/, /className: "td-chat"/, /className: "td-chat-list"/, /const ordered = notes \|\| \[\];/,
     /" is-mine"/, /localStorage\.getItem\("tf_user_id"\)/, /className: "td-chat-composer"/, /"aria-label": "Kirim catatan"/,
-    /"aria-label": "Hapus catatan"/, /e\.key === "Enter" && !e\.shiftKey/, /el\.scrollTop = el\.scrollHeight/])
+    /"aria-label": "Hapus catatan"/, /e\.key === "Enter" && !e\.shiftKey/])
     assert.match(m, re);
+  const bare = m.slice(m.indexOf("if (bare) {"));
+  assert.ok(bare.indexOf('className: "td-chat-composer"') < bare.indexOf('className: "td-chat-list"'), "kotak tulis sebelum daftar");
+  assert.doesNotMatch(m, /\(notes \|\| \[\]\)\.slice\(\)\.reverse\(\)|scrollTop = el\.scrollHeight/, "tidak lagi lama→baru / gulir ke bawah");
   const a = appCss.indexOf("/* ── Detail task: awal ── */"), b = appCss.indexOf("/* ── Detail task: akhir ── */");
   const block = appCss.slice(a, b);
   for (const re of [/\.td-chat-msg\.is-mine\s*\{[^}]*flex-direction: row-reverse/, /\.td-chat-bubble\s*\{/, /\.td-chat-composer:focus-within/])
