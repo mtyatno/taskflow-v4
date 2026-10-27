@@ -226,3 +226,11 @@ test("R16: goneId dibuang saat task ditemukan lagi", () => {
   // disembunyikan — kalau tidak, body task yang sudah dihapus sempat di-mount saat layar melebar lagi.
   assert.match(v, /if \(!selMissingId\) \{\s*checkedIdRef\.current = null;\s*if \(liveOn\) setGoneId\(null\);/);
 });
+
+// Permintaan pemilik 2026-10-27: scrollbar panel Live Edit disembunyikan, panel tetap bisa digulir, sudut tetap membulat.
+test("panel Live Edit: scrollbar tersembunyi, tetap overflow-y auto + radius", () => {
+  const rule = appCss.match(/\.tl-live-panel\s*\{[^}]*\}/)[0];
+  assert.match(rule, /overflow-y:\s*auto/); assert.match(rule, /scrollbar-width:\s*none/); assert.match(rule, /border-radius:\s*12px/);
+  assert.doesNotMatch(rule, /scrollbar-gutter/);
+  assert.match(appCss, /\.tl-live-panel::-webkit-scrollbar\s*\{\s*display:\s*none;\s*\}/);
+});

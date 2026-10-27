@@ -1,5 +1,9 @@
 {
   "entries": [
+    {"version": "taskflow-v475-panel-tanpa-scrollbar", "date": "2026-10-27", "title": "Catatan task seperti percakapan",
+     "new": ["Tab Catatan di detail task kini tampil seperti chat: catatanmu di kanan, catatan anggota lain di kiri, yang terbaru di bawah.",
+             "Tekan Enter untuk mengirim catatan, Shift+Enter untuk baris baru.",
+             "Panel detail di samping daftar kini tanpa scrollbar dan tetap bisa digulir."]},
     {"version": "taskflow-v474-detail-padat", "date": "2026-10-27", "title": "Detail task lebih ringkas",
      "new": ["Properti detail task kini satu baris (label di kiri, nilai di kanan), jadi deskripsi dan tab langsung terlihat di layar laptop.",
              "Assign, Menunggu, dan Tag yang masih kosong diringkas menjadi tombol kecil; klik untuk mengisinya."]},

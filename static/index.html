@@ -89,7 +89,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=371">
+  <link rel="stylesheet" href="/static/app.css?v=372">
   <link rel="stylesheet" href="/static/themes.css?v=1">
 
 <style>
@@ -257,7 +257,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v474-detail-padat";
+    window.__SW_VERSION = "taskflow-v475-panel-tanpa-scrollbar";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -8323,6 +8323,118 @@ function ModalNotes({
     const t = parts[1].substring(0, 5);
     return `${d} ${t}`;
   };
+  // Tab Catatan di detail task (bare): tampilan percakapan — urutan lama → baru, catatan sendiri di kanan, orang lain di
+  // kiri dengan inisial + nama, kotak tulis di bawah (Enter kirim, Shift+Enter baris baru) dengan tombol kirim.
+  const chatListRef = useRef(null);
+  const chatWrapRef = useRef(null);
+  const myId = (() => {
+    try {
+      return localStorage.getItem("tf_user_id");
+    } catch (_) {
+      return null;
+    }
+  })();
+  React.useLayoutEffect(() => {
+    if (!bare) return;
+    const el = chatListRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [bare, notes.length, loaded]);
+  React.useLayoutEffect(() => {
+    if (!bare) return;
+    const ta = chatWrapRef.current && chatWrapRef.current.querySelector("textarea");
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = Math.min(ta.scrollHeight, 120) + "px";
+  }, [bare, newNote]);
+  if (bare) {
+    const months = window.TF && window.TF.taskdetail ? window.TF.taskdetail.MONTHS_SHORT : null;
+    const today = window.TF && window.TF.tasklogic ? window.TF.tasklogic.todayLocalISO() : "";
+    const chatTime = dt => {
+      const m = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/.exec(String(dt || ""));
+      if (!m) return "";
+      const hm = m[4] + "." + m[5];
+      if (m[1] + "-" + m[2] + "-" + m[3] === today || !months) return hm;
+      return Number(m[3]) + " " + months[Number(m[2]) - 1] + " " + hm;
+    };
+    const isMine = n => n.author_id == null || (myId != null && String(n.author_id) === String(myId));
+    const ordered = (notes || []).slice().reverse();
+    return /*#__PURE__*/React.createElement("div", {
+      className: "td-chat"
+    }, ordered.length === 0 ? (loaded && /*#__PURE__*/React.createElement("div", {
+      className: "td-chat-empty"
+    }, "Belum ada catatan. Tulis yang pertama di bawah.")) : /*#__PURE__*/React.createElement("div", {
+      className: "td-chat-list",
+      ref: chatListRef
+    }, ordered.map(n => {
+      const mine = isMine(n);
+      const name = mine ? "Kamu" : n.author_name || "Anggota";
+      return /*#__PURE__*/React.createElement("div", {
+        key: n.id,
+        className: "td-chat-msg" + (mine ? " is-mine" : "")
+      }, !mine && /*#__PURE__*/React.createElement("span", {
+        className: "td-chat-avatar",
+        "aria-hidden": "true"
+      }, String(name).trim().charAt(0).toUpperCase() || "?"), /*#__PURE__*/React.createElement("div", {
+        className: "td-chat-body"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "td-chat-meta"
+      }, !mine && /*#__PURE__*/React.createElement("span", {
+        className: "td-chat-name"
+      }, name), /*#__PURE__*/React.createElement("span", null, chatTime(n.created_at))), /*#__PURE__*/React.createElement("div", {
+        className: "td-chat-bubble"
+      }, n.content, /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "td-chat-del",
+        "aria-label": "Hapus catatan",
+        title: "Hapus catatan",
+        onClick: () => handleDelete(n.id)
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "x",
+        size: 12
+      })))));
+    })), /*#__PURE__*/React.createElement("div", {
+      className: "td-chat-composer",
+      ref: chatWrapRef
+    }, /*#__PURE__*/React.createElement(MentionInput, {
+      as: "textarea",
+      rows: 1,
+      collaborators: collaborators,
+      className: "td-chat-input",
+      value: newNote,
+      onChange: e => setNewNote(e.target.value),
+      placeholder: "Tulis catatan\u2026",
+      "aria-label": "Tulis catatan",
+      onKeyDown: e => {
+        if (e.key === "Enter" && !e.shiftKey && !(e.nativeEvent && e.nativeEvent.isComposing)) {
+          e.preventDefault();
+          handleAdd();
+        }
+      }
+    }), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "td-chat-send",
+      "aria-label": "Kirim catatan",
+      title: "Kirim (Enter)",
+      onClick: handleAdd,
+      disabled: !newNote.trim() || submitting
+    }, /*#__PURE__*/React.createElement("svg", {
+      width: 16,
+      height: 16,
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: 2,
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true"
+    }, /*#__PURE__*/React.createElement("path", {
+      d: "M22 2 11 13"
+    }), /*#__PURE__*/React.createElement("path", {
+      d: "M22 2 15 22l-4-9-9-4z"
+    })))), /*#__PURE__*/React.createElement("div", {
+      className: "td-chat-hint"
+    }, "Enter untuk kirim \u00B7 Shift+Enter untuk baris baru"));
+  }
   const shown = expanded ? notes : notes.slice(0, 3);
   return /*#__PURE__*/React.createElement("div", {
     style: bare ? {
@@ -27207,7 +27319,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v474-detail-padat"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v475-panel-tanpa-scrollbar"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

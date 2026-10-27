@@ -246,9 +246,9 @@ test("MilkdownEditor: wiring dismiss slash menu", async (t) => {
 });
 
 test("cache bust v452", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v474-detail-padat";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v474-detail-padat";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v474-detail-padat"/);
+  assert.match(swJs, /^const CACHE = "taskflow-v475-panel-tanpa-scrollbar";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v475-panel-tanpa-scrollbar";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v475-panel-tanpa-scrollbar"/);
 });
 
 test("autocomplete NoteModal: Esc yang dikonsumsi memanggil preventDefault (slash menu tidak ikut tertutup)", () => {
