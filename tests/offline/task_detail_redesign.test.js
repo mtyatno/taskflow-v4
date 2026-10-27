@@ -250,3 +250,12 @@ test("Catatan (bare): tampilan chat — kotak tulis di atas, terbaru tepat di ba
   for (const re of [/\.td-chat-msg\.is-mine\s*\{[^}]*flex-direction: row-reverse/, /\.td-chat-bubble\s*\{/, /\.td-chat-composer:focus-within/])
     assert.match(block, re);
 });
+
+// Permintaan pemilik 2026-10-27: nama workspace (atau "Pribadi") di bar atas detail.
+test("bar atas: nama workspace atau Pribadi", () => {
+  const t = fnSource("DetailTopBar"), s = fnSource("TaskDetailBody");
+  for (const re of [/scopeName = ""/, /className: "td-scope" \+ \(isPersonal \? " is-personal" : ""\)/, /name: isPersonal \? "lock" : "users"/]) assert.match(t, re);
+  assert.match(s, /scopeName: task\.list_id == null \|\| task\.list_id === "" \? "Pribadi" : \(\(scopeLists \|\| \[\]\)\.find\(/);
+  const a = appCss.indexOf("/* ── Detail task: awal ── */"), b = appCss.indexOf("/* ── Detail task: akhir ── */");
+  assert.match(appCss.slice(a, b), /\.td-scope\s*\{/);
+});

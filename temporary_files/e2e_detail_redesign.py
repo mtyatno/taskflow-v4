@@ -994,6 +994,9 @@ def run_props(browser, base):
                   and [x.strip() for x in box.locator(".td-prop-add").all_inner_texts()] == ["+ Menunggu", "+ Tag"]
                   and box.locator('[aria-label^="Assign ke: "]').count() == 0,
                   repr((box.locator(".td-prop-label").all_inner_texts(), box.locator(".td-prop-add").all_inner_texts())))
+            check("%s P-6s bar atas: task pribadi berlabel 'Pribadi'" % tag,
+                  box.locator(".td-top .td-scope").inner_text().strip() == "Pribadi"
+                  and "is-personal" in (box.locator(".td-top .td-scope").get_attribute("class") or ""))
             check("%s P-6b detail tanpa select / .input-label" % tag,
                   box.locator("select").count() == 0 and box.locator(".input-label").count() == 0,
                   "select=%d label=%d" % (box.locator("select").count(), box.locator(".input-label").count()))
@@ -1189,6 +1192,9 @@ def run_props(browser, base):
             p.locator(".task-row", has_text=PR_WS).first.wait_for(timeout=15000)
             box = scope_open(p, scope, PR_WS)
             abtn = prop_btn(p, scope, "Assign ke")
+            check("%s P-5s bar atas: nama workspace '%s'" % (tag, ws["name"]),
+                  wait_until(lambda: p.locator(scope + " .td-top .td-scope").first.inner_text().strip() == ws["name"], 5),
+                  repr(p.locator(scope + " .td-top .td-scope").all_inner_texts()))
             check("%s P-5a task workspace: 'Assign ke' kosong tampil ringkas '+ Assign'" % tag,
                   abtn.count() == 1 and abtn.inner_text().strip() == "+ Assign")
             abtn.click()

@@ -89,7 +89,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=373">
+  <link rel="stylesheet" href="/static/app.css?v=374">
   <link rel="stylesheet" href="/static/themes.css?v=1">
 
 <style>
@@ -257,7 +257,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v476-catatan-input-atas";
+    window.__SW_VERSION = "taskflow-v477-label-workspace";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -8853,7 +8853,9 @@ function DetailTopBar({
   onMove,
   onDelete,
   indicator,
-  headerAction
+  headerAction,
+  scopeName = "",
+  isPersonal = false
 }) {
   const menuRef = useRef(null);
   const created = window.TF.taskdetail.formatCreated(task.created_at);
@@ -8881,7 +8883,15 @@ function DetailTopBar({
     className: "td-meta-part"
   }, " • Dibuat " + created), completed && /*#__PURE__*/React.createElement("span", {
     className: "td-meta-part"
-  }, " • Selesai " + completed)), task.parent_id && /*#__PURE__*/React.createElement("div", {
+  }, " • Selesai " + completed), scopeName && /*#__PURE__*/React.createElement("span", {
+    className: "td-scope" + (isPersonal ? " is-personal" : ""),
+    title: isPersonal ? "Task pribadi" : "Workspace: " + scopeName
+  }, /*#__PURE__*/React.createElement(Icon, {
+    name: isPersonal ? "lock" : "users",
+    size: 12
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "td-scope-name"
+  }, scopeName))), task.parent_id && /*#__PURE__*/React.createElement("div", {
     className: "td-parent"
   }, "↳ Subtask dari #" + task.parent_id + (task.parent_title ? " — " + task.parent_title : ""))), /*#__PURE__*/React.createElement("div", {
     className: "td-top-actions"
@@ -10056,6 +10066,9 @@ function TaskDetailBody({
       parent_title: parentInfo.title
     } : task,
     isDone: fv.gtd_status === "done",
+    // Nama workspace task (atau "Pribadi") di bar atas, dari daftar workspace scope task.
+    isPersonal: task.list_id == null || task.list_id === "",
+    scopeName: task.list_id == null || task.list_id === "" ? "Pribadi" : ((scopeLists || []).find(l => l && String(l.id) === String(task.list_id)) || {}).name || "Workspace",
     focused: focused,
     canMove: canMove && !moveOpen,
     menuOpen: openPop === "menu",
@@ -27315,7 +27328,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v476-catatan-input-atas"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v477-label-workspace"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
