@@ -10,15 +10,17 @@
   <meta name="theme-color" content="#0f172a">
   <script id="tf-theme-boot">
     // Boot tema di <head> tepat setelah meta theme-color, sebelum stylesheet aplikasi/vendor dan React: pasang
-    // data-theme/data-palette/data-decor di <html> dan warna meta theme-color
+    // data-theme/data-palette/data-decor/data-herobg di <html> dan warna meta theme-color
     // agar tidak ada kilatan tema yang salah. Modul /static/offline/themes.js belum dimuat di sini, jadi aturannya
     // disalin dan harus sama persis dengan readPrefs + resolve modul itu (dijaga tests/offline/theme_boot.test.js).
     // ES5 saja.
     // Daftar palet dan tabel warna meta ditulis literal dan harus sama dengan PALETTES (id dan themeColor) di
-    // themes.js; tambahkan palet baru di kedua tempat (dijaga tests/offline/theme_boot.test.js).
+    // themes.js; tambahkan palet baru di kedua tempat (dijaga tests/offline/theme_boot.test.js). Daftar latar
+    // hero (herobgs) juga literal dan harus sama dengan HEROBGS di themes.js.
     (function () {
       try {
         var palettes = ["default", "sakura", "lavender"];
+        var herobgs = ["kontur", "gradasi", "lanskap", "galaksi", "objek", "polos"];
         var themeColors = {
           "default": { light: "#FCFCFB", dark: "#0f172a" },
           "sakura": { light: "#FDF5FA", dark: "#1C1219" },
@@ -32,6 +34,8 @@
         var mode = get("tf_theme");
         var palette = get("tf_palette");
         var decor = get("tf_decor") === "off" ? "off" : "on";
+        var herobg = get("tf_herobg");
+        if (herobgs.indexOf(herobg) < 0) herobg = "kontur";
         if (mode !== "light" && mode !== "dark" && mode !== "system") mode = "light";
         if (palettes.indexOf(palette) < 0) palette = "default";
         var dark = mode === "dark";
@@ -45,6 +49,7 @@
         el.setAttribute("data-theme", theme);
         el.setAttribute("data-palette", palette);
         el.setAttribute("data-decor", decor);
+        el.setAttribute("data-herobg", herobg);
         var meta = document.querySelector('meta[name="theme-color"]');
         if (meta) meta.setAttribute("content", themeColors[palette][theme]);
       } catch (_) {}
@@ -94,7 +99,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=378">
+  <link rel="stylesheet" href="/static/app.css?v=379">
   <link rel="stylesheet" href="/static/themes.css?v=2">
 
 <style>
@@ -262,7 +267,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v482-tema-dekorasi";
+    window.__SW_VERSION = "taskflow-v483-latar-hero";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -379,6 +384,7 @@
   <script src="/static/offline/safehtml.js"></script>
   <script src="/static/offline/themes.js"></script>
   <script src="/static/offline/decor.js"></script>
+  <script src="/static/offline/herobg.js"></script>
   <script src="/static/ui-components.js"></script>
   <script>
   // ═══ DEPENDENCIES: Foundation ═══
@@ -12193,11 +12199,21 @@ function PomodoroTimer({
   onCompleteTask
 }) {
   const t = timer;
+  // Latar terpilih (spec latar-hero §6), dihitung sekali: kartu melukis base-nya (garis kartu rgba dipadu dengan latar kartu
+  // itu sendiri, seperti hero Dashboard) dan HeroBackdropLayer menggambar ambient + fitur dari hasil yang sama; CSS
+  // .focus-pomo = cadangan bila registri belum termuat.
+  const pomoBg = useHeroBackdrop("pomo");
   return React.createElement("section", {
     ref: cardRef,
     className: `focus-pomo scale-in${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}${t.phase === "overtime" ? " is-overtime" : ""}${t.phase === "awaiting" ? " is-awaiting" : ""}`,
+    style: pomoBg ? {
+      background: pomoBg.base
+    } : undefined,
     "aria-label": "Pomodoro"
-  }, React.createElement("div", {
+  }, React.createElement(HeroBackdropLayer, {
+    bd: pomoBg,
+    cardBase: true
+  }), React.createElement("div", {
     className: "focus-pomo-ring"
   }, React.createElement(PomoRing, {
     timer: t,
@@ -19902,7 +19918,7 @@ function TaskListView({
   // BLOCK LENGTH: ~310 lines (10649-10959) — depends on Chart.js
 
 // Theme-aware chart helpers: Chart.js draws onto a canvas, so CSS tokens don't
-// reach it. Read the current tokens and re-render when <html data-theme/data-palette/data-decor> flips.
+// reach it. Read the current tokens and re-render when <html data-theme/data-palette/data-decor/data-herobg> flips.
 // Atribut tema <html> terkini; objek state hanya diganti bila salah satu nilai berubah (grafik tidak digambar ulang
 // karena mutasi tanpa perubahan nilai).
 function useThemeAttrs() {
@@ -19911,17 +19927,19 @@ function useThemeAttrs() {
     return {
       theme: el.getAttribute("data-theme") === "dark" ? "dark" : "light",
       palette: el.getAttribute("data-palette") || "default",
-      decor: el.getAttribute("data-decor") === "off" ? "off" : "on"
+      decor: el.getAttribute("data-decor") === "off" ? "off" : "on",
+      // Latar hero (TF.themes.HEROBGS); nilai asing dinormalkan TF.herobg.render ke "kontur".
+      herobg: el.getAttribute("data-herobg") || "kontur"
     };
   };
   const [attrs, setAttrs] = useState(read);
   useEffect(() => {
     const sync = () => {
       const next = read();
-      setAttrs(prev => prev.theme === next.theme && prev.palette === next.palette && prev.decor === next.decor ? prev : next);
+      setAttrs(prev => prev.theme === next.theme && prev.palette === next.palette && prev.decor === next.decor && prev.herobg === next.herobg ? prev : next);
     };
     const mo = new MutationObserver(sync);
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette", "data-decor"] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette", "data-decor", "data-herobg"] });
     // Atribut bisa berganti antara render pertama dan efek ini terpasang.
     sync();
     return () => mo.disconnect();
@@ -22618,59 +22636,77 @@ function DashSyncCard({ mode, onRetry }) {
     onClick: onRetry
   }, "Coba lagi"));
 }
-// ── Hero Dashboard: garis topografi (latar, warna --accent lewat CSS) + ilustrasi kecil per palet ──
-// Spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md §3; path dari mockup "Hero Dashboard Alurik" (D · Gabungan).
-const DASH_HERO_TOPO = ["M560 24 C570 10 610 6 630 18 C646 28 640 44 618 48 C594 52 552 40 560 24 Z", "M470 0 C500 40 560 70 620 64 C690 58 720 20 730 0", "M430 0 C460 60 540 104 620 98 C710 92 760 40 770 0", "M390 0 C420 80 520 140 620 134 C730 128 800 60 810 0", "M350 0 C380 100 500 176 630 170 C760 164 832 90 832 40", "M320 40 C340 140 480 214 640 206 C780 200 832 150 832 120", "M300 120 C330 200 460 252 620 246 C740 242 800 220 832 200", "M290 200 C320 250 400 272 470 272", "M730 272 C736 248 762 238 784 244 C804 250 816 262 818 272", "M690 272 C700 230 740 212 780 218 C812 224 832 244 832 252", "M650 272 C664 210 724 184 784 192 C812 196 832 210 832 216"];
-// Warna hanya lewat kelas dhi-* di app.css (token palet); dekoratif → aria-hidden.
-function DashHeroIllus({
-  palette
+// ── Latar hero (hero Dashboard, kartu Pomodoro, pratinjau Pengaturan) ──
+// Spec docs/superpowers/specs/2026-10-27-latar-hero-design.md §4. Gambar dari registri TF.herobg (static/offline/herobg.js);
+// latar Kontur = garis topografi + ilustrasi palet hero Dashboard lama (spec hero-dashboard §3).
+let heroBackdropSeq = 0;
+// TF.herobg.render untuk `place` dengan latar `kind` (bawaan: pilihan Pengaturan di <html data-herobg>), palet dan mode
+// aktif, di-memo per kombinasi → { place, kind, base, ambient, feature }. uid stabil per instance supaya id SVG tetap unik
+// walau banyak latar tampil bersamaan (kartu pilihan di Pengaturan). null bila registri belum termuat: pemanggil tampil
+// tanpa latar (gaya CSS lama), tidak error. Kartu yang juga memakai base untuk latarnya sendiri (hero Dashboard, kartu
+// Pomodoro) memanggil hook ini SEKALI lalu meneruskan hasilnya ke HeroBackdropLayer (satu render SVG, satu observer, satu uid).
+function useHeroBackdrop(place, kind) {
+  const {
+    theme,
+    palette,
+    herobg
+  } = useThemeAttrs();
+  const uid = useRef(null);
+  if (uid.current === null) uid.current = "hb" + ++heroBackdropSeq;
+  const reg = window.TF && window.TF.herobg;
+  const want = kind || herobg;
+  const id = reg && reg.KINDS.some(k => k.id === want) ? want : "kontur";
+  return useMemo(() => reg ? {
+    place,
+    kind: id,
+    ...reg.render({
+      kind: id,
+      palette,
+      mode: theme,
+      place,
+      uid: uid.current
+    })
+  } : null, [reg, id, palette, theme, place]);
+}
+
+// Lapisan latar dekoratif (aria-hidden) dari hasil useHeroBackdrop (`bd`, presentasional, tanpa hook): div.hb (base =
+// background inline) berisi ambient (memenuhi kartu) dan fitur (kotak per tempat, posisi di app.css). Induk: position
+// relative + overflow hidden, isinya z-index ≥ 1. String SVG berasal dari registri statis internal (bukan data pengguna;
+// sama dengan Decor), dijaga tests/offline/herobg.test.js. cardBase: induk sudah memasang base yang sama sebagai latarnya
+// sendiri (kartu bergaris rgba: garis dipadu dengan latar induk) → div.hb tidak melukis base lagi, sehingga sudut membulat
+// dan gradien persis seperti latar kartu itu sendiri.
+function HeroBackdropLayer({
+  bd,
+  cardBase
 }) {
-  const e = React.createElement;
-  let art;
-  if (palette === "sakura") {
-    const blossom = (key, transform) => e("g", {
-      key,
-      transform
-    }, [0, 72, 144, 216, 288].map(r => e("ellipse", {
-      key: r,
-      cx: 0,
-      cy: -7,
-      rx: 5.5,
-      ry: 7.5,
-      transform: r ? `rotate(${r})` : undefined,
-      className: "dhi-duo",
-      strokeWidth: 1
-    })), e("circle", {
-      cx: 0,
-      cy: 0,
-      r: 2.6,
-      className: "dhi-fill"
-    }));
-    art = [e("path", { key: "s1", d: "M150 14 C120 20 92 34 62 62", className: "dhi-stem", strokeWidth: 2.6 }), e("path", { key: "s2", d: "M104 30 C98 50 100 70 112 86", className: "dhi-stem", strokeWidth: 2 }), blossom("b1", "translate(62 62)"), blossom("b2", "translate(112 88) scale(1.25)"), blossom("b3", "translate(134 20) scale(0.85)"), e("ellipse", { key: "p1", cx: 0, cy: 0, rx: 3, ry: 5, transform: "translate(30 92) rotate(40)", className: "dhi-fill", style: { opacity: 0.45 } }), e("ellipse", { key: "p2", cx: 0, cy: 0, rx: 2.6, ry: 4.4, transform: "translate(76 100) rotate(-30)", className: "dhi-fill", style: { opacity: 0.35 } }), e("ellipse", { key: "p3", cx: 0, cy: 0, rx: 2.4, ry: 4, transform: "translate(18 40) rotate(70)", className: "dhi-fill", style: { opacity: 0.3 } })];
-  } else if (palette === "lavender") {
-    // [cx, cy, rx, ry, duo?]
-    const buds = [[52, 36, 3.4, 5.2, 0], [49, 48, 3.6, 5.4, 1], [55, 58, 3.6, 5.4, 0], [51, 70, 3.6, 5.4, 1], [80, 20, 3.4, 5.2, 1], [77, 32, 3.6, 5.4, 0], [84, 42, 3.6, 5.4, 1], [79, 54, 3.6, 5.4, 0], [85, 66, 3.6, 5.4, 1], [114, 38, 3.4, 5.2, 0], [111, 50, 3.6, 5.4, 1], [117, 60, 3.6, 5.4, 0]];
-    art = [e("path", { key: "s1", d: "M58 110 C56 84 58 60 52 34", className: "dhi-stem", strokeWidth: 1.8 }), e("path", { key: "s2", d: "M82 110 C82 80 84 50 80 18", className: "dhi-stem", strokeWidth: 1.8 }), e("path", { key: "s3", d: "M106 110 C108 84 110 60 114 36", className: "dhi-stem", strokeWidth: 1.8 })].concat(buds.map(([cx, cy, rx, ry, duo], i) => e("ellipse", {
-      key: "b" + i,
-      cx,
-      cy,
-      rx,
-      ry,
-      className: duo ? "dhi-duo" : "dhi-fill",
-      strokeWidth: duo ? 1 : undefined
-    })), [e("circle", { key: "d1", cx: 28, cy: 40, r: 1.8, className: "dhi-fill", style: { opacity: 0.4 } }), e("circle", { key: "d2", cx: 136, cy: 22, r: 1.6, className: "dhi-fill", style: { opacity: 0.35 } })]);
-  } else {
-    art = [e("path", { key: "s", d: "M70 108 C68 80 76 54 92 30", className: "dhi-leaf-stem", strokeWidth: 2 }), e("path", { key: "l1", d: "M71 80 C50 76 42 60 46 48 C62 52 71 64 71 80 Z", className: "dhi-leaf", strokeWidth: 1.5 }), e("path", { key: "l2", d: "M77 60 C96 54 104 38 100 26 C84 32 77 44 77 60 Z", className: "dhi-leaf", strokeWidth: 1.5 }), e("path", { key: "l3", d: "M86 40 C72 32 70 18 76 8 C88 16 89 28 86 40 Z", className: "dhi-leaf", strokeWidth: 1.5 }), e("circle", { key: "sun", cx: 120, cy: 30, r: 12, className: "dhi-fill", style: { opacity: 0.22 } })];
-  }
-  return e("span", {
-    className: "dash-hero-illus",
-    "aria-hidden": "true"
-  }, e("svg", {
-    viewBox: "0 0 150 110",
-    width: 150,
-    height: 110,
-    focusable: "false"
-  }, art));
+  if (!bd) return null;
+  return React.createElement("div", {
+    className: `hb hb-${bd.place} hb-k-${bd.kind}`,
+    "aria-hidden": "true",
+    style: cardBase ? undefined : {
+      background: bd.base
+    }
+  }, React.createElement("div", {
+    className: "hb-ambient",
+    dangerouslySetInnerHTML: {
+      __html: bd.ambient
+    }
+  }), React.createElement("div", {
+    className: "hb-feature",
+    dangerouslySetInnerHTML: {
+      __html: bd.feature
+    }
+  }));
+}
+
+// Latar mandiri (hook + lapisan) untuk pratinjau Pengaturan: kartu pilihan (place thumb, kind per kartu) dan strip hero mini.
+function HeroBackdrop({
+  place,
+  kind
+}) {
+  return React.createElement(HeroBackdropLayer, {
+    bd: useHeroBackdrop(place, kind)
+  });
 }
 
 function Dashboard({
@@ -22707,8 +22743,10 @@ function Dashboard({
     } catch (_) {}
   };
   const intro = useIntroState(tasks);
-  // Palet aktif → ilustrasi hero (daun / ranting sakura / tangkai lavender).
-  const { palette: heroPalette } = useThemeAttrs();
+  // Latar hero terpilih, dihitung sekali. Garis .dash-hero (rgba aksen) dipadu dengan latar section di bawahnya
+  // (background-clip border-box), jadi section melukis base-nya sendiri dan HeroBackdropLayer menggambar ambient + fitur dari
+  // hasil yang sama; CSS .dash-hero = cadangan bila registri belum termuat.
+  const heroBg = useHeroBackdrop("hero");
   const hasTasks = tasks.length > 0;
   const hasCompletedTasks = (summary.done_last_7_days ?? 0) > 0 || tasks.some(t => t.gtd_status === "done");
   const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done").sort(SORT_PRI);
@@ -23368,21 +23406,13 @@ function Dashboard({
 
   /* ── Hero ── */
   /*#__PURE__*/React.createElement("section", {
-    className: "dash-hero"
-  }, /*#__PURE__*/React.createElement("svg", {
-    className: "dash-hero-topo",
-    viewBox: "0 0 832 272",
-    preserveAspectRatio: "xMaxYMid slice",
-    "aria-hidden": "true",
-    focusable: "false"
-  }, /*#__PURE__*/React.createElement("g", {
-    fill: "none",
-    strokeWidth: 1.1
-  }, DASH_HERO_TOPO.map((d, i) => /*#__PURE__*/React.createElement("path", {
-    key: i,
-    d: d
-  })))), /*#__PURE__*/React.createElement(DashHeroIllus, {
-    palette: heroPalette
+    className: "dash-hero",
+    style: heroBg ? {
+      background: heroBg.base
+    } : undefined
+  }, /*#__PURE__*/React.createElement(HeroBackdropLayer, {
+    bd: heroBg,
+    cardBase: true
   }), /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-top"
   }, /*#__PURE__*/React.createElement("div", {
@@ -27073,7 +27103,8 @@ function ExtAuthOverlay({
 }
 
 // ── Kartu "Tampilan" (Pengaturan) ───────────────────────────
-// Mode (terang/gelap/ikuti sistem), palet, dekorasi (hanya bila modul TF.decor ada), pratinjau bertoken.
+// Mode (terang/gelap/ikuti sistem), palet, latar hero (hanya bila registri TF.herobg ada; spec latar-hero §7), dekorasi
+// (hanya bila modul TF.decor ada), pratinjau bertoken + strip hero mini dengan latar terpilih.
 // Setiap pilihan langsung onThemePrefs(patch) — tanpa tombol Simpan, tanpa toast (spec §3.7).
 function ThemeSettingsCard({
   themePrefs,
@@ -27090,11 +27121,30 @@ function ThemeSettingsCard({
     if (btn) btn.focus();
   };
   // Pola radiogroup WAI-ARIA: panah memindah pilihan sekaligus fokus (melingkar); Tab masuk/keluar grup.
+  const radioStep = key => key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0;
   const onModeKey = e => {
-    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    const step = radioStep(e.key);
     if (!step) return;
     e.preventDefault();
     pickMode((modeIdx + step + modes.length) % modes.length);
+  };
+  // Latar hero Dashboard + kartu Pomodoro: radiogroup yang sama polanya dengan Mode (roving tabIndex + panah), plus
+  // Home/End ke pilihan pertama/terakhir.
+  const heroKinds = window.TF.herobg ? window.TF.herobg.KINDS : null;
+  const herobgRefs = useRef([]);
+  const herobgIdx = heroKinds ? Math.max(0, heroKinds.findIndex(k => k.id === resolvedTheme.herobg)) : 0;
+  const pickHerobg = i => {
+    onThemePrefs({ herobg: heroKinds[i].id });
+    const btn = herobgRefs.current[i];
+    if (btn) btn.focus();
+  };
+  const onHerobgKey = e => {
+    const n = heroKinds.length;
+    const step = radioStep(e.key);
+    const to = e.key === "Home" ? 0 : e.key === "End" ? n - 1 : step ? (herobgIdx + step + n) % n : -1;
+    if (to < 0) return;
+    e.preventDefault();
+    pickHerobg(to);
   };
   const palette = resolvedTheme.palette;
   // Plan S2: sakelar dekorasi baru berarti setelah modul dekorasi (PR C) ada.
@@ -27156,6 +27206,46 @@ function ThemeSettingsCard({
     })), /*#__PURE__*/React.createElement("span", {
       className: "theme-card-palette-name"
     }, p.name));
+  }))), heroKinds && /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-label",
+    id: "theme-herobg-label"
+  }, "Latar"), /*#__PURE__*/React.createElement("p", {
+    className: "theme-card-hint",
+    id: "theme-herobg-hint"
+  }, "Untuk bagian atas Dashboard dan kartu Pomodoro di Fokus Hari Ini."), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-herobgs",
+    role: "radiogroup",
+    "aria-labelledby": "theme-herobg-label",
+    "aria-describedby": "theme-herobg-hint"
+  }, heroKinds.map((k, i) => {
+    const on = i === herobgIdx;
+    return /*#__PURE__*/React.createElement("button", {
+      key: k.id,
+      type: "button",
+      role: "radio",
+      className: "theme-card-herobg",
+      "aria-checked": on ? "true" : "false",
+      tabIndex: on ? 0 : -1,
+      ref: el => {
+        herobgRefs.current[i] = el;
+      },
+      onClick: () => onThemePrefs({ herobg: k.id }),
+      onKeyDown: onHerobgKey
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-herobg-thumb"
+    }, /*#__PURE__*/React.createElement(HeroBackdrop, {
+      place: "thumb",
+      kind: k.id
+    })), /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-herobg-name"
+    }, k.name, k.badge && " ", k.badge && /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-herobg-badge"
+    }, k.badge)), on && /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-herobg-check",
+      "aria-hidden": "true"
+    }, /*#__PURE__*/React.createElement(FocusGlyph, { name: "check", size: 12 })));
   }))), showDecor && /*#__PURE__*/React.createElement("div", {
     className: "theme-card-decor"
   }, /*#__PURE__*/React.createElement("span", {
@@ -27183,7 +27273,15 @@ function ThemeSettingsCard({
     className: "theme-card-label"
   }, "Pratinjau"), /*#__PURE__*/React.createElement("div", {
     className: "theme-preview"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, heroKinds && /*#__PURE__*/React.createElement("div", {
+    className: "theme-preview-hero"
+  }, /*#__PURE__*/React.createElement(HeroBackdrop, {
+    place: "hero"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-hero-greet"
+  }, "Selamat pagi"), /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-hero-sub"
+  }, "Ada 3 prioritas hari ini.")), /*#__PURE__*/React.createElement("div", {
     className: "theme-preview-row"
   }, /*#__PURE__*/React.createElement("span", {
     className: "theme-preview-check",
@@ -27770,7 +27868,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v482-tema-dekorasi"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v483-latar-hero"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -43169,7 +43267,7 @@ function App() {
   // Modal "Apa yang baru" setelah pembaruan. Hook dipanggil sebelum return bersyarat mana pun (halaman login);
   // modalnya hanya dirender di cabang sudah login.
   const whatsNew = useWhatsNewOnLoad(user);
-  // Preferensi tema (mode light/dark/system, palet, dekorasi) lewat TF.themes; atribut <html> sudah dipasang skrip
+  // Preferensi tema (mode light/dark/system, palet, dekorasi, latar hero) lewat TF.themes; atribut <html> sudah dipasang skrip
   // boot di <head> (sebelum stylesheet) dengan aturan yang sama, efek di bawah hanya menyentuh yang berubah.
   const [themePrefs, setThemePrefsState] = useState(() => window.TF.themes.readPrefs(safeLocalStorage()));
   const systemDark = useSystemDark(themePrefs.mode === "system");

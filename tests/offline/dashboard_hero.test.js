@@ -1,8 +1,10 @@
-// Hero Dashboard baru (spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md §3): sumber index.html + app.css.
+// Hero Dashboard baru (spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md §3) + latar pilihan
+// (spec docs/superpowers/specs/2026-10-27-latar-hero-design.md §4–§5): sumber index.html + app.css.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const vm = require("node:vm");
 
 const root = path.join(__dirname, "../..");
 const html = fs.readFileSync(path.join(root, "static/index.html"), "utf8");
@@ -16,7 +18,9 @@ function fnSource(name) {
   return html.slice(s, e);
 }
 const dash = fnSource("Dashboard");
-const illus = fnSource("DashHeroIllus");
+const backdrop = fnSource("HeroBackdrop");
+const backdropLayer = fnSource("HeroBackdropLayer");
+const backdropHook = fnSource("useHeroBackdrop");
 const heroStart = dash.indexOf("/* ── Hero ── */");
 const heroEnd = dash.indexOf("/* ── KPI ── */");
 assert.ok(heroStart > 0 && heroEnd > heroStart, "blok hero ditemukan");
@@ -54,16 +58,167 @@ test("ringkasan: cabang prioritas tidak lagi menyebut terlambat; chip terlambat 
   assert.ok(dash.includes('"Menyinkronkan datamu…"'));
 });
 
-test("latar topografi + ilustrasi: aria-hidden, ilustrasi per palet", () => {
-  assert.match(hero, /className: "dash-hero-topo"[\s\S]{0,200}"aria-hidden": "true"/);
-  assert.match(hero, /preserveAspectRatio: "xMaxYMid slice"/);
-  assert.match(hero, /React\.createElement\(DashHeroIllus, \{\s*palette: heroPalette\s*\}\)/);
-  assert.match(dash, /useThemeAttrs\(\)/);
-  assert.match(illus, /className: "dash-hero-illus",\s*"aria-hidden": "true"/);
-  assert.match(illus, /palette === "sakura"/);
-  assert.match(illus, /palette === "lavender"/);
-  // hanya kelas CSS (warna token di app.css), tanpa literal warna
-  assert.doesNotMatch(illus, /#[0-9a-f]{3,8}\b|rgba?\(/i);
+test("latar: hero = satu useHeroBackdrop(\"hero\") → section (base) + HeroBackdropLayer (hasil yang sama); topografi/ilustrasi lama pindah ke registri", () => {
+  // Spec latar-hero §5: Kontur (bawaan) = topografi + ilustrasi palet lama, kini cabang "kontur" TF.herobg.
+  assert.match(dash, /const heroBg = useHeroBackdrop\("hero"\);/);
+  assert.equal(dash.split("useHeroBackdrop(").length - 1, 1, "latar hero dihitung sekali (satu hook, satu MutationObserver, satu uid)");
+  assert.match(hero, /React\.createElement\("section", \{\s*className: "dash-hero",\s*style: heroBg \? \{\s*background: heroBg\.base\s*\} : undefined\s*\}, \/\*#__PURE__\*\/React\.createElement\(HeroBackdropLayer, \{\s*bd: heroBg,\s*cardBase: true\s*\}\), \/\*#__PURE__\*\/React\.createElement\("div", \{\s*className: "dash-hero-top"/);
+  assert.equal(hero.split("React.createElement(HeroBackdropLayer,").length - 1, 1, "satu latar di hero");
+  assert.equal(hero.split("React.createElement(HeroBackdrop,").length - 1, 0, "hero tidak memakai HeroBackdrop (hook kedua)");
+  // Kelopak tema tetap (item flex di .dash-hero-top).
+  assert.match(hero, /React\.createElement\(Decor, \{\s*slot: "page-corner"\s*\}\)/);
+  for (const old of ["DASH_HERO_TOPO", "DashHeroIllus", "dash-hero-topo", "dash-hero-illus", "dhi-", "heroPalette"]) {
+    assert.ok(!html.includes(old), "sisa lama di index.html: " + old);
+    assert.ok(!css.includes(old), "sisa lama di app.css: " + old);
+  }
+});
+
+test("HeroBackdropLayer: div.hb aria-hidden + ambient/fitur dari hasil hook; HeroBackdrop = hook + layer; useHeroBackdrop memo per kombinasi, uid per instance", () => {
+  assert.match(backdropLayer, /^function HeroBackdropLayer\(\{\s*bd,\s*cardBase\s*\}\)/);
+  assert.match(backdropLayer, /^function HeroBackdropLayer\([^)]*\) \{\s*if \(!bd\) return null;/);
+  assert.match(backdropLayer, /className: `hb hb-\$\{bd\.place\} hb-k-\$\{bd\.kind\}`,\s*"aria-hidden": "true",\s*style: cardBase \? undefined : \{\s*background: bd\.base\s*\}/);
+  assert.match(backdropLayer, /className: "hb-ambient",\s*dangerouslySetInnerHTML: \{\s*__html: bd\.ambient\s*\}/);
+  assert.match(backdropLayer, /className: "hb-feature",\s*dangerouslySetInnerHTML: \{\s*__html: bd\.feature\s*\}/);
+  assert.doesNotMatch(backdropLayer, /use[A-Z]\w*\(/, "layer presentasional: tanpa hook");
+  assert.match(backdrop, /^function HeroBackdrop\(\{\s*place,\s*kind\s*\}\) \{\s*return React\.createElement\(HeroBackdropLayer, \{\s*bd: useHeroBackdrop\(place, kind\)\s*\}\);$/);
+  assert.match(backdropHook, /\} = useThemeAttrs\(\);/);
+  assert.match(backdropHook, /const uid = useRef\(null\);\s*if \(uid\.current === null\) uid\.current = "hb" \+ \+\+heroBackdropSeq;/);
+  assert.match(backdropHook, /const reg = window\.TF && window\.TF\.herobg;/);
+  assert.match(backdropHook, /const want = kind \|\| herobg;/);
+  assert.match(backdropHook, /reg\.KINDS\.some\(k => k\.id === want\) \? want : "kontur"/);
+  assert.match(backdropHook, /\{\s*place,\s*kind: id,\s*\.\.\.reg\.render\(\{\s*kind: id,\s*palette,\s*mode: theme,\s*place,\s*uid: uid\.current\s*\}\)/);
+  assert.match(backdropHook, /\[reg, id, palette, theme, place\]\);/);
+  // Tanpa literal warna di komponen (warna ada di registri/token).
+  assert.doesNotMatch(backdrop + backdropLayer + backdropHook, /#[0-9a-f]{3,8}\b|rgba?\(/i);
+});
+
+// Render HeroBackdrop di sandbox vm: React tiruan (createElement → objek), hook tiruan, registri TF.herobg asli.
+// HB(props) = render HeroBackdrop lalu jalankan elemen HeroBackdropLayer yang dikembalikannya (satu tingkat).
+function renderBackdrop(props, { attrs = { theme: "light", palette: "sakura", decor: "on", herobg: "lanskap" }, registry = true, refs } = {}) {
+  const hb = require("../../static/offline/herobg.js");
+  const sandbox = {
+    React: { createElement: (type, p, ...children) => ({ type, props: { ...(p || {}), children } }) },
+    useThemeAttrs: () => attrs,
+    useRef: init => { const r = { current: init }; if (refs) refs.push(r); return r; },
+    useMemo: fn => fn(),
+    window: { TF: registry ? { herobg: hb } : {} },
+  };
+  vm.runInNewContext("let heroBackdropSeq = 0;\n" + backdropHook + "\n}\n" + backdropLayer + "\n}\n" + backdrop + "\n}\n" +
+    "this.useHB = useHeroBackdrop; this.Layer = HeroBackdropLayer;\n" +
+    "this.HB = (props) => { const el = HeroBackdrop(props); if (el.type !== HeroBackdropLayer) throw new Error('bukan HeroBackdropLayer'); return el.type(el.props); };", sandbox);
+  return { sandbox, hb };
+}
+
+test("render HeroBackdrop: struktur div.hb > hb-ambient + hb-feature, latar terpilih/kind, id unik per instance, cadangan", () => {
+  const { sandbox, hb } = renderBackdrop();
+  const a = sandbox.HB({ place: "hero" });
+  assert.equal(a.type, "div");
+  assert.equal(a.props.className, "hb hb-hero hb-k-lanskap");
+  assert.equal(a.props["aria-hidden"], "true");
+  const want = hb.render({ kind: "lanskap", palette: "sakura", mode: "light", place: "hero", uid: "hb1" });
+  assert.equal(a.props.style.background, want.base);
+  assert.deepEqual(a.props.children.map(c => c.props.className), ["hb-ambient", "hb-feature"]);
+  assert.equal(a.props.children[0].props.dangerouslySetInnerHTML.__html, want.ambient);
+  assert.equal(a.props.children[1].props.dangerouslySetInnerHTML.__html, want.feature);
+  // Instance kedua (kartu lain di layar yang sama) → uid berbeda → tidak ada id SVG yang sama.
+  const ids = n => [...(n.props.children[0].props.dangerouslySetInnerHTML.__html + n.props.children[1].props.dangerouslySetInnerHTML.__html).matchAll(/\bid="([^"]+)"/g)].map(m => m[1]);
+  const b = sandbox.HB({ place: "hero" });
+  assert.ok(ids(a).length > 0);
+  for (const id of ids(b)) assert.ok(!ids(a).includes(id), "id ganda antar instance: " + id);
+  // kind eksplisit (kartu pilihan Pengaturan) menimpa pilihan aktif; kind asing → kontur.
+  const t = sandbox.HB({ place: "thumb", kind: "objek" });
+  assert.equal(t.props.className, "hb hb-thumb hb-k-objek");
+  assert.equal(sandbox.HB({ place: "thumb", kind: "foto" }).props.className, "hb hb-thumb hb-k-kontur");
+  // Atribut <html data-herobg> asing (versi lebih baru) → kontur.
+  const odd = renderBackdrop({}, { attrs: { theme: "dark", palette: "zzz", decor: "on", herobg: "foto" } });
+  const k = odd.sandbox.HB({ place: "hero" });
+  assert.equal(k.props.className, "hb hb-hero hb-k-kontur");
+  assert.equal(k.props.style.background, odd.hb.render({ kind: "kontur", palette: "zzz", mode: "dark", place: "hero" }).base);
+  // Registri belum termuat → hook null → layer null (tampilan lama, tanpa error).
+  const none = renderBackdrop({}, { registry: false }).sandbox;
+  assert.equal(none.useHB("hero"), null);
+  assert.equal(none.HB({ place: "hero" }), null);
+});
+
+test("HeroBackdropLayer: merender hasil hook yang diberikan (tanpa menghitung ulang); cardBase → tanpa base inline", () => {
+  const { sandbox } = renderBackdrop();
+  const bd = sandbox.useHB("pomo", "galaksi");
+  assert.deepEqual(Object.keys(bd).sort(), ["ambient", "base", "feature", "kind", "place"]);
+  assert.equal(bd.place, "pomo");
+  const el = sandbox.Layer({ bd });
+  assert.equal(el.props.className, "hb hb-pomo hb-k-galaksi");
+  assert.equal(el.props.style.background, bd.base);
+  assert.equal(el.props.children[0].props.dangerouslySetInnerHTML.__html, bd.ambient);
+  assert.equal(el.props.children[1].props.dangerouslySetInnerHTML.__html, bd.feature);
+  // Kartu yang melukis base sendiri (hero Dashboard, kartu Pomodoro): div.hb tanpa style inline.
+  assert.equal(sandbox.Layer({ bd, cardBase: true }).props.style, undefined);
+  assert.equal(sandbox.Layer({ bd: null, cardBase: true }), null);
+});
+
+test("render HeroBackdrop: uid dibuat sekali per instance (useRef), tetap sama saat render ulang", () => {
+  const { sandbox } = renderBackdrop();
+  // React mengembalikan objek ref yang sama untuk instance yang sama di setiap render.
+  const ref = { current: null };
+  sandbox.useRef = () => ref;
+  const first = sandbox.HB({ place: "pomo", kind: "galaksi" });
+  assert.equal(ref.current, "hb1");
+  const again = sandbox.HB({ place: "pomo", kind: "galaksi" });
+  assert.equal(ref.current, "hb1", "uid tidak bertambah");
+  assert.equal(again.props.children[1].props.dangerouslySetInnerHTML.__html, first.props.children[1].props.dangerouslySetInnerHTML.__html);
+  assert.match(first.props.children[0].props.dangerouslySetInnerHTML.__html, /id="hb1-/);
+});
+
+
+test("HP (≤640px): Galaksi ambient hanya di bagian bawah (mask); ambient Objek 3D disembunyikan (bola tunggal di antara chip dan tangkap cepat)", () => {
+  const m = css.match(/\n@media \(max-width: 640px\) \{\n  \.hb-hero\.hb-k-galaksi \.hb-ambient \{([^}]*)\}\n  ([^\n]*)\n\}\n/);
+  assert.ok(m, "blok ≤640 latar hero");
+  assert.match(m[1], /mask-image: linear-gradient\(to bottom, transparent 42%, #000 68%\);/);
+  assert.equal(m[2], ".hb-hero.hb-k-objek .hb-ambient { display: none; }");
+});
+
+test("fitur hero > 1100 px: .dash-hero = container inline-size; fitur per latar disembunyikan bila tidak muat di celah teks–ring", () => {
+  // Hero sempit (menu lengkap 1101–1279 px): kotak fitur tetap (right 226px, 290px) menimpa kolom teks (maks 420px). Ambang =
+  // lebar ISI hero minimum agar tepi kiri gambar (isi − 490 + d, d = tepi kiri gambar di kotak) ≥ 420 + 16 → 926 − d.
+  const i = css.indexOf("@media (min-width: 1101px) {\n  .dash-hero { container: dashhero / inline-size; }");
+  assert.ok(i >= 0, "container hero di dalam @media (min-width: 1101px)");
+  const b = css.slice(i, css.indexOf("\n}\n", i));
+  const want = { kontur: 774, lanskap: 701, galaksi: 825, objek: 920 };
+  for (const [k, w] of Object.entries(want)) {
+    assert.ok(b.includes(`@container dashhero (max-width: ${w}px) { .dash-hero > .hb-k-${k} .hb-feature { display: none; } }`), k);
+  }
+  assert.doesNotMatch(b, /hb-k-(gradasi|polos)/, "Gradasi/Polos tanpa fitur");
+  // Hanya desktop: <= 1100 px fitur sudah disembunyikan; container tidak dipasang di HP/tablet.
+  assert.equal(css.split("container: dashhero").length - 1, 1);
+});
+
+test("kontras chip hero di atas latar: chip bertint/transparan beralas kartu, tinta teks lebih tegas (diukur E2E)", () => {
+  const hero = cssRule(".dash-hero");
+  assert.match(hero, /--hero-tint: 12%;/);
+  assert.match(hero, /--hero-ink: color-mix\(in srgb, var\(--accent-text-strong, var\(--accent-text\)\) 80%, var\(--text-primary\)\);/);
+  const dark = css.match(/\n\[data-theme="dark"\] \.dash-hero \{([^}]*)\}/)[1];
+  assert.match(dark, /--hero-tint: 18%;/);
+  assert.match(dark, /--hero-ink: var\(--accent-text-strong, var\(--accent-text\)\);/);
+  // Alas kartu: tint dicampur ke --bg-card (setara rgba tint di atas kartu) → tidak tembus latar.
+  assert.match(cssRule(".dash-hero-streak"), /background: color-mix\(in srgb, rgb\(var\(--accent-rgb\)\) var\(--hero-tint\), var\(--bg-card\)\); color: var\(--hero-ink\);/);
+  assert.match(cssRule(".dash-hero .dash-date.is-overdue.dash-hero-overdue"), /background: color-mix\(in srgb, #ef4444 var\(--hero-tint\), var\(--bg-card\)\);/);
+  // Merah teks terang lebih tua di hero (#dc2626 di atas tint = 4,1:1); gelap tetap aturan .dash-date.is-overdue gelap.
+  assert.match(cssRule(".dash-hero .dash-date.dash-hero-overdue"), /^\s*color: #b91c1c;\s*$/);
+  assert.ok(css.indexOf(".dash-hero .dash-date.dash-hero-overdue {") < css.indexOf('[data-theme="dark"] .dash-date.is-overdue {'), "aturan gelap menang di mode gelap");
+  const mix80 = "color-mix(in srgb, var(--bg-card) 80%, transparent)";
+  assert.ok(cssRule(".dash-hero-more").includes("background: " + mix80 + ";"), "+N / Lihat habit");
+  assert.match(cssRule(".dash-hero-more"), /color: var\(--hero-sec, var\(--text-secondary\)\);/);
+  assert.ok(cssRule(".dash-hero-habit.is-skipped").includes("background: " + mix80 + ";"));
+  assert.match(cssRule(".dash-hero-habit.is-done"), /background: color-mix\(in srgb, rgb\(var\(--accent-rgb\)\) var\(--hero-tint\), color-mix\(in srgb, var\(--bg-card\) 80%, transparent\)\);/);
+  for (const sel of [".dash-hero-streak", ".dash-hero-habit.is-done"]) assert.ok(!css.includes(`[data-theme="dark"] ${sel} {`), "tint gelap lewat --hero-tint: " + sel);
+  assert.match(cssRule(".dash-hero-focus.is-invite"), /color: var\(--hero-ink\);/);
+  assert.match(cssRule(".dash-hero-focus-label"), /color: var\(--hero-ink\);/);
+  assert.match(cssRule(".dash-hero .dash-kbd"), /^\s*color: var\(--text-secondary\);\s*$/);
+  // Teks sekunder lebih tegas hanya di atas latar ramai (bukan Kontur/Polos = hero lama).
+  assert.match(css, /\n\.dash-hero > \.hb:not\(\.hb-k-kontur\):not\(\.hb-k-polos\) ~ \* \{ --hero-sec: color-mix\(in srgb, var\(--text-secondary\) 80%, var\(--text-primary\)\); \}/);
+  assert.match(cssRule(".dash-hero-date"), /color: var\(--hero-sec, var\(--text-secondary\)\);/);
+  assert.match(cssRule(".dash-hero-summary"), /color: var\(--hero-sec, var\(--text-secondary\)\);/);
+  // Tidak ada chip hero yang transparan lagi.
+  for (const m of css.matchAll(/\n(\.dash-hero[^{]*)\{([^}]*)\}/g)) assert.doesNotMatch(m[2], /background: transparent/, m[1]);
 });
 
 test("chip Fokus: aktif (judul → today, Mulai/Jeda → timer) atau ajakan; hanya saat intro dashboard + ada task", () => {
@@ -120,19 +275,32 @@ test("tanpa emoji di hero; pil habit lama dihapus", () => {
   }
 });
 
-test("CSS: gradien token, topo bermask, ilustrasi disembunyikan ≤1100px dan decor off, tanpa border-left", () => {
+test("CSS: gradien token (cadangan = base Kontur), lapisan .hb, fitur disembunyikan ≤1100px dan decor off, tanpa border-left", () => {
   const h = cssRule(".dash-hero");
-  // lapisan dasar padat: --accent-soft di tema gelap berupa rgba → tanpa ini sisi kanan tembus pandang
+  // lapisan dasar padat: --accent-soft di tema gelap berupa rgba → tanpa ini sisi kanan tembus pandang. Sama persis dengan
+  // base Kontur registri (dipakai bila TF.herobg belum termuat).
   assert.match(h, /background: linear-gradient\(105deg, var\(--bg-card\) 30%, var\(--accent-soft\) 100%\), var\(--bg-card\);/);
+  const kontur = require("../../static/offline/herobg.js").render({ kind: "kontur", palette: "default", mode: "light", place: "hero", uid: "t" });
+  assert.ok(h.includes("background: " + kontur.base + ";"), "cadangan CSS = base Kontur");
   assert.match(h, /border: 1px solid rgba\(var\(--accent-rgb\), 0\.25\)/);
+  assert.match(h, /overflow: hidden/);
   assert.ok(!/\.dash-hero::after/.test(css), "glow ::after lama dihapus");
-  const topo = cssRule(".dash-hero-topo");
-  assert.match(topo, /pointer-events: none/);
-  assert.match(topo, /mask-image: linear-gradient\(to right/);
-  assert.match(cssRule(".dash-hero-topo g"), /stroke: var\(--accent\)/);
-  assert.match(cssRule(".dash-hero-illus"), /pointer-events: none/);
-  assert.match(css, /\[data-decor="off"\] \.dash-hero-illus\s*\{\s*display: none;/);
-  assert.match(css, /@media \(max-width: 1100px\)\s*\{[^@]*\.dash-hero-illus\s*\{\s*display: none;/);
+  const hb = cssRule(".hb");
+  for (const re of [/position: absolute/, /inset: 0/, /z-index: 0/, /pointer-events: none/, /border-radius: inherit/, /overflow: hidden/]) assert.match(hb, re);
+  assert.match(cssRule(".hb-ambient"), /position: absolute; inset: 0;/);
+  assert.match(cssRule(".hb-feature"), /position: absolute;/);
+  // Kotak fitur spec latar §4 (= viewBox fitur registri).
+  assert.match(cssRule(".hb-hero .hb-feature"), /right: 226px; top: 4px; width: 290px; height: 140px;/);
+  assert.match(cssRule(".hb-pomo .hb-feature"), /right: 28px; top: 68px; width: 340px; height: 62px;/);
+  assert.match(cssRule(".hb-thumb .hb-feature"), /right: 6px; top: 4px; bottom: 4px; width: 86px;/);
+  // Hero memotong isi sendiri di radius dalam garisnya; .hb tanpa radius agar sudut sama dengan svg topografi lama.
+  assert.match(cssRule(".dash-hero > .hb"), /border-radius: 0;/);
+  assert.match(css, /\[data-decor="off"\] \.hb-hero \.hb-feature, \[data-decor="off"\] \.hb-pomo \.hb-feature\s*\{\s*display: none;/);
+  assert.match(css, /@media \(max-width: 1100px\)\s*\{[^@]*\.hb-hero \.hb-feature, \.hb-pomo \.hb-feature\s*\{\s*display: none;/);
+  // Isi hero di atas latar.
+  for (const sel of [".dash-hero-top", ".dash-hero-chips", ".dash-hero .scratchpad-bar.dash-capture"]) {
+    assert.match(cssRule(sel), /position: relative; z-index: 1;/, sel);
+  }
   assert.match(cssRule(".dash-hero-focus-act"), /color: var\(--accent-on, #1a2a00\)/);
   const block = css.slice(css.indexOf("\n.dash-hero {"), css.indexOf(".dash-ring {"));
   assert.doesNotMatch(block, /border-left/);

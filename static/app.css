@@ -46,6 +46,30 @@
       /* Garis pemisah lembut & track progress (PR B S5; palet menimpa lewat themes.css) */
       --line-soft: #f1f5f9;
       --track: #e2e8f0;
+      /* Kartu Pomodoro + bar ringkas (spec latar-hero §6), nilai per mode (gelap di blok berikut; palet tidak menimpa).
+         Versi TEKS warna bermakna: terang lebih tua agar kontras di atas kartu terang, gelap = nilai lama; -strong = teks
+         kecil di atas tint/permukaan tembus (pil mode aktif, realisasi task, statistik HP; terang lebih tua lagi, gelap =
+         nilai lama #fca5a5/#86efac). Garis dan lintasan ring = --text-primary beralfa, tombol sekunder/kotak task (gelap:
+         opak agar tepi latar yang terang tidak menembus), alfa tint fase/cahaya/piringan ring/kabut statistik, bayangan. */
+      --pomo-text-red: #dc2626;
+      --pomo-text-green: #15803d;
+      --pomo-text-purple: #6d28d9;
+      --pomo-text-orange: #9a3412;
+      --pomo-text-yellow: #a16207;
+      --pomo-text-red-strong: #b91c1c;
+      --pomo-text-green-strong: #166534;
+      --pomo-line: color-mix(in srgb, var(--text-primary) 12%, transparent);
+      --pomo-track: color-mix(in srgb, var(--text-primary) 9%, transparent);
+      --pomo-ctl-bg: var(--bg-card);
+      --pomo-box-bg: rgba(255,255,255,0.78);
+      --pomo-soft-a: 12%;
+      --pomo-glow-a: 10%;
+      --pomo-disk-a: 80%;
+      --pomo-disk-b: 60%;
+      --pomo-scrim-a: 80%;
+      --pomo-card-border: rgba(var(--accent-rgb), 0.22);
+      --pomo-card-shadow: 0 1px 2px rgba(15,23,42,0.04), 0 6px 20px rgba(15,23,42,0.05);
+      --pomo-float-shadow: 0 1px 2px rgba(15,23,42,0.06), 0 8px 24px rgba(15,23,42,0.12);
     }
     [data-theme="dark"] {
       --bg-page: #171717;
@@ -71,6 +95,26 @@
       /* Baris notifikasi (token opsional: terang memakai fallback #f0fdf4/#e0f2fe di index.html) */
       --notif-unread-bg: rgba(168,197,0,0.10);
       --notif-hover-bg: rgba(255,255,255,0.06);
+      /* Kartu Pomodoro + bar ringkas (lihat :root) */
+      --pomo-text-red: #f87171;
+      --pomo-text-green: #4ade80;
+      --pomo-text-purple: #c4b5fd;
+      --pomo-text-orange: #fb923c;
+      --pomo-text-yellow: #facc15;
+      --pomo-text-red-strong: #fca5a5;
+      --pomo-text-green-strong: #86efac;
+      --pomo-line: color-mix(in srgb, var(--text-primary) 16%, transparent);
+      --pomo-track: color-mix(in srgb, var(--text-primary) 14%, transparent);
+      --pomo-ctl-bg: color-mix(in srgb, var(--text-primary) 8%, var(--bg-card));
+      --pomo-box-bg: color-mix(in srgb, var(--bg-page) 86%, transparent);
+      --pomo-soft-a: 18%;
+      --pomo-glow-a: 20%;
+      --pomo-disk-a: 62%;
+      --pomo-disk-b: 45%;
+      --pomo-scrim-a: 72%;
+      --pomo-card-border: var(--border);
+      --pomo-card-shadow: none;
+      --pomo-float-shadow: 0 10px 28px rgba(0,0,0,0.45);
     }
     [data-theme="dark"] .input { background: var(--bg-page) !important; color: var(--text-primary); }
     [data-theme="dark"] select.input { background: var(--bg-page) !important; }
@@ -2589,30 +2633,64 @@
 
 /* Hero */
 /* Hero Dashboard (spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md §3): gradien token + topografi + ilustrasi palet. */
-.dash-hero { position: relative; border-radius: 18px; padding: 22px 26px 20px; margin: 4px 0 16px; background: linear-gradient(105deg, var(--bg-card) 30%, var(--accent-soft) 100%), var(--bg-card); border: 1px solid rgba(var(--accent-rgb), 0.25); box-shadow: var(--dash-shadow); overflow: hidden; }
-[data-theme="dark"] .dash-hero { border-color: rgba(var(--accent-rgb), 0.22); }
-.dash-hero-topo { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.35) 30%, #000 60%); mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.35) 30%, #000 60%); }
-.dash-hero-topo g { stroke: var(--accent); opacity: 0.28; }
-[data-theme="dark"] .dash-hero-topo g { opacity: 0.32; }
-.dash-hero-illus { position: absolute; right: 228px; top: 14px; width: 150px; height: 110px; pointer-events: none; }
-.dash-hero-illus svg { display: block; width: 150px; height: 110px; }
-.dash-hero-illus .dhi-stem { fill: none; stroke: var(--text-secondary); stroke-linecap: round; opacity: 0.5; }
-.dash-hero-illus .dhi-leaf-stem { fill: none; stroke: var(--accent-text-strong, var(--accent-text)); stroke-linecap: round; }
-.dash-hero-illus .dhi-leaf { fill: var(--accent-duo); stroke: var(--accent-text-strong, var(--accent-text)); }
-.dash-hero-illus .dhi-duo { fill: var(--accent-duo); stroke: var(--accent); }
-.dash-hero-illus .dhi-fill { fill: var(--accent); }
-[data-decor="off"] .dash-hero-illus { display: none; }
+.dash-hero { position: relative; border-radius: 18px; padding: 22px 26px 20px; margin: 4px 0 16px; background: linear-gradient(105deg, var(--bg-card) 30%, var(--accent-soft) 100%), var(--bg-card); border: 1px solid rgba(var(--accent-rgb), 0.25); box-shadow: var(--dash-shadow); overflow: hidden; --hero-tint: 12%; --hero-ink: color-mix(in srgb, var(--accent-text-strong, var(--accent-text)) 80%, var(--text-primary)); }
+[data-theme="dark"] .dash-hero { border-color: rgba(var(--accent-rgb), 0.22); --hero-tint: 18%; --hero-ink: var(--accent-text-strong, var(--accent-text)); }
+/* Kontras teks hero di atas latar pilihan (spec latar-hero §5; diukur dari piksel latar nyata, temporary_files/
+   e2e_latar_hero.py): chip bertint (streak, terlambat, habit selesai) = tint dicampur ke --bg-card (setara rgba tint di atas
+   kartu, jadi Kontur tetap sama di zona teks) dan chip transparan (+N / Lihat habit, habit dilewati) = kartu 80%, sehingga
+   pastel/piksel latar tidak menembus; --hero-tint 12% terang / 18% gelap. --hero-ink = tinta aksen dicampur ke teks utama
+   (--accent-text-strong Default terang hanya 4,45:1 di atas putih; gelap tetap aksen). Teks sekunder sedikit lebih tegas (pola
+   --pomo-sec) hanya di atas latar ramai; Kontur/Polos = hero lama. */
+.dash-hero > .hb:not(.hb-k-kontur):not(.hb-k-polos) ~ * { --hero-sec: color-mix(in srgb, var(--text-secondary) 80%, var(--text-primary)); }
+/* Latar hero (HeroBackdrop, spec latar-hero §4): lapisan absolut di bawah isi kartu. base = background inline (atau latar
+   kartu itu sendiri bila cardBase, mis. hero Dashboard), ambient memenuhi kartu, fitur di kotak per tempat (viewBox SVG
+   fitur = ukuran kotak). Fitur hero/Pomodoro disembunyikan bila dekorasi mati dan di <= 1100 px (termasuk HP); kartu
+   pilihan (thumb) selalu menampilkannya karena fitur itulah pembeda antarlatar (Objek 3D tanpa fitur = gradien polos). */
+.hb { position: absolute; inset: 0; z-index: 0; pointer-events: none; border-radius: inherit; overflow: hidden; }
+.hb-ambient { position: absolute; inset: 0; }
+.hb-feature { position: absolute; }
+.hb-hero .hb-feature { right: 226px; top: 4px; width: 290px; height: 140px; }
+.hb-pomo .hb-feature { right: 28px; top: 68px; width: 340px; height: 62px; }
+.hb-thumb .hb-feature { right: 6px; top: 4px; bottom: 4px; width: 86px; }
+[data-decor="off"] .hb-hero .hb-feature, [data-decor="off"] .hb-pomo .hb-feature { display: none; }
+/* Hero Dashboard melukis base sendiri dan memotong isinya (overflow hidden) di radius DALAM garisnya (18 - 1 = 17px); radius
+   18px warisan memotong garis kontur di sudut lebih banyak daripada svg topografi lama. */
+.dash-hero > .hb { border-radius: 0; }
+/* Kotak fitur hero tetap (right 226px, 290px) vs kolom teks (maks 420px dari tepi isi). Hero yang sempit (menu lengkap di
+   1101–1279 px) membuat gambar fitur menimpa sapaan → fitur disembunyikan menurut lebar ISI hero (container, pola sama
+   dengan kartu Pomodoro) per latar: tepi kiri gambar = isi − 490 + d (d = tepi kiri gambar di kotak, terukur: Objek 3D 5,
+   Galaksi 100, Kontur 151 (Sakura), Lanskap 225) harus ≥ 420 + 16 → isi ≥ 926 − d. Gradasi/Polos tanpa fitur. Diuji
+   temporary_files/e2e_latar_hero.py (cek "lebar hero", nama tampilan panjang). Hanya desktop: ≤ 1100 px fitur sudah
+   disembunyikan. 1280 px sidebar ikon (isi 1106) = semua fitur tampil, Kontur sama dengan hero lama. */
+@media (min-width: 1101px) {
+  .dash-hero { container: dashhero / inline-size; }
+  @container dashhero (max-width: 774px) { .dash-hero > .hb-k-kontur .hb-feature { display: none; } }
+  @container dashhero (max-width: 701px) { .dash-hero > .hb-k-lanskap .hb-feature { display: none; } }
+  @container dashhero (max-width: 825px) { .dash-hero > .hb-k-galaksi .hb-feature { display: none; } }
+  @container dashhero (max-width: 920px) { .dash-hero > .hb-k-objek .hb-feature { display: none; } }
+}
+/* HP (<= 640 px): hero bertumpuk lebih tinggi daripada lebarnya, jadi ambient (viewBox 1440x300, slice) membesar dan jalur
+   misi Galaksi / bola Objek 3D jatuh tepat di atas sapaan dan cincin progres (tanpa kartu kaca di HP). Ambient Galaksi hanya
+   tampil di bagian bawah (di balik chip dan tangkap cepat); zona teks atas tetap = base. Ambient Objek 3D disembunyikan:
+   bola kanan atas sudah tertutup mask itu, sisanya satu bola tunggal di antara chip dan tangkap cepat. */
+@media (max-width: 640px) {
+  .hb-hero.hb-k-galaksi .hb-ambient { -webkit-mask-image: linear-gradient(to bottom, transparent 42%, #000 68%); mask-image: linear-gradient(to bottom, transparent 42%, #000 68%); }
+  .hb-hero.hb-k-objek .hb-ambient { display: none; }
+}
 .dash-hero-top { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .dash-hero-text { min-width: 0; max-width: 420px; }
 .dash-hero-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.dash-hero-date { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); text-transform: capitalize; }
-.dash-hero-streak { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 6px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.12); color: var(--accent-text-strong, var(--accent-text)); font-size: 12px; font-weight: 700; white-space: nowrap; }
-[data-theme="dark"] .dash-hero-streak { background: rgba(var(--accent-rgb), 0.18); }
+.dash-hero-date { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--hero-sec, var(--text-secondary)); text-transform: capitalize; }
+.dash-hero-streak { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 6px; border-radius: 999px; background: color-mix(in srgb, rgb(var(--accent-rgb)) var(--hero-tint), var(--bg-card)); color: var(--hero-ink); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .dash-hero-greet { font-size: 26px; font-weight: 800; letter-spacing: -0.4px; line-height: 1.2; margin: 8px 0 6px; color: var(--text-primary); }
 .dash-hero-name { color: var(--accent-text-strong, var(--accent-text)); }
 [data-theme="dark"] .dash-hero-name { color: var(--accent); }
-.dash-hero-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--text-secondary); line-height: 1.5; }
+.dash-hero-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--hero-sec, var(--text-secondary)); line-height: 1.5; }
 .dash-hero .dash-hero-overdue { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12.5px; line-height: 1.4; }
+.dash-hero .dash-date.is-overdue.dash-hero-overdue { background: color-mix(in srgb, #ef4444 var(--hero-tint), var(--bg-card)); }
+/* Terang: merah lebih tua (merah lama di atas tint = 4,1:1). Mode gelap: aturan gelap .dash-date.is-overdue (sama
+   spesifisitas, sesudah aturan ini) tetap berlaku. */
+.dash-hero .dash-date.dash-hero-overdue { color: #b91c1c; }
 .dash-hero-chips { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .dash-hero-habits { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .dash-hero-chip { display: inline-flex; align-items: center; gap: 7px; box-sizing: border-box; min-width: 0; max-width: 100%; padding: 6px 12px 6px 7px; border-radius: 999px; background: var(--bg-card); border: 1px solid var(--border); font-family: inherit; font-size: 13px; color: var(--text-primary); text-align: left; }
@@ -2621,23 +2699,22 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .dash-hero-chip:focus-visible, .dash-hero-focus-main:focus-visible, .dash-hero-focus-act:focus-visible, .dash-hero-progress:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .dash-hero-focus { gap: 8px; padding: 4px 4px 4px 12px; max-width: 360px; }
 .dash-hero-focus.is-noact { padding-right: 14px; }
-.dash-hero-focus.is-invite { padding: 6px 14px 6px 10px; font-weight: 700; color: var(--accent-text-strong, var(--accent-text)); }
+.dash-hero-focus.is-invite { padding: 6px 14px 6px 10px; font-weight: 700; color: var(--hero-ink); }
 .dash-hero-focus-ico { display: inline-flex; flex-shrink: 0; color: var(--accent); }
 .dash-hero-focus-main { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; padding: 0; border: none; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
-.dash-hero-focus-label { flex-shrink: 0; font-weight: 800; color: var(--accent-text-strong, var(--accent-text)); }
+.dash-hero-focus-label { flex-shrink: 0; font-weight: 800; color: var(--hero-ink); }
 .dash-hero-focus-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-hero-focus-act { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 5px 11px 5px 9px; border-radius: 999px; border: none; background: var(--accent); color: var(--accent-on, #1a2a00); font-family: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
 .dash-hero-focus-act:hover { background: var(--accent-hover); }
 .dash-hero-habit-check { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid var(--accent); }
 .dash-hero-habit-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
-.dash-hero-habit.is-done { background: rgba(var(--accent-rgb), 0.12); border-color: transparent; color: var(--text-secondary); }
-[data-theme="dark"] .dash-hero-habit.is-done { background: rgba(var(--accent-rgb), 0.18); }
+.dash-hero-habit.is-done { background: color-mix(in srgb, rgb(var(--accent-rgb)) var(--hero-tint), color-mix(in srgb, var(--bg-card) 80%, transparent)); border-color: transparent; color: var(--text-secondary); }
 .dash-hero-habit.is-done .dash-hero-habit-check { background: var(--accent); border-color: var(--accent); color: var(--accent-on, #1a2a00); }
 .dash-hero-habit.is-done .dash-hero-habit-name { text-decoration: line-through; }
-.dash-hero-habit.is-skipped { background: transparent; border-style: dashed; color: var(--text-secondary); opacity: 0.7; }
+.dash-hero-habit.is-skipped { background: color-mix(in srgb, var(--bg-card) 80%, transparent); border-style: dashed; color: var(--text-secondary); opacity: 0.7; }
 .dash-hero-habit.is-skipped .dash-hero-habit-check { border-color: var(--text-secondary); }
 .dash-hero-habit-dash { display: block; width: 8px; height: 1.5px; border-radius: 1px; background: currentColor; }
-.dash-hero-more { padding: 6px 10px; background: transparent; border-style: dashed; font-size: 12.5px; font-weight: 700; color: var(--text-secondary); }
+.dash-hero-more { padding: 6px 10px; background: color-mix(in srgb, var(--bg-card) 80%, transparent); border-style: dashed; font-size: 12.5px; font-weight: 700; color: var(--hero-sec, var(--text-secondary)); }
 .dash-hero-progress { display: flex; align-items: center; gap: 12px; flex-shrink: 0; cursor: pointer; padding: 10px 16px 10px 10px; border-radius: 16px; background: color-mix(in srgb, var(--bg-card) 82%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border: 1px solid var(--border); font: inherit; color: inherit; text-align: left; transition: transform 0.15s, box-shadow 0.15s; }
 .dash-hero-progress:hover { transform: translateY(-1px); box-shadow: var(--dash-shadow-hover); }
 .dash-hero-progress-text { display: flex; flex-direction: column; line-height: 1.25; }
@@ -2651,6 +2728,8 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .dash-hero .scratchpad-bar.dash-capture { position: relative; z-index: 1; margin: 18px 0 0; border-radius: 12px; padding: 10px 12px 10px 14px; background: var(--bg-card); border: 1.5px solid var(--border); transition: border-color 0.15s, box-shadow 0.15s; }
 .dash-hero .scratchpad-bar.dash-capture:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18); }
 [data-theme="dark"] .dash-hero .scratchpad-bar.dash-capture { background: #1c1c1c; border-color: #3a3a3a; }
+/* Petunjuk tombol di tangkap cepat: --text-light Default (2,6:1 terang, 3,6:1 gelap) terlalu samar → teks sekunder. */
+.dash-hero .dash-kbd { color: var(--text-secondary); }
 .dash-kbd { font-family: inherit; font-size: 11px; font-weight: 700; color: var(--text-light); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 6px; padding: 1px 7px; flex-shrink: 0; }
 
 /* Shared atoms */
@@ -2887,7 +2966,7 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
   .dash-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .dash-charts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .dash-charts > :first-child { grid-column: 1 / -1; }
-  .dash-hero-illus { display: none; }
+  .hb-hero .hb-feature, .hb-pomo .hb-feature { display: none; }
 }
 @media (max-width: 900px) {
   .dash-main { grid-template-columns: minmax(0, 1fr); }
@@ -3541,42 +3620,77 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
   .focus-page-strip svg { display: inline-block; vertical-align: -2px; }
 }
 
-/* Kartu Pomodoro penuh */
+/* Kartu Pomodoro penuh (spec latar-hero §6): latar = HeroBackdrop place="pomo" (base dipasang inline di kartu ini, seperti
+   hero Dashboard; CSS di bawah = cadangan Kontur bila registri belum termuat) + cahaya fase (::before) + piringan lembut di
+   belakang ring. Teks/garis/tombol sekunder memakai token (--text-*, --pomo-* di :root/blok gelap), jadi kartu terang di
+   mode terang dan ikut palet di mode gelap. Warna bermakna tetap: --pomo-ink = merah/hijau/ungu fase (ring, titik, tombol
+   utama), --pomo-ink-text = versi teks fase (lebih tua di mode terang). Lapisan: .hb (z 0) < cahaya (z 1) < isi (z 1,
+   urutan DOM sesudahnya). */
+.focus-pomo, .focus-mini {
+  --pomo-ink: #ef4444; --pomo-ink-text: var(--pomo-text-red);
+  --pomo-ink-soft: color-mix(in srgb, var(--pomo-ink) var(--pomo-soft-a), transparent);
+  /* Teks sekunder sedikit lebih tegas daripada --text-secondary (Default hanya 4,76:1 di atas putih): tetap >= 4,5:1 di
+     atas tint cahaya fase / pastel latar, di kedua mode (dicampur ke arah --text-primary). */
+  --pomo-sec: color-mix(in srgb, var(--text-secondary) 80%, var(--text-primary));
+}
 .focus-pomo {
-  --pomo-ink: #ef4444; --pomo-ink-soft: rgba(239,68,68,0.18); --pomo-ink-text: #fca5a5;
   display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 28px; align-items: center;
-  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); color: #fff;
+  background: linear-gradient(105deg, var(--bg-card) 30%, var(--accent-soft) 100%), var(--bg-card); color: var(--text-primary);
+  border: 1px solid var(--pomo-card-border); box-shadow: var(--pomo-card-shadow);
   border-radius: 20px; padding: 24px 28px; margin-bottom: 24px; position: relative; overflow: hidden;
 }
-.focus-pomo.is-overtime, .focus-mini.is-overtime { --pomo-ink: #8b5cf6; --pomo-ink-soft: rgba(139,92,246,0.18); --pomo-ink-text: #c4b5fd; }
-.focus-pomo.is-break, .focus-mini.is-break { --pomo-ink: #22c55e; --pomo-ink-soft: rgba(34,197,94,0.18); --pomo-ink-text: #86efac; }
-.focus-pomo::before { content: ''; position: absolute; top: -60%; right: -40%; width: 90%; height: 160%; background: radial-gradient(circle, var(--pomo-ink-soft) 0%, transparent 65%); opacity: .55; pointer-events: none; }
-.focus-pomo > * { position: relative; }
-.focus-pomo-ring { position: relative; width: 168px; height: 168px; flex-shrink: 0; }
+.focus-pomo.is-overtime, .focus-mini.is-overtime { --pomo-ink: #8b5cf6; --pomo-ink-text: var(--pomo-text-purple); }
+.focus-pomo.is-break, .focus-mini.is-break { --pomo-ink: #22c55e; --pomo-ink-text: var(--pomo-text-green); }
+/* .hb memotong isinya di radius DALAM garis kartu (20 - 1); kartu sendiri melukis base (cardBase). */
+.focus-pomo > .hb { border-radius: 19px; }
+/* Kotak fitur (340 px, rata kanan isi) vs baris tombol (mulai 196 px dari kiri isi; berakhir ±497 px berjalan/istirahat,
+   ±553 px Overtime, ±675 px menunggu pilihan). Kartu yang sempit (≤ 1280 px dengan menu lengkap, 1101–1180 px) membuat
+   gambar fitur menimpa tombol → fitur disembunyikan menurut lebar ISI kartu (container), latar dan status. Gambar mulai
+   ±C−106 (Kontur), C−280 (Objek 3D), C−340 (Galaksi); batas = ujung tombol + 16 px + cadangan ±20 px. Diuji
+   temporary_files/e2e_latar_hero.py (cek "lebar"). Hanya desktop: ≤ 1100 px fitur sudah disembunyikan. */
+@media (min-width: 1101px) {
+  .focus-pomo { container: pomo / inline-size; }
+  @container pomo (max-width: 819px) { .focus-pomo.is-awaiting > .hb-k-kontur .hb-feature { display: none; } }
+  @container pomo (max-width: 879px) { .focus-pomo > .hb-k-galaksi .hb-feature { display: none; } }
+  @container pomo (max-width: 929px) { .focus-pomo.is-overtime > .hb-k-galaksi .hb-feature { display: none; } }
+  @container pomo (max-width: 1049px) { .focus-pomo.is-awaiting > .hb-k-galaksi .hb-feature { display: none; } }
+  @container pomo (max-width: 819px) { .focus-pomo > .hb-k-objek .hb-feature { display: none; } }
+  @container pomo (max-width: 869px) { .focus-pomo.is-overtime > .hb-k-objek .hb-feature { display: none; } }
+  @container pomo (max-width: 989px) { .focus-pomo.is-awaiting > .hb-k-objek .hb-feature { display: none; } }
+}
+/* Cahaya fase berpusat di ring (padding 28 + 84 px), memudar sebelum kolom teks agar teks tidak ikut ber-tint. */
+.focus-pomo::before { content: ''; position: absolute; z-index: 1; inset: 0; background: radial-gradient(circle 200px at 112px 50%, color-mix(in srgb, var(--pomo-ink) var(--pomo-glow-a), transparent) 0%, transparent 100%); pointer-events: none; }
+.focus-pomo > :not(.hb) { position: relative; z-index: 1; }
+/* Piringan di belakang ring: waktu tetap terbaca di latar ramai (bukit Lanskap, piksel Galaksi). */
+.focus-pomo-ring { position: relative; width: 168px; height: 168px; flex-shrink: 0; border-radius: 50%; background: radial-gradient(circle closest-side, color-mix(in srgb, var(--bg-card) var(--pomo-disk-a), transparent) 0%, color-mix(in srgb, var(--bg-card) var(--pomo-disk-b), transparent) 86%, transparent 100%); }
 .focus-pomo.is-running .focus-pomo-ring { filter: drop-shadow(0 0 14px var(--pomo-ink-soft)); }
 .pomo-ring-svg { display: block; transform: rotate(-90deg); }
-.pomo-ring-track { stroke: rgba(255,255,255,0.1); }
+.pomo-ring-track { stroke: var(--pomo-track); }
 .pomo-ring-value { stroke: var(--pomo-ink); transition: stroke-dashoffset 0.5s ease; }
 .focus-pomo-ring-text { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.focus-pomo-time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 42px; font-weight: 700; letter-spacing: -1.5px; color: var(--pomo-ink); font-variant-numeric: tabular-nums; line-height: 1; }
-.focus-pomo-label { font-size: 11px; color: rgba(255,255,255,0.65); margin-top: 6px; text-transform: uppercase; letter-spacing: 1px; }
+.focus-pomo-time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 42px; font-weight: 700; letter-spacing: -1.5px; color: var(--pomo-ink-text); font-variant-numeric: tabular-nums; line-height: 1; }
+.focus-pomo-label { font-size: 11px; font-weight: 700; color: var(--pomo-sec); margin-top: 6px; text-transform: uppercase; letter-spacing: 1px; }
 .focus-pomo-body { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .focus-pomo-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
-.focus-pomo-title { font-size: 19px; font-weight: 700; display: flex; align-items: center; gap: 8px; margin: 0; }
-.focus-pomo-sub { font-size: 13px; color: rgba(255,255,255,0.6); margin: 2px 0 0; }
+.focus-pomo-title { font-size: 19px; font-weight: 800; display: flex; align-items: center; gap: 8px; margin: 0; color: var(--text-primary); }
+.focus-pomo-title svg { color: var(--pomo-ink-text); }
+.focus-pomo-sub { font-size: 13px; color: var(--pomo-sec); margin: 2px 0 0; }
 
-.pomo-modes { display: inline-flex; gap: 2px; padding: 3px; background: rgba(255,255,255,0.08); border-radius: 999px; }
-.pomo-mode { border: none; background: transparent; color: rgba(255,255,255,0.65); font: inherit; font-size: 13px; font-weight: 600; padding: 5px 13px; border-radius: 999px; cursor: pointer; transition: background .15s, color .15s; }
-.pomo-mode:hover { color: #fff; background: rgba(255,255,255,0.08); }
-.pomo-mode.is-active { background: rgba(239,68,68,0.22); color: #fca5a5; }
-.pomo-mode.is-break.is-active { background: rgba(34,197,94,0.22); color: #86efac; }
-.pomo-mode:focus-visible, .pomo-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Kontrol sekunder (pilihan mode, Lewati/Stop, Zen, pil/select suara): latar --pomo-ctl-bg + garis --pomo-line (inset,
+   ukuran tidak berubah); hover = tint --bg-hover di atasnya. */
+.pomo-modes { display: inline-flex; gap: 2px; padding: 3px; background: var(--pomo-ctl-bg); box-shadow: inset 0 0 0 1px var(--pomo-line); border-radius: 999px; }
+.pomo-mode { border: none; background: transparent; color: var(--pomo-sec); font: inherit; font-size: 13px; font-weight: 700; padding: 5px 13px; border-radius: 999px; cursor: pointer; transition: background .15s, color .15s; }
+.pomo-mode:hover { color: var(--text-primary); background: var(--bg-hover); }
+.pomo-mode.is-active { background: color-mix(in srgb, #ef4444 var(--pomo-soft-a), transparent); color: var(--pomo-text-red-strong); }
+.pomo-mode.is-break.is-active { background: color-mix(in srgb, #22c55e var(--pomo-soft-a), transparent); color: var(--pomo-text-green-strong); }
+.pomo-mode:focus-visible, .pomo-btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .pomo-modes.is-small .pomo-mode { font-size: 12px; padding: 4px 10px; }
 
 .pomo-controls { display: flex; gap: 8px; flex-wrap: wrap; }
-.pomo-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 40px; padding: 0 16px; border-radius: 999px; border: none; cursor: pointer; font: inherit; font-size: 14px; font-weight: 600; background: rgba(255,255,255,0.1); color: #fff; transition: background .15s, transform .15s, opacity .15s; }
-.pomo-btn:hover:not(:disabled) { background: rgba(255,255,255,0.18); }
+.pomo-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 40px; padding: 0 16px; border-radius: 999px; border: none; cursor: pointer; font: inherit; font-size: 14px; font-weight: 700; background: var(--pomo-ctl-bg); color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--pomo-line); transition: background .15s, transform .15s, opacity .15s; }
+.pomo-btn:hover:not(:disabled) { background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--pomo-ctl-bg); }
 .pomo-btn:disabled { opacity: .4; cursor: default; }
+.pomo-btn-main, .pomo-btn-break, .pomo-btn-overtime { box-shadow: none; }
 .pomo-btn-main { background: var(--pomo-ink); color: #fff; padding: 0 20px; }
 .pomo-btn-main:hover:not(:disabled) { background: var(--pomo-ink); filter: brightness(1.08); }
 .pomo-btn-main.is-pause { background: #f59e0b; color: #1f1300; }
@@ -3593,68 +3707,71 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
   .pomo-controls.is-awaiting .pomo-btn, .pomo-controls.is-overtime .pomo-btn { padding: 0 12px; font-size: 13px; }
 }
 
-.focus-pomo-task { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: rgba(255,255,255,0.08); border-radius: 12px; }
+.focus-pomo-task { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: var(--pomo-box-bg); box-shadow: inset 0 0 0 1px var(--pomo-line); border-radius: 12px; }
 .focus-pomo-task-icon { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 9px; background: var(--pomo-ink-soft); color: var(--pomo-ink-text); flex-shrink: 0; }
 .focus-pomo-task-text { flex: 1; min-width: 0; }
-.focus-pomo-task-kicker { font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: .06em; }
-.focus-pomo-task-title { font-size: 14.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.focus-pomo-task-count { font-size: 13px; color: rgba(255,255,255,0.75); flex-shrink: 0; }
+.focus-pomo-task-kicker { font-size: 10px; font-weight: 800; color: var(--pomo-sec); text-transform: uppercase; letter-spacing: .06em; }
+.focus-pomo-task-title { font-size: 14.5px; font-weight: 700; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-pomo-task-count { font-size: 13px; font-weight: 700; color: var(--pomo-sec); flex-shrink: 0; }
 .pomo-park { position: relative; display: flex; align-items: center; }
-.pomo-park-input { flex: 1; min-width: 0; box-sizing: border-box; background: transparent; border: 0; border-bottom: 1px solid rgba(255,255,255,.18); border-radius: 0; color: #fff; font: inherit; font-size: 13.5px; padding: 8px 28px 8px 2px; outline: none; transition: border-color .15s; }
-.pomo-park-input::placeholder { color: rgba(255,255,255,.5); }
-.pomo-park-input:focus { border-bottom-color: rgba(255,255,255,.45); }
-.pomo-park.is-error .pomo-park-input { border-bottom-color: #f87171; }
-.pomo-park-ok { display: none; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); color: #4ade80; }
+.pomo-park-input { flex: 1; min-width: 0; box-sizing: border-box; background: transparent; border: 0; border-bottom: 1px solid var(--pomo-line); border-radius: 0; color: var(--text-primary); font: inherit; font-size: 13.5px; padding: 8px 28px 8px 2px; outline: none; transition: border-color .15s; }
+.pomo-park-input::placeholder { color: var(--pomo-sec); }
+.pomo-park-input:focus { border-bottom-color: var(--pomo-sec); }
+.pomo-park.is-error .pomo-park-input { border-bottom-color: var(--pomo-text-red); }
+.pomo-park-ok { display: none; position: absolute; right: 4px; top: 50%; transform: translateY(-50%); color: var(--pomo-text-green); }
 .pomo-park.is-ok .pomo-park-ok { display: inline-flex; animation: pomo-park-pop .25s ease-out; }
 @keyframes pomo-park-pop { from { transform: translateY(-50%) scale(.4); opacity: 0; } to { transform: translateY(-50%) scale(1); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .pomo-park.is-ok .pomo-park-ok { animation: none; } }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
-.focus-pomo-hint { font-size: 13px; color: rgba(255,255,255,0.65); padding: 10px 14px; background: rgba(255,255,255,0.05); border: 1px dashed rgba(255,255,255,0.16); border-radius: 12px; }
-.focus-pomo-hint strong { color: #fff; }
-.focus-pomo-stats { display: flex; gap: 24px; flex-wrap: wrap; }
+.focus-pomo-hint { font-size: 13px; color: var(--pomo-sec); padding: 10px 14px; background: var(--pomo-box-bg); border: 1px dashed var(--pomo-line); border-radius: 12px; }
+.focus-pomo-hint strong { color: var(--text-primary); }
+/* Kabut lembut di belakang baris statistik (kabur, --bg-card beralfa): angka tetap terbaca di atas bukit Lanskap,
+   mesh Gradasi, dan tepi piksel Galaksi. isolation: lapisan z -1 tetap di dalam baris (juga di HP, saat induknya
+   display: contents). */
+.focus-pomo-stats { display: flex; gap: 24px; flex-wrap: wrap; position: relative; isolation: isolate; }
+.focus-pomo-stats::before { content: ''; position: absolute; z-index: -1; inset: -6px -14px; border-radius: 14px; background: color-mix(in srgb, var(--bg-card) var(--pomo-scrim-a), transparent); filter: blur(8px); pointer-events: none; }
 .focus-pomo-stat { display: flex; align-items: baseline; gap: 7px; }
-.pomo-ambient { display: flex; align-items: center; gap: 8px; margin-left: auto; color: rgba(255,255,255,.75); }
-.pomo-ambient-icon { display: inline-flex; color: rgba(255,255,255,.6); }
-.pomo-ambient[data-state="playing"] .pomo-ambient-icon { color: #4ade80; }
+.pomo-ambient { display: flex; align-items: center; gap: 8px; margin-left: auto; color: var(--pomo-sec); }
+.pomo-ambient-icon { display: inline-flex; color: var(--pomo-sec); }
+.pomo-ambient[data-state="playing"] .pomo-ambient-icon { color: var(--pomo-text-green); }
 .pomo-ambient[data-state="loading"] .pomo-ambient-icon { animation: pomo-ambient-pulse 1.4s ease-in-out infinite; }
-.pomo-ambient[data-state="error"] .pomo-ambient-icon { color: #f87171; }
-.pomo-ambient[data-state="waiting-tap"] .pomo-ambient-icon { color: #facc15; }
-.pomo-ambient-select { background: rgba(255,255,255,.08); color: inherit; border: 1px solid rgba(255,255,255,.16); border-radius: 8px; padding: 4px 8px; font: inherit; font-size: 12px; }
+.pomo-ambient[data-state="error"] .pomo-ambient-icon { color: var(--pomo-text-red); }
+.pomo-ambient[data-state="waiting-tap"] .pomo-ambient-icon { color: var(--pomo-text-yellow); }
+.pomo-ambient-select { background: var(--pomo-ctl-bg); color: var(--text-primary); border: 1px solid var(--pomo-line); border-radius: 8px; padding: 4px 8px; font: inherit; font-size: 12px; }
 .pomo-ambient-select option { color: #111; background: #fff; }
 .pomo-ambient-volume { width: 88px; accent-color: var(--accent); }
 .pomo-ambient-volume:disabled { opacity: .4; }
 @keyframes pomo-ambient-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .pomo-ambient[data-state="loading"] .pomo-ambient-icon { animation: none; } }
-.focus-pomo-stat-value { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
-.focus-pomo-stat-value.is-red { color: #f87171; }
-.focus-pomo-stat-value.is-green { color: #4ade80; }
-.focus-pomo-stat-value.is-lime { color: var(--accent); }
-.focus-pomo-stat-label { font-size: 11px; color: rgba(255,255,255,0.7); text-transform: uppercase; letter-spacing: .5px; }
+/* 19 px tebal = teks besar WCAG (>= 14 pt tebal): merah/hijau teks fase cukup 3:1 di atas kabut statistik. */
+.focus-pomo-stat-value { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.focus-pomo-stat-value.is-red { color: var(--pomo-text-red); }
+.focus-pomo-stat-value.is-green { color: var(--pomo-text-green); }
+.focus-pomo-stat-value.is-lime { color: var(--accent-text-strong); }
+.focus-pomo-stat-label { font-size: 11px; font-weight: 700; color: var(--pomo-sec); text-transform: uppercase; letter-spacing: .5px; }
 /* Elemen khusus kartu ringkas HP (durasi mode, pil suara, titik + Selesai task aktif, project, label pendek, ikon/kirim parkir) */
 .pomo-mode-min, .pomo-amb-mobile, .focus-pomo-task-dot, .focus-pomo-task-done-btn, .focus-pomo-stats-project, .focus-pomo-stat-label .is-short, .pomo-park-icon, .pomo-park-send { display: none; }
 
-/* Bar Pomodoro ringkas (sticky) — anchor setinggi 0 agar tidak menggeser isi */
+/* Bar Pomodoro ringkas (sticky) — anchor setinggi 0 agar tidak menggeser isi. Permukaan kartu palet (--bg-card + --border,
+   bayangan lembut per mode), tanpa latar ilustrasi; fase lewat --pomo-ink* (aturan bersama .focus-pomo di atas). */
 .focus-mini-anchor { position: sticky; z-index: 25; height: 0; }
 .focus-mini {
-  --pomo-ink: #ef4444; --pomo-ink-soft: rgba(239,68,68,0.18); --pomo-ink-text: #fca5a5;
   position: absolute; left: 0; right: 0; top: 8px;
   display: flex; align-items: center; gap: 14px; padding: 8px 10px 8px 12px;
-  background: rgba(15,23,42,0.96); color: #fff; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
-  box-shadow: 0 10px 28px rgba(15,23,42,0.22);
+  background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border); border-radius: 14px;
+  box-shadow: var(--pomo-float-shadow);
   opacity: 0; transform: translateY(-6px); visibility: hidden; pointer-events: none;
   transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
 }
-@supports (backdrop-filter: blur(8px)) { .focus-mini { background: rgba(15,23,42,0.9); backdrop-filter: blur(8px); } }
 /* Pita warna latar halaman di belakang bar: isi yang tergulir tidak mengintip di celah atas */
 .focus-mini-anchor.is-active::before { content: ''; position: absolute; left: -10px; right: -10px; top: -1px; height: 34px; background: var(--bg-page); }
 .focus-mini.is-visible { opacity: 1; transform: none; visibility: visible; pointer-events: auto; transition-delay: 0s; }
-[data-theme="dark"] .focus-mini { background: rgba(10,14,24,0.96); border-color: rgba(255,255,255,0.12); box-shadow: 0 10px 28px rgba(0,0,0,0.45); }
 .focus-mini-clock { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .focus-mini-ring { display: inline-flex; }
-.focus-mini-time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 22px; font-weight: 700; color: var(--pomo-ink); font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
+.focus-mini-time { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 22px; font-weight: 700; color: var(--pomo-ink-text); font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
 .focus-mini-task { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.focus-mini-kicker { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: rgba(255,255,255,0.5); }
-.focus-mini-title { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.focus-mini-kicker { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--pomo-sec); }
+.focus-mini-title { font-size: 13.5px; font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Section header */
 .focus-section { margin-bottom: 22px; }
@@ -3693,7 +3810,8 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .ftask-count.is-pomo { background: rgba(239,68,68,0.08); border-color: rgba(239,68,68,0.2); }
 .ftask-count.is-pomo.is-over { color: var(--p2); }
 .focus-pomo-task-count { display: inline-flex; align-items: center; gap: 2px; }
-.focus-pomo-task-done.is-over { color: #fb923c; }
+.focus-pomo-task-done { color: var(--pomo-text-red-strong); }
+.focus-pomo-task-done.is-over { color: var(--pomo-text-orange); }
 .ftask-estimate { display: inline-flex; align-items: center; gap: 2px; margin-left: 8px; }
 .ftask-est-btn { position: relative; display: inline-flex; align-items: center; justify-content: center; gap: 1px; min-width: 26px; height: 26px; padding: 0 3px; border: none; background: none; border-radius: 8px; cursor: pointer; color: var(--text-secondary); opacity: .35; font: inherit; font-size: 10px; font-weight: 700; }
 .ftask-est-btn.is-filled { color: var(--pomodoro); opacity: 1; }
@@ -3792,10 +3910,16 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 @media (max-width: 768px) {
   .focus-pomo { grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: "modes modes zen amb" "ring ctrl ctrl ctrl" "ring task task task" "stats stats stats stats" "park park park park"; justify-items: stretch; align-items: center; gap: 10px 10px; padding: 12px; border-radius: 16px; margin-bottom: 16px; overflow: visible; }
   .focus-pomo::before { display: none; }
+  /* Kartu tidak memotong isinya (popover suara): .hb memotong sendiri di radius dalam garis (16 - 1). Isi kartu = item grid
+     di dalam elemen display: contents, jadi diposisikan agar dilukis di atas .hb (urutan DOM sesudahnya). */
+  .focus-pomo > .hb { border-radius: 15px; }
+  /* Pohon Lanskap (ambient, pojok kiri bawah) jatuh tepat di balik input parkir → disembunyikan; desktop tetap. */
+  .focus-pomo > .hb .hb-trees { display: none; }
+  .focus-pomo-head-tools > *, .focus-pomo-body > * { position: relative; }
   .focus-pomo .focus-pomo-body, .focus-pomo .focus-pomo-head, .focus-pomo .focus-pomo-head-tools { display: contents; }
   .focus-pomo-headline { display: none; }
   /* baris atas: tab mode (+ durasi) | Zen | pil suara */
-  .focus-pomo-head-tools .pomo-modes { grid-area: modes; justify-self: start; display: inline-flex; gap: 3px; padding: 3px; border-radius: 12px; background: rgba(255,255,255,0.06); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); }
+  .focus-pomo-head-tools .pomo-modes { grid-area: modes; justify-self: start; display: inline-flex; gap: 3px; padding: 3px; border-radius: 12px; background: var(--pomo-ctl-bg); box-shadow: inset 0 0 0 1px var(--pomo-line); }
   .focus-pomo .pomo-mode { display: flex; flex-direction: column; align-items: center; gap: 1px; min-width: 52px; padding: 5px 10px; border: 1px solid transparent; border-radius: 9px; font-size: 12.5px; line-height: 1.15; }
   .focus-pomo .pomo-mode.is-active { border-color: rgba(239,68,68,0.45); }
   .focus-pomo .pomo-mode.is-break.is-active { border-color: rgba(34,197,94,0.45); }
@@ -3803,27 +3927,29 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
   .focus-pomo .pomo-mode-min { font-size: 10.5px; font-weight: 600; opacity: .75; }
   .focus-pomo .focus-zen-btn { grid-area: zen; width: 34px; height: 34px; border-radius: 10px; }
   .pomo-amb-mobile { grid-area: amb; display: block; position: relative; }
-  .pomo-amb-pill { display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 9px 0 10px; margin: 0; border: 0; border-radius: 10px; background: rgba(255,255,255,0.08); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12); color: rgba(255,255,255,0.88); font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
+  .pomo-amb-pill { display: inline-flex; align-items: center; gap: 5px; height: 34px; padding: 0 9px 0 10px; margin: 0; border: 0; border-radius: 10px; background: var(--pomo-ctl-bg); box-shadow: inset 0 0 0 1px var(--pomo-line); color: var(--text-primary); font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
   .pomo-amb-pill-label { max-width: 56px; overflow: hidden; text-overflow: ellipsis; }
-  .pomo-amb-pill[aria-expanded="true"] { background: rgba(255,255,255,0.14); }
-  .pomo-amb-mobile[data-state="playing"] .pomo-amb-pill svg:first-child { color: #4ade80; }
-  .pomo-amb-mobile[data-state="error"] .pomo-amb-pill svg:first-child { color: #f87171; }
-  .pomo-amb-mobile[data-state="waiting-tap"] .pomo-amb-pill svg:first-child { color: #facc15; }
+  .pomo-amb-pill[aria-expanded="true"] { background: linear-gradient(var(--bg-selected), var(--bg-selected)), var(--pomo-ctl-bg); }
+  .pomo-amb-mobile[data-state="playing"] .pomo-amb-pill svg:first-child { color: var(--pomo-text-green); }
+  .pomo-amb-mobile[data-state="error"] .pomo-amb-pill svg:first-child { color: var(--pomo-text-red); }
+  .pomo-amb-mobile[data-state="waiting-tap"] .pomo-amb-pill svg:first-child { color: var(--pomo-text-yellow); }
   .pomo-amb-mobile[data-state="loading"] .pomo-amb-pill svg:first-child { animation: pomo-ambient-pulse 1.4s ease-in-out infinite; }
-  .pomo-amb-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 75; width: 228px; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #1e293b; border-radius: 14px; box-shadow: 0 0 0 1px rgba(255,255,255,0.12), 0 14px 34px rgba(0,0,0,0.45); color: #fff; animation: pomo-amb-pop .14s ease; }
-  .pomo-amb-pop-title { font-size: 11px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: rgba(255,255,255,0.6); padding: 0 4px; }
+  .pomo-amb-pop { position: absolute; top: calc(100% + 6px); right: 0; z-index: 75; width: 228px; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--bg-card); border-radius: 14px; box-shadow: 0 0 0 1px var(--border), var(--pomo-float-shadow); color: var(--text-primary); animation: pomo-amb-pop .14s ease; }
+  .pomo-amb-pop-title { font-size: 11px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--pomo-sec); padding: 0 4px; }
   .pomo-amb-opts { display: flex; flex-direction: column; gap: 2px; }
-  .pomo-amb-opt { display: flex; align-items: center; justify-content: space-between; min-height: 38px; padding: 0 10px; margin: 0; border: 0; border-radius: 9px; background: none; color: #fff; font: inherit; font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer; }
-  .pomo-amb-opt.is-on { background: rgba(var(--accent-rgb), 0.16); color: var(--accent-text-bright, #D9EE6A); }
+  .pomo-amb-opt { display: flex; align-items: center; justify-content: space-between; min-height: 38px; padding: 0 10px; margin: 0; border: 0; border-radius: 9px; background: none; color: var(--text-primary); font: inherit; font-size: 13.5px; font-weight: 600; text-align: left; cursor: pointer; }
+  .pomo-amb-opt.is-on { background: var(--accent-soft); color: var(--accent-text-deep, #4d5c00); }
+  [data-theme="dark"] .pomo-amb-opt.is-on { color: var(--accent-text-bright, #D9EE6A); }
   .pomo-amb-vol { display: flex; flex-direction: column; gap: 6px; padding: 6px 4px 2px; }
-  .pomo-amb-vol-head { display: flex; justify-content: space-between; font-size: 12px; color: rgba(255,255,255,0.7); }
+  .pomo-amb-vol-head { display: flex; justify-content: space-between; font-size: 12px; color: var(--pomo-sec); }
   .pomo-amb-vol-n { font-variant-numeric: tabular-nums; }
   .pomo-amb-volume { width: 100%; accent-color: var(--accent); }
   .pomo-amb-volume:disabled { opacity: .4; }
-  .pomo-amb-tip { margin: 0; padding: 0 4px; font-size: 11.5px; color: #fca5a5; }
-  .pomo-amb-pill:focus-visible, .pomo-amb-opt:focus-visible, .focus-pomo-task-done-btn:focus-visible, .pomo-park-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .pomo-amb-tip { margin: 0; padding: 0 4px; font-size: 11.5px; color: var(--pomo-text-red); }
+  .pomo-amb-pill:focus-visible, .pomo-amb-opt:focus-visible, .focus-pomo-task-done-btn:focus-visible, .pomo-park-send:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
   /* tengah: lingkaran kecil | tombol + task aktif */
-  .focus-pomo-ring { grid-area: ring; width: 72px; height: 72px; align-self: center; }
+  /* Waktu 16 px = teks kecil (>= 4,5:1): bagian tengah piringan opak --bg-card, memudar ke alfa piringan di bawah garis ring. */
+  .focus-pomo-ring { grid-area: ring; width: 72px; height: 72px; align-self: center; background: radial-gradient(circle closest-side, var(--bg-card) 0%, var(--bg-card) 72%, color-mix(in srgb, var(--bg-card) var(--pomo-disk-b), transparent) 90%, transparent 100%); }
   .focus-pomo-ring .pomo-ring-svg { width: 72px; height: 72px; }
   .focus-pomo-time { font-size: 16px; letter-spacing: -0.5px; }
   .focus-pomo-label { max-width: 60px; font-size: 8.5px; line-height: 1.1; margin-top: 3px; letter-spacing: .6px; text-align: center; }
@@ -3837,24 +3963,28 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
   .focus-pomo-task { gap: 8px; padding: 6px 6px 6px 10px; border-radius: 10px; }
   .focus-pomo-task-dot { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--pomo-ink); }
   .focus-pomo-task-title { font-size: 13px; }
-  .focus-pomo-task-done-btn { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; height: 28px; padding: 0 8px; margin: 0; border: 0; border-radius: 8px; background: rgba(74,222,128,0.12); color: #4ade80; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
+  .focus-pomo-task-done-btn { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; height: 28px; padding: 0 8px; margin: 0; border: 0; border-radius: 8px; background: color-mix(in srgb, #22c55e var(--pomo-soft-a), transparent); color: var(--pomo-text-green-strong); font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; }
   .focus-pomo-hint { padding: 7px 10px; font-size: 12px; border-radius: 10px; }
   /* bawah: statistik ringkas + project, lalu kolom parkir */
   .focus-pomo-stats { grid-area: stats; flex-wrap: nowrap; align-items: baseline; gap: 6px; min-width: 0; }
   .focus-pomo-stat { gap: 4px; flex-shrink: 0; }
-  .focus-pomo-stat + .focus-pomo-stat::before { content: "•"; margin-right: 2px; color: rgba(255,255,255,0.35); }
+  .focus-pomo-stat + .focus-pomo-stat::before { content: "•"; margin-right: 2px; color: var(--text-light); }
+  /* 13 px = teks kecil: versi -strong agar >= 4,5:1 di atas kabut statistik. */
+  .focus-pomo-stats::before { inset: -4px -6px; }
   .focus-pomo-stat-value { font-size: 13px; }
+  .focus-pomo-stat-value.is-red { color: var(--pomo-text-red-strong); }
+  .focus-pomo-stat-value.is-green { color: var(--pomo-text-green-strong); }
   .focus-pomo-stat-label { font-size: 12px; text-transform: none; letter-spacing: 0; }
   .focus-pomo-stat-label .is-short { display: inline; }
-  .focus-pomo-stats-project { display: block; min-width: 0; margin-left: auto; font-size: 12px; color: rgba(255,255,255,0.6); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .focus-pomo-stats-project { display: block; min-width: 0; margin-left: auto; font-size: 12px; color: var(--pomo-sec); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .focus-pomo-stats .pomo-ambient, .focus-pomo-task-icon, .focus-pomo-task-kicker, .focus-pomo-task-count, .focus-pomo-stat-label .is-long { display: none; }
-  .focus-pomo .pomo-park { grid-area: park; gap: 8px; padding: 0 4px 0 10px; background: rgba(255,255,255,0.05); border-radius: 12px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1); }
-  .pomo-park-icon { color: var(--accent); flex-shrink: 0; }
+  .focus-pomo .pomo-park { grid-area: park; gap: 8px; padding: 0 4px 0 10px; background: var(--pomo-box-bg); border-radius: 12px; box-shadow: inset 0 0 0 1px var(--pomo-line); }
+  .pomo-park-icon { color: var(--accent-text); flex-shrink: 0; }
   .focus-pomo .pomo-park-input { border-bottom: 0; padding: 10px 2px; font-size: 16px; text-overflow: ellipsis; }
   .focus-pomo .pomo-park-input::placeholder { font-size: 13px; }
-  .focus-pomo .pomo-park:focus-within { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35); }
-  .focus-pomo .pomo-park.is-error { box-shadow: inset 0 0 0 1px #f87171; }
-  .pomo-park-send { align-items: center; justify-content: center; flex-shrink: 0; width: 34px; height: 34px; padding: 0; margin: 0; border: 0; border-radius: 9px; background: none; color: rgba(255,255,255,0.75); cursor: pointer; }
+  .focus-pomo .pomo-park:focus-within { box-shadow: inset 0 0 0 1px var(--text-secondary); }
+  .focus-pomo .pomo-park.is-error { box-shadow: inset 0 0 0 1px var(--pomo-text-red); }
+  .pomo-park-send { align-items: center; justify-content: center; flex-shrink: 0; width: 34px; height: 34px; padding: 0; margin: 0; border: 0; border-radius: 9px; background: none; color: var(--pomo-sec); cursor: pointer; }
   .pomo-park-send:disabled { opacity: .35; cursor: default; }
   .focus-pomo .pomo-park-ok { right: 44px; }
 }
@@ -4729,8 +4859,9 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 
 /* Mode Zen (halaman Fokus Hari Ini) */
 .focus-pomo-head-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.focus-zen-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: rgba(255, 255, 255, .08); color: inherit; cursor: pointer; transition: background .15s, color .15s; }
-.focus-zen-btn:hover { background: rgba(255, 255, 255, .16); }
+.focus-zen-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 8px; background: var(--pomo-ctl-bg); box-shadow: inset 0 0 0 1px var(--pomo-line); color: var(--pomo-sec); cursor: pointer; transition: background .15s, color .15s; }
+.focus-zen-btn:hover { background: linear-gradient(var(--bg-hover), var(--bg-hover)), var(--pomo-ctl-bg); color: var(--text-primary); }
+.focus-zen-btn:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .focus-zen-btn.is-on { background: var(--pomo-ink-soft); color: var(--pomo-ink-text); }
 .focus-zen-note { margin: 0 0 10px; font-size: 12.5px; color: var(--text-secondary); }
 .is-zen-hidden { animation: zen-fade-out 250ms ease forwards, zen-collapse 1ms linear 250ms forwards; pointer-events: none; }
@@ -5200,22 +5331,43 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .theme-card-switch:disabled { opacity: 0.5; cursor: not-allowed; }
 .theme-card-switch-knob { width: 20px; height: 20px; border-radius: 50%; background: var(--bg-card); }
 .theme-card-switch[aria-checked="true"] .theme-card-switch-knob { background: var(--accent-ink); }
-.theme-card-mode:focus-visible, .theme-card-palette:focus-visible, .theme-card-switch:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+/* Latar (spec latar-hero §7): kartu pilihan = radio berisi pratinjau HeroBackdrop place="thumb" (palet & mode aktif). */
+.theme-card-hint { margin: -2px 0 10px; font-size: 13px; color: var(--text-secondary); }
+.theme-card-herobgs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.theme-card-herobg { position: relative; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 8px; box-sizing: border-box; border: 2px solid var(--border); border-radius: var(--radius-card); background: var(--bg-card); color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.theme-card-herobg:hover { border-color: var(--border-strong); }
+.theme-card-herobg[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.theme-card-herobg-thumb { position: relative; display: block; width: 100%; aspect-ratio: 5 / 2; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg-card); }
+.theme-card-herobg-name { display: block; min-width: 0; padding: 0 2px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 800; }
+.theme-card-herobg-badge { margin-left: 2px; font-size: 11px; font-weight: 700; color: var(--text-secondary); }
+.theme-card-herobg-check { position: absolute; top: 6px; right: 6px; z-index: 2; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--accent-on, #1a2a00); }
+.theme-card-herobg-check svg { stroke-width: 3; }
+.theme-card-mode:focus-visible, .theme-card-palette:focus-visible, .theme-card-herobg:focus-visible, .theme-card-switch:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .theme-preview { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-card); }
+/* Strip hero mini: latar terpilih (HeroBackdrop place="hero") + sapaan contoh. Kotak fitur hero (290x140, right 226px)
+   diperkecil ke kanan strip (rasio sama); fitur tetap ikut aturan hero (sembunyi saat dekorasi mati dan <= 1100 px). */
+.theme-preview-hero { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 2px; height: 110px; padding: 0 16px; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg-card); }
+.theme-preview-hero .hb-feature { right: 8px; top: 6px; bottom: 6px; height: auto; width: 203px; }
+.theme-preview-hero-greet, .theme-preview-hero-sub { position: relative; z-index: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.theme-preview-hero-greet { font-family: var(--font-heading); font-size: 19px; font-weight: 800; color: var(--text-primary); }
+.theme-preview-hero-sub { font-size: 13px; color: var(--text-secondary); }
 .theme-preview-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 4px 6px; border-radius: var(--radius-control); }
-.theme-preview-row:first-child { background: var(--bg-subtle); }
+.theme-preview-row:not(.is-done) { background: var(--bg-subtle); }
 .theme-preview-check { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; box-sizing: border-box; flex-shrink: 0; border: 2px solid var(--accent); border-radius: 50%; background: var(--accent-soft); }
 .theme-preview-row.is-done .theme-preview-check { background: var(--accent); color: var(--accent-on, #1a2a00); }
 .theme-preview-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: var(--text-primary); }
 .theme-preview-row.is-done .theme-preview-title { font-weight: 400; color: var(--text-light); text-decoration: line-through; }
 .theme-preview-chip { flex-shrink: 0; padding: 2px 10px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 700; }
+@media (max-width: 559px) {
+  .theme-card-herobgs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 419px) {
   .theme-card-palettes { grid-template-columns: minmax(0, 1fr); }
   .theme-card-mode { padding: 0 4px; font-size: 13px; }
   .theme-card-palette { flex-direction: row; align-items: center; min-height: 52px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .theme-card-mode, .theme-card-palette, .theme-card-switch { transition: none; }
+  .theme-card-mode, .theme-card-palette, .theme-card-herobg, .theme-card-switch { transition: none; }
 }
 /* ── Kartu "Tampilan": akhir ── */
 
@@ -5247,14 +5399,20 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 /* Belum ada task hari ini: kartu progres tidak dirender, kelopak jadi item terakhir → tanpa margin negatif agar tetap di
    dalam hero (padding kanan). */
 .dash-hero-top > .decor-page-corner:last-child { margin-right: 0; }
-/* > 1100 px hero menampilkan ilustrasi palet (.dash-hero-illus: absolut, right 228px, lebar 150px = tepat di kiri kartu
-   progres ±196px). Kelopak pindah ke KIRI ilustrasi (seolah kelopak tertiup dari ranting): kotak item boleh sampai
-   164 + 120px, svg dijangkar 164px dari kanan item (≈8px dari ilustrasi) dan lebarnya = sisa ruang (maks 120px, 0 bila
-   sempit). Item tetap basis 0 → tidak pernah menyempitkan sapaan; tinggi baris tidak berubah. Tanpa kartu progres
-   (anak terakhir) kelopak tetap di pojok kanan: ilustrasi berada di kirinya, tidak bertumpuk. */
+/* > 1100 px hero menampilkan fitur latar (.hb-hero .hb-feature: kotak right 226px, lebar 290px). Latar Kontur: ilustrasi
+   palet di ujung kanan kotak (right 228px, lebar 150px = tepat di kiri kartu progres ±196px). Kelopak pindah ke KIRI
+   ilustrasi (seolah kelopak tertiup dari ranting): kotak item boleh sampai 164 + 120px, svg dijangkar 164px dari kanan
+   item (≈8px dari ilustrasi) dan lebarnya = sisa ruang (maks 120px, 0 bila sempit). Item tetap basis 0 → tidak pernah
+   menyempitkan sapaan; tinggi baris tidak berubah. Tanpa kartu progres (anak terakhir) kelopak tetap di pojok kanan:
+   fitur berada di kirinya, tidak bertumpuk. Galaksi / Objek 3D menggambar di seluruh kotak fitur (tepi kiri ±294px dari
+   kanan item) → kelopak dijangkar 320px dari kanan item. Gradasi/Polos tanpa fitur; pohon Lanskap di kanan kelopak. */
 @media (min-width: 1101px) {
   .dash-hero-top > .decor-page-corner { max-width: 284px; }
   .dash-hero-top > .decor-page-corner svg { left: auto; right: 164px; width: calc(100% - 164px); max-width: 120px; }
+  [data-herobg="galaksi"] .dash-hero-top > .decor-page-corner:not(:last-child),
+  [data-herobg="objek"] .dash-hero-top > .decor-page-corner:not(:last-child) { max-width: 440px; }
+  [data-herobg="galaksi"] .dash-hero-top > .decor-page-corner:not(:last-child) svg,
+  [data-herobg="objek"] .dash-hero-top > .decor-page-corner:not(:last-child) svg { right: 320px; width: calc(100% - 320px); }
   .dash-hero-top > .decor-page-corner:last-child { max-width: 130px; }
   .dash-hero-top > .decor-page-corner:last-child svg { left: 0; right: auto; width: calc(100% - 10px); max-width: none; }
 }

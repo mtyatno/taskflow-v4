@@ -45,15 +45,15 @@ test("useThemeName tidak ada lagi; 3 pemakai memakai useThemeAttrs dan deps efek
   }
 });
 
-test("useThemeAttrs mengamati 3 atribut", () => {
+test("useThemeAttrs mengamati 4 atribut (termasuk data-herobg)", () => {
   const s = fnSource("useThemeAttrs");
   assert.match(s, /new MutationObserver\(/);
-  assert.match(s, /attributeFilter: \["data-theme", "data-palette", "data-decor"\]/);
+  assert.match(s, /attributeFilter: \["data-theme", "data-palette", "data-decor", "data-herobg"\]/);
   assert.match(s, /mo\.disconnect\(\)/);
 });
 
 test("useThemeAttrs: nilai awal dari atribut; state hanya berganti bila salah satu nilai berubah", () => {
-  const attrs = { "data-theme": "dark", "data-palette": "sakura", "data-decor": "off" };
+  const attrs = { "data-theme": "dark", "data-palette": "sakura", "data-decor": "off", "data-herobg": "galaksi" };
   let observerCb = null, observed = null;
   const R = fakeReact();
   const sandbox = {
@@ -63,9 +63,9 @@ test("useThemeAttrs: nilai awal dari atribut; state hanya berganti bila salah sa
   };
   vm.runInNewContext(fnSource("useThemeAttrs") + "\nthis.hook = useThemeAttrs;", sandbox);
   const first = R.render(sandbox.hook);
-  assert.deepEqual({ ...first }, { theme: "dark", palette: "sakura", decor: "off" });
+  assert.deepEqual({ ...first }, { theme: "dark", palette: "sakura", decor: "off", herobg: "galaksi" });
   R.effects.forEach(fn => fn());
-  assert.deepEqual([...observed.attributeFilter], ["data-theme", "data-palette", "data-decor"]);
+  assert.deepEqual([...observed.attributeFilter], ["data-theme", "data-palette", "data-decor", "data-herobg"]);
   // Mutasi tanpa perubahan nilai → objek state sama (tidak memicu render/gambar ulang grafik).
   observerCb();
   assert.equal(R.render(sandbox.hook), first);
@@ -73,11 +73,17 @@ test("useThemeAttrs: nilai awal dari atribut; state hanya berganti bila salah sa
   observerCb();
   const next = R.render(sandbox.hook);
   assert.notEqual(next, first);
-  assert.deepEqual({ ...next }, { theme: "dark", palette: "lavender", decor: "off" });
-  // Atribut hilang → bawaan.
-  delete attrs["data-theme"]; delete attrs["data-palette"]; delete attrs["data-decor"];
+  assert.deepEqual({ ...next }, { theme: "dark", palette: "lavender", decor: "off", herobg: "galaksi" });
+  // Latar hero berganti → objek state baru.
+  attrs["data-herobg"] = "polos";
   observerCb();
-  assert.deepEqual({ ...R.render(sandbox.hook) }, { theme: "light", palette: "default", decor: "on" });
+  const third = R.render(sandbox.hook);
+  assert.notEqual(third, next);
+  assert.equal(third.herobg, "polos");
+  // Atribut hilang → bawaan.
+  delete attrs["data-theme"]; delete attrs["data-palette"]; delete attrs["data-decor"]; delete attrs["data-herobg"];
+  observerCb();
+  assert.deepEqual({ ...R.render(sandbox.hook) }, { theme: "light", palette: "default", decor: "on", herobg: "kontur" });
 });
 
 test("useSystemDark: nilai sinkron saat enabled berubah", () => {

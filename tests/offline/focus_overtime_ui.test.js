@@ -72,6 +72,10 @@ test("TodayFocusView: header, tip, fallback timer", () => {
 test("CSS: ungu overtime, tombol, chip berdenyut + reduced-motion", () => {
   assert.ok(appCss.includes("#8b5cf6"));
   assert.ok(appCss.includes("#c4b5fd"));
+  // Ring/tombol = ungu bermakna #8b5cf6; teks waktu = versi teks per mode (terang #6d28d9, gelap #c4b5fd; latar hero §6).
+  assert.match(appCss, /\.focus-pomo\.is-overtime, \.focus-mini\.is-overtime \{ --pomo-ink: #8b5cf6; --pomo-ink-text: var\(--pomo-text-purple\); \}/);
+  assert.match(appCss, /:root \{[^}]*--pomo-text-purple: #6d28d9;/);
+  assert.match(appCss, /\[data-theme="dark"\] \{[^}]*--pomo-text-purple: #c4b5fd;/);
   assert.ok(appCss.includes(".focus-pomo.is-overtime"));
   assert.ok(appCss.includes(".pomo-btn-overtime"));
   assert.ok(appCss.includes(".pomo-btn-break"));

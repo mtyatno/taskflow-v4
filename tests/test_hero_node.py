@@ -1,5 +1,7 @@
-"""Jalankan tes node hero dashboard (herologic + streak habitlogic + UI hero) dari pytest, supaya ikut CI
-(workflow test.yml hanya menjalankan pytest). Spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md.
+"""Jalankan tes node hero dashboard (herologic + streak habitlogic + UI hero + registri latar herobg + kartu Pomodoro
+berlatar) dari pytest,
+supaya ikut CI (workflow test.yml hanya menjalankan pytest). Spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md
+dan docs/superpowers/specs/2026-10-27-latar-hero-design.md.
 File tes yang hilang = gagal (bukan dilewati); dilewati seluruhnya bila node tidak ada."""
 import os
 import re
@@ -9,7 +11,7 @@ import subprocess
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-NODE_TESTS = ["herologic", "habitlogic", "dashboard_hero"]
+NODE_TESTS = ["herologic", "habitlogic", "dashboard_hero", "herobg", "focus_pomo_backdrop"]
 
 
 @pytest.mark.skipif(shutil.which("node") is None, reason="node tidak ada di PATH")
@@ -25,7 +27,7 @@ def test_hero_node_tests():
     assert m and int(m.group(1)) > 0, "tidak ada tes yang berjalan:\n" + out[-3000:]
 
 
-EXPECTED_NODE_TESTS = {"herologic", "habitlogic", "dashboard_hero"}
+EXPECTED_NODE_TESTS = {"herologic", "habitlogic", "dashboard_hero", "herobg", "focus_pomo_backdrop"}
 
 
 def test_hero_bridge_lists_all_files():
@@ -42,3 +44,16 @@ def test_herologic_loaded_and_precached_with_same_url():
     m = re.search(r'<script src="(/static/offline/herologic\.js[^"]*)"></script>', html)
     assert m, "herologic.js tidak dimuat di index.html"
     assert f'"{m.group(1)}"' in sw, "URL herologic.js di sw.js STATIC harus sama persis (ADR-029)"
+
+
+def test_herobg_loaded_and_precached_with_same_url():
+    # Registri latar hero dimuat bersama modul tema (sebelum skrip aplikasi) dan di-precache dengan URL persis.
+    with open(os.path.join(ROOT, "static", "index.html"), encoding="utf-8") as f:
+        html = f.read()
+    with open(os.path.join(ROOT, "static", "sw.js"), encoding="utf-8") as f:
+        sw = f.read()
+    m = re.search(r'<script src="(/static/offline/herobg\.js[^"]*)"></script>', html)
+    assert m, "herobg.js tidak dimuat di index.html"
+    assert f'"{m.group(1)}"' in sw, "URL herobg.js di sw.js STATIC harus sama persis (ADR-029)"
+    decor = html.index('<script src="/static/offline/decor.js"></script>')
+    assert 0 < m.start() and abs(m.start() - decor) < 200, "herobg.js dimuat di samping decor.js"

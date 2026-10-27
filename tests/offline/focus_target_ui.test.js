@@ -66,7 +66,14 @@ test("TodayFocusView: handleEstimate dan header ringkasan", () => {
 });
 
 test("CSS: is-over dan pemilih tomat", () => {
-  assert.match(appCss, /\.focus-pomo-task-done\.is-over\s*\{[^}]*#fb923c/);
+  // Oranye "melebihi estimasi" = versi teks per mode (latar hero §6): #9a3412 di kotak task terang (≥ 4,5:1 di atas
+  // putih 0.78 + latar pastel), #fb923c (nilai lama) gelap.
+  assert.match(appCss, /\.focus-pomo-task-done\.is-over\s*\{[^}]*color: var\(--pomo-text-orange\)/);
+  const tok = (block, name) => (block.match(new RegExp(`\\n\\s*${name}: ([^;]+);`)) || [])[1];
+  const rootBlk = appCss.slice(appCss.indexOf(":root {"), appCss.indexOf("}", appCss.indexOf(":root {")));
+  const darkBlk = appCss.slice(appCss.indexOf('[data-theme="dark"] {'), appCss.indexOf("}", appCss.indexOf('[data-theme="dark"] {')));
+  assert.equal(tok(rootBlk, "--pomo-text-orange"), "#9a3412");
+  assert.equal(tok(darkBlk, "--pomo-text-orange"), "#fb923c");
   assert.match(appCss, /\.ftask-count\.is-pomo\.is-over\s*\{[^}]*var\(--p2\)/);
   assert.ok(appCss.includes(".ftask-estimate"));
   assert.match(appCss, /\.ftask-est-btn\s*\{[^}]*26px/);

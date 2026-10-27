@@ -270,25 +270,33 @@ test("CSS: kelopak hero = item flex sebaris (tanpa posisi absolut), hanya memaka
   assert.match(appCss, /@media \(max-width: 479px\)\s*\{\s*\.dash-hero-top > \.decor-page-corner\s*\{\s*max-width:\s*88px;?\s*\}\s*\}/);
 });
 
-test("CSS: > 1100 px kelopak hero pindah ke kiri ilustrasi palet (.dash-hero-illus right 228px, lebar 150px)", () => {
-  // Ilustrasi hero (main #107) tampil > 1100 px tepat di kiri kartu progres; kelopak tidak boleh menumpuk di atasnya.
-  const illus = ruleBody(/(?:^|\n)\.dash-hero-illus\s*\{([^}]*)\}/);
-  assert.match(illus, /right:\s*228px/);
-  assert.match(illus, /width:\s*150px/);
+test("CSS: > 1100 px kelopak hero pindah ke kiri fitur latar (Kontur: ilustrasi right 228px lebar 150px; Galaksi/Objek: kotak penuh)", () => {
+  // Fitur latar hero (spec latar-hero §4) tampil > 1100 px tepat di kiri kartu progres; kelopak tidak boleh menumpuk di atasnya.
+  const box = ruleBody(/(?:^|\n)\.hb-hero \.hb-feature\s*\{([^}]*)\}/);
+  assert.match(box, /right:\s*226px/);
+  assert.match(box, /width:\s*290px/);
+  // Ilustrasi Kontur (= .dash-hero-illus lama) di ujung kanan kotak fitur: x 138, lebar 150 → right 226 + (290 - 288) = 228px.
+  const kontur = require("../../static/offline/herobg.js").render({ kind: "kontur", palette: "sakura", mode: "light", place: "hero", uid: "k" });
+  assert.match(kontur.feature, /viewBox="0 0 290 140"[\s\S]*<svg x="138" y="10" width="150" height="110" viewBox="0 0 150 110"/);
   const q = appCss.indexOf("@media (max-width: 1100px) {");
   assert.ok(q > 0);
-  assert.match(appCss.slice(q, appCss.indexOf("\n}", q)), /\.dash-hero-illus\s*\{\s*display:\s*none;?\s*\}/, "ilustrasi sembunyi <= 1100 px");
+  assert.match(appCss.slice(q, appCss.indexOf("\n}", q)), /\.hb-hero \.hb-feature, \.hb-pomo \.hb-feature\s*\{\s*display:\s*none;?\s*\}/, "fitur sembunyi <= 1100 px");
   const m = decorBlock().match(/@media \(min-width: 1101px\)\s*\{([\s\S]*?)\n\}/);
   assert.ok(m, "aturan kelopak hero untuk lebar > 1100 px");
   const media = m[1];
   assert.match(media, /\.dash-hero-top > \.decor-page-corner\s*\{\s*max-width:\s*284px;?\s*\}/);
-  const svg = media.match(/\.dash-hero-top > \.decor-page-corner svg\s*\{([^}]*)\}/)[1];
+  const svg = media.match(/\n  \.dash-hero-top > \.decor-page-corner svg\s*\{([^}]*)\}/)[1];
   // 164px dari kanan item (= tepi kiri kartu progres) melewati ilustrasi (6 + 150px) + celah 8px; lebar = sisa ruang
   for (const re of [/left:\s*auto/, /right:\s*164px/, /width:\s*calc\(100% - 164px\)/, /max-width:\s*120px/]) assert.match(svg, re);
-  // tanpa kartu progres: kelopak tetap di pojok kanan (ilustrasi di kirinya)
+  // Galaksi / Objek 3D menggambar di seluruh kotak fitur (tepi kiri ±294px dari kanan item) → kelopak 320px dari kanan item;
+  // tidak berlaku untuk anak terakhir (tanpa kartu progres kelopak tetap di pojok kanan, kanan kotak fitur).
+  assert.match(media, /\[data-herobg="galaksi"\] \.dash-hero-top > \.decor-page-corner:not\(:last-child\),\s*\[data-herobg="objek"\] \.dash-hero-top > \.decor-page-corner:not\(:last-child\)\s*\{\s*max-width:\s*440px;?\s*\}/);
+  assert.match(media, /\[data-herobg="galaksi"\] \.dash-hero-top > \.decor-page-corner:not\(:last-child\) svg,\s*\[data-herobg="objek"\] \.dash-hero-top > \.decor-page-corner:not\(:last-child\) svg\s*\{\s*right:\s*320px;\s*width:\s*calc\(100% - 320px\);?\s*\}/);
+  // tanpa kartu progres: kelopak tetap di pojok kanan (fitur di kirinya)
   assert.match(media, /\.dash-hero-top > \.decor-page-corner:last-child\s*\{\s*max-width:\s*130px;?\s*\}/);
   assert.match(media, /\.dash-hero-top > \.decor-page-corner:last-child svg\s*\{[^}]*left:\s*0[^}]*right:\s*auto/);
 });
+
 
 test("CSS: tanpa offset magic & aturan z-index lama", () => {
   const block = appCss.slice(appCss.indexOf("/* ── Dekorasi tema (slot Decor): awal ── */"), appCss.indexOf("/* ── Dekorasi tema (slot Decor): akhir ── */"));

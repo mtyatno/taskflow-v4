@@ -339,10 +339,13 @@ def open_ctx(pw, browser, env, user, kind="desktop", theme="light", init=None, t
     p.on("pageerror", lambda e: ERRS.append((label, "pageerror", str(e)[:300])))
     p.on("console", on_console)
     p.goto(env.base + "/manifest.json")
+    # Versi SW saat ini = tf_whatsnew_seen: modal "Apa yang baru" tidak menutupi menu.
+    p.evaluate("(sw) => { window.__e2eSw = sw; }", h.SW_VERSION)
     p.evaluate("""([t, u, tours, theme]) => {
         localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(u));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
         localStorage.setItem('tf_dismiss_onboarding', '1');
+        localStorage.setItem('tf_whatsnew_seen', window.__e2eSw || '');
         localStorage.setItem('tf_theme', theme);
         localStorage.setItem('tf_groupby', 'none');
         localStorage.setItem('tf_viewmode', 'normal');

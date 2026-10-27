@@ -4249,3 +4249,15 @@
 - **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js (versi), tests/offline/decor_ui.test.js, tests/test_static_revalidate.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — commit lokal, belum push.
 - 2026-10-27 (Claude, lanjutan merge): kelopak hero > 1100 px digeser ke kiri ilustrasi palet hero baru (`@media (min-width: 1101px)` di blok dekorasi `app.css`), tes CSS `decor_ui` + E2E `d-hero-layout` (375–1440 px, Sakura/Lavender) dan `d-hero-empty` + cek ilustrasi; spec §3.5 catatan penjangkaran diperbarui. npm 3441/3441; pytest 1239 passed 1 skipped; verify 31/0; compare: dashboard×2 + settings×2 (disengaja) + today-dark 4 px anti-alias (sama dengan pra-merge/d5a8872).
+
+## [2026-10-27 18:30] - Claude (Opus 5.5)
+- **Task:** Latar hero bisa dipilih (6 latar) untuk Dashboard + kartu Pomodoro; restyle kartu Pomodoro (terang di mode terang).
+- **Changes:** pref tf_herobg; registri herobg.js; HeroBackdrop; Pengaturan bagian Latar; kartu Pomodoro & bar ringkas bertoken; rilis v483; E2E latar hero; ADR-035.
+- **Files Touch:** static/index.html, static/app.css, static/offline/{themes,herobg}.js, static/sw.js, static/whatsnew.json, tests/offline/*, tests/test_hero_node.py, temporary_files/e2e_*.py, docs/superpowers/{specs,plans}/2026-10-27-latar-hero*, .agents/*
+- **Status:** Needs Review (PR draft)
+
+## [2026-10-27 17:55] - Claude (Opus 5.5, perbaikan temuan review latar hero)
+- **Task:** Perbaiki 7 temuan review `claude/latar-hero`: fitur hero menimpa teks di hero sempit, pohon Lanskap/bola Objek 3D di HP, latar dihitung dua kali, ukuran herobg.js, kontras chip hero, radiogroup Latar.
+- **Changes:** `HeroBackdropLayer` (hook sekali per kartu); `.hb-trees` + ambient Objek 3D HP disembunyikan; kontur Gradasi dipadatkan (identik piksel) + anggaran gzip 16 KB; `@container dashhero` ambang per latar; chip hero beralas kartu + tinta lebih tegas; `aria-labelledby` + Home/End; E2E: lebar hero (nama panjang), kontras teks hero, cek HP, Home/End; spec §3/§4/§5/§7/§9.
+- **Files Touch:** static/index.html, static/app.css, static/offline/herobg.js, tests/offline/{dashboard_hero,focus_pomo_backdrop,herobg,theme_settings_ui}.test.js, temporary_files/e2e_latar_hero.py, temporary_files/e2e_hero_dashboard.py, docs/superpowers/specs/2026-10-27-latar-hero-design.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal di `claude/latar-hero`, belum push. Verifikasi: npm 3493/3494 (1 pra-ada), pytest 1240+1 skip, E2E latar 652/652, hero 10/10, fokus 36/0.

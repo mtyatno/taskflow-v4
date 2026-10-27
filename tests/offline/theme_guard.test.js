@@ -96,7 +96,9 @@ test("guard: Chart.js tidak menerima var()", () => { const chart = html.slice(ht
 // PR B Task 3: fallback token opsional palet (var(--border-hover, #525252), var(--accent-text-bright, #D9EE6A), …)
 // TIDAK dihitung literal — palet bisa menimpanya. Guard S1 di bawah tetap melarang literal mentah tabel S1.
 // 9 entri keluar (5 hover #525252 "netral tanpa token", 4 teks aktif "lime-adjacent") → 135/52.
-const ALLOW_MAX_TOTAL = 135, ALLOW_MAX_NON_BERMAKNA = 52;
+// Latar hero Task 4 (kartu Pomodoro terang): bar ringkas .focus-mini memakai --bg-card/--border + --pomo-float-shadow
+// (nilai gelap di blok token gelap), aturan gelapnya dihapus ("netral tanpa token") → 134/51.
+const ALLOW_MAX_TOTAL = 134, ALLOW_MAX_NON_BERMAKNA = 51;
 const ALLOW_REASONS = ["warna bermakna", "netral tanpa token", "lime-adjacent", "blok token gelap"];
 const allowList = JSON.parse(read("tests/offline/theme_dark_allowlist.json"));
 const allow = new Set(allowList.map(e => e.selector));

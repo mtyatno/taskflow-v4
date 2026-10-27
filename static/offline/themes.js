@@ -8,12 +8,15 @@
 })(typeof self !== "undefined" ? self : globalThis, function () {
   "use strict";
 
-  // Logika murni tema Alurik: preferensi (mode terang/gelap/sistem, palet, dekorasi), penyelesaian ke
+  // Logika murni tema Alurik: preferensi (mode terang/gelap/sistem, palet, dekorasi, latar hero), penyelesaian ke
   // atribut <html>, dan registri palet. Tanpa akses DOM saat dimuat: storage dan document dilewatkan
   // pemanggil supaya bisa dites di Node (skrip boot di <head> index.html memakai aturan yang sama).
-  const KEYS = Object.freeze({ mode: "tf_theme", palette: "tf_palette", decor: "tf_decor" });
+  const KEYS = Object.freeze({ mode: "tf_theme", palette: "tf_palette", decor: "tf_decor", herobg: "tf_herobg" });
   const MODES = Object.freeze(["light", "dark", "system"]);
-  const DEFAULT_PREFS = Object.freeze({ mode: "light", palette: "default", decor: "on" });
+  // Latar hero Dashboard + kartu Pomodoro (urutan = urutan di Pengaturan › Tampilan; gambarnya di TF.herobg).
+  // Daftar ini juga ditulis literal di skrip boot index.html (dijaga tests/offline/theme_boot.test.js).
+  const HEROBGS = Object.freeze(["kontur", "gradasi", "lanskap", "galaksi", "objek", "polos"]);
+  const DEFAULT_PREFS = Object.freeze({ mode: "light", palette: "default", decor: "on", herobg: "kontur" });
 
   // Registri palet (urutan = urutan di pemilih tema). swatch = contoh warna di pemilih tema; themeColor =
   // warna meta theme-color per mode; decor = slot dekorasi milik palet (kosong = tanpa dekorasi).
@@ -81,6 +84,10 @@
     }
   }
 
+  function normHerobg(v) {
+    return HEROBGS.includes(v) ? v : DEFAULT_PREFS.herobg;
+  }
+
   // Nilai tak dikenal/hilang/storage rusak -> bawaan. Nilai lama tf_theme=light|dark tetap sah.
   function readPrefs(storage) {
     const mode = getItem(storage, KEYS.mode);
@@ -90,12 +97,14 @@
       mode: MODES.includes(mode) ? mode : DEFAULT_PREFS.mode,
       palette: paletteById(palette) ? palette : DEFAULT_PREFS.palette,
       decor: decor === "off" ? "off" : DEFAULT_PREFS.decor,
+      herobg: normHerobg(getItem(storage, KEYS.herobg)),
     };
   }
 
   function validValue(field, v) {
     if (field === "mode") return MODES.includes(v);
     if (field === "palette") return !!paletteById(v);
+    if (field === "herobg") return HEROBGS.includes(v);
     return v === "on" || v === "off";
   }
 
@@ -121,6 +130,7 @@
       theme,
       palette,
       decor: p.decor === "off" ? "off" : "on",
+      herobg: normHerobg(p.herobg),
       themeColor: paletteById(palette).themeColor[theme],
     };
   }
@@ -129,7 +139,12 @@
   function apply(resolved, doc) {
     const changed = [];
     const el = doc.documentElement;
-    const attrs = { "data-theme": resolved.theme, "data-palette": resolved.palette, "data-decor": resolved.decor };
+    const attrs = {
+      "data-theme": resolved.theme,
+      "data-palette": resolved.palette,
+      "data-decor": resolved.decor,
+      "data-herobg": normHerobg(resolved.herobg),
+    };
     for (const name of Object.keys(attrs)) {
       if (el.getAttribute(name) !== attrs[name]) {
         el.setAttribute(name, attrs[name]);
@@ -149,5 +164,5 @@
     return { changed };
   }
 
-  return { PALETTES, KEYS, MODES, DEFAULT_PREFS, paletteById, decorFor, isDecorAvailable, readPrefs, writePrefs, resolve, apply };
+  return { PALETTES, KEYS, MODES, HEROBGS, DEFAULT_PREFS, paletteById, decorFor, isDecorAvailable, readPrefs, writePrefs, resolve, apply };
 });
