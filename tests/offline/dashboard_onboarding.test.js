@@ -11,9 +11,9 @@ test("Service Worker and stylesheet versions are synchronized for v396", () => {
   const html = fs.readFileSync(htmlPath, "utf8");
   const sw = fs.readFileSync(swPath, "utf8");
 
-  assert.match(sw, /taskflow-v484-ws-modal/);
-  assert.match(html, /taskflow-v484-ws-modal/);
-  assert.match(html, /app\.css\?v=380/);
+  assert.match(sw, /taskflow-v485-hero-habit-hp/);
+  assert.match(html, /taskflow-v485-hero-habit-hp/);
+  assert.match(html, /app\.css\?v=381/);
 });
 
 test("Dashboard contains conditional rendering logic for new users (hasTasks)", () => {
@@ -47,7 +47,7 @@ test("DashOnboardingCard contains clarified instructions and adaptive input pre-
   // Adaptive placeholder in .dash-capture input
   assert.match(
     html,
-    /placeholder:\s*!hasTasks\s*\?\s*"Awali 'tugas: \.\.\.' untuk tugas, atau tulis apa saja untuk catatan\.\.\."\s*:\s*"Tulis apa saja\.\.\. \(tekan Enter untuk simpan\)"/
+    /placeholder:\s*!hasTasks\s*\?\s*"Awali 'tugas: \.\.\.' untuk tugas, atau tulis apa saja untuk catatan\.\.\."\s*:\s*heroPhone\s*\?\s*"Tulis apa saja\.\.\."\s*:\s*"Tulis apa saja\.\.\. \(tekan Enter untuk simpan\)"/
   );
 
   // onFocusInput pre-fills "Tugas: " and focuses input

@@ -35,7 +35,7 @@ const cssRule = sel => {
 test("memakai window.TF.hero dengan cadangan bila modul belum termuat", () => {
   assert.match(dash, /window\.TF && window\.TF\.hero/);
   assert.match(dash, /\.bestStreak\(habits\)/);
-  assert.match(dash, /\.habitChips\(habits, currentPhase, 3\)/);
+  assert.match(dash, /\.habitChips\(habits, currentPhase, heroHabitLimit\)/);
   assert.match(dash, /\.focusChip\(focusTask, timer\)/);
 });
 
@@ -306,13 +306,36 @@ test("CSS: gradien token (cadangan = base Kontur), lapisan .hb, fitur disembunyi
   assert.doesNotMatch(block, /border-left/);
 });
 
-test("CSS HP (≤640px): chip Fokus penuh ≥44px, habit satu baris geser, chip ≥44px", () => {
+// 2026-10-28: di HP chip habit kedua dst. terpotong di tepi hero (baris geser). HP kini menampilkan 1 chip habit
+// (+N untuk sisanya) yang menyusut dengan elipsis, tanpa gulir — tidak ada chip yang terpotong.
+test("HP (≤640px): hanya 1 chip habit, sisanya +N", () => {
+  assert.match(html, /function useMediaMatch\(query\) \{/);
+  assert.match(dash, /const heroPhone = useMediaMatch\("\(max-width: 640px\)"\);/);
+  assert.match(dash, /const heroHabitLimit = heroPhone \? 1 : 3;/);
+  // hook dipanggil sebelum return bersyarat mana pun (aturan hook React)
+  assert.ok(dash.indexOf("useMediaMatch(") < dash.indexOf("const intro = useIntroState"), "dekat hook lain di awal");
+  // cadangan tanpa modul TF.hero ikut memakai batas yang sama
+  assert.match(dash, /\.slice\(0, heroHabitLimit\)/);
+  assert.match(dash, /length - heroHabitLimit\)/);
+  // placeholder tangkap cepat dipendekkan di HP agar tidak terpotong
+  assert.ok(dash.includes(': heroPhone ? "Tulis apa saja..." : "Tulis apa saja... (tekan Enter untuk simpan)"'));
+});
+
+test("CSS HP (≤640px): chip Fokus penuh ≥44px, chip habit tidak terpotong, chip ≥44px", () => {
   const m = css.match(/@media \(max-width: 640px\) \{\n  \.dash-hero \{[\s\S]*?\n\}/);
   assert.ok(m, "blok mobile dashboard");
   const b = m[0];
   assert.match(b, /\.dash-hero-focus\s*\{[^}]*width: 100%;[^}]*min-height: 44px;/);
   assert.match(b, /\.dash-hero-focus-act\s*\{[^}]*min-height: 44px;/);
-  assert.match(b, /\.dash-hero-habits\s*\{[^}]*flex-wrap: nowrap;[^}]*overflow-x: auto;/);
+  const habits = b.match(/\.dash-hero-habits\s*\{([^}]*)\}/);
+  assert.ok(habits, ".dash-hero-habits di blok HP");
+  assert.match(habits[1], /flex-wrap: nowrap;/);
+  assert.doesNotMatch(habits[1], /overflow-x: auto/, "tanpa baris geser (chip terpotong di tepi)");
+  // chip habit menyusut (elipsis pada nama), +N/Lihat habit tidak menyusut
+  assert.match(b, /\.dash-hero-habit\s*\{[^}]*flex: 0 1 auto;[^}]*min-width: 0;/);
+  assert.match(b, /\.dash-hero-habit-name\s*\{[^}]*max-width: none;/);
+  assert.match(b, /\.dash-hero-more\s*\{[^}]*flex-shrink: 0;/);
+  assert.doesNotMatch(css, /@media \(max-width: 420px\) \{\n  \.dash-hero-habit-name \{ max-width: 120px; \}/);
   assert.match(b, /\.dash-hero-chip\s*\{[^}]*min-height: 44px;/);
 });
 

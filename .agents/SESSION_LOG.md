@@ -4263,3 +4263,9 @@
 - **Status:** Needs Review — commit lokal di `claude/latar-hero`, belum push. Verifikasi: npm 3493/3494 (1 pra-ada), pytest 1240+1 skip, E2E latar 652/652, hero 10/10, fokus 36/0.
 - 2026-10-28 05:40 WIB (Claude): bug modal detail terpotong di halaman workspace (HP) — luberan .workspace-nav-tabs; CSS gulir samping, SW v484.
 - 2026-10-28 05:32 WIB (Claude): #112 (modal terpotong di halaman workspace, SW v484) di-merge + deploy.
+
+## [2026-10-28 05:30] - Claude (Opus 5.5)
+- **Task:** Hero Dashboard di HP menampilkan pil habit terpotong; tampilkan 1 saja.
+- **Changes:** useMediaMatch + heroHabitLimit (HP 1, desktop 3); CSS HP chip habit menyusut tanpa gulir; placeholder HP lebih pendek; tes + E2E; rilis v484.
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, static/whatsnew.json, tests/offline/{dashboard_hero,dashboard_habit_checkin,dashboard_onboarding}.test.js + tes versi, temporary_files/e2e_hero_dashboard.py, .agents/*
+- **Status:** Needs Review (PR draft)
