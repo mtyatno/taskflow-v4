@@ -72,7 +72,8 @@ Kelompok (E2E_ONLY=autosave,... menjalankan sebagian; kosong = semua). Tiap kelo
          server done; centang lagi → server next; tombol buka → panel/modal menampilkan Anak C
     B-3  checklist: "Butir 4" lalu "Butir 5" tanpa membuka ulang, Escape → "Checklist (5)"; centang → aria-checked
          dan lokal selesai; × → "Checklist (4)"; 375 px (sentuh): × terlihat tanpa hover
-    B-4  tambah catatan di tab Catatan → "Catatan (2)"
+    B-4  tab Catatan tampil sebagai chat: Shift+Enter baris baru, Enter kirim → "Catatan (2)", terbaru di bawah,
+         milik sendiri di kanan; tombol kirim nonaktif saat kosong
     B-6  fokus tab "Subtask", ArrowRight → "Checklist" aria-selected dan terfokus; ArrowLeft → kembali
     B-5  deskripsi: placeholder persis; 5 baris → tinggi bertambah; 30 baris → tinggi = 12 baris, bisa digulir
     B-7  tanpa error konsol/pageerror
@@ -1605,12 +1606,27 @@ def run_tabs(browser, base):
 
             # ── B-4: catatan baru ──
             tab_btn(p, scope, "Catatan").click()
-            note = p.locator(scope + ' [role="tabpanel"]:not([hidden]) input[placeholder="Tulis catatan..."]').first
+            panel_sel = scope + ' [role="tabpanel"]:not([hidden])'
+            note = p.locator(panel_sel + ' textarea[aria-label="Tulis catatan"]').first
             note.click()
-            p.keyboard.type("Catatan kedua")
+            p.keyboard.type("Baris satu")
+            p.keyboard.press("Shift+Enter")
+            p.keyboard.type("baris dua")
+            check("%s B-4a Shift+Enter = baris baru (belum terkirim), tombol kirim aktif" % tag,
+                  note.input_value() == "Baris satu\nbaris dua" and tab_labels(p, scope)[2] == "Catatan (1)"
+                  and p.locator(panel_sel + ' button[aria-label="Kirim catatan"]').first.is_enabled())
             p.keyboard.press("Enter")
-            check("%s B-4 tambah catatan → 'Catatan (2)'" % tag,
-                  wait_until(lambda: tab_labels(p, scope)[2] == "Catatan (2)", 8), repr(tab_labels(p, scope)))
+            check("%s B-4b Enter kirim → 'Catatan (2)', kotak kosong" % tag,
+                  wait_until(lambda: tab_labels(p, scope)[2] == "Catatan (2)", 8) and note.input_value() == "",
+                  repr(tab_labels(p, scope)))
+            msgs = p.locator(panel_sel + " .td-chat-msg")
+            check("%s B-4c tampilan chat: catatan terbaru paling bawah, milik sendiri di kanan, dua baris utuh" % tag,
+                  msgs.count() == 2 and "is-mine" in (msgs.last.get_attribute("class") or "")
+                  and msgs.last.locator(".td-chat-bubble").inner_text().startswith("Baris satu\nbaris dua"),
+                  repr(msgs.all_inner_texts()))
+            shot(p, "B_%s_%s_notes_chat.png" % (label, theme))
+            check("%s B-4d kirim kosong tidak bisa (tombol nonaktif)" % tag,
+                  not p.locator(panel_sel + ' button[aria-label="Kirim catatan"]').first.is_enabled())
 
             # ── B-6: tab dengan panah ──
             tab_btn(p, scope, "Subtask").click()

@@ -234,3 +234,16 @@ test("detail padat: CSS satu baris + container query, tanpa media query lebar la
   assert.match(block, /\.td-prop-add\s*\{/);
   assert.doesNotMatch(block, /@media \(max-width: 640px\) \{ \.td-props/);
 });
+
+// Permintaan pemilik 2026-10-27: tab Catatan tampil seperti percakapan.
+test("Catatan (bare): tampilan chat — urutan lama→baru, milik sendiri di kanan, kotak tulis + tombol kirim", () => {
+  const m = fnSource("ModalNotes");
+  for (const re of [/if \(bare\) \{/, /className: "td-chat"/, /className: "td-chat-list"/, /\(notes \|\| \[\]\)\.slice\(\)\.reverse\(\)/,
+    /" is-mine"/, /localStorage\.getItem\("tf_user_id"\)/, /className: "td-chat-composer"/, /"aria-label": "Kirim catatan"/,
+    /"aria-label": "Hapus catatan"/, /e\.key === "Enter" && !e\.shiftKey/, /el\.scrollTop = el\.scrollHeight/])
+    assert.match(m, re);
+  const a = appCss.indexOf("/* ── Detail task: awal ── */"), b = appCss.indexOf("/* ── Detail task: akhir ── */");
+  const block = appCss.slice(a, b);
+  for (const re of [/\.td-chat-msg\.is-mine\s*\{[^}]*flex-direction: row-reverse/, /\.td-chat-bubble\s*\{/, /\.td-chat-composer:focus-within/])
+    assert.match(block, re);
+});
