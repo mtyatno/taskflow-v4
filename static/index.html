@@ -1303,7 +1303,13 @@ function sync() {
     // T8: penanda occurrence task berulang (jendela ±60 hari) — setelah tasks supaya idmap task sudah terisi
     .then(() => step(() => (window.TF.syncpull.pullRecurringExceptions ? window.TF.syncpull.pullRecurringExceptions(__syncRawFetch) : null)))
     .then(() => step(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null)))
-    .then(() => step(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch) : null)))
+    .then(() => step(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch).then((hr) => {
+      // Habit/log dari server masuk ke IndexedDB → hero Dashboard & halaman Habit membaca ulang (perangkat baru tidak
+      // lagi menampilkan daftar habit kosong sampai dimuat ulang).
+      const changed = (x) => !!x && (x.created > 0 || x.updated > 0 || x.deleted > 0);
+      if (hr && (changed(hr.habits) || changed(hr.logs))) window.dispatchEvent(new CustomEvent("habitSaved", { detail: { source: "sync" } }));
+      return hr;
+    }) : null)))
     .then(() => step(() => {
       // Tanpa pullNotesAndReconcile notesOk tetap false (→ lastFailed, tanpa penanda); build produksi selalu memuatnya.
       if (!window.TF.syncpull.pullNotesAndReconcile) return null;
