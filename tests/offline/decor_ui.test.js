@@ -239,7 +239,7 @@ test("sumber: Decor page-corner item flex di dash-hero-top (antara teks sapaan d
   const top = indexHtml.indexOf('className: "dash-hero-top"', i);
   assert.doesNotMatch(indexHtml.slice(i, top), /Decor/, "tidak lagi anak langsung dash-hero");
   const seg = indexHtml.slice(top, indexHtml.indexOf('className: "dash-hero-progress"', top));
-  assert.match(seg, /summaryLine\)\), \/\*#__PURE__\*\/React\.createElement\(Decor, \{\s*slot: "page-corner"\s*\}\), totalToday > 0 &&/);
+  assert.match(seg, /`\$\{overdueCount\} terlambat`\)\)\), \/\*#__PURE__\*\/React\.createElement\(Decor, \{\s*slot: "page-corner"\s*\}\), totalToday > 0 &&/);
 });
 
 test("CSS: kelopak Fokus dijangkar ke judul (kanan teks, tengah vertikal), ruang dicadangkan untuk ringkasan", () => {

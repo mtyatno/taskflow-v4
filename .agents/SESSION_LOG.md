@@ -4224,6 +4224,12 @@
 - **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js (versi), .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — PR draft #106.
 
+## [2026-10-27 13:00] - Claude (Opus 5.5)
+- **Task:** Hero Dashboard baru sesuai mockup "D · Gabungan" + perbaikan streak habit + bugfix habit tidak muncul setelah sync pertama.
+- **Changes:** herologic.js baru; hero Dashboard ditulis ulang (topografi, ilustrasi palet, chip streak/terlambat/Fokus/habit); streak "hari ini boleh belum" di habitlogic.js + webapp.py; sync habit memancarkan habitSaved; rilis v480; E2E hero.
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, static/whatsnew.json, static/offline/herologic.js, static/offline/habitlogic.js, webapp.py, tests/offline/{herologic,dashboard_hero,habitlogic,dashboard_habit_checkin,pages_icons_habit_dashboard,tasklist_view_icons}.test.js, tests/test_hero_node.py, tests/test_habit_streak.py, tes versi, temporary_files/e2e_hero_dashboard.py, docs spec/plan.
+- **Status:** Needs Review (PR draft)
+
 ## [2026-10-27 18:30] - Claude
 - **Task:** Tema PR C (`claude/tema-dekorasi`) Task 6 — rilis v480 + jembatan CI + spec + handover.
 - **Changes:** SW `taskflow-v480-tema-dekorasi`, `app.css?v=376` (`sw.js`, `index.html` + fallback, `STATIC`, tes versi `tests/offline/` + `tests/test_static_revalidate.py`); entri `whatsnew.json` "Dekorasi tema Sakura dan Lavender" paling atas (entri lama tak disentuh); `tests/test_theme_node.py` NODE_TESTS + decor/decor_ui/empty_state_ui dan glob kesamaan `theme*`/`decor*`/`empty_state*`; spec §3.5/§3.6 catatan implementasi (C1–C4, penjangkaran kelopak, `pomoPetal`, judul kosong tebal).
@@ -4231,3 +4237,9 @@
 - **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js (versi), tests/test_static_revalidate.py, tests/test_theme_node.py, docs/superpowers/specs/2026-10-26-tema-palet-dekorasi-design.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md.
 - **Status:** Needs Review — commit lokal, belum push/PR (kontroler). Tindak lanjut minor di CURRENT_STATE.
 - 2026-10-27 (Claude, fix-wave akhir PR C): tanpa `:has()` (kelas `focus-page-title--decor` via `decorSvgFor`), kelopak Fokus `display:none` ≤1024 px, kelopak hero anak terakhir `margin-right:0`, kelopak gelap `--accent-duo` lokal rgba(aksen, 0.46) (≈2,6–2,8:1), whatsnew v480 poin 3 + Dashboard, komentar decor.js → app.css; E2E `d-fokus-class/overlap/mobile`, `d-hero-empty`, `d-dark` + frame `dashboard-kosong`. Tetap v480 / `app.css?v=376`. npm 3407/3407; pytest 1230 passed 1 skipped; verify 30/0; compare = sebelumnya (dashboard/settings saja).
+
+## [2026-10-27 19:30] - Claude
+- **Task:** Tema PR C (`claude/tema-dekorasi`) — merge `origin/main` f6282aa (PR #107 hero dashboard, SW `taskflow-v480-hero-dashboard`, `app.css?v=376`); versi bentrok.
+- **Changes:** konflik versi di `sw.js`, `index.html`, 26 tes versi, `whatsnew.json`, `.agents/` diselesaikan; rilis PR ini jadi SW `taskflow-v481-tema-dekorasi`, `app.css?v=377` (juga `tests/test_static_revalidate.py`, `note_toc`, `whatsnew_ui`); entri whatsnew v480 hero tetap, entri dekorasi (v481) paling atas. Hero baru dari main dipertahankan utuh; kelopak hero sementara tetap item flex di `.dash-hero-top` (penyesuaian penempatan di commit lanjutan).
+- **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js (versi), tests/offline/decor_ui.test.js, tests/test_static_revalidate.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — commit lokal, belum push.

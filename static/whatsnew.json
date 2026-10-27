@@ -1,9 +1,16 @@
 {
   "entries": [
-    {"version": "taskflow-v480-tema-dekorasi", "date": "2026-10-27", "title": "Dekorasi tema Sakura dan Lavender",
+    {"version": "taskflow-v481-tema-dekorasi", "date": "2026-10-27", "title": "Dekorasi tema Sakura dan Lavender",
      "new": ["Kelopak bunga dan maskot lucu muncul di palet Sakura dan Lavender.",
              "Dekorasi bisa dimatikan di Pengaturan › Tampilan.",
              "Tampilan kosong di Fokus Hari Ini, daftar task, dan Dashboard kini memakai ikon, bukan emoji."]},
+    {"version": "taskflow-v480-hero-dashboard", "date": "2026-10-27", "title": "Dashboard baru yang lebih hidup",
+     "new": ["Task yang sedang difokuskan kini bisa dimulai atau dijeda langsung dari dashboard, atau pilih task untuk difokuskan.",
+             "Habit hari ini bisa dicentang langsung dari bagian atas dashboard.",
+             "Streak habit terpanjang dan jumlah task terlambat kini tampil di bagian atas dashboard.",
+             "Tampilan bagian atas dashboard kini mengikuti tema pilihanmu: Default, Sakura, atau Lavender."],
+     "fixed": ["Streak habit tidak lagi menjadi 0 sebelum habit dicentang hari ini.",
+               "Habit dan streak kini langsung muncul di perangkat yang baru masuk, tanpa perlu memuat ulang halaman."]},
     {"version": "taskflow-v479-tema-sakura-lavender", "date": "2026-10-27", "title": "Tema Sakura dan Lavender",
      "new": ["Pilih palet Sakura (pink) atau Lavender (ungu) di Pengaturan › Tampilan.",
              "Mode tampilan kini bisa Terang, Gelap, atau Ikuti sistem."],

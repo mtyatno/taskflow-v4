@@ -28,10 +28,44 @@ test("deriveToday computes today_status, week_log, and streak (done/skipped/brea
   assert.deepEqual(d.week_log, ["done", "skipped", "done", "done", null, null, null]);
 });
 
-test("deriveToday streak is 0 when today has no log (server parity)", () => {
+test("deriveToday: today without a log starts counting from yesterday (server parity)", () => {
   const d = deriveToday({}, { "2026-06-03": { status: "done" } }, "2026-06-04");
   assert.equal(d.today_status, null);
-  assert.equal(d.streak, 0);
+  assert.equal(d.streak, 1);
+});
+
+test("deriveToday streak: today no log + yesterday & day-before done -> 2", () => {
+  const logs = { "2026-06-03": { status: "done" }, "2026-06-02": { status: "done" } };
+  assert.equal(deriveToday({}, logs, "2026-06-04").streak, 2);
+});
+
+test("deriveToday streak: today done + yesterday done -> 2", () => {
+  const logs = { "2026-06-04": { status: "done" }, "2026-06-03": { status: "done" } };
+  assert.equal(deriveToday({}, logs, "2026-06-04").streak, 2);
+});
+
+test("deriveToday streak: today missed breaks even if yesterday done -> 0", () => {
+  const logs = { "2026-06-04": { status: "missed" }, "2026-06-03": { status: "done" } };
+  assert.equal(deriveToday({}, logs, "2026-06-04").streak, 0);
+});
+
+test("deriveToday streak: skipped in the middle is passed over (today no log)", () => {
+  const logs = {
+    "2026-06-03": { status: "done" },
+    "2026-06-02": { status: "skipped" },
+    "2026-06-01": { status: "done" },
+    "2026-05-30": { status: "done" },
+  };
+  assert.equal(deriveToday({}, logs, "2026-06-04").streak, 2);
+});
+
+test("deriveToday streak: today skipped is passed over", () => {
+  const logs = { "2026-06-04": { status: "skipped" }, "2026-06-03": { status: "done" } };
+  assert.equal(deriveToday({}, logs, "2026-06-04").streak, 1);
+});
+
+test("deriveToday streak: no logs at all -> 0", () => {
+  assert.equal(deriveToday({}, {}, "2026-06-04").streak, 0);
 });
 
 test("monthly counts done per day with avg up to today", () => {

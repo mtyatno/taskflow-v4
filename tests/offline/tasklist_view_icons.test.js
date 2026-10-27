@@ -31,7 +31,7 @@ test("VIEW_GLYPHS + ViewGlyph (inline, meniru FocusGlyph)", async (t) => {
       "fFolder", "fPdf", "fSheet", "fImage", "fFile", "fSearch", "fUpload", "fDownload", "fEye", "fChat", "fPin", "fTrash", "fX",
       "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "mMail", "pomoTomato", "pomoPetal", "pomoBreak",
       "nNote", "nTag", "nTagOff", "nStar", "nChevronDown", "nChevronUp", "nBacklink", "nPin", "nBrain", "headphones",
-      "pPalette", "pChat", "pCalendar", "pRepeat", "pDot", "pTarget", "pFlame", "pHourglass", "pSprout", "pZap", "pCheckCircle", "pPencil",
+      "pPalette", "pChat", "pCalendar", "pRepeat", "pDot", "pTarget", "pFlame", "pAlert", "pHourglass", "pSprout", "pZap", "pCheckCircle", "pPencil",
       "sQuote", "sLightbulb", "sToggle", "sCode", "sListBullet", "sListOrdered", "sChecklist", "sTable", "sDivider", "sparkles", "send",
       "live", "emptyDone", "emptySearch", "emptyInbox"]);
   });
@@ -155,14 +155,14 @@ test("CSS segmented toggle", async (t) => {
   });
 });
 
-test("cache bust v432 + app.css?v=376", async (t) => {
+test("cache bust v432 + app.css?v=377", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v480-tema-dekorasi";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v480-tema-dekorasi";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v480-tema-dekorasi"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v481-tema-dekorasi";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v481-tema-dekorasi";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v481-tema-dekorasi"/);
   });
 
-  await t.test("index.html memuat app.css?v=376", () => {
-    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=376">/);
+  await t.test("index.html memuat app.css?v=377", () => {
+    assert.match(indexHtml, /<link rel="stylesheet" href="\/static\/app\.css\?v=377">/);
   });
 });

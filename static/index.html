@@ -94,7 +94,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=376">
+  <link rel="stylesheet" href="/static/app.css?v=377">
   <link rel="stylesheet" href="/static/themes.css?v=2">
 
 <style>
@@ -262,7 +262,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v480-tema-dekorasi";
+    window.__SW_VERSION = "taskflow-v481-tema-dekorasi";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -319,6 +319,7 @@
   <script src="/static/offline/liveedit.js"></script>
   <script src="/static/offline/recurrence.js"></script>
   <script src="/static/offline/habitlogic.js"></script>
+  <script src="/static/offline/herologic.js"></script>
   <script src="/static/offline/habitrepo.js"></script>
   <script src="/static/offline/habitquery.js"></script>
   <script src="/static/offline/habithydrate.js"></script>
@@ -1303,7 +1304,13 @@ function sync() {
     // T8: penanda occurrence task berulang (jendela ±60 hari) — setelah tasks supaya idmap task sudah terisi
     .then(() => step(() => (window.TF.syncpull.pullRecurringExceptions ? window.TF.syncpull.pullRecurringExceptions(__syncRawFetch) : null)))
     .then(() => step(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null)))
-    .then(() => step(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch) : null)))
+    .then(() => step(() => (window.TF.syncpull.pullHabitsAndLogs ? window.TF.syncpull.pullHabitsAndLogs(__syncRawFetch).then((hr) => {
+      // Habit/log dari server masuk ke IndexedDB → hero Dashboard & halaman Habit membaca ulang (perangkat baru tidak
+      // lagi menampilkan daftar habit kosong sampai dimuat ulang).
+      const changed = (x) => !!x && (x.created > 0 || x.updated > 0 || x.deleted > 0);
+      if (hr && (changed(hr.habits) || changed(hr.logs))) window.dispatchEvent(new CustomEvent("habitSaved", { detail: { source: "sync" } }));
+      return hr;
+    }) : null)))
     .then(() => step(() => {
       // Tanpa pullNotesAndReconcile notesOk tetap false (→ lastFailed, tanpa penanda); build produksi selalu memuatnya.
       if (!window.TF.syncpull.pullNotesAndReconcile) return null;
@@ -10878,6 +10885,7 @@ const VIEW_GLYPHS = {
   pDot: '<circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/>',
   pTarget: '<circle cx="12" cy="12" r="10" fill="currentColor" fill-opacity=".22"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
   pFlame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z" fill="currentColor" fill-opacity=".22"/>',
+  pAlert: '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3" fill="currentColor" fill-opacity=".22"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
   pHourglass: '<path d="M5 22h14"/><path d="M5 2h14"/><path d="M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22"/><path d="M7 2v4.172a2 2 0 0 0 .586 1.414L12 12l4.414-4.414A2 2 0 0 0 17 6.172V2"/>',
   pSprout: '<path d="M7 20h10"/><path d="M10 20c5.5-2.5.8-6.4 3-10"/><path d="M9.5 9.4c1.1.8 1.8 2.2 2.3 3.7-2 .4-3.5.4-4.8-.3-1.2-.6-2.3-1.9-3-4.2 2.8-.5 4.4 0 5.5.8z" fill="currentColor" fill-opacity=".22"/><path d="M14.1 6a7 7 0 0 0-1.1 4c1.9-.1 3.3-.6 4.3-1.4 1-1 1.6-2.3 1.7-4.6-2.7.1-4 1-4.9 2z" fill="currentColor" fill-opacity=".22"/>',
   pZap: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" fill="currentColor" fill-opacity=".22"/>',
@@ -22610,6 +22618,61 @@ function DashSyncCard({ mode, onRetry }) {
     onClick: onRetry
   }, "Coba lagi"));
 }
+// ── Hero Dashboard: garis topografi (latar, warna --accent lewat CSS) + ilustrasi kecil per palet ──
+// Spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md §3; path dari mockup "Hero Dashboard Alurik" (D · Gabungan).
+const DASH_HERO_TOPO = ["M560 24 C570 10 610 6 630 18 C646 28 640 44 618 48 C594 52 552 40 560 24 Z", "M470 0 C500 40 560 70 620 64 C690 58 720 20 730 0", "M430 0 C460 60 540 104 620 98 C710 92 760 40 770 0", "M390 0 C420 80 520 140 620 134 C730 128 800 60 810 0", "M350 0 C380 100 500 176 630 170 C760 164 832 90 832 40", "M320 40 C340 140 480 214 640 206 C780 200 832 150 832 120", "M300 120 C330 200 460 252 620 246 C740 242 800 220 832 200", "M290 200 C320 250 400 272 470 272", "M730 272 C736 248 762 238 784 244 C804 250 816 262 818 272", "M690 272 C700 230 740 212 780 218 C812 224 832 244 832 252", "M650 272 C664 210 724 184 784 192 C812 196 832 210 832 216"];
+// Warna hanya lewat kelas dhi-* di app.css (token palet); dekoratif → aria-hidden.
+function DashHeroIllus({
+  palette
+}) {
+  const e = React.createElement;
+  let art;
+  if (palette === "sakura") {
+    const blossom = (key, transform) => e("g", {
+      key,
+      transform
+    }, [0, 72, 144, 216, 288].map(r => e("ellipse", {
+      key: r,
+      cx: 0,
+      cy: -7,
+      rx: 5.5,
+      ry: 7.5,
+      transform: r ? `rotate(${r})` : undefined,
+      className: "dhi-duo",
+      strokeWidth: 1
+    })), e("circle", {
+      cx: 0,
+      cy: 0,
+      r: 2.6,
+      className: "dhi-fill"
+    }));
+    art = [e("path", { key: "s1", d: "M150 14 C120 20 92 34 62 62", className: "dhi-stem", strokeWidth: 2.6 }), e("path", { key: "s2", d: "M104 30 C98 50 100 70 112 86", className: "dhi-stem", strokeWidth: 2 }), blossom("b1", "translate(62 62)"), blossom("b2", "translate(112 88) scale(1.25)"), blossom("b3", "translate(134 20) scale(0.85)"), e("ellipse", { key: "p1", cx: 0, cy: 0, rx: 3, ry: 5, transform: "translate(30 92) rotate(40)", className: "dhi-fill", style: { opacity: 0.45 } }), e("ellipse", { key: "p2", cx: 0, cy: 0, rx: 2.6, ry: 4.4, transform: "translate(76 100) rotate(-30)", className: "dhi-fill", style: { opacity: 0.35 } }), e("ellipse", { key: "p3", cx: 0, cy: 0, rx: 2.4, ry: 4, transform: "translate(18 40) rotate(70)", className: "dhi-fill", style: { opacity: 0.3 } })];
+  } else if (palette === "lavender") {
+    // [cx, cy, rx, ry, duo?]
+    const buds = [[52, 36, 3.4, 5.2, 0], [49, 48, 3.6, 5.4, 1], [55, 58, 3.6, 5.4, 0], [51, 70, 3.6, 5.4, 1], [80, 20, 3.4, 5.2, 1], [77, 32, 3.6, 5.4, 0], [84, 42, 3.6, 5.4, 1], [79, 54, 3.6, 5.4, 0], [85, 66, 3.6, 5.4, 1], [114, 38, 3.4, 5.2, 0], [111, 50, 3.6, 5.4, 1], [117, 60, 3.6, 5.4, 0]];
+    art = [e("path", { key: "s1", d: "M58 110 C56 84 58 60 52 34", className: "dhi-stem", strokeWidth: 1.8 }), e("path", { key: "s2", d: "M82 110 C82 80 84 50 80 18", className: "dhi-stem", strokeWidth: 1.8 }), e("path", { key: "s3", d: "M106 110 C108 84 110 60 114 36", className: "dhi-stem", strokeWidth: 1.8 })].concat(buds.map(([cx, cy, rx, ry, duo], i) => e("ellipse", {
+      key: "b" + i,
+      cx,
+      cy,
+      rx,
+      ry,
+      className: duo ? "dhi-duo" : "dhi-fill",
+      strokeWidth: duo ? 1 : undefined
+    })), [e("circle", { key: "d1", cx: 28, cy: 40, r: 1.8, className: "dhi-fill", style: { opacity: 0.4 } }), e("circle", { key: "d2", cx: 136, cy: 22, r: 1.6, className: "dhi-fill", style: { opacity: 0.35 } })]);
+  } else {
+    art = [e("path", { key: "s", d: "M70 108 C68 80 76 54 92 30", className: "dhi-leaf-stem", strokeWidth: 2 }), e("path", { key: "l1", d: "M71 80 C50 76 42 60 46 48 C62 52 71 64 71 80 Z", className: "dhi-leaf", strokeWidth: 1.5 }), e("path", { key: "l2", d: "M77 60 C96 54 104 38 100 26 C84 32 77 44 77 60 Z", className: "dhi-leaf", strokeWidth: 1.5 }), e("path", { key: "l3", d: "M86 40 C72 32 70 18 76 8 C88 16 89 28 86 40 Z", className: "dhi-leaf", strokeWidth: 1.5 }), e("circle", { key: "sun", cx: 120, cy: 30, r: 12, className: "dhi-fill", style: { opacity: 0.22 } })];
+  }
+  return e("span", {
+    className: "dash-hero-illus",
+    "aria-hidden": "true"
+  }, e("svg", {
+    viewBox: "0 0 150 110",
+    width: 150,
+    height: 110,
+    focusable: "false"
+  }, art));
+}
+
 function Dashboard({
   summary,
   tasks,
@@ -22644,6 +22707,8 @@ function Dashboard({
     } catch (_) {}
   };
   const intro = useIntroState(tasks);
+  // Palet aktif → ilustrasi hero (daun / ranting sakura / tangkai lavender).
+  const { palette: heroPalette } = useThemeAttrs();
   const hasTasks = tasks.length > 0;
   const hasCompletedTasks = (summary.done_last_7_days ?? 0) > 0 || tasks.some(t => t.gtd_status === "done");
   const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done").sort(SORT_PRI);
@@ -22969,11 +23034,22 @@ function Dashboard({
   const now = new Date();
   const hour = now.getHours();
   const greet = hour < 11 ? "Selamat pagi" : hour < 15 ? "Selamat siang" : hour < 18 ? "Selamat sore" : "Selamat malam";
-  const pendingHabits = (habits || []).filter(h => !h.today_status);
-  const doneHabits = (habits || []).filter(h => h.today_status === "done");
   const totalHabits = (habits || []).length;
   const currentPhase = hour < 11 ? "pagi" : hour < 17 ? "siang" : "malam";
-  const nextHabit = pendingHabits.find(h => h.phase === currentPhase) || pendingHabits[0];
+  // Logika chip hero di modul murni static/offline/herologic.js; cadangan sederhana bila modul belum termuat.
+  const heroLogic = window.TF && window.TF.hero || null;
+  const heroStreak = heroLogic ? heroLogic.bestStreak(habits) : null;
+  const heroHabits = heroLogic ? heroLogic.habitChips(habits, currentPhase, 3) : {
+    shown: (habits || []).filter(Boolean).slice(0, 3).map(h => ({ ...h, done: h.today_status === "done", skipped: h.today_status === "skipped" })),
+    more: Math.max(0, (habits || []).filter(Boolean).length - 3)
+  };
+  // Semua chip yang tampil sudah selesai/dilewati → hero tetap memberi jalan ke halaman Habit.
+  const heroHabitsAllSettled = heroHabits.shown.length > 0 && heroHabits.shown.every(h => h.done || h.skipped);
+  const heroFocus = heroLogic ? heroLogic.focusChip(focusTask, timer) : focusTask
+    ? { kind: "active", title: focusTask.title || "", action: timer && (timer.phase === "awaiting" || timer.isBreak) ? null : timer && timer.isRunning ? "pause" : "start" }
+    : { kind: "invite", title: null, action: null };
+  const showFocusChip = intro === "dashboard" && hasTasks;
+  const showOverdueChip = pendingToday.length > 0 && overdueCount > 0;
   const displayName = user && (user.display_name || user.username) || "";
   let dateLine = "";
   try {
@@ -22997,9 +23073,9 @@ function Dashboard({
     ? "Selamat datang di Alurik! Mari mulai dengan mencatat tugas atau ide pertamamu."
     : "Tidak ada yang mendesak hari ini. Saat yang pas untuk merencanakan."
     : pendingToday.length > 0
-    ? `Ada ${pendingToday.length} prioritas hari ini${overdueCount > 0 ? `, ${overdueCount} terlambat` : ""}.`
+    ? `Ada ${pendingToday.length} prioritas hari ini.`
     : totalToday > 0
-    ? "Semua prioritas hari ini sudah selesai. Kerja bagus! 🎉"
+    ? "Semua prioritas hari ini sudah selesai. Kerja bagus!"
     : overdueCount > 0
     ? `Tidak ada prioritas baru, tapi ${overdueCount} task terlambat.`
     : "Tidak ada yang mendesak hari ini. Saat yang pas untuk merencanakan.";
@@ -23293,60 +23369,147 @@ function Dashboard({
   /* ── Hero ── */
   /*#__PURE__*/React.createElement("section", {
     className: "dash-hero"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("svg", {
+    className: "dash-hero-topo",
+    viewBox: "0 0 832 272",
+    preserveAspectRatio: "xMaxYMid slice",
+    "aria-hidden": "true",
+    focusable: "false"
+  }, /*#__PURE__*/React.createElement("g", {
+    fill: "none",
+    strokeWidth: 1.1
+  }, DASH_HERO_TOPO.map((d, i) => /*#__PURE__*/React.createElement("path", {
+    key: i,
+    d: d
+  })))), /*#__PURE__*/React.createElement(DashHeroIllus, {
+    palette: heroPalette
+  }), /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-top"
   }, /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-text"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-meta"
   }, /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-date"
   }, /*#__PURE__*/React.createElement(Icon, {
     name: "calendar",
     size: 14
-  }), dateLine), /*#__PURE__*/React.createElement("h1", {
+  }), dateLine), heroStreak && /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-streak",
+    title: `Streak terpanjang: ${heroStreak.title}`
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "pFlame",
+    size: 14
+  }), `${heroStreak.days} hari beruntun`)), /*#__PURE__*/React.createElement("h1", {
     className: "dash-hero-greet"
   }, greet, displayName ? ", " : "", displayName && /*#__PURE__*/React.createElement("span", {
     className: "dash-hero-name"
   }, displayName)), /*#__PURE__*/React.createElement("p", {
     className: "dash-hero-summary"
-  }, summaryLine)), /*#__PURE__*/React.createElement(Decor, { slot: "page-corner" }), totalToday > 0 && /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("span", null, summaryLine), showOverdueChip && /*#__PURE__*/React.createElement("span", {
+    className: "dash-date is-overdue dash-hero-overdue"
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "pAlert",
+    size: 13
+  }), `${overdueCount} terlambat`))), /*#__PURE__*/React.createElement(Decor, { slot: "page-corner" }), totalToday > 0 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
     className: "dash-hero-progress",
     onClick: () => onNav("today"),
-    title: "Buka Fokus Hari Ini"
+    title: "Buka Fokus Hari Ini",
+    "aria-label": `Buka Fokus Hari Ini: ${doneN} dari ${totalToday} selesai`
   }, /*#__PURE__*/React.createElement(DashProgressRing, {
     done: doneN,
     total: totalToday
-  }), /*#__PURE__*/React.createElement("div", {
+  }), /*#__PURE__*/React.createElement("span", {
     className: "dash-hero-progress-text"
-  }, /*#__PURE__*/React.createElement("b", null, doneN, "/", totalToday), /*#__PURE__*/React.createElement("span", null, "selesai hari ini")))), totalHabits > 0 && /*#__PURE__*/React.createElement("div", {
-    className: "dash-hero-habit-strip"
-  }, nextHabit ? /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement("b", null, doneN, "/", totalToday), /*#__PURE__*/React.createElement("span", null, "selesai hari ini")))), (showFocusChip || totalHabits > 0) && /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-chips"
+  }, showFocusChip && (heroFocus.kind === "active" ? /*#__PURE__*/React.createElement("div", {
+    className: heroFocus.action ? "dash-hero-chip dash-hero-focus" : "dash-hero-chip dash-hero-focus is-noact"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-focus-ico"
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "pTarget",
+    size: 15
+  })), /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: "dash-hero-habit-pill",
-    onClick: () => handleCheckinHabit(nextHabit),
-    title: `Klik untuk selesaikan habit: ${nextHabit.title || nextHabit.name || "Habit"}`,
-    "aria-label": `Selesaikan habit ${nextHabit.title || nextHabit.name || "Habit"}`
+    className: "dash-hero-focus-main",
+    onClick: () => onNav("today"),
+    title: `Buka Fokus Hari Ini: ${heroFocus.title}`
   }, /*#__PURE__*/React.createElement("span", {
-    className: "dash-hero-habit-check"
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "check",
-    size: 11
-  })), /*#__PURE__*/React.createElement("span", {
-    className: "dash-hero-habit-tag"
-  }, "Habit"), /*#__PURE__*/React.createElement("span", {
-    className: "dash-hero-habit-name"
-  }, nextHabit.title || nextHabit.name || "Habit"), /*#__PURE__*/React.createElement("span", {
-    className: "dash-hero-habit-cta"
-  }, "• Selesai?", /*#__PURE__*/React.createElement("span", { style: { display: "inline-flex", verticalAlign: "middle", marginLeft: 3, color: "#eab308" } }, /*#__PURE__*/React.createElement(ViewGlyph, { name: "pZap", size: 13 })))) : /*#__PURE__*/React.createElement("div", {
-    className: "dash-hero-habit-pill is-completed",
+    className: "dash-hero-focus-label"
+  }, "Fokus"), /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-focus-title"
+  }, heroFocus.title)), heroFocus.action && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "dash-hero-focus-act",
+    onClick: () => {
+      if (!timer) return;
+      if (heroFocus.action === "pause") timer.pause();else timer.start();
+    },
+    "aria-label": heroFocus.action === "pause" ? "Jeda Pomodoro" : "Mulai Pomodoro"
+  }, /*#__PURE__*/React.createElement(FocusGlyph, {
+    name: heroFocus.action === "pause" ? "pause" : "play",
+    size: 12
+  }), heroFocus.action === "pause" ? "Jeda" : "Mulai")) : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "dash-hero-chip dash-hero-focus is-invite",
+    onClick: () => onNav("today")
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "dash-hero-focus-ico"
+  }, /*#__PURE__*/React.createElement(ViewGlyph, {
+    name: "pTarget",
+    size: 15
+  })), "Pilih task untuk difokuskan")), totalHabits > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "dash-hero-habits"
+  }, heroHabits.shown.map(h => {
+    const hTitle = h.title || h.name || "Habit";
+    return h.done ? /*#__PURE__*/React.createElement("span", {
+      key: h.id,
+      className: "dash-hero-chip dash-hero-habit is-done",
+      role: "img",
+      "aria-label": `${hTitle} sudah selesai`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "dash-hero-habit-check"
+    }, /*#__PURE__*/React.createElement(FocusGlyph, {
+      name: "check",
+      size: 11
+    })), /*#__PURE__*/React.createElement("span", {
+      className: "dash-hero-habit-name"
+    }, hTitle)) : h.skipped ? /*#__PURE__*/React.createElement("span", {
+      key: h.id,
+      className: "dash-hero-chip dash-hero-habit is-skipped",
+      role: "img",
+      "aria-label": `${hTitle} dilewati hari ini`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "dash-hero-habit-check"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "dash-hero-habit-dash"
+    })), /*#__PURE__*/React.createElement("span", {
+      className: "dash-hero-habit-name"
+    }, hTitle)) : h.today_status ? null : /*#__PURE__*/React.createElement("button", {
+      key: h.id,
+      type: "button",
+      className: "dash-hero-chip dash-hero-habit",
+      onClick: () => handleCheckinHabit(h),
+      title: `Klik untuk selesaikan habit: ${hTitle}`,
+      "aria-label": `Selesaikan habit ${hTitle}`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "dash-hero-habit-check"
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "dash-hero-habit-name"
+    }, hTitle));
+  }), heroHabits.more > 0 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "dash-hero-chip dash-hero-more",
     onClick: () => onNav("habits"),
-    title: "Buka halaman Habits"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "dash-hero-habit-check is-done"
-  }, "✓"), /*#__PURE__*/React.createElement("span", {
-    className: "dash-hero-habit-name"
-  }, `Semua habit hari ini selesai (${totalHabits}/${totalHabits}) 🎉`)), totalHabits > 1 && nextHabit && /*#__PURE__*/React.createElement("span", {
-    className: "dash-hero-habit-count"
-  }, `${doneHabits.length}/${totalHabits} selesai`)), /*#__PURE__*/React.createElement("div", {
+    "aria-label": `Lihat ${heroHabits.more} habit lainnya`
+  }, `+${heroHabits.more}`), heroHabitsAllSettled && heroHabits.more === 0 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "dash-hero-chip dash-hero-more dash-hero-habits-link",
+    onClick: () => onNav("habits"),
+    "aria-label": "Buka halaman Habit"
+  }, "Lihat habit"))), /*#__PURE__*/React.createElement("div", {
     className: "scratchpad-bar dash-capture",
     "data-tour": "scratchpad"
   }, /*#__PURE__*/React.createElement(Icon, {
@@ -27607,7 +27770,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v480-tema-dekorasi"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v481-tema-dekorasi"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
