@@ -56,7 +56,7 @@
     '<path d="M78 78l10 10" fill="none" stroke="var(--accent)" stroke-width="4" stroke-linecap="round"></path>' +
     "</svg>";
 
-  // animated: true = boleh diberi animasi lembut oleh CSS (themes.css); pemakai wajib menghormati
+  // animated: true = boleh diberi animasi lembut oleh CSS (app.css); pemakai wajib menghormati
   // prefers-reduced-motion.
   const DECOR = Object.freeze({
     petals: Object.freeze({ svg: PETALS_SVG, animated: true }),

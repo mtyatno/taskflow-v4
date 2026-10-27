@@ -13124,6 +13124,9 @@ function TodayFocusView({
   onToggleFocus
 }) {
   const [localFocusTask, setLocalFocusTask] = useState(null);
+  // Judul mencadangkan ruang kelopak hanya bila kelopak pojok benar-benar tampil (Default: tanpa kelas tambahan).
+  const themeAttrs = useThemeAttrs();
+  const hasCornerDecor = !!decorSvgFor(themeAttrs.palette, themeAttrs.decor, "page-corner");
   const focusTask = propsFocusTask !== undefined ? propsFocusTask : localFocusTask;
   const setFocusTask = propsSetFocusTask || setLocalFocusTask;
   const [todayExceptions, setTodayExceptions] = useState({});
@@ -13418,7 +13421,7 @@ function TodayFocusView({
   })), React.createElement("div", {
     className: "focus-page-titlebar"
   }, React.createElement("h1", {
-    className: "focus-page-title"
+    className: "focus-page-title" + (hasCornerDecor ? " focus-page-title--decor" : "")
   }, React.createElement(Icon, {
     name: "target",
     size: 22
@@ -19921,8 +19924,7 @@ function useThemeAttrs() {
 // Slot dekorasi tema (spec §3.5): span dekoratif dari registri TF.decor; null bila palet Default, dekorasi mati, atau slot tak dipetakan.
 function Decor({ slot, size, className }) {
   const { palette, decor } = useThemeAttrs();
-  const id = decor === "on" && window.TF && window.TF.decor && window.TF.themes ? window.TF.themes.decorFor(palette, slot) : null;
-  const svg = id && window.TF.decor.svgFor(id);
+  const svg = decorSvgFor(palette, decor, slot);
   if (!svg) return null;
   return React.createElement("span", {
     className: `decor decor-${slot}${className ? " " + className : ""}`,
@@ -19930,6 +19932,13 @@ function Decor({ slot, size, className }) {
     style: size ? { width: size, height: size } : undefined,
     dangerouslySetInnerHTML: { __html: svg }
   });
+}
+
+// String SVG dekorasi untuk slot, atau null (palet Default, dekorasi mati, modul belum ada, slot tak dipetakan).
+// Satu-satunya syarat render Decor; dipakai juga pemanggil yang perlu tahu apakah slot benar-benar tampil.
+function decorSvgFor(palette, decor, slot) {
+  const id = decor === "on" && window.TF && window.TF.decor && window.TF.themes ? window.TF.themes.decorFor(palette, slot) : null;
+  return id && window.TF.decor.svgFor(id) || null;
 }
 
 // window.localStorage atau null: akses propertinya bisa melempar (Safari dengan penyimpanan situs diblokir).

@@ -7,7 +7,7 @@ Refactor token warna tidak boleh mengubah satu piksel pun tampilan Default teran
     python3 temporary_files/e2e_tema_fondasi.py compare                  # pohon kerja sekarang -> after/, PASS/FAIL per gambar
     python3 temporary_files/e2e_tema_fondasi.py compare --tolerance 3
     python3 temporary_files/e2e_tema_fondasi.py verify                   # perilaku tema (PR A Task 6 + PR B Task 7 + PR C Task 5)
-    python3 temporary_files/e2e_tema_fondasi.py shots --palette sakura   # 32 screenshot audit -> shots/sakura/
+    python3 temporary_files/e2e_tema_fondasi.py shots --palette sakura   # 34 screenshot audit -> shots/sakura/
 
 `--palette sakura|lavender` (baseline/compare/shots) menulis localStorage.tf_palette sebelum halaman dimuat. Tanpa
 --palette (= default) tf_palette tidak ditulis dan direktorinya tetap baseline/, after/, diff/; dengan palet lain
@@ -15,7 +15,7 @@ direktorinya baseline-<palet>/, after-<palet>/, diff-<palet>/ (gerbang piksel pa
 yang sudah memuat paletnya). `shots` hanya memotret untuk audit manual (tanpa pembanding): 8 halaman x 2 mode pada
 1280x900 ditambah Fokus & Pengaturan pada 375x812 (`<halaman>-375-<mode>.png`) x 2 mode, ditambah EXTRA_SHOTS
 (modal detail task, note terbuka di editor, Sketsa dengan gambar terbuka, mindmap terbuka, lalu Inbox kosong dan
-Fokus Hari Ini kosong dari akun kedua tanpa task) x 2 mode = 32 gambar, ke shots/<palet>/, lalu lembar kontak berlabel
+Fokus Hari Ini kosong serta Dashboard kosong dari akun kedua tanpa task) x 2 mode = 34 gambar, ke shots/<palet>/, lalu lembar kontak berlabel
 shots/<palet>-sheet.png (20 gambar halaman) dan shots/<palet>-sheet-2.png (EXTRA_SHOTS). Sketsa butuh bundel tldraw (`static/vendor/tldraw/`, di-.gitignore; `cd draw-app && npm ci && npm run
 build`); tanpa itu iframe-nya menampilkan 404.
 
@@ -189,11 +189,12 @@ def seed(base):
     return user
 
 
-def open_app(browser, base, user, mode, groupby, viewmode, sw, palette="default", mobile=False):
+def open_app(browser, base, user, mode, groupby, viewmode, sw, palette="default", mobile=False, viewport=None):
     """Konteks + halaman yang sudah login. palette != default -> localStorage.tf_palette ditulis sebelum "/" dimuat;
-    mobile -> viewport 375x812 dengan is_mobile/has_touch (topbar mobile, sidebar sebagai laci)."""
+    mobile -> viewport 375x812 dengan is_mobile/has_touch (topbar mobile, sidebar sebagai laci); viewport = ukuran
+    desktop lain (mis. batas 1024/1025 px)."""
     extra = {"is_mobile": True, "has_touch": True} if mobile else {}
-    ctx = browser.new_context(service_workers="block", viewport=MOBILE_VIEWPORT if mobile else VIEWPORT,
+    ctx = browser.new_context(service_workers="block", viewport=viewport or (MOBILE_VIEWPORT if mobile else VIEWPORT),
                               reduced_motion="reduce", **extra)
     ctx.route(FONT_HOSTS, lambda route: route.abort())
     ctx.clock.set_fixed_time(datetime.datetime.combine(datetime.date.today(), datetime.time(10, 0)))
@@ -405,8 +406,9 @@ MODE_LABEL = {"light": "terang", "dark": "gelap"}
 
 # Tangkapan tambahan khusus `shots` (audit final review PR B), 1280 px x 2 mode. Datanya (mindmap + sketsa) hanya
 # di-seed untuk `shots`, jadi baseline/compare tidak berubah.
-# Layar kosong (dekorasi PR C: maskot + kelopak) dari akun kedua EMPTY_USERNAME yang tidak punya task sama sekali.
-EMPTY_SHOTS = ("inbox-kosong", "today-kosong")
+# Layar kosong (dekorasi PR C: maskot + kelopak) dari akun kedua EMPTY_USERNAME yang tidak punya task sama sekali;
+# dashboard-kosong = hero tanpa kartu progres (totalToday 0), kelopak jadi item flex terakhir.
+EMPTY_SHOTS = ("inbox-kosong", "today-kosong", "dashboard-kosong")
 EXTRA_SHOTS = ("taskdetail", "noteeditor", "sketsa", "mindmap") + EMPTY_SHOTS
 EMPTY_USERNAME = "kosong"
 DRAW_TITLE = "Sketsa tema"
@@ -417,8 +419,8 @@ EDITOR_NOTE_CONTENT = ("## Ringkasan rapat\n\nPembuka dengan **tebal** dan `kode
 
 
 def shot_names():
-    """32 nama berkas `shots`: 8 halaman x 2 mode (1280 px), Fokus & Pengaturan 375 px x 2 mode, lalu EXTRA_SHOTS
-    (detail task, editor note, Sketsa, mindmap, Inbox kosong, Fokus Hari Ini kosong) x 2 mode."""
+    """34 nama berkas `shots`: 8 halaman x 2 mode (1280 px), Fokus & Pengaturan 375 px x 2 mode, lalu EXTRA_SHOTS
+    (detail task, editor note, Sketsa, mindmap, Inbox kosong, Fokus Hari Ini kosong, Dashboard kosong) x 2 mode."""
     desk = ["%s-%s.png" % (page[0], mode) for page in PAGES for mode in MODES]
     mob = ["%s-375-%s.png" % (name, mode) for name in SHOT_MOBILE_PAGES for mode in MODES]
     extra = ["%s-%s.png" % (name, mode) for name in EXTRA_SHOTS for mode in MODES]
@@ -469,6 +471,9 @@ def shoot_extra(browser, base, user, name, mode, out_dir, sw, palette="default",
         elif name == "today-kosong":
             nav(p, "Fokus Hari Ini")
             p.get_by_text("Tidak ada task urgent!").first.wait_for(state="visible", timeout=20000)
+        elif name == "dashboard-kosong":
+            p.locator(".dash-hero").first.wait_for(state="visible", timeout=20000)
+            p.wait_for_timeout(500)
         elif name == "taskdetail":
             nav(p, "Semua Task")
             p.locator(".task-row", has_text=TASKS[0][0]).first.click()
@@ -547,7 +552,7 @@ def contact_sheet(src_dir, out_path, title, names):
 
 
 def shots(palette):
-    """32 screenshot audit palet ke shots/<palet>/ + lembar kontak shots/<palet>-sheet.png (20 halaman) dan
+    """34 screenshot audit palet ke shots/<palet>/ + lembar kontak shots/<palet>-sheet.png (20 halaman) dan
     shots/<palet>-sheet-2.png (EXTRA_SHOTS). Tanpa pembanding."""
     out_dir = os.path.join(SHOTS, "shots", palette)
     os.makedirs(os.path.dirname(out_dir), exist_ok=True)
@@ -562,7 +567,7 @@ def shots(palette):
                           "Alurik — palet %s (1280x900 dan 375x812, bagian atas halaman)" % palette.capitalize(),
                           names[:-n_extra])
     sheet2 = contact_sheet(out_dir, os.path.join(SHOTS, "shots", palette + "-sheet-2.png"),
-                           "Alurik — palet %s: detail task, editor note, Sketsa, mindmap, Inbox & Fokus kosong (1280x900)"
+                           "Alurik — palet %s: detail task, editor note, Sketsa, mindmap, Inbox/Fokus/Dashboard kosong (1280x900)"
                            % palette.capitalize(), names[-n_extra:])
     print("%d gambar di %s\nlembar kontak: %s, %s" % (len(names), os.path.relpath(out_dir, ROOT),
                                                       os.path.relpath(sheet, ROOT), os.path.relpath(sheet2, ROOT)))
@@ -835,8 +840,9 @@ def empty_state_parts(p):
                      icon: es.querySelectorAll('.empty-state-icon svg').length} : null; }""")
 
 
-def verify_decor(browser, base, user, sw):
-    """Cek PR C Task 5: d-show, d-toggle, d-palette, d-motion, d-zen, d-375, d-glyph (Sakura terang, user seed)."""
+def verify_decor(browser, base, user, sw, empty_user):
+    """Cek PR C Task 5: d-show, d-toggle, d-palette, d-motion, d-zen, d-375, d-glyph (Sakura terang, user seed), lalu
+    perbaikan akhir: d-fokus-class, d-fokus-overlap, d-fokus-mobile, d-hero-empty (akun kosong), d-dark."""
     # d-show: kelopak pojok di Dashboard (hero) dan Fokus Hari Ini (judul), maskot di Inbox kosong.
     ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, "sakura")
     try:
@@ -983,6 +989,131 @@ def verify_decor(browser, base, user, sw):
               "%r -> %r -> %r" % (before, zen, after))
     finally:
         ctx.close()
+    verify_decor_final(browser, base, user, sw, empty_user)
+
+
+TITLE_CLASS_JS = "() => { const h = document.querySelector('.focus-page-title'); return h ? h.className : null; }"
+PETAL_DISPLAY_JS = "() => [...document.querySelectorAll('.focus-page-title > .decor-page-corner')].map(el => getComputedStyle(el).display)"
+
+
+def verify_decor_final(browser, base, user, sw, empty_user):
+    """Perbaikan akhir dekorasi: kelas focus-page-title--decor bersyarat (pengganti :has()), kelopak judul Fokus tidak
+    menimpa ringkasan pada 1025 px dan display:none pada <= 1024 px, kelopak hero tetap di dalam hero saat belum ada
+    task hari ini, dan --accent-duo kelopak di mode gelap lebih kuat dari token palet."""
+    # d-fokus-class: Default -> tanpa kelas, Sakura -> kelas + margin kanan 154px, dekorasi off -> kelas hilang.
+    ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw)
+    try:
+        p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+        open_today(p)
+        dflt = p.evaluate(TITLE_CLASS_JS)
+    finally:
+        ctx.close()
+    ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, "sakura")
+    try:
+        p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+        open_today(p)
+        sak = [p.evaluate(TITLE_CLASS_JS),
+               p.evaluate("() => getComputedStyle(document.querySelector('.focus-page-title')).marginRight")]
+        p.evaluate("() => { document.documentElement.dataset.decor = 'off'; }")
+        p.wait_for_function("() => !document.querySelector('.focus-page-title > .decor-page-corner')", timeout=5000)
+        off = p.evaluate(TITLE_CLASS_JS)
+        check("d-fokus-class h1 Fokus: Default tanpa kelas tambahan, Sakura focus-page-title--decor (margin 154px), "
+              "dekorasi off -> kelas hilang",
+              dflt == "focus-page-title" and sak == ["focus-page-title focus-page-title--decor", "154px"]
+              and off == "focus-page-title", "default %r, sakura %r, off %r" % (dflt, sak, off))
+    finally:
+        ctx.close()
+
+    # d-fokus-overlap: 1025 px (titlebar tampil), Sakura: kotak kelopak judul tidak berpotongan dengan kotak teks
+    # ringkasan, sebelum dan sesudah task difokuskan (ringkasan lebih panjang).
+    ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, "sakura",
+                      viewport={"width": 1025, "height": 900})
+    try:
+        p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+        open_today(p)
+        res = []
+        for stage in ("awal", "fokus"):
+            if stage == "fokus":
+                focus_first_task(p)
+                p.wait_for_timeout(300)
+            pet = rects(p, ".focus-page-title > .decor-page-corner")
+            summ = rects(p, ".focus-page-summary")
+            disp = p.evaluate(PETAL_DISPLAY_JS)
+            res.append((stage, disp, pet, summ, bool(pet and summ and intersects(pet[0], summ[0]))))
+        hscroll = p.evaluate("() => document.documentElement.scrollWidth > window.innerWidth")
+        check("d-fokus-overlap 1025 px Sakura: kelopak judul Fokus tampil dan tidak menimpa teks .focus-page-summary "
+              "(awal & sesudah fokus), tanpa scroll horizontal",
+              all(d == ["block"] and len(pt) == 1 and pt[0]["w"] == 130 and len(sm) == 1 and sm[0]["w"] > 0 and not hit
+                  for _, d, pt, sm, hit in res) and not hscroll, "%r, hscroll %r" % (res, hscroll))
+    finally:
+        ctx.close()
+
+    # d-fokus-mobile: <= 1024 px titlebar visually-hidden -> kelopak judul display:none (animasinya tidak berjalan).
+    disp = {}
+    for label, kw in (("1024", {"viewport": {"width": 1024, "height": 900}}), ("375", {"mobile": True})):
+        ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, "sakura", **kw)
+        try:
+            p.get_by_text(TASKS[0][0]).first.wait_for(state="attached", timeout=20000)
+            open_today(p)
+            p.emulate_media(reduced_motion="no-preference")  # konteks bawaan reduce: animasi baru bisa "berjalan"
+            disp[label] = [p.evaluate(PETAL_DISPLAY_JS),
+                           p.evaluate("() => [...document.querySelectorAll('.focus-page-title > .decor-page-corner')]"
+                                      ".map(el => el.getAnimations().filter(a => a.playState === 'running').length)")]
+        finally:
+            ctx.close()
+    check("d-fokus-mobile <= 1024 px: kelopak judul Fokus ada di DOM tetapi display:none, tanpa animasi berjalan",
+          disp == {"1024": [["none"], [0]], "375": [["none"], [0]]}, repr(disp))
+
+    # d-hero-empty: akun tanpa task (totalToday 0): tanpa kartu progres, kelopak = anak terakhir dash-hero-top dengan
+    # margin kanan 0, kotak kelopak (dan svg-nya) di dalam kotak .dash-hero; 1280 px dan 375 px.
+    out = {}
+    for label, kw in (("1280", {}), ("375", {"mobile": True})):
+        ctx, p = open_app(browser, base, empty_user, "light", "quadrant", "normal", sw, "sakura", **kw)
+        try:
+            p.locator(".dash-hero").first.wait_for(state="visible", timeout=20000)
+            p.wait_for_timeout(500)
+            info = p.evaluate("""() => { const top = document.querySelector('.dash-hero-top');
+                const pet = top && top.querySelector(':scope > .decor-page-corner');
+                return {progress: document.querySelectorAll('.dash-hero-progress').length,
+                        last: !!pet && top.lastElementChild === pet,
+                        mr: pet ? getComputedStyle(pet).marginRight : null}; }""")
+            hero = rects(p, ".dash-hero")
+            pet = rects(p, ".dash-hero-top > .decor-page-corner")
+            svg = rects(p, ".dash-hero-top > .decor-page-corner svg")
+            # 375 px: sapaan tanpa kartu progres memakai seluruh baris -> kelopak boleh menyusut sampai lebar 0 (desain
+            # basis 0); yang dicek hanya tidak keluar dari hero. 1280 px: kelopak harus tampil.
+            inside = bool(hero and pet and svg) and all(
+                (r[0]["w"] > 0 or label == "375") and r[0]["l"] >= hero[0]["l"] and r[0]["r"] <= hero[0]["r"]
+                and r[0]["t"] >= hero[0]["t"] and r[0]["b"] <= hero[0]["b"] for r in (pet, svg))
+            out[label] = dict(info, inside=inside, pet=pet, svg=svg, hero=hero)
+        finally:
+            ctx.close()
+    check("d-hero-empty akun tanpa task: tanpa kartu progres, kelopak hero anak terakhir (margin kanan 0) dan "
+          "seluruhnya di dalam .dash-hero (1280 px tampil; 375 px boleh menyusut)",
+          all(o["progress"] == 0 and o["last"] and o["mr"] == "0px" and o["inside"] for o in out.values()), repr(out))
+
+    # d-dark: Sakura & Lavender gelap -> --accent-duo kelopak = rgba(--accent-rgb, .46) (lebih terang dari token palet),
+    # maskot tetap memakai token palet.
+    duo_js = """() => { const pet = document.querySelector('.decor-page-corner');
+        return [pet ? getComputedStyle(pet).getPropertyValue('--accent-duo').trim() : null,
+                getComputedStyle(document.documentElement).getPropertyValue('--accent-duo').trim(),
+                getComputedStyle(document.documentElement).getPropertyValue('--accent-rgb').trim()]; }"""
+    dark = {}
+    for pal in ("sakura", "lavender"):
+        ctx, p = open_app(browser, base, user, "dark", "quadrant", "normal", sw, pal)
+        try:
+            p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+            p.wait_for_timeout(300)
+            pet_duo, root_duo, rgb = p.evaluate(duo_js)
+            open_inbox(p)
+            mascot = p.evaluate("""() => { const m = document.querySelector('.empty-state-mascot');
+                return m ? getComputedStyle(m).getPropertyValue('--accent-duo').trim() : null; }""")
+            dark[pal] = [pet_duo, root_duo, rgb, mascot]
+        finally:
+            ctx.close()
+    check("d-dark kelopak pojok di mode gelap: --accent-duo lokal rgba(--accent-rgb, 0.46); maskot tetap token palet",
+          all(v[0].replace(" ", "") == "rgba(%s,0.46)" % v[2].replace(" ", "") and v[3] == v[1] for v in dark.values()),
+          repr(dark))
 
 
 def verify():
@@ -996,6 +1127,7 @@ def verify():
     try:
         user = seed(base)
         seed_verify_extra(base, user)
+        empty_user = register(base, EMPTY_USERNAME, "Kosong")
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             want = {"theme": "dark", "palette": "default", "decor": "on"}
@@ -1070,7 +1202,7 @@ def verify():
             finally:
                 ctx.close()
             verify_palettes(browser, base, user, sw)
-            verify_decor(browser, base, user, sw)
+            verify_decor(browser, base, user, sw, empty_user)
             browser.close()
     finally:
         proc.terminate()
@@ -1097,7 +1229,7 @@ def main():
     cmp_ = sub.add_parser("compare", help="ambil after/ dari pohon kerja, bandingkan dengan baseline/")
     cmp_.add_argument("--tolerance", type=int, default=3, help="selisih kanal maksimum yang masih dianggap sama")
     cmp_.add_argument("--palette", **pal)
-    shots_ = sub.add_parser("shots", help="32 screenshot audit satu palet ke shots/<palet>/ + lembar kontak")
+    shots_ = sub.add_parser("shots", help="34 screenshot audit satu palet ke shots/<palet>/ + lembar kontak")
     shots_.add_argument("--palette", **pal)
     sub.add_parser("verify", help="cek perilaku tema di browser (skrip boot, toggle, mode system, logout, palet)")
     args = ap.parse_args()

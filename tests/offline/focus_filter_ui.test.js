@@ -410,6 +410,9 @@ const focuspage = require("../../static/offline/focuspage.js");
 function renderFocusView({ tasks, focusTask = null, zen = false, sharedLists = [], onToggleFocus }) {
   const stubs = {};
   for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph", "EmptyState", "Decor"]) stubs[n] = n;
+  // Tema (kelas focus-page-title--decor): palet Default, kelopak tidak tampil.
+  stubs.useThemeAttrs = () => ({ theme: "light", palette: "default", decor: "on" });
+  stubs.decorSvgFor = () => null;
   const storage = { getItem: k => (k === "tf_focus_zen" && zen ? "1" : null), setItem: () => {} };
   const { TodayFocusView } = loadComponents(["computeOccurrences", "TodayFocusView"], {
     React: { createElement: fakeReact.createElement, Fragment: "Fragment", useEffect: NOOP },
@@ -591,6 +594,9 @@ function mountFocusView({ tasks, focusTask = null, zen = false, running = false,
   const hooks = createHooks();
   const stubs = {};
   for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph", "EmptyState", "Decor"]) stubs[n] = n;
+  // Tema (kelas focus-page-title--decor): palet Default, kelopak tidak tampil.
+  stubs.useThemeAttrs = () => ({ theme: "light", palette: "default", decor: "on" });
+  stubs.decorSvgFor = () => null;
   const timers = [];
   const doc = { querySelectorAll: () => [], body: { name: "body" }, activeElement: null };
   const { TodayFocusView } = loadWith(["computeOccurrences", "TodayFocusView"], {

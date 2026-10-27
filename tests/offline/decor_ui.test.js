@@ -33,7 +33,7 @@ function renderDecor(attrs, props, { withModules = true } = {}) {
     window: win,
     TF: win.TF,
   };
-  vm.runInNewContext(fnSource("Decor") + "\nthis.Decor = Decor;", sandbox);
+  vm.runInNewContext(fnSource("Decor") + fnSource("decorSvgFor") + "\nthis.Decor = Decor;", sandbox);
   const out = sandbox.Decor(props);
   return { out, hookCalls };
 }
@@ -250,7 +250,7 @@ test("CSS: kelopak Fokus dijangkar ke judul (kanan teks, tengah vertikal), ruang
   assert.match(body, /left:\s*calc\(100% \+ 24px\)/);
   assert.match(body, /right:\s*auto/);
   assert.match(body, /top:\s*calc\(50% - 45px\)/, "tengah vertikal pada judul (tinggi 90px)");
-  const reserve = ruleBody(/(?:^|\n)\.focus-page-title:has\(> \.decor-page-corner\)\s*\{([^}]*)\}/);
+  const reserve = ruleBody(/(?:^|\n)\.focus-page-title--decor\s*\{([^}]*)\}/);
   const m = reserve.match(/margin-right:\s*(\d+)px/);
   assert.ok(m && Number(m[1]) >= 24 + 130, "margin kanan judul ≥ 24 + lebar kelopak: ringkasan tidak bisa menimpa kelopak");
 });
@@ -277,4 +277,79 @@ test("CSS: tanpa offset magic & aturan z-index lama", () => {
     assert.doesNotMatch(block, re);
   }
   assert.doesNotMatch(ruleBody(/(?:^|\n)\.focus-page-titlebar\s*\{([^}]*)\}/), /position:\s*relative/, "titlebar kembali seperti Default");
+});
+
+// ── Perbaikan akhir dekorasi: tanpa :has(), kelopak Fokus disembunyikan <= 1024 px, hero kosong, kelopak gelap ──
+function decorBlock() {
+  const a = appCss.indexOf("/* ── Dekorasi tema (slot Decor): awal ── */");
+  const b = appCss.indexOf("/* ── Dekorasi tema (slot Decor): akhir ── */");
+  assert.ok(a >= 0 && b > a);
+  return appCss.slice(a, b);
+}
+
+function loadDecorSvgFor(win) {
+  const sandbox = { window: win };
+  vm.runInNewContext(fnSource("decorSvgFor") + "\nthis.decorSvgFor = decorSvgFor;", sandbox);
+  return sandbox.decorSvgFor;
+}
+
+test("decorSvgFor: svg hanya untuk palet berdekorasi + decor on + modul ada; selain itu null", () => {
+  const f = loadDecorSvgFor({ TF: { themes, decor } });
+  assert.equal(f("sakura", "on", "page-corner"), decor.svgFor("petals"));
+  assert.equal(f("lavender", "on", "page-corner"), decor.svgFor("petals"));
+  assert.equal(f("default", "on", "page-corner"), null);
+  assert.equal(f("sakura", "off", "page-corner"), null);
+  assert.equal(f("sakura", "on", "tidak-ada"), null);
+  assert.equal(loadDecorSvgFor({})("sakura", "on", "page-corner"), null);
+  assert.equal(loadDecorSvgFor({ TF: { themes } })("sakura", "on", "page-corner"), null, "tanpa TF.decor");
+});
+
+test("Decor memakai decorSvgFor (satu syarat render bersama TodayFocusView)", () => {
+  assert.match(fnSource("Decor"), /const svg = decorSvgFor\(palette, decor, slot\);/);
+  assert.doesNotMatch(fnSource("Decor"), /decorFor\(/, "syarat tidak diduplikasi di Decor");
+});
+
+test("sumber: h1 Fokus mendapat focus-page-title--decor hanya bila kelopak pojok tampil", () => {
+  const view = fnSource("TodayFocusView");
+  assert.match(view, /const themeAttrs = useThemeAttrs\(\);/);
+  assert.match(view, /const hasCornerDecor = !!decorSvgFor\(themeAttrs\.palette, themeAttrs\.decor, "page-corner"\);/);
+  assert.ok(view.includes('className: "focus-page-title" + (hasCornerDecor ? " focus-page-title--decor" : "")'));
+  // ekspresi className bernilai persis "focus-page-title" (Default) atau dengan kelas tambahan (Sakura)
+  const expr = '"focus-page-title" + (hasCornerDecor ? " focus-page-title--decor" : "")';
+  const f = loadDecorSvgFor({ TF: { themes, decor } });
+  const cls = (palette, d) => vm.runInNewContext(expr, { hasCornerDecor: !!f(palette, d, "page-corner") });
+  assert.equal(cls("default", "on"), "focus-page-title");
+  assert.equal(cls("sakura", "off"), "focus-page-title");
+  assert.equal(cls("sakura", "on"), "focus-page-title focus-page-title--decor");
+  assert.equal(cls("lavender", "on"), "focus-page-title focus-page-title--decor");
+});
+
+test("CSS: tidak ada :has( di aturan dekorasi; ruang kelopak lewat .focus-page-title--decor", () => {
+  const block = decorBlock();
+  const rulesOnly = block.replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.ok(!rulesOnly.includes(":has("), "aturan dekorasi tanpa :has()");
+  assert.ok(!/\.decor[^{]*:has\(|:has\([^)]*decor/.test(appCss.replace(/\/\*[\s\S]*?\*\//g, "")), "tak ada :has() terkait decor di app.css");
+  assert.match(ruleBody(/(?:^|\n)\.focus-page-title--decor\s*\{([^}]*)\}/), /margin-right:\s*154px/);
+});
+
+test("CSS: kelopak judul Fokus display:none di <= 1024 px (titlebar visually-hidden)", () => {
+  assert.match(decorBlock(), /@media \(max-width: 1024px\)\s*\{\s*\.focus-page-title > \.decor-page-corner\s*\{\s*display:\s*none;?\s*\}\s*\}/);
+});
+
+test("CSS: kelopak hero sebagai anak terakhir (belum ada task hari ini) tanpa margin kanan negatif", () => {
+  assert.match(ruleBody(/(?:^|\n)\.dash-hero-top > \.decor-page-corner:last-child\s*\{([^}]*)\}/), /margin-right:\s*0;?/);
+  const block = decorBlock();
+  // setelah aturan media 640px (-12px) supaya menang juga di HP (spesifisitas lebih tinggi + urutan)
+  assert.ok(block.indexOf(".dash-hero-top > .decor-page-corner:last-child") > block.indexOf("@media (max-width: 640px) { .dash-hero-top > .decor-page-corner"));
+});
+
+test("CSS: mode gelap menimpa --accent-duo hanya di kelopak pojok (rgba aksen), bukan maskot/root", () => {
+  const block = decorBlock();
+  const m = block.match(/(?:^|\n)\[data-theme="dark"\] \.decor-page-corner\s*\{\s*--accent-duo:\s*rgba\(var\(--accent-rgb\),\s*(0?\.\d+)\);?\s*\}/);
+  assert.ok(m, "override lokal --accent-duo");
+  const a = Number(m[1]);
+  assert.ok(a >= 0.4 && a <= 0.55, "alpha lembut tapi jelas: " + a);
+  assert.equal((block.match(/--accent-duo\s*:/g) || []).length, 1, "satu-satunya penimpaan token di blok dekorasi");
+  // kelopak hanya memakai --accent-duo sebagai warna (penimpaan lokal cukup)
+  assert.deepEqual([...decor.svgFor("petals").matchAll(/var\(--[\w-]+\)/g)].map(x => x[0]), ["var(--accent-duo)"]);
 });

@@ -54,7 +54,7 @@ function render(attrs, props, { withModules = true } = {}) {
     window: win,
     TF: win.TF,
   };
-  vm.runInNewContext(fnSource("Decor") + fnSource("EmptyState") + "\nthis.EmptyState = EmptyState; this.Decor = Decor;", sandbox);
+  vm.runInNewContext(fnSource("Decor") + fnSource("decorSvgFor") + fnSource("EmptyState") + "\nthis.EmptyState = EmptyState; this.Decor = Decor;", sandbox);
   const tree = sandbox.EmptyState(props);
   const decors = findAll(tree, n => n.type === sandbox.Decor);
   const glyphs = findAll(tree, n => n.type === ViewGlyph);
