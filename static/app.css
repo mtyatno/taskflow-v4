@@ -5209,22 +5209,43 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .theme-card-switch:disabled { opacity: 0.5; cursor: not-allowed; }
 .theme-card-switch-knob { width: 20px; height: 20px; border-radius: 50%; background: var(--bg-card); }
 .theme-card-switch[aria-checked="true"] .theme-card-switch-knob { background: var(--accent-ink); }
-.theme-card-mode:focus-visible, .theme-card-palette:focus-visible, .theme-card-switch:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+/* Latar (spec latar-hero §7): kartu pilihan = radio berisi pratinjau HeroBackdrop place="thumb" (palet & mode aktif). */
+.theme-card-hint { margin: -2px 0 10px; font-size: 13px; color: var(--text-secondary); }
+.theme-card-herobgs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.theme-card-herobg { position: relative; display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 8px; box-sizing: border-box; border: 2px solid var(--border); border-radius: var(--radius-card); background: var(--bg-card); color: var(--text-primary); font: inherit; text-align: left; cursor: pointer; transition: border-color 0.15s, box-shadow 0.15s; }
+.theme-card-herobg:hover { border-color: var(--border-strong); }
+.theme-card-herobg[aria-checked="true"] { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+.theme-card-herobg-thumb { position: relative; display: block; width: 100%; aspect-ratio: 5 / 2; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg-card); }
+.theme-card-herobg-name { display: block; min-width: 0; padding: 0 2px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 800; }
+.theme-card-herobg-badge { margin-left: 2px; font-size: 11px; font-weight: 700; color: var(--text-secondary); }
+.theme-card-herobg-check { position: absolute; top: 6px; right: 6px; z-index: 2; display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--accent); color: var(--accent-on, #1a2a00); }
+.theme-card-herobg-check svg { stroke-width: 3; }
+.theme-card-mode:focus-visible, .theme-card-palette:focus-visible, .theme-card-herobg:focus-visible, .theme-card-switch:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .theme-preview { display: flex; flex-direction: column; gap: 10px; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--bg-card); }
+/* Strip hero mini: latar terpilih (HeroBackdrop place="hero") + sapaan contoh. Kotak fitur hero (290x140, right 226px)
+   diperkecil ke kanan strip (rasio sama); fitur tetap ikut aturan hero (sembunyi saat dekorasi mati dan <= 1100 px). */
+.theme-preview-hero { position: relative; display: flex; flex-direction: column; justify-content: center; gap: 2px; height: 110px; padding: 0 16px; box-sizing: border-box; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-control); background: var(--bg-card); }
+.theme-preview-hero .hb-feature { right: 8px; top: 6px; bottom: 6px; height: auto; width: 203px; }
+.theme-preview-hero-greet, .theme-preview-hero-sub { position: relative; z-index: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.theme-preview-hero-greet { font-family: var(--font-heading); font-size: 19px; font-weight: 800; color: var(--text-primary); }
+.theme-preview-hero-sub { font-size: 13px; color: var(--text-secondary); }
 .theme-preview-row { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 4px 6px; border-radius: var(--radius-control); }
-.theme-preview-row:first-child { background: var(--bg-subtle); }
+.theme-preview-row:not(.is-done) { background: var(--bg-subtle); }
 .theme-preview-check { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; box-sizing: border-box; flex-shrink: 0; border: 2px solid var(--accent); border-radius: 50%; background: var(--accent-soft); }
 .theme-preview-row.is-done .theme-preview-check { background: var(--accent); color: var(--accent-on, #1a2a00); }
 .theme-preview-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: var(--text-primary); }
 .theme-preview-row.is-done .theme-preview-title { font-weight: 400; color: var(--text-light); text-decoration: line-through; }
 .theme-preview-chip { flex-shrink: 0; padding: 2px 10px; border-radius: var(--radius-pill); background: var(--accent-soft); color: var(--accent-text); font-size: 12px; font-weight: 700; }
+@media (max-width: 559px) {
+  .theme-card-herobgs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 419px) {
   .theme-card-palettes { grid-template-columns: minmax(0, 1fr); }
   .theme-card-mode { padding: 0 4px; font-size: 13px; }
   .theme-card-palette { flex-direction: row; align-items: center; min-height: 52px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .theme-card-mode, .theme-card-palette, .theme-card-switch { transition: none; }
+  .theme-card-mode, .theme-card-palette, .theme-card-herobg, .theme-card-switch { transition: none; }
 }
 /* ── Kartu "Tampilan": akhir ── */
 

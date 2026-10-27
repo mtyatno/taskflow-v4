@@ -27081,7 +27081,8 @@ function ExtAuthOverlay({
 }
 
 // ── Kartu "Tampilan" (Pengaturan) ───────────────────────────
-// Mode (terang/gelap/ikuti sistem), palet, dekorasi (hanya bila modul TF.decor ada), pratinjau bertoken.
+// Mode (terang/gelap/ikuti sistem), palet, latar hero (hanya bila registri TF.herobg ada; spec latar-hero §7), dekorasi
+// (hanya bila modul TF.decor ada), pratinjau bertoken + strip hero mini dengan latar terpilih.
 // Setiap pilihan langsung onThemePrefs(patch) — tanpa tombol Simpan, tanpa toast (spec §3.7).
 function ThemeSettingsCard({
   themePrefs,
@@ -27098,11 +27099,27 @@ function ThemeSettingsCard({
     if (btn) btn.focus();
   };
   // Pola radiogroup WAI-ARIA: panah memindah pilihan sekaligus fokus (melingkar); Tab masuk/keluar grup.
+  const radioStep = key => key === "ArrowRight" || key === "ArrowDown" ? 1 : key === "ArrowLeft" || key === "ArrowUp" ? -1 : 0;
   const onModeKey = e => {
-    const step = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    const step = radioStep(e.key);
     if (!step) return;
     e.preventDefault();
     pickMode((modeIdx + step + modes.length) % modes.length);
+  };
+  // Latar hero Dashboard + kartu Pomodoro: radiogroup yang sama polanya dengan Mode (roving tabIndex + panah).
+  const heroKinds = window.TF.herobg ? window.TF.herobg.KINDS : null;
+  const herobgRefs = useRef([]);
+  const herobgIdx = heroKinds ? Math.max(0, heroKinds.findIndex(k => k.id === resolvedTheme.herobg)) : 0;
+  const pickHerobg = i => {
+    onThemePrefs({ herobg: heroKinds[i].id });
+    const btn = herobgRefs.current[i];
+    if (btn) btn.focus();
+  };
+  const onHerobgKey = e => {
+    const step = radioStep(e.key);
+    if (!step) return;
+    e.preventDefault();
+    pickHerobg((herobgIdx + step + heroKinds.length) % heroKinds.length);
   };
   const palette = resolvedTheme.palette;
   // Plan S2: sakelar dekorasi baru berarti setelah modul dekorasi (PR C) ada.
@@ -27164,6 +27181,46 @@ function ThemeSettingsCard({
     })), /*#__PURE__*/React.createElement("span", {
       className: "theme-card-palette-name"
     }, p.name));
+  }))), heroKinds && /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-section"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-label",
+    id: "theme-herobg-label"
+  }, "Latar"), /*#__PURE__*/React.createElement("p", {
+    className: "theme-card-hint",
+    id: "theme-herobg-hint"
+  }, "Untuk bagian atas Dashboard dan kartu Pomodoro di Fokus Hari Ini."), /*#__PURE__*/React.createElement("div", {
+    className: "theme-card-herobgs",
+    role: "radiogroup",
+    "aria-label": "Latar",
+    "aria-describedby": "theme-herobg-hint"
+  }, heroKinds.map((k, i) => {
+    const on = i === herobgIdx;
+    return /*#__PURE__*/React.createElement("button", {
+      key: k.id,
+      type: "button",
+      role: "radio",
+      className: "theme-card-herobg",
+      "aria-checked": on ? "true" : "false",
+      tabIndex: on ? 0 : -1,
+      ref: el => {
+        herobgRefs.current[i] = el;
+      },
+      onClick: () => onThemePrefs({ herobg: k.id }),
+      onKeyDown: onHerobgKey
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-herobg-thumb"
+    }, /*#__PURE__*/React.createElement(HeroBackdrop, {
+      place: "thumb",
+      kind: k.id
+    })), /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-herobg-name"
+    }, k.name, k.badge && " ", k.badge && /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-herobg-badge"
+    }, k.badge)), on && /*#__PURE__*/React.createElement("span", {
+      className: "theme-card-herobg-check",
+      "aria-hidden": "true"
+    }, /*#__PURE__*/React.createElement(FocusGlyph, { name: "check", size: 12 })));
   }))), showDecor && /*#__PURE__*/React.createElement("div", {
     className: "theme-card-decor"
   }, /*#__PURE__*/React.createElement("span", {
@@ -27191,7 +27248,15 @@ function ThemeSettingsCard({
     className: "theme-card-label"
   }, "Pratinjau"), /*#__PURE__*/React.createElement("div", {
     className: "theme-preview"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, heroKinds && /*#__PURE__*/React.createElement("div", {
+    className: "theme-preview-hero"
+  }, /*#__PURE__*/React.createElement(HeroBackdrop, {
+    place: "hero"
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-hero-greet"
+  }, "Selamat pagi"), /*#__PURE__*/React.createElement("span", {
+    className: "theme-preview-hero-sub"
+  }, "Ada 3 prioritas hari ini.")), /*#__PURE__*/React.createElement("div", {
     className: "theme-preview-row"
   }, /*#__PURE__*/React.createElement("span", {
     className: "theme-preview-check",
