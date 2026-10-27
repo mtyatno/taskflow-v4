@@ -5438,3 +5438,14 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .workspace-nav-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
 .workspace-nav-tabs::-webkit-scrollbar { display: none; }
 .workspace-nav-tabs > * { flex-shrink: 0; white-space: nowrap; }
+/* Halaman workspace di HP (≤ 640 px): baris tombol diganti satu tombol dropdown (WorkspaceNavMobileMenu). Baris desktop
+   memakai display inline, jadi disembunyikan dengan !important. */
+.workspace-nav-mobile { display: none; }
+@media (max-width: 640px) {
+  .workspace-nav-tabs { display: none !important; }
+  .workspace-nav-mobile { display: flex; align-items: center; margin: 12px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+}
+.ws-nav-trigger { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
+.ws-nav-item[aria-current="true"] { font-weight: 700; color: var(--accent-text-strong, var(--text-primary)); background: var(--accent-soft); }
+.ws-nav-item:disabled { opacity: 0.5; cursor: default; }
+.ws-nav-sep { height: 1px; margin: 4px 6px; background: var(--border); }

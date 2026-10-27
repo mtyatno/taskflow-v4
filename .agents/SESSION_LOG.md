@@ -4263,3 +4263,4 @@
 - **Status:** Needs Review — commit lokal di `claude/latar-hero`, belum push. Verifikasi: npm 3493/3494 (1 pra-ada), pytest 1240+1 skip, E2E latar 652/652, hero 10/10, fokus 36/0.
 - 2026-10-28 05:40 WIB (Claude): bug modal detail terpotong di halaman workspace (HP) — luberan .workspace-nav-tabs; CSS gulir samping, SW v484.
 - 2026-10-28 05:32 WIB (Claude): #112 (modal terpotong di halaman workspace, SW v484) di-merge + deploy.
+- 2026-10-28 06:00 WIB (Claude): menu workspace dropdown di HP (permintaan Bapak), SW v485, PR.
