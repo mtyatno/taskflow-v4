@@ -89,7 +89,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=370">
+  <link rel="stylesheet" href="/static/app.css?v=371">
   <link rel="stylesheet" href="/static/themes.css?v=1">
 
 <style>
@@ -257,7 +257,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v473-detail-baru";
+    window.__SW_VERSION = "taskflow-v474-detail-padat";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -9902,6 +9902,27 @@ function TaskDetailBody({
   // pun (Enter, Escape, klik di luar, klik nilai lagi) = commit field itu. Commit tanpa perubahan tidak mengirim apa pun.
   const pick = field => v => { sf(field, v); setOpenPop(null); auto.commit(field); };
   const closeProp = field => () => { setOpenPop(p => (p === field ? null : p)); auto.commit(field); };
+  // Properti opsional yang kosong (Assign ke, Menunggu, Tag) diringkas jadi satu baris tombol kecil "+ …"; klik membuka
+  // baris penuhnya beserta popover. Baris tetap penuh selama popover-nya terbuka (jangkar tidak berganti di tengah ketikan)
+  // atau setelah terisi; kosong lagi setelah ditutup → kembali diringkas.
+  const optionalProps = [task.list_id ? {
+    field: "assigned_to",
+    empty: !fv.assigned_to,
+    text: "+ Assign",
+    aria: "Assign ke: kosong"
+  } : null, {
+    field: "waiting_for",
+    empty: !String(fv.waiting_for || "").trim(),
+    text: "+ Menunggu",
+    aria: "Menunggu: kosong"
+  }, {
+    field: "tag",
+    empty: taskTags.length === 0,
+    text: "+ Tag",
+    aria: "Tambah tag"
+  }].filter(Boolean);
+  const collapsedProps = optionalProps.filter(c => c.empty && openPop !== c.field);
+  const showProp = field => optionalProps.some(c => c.field === field) && !collapsedProps.some(c => c.field === field);
   const propRow = field => ({
     open: openPop === field,
     onToggle: () => {
@@ -10018,6 +10039,8 @@ function TaskDetailBody({
     onProgressChange: p => sf("progress", p),
     onProgressCommit: () => auto.commit("progress")
   }), /*#__PURE__*/React.createElement("div", {
+    className: "td-props-box"
+  }, /*#__PURE__*/React.createElement("div", {
     className: "td-props"
   }, /*#__PURE__*/React.createElement(PropertyRow, {
     label: "Status",
@@ -10099,7 +10122,7 @@ function TaskDetailBody({
     value: fv.deadline,
     onChange: v => sf("deadline", v),
     onPick: pick("deadline")
-  })), task.list_id && /*#__PURE__*/React.createElement(PropertyRow, {
+  })), showProp("assigned_to") && /*#__PURE__*/React.createElement(PropertyRow, {
     label: "Assign ke",
     text: assigneeName,
     icon: /*#__PURE__*/React.createElement(Icon, {
@@ -10113,7 +10136,7 @@ function TaskDetailBody({
     value: fv.assigned_to,
     failed: membersFailed,
     onPick: pick("assigned_to")
-  })), /*#__PURE__*/React.createElement(PropertyRow, {
+  })), showProp("waiting_for") && /*#__PURE__*/React.createElement(PropertyRow, {
     label: "Menunggu",
     text: fv.waiting_for,
     isEmpty: !String(fv.waiting_for || "").trim(),
@@ -10123,7 +10146,7 @@ function TaskDetailBody({
     placeholder: "Menunggu siapa/apa",
     onChange: v => sf("waiting_for", v),
     onDone: closeProp("waiting_for")
-  })), /*#__PURE__*/React.createElement(PropertyRow, {
+  })), showProp("tag") && /*#__PURE__*/React.createElement(PropertyRow, {
     label: "Tag",
     wide: true,
     content: tagChips(),
@@ -10134,7 +10157,17 @@ function TaskDetailBody({
   }, /*#__PURE__*/React.createElement(TagAdder, {
     existing: taskTags.map(t => t.name),
     onAdd: addTag
-  }))), /*#__PURE__*/React.createElement("div", {
+  }))), collapsedProps.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "td-prop-adds"
+  }, collapsedProps.map(c => /*#__PURE__*/React.createElement("button", {
+    key: c.field,
+    type: "button",
+    className: "td-prop-add",
+    "aria-label": c.aria,
+    "aria-haspopup": "dialog",
+    "aria-expanded": false,
+    onClick: () => setOpenPop(c.field)
+  }, c.text)))), /*#__PURE__*/React.createElement("div", {
     className: "td-desc-wrap",
     ref: descWrapRef
   }, /*#__PURE__*/React.createElement("div", {
@@ -27174,7 +27207,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v473-detail-baru"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v474-detail-padat"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

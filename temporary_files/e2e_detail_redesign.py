@@ -934,7 +934,10 @@ def seed_props(base, name):
 
 
 def prop_btn(page, scope, label):
-    return page.locator('%s button.td-prop-val[aria-label^="%s: "]' % (scope, label)).first
+    """Tombol nilai properti; properti opsional kosong (Assign ke, Menunggu) tampil sebagai tombol ringkas "+ …"
+    (.td-prop-add) dengan aria-label yang sama ("<Label>: kosong"), klik membuka baris penuh + popover."""
+    return page.locator('%s button.td-prop-val[aria-label^="%s: "], %s button.td-prop-add[aria-label^="%s: "]'
+                        % (scope, label, scope, label)).first
 
 
 def pop_item(page, text):
@@ -983,16 +986,19 @@ def run_props(browser, base):
 
             # ── P-6: Escape menutup, fokus kembali ke nilai; tanpa select/.input-label ──
             box = reopen(PR_MAIN)
-            check("%s P-6a kisi properti: Status, Prioritas, Tahap, Proyek, Deadline, Menunggu (tanpa Assign di task pribadi)"
-                  % tag, [x.strip() for x in box.locator(".td-prop-label").all_inner_texts()][:6]
-                  == ["Status", "Prioritas", "Tahap", "Proyek", "Deadline", "Menunggu"]
-                  and box.locator('button.td-prop-val[aria-label^="Assign ke: "]').count() == 0,
-                  repr(box.locator(".td-prop-label").all_inner_texts()))
+            check("%s P-6a kisi properti: Status, Prioritas, Tahap, Proyek, Deadline; Menunggu & Tag kosong diringkas "
+                  "jadi '+ Menunggu' '+ Tag' (tanpa Assign di task pribadi)"
+                  % tag, [x.strip() for x in box.locator(".td-props .td-prop-label").all_inner_texts()]
+                  == ["Status", "Prioritas", "Tahap", "Proyek", "Deadline"]
+                  and [x.strip() for x in box.locator(".td-prop-add").all_inner_texts()] == ["+ Menunggu", "+ Tag"]
+                  and box.locator('[aria-label^="Assign ke: "]').count() == 0,
+                  repr((box.locator(".td-prop-label").all_inner_texts(), box.locator(".td-prop-add").all_inner_texts())))
             check("%s P-6b detail tanpa select / .input-label" % tag,
                   box.locator("select").count() == 0 and box.locator(".input-label").count() == 0,
                   "select=%d label=%d" % (box.locator("select").count(), box.locator(".input-label").count()))
-            check("%s P-6c nilai kosong '+ Tambah' (Proyek, Deadline, Menunggu)" % tag,
-                  all(prop_btn(p, scope, l).inner_text().strip() == "+ Tambah" for l in ("Proyek", "Deadline", "Menunggu")))
+            check("%s P-6c nilai kosong '+ Tambah' (Proyek, Deadline); Menunggu ringkas '+ Menunggu'" % tag,
+                  all(prop_btn(p, scope, l).inner_text().strip() == "+ Tambah" for l in ("Proyek", "Deadline"))
+                  and prop_btn(p, scope, "Menunggu").inner_text().strip() == "+ Menunggu")
             sbtn = prop_btn(p, scope, "Status")
             sbtn.click()
             p.locator(POP).first.wait_for(timeout=3000)
@@ -1182,8 +1188,8 @@ def run_props(browser, base):
             p.locator(".task-row", has_text=PR_WS).first.wait_for(timeout=15000)
             box = scope_open(p, scope, PR_WS)
             abtn = prop_btn(p, scope, "Assign ke")
-            check("%s P-5a task workspace: baris 'Assign ke' ada, kosong" % tag,
-                  abtn.count() == 1 and abtn.inner_text().strip() == "+ Tambah")
+            check("%s P-5a task workspace: 'Assign ke' kosong tampil ringkas '+ Assign'" % tag,
+                  abtn.count() == 1 and abtn.inner_text().strip() == "+ Assign")
             abtn.click()
             p.locator(POP).first.wait_for(timeout=3000)
             check("%s P-5b daftar anggota memuat '(Saya)' dan anggota lain" % tag,
@@ -1199,8 +1205,8 @@ def run_props(browser, base):
                   repr(server_task(base, user, wid).get("assigned_to")))
             abtn.click()
             pop_item(p, "Lepas").click()
-            check("%s P-5e Lepas → nilai '+ Tambah'" % tag,
-                  wait_until(lambda: abtn.inner_text().strip() == "+ Tambah", 3))
+            check("%s P-5e Lepas → kembali ringkas '+ Assign'" % tag,
+                  wait_until(lambda: abtn.inner_text().strip() == "+ Assign", 3))
             check("%s P-5f task lokal (router lokal) tanpa assignee" % tag,
                   wait_until(lambda: not local_task(p, wid).get("assigned_to"), 5),
                   repr(local_task(p, wid).get("assigned_to")))
@@ -1270,7 +1276,8 @@ def run_tags(browser, base):
             return scope_open(p, scope, title)
 
         def add_btn():
-            return p.locator(scope + ' button.td-tag-add[aria-label="Tambah tag"]').first
+            return p.locator(scope + ' button.td-tag-add[aria-label="Tambah tag"], ' + scope
+                             + ' button.td-prop-add[aria-label="Tambah tag"]').first
 
         try:
             # Tag lokal dipasang lalu halaman dimuat ulang: panel Live Edit bisa sudah memuat chip task pertama

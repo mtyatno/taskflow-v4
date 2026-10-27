@@ -1,5 +1,8 @@
 {
   "entries": [
+    {"version": "taskflow-v474-detail-padat", "date": "2026-10-27", "title": "Detail task lebih ringkas",
+     "new": ["Properti detail task kini satu baris (label di kiri, nilai di kanan), jadi deskripsi dan tab langsung terlihat di layar laptop.",
+             "Assign, Menunggu, dan Tag yang masih kosong diringkas menjadi tombol kecil; klik untuk mengisinya."]},
     {"version": "taskflow-v473-detail-baru", "date": "2026-10-27", "title": "Tampilan detail task baru",
      "new": ["Klik nilai mana pun di detail task untuk mengubahnya; perubahan tersimpan otomatis, juga di jendela detail di HP.",
              "Subtask, checklist, catatan, dan lampiran kini dalam tab dengan jumlah isinya.",

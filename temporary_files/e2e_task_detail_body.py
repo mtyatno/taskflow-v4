@@ -185,7 +185,8 @@ def open_task(page, title):
 
 def prop_btn(scope, label):
     """Tombol nilai properti di kisi detail (aria-label "<Label>: <nilai|kosong>")."""
-    return scope.locator('button.td-prop-val[aria-label^="%s: "]' % label).first
+    return scope.locator('button.td-prop-val[aria-label^="%s: "], button.td-prop-add[aria-label^="%s: "]'
+                         % (label, label)).first
 
 
 def pick_priority(page, scope, pri):

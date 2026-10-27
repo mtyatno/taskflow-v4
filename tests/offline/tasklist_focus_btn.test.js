@@ -91,13 +91,13 @@ test("CSS: label tombol fokus disembunyikan di layar sempit", () => {
   assert.match(appCss, /@media \(max-width: 768px\) \{[\s\S]*?\.task-row-badges \.dash-focus-label \{ display: none; \}/);
 });
 
-test("cache bust v432 + app.css?v=370", () => {
+test("cache bust v432 + app.css?v=371", () => {
   const sw = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.resolve(__dirname, "../../webapp.py"), "utf8");
-  assert.match(sw, /^const CACHE = "taskflow-v473-detail-baru";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v473-detail-baru";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v473-detail-baru"/);
-  assert.match(indexHtml, /app\.css\?v=370/);
+  assert.match(sw, /^const CACHE = "taskflow-v474-detail-padat";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v474-detail-padat";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v474-detail-padat"/);
+  assert.match(indexHtml, /app\.css\?v=371/);
 });
 
 test("Sidebar: badge Today ikut menghitung task fokus aktif", () => {
