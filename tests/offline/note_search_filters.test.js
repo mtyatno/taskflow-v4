@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v401", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v483-latar-hero";/m,
-      "sw.js CACHE must be taskflow-v483-latar-hero"
+      /^const CACHE = "taskflow-v484-hero-habit-hp";/m,
+      "sw.js CACHE must be taskflow-v484-hero-habit-hp"
     );
   });
 });

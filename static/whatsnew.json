@@ -1,5 +1,7 @@
 {
   "entries": [
+    {"version": "taskflow-v484-hero-habit-hp", "date": "2026-10-28", "title": "Bagian atas Dashboard lebih rapi di HP",
+     "fixed": ["Di HP, bagian atas Dashboard kini menampilkan satu habit beserta jumlah habit lainnya, tanpa pil yang terpotong."]},
     {"version": "taskflow-v483-latar-hero", "date": "2026-10-27", "title": "Latar Dashboard dan Pomodoro bisa dipilih",
      "new": ["Pilih latar bagian atas Dashboard dan kartu Pomodoro di Pengaturan › Tampilan: Kontur, Gradasi, Lanskap, Galaksi, Objek 3D, atau Polos.",
              "Setiap latar mengikuti palet dan mode terang atau gelap.",

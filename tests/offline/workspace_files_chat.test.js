@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v483-latar-hero', () => {
+  test('Service Worker cache version is bumped to taskflow-v484-hero-habit-hp', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v483-latar-hero";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v484-hero-habit-hp";/m);
   });
 });
 

@@ -1,4 +1,9 @@
-## 🟡 Latar hero bisa dipilih (Dashboard + kartu Pomodoro) + kartu Pomodoro terang — `claude/latar-hero` — 2026-10-27 (Claude) — PR DRAFT, menunggu "merge dan deploy"
+## 🟡 Hero Dashboard di HP: 1 chip habit + "+N", tanpa pil terpotong — `claude/hero-habit-hp` — 2026-10-28 (Claude) — PR DRAFT, menunggu "merge dan deploy"
+- Permintaan Bapak (screenshot HP): pil habit kedua terpotong di tepi hero. Kini ≤640 px menampilkan 1 chip habit (batas `heroHabitLimit` dari hook baru `useMediaMatch("(max-width: 640px)")`) + "+N"; chip habit menyusut dengan elipsis (tanpa baris geser). Placeholder tangkap cepat dipendekkan di HP ("Tulis apa saja...").
+- Rilis: SW `taskflow-v484-hero-habit-hp`, `app.css?v=380`, whatsnew v484. File statis saja.
+- Verifikasi: npm (semua lulus kecuali pra-ada `draw_local_reactive.test.js`), pytest 1240/1 skip, `check_inline_scripts`, E2E `e2e_hero_dashboard.py` (cek baru 6c/6d/6e: 375 px dan 320 px), `e2e_latar_hero.py` 652.
+
+## 🟢 (DI-MERGE #110 f273351, deploy sukses 2026-10-28 04:5x WIB) Latar hero bisa dipilih (Dashboard + kartu Pomodoro) + kartu Pomodoro terang — `claude/latar-hero` — 2026-10-27 (Claude)
 - **Spec / plan:** `docs/superpowers/specs/2026-10-27-latar-hero-design.md` (+ acuan mockup di `docs/superpowers/specs/2026-10-27-latar-hero/`), `docs/superpowers/plans/2026-10-27-latar-hero.md`. ADR-035.
 - **Isi:** preferensi `tf_herobg`/`data-herobg` (boot + `TF.themes`, `useThemeAttrs().herobg`); registri `static/offline/herobg.js` (6 latar × skema per palet × mode, `render` → base/ambient/feature); komponen `HeroBackdrop`/`useHeroBackdrop` (hero Dashboard + kartu Pomodoro, fitur disembunyikan ≤1100 px, HP, dan dekorasi off); Pengaturan › Tampilan bagian "Latar" (6 kartu pratinjau, radiogroup + panah) + strip hero di Pratinjau; kartu Pomodoro & bar ringkas pakai token `--pomo-*` (terang di mode terang, gelap ikut palet; warna bermakna tetap, versi teks terang lebih tua).
 - **Rilis:** SW `taskflow-v483-latar-hero`, `app.css?v=379`, whatsnew v483. File statis saja (tanpa restart).
