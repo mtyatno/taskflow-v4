@@ -106,8 +106,8 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v475-panel-tanpa-scrollbar in static/sw.js", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v475-panel-tanpa-scrollbar";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v475-panel-tanpa-scrollbar";/);
+  await t.test("Service Worker cache is taskflow-v476-catatan-input-atas in static/sw.js", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v476-catatan-input-atas";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v476-catatan-input-atas";/);
   });
 });
