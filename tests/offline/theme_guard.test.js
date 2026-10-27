@@ -379,3 +379,11 @@ test("guard: sidebar memakai var(--bg-sidebar)", () => {
   assert.ok(m);
   assert.match(m[1], /background: var\(--bg-sidebar\);/);
 });
+
+// 2026-10-27: angka badge rail sidebar (mis. "9+") tak terbaca di Sakura/Lavender (#111 di atas magenta/ungu).
+test("guard: badge rail sidebar berteks var(--accent-on, …) di atas aksen", () => {
+  const rule = css.match(/\.sidebar-rail-badge\s*\{([^}]*)\}/);
+  assert.ok(rule, ".sidebar-rail-badge tidak ditemukan");
+  assert.match(rule[1], /background:\s*var\(--accent\)/);
+  assert.match(rule[1], /(^|;)\s*color:\s*var\(--accent-on,\s*#111\)/);
+});

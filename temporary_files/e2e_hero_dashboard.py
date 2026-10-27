@@ -250,6 +250,20 @@ def run_checks(browser, base, user):
               gone and server == "done" and (shown_done or done_after > done_before),
               "%s: tombol hilang=%s, server=%s, chip selesai %d->%d, chip habit ini tampil selesai=%s"
               % (name, gone, server, done_before, done_after, shown_done))
+
+        # 7: "+N" / "Lihat habit" membuka halaman Habit (id halaman "habit"), bukan daftar task.
+        more = p.locator(".dash-hero-more").first
+        has_more = more.count() > 0
+        opened_habit = False
+        if has_more:
+            more.click()
+            try:
+                p.locator(".habit-page").first.wait_for(state="visible", timeout=10000)
+                opened_habit = True
+            except PlaywrightTimeout:
+                opened_habit = False
+        check("7 klik +N / Lihat habit membuka halaman Habit", has_more and opened_habit,
+              "chip ada=%s" % has_more)
     finally:
         ctx.close()
 

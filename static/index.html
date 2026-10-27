@@ -94,7 +94,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=377">
+  <link rel="stylesheet" href="/static/app.css?v=378">
   <link rel="stylesheet" href="/static/themes.css?v=2">
 
 <style>
@@ -262,7 +262,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v481-tema-dekorasi";
+    window.__SW_VERSION = "taskflow-v482-tema-dekorasi";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -23502,12 +23502,12 @@ function Dashboard({
   }), heroHabits.more > 0 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "dash-hero-chip dash-hero-more",
-    onClick: () => onNav("habits"),
+    onClick: () => onNav("habit"),
     "aria-label": `Lihat ${heroHabits.more} habit lainnya`
   }, `+${heroHabits.more}`), heroHabitsAllSettled && heroHabits.more === 0 && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "dash-hero-chip dash-hero-more dash-hero-habits-link",
-    onClick: () => onNav("habits"),
+    onClick: () => onNav("habit"),
     "aria-label": "Buka halaman Habit"
   }, "Lihat habit"))), /*#__PURE__*/React.createElement("div", {
     className: "scratchpad-bar dash-capture",
@@ -27770,7 +27770,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v481-tema-dekorasi"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v482-tema-dekorasi"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

@@ -1,9 +1,12 @@
 {
   "entries": [
-    {"version": "taskflow-v481-tema-dekorasi", "date": "2026-10-27", "title": "Dekorasi tema Sakura dan Lavender",
+    {"version": "taskflow-v482-tema-dekorasi", "date": "2026-10-27", "title": "Dekorasi tema Sakura dan Lavender",
      "new": ["Kelopak bunga dan maskot lucu muncul di palet Sakura dan Lavender.",
              "Dekorasi bisa dimatikan di Pengaturan › Tampilan.",
              "Tampilan kosong di Fokus Hari Ini, daftar task, dan Dashboard kini memakai ikon, bukan emoji."]},
+    {"version": "taskflow-v481-badge-rail", "date": "2026-10-27", "title": "Perbaikan dashboard dan menu samping",
+     "fixed": ["Angka pada bulatan pemberitahuan di menu samping kini terbaca jelas di tema Sakura dan Lavender.",
+               "Tombol habit lainnya (+N) dan Lihat habit di dashboard kini membuka halaman Habit, bukan daftar task."]},
     {"version": "taskflow-v480-hero-dashboard", "date": "2026-10-27", "title": "Dashboard baru yang lebih hidup",
      "new": ["Task yang sedang difokuskan kini bisa dimulai atau dijeda langsung dari dashboard, atau pilih task untuk difokuskan.",
              "Habit hari ini bisa dicentang langsung dari bagian atas dashboard.",
