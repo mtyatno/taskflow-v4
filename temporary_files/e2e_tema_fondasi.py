@@ -842,7 +842,8 @@ def empty_state_parts(p):
 
 def verify_decor(browser, base, user, sw, empty_user):
     """Cek PR C Task 5: d-show, d-toggle, d-palette, d-motion, d-zen, d-375, d-glyph (Sakura terang, user seed), lalu
-    perbaikan akhir: d-fokus-class, d-fokus-overlap, d-fokus-mobile, d-hero-empty (akun kosong), d-dark."""
+    perbaikan akhir: d-fokus-class, d-fokus-overlap, d-fokus-mobile, d-hero-empty (akun kosong), d-dark, lalu
+    d-hero-layout (hero Dashboard baru dari main #107)."""
     # d-show: kelopak pojok di Dashboard (hero) dan Fokus Hari Ini (judul), maskot di Inbox kosong.
     ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, "sakura")
     try:
@@ -1085,11 +1086,13 @@ def verify_decor_final(browser, base, user, sw, empty_user):
             inside = bool(hero and pet and svg) and all(
                 (r[0]["w"] > 0 or label == "375") and r[0]["l"] >= hero[0]["l"] and r[0]["r"] <= hero[0]["r"]
                 and r[0]["t"] >= hero[0]["t"] and r[0]["b"] <= hero[0]["b"] for r in (pet, svg))
-            out[label] = dict(info, inside=inside, pet=pet, svg=svg, hero=hero)
+            illus = [r for r in rects(p, ".dash-hero-illus svg") if r["w"] > 0]
+            inside = inside and not (svg and illus and intersects(svg[0], illus[0]))  # > 1100 px: ilustrasi di kirinya
+            out[label] = dict(info, inside=inside, pet=pet, svg=svg, hero=hero, illus=illus)
         finally:
             ctx.close()
     check("d-hero-empty akun tanpa task: tanpa kartu progres, kelopak hero anak terakhir (margin kanan 0) dan "
-          "seluruhnya di dalam .dash-hero (1280 px tampil; 375 px boleh menyusut)",
+          "seluruhnya di dalam .dash-hero tanpa menimpa ilustrasi palet (1280 px tampil; 375 px boleh menyusut)",
           all(o["progress"] == 0 and o["last"] and o["mr"] == "0px" and o["inside"] for o in out.values()), repr(out))
 
     # d-dark: Sakura & Lavender gelap -> --accent-duo kelopak = rgba(--accent-rgb, .46) (lebih terang dari token palet),
@@ -1114,6 +1117,51 @@ def verify_decor_final(browser, base, user, sw, empty_user):
     check("d-dark kelopak pojok di mode gelap: --accent-duo lokal rgba(--accent-rgb, 0.46); maskot tetap token palet",
           all(v[0].replace(" ", "") == "rgba(%s,0.46)" % v[2].replace(" ", "") and v[3] == v[1] for v in dark.values()),
           repr(dark))
+    verify_hero_layout(browser, base, user, sw)
+
+
+HERO_CONTENT = (".dash-hero-text", ".dash-hero-meta", ".dash-hero-greet", ".dash-hero-streak", ".dash-hero-summary",
+                ".dash-hero-progress", ".dash-hero-chips", ".dash-hero .dash-capture", ".dash-hero button")
+
+
+def verify_hero_layout(browser, base, user, sw):
+    """d-hero-layout (hero Dashboard baru, main #107): Sakura & Lavender terang pada 375/768/1025/1101/1280/1440 px —
+    svg kelopak tampil, di dalam hero, tidak berpotongan dengan isi hero (teks/sapaan/streak/ringkasan/kartu progres/
+    chip/tangkap cepat/tombol) maupun ilustrasi palet .dash-hero-illus (tampil > 1100 px), dan tinggi hero sama dengan
+    saat dekorasi dimatikan (kelopak tidak menambah tinggi)."""
+    out, bad = {}, []
+    for pal in ("sakura", "lavender"):
+        for w in (375, 768, 1025, 1101, 1280, 1440):
+            kw = {"mobile": True} if w == 375 else {"viewport": {"width": w, "height": 900}}
+            ctx, p = open_app(browser, base, user, "light", "quadrant", "normal", sw, pal, **kw)
+            try:
+                p.locator(".dash-hero").first.wait_for(state="visible", timeout=20000)
+                p.get_by_text(TASKS[0][0]).first.wait_for(state="attached", timeout=20000)
+                p.wait_for_timeout(500)
+                svg = rects(p, ".dash-hero-top > .decor-page-corner svg")
+                hero = rects(p, ".dash-hero")
+                illus = [r for r in rects(p, ".dash-hero-illus svg") if r["w"] > 0]
+                hits = [sel for sel in HERO_CONTENT for r in rects(p, sel) if svg and r["w"] > 0 and intersects(svg[0], r)]
+                if svg and illus and intersects(svg[0], illus[0]):
+                    hits.append(".dash-hero-illus")
+                h_on = hero[0]["h"] if hero else None
+                p.evaluate("() => { document.documentElement.dataset.decor = 'off'; }")
+                p.wait_for_function("() => !document.querySelector('.decor-page-corner')", timeout=5000)
+                p.wait_for_timeout(200)
+                h_off = rects(p, ".dash-hero")[0]["h"]
+                inside = bool(svg and hero) and svg[0]["l"] >= hero[0]["l"] and svg[0]["r"] <= hero[0]["r"] \
+                    and svg[0]["t"] >= hero[0]["t"] and svg[0]["b"] <= hero[0]["b"]
+                key = "%s-%d" % (pal, w)
+                out[key] = {"svg": svg and [round(svg[0][k]) for k in ("l", "t", "r", "b")],
+                            "illus": bool(illus), "hits": hits, "h": [h_on, h_off]}
+                if not (len(svg) == 1 and svg[0]["w"] > 0 and inside and not hits and h_on == h_off
+                        and bool(illus) == (w > 1100)):
+                    bad.append(key)
+            finally:
+                ctx.close()
+    check("d-hero-layout kelopak hero (Sakura/Lavender, 375-1440 px): tampil, di dalam hero, tidak menimpa isi hero "
+          "maupun ilustrasi palet (> 1100 px), tinggi hero sama dengan dekorasi off",
+          not bad, "gagal %r; %r" % (bad, out))
 
 
 def verify():

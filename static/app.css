@@ -5247,6 +5247,17 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 /* Belum ada task hari ini: kartu progres tidak dirender, kelopak jadi item terakhir → tanpa margin negatif agar tetap di
    dalam hero (padding kanan). */
 .dash-hero-top > .decor-page-corner:last-child { margin-right: 0; }
+/* > 1100 px hero menampilkan ilustrasi palet (.dash-hero-illus: absolut, right 228px, lebar 150px = tepat di kiri kartu
+   progres ±196px). Kelopak pindah ke KIRI ilustrasi (seolah kelopak tertiup dari ranting): kotak item boleh sampai
+   164 + 120px, svg dijangkar 164px dari kanan item (≈8px dari ilustrasi) dan lebarnya = sisa ruang (maks 120px, 0 bila
+   sempit). Item tetap basis 0 → tidak pernah menyempitkan sapaan; tinggi baris tidak berubah. Tanpa kartu progres
+   (anak terakhir) kelopak tetap di pojok kanan: ilustrasi berada di kirinya, tidak bertumpuk. */
+@media (min-width: 1101px) {
+  .dash-hero-top > .decor-page-corner { max-width: 284px; }
+  .dash-hero-top > .decor-page-corner svg { left: auto; right: 164px; width: calc(100% - 164px); max-width: 120px; }
+  .dash-hero-top > .decor-page-corner:last-child { max-width: 130px; }
+  .dash-hero-top > .decor-page-corner:last-child svg { left: 0; right: auto; width: calc(100% - 10px); max-width: none; }
+}
 /* Mode gelap: --accent-duo palet (mis. Sakura #573150 di atas #291B26 ≈ 1,5:1) terlalu samar untuk kelopak. Timpa lokal
    hanya di kelopak pojok: aksen 46% ≈ 2,6–2,8:1 terhadap latar kartu/halaman — jelas tetapi tetap lembut. Maskot tidak
    terpengaruh; Default tidak pernah merender kelopak. */
