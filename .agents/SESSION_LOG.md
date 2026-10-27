@@ -4201,3 +4201,4 @@
 - 2026-10-27 08:30 WIB (Claude): scrollbar panel Live Edit disembunyikan (permintaan Bapak), SW v475 silent. Branch `claude/panel-tanpa-scrollbar`, PR draft.
 - 2026-10-27 08:45 WIB (Claude): tab Catatan detail task jadi tampilan chat (permintaan Bapak), digabung ke PR #102 (SW v475, tidak lagi silent). E2E tabs 58/0.
 - 2026-10-27 08:25 WIB (Claude): kotak tulis Catatan dipindah ke atas, catatan terbaru tepat di bawahnya (permintaan Bapak), PR #102.
+- 2026-10-27 08:50 WIB (Claude): #104 (label workspace, v477) di-merge atas "langsung merge". PR #84 (pindah ke workspace cepat) di-port ke main terkini (v478), #84 ditutup dengan rujukan.

@@ -106,8 +106,8 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v477-label-workspace in static/sw.js", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v477-label-workspace";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v477-label-workspace";/);
+  await t.test("Service Worker cache is taskflow-v478-pindah-cepat in static/sw.js", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v478-pindah-cepat";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v478-pindah-cepat";/);
   });
 });

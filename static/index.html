@@ -257,7 +257,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v477-label-workspace";
+    window.__SW_VERSION = "taskflow-v478-pindah-cepat";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -8569,16 +8569,21 @@ function ModalNotes({
   //   - TaskDetailModal
   // BLOCK LENGTH: ~960 lines (6435-7395) — complex modal, many sub-component deps
 
-// Pindah task pribadi ke workspace (online saja, seperti share note): dorong edit tertunda dulu, butuh id
-// server, lalu PATCH /api/tasks/:id/workspace dan tarik ulang supaya list_id/project/tahap baru (task + child)
-// masuk IndexedDB. Mengembalikan { ok, updated } atau { ok:false, message }.
-async function moveTaskToWorkspace({ api, task, listId, pushNow, syncNow, serverIdOf, offline }) {
+// Pindah task pribadi ke workspace (online saja, seperti share note). Hanya bila ada op task di outbox (atau
+// task belum punya id server) outbox didorong dulu; lalu PATCH /api/tasks/:id/workspace. Baris yang pindah
+// (task + child) langsung ditulis ke IndexedDB lewat applyMoved; sync penuh hanya dipicu di latar (tidak
+// ditunggu: di akun besar sync penuh bisa makan puluhan detik). Mengembalikan { ok, updated } / { ok:false, message }.
+async function moveTaskToWorkspace({ api, task, listId, hasPendingTaskOps, pushNow, syncNow, serverIdOf, applyMoved, offline }) {
   if (!task || listId == null || listId === "") return { ok: false, message: "Pilih workspace tujuan" };
-  if (typeof pushNow === "function") {
-    try { await pushNow(); } catch (_) {}
-  }
   const isNum = v => v != null && /^\d+$/.test(String(v));
   let sid = isNum(task.server_id) ? task.server_id : isNum(task.id) ? task.id : null;
+  let pending = sid == null;
+  if (!pending && typeof hasPendingTaskOps === "function") {
+    try { pending = !!(await hasPendingTaskOps()); } catch (_) { pending = false; }
+  }
+  if (pending && typeof pushNow === "function") {
+    try { await pushNow(); } catch (_) {}
+  }
   if (sid == null && task.cid && typeof serverIdOf === "function") {
     try { sid = await serverIdOf(task.cid); } catch (_) { sid = null; }
   }
@@ -8590,10 +8595,35 @@ async function moveTaskToWorkspace({ api, task, listId, pushNow, syncNow, server
     if (typeof offline === "function" && offline(err)) return { ok: false, message: "Butuh koneksi internet untuk memindahkan task." };
     return { ok: false, message: err && err.message || "Gagal memindahkan task" };
   }
-  if (typeof syncNow === "function") {
-    try { await syncNow(); } catch (_) {}
+  const rows = updated && Array.isArray(updated.moved) ? updated.moved : updated ? [updated] : [];
+  if (typeof applyMoved === "function") {
+    try { await applyMoved(rows); } catch (err) { console.warn("[task-move] adopsi lokal gagal", err); }
   }
+  if (typeof syncNow === "function") Promise.resolve().then(() => syncNow()).catch(() => {});
   return { ok: true, updated: updated || {} };
+}
+// Tulis scope baru (list/project/tahap/assignee + updated_at sebagai base_rev) dari baris server ke record lokal.
+async function applyMovedTasksLocal(rows) {
+  const TF = window.TF;
+  if (!TF || !TF.db || !TF.db.mutate || !TF.idmap) return;
+  for (const r of rows || []) {
+    if (!r || r.id == null) continue;
+    const cid = await TF.idmap.cidOf("task", r.id);
+    if (!cid) continue;
+    await TF.db.mutate("tasks", cid, cur => cur ? Object.assign({}, cur, {
+      list_id: r.list_id != null ? r.list_id : null,
+      assigned_to: r.assigned_to != null ? r.assigned_to : null,
+      project: r.project || "",
+      project_id: r.project_id != null ? r.project_id : null,
+      project_ref_name: r.project_id != null ? r.project || "" : null,
+      context: r.context || "",
+      context_id: r.context_id != null ? r.context_id : null,
+      context_ref_name: r.context_id != null ? r.context || "" : null,
+      updated_at: r.updated_at || cur.updated_at,
+      base_rev: r.updated_at || cur.base_rev,
+      rev: (cur.rev || 0) + 1
+    }) : undefined);
+  }
 }
 // Live Edit (spec §7.2–§7.4, ruling R2): pembungkus React tipis untuk TF.liveedit.createAutosaver. Satu pengendali
 // per mount; null bila !enabled (modal). put memakai id task terkini (cid → id server setelah sync) dan, bila judul
@@ -9639,9 +9669,11 @@ function TaskDetailBody({
       api,
       task,
       listId: moveTarget,
+      hasPendingTaskOps: () => window.TF && window.TF.outbox ? window.TF.outbox.outboxAll().then(all => all.some(o => o.entity_type === "task")) : false,
       pushNow: window.__pushNow,
       syncNow: window.__syncNow,
       serverIdOf: window.TF && window.TF.idmap ? window.TF.idmap.serverIdOf : null,
+      applyMoved: applyMovedTasksLocal,
       offline: isOfflineErr
     });
     setMoving(false);
@@ -27328,7 +27360,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v477-label-workspace"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v478-pindah-cepat"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

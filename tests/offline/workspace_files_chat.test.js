@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v477-label-workspace', () => {
+  test('Service Worker cache version is bumped to taskflow-v478-pindah-cepat', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v477-label-workspace";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v478-pindah-cepat";/m);
   });
 });
 
