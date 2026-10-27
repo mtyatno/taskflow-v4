@@ -72,7 +72,7 @@ Kelompok (E2E_ONLY=autosave,... menjalankan sebagian; kosong = semua). Tiap kelo
          server done; centang lagi → server next; tombol buka → panel/modal menampilkan Anak C
     B-3  checklist: "Butir 4" lalu "Butir 5" tanpa membuka ulang, Escape → "Checklist (5)"; centang → aria-checked
          dan lokal selesai; × → "Checklist (4)"; 375 px (sentuh): × terlihat tanpa hover
-    B-4  tab Catatan tampil sebagai chat: Shift+Enter baris baru, Enter kirim → "Catatan (2)", terbaru di bawah,
+    B-4  tab Catatan tampil sebagai chat: Shift+Enter baris baru, Enter kirim → "Catatan (2)", kotak tulis di atas + terbaru tepat di bawahnya,
          milik sendiri di kanan; tombol kirim nonaktif saat kosong
     B-6  fokus tab "Subtask", ArrowRight → "Checklist" aria-selected dan terfokus; ArrowLeft → kembali
     B-5  deskripsi: placeholder persis; 5 baris → tinggi bertambah; 30 baris → tinggi = 12 baris, bisa digulir
@@ -1620,9 +1620,12 @@ def run_tabs(browser, base):
                   wait_until(lambda: tab_labels(p, scope)[2] == "Catatan (2)", 8) and note.input_value() == "",
                   repr(tab_labels(p, scope)))
             msgs = p.locator(panel_sel + " .td-chat-msg")
-            check("%s B-4c tampilan chat: catatan terbaru paling bawah, milik sendiri di kanan, dua baris utuh" % tag,
-                  msgs.count() == 2 and "is-mine" in (msgs.last.get_attribute("class") or "")
-                  and msgs.last.locator(".td-chat-bubble").inner_text().startswith("Baris satu\nbaris dua"),
+            check("%s B-4c tampilan chat: kotak tulis di atas, catatan terbaru tepat di bawahnya, milik sendiri di kanan" % tag,
+                  msgs.count() == 2 and "is-mine" in (msgs.first.get_attribute("class") or "")
+                  and msgs.first.locator(".td-chat-bubble").inner_text().startswith("Baris satu\nbaris dua")
+                  and p.evaluate("""(sel) => { const c = document.querySelector(sel + ' .td-chat-composer');
+                      const l = document.querySelector(sel + ' .td-chat-list');
+                      return !!c && !!l && c.getBoundingClientRect().bottom <= l.getBoundingClientRect().top; }""", panel_sel),
                   repr(msgs.all_inner_texts()))
             shot(p, "B_%s_%s_notes_chat.png" % (label, theme))
             check("%s B-4d kirim kosong tidak bisa (tombol nonaktif)" % tag,
