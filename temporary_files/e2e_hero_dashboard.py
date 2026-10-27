@@ -111,9 +111,9 @@ def api(base, user, method, path, ok_codes=(200, 201), **kw):
     return r.json()
 
 
-def seed(base):
-    r = requests.post(base + "/api/auth/register", json={"username": USERNAME, "password": PW,
-                                                         "email": USERNAME + "@ex.com", "display_name": "Rani"})
+def seed(base, username=USERNAME, display_name="Rani"):
+    r = requests.post(base + "/api/auth/register", json={"username": username, "password": PW,
+                                                         "email": username + "@ex.com", "display_name": display_name})
     r.raise_for_status()
     j = r.json()
     user = {"id": j["user_id"], "token": j["token"]}

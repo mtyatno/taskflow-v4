@@ -176,6 +176,51 @@ test("HP (≤640px): Galaksi ambient hanya di bagian bawah (mask); ambient Objek
   assert.equal(m[2], ".hb-hero.hb-k-objek .hb-ambient { display: none; }");
 });
 
+test("fitur hero > 1100 px: .dash-hero = container inline-size; fitur per latar disembunyikan bila tidak muat di celah teks–ring", () => {
+  // Hero sempit (menu lengkap 1101–1279 px): kotak fitur tetap (right 226px, 290px) menimpa kolom teks (maks 420px). Ambang =
+  // lebar ISI hero minimum agar tepi kiri gambar (isi − 490 + d, d = tepi kiri gambar di kotak) ≥ 420 + 16 → 926 − d.
+  const i = css.indexOf("@media (min-width: 1101px) {\n  .dash-hero { container: dashhero / inline-size; }");
+  assert.ok(i >= 0, "container hero di dalam @media (min-width: 1101px)");
+  const b = css.slice(i, css.indexOf("\n}\n", i));
+  const want = { kontur: 774, lanskap: 701, galaksi: 825, objek: 920 };
+  for (const [k, w] of Object.entries(want)) {
+    assert.ok(b.includes(`@container dashhero (max-width: ${w}px) { .dash-hero > .hb-k-${k} .hb-feature { display: none; } }`), k);
+  }
+  assert.doesNotMatch(b, /hb-k-(gradasi|polos)/, "Gradasi/Polos tanpa fitur");
+  // Hanya desktop: <= 1100 px fitur sudah disembunyikan; container tidak dipasang di HP/tablet.
+  assert.equal(css.split("container: dashhero").length - 1, 1);
+});
+
+test("kontras chip hero di atas latar: chip bertint/transparan beralas kartu, tinta teks lebih tegas (diukur E2E)", () => {
+  const hero = cssRule(".dash-hero");
+  assert.match(hero, /--hero-tint: 12%;/);
+  assert.match(hero, /--hero-ink: color-mix\(in srgb, var\(--accent-text-strong, var\(--accent-text\)\) 80%, var\(--text-primary\)\);/);
+  const dark = css.match(/\n\[data-theme="dark"\] \.dash-hero \{([^}]*)\}/)[1];
+  assert.match(dark, /--hero-tint: 18%;/);
+  assert.match(dark, /--hero-ink: var\(--accent-text-strong, var\(--accent-text\)\);/);
+  // Alas kartu: tint dicampur ke --bg-card (setara rgba tint di atas kartu) → tidak tembus latar.
+  assert.match(cssRule(".dash-hero-streak"), /background: color-mix\(in srgb, rgb\(var\(--accent-rgb\)\) var\(--hero-tint\), var\(--bg-card\)\); color: var\(--hero-ink\);/);
+  assert.match(cssRule(".dash-hero .dash-date.is-overdue.dash-hero-overdue"), /background: color-mix\(in srgb, #ef4444 var\(--hero-tint\), var\(--bg-card\)\);/);
+  // Merah teks terang lebih tua di hero (#dc2626 di atas tint = 4,1:1); gelap tetap aturan .dash-date.is-overdue gelap.
+  assert.match(cssRule(".dash-hero .dash-date.dash-hero-overdue"), /^\s*color: #b91c1c;\s*$/);
+  assert.ok(css.indexOf(".dash-hero .dash-date.dash-hero-overdue {") < css.indexOf('[data-theme="dark"] .dash-date.is-overdue {'), "aturan gelap menang di mode gelap");
+  const mix80 = "color-mix(in srgb, var(--bg-card) 80%, transparent)";
+  assert.ok(cssRule(".dash-hero-more").includes("background: " + mix80 + ";"), "+N / Lihat habit");
+  assert.match(cssRule(".dash-hero-more"), /color: var\(--hero-sec, var\(--text-secondary\)\);/);
+  assert.ok(cssRule(".dash-hero-habit.is-skipped").includes("background: " + mix80 + ";"));
+  assert.match(cssRule(".dash-hero-habit.is-done"), /background: color-mix\(in srgb, rgb\(var\(--accent-rgb\)\) var\(--hero-tint\), color-mix\(in srgb, var\(--bg-card\) 80%, transparent\)\);/);
+  for (const sel of [".dash-hero-streak", ".dash-hero-habit.is-done"]) assert.ok(!css.includes(`[data-theme="dark"] ${sel} {`), "tint gelap lewat --hero-tint: " + sel);
+  assert.match(cssRule(".dash-hero-focus.is-invite"), /color: var\(--hero-ink\);/);
+  assert.match(cssRule(".dash-hero-focus-label"), /color: var\(--hero-ink\);/);
+  assert.match(cssRule(".dash-hero .dash-kbd"), /^\s*color: var\(--text-secondary\);\s*$/);
+  // Teks sekunder lebih tegas hanya di atas latar ramai (bukan Kontur/Polos = hero lama).
+  assert.match(css, /\n\.dash-hero > \.hb:not\(\.hb-k-kontur\):not\(\.hb-k-polos\) ~ \* \{ --hero-sec: color-mix\(in srgb, var\(--text-secondary\) 80%, var\(--text-primary\)\); \}/);
+  assert.match(cssRule(".dash-hero-date"), /color: var\(--hero-sec, var\(--text-secondary\)\);/);
+  assert.match(cssRule(".dash-hero-summary"), /color: var\(--hero-sec, var\(--text-secondary\)\);/);
+  // Tidak ada chip hero yang transparan lagi.
+  for (const m of css.matchAll(/\n(\.dash-hero[^{]*)\{([^}]*)\}/g)) assert.doesNotMatch(m[2], /background: transparent/, m[1]);
+});
+
 test("chip Fokus: aktif (judul → today, Mulai/Jeda → timer) atau ajakan; hanya saat intro dashboard + ada task", () => {
   assert.match(dash, /const showFocusChip = intro === "dashboard" && hasTasks;/);
   assert.match(hero, /showFocusChip && \(heroFocus\.kind === "active"/);

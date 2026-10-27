@@ -52,11 +52,14 @@ Modul UMD murni (pola `decor.js`/`habitlogic.js`), di-precache di `sw.js` dengan
 - Markup: `div.hb.hb-<place>.hb-k-<kind>` (`aria-hidden="true"`, `position:absolute; inset:0; z-index:0; pointer-events:none; border-radius:inherit; overflow:hidden`, `style.background = base`) berisi `div.hb-ambient` dan `div.hb-feature` (keduanya `dangerouslySetInnerHTML` dari registri — sumber internal statis, bukan data pengguna; sama dengan `Decor`).
 - Kotak fitur (CSS): hero → di celah antara teks dan ring (`right: 226px; top: 4px; width: 290px; height: 140px`); pomo → pita kosong kanan baris tombol (`right: 28px; top: 68px; width: 340px; height: 62px`); thumb → kanan (`right: 6px; top: 4px; width: 86px; bottom: 4px`).
 - Fitur disembunyikan bila `html[data-decor="off"]`, di lebar ≤ 1100 px, dan di tata letak HP; lapisan ambient + base tetap.
+- Hero/kartu yang sempit di desktop (> 1100 px dengan menu lengkap): kotak fitur tetap berukuran px, jadi fitur disembunyikan per latar menurut lebar **isi** kartu (`container` inline-size, hanya > 1100 px) bila gambarnya tidak muat di celah yang tersedia. Hero: tepi kiri gambar (isi − 490 + d, d = tepi kiri gambar di kotak: Objek 3D 5, Galaksi 100, Kontur 151, Lanskap 225 px) harus ≥ kolom teks 420 + 16 px → ambang isi ≤ 920 / 825 / 774 / 701 px. Kartu Pomodoro: ambang per status (berjalan/Overtime/menunggu) terhadap ujung baris tombol. 1280 px dengan sidebar ikon = semua fitur tampil.
+- Kartu yang memakai base sebagai latarnya sendiri (hero, Pomodoro) memanggil `useHeroBackdrop` sekali dan merender lapisannya lewat `HeroBackdropLayer({ bd, cardBase })`; `HeroBackdrop` (hook + lapisan) untuk pratinjau Pengaturan.
 
 ## 5. Hero Dashboard
 
 - `.dash-hero` memakai `HeroBackdrop place="hero"`; topografi (`DASH_HERO_TOPO`) dan `DashHeroIllus` pindah ke registri (cabang `kontur`). Dengan latar Kontur tampilan **sama dengan sekarang** (gerbang tangkapan piksel).
-- Isi hero (chip, ring, tangkap cepat) tidak berubah; `Decor slot="page-corner"` tetap.
+- Isi hero (chip, ring, tangkap cepat) tidak berubah strukturnya; `Decor slot="page-corner"` tetap.
+- Kontras teks hero di atas latar ramai (diukur dari piksel latar nyata, semua latar × palet × mode): chip bertint (streak, terlambat, habit selesai) = tint dicampur ke `--bg-card` (alas kartu; di zona teks Kontur identik dengan sebelumnya), chip transparan (+N / Lihat habit, habit dilewati) = `--bg-card` 80%; tinta aksen chip (`--hero-ink`) = aksen dicampur 20% ke `--text-primary` di mode terang (Default `#6B8000` hanya 4,45:1 di atas putih); merah "terlambat" mode terang `#b91c1c`; petunjuk "Enter" = `--text-secondary`; teks sekunder hero (tanggal, ringkasan, +N) dicampur 20% ke `--text-primary` hanya di atas Gradasi/Lanskap/Galaksi/Objek 3D. Latar Kontur di 1280 px tetap identik piksel dengan `main` kecuali warna chip tersebut.
 
 ## 6. Kartu Pomodoro (`.focus-pomo`) — restyle
 
@@ -82,7 +85,7 @@ SW `taskflow-v483-latar-hero` (cek `main` saat merge), `app.css?v=379`, entri `w
 ## 9. Pengujian
 
 - Node: `herobg.test.js` (semua `kind × palet × mode × place` me-render; id unik antar dua render; tanpa `<script`/`url(` eksternal/`javascript:`; deterministik; Kontur/Polos tanpa hex; skema lengkap untuk tiap palet di `TF.themes.PALETTES`; palet tak dikenal → skema default; **kontras**: `--text-primary`/`--text-secondary` palet vs warna "zona teks" tiap latar (warna dasar sisi kiri) ≥ 4,5:1 di kedua mode); `themes.test.js`/`theme_boot.test.js` (pref `herobg`); tes UI sumber (HeroBackdrop di hero & Pomodoro, bagian Latar di Pengaturan, teks persis, `aria-hidden`); penjaga tema (`theme_guard.test.js`) tetap hijau.
-- E2E Playwright `temporary_files/e2e_latar_hero.py`: ganti latar di Pengaturan → `data-herobg` + hero berubah tanpa reload, tersimpan setelah reload; tangkapan hero Dashboard + kartu Pomodoro untuk 6 latar × 3 palet × 2 mode (1280 px) + HP 375 px (Sakura terang, Default gelap) + Pengaturan; cek tanpa scroll horizontal di 375 px; Kontur Default terang identik dengan `main` (toleransi antialias).
+- E2E Playwright `temporary_files/e2e_latar_hero.py`: ganti latar di Pengaturan → `data-herobg` + hero berubah tanpa reload, tersimpan setelah reload; tangkapan hero Dashboard + kartu Pomodoro untuk 6 latar × 3 palet × 2 mode (1280 px) + HP 375 px (Sakura terang, Default gelap) + Pengaturan; cek tanpa scroll horizontal di 375 px; Kontur Default terang identik dengan `main` (toleransi antialias); kontras teks hero dan kartu Pomodoro terhadap piksel latar nyata; hero sempit (1101/1180/1280 px menu lengkap + 1101 px sidebar ikon, nama tampilan panjang) tanpa irisan gambar fitur dengan kolom teks; HP: pohon Lanskap Pomodoro dan ambient Objek 3D hero tersembunyi.
 - Standar: `npm test`, `python -m pytest tests/ -q`, `node temporary_files/check_inline_scripts.js`.
 
 ## 10. Di luar cakupan

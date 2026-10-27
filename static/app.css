@@ -2633,8 +2633,15 @@
 
 /* Hero */
 /* Hero Dashboard (spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md §3): gradien token + topografi + ilustrasi palet. */
-.dash-hero { position: relative; border-radius: 18px; padding: 22px 26px 20px; margin: 4px 0 16px; background: linear-gradient(105deg, var(--bg-card) 30%, var(--accent-soft) 100%), var(--bg-card); border: 1px solid rgba(var(--accent-rgb), 0.25); box-shadow: var(--dash-shadow); overflow: hidden; }
-[data-theme="dark"] .dash-hero { border-color: rgba(var(--accent-rgb), 0.22); }
+.dash-hero { position: relative; border-radius: 18px; padding: 22px 26px 20px; margin: 4px 0 16px; background: linear-gradient(105deg, var(--bg-card) 30%, var(--accent-soft) 100%), var(--bg-card); border: 1px solid rgba(var(--accent-rgb), 0.25); box-shadow: var(--dash-shadow); overflow: hidden; --hero-tint: 12%; --hero-ink: color-mix(in srgb, var(--accent-text-strong, var(--accent-text)) 80%, var(--text-primary)); }
+[data-theme="dark"] .dash-hero { border-color: rgba(var(--accent-rgb), 0.22); --hero-tint: 18%; --hero-ink: var(--accent-text-strong, var(--accent-text)); }
+/* Kontras teks hero di atas latar pilihan (spec latar-hero §5; diukur dari piksel latar nyata, temporary_files/
+   e2e_latar_hero.py): chip bertint (streak, terlambat, habit selesai) = tint dicampur ke --bg-card (setara rgba tint di atas
+   kartu, jadi Kontur tetap sama di zona teks) dan chip transparan (+N / Lihat habit, habit dilewati) = kartu 80%, sehingga
+   pastel/piksel latar tidak menembus; --hero-tint 12% terang / 18% gelap. --hero-ink = tinta aksen dicampur ke teks utama
+   (--accent-text-strong Default terang hanya 4,45:1 di atas putih; gelap tetap aksen). Teks sekunder sedikit lebih tegas (pola
+   --pomo-sec) hanya di atas latar ramai; Kontur/Polos = hero lama. */
+.dash-hero > .hb:not(.hb-k-kontur):not(.hb-k-polos) ~ * { --hero-sec: color-mix(in srgb, var(--text-secondary) 80%, var(--text-primary)); }
 /* Latar hero (HeroBackdrop, spec latar-hero §4): lapisan absolut di bawah isi kartu. base = background inline (atau latar
    kartu itu sendiri bila cardBase, mis. hero Dashboard), ambient memenuhi kartu, fitur di kotak per tempat (viewBox SVG
    fitur = ukuran kotak). Fitur hero/Pomodoro disembunyikan bila dekorasi mati dan di <= 1100 px (termasuk HP); kartu
@@ -2649,6 +2656,19 @@
 /* Hero Dashboard melukis base sendiri dan memotong isinya (overflow hidden) di radius DALAM garisnya (18 - 1 = 17px); radius
    18px warisan memotong garis kontur di sudut lebih banyak daripada svg topografi lama. */
 .dash-hero > .hb { border-radius: 0; }
+/* Kotak fitur hero tetap (right 226px, 290px) vs kolom teks (maks 420px dari tepi isi). Hero yang sempit (menu lengkap di
+   1101–1279 px) membuat gambar fitur menimpa sapaan → fitur disembunyikan menurut lebar ISI hero (container, pola sama
+   dengan kartu Pomodoro) per latar: tepi kiri gambar = isi − 490 + d (d = tepi kiri gambar di kotak, terukur: Objek 3D 5,
+   Galaksi 100, Kontur 151 (Sakura), Lanskap 225) harus ≥ 420 + 16 → isi ≥ 926 − d. Gradasi/Polos tanpa fitur. Diuji
+   temporary_files/e2e_latar_hero.py (cek "lebar hero", nama tampilan panjang). Hanya desktop: ≤ 1100 px fitur sudah
+   disembunyikan. 1280 px sidebar ikon (isi 1106) = semua fitur tampil, Kontur sama dengan hero lama. */
+@media (min-width: 1101px) {
+  .dash-hero { container: dashhero / inline-size; }
+  @container dashhero (max-width: 774px) { .dash-hero > .hb-k-kontur .hb-feature { display: none; } }
+  @container dashhero (max-width: 701px) { .dash-hero > .hb-k-lanskap .hb-feature { display: none; } }
+  @container dashhero (max-width: 825px) { .dash-hero > .hb-k-galaksi .hb-feature { display: none; } }
+  @container dashhero (max-width: 920px) { .dash-hero > .hb-k-objek .hb-feature { display: none; } }
+}
 /* HP (<= 640 px): hero bertumpuk lebih tinggi daripada lebarnya, jadi ambient (viewBox 1440x300, slice) membesar dan jalur
    misi Galaksi / bola Objek 3D jatuh tepat di atas sapaan dan cincin progres (tanpa kartu kaca di HP). Ambient Galaksi hanya
    tampil di bagian bawah (di balik chip dan tangkap cepat); zona teks atas tetap = base. Ambient Objek 3D disembunyikan:
@@ -2660,14 +2680,17 @@
 .dash-hero-top { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .dash-hero-text { min-width: 0; max-width: 420px; }
 .dash-hero-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.dash-hero-date { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--text-secondary); text-transform: capitalize; }
-.dash-hero-streak { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 6px; border-radius: 999px; background: rgba(var(--accent-rgb), 0.12); color: var(--accent-text-strong, var(--accent-text)); font-size: 12px; font-weight: 700; white-space: nowrap; }
-[data-theme="dark"] .dash-hero-streak { background: rgba(var(--accent-rgb), 0.18); }
+.dash-hero-date { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--hero-sec, var(--text-secondary)); text-transform: capitalize; }
+.dash-hero-streak { display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 6px; border-radius: 999px; background: color-mix(in srgb, rgb(var(--accent-rgb)) var(--hero-tint), var(--bg-card)); color: var(--hero-ink); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .dash-hero-greet { font-size: 26px; font-weight: 800; letter-spacing: -0.4px; line-height: 1.2; margin: 8px 0 6px; color: var(--text-primary); }
 .dash-hero-name { color: var(--accent-text-strong, var(--accent-text)); }
 [data-theme="dark"] .dash-hero-name { color: var(--accent); }
-.dash-hero-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--text-secondary); line-height: 1.5; }
+.dash-hero-summary { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 14px; color: var(--hero-sec, var(--text-secondary)); line-height: 1.5; }
 .dash-hero .dash-hero-overdue { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12.5px; line-height: 1.4; }
+.dash-hero .dash-date.is-overdue.dash-hero-overdue { background: color-mix(in srgb, #ef4444 var(--hero-tint), var(--bg-card)); }
+/* Terang: merah lebih tua (merah lama di atas tint = 4,1:1). Mode gelap: aturan gelap .dash-date.is-overdue (sama
+   spesifisitas, sesudah aturan ini) tetap berlaku. */
+.dash-hero .dash-date.dash-hero-overdue { color: #b91c1c; }
 .dash-hero-chips { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
 .dash-hero-habits { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .dash-hero-chip { display: inline-flex; align-items: center; gap: 7px; box-sizing: border-box; min-width: 0; max-width: 100%; padding: 6px 12px 6px 7px; border-radius: 999px; background: var(--bg-card); border: 1px solid var(--border); font-family: inherit; font-size: 13px; color: var(--text-primary); text-align: left; }
@@ -2676,23 +2699,22 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .dash-hero-chip:focus-visible, .dash-hero-focus-main:focus-visible, .dash-hero-focus-act:focus-visible, .dash-hero-progress:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .dash-hero-focus { gap: 8px; padding: 4px 4px 4px 12px; max-width: 360px; }
 .dash-hero-focus.is-noact { padding-right: 14px; }
-.dash-hero-focus.is-invite { padding: 6px 14px 6px 10px; font-weight: 700; color: var(--accent-text-strong, var(--accent-text)); }
+.dash-hero-focus.is-invite { padding: 6px 14px 6px 10px; font-weight: 700; color: var(--hero-ink); }
 .dash-hero-focus-ico { display: inline-flex; flex-shrink: 0; color: var(--accent); }
 .dash-hero-focus-main { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; padding: 0; border: none; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
-.dash-hero-focus-label { flex-shrink: 0; font-weight: 800; color: var(--accent-text-strong, var(--accent-text)); }
+.dash-hero-focus-label { flex-shrink: 0; font-weight: 800; color: var(--hero-ink); }
 .dash-hero-focus-title { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dash-hero-focus-act { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 5px 11px 5px 9px; border-radius: 999px; border: none; background: var(--accent); color: var(--accent-on, #1a2a00); font-family: inherit; font-size: 12.5px; font-weight: 800; cursor: pointer; }
 .dash-hero-focus-act:hover { background: var(--accent-hover); }
 .dash-hero-habit-check { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 18px; height: 18px; box-sizing: border-box; border-radius: 50%; border: 1.5px solid var(--accent); }
 .dash-hero-habit-name { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
-.dash-hero-habit.is-done { background: rgba(var(--accent-rgb), 0.12); border-color: transparent; color: var(--text-secondary); }
-[data-theme="dark"] .dash-hero-habit.is-done { background: rgba(var(--accent-rgb), 0.18); }
+.dash-hero-habit.is-done { background: color-mix(in srgb, rgb(var(--accent-rgb)) var(--hero-tint), color-mix(in srgb, var(--bg-card) 80%, transparent)); border-color: transparent; color: var(--text-secondary); }
 .dash-hero-habit.is-done .dash-hero-habit-check { background: var(--accent); border-color: var(--accent); color: var(--accent-on, #1a2a00); }
 .dash-hero-habit.is-done .dash-hero-habit-name { text-decoration: line-through; }
-.dash-hero-habit.is-skipped { background: transparent; border-style: dashed; color: var(--text-secondary); opacity: 0.7; }
+.dash-hero-habit.is-skipped { background: color-mix(in srgb, var(--bg-card) 80%, transparent); border-style: dashed; color: var(--text-secondary); opacity: 0.7; }
 .dash-hero-habit.is-skipped .dash-hero-habit-check { border-color: var(--text-secondary); }
 .dash-hero-habit-dash { display: block; width: 8px; height: 1.5px; border-radius: 1px; background: currentColor; }
-.dash-hero-more { padding: 6px 10px; background: transparent; border-style: dashed; font-size: 12.5px; font-weight: 700; color: var(--text-secondary); }
+.dash-hero-more { padding: 6px 10px; background: color-mix(in srgb, var(--bg-card) 80%, transparent); border-style: dashed; font-size: 12.5px; font-weight: 700; color: var(--hero-sec, var(--text-secondary)); }
 .dash-hero-progress { display: flex; align-items: center; gap: 12px; flex-shrink: 0; cursor: pointer; padding: 10px 16px 10px 10px; border-radius: 16px; background: color-mix(in srgb, var(--bg-card) 82%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border: 1px solid var(--border); font: inherit; color: inherit; text-align: left; transition: transform 0.15s, box-shadow 0.15s; }
 .dash-hero-progress:hover { transform: translateY(-1px); box-shadow: var(--dash-shadow-hover); }
 .dash-hero-progress-text { display: flex; flex-direction: column; line-height: 1.25; }
@@ -2706,6 +2728,8 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .dash-hero .scratchpad-bar.dash-capture { position: relative; z-index: 1; margin: 18px 0 0; border-radius: 12px; padding: 10px 12px 10px 14px; background: var(--bg-card); border: 1.5px solid var(--border); transition: border-color 0.15s, box-shadow 0.15s; }
 .dash-hero .scratchpad-bar.dash-capture:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.18); }
 [data-theme="dark"] .dash-hero .scratchpad-bar.dash-capture { background: #1c1c1c; border-color: #3a3a3a; }
+/* Petunjuk tombol di tangkap cepat: --text-light Default (2,6:1 terang, 3,6:1 gelap) terlalu samar → teks sekunder. */
+.dash-hero .dash-kbd { color: var(--text-secondary); }
 .dash-kbd { font-family: inherit; font-size: 11px; font-weight: 700; color: var(--text-light); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 6px; padding: 1px 7px; flex-shrink: 0; }
 
 /* Shared atoms */

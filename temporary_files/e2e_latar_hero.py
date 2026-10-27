@@ -8,7 +8,10 @@ Pilihan latar dipasang lewat localStorage (tf_palette / tf_theme / tf_herobg) se
 hero      tangkapan .dash-hero untuk 6 latar x 3 palet x 2 mode @1280x900 (hero-<latar>-<palet>-<mode>.png) + 6 latar
           Sakura terang @375x812 (hero-375-<latar>-sakura-light.png) dan lembar kontak sheet-hero.png. Cek: lapisan
           .hb.hb-k-<latar> ada, isi hero di atas latar (z-index), fitur tampil di 1280 / tersembunyi di 375, tanpa
-          scroll horizontal di 375, kelopak tema tidak menimpa fitur latar.
+          scroll horizontal di 375, kelopak tema tidak menimpa fitur latar, ambient Objek 3D tersembunyi di 375, dan
+          KONTRAS teks hero terhadap piksel latar nyata @1280 (cara sama dengan kartu Pomodoro, lihat pomo).
+          Lebar hero sempit (cek "lebar hero"): pengguna bernama tampilan panjang, 1101/1180/1280 px dengan menu lengkap
+          + 1101 px sidebar ikon, 6 latar: gambar fitur tidak beririsan dengan kolom teks (.dash-hero-text).
 settings  Pengaturan > Tampilan, Sakura terang: tangkapan kartu Tampilan dengan Lanskap terpilih @1280 dan @375
           (settings-<lebar>.png); cek teks/peran radiogroup, klik kartu Lanskap -> html[data-herobg] + strip pratinjau
           + hero Dashboard berubah tanpa muat ulang, tersimpan setelah muat ulang; panah kanan/kiri memindah pilihan +
@@ -22,7 +25,8 @@ pomo      kartu Pomodoro Fokus Hari Ini (spec §6) dengan task "Laporan bulanan"
             status (mini-[375-]<status>-<palet>-<mode>.png);
           - @375 berjalan 6 latar (pomo-375-<latar>-<palet>-<mode>.png, sheet-pomo-375.png).
           Cek tiap tangkapan: lapisan .hb.hb-pomo.hb-k-<latar> = anak pertama kartu, fitur tampil @1280 / tersembunyi
-          @375, gambar fitur tidak menimpa kontrol/teks kartu, tanpa gradien navy lama, warna waktu = versi teks fase
+          @375 (pohon Lanskap .hb-trees juga tersembunyi @375), gambar fitur tidak menimpa kontrol/teks kartu, tanpa
+          gradien navy lama, warna waktu = versi teks fase
           (terang #dc2626/#15803d/#6d28d9, gelap #f87171/#4ade80/#c4b5fd), tanpa scroll horizontal @375, dan KONTRAS teks
           kartu terhadap piksel latar nyata (teks dibuat transparan lalu ditangkap ulang; persentil 10 terburuk per baris
           teks >= 4,5:1, teks besar >= 3:1; tombol utama berwarna dilewati karena tidak berubah). Bar ringkas: latar =
@@ -53,6 +57,8 @@ PALETTES = ("default", "sakura", "lavender")
 MODES = ("light", "dark")
 DESKTOP = {"width": 1280, "height": 900}
 MOBILE = {"width": 375, "height": 812}
+# Nama tampilan panjang (cek lebar hero): sapaan memenuhi kolom teks hero (maks 420 px) dan terbungkus dua baris.
+LONG_USER = ("heropanjang", "Raden Ajeng Kartika Wulandari Prameswari")
 
 results = []
 
@@ -140,16 +146,63 @@ def shoot_hero(browser, base, user, palette, mode, kind, mobile=False, width=Non
             ok = ok and info["feature"] == "none" and info["sw"] <= info["cw"]
         else:
             ok = ok and (info["feature"] != "none" or info["featureHtml"] == 0)
+        if mobile:
+            # HP: ambient Objek 3D disembunyikan (bola tunggal di antara chip dan tangkap cepat); Galaksi tetap (mask).
+            amb = p.evaluate("() => getComputedStyle(document.querySelector('.dash-hero > .hb .hb-ambient')).display")
+            ok = ok and (amb == "none") == (kind == "objek")
+            info["ambient"] = amb
         # Kelopak tema (Sakura/Lavender) tidak boleh menimpa gambar fitur latar.
         pet = [r for r in rects(p, ".dash-hero-top > .decor-page-corner svg") if r["w"] > 0]
         feat = feature_rect(p)
         overlap = bool(pet and feat and intersects(pet[0], feat))
         check("hero %s" % tag, ok and not overlap, repr(dict(info, petalOverFeature=overlap)) if not ok or overlap else "")
+        if not mobile and not width:
+            cons = text_contrast(p, ".dash-hero")
+            bad = [(round(r, 2), t, lbl) for r, t, lbl in cons if r < t]
+            worst = min(cons)[0] if cons else 0
+            HERO_WORST[tag] = worst
+            check("hero %s: kontras teks di atas latar (min %.2f, %d baris)" % (tag, worst, len(cons)), cons and not bad, repr(bad[:6]))
         path = os.path.join(SHOTS, "hero-%s.png" % tag)
         p.locator(".dash-hero").screenshot(path=path, animations="disabled", caret="hide")
         return path
     finally:
         ctx.close()
+
+
+HERO_WIDTH_JS = """() => { const h = document.querySelector('.dash-hero'), cs = getComputedStyle(h);
+    return {hero: Math.round(h.getBoundingClientRect().width),
+            content: Math.round(h.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)),
+            feature: getComputedStyle(h.querySelector('.hb-feature')).display}; }"""
+
+
+def hero_widths(browser, base, user):
+    """Hero sempit (menu lengkap / sidebar ikon di 1101-1280 px) + nama tampilan panjang: gambar fitur latar tidak
+    beririsan dengan kolom teks hero (sapaan, ringkasan) di 6 latar. Fitur yang tidak muat disembunyikan (container)."""
+    for vw, full in ((1101, True), (1180, True), (1280, True), (1101, False)):
+        for k in KINDS:
+            ctx, p = new_page(browser, base, user, "sakura", "light", k, width=vw)
+            try:
+                hd.wait_dashboard_ready(p)
+                if full:
+                    btn = p.locator("button[aria-label='Tampilkan semua menu']")
+                    if btn.count() and btn.first.is_visible():
+                        btn.first.click()
+                        p.wait_for_timeout(400)
+                p.mouse.move(2, 2)
+                p.wait_for_timeout(150)
+                m = p.evaluate(HERO_WIDTH_JS)
+                text = rects(p, ".dash-hero-text")[0]
+                feat = feature_rect(p)
+                hit = bool(feat and intersects(feat, text))
+                tag = "%d%s %s" % (vw, "+menu" if full else "", k)
+                note = "hero %d, isi %d, teks %d..%d, fitur %s" % (
+                    m["hero"], m["content"], text["l"], text["r"],
+                    "tersembunyi" if m["feature"] == "none" else ("-" if not feat else "%d..%d" % (feat["l"], feat["r"])))
+                # Nama panjang benar-benar memenuhi kolom teks (maks 420 px), jadi cek ini menguji kasus terburuk.
+                check("lebar hero %s: fitur tidak beririsan dengan kolom teks (%s)" % (tag, note),
+                      not hit and text["w"] >= 400, "fitur %r, teks %r" % (feat, text) if hit or text["w"] < 400 else "")
+            finally:
+                ctx.close()
 
 
 def contact_sheet(shots, path):
@@ -173,7 +226,11 @@ def contact_sheet(shots, path):
     sheet.save(path)
 
 
-def run_hero(browser, base, user):
+HERO_WORST = {}
+
+
+def run_hero(browser, base, user, user_long):
+    hero_widths(browser, base, user_long)
     shots = {}
     for k in KINDS:
         for pl in PALETTES:
@@ -187,6 +244,8 @@ def run_hero(browser, base, user):
     sheet = os.path.join(SHOTS, "sheet-hero.png")
     contact_sheet(shots, sheet)
     print("lembar kontak", sheet, flush=True)
+    low = sorted(HERO_WORST.items(), key=lambda kv: kv[1])[:5]
+    print("kontras teks hero terendah:", ", ".join("%s %.2f" % kv for kv in low), flush=True)
 
 
 def open_settings(p):
@@ -498,6 +557,11 @@ def inspect_pomo(p, kind, mode, state, tag, mobile):
         ok = ok and info["feature"] == "none" and info["sw"] <= info["cw"]
     else:
         ok = ok and (info["feature"] != "none" or info["featureHtml"] == 0)
+    if kind == "lanskap":
+        # Pohon Lanskap (ambient, pojok kiri bawah) tampil di desktop, tersembunyi di HP (di balik input parkir).
+        trees = p.evaluate("() => { const t = document.querySelector('.focus-pomo > .hb .hb-trees'); return t ? getComputedStyle(t).display : null; }")
+        ok = ok and trees is not None and (trees == "none") == bool(mobile)
+        info["trees"] = trees
     navy = any(x in info["bg"] for x in ("30, 41, 59", "15, 23, 42"))
     ink = tuple(int(round(v)) for v in parse_rgba(info["time"])[:3])
     want = TIME_INK[mode][STATE_INK[state]]
@@ -744,7 +808,7 @@ def main():
             if "settings" in parts:
                 run_settings(browser, base, user)
             if "hero" in parts:
-                run_hero(browser, base, user)
+                run_hero(browser, base, user, hd.seed(base, *LONG_USER))
             if "pomo" in parts:
                 run_pomo(browser, base, user)
             browser.close()
