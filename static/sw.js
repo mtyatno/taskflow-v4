@@ -41,6 +41,7 @@ const STATIC = [
   "/static/offline/accountbanner.js",
   "/static/offline/whatsnew.js",
   "/static/offline/themes.js",
+  "/static/offline/decor.js",
   "/static/offline/appupdate.js",
   "/static/offline/emailadmin.js",
   "/static/offline/focuspage.js",
