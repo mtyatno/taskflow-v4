@@ -80,8 +80,13 @@ test("VIEW_GLYPHS memuat headphones", () => {
 
 test("CSS: pomo-ambient, warna status, reduced-motion", () => {
   assert.ok(appCss.includes(".pomo-ambient"));
-  assert.ok(appCss.includes("#f87171"));
-  assert.ok(appCss.includes("#facc15"));
+  // Warna status bermakna lewat versi teks per mode (latar hero §6; terang lebih tua, gelap = #4ade80/#f87171/#facc15).
+  for (const [st, tok] of [["playing", "green"], ["error", "red"], ["waiting-tap", "yellow"]]) {
+    assert.match(appCss, new RegExp(`\\.pomo-ambient\\[data-state="${st}"\\] \\.pomo-ambient-icon \\{ color: var\\(--pomo-text-${tok}\\); \\}`), st);
+    assert.match(appCss, new RegExp(`\\.pomo-amb-mobile\\[data-state="${st}"\\] \\.pomo-amb-pill svg:first-child \\{ color: var\\(--pomo-text-${tok}\\); \\}`), "HP " + st);
+  }
+  const darkTok = appCss.slice(appCss.indexOf('[data-theme="dark"] {'), appCss.indexOf("}", appCss.indexOf('[data-theme="dark"] {')));
+  for (const d of ["--pomo-text-green: #4ade80", "--pomo-text-red: #f87171", "--pomo-text-yellow: #facc15"]) assert.ok(darkTok.includes(d), d);
   assert.match(appCss, /prefers-reduced-motion: reduce\)\s*\{[^}]*\.pomo-ambient\[data-state="loading"\][^}]*animation: none/);
   // HP (kartu ringkas): kontrol inline disembunyikan, diganti pil 🎧 + popover di baris atas
   const hp = appCss.slice(appCss.indexOf("/* Kartu Pomodoro ringkas di HP */"));

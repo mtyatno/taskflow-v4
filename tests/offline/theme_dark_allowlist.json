@@ -106,7 +106,6 @@
   {"selector":"[data-theme=\"dark\"] .habit-heatmap-cell::after","reason":"netral tanpa token"},
   {"selector":"[data-theme=\"dark\"] .habit-mini-cell.is-empty","reason":"netral tanpa token"},
   {"selector":"[data-theme=\"dark\"] .habit-mini-cell::after","reason":"netral tanpa token"},
-  {"selector":"[data-theme=\"dark\"] .focus-mini","reason":"netral tanpa token"},
   {"selector":"[data-theme=\"dark\"] .ftask.is-open","reason":"netral tanpa token"},
   {"selector":"[data-theme=\"dark\"] .ftask.is-focusing","reason":"warna bermakna"},
   {"selector":"[data-theme=\"dark\"] .ftask-info.is-overdue","reason":"warna bermakna"},

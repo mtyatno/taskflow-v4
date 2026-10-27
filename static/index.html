@@ -12199,11 +12199,20 @@ function PomodoroTimer({
   onCompleteTask
 }) {
   const t = timer;
+  // Latar terpilih (spec latar-hero §6): kartu melukis base yang sama dengan HeroBackdrop (garis kartu rgba dipadu dengan
+  // latar kartu itu sendiri, seperti hero Dashboard); CSS .focus-pomo = cadangan bila registri belum termuat.
+  const pomoBg = useHeroBackdrop("pomo");
   return React.createElement("section", {
     ref: cardRef,
     className: `focus-pomo scale-in${t.isBreak ? " is-break" : ""}${t.isRunning ? " is-running" : ""}${t.phase === "overtime" ? " is-overtime" : ""}${t.phase === "awaiting" ? " is-awaiting" : ""}`,
+    style: pomoBg ? {
+      background: pomoBg.base
+    } : undefined,
     "aria-label": "Pomodoro"
-  }, React.createElement("div", {
+  }, React.createElement(HeroBackdrop, {
+    place: "pomo",
+    cardBase: !!pomoBg
+  }), React.createElement("div", {
     className: "focus-pomo-ring"
   }, React.createElement(PomoRing, {
     timer: t,

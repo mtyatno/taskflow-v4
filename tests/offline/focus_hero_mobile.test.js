@@ -122,7 +122,10 @@ test("app.css: kartu ringkas di HP — grid 4 kolom, area, lingkaran kecil, tanp
   // ditampilkan di HP
   assert.match(rule(".focus-pomo .pomo-mode-min, .focus-pomo-task-dot, .pomo-park-icon, .pomo-park-send", m), /display: (block|inline-flex)/);
   assert.match(rule(".pomo-amb-pop", m), /position: absolute/);
-  assert.match(rule(".focus-pomo-task-done-btn", m), /#4ade80/);
+  // Latar hero §6: hijau bermakna lewat versi teks kecil di atas tint per mode (--pomo-text-green-strong: #166534
+  // terang / #86efac gelap).
+  assert.match(rule(".focus-pomo-task-done-btn", m), /color: var\(--pomo-text-green-strong\)/);
+  assert.match(rule(".focus-pomo-task-done-btn", m), /background: color-mix\(in srgb, #22c55e var\(--pomo-soft-a\), transparent\)/);
 });
 
 test("app.css: kartu ringkas tetap menghormati reduced-motion dan bar ringkas tidak menampilkan durasi", () => {
@@ -149,5 +152,6 @@ test("review: waktu panjang mengecil, label lingkaran rata tengah, placeholder 1
   assert.match(rule(".focus-pomo .pomo-park-input::placeholder", m), /font-size: 13px/);
   assert.match(rule(".focus-pomo .pomo-park-input", m), /text-overflow: ellipsis/);
   assert.match(rule(".focus-pomo .pomo-park:focus-within", m), /box-shadow/);
-  assert.match(rule(".focus-pomo .pomo-park.is-error", m), /#f87171/);
+  // Eror = merah bermakna versi teks per mode (--pomo-text-red: #dc2626 terang / #f87171 gelap).
+  assert.match(rule(".focus-pomo .pomo-park.is-error", m), /var\(--pomo-text-red\)/);
 });
