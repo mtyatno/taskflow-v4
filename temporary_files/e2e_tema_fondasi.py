@@ -651,7 +651,8 @@ def verify_palettes(browser, base, user, sw):
     p.goto(base + "/", wait_until="domcontentloaded")
     head = json.loads(p.evaluate("() => window.__TF_BOOT_SNAPSHOT || 'null'") or "null")
     body = json.loads(p.evaluate("() => window.__TF_BODY_SNAPSHOT || 'null'") or "null")
-    want = {"theme": "light", "palette": "sakura", "decor": "on"}
+    # data-herobg (latar hero, bawaan kontur) juga dipasang skrip boot (spec latar-hero §2).
+    want = {"theme": "light", "palette": "sakura", "decor": "on", "herobg": "kontur"}
     check("v-boot tf_palette=sakura: data-palette=sakura dan --accent #B0287E sebelum React "
           "(meta #FDF5FA, TF.themes belum dimuat, App belum dirender)",
           bool(head) and bool(body) and head["ds"] == want and body["ds"] == want and same_color(body["accent"], "#B0287E")
@@ -1180,7 +1181,8 @@ def verify():
         empty_user = register(base, EMPTY_USERNAME, "Kosong")
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
-            want = {"theme": "dark", "palette": "default", "decor": "on"}
+            # data-herobg (latar hero, bawaan kontur) juga dipasang skrip boot (spec latar-hero §2).
+            want = {"theme": "dark", "palette": "default", "decor": "on", "herobg": "kontur"}
 
             # (a) tf_theme=dark → atribut terpasang oleh skrip boot, sebelum TF.themes/React.
             ctx = browser.new_context(service_workers="block", viewport=VIEWPORT, reduced_motion="reduce")
@@ -1194,8 +1196,8 @@ def verify():
             p.goto(base + "/", wait_until="domcontentloaded")
             ds = p.evaluate(DATASET_JS)
             snap = json.loads(p.evaluate("() => window.__TF_BOOT_SNAPSHOT || 'null'") or "null")
-            check("a1 domcontentloaded: dataset = dark/default/on", ds == want, repr(ds))
-            check("a2 tepat setelah skrip boot (TF.themes belum dimuat): dataset = dark/default/on, meta #0f172a",
+            check("a1 domcontentloaded: dataset = dark/default/on/kontur", ds == want, repr(ds))
+            check("a2 tepat setelah skrip boot (TF.themes belum dimuat): dataset = dark/default/on/kontur, meta #0f172a",
                   bool(snap) and snap["ds"] == want and snap["meta"] == "#0f172a" and not snap["themesLoaded"], repr(snap))
             ctx.close()
 
