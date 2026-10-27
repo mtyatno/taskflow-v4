@@ -66,7 +66,7 @@ test("3. Dashboard component in static/index.html implements habit checkin and C
   assert.match(dashSrc, /const\s+totalHabits\s*=\s*\(habits\s*\|\|\s*\[\]\)\.length;/);
   assert.match(dashSrc, /const\s+currentPhase\s*=\s*hour\s*<\s*11\s*\?\s*["']pagi["']\s*:\s*hour\s*<\s*17\s*\?\s*["']siang["']\s*:\s*["']malam["'];/);
   // Urutan chip (fase sekarang dulu, lalu belum selesai lain, lalu selesai) di herologic.habitChips
-  assert.match(dashSrc, /const\s+heroHabits\s*=\s*heroLogic\s*\?\s*heroLogic\.habitChips\(habits,\s*currentPhase,\s*3\)/);
+  assert.match(dashSrc, /const\s+heroHabits\s*=\s*heroLogic\s*\?\s*heroLogic\.habitChips\(habits,\s*currentPhase,\s*heroHabitLimit\)/);
 
   // Handler handleCheckinHabit
   assert.match(dashSrc, /const\s+handleCheckinHabit\s*=\s*async\s+habit\s*=>/);
@@ -97,12 +97,12 @@ test("3. Dashboard component in static/index.html implements habit checkin and C
   assert.match(fnSource("CenterHudToast", html), /toast\.type\s*===\s*["']habit["']\s*\?\s*["']activity["']/);
 });
 
-test("4. Service Worker and index.html cache version is taskflow-v483-latar-hero", () => {
+test("4. Service Worker and index.html cache version is taskflow-v484-hero-habit-hp", () => {
   const sw = fs.readFileSync(swPath, "utf8");
   const html = fs.readFileSync(htmlPath, "utf8");
 
-  assert.match(sw, /^const CACHE = "taskflow-v483-latar-hero";/m);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v483-latar-hero";/);
+  assert.match(sw, /^const CACHE = "taskflow-v484-hero-habit-hp";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v484-hero-habit-hp";/);
 });
 
 test("5. Habit chip CSS anti-overflow and responsive media queries", () => {
@@ -120,10 +120,10 @@ test("5. Habit chip CSS anti-overflow and responsive media queries", () => {
   assert.match(css, /\.dash-hero-habit-name\s*\{[^}]*text-overflow:\s*ellipsis;/);
   assert.match(css, /\.dash-hero-habit-check\s*\{[^}]*flex-shrink:\s*0;/);
 
-  // Mobile media queries (640px and 420px): satu baris yang bisa digeser, chip tidak menyusut
+  // HP (≤640px, 2026-10-28): satu chip habit + "+N" dalam satu baris tanpa gulir; chip habit menyusut
+  // (nama berelipsis) sehingga tidak ada pil yang terpotong; chip lain (Fokus, +N) tidak menyusut.
   assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habits\s*\{[^}]*gap:\s*6px;/);
   assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-chip\s*\{[^}]*flex-shrink:\s*0;/);
-  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habit-name\s*\{[^}]*max-width:\s*160px;/);
-
-  assert.match(css, /@media\s*\(max-width:\s*420px\)[\s\S]*?\.dash-hero-habit-name\s*\{[^}]*max-width:\s*120px;/);
+  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habit\s*\{[^}]*flex:\s*0 1 auto;[^}]*min-width:\s*0;/);
+  assert.match(css, /@media\s*\(max-width:\s*640px\)[\s\S]*?\.dash-hero-habit-name\s*\{[^}]*max-width:\s*none;/);
 });

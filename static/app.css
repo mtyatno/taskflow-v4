@@ -2994,10 +2994,11 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
   .dash-hero-focus.is-invite { padding: 6px 12px; }
   .dash-hero-focus.is-noact { padding-right: 12px; }
   .dash-hero-focus-act { min-height: 44px; padding: 8px 14px 8px 12px; border-radius: 10px; }
-  .dash-hero-habits { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; gap: 6px; }
-  .dash-hero-habits::-webkit-scrollbar { display: none; }
-  .dash-hero-more { padding: 6px 12px; }
-  .dash-hero-habit-name { max-width: 160px; }
+  /* Satu chip habit (+N) per baris: chip menyusut dengan elipsis, tidak ada chip yang terpotong di tepi. */
+  .dash-hero-habits { flex-wrap: nowrap; gap: 6px; }
+  .dash-hero-habit { flex: 0 1 auto; min-width: 0; }
+  .dash-hero-more { flex-shrink: 0; padding: 6px 12px; }
+  .dash-hero-habit-name { max-width: none; }
   .dash-kbd { display: none; }
   .dash-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .dash-kpis > :last-child:nth-child(odd) { grid-column: 1 / -1; }
@@ -3010,9 +3011,6 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
   .dash-section-title { font-size: 16px; }
   .dash-projects, .dash-notes { grid-template-columns: minmax(0, 1fr); }
   .dash-main, .dash-charts, .dash-grid-2 { gap: 12px; }
-}
-@media (max-width: 420px) {
-  .dash-hero-habit-name { max-width: 120px; }
 }
 
 /* ── Note Rich Blocks: Code Cards, Callouts, and Collapsible Details ── */
