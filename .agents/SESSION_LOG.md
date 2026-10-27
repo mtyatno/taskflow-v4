@@ -4269,3 +4269,4 @@
 - **Changes:** useMediaMatch + heroHabitLimit (HP 1, desktop 3); CSS HP chip habit menyusut tanpa gulir; placeholder HP lebih pendek; tes + E2E; rilis v484.
 - **Files Touch:** static/index.html, static/app.css, static/sw.js, static/whatsnew.json, tests/offline/{dashboard_hero,dashboard_habit_checkin,dashboard_onboarding}.test.js + tes versi, temporary_files/e2e_hero_dashboard.py, .agents/*
 - **Status:** Needs Review (PR draft)
+- 2026-10-28 06:00 WIB (Claude): menu workspace dropdown di HP (permintaan Bapak), SW v485, PR.

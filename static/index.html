@@ -99,7 +99,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=381">
+  <link rel="stylesheet" href="/static/app.css?v=382">
   <link rel="stylesheet" href="/static/themes.css?v=2">
 
 <style>
@@ -267,7 +267,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v485-hero-habit-hp";
+    window.__SW_VERSION = "taskflow-v486-ws-dropdown";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -5647,6 +5647,44 @@ function WorkspacePinButton({ pinned, canPin, online, onToggle }) {
     },
     style: { marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 6 }
   }, React.createElement(Icon, { name: pinned && hover && !disabled ? "pin-off" : "pin", size: 14 }), pinned ? "Di-pin" : "Pin");
+}
+// Baris tombol halaman workspace versi HP: satu tombol dropdown (permintaan pemilik 2026-10-28). Isinya sama dengan baris
+// desktop: Tasks / Files, Pin, Kelola, Kelola project, Kelola tahap. Baris desktop disembunyikan di ≤ 640 px lewat CSS.
+function WorkspaceNavMobileMenu({ workspaceTab, onTab, pinned, canPin, online, onPin, onManage, onProjects, onStages }) {
+  const [open, setOpen] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const btnRef = React.useRef(null);
+  const pinDisabled = busy || !online || (!pinned && !canPin);
+  const pinTitle = !online ? "Butuh koneksi internet" : (!pinned && !canPin) ? WORKSPACE_PIN_FULL_TEXT : "";
+  const run = fn => () => { setOpen(false); fn(); };
+  const item = (key, icon, label, onClick, extra) => React.createElement("button", Object.assign({
+    key, type: "button", role: "menuitem", className: "td-pop-item ws-nav-item", onClick
+  }, extra || {}), icon, React.createElement("span", { className: "td-pop-label" }, label));
+  const tabIcon = name => React.createElement(ViewGlyph, { name, size: 15 });
+  const current = workspaceTab === "files" ? { glyph: "wsFiles", label: "Files" } : { glyph: "wsTasks", label: "Tasks" };
+  return React.createElement("div", { className: "workspace-nav-mobile" },
+    React.createElement("button", {
+      type: "button",
+      ref: btnRef,
+      className: "btn btn-sm btn-primary ws-nav-trigger",
+      "aria-haspopup": "menu",
+      "aria-expanded": open,
+      "aria-label": "Menu workspace: " + current.label,
+      onClick: () => setOpen(o => !o)
+    }, tabIcon(current.glyph), current.label, React.createElement(Icon, { name: "chevronDown", size: 14 })),
+    React.createElement(DetailPopover, { anchorRef: btnRef, open, onClose: () => setOpen(false), label: "Menu workspace", role: "menu", className: "td-menu" },
+      item("tasks", tabIcon("wsTasks"), "Tasks", run(() => onTab("tasks")), { "aria-current": workspaceTab === "tasks" ? "true" : undefined }),
+      item("files", tabIcon("wsFiles"), "Files", run(() => onTab("files")), { "aria-current": workspaceTab === "files" ? "true" : undefined }),
+      React.createElement("div", { key: "sep", className: "ws-nav-sep", role: "separator" }),
+      item("pin", React.createElement(Icon, { name: pinned ? "pin-off" : "pin", size: 15 }), pinned ? "Lepas pin dari sidebar" : "Pin ke sidebar", () => {
+        if (pinDisabled) return;
+        setBusy(true);
+        setOpen(false);
+        Promise.resolve(onPin(!pinned)).finally(() => setBusy(false));
+      }, { disabled: pinDisabled, title: pinTitle || undefined }),
+      item("manage", React.createElement(Icon, { name: "settings", size: 15 }), "Kelola", run(onManage)),
+      item("projects", React.createElement(Icon, { name: "folder", size: 15 }), "Kelola project", run(onProjects)),
+      item("stages", React.createElement(Icon, { name: "list", size: 15 }), "Kelola tahap", run(onStages))));
 }
 // ═══ Kelola project (online) ═══
 // Helper murni (dites di tests/offline/project_manager.test.js).
@@ -27904,7 +27942,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v485-hero-habit-hp"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v486-ws-dropdown"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -45071,7 +45109,18 @@ function App() {
       const currentList = sharedLists.find(l => l.id === listId) || { id: listId, name: getPageTitle() };
       return /*#__PURE__*/React.createElement("div", {
         className: "fade-in"
-      }, /*#__PURE__*/React.createElement("div", {
+      }, /*#__PURE__*/React.createElement(WorkspaceNavMobileMenu, {
+        key: "wsnav" + listId,
+        workspaceTab: workspaceTab,
+        onTab: setWorkspaceTab,
+        pinned: !!currentList.pinned,
+        canPin: !!(window.TF && window.TF.workspacepins && window.TF.workspacepins.canPinMore(sharedLists)),
+        online: isOnline,
+        onPin: pin => handleWorkspacePin(listId, pin),
+        onManage: () => setPage("ws_manage_" + listId),
+        onProjects: () => setProjectManager({ listId: listId, listName: currentList.name }),
+        onStages: () => setStageManager({ listId: listId, listName: currentList.name })
+      }), /*#__PURE__*/React.createElement("div", {
         className: "workspace-nav-tabs",
         style: {
           display: "flex",

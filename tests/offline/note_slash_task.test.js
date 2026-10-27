@@ -106,8 +106,8 @@ test("Note Editor Slash Menu: Task insertion (/task, /tasks)", async (t) => {
     );
   });
 
-  await t.test("Service Worker cache is taskflow-v485-hero-habit-hp in static/sw.js", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v485-hero-habit-hp";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v485-hero-habit-hp";/);
+  await t.test("Service Worker cache is taskflow-v486-ws-dropdown in static/sw.js", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v486-ws-dropdown";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v486-ws-dropdown";/);
   });
 });
