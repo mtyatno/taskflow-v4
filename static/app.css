@@ -2589,7 +2589,7 @@
 
 /* Hero */
 /* Hero Dashboard (spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md §3): gradien token + topografi + ilustrasi palet. */
-.dash-hero { position: relative; border-radius: 18px; padding: 22px 26px 20px; margin: 4px 0 16px; background: linear-gradient(105deg, var(--bg-card) 30%, var(--accent-soft) 100%); border: 1px solid rgba(var(--accent-rgb), 0.25); box-shadow: var(--dash-shadow); overflow: hidden; }
+.dash-hero { position: relative; border-radius: 18px; padding: 22px 26px 20px; margin: 4px 0 16px; background: linear-gradient(105deg, var(--bg-card) 30%, var(--accent-soft) 100%), var(--bg-card); border: 1px solid rgba(var(--accent-rgb), 0.25); box-shadow: var(--dash-shadow); overflow: hidden; }
 [data-theme="dark"] .dash-hero { border-color: rgba(var(--accent-rgb), 0.22); }
 .dash-hero-topo { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.35) 30%, #000 60%); mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.35) 30%, #000 60%); }
 .dash-hero-topo g { stroke: var(--accent); opacity: 0.28; }
@@ -2620,6 +2620,7 @@ button.dash-hero-chip { cursor: pointer; transition: border-color 0.15s, transfo
 button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY(-1px); }
 .dash-hero-chip:focus-visible, .dash-hero-focus-main:focus-visible, .dash-hero-focus-act:focus-visible, .dash-hero-progress:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 .dash-hero-focus { gap: 8px; padding: 4px 4px 4px 12px; max-width: 360px; }
+.dash-hero-focus.is-noact { padding-right: 14px; }
 .dash-hero-focus.is-invite { padding: 6px 14px 6px 10px; font-weight: 700; color: var(--accent-text-strong, var(--accent-text)); }
 .dash-hero-focus-ico { display: inline-flex; flex-shrink: 0; color: var(--accent); }
 .dash-hero-focus-main { display: inline-flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 auto; padding: 0; border: none; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
@@ -2633,6 +2634,9 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 [data-theme="dark"] .dash-hero-habit.is-done { background: rgba(var(--accent-rgb), 0.18); }
 .dash-hero-habit.is-done .dash-hero-habit-check { background: var(--accent); border-color: var(--accent); color: var(--accent-on, #1a2a00); }
 .dash-hero-habit.is-done .dash-hero-habit-name { text-decoration: line-through; }
+.dash-hero-habit.is-skipped { background: transparent; border-style: dashed; color: var(--text-secondary); opacity: 0.7; }
+.dash-hero-habit.is-skipped .dash-hero-habit-check { border-color: var(--text-secondary); }
+.dash-hero-habit-dash { display: block; width: 8px; height: 1.5px; border-radius: 1px; background: currentColor; }
 .dash-hero-more { padding: 6px 10px; background: transparent; border-style: dashed; font-size: 12.5px; font-weight: 700; color: var(--text-secondary); }
 .dash-hero-progress { display: flex; align-items: center; gap: 12px; flex-shrink: 0; cursor: pointer; padding: 10px 16px 10px 10px; border-radius: 16px; background: color-mix(in srgb, var(--bg-card) 82%, transparent); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); border: 1px solid var(--border); font: inherit; color: inherit; text-align: left; transition: transform 0.15s, box-shadow 0.15s; }
 .dash-hero-progress:hover { transform: translateY(-1px); box-shadow: var(--dash-shadow-hover); }
@@ -2907,9 +2911,10 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
   .dash-hero .dash-ring-label { font-size: 13px; }
   .dash-hero .scratchpad-bar.dash-capture { margin-top: 14px; }
   .dash-hero-chips { flex-direction: column; align-items: stretch; gap: 8px; margin-top: 12px; }
-  .dash-hero-chip { flex-shrink: 0; min-height: 36px; padding: 6px 11px 6px 6px; font-size: 12.5px; gap: 6px; }
+  .dash-hero-chip { flex-shrink: 0; min-height: 44px; padding: 6px 11px 6px 6px; font-size: 12.5px; gap: 6px; }
   .dash-hero-focus { width: 100%; max-width: none; min-height: 44px; padding: 4px 4px 4px 12px; border-radius: 14px; }
   .dash-hero-focus.is-invite { padding: 6px 12px; }
+  .dash-hero-focus.is-noact { padding-right: 12px; }
   .dash-hero-focus-act { min-height: 44px; padding: 8px 14px 8px 12px; border-radius: 10px; }
   .dash-hero-habits { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; gap: 6px; }
   .dash-hero-habits::-webkit-scrollbar { display: none; }

@@ -21,29 +21,32 @@
     return best;
   }
 
-  // Urutan chip: belum selesai di fase sekarang, belum selesai lainnya, lalu selesai.
+  // Urutan chip: belum dicentang di fase sekarang, belum dicentang lainnya, dilewati, lalu selesai.
   function habitChips(habits, phase, limit) {
     const list = Array.isArray(habits) ? habits : [];
     const n = limit == null ? 3 : limit;
-    const now = [], other = [], done = [];
+    const now = [], other = [], skipped = [], done = [];
     for (const h of list) {
+      if (!h) continue;
       const isDone = h.today_status === "done";
-      const item = Object.assign({}, h, { done: isDone });
+      const isSkipped = h.today_status === "skipped";
+      const item = Object.assign({}, h, { done: isDone, skipped: isSkipped });
       if (isDone) done.push(item);
+      else if (isSkipped) skipped.push(item);
       else if (h.phase === phase) now.push(item);
       else other.push(item);
     }
-    const all = now.concat(other, done);
+    const all = now.concat(other, skipped, done);
     return { shown: all.slice(0, n), more: Math.max(0, all.length - n) };
   }
 
+  // action null saat Pomodoro menunggu pilihan (istirahat/lanjut) atau sedang istirahat:
+  // tombol Mulai/Jeda di hero di fase itu membingungkan; pengguna diarahkan ke Fokus Hari Ini.
   function focusChip(focusTask, timer) {
     if (!focusTask) return { kind: "invite", title: null, action: null };
-    return {
-      kind: "active",
-      title: focusTask.title || "",
-      action: timer && timer.isRunning ? "pause" : "start",
-    };
+    let action = timer && timer.isRunning ? "pause" : "start";
+    if (timer && (timer.phase === "awaiting" || timer.isBreak)) action = null;
+    return { kind: "active", title: focusTask.title || "", action };
   }
 
   const exported = { bestStreak, habitChips, focusChip };

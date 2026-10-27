@@ -66,3 +66,10 @@ def test_streak_skipped_in_middle_passed_over(client):
 def test_streak_no_logs_zero(client):
     headers, hid = _setup(client, "streak_empty")
     assert _streak(client, headers, hid) == 0
+
+
+def test_streak_today_skipped_counts_from_yesterday(client):
+    headers, hid = _setup(client, "streak_skip_today")
+    _log(hid, 0, "skipped")
+    _log(hid, 1, "done")
+    assert _streak(client, headers, hid) == 1

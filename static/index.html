@@ -22970,11 +22970,13 @@ function Dashboard({
   const heroLogic = window.TF && window.TF.hero || null;
   const heroStreak = heroLogic ? heroLogic.bestStreak(habits) : null;
   const heroHabits = heroLogic ? heroLogic.habitChips(habits, currentPhase, 3) : {
-    shown: (habits || []).slice(0, 3).map(h => ({ ...h, done: h.today_status === "done" })),
-    more: Math.max(0, totalHabits - 3)
+    shown: (habits || []).filter(Boolean).slice(0, 3).map(h => ({ ...h, done: h.today_status === "done", skipped: h.today_status === "skipped" })),
+    more: Math.max(0, (habits || []).filter(Boolean).length - 3)
   };
+  // Semua chip yang tampil sudah selesai/dilewati → hero tetap memberi jalan ke halaman Habit.
+  const heroHabitsAllSettled = heroHabits.shown.length > 0 && heroHabits.shown.every(h => h.done || h.skipped);
   const heroFocus = heroLogic ? heroLogic.focusChip(focusTask, timer) : focusTask
-    ? { kind: "active", title: focusTask.title || "", action: timer && timer.isRunning ? "pause" : "start" }
+    ? { kind: "active", title: focusTask.title || "", action: timer && (timer.phase === "awaiting" || timer.isBreak) ? null : timer && timer.isRunning ? "pause" : "start" }
     : { kind: "invite", title: null, action: null };
   const showFocusChip = intro === "dashboard" && hasTasks;
   const showOverdueChip = pendingToday.length > 0 && overdueCount > 0;
@@ -23353,7 +23355,7 @@ function Dashboard({
   }, /*#__PURE__*/React.createElement("b", null, doneN, "/", totalToday), /*#__PURE__*/React.createElement("span", null, "selesai hari ini")))), (showFocusChip || totalHabits > 0) && /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-chips"
   }, showFocusChip && (heroFocus.kind === "active" ? /*#__PURE__*/React.createElement("div", {
-    className: "dash-hero-chip dash-hero-focus"
+    className: heroFocus.action ? "dash-hero-chip dash-hero-focus" : "dash-hero-chip dash-hero-focus is-noact"
   }, /*#__PURE__*/React.createElement("span", {
     className: "dash-hero-focus-ico"
   }, /*#__PURE__*/React.createElement(ViewGlyph, {
@@ -23368,7 +23370,7 @@ function Dashboard({
     className: "dash-hero-focus-label"
   }, "Fokus"), /*#__PURE__*/React.createElement("span", {
     className: "dash-hero-focus-title"
-  }, heroFocus.title)), /*#__PURE__*/React.createElement("button", {
+  }, heroFocus.title)), heroFocus.action && /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "dash-hero-focus-act",
     onClick: () => {
@@ -23404,7 +23406,18 @@ function Dashboard({
       size: 11
     })), /*#__PURE__*/React.createElement("span", {
       className: "dash-hero-habit-name"
-    }, hTitle)) : /*#__PURE__*/React.createElement("button", {
+    }, hTitle)) : h.skipped ? /*#__PURE__*/React.createElement("span", {
+      key: h.id,
+      className: "dash-hero-chip dash-hero-habit is-skipped",
+      role: "img",
+      "aria-label": `${hTitle} dilewati hari ini`
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "dash-hero-habit-check"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "dash-hero-habit-dash"
+    })), /*#__PURE__*/React.createElement("span", {
+      className: "dash-hero-habit-name"
+    }, hTitle)) : h.today_status ? null : /*#__PURE__*/React.createElement("button", {
       key: h.id,
       type: "button",
       className: "dash-hero-chip dash-hero-habit",
@@ -23421,7 +23434,12 @@ function Dashboard({
     className: "dash-hero-chip dash-hero-more",
     onClick: () => onNav("habits"),
     "aria-label": `Lihat ${heroHabits.more} habit lainnya`
-  }, `+${heroHabits.more}`))), /*#__PURE__*/React.createElement("div", {
+  }, `+${heroHabits.more}`), heroHabitsAllSettled && heroHabits.more === 0 && /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "dash-hero-chip dash-hero-more dash-hero-habits-link",
+    onClick: () => onNav("habits"),
+    "aria-label": "Buka halaman Habit"
+  }, "Lihat habit"))), /*#__PURE__*/React.createElement("div", {
     className: "scratchpad-bar dash-capture",
     "data-tour": "scratchpad"
   }, /*#__PURE__*/React.createElement(Icon, {

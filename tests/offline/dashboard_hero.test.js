@@ -72,6 +72,8 @@ test("chip Fokus: aktif (judul → today, Mulai/Jeda → timer) atau ajakan; han
   assert.match(hero, /timer\.pause\(\)/);
   assert.match(hero, /timer\.start\(\)/);
   assert.match(hero, /heroFocus\.action === "pause" \? "Jeda" : "Mulai"/);
+  // fase menunggu/istirahat: action null → tanpa tombol aksi, judul tetap membuka Fokus Hari Ini
+  assert.match(hero, /heroFocus\.action && \/\*#__PURE__\*\/React\.createElement\("button", \{\s*type: "button",\s*className: "dash-hero-focus-act"/);
   assert.match(hero, /onClick: \(\) => onNav\("today"\)[\s\S]{0,200}"Pilih task untuk difokuskan"/);
   assert.match(hero, /name: "pTarget"/);
 });
@@ -87,6 +89,20 @@ test("chip habit: belum selesai = tombol check-in, selesai = non-interaktif berc
   assert.match(hero, /onClick: \(\) => onNav\("habits"\)/);
   assert.match(hero, /"aria-label": `Lihat \$\{heroHabits\.more\} habit lainnya`/);
   assert.match(css, /\.dash-hero-habit\.is-done \.dash-hero-habit-name\s*\{[^}]*line-through/);
+});
+
+test("chip habit dilewati: non-interaktif redup; hanya yang belum dicentang bisa diklik", () => {
+  assert.match(hero, /h\.skipped \? \/\*#__PURE__\*\/React\.createElement\("span", \{/);
+  assert.match(hero, /className: "dash-hero-chip dash-hero-habit is-skipped"/);
+  assert.match(hero, /"aria-label": `\$\{hTitle\} dilewati hari ini`/);
+  assert.match(hero, /: h\.today_status \? null : \/\*#__PURE__\*\/React\.createElement\("button"/);
+  assert.match(cssRule(".dash-hero-habit.is-skipped"), /opacity:/);
+});
+
+test("semua habit selesai/dilewati dan tanpa +N → chip tautan Lihat habit", () => {
+  assert.match(hero, /heroHabitsAllSettled && heroHabits\.more === 0 && /);
+  assert.match(dash, /const heroHabitsAllSettled = heroHabits\.shown\.length > 0 && heroHabits\.shown\.every\(h => h\.done \|\| h\.skipped\);/);
+  assert.match(hero, /className: "dash-hero-chip dash-hero-more dash-hero-habits-link"[\s\S]{0,120}onClick: \(\) => onNav\("habits"\),\s*"aria-label": "Buka halaman Habit"\s*\}, "Lihat habit"\)/);
 });
 
 test("streak memakai ViewGlyph pFlame dan disembunyikan bila null", () => {
@@ -106,7 +122,8 @@ test("tanpa emoji di hero; pil habit lama dihapus", () => {
 
 test("CSS: gradien token, topo bermask, ilustrasi disembunyikan ≤1100px dan decor off, tanpa border-left", () => {
   const h = cssRule(".dash-hero");
-  assert.match(h, /linear-gradient\(105deg, var\(--bg-card\) 30%, var\(--accent-soft\) 100%\)/);
+  // lapisan dasar padat: --accent-soft di tema gelap berupa rgba → tanpa ini sisi kanan tembus pandang
+  assert.match(h, /background: linear-gradient\(105deg, var\(--bg-card\) 30%, var\(--accent-soft\) 100%\), var\(--bg-card\);/);
   assert.match(h, /border: 1px solid rgba\(var\(--accent-rgb\), 0\.25\)/);
   assert.ok(!/\.dash-hero::after/.test(css), "glow ::after lama dihapus");
   const topo = cssRule(".dash-hero-topo");
@@ -121,12 +138,12 @@ test("CSS: gradien token, topo bermask, ilustrasi disembunyikan ≤1100px dan de
   assert.doesNotMatch(block, /border-left/);
 });
 
-test("CSS HP (≤640px): chip Fokus penuh ≥44px, habit satu baris geser, chip ≥36px", () => {
+test("CSS HP (≤640px): chip Fokus penuh ≥44px, habit satu baris geser, chip ≥44px", () => {
   const m = css.match(/@media \(max-width: 640px\) \{\n  \.dash-hero \{[\s\S]*?\n\}/);
   assert.ok(m, "blok mobile dashboard");
   const b = m[0];
   assert.match(b, /\.dash-hero-focus\s*\{[^}]*width: 100%;[^}]*min-height: 44px;/);
   assert.match(b, /\.dash-hero-focus-act\s*\{[^}]*min-height: 44px;/);
   assert.match(b, /\.dash-hero-habits\s*\{[^}]*flex-wrap: nowrap;[^}]*overflow-x: auto;/);
-  assert.match(b, /\.dash-hero-chip\s*\{[^}]*min-height: 36px;/);
+  assert.match(b, /\.dash-hero-chip\s*\{[^}]*min-height: 44px;/);
 });
