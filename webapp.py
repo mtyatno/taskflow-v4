@@ -5201,9 +5201,10 @@ async def get_habits_today(user=Depends(get_current_user)):
             ).fetchall()
             month_map = {r["date"]: r["status"] for r in month_rows}
             month_log = [{"date": d, "status": month_map.get(d)} for d in month_dates]
-            # Streak: hitung dari hari ini ke belakang
+            # Streak: hitung dari hari ini ke belakang. Hari ini belum ada log -> mulai dari kemarin
+            # (belum dicentang tidak memutus streak). Paritas static/offline/habitlogic.js deriveToday.
             streak = 0
-            check_date = _today_jkt()
+            check_date = _t if today_log else _t - timedelta(days=1)
             while True:
                 log = conn.execute(
                     "SELECT status FROM habit_logs WHERE habit_id = ? AND date = ?",

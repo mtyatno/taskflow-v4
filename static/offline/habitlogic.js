@@ -34,7 +34,8 @@
       month_log.push({ date: dt, status: logsByDate[dt] ? logsByDate[dt].status : null });
     }
     let streak = 0;
-    let cur = todayStr;
+    // Hari ini belum ada log -> belum terlambat; mulai menghitung dari kemarin (paritas webapp.py).
+    let cur = todayLog ? todayStr : addDays(todayStr, -1);
     while (true) {
       const log = logsByDate[cur];
       if (log && log.status === "done") { streak++; cur = addDays(cur, -1); }

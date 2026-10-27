@@ -50,8 +50,10 @@ test("Dashboard: chip habit, proyek, judul modal, tutup", () => {
   const d = ui(dash).replace(/🎉/g, "");
   assert.ok(!/[\u{1F300}-\u{1FAFF}⚡✕]/u.test(d), "emoji tersisa di Dashboard");
   assert.ok(!/\\u2715/.test(d));
-  assert.match(dash, /"• Selesai\?"/);
-  gl(dash, "pZap", 13);
+  // Hero: streak (pFlame), terlambat (pAlert), Fokus (pTarget) memakai ViewGlyph, bukan emoji
+  gl(dash, "pFlame", 14);
+  gl(dash, "pAlert", 13);
+  gl(dash, "pTarget", 15);
   assert.ok(dash.includes("#eab308"));
   gl(dash, "fFolder", 12);
   gl(dash, "fX", 15);

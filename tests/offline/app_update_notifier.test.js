@@ -18,8 +18,8 @@ function fnSource(name) {
   return indexHtml.slice(start, end);
 }
 
-test("1. Service Worker: CACHE version is bumped to taskflow-v479-tema-sakura-lavender", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v479-tema-sakura-lavender";/m);
+test("1. Service Worker: CACHE version is bumped to taskflow-v480-hero-dashboard", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v480-hero-dashboard";/m);
 });
 
 test("2. Service Worker: install event respects active worker (waits for skipWaiting prompt)", () => {
@@ -55,7 +55,7 @@ test("5. Frontend: UpdateNotificationBanner component exists with required eleme
 test("6. Frontend: Service Worker registration and update detection logic exists", () => {
   // Pemasangan tetap di skrip inline index.html.
   assert.match(indexHtml, /window\.__APP_VERSION\s*=\s*"4\.0\.0";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v479-tema-sakura-lavender";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v480-hero-dashboard";/);
   assert.match(indexHtml, /<script src="\/static\/offline\/appupdate\.js"><\/script>/);
   assert.match(indexHtml, /window\.TF\.appupdate\.createAppUpdater\(/);
   assert.match(indexHtml, /navigator\.serviceWorker\.register\("\/sw\.js"/);
