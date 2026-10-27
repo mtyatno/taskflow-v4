@@ -5269,3 +5269,13 @@
   .theme-card-mode, .theme-card-palette, .theme-card-switch { transition: none; }
 }
 /* ── Kartu "Tampilan": akhir ── */
+
+/* ── Dekorasi tema (slot Decor): awal ── */
+.decor { display: inline-block; pointer-events: none; user-select: none; line-height: 0; }
+.decor svg { width: 100%; height: 100%; }
+.decor-page-corner { position: absolute; top: 0; right: 12px; width: 130px; height: 90px; animation: decor-float 6s ease-in-out infinite; }
+@keyframes decor-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@media (prefers-reduced-motion: reduce) { .decor-page-corner { animation: none; } }
+@media (max-width: 479px) { .decor-page-corner { width: 88px; height: 61px; right: 4px; } }
+.is-zen .decor-page-corner { display: none; }
+/* ── Dekorasi tema (slot Decor): akhir ── */

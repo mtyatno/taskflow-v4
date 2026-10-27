@@ -19907,6 +19907,20 @@ function useThemeAttrs() {
   return attrs;
 }
 
+// Slot dekorasi tema (spec §3.5): span dekoratif dari registri TF.decor; null bila palet Default, dekorasi mati, atau slot tak dipetakan.
+function Decor({ slot, size, className }) {
+  const { palette, decor } = useThemeAttrs();
+  const id = decor === "on" && window.TF && window.TF.decor && window.TF.themes ? window.TF.themes.decorFor(palette, slot) : null;
+  const svg = id && window.TF.decor.svgFor(id);
+  if (!svg) return null;
+  return React.createElement("span", {
+    className: `decor decor-${slot}${className ? " " + className : ""}`,
+    "aria-hidden": "true",
+    style: size ? { width: size, height: size } : undefined,
+    dangerouslySetInnerHTML: { __html: svg }
+  });
+}
+
 // window.localStorage atau null: akses propertinya bisa melempar (Safari dengan penyimpanan situs diblokir).
 function safeLocalStorage() {
   try {
