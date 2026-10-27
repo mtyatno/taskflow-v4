@@ -14,7 +14,7 @@ Cek (PASS/FAIL per baris; keluar non-zero bila ada yang gagal):
   3 tanpa task difokuskan: chip "Pilih task untuk difokuskan" → klik membuka Fokus Hari Ini;
   4 fokuskan task lewat tombol Fokus di kartu Prioritas → hero "Fokus" + judul + Mulai/Jeda; klik bergantian Mulai/Jeda;
   5 klik chip habit yang belum selesai → chip bergaya selesai;
-  6 375 px: tanpa overflow horizontal, ilustrasi hero tersembunyi.
+  6 375 px: tanpa overflow horizontal, ilustrasi hero (fitur latar .hb-feature) tersembunyi.
 
 Tangkapan (sesudah font termuat dan dashboard selesai sinkron) ke temporary_files/e2e_hero_dashboard/:
   hero-<palet>-<mode>.png (elemen .dash-hero) + full-<palet>-<mode>.png (viewport) untuk 3 palet × 2 mode @1280×900,
@@ -271,9 +271,9 @@ def run_checks(browser, base, user):
     try:
         sw_, cw = p.evaluate("() => [document.documentElement.scrollWidth, document.documentElement.clientWidth]")
         check("6a 375px tanpa overflow horizontal", sw_ <= cw, "scrollWidth %d, clientWidth %d" % (sw_, cw))
-        illus = p.locator(".dash-hero-illus")
+        illus = p.locator(".dash-hero .hb-feature")
         hidden = illus.count() == 0 or not illus.first.is_visible()
-        check("6b 375px ilustrasi hero tersembunyi", hidden)
+        check("6b 375px ilustrasi hero (fitur latar) tersembunyi", hidden)
     finally:
         ctx.close()
 

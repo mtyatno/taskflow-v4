@@ -202,6 +202,21 @@ test("tanpa ukuran px kartu: ambient memenuhi kartu (persen/viewBox), fitur mema
   assert.match(n("thumb"), /^radial-gradient\(circle 7px at 70% 26%, /);
 });
 
+test("Lanskap: bukit jauh tanpa tepi tegak di celah antarbukit (far1 ujung kanan, far2 ujung kiri turun landai ke dasar)", () => {
+  // Mockup memotong far1 di x 780 (L780 225) dan far2 di x 800 (M800 160 … L800 225): tepi keras di bawah matahari.
+  for (const mode of MODES) for (const place of PLACES) {
+    const amb = hb.render({ kind: "lanskap", palette: "sakura", mode, place, uid: "l" }).ambient;
+    assert.ok(amb.includes("C670 95 720 110 780 122 C820 130 850 165 880 225 L0 225 Z"), `far1 ${mode}/${place}`);
+    assert.ok(amb.includes('d="M740 225 C760 200 765 175 800 160 C870 130 960 96 1060 86'), `far2 ${mode}/${place}`);
+    assert.ok(amb.includes("L1440 225 L740 225 Z"), `far2 tutup ${mode}/${place}`);
+    assert.doesNotMatch(amb, /L780 225|M800 160|L800 225/);
+  }
+  // Tangen sambungan sama (kurva halus): titik kendali sebelum/sesudah segaris dengan titik sambung.
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  assert.equal(cross([780, 122], [720, 110], [820, 130]), 0, "far1 (780,122)");
+  assert.equal(cross([800, 160], [765, 175], [870, 130]), 0, "far2 (800,160)");
+});
+
 // ---------- kontras zona teks ----------
 const stripComments = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "");
 const tcss = stripComments(fs.readFileSync(path.join(ROOT, "static/themes.css"), "utf8"));

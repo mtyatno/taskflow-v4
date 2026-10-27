@@ -2591,17 +2591,26 @@
 /* Hero Dashboard (spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md §3): gradien token + topografi + ilustrasi palet. */
 .dash-hero { position: relative; border-radius: 18px; padding: 22px 26px 20px; margin: 4px 0 16px; background: linear-gradient(105deg, var(--bg-card) 30%, var(--accent-soft) 100%), var(--bg-card); border: 1px solid rgba(var(--accent-rgb), 0.25); box-shadow: var(--dash-shadow); overflow: hidden; }
 [data-theme="dark"] .dash-hero { border-color: rgba(var(--accent-rgb), 0.22); }
-.dash-hero-topo { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; -webkit-mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.35) 30%, #000 60%); mask-image: linear-gradient(to right, transparent 0%, rgba(0,0,0,0.35) 30%, #000 60%); }
-.dash-hero-topo g { stroke: var(--accent); opacity: 0.28; }
-[data-theme="dark"] .dash-hero-topo g { opacity: 0.32; }
-.dash-hero-illus { position: absolute; right: 228px; top: 14px; width: 150px; height: 110px; pointer-events: none; }
-.dash-hero-illus svg { display: block; width: 150px; height: 110px; }
-.dash-hero-illus .dhi-stem { fill: none; stroke: var(--text-secondary); stroke-linecap: round; opacity: 0.5; }
-.dash-hero-illus .dhi-leaf-stem { fill: none; stroke: var(--accent-text-strong, var(--accent-text)); stroke-linecap: round; }
-.dash-hero-illus .dhi-leaf { fill: var(--accent-duo); stroke: var(--accent-text-strong, var(--accent-text)); }
-.dash-hero-illus .dhi-duo { fill: var(--accent-duo); stroke: var(--accent); }
-.dash-hero-illus .dhi-fill { fill: var(--accent); }
-[data-decor="off"] .dash-hero-illus { display: none; }
+/* Latar hero (HeroBackdrop, spec latar-hero §4): lapisan absolut di bawah isi kartu. base = background inline (atau latar
+   kartu itu sendiri bila cardBase, mis. hero Dashboard), ambient memenuhi kartu, fitur di kotak per tempat (viewBox SVG
+   fitur = ukuran kotak). Fitur hero/Pomodoro disembunyikan bila dekorasi mati dan di <= 1100 px (termasuk HP); kartu
+   pilihan (thumb) selalu menampilkannya karena fitur itulah pembeda antarlatar (Objek 3D tanpa fitur = gradien polos). */
+.hb { position: absolute; inset: 0; z-index: 0; pointer-events: none; border-radius: inherit; overflow: hidden; }
+.hb-ambient { position: absolute; inset: 0; }
+.hb-feature { position: absolute; }
+.hb-hero .hb-feature { right: 226px; top: 4px; width: 290px; height: 140px; }
+.hb-pomo .hb-feature { right: 28px; top: 68px; width: 340px; height: 62px; }
+.hb-thumb .hb-feature { right: 6px; top: 4px; bottom: 4px; width: 86px; }
+[data-decor="off"] .hb-hero .hb-feature, [data-decor="off"] .hb-pomo .hb-feature { display: none; }
+/* Hero Dashboard melukis base sendiri dan memotong isinya (overflow hidden) di radius DALAM garisnya (18 - 1 = 17px); radius
+   18px warisan memotong garis kontur di sudut lebih banyak daripada svg topografi lama. */
+.dash-hero > .hb { border-radius: 0; }
+/* HP (<= 640 px): hero bertumpuk lebih tinggi daripada lebarnya, jadi ambient (viewBox 1440x300, slice) membesar dan jalur
+   misi Galaksi / bola Objek 3D jatuh tepat di atas sapaan dan cincin progres (tanpa kartu kaca di HP). Ambient keduanya
+   hanya tampil di bagian bawah (di balik chip dan tangkap cepat); zona teks atas tetap = base. */
+@media (max-width: 640px) {
+  .hb-hero.hb-k-galaksi .hb-ambient, .hb-hero.hb-k-objek .hb-ambient { -webkit-mask-image: linear-gradient(to bottom, transparent 42%, #000 68%); mask-image: linear-gradient(to bottom, transparent 42%, #000 68%); }
+}
 .dash-hero-top { position: relative; z-index: 1; display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .dash-hero-text { min-width: 0; max-width: 420px; }
 .dash-hero-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
@@ -2887,7 +2896,7 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
   .dash-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .dash-charts { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .dash-charts > :first-child { grid-column: 1 / -1; }
-  .dash-hero-illus { display: none; }
+  .hb-hero .hb-feature, .hb-pomo .hb-feature { display: none; }
 }
 @media (max-width: 900px) {
   .dash-main { grid-template-columns: minmax(0, 1fr); }
@@ -5247,14 +5256,20 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 /* Belum ada task hari ini: kartu progres tidak dirender, kelopak jadi item terakhir → tanpa margin negatif agar tetap di
    dalam hero (padding kanan). */
 .dash-hero-top > .decor-page-corner:last-child { margin-right: 0; }
-/* > 1100 px hero menampilkan ilustrasi palet (.dash-hero-illus: absolut, right 228px, lebar 150px = tepat di kiri kartu
-   progres ±196px). Kelopak pindah ke KIRI ilustrasi (seolah kelopak tertiup dari ranting): kotak item boleh sampai
-   164 + 120px, svg dijangkar 164px dari kanan item (≈8px dari ilustrasi) dan lebarnya = sisa ruang (maks 120px, 0 bila
-   sempit). Item tetap basis 0 → tidak pernah menyempitkan sapaan; tinggi baris tidak berubah. Tanpa kartu progres
-   (anak terakhir) kelopak tetap di pojok kanan: ilustrasi berada di kirinya, tidak bertumpuk. */
+/* > 1100 px hero menampilkan fitur latar (.hb-hero .hb-feature: kotak right 226px, lebar 290px). Latar Kontur: ilustrasi
+   palet di ujung kanan kotak (right 228px, lebar 150px = tepat di kiri kartu progres ±196px). Kelopak pindah ke KIRI
+   ilustrasi (seolah kelopak tertiup dari ranting): kotak item boleh sampai 164 + 120px, svg dijangkar 164px dari kanan
+   item (≈8px dari ilustrasi) dan lebarnya = sisa ruang (maks 120px, 0 bila sempit). Item tetap basis 0 → tidak pernah
+   menyempitkan sapaan; tinggi baris tidak berubah. Tanpa kartu progres (anak terakhir) kelopak tetap di pojok kanan:
+   fitur berada di kirinya, tidak bertumpuk. Galaksi / Objek 3D menggambar di seluruh kotak fitur (tepi kiri ±294px dari
+   kanan item) → kelopak dijangkar 320px dari kanan item. Gradasi/Polos tanpa fitur; pohon Lanskap di kanan kelopak. */
 @media (min-width: 1101px) {
   .dash-hero-top > .decor-page-corner { max-width: 284px; }
   .dash-hero-top > .decor-page-corner svg { left: auto; right: 164px; width: calc(100% - 164px); max-width: 120px; }
+  [data-herobg="galaksi"] .dash-hero-top > .decor-page-corner:not(:last-child),
+  [data-herobg="objek"] .dash-hero-top > .decor-page-corner:not(:last-child) { max-width: 440px; }
+  [data-herobg="galaksi"] .dash-hero-top > .decor-page-corner:not(:last-child) svg,
+  [data-herobg="objek"] .dash-hero-top > .decor-page-corner:not(:last-child) svg { right: 320px; width: calc(100% - 320px); }
   .dash-hero-top > .decor-page-corner:last-child { max-width: 130px; }
   .dash-hero-top > .decor-page-corner:last-child svg { left: 0; right: auto; width: calc(100% - 10px); max-width: none; }
 }

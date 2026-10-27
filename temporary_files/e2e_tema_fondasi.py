@@ -1086,7 +1086,7 @@ def verify_decor_final(browser, base, user, sw, empty_user):
             inside = bool(hero and pet and svg) and all(
                 (r[0]["w"] > 0 or label == "375") and r[0]["l"] >= hero[0]["l"] and r[0]["r"] <= hero[0]["r"]
                 and r[0]["t"] >= hero[0]["t"] and r[0]["b"] <= hero[0]["b"] for r in (pet, svg))
-            illus = [r for r in rects(p, ".dash-hero-illus svg") if r["w"] > 0]
+            illus = [r for r in rects(p, HERO_ILLUS) if r["w"] > 0]
             inside = inside and not (svg and illus and intersects(svg[0], illus[0]))  # > 1100 px: ilustrasi di kirinya
             out[label] = dict(info, inside=inside, pet=pet, svg=svg, hero=hero, illus=illus)
         finally:
@@ -1120,6 +1120,8 @@ def verify_decor_final(browser, base, user, sw, empty_user):
     verify_hero_layout(browser, base, user, sw)
 
 
+# Ilustrasi palet hero (latar Kontur bawaan: svg bersarang di kotak fitur latar .hb-feature, = .dash-hero-illus lama).
+HERO_ILLUS = ".dash-hero .hb-k-kontur .hb-feature svg svg"
 HERO_CONTENT = (".dash-hero-text", ".dash-hero-meta", ".dash-hero-greet", ".dash-hero-streak", ".dash-hero-summary",
                 ".dash-hero-progress", ".dash-hero-chips", ".dash-hero .dash-capture", ".dash-hero button")
 
@@ -1127,7 +1129,7 @@ HERO_CONTENT = (".dash-hero-text", ".dash-hero-meta", ".dash-hero-greet", ".dash
 def verify_hero_layout(browser, base, user, sw):
     """d-hero-layout (hero Dashboard baru, main #107): Sakura & Lavender terang pada 375/768/1025/1101/1280/1440 px —
     svg kelopak tampil, di dalam hero, tidak berpotongan dengan isi hero (teks/sapaan/streak/ringkasan/kartu progres/
-    chip/tangkap cepat/tombol) maupun ilustrasi palet .dash-hero-illus (tampil > 1100 px), dan tinggi hero sama dengan
+    chip/tangkap cepat/tombol) maupun ilustrasi palet Kontur di fitur latar (tampil > 1100 px), dan tinggi hero sama dengan
     saat dekorasi dimatikan (kelopak tidak menambah tinggi)."""
     out, bad = {}, []
     for pal in ("sakura", "lavender"):
@@ -1140,10 +1142,10 @@ def verify_hero_layout(browser, base, user, sw):
                 p.wait_for_timeout(500)
                 svg = rects(p, ".dash-hero-top > .decor-page-corner svg")
                 hero = rects(p, ".dash-hero")
-                illus = [r for r in rects(p, ".dash-hero-illus svg") if r["w"] > 0]
+                illus = [r for r in rects(p, HERO_ILLUS) if r["w"] > 0]
                 hits = [sel for sel in HERO_CONTENT for r in rects(p, sel) if svg and r["w"] > 0 and intersects(svg[0], r)]
                 if svg and illus and intersects(svg[0], illus[0]):
-                    hits.append(".dash-hero-illus")
+                    hits.append(HERO_ILLUS)
                 h_on = hero[0]["h"] if hero else None
                 p.evaluate("() => { document.documentElement.dataset.decor = 'off'; }")
                 p.wait_for_function("() => !document.querySelector('.decor-page-corner')", timeout=5000)

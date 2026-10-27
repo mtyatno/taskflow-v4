@@ -22626,59 +22626,66 @@ function DashSyncCard({ mode, onRetry }) {
     onClick: onRetry
   }, "Coba lagi"));
 }
-// ── Hero Dashboard: garis topografi (latar, warna --accent lewat CSS) + ilustrasi kecil per palet ──
-// Spec docs/superpowers/specs/2026-10-27-hero-dashboard-design.md §3; path dari mockup "Hero Dashboard Alurik" (D · Gabungan).
-const DASH_HERO_TOPO = ["M560 24 C570 10 610 6 630 18 C646 28 640 44 618 48 C594 52 552 40 560 24 Z", "M470 0 C500 40 560 70 620 64 C690 58 720 20 730 0", "M430 0 C460 60 540 104 620 98 C710 92 760 40 770 0", "M390 0 C420 80 520 140 620 134 C730 128 800 60 810 0", "M350 0 C380 100 500 176 630 170 C760 164 832 90 832 40", "M320 40 C340 140 480 214 640 206 C780 200 832 150 832 120", "M300 120 C330 200 460 252 620 246 C740 242 800 220 832 200", "M290 200 C320 250 400 272 470 272", "M730 272 C736 248 762 238 784 244 C804 250 816 262 818 272", "M690 272 C700 230 740 212 780 218 C812 224 832 244 832 252", "M650 272 C664 210 724 184 784 192 C812 196 832 210 832 216"];
-// Warna hanya lewat kelas dhi-* di app.css (token palet); dekoratif → aria-hidden.
-function DashHeroIllus({
-  palette
+// ── Latar hero (hero Dashboard, kartu Pomodoro, pratinjau Pengaturan) ──
+// Spec docs/superpowers/specs/2026-10-27-latar-hero-design.md §4. Gambar dari registri TF.herobg (static/offline/herobg.js);
+// latar Kontur = garis topografi + ilustrasi palet hero Dashboard lama (spec hero-dashboard §3).
+let heroBackdropSeq = 0;
+// TF.herobg.render untuk `place` dengan latar `kind` (bawaan: pilihan Pengaturan di <html data-herobg>), palet dan mode
+// aktif, di-memo per kombinasi → { kind, base, ambient, feature }. uid stabil per instance supaya id SVG tetap unik walau
+// banyak latar tampil bersamaan (kartu pilihan di Pengaturan). null bila registri belum termuat: pemanggil tampil tanpa
+// latar (gaya CSS lama), tidak error.
+function useHeroBackdrop(place, kind) {
+  const {
+    theme,
+    palette,
+    herobg
+  } = useThemeAttrs();
+  const uid = useRef(null);
+  if (uid.current === null) uid.current = "hb" + ++heroBackdropSeq;
+  const reg = window.TF && window.TF.herobg;
+  const want = kind || herobg;
+  const id = reg && reg.KINDS.some(k => k.id === want) ? want : "kontur";
+  return useMemo(() => reg ? {
+    kind: id,
+    ...reg.render({
+      kind: id,
+      palette,
+      mode: theme,
+      place,
+      uid: uid.current
+    })
+  } : null, [reg, id, palette, theme, place]);
+}
+
+// Lapisan latar dekoratif (aria-hidden): div.hb (base = background inline) berisi ambient (memenuhi kartu) dan fitur (kotak
+// per tempat, posisi di app.css). Induk: position relative + overflow hidden, isinya z-index ≥ 1. String SVG berasal dari
+// registri statis internal (bukan data pengguna; sama dengan Decor), dijaga tests/offline/herobg.test.js.
+// cardBase: induk sudah memasang base yang sama sebagai latarnya sendiri (kartu bergaris rgba: garis dipadu dengan latar
+// induk) → div.hb tidak melukis base lagi, sehingga sudut membulat dan gradien persis seperti latar kartu itu sendiri.
+function HeroBackdrop({
+  place,
+  kind,
+  cardBase
 }) {
-  const e = React.createElement;
-  let art;
-  if (palette === "sakura") {
-    const blossom = (key, transform) => e("g", {
-      key,
-      transform
-    }, [0, 72, 144, 216, 288].map(r => e("ellipse", {
-      key: r,
-      cx: 0,
-      cy: -7,
-      rx: 5.5,
-      ry: 7.5,
-      transform: r ? `rotate(${r})` : undefined,
-      className: "dhi-duo",
-      strokeWidth: 1
-    })), e("circle", {
-      cx: 0,
-      cy: 0,
-      r: 2.6,
-      className: "dhi-fill"
-    }));
-    art = [e("path", { key: "s1", d: "M150 14 C120 20 92 34 62 62", className: "dhi-stem", strokeWidth: 2.6 }), e("path", { key: "s2", d: "M104 30 C98 50 100 70 112 86", className: "dhi-stem", strokeWidth: 2 }), blossom("b1", "translate(62 62)"), blossom("b2", "translate(112 88) scale(1.25)"), blossom("b3", "translate(134 20) scale(0.85)"), e("ellipse", { key: "p1", cx: 0, cy: 0, rx: 3, ry: 5, transform: "translate(30 92) rotate(40)", className: "dhi-fill", style: { opacity: 0.45 } }), e("ellipse", { key: "p2", cx: 0, cy: 0, rx: 2.6, ry: 4.4, transform: "translate(76 100) rotate(-30)", className: "dhi-fill", style: { opacity: 0.35 } }), e("ellipse", { key: "p3", cx: 0, cy: 0, rx: 2.4, ry: 4, transform: "translate(18 40) rotate(70)", className: "dhi-fill", style: { opacity: 0.3 } })];
-  } else if (palette === "lavender") {
-    // [cx, cy, rx, ry, duo?]
-    const buds = [[52, 36, 3.4, 5.2, 0], [49, 48, 3.6, 5.4, 1], [55, 58, 3.6, 5.4, 0], [51, 70, 3.6, 5.4, 1], [80, 20, 3.4, 5.2, 1], [77, 32, 3.6, 5.4, 0], [84, 42, 3.6, 5.4, 1], [79, 54, 3.6, 5.4, 0], [85, 66, 3.6, 5.4, 1], [114, 38, 3.4, 5.2, 0], [111, 50, 3.6, 5.4, 1], [117, 60, 3.6, 5.4, 0]];
-    art = [e("path", { key: "s1", d: "M58 110 C56 84 58 60 52 34", className: "dhi-stem", strokeWidth: 1.8 }), e("path", { key: "s2", d: "M82 110 C82 80 84 50 80 18", className: "dhi-stem", strokeWidth: 1.8 }), e("path", { key: "s3", d: "M106 110 C108 84 110 60 114 36", className: "dhi-stem", strokeWidth: 1.8 })].concat(buds.map(([cx, cy, rx, ry, duo], i) => e("ellipse", {
-      key: "b" + i,
-      cx,
-      cy,
-      rx,
-      ry,
-      className: duo ? "dhi-duo" : "dhi-fill",
-      strokeWidth: duo ? 1 : undefined
-    })), [e("circle", { key: "d1", cx: 28, cy: 40, r: 1.8, className: "dhi-fill", style: { opacity: 0.4 } }), e("circle", { key: "d2", cx: 136, cy: 22, r: 1.6, className: "dhi-fill", style: { opacity: 0.35 } })]);
-  } else {
-    art = [e("path", { key: "s", d: "M70 108 C68 80 76 54 92 30", className: "dhi-leaf-stem", strokeWidth: 2 }), e("path", { key: "l1", d: "M71 80 C50 76 42 60 46 48 C62 52 71 64 71 80 Z", className: "dhi-leaf", strokeWidth: 1.5 }), e("path", { key: "l2", d: "M77 60 C96 54 104 38 100 26 C84 32 77 44 77 60 Z", className: "dhi-leaf", strokeWidth: 1.5 }), e("path", { key: "l3", d: "M86 40 C72 32 70 18 76 8 C88 16 89 28 86 40 Z", className: "dhi-leaf", strokeWidth: 1.5 }), e("circle", { key: "sun", cx: 120, cy: 30, r: 12, className: "dhi-fill", style: { opacity: 0.22 } })];
-  }
-  return e("span", {
-    className: "dash-hero-illus",
-    "aria-hidden": "true"
-  }, e("svg", {
-    viewBox: "0 0 150 110",
-    width: 150,
-    height: 110,
-    focusable: "false"
-  }, art));
+  const bd = useHeroBackdrop(place, kind);
+  if (!bd) return null;
+  return React.createElement("div", {
+    className: `hb hb-${place} hb-k-${bd.kind}`,
+    "aria-hidden": "true",
+    style: cardBase ? undefined : {
+      background: bd.base
+    }
+  }, React.createElement("div", {
+    className: "hb-ambient",
+    dangerouslySetInnerHTML: {
+      __html: bd.ambient
+    }
+  }), React.createElement("div", {
+    className: "hb-feature",
+    dangerouslySetInnerHTML: {
+      __html: bd.feature
+    }
+  }));
 }
 
 function Dashboard({
@@ -22715,8 +22722,9 @@ function Dashboard({
     } catch (_) {}
   };
   const intro = useIntroState(tasks);
-  // Palet aktif → ilustrasi hero (daun / ranting sakura / tangkai lavender).
-  const { palette: heroPalette } = useThemeAttrs();
+  // Latar hero terpilih. Garis .dash-hero (rgba aksen) dipadu dengan latar section di bawahnya (background-clip border-box),
+  // jadi section memakai base yang sama dengan HeroBackdrop; CSS .dash-hero = cadangan bila registri belum termuat.
+  const heroBg = useHeroBackdrop("hero");
   const hasTasks = tasks.length > 0;
   const hasCompletedTasks = (summary.done_last_7_days ?? 0) > 0 || tasks.some(t => t.gtd_status === "done");
   const q1Tasks = tasks.filter(t => t.quadrant === "Q1" && t.gtd_status !== "done").sort(SORT_PRI);
@@ -23376,21 +23384,13 @@ function Dashboard({
 
   /* ── Hero ── */
   /*#__PURE__*/React.createElement("section", {
-    className: "dash-hero"
-  }, /*#__PURE__*/React.createElement("svg", {
-    className: "dash-hero-topo",
-    viewBox: "0 0 832 272",
-    preserveAspectRatio: "xMaxYMid slice",
-    "aria-hidden": "true",
-    focusable: "false"
-  }, /*#__PURE__*/React.createElement("g", {
-    fill: "none",
-    strokeWidth: 1.1
-  }, DASH_HERO_TOPO.map((d, i) => /*#__PURE__*/React.createElement("path", {
-    key: i,
-    d: d
-  })))), /*#__PURE__*/React.createElement(DashHeroIllus, {
-    palette: heroPalette
+    className: "dash-hero",
+    style: heroBg ? {
+      background: heroBg.base
+    } : undefined
+  }, /*#__PURE__*/React.createElement(HeroBackdrop, {
+    place: "hero",
+    cardBase: !!heroBg
   }), /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-top"
   }, /*#__PURE__*/React.createElement("div", {
