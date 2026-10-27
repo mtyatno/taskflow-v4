@@ -32,10 +32,12 @@ def open_page(browser, base, user, vw, vh, mobile, theme):
     p = ctx.new_page()
     p.on("pageerror", lambda e: ERRS.append(str(e)[:200]))
     p.goto(base + "/manifest.json")
-    p.evaluate("""([t, uid, tours, theme]) => { localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(uid));
+    # tf_whatsnew_seen = versi SW saat ini: modal "Apa yang baru" tidak menutupi menu.
+    p.evaluate("""([t, uid, tours, theme, sw]) => { localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(uid));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
+        localStorage.setItem('tf_whatsnew_seen', sw);
         localStorage.setItem('tf_dismiss_onboarding', '1'); localStorage.setItem('tf_theme', theme); }""",
-               [user["token"], user["id"], h.TOURS, theme])
+               [user["token"], user["id"], h.TOURS, theme, h.SW_VERSION])
     p.goto(base + "/")
     p.locator(".sidebar-link, .sidebar-rail-btn, .mobile-topbar").first.wait_for(state="attached", timeout=20000)
     if mobile:
@@ -54,8 +56,14 @@ def geo(p):
         const c = document.querySelector('.focus-pomo').getBoundingClientRect();
         const r = s => { const e = document.querySelector('.focus-pomo ' + s); if (!e) return null; const b = e.getBoundingClientRect();
             return b.width ? {l: b.left, r: b.right, t: b.top, b: b.bottom} : null; };
+        // Latar kartu (.hb, spec latar-hero §6) memotong gambarnya sendiri (overflow hidden): bentuk SVG di dalamnya boleh
+        // lebih lebar daripada kartu; yang dicek = lapisan .hb itu sendiri tetap di dalam kartu dan memotong isinya.
+        const name = e => (typeof e.className === 'string' ? e.className : e.tagName) || e.tagName;
         const out = [...document.querySelectorAll('.focus-pomo *')].filter(e => { const b = e.getBoundingClientRect();
-            return b.width > 0 && (b.right > c.right + 1 || b.left < c.left - 1) && !e.closest('.pomo-amb-pop'); }).map(e => e.className);
+            return b.width > 0 && (b.right > c.right + 1 || b.left < c.left - 1) && !e.closest('.pomo-amb-pop') && !e.closest('.focus-pomo > .hb'); }).map(name);
+        const hb = document.querySelector('.focus-pomo > .hb');
+        if (hb) { const b = hb.getBoundingClientRect();
+            if (getComputedStyle(hb).overflow !== 'hidden' || b.left < c.left - 1 || b.right > c.right + 1) out.unshift('hb (tidak memotong / keluar kartu)'); }
         return {hscroll: document.documentElement.scrollWidth > innerWidth + 1, out: out.slice(0, 4), h: c.height,
                 ring: r('.focus-pomo-ring'), ctrl: r('.pomo-controls'), modes: r('.pomo-modes'), zen: r('.focus-zen-btn'),
                 pill: r('.pomo-amb-pill'), headline: r('.focus-pomo-headline'), park: r('.pomo-park'), stats: r('.focus-pomo-stats')};

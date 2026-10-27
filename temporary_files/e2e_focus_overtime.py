@@ -213,7 +213,8 @@ def run_flow(ctx, p, base, user, ids, db):
     check("b3 statistik Pomodoro 2 (+1 kelipatan Overtime)", stats(p)[0] == "2", repr(stats(p)))
     check("b4 realisasi bar Task Aktif +1", done(p) == done_a + 1, "%d -> %d" % (done_a, done(p)))
     ink = card(p).locator(".focus-pomo-time").evaluate("e => getComputedStyle(e).color")
-    check("b4b waktu Overtime ungu", "139, 92, 246" in ink or "196, 181, 253" in ink, ink)
+    # Versi teks ungu fase (latar hero §6): terang #6d28d9, gelap #c4b5fd (dulu #8b5cf6 di kartu navy).
+    check("b4b waktu Overtime ungu", "109, 40, 217" in ink or "196, 181, 253" in ink, ink)
     h.shot(p, "overtime_light_desktop_flow.png")
     focus_before = stats(p)[1]
     advance(p, "12:00")

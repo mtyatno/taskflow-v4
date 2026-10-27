@@ -38,14 +38,16 @@ def open_app(browser, base, user, theme="light", viewport=(1280, 860)):
     ctx.clock.install(time=datetime.now().replace(hour=12, minute=0, second=0, microsecond=0))
     p = ctx.new_page()
     p.goto(base + "/manifest.json")
-    p.evaluate("""([t, u, tours, theme]) => {
+    # tf_whatsnew_seen = versi SW saat ini: modal "Apa yang baru" tidak menutupi menu.
+    p.evaluate("""([t, u, tours, theme, sw]) => {
         localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(u));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
+        localStorage.setItem('tf_whatsnew_seen', sw);
         localStorage.setItem('tf_dismiss_onboarding', '1');
         localStorage.setItem('tf_theme', theme);
         localStorage.setItem('tf_groupby', 'none');
         localStorage.setItem('tf_viewmode', 'normal');
-    }""", [user["token"], user["id"], h.TOURS, theme])
+    }""", [user["token"], user["id"], h.TOURS, theme, h.SW_VERSION])
     goto_focus(p, base)
     return ctx, p
 
