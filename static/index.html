@@ -10,15 +10,17 @@
   <meta name="theme-color" content="#0f172a">
   <script id="tf-theme-boot">
     // Boot tema di <head> tepat setelah meta theme-color, sebelum stylesheet aplikasi/vendor dan React: pasang
-    // data-theme/data-palette/data-decor di <html> dan warna meta theme-color
+    // data-theme/data-palette/data-decor/data-herobg di <html> dan warna meta theme-color
     // agar tidak ada kilatan tema yang salah. Modul /static/offline/themes.js belum dimuat di sini, jadi aturannya
     // disalin dan harus sama persis dengan readPrefs + resolve modul itu (dijaga tests/offline/theme_boot.test.js).
     // ES5 saja.
     // Daftar palet dan tabel warna meta ditulis literal dan harus sama dengan PALETTES (id dan themeColor) di
-    // themes.js; tambahkan palet baru di kedua tempat (dijaga tests/offline/theme_boot.test.js).
+    // themes.js; tambahkan palet baru di kedua tempat (dijaga tests/offline/theme_boot.test.js). Daftar latar
+    // hero (herobgs) juga literal dan harus sama dengan HEROBGS di themes.js.
     (function () {
       try {
         var palettes = ["default", "sakura", "lavender"];
+        var herobgs = ["kontur", "gradasi", "lanskap", "galaksi", "objek", "polos"];
         var themeColors = {
           "default": { light: "#FCFCFB", dark: "#0f172a" },
           "sakura": { light: "#FDF5FA", dark: "#1C1219" },
@@ -32,6 +34,8 @@
         var mode = get("tf_theme");
         var palette = get("tf_palette");
         var decor = get("tf_decor") === "off" ? "off" : "on";
+        var herobg = get("tf_herobg");
+        if (herobgs.indexOf(herobg) < 0) herobg = "kontur";
         if (mode !== "light" && mode !== "dark" && mode !== "system") mode = "light";
         if (palettes.indexOf(palette) < 0) palette = "default";
         var dark = mode === "dark";
@@ -45,6 +49,7 @@
         el.setAttribute("data-theme", theme);
         el.setAttribute("data-palette", palette);
         el.setAttribute("data-decor", decor);
+        el.setAttribute("data-herobg", herobg);
         var meta = document.querySelector('meta[name="theme-color"]');
         if (meta) meta.setAttribute("content", themeColors[palette][theme]);
       } catch (_) {}
@@ -19902,7 +19907,7 @@ function TaskListView({
   // BLOCK LENGTH: ~310 lines (10649-10959) — depends on Chart.js
 
 // Theme-aware chart helpers: Chart.js draws onto a canvas, so CSS tokens don't
-// reach it. Read the current tokens and re-render when <html data-theme/data-palette/data-decor> flips.
+// reach it. Read the current tokens and re-render when <html data-theme/data-palette/data-decor/data-herobg> flips.
 // Atribut tema <html> terkini; objek state hanya diganti bila salah satu nilai berubah (grafik tidak digambar ulang
 // karena mutasi tanpa perubahan nilai).
 function useThemeAttrs() {
@@ -19911,17 +19916,19 @@ function useThemeAttrs() {
     return {
       theme: el.getAttribute("data-theme") === "dark" ? "dark" : "light",
       palette: el.getAttribute("data-palette") || "default",
-      decor: el.getAttribute("data-decor") === "off" ? "off" : "on"
+      decor: el.getAttribute("data-decor") === "off" ? "off" : "on",
+      // Latar hero (TF.themes.HEROBGS); nilai asing dinormalkan TF.herobg.render ke "kontur".
+      herobg: el.getAttribute("data-herobg") || "kontur"
     };
   };
   const [attrs, setAttrs] = useState(read);
   useEffect(() => {
     const sync = () => {
       const next = read();
-      setAttrs(prev => prev.theme === next.theme && prev.palette === next.palette && prev.decor === next.decor ? prev : next);
+      setAttrs(prev => prev.theme === next.theme && prev.palette === next.palette && prev.decor === next.decor && prev.herobg === next.herobg ? prev : next);
     };
     const mo = new MutationObserver(sync);
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette", "data-decor"] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette", "data-decor", "data-herobg"] });
     // Atribut bisa berganti antara render pertama dan efek ini terpasang.
     sync();
     return () => mo.disconnect();
@@ -43169,7 +43176,7 @@ function App() {
   // Modal "Apa yang baru" setelah pembaruan. Hook dipanggil sebelum return bersyarat mana pun (halaman login);
   // modalnya hanya dirender di cabang sudah login.
   const whatsNew = useWhatsNewOnLoad(user);
-  // Preferensi tema (mode light/dark/system, palet, dekorasi) lewat TF.themes; atribut <html> sudah dipasang skrip
+  // Preferensi tema (mode light/dark/system, palet, dekorasi, latar hero) lewat TF.themes; atribut <html> sudah dipasang skrip
   // boot di <head> (sebelum stylesheet) dengan aturan yang sama, efek di bawah hanya menyentuh yang berubah.
   const [themePrefs, setThemePrefsState] = useState(() => window.TF.themes.readPrefs(safeLocalStorage()));
   const systemDark = useSystemDark(themePrefs.mode === "system");

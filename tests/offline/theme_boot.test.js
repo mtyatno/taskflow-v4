@@ -39,23 +39,27 @@ function runBoot(storage, systemDark) {
   return { attrs, meta: meta.content };
 }
 
+const HEROBG_VALUES = [...th.HEROBGS, "foto", "constructor", null];
 const cases = [];
 for (const mode of ["light", "dark", "system", "blue", null]) {
   for (const palette of [...th.PALETTES.map((p) => p.id), "mint", null]) {
     for (const decor of ["on", "off", "x"]) {
-      for (const systemDark of [true, false]) {
-        const storage = {};
-        if (mode !== null) storage.tf_theme = mode;
-        if (palette !== null) storage.tf_palette = palette;
-        storage.tf_decor = decor;
-        cases.push({ storage, systemDark });
+      for (const herobg of HEROBG_VALUES) {
+        for (const systemDark of [true, false]) {
+          const storage = {};
+          if (mode !== null) storage.tf_theme = mode;
+          if (palette !== null) storage.tf_palette = palette;
+          storage.tf_decor = decor;
+          if (herobg !== null) storage.tf_herobg = herobg;
+          cases.push({ storage, systemDark });
+        }
       }
     }
   }
 }
 
-test("matriks berisi 150 kasus (5 mode x (registri + mint + null) x 3 decor x 2 sistem)", () => assert.equal(cases.length, 5 * (th.PALETTES.length + 2) * 3 * 2));
-test("boot script = TF.themes.resolve untuk seluruh matriks", () => { for (const c of cases) { const got = runBoot(c.storage, c.systemDark); const want = th.resolve(th.readPrefs(mem(c.storage)), c.systemDark); assert.deepEqual(got.attrs, { "data-theme": want.theme, "data-palette": want.palette, "data-decor": want.decor }, JSON.stringify(c)); assert.equal(got.meta, want.themeColor); } });
+test("matriks: 5 mode x (registri + mint + null) x 3 decor x (latar + 3 asing) x 2 sistem", () => assert.equal(cases.length, 5 * (th.PALETTES.length + 2) * 3 * (th.HEROBGS.length + 3) * 2));
+test("boot script = TF.themes.resolve untuk seluruh matriks", () => { for (const c of cases) { const got = runBoot(c.storage, c.systemDark); const want = th.resolve(th.readPrefs(mem(c.storage)), c.systemDark); assert.deepEqual(got.attrs, { "data-theme": want.theme, "data-palette": want.palette, "data-decor": want.decor, "data-herobg": want.herobg }, JSON.stringify(c)); assert.equal(got.meta, want.themeColor); } });
 // Tabel themeColors di skrip boot (literal) harus sama dengan themeColor registri; daftar palet juga.
 test("boot themeColors = registri untuk tiap palet x mode", () => {
   const src = bootSource();
@@ -67,11 +71,14 @@ test("boot themeColors = registri untuk tiap palet x mode", () => {
   const pm = src.match(/var palettes = (\[[^\]]*\]);/);
   assert.ok(pm, "literal palettes tidak ditemukan");
   assert.deepEqual([...vm.runInNewContext(pm[1])], th.PALETTES.map((p) => p.id));
+  const hm = src.match(/var herobgs = (\[[^\]]*\]);/);
+  assert.ok(hm, "literal herobgs tidak ditemukan");
+  assert.deepEqual([...vm.runInNewContext(hm[1])], [...th.HEROBGS]);
 });
-test("boot script: storage melempar → atribut bawaan", () => assert.deepEqual(runBoot({ getItem() { throw new Error(); } }, false).attrs, { "data-theme": "light", "data-palette": "default", "data-decor": "on" }));
+test("boot script: storage melempar → atribut bawaan", () => assert.deepEqual(runBoot({ getItem() { throw new Error(); } }, false).attrs, { "data-theme": "light", "data-palette": "default", "data-decor": "on", "data-herobg": "kontur" }));
 test("boot script: akses window.localStorage melempar → atribut bawaan", () => {
   const got = runBoot(THROWING_GETTER, true);
-  assert.deepEqual(got.attrs, { "data-theme": "light", "data-palette": "default", "data-decor": "on" });
+  assert.deepEqual(got.attrs, { "data-theme": "light", "data-palette": "default", "data-decor": "on", "data-herobg": "kontur" });
   assert.equal(got.meta, "#FCFCFB");
 });
 test("boot script: tanpa matchMedia, mode system → terang", () => {
