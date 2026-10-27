@@ -8323,8 +8323,8 @@ function ModalNotes({
     const t = parts[1].substring(0, 5);
     return `${d} ${t}`;
   };
-  // Tab Catatan di detail task (bare): tampilan percakapan — urutan lama → baru, catatan sendiri di kanan, orang lain di
-  // kiri dengan inisial + nama, kotak tulis di bawah (Enter kirim, Shift+Enter baris baru) dengan tombol kirim.
+  // Tab Catatan di detail task (bare): tampilan percakapan — kotak tulis di atas (Enter kirim, Shift+Enter baris baru)
+  // dengan tombol kirim, catatan terbaru tepat di bawahnya; catatan sendiri di kanan, orang lain di kiri dengan inisial + nama.
   const chatListRef = useRef(null);
   const chatWrapRef = useRef(null);
   const myId = (() => {
@@ -8334,11 +8334,6 @@ function ModalNotes({
       return null;
     }
   })();
-  React.useLayoutEffect(() => {
-    if (!bare) return;
-    const el = chatListRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  }, [bare, notes.length, loaded]);
   React.useLayoutEffect(() => {
     if (!bare) return;
     const ta = chatWrapRef.current && chatWrapRef.current.querySelector("textarea");
@@ -8357,42 +8352,11 @@ function ModalNotes({
       return Number(m[3]) + " " + months[Number(m[2]) - 1] + " " + hm;
     };
     const isMine = n => n.author_id == null || (myId != null && String(n.author_id) === String(myId));
-    const ordered = (notes || []).slice().reverse();
+    // Kotak tulis di atas, catatan terbaru tepat di bawahnya (pengguna tidak perlu menggulir untuk menulis).
+    const ordered = notes || [];
     return /*#__PURE__*/React.createElement("div", {
       className: "td-chat"
-    }, ordered.length === 0 ? (loaded && /*#__PURE__*/React.createElement("div", {
-      className: "td-chat-empty"
-    }, "Belum ada catatan. Tulis yang pertama di bawah.")) : /*#__PURE__*/React.createElement("div", {
-      className: "td-chat-list",
-      ref: chatListRef
-    }, ordered.map(n => {
-      const mine = isMine(n);
-      const name = mine ? "Kamu" : n.author_name || "Anggota";
-      return /*#__PURE__*/React.createElement("div", {
-        key: n.id,
-        className: "td-chat-msg" + (mine ? " is-mine" : "")
-      }, !mine && /*#__PURE__*/React.createElement("span", {
-        className: "td-chat-avatar",
-        "aria-hidden": "true"
-      }, String(name).trim().charAt(0).toUpperCase() || "?"), /*#__PURE__*/React.createElement("div", {
-        className: "td-chat-body"
-      }, /*#__PURE__*/React.createElement("div", {
-        className: "td-chat-meta"
-      }, !mine && /*#__PURE__*/React.createElement("span", {
-        className: "td-chat-name"
-      }, name), /*#__PURE__*/React.createElement("span", null, chatTime(n.created_at))), /*#__PURE__*/React.createElement("div", {
-        className: "td-chat-bubble"
-      }, n.content, /*#__PURE__*/React.createElement("button", {
-        type: "button",
-        className: "td-chat-del",
-        "aria-label": "Hapus catatan",
-        title: "Hapus catatan",
-        onClick: () => handleDelete(n.id)
-      }, /*#__PURE__*/React.createElement(Icon, {
-        name: "x",
-        size: 12
-      })))));
-    })), /*#__PURE__*/React.createElement("div", {
+    }, /*#__PURE__*/React.createElement("div", {
       className: "td-chat-composer",
       ref: chatWrapRef
     }, /*#__PURE__*/React.createElement(MentionInput, {
@@ -8433,7 +8397,39 @@ function ModalNotes({
       d: "M22 2 15 22l-4-9-9-4z"
     })))), /*#__PURE__*/React.createElement("div", {
       className: "td-chat-hint"
-    }, "Enter untuk kirim \u00B7 Shift+Enter untuk baris baru"));
+    }, "Enter untuk kirim \u00B7 Shift+Enter untuk baris baru"), ordered.length === 0 ? (loaded && /*#__PURE__*/React.createElement("div", {
+      className: "td-chat-empty"
+    }, "Belum ada catatan. Tulis yang pertama di bawah.")) : /*#__PURE__*/React.createElement("div", {
+      className: "td-chat-list",
+      ref: chatListRef
+    }, ordered.map(n => {
+      const mine = isMine(n);
+      const name = mine ? "Kamu" : n.author_name || "Anggota";
+      return /*#__PURE__*/React.createElement("div", {
+        key: n.id,
+        className: "td-chat-msg" + (mine ? " is-mine" : "")
+      }, !mine && /*#__PURE__*/React.createElement("span", {
+        className: "td-chat-avatar",
+        "aria-hidden": "true"
+      }, String(name).trim().charAt(0).toUpperCase() || "?"), /*#__PURE__*/React.createElement("div", {
+        className: "td-chat-body"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "td-chat-meta"
+      }, !mine && /*#__PURE__*/React.createElement("span", {
+        className: "td-chat-name"
+      }, name), /*#__PURE__*/React.createElement("span", null, chatTime(n.created_at))), /*#__PURE__*/React.createElement("div", {
+        className: "td-chat-bubble"
+      }, n.content, /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "td-chat-del",
+        "aria-label": "Hapus catatan",
+        title: "Hapus catatan",
+        onClick: () => handleDelete(n.id)
+      }, /*#__PURE__*/React.createElement(Icon, {
+        name: "x",
+        size: 12
+      })))));
+    })));
   }
   const shown = expanded ? notes : notes.slice(0, 3);
   return /*#__PURE__*/React.createElement("div", {
