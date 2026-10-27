@@ -11,6 +11,7 @@ import re
 import ssl
 import sys
 import tempfile
+import time
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -18,11 +19,18 @@ import e2e_project_scope as base_e2e  # noqa: E402
 from playwright.sync_api import sync_playwright  # noqa: E402
 
 ROOT = base_e2e.ROOT
+SW_VERSION = re.search(r'const CACHE = "([^"]+)"', open(os.path.join(ROOT, "static", "sw.js")).read()).group(1)
 SHOTS = os.path.join(ROOT, "temporary_files", "e2e_task_move_workspace")
 WS = "Tim Produk"
 TITLE = "Siapkan laporan bulanan"
 check, api, register = base_e2e.check, base_e2e.api, base_e2e.register
 _ctx = ssl.create_default_context(cafile="/root/.ccr/ca-bundle.crt")
+
+
+def open_move_menu(page):
+    """Sejak redesain detail task (v473) "Pindah ke Workspace" ada di menu ⋯ (aria-label "Aksi lain") bar atas."""
+    page.locator('.modal-content button[aria-label="Aksi lain"]').first.click()
+    page.locator('.td-pop[role="menu"]').first.wait_for(timeout=3000)
 
 
 def fonts(route):
@@ -41,13 +49,14 @@ def open_app(browser, base, user, theme="light", mobile=False):
     ctx.route("https://fonts.gstatic.com/**", fonts)
     p = ctx.new_page()
     p.goto(base + "/manifest.json")
-    p.evaluate("""([t, u, tours, theme]) => {
+    p.evaluate("""([t, u, tours, theme, sw]) => {
         localStorage.setItem('tf_token', t); localStorage.setItem('tf_user_id', String(u));
         for (const pg of tours) localStorage.setItem('tf_tour_' + pg, '1');
         localStorage.setItem('tf_dismiss_onboarding', '1'); localStorage.setItem('tf_onboarded', '1');
         localStorage.setItem('tf_backup_snooze', new Date().toISOString().slice(0,10));
         localStorage.setItem('tf_theme', theme); localStorage.setItem('theme', theme);
-    }""", [user["token"], user["id"], base_e2e.TOURS + ["inbox", "all", "alltasks", "today"], theme])
+        localStorage.setItem('tf_whatsnew_seen', sw);  // modal "Apa yang baru" tidak menutupi UI
+    }""", [user["token"], user["id"], base_e2e.TOURS + ["inbox", "all", "alltasks", "today"], theme, SW_VERSION])
     p.goto(base + "/")
     p.locator(".sidebar-link").first.wait_for(state="attached", timeout=20000)
     p.wait_for_timeout(3000)
@@ -74,7 +83,9 @@ def open_task(page, title, mobile=False):
         page.wait_for_timeout(400)
     page.locator(".sidebar-link", has_text="Semua Task").first.click()
     page.locator(".task-row", has_text=title).first.click()
-    page.locator(".modal-content", has_text=title).wait_for(timeout=10000)
+    # Judul detail kini input (redesain v473): has_text tidak membaca value, jadi tunggu input judul berisi judul task.
+    page.wait_for_function("""(t) => { const i = document.querySelector('.modal-content input[aria-label="Judul task"]');
+        return !!i && i.value === t; }""", arg=title, timeout=10000)
 
 
 def main():
@@ -100,14 +111,16 @@ def main():
             ctx, p = open_app(br, base, A, "dark")
             open_task(p, TITLE)
             shot(p, "3-detail-gelap-desktop.png", bottom=True)
-            p.get_by_role("button", name=re.compile("Pindah ke Workspace")).click()
+            open_move_menu(p)
+            p.get_by_role("menuitem", name=re.compile("Pindah ke Workspace")).click()
             p.locator("select[aria-label='Workspace tujuan']").select_option(str(ws["id"]))
             shot(p, "4-panel-gelap-desktop.png", bottom=True)
             ctx.close()
             ctx, p = open_app(br, base, A, "light", mobile=True)
             try:
                 open_task(p, TITLE, mobile=True)
-                p.get_by_role("button", name=re.compile("Pindah ke Workspace")).click()
+                open_move_menu(p)
+                p.get_by_role("menuitem", name=re.compile("Pindah ke Workspace")).click()
                 p.locator("select[aria-label='Workspace tujuan']").select_option(str(ws["id"]))
                 p.locator(".task-move-panel").scroll_into_view_if_needed()
                 shot(p, "5-panel-mobile-terang.png", bottom=True)
@@ -117,14 +130,19 @@ def main():
             # terang desktop: lakukan pemindahan
             ctx, p = open_app(br, base, A, "light")
             open_task(p, TITLE)
-            btn = p.get_by_role("button", name=re.compile("Pindah ke Workspace"))
+            open_move_menu(p)
+            btn = p.get_by_role("menuitem", name=re.compile("Pindah ke Workspace"))
             check("1 tombol tampil", btn.count() == 1)
             shot(p, "1-detail-terang-desktop.png", bottom=True)
             btn.click()
             p.locator("select[aria-label='Workspace tujuan']").select_option(str(ws["id"]))
             shot(p, "2-panel-terang-desktop.png", bottom=True)
+            # sync penuh dibuat lambat (30 dtk) seperti akun besar: modal harus tetap cepat tertutup
+            p.evaluate("() => { window.__syncNow = () => new Promise(r => setTimeout(r, 30000)); }")
+            t0 = time.time()
             p.get_by_role("button", name="Pindahkan").click()
-            p.locator(".modal-content", has_text=TITLE).wait_for(state="detached", timeout=15000)
+            p.locator(".modal-content").first.wait_for(state="detached", timeout=15000)
+            check("2 modal tertutup < 5 dtk walau sync lambat", time.time() - t0 < 5, "%.1f dtk" % (time.time() - t0))
             shot(p, "6-setelah-pindah-terang-desktop.png")
             with sqlite3.connect(db_path) as c:
                 rows = c.execute("SELECT t.list_id, p.list_id FROM tasks t LEFT JOIN projects p ON p.id = t.project_id "

@@ -142,8 +142,8 @@ test("Note Search Filters: Parsing & Filtering Specifications", async (t) => {
   await t.test("4. Service Worker Cache Version bumped to v401", () => {
     assert.match(
       swJs,
-      /^const CACHE = "taskflow-v477-tema-sakura-lavender";/m,
-      "sw.js CACHE must be taskflow-v477-tema-sakura-lavender"
+      /^const CACHE = "taskflow-v479-tema-sakura-lavender";/m,
+      "sw.js CACHE must be taskflow-v479-tema-sakura-lavender"
     );
   });
 });

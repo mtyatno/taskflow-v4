@@ -5212,13 +5212,17 @@
 @media (hover: none) { .td-chat-del { opacity: 1; } }
 .td-chat-composer { display: flex; align-items: flex-end; gap: 6px; padding: 6px 6px 6px 12px; border: 1px solid var(--border); border-radius: 18px; background: var(--bg-card); transition: border-color 0.15s; }
 .td-chat-composer:focus-within { border-color: var(--accent); }
-.td-chat-composer > div { flex: 1; min-width: 0; }
-.td-chat-input { display: block; width: 100%; box-sizing: border-box; min-height: 24px; max-height: 120px; padding: 4px 0; border: none; outline: none; background: transparent; color: var(--text-primary); font: inherit; font-size: 13.5px; line-height: 1.5; resize: none; overflow-y: auto; }
+.td-chat-composer > div { flex: 1; min-width: 0; display: flex; }
+.td-chat-input { display: block; width: 100%; box-sizing: border-box; min-height: 32px; max-height: 120px; padding: 6px 0; border: none; outline: none; background: transparent; color: var(--text-primary); font: inherit; font-size: 13.5px; line-height: 20px; resize: none; overflow-y: auto; }
 .td-chat-input::placeholder { color: var(--text-light); }
 .td-chat-send { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; border: none; border-radius: 50%; background: var(--accent); color: var(--accent-ink); cursor: pointer; transition: opacity 0.15s; }
 .td-chat-send:disabled { opacity: 0.4; cursor: default; }
 .td-chat-send:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .td-chat-hint { margin: -2px 0 4px 12px; font-size: 11px; color: var(--text-light); }
+/* Nama workspace (atau "Pribadi") di baris meta bar atas. */
+.td-scope { display: inline-flex; align-items: center; gap: 4px; max-width: 220px; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent-text-strong, var(--text-secondary)); font-size: 11.5px; font-weight: 600; vertical-align: middle; }
+.td-scope.is-personal { background: var(--bg-subtle); color: var(--text-secondary); border: 1px solid var(--border); }
+.td-scope-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* ── Detail task: akhir ── */
 /* ── Kartu "Tampilan" di Pengaturan (tema PR B, spec §3.7): hanya token, bentuk ikut radius palet ── */
 .theme-card { margin-bottom: 20px; }
