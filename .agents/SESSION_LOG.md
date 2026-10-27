@@ -4262,3 +4262,4 @@
 - **Files Touch:** static/index.html, static/app.css, static/offline/herobg.js, tests/offline/{dashboard_hero,focus_pomo_backdrop,herobg,theme_settings_ui}.test.js, temporary_files/e2e_latar_hero.py, temporary_files/e2e_hero_dashboard.py, docs/superpowers/specs/2026-10-27-latar-hero-design.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — commit lokal di `claude/latar-hero`, belum push. Verifikasi: npm 3493/3494 (1 pra-ada), pytest 1240+1 skip, E2E latar 652/652, hero 10/10, fokus 36/0.
 - 2026-10-28 05:40 WIB (Claude): bug modal detail terpotong di halaman workspace (HP) — luberan .workspace-nav-tabs; CSS gulir samping, SW v484.
+- 2026-10-28 05:32 WIB (Claude): #112 (modal terpotong di halaman workspace, SW v484) di-merge + deploy.

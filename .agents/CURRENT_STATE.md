@@ -1,4 +1,4 @@
-## 🟡 Bug: modal detail task terpotong di halaman workspace (HP) — `claude/ws-modal-terpotong` — 2026-10-28 (Claude)
+## 🟢 Bug: modal detail task terpotong di halaman workspace (HP) — `claude/ws-modal-terpotong` — 2026-10-28 (Claude) — DI-MERGE (#112, 7a225ca) atas "merge dan deploy" Bapak 05:29 WIB; deploy sukses (file statis)
 - Laporan Bapak: task yang sama tampil normal dari Semua Task, terpotong/bergeser dari halaman workspace (HP). Akar: baris tombol `.workspace-nav-tabs` (Tasks, Files, Di-pin, Kelola, Kelola project, Kelola tahap) meluber ke 508 px pada layar 393 px → viewport tata letak HP ikut melebar → modal 90% lebar viewport tampil keluar layar. Perbaikan CSS: baris itu `flex-wrap: nowrap; overflow-x: auto` (scrollbar tersembunyi), anak `flex-shrink: 0; white-space: nowrap`. Repro Playwright 393 px: scrollWidth 508 → 393, modal 457 → 354 px. SW `taskflow-v484-ws-modal`, `app.css?v=380`.
 
 ## 🟡 Latar hero bisa dipilih (Dashboard + kartu Pomodoro) + kartu Pomodoro terang — `claude/latar-hero` — 2026-10-27 (Claude) — PR DRAFT, menunggu "merge dan deploy"
