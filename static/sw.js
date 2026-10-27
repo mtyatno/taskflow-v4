@@ -56,6 +56,7 @@ const STATIC = [
   "/static/offline/noteattach.js",
   "/static/offline/safehtml.js",
   "/static/offline/habitlogic.js",
+  "/static/offline/herologic.js",
   "/static/offline/habitrepo.js",
   "/static/offline/habitquery.js",
   "/static/offline/habithydrate.js",
