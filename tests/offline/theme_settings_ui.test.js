@@ -160,6 +160,14 @@ test("render: baris Dekorasi tema hanya bila window.TF.decor ada (plan S2)", () 
   assert.equal(sw[0].props["aria-checked"], "true");
   assert.ok(!sw[0].props.disabled);
   assert.ok(text(sak.tree).includes("Kelopak dan maskot di layar kosong"));
+  // Nama aksesibel = judul saja; keterangan lewat aria-describedby.
+  const byId = id => findAll(sak.tree, n => n.props.id === id);
+  const lbl = byId(sw[0].props["aria-labelledby"]);
+  const desc = byId(sw[0].props["aria-describedby"]);
+  assert.equal(lbl.length, 1);
+  assert.equal(text(lbl[0]), "Dekorasi tema");
+  assert.equal(desc.length, 1);
+  assert.equal(text(desc[0]), "Kelopak dan maskot di layar kosong");
   sw[0].props.onClick();
   assert.deepEqual(sak.calls.pop(), { decor: "off" });
 
@@ -256,14 +264,20 @@ test("CSS .theme-card* / .theme-swatch / .theme-preview hanya memakai token", ()
   const rules = [...cssRules(".theme-card"), ...cssRules(".theme-swatch"), ...cssRules(".theme-preview")];
   assert.ok(rules.length >= 8, "aturan ada");
   for (const r of rules) {
-    assert.ok(!/#[0-9a-fA-F]{3,8}\b/.test(r.body), `${r.sel}: tanpa hex`);
+    // Hex hanya boleh sebagai fallback token opsional: var(--x, #…).
+    const noFallback = r.body.replace(/var\(--[\w-]+,\s*#[0-9a-fA-F]{3,8}\)/g, "");
+    assert.ok(!/#[0-9a-fA-F]{3,8}\b/.test(noFallback), `${r.sel}: tanpa hex`);
     assert.ok(!/\brgba?\(|\bhsla?\(/.test(r.body), `${r.sel}: tanpa rgba/hsl`);
     assert.ok(!/(?<![-\w])(white|black)(?![-\w])/.test(r.body), `${r.sel}: tanpa nama warna`);
   }
   const body = sel => cssRules(sel).filter(r => r.sel.split(",").map(x => x.trim()).includes(sel)).map(r => r.body).join("\n");
   assert.match(body(".theme-card-palettes"), /grid-template-columns:\s*repeat\(3,/);
   assert.match(body('.theme-card-mode[aria-checked="true"]'), /background:\s*var\(--accent\)/);
-  assert.match(body('.theme-card-mode[aria-checked="true"]'), /color:\s*var\(--accent-ink\)/);
+  // Keputusan kontroler (menyimpang dari §3.7 --accent-ink): tinta gelap di atas aksen Default demi kontras.
+  assert.match(body('.theme-card-mode[aria-checked="true"]'), /color:\s*var\(--accent-on, #1a2a00\)/);
+  assert.match(body(".theme-preview-row.is-done .theme-preview-check"), /color:\s*var\(--accent-on, #1a2a00\)/);
+  assert.match(body(".theme-card-mode"), /flex:\s*1 1 auto/);
+  assert.match(body(".theme-card-mode"), /white-space:\s*nowrap/);
   assert.match(body('.theme-card-palette[aria-pressed="true"]'), /border-color:\s*var\(--accent\)/);
   assert.match(body('.theme-card-palette[aria-pressed="true"]'), /var\(--accent-ring\)/);
   assert.match(body(".theme-preview"), /background:\s*var\(--bg-card\)/);
@@ -272,6 +286,13 @@ test("CSS .theme-card* / .theme-swatch / .theme-preview hanya memakai token", ()
   assert.match(all, /var\(--radius-pill\)/);
   assert.match(all, /var\(--radius-card\)/);
   assert.match(all, /var\(--radius-control\)/);
+});
+
+test("CSS: transisi kartu dimatikan saat prefers-reduced-motion", () => {
+  const i = appCss.indexOf("@media (prefers-reduced-motion: reduce) {\n  .theme-card-mode");
+  assert.ok(i > 0, "media reduced-motion untuk kartu");
+  const block = appCss.slice(i, appCss.indexOf("\n}", i));
+  assert.match(block, /\.theme-card-mode, \.theme-card-palette, \.theme-card-switch \{ transition: none; \}/);
 });
 
 test("CSS: palet 1 kolom di bawah 420 px", () => {

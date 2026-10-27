@@ -26740,18 +26740,20 @@ function ThemeSettingsCard({
   }))), showDecor && /*#__PURE__*/React.createElement("div", {
     className: "theme-card-decor"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "theme-card-decor-text",
-    id: "theme-decor-label"
+    className: "theme-card-decor-text"
   }, /*#__PURE__*/React.createElement("span", {
-    className: "theme-card-decor-title"
+    className: "theme-card-decor-title",
+    id: "theme-decor-label"
   }, "Dekorasi tema"), /*#__PURE__*/React.createElement("span", {
-    className: "theme-card-decor-hint"
+    className: "theme-card-decor-hint",
+    id: "theme-decor-hint"
   }, decorAvailable ? "Kelopak dan maskot di layar kosong" : "Tersedia untuk palet Sakura dan Lavender")), /*#__PURE__*/React.createElement("button", {
     type: "button",
     role: "switch",
     className: "theme-card-switch",
     "aria-checked": decorOn ? "true" : "false",
     "aria-labelledby": "theme-decor-label",
+    "aria-describedby": "theme-decor-hint",
     disabled: !decorAvailable,
     onClick: () => onThemePrefs({ decor: decorOn ? "off" : "on" })
   }, /*#__PURE__*/React.createElement("span", {
