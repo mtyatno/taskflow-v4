@@ -74,6 +74,12 @@ test("linked maps never send addLink and guard against a missing module", () => 
   assert.match(src, /type === "requestLinkPicker" && !isLinked/);
 });
 
+function extractThemeMessage() {
+  const start = indexHtml.indexOf("\nfunction mindmapThemeMessage(");
+  assert.ok(start !== -1, "mindmapThemeMessage harus ada");
+  return indexHtml.slice(start, indexHtml.indexOf("\n}\n", start) + 3);
+}
+
 // ── Harness perilaku: jalankan MindmapTabInstance asli dengan hook palsu (tanpa DOM/React). ──
 const NM = require("../../static/offline/notemap.js");
 const NS = require("../../static/offline/notemapsession.js");
@@ -144,16 +150,17 @@ function mountTab({ note, tabExtra = {}, trash = [], online = true, confirm = ()
   const useRef = (init) => { const i = slot++; if (!(i in slots)) slots[i] = { current: init }; return slots[i]; };
   let effIdx = 0;
   const useEffect = (fn, deps) => { const i = effIdx++; effects.push({ i, fn, deps }); };
-  const src = extractTab();
+  // Pesan setTheme dibangun helper tingkat atas mindmapThemeMessage (Tema PR B Task 5) → ikut dievaluasi.
+  const src = extractThemeMessage() + extractTab();
   const Comp = new Function("React", "useState", "useRef", "useEffect", "api", "window", "document", "MutationObserver",
     "navigator", "CustomEvent", "MindmapOutline", "LinkPickerModal", "NoteModal", "NoteTrashModal", "MINDMAP_DIRECTIONS",
-    "renderConflicts", "isOfflineErr", "setTimeout", "clearTimeout", "ViewGlyph",
+    "renderConflicts", "isOfflineErr", "setTimeout", "clearTimeout", "ViewGlyph", "getComputedStyle",
     src + "\nreturn MindmapTabInstance;")(React, useState, useRef, useEffect, api, win,
     { documentElement: { getAttribute: () => "light" }, addEventListener() {}, removeEventListener() {} },
     function () { this.observe = () => {}; this.disconnect = () => {}; },
     { onLine: online }, function (type, init) { this.type = type; this.detail = init && init.detail; },
     "MindmapOutline", "LinkPickerModal", "NoteModal", "NoteTrashModal", [], () => {}, () => false,
-    (fn, ms) => { timers.push(fn); return timers.length; }, () => {}, "ViewGlyph");
+    (fn, ms) => { timers.push(fn); return timers.length; }, () => {}, "ViewGlyph", () => ({ getPropertyValue: () => "" }));
   const tab = Object.assign({ id: 3, title: "Judul", user_id: 1, source_note_cid: "nc1", source_note_id: 7,
     data_json: JSON.stringify(NM.LINKED_VIEW_STATE_DEFAULT) }, tabExtra);
   const props = Object.assign({ tab, isActive: true, showToast: (m, k) => toasts.push(m), currentUserId: 1, onUpdateTitle: (id, t) => titles.push(t) }, propsExtra);

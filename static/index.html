@@ -14560,6 +14560,18 @@ function MindmapOutline({ tree, onChange, onOpenNote, onOpenTask, onOpenMindmap,
     menuItem("🗑 Hapus", () => deleteOp(activeId), true, menuIsRoot))));
 }
 
+// Pesan setTheme untuk iframe mindmap: mode + aksen palet terhitung (iframe menulisnya ke --side-accent/-hover/-accent-ink).
+// Palet Default mengirim aksen kosong → iframe memakai warna CSS bawaannya (Default identik; --accent-ink Default putih,
+// sedangkan iframe memakai tinta hitam di atas lime).
+function mindmapThemeMessage() {
+  const el = document.documentElement;
+  const theme = el.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  const palette = el.getAttribute("data-palette") || "default";
+  const cs = palette === "default" ? null : getComputedStyle(document.documentElement);
+  const tok = name => cs ? (cs.getPropertyValue(name) || "").trim() : "";
+  return { type: "setTheme", theme, accent: tok("--accent"), accentSoft: tok("--accent-soft"), accentInk: tok("--accent-ink") };
+}
+
 function MindmapTabInstance({
   tab,
   isActive,
@@ -15307,10 +15319,7 @@ function MindmapTabInstance({
 
   useEffect(() => {
     const postTheme = () => {
-      iframeRef.current?.contentWindow?.postMessage({
-        type: "setTheme",
-        theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
-      }, window.location.origin);
+      iframeRef.current?.contentWindow?.postMessage(mindmapThemeMessage(), window.location.origin);
     };
     postTheme();
     const mo = new MutationObserver(postTheme);
@@ -15386,10 +15395,7 @@ function MindmapTabInstance({
       if (e.data && e.data.type === "ready") iframeReadyRef.current = true;
       if (e.data && e.data.type === "ready" && tab && isLinked) {
         if (outlineTreeRef.current) postLinkedLoad(outlineTreeRef.current);
-        iframeRef.current?.contentWindow?.postMessage({
-          type: "setTheme",
-          theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
-        }, window.location.origin);
+        iframeRef.current?.contentWindow?.postMessage(mindmapThemeMessage(), window.location.origin);
       } else if (e.data && e.data.type === "ready" && tab) {
         // remoteUpdate yang terkirim sebelum iframe siap hilang → dianggap dilewati (basis tidak maju), coba lagi
         if (pendingRemoteRef.current.size) {
@@ -15405,10 +15411,7 @@ function MindmapTabInstance({
             data: tree,
             title: tab?.title || ""
           }, window.location.origin);
-          iframeRef.current?.contentWindow?.postMessage({
-            type: "setTheme",
-            theme: document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light"
-          }, window.location.origin);
+          iframeRef.current?.contentWindow?.postMessage(mindmapThemeMessage(), window.location.origin);
           iframeRef.current?.contentWindow?.postMessage({ type: "linkInfo", info: linkInfoRef.current }, window.location.origin);
         } catch (_) {}
       }
@@ -15676,7 +15679,7 @@ function MindmapTabInstance({
   }, /*#__PURE__*/React.createElement("iframe", {
     ref: iframeRef,
     "data-tour": "mindmap-canvas",
-    src: "/static/vendor/mind-elixir/index.html?v=146",
+    src: "/static/vendor/mind-elixir/index.html?v=147",
     style: { flex: 1, border: "none", width: "100%" },
     title: "Mindmap editor"
   })), /*#__PURE__*/React.createElement("div", {
@@ -19678,16 +19681,31 @@ function TaskListView({
   // BLOCK LENGTH: ~310 lines (10649-10959) — depends on Chart.js
 
 // Theme-aware chart helpers: Chart.js draws onto a canvas, so CSS tokens don't
-// reach it. Read the current tokens and re-render when <html data-theme> flips.
-function useThemeName() {
-  const read = () => document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
-  const [theme, setTheme] = useState(read);
+// reach it. Read the current tokens and re-render when <html data-theme/data-palette/data-decor> flips.
+// Atribut tema <html> terkini; objek state hanya diganti bila salah satu nilai berubah (grafik tidak digambar ulang
+// karena mutasi tanpa perubahan nilai).
+function useThemeAttrs() {
+  const read = () => {
+    const el = document.documentElement;
+    return {
+      theme: el.getAttribute("data-theme") === "dark" ? "dark" : "light",
+      palette: el.getAttribute("data-palette") || "default",
+      decor: el.getAttribute("data-decor") === "off" ? "off" : "on"
+    };
+  };
+  const [attrs, setAttrs] = useState(read);
   useEffect(() => {
-    const mo = new MutationObserver(() => setTheme(read()));
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette"] });
+    const sync = () => {
+      const next = read();
+      setAttrs(prev => prev.theme === next.theme && prev.palette === next.palette && prev.decor === next.decor ? prev : next);
+    };
+    const mo = new MutationObserver(sync);
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-palette", "data-decor"] });
+    // Atribut bisa berganti antara render pertama dan efek ini terpasang.
+    sync();
     return () => mo.disconnect();
   }, []);
-  return theme;
+  return attrs;
 }
 
 // window.localStorage atau null: akses propertinya bisa melempar (Safari dengan penyimpanan situs diblokir).
@@ -19700,7 +19718,8 @@ function safeLocalStorage() {
 }
 
 // prefers-color-scheme: dark yang terkini, hanya diamati saat enabled (mode tema "system"); false bila dimatikan
-// atau matchMedia tidak tersedia.
+// atau matchMedia tidak tersedia. Derived state: render yang pertama melihat `enabled` baru sudah membaca matchMedia
+// (tanpa menunggu efek), jadi App tidak sempat menerapkan tema dari nilai basi.
 function useSystemDark(enabled) {
   const query = "(prefers-color-scheme: dark)";
   const read = () => {
@@ -19710,20 +19729,24 @@ function useSystemDark(enabled) {
       return false;
     }
   };
-  const [dark, setDark] = useState(() => enabled && read());
+  const [state, setState] = useState(() => ({ enabled, dark: enabled && read() }));
+  let current = state;
+  if (state.enabled !== enabled) {
+    current = { enabled, dark: enabled && read() };
+    setState(current);
+  }
   useEffect(() => {
-    if (!enabled || typeof window.matchMedia !== "function") {
-      setDark(false);
-      return undefined;
-    }
+    if (!enabled || typeof window.matchMedia !== "function") return undefined;
     let mql;
     try {
       mql = window.matchMedia(query);
     } catch (_) {
-      setDark(false);
       return undefined;
     }
-    const onChange = () => setDark(!!mql.matches);
+    const onChange = () => {
+      const dark = !!mql.matches;
+      setState(s => s.enabled === enabled && s.dark === dark ? s : { enabled, dark });
+    };
     onChange();
     if (typeof mql.addEventListener === "function") {
       mql.addEventListener("change", onChange);
@@ -19735,7 +19758,7 @@ function useSystemDark(enabled) {
     }
     return undefined;
   }, [enabled]);
-  return enabled ? dark : false;
+  return enabled ? current.dark : false;
 }
 function dashChartColors(theme) {
   const cs = getComputedStyle(document.documentElement);
@@ -19760,7 +19783,7 @@ function ProductivityChart({
 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
-  const theme = useThemeName();
+  const { theme, palette } = useThemeAttrs();
   const weekData = useMemo(() => {
     const result = [];
     for (let w = 3; w >= 0; w--) {
@@ -19868,7 +19891,7 @@ function ProductivityChart({
     return () => {
       if (chartRef.current) chartRef.current.destroy();
     };
-  }, [weekData, theme]);
+  }, [weekData, theme, palette]);
   return /*#__PURE__*/React.createElement("div", null, (lastWeek > 0 || thisWeek > 0) && /*#__PURE__*/React.createElement("div", {
     className: "dash-trend"
   }, /*#__PURE__*/React.createElement("span", {
@@ -19890,7 +19913,7 @@ function CompletionDonut({
 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
-  const theme = useThemeName();
+  const { theme, palette } = useThemeAttrs();
   useEffect(() => {
     if (!canvasRef.current) return;
     const c = dashChartColors(theme);
@@ -19950,7 +19973,7 @@ function CompletionDonut({
     return () => {
       if (chartRef.current) chartRef.current.destroy();
     };
-  }, [summary, theme]);
+  }, [summary, theme, palette]);
   const total = (summary.total_active || 0) + (summary.total_done || 0);
   const pct = total > 0 ? Math.round((summary.total_done || 0) / total * 100) : 0;
   return /*#__PURE__*/React.createElement("div", {
@@ -19972,7 +19995,7 @@ function StatusBarChart({
 }) {
   const canvasRef = useRef(null);
   const chartRef = useRef(null);
-  const theme = useThemeName();
+  const { theme, palette } = useThemeAttrs();
   useEffect(() => {
     if (!canvasRef.current) return;
     const c = dashChartColors(theme);
@@ -20020,7 +20043,7 @@ function StatusBarChart({
     return () => {
       if (chartRef.current) chartRef.current.destroy();
     };
-  }, [summary, theme]);
+  }, [summary, theme, palette]);
   return /*#__PURE__*/React.createElement("div", {
     style: {
       height: 220
