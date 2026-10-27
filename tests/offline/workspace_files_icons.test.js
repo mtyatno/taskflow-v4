@@ -66,11 +66,11 @@ test("CSS wsf-title-ico terang + gelap", () => {
   assert.match(appCss, /\[data-theme="dark"\]\s*\.wsf-title-ico\s*\{\s*color:\s*var\(--accent\);\s*\}/);
 });
 
-test("cache bust v432 + app.css?v=376", () => {
+test("cache bust v432 + app.css?v=377", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v480-hero-dashboard";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v480-hero-dashboard";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v480-hero-dashboard"/);
-  assert.match(indexHtml, /app\.css\?v=376/);
+  assert.match(swJs, /^const CACHE = "taskflow-v481-badge-rail";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v481-badge-rail";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v481-badge-rail"/);
+  assert.match(indexHtml, /app\.css\?v=377/);
 });

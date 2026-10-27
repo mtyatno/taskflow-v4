@@ -4229,3 +4229,9 @@
 - **Changes:** herologic.js baru; hero Dashboard ditulis ulang (topografi, ilustrasi palet, chip streak/terlambat/Fokus/habit); streak "hari ini boleh belum" di habitlogic.js + webapp.py; sync habit memancarkan habitSaved; rilis v480; E2E hero.
 - **Files Touch:** static/index.html, static/app.css, static/sw.js, static/whatsnew.json, static/offline/herologic.js, static/offline/habitlogic.js, webapp.py, tests/offline/{herologic,dashboard_hero,habitlogic,dashboard_habit_checkin,pages_icons_habit_dashboard,tasklist_view_icons}.test.js, tests/test_hero_node.py, tests/test_habit_streak.py, tes versi, temporary_files/e2e_hero_dashboard.py, docs spec/plan.
 - **Status:** Needs Review (PR draft)
+
+## [2026-10-27 12:50] - Claude (Opus 5.5)
+- **Task:** Angka badge rail sidebar tak terbaca di Sakura/Lavender; "+N" habit di hero membuka daftar task.
+- **Changes:** badge pakai --accent-on; onNav("habit"); tes guard + hero + E2E; rilis v481.
+- **Files Touch:** static/app.css, static/index.html, static/sw.js, static/whatsnew.json, tests/offline/{theme_guard,dashboard_hero,whatsnew_ui}.test.js, tes versi, temporary_files/e2e_hero_dashboard.py, .agents/*
+- **Status:** Needs Review (PR draft)

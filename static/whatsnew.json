@@ -1,5 +1,8 @@
 {
   "entries": [
+    {"version": "taskflow-v481-badge-rail", "date": "2026-10-27", "title": "Perbaikan dashboard dan menu samping",
+     "fixed": ["Angka pada bulatan pemberitahuan di menu samping kini terbaca jelas di tema Sakura dan Lavender.",
+               "Tombol habit lainnya (+N) dan Lihat habit di dashboard kini membuka halaman Habit, bukan daftar task."]},
     {"version": "taskflow-v480-hero-dashboard", "date": "2026-10-27", "title": "Dashboard baru yang lebih hidup",
      "new": ["Task yang sedang difokuskan kini bisa dimulai atau dijeda langsung dari dashboard, atau pilih task untuk difokuskan.",
              "Habit hari ini bisa dicentang langsung dari bagian atas dashboard.",

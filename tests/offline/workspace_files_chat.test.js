@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v480-hero-dashboard', () => {
+  test('Service Worker cache version is bumped to taskflow-v481-badge-rail', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v480-hero-dashboard";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v481-badge-rail";/m);
   });
 });
 

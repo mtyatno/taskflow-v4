@@ -1,3 +1,8 @@
+## 🟡 Badge rail terbaca + tautan habit di hero — `claude/badge-rail-putih` — 2026-10-27 (Claude) — PR DRAFT, menunggu "merge dan deploy"
+- `.sidebar-rail-badge` (angka "9+") berteks `var(--accent-on, #111)`: putih di Sakura/Lavender terang, tinta gelap di mode gelapnya, Default tetap #111 (guard `theme_guard.test.js`).
+- Hero Dashboard: "+N" dan "Lihat habit" memanggil `onNav("habits")` padahal id halaman = `"habit"` → jatuh ke daftar task; diperbaiki + tes `dashboard_hero.test.js` + E2E cek 7.
+- Rilis: SW `taskflow-v481-badge-rail`, `app.css?v=377`, whatsnew v481. Verifikasi: npm 3387 lulus + 1 gagal pra-ada (draw_local_reactive), pytest 1239/1 skip, E2E hero 10/10. File statis saja (tanpa restart).
+
 ## 🟡 Hero Dashboard baru (topografi + streak + Fokus + habit) — `claude/hero-dashboard` — 2026-10-27 (Claude) — PR DRAFT, menunggu review Bapak (merge hanya setelah "merge dan deploy")
 - **Spec / plan:** `docs/superpowers/specs/2026-10-27-hero-dashboard-design.md`, `docs/superpowers/plans/2026-10-27-hero-dashboard.md`. Mockup disetujui: kanvas Design "Hero Dashboard Alurik", bagian "D · Gabungan".
 - **Isi:** hero Dashboard baru — latar gradien + garis topografi SVG (token aksen), ilustrasi duotone per palet (`DashHeroIllus`, sembunyi ≤1100 px & `data-decor="off"`), chip streak (streak habit tertinggi), chip "N terlambat", chip Fokus (Mulai/Jeda; tanpa tombol saat fase menunggu/istirahat) atau ajakan "Pilih task untuk difokuskan", chip habit (centang langsung, dilewati = non-interaktif, "+N", "Lihat habit"), ring sebagai `<button>`. Modul murni `static/offline/herologic.js` (`TF.hero`). Glyph baru `pAlert`.
