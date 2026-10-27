@@ -2870,7 +2870,6 @@
 .dash-more:hover { text-decoration: underline; }
 [data-theme="dark"] .dash-more { color: var(--accent); }
 .dash-empty { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 18px 0 10px; font-size: 13px; color: var(--text-light); }
-.dash-empty svg { color: #22c55e; opacity: 0.75; }
 .dash-celebrate { text-align: center; padding: 10px 0; color: #16a34a; font-size: 14px; font-weight: 700; }
 [data-theme="dark"] .dash-celebrate { color: #4ade80; }
 
@@ -5279,3 +5278,14 @@
 @media (max-width: 479px) { .decor-page-corner { width: 88px; height: 61px; right: 4px; } }
 .is-zen .decor-page-corner { display: none; }
 /* ── Dekorasi tema (slot Decor): akhir ── */
+
+/* ── Layar kosong bersama (EmptyState): awal ── */
+.empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; text-align: center; }
+.empty-state-icon { display: inline-flex; color: var(--accent-text); line-height: 0; }
+.empty-state-mascot { flex-shrink: 0; }
+.empty-state-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.empty-state-title { font-size: 16px; font-weight: 600; color: var(--text-primary); }
+.empty-state-hint { font-size: 14px; color: var(--text-light); }
+.empty-state-compact { flex-direction: row; gap: 8px; text-align: left; }
+.empty-state-compact .empty-state-title { font-size: inherit; font-weight: inherit; color: inherit; }
+/* ── Layar kosong bersama (EmptyState): akhir ── */

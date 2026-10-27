@@ -93,7 +93,9 @@ function findAll(node, pred, out = []) {
   return out;
 }
 const hasClass = (node, cls) => typeof node.props.className === "string" && node.props.className.split(/\s+/).includes(cls);
-const textOf = node => (node.children || []).map(c => (typeof c === "object" && c ? textOf(c) : String(c))).join("");
+// Stub EmptyState (Tema PR C) membawa teksnya di props title/hint, bukan di children.
+const textOf = node => (node.type === "EmptyState" ? [node.props.title, node.props.hint].filter(Boolean).join(" ") : "") +
+  (node.children || []).map(c => (typeof c === "object" && c ? textOf(c) : String(c))).join("");
 
 const NOOP = () => {};
 const TODAY = "2026-10-22";
@@ -407,7 +409,7 @@ const focuspage = require("../../static/offline/focuspage.js");
 // stub bernama, lalu periksa elemen yang dikembalikan.
 function renderFocusView({ tasks, focusTask = null, zen = false, sharedLists = [], onToggleFocus }) {
   const stubs = {};
-  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph"]) stubs[n] = n;
+  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph", "EmptyState"]) stubs[n] = n;
   const storage = { getItem: k => (k === "tf_focus_zen" && zen ? "1" : null), setItem: () => {} };
   const { TodayFocusView } = loadComponents(["computeOccurrences", "TodayFocusView"], {
     React: { createElement: fakeReact.createElement, Fragment: "Fragment", useEffect: NOOP },
@@ -588,7 +590,7 @@ function mountFocusView({ tasks, focusTask = null, zen = false, running = false,
     : { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
   const hooks = createHooks();
   const stubs = {};
-  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph"]) stubs[n] = n;
+  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph", "EmptyState"]) stubs[n] = n;
   const timers = [];
   const doc = { querySelectorAll: () => [], body: { name: "body" }, activeElement: null };
   const { TodayFocusView } = loadWith(["computeOccurrences", "TodayFocusView"], {
