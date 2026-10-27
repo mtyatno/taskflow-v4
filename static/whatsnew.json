@@ -1,5 +1,9 @@
 {
   "entries": [
+    {"version": "taskflow-v483-latar-hero", "date": "2026-10-27", "title": "Latar Dashboard dan Pomodoro bisa dipilih",
+     "new": ["Pilih latar bagian atas Dashboard dan kartu Pomodoro di Pengaturan › Tampilan: Kontur, Gradasi, Lanskap, Galaksi, Objek 3D, atau Polos.",
+             "Setiap latar mengikuti palet dan mode terang atau gelap.",
+             "Kartu Pomodoro di Fokus Hari Ini kini terang saat memakai mode terang."]},
     {"version": "taskflow-v482-tema-dekorasi", "date": "2026-10-27", "title": "Dekorasi tema Sakura dan Lavender",
      "new": ["Kelopak bunga dan maskot lucu muncul di palet Sakura dan Lavender.",
              "Dekorasi bisa dimatikan di Pengaturan › Tampilan.",
