@@ -1,4 +1,4 @@
-## 🟡 Menu workspace dropdown di HP — `claude/ws-nav-dropdown` — 2026-10-28 (Claude) — PR, menunggu "merge dan deploy"
+## 🟢 Menu workspace dropdown di HP — `claude/ws-nav-dropdown` — 2026-10-28 (Claude) — DI-MERGE (#113, 1d4dfd0) atas "merge dan deploy" Bapak 05:53 WIB; deploy sukses (file statis)
 - Permintaan Bapak: di HP baris tombol halaman workspace (Tasks, Files, Di-pin, Kelola, Kelola project, Kelola tahap) jadi dropdown. `WorkspaceNavMobileMenu` (tombol "Tasks ▾"/"Files ▾" + DetailPopover role menu: Tasks, Files, Pin/Lepas pin, Kelola, Kelola project, Kelola tahap); ≤ 640 px baris desktop `display: none !important`, dropdown tampil; desktop tidak berubah. Cek Playwright 393 px terang/gelap + 1280 px: 18/18. SW `taskflow-v486-ws-dropdown`, `app.css?v=382`.
 
 ## 🟢 Bug: modal detail task terpotong di halaman workspace (HP) — `claude/ws-modal-terpotong` — 2026-10-28 (Claude) — DI-MERGE (#112, 7a225ca) atas "merge dan deploy" Bapak 05:29 WIB; deploy sukses (file statis)
