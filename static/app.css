@@ -3575,7 +3575,7 @@
 .focus-page { width: 100%; max-width: 100%; padding: 0 0 32px; }
 .focus-page-head { margin-bottom: 16px; }
 .focus-page-date { font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
-.focus-page-titlebar { position: relative; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.focus-page-titlebar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .focus-page-title { font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 9px; margin: 0; }
 .focus-page-summary { font-size: 13px; color: var(--text-secondary); }
 .focus-page-strip { display: none; }
@@ -5277,14 +5277,21 @@
 @media (prefers-reduced-motion: reduce) { .decor-page-corner { animation: none; } }
 @media (max-width: 479px) { .decor-page-corner { width: 88px; height: 61px; right: 4px; } }
 .is-zen .decor-page-corner { display: none; }
-/* Pojok halaman di titlebar Fokus & hero Dashboard: isi wadah tetap di atas kelopak. Hero ber-overflow:hidden → turunkan top
-   supaya float -6px tidak terpotong; geser ke kiri kartu progres (kartu ber-latar menutupi pojok kanan). */
-.focus-page-titlebar > .decor ~ * { position: relative; z-index: 1; }
-.dash-hero > .decor ~ * { position: relative; z-index: 1; }
-.dash-hero .decor-page-corner { top: 8px; right: 232px; }
-/* Titlebar Fokus: ringkasan rata kanan → kelopak digeser ke ruang kosong di tengah, naik sedikit agar tidak menimpa kartu Pomodoro. */
-.focus-page-titlebar .decor-page-corner { top: -24px; right: 290px; }
-@media (max-width: 479px) { .dash-hero .decor-page-corner { right: 84px; } }
+/* Fokus Hari Ini: kelopak di dalam h1, dijangkar ke kanan teks judul dan di tengah vertikalnya (tinggi 90px).
+   Margin kanan judul mencadangkan ruangnya (24 + 130px) supaya ringkasan rata kanan yang panjangnya berubah-ubah
+   tidak pernah menimpa kelopak. Di <= 1024px titlebar visually-hidden, jadi kelopak ikut tersembunyi. */
+.focus-page-title { position: relative; }
+.focus-page-title > .decor-page-corner { left: calc(100% + 24px); right: auto; top: calc(50% - 45px); }
+.focus-page-title:has(> .decor-page-corner) { margin-right: 154px; }
+/* Dashboard: kelopak = item flex di .dash-hero-top antara sapaan dan kartu progres. Basis 0 + grow (maks 130px): kelopak
+   hanya memakai ruang sisa, jadi sapaan panjang mendorong/mengecilkannya sampai 0 tanpa membuat sapaan membungkus lebih
+   awal; margin kanan negatif = gap baris, sehingga jejak kelopak tepat selebar kotaknya (lebar 0 = tata letak Default).
+   svg absolut (10px dari kartu progres) → tinggi kelopak mengikuti baris, tidak menambah tinggi hero. Float -6px tetap di
+   dalam padding atas hero (24px / 16px di HP), jadi tidak terpotong overflow:hidden. */
+.dash-hero-top > .decor-page-corner { position: relative; top: auto; right: auto; z-index: auto; margin: 0 -20px 0 auto; flex: 1 1 0; min-width: 0; max-width: 130px; width: auto; height: auto; align-self: stretch; }
+.dash-hero-top > .decor-page-corner svg { position: absolute; top: 0; left: 0; width: calc(100% - 10px); height: 100%; }
+@media (max-width: 640px) { .dash-hero-top > .decor-page-corner { margin-right: -12px; } }
+@media (max-width: 479px) { .dash-hero-top > .decor-page-corner { max-width: 88px; } }
 /* ── Dekorasi tema (slot Decor): akhir ── */
 
 /* ── Layar kosong bersama (EmptyState): awal ── */

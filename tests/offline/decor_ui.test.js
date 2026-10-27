@@ -123,8 +123,9 @@ test("CSS: ukuran pojok halaman & varian ponsel", () => {
 });
 
 // ── Tema PR C, Task 4: kelopak header + glyph kelopak Pomodoro ──
-function renderViewGlyph(attrs, props, { withThemes = true } = {}) {
-  let hookCalls = 0;
+// Task 5 Step 0: hook tema hanya di PomoGlyph (dipakai ViewGlyph untuk pomoTomato), glyph lain tanpa hook.
+function loadGlyphs(attrs, { withThemes = true } = {}) {
+  const counter = { hookCalls: 0 };
   const start = indexHtml.indexOf("\nconst VIEW_GLYPHS = {");
   assert.ok(start >= 0, "VIEW_GLYPHS must exist");
   const end = indexHtml.indexOf("\n};\n", start);
@@ -132,13 +133,26 @@ function renderViewGlyph(attrs, props, { withThemes = true } = {}) {
   const win = withThemes ? { TF: { themes, decor } } : {};
   const sandbox = {
     React: { createElement: h },
-    useThemeAttrs: () => { hookCalls++; return attrs; },
+    useThemeAttrs: () => { counter.hookCalls++; return attrs; },
     window: win,
     TF: win.TF,
   };
-  vm.runInNewContext(glyphsSrc + fnSource("ViewGlyph") + "\nthis.ViewGlyph = ViewGlyph; this.VIEW_GLYPHS = VIEW_GLYPHS;", sandbox);
-  const out = sandbox.ViewGlyph(props);
-  return { out, hookCalls, glyphs: sandbox.VIEW_GLYPHS };
+  vm.runInNewContext(glyphsSrc + fnSource("ViewGlyph") + fnSource("PomoGlyph") +
+    "\nthis.ViewGlyph = ViewGlyph; this.PomoGlyph = PomoGlyph; this.VIEW_GLYPHS = VIEW_GLYPHS;", sandbox);
+  return { counter, ViewGlyph: sandbox.ViewGlyph, PomoGlyph: sandbox.PomoGlyph, glyphs: sandbox.VIEW_GLYPHS };
+}
+
+// Render dangkal sampai elemen host ("svg"): komponen fungsi dipanggil dengan props-nya.
+function renderDeep(el) {
+  let cur = el;
+  for (let i = 0; i < 5 && cur && typeof cur.type === "function"; i++) cur = cur.type(cur.props);
+  return cur;
+}
+
+function renderViewGlyph(attrs, props, opts) {
+  const g = loadGlyphs(attrs, opts);
+  const out = renderDeep(g.ViewGlyph(props));
+  return { out, hookCalls: g.counter.hookCalls, glyphs: g.glyphs };
 }
 
 const LAVENDER = { theme: "light", palette: "lavender", decor: "on" };
@@ -151,9 +165,18 @@ test("VIEW_GLYPHS.pomoPetal: kelopak duotone gaya pomoTomato", () => {
   assert.ok(!/var\(--/.test(glyphs.pomoPetal), "warna lewat currentColor, bukan token");
 });
 
-test("ViewGlyph pomoTomato → pomoPetal di sakura/lavender + decor on", () => {
+test("ViewGlyph pomoTomato → elemen PomoGlyph (ukuran diteruskan), tanpa hook di ViewGlyph", () => {
+  const g = loadGlyphs(SAKURA);
+  const el = g.ViewGlyph({ name: "pomoTomato", size: 14 });
+  assert.equal(el.type, g.PomoGlyph);
+  assert.equal(el.props.size, 14);
+  assert.equal(g.counter.hookCalls, 0, "ViewGlyph sendiri tidak memanggil hook");
+});
+
+test("ViewGlyph pomoTomato → pomoPetal di sakura/lavender + decor on (hook sekali, di PomoGlyph)", () => {
   for (const attrs of [SAKURA, LAVENDER]) {
     const { out, glyphs, hookCalls } = renderViewGlyph(attrs, { name: "pomoTomato", size: 14 });
+    assert.equal(out.type, "svg");
     assert.equal(out.props.dangerouslySetInnerHTML.__html, glyphs.pomoPetal, attrs.palette);
     assert.equal(out.props.width, 14);
     assert.equal(hookCalls, 1);
@@ -164,7 +187,8 @@ test("ViewGlyph pomoTomato tetap tomat di Default atau decor off", () => {
   for (const attrs of [{ theme: "light", palette: "default", decor: "on" }, { ...SAKURA, decor: "off" }, { ...LAVENDER, decor: "off" }]) {
     const { out, glyphs, hookCalls } = renderViewGlyph(attrs, { name: "pomoTomato" });
     assert.equal(out.props.dangerouslySetInnerHTML.__html, glyphs.pomoTomato, JSON.stringify(attrs));
-    assert.equal(hookCalls, 1, "hook dipanggil tanpa syarat");
+    assert.equal(out.props.width, 16, "ukuran bawaan 16");
+    assert.equal(hookCalls, 1, "hook PomoGlyph dipanggil tanpa syarat");
   }
 });
 
@@ -173,40 +197,84 @@ test("ViewGlyph pomoTomato tetap tomat bila TF.themes tidak ada (tanpa melempar)
   assert.equal(out.props.dangerouslySetInnerHTML.__html, glyphs.pomoTomato);
 });
 
-test("ViewGlyph nama lain tidak terpengaruh", () => {
-  for (const name of ["pomoBreak", "live", "emptyDone", "sparkles"]) {
-    const { out, glyphs } = renderViewGlyph(SAKURA, { name });
-    assert.equal(out.props.dangerouslySetInnerHTML.__html, glyphs[name], name);
+test("ViewGlyph nama lain: svg langsung, tanpa hook/observer tema", () => {
+  for (const name of ["pomoBreak", "pomoPetal", "live", "emptyDone", "sparkles"]) {
+    const g = loadGlyphs(SAKURA);
+    const out = g.ViewGlyph({ name });
+    assert.equal(out.type, "svg", name);
+    assert.equal(out.props.dangerouslySetInnerHTML.__html, g.glyphs[name], name);
+    assert.equal(g.counter.hookCalls, 0, name + ": tanpa hook");
   }
   const { out } = renderViewGlyph(SAKURA, { name: "tidakAda" });
   assert.equal(out.props.dangerouslySetInnerHTML.__html, "");
 });
 
-test("ViewGlyph hanya dipakai sebagai komponen (hook di dalamnya aman)", () => {
+test("PomoGlyph didefinisikan tepat setelah ViewGlyph; hook hanya di PomoGlyph", () => {
+  const vg = indexHtml.indexOf("\nfunction ViewGlyph(");
+  const pg = indexHtml.indexOf("\nfunction PomoGlyph(");
+  assert.ok(vg > 0 && pg > vg, "PomoGlyph setelah ViewGlyph");
+  assert.equal((indexHtml.slice(vg + 1, pg).match(/\nfunction /g) || []).length, 0, "tidak ada fungsi lain di antaranya");
+  assert.doesNotMatch(fnSource("ViewGlyph"), /useThemeAttrs/);
+  assert.match(fnSource("PomoGlyph"), /useThemeAttrs\(\)/);
+});
+
+test("ViewGlyph & PomoGlyph hanya dipakai sebagai komponen (hook di dalamnya aman)", () => {
   assert.equal((indexHtml.match(/[^.\w]ViewGlyph\(/g) || []).length, 1, "hanya deklarasi fungsi; tidak ada panggilan biasa");
-  assert.ok(!/\bViewGlyph\.call|\bViewGlyph\.apply/.test(indexHtml));
+  assert.equal((indexHtml.match(/[^.\w]PomoGlyph\(/g) || []).length, 1, "hanya deklarasi fungsi; tidak ada panggilan biasa");
+  assert.ok(!/\b(View|Pomo)Glyph\.(call|apply)/.test(indexHtml));
 });
 
-test("sumber: Decor page-corner ada di titlebar Fokus Hari Ini", () => {
-  const i = indexHtml.indexOf('className: "focus-page-titlebar"');
+test("sumber: Decor page-corner di dalam h1.focus-page-title (setelah teks judul), bukan anak langsung titlebar", () => {
+  const i = indexHtml.indexOf('className: "focus-page-title"');
   assert.ok(i > 0);
-  const seg = indexHtml.slice(i, indexHtml.indexOf('className: "focus-page-title"', i));
-  assert.match(seg, /React\.createElement\(Decor, \{\s*slot: "page-corner"\s*\}\)/);
+  const seg = indexHtml.slice(i, indexHtml.indexOf('className: "focus-page-summary"', i));
+  assert.match(seg, /"Fokus Hari Ini", React\.createElement\(Decor, \{\s*slot: "page-corner"\s*\}\)\)/);
+  const t = indexHtml.indexOf('className: "focus-page-titlebar"');
+  assert.doesNotMatch(indexHtml.slice(t, i), /Decor/, "tidak lagi anak langsung titlebar");
 });
 
-test("sumber: Decor page-corner ada di dash-hero", () => {
+test("sumber: Decor page-corner item flex di dash-hero-top (antara teks sapaan dan kartu progres)", () => {
   const i = indexHtml.indexOf('className: "dash-hero"');
   assert.ok(i > 0);
-  const seg = indexHtml.slice(i, indexHtml.indexOf('className: "dash-hero-top"', i));
-  assert.match(seg, /React\.createElement\(Decor, \{\s*slot: "page-corner"\s*\}\)/);
+  const top = indexHtml.indexOf('className: "dash-hero-top"', i);
+  assert.doesNotMatch(indexHtml.slice(i, top), /Decor/, "tidak lagi anak langsung dash-hero");
+  const seg = indexHtml.slice(top, indexHtml.indexOf('className: "dash-hero-progress"', top));
+  assert.match(seg, /summaryLine\)\), \/\*#__PURE__\*\/React\.createElement\(Decor, \{\s*slot: "page-corner"\s*\}\), totalToday > 0 &&/);
 });
 
-test("CSS: titlebar Fokus & hero menjadi wadah posisi; kelopak di bawah isi, hero tidak memotong float", () => {
-  assert.match(ruleBody(/(?:^|\n)\.focus-page-titlebar\s*\{([^}]*)\}/), /position:\s*relative/);
-  assert.match(ruleBody(/(?:^|\n)\.dash-hero\s*\{([^}]*)\}/), /position:\s*relative/);
-  assert.match(ruleBody(/(?:^|\n)\.decor-page-corner\s*\{([^}]*)\}/), /z-index:\s*0/);
-  const heroTop = ruleBody(/(?:^|\n)\.dash-hero \.decor-page-corner\s*\{([^}]*)\}/);
-  const m = heroTop.match(/top:\s*(\d+)px/);
-  assert.ok(m && Number(m[1]) >= 6, "top ≥ 6px agar float -6px tidak terpotong overflow:hidden hero");
-  assert.match(appCss, /\.focus-page-titlebar > \.decor ~ \*\s*\{[^}]*z-index:\s*1/);
+test("CSS: kelopak Fokus dijangkar ke judul (kanan teks, tengah vertikal), ruang dicadangkan untuk ringkasan", () => {
+  // aturan terpisah di blok dekorasi: aturan desktop .focus-page-title asli tetap (focus_header_strip.test.js)
+  const block = appCss.slice(appCss.indexOf("/* ── Dekorasi tema (slot Decor): awal ── */"), appCss.indexOf("/* ── Dekorasi tema (slot Decor): akhir ── */"));
+  assert.match(block, /(?:^|\n)\.focus-page-title \{ position: relative; \}/);
+  const body = ruleBody(/(?:^|\n)\.focus-page-title > \.decor-page-corner\s*\{([^}]*)\}/);
+  assert.match(body, /left:\s*calc\(100% \+ 24px\)/);
+  assert.match(body, /right:\s*auto/);
+  assert.match(body, /top:\s*calc\(50% - 45px\)/, "tengah vertikal pada judul (tinggi 90px)");
+  const reserve = ruleBody(/(?:^|\n)\.focus-page-title:has\(> \.decor-page-corner\)\s*\{([^}]*)\}/);
+  const m = reserve.match(/margin-right:\s*(\d+)px/);
+  assert.ok(m && Number(m[1]) >= 24 + 130, "margin kanan judul ≥ 24 + lebar kelopak: ringkasan tidak bisa menimpa kelopak");
+});
+
+test("CSS: kelopak hero = item flex sebaris (tanpa posisi absolut), hanya memakai ruang sisa, tidak menambah tinggi baris", () => {
+  const body = ruleBody(/(?:^|\n)\.dash-hero-top > \.decor-page-corner\s*\{([^}]*)\}/);
+  for (const re of [/position:\s*relative/, /top:\s*auto/, /right:\s*auto/, /min-width:\s*0/, /max-width:\s*130px/, /align-self:\s*stretch/, /height:\s*auto/]) assert.match(body, re);
+  // basis 0 + grow: sapaan tidak pernah menyusut karena kelopak (sapaan panjang = kelopak mengecil sampai 0)
+  assert.match(body, /flex:\s*1 1 0;/);
+  // margin kiri auto (didorong ke kartu progres), margin kanan = -gap baris (.dash-hero-top gap 20px; 12px di <= 640px)
+  assert.match(body, /margin:\s*0 -20px 0 auto/);
+  assert.match(ruleBody(/(?:^|\n)\.dash-hero-top\s*\{([^}]*)\}/), /gap:\s*20px/);
+  assert.match(appCss, /@media \(max-width: 640px\)\s*\{\s*\.dash-hero-top > \.decor-page-corner\s*\{\s*margin-right:\s*-12px;?\s*\}\s*\}/);
+  assert.match(appCss, /@media \(max-width: 640px\)\s*\{[^@]*\.dash-hero-top\s*\{\s*gap:\s*12px;?\s*\}/);
+  // svg absolut di dalam kotak: isi tidak menyumbang tinggi, kelopak mengikuti tinggi baris (sapaan/kartu progres)
+  assert.match(ruleBody(/(?:^|\n)\.dash-hero-top > \.decor-page-corner svg\s*\{([^}]*)\}/), /position:\s*absolute[^}]*height:\s*100%/);
+  assert.match(appCss, /@media \(max-width: 479px\)\s*\{\s*\.dash-hero-top > \.decor-page-corner\s*\{\s*max-width:\s*88px;?\s*\}\s*\}/);
+});
+
+test("CSS: tanpa offset magic & aturan z-index lama", () => {
+  const block = appCss.slice(appCss.indexOf("/* ── Dekorasi tema (slot Decor): awal ── */"), appCss.indexOf("/* ── Dekorasi tema (slot Decor): akhir ── */"));
+  assert.ok(block.length > 0);
+  for (const re of [/right:\s*232px/, /right:\s*290px/, /right:\s*84px/, /top:\s*-24px/, /> \.decor ~ \*/, /\.focus-page-titlebar \.decor-page-corner/, /\.dash-hero \.decor-page-corner/]) {
+    assert.doesNotMatch(block, re);
+  }
+  assert.doesNotMatch(ruleBody(/(?:^|\n)\.focus-page-titlebar\s*\{([^}]*)\}/), /position:\s*relative/, "titlebar kembali seperti Default");
 });

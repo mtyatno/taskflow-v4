@@ -10905,11 +10905,11 @@ const VIEW_GLYPHS = {
 };
 function ViewGlyph({
   name,
-  size = 16
+  size = 16,
+  themed = true
 }) {
-  // Hook tanpa syarat: ViewGlyph selalu dipakai sebagai komponen (React.createElement(ViewGlyph, …)).
-  const { palette, decor } = useThemeAttrs();
-  if (name === "pomoTomato" && decor === "on" && window.TF && window.TF.themes && window.TF.themes.decorFor(palette, "pomo-glyph") === "petal") name = "pomoPetal";
+  // Hanya pomoTomato bergantung tema (slot "pomo-glyph") → PomoGlyph; glyph lain tanpa hook/observer tema.
+  if (name === "pomoTomato" && themed) return React.createElement(PomoGlyph, { size });
   return React.createElement("svg", {
     width: size,
     height: size,
@@ -10923,6 +10923,16 @@ function ViewGlyph({
     focusable: "false",
     dangerouslySetInnerHTML: { __html: VIEW_GLYPHS[name] || "" }
   });
+}
+
+// Penghitung sesi Pomodoro: tomat, atau bunga kelopak (pomoPetal) di palet Sakura/Lavender bila dekorasi menyala.
+// Hook tanpa syarat: PomoGlyph hanya dipakai sebagai komponen (lewat ViewGlyph name "pomoTomato").
+function PomoGlyph({
+  size = 16
+}) {
+  const { palette, decor } = useThemeAttrs();
+  const petal = decor === "on" && window.TF && window.TF.themes && window.TF.themes.decorFor(palette, "pomo-glyph") === "petal";
+  return React.createElement(ViewGlyph, { name: petal ? "pomoPetal" : "pomoTomato", size, themed: false });
 }
 
 // ── Task item for the Today page: ringkas, detail dibuka per task ─────────
@@ -13407,12 +13417,12 @@ function TodayFocusView({
     year: "numeric"
   })), React.createElement("div", {
     className: "focus-page-titlebar"
-  }, React.createElement(Decor, { slot: "page-corner" }), React.createElement("h1", {
+  }, React.createElement("h1", {
     className: "focus-page-title"
   }, React.createElement(Icon, {
     name: "target",
     size: 22
-  }), "Fokus Hari Ini"), React.createElement("span", {
+  }), "Fokus Hari Ini", React.createElement(Decor, { slot: "page-corner" })), React.createElement("span", {
     className: "focus-page-summary"
   }, (() => {
     const hs = window.TF.pomologic.headerSummary({
@@ -23274,7 +23284,7 @@ function Dashboard({
   /* ── Hero ── */
   /*#__PURE__*/React.createElement("section", {
     className: "dash-hero"
-  }, /*#__PURE__*/React.createElement(Decor, { slot: "page-corner" }), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-top"
   }, /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-text"
@@ -23289,7 +23299,7 @@ function Dashboard({
     className: "dash-hero-name"
   }, displayName)), /*#__PURE__*/React.createElement("p", {
     className: "dash-hero-summary"
-  }, summaryLine)), totalToday > 0 && /*#__PURE__*/React.createElement("div", {
+  }, summaryLine)), /*#__PURE__*/React.createElement(Decor, { slot: "page-corner" }), totalToday > 0 && /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-progress",
     onClick: () => onNav("today"),
     title: "Buka Fokus Hari Ini"
