@@ -220,3 +220,15 @@ test("token notifikasi: tidak ada di :root, dipin di blok gelap app.css, turunan
     assert.equal(d["--notif-hover-bg"], "rgba(255,255,255,0.06)", `${id} gelap --notif-hover-bg`);
   }
 });
+
+// Audit final PR B (lembar shots-2): garis bawah tab bar mindmap/Sketsa memakai var(--border-color, #e5e7eb)
+// (app.css .mindmap-tab-bar/.draw-tab-bar). --border-color tidak pernah didefinisikan, jadi di mode gelap garisnya
+// abu terang. Token opsional khusus palet (Default tetap fallback #e5e7eb, identik): = --border di tiap blok.
+test("--border-color: tidak ada di :root/blok gelap app.css, = --border di tiap blok palet", () => {
+  assert.ok(!("--border-color" in appRoot), ":root --border-color");
+  assert.ok(!("--border-color" in appDark), "blok gelap app.css --border-color");
+  for (const id of NON_DEFAULT) for (const mode of MODES) {
+    const b = palettes[id][mode];
+    assert.equal(b["--border-color"], b["--border"], `${id} ${mode} --border-color = --border`);
+  }
+});

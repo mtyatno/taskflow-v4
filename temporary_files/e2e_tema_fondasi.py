@@ -7,14 +7,17 @@ Refactor token warna tidak boleh mengubah satu piksel pun tampilan Default teran
     python3 temporary_files/e2e_tema_fondasi.py compare                  # pohon kerja sekarang -> after/, PASS/FAIL per gambar
     python3 temporary_files/e2e_tema_fondasi.py compare --tolerance 3
     python3 temporary_files/e2e_tema_fondasi.py verify                   # perilaku tema (PR A Task 6 + PR B Task 7)
-    python3 temporary_files/e2e_tema_fondasi.py shots --palette sakura   # 20 screenshot audit -> shots/sakura/
+    python3 temporary_files/e2e_tema_fondasi.py shots --palette sakura   # 28 screenshot audit -> shots/sakura/
 
 `--palette sakura|lavender` (baseline/compare/shots) menulis localStorage.tf_palette sebelum halaman dimuat. Tanpa
 --palette (= default) tf_palette tidak ditulis dan direktorinya tetap baseline/, after/, diff/; dengan palet lain
 direktorinya baseline-<palet>/, after-<palet>/, diff-<palet>/ (gerbang piksel palet itu sendiri, baseline dari commit
 yang sudah memuat paletnya). `shots` hanya memotret untuk audit manual (tanpa pembanding): 8 halaman x 2 mode pada
-1280x900 ditambah Fokus & Pengaturan pada 375x812 (`<halaman>-375-<mode>.png`) x 2 mode = 20 gambar, ke
-shots/<palet>/, lalu satu lembar kontak berlabel shots/<palet>-sheet.png.
+1280x900 ditambah Fokus & Pengaturan pada 375x812 (`<halaman>-375-<mode>.png`) x 2 mode, ditambah EXTRA_SHOTS
+(modal detail task, note terbuka di editor, Sketsa dengan gambar terbuka, mindmap terbuka) x 2 mode = 28 gambar, ke
+shots/<palet>/, lalu lembar kontak berlabel shots/<palet>-sheet.png (20 gambar halaman) dan shots/<palet>-sheet-2.png
+(EXTRA_SHOTS). Sketsa butuh bundel tldraw (`static/vendor/tldraw/`, di-.gitignore; `cd draw-app && npm ci && npm run
+build`); tanpa itu iframe-nya menampilkan 404.
 
 `baseline --ref` men-checkout commit ke `git worktree` sementara dan menjalankan uvicorn dari sana (static/ dan webapp.py
 milik commit itu), lalu menghapus worktree-nya. Tanpa --ref skrip menolak jalan, kecuali `--force` (ambil dari pohon
@@ -275,10 +278,10 @@ def shoot(browser, base, user, page, mode, out_dir, sw, palette="default", mobil
         ctx.close()
 
 
-def capture(out_dir, repo, meta, palette="default", mobile_pages=()):
-    """Ambil 16 screenshot (+ halaman `mobile_pages` pada 375 px x 2 mode) dari server yang melayani `repo` dengan
-    palet `palette` ke direktori staging, lalu pindahkan ke out_dir (menggantikan isi lamanya) hanya bila semuanya
-    berhasil, bersama meta.json; kegagalan tidak menyentuh out_dir."""
+def capture(out_dir, repo, meta, palette="default", mobile_pages=(), extra_shots=False):
+    """Ambil 16 screenshot (+ halaman `mobile_pages` pada 375 px x 2 mode, + EXTRA_SHOTS x 2 mode bila extra_shots)
+    dari server yang melayani `repo` dengan palet `palette` ke direktori staging, lalu pindahkan ke out_dir
+    (menggantikan isi lamanya) hanya bila semuanya berhasil, bersama meta.json; kegagalan tidak menyentuh out_dir."""
     os.makedirs(SHOTS, exist_ok=True)
     for stale in glob.glob(os.path.join(SHOTS, ".staging-*")):  # sisa proses yang dimatikan paksa
         shutil.rmtree(stale, ignore_errors=True)
@@ -290,6 +293,8 @@ def capture(out_dir, repo, meta, palette="default", mobile_pages=()):
     try:
         staging = tempfile.mkdtemp(prefix=".staging-", dir=SHOTS)
         user = seed(base)
+        if extra_shots:
+            seed_shots_extra(base, user)
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
             for mode in MODES:
@@ -298,6 +303,9 @@ def capture(out_dir, repo, meta, palette="default", mobile_pages=()):
                 for page in PAGES:
                     if page[0] in mobile_pages:
                         shoot(browser, base, user, page, mode, staging, sw, palette, mobile=True)
+                if extra_shots:
+                    for name in EXTRA_SHOTS:
+                        shoot_extra(browser, base, user, name, mode, staging, sw, palette)
             browser.close()
         with open(os.path.join(staging, META_FILE), "w") as f:
             json.dump(dict(meta, palette=palette), f, indent=2)
@@ -396,15 +404,91 @@ SHOT_MOBILE_PAGES = ("focus", "settings")
 MODE_LABEL = {"light": "terang", "dark": "gelap"}
 
 
+# Tangkapan tambahan khusus `shots` (audit final review PR B), 1280 px x 2 mode. Datanya (mindmap + sketsa) hanya
+# di-seed untuk `shots`, jadi baseline/compare tidak berubah.
+EXTRA_SHOTS = ("taskdetail", "noteeditor", "sketsa", "mindmap")
+DRAW_TITLE = "Sketsa tema"
+EDITOR_NOTE_TITLE = "Catatan audit tema"
+EDITOR_NOTE_TAG = "audit-tema"
+EDITOR_NOTE_CONTENT = ("## Ringkasan rapat\n\nPembuka dengan **tebal** dan `kode`.\n\n"
+                       "- Butir pertama\n- Butir kedua\n- Butir ketiga\n\n#audit-tema\n")
+
+
 def shot_names():
-    """20 nama berkas `shots`: 8 halaman x 2 mode (1280 px) lalu Fokus & Pengaturan 375 px x 2 mode."""
+    """28 nama berkas `shots`: 8 halaman x 2 mode (1280 px), Fokus & Pengaturan 375 px x 2 mode, lalu EXTRA_SHOTS
+    (detail task, editor note, Sketsa, mindmap) x 2 mode."""
     desk = ["%s-%s.png" % (page[0], mode) for page in PAGES for mode in MODES]
     mob = ["%s-375-%s.png" % (name, mode) for name in SHOT_MOBILE_PAGES for mode in MODES]
-    return desk + mob
+    extra = ["%s-%s.png" % (name, mode) for name in EXTRA_SHOTS for mode in MODES]
+    return desk + mob + extra
 
 
-def contact_sheet(src_dir, out_path, title):
-    """Satu PNG berisi semua gambar `shots` dalam grid 4 kolom berlabel (bagian atas tiap halaman, diperkecil)."""
+def seed_shots_extra(base, user):
+    """Data tambahan `shots`: satu mindmap (MAP_TITLE), satu sketsa kosong (DRAW_TITLE) dan satu note berjudul,
+    berdaftar dan bertag (EDITOR_NOTE_TITLE) untuk tangkapan editor."""
+    api(base, user, "POST", "/api/scratchpad", json={"title": EDITOR_NOTE_TITLE, "content": EDITOR_NOTE_CONTENT,
+                                                     "tags": [EDITOR_NOTE_TAG]})
+    tree = {"nodeData": {"id": "root", "topic": "Akar tema", "root": True,
+                         "children": [{"id": "a", "topic": "Cabang A"}, {"id": "b", "topic": "Cabang B"}]}}
+    api(base, user, "POST", "/api/mindmaps", json={"title": MAP_TITLE, "data_json": json.dumps(tree)})
+    api(base, user, "POST", "/api/drawings", json={"title": DRAW_TITLE, "data_json": "{}"})
+
+
+def loose_screenshot(page, path):
+    """Seperti stable_screenshot, tetapi halaman yang tak kunjung stabil (iframe/kanvas yang masih memuat) tetap
+    dipotret sekali (audit visual, bukan pembanding piksel)."""
+    try:
+        stable_screenshot(page, path)
+    except RuntimeError:
+        page.screenshot(path=path, full_page=True, animations="disabled", caret="hide", scale="css")
+        print("  (tidak stabil, dipotret apa adanya)", flush=True)
+
+
+def shoot_extra(browser, base, user, name, mode, out_dir, sw, palette="default"):
+    """Satu tangkapan EXTRA_SHOTS: halaman dibuka lewat sidebar lalu item seed diklik."""
+    ctx, p = open_app(browser, base, user, mode, "quadrant", "normal", sw, palette)
+    try:
+        p.get_by_text(TASKS[0][0]).first.wait_for(state="visible", timeout=20000)
+        if name == "taskdetail":
+            nav(p, "Semua Task")
+            p.locator(".task-row", has_text=TASKS[0][0]).first.click()
+            p.locator(".modal-content").first.wait_for(state="visible", timeout=20000)
+        elif name == "noteeditor":
+            nav(p, "Notes")
+            p.locator(".note-card-title", has_text=EDITOR_NOTE_TITLE).first.click()
+            # Note terbuka dalam tampilan baca; tombol Edit membuka editor Milkdown.
+            p.get_by_role("button", name="Edit", exact=True).first.click()
+            p.locator(".ProseMirror:visible").first.wait_for(state="visible", timeout=20000)
+        elif name == "sketsa":
+            nav(p, "Sketsa")
+            row = p.locator("span", has_text=re.compile("^" + re.escape(DRAW_TITLE) + "$")).first
+            row.wait_for(state="visible", timeout=20000)
+            row.locator("xpath=..").click()
+            try:  # kanvas tldraw (iframe) butuh bundel lokal: tanpa itu potret apa adanya
+                p.frame_locator(".draw-tab-view-instance:visible iframe").locator(".tl-container").first.wait_for(
+                    state="visible", timeout=20000)
+                p.wait_for_timeout(1500)
+            except PlaywrightTimeout:
+                print("  kanvas Sketsa tidak muncul (bundel tldraw belum di-build?), memotret apa adanya", flush=True)
+        elif name == "mindmap":
+            nav(p, "Mindmap")
+            item = p.locator("div[style*='cursor: pointer']").filter(
+                has=p.locator("span", has_text=re.compile("^" + re.escape(MAP_TITLE) + "$"))).last
+            item.wait_for(state="visible", timeout=20000)
+            item.click()
+            p.frame_locator(".mindmap-tab-view-instance:visible iframe").locator("me-tpc").first.wait_for(timeout=20000)
+        p.mouse.move(5, 5)
+        p.wait_for_timeout(800)
+        p.evaluate(FREEZE_CLOCK_TEXT_JS)
+        path = os.path.join(out_dir, "%s-%s.png" % (name, mode))
+        loose_screenshot(p, path)
+        print("  screenshot", os.path.basename(path), flush=True)
+    finally:
+        ctx.close()
+
+
+def contact_sheet(src_dir, out_path, title, names):
+    """Satu PNG berisi gambar `names` dalam grid 4 kolom berlabel (bagian atas tiap halaman, diperkecil)."""
     from PIL import ImageDraw, ImageFont
 
     def font(size):
@@ -416,7 +500,12 @@ def contact_sheet(src_dir, out_path, title):
         return ImageFont.load_default()
 
     cols, cell_w, img_h, label_h, gap, head_h = 4, 400, 450, 26, 12, 44
-    names = shot_names()
+    scales, heights = {}, []
+    for name in names:
+        with Image.open(os.path.join(src_dir, name)) as im:
+            scales[name] = cell_w / im.width if im.width > 600 else 0.6  # 1280 px -> 400, 375 px -> 225
+            heights.append(int(im.height * scales[name]))
+    img_h = min(img_h, max(heights))  # tinggi baris = thumbnail tertinggi: lembar 1280x900 tanpa ruang kosong
     rows = (len(names) + cols - 1) // cols
     sheet = Image.new("RGB", (gap + cols * (cell_w + gap), head_h + rows * (label_h + img_h + gap)), (236, 236, 236))
     draw = ImageDraw.Draw(sheet)
@@ -429,7 +518,7 @@ def contact_sheet(src_dir, out_path, title):
         draw.text((x, y + 3), "%s · %s" % (page.replace("-375", " (375 px)"), MODE_LABEL[mode]), fill=(20, 20, 20),
                   font=font(16))
         img = Image.open(os.path.join(src_dir, name)).convert("RGB")
-        scale = cell_w / img.width if img.width > 600 else 0.6  # 1280 px -> 400, 375 px -> 225
+        scale = scales[name]
         crop = img.crop((0, 0, img.width, min(img.height, int(img_h / scale))))
         thumb = crop.resize((int(crop.width * scale), int(crop.height * scale)), Image.LANCZOS)
         sheet.paste(thumb, (x + (cell_w - thumb.width) // 2, y + label_h))
@@ -438,18 +527,25 @@ def contact_sheet(src_dir, out_path, title):
 
 
 def shots(palette):
-    """20 screenshot audit palet ke shots/<palet>/ + lembar kontak shots/<palet>-sheet.png. Tanpa pembanding."""
+    """28 screenshot audit palet ke shots/<palet>/ + lembar kontak shots/<palet>-sheet.png (20 halaman) dan
+    shots/<palet>-sheet-2.png (EXTRA_SHOTS). Tanpa pembanding."""
     out_dir = os.path.join(SHOTS, "shots", palette)
     os.makedirs(os.path.dirname(out_dir), exist_ok=True)
-    capture(out_dir, ROOT, working_tree_meta(), palette, SHOT_MOBILE_PAGES)
+    capture(out_dir, ROOT, working_tree_meta(), palette, SHOT_MOBILE_PAGES, extra_shots=True)
     missing = [n for n in shot_names() if not os.path.exists(os.path.join(out_dir, n))]
     if missing:
         print("shots tidak lengkap, hilang:", ", ".join(missing))
         return 1
+    names = shot_names()
+    n_extra = len(EXTRA_SHOTS) * len(MODES)
     sheet = contact_sheet(out_dir, os.path.join(SHOTS, "shots", palette + "-sheet.png"),
-                          "Alurik — palet %s (1280x900 dan 375x812, bagian atas halaman)" % palette.capitalize())
-    print("%d gambar di %s\nlembar kontak: %s" % (len(shot_names()), os.path.relpath(out_dir, ROOT),
-                                                  os.path.relpath(sheet, ROOT)))
+                          "Alurik — palet %s (1280x900 dan 375x812, bagian atas halaman)" % palette.capitalize(),
+                          names[:-n_extra])
+    sheet2 = contact_sheet(out_dir, os.path.join(SHOTS, "shots", palette + "-sheet-2.png"),
+                           "Alurik — palet %s: modal detail task, editor note, Sketsa, mindmap (1280x900)"
+                           % palette.capitalize(), names[-n_extra:])
+    print("%d gambar di %s\nlembar kontak: %s, %s" % (len(names), os.path.relpath(out_dir, ROOT),
+                                                      os.path.relpath(sheet, ROOT), os.path.relpath(sheet2, ROOT)))
     return 0
 
 
@@ -792,7 +888,7 @@ def main():
     cmp_ = sub.add_parser("compare", help="ambil after/ dari pohon kerja, bandingkan dengan baseline/")
     cmp_.add_argument("--tolerance", type=int, default=3, help="selisih kanal maksimum yang masih dianggap sama")
     cmp_.add_argument("--palette", **pal)
-    shots_ = sub.add_parser("shots", help="20 screenshot audit satu palet ke shots/<palet>/ + lembar kontak")
+    shots_ = sub.add_parser("shots", help="28 screenshot audit satu palet ke shots/<palet>/ + lembar kontak")
     shots_.add_argument("--palette", **pal)
     sub.add_parser("verify", help="cek perilaku tema di browser (skrip boot, toggle, mode system, logout, palet)")
     args = ap.parse_args()

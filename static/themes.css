@@ -15,6 +15,8 @@
  * gelap = rgba(<--accent-rgb>, 0.14) / rgba(255,255,255,0.06). Terang sengaja bukan --accent-soft: --text-light
  * (waktu notifikasi) di atas --accent-soft hanya 4,35–4,41:1. Default terang memakai fallback di index.html;
  * Default gelap didefinisikan di blok gelap app.css.
+ * --border-color = --border (garis bawah tab bar mindmap/Sketsa; app.css memakai var(--border-color, #e5e7eb) dan
+ * Default tidak pernah mendefinisikannya, jadi Default tetap #e5e7eb).
  *
  * Rujukan: docs/superpowers/specs/2026-10-26-tema-palet-dekorasi-design.md §3.3.
  */
@@ -61,6 +63,7 @@
   --track: #E6C0D8;
   --notif-unread-bg: rgba(176,40,126,0.10);
   --notif-hover-bg: rgba(58,36,56,0.05);
+  --border-color: #F0D2E5;
   --radius-sm: 10px;
   --radius-control: 12px;
   --radius-md: 14px;
@@ -104,6 +107,7 @@
   --track: #3E2A3A;
   --notif-unread-bg: rgba(238,143,203,0.14);
   --notif-hover-bg: rgba(255,255,255,0.06);
+  --border-color: #3E2A3A;
 }
 
 /* Lavender — ungu. Pola turunan sama dengan Sakura. */
@@ -141,6 +145,7 @@
   --track: #D5C2E8;
   --notif-unread-bg: rgba(138,58,174,0.10);
   --notif-hover-bg: rgba(48,36,60,0.05);
+  --border-color: #E2D4F0;
   --radius-sm: 10px;
   --radius-control: 12px;
   --radius-md: 14px;
@@ -184,4 +189,5 @@
   --track: #382D45;
   --notif-unread-bg: rgba(205,162,242,0.14);
   --notif-hover-bg: rgba(255,255,255,0.06);
+  --border-color: #382D45;
 }
