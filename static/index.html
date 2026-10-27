@@ -10858,6 +10858,8 @@ const VIEW_GLYPHS = {
   mUser: '<circle cx="12" cy="8" r="5" fill="currentColor" fill-opacity=".22"/><path d="M20 21a8 8 0 0 0-16 0"/>',
   mMail: '<rect x="2" y="4" width="20" height="16" rx="2" fill="currentColor" fill-opacity=".22"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
   pomoTomato: '<circle cx="12" cy="13.5" r="7.5" fill="currentColor" fill-opacity=".22"/><path d="M12 8V4.5"/><path d="M8.5 6.5 12 8l3.5-1.5"/>',
+  // Pengganti pomoTomato di palet Sakura/Lavender (slot "pomo-glyph"): bunga lima kelopak, isian lembut + garis
+  pomoPetal: '<g fill="currentColor" fill-opacity=".22" stroke-width="1.5"><ellipse cx="12" cy="6.6" rx="3.3" ry="4.4"/><ellipse cx="12" cy="6.6" rx="3.3" ry="4.4" transform="rotate(72 12 12)"/><ellipse cx="12" cy="6.6" rx="3.3" ry="4.4" transform="rotate(144 12 12)"/><ellipse cx="12" cy="6.6" rx="3.3" ry="4.4" transform="rotate(216 12 12)"/><ellipse cx="12" cy="6.6" rx="3.3" ry="4.4" transform="rotate(288 12 12)"/></g><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
   pomoBreak: '<path d="M4 9h13v6a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5Z" fill="currentColor" fill-opacity=".22"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3"/><path d="M12 2v3"/>',
   nNote: '<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" fill="currentColor" fill-opacity=".22"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M8 13h8"/><path d="M8 17h8"/><path d="M8 9h2"/>',
   nTag: '<path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" fill="currentColor" fill-opacity=".22"/><circle cx="7.5" cy="7.5" r="1.2" fill="currentColor"/>',
@@ -10905,6 +10907,9 @@ function ViewGlyph({
   name,
   size = 16
 }) {
+  // Hook tanpa syarat: ViewGlyph selalu dipakai sebagai komponen (React.createElement(ViewGlyph, …)).
+  const { palette, decor } = useThemeAttrs();
+  if (name === "pomoTomato" && decor === "on" && window.TF && window.TF.themes && window.TF.themes.decorFor(palette, "pomo-glyph") === "petal") name = "pomoPetal";
   return React.createElement("svg", {
     width: size,
     height: size,
@@ -13402,7 +13407,7 @@ function TodayFocusView({
     year: "numeric"
   })), React.createElement("div", {
     className: "focus-page-titlebar"
-  }, React.createElement("h1", {
+  }, React.createElement(Decor, { slot: "page-corner" }), React.createElement("h1", {
     className: "focus-page-title"
   }, React.createElement(Icon, {
     name: "target",
@@ -23269,7 +23274,7 @@ function Dashboard({
   /* ── Hero ── */
   /*#__PURE__*/React.createElement("section", {
     className: "dash-hero"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Decor, { slot: "page-corner" }), /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-top"
   }, /*#__PURE__*/React.createElement("div", {
     className: "dash-hero-text"

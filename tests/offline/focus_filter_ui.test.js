@@ -409,7 +409,7 @@ const focuspage = require("../../static/offline/focuspage.js");
 // stub bernama, lalu periksa elemen yang dikembalikan.
 function renderFocusView({ tasks, focusTask = null, zen = false, sharedLists = [], onToggleFocus }) {
   const stubs = {};
-  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph", "EmptyState"]) stubs[n] = n;
+  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph", "EmptyState", "Decor"]) stubs[n] = n;
   const storage = { getItem: k => (k === "tf_focus_zen" && zen ? "1" : null), setItem: () => {} };
   const { TodayFocusView } = loadComponents(["computeOccurrences", "TodayFocusView"], {
     React: { createElement: fakeReact.createElement, Fragment: "Fragment", useEffect: NOOP },
@@ -590,7 +590,7 @@ function mountFocusView({ tasks, focusTask = null, zen = false, running = false,
     : { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } };
   const hooks = createHooks();
   const stubs = {};
-  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph", "EmptyState"]) stubs[n] = n;
+  for (const n of ["PomodoroMiniBar", "PomodoroTimer", "FocusTaskItem", "FocusSectionHead", "FocusTargetSection", "FocusTaskGroups", "FocusFilterBar", "FocusFilterSheet", "FocusGlyph", "PriBadge", "Icon", "ViewGlyph", "EmptyState", "Decor"]) stubs[n] = n;
   const timers = [];
   const doc = { querySelectorAll: () => [], body: { name: "body" }, activeElement: null };
   const { TodayFocusView } = loadWith(["computeOccurrences", "TodayFocusView"], {

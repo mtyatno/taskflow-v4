@@ -29,7 +29,7 @@ test("VIEW_GLYPHS + ViewGlyph (inline, meniru FocusGlyph)", async (t) => {
     const keys = [...mapSrc.matchAll(/^\s{2}(\w+):\s*'/gm)].map(m => m[1]);
     assert.deepEqual(keys, ["normal", "compact", "kanban", "wsTasks", "wsFiles",
       "fFolder", "fPdf", "fSheet", "fImage", "fFile", "fSearch", "fUpload", "fDownload", "fEye", "fChat", "fPin", "fTrash", "fX",
-      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "mMail", "pomoTomato", "pomoBreak",
+      "mSettings", "mLink", "mXCircle", "mUsers", "mUser", "mMail", "pomoTomato", "pomoPetal", "pomoBreak",
       "nNote", "nTag", "nTagOff", "nStar", "nChevronDown", "nChevronUp", "nBacklink", "nPin", "nBrain", "headphones",
       "pPalette", "pChat", "pCalendar", "pRepeat", "pDot", "pTarget", "pFlame", "pHourglass", "pSprout", "pZap", "pCheckCircle", "pPencil",
       "sQuote", "sLightbulb", "sToggle", "sCode", "sListBullet", "sListOrdered", "sChecklist", "sTable", "sDivider", "sparkles", "send",

@@ -3575,7 +3575,7 @@
 .focus-page { width: 100%; max-width: 100%; padding: 0 0 32px; }
 .focus-page-head { margin-bottom: 16px; }
 .focus-page-date { font-size: 13px; color: var(--text-secondary); margin-bottom: 4px; }
-.focus-page-titlebar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.focus-page-titlebar { position: relative; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .focus-page-title { font-size: 24px; font-weight: 700; display: flex; align-items: center; gap: 9px; margin: 0; }
 .focus-page-summary { font-size: 13px; color: var(--text-secondary); }
 .focus-page-strip { display: none; }
@@ -5272,11 +5272,19 @@
 /* ── Dekorasi tema (slot Decor): awal ── */
 .decor { display: inline-block; pointer-events: none; user-select: none; line-height: 0; }
 .decor svg { width: 100%; height: 100%; }
-.decor-page-corner { position: absolute; top: 0; right: 12px; width: 130px; height: 90px; animation: decor-float 6s ease-in-out infinite; }
+.decor-page-corner { position: absolute; top: 0; right: 12px; z-index: 0; width: 130px; height: 90px; animation: decor-float 6s ease-in-out infinite; }
 @keyframes decor-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
 @media (prefers-reduced-motion: reduce) { .decor-page-corner { animation: none; } }
 @media (max-width: 479px) { .decor-page-corner { width: 88px; height: 61px; right: 4px; } }
 .is-zen .decor-page-corner { display: none; }
+/* Pojok halaman di titlebar Fokus & hero Dashboard: isi wadah tetap di atas kelopak. Hero ber-overflow:hidden → turunkan top
+   supaya float -6px tidak terpotong; geser ke kiri kartu progres (kartu ber-latar menutupi pojok kanan). */
+.focus-page-titlebar > .decor ~ * { position: relative; z-index: 1; }
+.dash-hero > .decor ~ * { position: relative; z-index: 1; }
+.dash-hero .decor-page-corner { top: 8px; right: 232px; }
+/* Titlebar Fokus: ringkasan rata kanan → kelopak digeser ke ruang kosong di tengah, naik sedikit agar tidak menimpa kartu Pomodoro. */
+.focus-page-titlebar .decor-page-corner { top: -24px; right: 290px; }
+@media (max-width: 479px) { .dash-hero .decor-page-corner { right: 84px; } }
 /* ── Dekorasi tema (slot Decor): akhir ── */
 
 /* ── Layar kosong bersama (EmptyState): awal ── */

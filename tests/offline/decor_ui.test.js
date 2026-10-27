@@ -121,3 +121,92 @@ test("CSS: ukuran pojok halaman & varian ponsel", () => {
   for (const re of [/position:\s*absolute/, /top:\s*0/, /right:\s*12px/, /width:\s*130px/, /height:\s*90px/, /animation:\s*decor-float 6s ease-in-out infinite/]) assert.match(body, re);
   assert.match(appCss, /@media \(max-width: 479px\)\s*\{\s*\.decor-page-corner\s*\{\s*width:\s*88px;\s*height:\s*61px;\s*right:\s*4px;\s*\}\s*\}/);
 });
+
+// ── Tema PR C, Task 4: kelopak header + glyph kelopak Pomodoro ──
+function renderViewGlyph(attrs, props, { withThemes = true } = {}) {
+  let hookCalls = 0;
+  const start = indexHtml.indexOf("\nconst VIEW_GLYPHS = {");
+  assert.ok(start >= 0, "VIEW_GLYPHS must exist");
+  const end = indexHtml.indexOf("\n};\n", start);
+  const glyphsSrc = indexHtml.slice(start, end + 4);
+  const win = withThemes ? { TF: { themes, decor } } : {};
+  const sandbox = {
+    React: { createElement: h },
+    useThemeAttrs: () => { hookCalls++; return attrs; },
+    window: win,
+    TF: win.TF,
+  };
+  vm.runInNewContext(glyphsSrc + fnSource("ViewGlyph") + "\nthis.ViewGlyph = ViewGlyph; this.VIEW_GLYPHS = VIEW_GLYPHS;", sandbox);
+  const out = sandbox.ViewGlyph(props);
+  return { out, hookCalls, glyphs: sandbox.VIEW_GLYPHS };
+}
+
+const LAVENDER = { theme: "light", palette: "lavender", decor: "on" };
+
+test("VIEW_GLYPHS.pomoPetal: kelopak duotone gaya pomoTomato", () => {
+  const { glyphs } = renderViewGlyph(SAKURA, { name: "pomoTomato" });
+  assert.ok(glyphs.pomoPetal, "pomoPetal ada");
+  assert.match(glyphs.pomoPetal, /fill="currentColor" fill-opacity="\.22"/);
+  assert.match(glyphs.pomoPetal, /<ellipse/);
+  assert.ok(!/var\(--/.test(glyphs.pomoPetal), "warna lewat currentColor, bukan token");
+});
+
+test("ViewGlyph pomoTomato → pomoPetal di sakura/lavender + decor on", () => {
+  for (const attrs of [SAKURA, LAVENDER]) {
+    const { out, glyphs, hookCalls } = renderViewGlyph(attrs, { name: "pomoTomato", size: 14 });
+    assert.equal(out.props.dangerouslySetInnerHTML.__html, glyphs.pomoPetal, attrs.palette);
+    assert.equal(out.props.width, 14);
+    assert.equal(hookCalls, 1);
+  }
+});
+
+test("ViewGlyph pomoTomato tetap tomat di Default atau decor off", () => {
+  for (const attrs of [{ theme: "light", palette: "default", decor: "on" }, { ...SAKURA, decor: "off" }, { ...LAVENDER, decor: "off" }]) {
+    const { out, glyphs, hookCalls } = renderViewGlyph(attrs, { name: "pomoTomato" });
+    assert.equal(out.props.dangerouslySetInnerHTML.__html, glyphs.pomoTomato, JSON.stringify(attrs));
+    assert.equal(hookCalls, 1, "hook dipanggil tanpa syarat");
+  }
+});
+
+test("ViewGlyph pomoTomato tetap tomat bila TF.themes tidak ada (tanpa melempar)", () => {
+  const { out, glyphs } = renderViewGlyph(SAKURA, { name: "pomoTomato" }, { withThemes: false });
+  assert.equal(out.props.dangerouslySetInnerHTML.__html, glyphs.pomoTomato);
+});
+
+test("ViewGlyph nama lain tidak terpengaruh", () => {
+  for (const name of ["pomoBreak", "live", "emptyDone", "sparkles"]) {
+    const { out, glyphs } = renderViewGlyph(SAKURA, { name });
+    assert.equal(out.props.dangerouslySetInnerHTML.__html, glyphs[name], name);
+  }
+  const { out } = renderViewGlyph(SAKURA, { name: "tidakAda" });
+  assert.equal(out.props.dangerouslySetInnerHTML.__html, "");
+});
+
+test("ViewGlyph hanya dipakai sebagai komponen (hook di dalamnya aman)", () => {
+  assert.equal((indexHtml.match(/[^.\w]ViewGlyph\(/g) || []).length, 1, "hanya deklarasi fungsi; tidak ada panggilan biasa");
+  assert.ok(!/\bViewGlyph\.call|\bViewGlyph\.apply/.test(indexHtml));
+});
+
+test("sumber: Decor page-corner ada di titlebar Fokus Hari Ini", () => {
+  const i = indexHtml.indexOf('className: "focus-page-titlebar"');
+  assert.ok(i > 0);
+  const seg = indexHtml.slice(i, indexHtml.indexOf('className: "focus-page-title"', i));
+  assert.match(seg, /React\.createElement\(Decor, \{\s*slot: "page-corner"\s*\}\)/);
+});
+
+test("sumber: Decor page-corner ada di dash-hero", () => {
+  const i = indexHtml.indexOf('className: "dash-hero"');
+  assert.ok(i > 0);
+  const seg = indexHtml.slice(i, indexHtml.indexOf('className: "dash-hero-top"', i));
+  assert.match(seg, /React\.createElement\(Decor, \{\s*slot: "page-corner"\s*\}\)/);
+});
+
+test("CSS: titlebar Fokus & hero menjadi wadah posisi; kelopak di bawah isi, hero tidak memotong float", () => {
+  assert.match(ruleBody(/(?:^|\n)\.focus-page-titlebar\s*\{([^}]*)\}/), /position:\s*relative/);
+  assert.match(ruleBody(/(?:^|\n)\.dash-hero\s*\{([^}]*)\}/), /position:\s*relative/);
+  assert.match(ruleBody(/(?:^|\n)\.decor-page-corner\s*\{([^}]*)\}/), /z-index:\s*0/);
+  const heroTop = ruleBody(/(?:^|\n)\.dash-hero \.decor-page-corner\s*\{([^}]*)\}/);
+  const m = heroTop.match(/top:\s*(\d+)px/);
+  assert.ok(m && Number(m[1]) >= 6, "top ≥ 6px agar float -6px tidak terpotong overflow:hidden hero");
+  assert.match(appCss, /\.focus-page-titlebar > \.decor ~ \*\s*\{[^}]*z-index:\s*1/);
+});
