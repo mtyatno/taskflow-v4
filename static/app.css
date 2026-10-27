@@ -5432,3 +5432,9 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .empty-state-compact { flex-direction: row; gap: 8px; text-align: left; }
 .empty-state-compact .empty-state-title { font-size: inherit; font-weight: inherit; color: inherit; }
 /* ── Layar kosong bersama (EmptyState): akhir ── */
+/* Baris tombol halaman workspace (Tasks, Files, Di-pin, Kelola, Kelola project, Kelola tahap): di layar sempit digulir ke
+   samping, bukan meluber. Luberan membuat halaman lebih lebar dari layar HP, sehingga viewport tata letak ikut melebar dan
+   modal (90% lebar viewport) tampil terpotong/bergeser hanya di halaman workspace. */
+.workspace-nav-tabs { flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.workspace-nav-tabs::-webkit-scrollbar { display: none; }
+.workspace-nav-tabs > * { flex-shrink: 0; white-space: nowrap; }
