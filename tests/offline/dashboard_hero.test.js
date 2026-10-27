@@ -86,7 +86,7 @@ test("chip habit: belum selesai = tombol check-in, selesai = non-interaktif berc
   assert.match(hero, /"aria-label": `\$\{hTitle\} sudah selesai`/);
   assert.match(hero, /className: "dash-hero-chip dash-hero-habit is-done"/);
   assert.match(hero, /heroHabits\.more > 0 && /);
-  assert.match(hero, /onClick: \(\) => onNav\("habits"\)/);
+  assert.match(hero, /onClick: \(\) => onNav\("habit"\)/);
   assert.match(hero, /"aria-label": `Lihat \$\{heroHabits\.more\} habit lainnya`/);
   assert.match(css, /\.dash-hero-habit\.is-done \.dash-hero-habit-name\s*\{[^}]*line-through/);
 });
@@ -102,7 +102,7 @@ test("chip habit dilewati: non-interaktif redup; hanya yang belum dicentang bisa
 test("semua habit selesai/dilewati dan tanpa +N → chip tautan Lihat habit", () => {
   assert.match(hero, /heroHabitsAllSettled && heroHabits\.more === 0 && /);
   assert.match(dash, /const heroHabitsAllSettled = heroHabits\.shown\.length > 0 && heroHabits\.shown\.every\(h => h\.done \|\| h\.skipped\);/);
-  assert.match(hero, /className: "dash-hero-chip dash-hero-more dash-hero-habits-link"[\s\S]{0,120}onClick: \(\) => onNav\("habits"\),\s*"aria-label": "Buka halaman Habit"\s*\}, "Lihat habit"\)/);
+  assert.match(hero, /className: "dash-hero-chip dash-hero-more dash-hero-habits-link"[\s\S]{0,120}onClick: \(\) => onNav\("habit"\),\s*"aria-label": "Buka halaman Habit"\s*\}, "Lihat habit"\)/);
 });
 
 test("streak memakai ViewGlyph pFlame dan disembunyikan bila null", () => {
@@ -146,4 +146,15 @@ test("CSS HP (≤640px): chip Fokus penuh ≥44px, habit satu baris geser, chip 
   assert.match(b, /\.dash-hero-focus-act\s*\{[^}]*min-height: 44px;/);
   assert.match(b, /\.dash-hero-habits\s*\{[^}]*flex-wrap: nowrap;[^}]*overflow-x: auto;/);
   assert.match(b, /\.dash-hero-chip\s*\{[^}]*min-height: 44px;/);
+});
+
+// 2026-10-27: "+N" dan "Lihat habit" sempat memanggil onNav("habits"), padahal id halaman Habit = "habit"
+// (App: page === "habit") — klik jatuh ke halaman daftar task.
+test("hero: tautan ke halaman Habit memakai id halaman \"habit\"", () => {
+  const fs = require("node:fs"), path = require("node:path");
+  const src = fs.readFileSync(path.join(__dirname, "..", "..", "static", "index.html"), "utf8");
+  assert.match(src, /if \(page === "habit"\)/);
+  assert.doesNotMatch(src, /onNav\("habits"\)/);
+  const hero = src.slice(src.indexOf('className: "dash-hero"'), src.indexOf('className: "scratchpad-bar dash-capture"'));
+  assert.ok((hero.match(/onNav\("habit"\)/g) || []).length >= 2, "+N dan Lihat habit harus ke halaman habit");
 });
