@@ -4198,3 +4198,4 @@
 - 2026-10-27 04:40 WIB (Claude): PR #100 (redesain detail task, SW v473) di-merge atas "merge dan deploy" Bapak; workflow Deploy sukses (file statis, tanpa restart). Tindak lanjut terbuka: "Lepas" assignee belum sampai ke server (push mengirim null); subtask antrean TaskFormModal yatim di lokal; tombol .fab menutupi pojok modal di HP.
 - 2026-10-27 08:30 WIB (Claude): detail task padat (permintaan Bapak, laptop 14"): properti satu baris + container query, jarak dirapatkan, properti opsional kosong diringkas. SW v474. Branch `claude/detail-padat`, PR draft.
 - 2026-10-27 08:10 WIB (Claude): PR #101 (detail task padat, SW v474) di-merge Bapak; workflow Deploy sukses.
+- 2026-10-27 08:30 WIB (Claude): scrollbar panel Live Edit disembunyikan (permintaan Bapak), SW v475 silent. Branch `claude/panel-tanpa-scrollbar`, PR draft.

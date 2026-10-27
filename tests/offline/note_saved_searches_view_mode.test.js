@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v474-detail-padat", () => {
-    assert.match(swJs, /taskflow-v474-detail-padat/);
+  await t.test("sw.js bumped to taskflow-v475-panel-tanpa-scrollbar", () => {
+    assert.match(swJs, /taskflow-v475-panel-tanpa-scrollbar/);
   });
 });
