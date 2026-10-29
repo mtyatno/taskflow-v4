@@ -1696,7 +1696,7 @@ from fastapi.middleware.cors import CORSMiddleware
 _CORS_ORIGINS = [
     o.strip() for o in os.environ.get(
         "CORS_ALLOW_ORIGINS",
-        "tauri://localhost,http://tauri.localhost,https://tauri.localhost,https://todo.yatno.web.id",
+        "tauri://localhost,http://tauri.localhost,https://tauri.localhost,https://alurik.com,https://todo.yatno.web.id",
     ).split(",") if o.strip()
 ]
 app.add_middleware(

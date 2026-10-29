@@ -113,7 +113,7 @@ if [ "$SETUP_NGINX" = "y" ] || [ "$SETUP_NGINX" = "Y" ]; then
     if ! command -v nginx &>/dev/null; then
         warn "Nginx belum terinstall. Install dulu: sudo apt install nginx"
     else
-        read -rp "Subdomain (contoh: todo.yatno.web.id): " SUBDOMAIN
+        read -rp "Subdomain (contoh: alurik.com): " SUBDOMAIN
         if [ -n "$SUBDOMAIN" ]; then
             sed -e "s|__SUBDOMAIN__|$SUBDOMAIN|g" \
                 -e "s|__PORT__|$WEB_PORT|g" \

@@ -49,7 +49,7 @@ MEDIA_URL_TTL_SEC = int(os.getenv("MEDIA_URL_TTL_SEC", "21600"))
 MEDIA_STUCK_HOURS = int(os.getenv("MEDIA_STUCK_HOURS", "24"))
 
 # Webapp URL (untuk magic login link)
-WEBAPP_URL = os.getenv("WEBAPP_URL", "https://todo.yatno.web.id")
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://alurik.com")
 
 # Nextcloud (WebDAV)
 NEXTCLOUD_URL = os.getenv("NEXTCLOUD_URL", "")

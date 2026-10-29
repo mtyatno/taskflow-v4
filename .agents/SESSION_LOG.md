@@ -4271,3 +4271,9 @@
 - **Status:** Needs Review (PR draft)
 - 2026-10-28 06:00 WIB (Claude): menu workspace dropdown di HP (permintaan Bapak), SW v485, PR.
 - 2026-10-28 05:56 WIB (Claude): #113 (menu workspace dropdown di HP, SW v486) di-merge + deploy.
+
+## [2026-10-29 07:30] - Claude (Fable 5.1)
+- **Task:** PR migrasi domain `todo.yatno.web.id` → `alurik.com` dengan masa transisi dua domain (permintaan Bapak; sebelum mulai sistem plugin).
+- **Changes:** `config.js` WEB_HOSTS kedua domain + fallback Tauri alurik.com; CSP Tauri connect-src/media-src; default CORS & WEBAPP_URL; `.env.example`; SW v487 + whatsnew; tes baru `test_cors_origins.py`, `test_config_node.py`, tes connect-src; ADR-036; runbook `docs/ops/migrasi-domain-alurik-com.md`. Dikerjakan lewat subagent implementer + subagent reviewer (0 temuan wajib; 3 saran diterapkan).
+- **Files Touch:** static/config.js, src-tauri/tauri.conf.json, webapp.py, config.py, .env.example, install-web.sh, static/sw.js, static/index.html, static/whatsnew.json, tests/offline/{config,sw_media}.test.js + 26 tes versi, tests/test_cors_origins.py, tests/test_config_node.py, docs/ops/migrasi-domain-alurik-com.md, .agents/{DECISIONS,CURRENT_STATE,SESSION_LOG}.md
+- **Status:** Needs Review (PR draft #114). Verifikasi: pytest 1247 passed, 1 skipped (baseline 1240 + 7 tes baru); `npm test` 3497/3498 (1 gagal pra-ada `draw_local_reactive.test.js`); PROTOCOL §4 33 passed; `check_inline_scripts` OK (6).
