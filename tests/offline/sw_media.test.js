@@ -103,9 +103,16 @@ test("sw: precache memuat mediadirective/mediaupload/mediacard", () => {
   }
 });
 
-test("tauri csp media-src memuat https://todo.yatno.web.id", () => {
+test("tauri csp media-src memuat https://alurik.com dan https://todo.yatno.web.id", () => {
   const csp = tauriConf.app.security.csp;
   const media = csp.split(";").map((s) => s.trim()).find((s) => s.startsWith("media-src"));
   assert.ok(media, "media-src ada");
-  assert.deepEqual(media.split(/\s+/), ["media-src", "'self'", "blob:", "https://todo.yatno.web.id"]);
+  assert.deepEqual(media.split(/\s+/), ["media-src", "'self'", "blob:", "https://alurik.com", "https://todo.yatno.web.id"]);
+});
+
+test("tauri csp connect-src memuat https://alurik.com dan https://todo.yatno.web.id", () => {
+  const csp = tauriConf.app.security.csp;
+  const connect = csp.split(";").map((s) => s.trim()).find((s) => s.startsWith("connect-src"));
+  assert.ok(connect, "connect-src ada");
+  assert.deepEqual(connect.split(/\s+/), ["connect-src", "'self'", "https://alurik.com", "https://todo.yatno.web.id"]);
 });
