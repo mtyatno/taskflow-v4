@@ -12,6 +12,9 @@ const STATIC = [
   "/static/themes.css?v=2",  // palet tema; query HARUS sama persis dengan <link> themes.css di index.html
   "/static/ui-components.js",
   "/static/plugin-runtime.js",
+  // plugins:begin — ditulis compile.js dari static/plugins/index.json, jangan edit manual
+  "/static/plugins/index.json",
+  // plugins:end
   "/static/offline/ids.js",
   "/static/offline/db.js",
   "/static/offline/meta.js",

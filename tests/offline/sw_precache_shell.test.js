@@ -457,3 +457,18 @@ test("sw precache: siklus: SW baru install sukses → activate → cache lama te
     assert.equal(await r.text(), "/* " + p + " */");
   }
 });
+
+// Sistem plugin Fase 0a (spec docs/superpowers/specs/2026-10-29-plugin-fase0a-design.md §7, Lampiran A #4): runtime,
+// index.json, dan setiap file plugin bawaan ada di STATIC dengan ?v=<hash> PERSIS seperti yang disuntik loader
+// (`/static/plugins/<id>/<file>?v=<hash>` dari index.json).
+test("sw precache: plugin-runtime.js, plugins/index.json, dan setiap file plugin ?v=<hash> ada di STATIC", () => {
+  const { STATIC } = swGlobals();
+  const idx = JSON.parse(fs.readFileSync(path.join(ROOT, "static/plugins/index.json"), "utf8"));
+  assert.equal(idx.v, 1);
+  const want = ["/static/plugin-runtime.js", "/static/plugins/index.json"];
+  for (const p of idx.plugins) for (const f of p.files) want.push(`/static/plugins/${p.id}/${f}?v=${encodeURIComponent(p.hash)}`);
+  const missing = want.filter(u => !STATIC.includes(u));
+  assert.deepEqual(missing, [], "file plugin tidak di-precache (jalankan node compile.js): " + missing.join(", "));
+  const stale = STATIC.filter(u => u.startsWith("/static/plugins/") && !want.includes(u));
+  assert.deepEqual(stale, [], "entri plugin usang di STATIC: " + stale.join(", "));
+});

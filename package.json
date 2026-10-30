@@ -4,6 +4,7 @@
   "description": "JSX pre-compiler for TaskFlow V4 index.html",
   "scripts": {
     "compile": "node compile.js",
+    "compile:plugins": "node compile.js --plugins-only",
     "test": "node --test \"tests/offline/*.test.js\"",
     "tauri": "tauri"
   },
