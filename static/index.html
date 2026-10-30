@@ -27186,6 +27186,31 @@ function ExtAuthOverlay({
   }, "Batal"))));
 }
 
+// Kartu Pengaturan › Plugin (spec plugin Fase 0a §4.8): status ON/OFF per perangkat di _meta, bekerja offline.
+function PluginSettingsCard({ showToast }) {
+  const P = window.TF && window.TF.plugins;
+  const [, bump] = React.useReducer(x => x + 1, 0);
+  React.useEffect(() => {
+    if (!P) return;
+    const offs = ["plugins.ready", "plugins.changed", "plugins.loaded"].map(n => window.TF.events.on(n, () => bump()));
+    P.init().then(() => bump(), () => bump());
+    return () => offs.forEach(off => off());
+  }, []);
+  if (!P) return null;
+  const items = P.list();
+  const fail = e => showToast(String(e && e.message || e), "error");
+  const toggle = it => P.setEnabled(it.id, !it.enabled).then(() => showToast(it.enabled ? `Plugin ${it.name} dinonaktifkan` : `Plugin ${it.name} diaktifkan`), fail);
+  const copy = it => Promise.resolve(navigator.clipboard?.writeText(JSON.stringify(P.failures(it.id), null, 2))).then(() => showToast("Detail error disalin"), fail);
+  const perm = it => it.permissions.length ? it.permissions.map(p => p === "storage" ? "Menyimpan pengaturan di perangkat ini" : p).join(", ") : "Tidak butuh izin";
+  const hint = (text, key) => /*#__PURE__*/React.createElement("span", { key, className: "theme-card-decor-hint" }, text);
+  return /*#__PURE__*/React.createElement("div", { className: "card theme-card" }, /*#__PURE__*/React.createElement("div", { className: "theme-card-title" }, "Plugin"), /*#__PURE__*/React.createElement("p", { className: "theme-card-hint" }, "Fitur opsional. Status disimpan di perangkat ini."),
+    items.length === 0 ? /*#__PURE__*/React.createElement("p", { className: "theme-card-hint" }, "Belum ada plugin") : items.map(it => /*#__PURE__*/React.createElement("div", { key: it.id, className: "theme-card-decor", style: { alignItems: "flex-start" } },
+      /*#__PURE__*/React.createElement("span", { className: "theme-card-decor-text" },
+        /*#__PURE__*/React.createElement("span", { className: "theme-card-decor-title", id: "plugin-name-" + it.id }, it.name, " ", /*#__PURE__*/React.createElement("span", { className: "theme-card-herobg-badge" }, "Bawaan"), " ", /*#__PURE__*/React.createElement("span", { className: "theme-card-herobg-badge" }, "v" + it.version)),
+        hint(it.description, "d"), hint(perm(it), "p"),
+        it.failed ? /*#__PURE__*/React.createElement("span", { className: "theme-card-decor-hint", role: "status" }, "Error — ", /*#__PURE__*/React.createElement("button", { type: "button", className: "btn btn-secondary btn-sm", onClick: () => P.setEnabled(it.id, true).then(() => showToast(`Plugin ${it.name} diaktifkan`), fail) }, "Aktifkan lagi"), " ", /*#__PURE__*/React.createElement("button", { type: "button", className: "btn btn-secondary btn-sm", onClick: () => copy(it) }, "Salin detail")) : hint(it.loaded ? "Dimuat" : "Belum dimuat", "s")),
+      /*#__PURE__*/React.createElement("button", { type: "button", role: "switch", className: "theme-card-switch", "aria-checked": it.enabled ? "true" : "false", "aria-labelledby": "plugin-name-" + it.id, title: it.enabled ? "Aktif" : "Nonaktif", onClick: () => toggle(it) }, /*#__PURE__*/React.createElement("span", { className: "theme-card-switch-knob" }), /*#__PURE__*/React.createElement("span", { className: "sr-only" }, it.enabled ? "Aktif" : "Nonaktif")))));
+}
 // ── Kartu "Tampilan" (Pengaturan) ───────────────────────────
 // Mode (terang/gelap/ikuti sistem), palet, latar hero (hanya bila registri TF.herobg ada; spec latar-hero §7), dekorasi
 // (hanya bila modul TF.decor ada), pratinjau bertoken + strip hero mini dengan latar terpilih.
@@ -27624,6 +27649,8 @@ function SettingsPage({
     themePrefs: themePrefs,
     resolvedTheme: resolvedTheme,
     onThemePrefs: onThemePrefs
+  }), /*#__PURE__*/React.createElement(PluginSettingsCard, {
+    showToast: showToast
   }), needsSetup ? /*#__PURE__*/React.createElement("div", {
     className: "card account-setup-card",
     style: {
