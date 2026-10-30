@@ -14,6 +14,8 @@ const STATIC = [
   "/static/plugin-runtime.js",
   // plugins:begin — ditulis compile.js dari static/plugins/index.json, jangan edit manual
   "/static/plugins/index.json",
+  "/static/plugins/habit-heatmap/plugin.js?v=2b5a03ed",
+  "/static/plugins/habit-heatmap/style.css?v=2b5a03ed",
   // plugins:end
   "/static/offline/ids.js",
   "/static/offline/db.js",
