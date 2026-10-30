@@ -29,7 +29,27 @@
     }));
   }
 
-  const exported = { metaGet, metaSet };
+  function metaDel(key) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const tx = db.transaction("_meta", "readwrite");
+      tx.objectStore("_meta").delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    }));
+  }
+
+  // Kunci string berawalan `prefix` (urut), mis. ruang plugin `plugin:<id>:`.
+  function metaKeys(prefix) {
+    const p = String(prefix || "");
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const store = db.transaction("_meta", "readonly").objectStore("_meta");
+      const r = p ? store.getAllKeys(IDBKeyRange.bound(p, p + "\uffff")) : store.getAllKeys();
+      r.onsuccess = () => resolve((r.result || []).filter((k) => typeof k === "string" && k.indexOf(p) === 0));
+      r.onerror = () => reject(r.error);
+    }));
+  }
+
+  const exported = { metaGet, metaSet, metaDel, metaKeys };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.meta = exported; }
   return exported;
 });

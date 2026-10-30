@@ -26,6 +26,11 @@
   // ── Resolusi malas modul host ──────────────────────────────────────────────
   const NODE_PATHS = {
     meta: "./offline/meta.js",
+    habitquery: "./offline/habitquery.js",
+    taskroutes: "./offline/taskroutes.js",
+    themes: "./offline/themes.js",
+    safehtml: "./offline/safehtml.js",
+    introgate: "./offline/introgate.js",
   };
   function host(name) {
     const tf = root.TF;
@@ -519,22 +524,289 @@
     apiCache = new Map();
     failureLog = new Map();
     hostBinding = {};
+    taskRouter = null;
+    injectOverride = null;
   }
 
-  // ── Fasad TF.api (diperluas di Task 4) ─────────────────────────────────────
+  // ── Fasad TF.api v1 (spec §4.7) ────────────────────────────────────────────
+  const STORAGE_MAX_BYTES = 64 * 1024;
+  const NAV_PAGES = ["dashboard", "focus", "inbox", "settings"];
+
+  class PluginStorageError extends Error {
+    constructor(message) { super(message); this.name = "PluginStorageError"; }
+  }
+  class PluginPermissionError extends Error {
+    constructor(message) { super(message); this.name = "PluginPermissionError"; }
+  }
+
+  function utf8Bytes(str) {
+    if (typeof TextEncoder !== "undefined") return new TextEncoder().encode(str).length;
+    return unescape(encodeURIComponent(str)).length;
+  }
+
+  function permissionsOf(id) {
+    const r = recs.get(id);
+    if (r && r.manifest) return r.manifest.permissions;
+    const e = index && index.get(id);
+    return (e && Array.isArray(e.permissions)) ? e.permissions : [];
+  }
+
+  function denied(id, message) {
+    const err = new PluginPermissionError(message);
+    markFailed(id, "permission", err);
+    return err;
+  }
+
+  function makeStorage(id) {
+    const prefix = "plugin:" + id + ":";
+    function guard(key) {
+      if (permissionsOf(id).indexOf("storage") < 0) {
+        throw denied(id, "plugin " + id + " tidak punya izin storage");
+      }
+      if (key !== undefined && (typeof key !== "string" || !key || key.length > 128)) {
+        throw new TypeError("kunci storage harus string 1–128 karakter");
+      }
+    }
+    return Object.freeze({
+      get(key) {
+        return Promise.resolve().then(() => { guard(key); return meta().metaGet(prefix + key); })
+          .then((v) => (v === undefined ? null : v));
+      },
+      set(key, value) {
+        return Promise.resolve().then(() => {
+          guard(key);
+          let json;
+          try { json = JSON.stringify(value); } catch (e) { throw new PluginStorageError("nilai tidak bisa diserialisasi JSON: " + e.message); }
+          if (json === undefined) throw new PluginStorageError("nilai tidak bisa diserialisasi JSON");
+          if (utf8Bytes(json) > STORAGE_MAX_BYTES) throw new PluginStorageError("nilai melebihi 64 KB");
+          return meta().metaSet(prefix + key, JSON.parse(json));
+        });
+      },
+      remove(key) {
+        return Promise.resolve().then(() => { guard(key); return meta().metaDel(prefix + key); });
+      },
+      keys() {
+        return Promise.resolve().then(() => { guard(); return meta().metaKeys(prefix); })
+          .then((keys) => keys.map((k) => k.slice(prefix.length)).sort());
+      },
+    });
+  }
+
+  let taskRouter = null;
+  function localTaskRouter() {
+    if (!taskRouter) {
+      const tr = host("taskroutes");
+      if (!tr) throw new Error("TF.taskroutes belum dimuat");
+      taskRouter = tr.buildTaskRouter();
+    }
+    return taskRouter;
+  }
+
+  function timeOf(v) {
+    const t = v ? Date.parse(v) : NaN;
+    return isNaN(t) ? null : t;
+  }
+
+  const data = Object.freeze({
+    habits: Object.freeze({
+      list() {
+        return Promise.resolve().then(() => host("habitquery").getHabits({}));
+      },
+      // Log habit (semua status) dari habit yang masih hidup; log `deleted` dibuang; from/to inklusif (YYYY-MM-DD).
+      logs(q) {
+        const from = (q && q.from) || null;
+        const to = (q && q.to) || null;
+        return Promise.resolve().then(() => host("habitquery").liveLogs()).then((res) => {
+          const idOf = {};
+          for (const h of res.habits) idOf[h.cid] = h.server_id != null ? h.server_id : h.cid;
+          return res.logs
+            .filter((l) => !l.deleted && (!from || l.date >= from) && (!to || l.date <= to))
+            .map((l) => ({ cid: l.cid, habitId: idOf[l.habit_cid], habit_cid: l.habit_cid, date: l.date, status: l.status, skip_reason: l.skip_reason || "" }));
+        });
+      },
+    }),
+    tasks: Object.freeze({
+      // Bentuk sama seperti GET /api/tasks lokal (id = server_id ?? cid). since = ISO; dibandingkan dengan
+      // updated_at (fallback completed_at, created_at).
+      list(q) {
+        const includeDone = !!(q && q.includeDone);
+        const since = q && q.since ? timeOf(q.since) : null;
+        return Promise.resolve()
+          .then(() => localTaskRouter().dispatch("GET", includeDone ? "/api/tasks?include_done=1" : "/api/tasks"))
+          .then((rows) => {
+            const list = Array.isArray(rows) ? rows : [];
+            if (since == null) return list;
+            return list.filter((t) => {
+              const ts = timeOf(t.updated_at) || timeOf(t.completed_at) || timeOf(t.created_at);
+              return ts != null && ts >= since;
+            });
+          });
+      },
+    }),
+  });
+
+  function makeUi(id) {
+    return Object.freeze({
+      toast(message, type) {
+        if (typeof hostBinding.toast === "function") hostBinding.toast(String(message), type || "info");
+        else warn("[plugin:" + id + "] toast:", message);
+      },
+      openTask(taskId) {
+        if (typeof hostBinding.openTask === "function") hostBinding.openTask(taskId);
+        else warn("[plugin:" + id + "] openTask tanpa binding host");
+      },
+      navigate(page) {
+        if (NAV_PAGES.indexOf(page) < 0) throw denied(id, "navigate hanya ke " + NAV_PAGES.join("/") + ", bukan " + page);
+        if (typeof hostBinding.navigate === "function") hostBinding.navigate(page);
+        else warn("[plugin:" + id + "] navigate tanpa binding host");
+      },
+      sanitize(html) {
+        const sh = host("safehtml");
+        if (!sh) throw new Error("TF.safehtml belum dimuat");
+        return sh.restoreAllowedTags(sh.escapeHtml(html));
+      },
+    });
+  }
+
+  const env = Object.freeze({
+    get online() {
+      const nav = root.navigator;
+      return !(nav && nav.onLine === false);
+    },
+    get platform() { return root.__TAURI__ ? "tauri" : "web"; },
+    get theme() {
+      const th = host("themes");
+      const def = (th && th.DEFAULT_PREFS) || { palette: "default", mode: "light" };
+      const el = root.document && root.document.documentElement;
+      const get = (n) => (el && typeof el.getAttribute === "function" ? el.getAttribute(n) : null);
+      return { palette: get("data-palette") || def.palette, mode: get("data-theme") || "light" };
+    },
+    today() { return jktDate(Date.now()); },
+    get userId() {
+      const u = hostBinding.userId;
+      if (typeof u === "function") { try { return u(); } catch (_) { return null; } }
+      if (u != null) return u;
+      const ig = host("introgate");
+      try { return ig ? ig.currentUserId() : null; } catch (_) { return null; }
+    },
+  });
+
+  function makeLog(id) {
+    const tag = "[plugin:" + id + "]";
+    const out = (level) => function () {
+      try { console[level].apply(console, [tag].concat(Array.prototype.slice.call(arguments))); } catch (_) {}
+    };
+    return Object.freeze({ info: out("info"), warn: out("warn"), error: out("error") });
+  }
+
   let apiCache = new Map();
   const api = {
     apiVersion: API_VERSION,
+    PluginStorageError,
+    PluginPermissionError,
     for(id) {
-      if (!apiCache.has(id)) apiCache.set(id, Object.freeze({ id, events: rec(id).events }));
+      if (!apiCache.has(id)) {
+        apiCache.set(id, Object.freeze({
+          id,
+          apiVersion: API_VERSION,
+          events: rec(id).events,
+          storage: makeStorage(id),
+          data,
+          ui: makeUi(id),
+          env,
+          log: makeLog(id),
+        }));
+      }
       return apiCache.get(id);
     },
   };
+
+  // ── Slot dan PluginBoundary (spec §4.5, K13) ───────────────────────────────
+  let Boundary = null;
+  let BoundaryReact = null;
+  function getBoundary() {
+    const React = root.React;
+    if (!React) throw new Error("React belum dimuat");
+    if (Boundary && BoundaryReact === React) return Boundary;
+    class PluginBoundary extends React.Component {
+      constructor(props) {
+        super(props);
+        this.state = { failed: false };
+      }
+      static getDerivedStateFromError() { return { failed: true }; }
+      componentDidCatch(err) { plugins.markFailed(this.props.pluginId, "render", err); }
+      render() { return this.state.failed ? null : (this.props.children === undefined ? null : this.props.children); }
+    }
+    Boundary = PluginBoundary;
+    BoundaryReact = React;
+    return Boundary;
+  }
+
+  function PluginDebugThrow() { throw new Error("TF.plugins._debugThrow"); }
+
+  const SLOT_CLASS = { "dashboard.widgets": "dash-grid-2 dash-plugins" };
+
+  function renderSlot(name, context, className) {
+    const React = root.React;
+    if (!ready || !React) return null;
+    const list = contributions(name);
+    if (!list.length) return null;
+    const ctx = Object.freeze(Object.assign({}, context || {}));
+    const B = getBoundary();
+    const children = list.map((c) => {
+      const r = recs.get(c.pluginId);
+      const Comp = r.debugThrow ? PluginDebugThrow : c.component;
+      return React.createElement(B, { key: c.pluginId + ":" + c.id + ":" + r.gen, pluginId: c.pluginId },
+        React.createElement(Comp, { context: ctx, api: api.for(c.pluginId) }));
+    });
+    return React.createElement("div", { className: className || SLOT_CLASS[name] || "tf-plugin-slot", "data-plugin-slot": name }, children);
+  }
+
+  let injectOverride = null;
+  function loadForSlot(name) {
+    if (!index) return;
+    for (const e of index.values()) {
+      if (!isEnabled(e.id)) continue;
+      if (Array.isArray(e.slots) && e.slots.indexOf(name) < 0) continue;
+      const r = rec(e.id);
+      if (r.instance || r.loadPromise) continue;
+      load(e.id, injectOverride ? { inject: injectOverride } : undefined).catch((err) => warn("load", e.id, err));
+    }
+  }
+
+  // <TF.Slot name context className?/>: kosong sampai init selesai; tanpa wadah bila tak ada kontribusi.
+  function Slot(props) {
+    const React = root.React;
+    const name = props && props.name;
+    const readyAtRender = ready;
+    const force = React.useReducer((x) => x + 1, 0)[1];
+    React.useEffect(() => {
+      const bump = () => force();
+      const offs = ["plugins.ready", "plugins.changed", "plugins.loaded"].map((n) => events.on(n, bump));
+      if (ready !== readyAtRender) bump();
+      return () => offs.forEach((off) => off());
+    }, []);
+    React.useEffect(() => { if (ready) loadForSlot(name); });
+    return renderSlot(name, props && props.context, props && props.className);
+  }
+
+  function _debugThrow(id) {
+    if (!inIndex(id)) return false;
+    const r = rec(id);
+    r.debugThrow = true;
+    r.gen += 1;
+    events.emit("plugins.changed", { id, enabled: isEnabled(id) });
+    return true;
+  }
 
   const plugins = {
     KNOWN_SLOTS, KNOWN_PERMISSIONS, RESERVED_PERMISSIONS, API_VERSION,
     init, list, isEnabled, setEnabled, register, validateManifest, contributions, load, markFailed, failures, bindHost,
     isReady: () => ready,
+    get PluginBoundary() { return getBoundary(); },
+    _renderSlot: renderSlot,
+    _debugThrow,
+    _setDefaultInject(fn) { injectOverride = typeof fn === "function" ? fn : null; },
     _reset,
   };
 
@@ -544,12 +816,13 @@
     try { bridgeUninstall = installBridge(root); } catch (e) { warn("jembatan event gagal:", e); }
   }
 
-  const exported = { plugins, events, api, createBus, jktDate };
+  const exported = { plugins, events, api, Slot, createBus, jktDate };
   if (root && typeof root === "object") {
     root.TF = root.TF || {};
     root.TF.plugins = plugins;
     root.TF.events = events;
     root.TF.api = api;
+    root.TF.Slot = Slot;
   }
   return exported;
 });

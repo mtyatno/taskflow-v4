@@ -87,7 +87,7 @@
     return liveLogs().then(({ habits, logs }) => TFlogic.monthlyCompletion(logs, habits.length, today));
   }
 
-  const exported = { getHabits, getHabitsToday, getHabitsMonthly, getHabitsMonthlyCompletion };
+  const exported = { getHabits, getHabitsToday, getHabitsMonthly, getHabitsMonthlyCompletion, liveLogs };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.habitquery = exported; }
   return exported;
 });
