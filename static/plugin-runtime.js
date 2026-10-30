@@ -42,37 +42,136 @@
     try { console.warn.apply(console, ["[plugins]"].concat(Array.prototype.slice.call(arguments))); } catch (_) {}
   }
 
-  // ── Event bus ──────────────────────────────────────────────────────────────
-  function createBus() {
-    let listeners = new Map(); // name → [{fn, pluginId}]
-    function add(name, fn, pluginId) {
+  // ── Event bus (spec §4.6, K10) ────────────────────────────────────────────
+  // Pendengar dipanggil sinkron, masing-masing dalam try/catch; payload = salinan beku.
+  // Pendengar milik plugin membawa pluginId sehingga error-nya bisa dihitung (§8).
+  function createBus(opts) {
+    const onListenerError = (opts && opts.onListenerError) || null;
+    let listeners = new Map(); // name → [{fn, pluginId, orig}]
+    function add(name, fn, pluginId, orig) {
+      if (typeof name !== "string" || !name) throw new TypeError("nama event wajib string");
       if (typeof fn !== "function") throw new TypeError("pendengar harus fungsi");
-      const entry = { fn, pluginId: pluginId || null };
+      const entry = { fn, pluginId: pluginId || null, orig: orig || fn };
       if (!listeners.has(name)) listeners.set(name, []);
       listeners.get(name).push(entry);
-      return function off() { remove(name, entry); };
+      return function off() { removeEntry(name, entry); };
     }
-    function remove(name, entry) {
+    function removeEntry(name, entry) {
       const arr = listeners.get(name);
       if (!arr) return;
       const i = arr.indexOf(entry);
       if (i >= 0) arr.splice(i, 1);
       if (!arr.length) listeners.delete(name);
     }
+    function removeFn(name, fn, pluginId) {
+      const arr = listeners.get(name);
+      if (!arr) return;
+      const entry = arr.find((e) => e.orig === fn && e.pluginId === (pluginId || null));
+      if (entry) removeEntry(name, entry);
+    }
+    function addOnce(name, fn, pluginId) {
+      let off = null;
+      const wrapped = function (p) { off(); return fn(p); };
+      off = add(name, wrapped, pluginId, fn);
+      return off;
+    }
     function on(name, fn) { return add(name, fn, null); }
+    function once(name, fn) { return addOnce(name, fn, null); }
+    function off(name, fn) { removeFn(name, fn, null); }
     function emit(name, payload) {
       const arr = listeners.get(name);
       if (!arr || !arr.length) return;
       const frozen = Object.freeze(Object.assign({}, payload || {}));
       for (const entry of arr.slice()) {
-        try { entry.fn(frozen); } catch (err) { warn("pendengar", name, "error:", err); }
+        try {
+          entry.fn(frozen);
+        } catch (err) {
+          if (entry.pluginId) {
+            const handler = onListenerError || defaultListenerError;
+            try { handler(entry.pluginId, err); } catch (e2) { warn("onListenerError gagal:", e2); }
+          } else {
+            warn("pendengar host", name, "error:", err);
+          }
+        }
       }
     }
+    // Pandangan per plugin: emit hanya `<id>.*`; offAll melepas semua pendengar milik plugin itu.
+    function scoped(pluginId) {
+      const prefix = pluginId + ".";
+      const offs = new Set();
+      function track(off) {
+        const wrapped = function () { offs.delete(wrapped); off(); };
+        offs.add(wrapped);
+        return wrapped;
+      }
+      return Object.freeze({
+        on: (name, fn) => track(add(name, fn, pluginId)),
+        once: (name, fn) => track(addOnce(name, fn, pluginId)),
+        off: (name, fn) => removeFn(name, fn, pluginId),
+        emit(name, payload) {
+          if (typeof name !== "string" || name.indexOf(prefix) !== 0 || name.length <= prefix.length) {
+            throw new Error("plugin " + pluginId + " hanya boleh memancarkan event berawalan " + prefix);
+          }
+          emit(name, payload);
+        },
+        offAll() {
+          for (const name of Array.from(listeners.keys())) {
+            const arr = listeners.get(name).filter((e) => e.pluginId !== pluginId);
+            if (arr.length) listeners.set(name, arr); else listeners.delete(name);
+          }
+          offs.clear();
+        },
+      });
+    }
     function _clear() { listeners = new Map(); }
-    return { on, emit, _add: add, _clear };
+    return { on, once, off, emit, scoped, _clear };
+  }
+
+  function defaultListenerError(pluginId, err) {
+    plugins.markFailed(pluginId, "listener", err);
+  }
+
+  // Tanggal Asia/Jakarta (UTC+7, tanpa DST) dalam YYYY-MM-DD.
+  function jktDate(ms) {
+    return new Date((ms == null ? Date.now() : ms) + 7 * 3600 * 1000).toISOString().slice(0, 10);
+  }
+
+  // Jembatan event window host → bus (R1). Event tf:* tidak diteruskan apa adanya ke plugin.
+  function installBridge(target, opts) {
+    const o = opts || {};
+    const now = o.now || (() => Date.now());
+    const setI = o.setInterval || ((fn, ms) => setInterval(fn, ms));
+    const clearI = o.clearInterval || ((h) => clearInterval(h));
+    let syncRunning = false;
+    const handlers = {
+      habitSaved: () => events.emit("habit.changed", {}),
+      "tf:initial-sync": () => events.emit("sync.done", { initial: true }),
+      "tf:sync-state": (e) => {
+        const d = (e && e.detail) || {};
+        const running = !!d.running;
+        if (syncRunning && !running) events.emit("sync.done", { initial: false });
+        syncRunning = running;
+      },
+      online: () => events.emit("app.online", {}),
+      offline: () => events.emit("app.offline", {}),
+    };
+    for (const name of Object.keys(handlers)) target.addEventListener(name, handlers[name]);
+    let lastDate = jktDate(now());
+    const timer = setI(() => {
+      const d = jktDate(now());
+      if (d !== lastDate) {
+        lastDate = d;
+        events.emit("app.dayChanged", { date: d });
+      }
+    }, 60000);
+    return function uninstall() {
+      for (const name of Object.keys(handlers)) target.removeEventListener(name, handlers[name]);
+      clearI(timer);
+    };
   }
 
   const events = createBus();
+  events.installBridge = installBridge;
 
   // ── Registry dan status ────────────────────────────────────────────────────
   let index = null;        // Map id → entri index.json
@@ -90,7 +189,7 @@
   }
   function inIndex(id) { return !!(index && index.has(id)); }
   function rec(id) {
-    if (!recs.has(id)) recs.set(id, { manifest: null, factory: null, instance: null, loaded: false, failed: null });
+    if (!recs.has(id)) recs.set(id, { manifest: null, factory: null, instance: null, loaded: false, failed: null, events: events.scoped(id) });
     return recs.get(id);
   }
 
@@ -153,6 +252,7 @@
     try {
       inst = r.factory(api.for(id)) || {};
     } catch (err) {
+      r.events.offAll();
       warn("factory", id, "error:", err);
       return;
     }
@@ -168,6 +268,7 @@
     if (!r || !r.instance) return;
     const inst = r.instance;
     r.instance = null;
+    r.events.offAll();
     if (typeof inst.onDisable === "function") {
       try { inst.onDisable(); } catch (err) { warn("onDisable", id, "error:", err); }
     }
@@ -287,19 +388,29 @@
   const api = {
     apiVersion: API_VERSION,
     for(id) {
-      if (!apiCache.has(id)) apiCache.set(id, Object.freeze({ id }));
+      if (!apiCache.has(id)) apiCache.set(id, Object.freeze({ id, events: rec(id).events }));
       return apiCache.get(id);
     },
   };
 
+  function markFailed(id, kind, err) {
+    warn("plugin", id, "gagal (" + kind + "):", err);
+  }
+
   const plugins = {
     KNOWN_SLOTS, KNOWN_PERMISSIONS, RESERVED_PERMISSIONS, API_VERSION,
-    init, list, isEnabled, setEnabled, register, validateManifest, contributions, load,
+    init, list, isEnabled, setEnabled, register, validateManifest, contributions, load, markFailed,
     isReady: () => ready,
     _reset,
   };
 
-  const exported = { plugins, events, api };
+  // Browser: pasang jembatan event window sekali saat file dimuat.
+  let bridgeUninstall = null;
+  if (!isNode && typeof root.addEventListener === "function") {
+    try { bridgeUninstall = installBridge(root); } catch (e) { warn("jembatan event gagal:", e); }
+  }
+
+  const exported = { plugins, events, api, createBus, jktDate };
   if (root && typeof root === "object") {
     root.TF = root.TF || {};
     root.TF.plugins = plugins;
