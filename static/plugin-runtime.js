@@ -189,7 +189,13 @@
   }
   function inIndex(id) { return !!(index && index.has(id)); }
   function rec(id) {
-    if (!recs.has(id)) recs.set(id, { manifest: null, factory: null, instance: null, loaded: false, failed: null, events: events.scoped(id) });
+    if (!recs.has(id)) {
+      recs.set(id, {
+        manifest: null, factory: null, instance: null, loaded: false, failed: null,
+        errorCount: 0, loadToastShown: false, loadPromise: null, pendingLoad: null,
+        debugThrow: false, gen: 0, events: events.scoped(id),
+      });
+    }
     return recs.get(id);
   }
 
@@ -253,7 +259,7 @@
       inst = r.factory(api.for(id)) || {};
     } catch (err) {
       r.events.offAll();
-      warn("factory", id, "error:", err);
+      markFailed(id, "factory", err);
       return;
     }
     r.instance = inst;
@@ -278,7 +284,14 @@
     if (!inIndex(id)) return Promise.reject(new Error("plugin tidak dikenal: " + id));
     const enabled = !!on;
     enabledState[id] = { enabled, updatedAt: new Date().toISOString() };
-    if (enabled) activate(id);
+    if (enabled) {
+      // "Aktifkan lagi": kesempatan baru untuk error render/pendengar (gagal load tetap per sesi).
+      const r = rec(id);
+      r.errorCount = 0;
+      r.debugThrow = false;
+      if (r.failed && r.failed !== "load") r.failed = null;
+      activate(id);
+    }
     else deactivate(id);
     events.emit("plugins.changed", { id, enabled });
     return persistState();
@@ -290,19 +303,19 @@
       warn("register diabaikan: id tidak ada di index.json:", id);
       return false;
     }
-    const v = validateManifest(manifest, index);
-    if (!v.ok) {
-      warn("manifest", id, "tidak valid:", v.reason);
-      return false;
-    }
-    if (typeof factory !== "function") {
-      warn("register", id, ": factory bukan fungsi");
-      return false;
-    }
     const r = rec(id);
+    let v = validateManifest(manifest, index);
+    if (v.ok && typeof factory !== "function") v = { ok: false, reason: "factory bukan fungsi" };
+    if (!v.ok) {
+      markFailed(id, "manifest", new Error(v.reason));
+      settleLoad(r, false);
+      return false;
+    }
     r.manifest = Object.freeze(Object.assign({}, manifest, { slots: manifest.slots.slice(), permissions: manifest.permissions.slice() }));
     r.factory = factory;
     activate(id);
+    settleLoad(r, !!r.instance);
+    if (r.instance) events.emit("plugins.loaded", { id });
     return true;
   }
 
@@ -326,11 +339,133 @@
     return out;
   }
 
-  function load(id) {
+  function settleLoad(r, ok) {
+    if (r.pendingLoad) r.pendingLoad(ok);
+  }
+
+  // Penyuntik bawaan: <script> klasik (K12) dan <link rel=stylesheet>.
+  function defaultInject(url, kind) {
+    return new Promise((resolve, reject) => {
+      const doc = root.document;
+      if (!doc) { reject(new Error("tidak ada document")); return; }
+      const el = kind === "style" ? doc.createElement("link") : doc.createElement("script");
+      if (kind === "style") { el.rel = "stylesheet"; el.href = url; } else { el.src = url; el.async = true; }
+      el.onload = () => resolve();
+      el.onerror = () => reject(new Error("gagal memuat " + url));
+      (doc.head || doc.documentElement).appendChild(el);
+    });
+  }
+
+  // Lazy-execute (§4.2 langkah 4–5): idempoten per sesi; gagal load tidak dicoba ulang sampai sesi berikutnya.
+  function load(id, opts) {
     if (!inIndex(id) || !isEnabled(id)) return Promise.resolve(false);
     const r = rec(id);
     if (r.factory) { activate(id); return Promise.resolve(!!r.instance); }
-    return Promise.resolve(false);
+    if (r.loadPromise) return r.loadPromise;
+    const o = opts || {};
+    const inject = o.inject || defaultInject;
+    const timeoutMs = typeof o.timeoutMs === "number" ? o.timeoutMs : 10000;
+    const entry = index.get(id);
+    const v = encodeURIComponent(String(entry.hash || ""));
+    const base = "/static/plugins/" + id + "/";
+    const files = Array.isArray(entry.files) ? entry.files : ["plugin.js"];
+    r.loadPromise = new Promise((resolve) => {
+      let done = false;
+      let timer = null;
+      const finish = (ok) => {
+        if (done) return;
+        done = true;
+        if (timer) clearTimeout(timer);
+        r.pendingLoad = null;
+        resolve(ok);
+      };
+      r.pendingLoad = finish;
+      timer = setTimeout(() => {
+        if (done) return;
+        markFailed(id, "load", new Error("register tidak terpanggil dalam " + timeoutMs + " ms"));
+        finish(false);
+      }, timeoutMs);
+      if (files.indexOf("style.css") >= 0) {
+        Promise.resolve().then(() => inject(base + "style.css?v=" + v, "style"))
+          .catch((err) => warn("style.css", id, "gagal dimuat:", err));
+      }
+      Promise.resolve().then(() => inject(base + "plugin.js?v=" + v, "script")).catch((err) => {
+        if (done) return;
+        markFailed(id, "load", err);
+        finish(false);
+      });
+    });
+    return r.loadPromise;
+  }
+
+  // ── Kegagalan (§8) ─────────────────────────────────────────────────────────
+  const COUNTED_KINDS = ["render", "listener", "factory", "permission"];
+  let failureLog = new Map(); // id → [{id, kind, message, stack, at}] (plugins:failed:v1, hanya memori sesi)
+  let hostBinding = {};
+
+  function bindHost(b) { hostBinding = Object.assign({}, b || {}); }
+
+  function hostToast(message, type) {
+    if (typeof hostBinding.toast === "function") {
+      try { hostBinding.toast(message, type); return; } catch (e) { warn("toast host gagal:", e); }
+    }
+    warn(message);
+  }
+
+  function displayName(id) {
+    const r = recs.get(id);
+    if (r && r.manifest && r.manifest.name) return r.manifest.name;
+    const e = index && index.get(id);
+    return (e && e.name) || id;
+  }
+
+  function markFailed(id, kind, err) {
+    const e = err instanceof Error ? err : new Error(String(err == null ? "error" : err));
+    if (e.__tfPluginCounted) return;
+    try { Object.defineProperty(e, "__tfPluginCounted", { value: true }); } catch (_) {}
+    if (!failureLog.has(id)) failureLog.set(id, []);
+    const log = failureLog.get(id);
+    log.push({ id, kind, message: String(e.message || e), stack: String(e.stack || ""), at: new Date().toISOString() });
+    if (log.length > 10) log.shift();
+    warn("plugin", id, "gagal (" + kind + "):", e);
+    if (!inIndex(id)) return;
+    const r = rec(id);
+    const name = displayName(id);
+    if (kind === "load") {
+      r.failed = "load";
+      if (!r.loadToastShown) {
+        r.loadToastShown = true;
+        hostToast("Plugin " + name + " gagal dimuat", "error");
+      }
+      return;
+    }
+    if (kind === "manifest") {
+      r.failed = "manifest";
+      deactivate(id);
+      hostToast("Plugin " + name + " dimatikan: " + e.message, "error");
+      if (isEnabled(id)) setEnabledInternal(id, false);
+      return;
+    }
+    if (COUNTED_KINDS.indexOf(kind) < 0) return;
+    if (!isEnabled(id)) return;
+    r.errorCount += 1;
+    r.failed = kind;
+    r.debugThrow = false;
+    if (r.errorCount >= 2) {
+      hostToast("Plugin " + name + " dimatikan karena error", "error");
+      setEnabledInternal(id, false);
+    } else {
+      hostToast("Plugin " + name + " mengalami error", "error");
+    }
+  }
+
+  // OFF otomatis; penanda `failed` dibiarkan agar kartu Pengaturan menampilkan "Aktifkan lagi".
+  function setEnabledInternal(id, on) {
+    setEnabled(id, on).catch((err) => warn("simpan status gagal:", err));
+  }
+
+  function failures(id) {
+    return (failureLog.get(id) || []).map((f) => Object.assign({}, f));
   }
 
   function defaultFetchIndex() {
@@ -351,6 +486,7 @@
   function init(opts) {
     if (initPromise) return initPromise;
     const fetchIndex = (opts && opts.fetchIndex) || defaultFetchIndex;
+    failureLog = new Map();
     initPromise = Promise.resolve()
       .then(() => fetchIndex())
       .then((idx) => {
@@ -381,6 +517,8 @@
     ready = false;
     events._clear();
     apiCache = new Map();
+    failureLog = new Map();
+    hostBinding = {};
   }
 
   // ── Fasad TF.api (diperluas di Task 4) ─────────────────────────────────────
@@ -393,13 +531,9 @@
     },
   };
 
-  function markFailed(id, kind, err) {
-    warn("plugin", id, "gagal (" + kind + "):", err);
-  }
-
   const plugins = {
     KNOWN_SLOTS, KNOWN_PERMISSIONS, RESERVED_PERMISSIONS, API_VERSION,
-    init, list, isEnabled, setEnabled, register, validateManifest, contributions, load, markFailed,
+    init, list, isEnabled, setEnabled, register, validateManifest, contributions, load, markFailed, failures, bindHost,
     isReady: () => ready,
     _reset,
   };
