@@ -11,6 +11,7 @@ const STATIC = [
   "/static/app.css?v=382",  // query HARUS sama persis dengan <link> app.css di index.html (catch-all mencocokkan URL persis)
   "/static/themes.css?v=2",  // palet tema; query HARUS sama persis dengan <link> themes.css di index.html
   "/static/ui-components.js",
+  "/static/plugin-runtime.js",
   "/static/offline/ids.js",
   "/static/offline/db.js",
   "/static/offline/meta.js",
