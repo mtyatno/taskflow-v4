@@ -27,7 +27,8 @@ penyimpanan; rename = plugin baru).
 
 1. `plugin.jsx` → `plugin.js` (Babel `preset-react` classic, header `// generated from plugin.jsx — jangan edit`).
    Isi `manifest.json` disuntik sebagai konstanta `manifest` di awal file.
-2. Lint: `plugin.js` yang mengandung `tokenStore`, `API_BASE`, `fetch(` atau `localStorage` → build gagal.
+2. Lint: `plugin.js` yang mengandung `tokenStore`, `API_BASE`, `fetch(`, `window.fetch`, `localStorage`, `indexedDB`,
+   `XMLHttpRequest`, `innerHTML`, `TF.api.for(` atau `window.TF.meta|db|taskroutes` → build gagal.
 3. Menulis `static/plugins/index.json`: `{v: 1, plugins: [{id, name, description, version, minApi, slots,
    permissions, defaultEnabled, files, hash}]}`; `hash` = sha1 8 hex gabungan isi `files`.
 4. Menulis ulang blok `// plugins:begin … // plugins:end` di `STATIC` `static/sw.js`: `index.json` + tiap file
@@ -74,7 +75,8 @@ Manifest tidak valid → plugin otomatis OFF dengan toast berisi alasannya. `reg
 - `factory(api)` mengembalikan `{ slots: { "dashboard.widgets": [{ id, order, component }] }, onEnable?, onDisable? }`.
 - **ON → OFF**: semua pendengar `api.events` plugin dilepas, `onDisable()` dipanggil, slot dirender ulang.
   Data plugin (`api.storage`) **tidak** dihapus.
-- `register` tidak terpanggil dalam 10 s / skrip gagal diunduh → gagal untuk sesi ini (status tetap ON).
+- `register` tidak terpanggil dalam 10 s / skrip gagal diunduh → gagal untuk sesi ini (status tetap ON); bila
+  `register` akhirnya terpanggil, penanda gagal dihapus. `factory` yang melempar → plugin langsung OFF.
 
 ## 5. `TF.api` v1
 
@@ -143,8 +145,8 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
 3. **Shell dibekukan.** Fitur yang bisa jadi plugin tidak masuk `index.html`; host tidak boleh berisi
    `if (pluginId === "...")` — kebutuhan baru = slot/event/izin baru yang terdokumentasi.
 4. **Precache, bukan runtime cache.** File plugin masuk `STATIC` lewat `compile.js` (jangan tulis tangan).
-5. **Gagal aman.** Render/pendengar dibungkus runtime: error ke-1 → slot plugin kosong + toast; ke-2 dalam
-   satu sesi → otomatis OFF + toast "Plugin {nama} dimatikan karena error"; Pengaturan menawarkan "Aktifkan
+5. **Gagal aman.** Error di `factory` (deterministik) → langsung OFF. Render/pendengar dibungkus runtime: error
+   ke-1 → slot plugin kosong + toast; ke-2 dalam satu sesi → otomatis OFF + toast "Plugin {nama} dimatikan karena error"; Pengaturan menawarkan "Aktifkan
    lagi" dan "Salin detail". Jangan menelan error diam-diam; pakai `api.log`.
 6. **Warna dari token tema** (`var(--accent)`, `var(--bg-card)`, `var(--border)`, `color-mix(...)`), tanpa hex
    tetap, agar ikut palet Default/Sakura/Lavender dan terang/gelap. Kelas CSS berawalan `.plg-<id>-`;

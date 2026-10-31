@@ -151,6 +151,15 @@ test("fixture: lint menolak localStorage / fetch( / tokenStore / API_BASE di plu
   }
 });
 
+// Temuan review akhir #4: pola lint tambahan.
+test("fixture: lint menolak innerHTML / indexedDB / XMLHttpRequest / window.fetch / TF.api.for( / window.TF.meta|db|taskroutes", (t) => {
+  for (const bad of ["document.body.innerHTML = 'x';", "indexedDB.open('x');", "new XMLHttpRequest();", "window.fetch;",
+    "window.TF.api.for('lain');", "window.TF.meta.metaGet('x');", "window.TF.db.openDB();", "window.TF.taskroutes.buildTaskRouter();"]) {
+    const fx = fixture(t, { "demo-bad": { "plugin.jsx": SRC + bad + "\n", "manifest.json": JSON.stringify(manifest("demo-bad")) } });
+    assert.throws(() => build.buildPlugins(Object.assign({ log: () => {} }, fx)), /lint/i, bad);
+  }
+});
+
 test("fixture: gagal kompilasi, manifest.json hilang, atau id ≠ folder → error", (t) => {
   const a = fixture(t, { "demo-syntax": { "plugin.jsx": "function (\n", "manifest.json": JSON.stringify(manifest("demo-syntax")) } });
   assert.throws(() => build.buildPlugins(Object.assign({ log: () => {} }, a)), /demo-syntax/);

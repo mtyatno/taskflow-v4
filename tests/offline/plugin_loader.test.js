@@ -100,13 +100,13 @@ test("manifest invalid saat dimuat → otomatis OFF (tersimpan), failed:'manifes
   assert.match(toasts[0][0], /network/);
 });
 
-test("factory melempar saat dimuat → load false, dihitung sebagai error", async () => {
+test("factory melempar saat dimuat → load false, langsung OFF (deterministik)", async () => {
   const inject = (url, kind) => {
     if (kind === "script") setTimeout(() => P.register(MANIFEST, () => { throw new Error("factory rusak"); }), 1);
     return Promise.resolve();
   };
   assert.equal(await P.load("habit-heatmap", { inject, timeoutMs: 1000 }), false);
   assert.equal(P.list()[0].failed, "factory");
-  assert.equal(P.isEnabled("habit-heatmap"), true);
+  assert.equal(P.isEnabled("habit-heatmap"), false);
   assert.deepEqual(P.contributions("dashboard.widgets"), []);
 });

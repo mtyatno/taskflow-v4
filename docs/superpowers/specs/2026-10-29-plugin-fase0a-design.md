@@ -203,7 +203,7 @@ Tidak ada di v1: `fetch` (0b), `records` (1), `settings.project` (1), `secrets`,
 1. Perilaku lama untuk `index.html` tetap (guard "already compiled").
 2. Baru: untuk setiap `static/plugins/<id>/plugin.jsx` (lewati `_template`): Babel `preset-react` classic → `plugin.js`; header komentar `// generated from plugin.jsx — jangan edit`; gagal kompilasi satu plugin → proses keluar dengan kode 1 (tidak diam-diam melewati).
 3. Tulis `static/plugins/index.json`: `{ "v": 1, "plugins": [{ "id", "name", "description", "version", "minApi", "slots", "permissions", "defaultEnabled", "files": ["plugin.js", "style.css"], "hash": "<sha1 8 hex gabungan isi files>" }] }`. Manifest dibaca dari `manifest.json` di folder plugin, **wajib** (tanpa file itu, JSON tidak valid, field hilang, atau `id` ≠ nama folder → exit 1) dan disuntik ke `plugin.js` sebagai konstanta `manifest`; tidak ada pembacaan regex dari `register({...})`.
-3a. Tulis ulang blok `// plugins:begin … // plugins:end` di `STATIC` `static/sw.js` dari `index.json` (idempoten; dua kali `node compile.js` tanpa diff). Lint: `plugin.js` yang mengandung `tokenStore`, `API_BASE`, `fetch(`, `localStorage` → exit 1.
+3a. Tulis ulang blok `// plugins:begin … // plugins:end` di `STATIC` `static/sw.js` dari `index.json` (idempoten; dua kali `node compile.js` tanpa diff). Lint (§11.2) → exit 1.
 4. `package.json` script `compile` tetap; tambah `compile:plugins` untuk menjalankan bagian plugin saja saat pengembangan.
 5. Tes build: `tests/build-plugins.test.js` memverifikasi `index.json` konsisten dengan folder dan `hash` berubah bila isi berubah.
 
@@ -220,7 +220,8 @@ Tidak ada di v1: `fetch` (0b), `records` (1), `settings.project` (1), `secrets`,
 |---|---|
 | `plugin.js` gagal diunduh / `register` tidak terpanggil dalam 10 s | `markFailed(id, "load")`; slot kosong untuk plugin itu; toast sekali per sesi; status tetap ON (bisa karena cache lama), dicoba lagi di sesi berikutnya |
 | Manifest tidak valid / `minApi` terlalu tinggi / slot atau izin tidak dikenal | `markFailed(id, "manifest")`; **otomatis OFF** (tidak akan berhasil di sesi berikutnya juga); toast dengan alasan singkat |
-| Error di `factory` atau render (ditangkap `PluginBoundary`) | hitung per plugin per sesi; ke-1 → render kosong + toast; ke-2 → otomatis OFF + toast "dimatikan karena error" |
+| Error di `factory` | deterministik (akan terulang tiap muat) → **langsung OFF** + toast "dimatikan karena error" (temuan review akhir) |
+| Error render (ditangkap `PluginBoundary`) | hitung per plugin per sesi; ke-1 → render kosong + toast; ke-2 → otomatis OFF + toast "dimatikan karena error" |
 | Error di pendengar event | sama seperti render |
 | Plugin memanggil API di luar izin | `TF.api` melempar `PluginPermissionError`; dihitung sebagai error |
 
@@ -257,7 +258,7 @@ Detail error terakhir per plugin disimpan di memori (`plugins:failed:v1`) dan bi
 ### 11.2 Statis
 
 - `check_inline_scripts` tetap lolos (tidak ada skrip inline baru di `index.html`).
-- Lint sederhana di `compile.js`: `plugin.js` tidak boleh mengandung `tokenStore`, `API_BASE`, `fetch(`, `localStorage` → gagal build dengan pesan. (Pagar murah; bukan sandbox.)
+- Lint sederhana di `compile.js`: `plugin.js` tidak boleh mengandung `tokenStore`, `API_BASE`, `fetch(`, `window.fetch`, `localStorage`, `indexedDB`, `XMLHttpRequest`, `innerHTML`, `TF.api.for(`, `window.TF.meta|db|taskroutes` → gagal build dengan pesan. (Pagar murah; bukan sandbox.)
 
 ### 11.3 E2E manual (Chrome desktop + PWA HP)
 

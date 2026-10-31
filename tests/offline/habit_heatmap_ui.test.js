@@ -57,6 +57,20 @@ test("tanpa jaringan / penyimpanan browser / modul host (Lampiran A #10)", () =>
   assert.doesNotMatch(jsx, /fetch\(|localStorage|tokenStore|API_BASE|window\.TF\.(?!plugins\.register)/);
 });
 
+// Temuan review akhir #2: tidak menghitung ulang grid tiap render (Pomodoro memicu render tiap detik).
+test("HeatmapCard memoize grid/bucket (deps [src, metric, today, wide]) dan SVG dibungkus React.memo", () => {
+  assert.match(jsx, /React\.useMemo\(\(\) => \{[\s\S]*?buildGrid\([\s\S]*?bucketByDate\([\s\S]*?\}, \[src, metric, today, wide\]\)/);
+  assert.match(jsx, /React\.memo\(HeatmapSvg\)/);
+  assert.equal(typeof H.HeatmapSvg, "function", "HeatmapSvg murni tetap diekspor untuk tes");
+});
+
+// Temuan review akhir #5: storage.get("metric") yang terlambat tidak menimpa pilihan yang sudah diklik.
+test("metric tersimpan yang terlambat tidak menimpa klik pengguna", () => {
+  assert.match(jsx, /const pickedRef = React\.useRef\(false\)/);
+  assert.match(jsx, /if \(alive && !pickedRef\.current && METRICS\.some/);
+  assert.match(jsx, /pickedRef\.current = true;/);
+});
+
 // React palsu: createElement → {type, props, children}
 function withFakeReact(fn) {
   const prev = global.React;

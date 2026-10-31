@@ -312,13 +312,17 @@
     let v = validateManifest(manifest, index);
     if (v.ok && typeof factory !== "function") v = { ok: false, reason: "factory bukan fungsi" };
     if (!v.ok) {
-      markFailed(id, "manifest", new Error(v.reason));
+      // Plugin OFF: tidak ada yang perlu dimatikan, jadi cukup peringatan (tanpa toast ke pengguna).
+      if (isEnabled(id)) markFailed(id, "manifest", new Error(v.reason));
+      else warn("register", id, "ditolak (plugin OFF):", v.reason);
       settleLoad(r, false);
       return false;
     }
     r.manifest = Object.freeze(Object.assign({}, manifest, { slots: manifest.slots.slice(), permissions: manifest.permissions.slice() }));
     r.factory = factory;
     activate(id);
+    // register yang terlambat (setelah timeout load) tetap sah: hapus penanda gagal load agar Pengaturan bersih.
+    if (r.instance && r.failed === "load") r.failed = null;
     settleLoad(r, !!r.instance);
     if (r.instance) events.emit("plugins.loaded", { id });
     return true;
@@ -404,7 +408,7 @@
   }
 
   // ── Kegagalan (§8) ─────────────────────────────────────────────────────────
-  const COUNTED_KINDS = ["render", "listener", "factory", "permission"];
+  const COUNTED_KINDS = ["render", "listener", "permission"];
   let failureLog = new Map(); // id → [{id, kind, message, stack, at}] (plugins:failed:v1, hanya memori sesi)
   let hostBinding = {};
 
@@ -449,6 +453,16 @@
       deactivate(id);
       hostToast("Plugin " + name + " dimatikan: " + e.message, "error");
       if (isEnabled(id)) setEnabledInternal(id, false);
+      return;
+    }
+    // Error factory deterministik (akan terulang tiap muat) → langsung OFF, tanpa menunggu error ke-2.
+    if (kind === "factory") {
+      r.failed = "factory";
+      deactivate(id);
+      if (isEnabled(id)) {
+        hostToast("Plugin " + name + " dimatikan karena error", "error");
+        setEnabledInternal(id, false);
+      }
       return;
     }
     if (COUNTED_KINDS.indexOf(kind) < 0) return;

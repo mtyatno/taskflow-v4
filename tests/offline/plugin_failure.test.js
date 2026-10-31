@@ -100,3 +100,50 @@ test("init() membersihkan detail gagal sesi sebelumnya", async () => {
   await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
   assert.deepEqual(P.failures("habit-heatmap"), []);
 });
+
+// Temuan review akhir #1: error factory deterministik → langsung OFF (seperti manifest), toast sekali.
+test("factory melempar → OFF setelah 1 kali + toast 'dimatikan karena error'; sesi berikutnya tanpa toast/muat ulang", async () => {
+  P.register(MANIFEST, () => { throw new Error("factory rusak"); });
+  assert.equal(P.isEnabled("habit-heatmap"), false);
+  assert.equal(P.list()[0].failed, "factory");
+  assert.deepEqual(toasts, [["Plugin Heatmap Habit dimatikan karena error", "error"]]);
+  await tick();
+  assert.equal((await metaGet("plugins:state:v1"))["habit-heatmap"].enabled, false);
+  // sesi berikutnya: status OFF tersimpan → tidak dimuat, tidak ada toast
+  P._reset();
+  await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
+  const t2 = [];
+  P.bindHost({ toast: (m, t) => t2.push([m, t]) });
+  let injected = 0;
+  assert.equal(await P.load("habit-heatmap", { inject: () => { injected++; return Promise.resolve(); }, timeoutMs: 20 }), false);
+  assert.equal(P.isEnabled("habit-heatmap"), false);
+  assert.equal(injected, 0);
+  assert.deepEqual(t2, []);
+});
+
+// Temuan review akhir #3a: register yang terlambat (setelah timeout load) berhasil → penanda gagal dikosongkan.
+test("register berhasil setelah timeout load → failed dikosongkan, kontribusi tersedia", async () => {
+  const comp = () => null;
+  const inject = (url, kind) => {
+    if (kind === "script") setTimeout(() => P.register(MANIFEST, () => ({ slots: { "dashboard.widgets": [{ id: "g", component: comp }] } })), 40);
+    return Promise.resolve();
+  };
+  assert.equal(await P.load("habit-heatmap", { inject, timeoutMs: 5 }), false);
+  assert.equal(P.list()[0].failed, "load");
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(P.list()[0].failed, null);
+  assert.equal(P.list()[0].loaded, true);
+  assert.equal(P.contributions("dashboard.widgets").length, 1);
+});
+
+// Temuan review akhir #3b: plugin OFF + manifest invalid → hanya console.warn, tanpa toast.
+test("plugin OFF: register dengan manifest invalid → tanpa toast, hanya console.warn", async () => {
+  await P.setEnabled("habit-heatmap", false);
+  const orig = console.warn;
+  let warned = 0;
+  console.warn = () => { warned++; };
+  try { P.register(Object.assign({}, MANIFEST, { permissions: ["network"] }), () => ({})); } finally { console.warn = orig; }
+  assert.deepEqual(toasts, []);
+  assert.ok(warned >= 1);
+  assert.equal(P.isEnabled("habit-heatmap"), false);
+});

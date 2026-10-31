@@ -77,7 +77,7 @@ function compileIndex(log) {
 // ── Plugin ──────────────────────────────────────────────────────────────────
 const PLUGIN_HEADER = '// generated from plugin.jsx — jangan edit\n';
 // Pagar murah (spec §11.2, Lampiran A #10): plugin hanya memakai TF.api, bukan modul/penyimpanan host.
-const LINT_RE = /tokenStore|API_BASE|fetch\(|localStorage/;
+const LINT_RE = /tokenStore|API_BASE|fetch\(|localStorage|innerHTML|indexedDB|XMLHttpRequest|window\.fetch|TF\.api\.for\(|window\.TF\.(?:meta|db|taskroutes)\b/;
 const MANIFEST_FIELDS = ['id', 'name', 'description', 'version', 'minApi', 'slots', 'permissions', 'defaultEnabled'];
 const SW_BEGIN = '  // plugins:begin — ditulis compile.js dari static/plugins/index.json, jangan edit manual';
 const SW_END = '  // plugins:end';

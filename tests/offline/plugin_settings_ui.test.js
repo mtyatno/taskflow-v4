@@ -77,3 +77,11 @@ test("error: Aktifkan lagi menyalakan ulang; Salin detail menyalin TF.plugins.fa
 test("tanpa localStorage dan tanpa fetch di kartu (A3: hanya _meta lewat runtime)", () => {
   assert.doesNotMatch(card, /localStorage|fetch\(|api\.(get|post|put)/);
 });
+
+// Temuan review akhir #5: toast sukses hanya bila writeText berhasil.
+test("Salin detail: sukses hanya bila clipboard.writeText berhasil, selain itu 'Gagal menyalin detail'", () => {
+  assert.doesNotMatch(card, /Promise\.resolve\(navigator\.clipboard\?\.writeText/);
+  assert.match(card, /"Gagal menyalin detail"/);
+  assert.match(card, /typeof cb\.writeText !== "function"/);
+  assert.match(card, /cb\.writeText\(JSON\.stringify\(P\.failures\(it\.id\), null, 2\)\)\)\.then\(\(\) => showToast\("Detail error disalin"\), \(\) => showToast\("Gagal menyalin detail", "error"\)\)/);
+});

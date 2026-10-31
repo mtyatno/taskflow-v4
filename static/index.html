@@ -27200,7 +27200,7 @@ function PluginSettingsCard({ showToast }) {
   const items = P.list();
   const fail = e => showToast(String(e && e.message || e), "error");
   const toggle = it => P.setEnabled(it.id, !it.enabled).then(() => showToast(it.enabled ? `Plugin ${it.name} dinonaktifkan` : `Plugin ${it.name} diaktifkan`), fail);
-  const copy = it => Promise.resolve(navigator.clipboard?.writeText(JSON.stringify(P.failures(it.id), null, 2))).then(() => showToast("Detail error disalin"), fail);
+  const copy = it => { const cb = navigator.clipboard; if (!cb || typeof cb.writeText !== "function") return showToast("Gagal menyalin detail", "error"); Promise.resolve().then(() => cb.writeText(JSON.stringify(P.failures(it.id), null, 2))).then(() => showToast("Detail error disalin"), () => showToast("Gagal menyalin detail", "error")); };
   const perm = it => it.permissions.length ? it.permissions.map(p => p === "storage" ? "Menyimpan pengaturan di perangkat ini" : p).join(", ") : "Tidak butuh izin";
   const hint = (text, key) => /*#__PURE__*/React.createElement("span", { key, className: "theme-card-decor-hint" }, text);
   return /*#__PURE__*/React.createElement("div", { className: "card theme-card" }, /*#__PURE__*/React.createElement("div", { className: "theme-card-title" }, "Plugin"), /*#__PURE__*/React.createElement("p", { className: "theme-card-hint" }, "Fitur opsional. Status disimpan di perangkat ini."),

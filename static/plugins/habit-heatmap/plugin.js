@@ -209,11 +209,19 @@ function useWide() {
   }, []);
   return wide;
 }
+
+// React.memo dibuat malas (React tidak ada saat plugin.js di-require di tes Node).
+let MemoSvg = null;
+function memoSvg() {
+  if (!MemoSvg) MemoSvg = React.memo ? React.memo(HeatmapSvg) : HeatmapSvg;
+  return MemoSvg;
+}
 function HeatmapCard({
   api
 }) {
   const wide = useWide();
   const [metric, setMetric] = React.useState("habit");
+  const pickedRef = React.useRef(false);
   const [src, setSrc] = React.useState(null);
   const [today, setToday] = React.useState(() => api.env.today());
   const scrollRef = React.useRef(null);
@@ -221,7 +229,7 @@ function HeatmapCard({
     let alive = true;
     let timer = null;
     api.storage.get("metric").then(v => {
-      if (alive && METRICS.some(m => m[0] === v)) setMetric(v);
+      if (alive && !pickedRef.current && METRICS.some(m => m[0] === v)) setMetric(v);
     }).catch(e => api.log.warn("gagal membaca metric:", e));
     const load = () => {
       const t = api.env.today();
@@ -259,6 +267,7 @@ function HeatmapCard({
     if (el) el.scrollLeft = el.scrollWidth;
   }, [wide, src]);
   const pick = m => {
+    pickedRef.current = true;
     setMetric(m);
     api.storage.set("metric", m).catch(e => api.log.warn("gagal menyimpan metric:", e));
   };
@@ -272,15 +281,28 @@ function HeatmapCard({
     const btn = e.currentTarget.querySelector("[data-metric='" + next + "']");
     if (btn) btn.focus();
   };
-  const grid = buildGrid(today, wide ? 53 : 26);
-  const buckets = src ? bucketByDate(src.logs, src.tasks, grid.from, today, metric) : {};
-  const counts = {};
-  let active = 0;
-  for (const d of Object.keys(buckets)) {
-    counts[d] = buckets[d].count;
-    if (buckets[d].count > 0) active += 1;
-  }
-  const summary = summaryText(streak(counts, today), active, grid.days);
+
+  // Dashboard dirender ulang tiap detik saat Pomodoro berjalan: hitung grid hanya bila datanya berubah.
+  const {
+    grid,
+    buckets,
+    summary
+  } = React.useMemo(() => {
+    const grid = buildGrid(today, wide ? 53 : 26);
+    const buckets = src ? bucketByDate(src.logs, src.tasks, grid.from, today, metric) : {};
+    const counts = {};
+    let active = 0;
+    for (const d of Object.keys(buckets)) {
+      counts[d] = buckets[d].count;
+      if (buckets[d].count > 0) active += 1;
+    }
+    return {
+      grid,
+      buckets,
+      summary: summaryText(streak(counts, today), active, grid.days)
+    };
+  }, [src, metric, today, wide]);
+  const Svg = memoSvg();
   return /*#__PURE__*/React.createElement("div", {
     className: "dash-card plg-heatmap",
     style: {
@@ -306,7 +328,7 @@ function HeatmapCard({
   }, text)))), /*#__PURE__*/React.createElement("div", {
     className: "plg-heatmap-scroll",
     ref: scrollRef
-  }, /*#__PURE__*/React.createElement(HeatmapSvg, {
+  }, /*#__PURE__*/React.createElement(Svg, {
     grid: grid,
     buckets: buckets,
     today: today,
