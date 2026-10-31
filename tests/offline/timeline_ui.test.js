@@ -838,3 +838,381 @@ test("wadah gulir dipasang ulang (kosong → ada task) → jendela direset: bari
 test("CSS: tanpa aturan ringkasan is-late yang tidak berpengaruh (border pada elemen tanpa border)", () => {
   assert.doesNotMatch(css, /\.plg-timeline-summary\.is-late,\s*\n?\s*\.plg-timeline-summary\.is-late::before/);
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Task 8 — interaksi: seret (geser/durasi/dependensi), klik-jadwalkan, keyboard, Urungkan (R13–R15, R21, R23).
+// window palsu mencatat pendengar (pointermove/up/cancel, keydown Esc) agar peristiwa bisa ditembakkan; elemen bar
+// palsu = currentTarget (transform ditulis lewat style, tanpa setState); grafik palsu memberi koordinat klien.
+// ════════════════════════════════════════════════════════════════════════════
+const HEAD = 48;
+const SCROLL_TOP = 100;
+const capOf = (o) => (typeof o === "boolean" ? o : !!(o && o.capture));
+const GESTURE = ["pointermove", "pointerup", "pointercancel", "keydown", "blur", "touchmove", "contextmenu"];
+
+function fakeWin() {
+  const ls = [];
+  return {
+    innerHeight: SCROLL_TOP + 16 + 600 + HEAD,
+    ls,
+    addEventListener(type, fn, opt) { ls.push({ type, fn, cap: capOf(opt) }); },
+    removeEventListener(type, fn, opt) {
+      const i = ls.findIndex((l) => l.type === type && l.fn === fn && l.cap === capOf(opt));
+      if (i >= 0) ls.splice(i, 1);
+    },
+    fire(type, ev) { for (const l of ls.filter((x) => x.type === type)) l.fn(ev); },
+    gesture() { return ls.filter((l) => GESTURE.indexOf(l.type) >= 0).length; },
+  };
+}
+function withIx(fn) {
+  const prev = global.window;
+  const w = fakeWin();
+  global.window = w;
+  return Promise.resolve().then(() => fn(w)).finally(() => { global.window = prev; });
+}
+const pev = (x, y, o) => Object.assign({ clientX: x, clientY: y, pointerType: "mouse", button: 0, pointerId: 1, preventDefault() {}, stopPropagation() {} }, o || {});
+// Seperti peramban: style.transform dinormalisasi saat dibaca ("translate(1px,2px)" → "translate(1px, 2px)").
+function fakeNode() {
+  const cls = new Set();
+  const attrs = {};
+  let tf;
+  const style = {};
+  Object.defineProperty(style, "transform", { get: () => tf, set: (v) => { tf = String(v).replace(/,\s*/g, ", "); }, enumerable: true });
+  return { style, textContent: "", classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) }, setAttribute: (k, v) => { attrs[k] = v; }, attrs };
+}
+
+// Pemasangan lengkap: wadah gulir + grafik + tooltip/garis karet palsu; o.set / o.setMany mengganti hasil tulis.
+async function ixSetup(tasks, o) {
+  const opts = o || {};
+  const { api, calls } = fakeApi();
+  calls.set = [];
+  calls.setMany = [];
+  api.taskExt.set = (id, p) => { calls.set.push([id, p]); return opts.set ? opts.set(id, p) : Promise.resolve(); };
+  api.taskExt.setMany = (items) => { calls.setMany.push(items); return opts.setMany ? opts.setMany(items) : Promise.resolve(); };
+  const { ctx, clicked } = ctxOf(tasks);
+  const props = { context: ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const el = {
+    scrollTop: 0, scrollLeft: 0, clientWidth: TABLE_W_FULL + 1000, offsetHeight: 0,
+    getBoundingClientRect: () => ({ left: 0, top: SCROLL_TOP, right: TABLE_W_FULL + 1000, bottom: SCROLL_TOP + HEAD + 600 }),
+  };
+  const chartEl = { getBoundingClientRect: () => ({ left: TABLE_W_FULL - el.scrollLeft, top: SCROLL_TOP + HEAD - el.scrollTop }) };
+  const tip = fakeNode();
+  const rubber = fakeNode();
+  const line = fakeNode();
+  const wire = (tree) => {
+    const g = gridOf(tree);
+    if (g) g.props.ref.current = el;
+    const ch = byCls(tree, "plg-timeline-chart")[0];
+    if (ch && ch.props.ref) ch.props.ref.current = chartEl;
+    const tp = byCls(tree, "plg-timeline-tip")[0];
+    if (tp && tp.props.ref) tp.props.ref.current = tip;
+    const rb = byCls(tree, "plg-timeline-rubber")[0];
+    if (rb && rb.props.ref) rb.props.ref.current = rubber;
+    const ln = byCls(tree, "plg-timeline-rubber-line")[0];
+    if (ln && ln.props.ref) ln.props.ref.current = line;
+  };
+  let tree = m.render(props);
+  wire(tree);
+  m.flush();
+  await tick();
+  tree = m.render(props);
+  wire(tree);
+  m.flush();
+  tree = m.render(props);
+  const lay = layOf(tasks, "week", api);
+  const row = (k) => lay.rows.find((r) => r.key === k);
+  const h = {
+    m, api, calls, clicked, el, tip, rubber, line, lay, props,
+    get tree() { return tree; },
+    rerender() { tree = m.render(props); return tree; },
+    row,
+    box: (k) => { const r = row(k); return T.TLLayout.barBox(r.span, r.sched, lay.range, lay.px, r.kind); },
+    cx: (x) => x + TABLE_W_FULL - el.scrollLeft,
+    cy: (y) => y + SCROLL_TOP + HEAD - el.scrollTop,
+    midY: (k) => row(k).index * 32 + 16,
+    bar: (k) => nodes(tree, (n) => n.props["data-key"] === k && (hasCls(n, "plg-timeline-bar") || hasCls(n, "plg-timeline-milestone") || hasCls(n, "plg-timeline-summary")))[0],
+    slot: (k) => byCls(tree, "plg-timeline-slot").find((n) => n.props["data-key"] === k),
+    tableRow: (k) => rowOf(tree, k),
+    xOfIso: (iso) => T.TLLayout.xOf(T.TLCal.dn(iso), lay.range, lay.px),
+  };
+  return h;
+}
+
+test("seret selesai → tepat satu api.taskExt.set {start}; toast 'Jadwal diubah' dengan action 'Urungkan' → setMany [{taskId, patch: prev}]; selama gerak tidak ada setState", () => withIx(async (w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 3 }), mk(2, "B", { start: "2026-11-02" })];
+  const h = await ixSetup(tasks);
+  const b1 = h.box("1");
+  const y = h.cy(h.midY("1"));
+  const x0 = h.cx(b1.x + 10);
+  const barEl = fakeNode();
+  const n0 = h.m.setCalls.length;
+  h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: barEl }));
+  assert.ok(w.gesture() >= 4, "pendengar seret dipasang");
+  w.fire("pointermove", pev(x0 + 2, y));
+  assert.equal(barEl.style.transform, undefined, "di bawah ambang 4 px belum menyeret");
+  w.fire("pointermove", pev(x0 + 30, y));
+  w.fire("pointermove", pev(x0 + 84, y)); // +7 hari × 12 px → Sen 9 Nov
+  const top = h.row("1").index * 32 + 8;
+  assert.equal(barEl.style.transform, "translate(" + (b1.x + 84) + "px, " + top + "px)");
+  assert.equal(h.tip.textContent, "Sen 9 Nov → Rab 11 Nov · 3 hk");
+  assert.notEqual(h.tip.style.display, "none");
+  w.fire("pointerup", pev(x0 + 84, y));
+  assert.equal(h.m.setCalls.length, n0, "tanpa setState antara pointerdown dan pointerup");
+  assert.deepEqual(h.calls.set, [[1, { start: "2026-11-09" }]]);
+  assert.equal(w.gesture(), 0, "pendengar dilepas setelah lepas");
+  assert.equal(h.tip.style.display, "none");
+  h.bar("1").props.onClick({}); // klik sesudah seret tidak membuka task
+  assert.deepEqual(h.clicked, []);
+  await tick();
+  const t = h.calls.toast[h.calls.toast.length - 1];
+  assert.equal(t[0], "Jadwal diubah");
+  assert.equal(t[2].label, "Urungkan");
+  assert.equal(h.calls.setMany.length, 0);
+  t[2].onClick();
+  await tick();
+  assert.deepEqual(h.calls.setMany, [[{ taskId: 1, patch: { start: "2026-11-02" } }]]);
+  assert.equal(h.calls.set.length, 1, "Urungkan lewat setMany, bukan set");
+  // klik biasa (tanpa gerak) tetap membuka task
+  h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: fakeNode() }));
+  w.fire("pointerup", pev(x0, y));
+  h.bar("1").props.onClick({});
+  assert.deepEqual(h.clicked.map((x) => x.id), [1]);
+  assert.equal(h.calls.set.length, 1);
+  // ubah durasi lewat tepi kanan pada task tanpa kunci duration → Urungkan menulis duration: null (kunci tidak ada)
+  const b2 = h.box("2");
+  const y2 = h.cy(h.midY("2"));
+  const xe = h.cx(b2.x + b2.w - 2);
+  const bar2El = fakeNode();
+  h.bar("2").props.onPointerDown(pev(xe, y2, { currentTarget: bar2El }));
+  w.fire("pointermove", pev(xe + 24, y2));
+  assert.equal(bar2El.style.width, (3 * 12) + "px");
+  assert.equal(h.tip.textContent, "Sen 2 Nov → Rab 4 Nov · 3 hk");
+  w.fire("pointerup", pev(xe + 24, y2));
+  assert.deepEqual(h.calls.set[1], [2, { duration: 3 }]);
+  await tick();
+  h.calls.toast[h.calls.toast.length - 1][2].onClick();
+  await tick();
+  assert.deepEqual(h.calls.setMany[1], [{ taskId: 2, patch: { duration: null } }]);
+  h.m.unmount();
+}));
+
+test("Esc saat seret → tanpa set; listener keydown dilepas; lepas di luar grafik → tanpa set", () => withIx(async (w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 3 })];
+  const h = await ixSetup(tasks);
+  const b1 = h.box("1");
+  const y = h.cy(h.midY("1"));
+  const x0 = h.cx(b1.x + 10);
+  const barEl = fakeNode();
+  const base = "translate(" + b1.x + "px, " + (h.row("1").index * 32 + 8) + "px)";
+  h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: barEl }));
+  w.fire("pointermove", pev(x0 + 60, y));
+  assert.notEqual(barEl.style.transform, base);
+  assert.equal(w.ls.filter((l) => l.type === "keydown").length, 1);
+  let stopped = false;
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped = true; } });
+  assert.ok(stopped, "Esc tidak diteruskan ke host (mis. menutup Live Edit)");
+  assert.equal(w.ls.filter((l) => l.type === "keydown").length, 0, "keydown dilepas");
+  assert.equal(w.gesture(), 0);
+  assert.equal(barEl.style.transform, base, "bar kembali ke posisi semula");
+  w.fire("pointerup", pev(x0 + 60, y));
+  await tick();
+  assert.deepEqual(h.calls.set, []);
+  assert.equal(h.calls.toast.length, 0);
+  // lepas di luar grafik (di bawah wadah) = batal
+  h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: barEl }));
+  w.fire("pointermove", pev(x0 + 60, y));
+  w.fire("pointerup", pev(x0 + 60, SCROLL_TOP + HEAD + 600 + 40));
+  // pointercancel = batal
+  h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: barEl }));
+  w.fire("pointermove", pev(x0 + 60, y));
+  w.fire("pointercancel", pev(x0 + 60, y));
+  w.fire("pointerup", pev(x0 + 60, y));
+  // sentuh bergerak > 8 px sebelum 350 ms = gulir, bukan seret
+  h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: barEl, pointerType: "touch" }));
+  w.fire("pointermove", pev(x0 + 40, y + 2, { pointerType: "touch" }));
+  assert.equal(w.gesture(), 0, "gulir sentuh: pendengar dilepas, peramban menggulir");
+  w.fire("pointerup", pev(x0 + 40, y + 2, { pointerType: "touch" }));
+  await tick();
+  assert.deepEqual(h.calls.set, []);
+  assert.equal(barEl.style.transform, base);
+  h.m.unmount();
+}));
+
+test("link ke bar lain → set penerus {deps: [...lama, {t: ref(pred), type: 'FS', lag: 0}]}; siklus → toast persis, tanpa set; ke ringkasan → toast persis", () => withIx(async (w) => {
+  const old = { t: { $task: 3 }, type: "FS", lag: 1 };
+  const many = [];
+  for (let i = 0; i < 20; i++) many.push({ t: { $task: 500 + i }, type: "FS", lag: 0 });
+  const tasks = [
+    mk(1, "A", { start: "2026-11-02", duration: 2 }),
+    mk(2, "B", { start: "2026-11-09", duration: 2, deps: [old] }),
+    mk(3, "C", { start: "2026-11-02", duration: 1 }),
+    mk(10, "Induk", {}),
+    mk(11, "Anak", { start: "2026-11-03", duration: 1 }, { parent_id: 10 }),
+    mk(12, "Penuh", { start: "2026-11-12", duration: 1, deps: many }),
+  ];
+  const h = await ixSetup(tasks);
+  const linkDrag = (from, to) => {
+    const b = h.box(from);
+    const x = h.cx(b.x + b.w + 5); // titik di kanan ujung bar
+    const y = h.cy(h.midY(from));
+    h.bar(from).props.onPointerDown(pev(x, y, { currentTarget: fakeNode() }));
+    w.fire("pointermove", pev(x + 20, h.cy(h.midY(to))));
+    w.fire("pointermove", pev(x + 40, h.cy(h.midY(to))));
+    w.fire("pointerup", pev(x + 40, h.cy(h.midY(to))));
+  };
+  const n0 = h.m.setCalls.length;
+  linkDrag("1", "2");
+  assert.equal(h.m.setCalls.length, n0);
+  assert.deepEqual(h.calls.set, [[2, { deps: [old, { t: { $task: 1 }, type: "FS", lag: 0 }] }]]);
+  assert.equal(h.rubber.style.display, "none", "garis karet disembunyikan setelah lepas");
+  await tick();
+  const t = h.calls.toast[h.calls.toast.length - 1];
+  assert.equal(t[0], "Jadwal diubah");
+  t[2].onClick();
+  await tick();
+  assert.deepEqual(h.calls.setMany, [[{ taskId: 2, patch: { deps: [old] } }]]);
+  // siklus: C → B sudah ada (B bergantung pada C); B → C membuat lingkaran
+  h.calls.toast.length = 0;
+  linkDrag("2", "3");
+  await tick();
+  assert.deepEqual(h.calls.toast, [["Dependensi ini membuat lingkaran", "error"]]);
+  // ke ringkasan
+  h.calls.toast.length = 0;
+  linkDrag("1", "10");
+  await tick();
+  assert.deepEqual(h.calls.toast, [["Ringkasan tidak bisa diberi dependensi di versi ini", "error"]]);
+  // 20 dependensi
+  h.calls.toast.length = 0;
+  linkDrag("1", "12");
+  await tick();
+  assert.deepEqual(h.calls.toast, [["Maksimal 20 dependensi per task", "error"]]);
+  // ke diri sendiri / sudah ada → tanpa tulis
+  linkDrag("1", "1");
+  linkDrag("3", "2");
+  await tick();
+  assert.equal(h.calls.set.length, 1, "hanya dependensi sah yang ditulis");
+  assert.equal(w.gesture(), 0);
+  h.m.unmount();
+}));
+
+test("klik area kosong baris tanpa jadwal di tanggal Sabtu → set {start: Senin, duration: 1}; Urungkan → null", () => withIx(async (w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 1 }), mk(4, "Belum", {})];
+  const h = await ixSetup(tasks);
+  const slot = h.slot("4");
+  assert.equal(typeof slot.props.onPointerDown, "function");
+  const x = h.cx(h.xOfIso("2026-11-07") + 5); // Sabtu
+  const y = h.cy(h.midY("4"));
+  // gerak lebih dari ambang = bukan klik
+  slot.props.onPointerDown(pev(x, y));
+  w.fire("pointerup", pev(x + 30, y));
+  assert.deepEqual(h.calls.set, []);
+  slot.props.onPointerDown(pev(x, y));
+  w.fire("pointerup", pev(x + 1, y));
+  assert.deepEqual(h.calls.set, [[4, { start: "2026-11-09", duration: 1 }]]);
+  assert.equal(w.gesture(), 0);
+  await tick();
+  const t = h.calls.toast[h.calls.toast.length - 1];
+  assert.equal(t[0], "Jadwal diubah");
+  t[2].onClick();
+  await tick();
+  assert.deepEqual(h.calls.setMany, [[{ taskId: 4, patch: { start: null, duration: null } }]]);
+  // sentuh: satu ketukan tidak menjadwalkan, ketuk ganda menjadwalkan
+  const tasks2 = [mk(5, "Sentuh", {})];
+  const h2 = await ixSetup(tasks2);
+  const s2 = h2.slot("5");
+  const x2 = h2.cx(h2.xOfIso("2026-11-10") + 5);
+  const y2 = h2.cy(h2.midY("5"));
+  const touch = { pointerType: "touch" };
+  s2.props.onPointerDown(pev(x2, y2, touch));
+  w.fire("pointerup", pev(x2, y2, touch));
+  assert.deepEqual(h2.calls.set, []);
+  s2.props.onPointerDown(pev(x2, y2, touch));
+  w.fire("pointerup", pev(x2, y2, touch));
+  assert.deepEqual(h2.calls.set, [[5, { start: "2026-11-10", duration: 1 }]]);
+  h.m.unmount();
+  h2.m.unmount();
+}));
+
+test("Alt+→ pada baris fokus → set {start: hari kerja berikutnya}; tahan tombol tidak menulis dari props basi; Alt+Shift+← durasi", () => withIx(async () => {
+  const tasks = [mk(1, "K", { start: "2026-11-06", duration: 2 })]; // Jumat
+  let release = null;
+  const h = await ixSetup(tasks, { set: () => new Promise((r) => { release = r; }) });
+  let prevented = 0;
+  const kev = (key, o) => Object.assign({ key, altKey: true, shiftKey: false, preventDefault() { prevented++; } }, o || {});
+  h.tableRow("1").props.onKeyDown(kev("ArrowRight"));
+  assert.deepEqual(h.calls.set, [[1, { start: "2026-11-09" }]]);
+  assert.equal(prevented, 1, "Alt+← / Alt+→ tidak menjadi navigasi peramban");
+  // tombol ditahan (repeat) saat tulis masih berjalan → diabaikan
+  h.bar("1").props.onKeyDown(kev("ArrowRight", { repeat: true }));
+  assert.equal(h.calls.set.length, 1);
+  release();
+  await tick();
+  // props belum mengikuti (task di context masih Jumat) → dihitung dari nilai optimistis Senin
+  h.bar("1").props.onKeyDown(kev("ArrowRight", { repeat: true }));
+  assert.deepEqual(h.calls.set[1], [1, { start: "2026-11-10" }]);
+  release();
+  await tick();
+  const t = h.calls.toast[h.calls.toast.length - 1];
+  t[2].onClick();
+  await tick();
+  assert.deepEqual(h.calls.setMany[0], [{ taskId: 1, patch: { start: "2026-11-09" } }], "Urungkan = nilai sebelum tekan ini");
+  h.bar("1").props.onKeyDown(kev("ArrowLeft", { shiftKey: true }));
+  assert.deepEqual(h.calls.set[2], [1, { duration: 1 }]);
+  release();
+  await tick();
+  // tanpa Alt → tidak ada tulis; Enter tetap membuka task
+  h.bar("1").props.onKeyDown({ key: "ArrowRight", altKey: false, preventDefault() {} });
+  h.bar("1").props.onKeyDown({ key: "Enter", preventDefault() {} });
+  assert.equal(h.calls.set.length, 3);
+  assert.deepEqual(h.clicked.map((x) => x.id), [1]);
+  h.m.unmount();
+}));
+
+test("set reject → toast 'Jadwal gagal disimpan' (type error); bar kembali; Urungkan gagal tidak melempar", () => withIx(async (w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 3 })];
+  let fail = true;
+  const h = await ixSetup(tasks, {
+    set: () => (fail ? Promise.reject(new Error("offline")) : Promise.resolve()),
+    setMany: () => Promise.reject(new Error("ditolak")),
+  });
+  const b1 = h.box("1");
+  const y = h.cy(h.midY("1"));
+  const x0 = h.cx(b1.x + 10);
+  const barEl = fakeNode();
+  const base = "translate(" + b1.x + "px, " + (h.row("1").index * 32 + 8) + "px)";
+  h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: barEl }));
+  w.fire("pointermove", pev(x0 + 84, y));
+  w.fire("pointerup", pev(x0 + 84, y));
+  assert.equal(h.calls.set.length, 1);
+  await tick();
+  await tick();
+  assert.deepEqual(h.calls.toast, [["Jadwal gagal disimpan", "error"]]);
+  assert.equal(barEl.style.transform, base);
+  // Urungkan yang gagal: penolakan ditangani di handler (tanpa unhandled rejection)
+  fail = false;
+  h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: barEl }));
+  w.fire("pointermove", pev(x0 + 84, y));
+  w.fire("pointerup", pev(x0 + 84, y));
+  await tick();
+  const t = h.calls.toast[h.calls.toast.length - 1];
+  assert.equal(t[0], "Jadwal diubah");
+  assert.doesNotThrow(() => t[2].onClick());
+  await tick();
+  await tick();
+  assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], ["Jadwal gagal disimpan", "error"]);
+  h.m.unmount();
+}));
+
+test("bar tugas punya pegangan tepi + titik dependensi (aria-hidden); ringkasan tanpa; sumber memuat teks persis", () => withIx(async () => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }), mk(2, "M", { start: "2026-11-04", duration: 0 }), mk(10, "Induk", {}), mk(11, "Anak", { start: "2026-11-03", duration: 1 }, { parent_id: 10 })];
+  const h = await ixSetup(tasks);
+  const kids = (n, c) => byCls(n, c).length;
+  assert.equal(kids(h.bar("1"), "plg-timeline-edge"), 1);
+  assert.equal(kids(h.bar("1"), "plg-timeline-dot"), 1);
+  assert.equal(kids(h.bar("2"), "plg-timeline-edge"), 0, "milestone tanpa ubah durasi");
+  assert.equal(kids(h.bar("2"), "plg-timeline-dot"), 1);
+  assert.equal(kids(h.bar("10"), "plg-timeline-dot"), 0);
+  assert.equal(h.bar("10").props.onPointerDown, undefined, "ringkasan tidak bisa diseret");
+  for (const t of ['"Jadwal diubah"', '"Urungkan"', '"Jadwal gagal disimpan"', '"Dependensi ini membuat lingkaran"', '"Maksimal 20 dependensi per task"', '"Ringkasan tidak bisa diberi dependensi di versi ini"']) assert.ok(jsx.includes(t), t);
+  h.m.unmount();
+}));

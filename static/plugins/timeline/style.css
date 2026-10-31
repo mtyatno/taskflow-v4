@@ -242,6 +242,8 @@
   z-index: 0;
   flex: none;
   overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .plg-timeline-holiday,
@@ -400,7 +402,7 @@
 
 .plg-timeline-label {
   position: absolute;
-  left: calc(100% + 6px);
+  left: calc(100% + 12px); /* setelah titik dependensi */
   top: 50%;
   transform: translateY(-50%);
   white-space: nowrap;
@@ -460,6 +462,90 @@
 
 .plg-timeline-head-path.is-violation {
   fill: var(--plg-timeline-danger);
+}
+
+/* ── interaksi (Task 8): pegangan durasi, titik dependensi, seret, tooltip, garis karet ── */
+.plg-timeline-edge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(8px, 50%);
+  cursor: ew-resize;
+}
+
+.plg-timeline-dot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: 10px;
+  cursor: crosshair;
+}
+
+.plg-timeline-dot::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.plg-timeline-bar:hover .plg-timeline-dot::before,
+.plg-timeline-bar:focus-visible .plg-timeline-dot::before,
+.plg-timeline-milestone:hover .plg-timeline-dot::before,
+.plg-timeline-milestone:focus-visible .plg-timeline-dot::before {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .plg-timeline-edge,
+  .plg-timeline-dot {
+    display: none;
+  }
+}
+
+.plg-timeline-bar.is-dragging,
+.plg-timeline-milestone.is-dragging {
+  z-index: 3;
+  opacity: 0.85;
+  cursor: grabbing;
+}
+
+.plg-timeline-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  background: var(--text-primary);
+  color: var(--bg-card);
+  pointer-events: none;
+}
+
+.plg-timeline-rubber {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.plg-timeline-rubber-line {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
 }
 
 /* ── legenda + catatan ───────────────────────────────────────────────────── */
