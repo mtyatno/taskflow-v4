@@ -315,6 +315,84 @@ def health(pid: str) -> str:
     return _health.get(pid, "unknown")
 
 
+# ── Pemasangan router (web) ───────────────────────────────────────────────────
+
+def require_plugin_enabled(plugin_id: str) -> Callable:
+    """Dependency `def` (K9): token clipper → 403, plugin tidak sehat → 503, nonaktif → 403."""
+    def _dep(user: dict = Depends(plugin_host.current_user)) -> None:
+        import plugin_states  # R4
+        if user.get("scope") == "ext":
+            raise HTTPException(status_code=403, detail={"code": "PLUGIN_FORBIDDEN_TOKEN"})
+        if health(plugin_id) != "ok":
+            raise HTTPException(status_code=503,
+                                detail={"code": "PLUGIN_UNAVAILABLE", "plugin_id": plugin_id})
+        with plugin_host.get_conn() as conn:
+            on = plugin_states.effective_enabled(conn, user["sub"], plugin_id, default_enabled(plugin_id))
+        if not on:
+            raise HTTPException(status_code=403,
+                                detail={"code": "PLUGIN_DISABLED", "plugin_id": plugin_id})
+    _dep.__name__ = f"require_plugin_enabled_{plugin_id.replace('-', '_')}"
+    return _dep
+
+
+def mount(app, plugins) -> None:
+    for p in plugins:
+        if p.router is None:
+            continue
+        try:
+            app.include_router(
+                p.router,
+                prefix=f"/api/plugins/{p.id}",
+                tags=[f"plugin:{p.id}"],
+                dependencies=[Depends(plugin_host.current_user), Depends(require_plugin_enabled(p.id))],
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.error("plugin %s: router gagal dipasang (%s: %s)", p.id, type(e).__name__, e)
+            _health[p.id] = "schema_failed"
+
+
+def _log_summary(loaded, rejected) -> None:
+    logger.info("plugin server: %d dimuat, %d ditolak", len(loaded), len(rejected))
+    for pid, reason in rejected.items():
+        logger.warning("plugin %s ditolak: %s", pid, reason)
+
+
+def init_web(app, *, plugins_dir=PLUGINS_DIR, index_path=INDEX_PATH) -> list[LoadedPlugin]:
+    """Indeks → discover → health → mount. Tidak pernah melempar."""
+    global _loaded
+    try:
+        load_known(index_path)
+        loaded, rejected = discover(plugins_dir, _known)
+        _loaded = list(loaded)
+        for p in loaded:
+            _health[p.id] = "pending" if p.ensure_schema is not None else "ok"
+        mount(app, loaded)
+        _log_summary(loaded, rejected)
+        return list(loaded)
+    except KeyboardInterrupt:
+        raise
+    except BaseException as e:  # noqa: BLE001
+        logger.error("plugin server: loader gagal (%s: %s)", type(e).__name__, e)
+        return []
+
+
+def load_for_bot(application=None, *, plugins_dir=PLUGINS_DIR, index_path=INDEX_PATH) -> tuple[int, int]:
+    """Bot: indeks + discover saja (tanpa DDL, tanpa router). Tidak pernah melempar.
+    `application` disiapkan untuk `register_bot` kelak (belum didukung, K7)."""
+    global _loaded
+    try:
+        load_known(index_path)
+        loaded, rejected = discover(plugins_dir, _known)
+        _loaded = list(loaded)
+        _log_summary(loaded, rejected)
+        return len(loaded), len(rejected)
+    except KeyboardInterrupt:
+        raise
+    except BaseException as e:  # noqa: BLE001
+        logger.error("plugin server: loader gagal (%s: %s)", type(e).__name__, e)
+        return 0, 0
+
+
 def _reset_for_tests() -> None:
     global _known, _index_ok, _loaded, _health
     _known, _index_ok, _loaded, _health = {}, False, [], {}

@@ -1,6 +1,7 @@
 """plugin_loader + plugin_host — discover, ensure_schema berpagar plg_, health, router plugin
 (spec Fase 0b K6–K10, §4.4; rencana PR B T2–T4)."""
 import asyncio
+import inspect
 import json
 import logging
 import shutil
@@ -283,3 +284,161 @@ def test_host_get_conn_uses_bound_path_and_current_user_unbound(tmp_path):
     def f():
         pass
     assert plugin_host.allow_async(f) is f and f.__plugin_allow_async__ is True
+
+
+# ── Router plugin /api/plugins/<id> (Task 3) ─────────────────────────────────
+
+import uuid  # noqa: E402
+from datetime import datetime, timedelta, timezone  # noqa: E402
+
+from fastapi import FastAPI  # noqa: E402
+from starlette.testclient import TestClient  # noqa: E402
+
+import plugin_states  # noqa: E402
+import webapp  # noqa: E402
+from conftest import db as _rawdb, register_user  # noqa: E402
+
+
+def _bearer(tok):
+    return {"Authorization": f"Bearer {tok}"}
+
+
+def _user(client, prefix="plg"):
+    name = f"{prefix}_{uuid.uuid4().hex[:8]}"
+    r = register_user(client, name, f"{name}@x.com")
+    return r["token"], r["user_id"], name
+
+
+def _uid_of(username):
+    c = _rawdb()
+    try:
+        return c.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()["id"]
+    finally:
+        c.close()
+
+
+def _set_enabled(uid, pid, enabled):
+    with dbconn.get_conn(webapp.DB_PATH) as c:
+        plugin_states.put_state(c, uid, pid, fields={"enabled": enabled}, updated_at=None,
+                                now=datetime.now(timezone.utc))
+
+
+@pytest.fixture
+def app_demo():
+    plugin_host.bind(current_user=webapp.get_current_user, db_path=lambda: webapp.DB_PATH)
+    app = FastAPI()
+    loaded = plugin_loader.init_web(app, plugins_dir=FIXTURES, index_path=FIXTURES / "index.json")
+    assert [p.id for p in loaded] == ["demo-server"]
+    assert plugin_loader.health("demo-server") == "pending"
+    plugin_loader.migrate(webapp.DB_PATH)
+    assert plugin_loader.health("demo-server") == "ok"
+    return TestClient(app)
+
+
+def test_plugin_route_requires_login(app_demo):
+    assert app_demo.get("/api/plugins/demo-server/items").status_code == 401
+
+
+def test_plugin_route_disabled_by_default(client, app_demo):
+    tok, _, _ = _user(client)
+    r = app_demo.get("/api/plugins/demo-server/items", headers=_bearer(tok))
+    assert r.status_code == 403
+    assert r.json()["detail"] == {"code": "PLUGIN_DISABLED", "plugin_id": "demo-server"}
+
+
+def test_plugin_route_enabled_after_state_on(client, app_demo):
+    tok1, _, n1 = _user(client)
+    tok2, _, n2 = _user(client)
+    _set_enabled(_uid_of(n1), "demo-server", True)
+    _set_enabled(_uid_of(n2), "demo-server", True)
+    r = app_demo.post("/api/plugins/demo-server/items", json={"title": "a"}, headers=_bearer(tok1))
+    assert r.status_code == 200, r.text
+    new_id = r.json()["id"]
+    r = app_demo.get("/api/plugins/demo-server/items", headers=_bearer(tok1))
+    assert r.status_code == 200
+    assert r.json() == {"items": [{"id": new_id, "title": "a"}]}
+    r = app_demo.get("/api/plugins/demo-server/items", headers=_bearer(tok2))
+    assert r.json() == {"items": []}
+    # OFF lagi → 403
+    _set_enabled(_uid_of(n1), "demo-server", False)
+    assert app_demo.get("/api/plugins/demo-server/items", headers=_bearer(tok1)).status_code == 403
+
+
+def _ext_token(username):
+    uid = _uid_of(username)
+    ext = webapp.create_ext_token(uid, username)
+    now = datetime.now(timezone.utc)
+    c = _rawdb()
+    try:
+        c.execute("INSERT INTO ext_tokens (user_id, token, state, created_at, expires_at) VALUES (?,?,?,?,?)",
+                  (uid, ext, None, now.isoformat(), (now + timedelta(days=30)).isoformat()))
+        c.commit()
+    finally:
+        c.close()
+    return ext
+
+
+def test_plugin_route_ext_token_forbidden(client, app_demo):
+    _, _, name = _user(client)
+    _set_enabled(_uid_of(name), "demo-server", True)
+    r = app_demo.get("/api/plugins/demo-server/items", headers=_bearer(_ext_token(name)))
+    assert r.status_code == 403
+    assert r.json()["detail"] == {"code": "PLUGIN_FORBIDDEN_TOKEN"}
+
+
+def test_plugin_route_unavailable_when_schema_failed(client, app_demo):
+    tok, _, name = _user(client)
+    _set_enabled(_uid_of(name), "demo-server", True)
+    for h in ("schema_failed", "pending"):
+        plugin_loader._health["demo-server"] = h
+        r = app_demo.get("/api/plugins/demo-server/items", headers=_bearer(tok))
+        assert r.status_code == 503
+        assert r.json()["detail"] == {"code": "PLUGIN_UNAVAILABLE", "plugin_id": "demo-server"}
+
+
+def test_current_user_resolved_once_per_request(client, app_demo):
+    tok, _, name = _user(client)
+    _set_enabled(_uid_of(name), "demo-server", True)
+    calls = []
+
+    async def counting(request):
+        calls.append(1)
+        return await webapp.get_current_user(request)
+
+    plugin_host.bind(current_user=counting, db_path=lambda: webapp.DB_PATH)
+    r = app_demo.get("/api/plugins/demo-server/items", headers=_bearer(tok))
+    assert r.status_code == 200
+    assert len(calls) == 1
+
+
+def test_require_plugin_enabled_is_sync_dependency():
+    dep = plugin_loader.require_plugin_enabled("demo-server")
+    assert not inspect.iscoroutinefunction(dep)
+
+
+def test_init_web_never_raises(tmp_path, caplog):
+    d = tmp_path / "plg"
+    d.mkdir()
+    (d / "broken-one.py").write_text("raise RuntimeError('x')\n", encoding="utf-8")
+    idx = tmp_path / "index.json"
+    idx.write_text("{rusak", encoding="utf-8")
+    app = FastAPI()
+    n_before = len(app.routes)
+    with caplog.at_level(logging.INFO, logger="alurik.plugins"):
+        loaded = plugin_loader.init_web(app, plugins_dir=d, index_path=idx)
+    assert loaded == []
+    assert len(app.routes) == n_before
+    msgs = [r.getMessage() for r in caplog.records]
+    assert any("plugin server: 0 dimuat, 1 ditolak" in m for m in msgs), msgs
+    assert any("plugin broken-one ditolak" in m for m in msgs), msgs
+
+
+def test_load_for_bot_no_ddl_no_routes(tmp_path, caplog):
+    db = _new_db(tmp_path)
+    plugin_host.bind(db_path=lambda: db)
+    with caplog.at_level(logging.INFO, logger="alurik.plugins"):
+        res = plugin_loader.load_for_bot(None, plugins_dir=FIXTURES, index_path=FIXTURES / "index.json")
+    assert res == (1, 0)
+    assert "plg_demo_server_items" not in _tables(db)
+    assert "plugin_states" not in _tables(db)
+    assert any("plugin server: 1 dimuat, 0 ditolak" in r.getMessage() for r in caplog.records)
