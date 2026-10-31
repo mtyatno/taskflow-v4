@@ -4292,3 +4292,4 @@
 - **Files Touch:** static/plugins/habit-heatmap/*, static/plugins/index.json, static/sw.js, static/index.html, static/whatsnew.json, tests/offline/habit_heatmap_{logic,ui}.test.js + tes versi, temporary_files/e2e_plugin_fase0a.py, temporary_files/e2e_plugin_fase0a/*.png, .agents/*
 - **Status:** Needs Review (PR draft). npm 3591/3592 (pra-ada), pytest 1250/1 skip, E2E 20/20.
 - 2026-10-31 (Claude): keputusan koordinator — heatmap memperbesar kotak (11–26 px, gap ≈14% dibatasi 2–4 px, px utuh), sisa ruang di kanan; legenda 12 px. npm 3592/3593 (pra-ada), pytest 1250/1 skip, E2E 20/20 (1660 px: kotak 24, gap 3, svg 1488/1498). Commit terpisah `fix(plugin)`.
+- 2026-10-31 14:35 WIB (Claude): #116 (Heatmap Habit 1.1, SW v489) di-merge + deploy.
