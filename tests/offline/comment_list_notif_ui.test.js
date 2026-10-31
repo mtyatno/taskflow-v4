@@ -48,8 +48,8 @@ test("index.html memuat commentui & commenthighlight setelah commentroutes", () 
 test("sw.js precache modul dan versi baru", () => {
   assert.ok(swJs.includes('"/static/offline/commentui.js"'));
   assert.ok(swJs.includes('"/static/offline/commenthighlight.js"'));
-  assert.ok(swJs.includes('const CACHE = "taskflow-v488-plugin-fase0a"'));
-  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v488-plugin-fase0a"'));
+  assert.ok(swJs.includes('const CACHE = "taskflow-v489-heatmap-rapi"'));
+  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v489-heatmap-rapi"'));
   assert.ok(indexHtml.includes("app.css?v=382"));
 });
 

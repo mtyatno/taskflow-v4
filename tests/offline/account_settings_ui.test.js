@@ -100,9 +100,9 @@ test("accountbanner.js dimuat dan di-precache service worker", () => {
 });
 
 test("cache bust v450 + app.css?v=382", () => {
-  assert.match(sw, /^const CACHE = "taskflow-v488-plugin-fase0a";/m);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v488-plugin-fase0a";/);
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v488-plugin-fase0a"/);
+  assert.match(sw, /^const CACHE = "taskflow-v489-heatmap-rapi";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v489-heatmap-rapi";/);
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v489-heatmap-rapi"/);
   assert.match(html, /app\.css\?v=382/);
   assert.doesNotMatch(html, /v437|app\.css\?v=345/);
 });

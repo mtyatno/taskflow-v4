@@ -82,6 +82,23 @@ test("streak: hari ini tanpa aktivitas tidak memutus streak (aturan hero); bolon
   assert.equal(H.streak({ "2026-09-30": 1, "2026-10-01": 1 }, "2026-10-01"), 2);
 });
 
+test("longestStreak: kosong, satu hari, beberapa run, run berakhir hari ini, lintas bulan, tanggal bolong", () => {
+  assert.equal(H.longestStreak({}), 0);
+  assert.equal(H.longestStreak({ "2026-10-01": 0, "2026-10-02": 0 }), 0);
+  assert.equal(H.longestStreak({ "2026-10-15": 3 }), 1);
+  assert.equal(H.longestStreak({ "2026-10-14": 0, "2026-10-15": 1, "2026-10-16": 0 }), 1);
+  // run 2, lalu run 3, lalu run 1 → 3
+  const c = { "2026-10-01": 1, "2026-10-02": 2, "2026-10-03": 0, "2026-10-04": 1, "2026-10-05": 1, "2026-10-06": 5,
+    "2026-10-07": 0, "2026-10-08": 1 };
+  assert.equal(H.longestStreak(c), 3);
+  // run terpanjang berakhir hari ini (kunci tidak berurutan)
+  assert.equal(H.longestStreak({ "2026-10-31": 1, "2026-10-27": 1, "2026-10-28": 0, "2026-10-29": 2, "2026-10-30": 1 }), 3);
+  // lintas bulan
+  assert.equal(H.longestStreak({ "2026-09-29": 1, "2026-09-30": 1, "2026-10-01": 1 }), 3);
+  // tanggal tidak berurutan di kalender (kunci hilang) memutus run
+  assert.equal(H.longestStreak({ "2026-10-01": 1, "2026-10-03": 1 }), 1);
+});
+
 test("buildGrid: 53 kolom / 26 kolom; hari ini di kolom terakhir pada baris hari (Sen=0); rentang 365 / ≤182", () => {
   // 2026-10-31 = Sabtu → baris 5
   const g = H.buildGrid("2026-10-31", 53);
@@ -108,7 +125,8 @@ test("buildGrid: 53 kolom / 26 kolom; hari ini di kolom terakhir pada baris hari
 test("cellTitle, summaryText, monthLabels: teks persis", () => {
   assert.equal(H.cellTitle("2026-10-13", 3, 2), "Sel 13 Okt · 3 habit · 2 task");
   assert.equal(H.cellTitle("2026-11-01", 0, 0), "Min 1 Nov · 0 habit · 0 task");
-  assert.equal(H.summaryText(12, 87, 365), "Streak 12 hari · 87 hari aktif dari 365");
+  assert.equal(H.summaryText(12, 30, 87, 365), "Streak 12 hari · Terpanjang 30 hari · 87 hari aktif dari 365");
+  assert.equal(H.summaryText(0, 4, 9, 182), "Streak 0 hari · Terpanjang 4 hari · 9 hari aktif dari 182");
   const g = H.buildGrid("2026-10-31", 53);
   const ml = H.monthLabels(g.cells);
   assert.ok(ml.length >= 12 && ml.length <= 13);
