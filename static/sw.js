@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v489-heatmap-rapi";
+const CACHE = "taskflow-v490-plugin-akun";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 // Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):

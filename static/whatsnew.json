@@ -1,5 +1,8 @@
 {
   "entries": [
+    {"version": "taskflow-v490-plugin-akun", "date": "2026-10-31", "title": "Plugin ikut akunmu",
+     "new": ["Plugin yang kamu nyalakan kini ikut aktif di perangkat lain setelah tersinkron.",
+             "Tetap bisa dinyalakan atau dimatikan saat offline; perubahan dikirim begitu online."]},
     {"version": "taskflow-v489-heatmap-rapi", "date": "2026-10-31", "title": "Heatmap Habit lebih rapi",
      "new": ["Heatmap kini mengisi lebar kartu, dilengkapi legenda warna dan streak terpanjang."]},
     {"version": "taskflow-v488-plugin-fase0a", "date": "2026-10-31", "title": "Plugin: fitur opsional",

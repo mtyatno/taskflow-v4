@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v489-heatmap-rapi', () => {
+  test('Service Worker cache version is bumped to taskflow-v490-plugin-akun', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v489-heatmap-rapi";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v490-plugin-akun";/m);
   });
 });
 
