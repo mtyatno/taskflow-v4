@@ -4301,3 +4301,10 @@
 - **Status:** Needs Review (PR draft #117). pytest 1284/1 skip; npm 3592/3593 (pra-ada). Deploy butuh restart manual web + bot.
 
 - 2026-10-31 17:55 WIB (Claude): #117 (dbconn, Plugin Fase 0b PR A) di-merge + deploy workflow; menunggu restart manual taskflow-web + taskflow oleh Bapak.
+
+## [2026-10-31 22:00] - Claude (Opus 5.5)
+- **Task:** Plugin Fase 0b PR B — status plugin per akun, loader server web+bot, TF.api.fetch, error handler bot.
+- **Changes:** plugin_states/plugin_host/plugin_loader + sambungan webapp/bot; TF.pluginstate + syncpush + runtime + index.html; lint compile.js; SW v490; README, ADR-039, catatan implementasi spec; E2E dua perangkat. Sisa patch Task 9 dari percobaan terputus 18:46 WIB disisihkan lalu ditulis ulang dengan TDD.
+- **Files Touch:** plugin_states.py, plugin_host.py, plugin_loader.py, plugins/_template.py, webapp.py, bot.py, compile.js, static/offline/{pluginstate,syncpush}.js, static/plugin-runtime.js, static/index.html, static/sw.js, static/whatsnew.json, tests/** (baru + R17 + versi), docs/**, temporary_files/e2e_plugin_fase0{a,b}*, .agents/*
+- **Status:** Needs Review (PR draft). pytest 1345/1 skip; npm 3645/3646 (pra-ada); E2E 36/36 + 20/20.
+
