@@ -60,6 +60,35 @@ Fase 1 membawa plugin besar pertama, **Timeline/Gantt**, ke halaman project dan 
 
 **Keputusan pemilik yang dibawa:** A1/A3 (status per akun, toggle offline), Q1a Fase 0b (keputusan terbaru menang), istilah UI "Plugin"; dari percakapan Timeline: default **Manual**, toggle "Jadwal otomatis" per project dengan pratinjau; resource = anggota workspace dengan kapasitas 🍅/hari; leveling manual saja; tanpa task types, biaya, resource pool lintas workspace.
 
+### Catatan implementasi PR 1a-1 (2026-10-31)
+
+Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementasi PR 1a-1 (`docs/superpowers/plans/2026-10-31-plugin-fase1-pr-1a-1.md` R1–R21, branch `claude/plugin-ext`, ADR-040):
+
+**Server**
+
+- **R1 — kolom di blok project `migrate_db`, bukan `plugin_loader.migrate`.** `task_ext.ensure_schema(conn)` satu baris tepat setelah `email_outbox.ensure_schema(conn)` (koneksi FK ON; `ALTER … ADD COLUMN` tidak merombak tabel). `plugin_loader.migrate` menelan exception (ADR-039), padahal kolom `ext` dipakai setiap INSERT/UPDATE task — gagal diam-diam = 500 di setiap tulis task. Kini gagal = `migrate_db` melempar = deploy berhenti sebelum restart. Jumlah `dbconn.connect` di `migrate_db` tetap 27. **1a-2:** `plugin_records.ensure_schema` boleh tetap di `plugin_loader.migrate` karena tidak dipakai jalur task.
+- **R2 — merge di transaksi `UPDATE` yang sama.** `PUT /api/tasks/{id}` tetap `async def` + `get_db()`; validasi bentuk/namespace/`$task` sebelum membuka DB (422 cepat); setelah `UPDATE tasks SET …` utama (DML pertama → `BEGIN IMMEDIATE`): `SELECT ext` → `apply_patch` → `UPDATE tasks SET ext`, semua sebelum `commit`, atomik dalam `BEGIN IMMEDIATE` yang sama. `EXT_TOO_LARGE` → rollback seluruh PUT. `ext_patch` yang dikirim dihitung sebagai perubahan (tidak pernah 400 "No fields to update").
+- **R3 — server lama mengirim `ext` sebagai string.** Setelah `migrate_db` (sebelum restart) proses lama melihat kolom baru lewat `SELECT *` → `"ext": "{}"` (string), bukan "tanpa `ext`" seperti asumsi K5. Klien memperlakukan `ext` sebagai "dikirim" hanya bila **objek polos** (`TF.taskext.isPlainObject`) di hidrasi, pull, dan `taskAdopt`.
+- **R4 — namespace.** Kunci plugin yang tidak berizin `task.ext`: `plugin_loader.refresh_known()` sekali per request, masih asing → dibuang + `WARNING` sekali per namespace per proses. Indeks rusak (`index_ok()` false) → semua namespace berbentuk sah **diterima** (gagal-terbuka) **tanpa** baca ulang indeks.
+- **R5 — `known()` tidak berubah;** izin disimpan terpisah (`permissions()`, `ext_namespaces()`). `on_task_written` → "belum didukung (ditunda, Lampiran B)" (K21).
+- **R6 — aturan K6.** Notifikasi "memperbarui task" dilewati bila `ext_patch` dikirim **dan** tidak ada field inti yang berubah (abaikan `updated_at`, `quadrant`, `completed_at`, `recurrence_end_date`, `recurrence_notif_level`, `ext`; `recurrence_renew` true = berubah). PUT tanpa `ext_patch` berperilaku lama.
+- **Ukuran dicek atas ext gabungan.** Batas 4/16 KB diperiksa atas hasil `apply_patch` (bukan atas patch). Selisih kecil hitung byte untuk float bulat (`json.dumps(1.0)` = `1.0` di Python, `JSON.stringify(1.0)` = `1` di JS) diterima; server penentu akhir.
+- **`ext_patch: []`** (bukan objek) → 422 dari validasi pydantic (bukan `EXT_INVALID`).
+
+**Klien**
+
+- **R7 — nama `ext_patch` juga di rute lokal dan `taskrepo`** (body yang sama untuk `api.put` lokal dan jaringan); `createTask` membaca `input.ext` (sama dengan `POST`).
+- **R8 — tulis akhir `updateTask` lewat `TFdb.mutate`.** Patch diterapkan ke record **terbaru** di dalam `TFdb.mutate("tasks", cid, cur => …)`; **semua** update task kini lewat `mutate` (bukan hanya yang membawa `ext_patch`): field inti dari patch (perilaku lama), `ext` = `applyPatch(cur.ext, ext_patch)`, `ext_dirty` = `cur.ext_dirty ∪ kunci patch`, `rev + 1`. Autosave Live Edit yang berjalan bersamaan dengan `api.taskExt.set` tidak menghapus kunci ext.
+- **R9 — `$task`.** Op create tidak pernah ditahan karena ref (A↔B offline akan deadlock): kunci yang merujuk cid ber-create antre tidak dikirim dan tetap kotor; op update yang merujuknya ditahan; ref ke cid tanpa server id dan tanpa create antre → `null`. Setelah `POST` sukses: `rewriteTaskExtRefs(cid, sid)`. A↔B: POST A (tanpa kunci ref), POST B **langsung** membawa id server A, lalu **satu** PUT A dengan id server B.
+- **R10 — jendela deploy.** Respons 2xx tanpa `ext` objek dan record ber-`ext_dirty` → `dirty = 1`, `ext_dirty` tetap, op diantre untuk drain **berikutnya** → paling banyak satu PUT per task per sinkron sampai server di-restart. Push tanpa `ext_dirty` tidak pernah mengirim kunci `ext_patch`.
+- **R11 — pull** LWW server menang dengan kunci kotor → kunci lokal ditempel di atas ext server, `ext_dirty` dipertahankan, op diantre ulang.
+- **R12 — `versionchange`.** `newVersion === null` (hapus DB) → tutup + boleh buka ulang tanpa banner; selain itu `db.close()` dan `openDB` berikutnya ditolak `Error("DB_UPGRADED_ELSEWHERE")` (`code` sama). `DB_VERSION` tetap **6**, dengan komentar "jangan pernah diturunkan". Banner DOM `static/offline/dbupgrade.js` (berlangganan `TF.db.subscribe`/`upgradeState`, gaya inline bertoken).
+- **R13 — `compile.js`.** `contributes`/`taskExt` disalin ke `index.json` dan konstanta `manifest` hanya bila ada (indeks dan hash `habit-heatmap` tidak berubah); `parts` digabung mentah sebelum `plugin.jsx`. Plugin contoh `demo-ext` **hanya** di `tests/fixtures/plugins/demo-ext/` (dibangun tes ke direktori sementara, tidak pernah di `static/plugins/`).
+- **R14 — `api.taskExt`.** `set` hanya menerima field di `manifest.taskExt.keys`. Tanpa binding host (`updateTaskExt`), jatuh ke rute lokal `PUT /api/tasks/:id` (tes Node, pemakaian di luar `App`).
+- **R15 — context `taskDetail.sections` tanpa `currentUser`** (`TaskDetailBody` tidak menerima `user`): `{task, variant, collaborators, onOpenTask, showToast: window.__showToast}`; pengguna lewat `api.env.userId`.
+- **R16 — context `taskList.views` stabil:** `useMemo` atas **masukan** (halaman, task, tujuh state filter panel, kolaborator, pengguna, Live Edit, pilihan, view aktif), bukan `filtered`; `onTaskClick`/`isSelected` lewat ref.
+- **Tes lama yang diubah** selain R18 rencana: `tests/offline/tasklist_view_icons.test.js` kini menghitung tombol view **inti** saja (tombol view plugin ditambahkan dinamis di baris yang sama).
+
 ## 3. Ruang lingkup dan pembagian PR
 
 | PR | Isi | Server | IndexedDB | Terlihat pengguna |

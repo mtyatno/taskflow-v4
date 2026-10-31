@@ -1,5 +1,6 @@
 {
   "entries": [
+    {"version": "taskflow-v491-plugin-ext", "date": "2026-10-31", "silent": true},
     {"version": "taskflow-v490-plugin-akun", "date": "2026-10-31", "title": "Plugin ikut akunmu",
      "new": ["Plugin yang kamu nyalakan kini ikut aktif di perangkat lain setelah tersinkron.",
              "Tetap bisa dinyalakan atau dimatikan saat offline; perubahan dikirim begitu online."]},
