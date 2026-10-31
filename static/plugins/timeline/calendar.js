@@ -3,7 +3,7 @@
 // "Hari ini" tidak dibaca di sini (dimasukkan pemanggil sebagai argumen).
 const TLCal = (function (H) {
   const MS_DAY = 864e5;
-  const MAX_ITER = 3650; // batas langkah harian pada nextWork/prevWork/addWork → Error("TL_CAL_LOOP"), bukan hang
+  const MAX_ITER = 10000; // (satu hari kerja per minggu × durasi/lag 999 ≈ 7000 langkah) batas langkah harian pada nextWork/prevWork/addWork → Error("TL_CAL_LOOP"), bukan hang
   const MAX_NAME = 60;
   const MAX_ENTRIES = 366;
   const CACHE_MAX = 8;

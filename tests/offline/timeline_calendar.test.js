@@ -209,18 +209,30 @@ test("fsEarliest: lag 0 = hari kerja setelah selesai; lag 2; lag −1 (lead) mel
   assert.equal(I(C.fsEarliest(c, thu)), "2026-11-06");
 });
 
-test("batas iterasi: kalender sintetis weekdays [1] + off = setiap Senin 2026–2040 → nextWork melempar Error TL_CAL_LOOP, bukan hang", () => {
+test("batas iterasi 10000: kalender sintetis weekdays [1] + off = setiap Senin 2026–2070 → nextWork melempar Error TL_CAL_LOOP, bukan hang", () => {
   const off = new Set();
-  for (let d = D("2026-01-05"); d <= D("2040-12-31"); d += 7) off.add(d);
+  for (let d = D("2026-01-05"); d <= D("2070-12-31"); d += 7) off.add(d);
   assert.equal(C.isoWeekday(D("2026-01-05")), 1);
   const synth = { mask: new Set([1]), off, work: new Set(), key: "sintetis" };
-  assert.equal(C.MAX_ITER, 3650);
+  assert.equal(C.MAX_ITER, 10000);
   assert.throws(() => C.nextWork(synth, D("2026-01-01")), (e) => e instanceof Error && e.message === "TL_CAL_LOOP");
-  assert.throws(() => C.prevWork(synth, D("2040-12-31")), (e) => e.message === "TL_CAL_LOOP");
+  assert.throws(() => C.prevWork(synth, D("2070-12-31")), (e) => e.message === "TL_CAL_LOOP");
   assert.throws(() => C.addWork(synth, D("2026-01-01"), 1), (e) => e.message === "TL_CAL_LOOP");
-  assert.throws(() => C.addWork(synth, D("2040-12-31"), -1), (e) => e.message === "TL_CAL_LOOP");
+  assert.throws(() => C.addWork(synth, D("2070-12-31"), -1), (e) => e.message === "TL_CAL_LOOP");
   // kalender normal: 1000 hari kerja masih di bawah batas
   assert.doesNotThrow(() => C.addWork(std(), D("2026-01-01"), 1000));
+});
+
+test("batas iterasi 10000 cukup untuk satu hari kerja per minggu: durasi 999 dan lag ±999 tidak melempar", () => {
+  const one = C.compile(cal({ weekdays: [1] }));
+  const start = D("2026-11-02"); // Senin
+  const fin = C.finish(one, start, 999);
+  assert.equal(C.isoWeekday(fin), 1);
+  assert.ok(fin - start >= 998 * 7, "≈ 6986 hari kalender");
+  assert.ok(fin - start < 10000);
+  assert.doesNotThrow(() => C.fsEarliest(one, fin, 999));
+  assert.doesNotThrow(() => C.addWork(one, fin, -999));
+  assert.equal(C.addWork(one, fin, -998), start);
 });
 
 test("missingYears: rentang 2027-12-01..2028-02-01 → [2028]; national dan cutiBersama OFF → []", () => {
