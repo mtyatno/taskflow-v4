@@ -27,6 +27,13 @@
   function pluginState() {
     try { return isNode ? require("./pluginstate.js") : (root.TF && root.TF.pluginstate); } catch (_) { return null; }
   }
+  // Fase 1 plugin: record plugin (TF.pluginsync, PR 1a-2 R12/R13/R16). Dibaca malas: modul lama dari cache SW
+  // (tidak ada / tanpa pushOp) → op plugin dibiarkan antre.
+  function pluginSync() {
+    let m = null;
+    try { m = isNode ? require("./plugin_sync.js") : (root.TF && root.TF.pluginsync); } catch (_) { return null; }
+    return m && typeof m.pushOp === "function" ? m : null;
+  }
   const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
   const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
   // Kanban tahap: cache context (dimuat sebelum syncpush di index.html; dicek per fungsi karena modul lama dari
@@ -610,6 +617,7 @@
               .then(() => requeueIfDirty("tasks", "task", op.cid))
               .then(() => rewriteNoteTaskLinks(op.cid, sid)) // S15
               .then(() => rewriteTaskExtRefs(op.cid, sid)) // K7: {"$task": cid} → id server di task lain
+              .then(() => rewritePluginTaskRefs(op.cid, sid)) // R13: ... dan di data record plugin
               .then(() => { result.pushed++; });
           }
           if (classify(res) === "forbidden") { return accessLost("tasks", op.cid, op, result); }
@@ -816,6 +824,34 @@
         return ps.dropOp(op.qid, op.cid);
       });
     });
+  }
+
+  // Fase 1 plugin (PR 1a-2 R12/R13): record plugin, satu item per POST. Logika hasil (CAS op_qid, $task ditahan)
+  // ada di TF.pluginsync.pushOp; modul tidak ada (cache SW lama) → op dibiarkan antre (null).
+  function opPluginRecord(op, transport, result, pending) {
+    const ps = pluginSync();
+    if (!ps) return Promise.resolve(null);
+    return ps.pushOp(op, {
+      send: (m, p, b) => send(transport, m, p, b),
+      pending,
+      resolveRefs: resolveExtRefs,
+      result,
+    });
+  }
+  function rewritePluginTaskRefs(cid, sid) {
+    const ps = pluginSync();
+    if (!ps || typeof ps.rewriteTaskRefs !== "function") return Promise.resolve(0);
+    return ps.rewriteTaskRefs(cid, sid).catch(() => 0);
+  }
+  function healStrandedPluginRecords() {
+    const ps = pluginSync();
+    if (!ps || typeof ps.healStranded !== "function") return Promise.resolve(0);
+    let known = null;
+    try {
+      const P = root.TF && root.TF.plugins;
+      known = P && typeof P.knownIds === "function" ? P.knownIds() : null;
+    } catch (_) { known = null; }
+    return ps.healStranded(known).catch(() => 0);
   }
 
   function opHabitCreate(op, transport, habitTagsFor, result) {
@@ -2274,6 +2310,7 @@
     if (op.entity_type === "context" && op.op === "create") return opContextCreate(op, transport, result);
     if (op.entity_type === "pomodoro_log" && op.op === "create") return opPomodoroCreate(op, transport, result, pending);
     if (op.entity_type === "plugin_state" && op.op === "set") return opPluginStateSet(op, transport, result);
+    if (op.entity_type === "plugin") return opPluginRecord(op, transport, result, pending);
     return TFoutbox.outboxRemove(op.qid);
   }
 
@@ -2387,6 +2424,7 @@
       .then(() => healStrandedNotes())
       .then(() => healStrandedDrawings())
       .then(() => healStrandedContexts())
+      .then(() => healStrandedPluginRecords())
       .then(() => TFoutbox.outboxAll())
       .then((ops) => { pending = pendingCreateCids(ops); return ops.slice().sort((a, b) => a.qid - b.qid); })
       .then((ops) => ops.reduce((chain, op) => chain.then(() => {

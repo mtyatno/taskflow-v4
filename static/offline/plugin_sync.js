@@ -80,13 +80,19 @@
   // detail: {pluginId, entity, ids, source: "local" | "sync", lost?}
   function emit(detail) {
     const d = Object.assign({}, detail, { ids: (detail.ids || []).slice() });
+    if (Array.isArray(detail.lost)) d.lost = detail.lost.slice(); else delete d.lost;
+    const each = () => {
+      const x = Object.assign({}, d, { ids: d.ids.slice() });
+      if (d.lost) x.lost = d.lost.slice();
+      return x;
+    };
     for (const fn of Array.from(listeners)) {
       try {
-        const r = fn(Object.assign({}, d, { ids: d.ids.slice() }));
+        const r = fn(each());
         if (r && typeof r.then === "function") r.then(null, (e) => warn(e));
       } catch (e) { warn(e); }
     }
-    dispatch("tf:plugin-records", d);
+    dispatch("tf:plugin-records", each());
   }
   function warn(e) { try { console.warn("[pluginsync] pendengar error:", e); } catch (_) {} }
   function subscribe(fn) {
@@ -260,6 +266,234 @@
     });
   }
 
+  // ── Push (Task 5; R12, R13, R16) ───────────────────────────────────────────
+  // Kunci record dari op: payload (salinan record) bila lengkap, selain itu cid "<pid>/<entity>/<id>".
+  function keyOf(op) {
+    const p = op && op.payload;
+    if (p && typeof p.plugin_id === "string" && typeof p.entity === "string" && typeof p.id === "string") {
+      return [p.plugin_id, p.entity, p.id];
+    }
+    const s = String((op && op.cid) || "");
+    const a = s.indexOf("/");
+    const b = a < 0 ? -1 : s.indexOf("/", a + 1);
+    if (a <= 0 || b <= a + 1 || b === s.length - 1) return null;
+    return [s.slice(0, a), s.slice(a + 1, b), s.slice(b + 1)];
+  }
+  function newOp(rec, kind) {
+    const payload = copy(rec);
+    delete payload.op_qid;
+    return { entity_type: ENTITY, op: kind, cid: opCid(rec.plugin_id, rec.entity, rec.id), payload, ts: Date.now(), retries: 0 };
+  }
+  // JSON kanonik (kunci terurut) untuk membandingkan data lokal vs server.
+  function canon(v) {
+    if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+    if (v && typeof v === "object") {
+      return "{" + Object.keys(v).sort().map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
+    }
+    return JSON.stringify(v === undefined ? null : v);
+  }
+  function adopt(cur, srv) {
+    const rec = {
+      plugin_id: cur.plugin_id, entity: cur.entity, id: cur.id,
+      scope: typeof srv.scope === "string" ? srv.scope : cur.scope,
+      data: copy(srv.data && typeof srv.data === "object" ? srv.data : {}),
+      updated_at: srv.updated_at != null ? srv.updated_at : cur.updated_at,
+      version: srv.version != null ? srv.version : cur.version,
+      deleted: 0, dirty: 0, op_qid: null,
+    };
+    if (cur.sync_gen !== undefined) rec.sync_gen = cur.sync_gen;
+    return rec;
+  }
+
+  // Satu transaksi ["plugin_records", "_outbox"]: fn(cur | undefined, store, ob, out) setelah membaca record.
+  function withRecord(key, fn) {
+    return runTx([RECORDS, "_outbox"], "readwrite", (tx, out, guard) => {
+      const store = tx.objectStore(RECORDS);
+      const ob = tx.objectStore("_outbox");
+      const g = store.get(key);
+      g.onsuccess = guard(() => fn(g.result || undefined, store, ob, out));
+    });
+  }
+  const emitSync = (key, extra) => emit(Object.assign({ pluginId: key[0], entity: key[1], ids: [key[2]], source: "sync" }, extra || {}));
+
+  // 2xx applied:true. CAS op_qid: record masih milik op ini → adopsi baris server (tombstone/null → hapus keras);
+  // diedit selama terbang → hanya version server (edit baru berbasis versi yang baru diterima).
+  function ackApplied(key, qid, srv) {
+    return withRecord(key, (cur, store, ob, out) => {
+      ob.delete(qid);
+      if (!cur) return;
+      if (cur.op_qid === qid) {
+        if (!srv || srv.deleted) { store.delete(key); out.value = cur.deleted ? null : "changed"; return; }
+        store.put(adopt(cur, srv));
+        out.value = "changed";
+      } else if (srv && srv.version != null) {
+        cur.version = srv.version;
+        store.put(cur);
+      }
+    }).then((v) => { if (v) emitSync(key); });
+  }
+  // 2xx applied:false (LWW server menang). Record masih milik op ini → adopsi baris server + lost bila berbeda;
+  // diedit selama terbang → biarkan (kiriman berikutnya diputuskan LWW waktu).
+  function ackRejected(key, qid, srv) {
+    return withRecord(key, (cur, store, ob, out) => {
+      ob.delete(qid);
+      if (!cur || cur.op_qid !== qid) return;
+      const srvDeleted = !!srv.deleted;
+      const same = !!cur.deleted === srvDeleted && (srvDeleted || canon(cur.data || {}) === canon(srv.data || {}));
+      if (srvDeleted) store.delete(key); else store.put(adopt(cur, srv));
+      out.value = { lost: !same };
+    }).then((v) => { if (v) emitSync(key, v.lost ? { lost: [key[2]] } : null); });
+  }
+  // FORBIDDEN_SCOPE: akses ke scope hilang (mis. dikeluarkan dari workspace) → record + op dihapus.
+  function forbid(key, qid) {
+    return withRecord(key, (cur, store, ob, out) => {
+      ob.delete(qid);
+      if (!cur) return;
+      if (cur.op_qid != null && cur.op_qid !== qid) ob.delete(cur.op_qid);
+      store.delete(key);
+      out.value = !cur.deleted;
+    }).then((v) => { if (v) emitSync(key, { lost: [key[2]] }); });
+  }
+  // Galat permanen: op dibuang; record tetap dirty 1 + sync_error (hanya bila belum diedit selama terbang —
+  // edit baru punya op sendiri). `put` berikutnya menghapus sync_error.
+  function markError(key, qid, code, detail) {
+    return withRecord(key, (cur, store, ob, out) => {
+      ob.delete(qid);
+      if (!cur || cur.op_qid !== qid) return;
+      cur.op_qid = null;
+      cur.sync_error = { code: String(code), at: new Date().toISOString() };
+      if (detail !== undefined && detail !== null) cur.sync_error.detail = typeof detail === "string" ? detail : canon(detail);
+      store.put(cur);
+      out.value = true;
+    }).then((v) => { if (v) emitSync(key); });
+  }
+  function dropOp(qid) {
+    return runTx(["_outbox"], "readwrite", (tx) => { tx.objectStore("_outbox").delete(qid); }).then(() => null);
+  }
+
+  // pushOp(op, {send, pending, resolveRefs, result}) — R12/R13. Membaca record TERKINI (payload hanya cadangan)
+  // sehingga base_version = version terbaru. send(method, path, body) melempar untuk 401/429/5xx/jaringan (op tetap).
+  function pushOp(op, opts) {
+    const o = opts || {};
+    const result = o.result || { pushed: 0, failed: 0 };
+    const qid = op && op.qid;
+    const key = keyOf(op);
+    return runTx([RECORDS, "_outbox"], "readonly", (tx, out) => {
+      out.value = { hasOp: false, rec: undefined };
+      const g = tx.objectStore("_outbox").get(qid);
+      g.onsuccess = () => { out.value.hasOp = !!g.result; };
+      if (key) {
+        const r = tx.objectStore(RECORDS).get(key);
+        r.onsuccess = () => { out.value.rec = r.result || undefined; };
+      }
+    }).then(({ hasOp, rec }) => {
+      if (!hasOp) return null; // sudah di-coalesce/diproses (drain memakai snapshot)
+      if (!key || !rec || rec.op_qid !== qid) return dropOp(qid); // record hilang / op yatim
+      const data = rec.deleted ? {} : (rec.data || {});
+      const refP = !rec.deleted && typeof o.resolveRefs === "function"
+        ? o.resolveRefs({ d: data }, o.pending)
+        : Promise.resolve({ value: { d: data }, held: [] });
+      return Promise.resolve(refP).then((ref) => {
+        if (ref && ref.held && ref.held.length) return null; // R13: create task antre → tahan utuh
+        const item = {
+          entity: rec.entity, id: rec.id, scope: rec.scope,
+          data: ref && ref.value && "d" in ref.value ? ref.value.d : data,
+          deleted: !!rec.deleted, updated_at: rec.updated_at,
+          base_version: rec.version == null ? null : rec.version,
+        };
+        const path = "/api/plugins/" + encodeURIComponent(rec.plugin_id) + "/records";
+        return o.send("POST", path, { items: [item] }).then((res) => onResponse(key, qid, res, result));
+      });
+    });
+  }
+  function onResponse(key, qid, res, result) {
+    const st = res && res.status;
+    if (st >= 200 && st < 300) {
+      const results = res.data && Array.isArray(res.data.results) ? res.data.results : [];
+      const r = results.find((x) => x && x.entity === key[1] && x.id === key[2]) || null;
+      if (!r) { result.failed++; return null; } // respons tak terbaca → op tetap
+      if (r.applied === true) return ackApplied(key, qid, r.record || null).then(() => { result.pushed++; });
+      if (r.applied === false && r.record && typeof r.record === "object") return ackRejected(key, qid, r.record);
+      if (r.error === "FORBIDDEN_SCOPE") return forbid(key, qid);
+      result.failed++;
+      return markError(key, qid, r.error || "INVALID", r.detail);
+    }
+    const d = res && res.data && res.data.detail;
+    const code = d && typeof d === "object" && typeof d.code === "string" ? d.code : null;
+    if (st === 404) return code === "PLUGIN_UNKNOWN" ? markError(key, qid, code) : null; // tanpa kode: jendela deploy
+    result.failed++;
+    return markError(key, qid, code || ("HTTP_" + st), d && typeof d === "object" ? d.detail : undefined);
+  }
+
+  // R16: record dirty tanpa sync_error yang op-nya hilang (crash, outbox dibersihkan) → op baru. knownIds = id
+  // plugin di indeks (null = tidak diketahui → semua plugin). Pindai rentang kunci primer per plugin.
+  function healStranded(knownIds) {
+    const ids = knownIds == null ? null : Array.from(new Set(Array.from(knownIds).filter((s) => typeof s === "string" && s)));
+    return runTx([RECORDS, "_outbox"], "readwrite", (tx, out, guard) => {
+      out.value = 0;
+      const store = tx.objectStore(RECORDS);
+      const ob = tx.objectStore("_outbox");
+      const enqueue = (rec) => {
+        const a = ob.add(newOp(rec, rec.deleted ? "delete" : "upsert"));
+        a.onsuccess = guard(() => { rec.op_qid = a.result; store.put(rec); out.value++; });
+      };
+      const visit = (recs) => {
+        for (const rec of recs) {
+          if (!(rec.dirty === 1 || rec.dirty === true) || rec.sync_error) continue;
+          if (rec.op_qid == null) { enqueue(rec); continue; }
+          const g = ob.get(rec.op_qid);
+          g.onsuccess = guard(() => {
+            const o = g.result;
+            if (!o || o.entity_type !== ENTITY || o.cid !== opCid(rec.plugin_id, rec.entity, rec.id)) enqueue(rec);
+          });
+        }
+      };
+      const ranges = ids === null ? [undefined] : ids.map((pid) => IDBKeyRange.bound([pid], [pid, []]));
+      for (const range of ranges) {
+        const r = range === undefined ? store.getAll() : store.getAll(range);
+        r.onsuccess = guard(() => visit(r.result || []));
+      }
+    });
+  }
+
+  // R13: setelah POST task `cid` sukses → {"$task": cid} di data record menjadi id server; dirty 1, op di-coalesce,
+  // updated_at TIDAK diubah (penulisan teknis tidak boleh memenangkan LWW). Record ber-sync_error dilewati.
+  // Gagal di sini tidak boleh menggagalkan op create task → 0.
+  function rewriteTaskRefs(cid, sid) {
+    const T = taskext();
+    const n = Number(sid);
+    if (!T || typeof cid !== "string" || !cid || sid == null || !Number.isInteger(n)) return Promise.resolve(0);
+    const changed = [];
+    return runTx([RECORDS, "_outbox"], "readwrite", (tx, out, guard) => {
+      out.value = 0;
+      const store = tx.objectStore(RECORDS);
+      const ob = tx.objectStore("_outbox");
+      const r = store.getAll();
+      r.onsuccess = guard(() => {
+        for (const rec of r.result || []) {
+          if (rec.deleted || rec.sync_error || !T.refsIn(rec.data).some((id) => id === cid)) continue;
+          const next = Object.assign({}, rec, {
+            data: T.mapRefs(rec.data, (id) => (id === cid ? { $task: n } : { $task: id })),
+            dirty: 1, op_qid: null,
+          });
+          if (rec.op_qid != null) ob.delete(rec.op_qid);
+          const a = ob.add(newOp(next, "upsert"));
+          a.onsuccess = guard(() => { next.op_qid = a.result; store.put(next); out.value++; changed.push(next); });
+        }
+      });
+    }).then((count) => {
+      const groups = new Map();
+      for (const rec of changed) {
+        const k = rec.plugin_id + "\u0000" + rec.entity;
+        if (!groups.has(k)) groups.set(k, { pluginId: rec.plugin_id, entity: rec.entity, ids: [], source: "sync" });
+        groups.get(k).ids.push(rec.id);
+      }
+      for (const g of groups.values()) emit(g);
+      if (count) dispatch("tf:outbox-queued", { entity: ENTITY, cids: changed.map((x) => opCid(x.plugin_id, x.entity, x.id)) });
+      return count;
+    }).catch(() => 0);
+  }
+
   // ── plugin_kv (pembukuan sinkron: kursor, gen, owner) ──────────────────────
   function kvGet(pid, scope, key) {
     return runTx([KV], "readonly", (tx, out) => {
@@ -275,7 +509,8 @@
 
   const exported = {
     ENTITY, opCid, put, get, list, remove, subscribe, newId, toPublic, kvGet, kvSet,
-    _internals: { runTx, writeLocal, emit, dispatch, checkKey, checkScope, checkData, copy, isLive, listeners, RECORDS, KV },
+    pushOp, healStranded, rewriteTaskRefs,
+    _internals: { runTx, writeLocal, emit, dispatch, checkKey, checkScope, checkData, copy, isLive, listeners, RECORDS, KV, canon, keyOf },
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.pluginsync = exported; }
   return exported;
