@@ -296,6 +296,19 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
   `DELETE`/`UPDATE` ke tabel host, `ATTACH DATABASE`, atau trigger `plg_` yang menulis tabel host, dan kode
   endpoint server memakai koneksi DB host yang sama tanpa pembatasan.
 
+**Kasus tepi `tasks.ext` (Fase 1):**
+
+- Rujukan `{"$task": <cid>}` ke task yang dibuat offline dan op create-nya **gagal permanen** (dibuang, atau
+  "Buang perubahan lokal" pada task baru) diganti `null` saat dikirim: task itu tidak pernah punya id server. Plugin
+  wajib menerima `null` di tempat rujukan (mis. dependensi ke task yang sudah tidak ada).
+- PUT yang membawa `ext_patch` dan hanya mengubah **tag** task dianggap "hanya ext": perbandingan field inti untuk
+  melewati notifikasi "memperbarui task" (`_core_changed`, `webapp.py`) tidak menghitung perubahan tag (tag disimpan
+  terpisah dari kolom task). Push klien selalu membawa tag, jadi bila tag diubah lalu plugin menulis ext sebelum
+  sinkron (satu PUT gabungan), anggota workspace tidak mendapat notifikasi perubahan tag itu.
+- Namespace yang belum dikenal memicu baca ulang `index.json` paling sering sekali per 10 detik per proses: kunci
+  plugin yang baru ditambahkan bisa dibuang selama ≤ 10 detik setelah deploy menulis indeks baru (op klien tidak
+  gagal; kunci tetap ada di perangkat dan terkirim lagi pada edit berikutnya pada kunci itu).
+
 Karena itu semua plugin saat ini **bawaan dan direview manusia** sebelum di-merge. Sandbox sungguhan
 (`sqlite3.Connection.set_authorizer` di server, Worker/iframe ber-origin terpisah di klien) ditunda sampai ada
 plugin pihak ketiga.
@@ -340,8 +353,8 @@ Pola: `tests/offline/habit_heatmap_logic.test.js` dan `habit_heatmap_ui.test.js`
    `sudo systemctl restart taskflow-web taskflow` (web + bot memuat ulang loader). Selama jendela itu file
    statis sudah baru sementara proses lama masih melayani: rute plugin menjawab 404 (plugin harus menurunkan
    diri) dan toggle tetap antre di outbox sampai rute status tersedia. Untuk `task.ext`: server membaca ulang
-   `index.json` sekali per request yang membawa namespace belum dikenal, jadi plugin baru berizin `task.ext`
-   langsung diterima; perubahan ext yang dijawab server lama (tanpa `ext` objek) tetap tertahan di perangkat dan
+   `index.json` saat request membawa namespace belum dikenal (paling sering sekali per 10 detik), jadi plugin baru
+   berizin `task.ext` diterima tanpa restart; perubahan ext yang dijawab server lama (tanpa `ext` objek) tetap tertahan di perangkat dan
    terkirim setelah restart.
 
 ## 11. Server (Fase 0b)

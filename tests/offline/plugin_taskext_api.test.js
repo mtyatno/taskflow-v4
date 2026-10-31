@@ -185,3 +185,17 @@ test("api.for(id).taskExt selalu ada (beku); apiVersion tetap 1", () => {
   for (const k of ["read", "set", "setMany", "ref"]) assert.equal(typeof a.taskExt[k], "function");
   assert.equal(typeof RT.api.for("plain-plug").taskExt.read, "function");
 });
+
+test("review akhir: set lewat api.put host (rute lokal) → PluginStorageError dengan key namespace yang benar", async () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const TX = require("../../static/offline/taskext.js");
+  const html = fs.readFileSync(path.join(__dirname, "../../static/index.html"), "utf8");
+  const src = html.match(/\nconst api = \{[\s\S]*?\n\};/)[0];
+  const router = { hasRoute: () => true, dispatch: () => Promise.reject(TX.extError("EXT_TOO_LARGE", "demo-ext")) };
+  const win = { TF: { taskroutes: { buildTaskRouter: () => router, shouldRouteLocally: () => true } } };
+  const hostApi = new Function("window", "schedulePush", src + "\nreturn api;")(win, () => {});
+  P.bindHost(binding({ updateTaskExt: (id, p) => hostApi.put(`/api/tasks/${id}`, { ext_patch: p }) }));
+  await assert.rejects(tx().set(7, { note: "x" }),
+    (err) => err instanceof PluginStorageError && err.code === "EXT_TOO_LARGE" && err.key === "demo-ext");
+});

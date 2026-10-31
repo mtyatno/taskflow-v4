@@ -8,6 +8,7 @@ koneksi sendiri): `ensure_schema` menerima koneksi pemanggil dan tidak commit; t
 - `clean_patch(patch, allow_null=…)` — urutan: bentuk kunci (`EXT_INVALID`), nilai JSON baku (`EXT_INVALID`),
   referensi task `{"$task": <int>}` (`EXT_TASK_REF`), lalu namespace (R4): kunci milik plugin yang tidak berizin
   `task.ext` dibuang diam-diam (WARNING sekali per namespace per proses); indeks plugin rusak → gagal-terbuka.
+  Namespace asing memicu baca ulang indeks paling sering sekali per `REFRESH_TTL_S` (10 s).
 - `apply_patch(old_raw, patch)` → JSON baru; ukuran per namespace ≤ 4096 byte lalu total ≤ 16384 byte
   (byte UTF-8 `dumps` ringkas) → `EXT_TOO_LARGE` dengan `key` = namespace / `None`.
 - `parse(raw)` → selalu `dict` (`{}` bila kosong/rusak).
@@ -20,6 +21,7 @@ import json
 import logging
 import math
 import re
+import time
 
 import plugin_loader
 
@@ -32,6 +34,11 @@ REF_KEY = "$task"
 
 _warned: set[str] = set()
 _warned_fail_open = False
+# Baca ulang `index.json` karena namespace asing paling sering sekali per REFRESH_TTL_S (review akhir PR 1a-1):
+# klien lama/plugin terhapus yang terus mengirim kunci asing tidak membuat setiap PUT membaca berkas.
+REFRESH_TTL_S = 10.0
+_clock = time.monotonic  # bisa disuntik tes
+_last_refresh: float | None = None
 
 
 class ExtError(Exception):
@@ -115,7 +122,7 @@ def _check_value(key: str, value) -> None:
 
 def _allowed_namespaces(namespaces: set[str]) -> set[str] | None:
     """Namespace yang boleh disimpan; `None` = semua (indeks rusak, gagal-terbuka R4)."""
-    global _warned_fail_open
+    global _warned_fail_open, _last_refresh
     if not plugin_loader.index_ok():
         if not _warned_fail_open:
             _warned_fail_open = True
@@ -124,6 +131,10 @@ def _allowed_namespaces(namespaces: set[str]) -> set[str] | None:
     allowed = plugin_loader.ext_namespaces()
     if namespaces <= allowed:
         return set(allowed)
+    now = _clock()
+    if _last_refresh is not None and now - _last_refresh < REFRESH_TTL_S:
+        return set(allowed)  # baru dibaca ulang: hasil itu dipakai sampai TTL lewat
+    _last_refresh = now
     plugin_loader.refresh_known()  # deploy menulis index.json baru sebelum proses di-restart
     if not plugin_loader.index_ok():
         return None
@@ -181,6 +192,7 @@ def apply_patch(old_raw, patch: dict) -> str:
 
 
 def _reset_for_tests() -> None:
-    global _warned_fail_open
+    global _warned_fail_open, _last_refresh
     _warned.clear()
     _warned_fail_open = False
+    _last_refresh = None

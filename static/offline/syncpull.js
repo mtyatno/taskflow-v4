@@ -35,7 +35,8 @@
     if (!isPlainExt(rec.ext)) {
       if (isPlainExt(localRec.ext)) rec.ext = localRec.ext; else delete rec.ext;
     }
-    const keys = Array.isArray(localRec.ext_dirty) && !localRec.deleted ? localRec.ext_dirty : [];
+    // Hanya record yang masih dirty: ext_dirty sisa pada record bersih (mis. setelah "Buang perubahan lokal") diabaikan.
+    const keys = Array.isArray(localRec.ext_dirty) && localRec.dirty && !localRec.deleted ? localRec.ext_dirty : [];
     if (keys.length) {
       const src = isPlainExt(localRec.ext) ? localRec.ext : {};
       const ext = Object.assign({}, isPlainExt(rec.ext) ? rec.ext : {});

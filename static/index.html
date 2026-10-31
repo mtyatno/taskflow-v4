@@ -830,10 +830,10 @@ const api = {
           const _body = opts.body ? JSON.parse(opts.body) : undefined;
           const _res = await _router.dispatch(_method, url, _body)
             .catch(err => {
-              // S14: error router lokal BUKAN error jaringan → isOfflineErr false (jangan masuk antrean legacy OfflineDB)
-              const eLocal = new Error(err && err.message ? err.message : "local route error");
+              // S14: error router lokal BUKAN error jaringan → isOfflineErr false (jangan masuk antrean legacy OfflineDB). DB di-upgrade tab lain (K2) → pesan banner, satu titik untuk semua toast.
+              const eLocal = new Error(err && err.code === "DB_UPGRADED_ELSEWHERE" ? (window.TF?.dbupgrade?.TEXT_ELSEWHERE || "Alurik diperbarui di tab lain. Muat ulang tab ini.") : err && err.message ? err.message : "local route error");
               eLocal.__local = true;
-              if (err && err.status != null) eLocal.status = err.status;
+              if (err) { if (err.status != null) eLocal.status = err.status; for (const k of ["code", "key", "body"]) if (err[k] !== undefined) eLocal[k] = err[k]; } // code/key/body: api.taskExt memetakan EXT_* + key (plugin Fase 1)
               throw eLocal;
             });
           if (_method !== "GET") schedulePush();

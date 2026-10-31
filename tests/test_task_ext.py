@@ -127,11 +127,51 @@ def test_clean_patch_unknown_namespace_dropped_once_warned(demo_index, monkeypat
             assert out == {"demo-ext.a": 1}
     warns = [r for r in caplog.records if r.levelno == logging.WARNING and "lain-plugin" in r.getMessage()]
     assert len(warns) == 1
-    assert len(calls) == 2  # sekali per permintaan yang memuat namespace asing
+    assert len(calls) == 1  # baca ulang indeks di-cache ≤ REFRESH_TTL_S (review akhir PR 1a-1)
     calls.clear()
     task_ext.clean_patch({"demo-ext.a": 1}, allow_null=True)
     assert calls == []  # tanpa namespace asing → tidak membaca ulang indeks
 
+
+
+def test_namespace_refresh_cached_with_injectable_clock(demo_index, monkeypatch, tmp_path):
+    """Review akhir PR 1a-1: namespace asing memicu baca ulang `index.json` paling sering sekali per
+    REFRESH_TTL_S (10 s); setelah kedaluwarsa dibaca lagi sehingga plugin baru dari deploy diterima."""
+    assert task_ext.REFRESH_TTL_S == 10.0
+    now = [1000.0]
+    monkeypatch.setattr(task_ext, "_clock", lambda: now[0])
+    idx = tmp_path / "index.json"
+    base = json.loads((PLUGIN_FIXTURES / "index.json").read_text(encoding="utf-8"))
+    idx.write_text(json.dumps(base), encoding="utf-8")
+    plugin_loader.load_known(idx)
+    calls = []
+    real = plugin_loader.refresh_known
+
+    def counting():
+        calls.append(now[0])
+        return real()
+
+    monkeypatch.setattr(plugin_loader, "refresh_known", counting)
+    patch = {"demo-ext.a": 1, "baru-plugin.b": 2}
+    assert task_ext.clean_patch(patch, allow_null=True) == {"demo-ext.a": 1}
+    assert calls == [1000.0]
+    # deploy menulis indeks baru (plugin baru berizin task.ext) — masih di dalam TTL: tidak dibaca ulang
+    base["plugins"].append({"id": "baru-plugin", "defaultEnabled": False, "permissions": ["task.ext"]})
+    idx.write_text(json.dumps(base), encoding="utf-8")
+    now[0] = 1009.9
+    assert task_ext.clean_patch(patch, allow_null=True) == {"demo-ext.a": 1}
+    assert calls == [1000.0]
+    # TTL lewat → baca ulang sekali, plugin baru diterima; tanpa namespace asing → tidak membaca ulang
+    now[0] = 1010.0
+    assert task_ext.clean_patch(patch, allow_null=True) == patch
+    assert calls == [1000.0, 1010.0]
+    now[0] = 1100.0
+    assert task_ext.clean_patch({"demo-ext.a": 1}, allow_null=True) == {"demo-ext.a": 1}
+    assert calls == [1000.0, 1010.0]
+    # _reset_for_tests mengosongkan cache
+    task_ext._reset_for_tests()
+    task_ext.clean_patch({"asing-lagi.c": 1}, allow_null=True)
+    assert calls == [1000.0, 1010.0, 1100.0]
 
 def test_clean_patch_fail_open_when_index_broken(demo_index, monkeypatch, caplog):
     monkeypatch.setattr(plugin_loader, "_index_ok", False)

@@ -140,9 +140,10 @@
         if (rec.server_id == null || CHILD[entity]) {
           return dropOutbox(entity, cid).then(() => deleteRaw(store, cid)).then(() => ({ ok: true }));
         }
-        // base_rev null → pull berikutnya melihat revisi server "lebih baru" dan menimpa record ini.
+        // base_rev null → pull berikutnya melihat revisi server "lebih baru" dan menimpa record ini. ext_dirty ikut
+        // dibuang (field plugin di task, spec plugin Fase 1 K5): kunci yang ditolak server tidak ditempel lagi oleh pull.
         return dropOutbox(entity, cid)
-          .then(() => patchRec(store, cid, (next) => { next.dirty = 0; next.base_rev = null; delete next.sync_error; return next; }))
+          .then(() => patchRec(store, cid, (next) => { next.dirty = 0; next.base_rev = null; delete next.sync_error; delete next.ext_dirty; return next; }))
           .then(() => ({ ok: true }));
       }
       const cleanup = dropOutbox(entity, cid)

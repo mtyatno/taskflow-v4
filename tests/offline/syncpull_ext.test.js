@@ -152,8 +152,40 @@ test("withLocalExt murni", () => {
   assert.deepEqual(withLocalExt(Object.assign({}, server), { ext: { "abc.a": 1 } }).ext, { "abc.a": 1 });
   assert.equal("ext" in withLocalExt(Object.assign({}, server), { ext: "{}" }), false);
   const out = withLocalExt(Object.assign({}, server, { ext: { "abc.a": 2, "abc.b": 3 } }),
-    { ext: { "abc.a": 1 }, ext_dirty: ["abc.a", "abc.b"] });
+    { dirty: 1, ext: { "abc.a": 1 }, ext_dirty: ["abc.a", "abc.b"] });
   assert.deepEqual(out.ext, { "abc.a": 1 });
   assert.deepEqual(out.ext_dirty, ["abc.a", "abc.b"]);
   assert.equal(out.dirty, 1);
+});
+
+// Review akhir PR 1a-1 (temuan wajib): "Buang perubahan lokal" pada task ber-sync_error (422 EXT_TOO_LARGE) harus
+// membuang ext_dirty juga; pull berikutnya tidak boleh menghidupkan lagi kunci yang ditolak server.
+test("discard_local membersihkan ext_dirty → pull ext {} menghasilkan record bersih tanpa op", async () => {
+  const { resolveConflict } = require("../../static/offline/syncconflict.js");
+  await putTasks([local({
+    cid: "a", server_id: 10, title: "T", base_rev: "2026-06-01T00:00:00", dirty: 1, rev: 3,
+    ext: { "demo-ext.big": "x" }, ext_dirty: ["demo-ext.big"], sync_error: { status: 422, detail: "EXT_TOO_LARGE" },
+  })]);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  const res = await resolveConflict("task", "a", "discard_local");
+  assert.equal(res.ok, true);
+  const mid = await getTask("a");
+  assert.equal("ext_dirty" in mid, false, "discard_local menghapus ext_dirty");
+  assert.equal(mid.dirty, 0);
+  await pullTasks([srv({ id: 10, title: "T", updated_at: "2026-06-01T00:00:00", ext: {} })]);
+  await pullTasks([srv({ id: 10, title: "T", updated_at: "2026-06-01T00:00:00", ext: {} })]);
+  const a = await getTask("a");
+  assert.equal(a.dirty, 0);
+  assert.equal("ext_dirty" in a, false);
+  assert.deepEqual(a.ext, {});
+  assert.deepEqual(await outboxAll(), []);
+});
+
+test("withLocalExt: ext_dirty sisa pada record lokal yang tidak dirty tidak ditempel", () => {
+  const out = withLocalExt({ id: 10, ext: { "demo-ext.a": 1 } },
+    { cid: "a", dirty: 0, ext: { "demo-ext.a": 1, "demo-ext.big": "x" }, ext_dirty: ["demo-ext.big"] });
+  assert.deepEqual(out.ext, { "demo-ext.a": 1 });
+  assert.equal("ext_dirty" in out, false);
+  assert.equal(out.dirty, undefined);
 });
