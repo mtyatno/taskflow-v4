@@ -4283,5 +4283,5 @@
 - **Task:** Sistem plugin Fase 0a (runtime klien + plugin #0 Heatmap Habit) sesuai spec/plan yang disetujui Bapak.
 - **Changes:** runtime plugin, Heatmap Habit, build plugin di compile.js + precache, integrasi index.html, kartu Pengaturan › Plugin, README plugin, ADR-037, rilis v488. Subagent implementer per kelompok task + reviewer terpisah.
 - **Files Touch:** static/plugin-runtime.js, static/plugins/**, compile.js, package.json, static/sw.js, static/index.html, static/whatsnew.json, static/offline/{meta,habitquery}.js, tests/offline/plugin_*.test.js, tests/offline/habit_heatmap_*.test.js, tests/build-plugins.test.js, tests/test_plugins_node.py + tes versi, docs/plugins/README.md, docs/superpowers/{specs,plans}/*plugin-fase0a*, .agents/*
-- **Status:** Needs Review (PR draft). npm 3584/3585 (pra-ada), pytest 1249/1 skip, E2E 18/18.
+- **Status:** Needs Review (PR draft #115). npm 3584/3585 (pra-ada), pytest 1249/1 skip, E2E 18/18.
 
