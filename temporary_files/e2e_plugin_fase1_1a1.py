@@ -23,7 +23,7 @@ U2 "ext1a2" (anggota W, demo-ext OFF, hanya lewat API).
     reload → tetap Demo per halaman; Inbox tanpa tombol, tf_viewmode tetap; Normal → kunci per halaman hilang;
     Live Edit + klik item view → panel; D: plugin.js 404 → "Demo tidak bisa dimuat" → "Kembali ke Normal".
   5 C: plugin OFF dari Pengaturan saat view Demo aktif → daftar kembali ke mode inti tanpa reload.
-  6 dua tab: (a) tab app + tab kedua indexedDB.open(v7) mentah → banner "diperbarui di tab lain" + "Muat ulang"
+  6 dua tab: (a) tab app + tab kedua indexedDB.open(DB_VERSION+1) mentah → banner "diperbarui di tab lain" + "Muat ulang"
     (375 px, Sakura gelap); (b) tab /manifest.json memegang DB v5 mentah → tab app banner "Tutup tab Alurik lain…" →
     tab pertama ditutup → banner hilang, daftar task tampil.
   7 375 px: tombol view tanpa geser horizontal; Sakura gelap: tombol view terbaca; konsol tanpa error tak terduga.
@@ -634,17 +634,20 @@ def run(browser, base, u1, u2, ids, pdir, idx_body):
         e2 = ce.new_page()
         watch(e2, "E-raw")
         e2.goto(base + "/manifest.json")
-        raw = e2.evaluate("""() => new Promise(res => { const rq = indexedDB.open('taskflow-offline', 7);
+        # Versi DB aplikasi + 1 (1a-1: v6 → buka v7; sejak 1a-2 DB_VERSION 7 → buka v8). Konteks E dibuang sesudahnya.
+        dbv = e.evaluate("() => window.TF.db.DB_VERSION")
+        raw = e2.evaluate("""v => new Promise(res => { const rq = indexedDB.open('taskflow-offline', v);
             rq.onupgradeneeded = () => {}; rq.onblocked = () => res('blocked');
             rq.onsuccess = () => { const v = rq.result.version; rq.result.close(); res('ok:' + v); };
-            rq.onerror = () => res('error:' + (rq.error && rq.error.name)); setTimeout(() => res('timeout'), 8000); })""")
+            rq.onerror = () => res('error:' + (rq.error && rq.error.name)); setTimeout(() => res('timeout'), 8000); })""", dbv + 1)
         ban = e.locator("#tf-db-banner")
         try:
             ban.wait_for(state="visible", timeout=10000)
             btxt = ban.inner_text()
         except PwTimeout:
             btxt = ""
-        check("6a-1 tab app menutup koneksi (open v7 mentah sukses tanpa blocked)", raw == "ok:7", raw)
+        check("6a-1 tab app menutup koneksi (open DB_VERSION+1 mentah sukses tanpa blocked)", raw == "ok:%d" % (dbv + 1),
+              raw)
         check("6a-2 tab app: banner 'Alurik diperbarui di tab lain. Muat ulang tab ini.' + tombol 'Muat ulang'",
               TEXT_ELSEWHERE in btxt and ban.get_attribute("role") == "alert"
               and ban.get_by_role("button", name="Muat ulang").count() == 1, repr(btxt))
@@ -699,8 +702,9 @@ def run(browser, base, u1, u2, ids, pdir, idx_body):
         hd.wait_dashboard_ready(f2)
         goto_list(f2, WS, T2)
         ver = f2.evaluate("() => window.TF.db.openDB().then(db => db.version)")
-        check("6b-3 tab lama ditutup → banner hilang, upgrade v6 lanjut, daftar task tampil",
-              gone and ver == 6 and f2.locator(".task-row", has_text=T2).count() >= 1, "ver=%r" % ver)
+        fdbv = f2.evaluate("() => window.TF.db.DB_VERSION")
+        check("6b-3 tab lama ditutup → banner hilang, upgrade ke DB_VERSION lanjut, daftar task tampil",
+              gone and ver == fdbv and f2.locator(".task-row", has_text=T2).count() >= 1, "ver=%r" % ver)
         shot(f2, "6b-setelah-tab-lama-ditutup.png")
         cf.close()
         ctxs.remove(cf)
