@@ -42,9 +42,11 @@ RESERVED_IDS = frozenset({"state"})
 MODULE_PREFIX = "alurik_plugins"
 
 # Simbol kontrak B11 yang belum didukung: plugin yang memilikinya ditolak utuh (K7, R6).
-PENDING_HOOKS = {"on_task_written": "Fase 1", "jobs": None, "register_bot": None, "intake": None}
+# `on_task_written` tidak dibutuhkan Timeline (semua hitung jadwal di klien) → ditunda (spec Fase 1 K21).
+PENDING_HOOKS = {"on_task_written": None, "jobs": None, "register_bot": None, "intake": None}
 
 _known: dict[str, dict] = {}
+_permissions: dict[str, frozenset] = {}  # id → izin dari index.json (spec Fase 1 K19; `known()` tidak berubah)
 _index_ok: bool = False
 _index_path = INDEX_PATH
 _loaded: list = []
@@ -69,43 +71,45 @@ class SchemaViolation(Exception):
 
 # ── Indeks ────────────────────────────────────────────────────────────────────
 
-def _read_index(index_path) -> dict[str, dict]:
+def _read_index(index_path) -> tuple[dict[str, dict], dict[str, frozenset]]:
     data = json.loads(Path(index_path).read_text(encoding="utf-8"))
     items = data.get("plugins") if isinstance(data, dict) else None
     if not isinstance(items, list):
         raise ValueError("'plugins' bukan list")
-    known = {}
+    known, perms = {}, {}
     for it in items:
         if not isinstance(it, dict) or not isinstance(it.get("id"), str):
             raise ValueError("entri plugin tanpa id")
         known[it["id"]] = {"defaultEnabled": it.get("defaultEnabled") is True}
-    return known
+        raw = it.get("permissions")
+        perms[it["id"]] = frozenset(p for p in raw if isinstance(p, str)) if isinstance(raw, list) else frozenset()
+    return known, perms
 
 
 def load_known(index_path=INDEX_PATH) -> dict[str, dict]:
     """Baca indeks plugin. Gagal/bentuk salah → `{}` + `index_ok() is False` + log ERROR; tidak melempar."""
-    global _known, _index_ok, _index_path
+    global _known, _index_ok, _index_path, _permissions
     _index_path = index_path
     try:
-        known = _read_index(index_path)
+        known, perms = _read_index(index_path)
     except Exception as e:  # noqa: BLE001 — indeks rusak tidak boleh menjatuhkan proses
         logger.error("plugin server: indeks %s tidak terbaca (%s: %s)", index_path, type(e).__name__, e)
-        _known, _index_ok = {}, False
+        _known, _index_ok, _permissions = {}, False, {}
         return {}
-    _known, _index_ok = known, True
+    _known, _index_ok, _permissions = known, True, perms
     return dict(known)
 
 
 def refresh_known() -> dict[str, dict]:
     """Baca ulang indeks terakhir (deploy menulis `index.json` baru sebelum proses di-restart). Hanya mengganti
     daftar bila berhasil; gagal → daftar lama tetap dipakai (log WARNING). Modul server plugin TIDAK dimuat ulang."""
-    global _known, _index_ok
+    global _known, _index_ok, _permissions
     try:
-        known = _read_index(_index_path)
+        known, perms = _read_index(_index_path)
     except Exception as e:  # noqa: BLE001
         logger.warning("plugin server: baca ulang indeks %s gagal (%s: %s)", _index_path, type(e).__name__, e)
         return dict(_known)
-    _known, _index_ok = known, True
+    _known, _index_ok, _permissions = known, True, perms
     return dict(known)
 
 
@@ -115,6 +119,16 @@ def known() -> dict:
 
 def index_ok() -> bool:
     return _index_ok
+
+
+def permissions(pid: str) -> frozenset:
+    """Izin plugin menurut indeks terakhir yang terbaca (`frozenset()` bila tidak dikenal)."""
+    return _permissions.get(pid, frozenset())
+
+
+def ext_namespaces() -> frozenset:
+    """Namespace `tasks.ext` yang sah = id plugin berizin `task.ext` (spec Fase 1 K4)."""
+    return frozenset(pid for pid, perms in _permissions.items() if "task.ext" in perms)
 
 
 def default_enabled(pid: str) -> bool:
@@ -414,8 +428,8 @@ def load_for_bot(application=None, *, plugins_dir=PLUGINS_DIR, index_path=INDEX_
 
 
 def _reset_for_tests() -> None:
-    global _known, _index_ok, _loaded, _health, _index_path
-    _known, _index_ok, _loaded, _health = {}, False, [], {}
+    global _known, _index_ok, _loaded, _health, _index_path, _permissions
+    _known, _index_ok, _loaded, _health, _permissions = {}, False, [], {}, {}
     _index_path = INDEX_PATH
     for name in [n for n in sys.modules if n.startswith(MODULE_PREFIX + ".")]:
         sys.modules.pop(name, None)

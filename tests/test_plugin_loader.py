@@ -121,7 +121,7 @@ REJECT_CASES = [
     ("bad-async.py", ASYNC_EP, "async"),
     ("ok-async.py", ALLOW_ASYNC_EP, None),
     ("hook-written.py", DEMO_SRC + "\non_task_written = lambda *a: None\n",
-     "on_task_written belum didukung (Fase 1)"),
+     "on_task_written belum didukung (ditunda, Lampiran B)"),
     ("hook-jobs.py", DEMO_SRC + "\njobs = []\n", "jobs belum didukung (ditunda, Lampiran B)"),
     ("hook-bot.py", DEMO_SRC + "\ndef register_bot(app):\n    pass\n",
      "register_bot belum didukung (ditunda, Lampiran B)"),
