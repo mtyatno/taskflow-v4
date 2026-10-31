@@ -1119,6 +1119,142 @@
     return Object.freeze({ info: out("info"), warn: out("warn"), error: out("error") });
   }
 
+  // ── api.taskExt (izin task.ext, spec Fase 1 K4–K7; rencana 1a-1 R14) ─────────
+  // Field plugin di task (`tasks.ext`, kunci "<pluginId>.<field>"), patch per kunci (null menghapus). Tulis lewat
+  // binding host: patchTaskExt (optimistis di state React) → updateTaskExt (PUT {ext_patch} lewat rute lokal +
+  // sinkron) → refreshTasks + event window taskUpdated.
+  function taskext() {
+    const m = host("taskext");
+    if (!m) throw new Error("TF.taskext belum dimuat");
+    return m;
+  }
+
+  function extFieldsOf(id) {
+    const r = recs.get(id);
+    const src = (r && r.manifest) || (index && index.get(id)) || null;
+    const keys = src && isPlainObj(src.taskExt) && Array.isArray(src.taskExt.keys) ? src.taskExt.keys : [];
+    return keys.filter((k) => typeof k === "string" && EXT_FIELD_RE.test(k));
+  }
+
+  function storageError(message, code, key) {
+    const e = new PluginStorageError(message);
+    if (code) e.code = code;
+    if (key !== undefined) e.key = key;
+    return e;
+  }
+
+  // Error host → error plugin: 422 EXT_* (rute lokal: message; jaringan: body.detail.code) → PluginStorageError;
+  // 404 / "Task not found" → Error("Task not found"); selain itu diteruskan apa adanya.
+  function mapExtError(err) {
+    const e = err || {};
+    const detail = e.body && typeof e.body === "object" && e.body.detail && typeof e.body.detail === "object" ? e.body.detail : null;
+    const code = (typeof e.code === "string" && e.code) || (detail && typeof detail.code === "string" && detail.code) || String(e.message || "");
+    if (e.status === 422 && /^EXT_[A-Z_]+$/.test(code)) {
+      const key = e.key !== undefined ? e.key : (detail ? detail.key : undefined);
+      return storageError(code, code, key === undefined ? null : key);
+    }
+    if (e.status === 404 || e.message === "Task not found") return new Error("Task not found");
+    return err;
+  }
+
+  function makeTaskExt(id) {
+    const prefix = id + ".";
+    function guard() {
+      if (permissionsOf(id).indexOf("task.ext") < 0) throw denied(id, "plugin " + id + " tidak punya izin task.ext");
+    }
+    function taskIdOk(taskId) {
+      return (typeof taskId === "number" && Number.isInteger(taskId)) || (typeof taskId === "string" && taskId.length > 0);
+    }
+    // Patch tanpa prefiks → patch berprefiks yang sudah lolos aturan TF.taskext (ukuran diperiksa host).
+    function prefixed(patch) {
+      const tx = taskext();
+      if (!tx.isPlainObject(patch)) throw storageError("patch taskExt harus objek");
+      const fields = Object.keys(patch);
+      if (!fields.length) throw storageError("patch taskExt kosong");
+      const allowed = extFieldsOf(id);
+      const out = {};
+      for (const f of fields) {
+        if (!EXT_FIELD_RE.test(f) || allowed.indexOf(f) < 0) {
+          throw storageError("field " + f + " tidak terdaftar di manifest taskExt.keys", "EXT_INVALID", prefix + f);
+        }
+        out[prefix + f] = patch[f];
+      }
+      const bad = tx.checkPatch(out);
+      if (bad) throw storageError(bad.code, bad.code, bad.key);
+      return out;
+    }
+    function write(taskId, p) {
+      if (typeof hostBinding.patchTaskExt === "function") {
+        try { hostBinding.patchTaskExt(taskId, p); } catch (e) { warn("patchTaskExt gagal:", e); }
+      }
+      if (typeof hostBinding.updateTaskExt === "function") return Promise.resolve().then(() => hostBinding.updateTaskExt(taskId, p));
+      return Promise.resolve().then(() => localTaskRouter().dispatch("PUT", "/api/tasks/" + encodeURIComponent(taskId), { ext_patch: p }));
+    }
+    function refresh() {
+      if (typeof hostBinding.refreshTasks !== "function") return;
+      try { Promise.resolve(hostBinding.refreshTasks()).catch((e) => warn("refreshTasks gagal:", e)); } catch (e) { warn("refreshTasks gagal:", e); }
+    }
+    function announce(detail) {
+      try {
+        if (typeof root.dispatchEvent === "function" && typeof CustomEvent === "function") {
+          root.dispatchEvent(new CustomEvent("taskUpdated", { detail }));
+        }
+      } catch (e) { warn("taskUpdated gagal:", e); }
+    }
+    return Object.freeze({
+      read(task) {
+        guard();
+        const ext = task && typeof task === "object" ? task.ext : null;
+        const out = {};
+        if (!taskext().isPlainObject(ext)) return out;
+        for (const k of Object.keys(ext)) {
+          if (k.indexOf(prefix) === 0 && k.length > prefix.length) out[k.slice(prefix.length)] = JSON.parse(JSON.stringify(ext[k]));
+        }
+        return out;
+      },
+      ref(task) {
+        guard();
+        const tid = task && typeof task === "object" ? task.id : task;
+        if (!taskIdOk(tid)) throw new TypeError("ref butuh task dengan id");
+        return { $task: tid };
+      },
+      set(taskId, patch) {
+        let p;
+        return Promise.resolve().then(() => {
+          guard();
+          if (!taskIdOk(taskId)) throw new TypeError("taskId tidak valid");
+          p = prefixed(patch);
+        }).then(() => write(taskId, p).then(
+          (row) => { refresh(); announce({ taskId }); return row; },
+          (err) => { refresh(); throw mapExtError(err); }));
+      },
+      // Untuk seret massal: berurutan, berhenti pada kegagalan pertama (yang sebelumnya tetap tersimpan);
+      // satu refreshTasks + satu taskUpdated di akhir.
+      setMany(items) {
+        let prepared;
+        return Promise.resolve().then(() => {
+          guard();
+          if (!Array.isArray(items)) throw storageError("setMany butuh array {taskId, patch}");
+          prepared = items.map((it) => {
+            if (!it || typeof it !== "object" || !taskIdOk(it.taskId)) throw storageError("item setMany butuh taskId");
+            return { taskId: it.taskId, patch: prefixed(it.patch) };
+          });
+        }).then(() => {
+          if (!prepared.length) return [];
+          const rows = [];
+          const done = [];
+          const finish = () => { refresh(); if (done.length) announce({ taskIds: done.slice() }); };
+          return prepared.reduce((chain, it) => chain.then(() => write(it.taskId, it.patch).then((row) => {
+            rows.push(row);
+            done.push(it.taskId);
+          })), Promise.resolve()).then(
+            () => { finish(); return rows; },
+            (err) => { finish(); throw mapExtError(err); });
+        });
+      },
+    });
+  }
+
   let apiCache = new Map();
   const api = {
     apiVersion: API_VERSION,
@@ -1137,6 +1273,7 @@
           env,
           log: makeLog(id),
           fetch: makeFetch(id),
+          taskExt: makeTaskExt(id),
         }));
       }
       return apiCache.get(id);
