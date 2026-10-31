@@ -371,6 +371,7 @@
   <script src="/static/offline/pomologic.js"></script>
   <script src="/static/offline/pomolog.js"></script>
   <script src="/static/offline/pluginstate.js"></script>
+  <script src="/static/offline/plugin_sync.js"></script>
   <script src="/static/offline/ambient.js"></script>
   <script src="/static/offline/taskroutes.js"></script>
   <script src="/static/offline/hydrate.js"></script>
@@ -1362,6 +1363,7 @@ function sync() {
     }))
     // Plugin Fase 0b: status plugin akun (op plugin_state tertunda menang; 404 di jendela deploy terisolasi)
     .then(() => step(() => (window.TF.pluginstate ? window.TF.pluginstate.pull(__syncRawFetch, { userId: runUid, known: window.TF.plugins?.knownIds?.() ?? null }) : null)))
+    .then(() => step(() => (window.TF.syncpull.pullPluginRecords ? window.TF.syncpull.pullPluginRecords(__syncRawFetch, { userId: runUid, ids: window.TF.plugins?.recordPluginIds?.() ?? [] }) : null)))
     .then(() => window.TF.syncpush.pushOutbox(__syncTransport)) // 401 di sini → drain berhenti, op tetap; transport melapor ke handleAuthExpired
     .then((r) => { if (r && (r.busy || r.requeued)) schedulePush(); renderConflicts(); return r; })
     .catch(() => { renderConflicts(); return null; })
@@ -27223,7 +27225,7 @@ function PluginSettingsCard({ showToast }) {
   const fail = e => showToast(String(e && e.message || e), "error");
   const toggle = it => P.setEnabled(it.id, !it.enabled).then(() => showToast(it.enabled ? `Plugin ${it.name} dinonaktifkan` : `Plugin ${it.name} diaktifkan`), fail);
   const copy = it => { const cb = navigator.clipboard; if (!cb || typeof cb.writeText !== "function") return showToast("Gagal menyalin detail", "error"); Promise.resolve().then(() => cb.writeText(JSON.stringify(P.failures(it.id), null, 2))).then(() => showToast("Detail error disalin"), () => showToast("Gagal menyalin detail", "error")); };
-  const perm = it => it.permissions.length ? it.permissions.map(p => p === "storage" ? "Menyimpan pengaturan di perangkat ini" : p === "network" ? "Butuh koneksi internet untuk sebagian fitur" : p === "task.ext" ? "Menyimpan data tambahan di task (ikut tersinkron)" : p).join(", ") : "Tidak butuh izin";
+  const perm = it => it.permissions.length ? it.permissions.map(p => p === "storage" ? "Menyimpan pengaturan di perangkat ini" : p === "network" ? "Butuh koneksi internet untuk sebagian fitur" : p === "task.ext" ? "Menyimpan data tambahan di task (ikut tersinkron)" : p === "records" ? "Menyimpan data plugin di akunmu (ikut tersinkron)" : p).join(", ") : "Tidak butuh izin";
   const hint = (text, key) => /*#__PURE__*/React.createElement("span", { key, className: "theme-card-decor-hint" }, text);
   return /*#__PURE__*/React.createElement("div", { className: "card theme-card" }, /*#__PURE__*/React.createElement("div", { className: "theme-card-title" }, "Plugin"), /*#__PURE__*/React.createElement("p", { className: "theme-card-hint" }, "Fitur opsional. Pilihanmu tersimpan di akun dan berlaku di semua perangkat."),
     items.length === 0 ? /*#__PURE__*/React.createElement("p", { className: "theme-card-hint" }, "Belum ada plugin") : items.map(it => /*#__PURE__*/React.createElement("div", { key: it.id, className: "theme-card-decor", style: { alignItems: "flex-start" } },
