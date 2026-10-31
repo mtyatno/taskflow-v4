@@ -59,6 +59,18 @@ Fase 0a membuat ON/OFF plugin bekerja di satu perangkat tanpa server. Fase 0b me
 
 **Keputusan pemilik yang dibawa dari Fase 0a:** A1 (0a per perangkat, 0b per pengguna), A2 (plugin dalam workspace ditunda ke Fase 1), A3 (toggle tetap bisa offline; tidak ada "Butuh koneksi internet" untuk toggle), istilah UI "Plugin".
 
+### Catatan implementasi PR A (2026-10-31)
+
+Deviasi dari teks K1–K5 dan §4.2 yang diputuskan saat rencana/implementasi PR A (`docs/superpowers/plans/2026-10-31-plugin-fase0b-pr-a-dbconn.md`, branch `claude/dbconn`, ADR-038):
+
+- **R1 — tanda tangan `connect`:** `connect(path=None, *, foreign_keys=True, row_factory=sqlite3.Row)` dan `get_conn(path=None, *, foreign_keys=True)`; `None` → `dbconn.default_path()` = `config.DB_PATH` yang di-import **di dalam fungsi** (dibaca saat dipanggil). Di PR A semua pemanggil produksi mengirim path eksplisit (`webapp` → global `DB_PATH` modul di badan fungsi, `repository` → `self.db_path`, `bot` → `repo.db_path`); pagar AST menolak `dbconn.connect(`/`dbconn.get_conn(` tanpa argumen posisi di tiga file itu. Default `None` disediakan untuk `plugin_host` (PR B) dan skrip. Bila pengaturan pragma gagal, `connect` menutup koneksi lalu meneruskan exception; `foreign_keys=False` menulis `PRAGMA foreign_keys=OFF` eksplisit.
+- **R4 — `_media_db_connect` tetap fungsi bernama** (`return dbconn.connect(DB_PATH)`), bukan `lambda` seperti teks K5: `DB_PATH` tetap *late-bound* dan `webapp.media_worker._connect`/`webapp.email_worker._connect` bisa diuji.
+- **R5 — `/link <KODE>` punya tiga bug pra-ada**, semuanya diperbaiki dengan satu tes regresi (`tests/test_bot_link_token.py`, token dari endpoint asli): (0) guard `if len(context.args) < 2:` di awal `cmd_link` menelan kasus satu argumen sehingga cabang token tidak pernah tercapai — kini `if not context.args:`; (1) `repo._db_path` → `AttributeError` (teks K5); (2) `datetime.fromisoformat(expires_at) < datetime.now()` → `TypeError` karena `webapp.py` menulis `expires_at` ber-zona Asia/Jakarta — kini `exp < datetime.now(exp.tzinfo)`. Balasan sukses dikirim setelah blok `get_conn` (commit dulu, seperti semula) agar kunci tulis tidak dipegang selama I/O Telegram; teks balasan tidak berubah. Di luar cakupan: jalur token tidak memindahkan task dari pengguna otomatis `tg_<id>` seperti jalur username.
+- **R7 — nomor ADR:** ADR-038 = dbconn (PR A); PR B memakai **ADR-039** (§10 diperbarui).
+- **Satu tes lama disesuaikan** (`tests/test_petakan.py::test_empty_trash_deletes_map_of_note_trashed_between_statements`): tes menyisipkan baris lewat koneksi lain *secara sinkron di dalam trace callback* tepat saat DELETE mulai; dengan `BEGIN IMMEDIATE` kunci tulis sudah dipegang di titik itu sehingga sisipan menunggu `busy_timeout` lalu gagal diam-diam. Titik sisip dipindah ke SELECT `_purge_trashed_media` (tetap sesudah daftar `mine` dibaca dan sebelum DELETE, di luar transaksi); asersi dan properti yang diuji (RETURNING menutup celah SELECT→DELETE) tidak berubah. Ini satu-satunya perbedaan perilaku yang terdeteksi 1250 tes lama; selebihnya lulus tanpa perubahan.
+- **Lingkungan:** diimplementasikan dan diverifikasi di Python 3.13.18 / SQLite 3.53.1; semua klaim K2–K4 (jejak `BEGIN IMMEDIATE` hanya sebelum DML pertama, `SAVEPOINT` tanpa BEGIN, pembaruan hilang tanpa `write_tx`, BUSY_SNAPSHOT seketika pada transaksi deferred, 2 thread × 50 increment = 100 dengan `write_tx`) identik dengan venv produksi 3.12.3 / 3.45.1.
+- **Pagar AST** memindai akar repo **dan `plugins/*.py`** (folder boleh belum ada) sehingga modul server plugin PR B langsung terjaga.
+
 ## 3. Ruang lingkup
 
 | Bagian | Isi 0b | Tidak di 0b |
@@ -89,18 +101,26 @@ Rilis dipecah dua PR (§10): **PR A** `dbconn` saja (tanpa perubahan perilaku), 
 ### 4.2 `dbconn`
 
 ```python
-def connect(path, *, foreign_keys=True):
-    conn = sqlite3.connect(path, timeout=5.0, isolation_level="IMMEDIATE")
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout=5000")
-    conn.execute("PRAGMA journal_mode=WAL")
-    if foreign_keys:
-        conn.execute("PRAGMA foreign_keys=ON")
+BUSY_TIMEOUT_MS = 5000
+
+def default_path():                 # config.DB_PATH dibaca saat dipanggil (R1)
+    import config
+    return config.DB_PATH
+
+def connect(path=None, *, foreign_keys=True, row_factory=sqlite3.Row):
+    conn = sqlite3.connect(path or default_path(), timeout=5.0, isolation_level="IMMEDIATE")
+    try:
+        conn.row_factory = row_factory
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON" if foreign_keys else "PRAGMA foreign_keys=OFF")
+    except BaseException:
+        conn.close(); raise          # tidak bocor bila pragma gagal
     return conn
 
 @contextmanager
-def get_conn(path):                 # = semantik get_db hari ini
-    conn = connect(path)
+def get_conn(path=None, *, foreign_keys=True):   # = semantik get_db hari ini
+    conn = connect(path, foreign_keys=foreign_keys)
     try:
         yield conn; conn.commit()
     except Exception:
@@ -126,7 +146,7 @@ def write_tx(conn):                 # untuk baca-ubah-tulis
 | Titik | Sekarang | Sesudah | Risiko konkret dan penanganannya |
 |---|---|---|---|
 | `webapp.py:295–308` `get_db` (211 pemanggil) | WAL, FK ON, BEGIN deferred implisit | `dbconn.get_conn(DB_PATH)` | Netral (K2, jejak terverifikasi). Commit di tengah fungsi (mis. `:7315` "get_db me-rollback bila exception, jadi commit dulu") tetap berlaku. |
-| `webapp.py:183–188` `_media_db_connect` (MediaWorker, EmailWorker) | WAL, FK ON, tanpa context manager | `lambda: dbconn.connect(DB_PATH)` | Worker commit per langkah (`email_outbox.py:166–214`, `media_worker.py:118–121`): tidak berubah. |
+| `webapp.py:183–188` `_media_db_connect` (MediaWorker, EmailWorker) | WAL, FK ON, tanpa context manager | `_media_db_connect()` → `return dbconn.connect(DB_PATH)` (R4) | Worker commit per langkah (`email_outbox.py:166–214`, `media_worker.py:118–121`): tidak berubah. |
 | `webapp.py:361–1004` `migrate_db` (27 koneksi) | 26 tanpa FK; `:978` FK ON | `connect(..., foreign_keys=False)`; `:978` tetap FK ON | Rebuild dengan FK ON menghapus anak (K4). DDL di mode legacy berjalan di luar transaksi bila belum ada DML — sama seperti sekarang. `SAVEPOINT` di backfill (`repository.py:265`, `:277`, `:557`, `:570`) membuka transaksi sendiri tanpa BEGIN dari Python (terverifikasi) — tidak terpengaruh `isolation_level`. |
 | `repository.py:623–636` `_connect` (91 pemanggil, juga dipakai bot) | identik `get_db` | `dbconn.get_conn(self.db_path)` | `BEGIN IMMEDIATE` eksplisit (`:1803`, `:1833`, `:1859`, `:1876`) dipanggil sebelum DML apa pun → tidak bentrok dengan BEGIN implisit (terverifikasi). `:1801`/`:1810` menurunkan `busy_timeout` ke 1000 lalu memulihkan 5000 = bawaan baru. |
 | Kursor terbuka + tulis di koneksi yang sama | pola `for r in conn.execute(...)` tanpa `fetchall` (`webapp.py:2360`, `:2368`, `:3020`, `:3024`, `:6715`) | tidak diubah | Bila badan loop menulis → `SQLITE_BUSY_SNAPSHOT` seketika apa pun `isolation_level`-nya (terverifikasi). Sampel yang diperiksa hanya membaca; loop yang menulis sudah `fetchall()` (`:2746`, `:6536`). Aturan plugin: `fetchall()` sebelum menulis. |
@@ -315,9 +335,9 @@ Seluruh pytest lama (1250) lulus tanpa perubahan asersi — bukti utama netralit
 
 ## 10. Rilis
 
-**PR A — `claude/db-get-conn`** (server saja): `dbconn.py`, migrasi 31 titik, perbaikan `/link`, tes §9.1 baris 1–4. Tanpa perubahan frontend → tanpa SW bump. Deploy: workflow (`git reset`, `migrate_db`; **tidak** me-restart), lalu Bapak menjalankan **`sudo systemctl restart taskflow-web taskflow`** (bot memakai `repository.py`/`bot.py` yang berubah). Pantau `journalctl -u taskflow-web -u taskflow` (`database is locked`) ±1 hari sebelum PR B.
+**PR A — `claude/dbconn`** (server saja; ADR-038): `dbconn.py`, migrasi 31 titik, perbaikan `/link`, tes §9.1 baris 1–4. Tanpa perubahan frontend → tanpa SW bump. Deploy: workflow (`git reset`, `migrate_db`; **tidak** me-restart), lalu Bapak menjalankan **`sudo systemctl restart taskflow-web taskflow`** (bot memakai `repository.py`/`bot.py` yang berubah). Pantau `journalctl -u taskflow-web -u taskflow` (`database is locked`) ±1 hari sebelum PR B.
 
-**PR B — `claude/plugin-fase0b`:** loader, fasad, `plugin_states`, klien, README, ADR-038.
+**PR B — `claude/plugin-fase0b`:** loader, fasad, `plugin_states`, klien, README, ADR-039 (ADR-038 dipakai PR A).
 - SW: `CACHE` → `taskflow-v490-plugin-akun` (nomor final mengikuti `main`), `window.__SW_VERSION` + fallback, tes versi; `STATIC` += `/static/offline/pluginstate.js`; `app.css` tetap `?v=382`.
 - `whatsnew.json` entri teratas: `{"version": "taskflow-v490-plugin-akun", "date": "…", "title": "Plugin ikut akunmu", "new": ["Plugin yang kamu nyalakan kini ikut aktif di perangkat lain setelah tersinkron.", "Tetap bisa dinyalakan atau dimatikan saat offline; perubahan dikirim begitu online."]}`.
 - Deploy: workflow → restart **`taskflow-web` dan `taskflow`** (bot memuat `plugin_loader`). Verifikasi: `GET /api/plugins/state` dengan token → 200; log bot `plugin server: 0 dimuat, 0 ditolak`; Pengaturan › Plugin menampilkan subjudul baru setelah "Perbarui Sekarang".
