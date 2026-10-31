@@ -464,3 +464,80 @@ test("habit-heatmap dan demo-ext: index.json dan hash tidak berubah", (t) => {
   assert.deepEqual(e1.taskExt, { keys: ["note", "after"] });
   assert.equal(e1.hash, hashOf(path.join(d2, "plugins"), e1));
 });
+
+// ── Fase 1 PR 1b (rencana Task 6, R2): plugin bawaan timeline ────────────────────────────────────────────────
+const TIMELINE = path.join(PLUGINS, "timeline");
+const TL_PARTS = ["holidays-id.js", "calendar.js", "schedule.js", "layout.js", "drag.js"];
+function copyTimeline(t) {
+  const d = tmpDir(t);
+  const pdir = path.join(d, "plugins");
+  for (const f of [...TL_PARTS, "manifest.json", "plugin.jsx", "style.css"]) {
+    fs.mkdirSync(path.join(pdir, "timeline"), { recursive: true });
+    fs.copyFileSync(path.join(TIMELINE, f), path.join(pdir, "timeline", f));
+  }
+  const sw = path.join(d, "sw.js");
+  fs.writeFileSync(sw, SW_STUB);
+  return { pluginsDir: pdir, swPath: sw, log: () => {} };
+}
+
+test("timeline: parts digabung berurutan sebelum plugin.jsx, contributes + taskExt di index.json, lint lulus, hash stabil dua kali build", (t) => {
+  const fx = copyTimeline(t);
+  const m = JSON.parse(fs.readFileSync(path.join(TIMELINE, "manifest.json"), "utf8"));
+  assert.deepEqual(m.parts, TL_PARTS);
+  const r1 = build.buildPlugins(fx);
+  const entry = r1.index.plugins.find((p) => p.id === "timeline");
+  assert.ok(entry);
+  assert.deepEqual(entry.contributes, m.contributes);
+  assert.deepEqual(entry.taskExt, { keys: ["start", "duration", "deps"] });
+  assert.deepEqual(entry.records, { calendar: { conflict: "lww", maxBytes: 16384 } });
+  assert.deepEqual(entry.permissions, ["storage", "task.ext", "records"]);
+  assert.equal(entry.defaultEnabled, false);
+  assert.equal(entry.parts, undefined, "parts tidak disalin ke index.json");
+  assert.deepEqual(entry.files, ["plugin.js", "style.css"]);
+  const js = fs.readFileSync(path.join(fx.pluginsDir, "timeline", "plugin.js"), "utf8");
+  let at = js.indexOf("const manifest = Object.freeze(");
+  assert.ok(at > 0);
+  for (const p of TL_PARTS) {
+    const i = js.indexOf("// part: " + p + "\n");
+    assert.ok(i > at, p + " berurutan setelah part sebelumnya");
+    at = i;
+  }
+  assert.ok(js.indexOf("function calendarStore(", at) > at, "kode plugin.jsx sesudah semua part");
+  assert.equal(build.lintPlugin(js, entry), null);
+  const hash1 = entry.hash;
+  const sw1 = fs.readFileSync(fx.swPath, "utf8");
+  const r2 = build.buildPlugins(fx);
+  assert.equal(r2.written.length, 0, "build kedua tidak menulis apa pun");
+  assert.equal(r2.index.plugins[0].hash, hash1);
+  assert.equal(fs.readFileSync(fx.swPath, "utf8"), sw1);
+  assert.ok(sw1.includes("/static/plugins/timeline/plugin.js?v=" + hash1));
+  // hasil build di repo tidak basi: sama dengan build baru dari sumber
+  assert.equal(js, fs.readFileSync(path.join(TIMELINE, "plugin.js"), "utf8"));
+  const real = JSON.parse(fs.readFileSync(path.join(PLUGINS, "index.json"), "utf8"));
+  assert.deepEqual(real.plugins.find((p) => p.id === "timeline"), entry);
+});
+
+test("plugin.js timeline bisa di-require Node dan mengekspor TLCal/TLSched/TLLayout/TLDrag/TLHolidays", () => {
+  const P = require(path.join(TIMELINE, "plugin.js"));
+  for (const k of ["TLCal", "TLSched", "TLLayout", "TLDrag", "TLHolidays", "calendarStore"]) assert.ok(P[k], k);
+  assert.equal(typeof P.TLCal.addWork, "function");
+  assert.equal(typeof P.TLSched.readSched, "function");
+  assert.equal(typeof P.TLLayout.layout, "function");
+  assert.equal(typeof P.TLDrag.reduce, "function");
+  assert.ok(P.TLHolidays.DATA[2026]);
+});
+
+test("setiap part bisa di-require sendiri (proses terpisah, urutan bebas)", () => {
+  for (const p of TL_PARTS) {
+    const r = spawnSync(process.execPath, ["-e", "const m = require(process.argv[1]); if (!m || typeof m !== 'object') process.exit(2);", path.join(TIMELINE, p)], { encoding: "utf8" });
+    assert.equal(r.status, 0, p + ": " + r.stderr);
+  }
+});
+
+test("tanpa window.__ / self.__ global di parts dan plugin.jsx", () => {
+  for (const f of [...TL_PARTS, "plugin.jsx"]) {
+    const src = fs.readFileSync(path.join(TIMELINE, f), "utf8");
+    assert.doesNotMatch(src, /\b(?:window|self|globalThis)\s*\.\s*__/, f);
+    assert.doesNotMatch(src, /\b(?:window|self|globalThis)\s*\[\s*["']__/, f);
+  }
+});

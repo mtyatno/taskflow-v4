@@ -1,0 +1,19 @@
+/* Plugin Timeline (Fase 1, PR 1b). Hanya kelas .plg-timeline-* dan token tema (README §8.6): tanpa warna tetap.
+   Kerangka Task 6; tampilan Gantt (Task 7–9) dan seksi Jadwal (Task 10) menambah aturan di sini. */
+.plg-timeline {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.plg-timeline-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-primary);
+}

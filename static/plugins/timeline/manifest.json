@@ -1,0 +1,21 @@
+{
+  "id": "timeline",
+  "name": "Timeline",
+  "description": "Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.",
+  "version": "1.0.0",
+  "minApi": 1,
+  "defaultEnabled": false,
+  "slots": ["taskList.views", "taskDetail.sections"],
+  "permissions": ["storage", "task.ext", "records"],
+  "contributes": {
+    "taskList.views": [
+      {"id": "gantt", "label": "Timeline", "icon": {"path": "M2 4h7M5 8h8M3 12h5"}, "pages": ["project", "workspace"]}
+    ],
+    "taskDetail.sections": [
+      {"id": "schedule", "label": "Jadwal", "order": 10}
+    ]
+  },
+  "records": {"calendar": {"conflict": "lww", "maxBytes": 16384}},
+  "taskExt": {"keys": ["start", "duration", "deps"]},
+  "parts": ["holidays-id.js", "calendar.js", "schedule.js", "layout.js", "drag.js"]
+}
