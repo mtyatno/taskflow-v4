@@ -146,6 +146,7 @@ import dbconn
 import plugin_host
 import plugin_loader
 import plugin_states
+import task_ext
 import drawing_scope
 import note_comments
 import safehtml
@@ -967,6 +968,9 @@ def migrate_db():
         note_comments.purge_old_tombstones(conn, datetime.now(_TZ_JKT).isoformat())
         # Outbox email (antrean kirim + retry).
         email_outbox.ensure_schema(conn)
+        # Field plugin di task (spec plugin Fase 1 K4, rencana 1a-1 R1): di sini, bukan di plugin_loader.migrate
+        # yang menelan error — kolom ini dipakai setiap INSERT/UPDATE task, gagal harus menghentikan deploy.
+        task_ext.ensure_schema(conn)
         conn.commit()
     finally:
         conn.close()
@@ -1232,6 +1236,8 @@ class TaskCreate(BaseModel):
     estimated_pomodoros: int = Field(default=1, ge=1, le=20)
     # Idempotensi retry sync (audit T11): (user_id, client_id) sudah ada → kembalikan baris itu, bukan insert
     client_id: Optional[str] = Field(default=None, max_length=64)
+    # Field plugin (spec plugin Fase 1 K4): {"<pluginId>.<field>": nilai}; namespace asing dibuang, null diabaikan
+    ext: Optional[dict] = None
 
 class ReviewSnapshotIn(BaseModel):
     score: int
@@ -1261,6 +1267,8 @@ class TaskUpdate(BaseModel):
     is_focused: Optional[bool] = None  # audit K6: status fokus ikut dikirim push offline (disimpan 0/1)
     # base_rev: updated_at yang diketahui klien; bila dikirim dan ≠ server → 409 REV_MISMATCH (prinsip 7)
     base_rev: Optional[str] = None
+    # Patch per kunci tasks.ext (spec plugin Fase 1 K4): null = hapus kunci; kunci yang tidak dikirim tidak berubah
+    ext_patch: Optional[dict] = None
 
 class TaskMoveReq(BaseModel):
     list_id: int  # workspace tujuan
@@ -1526,6 +1534,7 @@ def task_row_to_dict(row, conn=None) -> dict:
     d["is_overdue"] = is_overdue
     d["days_until_deadline"] = days_left
     d["is_focused"] = bool(d.get("is_focused", 0))
+    d["ext"] = task_ext.parse(d.get("ext"))  # selalu objek ({} bila kosong/rusak)
     # Resolve assigned_to display name
     assigned_id = d.get("assigned_to")
     if assigned_id:
@@ -1574,6 +1583,28 @@ def _can_access_task(conn, task_id: int, user_id: int, write: bool = False):
         if repo.is_list_member_or_owner(list_id, user_id):
             return row
     raise HTTPException(status_code=403, detail="Not authorized")
+
+
+def _ext_422(e: "task_ext.ExtError") -> HTTPException:
+    return HTTPException(status_code=422, detail=e.detail)
+
+
+# Field yang ditulis ulang otomatis oleh PUT (bukan perubahan yang dibuat pengguna) — R6 rencana plugin 1a-1.
+_EXT_ONLY_IGNORED = frozenset({"updated_at", "quadrant", "completed_at", "recurrence_end_date",
+                               "recurrence_notif_level", "ext"})
+
+
+def _core_changed(updates: dict, existing, req) -> bool:
+    """True bila PUT mengubah field inti task (selain ext). Push klien selalu mengirim record penuh, jadi
+    'dikirim' ≠ 'berubah': bandingkan nilai baru dengan baris lama (K6 spec plugin Fase 1)."""
+    if req.recurrence_renew:
+        return True
+    for k, v in updates.items():
+        if k in _EXT_ONLY_IGNORED:
+            continue
+        if v != existing[k]:
+            return True
+    return False
 
 
 def _check_base_rev(req, existing, current_fn) -> None:
@@ -2407,6 +2438,13 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
             recurrence_days_json = json.dumps([day_of_month])
         recurrence_end_date = (date.today() + timedelta(days=90)).isoformat()
 
+    ext_json = "{}"
+    if req.ext is not None:
+        try:
+            ext_json = task_ext.apply_patch("{}", task_ext.clean_patch(req.ext, allow_null=False))
+        except task_ext.ExtError as e:
+            raise _ext_422(e)
+
     with get_db() as conn:
         # Idempotensi retry sync (audit T11): POST ulang dengan client_id yang sama (respons hilang /
         # timeout) mengembalikan baris yang sudah ada — tanpa insert, tanpa notifikasi ulang.
@@ -2451,12 +2489,12 @@ async def create_task(req: TaskCreate, background_tasks: BackgroundTasks, user=D
                    (title, description, gtd_status, priority, quadrant,
                     project, project_id, context, context_id, deadline, waiting_for, user_id, list_id, assigned_to, parent_id,
                     recurrence_type, recurrence_days, recurrence_end_date,
-                    created_at, updated_at, client_id, estimated_pomodoros)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                    created_at, updated_at, client_id, estimated_pomodoros, ext)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (req.title, req.description, req.gtd_status, req.priority.upper(), quadrant,
                  proj_name, proj_id, ctx_name, ctx_id, deadline, req.waiting_for, uid, req.list_id, req.assigned_to, parent_id,
                  recurrence_type, recurrence_days_json, recurrence_end_date,
-                 now, now, req.client_id, req.estimated_pomodoros),
+                 now, now, req.client_id, req.estimated_pomodoros, ext_json),
             )
         except sqlite3.IntegrityError:
             # Race: request kembar menyisipkan (user_id, client_id) yang sama lebih dulu → ambil barisnya.
@@ -2533,6 +2571,14 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
         req.title = _tag_re.sub('', req.title).strip()
         if not req.title:
             raise HTTPException(status_code=400, detail="Judul tidak boleh kosong setelah strip tag")
+
+    # Validasi ext_patch sebelum membuka DB (422 cepat); merge per kunci di transaksi UPDATE di bawah (R2).
+    ext_patch = None
+    if req.ext_patch is not None:
+        try:
+            ext_patch = task_ext.clean_patch(req.ext_patch, allow_null=True)
+        except task_ext.ExtError as e:
+            raise _ext_422(e)
 
     with get_db() as conn:
         existing = _can_access_task(conn, task_id, uid, write=True)
@@ -2629,8 +2675,10 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
                 updates["recurrence_end_date"] = None
                 updates["recurrence_notif_level"] = None
 
-        if not updates:
+        if not updates and ext_patch is None:
             raise HTTPException(status_code=400, detail="No fields to update")
+        # K6: PUT yang hanya mengubah ext (field inti sama dengan baris lama) tidak memberi tahu anggota workspace.
+        ext_only = ext_patch is not None and not _core_changed(updates, existing, req)
 
         updates["updated_at"] = datetime.now().isoformat()
 
@@ -2643,6 +2691,15 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         values = list(updates.values()) + [task_id]
         conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", values)
+        if ext_patch is not None:
+            # UPDATE di atas = DML pertama → BEGIN IMMEDIATE sudah aktif: baca-gabung-tulis ext atomik.
+            # EXT_TOO_LARGE dilempar di dalam get_db() → seluruh PUT di-rollback.
+            old_ext = conn.execute("SELECT ext FROM tasks WHERE id = ?", (task_id,)).fetchone()["ext"]
+            try:
+                new_ext = task_ext.apply_patch(old_ext, ext_patch)
+            except task_ext.ExtError as e:
+                raise _ext_422(e)
+            conn.execute("UPDATE tasks SET ext = ? WHERE id = ?", (new_ext, task_id))
 
         if task_tags is not None:
             conn.execute("DELETE FROM entity_tags WHERE entity_type='task' AND entity_id=? AND user_id=?", (task_id, uid))
@@ -2652,7 +2709,7 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
 
         row = conn.execute("SELECT * FROM tasks WHERE id = ?", (task_id,)).fetchone()
 
-    if existing["list_id"]:
+    if existing["list_id"] and not ext_only:
         actor = user.get("username", f"user#{uid}")
         new_assignee = updates.get("assigned_to", existing["assigned_to"])
         old_assignee = existing["assigned_to"]
