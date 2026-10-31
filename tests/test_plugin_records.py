@@ -841,6 +841,70 @@ def test_purge_resets_old_cursor(http, monkeypatch):
     c.close()
 
 
+def _purge_many(a, n=5):
+    """A menulis lalu menghapus n record, tombstone dibuat tua, lalu purge → purged_seq global naik."""
+    for i in range(n):
+        a.send1(id=f"gone{i}")
+        a.send1(id=f"gone{i}", deleted=True, base_version=1)
+    old = pr_iso(datetime.now(timezone.utc) - timedelta(days=40))
+    _sql("UPDATE plugin_records SET server_at = ? WHERE id LIKE 'gone%' AND owner_key = ?", old, f"u:{a.id}")
+    c = _rawdb()
+    try:
+        assert pr.purge(c, datetime.now(timezone.utc)) == n
+        return pr.purged_seq(c)
+    finally:
+        c.close()
+
+
+def _cseq(cursor):
+    return int(cursor.split(".")[1])
+
+
+def test_cursor_advances_to_global_max_seq_no_reset_loop_after_purge(http, monkeypatch):
+    monkeypatch.setattr(pr, "maybe_purge", lambda conn, now: None)
+    a, b = User(http), User(http)
+    b.send1(id="old")  # record B paling lama; seq-nya lebih kecil dari purged_seq nanti
+    kb = b.records()["cursor"]
+    n = _purge_many(a)
+    assert n > _cseq(kb)
+    assert b.records(kb) == {"reset": True}  # sekali: tombstone yang belum dilihat B sudah dipurge
+    full = b.records()
+    assert _ids(full) == ["old"] and full["more"] is False
+    assert _cseq(full["cursor"]) >= n
+    nxt = b.records(full["cursor"])
+    assert "reset" not in nxt and nxt["items"] == [] and _cseq(nxt["cursor"]) >= n
+    again = b.records(nxt["cursor"])
+    assert "reset" not in again and again["items"] == []
+
+
+def test_user_without_records_does_not_reset_after_purge(http, monkeypatch):
+    monkeypatch.setattr(pr, "maybe_purge", lambda conn, now: None)
+    a, c = User(http), User(http)
+    n = _purge_many(a)
+    first = c.records()
+    assert first["items"] == [] and _cseq(first["cursor"]) >= n
+    second = c.records(first["cursor"])
+    assert "reset" not in second and second["items"] == []
+
+
+def test_cursor_stays_at_last_item_when_more(http, monkeypatch):
+    monkeypatch.setattr(pr, "maybe_purge", lambda conn, now: None)
+    a, b = User(http), User(http)
+    a.send1(id="x1")
+    b.send1(id="b1")
+    b.send1(id="b2")
+    a.send1(id="x2")  # seq global > seq record B
+    page = b.records("", limit=1)
+    assert page["more"] is True and _ids(page) == ["b1"]
+    rows = _rawdb().execute("SELECT seq FROM plugin_records WHERE id = 'b1'").fetchone()
+    assert _cseq(page["cursor"]) == rows["seq"], "more=true: kursor = seq item terakhir"
+    last = b.records(page["cursor"], limit=1)
+    assert last["more"] is False and _ids(last) == ["b2"]
+    mx = _rawdb().execute("SELECT MAX(seq) FROM plugin_records").fetchone()[0]
+    assert _cseq(last["cursor"]) == mx, "more=false: kursor maju ke MAX(seq) global"
+    assert b.records(last["cursor"])["items"] == []
+
+
 def test_purge_between_page_and_cursor_check_resets(http, monkeypatch):
     """Purge yang mendarat setelah pemeriksaan awal tetapi sebelum halaman selesai dibaca → reset, bukan halaman
     yang bisa melewatkan tombstone yang sudah dipurge."""

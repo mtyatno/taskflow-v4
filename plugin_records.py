@@ -175,6 +175,12 @@ def purged_seq(conn) -> int:
         return 0
 
 
+def global_max_seq(conn) -> int:
+    """`max(MAX(seq), purged_seq)` — batas atas `seq` yang pernah diberikan (juga setelah purge tombstone teratas)."""
+    row = conn.execute("SELECT COALESCE(MAX(seq), 0) FROM plugin_records").fetchone()
+    return max(int(row[0]), purged_seq(conn))
+
+
 def next_seq(conn) -> int:
     """`MAX(seq) + 1`, dibaca di dalam `write_tx` pemanggil. Tidak pernah ≤ `purged_seq`: tanpa itu purge tombstone
     bertanda `seq` tertinggi membuat tulis berikutnya memakai ulang `seq` yang sudah dilihat klien (tulis terlewat)."""
@@ -442,14 +448,21 @@ def get_records(plugin_id: str, cursor: str = "", limit: int = Query(500, ge=1, 
                 if cfp is not None and (cfp != fp or seq < purged_seq(conn)):
                     out = {"reset": True}  # keanggotaan berubah, atau tombstone yang belum dilihat klien sudah dipurge
                 else:
+                    # M dibaca SEBELUM halaman: `seq` diberikan di dalam BEGIN IMMEDIATE, jadi baris ber-seq ≤ M sudah
+                    # commit sebelum M terbaca dan pasti terlihat oleh fetch_page berikutnya.
+                    horizon = global_max_seq(conn)
                     rows, more = fetch_page(conn, uid, pid, seq, limit, access, entity)
                     if cfp is not None and seq < purged_seq(conn):
                         # purge mendarat di antara pemeriksaan awal dan pembacaan halaman (snapshot terpisah):
                         # halaman bisa tanpa tombstone yang sudah dibuang → klien harus menarik penuh
                         out = {"reset": True}
                     else:
+                        last = rows[-1]["seq"] if rows else seq
+                        # Halaman terakhir: kursor maju ke M (MAX(seq) global, termasuk purged_seq) walau baris terlihat
+                        # terakhir lebih lama — tanpa ini kursor pengguna yang barisnya tua tertahan di bawah
+                        # `purged_seq` (global) dan di-reset setiap sinkron. `more`: tetap di seq item terakhir.
                         out = {"items": [row_to_record(r) for r in rows],
-                               "cursor": make_cursor(rows[-1]["seq"] if rows else seq, fp), "more": more}
+                               "cursor": make_cursor(last if more else max(last, horizon), fp), "more": more}
             try:  # halaman sudah terbaca; purge gagal (mis. DB terkunci) tidak boleh menggagalkan tarik
                 maybe_purge(conn, now)
             except Exception as e:  # noqa: BLE001
