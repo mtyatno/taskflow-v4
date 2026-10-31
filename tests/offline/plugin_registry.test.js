@@ -34,10 +34,11 @@ async function init(index) {
 
 test("konstanta slot dan izin", () => {
   assert.deepEqual(P.KNOWN_SLOTS, ["dashboard.widgets"]);
-  assert.deepEqual(P.KNOWN_PERMISSIONS, ["storage"]);
-  for (const p of ["network", "task.ext", "records", "settings.project", "notifications", "location", "secrets", "noteBlocks", "bot", "timerHooks"]) {
+  assert.deepEqual(P.KNOWN_PERMISSIONS, ["storage", "network"]);
+  for (const p of ["task.ext", "records", "settings.project", "notifications", "location", "secrets", "noteBlocks", "bot", "timerHooks"]) {
     assert.ok(P.RESERVED_PERMISSIONS.includes(p), p);
   }
+  assert.ok(!P.RESERVED_PERMISSIONS.includes("network"));
 });
 
 test("validateManifest: valid → ok; tiap pelanggaran → alasan berbeda", () => {
@@ -47,7 +48,7 @@ test("validateManifest: valid → ok; tiap pelanggaran → alasan berbeda", () =
     manifest({ version: "1" }),
     manifest({ minApi: 2 }),
     manifest({ slots: ["x.y"] }),
-    manifest({ permissions: ["network"] }),
+    manifest({ permissions: ["records"] }),
     manifest({ permissions: ["kamera"] }),
     manifest({ id: "not-listed" }),
   ];

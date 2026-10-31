@@ -1,4 +1,6 @@
-// Runtime sistem plugin Alurik Fase 0a (spec docs/superpowers/specs/2026-10-29-plugin-fase0a-design.md §4).
+// Runtime sistem plugin Alurik Fase 0a (spec docs/superpowers/specs/2026-10-29-plugin-fase0a-design.md §4) +
+// Fase 0b (spec 2026-10-31-plugin-fase0b-design.md §6.3–§6.4): status ON/OFF ikut AKUN lewat TF.pluginstate,
+// OFF otomatis karena error = peredaman lokal (hanya perangkat ini), izin `network` + api.fetch.
 // Browser: window.TF.plugins / TF.events / TF.api / TF.Slot. Node: module.exports (tes).
 // Aturan: tanpa JSX (React.createElement), tanpa localStorage; modul TF.* host di-resolve malas saat dipanggil
 // agar urutan <script> aman dan file ini bisa di-require di Node.
@@ -15,8 +17,8 @@
   const isNode = (typeof module !== "undefined" && module.exports);
   const API_VERSION = 1;
   const KNOWN_SLOTS = ["dashboard.widgets"];
-  const KNOWN_PERMISSIONS = ["storage"];
-  const RESERVED_PERMISSIONS = ["network", "task.ext", "records", "settings.project", "notifications", "location", "secrets", "noteBlocks", "bot", "timerHooks"];
+  const KNOWN_PERMISSIONS = ["storage", "network"];
+  const RESERVED_PERMISSIONS = ["task.ext", "records", "settings.project", "notifications", "location", "secrets", "noteBlocks", "bot", "timerHooks"];
   const STATE_KEY = "plugins:state:v1";
   const INDEX_KEY = "plugins:index:v1";
   const INDEX_URL = "/static/plugins/index.json";
@@ -31,11 +33,12 @@
     themes: "./offline/themes.js",
     safehtml: "./offline/safehtml.js",
     introgate: "./offline/introgate.js",
+    pluginstate: "./offline/pluginstate.js",
   };
   function host(name) {
     const tf = root.TF;
     if (tf && tf[name]) return tf[name];
-    if (isNode && NODE_PATHS[name]) return require(NODE_PATHS[name]);
+    if (isNode && NODE_PATHS[name]) { try { return require(NODE_PATHS[name]); } catch (_) { return null; } }
     return null;
   }
   function meta() {
@@ -43,6 +46,9 @@
     if (!m) throw new Error("TF.meta belum dimuat");
     return m;
   }
+  // TF.pluginstate (0b). Tidak ada (modul lama dari cache SW / tes fallback) → perilaku 0a (persistState, R13).
+  let psOverride; // undefined = resolusi normal; null = dipaksa tidak ada (tes)
+  function ps() { return psOverride === undefined ? host("pluginstate") : psOverride; }
   function warn() {
     try { console.warn.apply(console, ["[plugins]"].concat(Array.prototype.slice.call(arguments))); } catch (_) {}
   }
@@ -180,7 +186,14 @@
 
   // ── Registry dan status ────────────────────────────────────────────────────
   let index = null;        // Map id → entri index.json
-  let enabledState = {};   // {[id]: {enabled, updatedAt}}
+  let enabledState = {};   // status akun (salinan sinkron cache TF.pluginstate, R13): {[id]: {enabled, updatedAt, …}}
+  let pendingIds = new Set(); // id dengan op plugin_state di outbox ("Menunggu sinkron")
+  let suppressedState = {};   // peredaman lokal {[id]: {reason, hash, at}} — hanya perangkat ini (K16)
+  let unsubscribeState = null;
+  let localWrites = 0;        // tulisan lokal yang sedang berjalan; notifikasi store ditunda sampai selesai
+  let reloadWanted = false;
+  let reloadChain = Promise.resolve();
+  let localGen = 0;           // naik setiap salinan memori diubah lokal (setEnabled/peredaman)
   let recs = new Map();    // id → {manifest, factory, instance, loaded, failed}
   let initPromise = null;
   let ready = false;
@@ -226,11 +239,17 @@
     return { ok: true, reason: null };
   }
 
-  function isEnabled(id) {
+  // Status akun: nilai cache bila boolean, selain itu defaultEnabled dari index.json.
+  function accountEnabled(id) {
     if (!inIndex(id)) return false;
     const st = enabledState[id];
     if (st && typeof st.enabled === "boolean") return st.enabled;
     return !!index.get(id).defaultEnabled;
+  }
+
+  // Status efektif di perangkat ini = status akun ∧ tidak diredam.
+  function isEnabled(id) {
+    return accountEnabled(id) && !suppressedState[id];
   }
 
   function list() {
@@ -238,7 +257,7 @@
     return Array.from(index.values()).map((e) => {
       const r = recs.get(e.id);
       const m = (r && r.manifest) || e;
-      return {
+      const item = {
         id: e.id,
         name: m.name || e.id,
         description: m.description || "",
@@ -248,6 +267,13 @@
         loaded: !!(r && r.loaded),
         failed: (r && r.failed) || null,
       };
+      // Kunci 0b hanya bila relevan (bentuk 0a tetap untuk plugin biasa).
+      if (pendingIds.has(e.id)) item.pending = true;
+      if (suppressedState[e.id]) {
+        item.suppressed = String(suppressedState[e.id].reason || "error");
+        item.accountEnabled = accountEnabled(e.id);
+      }
+      return item;
     });
   }
 
@@ -285,12 +311,39 @@
     }
   }
 
+  // Tulisan lokal ke TF.pluginstate: notifikasi store selama tulisan berjalan ditunda, lalu satu reloadState
+  // menyelaraskan (mencegah salinan memori sempat membaca keadaan setengah jadi, mis. unsuppress sebelum setLocal).
+  function localWrite(fn) {
+    localWrites += 1;
+    const done = () => {
+      localWrites -= 1;
+      if (localWrites === 0 && reloadWanted) {
+        reloadWanted = false;
+        return reloadState().catch((e) => warn("reloadState gagal:", e));
+      }
+      return null;
+    };
+    return Promise.resolve().then(fn).then(
+      (v) => Promise.resolve(done()).then(() => v),
+      (err) => Promise.resolve(done()).then(() => { throw err; }));
+  }
+
+  function onStoreChange() {
+    if (localWrites > 0) { reloadWanted = true; return; }
+    reloadState().catch((e) => warn("reloadState gagal:", e));
+  }
+
   function setEnabled(id, on) {
     if (!inIndex(id)) return Promise.reject(new Error("plugin tidak dikenal: " + id));
     const enabled = !!on;
-    enabledState[id] = { enabled, updatedAt: new Date().toISOString() };
+    const m = ps();
+    localGen += 1;
+    enabledState[id] = Object.assign({}, enabledState[id], { enabled, updatedAt: new Date().toISOString() });
+    if (m) pendingIds.add(id);
     if (enabled) {
-      // "Aktifkan lagi": kesempatan baru untuk error render/pendengar (gagal load tetap per sesi).
+      // "Aktifkan lagi" (R14): kesempatan baru untuk error render/pendengar dan peredaman lokal dihapus
+      // (gagal load tetap per sesi).
+      delete suppressedState[id];
       const r = rec(id);
       r.errorCount = 0;
       r.debugThrow = false;
@@ -299,8 +352,60 @@
     }
     else deactivate(id);
     events.emit("plugins.changed", { id, enabled });
-    return persistState();
+    if (!m) return persistState();
+    return localWrite(() => Promise.resolve(enabled ? m.unsuppress(id) : null).then(() => m.setLocal(id, { enabled })))
+      .then(() => undefined);
   }
+
+  // Baca ulang cache TF.pluginstate; plugin yang status efektifnya berubah di-activate/deactivate. plugins.changed
+  // dipancarkan juga bila hanya pending/peredaman yang berubah (kartu Pengaturan render ulang). Hasil: id yang
+  // status efektifnya berubah.
+  function reloadState() {
+    const run = () => {
+      const m = ps();
+      if (!m || !index) return Promise.resolve([]);
+      const gen = localGen;
+      return Promise.resolve(m.snapshot()).then((snap) => {
+        // Snapshot diambil sebelum perubahan lokal yang lebih baru → basi; jangan timpa salinan optimistis.
+        if (gen !== localGen) {
+          if (localWrites > 0) { reloadWanted = true; return []; }
+          return run();
+        }
+        return applySnapshot(snap);
+      });
+    };
+    const p = reloadChain.then(run, run);
+    reloadChain = p.catch(() => null);
+    return p;
+  }
+
+  function applySnapshot(snap) {
+    const s = snap || {};
+    const ids = index ? Array.from(index.keys()) : [];
+    const before = {};
+    for (const id of ids) {
+      before[id] = { on: isEnabled(id), pending: pendingIds.has(id), sup: suppressedState[id] ? suppressedState[id].reason : null };
+    }
+    enabledState = (s.state && typeof s.state === "object") ? Object.assign({}, s.state) : {};
+    pendingIds = new Set(Array.isArray(s.pending) ? s.pending : []);
+    suppressedState = (s.suppressed && typeof s.suppressed === "object") ? Object.assign({}, s.suppressed) : {};
+    const changed = [];
+    for (const id of ids) {
+      const on = isEnabled(id);
+      const b = before[id];
+      const sup = suppressedState[id] ? suppressedState[id].reason : null;
+      if (on !== b.on) {
+        changed.push(id);
+        if (on) activate(id); else deactivate(id);
+      }
+      if (on !== b.on || pendingIds.has(id) !== b.pending || sup !== b.sup) {
+        events.emit("plugins.changed", { id, enabled: on });
+      }
+    }
+    return changed;
+  }
+
+  function knownIds() { return index ? Array.from(index.keys()) : null; }
 
   function register(manifest, factory) {
     const id = manifest && manifest.id;
@@ -412,7 +517,20 @@
   let failureLog = new Map(); // id → [{id, kind, message, stack, at}] (plugins:failed:v1, hanya memori sesi)
   let hostBinding = {};
 
-  function bindHost(b) { hostBinding = Object.assign({}, b || {}); }
+  function bindingUserId(b) {
+    const u = b && b.userId;
+    if (typeof u === "function") { try { return u(); } catch (_) { return null; } }
+    return u == null ? null : u;
+  }
+
+  // Host menyuntik toast/openTask/navigate/userId (0a) + fetch/isOfflineErr/pushNow (0b). userId berubah
+  // (login/ganti akun) → baca ulang status akun.
+  function bindHost(b) {
+    const prev = bindingUserId(hostBinding);
+    hostBinding = Object.assign({}, b || {});
+    const next = bindingUserId(hostBinding);
+    if (ready && String(prev) !== String(next)) reloadState().catch((e) => warn("reloadState gagal:", e));
+  }
 
   function hostToast(message, type) {
     if (typeof hostBinding.toast === "function") {
@@ -452,7 +570,7 @@
       r.failed = "manifest";
       deactivate(id);
       hostToast("Plugin " + name + " dimatikan: " + e.message, "error");
-      if (isEnabled(id)) setEnabledInternal(id, false);
+      if (isEnabled(id)) suppressLocal(id, "manifest");
       return;
     }
     // Error factory deterministik (akan terulang tiap muat) → langsung OFF, tanpa menunggu error ke-2.
@@ -461,7 +579,7 @@
       deactivate(id);
       if (isEnabled(id)) {
         hostToast("Plugin " + name + " dimatikan karena error", "error");
-        setEnabledInternal(id, false);
+        suppressLocal(id, "factory");
       }
       return;
     }
@@ -472,15 +590,30 @@
     r.debugThrow = false;
     if (r.errorCount >= 2) {
       hostToast("Plugin " + name + " dimatikan karena error", "error");
-      setEnabledInternal(id, false);
+      suppressLocal(id, kind);
     } else {
       hostToast("Plugin " + name + " mengalami error", "error");
     }
   }
 
-  // OFF otomatis; penanda `failed` dibiarkan agar kartu Pengaturan menampilkan "Aktifkan lagi".
+  // OFF otomatis (0a, fallback tanpa TF.pluginstate); penanda `failed` dibiarkan agar kartu Pengaturan
+  // menampilkan "Aktifkan lagi".
   function setEnabledInternal(id, on) {
     setEnabled(id, on).catch((err) => warn("simpan status gagal:", err));
+  }
+
+  // OFF otomatis 0b (K16): peredaman hanya di perangkat ini — salinan memori seketika + TF.pluginstate.suppress
+  // dengan hash indeks; status akun tidak disentuh (tanpa setLocal), perangkat lain tetap ON.
+  function suppressLocal(id, kind) {
+    const m = ps();
+    if (!m) { setEnabledInternal(id, false); return; }
+    const entry = index && index.get(id);
+    const hash = entry && entry.hash != null ? String(entry.hash) : null;
+    localGen += 1;
+    suppressedState[id] = { reason: kind, hash, at: new Date().toISOString() };
+    deactivate(id);
+    events.emit("plugins.changed", { id, enabled: false });
+    localWrite(() => m.suppress(id, kind, hash)).catch((err) => warn("simpan peredaman gagal:", err));
   }
 
   function failures(id) {
@@ -518,10 +651,28 @@
       })
       .then((idx) => {
         setIndex(idx || { plugins: [] });
-        return Promise.resolve().then(() => meta().metaGet(STATE_KEY)).catch(() => null);
+        const m = ps();
+        if (!m) {
+          return Promise.resolve().then(() => meta().metaGet(STATE_KEY)).catch(() => null)
+            .then((st) => ({ state: st }));
+        }
+        // 0b: peredaman dengan hash berbeda (versi plugin baru) dihapus, lalu satu bacaan snapshot.
+        const hashById = {};
+        for (const e of index.values()) hashById[e.id] = e.hash == null ? null : String(e.hash);
+        return Promise.resolve()
+          .then(() => m.pruneSuppressed(hashById)).catch((e) => warn("pruneSuppressed gagal:", e))
+          .then(() => m.snapshot())
+          .catch((e) => { warn("status plugin tidak terbaca:", e); return null; })
+          .then((snap) => {
+            if (!unsubscribeState && typeof m.subscribe === "function") unsubscribeState = m.subscribe(onStoreChange);
+            return snap;
+          });
       })
-      .then((st) => {
-        enabledState = (st && typeof st === "object") ? Object.assign({}, st) : {};
+      .then((snap) => {
+        const s = snap || {};
+        enabledState = (s.state && typeof s.state === "object") ? Object.assign({}, s.state) : {};
+        pendingIds = new Set(Array.isArray(s.pending) ? s.pending : []);
+        suppressedState = (s.suppressed && typeof s.suppressed === "object") ? Object.assign({}, s.suppressed) : {};
         ready = true;
         events.emit("plugins.ready", {});
       });
@@ -529,6 +680,15 @@
   }
 
   function _reset() {
+    if (unsubscribeState) { try { unsubscribeState(); } catch (_) {} }
+    unsubscribeState = null;
+    psOverride = undefined;
+    pendingIds = new Set();
+    suppressedState = {};
+    localWrites = 0;
+    reloadWanted = false;
+    reloadChain = Promise.resolve();
+    localGen = 0;
     index = null;
     enabledState = {};
     recs = new Map();
@@ -815,13 +975,15 @@
 
   const plugins = {
     KNOWN_SLOTS, KNOWN_PERMISSIONS, RESERVED_PERMISSIONS, API_VERSION,
-    init, list, isEnabled, setEnabled, register, validateManifest, contributions, load, markFailed, failures, bindHost,
+    init, list, isEnabled, accountEnabled, setEnabled, reloadState, knownIds, register, validateManifest, contributions, load, markFailed, failures, bindHost,
     isReady: () => ready,
     get PluginBoundary() { return getBoundary(); },
     _renderSlot: renderSlot,
     _debugThrow,
     _setDefaultInject(fn) { injectOverride = typeof fn === "function" ? fn : null; },
     _reset,
+    // Tes: modul TF.pluginstate pengganti (null = paksa tidak ada → perilaku 0a).
+    _setPluginStateModule(m) { psOverride = m; },
   };
 
   // Browser: pasang jembatan event window sekali saat file dimuat.

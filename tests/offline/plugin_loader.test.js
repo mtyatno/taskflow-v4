@@ -89,15 +89,17 @@ test("inject menolak (unduhan gagal) → failed:'load'", async () => {
 test("manifest invalid saat dimuat → otomatis OFF (tersimpan), failed:'manifest'", async () => {
   const toasts = [];
   P.bindHost({ toast: (m, t) => toasts.push([m, t]) });
-  const ok = await P.load("habit-heatmap", { inject: scriptInject(Object.assign({}, MANIFEST, { permissions: ["network"] }), []), timeoutMs: 1000 });
+  const ok = await P.load("habit-heatmap", { inject: scriptInject(Object.assign({}, MANIFEST, { permissions: ["records"] }), []), timeoutMs: 1000 });
   assert.equal(ok, false);
   assert.equal(P.isEnabled("habit-heatmap"), false);
   assert.equal(P.list()[0].failed, "manifest");
   await new Promise((r) => setTimeout(r, 10));
-  assert.equal((await metaGet("plugins:state:v1"))["habit-heatmap"].enabled, false);
+  // Fase 0b: OFF otomatis = peredaman lokal (plugins:suppressed:v1); status akun tidak disentuh.
+  assert.equal((await metaGet("plugins:suppressed:v1"))["habit-heatmap"].reason, "manifest");
+  assert.notEqual(((await metaGet("plugins:state:v1")) || {})["habit-heatmap"]?.enabled, false);
   assert.equal(toasts.length, 1);
   assert.match(toasts[0][0], /^Plugin Heatmap Habit /);
-  assert.match(toasts[0][0], /network/);
+  assert.match(toasts[0][0], /records/);
 });
 
 test("factory melempar saat dimuat → load false, langsung OFF (deterministik)", async () => {

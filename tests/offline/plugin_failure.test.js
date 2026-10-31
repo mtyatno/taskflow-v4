@@ -5,6 +5,7 @@ const assert = require("node:assert/strict");
 const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset: resetDB } = require("../../static/offline/db.js");
 const { metaGet } = require("../../static/offline/meta.js");
+const { outboxAll } = require("../../static/offline/outbox.js");
 const RT = require("../../static/plugin-runtime.js");
 const P = RT.plugins;
 
@@ -32,7 +33,10 @@ test("dua error render → OFF + toast sekali per kejadian", async () => {
   assert.equal(toasts.length, 2);
   assert.deepEqual(toasts[1], ["Plugin Heatmap Habit dimatikan karena error", "error"]);
   await tick();
-  assert.equal((await metaGet("plugins:state:v1"))["habit-heatmap"].enabled, false);
+  // Fase 0b: OFF otomatis = peredaman lokal; status akun tidak disentuh, tanpa op plugin_state.
+  assert.equal((await metaGet("plugins:suppressed:v1"))["habit-heatmap"].reason, "render");
+  assert.notEqual(((await metaGet("plugins:state:v1")) || {})["habit-heatmap"]?.enabled, false);
+  assert.equal((await outboxAll()).filter((o) => o.entity_type === "plugin_state").length, 0);
   // setelah OFF, error lanjutan tidak menambah toast
   P.markFailed("habit-heatmap", "render", new Error("tiga"));
   assert.equal(toasts.length, 2);
@@ -108,8 +112,10 @@ test("factory melempar → OFF setelah 1 kali + toast 'dimatikan karena error'; 
   assert.equal(P.list()[0].failed, "factory");
   assert.deepEqual(toasts, [["Plugin Heatmap Habit dimatikan karena error", "error"]]);
   await tick();
-  assert.equal((await metaGet("plugins:state:v1"))["habit-heatmap"].enabled, false);
-  // sesi berikutnya: status OFF tersimpan → tidak dimuat, tidak ada toast
+  assert.equal((await metaGet("plugins:suppressed:v1"))["habit-heatmap"].reason, "factory");
+  assert.notEqual(((await metaGet("plugins:state:v1")) || {})["habit-heatmap"]?.enabled, false);
+  assert.equal((await outboxAll()).filter((o) => o.entity_type === "plugin_state").length, 0);
+  // sesi berikutnya: peredaman tersimpan → tidak dimuat, tidak ada toast
   P._reset();
   await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
   const t2 = [];
@@ -142,7 +148,7 @@ test("plugin OFF: register dengan manifest invalid → tanpa toast, hanya consol
   const orig = console.warn;
   let warned = 0;
   console.warn = () => { warned++; };
-  try { P.register(Object.assign({}, MANIFEST, { permissions: ["network"] }), () => ({})); } finally { console.warn = orig; }
+  try { P.register(Object.assign({}, MANIFEST, { permissions: ["records"] }), () => ({})); } finally { console.warn = orig; }
   assert.deepEqual(toasts, []);
   assert.ok(warned >= 1);
   assert.equal(P.isEnabled("habit-heatmap"), false);
