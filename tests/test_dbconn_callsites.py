@@ -32,7 +32,7 @@ ALLOWLIST = {
 PROD_FILES = sorted(p for p in ROOT.glob("*.py") if p.name not in ALLOWLIST)
 
 # Ratchet migrasi bertahap: titik `sqlite3.connect` yang MASIH diizinkan per file (hanya boleh turun).
-REMAINING = {"webapp.py": 27, "repository.py": 1, "bot.py": 1}
+REMAINING = {"repository.py": 1, "bot.py": 1}
 
 FORBIDDEN_TX_CONTROL = {"isolation_level", "autocommit"}
 
@@ -151,6 +151,27 @@ def test_dbconn_callers_pass_explicit_path():
             if len(call.args) < 1:
                 problems.append(f"{name}:{call.lineno} dbconn.{call.func.attr}() tanpa path")
     assert not problems, "; ".join(problems)
+
+
+# ── webapp: migrate_db tanpa FK kecuali blok project (Task 3, K4/R3) ─────────
+
+def test_migrate_db_connects_without_fk_except_project_block():
+    tree = _parse(ROOT / "webapp.py")
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "migrate_db")
+    calls = [c for c in dbconn_calls(fn) if c.func.attr == "connect"]
+    assert len(calls) == 27, f"migrate_db: {len(calls)} pemanggilan dbconn.connect (harus 27)"
+    trues = []
+    for c in calls:
+        assert c.args and isinstance(c.args[0], ast.Name) and c.args[0].id == "DB_PATH", \
+            f"webapp.py:{c.lineno} dbconn.connect tanpa DB_PATH sebagai argumen pertama"
+        fk = [kw for kw in c.keywords if kw.arg == "foreign_keys"]
+        assert len(fk) == 1, f"webapp.py:{c.lineno} dbconn.connect tanpa foreign_keys= literal"
+        val = fk[0].value
+        assert isinstance(val, ast.Constant) and isinstance(val.value, bool), \
+            f"webapp.py:{c.lineno} foreign_keys= harus literal True/False"
+        if val.value is True:
+            trues.append(c.lineno)
+    assert len(trues) == 1, f"migrate_db: foreign_keys=True harus tepat satu (blok project), ada di {trues}"
 
 
 # ── webapp: get_db dan _media_db_connect lewat dbconn (Task 2) ───────────────
