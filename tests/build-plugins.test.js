@@ -355,3 +355,112 @@ test("habit-heatmap: index.json dan hash tidak berubah", (t) => {
   assert.deepEqual(hh, real.plugins.find((p) => p.id === "habit-heatmap"));
   assert.ok(!("contributes" in hh) && !("taskExt" in hh));
 });
+
+// ── Fase 1 PR 1a-2 (rencana Task 7, R18/R23/R25): manifest.records + plugin contoh demo-records ───────────────
+const DEMO_RECORDS = path.join(ROOT, "tests", "fixtures", "plugins", "demo-records");
+const RECORDS_VECTORS = JSON.parse(fs.readFileSync(path.join(ROOT, "tests", "fixtures", "plugin_records_vectors.json"), "utf8"));
+function recManifest(id, extra) {
+  return manifest(id, Object.assign({
+    slots: ["taskList.views"], permissions: ["records"], records: { note: { conflict: "lww", maxBytes: 4096 } },
+  }, extra || {}));
+}
+
+test("fixture demo-records: records disalin ke index.json dan konstanta manifest", (t) => {
+  const d = tmpDir(t);
+  const pdir = path.join(d, "plugins");
+  fs.cpSync(DEMO_RECORDS, path.join(pdir, "demo-records"), { recursive: true });
+  const sw = path.join(d, "sw.js");
+  fs.writeFileSync(sw, SW_STUB);
+  const res = build.buildPlugins({ pluginsDir: pdir, swPath: sw, log: () => {} });
+  const m = JSON.parse(fs.readFileSync(path.join(DEMO_RECORDS, "manifest.json"), "utf8"));
+  assert.deepEqual(m.records, { note: { conflict: "lww", maxBytes: 4096 } });
+  const entry = res.index.plugins.find((p) => p.id === "demo-records");
+  assert.ok(entry);
+  assert.deepEqual(entry.records, m.records);
+  assert.deepEqual(entry.permissions, ["records"]);
+  assert.deepEqual(entry.contributes, m.contributes);
+  assert.equal(entry.taskExt, undefined);
+  assert.deepEqual(entry.files, ["plugin.js"]);
+  // sepakat dengan entri indeks fixture server (Task 1)
+  const fxIndex = JSON.parse(fs.readFileSync(path.join(ROOT, "tests", "fixtures", "plugins", "index.json"), "utf8"));
+  const fxEntry = fxIndex.plugins.find((p) => p.id === "demo-records");
+  assert.deepEqual(fxEntry.records, entry.records);
+  assert.deepEqual(fxEntry.permissions, entry.permissions);
+  const js = fs.readFileSync(path.join(pdir, "demo-records", "plugin.js"), "utf8");
+  const manAt = js.indexOf("const manifest = Object.freeze(");
+  const manJson = JSON.parse(js.slice(manAt + "const manifest = Object.freeze(".length, js.indexOf(");\n", manAt)));
+  assert.deepEqual(manJson.records, m.records);
+  const vm = require("node:vm");
+  const calls = [];
+  const sandbox = { window: { TF: { plugins: { register: (mm, f) => calls.push([mm, f]) } } }, React: { createElement: () => null, useState: (v) => [v, () => {}], useEffect: () => {}, useCallback: (f) => f, useRef: (v) => ({ current: v }) } };
+  sandbox.self = sandbox.window;
+  vm.runInNewContext(js, sandbox);
+  assert.equal(calls.length, 1);
+  const inst = calls[0][1]({ records: {} });
+  assert.equal(inst.slots["taskList.views"].map((v) => v.id).join(","), "recs");
+  assert.deepEqual(build.buildPlugins({ pluginsDir: pdir, swPath: sw, log: () => {} }).written, []);
+  assert.ok(!fs.existsSync(path.join(DEMO_RECORDS, "plugin.js")));
+  assert.ok(!fs.existsSync(path.join(PLUGINS, "demo-records")));
+});
+
+test("vektor manifests: validateRecords sama dengan vektor bersama (null atau awalan alasan)", () => {
+  assert.ok(RECORDS_VECTORS.manifests.length > 20);
+  for (const v of RECORDS_VECTORS.manifests) {
+    const m = { permissions: v.permissions };
+    if (v.records !== null) m.records = v.records;
+    const got = build.validateRecords(m);
+    if (v.error === null) assert.equal(got, null, v.name);
+    else assert.ok(typeof got === "string" && got.startsWith(v.error), v.name + ": " + got);
+  }
+});
+
+test("vektor manifests: records salah (conflict merge/manual, nama entitas Bad, maxBytes 0/70000, records kosong) → PluginBuildError dengan alasan vektor", (t) => {
+  const bad = RECORDS_VECTORS.manifests.filter((v) => v.error !== null);
+  for (const name of ["conflict merge", "conflict manual", "nama huruf besar", "maxBytes 0", "maxBytes 70000", "records kosong + izin"]) {
+    assert.ok(bad.some((v) => v.name === name), "vektor ada: " + name);
+  }
+  for (const v of bad) {
+    const man = recManifest("demo-rv", { permissions: v.permissions });
+    if (v.records === null) delete man.records; else man.records = v.records;
+    assert.throws(buildExt(t, man), (e) => e instanceof build.PluginBuildError && e.message.includes("plugin demo-rv: " + v.error), v.name);
+  }
+  for (const v of RECORDS_VECTORS.manifests.filter((x) => x.error === null)) {
+    const man = recManifest("demo-rv", { permissions: v.permissions });
+    if (v.records === null) delete man.records; else man.records = v.records;
+    const res = buildExt(t, man)();
+    const entry = res.index.plugins[0];
+    if (v.records === null) assert.ok(!("records" in entry), v.name); else assert.deepEqual(entry.records, v.records, v.name);
+  }
+});
+
+test("izin records tanpa records / records tanpa izin records → error", (t) => {
+  const noRec = recManifest("demo-nr"); delete noRec.records;
+  assert.throws(buildExt(t, noRec), /izin records butuh manifest\.records/);
+  assert.throws(buildExt(t, recManifest("demo-np", { permissions: [] })), /manifest\.records butuh izin records/);
+  assert.throws(buildExt(t, recManifest("demo-np2", { permissions: ["storage"] })), /manifest\.records butuh izin records/);
+  assert.equal(build.validateRecords(recManifest("demo-ok")), null);
+  assert.equal(build.validateRecords(manifest("demo-none")), null);
+  assert.ok(build.OPTIONAL_FIELDS.includes("records"));
+});
+
+test("habit-heatmap dan demo-ext: index.json dan hash tidak berubah", (t) => {
+  const d = tmpDir(t);
+  const pdir = path.join(d, "plugins");
+  fs.cpSync(PLUGINS, pdir, { recursive: true });
+  const sw = path.join(d, "sw.js");
+  fs.copyFileSync(SW, sw);
+  const real = JSON.parse(fs.readFileSync(path.join(PLUGINS, "index.json"), "utf8"));
+  const res = build.buildPlugins({ pluginsDir: pdir, swPath: sw, log: () => {} });
+  assert.deepEqual(res.index, real);
+  const hh = res.index.plugins.find((p) => p.id === "habit-heatmap");
+  assert.ok(!("records" in hh));
+  // demo-ext dibangun terpisah: tidak ada field records
+  const d2 = tmpDir(t);
+  fs.cpSync(DEMO_EXT, path.join(d2, "plugins", "demo-ext"), { recursive: true });
+  const sw2 = path.join(d2, "sw.js");
+  fs.writeFileSync(sw2, SW_STUB);
+  const e1 = build.buildPlugins({ pluginsDir: path.join(d2, "plugins"), swPath: sw2, log: () => {} }).index.plugins[0];
+  assert.ok(!("records" in e1));
+  assert.deepEqual(e1.taskExt, { keys: ["note", "after"] });
+  assert.equal(e1.hash, hashOf(path.join(d2, "plugins"), e1));
+});
