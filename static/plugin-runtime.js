@@ -700,6 +700,7 @@
     hostBinding = {};
     taskRouter = null;
     injectOverride = null;
+    pushWaitMs = PUSH_WAIT_MS;
   }
 
   // ── Fasad TF.api v1 (spec §4.7) ────────────────────────────────────────────
@@ -711,6 +712,26 @@
   }
   class PluginPermissionError extends Error {
     constructor(message) { super(message); this.name = "PluginPermissionError"; }
+  }
+  // Kegagalan jaringan/server api.fetch (spec Fase 0b §6.4): bukan bug plugin → tidak dihitung markFailed.
+  // code ∈ offline | timeout | auth | disabled | unavailable | http.
+  const NETWORK_MESSAGES = {
+    offline: "Butuh koneksi internet",
+    timeout: "Waktu habis — coba lagi",
+    auth: "Sesi berakhir — masuk lagi",
+    disabled: "Plugin dimatikan",
+    unavailable: "Fitur plugin sedang tidak tersedia",
+    http: "Permintaan gagal",
+  };
+  class PluginNetworkError extends Error {
+    constructor(code, message, extra) {
+      super(message || NETWORK_MESSAGES[code] || NETWORK_MESSAGES.http);
+      this.name = "PluginNetworkError";
+      this.code = code;
+      const x = extra || {};
+      if (x.status != null) this.status = x.status;
+      if (x.detail !== undefined) this.detail = x.detail;
+    }
   }
 
   function utf8Bytes(str) {
@@ -764,6 +785,97 @@
           .then((keys) => keys.map((k) => k.slice(prefix.length)).sort());
       },
     });
+  }
+
+  // ── api.fetch (izin network, spec Fase 0b §6.4) ───────────────────────────
+  const FETCH_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
+  const FETCH_BODY_MAX_BYTES = 256 * 1024;
+  const FETCH_TIMEOUT_MS = 15000;
+  const PUSH_WAIT_MS = 5000;
+  const HOST_TIMEOUT_MESSAGE = "Request timeout — coba lagi";
+  let pushWaitMs = PUSH_WAIT_MS;
+
+  // Hanya /api/plugins/<id> atau /api/plugins/<id>/…; tanpa segmen ./.. (juga ter-encode), //, \, #, skema/host.
+  function pluginPathOk(id, p) {
+    if (typeof p !== "string") return false;
+    const base = "/api/plugins/" + id;
+    if (!(p === base || p.indexOf(base + "/") === 0 || p.indexOf(base + "?") === 0)) return false;
+    if (p.indexOf("//") >= 0 || p.indexOf("\\") >= 0 || p.indexOf("#") >= 0 || p.indexOf("://") >= 0) return false;
+    const pathOnly = p.split("?")[0];
+    for (const seg of pathOnly.split("/")) {
+      let dec = seg;
+      try { dec = decodeURIComponent(seg); } catch (_) { return false; }
+      if (dec === "." || dec === ".." || dec.indexOf("/") >= 0 || dec.indexOf("\\") >= 0) return false;
+    }
+    return true;
+  }
+
+  function hostIsOffline(err) {
+    if (typeof hostBinding.isOfflineErr === "function") {
+      try { if (hostBinding.isOfflineErr(err)) return true; } catch (_) {}
+    } else if (err instanceof TypeError) {
+      return true;
+    }
+    return !!err && err.status === 503 && err.message === "OFFLINE";
+  }
+
+  function mapFetchError(err) {
+    if (err instanceof PluginNetworkError) return err;
+    const e = err || {};
+    const detail = e.body && typeof e.body === "object" ? e.body.detail : undefined;
+    const code = detail && typeof detail === "object" ? detail.code : null;
+    if (hostIsOffline(e)) return new PluginNetworkError("offline");
+    if (e.status === 401) return new PluginNetworkError("auth", null, { status: 401 });
+    if (e.message === HOST_TIMEOUT_MESSAGE) return new PluginNetworkError("timeout");
+    if (e.status === 403 && code === "PLUGIN_DISABLED") return new PluginNetworkError("disabled", null, { status: 403, detail });
+    if (e.status === 503 && code === "PLUGIN_UNAVAILABLE") return new PluginNetworkError("unavailable", null, { status: 503, detail });
+    return new PluginNetworkError("http", typeof e.message === "string" && e.message ? e.message : null,
+      { status: e.status == null ? null : e.status, detail });
+  }
+
+  function waitForPush(id) {
+    const m = ps();
+    if (!m || typeof m.hasPending !== "function" || typeof hostBinding.pushNow !== "function") return Promise.resolve();
+    return Promise.resolve().then(() => m.hasPending(id)).catch(() => false).then((pending) => {
+      if (!pending) return null;
+      let timer = null;
+      const sleep = new Promise((resolve) => { timer = setTimeout(resolve, pushWaitMs); });
+      const push = Promise.resolve().then(() => hostBinding.pushNow()).catch((e) => warn("pushNow gagal:", e));
+      return Promise.race([push, sleep]).then(() => { clearTimeout(timer); });
+    });
+  }
+
+  function makeFetch(id) {
+    return function pluginFetch(path, opts) {
+      return Promise.resolve().then(() => {
+        if (permissionsOf(id).indexOf("network") < 0) throw denied(id, "plugin " + id + " tidak punya izin network");
+        if (!pluginPathOk(id, path)) throw denied(id, "api.fetch hanya ke /api/plugins/" + id + "/…, bukan " + String(path));
+        const o = opts || {};
+        const method = String(o.method || "GET").toUpperCase();
+        if (FETCH_METHODS.indexOf(method) < 0) throw new TypeError("method tidak didukung: " + o.method);
+        const init = { method };
+        if (o.body !== undefined) {
+          let json;
+          try { json = JSON.stringify(o.body); } catch (e) { throw new TypeError("body tidak bisa diserialisasi JSON: " + e.message); }
+          if (json === undefined) throw new TypeError("body tidak bisa diserialisasi JSON");
+          if (utf8Bytes(json) > FETCH_BODY_MAX_BYTES) throw new TypeError("body melebihi 256 KB");
+          init.body = json;
+        }
+        const timeoutMs = (typeof o.timeoutMs === "number" && o.timeoutMs > 0) ? o.timeoutMs : FETCH_TIMEOUT_MS;
+        if (!env.online) throw new PluginNetworkError("offline");
+        if (typeof hostBinding.fetch !== "function") throw new PluginNetworkError("unavailable");
+        // Toggle ON yang baru dibuat sampai ke server lebih dulu (maks pushWaitMs).
+        return waitForPush(id).then(() => {
+          let timer = null;
+          const timeout = new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new PluginNetworkError("timeout")), timeoutMs);
+          });
+          return Promise.race([Promise.resolve().then(() => hostBinding.fetch(path, init)), timeout]).then(
+            (v) => { clearTimeout(timer); return v; },
+            (err) => { clearTimeout(timer); throw mapFetchError(err); });
+        });
+      });
+    };
   }
 
   let taskRouter = null;
@@ -878,6 +990,7 @@
     apiVersion: API_VERSION,
     PluginStorageError,
     PluginPermissionError,
+    PluginNetworkError,
     for(id) {
       if (!apiCache.has(id)) {
         apiCache.set(id, Object.freeze({
@@ -889,6 +1002,7 @@
           ui: makeUi(id),
           env,
           log: makeLog(id),
+          fetch: makeFetch(id),
         }));
       }
       return apiCache.get(id);
@@ -984,6 +1098,8 @@
     _reset,
     // Tes: modul TF.pluginstate pengganti (null = paksa tidak ada → perilaku 0a).
     _setPluginStateModule(m) { psOverride = m; },
+    // Tes: batas tunggu pushNow api.fetch (bawaan 5000 ms).
+    _setPushWaitMs(ms) { pushWaitMs = typeof ms === "number" && ms >= 0 ? ms : PUSH_WAIT_MS; },
   };
 
   // Browser: pasang jembatan event window sekali saat file dimuat.

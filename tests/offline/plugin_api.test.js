@@ -34,7 +34,8 @@ test("apiVersion 1; for(id) stabil dan beku", () => {
   assert.equal(a, RT.api.for("habit-heatmap"));
   assert.ok(Object.isFrozen(a));
   for (const k of ["events", "storage", "data", "ui", "env", "log"]) assert.ok(a[k], k);
-  assert.equal(a.fetch, undefined);
+  // Fase 0b (spec §6.4): api.fetch selalu ada; tanpa izin network → PluginPermissionError (plugin_fetch.test.js).
+  assert.equal(typeof a.fetch, "function");
 });
 
 test("data.habits.list dan logs menyaring rentang, log terhapus, dan habit terhapus", async () => {
