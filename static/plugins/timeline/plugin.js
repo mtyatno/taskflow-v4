@@ -2340,7 +2340,8 @@ function renderChart(v) {
       }, /*#__PURE__*/React.createElement("span", {
         className: "plg-timeline-hint",
         style: {
-          left: tableW + 8
+          left: tableW + 8,
+          lineHeight: rowH + "px"
         }
       }, MSG_SCHEDULE_HINT)));
     }
@@ -2529,6 +2530,7 @@ function TimelineViewBody(props) {
   const anchorRef = React.useRef(null); // dn yang dipertahankan di tengah setelah zoom
   const userScrolledRef = React.useRef(false);
   const setLeftRef = React.useRef(null);
+  const lastElRef = React.useRef(null); // elemen wadah terakhir yang dikenal (deteksi pasang ulang)
   const rowHRef = React.useRef(rowH);
   rowHRef.current = rowH;
   const sl = vp.left === null ? TLLayout.initialScrollLeft(lay.range, lay.px, today, vp.w) : vp.left;
@@ -2548,21 +2550,47 @@ function TimelineViewBody(props) {
   };
 
   // Ukur tinggi wadah (R11: max(360, innerHeight − rect.top − 16), dikurangi tinggi legenda di bawahnya agar legenda
-  // tetap terlihat) dan lebar grafik tampak.
+  // tetap terlihat) dan lebar grafik tampak. Selalu membaca elemen terkini (bukan yang ditangkap saat efek dipasang).
+  const measure = () => {
+    const el = scrollRef.current;
+    if (!el || !hasWindow()) return;
+    const rect = el.getBoundingClientRect();
+    const footH = footRef.current ? footRef.current.offsetHeight || 0 : 0;
+    const boxH = Math.max(MIN_BOX_H, Math.floor((window.innerHeight || 0) - rect.top - BOX_GAP - footH));
+    const w = Math.max(0, el.clientWidth - tableW);
+    setVp(p => p.boxH === boxH && p.w === w ? p : Object.assign({}, p, {
+      boxH,
+      h: Math.max(0, boxH - HEAD_H),
+      w
+    }));
+  };
+
+  // Wadah gulir baru (pertama kali, atau dipasang ulang setelah keadaan kosong / Daftar → Gantt): elemen baru mulai di
+  // scrollTop/Left 0 tanpa event scroll, jadi jendela lama (top/left) dibuang dan logika "pertama dibuka" berlaku lagi
+  // (hari ini di 1/3). Tanpa deps: berjalan tiap commit, murah (satu perbandingan).
   React.useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el || !hasWindow()) return undefined;
-    const measure = () => {
-      const rect = el.getBoundingClientRect();
-      const footH = footRef.current ? footRef.current.offsetHeight || 0 : 0;
-      const boxH = Math.max(MIN_BOX_H, Math.floor((window.innerHeight || 0) - rect.top - BOX_GAP - footH));
-      const w = Math.max(0, el.clientWidth - tableW);
-      setVp(p => p.boxH === boxH && p.w === w ? p : Object.assign({}, p, {
-        boxH,
-        h: Math.max(0, boxH - HEAD_H),
-        w
-      }));
-    };
+    if (el === lastElRef.current) return;
+    lastElRef.current = el;
+    if (!el) return;
+    userScrolledRef.current = false;
+    anchorRef.current = null;
+    prevLayRef.current = lay;
+    measure();
+    el.scrollLeft = Math.max(0, Math.round(TLLayout.initialScrollLeft(lay.range, lay.px, today, vp.w)));
+    setLeftRef.current = el.scrollLeft;
+    const top = el.scrollTop || 0;
+    const left = el.scrollLeft;
+    setVp(p => {
+      const ql = quantLeft(left, p.w);
+      return p.top === top && p.left === ql ? p : Object.assign({}, p, {
+        top,
+        left: ql
+      });
+    });
+  });
+  React.useLayoutEffect(() => {
+    if (!scrollRef.current || !hasWindow()) return undefined;
     measure();
     let id = 0;
     const onResize = () => {

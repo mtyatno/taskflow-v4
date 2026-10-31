@@ -285,7 +285,6 @@
 .plg-timeline-hint {
   position: sticky;
   display: inline-block;
-  line-height: 32px;
   font-size: 11px;
   color: var(--text-secondary);
   opacity: 0;
@@ -359,7 +358,6 @@
   right: -4px;
 }
 
-.plg-timeline-summary.is-late,
 .plg-timeline-summary.is-late::before,
 .plg-timeline-summary.is-late::after {
   border-top-color: var(--plg-timeline-danger);

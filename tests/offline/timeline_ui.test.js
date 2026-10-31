@@ -241,7 +241,8 @@ function mount(Comp) {
       const k = i++;
       if (!slots[k]) slots[k] = { v: typeof init === "function" ? init() : init };
       const s = slots[k];
-      if (!s.set) s.set = (nv) => { setCalls.push(k); s.v = typeof nv === "function" ? nv(s.v) : nv; };
+      // Seperti React: nilai identik (Object.is) = bail out, tidak dihitung sebagai setState.
+      if (!s.set) s.set = (nv) => { const v = typeof nv === "function" ? nv(s.v) : nv; if (Object.is(v, s.v)) return; setCalls.push(k); s.v = v; };
       return [s.v, s.set];
     },
     useReducer(red, init) {
@@ -412,6 +413,9 @@ test("render 3 task (satu milestone, satu ringkasan + anak, satu tanpa jadwal): 
   const slots = byCls(tree, "plg-timeline-slot");
   assert.deepEqual(slots.map((n) => n.props["data-key"]), ["4"]);
   assert.equal(txt(slots[0]).trim(), "Klik untuk menjadwalkan");
+  const hint = byCls(slots[0], "plg-timeline-hint")[0];
+  assert.equal(hint.props.style.lineHeight, "32px", "petunjuk setinggi baris (bukan konstanta CSS)");
+  assert.doesNotMatch(css, /\.plg-timeline-hint\s*\{[^}]*line-height/);
   // garis hari ini, header sticky, klik bar/baris → onTaskClick
   assert.equal(byCls(tree, "plg-timeline-today").length, 1);
   bars[0].props.onClick({});
@@ -700,4 +704,137 @@ test("sumber: tanpa hex/rgb/hsl di plugin.jsx dan style.css; kelas hanya .plg-ti
   assert.match(css, /color-mix\(in srgb, var\(--accent\) 55%, var\(--bg-card\)\)/);
   assert.match(css, /color-mix\(in srgb, var\(--plg-timeline-danger\) 8%, transparent\)/);
   assert.match(css, /position:\s*sticky/);
+});
+
+// ── Fix round 1: jalur gulir dengan elemen palsu (ref) + rAF sinkron (requestAnimationFrame tidak ada di Node → raf
+// menjalankan callback langsung). window palsu agar useLayoutEffect mengukur wadah.
+const TABLE_W_FULL = 56 + 220 + 92 + 56 + 52 + 56; // COLS_FULL
+
+function fakeEl() {
+  return { scrollTop: 0, scrollLeft: 0, clientWidth: TABLE_W_FULL + 1000, offsetHeight: 0, getBoundingClientRect: () => ({ top: 100 }) };
+}
+function withWindow(fn) {
+  const prev = global.window;
+  global.window = { innerHeight: 100 + 16 + 600 + 48, addEventListener() {}, removeEventListener() {} };
+  return Promise.resolve().then(fn).finally(() => { global.window = prev; });
+}
+const gridOf = (tree) => nodes(tree, (n) => n.props.role === "grid")[0];
+const renderedRowKeys = (tree) => nodes(tree, (n) => n.props.role === "row" && n.props["aria-rowindex"] > 1).map((n) => n.props["data-key"]);
+const layOf = (tasks, zoom, api) => T.TLLayout.layout({ tasks, pageKind: "project", cal: T.TLCal.DEFAULT_CAL, today: TODAY, zoom, readSchedOf: (t) => T.TLSched.readSched(api.taskExt.read(t)) });
+
+// Pasang elemen ke ref wadah (seperti React) lalu jalankan efek dan render ulang sampai stabil.
+function attach(m, props, tree, el) {
+  const g = gridOf(tree);
+  if (g) g.props.ref.current = el;
+  m.flush();
+  return m.render(props);
+}
+
+test("gulir: pertama dibuka → hari ini di 1/3 lebar grafik; setState hanya saat baris/kolom pertama berubah", () => withWindow(async () => {
+  const tasks = bigTasks(300, 0);
+  const { api } = fakeApi();
+  const props = { context: ctxOf(tasks).ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const el = fakeEl();
+  let tree = attach(m, props, m.render(props), el);
+  await tick();
+  tree = attach(m, props, m.render(props), el);
+  const lay = layOf(tasks, "week", api);
+  const todayX = T.TLLayout.xOf(T.TLCal.dn(TODAY), lay.range, lay.px);
+  assert.ok(Math.abs(el.scrollLeft + 1000 / 3 - todayX) <= 1, "hari ini di 1/3: scrollLeft " + el.scrollLeft + ", x hari ini " + todayX);
+  const onScroll = gridOf(tree).props.onScroll;
+  const n0 = m.setCalls.length;
+  el.scrollTop = 5; onScroll(); // masih baris 0
+  el.scrollTop = 31; onScroll();
+  assert.equal(m.setCalls.length, n0, "gulir dalam baris yang sama → tanpa setState");
+  el.scrollTop = 33; onScroll(); // baris pertama 0 → 1
+  assert.equal(m.setCalls.length, n0 + 1);
+  el.scrollTop = 40; onScroll();
+  assert.equal(m.setCalls.length, n0 + 1);
+  const left0 = el.scrollLeft;
+  el.scrollLeft = left0 + 3; onScroll(); // jangkar kolom (½ layar) belum berubah… kecuali melewati batas kuantum
+  const q = 500;
+  const sameQuant = Math.floor((left0 + 3) / q) === Math.floor(left0 / q);
+  assert.equal(m.setCalls.length, n0 + 1 + (sameQuant ? 0 : 1));
+  const n1 = m.setCalls.length;
+  el.scrollLeft = left0 + 3 + q; onScroll(); // pindah satu kuantum kolom
+  assert.equal(m.setCalls.length, n1 + 1);
+  tree = m.render(props);
+  const firstKey = lay.rows[0].key;
+  assert.equal(renderedRowKeys(tree)[0], firstKey, "baris pertama (first − 10 dijepit ke 0) masih dirender");
+  el.scrollTop = 32 * 100; onScroll();
+  tree = m.render(props);
+  assert.ok(renderedRowKeys(tree).indexOf(firstKey) < 0, "setelah gulir jauh, baris awal tidak dirender");
+  assert.equal(renderedRowKeys(tree)[0], lay.rows[90].key, "jendela mulai di baris 100 − 10");
+  m.unmount();
+}));
+
+test("zoom mempertahankan tanggal di tengah layar", () => withWindow(async () => {
+  const tasks = bigTasks(60, 0).concat([mk(900, "Jauh", { start: "2027-12-01", duration: 5 })]); // rentang lebar → Bulan tidak terjepit di tepi
+  const { api } = fakeApi();
+  const props = { context: ctxOf(tasks).ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const el = fakeEl();
+  let tree = attach(m, props, m.render(props), el);
+  await tick();
+  tree = attach(m, props, m.render(props), el);
+  const lw = layOf(tasks, "week", api);
+  el.scrollLeft = 3000; // gulir pengguna
+  gridOf(tree).props.onScroll();
+  tree = m.render(props);
+  const center = T.TLLayout.dnAt(3000 + 500, lw.range, lw.px);
+  buttonByText(tree, "Hari").props.onClick({});
+  tree = attach(m, props, m.render(props), el);
+  const ld = layOf(tasks, "day", api);
+  assert.equal(T.TLLayout.dnAt(el.scrollLeft + 500, ld.range, ld.px), center, "tanggal tengah tetap setelah Minggu → Hari");
+  buttonByText(tree, "Bulan").props.onClick({});
+  tree = attach(m, props, m.render(props), el);
+  const lm = layOf(tasks, "month", api);
+  assert.equal(T.TLLayout.dnAt(el.scrollLeft + 500, lm.range, lm.px), center, "tanggal tengah tetap setelah Hari → Bulan");
+  m.unmount();
+}));
+
+test("wadah gulir dipasang ulang (kosong → ada task) → jendela direset: baris 1 dirender, hari ini di 1/3", () => withWindow(async () => {
+  const tasks = bigTasks(300, 0);
+  const { api } = fakeApi();
+  const ctx = ctxOf(tasks).ctx;
+  const props = { context: ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const el1 = fakeEl();
+  let tree = attach(m, props, m.render(props), el1);
+  await tick();
+  tree = attach(m, props, m.render(props), el1);
+  const ref = gridOf(tree).props.ref;
+  // pengguna menggulir jauh ke bawah dan ke kanan
+  el1.scrollTop = 32 * 200;
+  el1.scrollLeft += 2000;
+  gridOf(tree).props.onScroll();
+  tree = m.render(props);
+  assert.ok(renderedRowKeys(tree).indexOf(layOf(tasks, "week", api).rows[0].key) < 0);
+  // pencarian host tanpa hasil → keadaan kosong (wadah dilepas: ref null)
+  const emptyProps = { context: Object.assign({}, ctx, { scopeTasks: [] }), api };
+  tree = m.render(emptyProps);
+  assert.equal(gridOf(tree), undefined);
+  ref.current = null;
+  m.flush();
+  // pencarian dihapus → wadah baru (scrollTop/Left 0, tanpa event scroll)
+  const el2 = fakeEl();
+  tree = m.render(props);
+  tree = attach(m, props, tree, el2);
+  const lay0 = layOf(tasks, "week", api);
+  assert.equal(renderedRowKeys(tree)[0], lay0.rows[0].key, "baris pertama dirender lagi");
+  assert.equal(el2.scrollTop, 0);
+  const lay = layOf(tasks, "week", api);
+  const todayX = T.TLLayout.xOf(T.TLCal.dn(TODAY), lay.range, lay.px);
+  assert.ok(Math.abs(el2.scrollLeft + 1000 / 3 - todayX) <= 1, "wadah baru: hari ini di 1/3 lagi");
+  const ticks = byCls(tree, "plg-timeline-tick");
+  assert.ok(ticks.length > 0, "header skala ada");
+  // sel header mencakup kolom yang terlihat di wadah baru
+  const dnLeft = T.TLLayout.dnAt(el2.scrollLeft, lay.range, lay.px);
+  assert.ok(ticks.some((t) => t.props.style.left <= T.TLLayout.xOf(dnLeft, lay.range, lay.px) && t.props.style.left + t.props.style.width > T.TLLayout.xOf(dnLeft, lay.range, lay.px)));
+  m.unmount();
+}));
+
+test("CSS: tanpa aturan ringkasan is-late yang tidak berpengaruh (border pada elemen tanpa border)", () => {
+  assert.doesNotMatch(css, /\.plg-timeline-summary\.is-late,\s*\n?\s*\.plg-timeline-summary\.is-late::before/);
 });
