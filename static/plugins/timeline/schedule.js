@@ -8,6 +8,7 @@ const TLSched = (function (CAL) {
   const DUR_MAX = 999;
   const LAG_MIN = -99;
   const LAG_MAX = 999;
+  const MAX_LATE_SPAN = 3660; // hari kalender maks yang dihitung deadlineLate
 
   const isInt = (n) => typeof n === "number" && Number.isInteger(n);
   const isObj = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
@@ -109,6 +110,10 @@ const TLSched = (function (CAL) {
         else if (typeof v === "number" && Number.isFinite(v)) patch.duration = clampInt(v, 0, DUR_MAX);
         else return { ok: false, reason: "duration" };
       } else if (k === "deps") {
+        if (v === null) {
+          patch.deps = null; // hapus kunci (Urungkan menulis null untuk kunci yang dulu tidak ada)
+          continue;
+        }
         const r = sanitizeDeps(v);
         if (!r.ok) return r;
         patch.deps = r.deps;
@@ -162,6 +167,7 @@ const TLSched = (function (CAL) {
   // Ref yang tidak ada di indeks → ok false dengan from = kunci mentah ref.
   function resolveDeps(rows, index) {
     const out = [];
+    const seen = new Set(); // satu edge per (pendahulu kanonik, penerus): cid dan id angka task yang sama tidak ganda
     if (!Array.isArray(rows)) return out;
     for (const row of rows) {
       const to = rowKey(row);
@@ -169,7 +175,11 @@ const TLSched = (function (CAL) {
       for (const d of row.sched.deps) {
         const pred = index && typeof index.get === "function" ? index.get(d.key) : undefined;
         const found = !!(pred && pred.id !== undefined && pred.id !== null);
-        out.push({ from: found ? String(pred.id) : d.key, to, lag: d.lag, ok: found });
+        const from = found ? String(pred.id) : d.key;
+        const pair = from + "\u0000" + to;
+        if (seen.has(pair)) continue;
+        seen.add(pair);
+        out.push({ from, to, lag: d.lag, ok: found });
       }
     }
     return out;
@@ -229,9 +239,19 @@ const TLSched = (function (CAL) {
   // depCount opsional = jumlah dependensi penerus yang sudah tersimpan (termasuk yang tak terpecahkan).
   function canLink(args) {
     const a = args || {};
-    const pk = idOf(a.pred);
-    const sk = idOf(a.succ);
+    let pk = idOf(a.pred);
+    let sk = idOf(a.succ);
     if (pk === null || sk === null) return { ok: false, reason: "scope" };
+    // Kanonikkan lewat indeks halaman: salinan basi (id masih cid) → String(id) terkini, agar dup/siklus/self cocok dengan edge.
+    const idx = Array.isArray(a.scopeTasks) ? buildIndex(a.scopeTasks) : null;
+    let inScope = true;
+    if (idx) {
+      const fp = idx.get(pk);
+      const fs = idx.get(sk);
+      inScope = !!(fp && fs);
+      if (fp) pk = idOf(fp);
+      if (fs) sk = idOf(fs);
+    }
     if (pk === sk) return { ok: false, reason: "self" };
     // scope: workspace sama, atau pribadi dengan project sama (NOCASE; keduanya tanpa project juga sama)
     const pl = hasList(a.pred);
@@ -240,9 +260,8 @@ const TLSched = (function (CAL) {
     if (pl) {
       if (String(a.pred.list_id) !== String(a.succ.list_id)) return { ok: false, reason: "scope" };
     } else if (projectKeyOf(a.pred) !== projectKeyOf(a.succ)) return { ok: false, reason: "scope" };
-    if (Array.isArray(a.scopeTasks)) {
-      const idx = buildIndex(a.scopeTasks);
-      if (!idx.has(pk) || !idx.has(sk)) return { ok: false, reason: "scope" };
+    if (idx) {
+      if (!inScope) return { ok: false, reason: "scope" };
       const sums = summaryKeys(a.scopeTasks);
       if (sums.has(pk) || sums.has(sk)) return { ok: false, reason: "summary" };
     }
@@ -273,7 +292,10 @@ const TLSched = (function (CAL) {
       if (!p || !s) continue;
       const earliest = safe(() => CAL.fsEarliest(c, p.f, lagOf(e.lag)));
       if (!Number.isInteger(earliest)) continue;
-      if (s.s < earliest) {
+      // mulai efektif = hari kerja pertama ≥ mulai tersimpan (mulai di akhir pekan/libur tidak dihitung terlalu awal)
+      const eff = safe(() => CAL.nextWork(c, s.s));
+      if (!Number.isInteger(eff)) continue;
+      if (eff < earliest) {
         out.add(e.to);
         detail.push({ succ: e.to, pred: e.from, earliest });
       }
@@ -304,7 +326,8 @@ const TLSched = (function (CAL) {
     const dl = CAL.dn(String(deadline).slice(0, 10));
     if (!Number.isInteger(dl)) return null;
     if (finishDn <= dl) return 0;
-    return Math.max(1, CAL.workdays(c, dl + 1, finishDn));
+    // rentang hitung dibatasi (tenggat sampah di masa lalu jauh tidak boleh memakan ratusan ribu iterasi)
+    return Math.max(1, CAL.workdays(c, dl + 1, Math.min(finishDn, dl + MAX_LATE_SPAN)));
   }
 
   return Object.freeze({

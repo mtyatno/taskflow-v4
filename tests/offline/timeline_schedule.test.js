@@ -399,3 +399,85 @@ test("deadlineLate: selesai Sel 10 Nov 2026, tenggat Jum 6 Nov 2026 → 2; tengg
   // milestone di akhir pekan setelah tenggat tetap terlambat (≥ 1)
   assert.equal(S.deadlineLate(c, D("2026-11-07"), "2026-11-06"), 1);
 });
+
+// ---- ronde perbaikan 1 ----
+test("violations: mulai efektif = nextWork(start) — mulai di Min/libur tidak salah ditandai; Kam sebelum paling cepat tetap ditandai; milestone Sabtu setelah selesai Jumat aman", () => {
+  const c = std();
+  const pred = S.spanOf(c, { start: "2026-11-02", duration: 5 }); // selesai Jum 6 Nov → paling cepat Sen 9
+  assert.equal(I(pred.f), "2026-11-06");
+  const edges = [{ from: "A", to: "B", lag: 0, ok: true }];
+  const run = (start, dur) => S.violations(c, new Map([["A", pred], ["B", S.spanOf(c, { start, duration: dur })]]), edges);
+  assert.equal(run("2026-11-08", 2).size, 0, "Minggu → efektif Senin 9");
+  assert.equal(run("2026-11-07", 1).size, 0, "Sabtu");
+  assert.equal(run("2026-11-05", 1).size, 1, "Kamis → ditandai");
+  assert.equal(run("2026-11-07", 0).size, 0, "milestone Sabtu setelah selesai Jumat");
+  // libur nasional: pendahulu selesai Rab 23 Des 2026, 24 = cuti bersama, 25 = libur → paling cepat Sen 28
+  const p2 = S.spanOf(c, { start: "2026-12-23", duration: 1 });
+  const at = (start) => S.violations(c, new Map([["A", p2], ["B", S.spanOf(c, { start, duration: 1 })]]), edges).size;
+  assert.equal(at("2026-12-25"), 0, "mulai di hari libur → efektif Sen 28");
+  assert.equal(at("2026-12-22"), 1);
+  // kalender buntu → tetap tidak melempar
+  const off = new Set();
+  for (let d = D("2026-01-01"); d <= D("2070-01-01"); d++) off.add(d);
+  const dead = { mask: new Set([1]), off, work: new Set(), key: "mati2" };
+  const sp = new Map([["A", { s: D("2026-11-02"), f: D("2026-11-03") }], ["B", { s: D("2026-11-02"), f: D("2026-11-02") }]]);
+  assert.equal(S.violations(dead, sp, edges).size, 0);
+});
+
+test("canLink kanonik: salinan basi (id masih cid) dipetakan ke id angka lewat scopeTasks — dup, cycle, self", () => {
+  const e = (from, to) => ({ from, to, lag: 0, ok: true });
+  const a = { id: 1, cid: "c-a", list_id: 5 };
+  const b = { id: 2, cid: "c-b", list_id: 5 };
+  const c = { id: 3, list_id: 5 };
+  const scope = [a, b, c];
+  const staleA = { id: "c-a", cid: "c-a", list_id: 5 }; // salinan modal sebelum rewrite
+  const staleB = { id: "c-b", cid: "c-b", list_id: 5 };
+  assert.deepEqual(S.canLink({ pred: staleA, succ: b, scopeTasks: scope, edges: [e("1", "2")] }), { ok: false, reason: "dup" });
+  assert.deepEqual(S.canLink({ pred: a, succ: staleB, scopeTasks: scope, edges: [e("1", "2")] }), { ok: false, reason: "dup" });
+  assert.deepEqual(S.canLink({ pred: c, succ: staleA, scopeTasks: scope, edges: [e("1", "2"), e("2", "3")] }), { ok: false, reason: "cycle" });
+  assert.deepEqual(S.canLink({ pred: staleA, succ: a, scopeTasks: scope, edges: [] }), { ok: false, reason: "self" });
+  assert.deepEqual(S.canLink({ pred: staleA, succ: staleB, scopeTasks: scope, edges: [] }), { ok: true });
+  // max: penerus basi, edge berkunci id angka
+  const full = [];
+  for (let i = 10; i < 30; i++) full.push(e(String(i), "2"));
+  assert.deepEqual(S.canLink({ pred: a, succ: staleB, scopeTasks: scope, edges: full }), { ok: false, reason: "max" });
+});
+
+test("sanitizePatch: deps null diterima (hapus kunci, untuk Urungkan); start/duration/deps null bersama", () => {
+  assert.deepEqual(S.sanitizePatch({ deps: null }), { ok: true, patch: { deps: null } });
+  assert.deepEqual(S.sanitizePatch({ start: null, duration: null, deps: null }), { ok: true, patch: { start: null, duration: null, deps: null } });
+  assert.equal(S.sanitizePatch({ deps: undefined }).ok, false);
+});
+
+test("deadlineLate: tenggat sampah di masa lalu jauh tetap cepat dan > 0 (rentang hitung dibatasi)", () => {
+  const c = std();
+  let best = Infinity;
+  let r;
+  for (let k = 0; k < 3; k++) {
+    const t0 = process.hrtime.bigint();
+    r = S.deadlineLate(c, D("2026-11-10"), "1000-01-01");
+    best = Math.min(best, Number(process.hrtime.bigint() - t0) / 1e6);
+  }
+  assert.ok(r > 0);
+  assert.ok(Number.isInteger(r));
+  assert.ok(best < 20, best + " ms");
+  assert.equal(S.deadlineLate(c, D("2026-11-10"), "2026-11-06"), 2, "kasus normal tak berubah");
+});
+
+test("resolveDeps: dependensi ke task yang sama lewat cid dan id angka menghasilkan satu edge per (pendahulu, penerus)", () => {
+  const t1 = { id: 1, cid: "c-1" };
+  const idx = S.buildIndex([t1, { id: 2 }]);
+  const rows = [{
+    key: "2",
+    sched: { deps: [
+      { key: "1", ref: { $task: 1 }, type: "FS", lag: 0 },
+      { key: "c-1", ref: { $task: "c-1" }, type: "FS", lag: 5 },
+      { key: "77", ref: { $task: 77 }, type: "FS", lag: 0 },
+      { key: "77", ref: { $task: 77 }, type: "FS", lag: 1 },
+    ] },
+  }];
+  assert.deepEqual(S.resolveDeps(rows, idx), [
+    { from: "1", to: "2", lag: 0, ok: true },
+    { from: "77", to: "2", lag: 0, ok: false },
+  ]);
+});
