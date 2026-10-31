@@ -4300,3 +4300,4 @@
 - **Files Touch:** dbconn.py, webapp.py, repository.py, bot.py, tests/test_dbconn*.py, tests/test_migrate_fk.py, tests/test_bot_link_token.py, tests/test_petakan.py (5 baris), docs/superpowers/{specs,plans}/2026-10-31-plugin-fase0b*, .agents/*
 - **Status:** Needs Review (PR draft #117). pytest 1284/1 skip; npm 3592/3593 (pra-ada). Deploy butuh restart manual web + bot.
 
+- 2026-10-31 17:55 WIB (Claude): #117 (dbconn, Plugin Fase 0b PR A) di-merge + deploy workflow; menunggu restart manual taskflow-web + taskflow oleh Bapak.
