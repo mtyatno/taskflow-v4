@@ -160,6 +160,38 @@ test("fixture: lint menolak innerHTML / indexedDB / XMLHttpRequest / window.fetc
   }
 });
 
+// Fase 0b (rencana PR B Task 6, R15): fetch polos / window|self|globalThis.fetch selalu ditolak;
+// `.fetch(` (api.fetch) hanya boleh bila manifest berizin "network".
+test("fixture: fetch polos / window|self|globalThis.fetch ditolak walau berizin network", (t) => {
+  for (const bad of ["fetch('/api/tasks');", "window.fetch('/x');", "self.fetch('/x');", "globalThis.fetch('/x');", "const f = window . fetch;"]) {
+    const fx = fixture(t, { "demo-net": { "plugin.jsx": SRC + bad + "\n", "manifest.json": JSON.stringify(manifest("demo-net", { permissions: ["network"] })) } });
+    assert.throws(() => build.buildPlugins(Object.assign({ log: () => {} }, fx)), /lint/i, bad);
+  }
+});
+
+test("fixture: api.fetch( hanya dengan izin network", (t) => {
+  const src = "function C({ api }) { api.fetch(\"/api/plugins/demo-net/items\"); return <div>x</div>; }\n" +
+    "window.TF.plugins.register(manifest, function (api) { return { slots: { \"dashboard.widgets\": [{ id: \"c\", component: C }] } }; });\n";
+  const a = fixture(t, { "demo-net": { "plugin.jsx": src, "manifest.json": JSON.stringify(manifest("demo-net")) } });
+  assert.throws(() => build.buildPlugins(Object.assign({ log: () => {} }, a)), (err) => /lint/i.test(err.message) && err.message.includes(".fetch("));
+  const b = fixture(t, { "demo-net": { "plugin.jsx": src, "manifest.json": JSON.stringify(manifest("demo-net", { permissions: ["network"] })) } });
+  const res = build.buildPlugins(Object.assign({ log: () => {} }, b));
+  const idx = JSON.parse(fs.readFileSync(path.join(b.pluginsDir, "index.json"), "utf8"));
+  assert.deepEqual(idx.plugins[0].permissions, ["network"]);
+  assert.deepEqual(res.index, idx);
+  assert.equal(build.lintPlugin("api.fetch('/x');", { permissions: ["network"] }), null);
+  assert.equal(build.lintPlugin("api.fetch('/x');", { permissions: [] }), ".fetch(");
+  assert.equal(build.lintPlugin("fetch('/x');", { permissions: ["network"] }), "fetch(");
+  assert.ok(!build.LINT_RE.test("fetch("), "LINT_RE tanpa fetch(");
+});
+
+test("fixture: folder plugin state / Bad_Id ditolak", (t) => {
+  for (const id of ["state", "Bad_Id"]) {
+    const fx = fixture(t, { [id]: { "plugin.jsx": SRC, "manifest.json": JSON.stringify(manifest(id)) } });
+    assert.throws(() => build.buildPlugins(Object.assign({ log: () => {} }, fx)), /dicadangkan/, id);
+  }
+});
+
 test("fixture: gagal kompilasi, manifest.json hilang, atau id ≠ folder → error", (t) => {
   const a = fixture(t, { "demo-syntax": { "plugin.jsx": "function (\n", "manifest.json": JSON.stringify(manifest("demo-syntax")) } });
   assert.throws(() => build.buildPlugins(Object.assign({ log: () => {} }, a)), /demo-syntax/);

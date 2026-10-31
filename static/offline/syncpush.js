@@ -22,6 +22,11 @@
   function noteRepo() {
     try { return isNode ? require("./noterepo.js") : (root.TF && root.TF.noterepo); } catch (_) { return null; }
   }
+  // Fase 0b plugin: status plugin per akun (TF.pluginstate). Dibaca malas: modul lama dari cache SW bisa
+  // belum memuatnya → op plugin_state dibiarkan antre.
+  function pluginState() {
+    try { return isNode ? require("./pluginstate.js") : (root.TF && root.TF.pluginstate); } catch (_) { return null; }
+  }
   const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
   const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
   // Kanban tahap: cache context (dimuat sebelum syncpush di index.html; dicek per fungsi karena modul lama dari
@@ -689,6 +694,24 @@
         }
         if (res.status === 404 || res.status === 403) return TFoutbox.outboxRemove(op.qid);
         return failPermanent(null, null, res, op, result);
+      });
+    });
+  }
+
+  // Fase 0b plugin (spec §6.2, rencana R9): op bisa sudah di-coalesce (setLocal) di tengah drain yang memakai
+  // snapshot → hanya diproses bila masih ada. 2xx → ackPushed; 404 PLUGIN_UNKNOWN → dropOp (tidak dihitung
+  // gagal); 404 lain → op tetap (jendela deploy); 4xx lain → dropOp + gagal; 401/429/5xx/jaringan dilempar send.
+  function opPluginStateSet(op, transport, result) {
+    const ps = pluginState();
+    if (!ps) return Promise.resolve(null);
+    return TFoutbox.outboxAll().then((ops) => {
+      if (!ops.some((o) => o.qid === op.qid)) return null;
+      return send(transport, "PUT", "/api/plugins/state/" + encodeURIComponent(op.cid), op.payload).then((res) => {
+        if (ok(res)) return ps.ackPushed(op.qid, op.cid, res.data && res.data.state).then(() => { result.pushed++; });
+        const d = res && res.data && res.data.detail;
+        if (res.status === 404) return (d && d.code === "PLUGIN_UNKNOWN") ? ps.dropOp(op.qid, op.cid) : null;
+        result.failed++;
+        return ps.dropOp(op.qid, op.cid);
       });
     });
   }
@@ -2148,6 +2171,7 @@
     if (op.entity_type === "comment" || op.entity_type === "comment_read") return processCommentOp(op, transport, result, pending);
     if (op.entity_type === "context" && op.op === "create") return opContextCreate(op, transport, result);
     if (op.entity_type === "pomodoro_log" && op.op === "create") return opPomodoroCreate(op, transport, result, pending);
+    if (op.entity_type === "plugin_state" && op.op === "set") return opPluginStateSet(op, transport, result);
     return TFoutbox.outboxRemove(op.qid);
   }
 

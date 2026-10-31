@@ -1,0 +1,6 @@
+{
+  "v": 1,
+  "plugins": [
+    {"id": "demo-server", "defaultEnabled": false}
+  ]
+}
