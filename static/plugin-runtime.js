@@ -1110,11 +1110,25 @@
     }),
   });
 
+  // action toast (R14, tambahan v1): {label: string 1–20 karakter, onClick: fungsi}. Tidak sah → diabaikan (toast tetap).
+  // onClick dibungkus try/catch: error dicatat lewat api.log, bukan error plugin (tidak menghitung failures).
+  function toastAction(id, action) {
+    if (!action || typeof action !== "object" || typeof action.onClick !== "function" || typeof action.label !== "string") return null;
+    const len = Array.from(action.label).length;
+    if (len < 1 || len > 20) return null;
+    const onClick = action.onClick;
+    const log = makeLog(id);
+    return { label: action.label, onClick() { try { onClick(); } catch (e) { log.error("aksi toast gagal:", e); } } };
+  }
+
   function makeUi(id) {
     return Object.freeze({
-      toast(message, type) {
-        if (typeof hostBinding.toast === "function") hostBinding.toast(String(message), type || "info");
-        else warn("[plugin:" + id + "] toast:", message);
+      toast(message, type, action) {
+        if (typeof hostBinding.toast === "function") {
+          const a = toastAction(id, action);
+          if (a) hostBinding.toast(String(message), type || "info", a);
+          else hostBinding.toast(String(message), type || "info");
+        } else warn("[plugin:" + id + "] toast:", message);
       },
       openTask(taskId) {
         if (typeof hostBinding.openTask === "function") hostBinding.openTask(taskId);

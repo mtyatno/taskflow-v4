@@ -95,6 +95,51 @@ test("ui: lewat bindHost; navigate hanya halaman inti", () => {
   assert.ok(ui.sanitize("<mark>ok</mark>").includes("<mark>ok</mark>")); // allowlist safehtml (br/details/summary/mark)
 });
 
+test("toast action: {label, onClick} diteruskan sebagai argumen ketiga; onClick yang melempar ditangkap, tidak menghitung failures; label > 20 / bukan fungsi → action diabaikan (toast tetap)", () => {
+  const calls = [];
+  P.bindHost({ toast: function () { calls.push(Array.prototype.slice.call(arguments)); } });
+  const ui = RT.api.for("habit-heatmap").ui;
+  let clicked = 0;
+  ui.toast("Jadwal diubah", "success", { label: "Urungkan", onClick: () => { clicked += 1; } });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].length, 3);
+  assert.deepEqual(calls[0].slice(0, 2), ["Jadwal diubah", "success"]);
+  assert.deepEqual(Object.keys(calls[0][2]).sort(), ["label", "onClick"]);
+  assert.equal(calls[0][2].label, "Urungkan");
+  calls[0][2].onClick();
+  assert.equal(clicked, 1);
+  // onClick melempar → tertangkap (host memanggil onClose sesudahnya), bukan error plugin
+  ui.toast("x", "info", { label: "Coba", onClick: () => { throw new Error("boom"); } });
+  assert.doesNotThrow(() => calls[1][2].onClick());
+  assert.deepEqual(P.failures("habit-heatmap"), []);
+  // action tidak sah → diabaikan, toast tetap dengan dua argumen
+  const bad = [
+    { label: "x".repeat(21), onClick: () => {} },
+    { label: "", onClick: () => {} },
+    { label: "Ok", onClick: "bukan fungsi" },
+    { label: 5, onClick: () => {} },
+    null, "str", 12, [], {},
+  ];
+  for (const a of bad) {
+    const before = calls.length;
+    ui.toast("tetap", "info", a);
+    assert.equal(calls.length, before + 1);
+    assert.equal(calls[before].length, 2, JSON.stringify(a));
+    assert.deepEqual(calls[before], ["tetap", "info"]);
+  }
+  ui.toast("dua puluh", "info", { label: "x".repeat(20), onClick: () => {} });
+  assert.equal(calls[calls.length - 1].length, 3);
+});
+
+test("toast tanpa action → dua argumen seperti dulu", () => {
+  const calls = [];
+  P.bindHost({ toast: function () { calls.push(Array.prototype.slice.call(arguments)); } });
+  const ui = RT.api.for("habit-heatmap").ui;
+  ui.toast("Halo", "success");
+  ui.toast("Info");
+  assert.deepEqual(calls, [["Halo", "success"], ["Info", "info"]]);
+});
+
 test("env: online, platform, theme, today, userId", () => {
   const env = RT.api.for("habit-heatmap").env;
   assert.equal(typeof env.online, "boolean");
