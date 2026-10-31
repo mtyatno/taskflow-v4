@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v488-plugin-fase0a";
+const CACHE = "taskflow-v489-heatmap-rapi";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 // Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
@@ -14,8 +14,8 @@ const STATIC = [
   "/static/plugin-runtime.js",
   // plugins:begin — ditulis compile.js dari static/plugins/index.json, jangan edit manual
   "/static/plugins/index.json",
-  "/static/plugins/habit-heatmap/plugin.js?v=0248219c",
-  "/static/plugins/habit-heatmap/style.css?v=0248219c",
+  "/static/plugins/habit-heatmap/plugin.js?v=aff4ba9b",
+  "/static/plugins/habit-heatmap/style.css?v=aff4ba9b",
   // plugins:end
   "/static/offline/ids.js",
   "/static/offline/db.js",

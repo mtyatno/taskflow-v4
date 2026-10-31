@@ -51,8 +51,8 @@ test("NotesPage memakai glyph yang ditentukan", () => {
 });
 
 test("versi SW di-bump", () => {
-  assert.match(sw, /taskflow-v488-plugin-fase0a/);
-  assert.match(indexHtml, /taskflow-v488-plugin-fase0a/);
+  assert.match(sw, /taskflow-v489-heatmap-rapi/);
+  assert.match(indexHtml, /taskflow-v489-heatmap-rapi/);
   assert.ok(!/taskflow-v44[0-3]-/.test(indexHtml));
 });
 

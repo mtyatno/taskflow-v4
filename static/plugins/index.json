@@ -5,7 +5,7 @@
       "id": "habit-heatmap",
       "name": "Heatmap Habit",
       "description": "Grid habit tercentang dan task selesai setahun terakhir di Dashboard.",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "minApi": 1,
       "slots": [
         "dashboard.widgets"
@@ -18,7 +18,7 @@
         "plugin.js",
         "style.css"
       ],
-      "hash": "0248219c"
+      "hash": "aff4ba9b"
     }
   ]
 }

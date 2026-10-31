@@ -1,5 +1,7 @@
 {
   "entries": [
+    {"version": "taskflow-v489-heatmap-rapi", "date": "2026-10-31", "title": "Heatmap Habit lebih rapi",
+     "new": ["Heatmap kini mengisi lebar kartu, dilengkapi legenda warna dan streak terpanjang."]},
     {"version": "taskflow-v488-plugin-fase0a", "date": "2026-10-31", "title": "Plugin: fitur opsional",
      "new": ["Pengaturan › Plugin: nyalakan fitur tambahan sesuai kebutuhanmu, juga saat offline.",
              "Plugin pertama: Heatmap Habit, grid kebiasaanmu setahun terakhir di Dashboard."]},

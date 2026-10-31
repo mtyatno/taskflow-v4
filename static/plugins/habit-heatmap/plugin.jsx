@@ -11,10 +11,18 @@ const DAY_LABELS = [[0, "Sen"], [2, "Rab"], [4, "Jum"]];
 const REFRESH_EVENTS = ["habit.changed", "task.completed", "sync.done", "app.dayChanged"];
 const DEBOUNCE_MS = 300;
 const METRICS = [["habit", "Habit"], ["task", "Task selesai"], ["both", "Keduanya"]];
-const CELL = 11;
-const STEP = CELL + 2;
-const LEFT = 26;
-const TOP = 14;
+const METRIC_NAMES = { habit: "habit", task: "task selesai", both: "habit dan task" };
+// Geometri dasar (1.0): kotak 11 px, jarak 2, kolom label hari 26, baris label bulan 14, font label 9.
+// 1.1: ukuran kotak mengikuti lebar kontainer, dibatasi CELL_MIN–CELL_MAX; jarak ≈ 14% kotak (2–4 px); kotak dan
+// jarak dibulatkan ke px utuh agar tajam; label & tepi ikut skala.
+const CELL_MIN = 11;
+const CELL_MAX = 26;
+const GAP_RATIO = 0.14;
+const GAP_MIN = 2;
+const GAP_MAX = 4;
+const K_LEFT = 26 / 11;
+const K_TOP = 14 / 11;
+const FONT_MAX = 12;
 
 // ── Logika murni ────────────────────────────────────────────────────────────
 function parseDay(d) { return Date.parse(d + "T00:00:00Z"); }
@@ -79,6 +87,22 @@ function streak(counts, today) {
   return n;
 }
 
+// Run terpanjang hari berturut-turut dengan count > 0 (`counts` = {[YYYY-MM-DD]: n}); tanggal yang hilang
+// dari objek memutus run.
+function longestStreak(counts) {
+  let best = 0, run = 0, prev = null;
+  for (const d of Object.keys(counts || {}).sort()) {
+    if ((counts[d] || 0) > 0) {
+      run = prev && run > 0 && addDays(prev, 1) === d ? run + 1 : 1;
+      if (run > best) best = run;
+    } else {
+      run = 0;
+    }
+    prev = d;
+  }
+  return best;
+}
+
 // Grid `cols` minggu × 7 baris (Sen=0 … Min=6); hari ini di kolom terakhir. Rentang 365 hari (≥ 53 kolom)
 // atau ≤ 182 hari (26 kolom HP), dipangkas ke kotak yang muat.
 function buildGrid(today, cols) {
@@ -115,8 +139,42 @@ function cellTitle(date, habit, task) {
     " · " + habit + " habit · " + task + " task";
 }
 
-function summaryText(n, active, days) {
-  return "Streak " + n + " hari · " + active + " hari aktif dari " + days;
+function summaryText(n, longest, active, days) {
+  return "Streak " + n + " hari · Terpanjang " + longest + " hari · " + active + " hari aktif dari " + days;
+}
+
+function svgLabel(metric, active) {
+  return "Heatmap " + (METRIC_NAMES[metric] || METRIC_NAMES.habit) + ", " + active + " hari aktif";
+}
+
+const floor2 = (v) => Math.floor(v * 100) / 100;
+
+const gapFor = (cell) => Math.min(GAP_MAX, Math.max(GAP_MIN, Math.round(cell * GAP_RATIO)));
+
+// Tata letak grid untuk lebar kontainer `containerWidth` (px) dan `cols` kolom. Kotak CELL_MIN–CELL_MAX px utuh,
+// jarak gapFor(kotak). Kontainer lebih sempit dari grid minimum → kotak 11 (scroll internal seperti 1.0). Kontainer
+// lebih lebar dari grid maksimum → kotak 26, sisa ruang di kanan (grid rata kiri; jarak tidak dilebarkan).
+// Belum terukur (0) → geometri 1.0.
+function geometry(containerWidth, cols) {
+  const w = Number(containerWidth) > 0 ? Number(containerWidth) : 0;
+  let cell = w / (K_LEFT + cols * (1 + GAP_RATIO));
+  for (let i = 0; i < 2; i++) cell = Math.floor((w - cols * gapFor(cell)) / (K_LEFT + cols));
+  cell = Math.min(CELL_MAX, Math.max(CELL_MIN, cell || 0));
+  const fits = (c) => Math.round(K_LEFT * c) + cols * (c + gapFor(c)) <= w;
+  while (cell > CELL_MIN && !fits(cell)) cell -= 1;
+  const gap = gapFor(cell);
+  const step = cell + gap;
+  const left = Math.round(K_LEFT * cell);
+  const top = Math.round(K_TOP * cell);
+  return {
+    cell, gap, step, left, top,
+    width: left + cols * step, height: top + 7 * step,
+    font: floor2(Math.min(FONT_MAX, (9 * cell) / 11)), rx: floor2((2 * cell) / 11),
+  };
+}
+
+function cellSize(containerWidth, cols) {
+  return geometry(containerWidth, cols).cell;
 }
 
 function levelFill(level) {
@@ -124,22 +182,23 @@ function levelFill(level) {
 }
 
 // ── UI ──────────────────────────────────────────────────────────────────────
-function HeatmapSvg({ grid, buckets, today, label }) {
+function HeatmapSvg({ grid, buckets, today, label, geo }) {
+  const g = geo || geometry(0, grid.cols);
   const lv = levels(grid.cells.map((c) => (buckets[c.date] ? buckets[c.date].count : 0)));
-  const width = LEFT + grid.cols * STEP;
-  const height = TOP + 7 * STEP;
+  const k = g.cell / 11;
   return (
-    <svg className="plg-heatmap-svg" width={width} height={height} viewBox={"0 0 " + width + " " + height} role="img" aria-label={label || "Heatmap"}>
+    <svg className="plg-heatmap-svg" width={g.width} height={g.height} viewBox={"0 0 " + g.width + " " + g.height}
+      style={{ fontSize: g.font }} role="img" aria-label={label || "Heatmap"}>
       {monthLabels(grid.cells).map((m) => (
-        <text key={"m" + m.col} x={LEFT + m.col * STEP} y={10} className="plg-heatmap-label">{m.label}</text>
+        <text key={"m" + m.col} x={g.left + m.col * g.step} y={10 * k} className="plg-heatmap-label">{m.label}</text>
       ))}
       {DAY_LABELS.map(([r, l]) => (
-        <text key={"d" + r} x={0} y={TOP + r * STEP + 9} className="plg-heatmap-label">{l}</text>
+        <text key={"d" + r} x={0} y={g.top + r * g.step + 9 * k} className="plg-heatmap-label">{l}</text>
       ))}
       {grid.cells.map((c, i) => {
         const b = buckets[c.date] || { habit: 0, task: 0 };
         return (
-          <rect key={c.date} x={LEFT + c.col * STEP} y={TOP + c.row * STEP} width={CELL} height={CELL} rx={2}
+          <rect key={c.date} x={g.left + c.col * g.step} y={g.top + c.row * g.step} width={g.cell} height={g.cell} rx={g.rx}
             fill={levelFill(lv[i])} style={{ fill: levelFill(lv[i]) }}
             className={"plg-heatmap-cell" + (c.date === today ? " plg-heatmap-today" : "")}>
             <title>{cellTitle(c.date, b.habit, b.task)}</title>
@@ -147,6 +206,18 @@ function HeatmapSvg({ grid, buckets, today, label }) {
         );
       })}
     </svg>
+  );
+}
+
+function Legend() {
+  return (
+    <div className="plg-heatmap-legend">
+      <span>Sedikit</span>
+      {LEVEL_PCT.map((p, i) => (
+        <span key={p} className="plg-heatmap-legend-cell" style={{ background: levelFill(i) }} aria-hidden="true" />
+      ))}
+      <span>Banyak</span>
+    </div>
   );
 }
 
@@ -176,6 +247,23 @@ function HeatmapCard({ api }) {
   const [src, setSrc] = React.useState(null);
   const [today, setToday] = React.useState(() => api.env.today());
   const scrollRef = React.useRef(null);
+  const [boxW, setBoxW] = React.useState(0);
+  const cols = wide ? 53 : 26;
+
+  // Lebar area grid → ukuran kotak. ResizeObserver hanya berbunyi saat ukuran berubah (bukan tiap detik Pomodoro).
+  React.useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return undefined;
+    const measure = () => {
+      const w = Math.floor(el.clientWidth);
+      setBoxW((prev) => (prev === w ? prev : w));
+    };
+    measure();
+    if (typeof ResizeObserver !== "function") return undefined;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   React.useEffect(() => {
     let alive = true;
@@ -199,7 +287,7 @@ function HeatmapCard({ api }) {
   React.useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollLeft = el.scrollWidth;
-  }, [wide, src]);
+  }, [wide, src, boxW]);
 
   const pick = (m) => {
     pickedRef.current = true;
@@ -218,7 +306,7 @@ function HeatmapCard({ api }) {
   };
 
   // Dashboard dirender ulang tiap detik saat Pomodoro berjalan: hitung grid hanya bila datanya berubah.
-  const { grid, buckets, summary } = React.useMemo(() => {
+  const { grid, buckets, summary, active } = React.useMemo(() => {
     const grid = buildGrid(today, wide ? 53 : 26);
     const buckets = src ? bucketByDate(src.logs, src.tasks, grid.from, today, metric) : {};
     const counts = {};
@@ -227,8 +315,9 @@ function HeatmapCard({ api }) {
       counts[d] = buckets[d].count;
       if (buckets[d].count > 0) active += 1;
     }
-    return { grid, buckets, summary: summaryText(streak(counts, today), active, grid.days) };
+    return { grid, buckets, active, summary: summaryText(streak(counts, today), longestStreak(counts), active, grid.days) };
   }, [src, metric, today, wide]);
+  const geo = React.useMemo(() => geometry(boxW, cols), [boxW, cols]);
   const Svg = memoSvg();
 
   return (
@@ -243,16 +332,19 @@ function HeatmapCard({ api }) {
         </div>
       </div>
       <div className="plg-heatmap-scroll" ref={scrollRef}>
-        <Svg grid={grid} buckets={buckets} today={today} label={summary} />
+        <Svg grid={grid} buckets={buckets} today={today} geo={geo} label={svgLabel(metric, active)} />
       </div>
-      <div className="plg-heatmap-summary">{summary}</div>
+      <div className="plg-heatmap-foot">
+        <div className="plg-heatmap-summary">{summary}</div>
+        <Legend />
+      </div>
     </div>
   );
 }
 
 const pure = {
-  range, jktDate, bucketByDate, levels, streak, buildGrid, monthLabels, cellTitle, summaryText, levelFill,
-  HeatmapSvg, LEVEL_PCT, DAY_LABELS, REFRESH_EVENTS, DEBOUNCE_MS,
+  range, jktDate, bucketByDate, levels, streak, longestStreak, buildGrid, monthLabels, cellTitle, summaryText, svgLabel,
+  levelFill, geometry, cellSize, HeatmapSvg, Legend, LEVEL_PCT, DAY_LABELS, REFRESH_EVENTS, DEBOUNCE_MS,
 };
 if (typeof module !== "undefined" && module.exports) module.exports = pure;
 

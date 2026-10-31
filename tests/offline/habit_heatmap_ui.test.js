@@ -16,7 +16,7 @@ test("manifest persis rencana", () => {
     id: "habit-heatmap",
     name: "Heatmap Habit",
     description: "Grid habit tercentang dan task selesai setahun terakhir di Dashboard.",
-    version: "1.0.0",
+    version: "1.1.0",
     minApi: 1,
     slots: ["dashboard.widgets"],
     permissions: ["storage"],
@@ -86,7 +86,7 @@ function all(node, pred, out = []) {
 const text = (n) => (n && typeof n === "object" ? (n.children || []).map(text).join("") : n == null || n === false ? "" : String(n));
 
 for (const cols of [53, 26]) {
-  test(`HeatmapSvg: satu <svg>, ${cols} kolom, kotak 11 px jarak 2, <title> per kotak, hari ini ditandai`, () => {
+  test(`HeatmapSvg (tanpa geo = fallback 11 px): satu <svg>, ${cols} kolom, jarak 2, <title> per kotak, hari ini ditandai`, () => {
     const today = "2026-10-31";
     const grid = H.buildGrid(today, cols);
     const buckets = H.bucketByDate([{ habit_cid: "h", date: today, status: "done" }], [], grid.cells[0].date, today, "habit");
@@ -114,6 +114,90 @@ for (const cols of [53, 26]) {
     assert.equal(svg.props.role, "img");
   });
 }
+
+test("cellSize(containerWidth, cols): 11–26 px untuk lebar 600/1100/1600 (53 kolom), monoton, HP 26 kolom tetap 11", () => {
+  const sizes = [600, 1100, 1600].map((w) => H.cellSize(w, 53));
+  for (const c of sizes) assert.ok(c >= 11 && c <= 26 && Number.isInteger(c), "px utuh dalam 11–26: " + c);
+  assert.ok(sizes[0] <= sizes[1] && sizes[1] <= sizes[2], "monoton: " + sizes);
+  assert.equal(sizes[0], 11, "600 px terlalu sempit untuk 53 kolom → minimum 11");
+  assert.ok(sizes[1] > 11 && sizes[1] < 26, "1100 px di antara batas: " + sizes[1]);
+  assert.ok(sizes[2] > 18 && sizes[2] <= 26, "1600 px → kotak membesar (> 18): " + sizes[2]);
+  assert.equal(H.cellSize(2500, 53), 26, "sangat lebar → maksimum 26");
+  assert.equal(H.cellSize(343, 26), 11, "HP 375 px (kartu ±343 px) tetap 11 → scroll internal");
+  assert.equal(H.cellSize(0, 53), 11, "belum terukur → 11");
+  assert.equal(H.cellSize(undefined, 53), 11);
+});
+
+test("geometry: gap ≈14% kotak dibatasi 2–4 px (px utuh); grid ≥ 90% kontainer dan tidak melebihinya; batas 26 → sisa di kanan, gap tidak melebar", () => {
+  const g11 = H.geometry(0, 53);
+  assert.deepEqual([g11.cell, g11.gap, g11.step, g11.left, g11.top], [11, 2, 13, 26, 14], "fallback = tata letak 1.0");
+  assert.equal(g11.font, 9);
+  for (const w of [900, 1100, 1300, 1498, 1600, 2500]) {
+    const g = H.geometry(w, 53);
+    assert.ok(Number.isInteger(g.cell) && Number.isInteger(g.gap) && Number.isInteger(g.left) && Number.isInteger(g.top), "px utuh @" + w);
+    assert.ok(g.gap >= 2 && g.gap <= 4, "gap 2–4 @" + w + ": " + g.gap);
+    assert.equal(g.gap, Math.min(4, Math.max(2, Math.round(g.cell * 0.14))), "gap ≈14% kotak @" + w);
+    assert.ok(g.width <= w, "tidak melebihi kontainer @" + w + ": " + g.width);
+    if (g.cell < 26) assert.ok(g.width >= 0.9 * w, "≥ 90% @" + w + ": " + g.width);
+  }
+  const g = H.geometry(1100, 53);
+  assert.ok(g.font > 9 && g.left > 26 && g.top > 14, "label ikut skala");
+  const w = H.geometry(1498, 53);
+  assert.ok(w.cell >= 22 && w.cell <= 26 && w.gap <= 4, "1660 px viewport (konten 1498): kotak ±24, gap ≤ 4: " + w.cell + "/" + w.gap);
+  const big = H.geometry(2500, 53);
+  assert.deepEqual([big.cell, big.gap], [26, 4], "batas 26: gap tetap 4, sisa ruang di kanan");
+  assert.ok(big.width < 2500);
+  const m = H.geometry(343, 26);
+  assert.equal(m.cell, 11);
+  assert.ok(m.width > 343, "HP: grid lebih lebar → scroll internal");
+});
+
+test("legenda: kotak 12 px tetap", () => {
+  assert.match(css, /\.plg-heatmap-legend-cell\s*\{[^}]*width:\s*12px;[^}]*height:\s*12px;/);
+});
+
+test("HeatmapSvg memakai geo: ukuran kotak, langkah kolom, lebar svg, font label", () => {
+  const today = "2026-10-31";
+  const grid = H.buildGrid(today, 53);
+  const geo = H.geometry(1100, 53);
+  const tree = withFakeReact(() => H.HeatmapSvg({ grid, buckets: {}, today, geo, label: "Heatmap habit, 0 hari aktif" }));
+  const svg = all(tree, (n) => n.type === "svg")[0];
+  assert.equal(svg.props.width, geo.width);
+  assert.equal(svg.props.height, geo.height);
+  assert.equal(svg.props["aria-label"], "Heatmap habit, 0 hari aktif");
+  assert.equal(svg.props.style.fontSize, geo.font);
+  const rects = all(tree, (n) => n.type === "rect");
+  for (const r of rects) assert.equal(r.props.width, geo.cell);
+  const xs = [...new Set(rects.map((r) => r.props.x))].sort((a, b) => a - b);
+  assert.ok(Math.abs(xs[1] - xs[0] - geo.step) < 1e-6);
+});
+
+test("svgLabel: aria-label ringkas 'Heatmap {metrik}, {a} hari aktif'", () => {
+  assert.equal(H.svgLabel("habit", 87), "Heatmap habit, 87 hari aktif");
+  assert.equal(H.svgLabel("task", 3), "Heatmap task selesai, 3 hari aktif");
+  assert.equal(H.svgLabel("both", 0), "Heatmap habit dan task, 0 hari aktif");
+  assert.match(jsx, /label=\{svgLabel\(metric, /);
+});
+
+test("Legend: 'Sedikit', 5 kotak warna sama dengan sel (tingkat 0–4), 'Banyak'", () => {
+  const tree = withFakeReact(() => H.Legend());
+  assert.match(tree.props.className, /plg-heatmap-legend/);
+  const kids = tree.children.filter((c) => c && typeof c === "object");
+  assert.equal(text(kids[0]), "Sedikit");
+  assert.equal(text(kids[kids.length - 1]), "Banyak");
+  const boxes = all(tree, (n) => /plg-heatmap-legend-cell/.test(n.props.className || ""));
+  assert.equal(boxes.length, 5);
+  boxes.forEach((b, i) => assert.equal(b.props.style.background, H.levelFill(i)));
+  assert.match(jsx, /<div className="plg-heatmap-foot">[\s\S]*?plg-heatmap-summary[\s\S]*?<Legend \/>/);
+  assert.match(css, /\.plg-heatmap-foot\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap[^}]*justify-content:\s*space-between/);
+});
+
+test("lebar kontainer diukur ResizeObserver; geometri di-memo terpisah (deps [boxW, cols]); ringkasan pakai longestStreak", () => {
+  assert.match(jsx, /new ResizeObserver\(/);
+  assert.match(jsx, /React\.useMemo\(\(\) => geometry\(boxW, cols\), \[boxW, cols\]\)/);
+  assert.match(jsx, /summaryText\(streak\(counts, today\), longestStreak\(counts\), active, grid\.days\)/);
+  assert.doesNotMatch(css, /\.plg-heatmap-label\s*\{[^}]*font-size/, "font label dari svg (ikut skala), bukan CSS tetap");
+});
 
 // Ujung ke ujung dengan runtime nyata: index.json repo → load (inject = jalankan plugin.js di vm) → register →
 // kontribusi dashboard.widgets; plugin OFF (default) tidak memuat apa pun.

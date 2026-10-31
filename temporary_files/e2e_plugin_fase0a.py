@@ -180,6 +180,40 @@ def run(browser, base, user):
             check("4b tingkat naik (persen lebih besar)", int(m[1].group(1)) > int(m[0].group(1)),
                   "%s%% → %s%%" % (m[0].group(1), m[1].group(1)))
 
+        # ── 1.1: ringkasan + legenda ──
+        foot = p.evaluate("""sel => { const c = document.querySelector(sel); const lg = c && c.querySelector('.plg-heatmap-legend');
+            const sv = c && c.querySelector('svg');
+            return { summary: c && c.querySelector('.plg-heatmap-summary').textContent, legend: lg && lg.textContent,
+                     legendCells: lg ? lg.querySelectorAll('.plg-heatmap-legend-cell').length : 0,
+                     aria: sv && sv.getAttribute('aria-label') }; }""", CARD)
+        ok_foot = (re.fullmatch(r"Streak \d+ hari · Terpanjang \d+ hari · \d+ hari aktif dari 365", foot["summary"] or "") is not None
+                   and foot["legend"] == "SedikitBanyak" and foot["legendCells"] == 5
+                   and re.fullmatch(r"Heatmap habit, \d+ hari aktif", foot["aria"] or "") is not None)
+        check("1.1a ringkasan 'Streak · Terpanjang · aktif', legenda Sedikit/5 kotak/Banyak, aria-label svg", ok_foot, repr(foot))
+
+        # ── 1.1: 1660 px — grid mengisi lebar kartu ──
+        p.set_viewport_size({"width": 1660, "height": 1000})
+        p.wait_for_timeout(800)
+        wide = p.evaluate("""sel => { const c = document.querySelector(sel); const cs = getComputedStyle(c);
+            const content = c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+            const sv = c.querySelector('svg').getBoundingClientRect(); const r = c.querySelector('rect').getBoundingClientRect();
+            const xs = [...new Set([...c.querySelectorAll('rect')].map(x => +x.getAttribute('x')))].sort((a, b) => a - b);
+            const gap = xs[1] - xs[0] - +c.querySelector('rect').getAttribute('width');
+            const s = c.querySelector('.plg-heatmap-scroll'); const de = document.documentElement;
+            const lg = c.querySelector('.plg-heatmap-legend').getBoundingClientRect();
+            const sm = c.querySelector('.plg-heatmap-summary').getBoundingClientRect();
+            return { content, svgW: sv.width, cell: r.width, gap, scrollSW: s.scrollWidth, scrollCW: s.clientWidth,
+                     docSW: de.scrollWidth, docCW: de.clientWidth, legendRight: lg.right, cardRight: c.getBoundingClientRect().right
+                       - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth), sameRow: Math.abs(lg.top - sm.top) < 8 }; }""", CARD)
+        ok1660 = (wide["svgW"] >= 0.9 * wide["content"] and 11 <= wide["cell"] <= 26.01 and 2 <= wide["gap"] <= 4
+                  and wide["scrollSW"] <= wide["scrollCW"] and wide["docSW"] <= wide["docCW"]
+                  and wide["sameRow"] and abs(wide["legendRight"] - wide["cardRight"]) < 2)
+        check("1.1b 1660px: lebar svg ≥ 90%% konten kartu, kotak 11–26, gap ≤ 4 px, tanpa scroll, legenda kanan sejajar ringkasan", ok1660,
+              repr(wide))
+        p.locator(CARD).scroll_into_view_if_needed()
+        shot(p, "1660-dashboard.png")
+        p.locator(CARD).screenshot(path=os.path.join(SHOTS, "1660-card.png"), animations="disabled")
+
         # ── 375 px ──
         p.set_viewport_size(hd.MOBILE)
         p.wait_for_timeout(800)
@@ -190,7 +224,9 @@ def run(browser, base, user):
                      cols: c && new Set([...c.querySelectorAll('rect')].map(x => x.getAttribute('x'))).size }; }""", CARD)
         ok375 = info["docSW"] <= info["docCW"] and info["cardRight"] <= info["docCW"] + 0.5 and info["cols"] == 26
         check("375px kartu tidak meluber (scroll internal OK), 26 kolom", ok375, repr(info))
+        p.locator(CARD).scroll_into_view_if_needed()
         shot(p, "375-dashboard.png")
+        p.locator(CARD).screenshot(path=os.path.join(SHOTS, "375-card.png"), animations="disabled")
         p.set_viewport_size(hd.DESKTOP)
         p.wait_for_timeout(500)
 

@@ -4285,3 +4285,10 @@
 - **Files Touch:** static/plugin-runtime.js, static/plugins/**, compile.js, package.json, static/sw.js, static/index.html, static/whatsnew.json, static/offline/{meta,habitquery}.js, tests/offline/plugin_*.test.js, tests/offline/habit_heatmap_*.test.js, tests/build-plugins.test.js, tests/test_plugins_node.py + tes versi, docs/plugins/README.md, docs/superpowers/{specs,plans}/*plugin-fase0a*, .agents/*
 - **Status:** Needs Review (PR draft #115). npm 3584/3585 (pra-ada), pytest 1249/1 skip, E2E 18/18.
 - 2026-10-31 08:40 WIB (Claude): #115 (sistem plugin Fase 0a + Heatmap Habit, SW v488) di-merge + deploy workflow sukses.
+
+## [2026-10-31 10:00] - Claude (Opus 5.5)
+- **Task:** Heatmap Habit 1.1 — grid mengisi lebar kartu di layar lebar, legenda, streak terpanjang (permintaan Bapak).
+- **Changes:** `geometry`/`cellSize` + ResizeObserver, `Legend`, `longestStreak`, `svgLabel`, ringkasan baru, CSS foot/legenda; manifest 1.1.0; SW v489 + whatsnew; tes heatmap (TDD) + tes versi; E2E 1660/375 px.
+- **Files Touch:** static/plugins/habit-heatmap/*, static/plugins/index.json, static/sw.js, static/index.html, static/whatsnew.json, tests/offline/habit_heatmap_{logic,ui}.test.js + tes versi, temporary_files/e2e_plugin_fase0a.py, temporary_files/e2e_plugin_fase0a/*.png, .agents/*
+- **Status:** Needs Review (PR draft). npm 3591/3592 (pra-ada), pytest 1250/1 skip, E2E 20/20.
+- 2026-10-31 (Claude): keputusan koordinator — heatmap memperbesar kotak (11–26 px, gap ≈14% dibatasi 2–4 px, px utuh), sisa ruang di kanan; legenda 12 px. npm 3592/3593 (pra-ada), pytest 1250/1 skip, E2E 20/20 (1660 px: kotak 24, gap 3, svg 1488/1498). Commit terpisah `fix(plugin)`.
