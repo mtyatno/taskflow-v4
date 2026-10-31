@@ -4,7 +4,7 @@ Spec Fase 0b K6–K10, §4.4; rencana PR B R1, R3–R6; ADR-039.
 
 - `load_known()` membaca `static/plugins/index.json` (ditulis `compile.js`) → id dikenal + `defaultEnabled`.
 - `discover()` memindai `plugins/*.py` (bukan `_*`), mengimpor terisolasi, memvalidasi kontrak.
-- `migrate()` (hanya web, dari `migrate_db`) = skema `plugin_states` + `ensure_schema` tiap plugin, masing-masing
+- `migrate()` (hanya web, dari `migrate_db`) = skema `plugin_states` + `plugin_records` + `ensure_schema` tiap plugin, masing-masing
   dalam `write_tx` dengan pagar nama `plg_<id_>_`; tidak pernah melempar.
 - `mount()`/`init_web()` memasang router di `/api/plugins/<id>` dengan login + cek plugin aktif.
 - `load_for_bot()` = indeks + discover, tanpa DDL dan tanpa router.
@@ -43,10 +43,15 @@ MODULE_PREFIX = "alurik_plugins"
 
 # Simbol kontrak B11 yang belum didukung: plugin yang memilikinya ditolak utuh (K7, R6).
 # `on_task_written` tidak dibutuhkan Timeline (semua hitung jadwal di klien) → ditunda (spec Fase 1 K21).
+# Deklarasi `records` (rencana PR 1a-2 R3). Aturan sama dengan compile.js; server tidak mempercayainya.
+RECORD_ENTITY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+RECORD_MAX_BYTES = 65536
+
 PENDING_HOOKS = {"on_task_written": None, "jobs": None, "register_bot": None, "intake": None}
 
 _known: dict[str, dict] = {}
 _permissions: dict[str, frozenset] = {}  # id → izin dari index.json (spec Fase 1 K19; `known()` tidak berubah)
+_records: dict[str, dict] = {}  # id → {entitas: {"conflict": "lww", "maxBytes": int}} (spec Fase 1 K19/R3)
 _index_ok: bool = False
 _index_path = INDEX_PATH
 _loaded: list = []
@@ -71,45 +76,68 @@ class SchemaViolation(Exception):
 
 # ── Indeks ────────────────────────────────────────────────────────────────────
 
-def _read_index(index_path) -> tuple[dict[str, dict], dict[str, frozenset]]:
+def _parse_records(pid: str, raw) -> dict[str, dict]:
+    """Deklarasi entitas plugin berizin `records`; entri tak sah dilewati dengan WARNING (R3)."""
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, dict] = {}
+    for name, d in raw.items():
+        if not isinstance(name, str) or not RECORD_ENTITY_RE.fullmatch(name):
+            logger.warning("plugin %s: entitas records '%s' dilewati (nama tidak valid)", pid, name)
+            continue
+        if not isinstance(d, dict) or d.get("conflict") != "lww":
+            logger.warning("plugin %s: entitas records '%s' dilewati (conflict harus \"lww\")", pid, name)
+            continue
+        mb = d.get("maxBytes", RECORD_MAX_BYTES)
+        if isinstance(mb, bool) or not isinstance(mb, int) or not 1 <= mb <= RECORD_MAX_BYTES:
+            logger.warning("plugin %s: entitas records '%s' dilewati (maxBytes harus bilangan bulat 1..%d)",
+                           pid, name, RECORD_MAX_BYTES)
+            continue
+        out[name] = {"conflict": "lww", "maxBytes": mb}
+    return out
+
+
+def _read_index(index_path) -> tuple[dict[str, dict], dict[str, frozenset], dict[str, dict]]:
     data = json.loads(Path(index_path).read_text(encoding="utf-8"))
     items = data.get("plugins") if isinstance(data, dict) else None
     if not isinstance(items, list):
         raise ValueError("'plugins' bukan list")
-    known, perms = {}, {}
+    known, perms, records = {}, {}, {}
     for it in items:
         if not isinstance(it, dict) or not isinstance(it.get("id"), str):
             raise ValueError("entri plugin tanpa id")
         known[it["id"]] = {"defaultEnabled": it.get("defaultEnabled") is True}
         raw = it.get("permissions")
         perms[it["id"]] = frozenset(p for p in raw if isinstance(p, str)) if isinstance(raw, list) else frozenset()
-    return known, perms
+        if "records" in perms[it["id"]]:
+            records[it["id"]] = _parse_records(it["id"], it.get("records"))
+    return known, perms, records
 
 
 def load_known(index_path=INDEX_PATH) -> dict[str, dict]:
     """Baca indeks plugin. Gagal/bentuk salah → `{}` + `index_ok() is False` + log ERROR; tidak melempar."""
-    global _known, _index_ok, _index_path, _permissions
+    global _known, _index_ok, _index_path, _permissions, _records
     _index_path = index_path
     try:
-        known, perms = _read_index(index_path)
+        known, perms, records = _read_index(index_path)
     except Exception as e:  # noqa: BLE001 — indeks rusak tidak boleh menjatuhkan proses
         logger.error("plugin server: indeks %s tidak terbaca (%s: %s)", index_path, type(e).__name__, e)
-        _known, _index_ok, _permissions = {}, False, {}
+        _known, _index_ok, _permissions, _records = {}, False, {}, {}
         return {}
-    _known, _index_ok, _permissions = known, True, perms
+    _known, _index_ok, _permissions, _records = known, True, perms, records
     return dict(known)
 
 
 def refresh_known() -> dict[str, dict]:
     """Baca ulang indeks terakhir (deploy menulis `index.json` baru sebelum proses di-restart). Hanya mengganti
     daftar bila berhasil; gagal → daftar lama tetap dipakai (log WARNING). Modul server plugin TIDAK dimuat ulang."""
-    global _known, _index_ok, _permissions
+    global _known, _index_ok, _permissions, _records
     try:
-        known, perms = _read_index(_index_path)
+        known, perms, records = _read_index(_index_path)
     except Exception as e:  # noqa: BLE001
         logger.warning("plugin server: baca ulang indeks %s gagal (%s: %s)", _index_path, type(e).__name__, e)
         return dict(_known)
-    _known, _index_ok, _permissions = known, True, perms
+    _known, _index_ok, _permissions, _records = known, True, perms, records
     return dict(known)
 
 
@@ -124,6 +152,11 @@ def index_ok() -> bool:
 def permissions(pid: str) -> frozenset:
     """Izin plugin menurut indeks terakhir yang terbaca (`frozenset()` bila tidak dikenal)."""
     return _permissions.get(pid, frozenset())
+
+
+def records_decl(pid: str) -> dict[str, dict]:
+    """Entitas `records` yang dideklarasikan plugin berizin `records` (salinan); `{}` bila tidak ada (R3)."""
+    return {name: dict(d) for name, d in _records.get(pid, {}).items()}
 
 
 def ext_namespaces() -> frozenset:
@@ -197,6 +230,8 @@ def _validate(pid: str, mod: ModuleType) -> LoadedPlugin:
             raise PluginRejected("router tidak boleh punya prefix")
         for route in router.routes:
             if isinstance(route, APIRoute):
+                if route.path == "/records" or route.path.startswith("/records/"):
+                    raise PluginRejected("rute /records dicadangkan host")  # R2: rute host plugin_records
                 ep = route.endpoint
                 if inspect.iscoroutinefunction(ep) and not getattr(ep, "__plugin_allow_async__", False):
                     raise PluginRejected(f"endpoint {route.path} async; tulis def atau @host.allow_async")
@@ -320,6 +355,12 @@ def migrate(db_path, plugins=None) -> dict[str, str]:
                 plugin_states.ensure_schema(conn)
         except Exception as e:  # noqa: BLE001
             logger.error("plugin server: skema plugin_states gagal (%s: %s)", type(e).__name__, e)
+        try:
+            import plugin_records  # R4: import di dalam fungsi (plugin_records mengimpor plugin_states → loader)
+            with dbconn.write_tx(conn):
+                plugin_records.ensure_schema(conn)
+        except Exception as e:  # noqa: BLE001 — endpoint record menjawab 503 PLUGIN_UNAVAILABLE (R1)
+            logger.error("plugin server: skema plugin_records gagal (%s: %s)", type(e).__name__, e)
         for p in plugins:
             if p.ensure_schema is None:
                 _health[p.id] = result[p.id] = "ok"
@@ -428,8 +469,8 @@ def load_for_bot(application=None, *, plugins_dir=PLUGINS_DIR, index_path=INDEX_
 
 
 def _reset_for_tests() -> None:
-    global _known, _index_ok, _loaded, _health, _index_path, _permissions
-    _known, _index_ok, _loaded, _health, _permissions = {}, False, [], {}, {}
+    global _known, _index_ok, _loaded, _health, _index_path, _permissions, _records
+    _known, _index_ok, _loaded, _health, _permissions, _records = {}, False, [], {}, {}, {}
     _index_path = INDEX_PATH
     for name in [n for n in sys.modules if n.startswith(MODULE_PREFIX + ".")]:
         sys.modules.pop(name, None)

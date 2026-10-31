@@ -120,6 +120,15 @@ def _check_value(key: str, value) -> None:
             raise ExtError("EXT_INVALID", key)
 
 
+def check_value(value) -> str | None:
+    """Bungkus `_check_value` untuk pemakai di luar `clean_patch` (plugin_records): kode galat atau `None`."""
+    try:
+        _check_value("", value)
+    except ExtError as e:
+        return e.code
+    return None
+
+
 def _allowed_namespaces(namespaces: set[str]) -> set[str] | None:
     """Namespace yang boleh disimpan; `None` = semua (indeks rusak, gagal-terbuka R4)."""
     global _warned_fail_open, _last_refresh
