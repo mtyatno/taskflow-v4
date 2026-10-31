@@ -77,12 +77,31 @@ function compileIndex(log) {
 // ── Plugin ──────────────────────────────────────────────────────────────────
 const PLUGIN_HEADER = '// generated from plugin.jsx — jangan edit\n';
 // Pagar murah (spec §11.2, Lampiran A #10): plugin hanya memakai TF.api, bukan modul/penyimpanan host.
-const LINT_RE = /tokenStore|API_BASE|fetch\(|localStorage|innerHTML|indexedDB|XMLHttpRequest|window\.fetch|TF\.api\.for\(|window\.TF\.(?:meta|db|taskroutes)\b/;
+const LINT_RE = /tokenStore|API_BASE|localStorage|innerHTML|indexedDB|XMLHttpRequest|TF\.api\.for\(|window\.TF\.(?:meta|db|taskroutes)\b/;
+// fetch (spec Fase 0b §6.4, rencana R15): fetch polos dan window|self|globalThis.fetch selalu ditolak;
+// `.fetch(` (api.fetch) hanya boleh bila manifest.permissions memuat "network".
+const BARE_FETCH_RE = /(?<![\w$.])fetch\s*\(/;
+const GLOBAL_FETCH_RE = /\b(?:window|self|globalThis)\s*\.\s*fetch\b/;
+const DOT_FETCH_RE = /\.\s*fetch\s*\(/;
+const PLUGIN_ID_RE = /^[a-z][a-z0-9-]{2,31}$/;
+const RESERVED_PLUGIN_IDS = ['state'];
 const MANIFEST_FIELDS = ['id', 'name', 'description', 'version', 'minApi', 'slots', 'permissions', 'defaultEnabled'];
 const SW_BEGIN = '  // plugins:begin — ditulis compile.js dari static/plugins/index.json, jangan edit manual';
 const SW_END = '  // plugins:end';
 
 class PluginBuildError extends Error {}
+
+// Potongan terlarang pertama di plugin.js, atau null bila bersih.
+function lintPlugin(code, manifest) {
+  const m = LINT_RE.exec(code);
+  if (m) return m[0];
+  if (BARE_FETCH_RE.test(code)) return 'fetch(';
+  const g = GLOBAL_FETCH_RE.exec(code);
+  if (g) return g[0];
+  const perms = (manifest && Array.isArray(manifest.permissions)) ? manifest.permissions : [];
+  if (DOT_FETCH_RE.test(code) && perms.indexOf('network') < 0) return '.fetch(';
+  return null;
+}
 
 function writeIfChanged(file, content, written) {
   if (fs.existsSync(file) && fs.readFileSync(file, 'utf8') === content) return;
@@ -108,6 +127,9 @@ function readManifest(dir, id) {
 }
 
 function buildOne(pluginsDir, id, written) {
+  if (!PLUGIN_ID_RE.test(id) || RESERVED_PLUGIN_IDS.includes(id)) {
+    throw new PluginBuildError(`plugin ${id}: id tidak valid atau dicadangkan`);
+  }
   const dir = path.join(pluginsDir, id);
   const manifest = readManifest(dir, id);
   let code;
@@ -116,8 +138,11 @@ function buildOne(pluginsDir, id, written) {
   } catch (err) {
     throw new PluginBuildError(`plugin ${id}: gagal kompilasi plugin.jsx: ${err.message}`);
   }
-  const lint = LINT_RE.exec(code);
-  if (lint) throw new PluginBuildError(`plugin ${id}: lint — plugin.js tidak boleh memakai "${lint[0]}" (pakai TF.api)`);
+  const lint = lintPlugin(code, manifest);
+  if (lint) {
+    const hint = lint === '.fetch(' ? ' tanpa izin "network"' : '';
+    throw new PluginBuildError(`plugin ${id}: lint — plugin.js tidak boleh memakai "${lint}"${hint} (pakai TF.api)`);
+  }
   // Manifest dari manifest.json disuntik sebagai konstanta `manifest` (satu sumber kebenaran); kode plugin
   // memanggil window.TF.plugins.register(manifest, factory).
   const js = PLUGIN_HEADER +
@@ -169,7 +194,7 @@ function buildPlugins(opts) {
   return { index, written };
 }
 
-module.exports = { buildPlugins, compileJsx, PluginBuildError, LINT_RE };
+module.exports = { buildPlugins, compileJsx, PluginBuildError, LINT_RE, lintPlugin };
 
 if (require.main === module) {
   const pluginsOnly = process.argv.includes('--plugins-only');
