@@ -19,6 +19,7 @@ from pathlib import Path
 
 import config
 import webapp
+from repository import TaskRepository
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -32,7 +33,7 @@ ALLOWLIST = {
 PROD_FILES = sorted(p for p in ROOT.glob("*.py") if p.name not in ALLOWLIST)
 
 # Ratchet migrasi bertahap: titik `sqlite3.connect` yang MASIH diizinkan per file (hanya boleh turun).
-REMAINING = {"repository.py": 1, "bot.py": 1}
+REMAINING = {"bot.py": 1}
 
 FORBIDDEN_TX_CONTROL = {"isolation_level", "autocommit"}
 
@@ -249,3 +250,38 @@ def test_worker_connect_is_dbconn():
         _assert_dbconn_connection(c)
     finally:
         c.close()
+
+
+# ── repository: TaskRepository._connect lewat dbconn.get_conn (Task 4) ───────
+
+def test_repository_connect_is_dbconn(tmp_path):
+    repo = TaskRepository(str(tmp_path / "r.db"))  # _init_db lewat dbconn
+    assert repo.db_path == str(tmp_path / "r.db")
+    with repo._connect() as c:
+        _assert_dbconn_connection(c)
+
+
+def test_repository_connect_rollback(tmp_path):
+    repo = TaskRepository(str(tmp_path / "rb.db"))
+    try:
+        with repo._connect() as c:
+            c.execute(
+                "INSERT INTO users (username, display_name, password_hash, created_at) VALUES ('x', 'X', 'h', 't')"
+            )
+            raise ValueError("boom")
+    except ValueError:
+        pass
+    with repo._connect() as c:
+        assert c.execute("SELECT COUNT(*) FROM users WHERE username = 'x'").fetchone()[0] == 0
+
+
+def test_repository_explicit_begin_immediate_still_works(tmp_path):
+    """BEGIN IMMEDIATE eksplisit (repository.py pin_workspace/unpin_workspace) di atas koneksi
+    isolation_level="IMMEDIATE": tidak ada BEGIN ganda, `return` di dalam blok tetap commit."""
+    repo = TaskRepository(str(tmp_path / "pin.db"))
+    uid = repo.auto_register_telegram_user(1, "A")
+    lid = repo.create_shared_list("WS", uid)["id"]
+    assert repo.pin_workspace(uid, lid) == 0
+    assert repo.pin_workspace(uid, lid) == 0  # idempoten
+    assert repo.unpin_workspace(uid, lid) is True
+    assert repo.unpin_workspace(uid, lid) is False
