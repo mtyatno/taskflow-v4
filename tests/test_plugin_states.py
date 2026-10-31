@@ -155,3 +155,129 @@ def test_put_state_uses_write_tx(conn):
     with pytest.raises(RuntimeError):
         ps.put_state(conn, U1, PID, fields={"enabled": False}, updated_at=None, now=T0 + timedelta(minutes=1))
     conn.rollback()
+
+
+# ── HTTP (Task 4) ─────────────────────────────────────────────────────────────
+
+import uuid  # noqa: E402
+
+import plugin_loader  # noqa: E402
+import webapp  # noqa: E402
+from conftest import db as _rawdb, register_user  # noqa: E402
+
+
+def _bearer(tok):
+    return {"Authorization": f"Bearer {tok}"}
+
+
+def _new_user(client):
+    name = f"pst_{uuid.uuid4().hex[:8]}"
+    r = register_user(client, name, f"{name}@x.com")
+    return r["token"], r["user_id"], name
+
+
+def _z(dt):
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+
+
+def test_get_state_empty_then_after_put(client):
+    tok, _, _ = _new_user(client)
+    r = client.get("/api/plugins/state", headers=_bearer(tok))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["v"] == 1 and body["plugins"] == {}
+    ps.parse_ts(body["server_time"])
+    when = datetime.now(timezone.utc) - timedelta(minutes=1)
+    r = client.put(f"/api/plugins/state/{PID}", json={"enabled": True, "updated_at": _z(when)},
+                   headers=_bearer(tok))
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["applied"] is True
+    assert out["state"]["enabled"] is True and out["state"]["settings"] == {}
+    assert ps.parse_ts(out["state"]["updated_at"]) == ps.parse_ts(_z(when))
+    r = client.get("/api/plugins/state", headers=_bearer(tok))
+    assert r.json()["plugins"] == {PID: out["state"]}
+
+
+def test_put_lww_over_http(client):
+    tok, _, _ = _new_user(client)
+    now = datetime.now(timezone.utc)
+    url = f"/api/plugins/state/{PID}"
+    r = client.put(url, json={"enabled": True, "updated_at": _z(now + timedelta(minutes=5))}, headers=_bearer(tok))
+    assert r.json()["applied"] is True
+    stored = ps.parse_ts(r.json()["state"]["updated_at"])
+    assert stored <= datetime.now(timezone.utc)  # dipotong ke waktu server
+    r = client.put(url, json={"enabled": False, "updated_at": _z(now - timedelta(minutes=10))}, headers=_bearer(tok))
+    assert r.json()["applied"] is False
+    assert r.json()["state"]["enabled"] is True
+    same = {"enabled": False, "updated_at": _z(datetime.now(timezone.utc))}
+    r1 = client.put(url, json=same, headers=_bearer(tok)).json()
+    r2 = client.put(url, json=same, headers=_bearer(tok)).json()
+    assert r1 == r2 and r1["applied"] is True and r1["state"]["enabled"] is False
+
+
+def test_put_unknown_and_reserved_ids(client):
+    tok, _, _ = _new_user(client)
+    for pid in ("nope-plugin", "state", "Bad_Id"):
+        r = client.put(f"/api/plugins/state/{pid}", json={"enabled": True}, headers=_bearer(tok))
+        assert r.status_code == 404, (pid, r.text)
+        assert r.json() == {"detail": {"code": "PLUGIN_UNKNOWN"}}
+
+
+def test_put_validation_422(client):
+    tok, _, _ = _new_user(client)
+    url = f"/api/plugins/state/{PID}"
+    for body in ({}, {"enabled": "ya"}, {"settings": []}, {"settings": None},
+                 {"settings": {"x": "a" * 16400}}, {"enabled": True, "updated_at": "kemarin"},
+                 {"enabled": 1}):
+        r = client.put(url, json=body, headers=_bearer(tok))
+        assert r.status_code == 422, (body, r.text)
+    r = client.put(url, json={"enabled": True, "updated_at": "kemarin"}, headers=_bearer(tok))
+    assert "updated_at tidak valid" in r.text
+    r = client.put(url, json={"enabled": None}, headers=_bearer(tok))
+    assert r.status_code == 200, r.text
+    assert r.json()["state"]["enabled"] is None
+    r = client.put(url, json={"settings": {"metric": "habits"}}, headers=_bearer(tok))
+    assert r.status_code == 200 and r.json()["state"]["settings"] == {"metric": "habits"}
+
+
+def test_state_requires_login_and_rejects_ext(client):
+    from fastapi.testclient import TestClient
+    anon = TestClient(webapp.app)
+    assert anon.get("/api/plugins/state").status_code == 401
+    assert anon.put(f"/api/plugins/state/{PID}", json={"enabled": True}).status_code == 401
+    _, uid, name = _new_user(client)
+    ext = webapp.create_ext_token(uid, name)
+    now = datetime.now(timezone.utc)
+    c = _rawdb()
+    try:
+        c.execute("INSERT INTO ext_tokens (user_id, token, state, created_at, expires_at) VALUES (?,?,?,?,?)",
+                  (uid, ext, None, now.isoformat(), (now + timedelta(days=30)).isoformat()))
+        c.commit()
+    finally:
+        c.close()
+    anon = TestClient(webapp.app)
+    for r in (anon.get("/api/plugins/state", headers=_bearer(ext)),
+              anon.put(f"/api/plugins/state/{PID}", json={"enabled": True}, headers=_bearer(ext))):
+        assert r.status_code == 403
+        assert r.json() == {"detail": {"code": "PLUGIN_FORBIDDEN_TOKEN"}}
+
+
+def test_state_isolated_between_users(client):
+    tok1, _, _ = _new_user(client)
+    tok2, _, _ = _new_user(client)
+    client.put(f"/api/plugins/state/{PID}", json={"enabled": True}, headers=_bearer(tok1))
+    assert client.get("/api/plugins/state", headers=_bearer(tok2)).json()["plugins"] == {}
+    assert PID in client.get("/api/plugins/state", headers=_bearer(tok1)).json()["plugins"]
+
+
+def test_put_503_when_index_unhealthy(client, monkeypatch):
+    tok, _, _ = _new_user(client)
+    monkeypatch.setattr(plugin_loader, "_index_ok", False)
+    r = client.put(f"/api/plugins/state/{PID}", json={"enabled": True}, headers=_bearer(tok))
+    assert r.status_code == 503
+    assert r.json()["detail"]["code"] == "PLUGIN_UNAVAILABLE"
+    # Indeks rusak total (known kosong): id sah tetap 503, bukan 404 yang membuat klien membuang op.
+    monkeypatch.setattr(plugin_loader, "_known", {})
+    r = client.put(f"/api/plugins/state/{PID}", json={"enabled": True}, headers=_bearer(tok))
+    assert r.status_code == 503

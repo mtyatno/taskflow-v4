@@ -15,9 +15,12 @@ import json
 import re
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, StrictBool
 
 import dbconn
+import plugin_host
+import plugin_loader
 
 ID_RE = re.compile(r"^[a-z][a-z0-9-]{2,31}$")
 RESERVED_IDS = frozenset({"state"})
@@ -153,3 +156,60 @@ def put_state(conn, user_id: int, plugin_id: str, *, fields: dict,
             (user_id, plugin_id, SCOPE_USER),
         ).fetchone()
         return True, row_to_state(new)
+
+
+# ── API host (spec §5; rencana R7, R8) ────────────────────────────────────────
+
+class StatePut(BaseModel):
+    enabled: StrictBool | None = None
+    settings: dict | None = None
+    updated_at: str | None = None
+
+
+def _reject_ext(user: dict) -> None:
+    if user.get("scope") == "ext":  # R7: token clipper tidak mengubah/membaca status plugin akun
+        raise HTTPException(status_code=403, detail={"code": "PLUGIN_FORBIDDEN_TOKEN"})
+
+
+@router.get("/api/plugins/state")
+def get_state(user: dict = Depends(plugin_host.current_user)) -> dict:
+    _reject_ext(user)
+    with plugin_host.get_conn() as conn:
+        plugins = get_states(conn, user["sub"])
+    return {"v": 1, "server_time": iso(plugin_host.now_utc()), "plugins": plugins}
+
+
+@router.put("/api/plugins/state/{plugin_id}")
+def put_state_endpoint(plugin_id: str, body: StatePut,
+                       user: dict = Depends(plugin_host.current_user)) -> dict:
+    _reject_ext(user)
+    if not ID_RE.match(plugin_id) or plugin_id in RESERVED_IDS:
+        raise HTTPException(status_code=404, detail={"code": "PLUGIN_UNKNOWN"})
+    # Indeks tidak sehat → 503 (op klien tetap antre), dicek SEBELUM keanggotaan indeks:
+    # indeks rusak = daftar kosong, dan 404 PLUGIN_UNKNOWN membuat klien membuang toggle.
+    if not plugin_loader.index_ok():
+        raise HTTPException(status_code=503, detail={"code": "PLUGIN_UNAVAILABLE", "plugin_id": plugin_id})
+    if plugin_id not in plugin_loader.known():
+        raise HTTPException(status_code=404, detail={"code": "PLUGIN_UNKNOWN"})
+    sent = body.model_fields_set
+    fields: dict = {}
+    if "enabled" in sent:
+        fields["enabled"] = body.enabled
+    if "settings" in sent:
+        if body.settings is None:
+            raise HTTPException(status_code=422, detail="settings harus objek")
+        if len(dump_settings(body.settings).encode("utf-8")) > SETTINGS_MAX_BYTES:
+            raise HTTPException(status_code=422, detail="settings melebihi 16 KB")
+        fields["settings"] = body.settings
+    if not fields:
+        raise HTTPException(status_code=422, detail="kirim enabled atau settings")
+    updated_at = None
+    if body.updated_at is not None:
+        try:
+            updated_at = parse_ts(body.updated_at)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=422, detail="updated_at tidak valid")
+    with plugin_host.get_conn() as conn:
+        applied, state = put_state(conn, user["sub"], plugin_id, fields=fields,
+                                   updated_at=updated_at, now=plugin_host.now_utc())
+    return {"applied": applied, "state": state}

@@ -143,6 +143,9 @@ from datehelper import parse_date
 from repository import TaskRepository
 import repository
 import dbconn
+import plugin_host
+import plugin_loader
+import plugin_states
 import drawing_scope
 import note_comments
 import safehtml
@@ -967,6 +970,10 @@ def migrate_db():
         conn.commit()
     finally:
         conn.close()
+
+    # Plugin: skema plugin_states + ensure_schema tiap plugin server (koneksi sendiri, FK OFF,
+    # satu write_tx per plugin, berpagar nama plg_<id>_). Tidak pernah melempar (ADR-039).
+    plugin_loader.migrate(DB_PATH)
 
     # Terakhir: pulihkan trigger yang rusak oleh rebuild tabel lama (lihat _heal_broken_triggers).
     conn = dbconn.connect(DB_PATH, foreign_keys=False)
@@ -10798,6 +10805,13 @@ async def get_holidays(year: int, user=Depends(get_current_user)):
         return {"data": holidays}
     except Exception:
         return {"data": []}
+
+
+# ── Plugin server (spec Fase 0b §4.4, ADR-039) ───────────────────────────────
+# Dipasang terakhir: rute host status plugin, lalu router plugins/<id>.py di /api/plugins/<id>.
+plugin_host.bind(current_user=get_current_user, db_path=lambda: DB_PATH)
+app.include_router(plugin_states.router)
+plugin_loader.init_web(app)
 
 
 if __name__ == "__main__":

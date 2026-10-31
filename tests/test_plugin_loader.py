@@ -442,3 +442,37 @@ def test_load_for_bot_no_ddl_no_routes(tmp_path, caplog):
     assert "plg_demo_server_items" not in _tables(db)
     assert "plugin_states" not in _tables(db)
     assert any("plugin server: 1 dimuat, 0 ditolak" in r.getMessage() for r in caplog.records)
+
+
+# ── Sambungan webapp (Task 4) ────────────────────────────────────────────────
+
+import ast  # noqa: E402
+
+
+def test_webapp_wiring(monkeypatch, tmp_path):
+    routes = {getattr(r, "path", None): r for r in webapp.app.routes}
+    for path in ("/api/plugins/state", "/api/plugins/state/{plugin_id}"):
+        assert path in routes, path
+        assert not inspect.iscoroutinefunction(routes[path].endpoint)
+    extra = [p for p in routes if p and p.startswith("/api/plugins/") and not p.startswith("/api/plugins/state")]
+    assert extra == []
+
+    monkeypatch.setattr(webapp, "DB_PATH", str(tmp_path / "wire.db"))
+    webapp.migrate_db()
+    webapp.migrate_db()
+    assert "plugin_states" in _tables(str(tmp_path / "wire.db"))
+
+    src = Path(webapp.__file__).read_text(encoding="utf-8")
+    fn = next(n for n in ast.parse(src).body if isinstance(n, ast.FunctionDef) and n.name == "migrate_db")
+    calls = [n for n in ast.walk(fn) if isinstance(n, ast.Call)]
+
+    def _is(call, mod, attr):
+        f = call.func
+        return isinstance(f, ast.Attribute) and f.attr == attr and isinstance(f.value, ast.Name) and f.value.id == mod
+
+    assert sum(_is(c, "dbconn", "connect") for c in calls) == 27
+    mig = [c for c in calls if _is(c, "plugin_loader", "migrate")]
+    assert len(mig) == 1
+    assert [ast.unparse(a) for a in mig[0].args] == ["DB_PATH"]
+    email = [c for c in calls if _is(c, "email_outbox", "ensure_schema")]
+    assert email and mig[0].lineno > max(c.lineno for c in email)
