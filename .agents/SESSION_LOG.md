@@ -4308,3 +4308,4 @@
 - **Files Touch:** plugin_states.py, plugin_host.py, plugin_loader.py, plugins/_template.py, webapp.py, bot.py, compile.js, static/offline/{pluginstate,syncpush}.js, static/plugin-runtime.js, static/index.html, static/sw.js, static/whatsnew.json, tests/** (baru + R17 + versi), docs/**, temporary_files/e2e_plugin_fase0{a,b}*, .agents/*
 - **Status:** Needs Review (PR draft #118). pytest 1345/1 skip; npm 3645/3646 (pra-ada); E2E 36/36 + 20/20.
 
+- 2026-10-31 21:20 WIB (Claude): #118 (Plugin Fase 0b PR B, SW v490) di-merge + deploy workflow; menunggu restart manual taskflow-web + taskflow oleh Bapak.
