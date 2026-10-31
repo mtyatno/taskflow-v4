@@ -19,6 +19,8 @@ const STATIC = [
   // plugins:end
   "/static/offline/ids.js",
   "/static/offline/db.js",
+  "/static/offline/taskext.js",
+  "/static/offline/dbupgrade.js",
   "/static/offline/meta.js",
   "/static/offline/idmap.js",
   "/static/offline/outbox.js",
