@@ -4278,3 +4278,10 @@
 - **Files Touch:** static/config.js, src-tauri/tauri.conf.json, webapp.py, config.py, .env.example, install-web.sh, static/sw.js, static/index.html, static/whatsnew.json, tests/offline/{config,sw_media}.test.js + 26 tes versi, tests/test_cors_origins.py, tests/test_config_node.py, docs/ops/migrasi-domain-alurik-com.md, .agents/{DECISIONS,CURRENT_STATE,SESSION_LOG}.md
 - **Status:** Needs Review (PR draft #114). Verifikasi: pytest 1247 passed, 1 skipped (baseline 1240 + 7 tes baru); `npm test` 3497/3498 (1 gagal pra-ada `draw_local_reactive.test.js`); PROTOCOL §4 33 passed; `check_inline_scripts` OK (6).
 - 2026-10-29 07:52 WIB (Claude): #114 (migrasi domain alurik.com, SW v487) di-merge + deploy workflow sukses; langkah server (DNS/Hestia/.env/restart) menyusul oleh Bapak sesuai runbook.
+
+## [2026-10-31 07:40] - Claude (Opus 5.5)
+- **Task:** Sistem plugin Fase 0a (runtime klien + plugin #0 Heatmap Habit) sesuai spec/plan yang disetujui Bapak.
+- **Changes:** runtime plugin, Heatmap Habit, build plugin di compile.js + precache, integrasi index.html, kartu Pengaturan › Plugin, README plugin, ADR-037, rilis v488. Subagent implementer per kelompok task + reviewer terpisah.
+- **Files Touch:** static/plugin-runtime.js, static/plugins/**, compile.js, package.json, static/sw.js, static/index.html, static/whatsnew.json, static/offline/{meta,habitquery}.js, tests/offline/plugin_*.test.js, tests/offline/habit_heatmap_*.test.js, tests/build-plugins.test.js, tests/test_plugins_node.py + tes versi, docs/plugins/README.md, docs/superpowers/{specs,plans}/*plugin-fase0a*, .agents/*
+- **Status:** Needs Review (PR draft). npm 3584/3585 (pra-ada), pytest 1249/1 skip, E2E 18/18.
+
