@@ -71,15 +71,22 @@ Gagal di plugin mana pun → exit 1. Jalankan dua kali → tidak ada perubahan (
 - `minApi` ≤ `TF.api.apiVersion` (sekarang `1`), kalau tidak manifest ditolak.
 - `slots`: hanya slot yang dikenal runtime: `dashboard.widgets` (Fase 0a), `taskList.views` dan
   `taskDetail.sections` (Fase 1, §6).
-- `permissions`: subset `["storage", "network", "task.ext"]`. `storage` = `api.storage` (per perangkat);
+- `permissions`: subset `["storage", "network", "task.ext", "records"]`. `storage` = `api.storage` (per perangkat);
   `network` (Fase 0b) = `api.fetch` ke rute server milik plugin sendiri, label Pengaturan "Butuh koneksi internet
   untuk sebagian fitur"; `task.ext` (Fase 1) = `api.taskExt`, field plugin di task yang ikut tersinkron, label
-  Pengaturan "Menyimpan data tambahan di task (ikut tersinkron)". Nama yang dicadangkan untuk fase berikutnya
-  (`records`, `settings.project`, `notifications`, `location`, `secrets`, `noteBlocks`, `bot`, `timerHooks`) dan
+  Pengaturan "Menyimpan data tambahan di task (ikut tersinkron)"; `records` (Fase 1, PR 1a-2) = `api.records`,
+  record milik plugin yang ikut tersinkron, label Pengaturan "Menyimpan data plugin di akunmu (ikut tersinkron)".
+  Nama yang dicadangkan untuk fase berikutnya (`settings.project`, `notifications`, `location`, `secrets`, `noteBlocks`, `bot`, `timerHooks`) dan
   nama asing **ditolak**.
 - `taskExt` (Fase 1): `{"keys": ["note", "after"]}` — wajib ada **tepat** bila izin `task.ext` ada; array nama
   field unik, tak kosong, pola `^[a-zA-Z][a-zA-Z0-9_]{0,31}$`. Kunci tersimpan = `<id>.<field>`. `api.taskExt.set`
   hanya menerima field di daftar ini (salah ketik tertangkap); field baru = tambah ke manifest.
+- `records` (Fase 1, PR 1a-2): `{"<entitas>": {"conflict": "lww", "maxBytes": 4096}}` — wajib ada **tepat** bila
+  izin `records` ada (objek tak kosong). Nama entitas `^[a-z][a-z0-9_]{0,31}$`, **≤ 16 entitas**; `conflict` hanya
+  `"lww"` (`merge`/`manual` ditolak: "strategi konflik <x> belum didukung (Fase 1: lww)"); `maxBytes` opsional,
+  bilangan bulat 1..65536 (bawaan dan batas atas **64 KB** per record, byte UTF-8 JSON ringkas). `api.records`
+  hanya menerima entitas yang dideklarasikan di sini. Aturan sama di `compile.js` dan runtime. Contoh:
+  `tests/fixtures/plugins/demo-records/manifest.json` (`"records": {"note": {"conflict": "lww", "maxBytes": 4096}}`).
 - `contributes` (Fase 1, opsional): deskripsi statis kontribusi slot yang dibaca host **tanpa** memuat kode
   plugin. Tiap slot di `contributes` wajib juga ada di `slots`.
   - `taskList.views`: `[{id, label, icon: {path}, pages}]` — `id` unik, `label` teks tombol, `icon.path` = path
@@ -156,6 +163,7 @@ Plugin menerima `api = TF.api.for(id)` di `factory` dan sebagai prop `api` di ko
 | `TF.api.PluginNetworkError` | dilempar `api.fetch`; `code`: `offline` (pesan "Butuh koneksi internet", tanpa request bila offline), `timeout`, `auth` (401), `disabled` (403 `PLUGIN_DISABLED`), `unavailable` (503 `PLUGIN_UNAVAILABLE`), `http` (+ `status`, `detail`). **Tidak** dihitung sebagai error plugin. Plugin wajib menangkapnya, menampilkan "Butuh koneksi internet" untuk `offline`, dan menurunkan diri (bagian lain tetap jalan). |
 
 | `api.taskExt` (izin `task.ext`, Fase 1) | `read(task) → {field: nilai}` (kunci namespace sendiri tanpa prefiks; sinkron, murni); `set(taskId, patch) → Promise<task>`; `setMany([{taskId, patch}]) → Promise`; `ref(task) → {$task: id}`. Selalu ada di `api`; tanpa izin → `PluginPermissionError` (dihitung error). Rinci di bawah. |
+| `api.records` (izin `records`, Fase 1) | `get(entity, id)`, `list(entity, {scope, limit, after}) → {items, next}`, `put(entity, id∣null, data, {scope}) → Promise<record>`, `remove(entity, id)`, `onChange(fn) → off`, `newId()`. Selalu ada di `api`; tanpa izin → `PluginPermissionError` (dihitung error). Rinci di bawah. |
 
 **`api.taskExt` (Fase 1).** Field plugin disimpan di kolom task `tasks.ext` (objek datar berkunci `<id>.<field>`)
 dan ikut sinkron task di semua jalur (hidrasi, push, pull, workspace bersama).
@@ -181,8 +189,41 @@ dan ikut sinkron task di semua jalur (hidrasi, push, pull, workspace bersama).
   Bekerja offline.
 - Pengguna aktif: `api.env.userId` (context `taskDetail.sections` tidak membawa `currentUser`).
 
-Semua `data.*` membaca IndexedDB, jadi bekerja offline. Tidak ada di v1: `records` (Fase 1 PR 1a-2),
-`api.settings` (kolom `settings` server sudah disimpan dan disinkron tetapi belum diekspos), penulisan data host
+**`api.records` (Fase 1, PR 1a-2).** Record milik plugin (id, `data` JSON, scope) yang disimpan di IndexedDB
+(store `plugin_records`) dan disinkron ke tabel server `plugin_records` milik host. Cocok untuk data yang bukan
+milik satu task (kalender, preset, entri jadwal); data per task tetap lewat `api.taskExt` (§8).
+
+- **Bentuk record.** `{entity, id, scope, data, updated_at, version, pending}` ditambah `error` (kode galat
+  sinkron, mis. `INVALID`) **hanya bila ada**. `pending: true` = belum terkonfirmasi server (`version` `null` bila
+  belum pernah diterima). `data` dikembalikan sebagai salinan dalam; tombstone (record terhapus) tidak pernah
+  dikembalikan. `put` berikutnya menghapus `error`.
+- **`get(entity, id)`** → record atau `null`. **`list(entity, {scope, limit = 200, after})`** → `{items, next}`
+  (`limit` 1–1000): tanpa `scope` menelusuri kunci primer, dengan `scope` lewat indeks `entity_scope`. `next`
+  `null` di halaman terakhir; selain itu teruskan sebagai `after` untuk halaman berikutnya. Urutan = urutan id.
+- **`put(entity, id, data, {scope = "user"})`** — `id` `null` → `newId()`. `scope` salah satu `"user"` (milik
+  akun) atau `"list:<id>"` (dibagi ke anggota workspace/daftar itu; `project:` ditunda). **Scope tidak bisa
+  diubah** setelah record dibuat (`PluginStorageError`, `code` `SCOPE_IMMUTABLE`).
+- **Id deterministik wajib menyandikan scope** (mis. `cal@list:12`, `cal@user`) **atau** pakai id acak
+  `newId()` (uuid). Id yang sama di dua scope berbeda yang terlihat satu pengguna **ditolak server**
+  `SCOPE_IMMUTABLE` (record lokal tetap `dirty` dengan `error`). Id `^[A-Za-z0-9:@._-]{1,80}$`.
+- **`$task`**: rujukan ke task di dalam `data` lewat `api.taskExt.ref(task)` (`{$task: id}`), sama seperti §5
+  `taskExt`; host menahan pengiriman record yang merujuk task yang belum terkirim dan menulis ulang ke id server
+  setelahnya (tanpa mengubah `updated_at`).
+- **`remove(entity, id)`** = tombstone lokal yang dikirim ke server (tidak hilang bila offline).
+- **`onChange(fn)`** → `off`; `fn({entity, ids, source: "local" | "sync", lost?})`. `lost` berisi id record yang
+  kalah LWW atas data lokal atau dibuang karena akses scope hilang (keluar dari workspace): muat ulang dari
+  `get`/`list`. Error di pendengar dihitung error plugin. Event window `tf:plugin-records`
+  `{pluginId, entity, ids, source, lost?}`.
+- **Konflik = last-write-wins** atas `updated_at` (waktu klien, dipotong ke waktu server) per record utuh —
+  bukan per field; bagi record per kegunaan bila dua perangkat sering mengedit bagian berbeda.
+- **Galat.** Entitas tak dideklarasikan, id/scope tak sah, atau melebihi `maxBytes` → `PluginStorageError` dengan
+  `code` (`INVALID` dengan `detail` `entity`/`id`/`scope`/`data`/`size`/`task_ref`; `SCOPE_IMMUTABLE` bila scope
+  record yang ada diubah); tanpa izin `records` → `PluginPermissionError`.
+- **Offline dan plugin OFF.** Bekerja penuh offline (tulis lokal dulu, antre di outbox, satu op per record).
+  Plugin OFF tetap **mengirim** perubahan yang sudah ada, tetapi **tidak menarik** record dari server; yang belum
+  ditarik datang pada sinkron berikutnya setelah plugin ON.
+
+Semua `data.*` membaca IndexedDB, jadi bekerja offline. Tidak ada di v1: `api.settings` (kolom `settings` server sudah disimpan dan disinkron tetapi belum diekspos), penulisan data host
 selain `api.taskExt`. Fungsi hanya ditambah di v1; perubahan tak kompatibel = `apiVersion: 2`.
 
 ## 6. Slot
@@ -283,6 +324,8 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
 7. **Tanpa `innerHTML`** kecuali lewat `api.ui.sanitize`.
    **Jangan menulis kolom task lain.** Plugin hanya menulis `tasks.ext` miliknya lewat `api.taskExt`; judul,
    status, tenggat, `progress`, dsb. tetap milik host (dibaca saja dari `context`/`api.data.tasks`).
+   **Jangan menyimpan data per task di record.** Field yang melekat pada task (mulai, durasi, dependensi) pakai
+   `task.ext` lewat `api.taskExt`, agar ikut task di semua jalur; `api.records` untuk data yang berdiri sendiri.
 8. **Ukuran.** Satu plugin satu folder; vendor baru > 100 KB wajib lazy.
 
 **Batas diketahui — ini bukan sandbox.** Pagar di atas menangkap kesalahan tak sengaja, bukan niat jahat:
@@ -334,6 +377,9 @@ Pola: `tests/offline/habit_heatmap_logic.test.js` dan `habit_heatmap_ui.test.js`
 - **Field task dan slot task (Fase 1)**: plugin contoh khusus tes `tests/fixtures/plugins/demo-ext/` (bukan di
   `static/plugins/`, jadi tidak pernah dirilis) dibangun ke direktori sementara oleh tes
   (`tests/offline/plugin_slot_views.test.js`, `plugin_taskext_api.test.js`, `tests/build-plugins.test.js`).
+- **Record plugin (Fase 1, PR 1a-2)**: plugin contoh khusus tes `tests/fixtures/plugins/demo-records/`; server
+  `tests/test_plugin_records.py`; klien `tests/offline/db_v7.test.js`, `plugin_sync*.test.js`,
+  `plugin_records_api.test.js`; vektor bersama klien–server `tests/fixtures/plugin_records_vectors.json`.
 - Jalankan: `npm test`, `python3 -m pytest tests/test_plugins_node.py -q`, `node compile.js` dua kali (tanpa diff).
 - Manual: Pengaturan › Plugin → ON → Dashboard; DevTools `TF.plugins._debugThrow("<id>")` mensimulasikan error
   render; mode offline + reload harus tetap merender.
@@ -451,3 +497,17 @@ plugin.
 
 **Restart.** Setiap perubahan modul server plugin, dan rilis yang mengubah `task_ext`/`plugin_loader`, butuh
 restart dua layanan (`taskflow-web`, `taskflow`); lihat §10 butir 4.
+
+**Record plugin (Fase 1, PR 1a-2).** `plugin_records.py` (milik host, dipasang sebelum router plugin): tabel
+`plugin_records` + `plugin_records_meta` **bukan** objek `plg_*` dan tidak dikelola `ensure_schema` plugin
+(dibuat `plugin_loader.migrate`); rute `GET` dan `POST /api/plugins/{plugin_id}/records` **dicadangkan** — router
+plugin yang mendefinisikan `/records` ditolak utuh ("rute /records dicadangkan host"). Berbeda dengan rute
+plugin lain, endpoint ini **tidak mensyaratkan plugin ON** (push tetap diterima; pull hanya dipanggil klien untuk
+plugin ON). Sinkron memakai kursor `seq` (nomor urut commit server, bukan `updated_at` klien) sehingga edit offline
+yang terlambat tetap tertarik perangkat lain; kursor tidak sah (format, `seq` di bawah batas purge, atau sidik jari
+keanggotaan workspace berubah) → `{"reset": true}` dan klien menarik penuh. Plugin harus ada di `index.json` dan
+berizin `records` (kalau tidak 404 `PLUGIN_UNKNOWN`); entitas dan `maxBytes` dibaca dari deklarasi indeks.
+Kode: `PLUGIN_UNKNOWN`, `PLUGIN_UNAVAILABLE` (503, antre di klien), `TOO_LARGE` (413, POST > 256 KB),
+`INVALID`, `FORBIDDEN_SCOPE`, `SCOPE_IMMUTABLE`. Rilis yang mengubah `plugin_records`/`plugin_loader` butuh
+**restart dua layanan** (`taskflow-web`, `taskflow`); selama jendela deploy server lama menjawab 404 tanpa kode dan
+op record tetap antre di klien. Tombstone dibersihkan setelah 30 hari.

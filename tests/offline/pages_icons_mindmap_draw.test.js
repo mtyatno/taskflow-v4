@@ -85,8 +85,8 @@ test("Sketsa memakai ViewGlyph", () => {
   assert.match(draw, /"Pinned"/);
 });
 
-test("cache bust taskflow-v491-plugin-ext", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v491-plugin-ext";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v491-plugin-ext";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v491-plugin-ext"/);
+test("cache bust taskflow-v492-plugin-records", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v492-plugin-records";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v492-plugin-records";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v492-plugin-records"/);
 });

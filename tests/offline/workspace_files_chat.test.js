@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v491-plugin-ext', () => {
+  test('Service Worker cache version is bumped to taskflow-v492-plugin-records', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v491-plugin-ext";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v492-plugin-records";/m);
   });
 });
 
