@@ -4316,3 +4316,4 @@
 - **Files Touch:** task_ext.py, plugin_loader.py, webapp.py, compile.js, static/offline/{taskext,dbupgrade,db,taskrepo,hydrate,syncpush,syncpull,syncconflict}.js, static/plugin-runtime.js, static/index.html, static/sw.js, static/whatsnew.json, tests/** , docs/**, temporary_files/e2e_plugin_fase1_1a1*, .agents/*
 - **Status:** Needs Review (PR draft #119). pytest 1367/1 skip; npm 3744/3745 (pra-ada).
 
+- 2026-11-01 02:10 WIB (Claude): #119 (Plugin Fase 1 PR 1a-1, SW v491) di-merge + deploy workflow; menunggu restart manual taskflow-web + taskflow; PR 1a-2 paling cepat 2026-11-04.
