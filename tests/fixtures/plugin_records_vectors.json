@@ -640,6 +640,19 @@
    "name": "maxBytes boolean"
   },
   {
+   "records": {
+    "note": {
+     "conflict": "lww",
+     "maxBytes": null
+    }
+   },
+   "permissions": [
+    "records"
+   ],
+   "error": "maxBytes harus bilangan bulat 1..65536",
+   "name": "maxBytes null"
+  },
+  {
    "records": {},
    "permissions": [
     "records"

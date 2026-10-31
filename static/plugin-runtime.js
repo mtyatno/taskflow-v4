@@ -17,8 +17,8 @@
   const isNode = (typeof module !== "undefined" && module.exports);
   const API_VERSION = 1;
   const KNOWN_SLOTS = ["dashboard.widgets", "taskList.views", "taskDetail.sections"];
-  const KNOWN_PERMISSIONS = ["storage", "network", "task.ext"];
-  const RESERVED_PERMISSIONS = ["records", "settings.project", "notifications", "location", "secrets", "noteBlocks", "bot", "timerHooks"];
+  const KNOWN_PERMISSIONS = ["storage", "network", "task.ext", "records"];
+  const RESERVED_PERMISSIONS = ["settings.project", "notifications", "location", "secrets", "noteBlocks", "bot", "timerHooks"];
   const STATE_KEY = "plugins:state:v1";
   const INDEX_KEY = "plugins:index:v1";
   const INDEX_URL = "/static/plugins/index.json";
@@ -33,6 +33,10 @@
   const ICON_PATH_MAX_BYTES = 2048;
   const LABEL_MAX = 40;
   const EXT_FIELD_RE = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
+  // Fase 1 PR 1a-2 (R18): manifest.records — aturan sama dengan compile.js (validateRecords), dikunci vektor bersama.
+  const RECORD_ENTITY_RE = /^[a-z][a-z0-9_]{0,31}$/;
+  const RECORDS_MAX_ENTITIES = 16;
+  const RECORDS_MAX_BYTES = 65536;
 
   // ── Resolusi malas modul host ──────────────────────────────────────────────
   const NODE_PATHS = {
@@ -44,6 +48,7 @@
     introgate: "./offline/introgate.js",
     pluginstate: "./offline/pluginstate.js",
     taskext: "./offline/taskext.js",
+    pluginsync: "./offline/plugin_sync.js",
   };
   function host(name) {
     const tf = root.TF;
@@ -292,6 +297,30 @@
     return null;
   }
 
+  // Izin records ⇔ records (objek tak kosong {<entitas>: {conflict: "lww", maxBytes?}}). Pesan identik compile.js.
+  function recordsError(m) {
+    const perms = (m && Array.isArray(m.permissions)) ? m.permissions : [];
+    const rec = m ? m.records : undefined;
+    const has = rec !== undefined && rec !== null;
+    const perm = perms.indexOf("records") >= 0;
+    if (perm && !has) return "izin records butuh manifest.records";
+    if (!has) return null;
+    if (!isPlainObj(rec) || !Object.keys(rec).length) return "manifest.records harus objek tak kosong";
+    if (!perm) return "manifest.records butuh izin records";
+    const names = Object.keys(rec);
+    if (names.length > RECORDS_MAX_ENTITIES) return "maksimal " + RECORDS_MAX_ENTITIES + " entitas";
+    for (const name of names) {
+      if (!RECORD_ENTITY_RE.test(name)) return "nama entitas tidak valid: " + name;
+      const e = rec[name];
+      if (!isPlainObj(e)) return "records." + name + " harus objek";
+      if (e.conflict !== "lww") return "strategi konflik " + String(e.conflict) + " belum didukung (Fase 1: lww)";
+      if (e.maxBytes !== undefined && !(Number.isInteger(e.maxBytes) && e.maxBytes >= 1 && e.maxBytes <= RECORDS_MAX_BYTES)) {
+        return "maxBytes harus bilangan bulat 1.." + RECORDS_MAX_BYTES + ": " + name;
+      }
+    }
+    return null;
+  }
+
   // Halaman host → jenis halaman untuk taskList.views (spec Fase 1 §6): proj_* project, slist_* workspace.
   function pageKindOf(page) {
     if (typeof page !== "string") return null;
@@ -341,6 +370,8 @@
     if (ce) return fail(ce);
     const te = taskExtError(m);
     if (te) return fail(te);
+    const re = recordsError(m);
+    if (re) return fail(re);
     if (idx !== undefined && idx !== null) {
       const listed = indexEntries(idx).some((e) => e && e.id === m.id);
       if (!listed) return fail("plugin tidak terdaftar di index.json: " + m.id);
@@ -525,6 +556,17 @@
   }
 
   function knownIds() { return index ? Array.from(index.keys()) : null; }
+
+  // Plugin yang record-nya ikut ditarik (R14): ada di indeks, berizin records, ON. Urut; indeks belum dimuat → [].
+  function recordPluginIds() {
+    if (!index) return [];
+    const out = [];
+    for (const id of Array.from(index.keys()).sort()) {
+      const e = index.get(id);
+      if (e && Array.isArray(e.permissions) && e.permissions.indexOf("records") >= 0 && isEnabled(id)) out.push(id);
+    }
+    return out;
+  }
 
   function register(manifest, factory) {
     const id = manifest && manifest.id;
@@ -1255,6 +1297,88 @@
     });
   }
 
+  // ── api.records (izin records, spec Fase 1 §7.3; rencana 1a-2 R17) ──────────
+  // Record milik akun pengguna, tersimpan lokal (IndexedDB) dan ikut tersinkron lewat TF.pluginsync. Lapisan ini
+  // hanya memeriksa izin dan deklarasi entitas manifest.records; validasi id/scope/ukuran ada di pluginsync
+  // (vektor bersama dengan server). Error penyimpanan → PluginStorageError dengan code/detail.
+  function pluginsync() {
+    const m = host("pluginsync");
+    if (!m) throw new Error("TF.pluginsync belum dimuat");
+    return m;
+  }
+
+  function recordsDeclOf(id) {
+    const r = recs.get(id);
+    const src = (r && r.manifest) || (index && index.get(id)) || null;
+    return src && isPlainObj(src.records) ? src.records : {};
+  }
+
+  function mapRecordsError(err) {
+    if (err && typeof err.code === "string" && /^[A-Z_]+$/.test(err.code) && !(err instanceof PluginPermissionError)) {
+      const e = new PluginStorageError(err.code + (err.detail !== undefined ? ": " + err.detail : "") + (err.message && err.message !== err.code ? " — " + err.message : ""));
+      e.code = err.code;
+      if (err.detail !== undefined) e.detail = err.detail;
+      return e;
+    }
+    return err;
+  }
+
+  function makeRecords(id) {
+    function guard() {
+      if (permissionsOf(id).indexOf("records") < 0) throw denied(id, "plugin " + id + " tidak punya izin records");
+    }
+    // Entitas harus dideklarasikan di manifest.records → deklarasi ({maxBytes}) untuk pluginsync.
+    function decl(entity) {
+      const all = recordsDeclOf(id);
+      if (typeof entity !== "string" || !Object.prototype.hasOwnProperty.call(all, entity) || !isPlainObj(all[entity])) {
+        throw storageError("entitas tidak dideklarasikan di manifest.records: " + String(entity), "INVALID", "entity");
+      }
+      const mb = all[entity].maxBytes;
+      return Number.isInteger(mb) ? { maxBytes: mb } : {};
+    }
+    function run(entity, fn) {
+      return Promise.resolve().then(() => {
+        guard();
+        const d = decl(entity);
+        return fn(pluginsync(), d);
+      }).then((v) => v, (err) => { throw mapRecordsError(err); });
+    }
+    return Object.freeze({
+      get(entity, rid) { return run(entity, (ps) => ps.get(id, entity, rid)); },
+      list(entity, opts) { return run(entity, (ps) => ps.list(id, entity, opts || {})); },
+      put(entity, rid, data, opts) {
+        return run(entity, (ps, d) => {
+          const o = opts || {};
+          return ps.put(id, entity, rid, data, { scope: o.scope, decl: d }).then((r) => ps.toPublic(r));
+        });
+      },
+      remove(entity, rid) { return run(entity, (ps) => ps.remove(id, entity, rid)); },
+      onChange(fn) {
+        guard();
+        if (typeof fn !== "function") throw new TypeError("onChange butuh fungsi");
+        let off = null;
+        let stopped = false;
+        const fail = (e) => markFailed(id, "listener", e);
+        const un = pluginsync().subscribe((ev) => {
+          if (stopped || !ev || ev.pluginId !== id) return;
+          const out = { entity: ev.entity, ids: Array.isArray(ev.ids) ? ev.ids.slice() : [], source: ev.source };
+          if (Array.isArray(ev.lost)) out.lost = ev.lost.slice();
+          try {
+            const r = fn(out);
+            if (r && typeof r.then === "function") r.then(null, fail);
+          } catch (e) { fail(e); }
+        });
+        off = function () { if (stopped) return; stopped = true; try { un(); } catch (_) {} off = null; };
+        return function offChange() { if (off) off(); };
+      },
+      newId() {
+        const c = root.crypto;
+        if (c && typeof c.randomUUID === "function") return c.randomUUID();
+        return pluginsync().newId();
+      },
+    });
+  }
+
   let apiCache = new Map();
   const api = {
     apiVersion: API_VERSION,
@@ -1274,6 +1398,7 @@
           log: makeLog(id),
           fetch: makeFetch(id),
           taskExt: makeTaskExt(id),
+          records: makeRecords(id),
         }));
       }
       return apiCache.get(id);
@@ -1436,7 +1561,7 @@
 
   const plugins = {
     KNOWN_SLOTS, KNOWN_PERMISSIONS, RESERVED_PERMISSIONS, API_VERSION,
-    init, list, isEnabled, accountEnabled, setEnabled, reloadState, knownIds, register, validateManifest, contributions, load, markFailed, failures, bindHost,
+    init, list, isEnabled, accountEnabled, setEnabled, reloadState, knownIds, recordPluginIds, recordsError, register, validateManifest, contributions, load, markFailed, failures, bindHost,
     pageKindOf, viewsFor, useViews, SlotView, PluginIcon,
     isReady: () => ready,
     get PluginBoundary() { return getBoundary(); },
