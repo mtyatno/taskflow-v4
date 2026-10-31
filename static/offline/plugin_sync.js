@@ -507,9 +507,209 @@
     }).then(() => undefined);
   }
 
+  // ── Pull (Task 6; R14, R15, R19) ───────────────────────────────────────────
+  const SYNC = "_sync";
+  const HOST = "_host";
+  const PULL_LIMIT = 500;
+  const MAX_PAGES = 50;
+  const isDirty = (r) => r.dirty === 1 || r.dirty === true;
+
+  // R15: penanda pemilik cache ["_host", "_sync", "owner"]. Berbeda → hapus semua plugin_records, plugin_kv dan op
+  // plugin di _outbox dalam SATU transaksi lalu tulis owner baru (pola "foreign" pluginstate, ADR-039).
+  // → "first" | "same" | "foreign".
+  function ensureOwner(userId) {
+    const uid = String(userId);
+    return runTx([RECORDS, KV, "_outbox"], "readwrite", (tx, out, guard) => {
+      const kvs = tx.objectStore(KV);
+      const g = kvs.get([HOST, SYNC, "owner"]);
+      g.onsuccess = guard(() => {
+        const prev = g.result ? g.result.value : undefined;
+        if (prev != null && String(prev) === uid) { out.value = "same"; return; }
+        const writeOwner = () => kvs.put({ plugin_id: HOST, scope: SYNC, key: "owner", value: uid });
+        if (prev == null) { out.value = "first"; writeOwner(); return; }
+        out.value = "foreign";
+        tx.objectStore(RECORDS).clear();
+        const c = kvs.clear();
+        c.onsuccess = guard(writeOwner);
+        const ob = tx.objectStore("_outbox");
+        const cur = ob.openCursor();
+        cur.onsuccess = guard((e) => {
+          const k = e.target.result;
+          if (!k) return;
+          if (k.value && k.value.entity_type === ENTITY) k.delete();
+          k.continue();
+        });
+      });
+    });
+  }
+
+  function readPullState(pid) {
+    return runTx([KV], "readonly", (tx, out) => {
+      const s = tx.objectStore(KV);
+      out.value = {};
+      for (const k of ["cursor", "gen", "resetting"]) {
+        const r = s.get([pid, SYNC, k]);
+        r.onsuccess = () => { out.value[k] = r.result ? r.result.value : undefined; };
+      }
+    });
+  }
+
+  function httpError(pid, status, code, msg) {
+    const e = new Error(msg || ("pluginsync pull " + pid + ": http " + status + (code ? " " + code : "")));
+    e.status = status;
+    e.code = code || null;
+    return e;
+  }
+  // rawFetch → body JSON 2xx; 404 PLUGIN_UNKNOWN → {unknown: true}; status lain → throw {status, code}.
+  function fetchPage(rawFetch, pid, cursor) {
+    const url = "/api/plugins/" + encodeURIComponent(pid) + "/records?cursor=" + encodeURIComponent(cursor) + "&limit=" + PULL_LIMIT;
+    return Promise.resolve().then(() => rawFetch(url)).then((res) => {
+      if (!res) throw httpError(pid, 0, null);
+      const st = typeof res.status === "number" ? res.status : 0;
+      const ok = res.ok === true || (res.ok === undefined && st >= 200 && st < 300);
+      const body = () => (typeof res.json === "function" ? Promise.resolve().then(() => res.json()).catch(() => null) : Promise.resolve(null));
+      if (!ok) {
+        return body().then((b) => {
+          const d = b && b.detail;
+          const code = d && typeof d === "object" && typeof d.code === "string" ? d.code : null;
+          if (st === 404 && code === "PLUGIN_UNKNOWN") return { unknown: true };
+          throw httpError(pid, st, code);
+        });
+      }
+      return body().then((b) => {
+        if (b && b.reset === true) return { reset: true };
+        if (!b || !Array.isArray(b.items) || typeof b.cursor !== "string" || !b.cursor || typeof b.more !== "boolean") {
+          throw httpError(pid, st, "BAD_RESPONSE", "pluginsync pull " + pid + ": respons tak terbaca");
+        }
+        return b;
+      });
+    });
+  }
+
+  // Satu halaman = SATU transaksi ["plugin_records", "plugin_kv"] (record + kursor atomik). Lokal dirty →
+  // dipertahankan (hanya ditandai sync_gen = gen: "terlihat di tarik penuh ini", supaya ack LWW-kalah/idempoten
+  // tanpa seq baru tidak tersapu); tombstone → hapus lokal; baris → put bersih. Halaman terakhir tarik penuh →
+  // sapu record bersih plugin ini dengan sync_gen !== gen, resetting false.
+  function applyPage(pid, body, st) {
+    const sweep = st.resetting && !body.more;
+    const touched = new Map(); // entity → ids
+    const touch = (entity, id) => { if (!touched.has(entity)) touched.set(entity, []); touched.get(entity).push(id); };
+    let pulled = 0;
+    let removed = 0;
+    return runTx([RECORDS, KV], "readwrite", (tx, out, guard) => {
+      const store = tx.objectStore(RECORDS);
+      const kvs = tx.objectStore(KV);
+      const items = body.items.filter((it) => {
+        if (!it || typeof it !== "object") return false;
+        try { checkKey(pid, it.entity, it.id); checkScope(it.scope); return true; } catch (_) { return false; }
+      });
+      const finish = () => {
+        kvs.put({ plugin_id: pid, scope: SYNC, key: "cursor", value: body.cursor });
+        kvs.put({ plugin_id: pid, scope: SYNC, key: "gen", value: st.gen });
+        kvs.put({ plugin_id: pid, scope: SYNC, key: "resetting", value: sweep ? false : st.resetting });
+        if (!sweep) return;
+        const all = store.getAll(IDBKeyRange.bound([pid], [pid, []]));
+        all.onsuccess = guard(() => {
+          for (const rec of all.result || []) {
+            if (isDirty(rec) || rec.sync_gen === st.gen) continue;
+            store.delete([pid, rec.entity, rec.id]);
+            removed++;
+            if (!rec.deleted) touch(rec.entity, rec.id);
+          }
+        });
+      };
+      let left = items.length;
+      if (!left) { finish(); return; }
+      for (const it of items) {
+        const key = [pid, it.entity, it.id];
+        const g = store.get(key);
+        g.onsuccess = guard(() => {
+          const cur = g.result;
+          if (cur && isDirty(cur)) {
+            if (cur.sync_gen !== st.gen) { cur.sync_gen = st.gen; store.put(cur); }
+          } else if (it.deleted) {
+            if (cur) { store.delete(key); removed++; if (!cur.deleted) touch(it.entity, it.id); }
+          } else {
+            store.put({
+              plugin_id: pid, entity: it.entity, id: it.id, scope: it.scope,
+              data: copy(it.data && typeof it.data === "object" && !Array.isArray(it.data) ? it.data : {}),
+              updated_at: it.updated_at, version: it.version == null ? null : it.version,
+              deleted: 0, dirty: 0, op_qid: null, sync_gen: st.gen,
+            });
+            pulled++;
+            touch(it.entity, it.id);
+          }
+          if (--left === 0) finish();
+        });
+      }
+    }).then(() => {
+      for (const [entity, ids] of touched) emit({ pluginId: pid, entity, ids, source: "sync" });
+      return { pulled, removed, sweep };
+    });
+  }
+
+  // Satu plugin: ≤ MAX_PAGES request, reset > 1 kali → berhenti. Terputus di tengah tarik penuh → kursor + gen
+  // tersimpan, sinkron berikut melanjutkan dengan gen yang sama.
+  function pullPlugin(rawFetch, pid) {
+    const stat = { pulled: 0, removed: 0, reset: false, pages: 0 };
+    return readPullState(pid).then((saved) => {
+      const st = {
+        cursor: typeof saved.cursor === "string" ? saved.cursor : "",
+        gen: Number.isInteger(saved.gen) ? saved.gen : 0,
+        resetting: saved.resetting === true,
+      };
+      let resets = 0;
+      let requests = 0;
+      const startFull = () => { st.cursor = ""; st.gen += 1; st.resetting = true; };
+      if (!st.cursor) startFull();
+      const step = () => {
+        if (requests >= MAX_PAGES) return stat;
+        requests++;
+        return fetchPage(rawFetch, pid, st.cursor).then((body) => {
+          if (body.unknown) { stat.skipped = "PLUGIN_UNKNOWN"; return stat; }
+          if (body.reset) {
+            stat.reset = true;
+            if (++resets > 1) return stat;
+            startFull();
+            return step();
+          }
+          return applyPage(pid, body, st).then((r) => {
+            stat.pages++;
+            stat.pulled += r.pulled;
+            stat.removed += r.removed;
+            st.cursor = body.cursor;
+            if (r.sweep) st.resetting = false;
+            return body.more ? step() : stat;
+          });
+        });
+      };
+      return step();
+    });
+  }
+
+  // pullAll(rawFetch, {userId, ids}) — R14/R15/R19. ids = plugin ON berizin records (TF.plugins.recordPluginIds()).
+  // Penjaga pemilik sebelum request apa pun; plugin ditarik berurutan, galat satu plugin dikumpulkan di `errors`
+  // (pemanggil — syncpull.pullPluginRecords — melemparnya di akhir).
+  function pullAll(rawFetch, opts) {
+    const o = opts || {};
+    const result = { plugins: {}, errors: [] };
+    if (o.userId == null) return Promise.resolve(result);
+    const ids = Array.from(new Set(Array.from(o.ids || []).filter((s) => typeof s === "string" && s && s !== HOST)));
+    return ensureOwner(o.userId).then(() => ids.reduce((chain, pid) => chain.then(() => pullPlugin(rawFetch, pid)
+      .then((stat) => { result.plugins[pid] = stat; })
+      .catch((e) => {
+        result.errors.push({
+          pluginId: pid,
+          status: e && typeof e.status === "number" ? e.status : null,
+          code: e && typeof e.code === "string" ? e.code : null,
+          message: String((e && e.message) || e),
+        });
+      })), Promise.resolve())).then(() => result);
+  }
+
   const exported = {
     ENTITY, opCid, put, get, list, remove, subscribe, newId, toPublic, kvGet, kvSet,
-    pushOp, healStranded, rewriteTaskRefs,
+    pushOp, healStranded, rewriteTaskRefs, pullAll, ensureOwner,
     _internals: { runTx, writeLocal, emit, dispatch, checkKey, checkScope, checkData, copy, isLive, listeners, RECORDS, KV, canon, keyOf },
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.pluginsync = exported; }
