@@ -238,13 +238,16 @@ def apply_item(conn, uid: int, pid: str, item: dict, decl: dict | None, now: dat
     owner_key, user_id, list_id = owner_key_for(uid, scope)
     if list_id is not None and list_id not in access:
         return _err(item, "FORBIDDEN_SCOPE")
-    # id yang sama di pemilik lain yang bisa diakses pengguna ini → scope tidak bisa diubah
-    for (other,) in conn.execute(
-        "SELECT owner_key FROM plugin_records WHERE plugin_id = ? AND entity = ? AND id = ? AND owner_key != ?",
-        (pid, entity, rid, owner_key),
-    ).fetchall():
-        if other == f"u:{uid}" or (other.startswith("l:") and int(other[2:]) in access):
-            return _err(item, "SCOPE_IMMUTABLE")
+    # id yang sama di pemilik lain yang bisa diakses pengguna ini → scope tidak bisa diubah. Pencarian dibatasi ke
+    # kunci pemilik yang bisa diakses (`u:<uid>` + `l:<id>` tiap workspace di `access`), memakai PK penuh
+    # (plugin_id, entity, owner_key, id); baris pengguna lain tidak ikut terpindai.
+    visible = [f"u:{uid}"] + [f"l:{int(i)}" for i in sorted(access)]
+    if conn.execute(
+        "SELECT 1 FROM plugin_records WHERE plugin_id = ? AND entity = ? AND id = ? AND owner_key != ? "
+        "AND owner_key IN (SELECT value FROM json_each(?)) LIMIT 1",
+        (pid, entity, rid, owner_key, json.dumps(visible)),
+    ).fetchone() is not None:
+        return _err(item, "SCOPE_IMMUTABLE")
     base = item.get("base_version") or 0
     deleted = bool(item.get("deleted"))
     row = conn.execute(_ROW_SQL, (pid, entity, owner_key, rid)).fetchone()
@@ -421,6 +424,9 @@ def _guard(plugin_id: str, request: Request, user: dict = Depends(plugin_host.cu
 def get_records(plugin_id: str, cursor: str = "", limit: int = Query(500, ge=1, le=1000), entity: str | None = None,
                 ctx: dict = Depends(_guard)) -> dict:
     uid, pid, decl = ctx["uid"], ctx["pid"], ctx["decl"]
+    # Kursor `seq` bersifat global per plugin (bukan per entitas): kursor dari GET ber-`entity` hanya sah untuk
+    # filter `entity` yang sama. Dipakai tanpa filter (atau dengan entitas lain) ia melewatkan record entitas lain
+    # yang `seq`-nya lebih kecil dari kursor. Klien menarik per plugin tanpa filter.
     if entity is not None and entity not in decl:
         raise HTTPException(status_code=422, detail={"code": "INVALID", "detail": "entity"})
     now = plugin_host.now_utc()
@@ -437,8 +443,13 @@ def get_records(plugin_id: str, cursor: str = "", limit: int = Query(500, ge=1, 
                     out = {"reset": True}  # keanggotaan berubah, atau tombstone yang belum dilihat klien sudah dipurge
                 else:
                     rows, more = fetch_page(conn, uid, pid, seq, limit, access, entity)
-                    out = {"items": [row_to_record(r) for r in rows],
-                           "cursor": make_cursor(rows[-1]["seq"] if rows else seq, fp), "more": more}
+                    if cfp is not None and seq < purged_seq(conn):
+                        # purge mendarat di antara pemeriksaan awal dan pembacaan halaman (snapshot terpisah):
+                        # halaman bisa tanpa tombstone yang sudah dibuang → klien harus menarik penuh
+                        out = {"reset": True}
+                    else:
+                        out = {"items": [row_to_record(r) for r in rows],
+                               "cursor": make_cursor(rows[-1]["seq"] if rows else seq, fp), "more": more}
             try:  # halaman sudah terbaca; purge gagal (mis. DB terkunci) tidak boleh menggagalkan tarik
                 maybe_purge(conn, now)
             except Exception as e:  # noqa: BLE001

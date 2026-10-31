@@ -841,6 +841,33 @@ def test_purge_resets_old_cursor(http, monkeypatch):
     c.close()
 
 
+def test_purge_between_page_and_cursor_check_resets(http, monkeypatch):
+    """Purge yang mendarat setelah pemeriksaan awal tetapi sebelum halaman selesai dibaca → reset, bukan halaman
+    yang bisa melewatkan tombstone yang sudah dipurge."""
+    a = User(http)
+    a.send1(id="t1")
+    k_before = a.records()["cursor"]
+    a.send1(id="t1", deleted=True, base_version=1)
+    old = pr_iso(datetime.now(timezone.utc) - timedelta(days=40))
+    _sql("UPDATE plugin_records SET server_at = ? WHERE id = 't1' AND owner_key = ?", old, f"u:{a.id}")
+    real_fetch = pr.fetch_page
+
+    def fetch_then_purge(conn, *args, **kw):
+        out = real_fetch(conn, *args, **kw)
+        other = _rawdb()  # koneksi lain: purge berjalan di antara dua pembacaan
+        try:
+            with dbconn.write_tx(other):
+                assert pr.purge(other, datetime.now(timezone.utc)) == 1
+        finally:
+            other.close()
+        return out
+
+    monkeypatch.setattr(pr, "fetch_page", fetch_then_purge)
+    assert a.records(k_before) == {"reset": True}
+    monkeypatch.setattr(pr, "fetch_page", real_fetch)
+    assert "reset" not in a.records("")  # tarik penuh tidak terpengaruh
+
+
 def test_maybe_purge_failure_does_not_suppress_next(db, monkeypatch):
     c, _ = db
     pr._reset_for_tests()

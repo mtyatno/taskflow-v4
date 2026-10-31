@@ -41,12 +41,12 @@ ID_RE = re.compile(r"^[a-z][a-z0-9-]{2,31}$")
 RESERVED_IDS = frozenset({"state"})
 MODULE_PREFIX = "alurik_plugins"
 
-# Simbol kontrak B11 yang belum didukung: plugin yang memilikinya ditolak utuh (K7, R6).
-# `on_task_written` tidak dibutuhkan Timeline (semua hitung jadwal di klien) → ditunda (spec Fase 1 K21).
 # Deklarasi `records` (rencana PR 1a-2 R3). Aturan sama dengan compile.js; server tidak mempercayainya.
 RECORD_ENTITY_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 RECORD_MAX_BYTES = 65536
 
+# Simbol kontrak B11 yang belum didukung: plugin yang memilikinya ditolak utuh (K7, R6).
+# `on_task_written` tidak dibutuhkan Timeline (semua hitung jadwal di klien) → ditunda (spec Fase 1 K21).
 PENDING_HOOKS = {"on_task_written": None, "jobs": None, "register_bot": None, "intake": None}
 
 _known: dict[str, dict] = {}
