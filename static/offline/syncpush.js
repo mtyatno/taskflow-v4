@@ -34,6 +34,10 @@
   const TFcontexts = req("./contextcache.js", root.TF && root.TF.contextcache);
   // PR B Target 🍅: antrean log 🍅 (dimuat sebelum syncpush di index.html).
   const TFpomolog = req("./pomolog.js", root.TF && root.TF.pomolog);
+  // Field plugin di task (spec plugin Fase 1 K5/K7). Dibaca malas: tanpa modul (cache SW lama) ext tidak dikirim.
+  function taskExtMod() {
+    try { return isNode ? require("./taskext.js") : (root.TF && root.TF.taskext) || null; } catch (_) { return null; }
+  }
   // Sampah mindmap (A4) dibaca malas: modul lama dari cache SW bisa belum memuatnya.
   function mindmapTrash() {
     try { return isNode ? require("./mindmaptrash.js") : (root.TF && root.TF.mindmaptrash); } catch (_) { return null; }
@@ -420,10 +424,92 @@
       ? ensureEntityOp(entityType, cur)
       : false));
   }
+  // ── ext (field plugin di task) — spec plugin Fase 1 K5/K7, rencana 1a-1 R3, R9, R10 ─────────────────────
+  // Patch yang dikirim PUT: nilai lokal untuk kunci yang belum terkirim (`ext_dirty`); kunci yang sudah dihapus
+  // lokal → null (hapus di server). null = tidak ada yang perlu dikirim (payload tanpa kunci ext_patch).
+  function extPatchOf(rec) {
+    const keys = rec && Array.isArray(rec.ext_dirty) ? rec.ext_dirty : [];
+    if (!keys.length) return null;
+    const X = taskExtMod();
+    const ext = X && X.isPlainObject(rec.ext) ? rec.ext : {};
+    const out = {};
+    for (const k of keys) out[k] = Object.prototype.hasOwnProperty.call(ext, k) && ext[k] !== undefined ? ext[k] : null;
+    return out;
+  }
+  // Ganti setiap {"$task": <cid>} dengan id server. Kunci yang merujuk cid tanpa id server tetapi create-nya masih
+  // antre (`pending`) → `held` (tidak dikirim); cid tanpa id dan tanpa create antre → null.
+  function resolveExtRefs(obj, pending) {
+    const X = taskExtMod();
+    const src = obj || {};
+    const keys = Object.keys(src);
+    if (!X) return Promise.resolve({ value: Object.assign({}, src), held: [] });
+    const isCid = (id) => typeof id === "string" && !isServerIdLike(id);
+    const cids = new Set();
+    for (const k of keys) for (const id of X.refsIn(src[k])) if (isCid(id)) cids.add(id);
+    return Promise.all(Array.from(cids).map((c) => TFidmap.serverIdOf(c).then((sid) => [c, sid], () => [c, null])))
+      .then((pairs) => {
+        const sids = new Map(pairs);
+        const value = {};
+        const held = [];
+        for (const k of keys) {
+          const refs = X.refsIn(src[k]);
+          if (!refs.length) { value[k] = src[k]; continue; }
+          if (refs.some((id) => isCid(id) && sids.get(id) == null && parentCreatePending(pending, id))) { held.push(k); continue; }
+          value[k] = X.mapRefs(src[k], (id) => {
+            if (typeof id === "number") return Number.isInteger(id) ? { $task: id } : null;
+            if (typeof id === "string" && isServerIdLike(id)) return { $task: Number(id) };
+            const sid = sids.get(id);
+            return sid != null && isServerIdLike(sid) ? { $task: Number(sid) } : null;
+          });
+        }
+        return { value, held };
+      });
+  }
+  // Setelah POST task `cid` sukses: tulis ulang {"$task": cid} di ext semua task lokal menjadi id server; kunci yang
+  // berubah masuk ext_dirty (+ op update). Gagal di sini tidak boleh menggagalkan op create-nya.
+  function rewriteTaskExtRefs(cid, sid) {
+    const X = taskExtMod();
+    if (!X || cid == null || sid == null) return Promise.resolve(0);
+    const hit = (v) => X.refsIn(v).indexOf(cid) >= 0;
+    return getAllTasksRaw().then((all) => {
+      const targets = all.filter((r) => r && !r.deleted && X.isPlainObject(r.ext) && hit(r.ext));
+      return targets.reduce((p, t) => p.then((n) => TFdb.mutate("tasks", t.cid, (cur) => {
+        if (!cur || cur.deleted || !X.isPlainObject(cur.ext)) return undefined;
+        const ext = {};
+        const changed = [];
+        for (const k of Object.keys(cur.ext)) {
+          if (hit(cur.ext[k])) {
+            ext[k] = X.mapRefs(cur.ext[k], (id) => (id === cid ? { $task: Number(sid) } : { $task: id }));
+            changed.push(k);
+          } else ext[k] = cur.ext[k];
+        }
+        if (!changed.length) return undefined;
+        const dirtyKeys = Array.isArray(cur.ext_dirty) ? cur.ext_dirty.slice() : [];
+        for (const k of changed) if (dirtyKeys.indexOf(k) < 0) dirtyKeys.push(k);
+        return Object.assign({}, cur, { ext, ext_dirty: dirtyKeys, dirty: 1, rev: (cur.rev || 0) + 1 });
+      }).then((saved) => (saved ? ensureEntityOp("task", saved).then(() => n + 1) : n))), Promise.resolve(0));
+    }).catch(() => 0);
+  }
+
   // Field turunan server yang diadopsi setelah POST/PUT task sukses (hanya bila rev tidak berubah, lihat markPushed).
-  function taskAdopt(data) {
+  // ext: respons ber-`ext` objek → ext server diadopsi (kunci `heldKeys` yang belum dikirim ditempel kembali dan
+  // tetap kotor); respons tanpa ext objek (server lama di jendela deploy) → ext_dirty tetap + dirty 1 (R10).
+  function taskAdopt(data, heldKeys) {
+    const held = Array.isArray(heldKeys) ? heldKeys : [];
     return (next) => {
       const d = (data && typeof data === "object") ? data : {};
+      const X = taskExtMod();
+      if (X) {
+        if (X.isPlainObject(d.ext)) {
+          const local = X.isPlainObject(next.ext) ? next.ext : {};
+          const ext = Object.assign({}, d.ext);
+          for (const k of held) if (Object.prototype.hasOwnProperty.call(local, k)) ext[k] = local[k];
+          next.ext = ext;
+          if (held.length) { next.ext_dirty = held.slice(); next.dirty = 1; } else delete next.ext_dirty;
+        } else if (Array.isArray(next.ext_dirty) && next.ext_dirty.length) {
+          next.dirty = 1;
+        }
+      }
       delete next.recurrence_renew_pending; // T12: perpanjangan sudah diterima server
       if (d.quadrant != null) next.quadrant = d.quadrant;
       if ("recurrence_end_date" in d) next.recurrence_end_date = d.recurrence_end_date != null ? d.recurrence_end_date : null;
@@ -503,18 +589,27 @@
       // Dicek sebelum lookup induk: promise idmap yang dibuat lalu ditinggal bisa jadi unhandled rejection.
       if (contextHeld(rec, pending)) return;
       const parentP = rec.parent_cid ? TFidmap.serverIdOf(rec.parent_cid) : Promise.resolve(null);
-      return Promise.all([parentP, tagsOf(op.cid, tagsFor), projectItems(), contextItems()]).then(([parentSid, tags, projects, contexts]) => {
+      // ext: create TIDAK pernah ditahan karena ref (A↔B baru saling merujuk = deadlock); kunci yang merujuk
+      // create antre tidak dikirim dan tetap kotor (R9).
+      const X = taskExtMod();
+      const hasExt = !!X && X.isPlainObject(rec.ext) && Object.keys(rec.ext).length > 0;
+      const extP = hasExt ? resolveExtRefs(rec.ext, pending) : Promise.resolve(null);
+      return Promise.all([parentP, tagsOf(op.cid, tagsFor), projectItems(), contextItems(), extP]).then(([parentSid, tags, projects, contexts, ext]) => {
         // T10: induk belum punya server id tapi create-nya masih antre → tahan (jangan kirim parent_id null)
         if (rec.parent_cid && parentSid == null && parentCreatePending(pending, rec.parent_cid)) return;
         const sentRev = rec.rev || 0;
-        return send(transport, "POST", "/api/tasks", taskToCreatePayload(rec, tags, parentSid != null ? parentSid : null, projects, contexts)).then((res) => {
+        const payload = taskToCreatePayload(rec, tags, parentSid != null ? parentSid : null, projects, contexts);
+        if (ext && Object.keys(ext.value).length) payload.ext = ext.value;
+        const held = ext ? ext.held : [];
+        return send(transport, "POST", "/api/tasks", payload).then((res) => {
           if (ok(res)) {
             const sid = res.data.id;
             return TFidmap.mapPut("task", sid, op.cid)
-              .then(() => markPushed("tasks", op.cid, sentRev, updatedAtOf(res), sid, taskAdopt(res.data)))
+              .then(() => markPushed("tasks", op.cid, sentRev, updatedAtOf(res), sid, taskAdopt(res.data, held)))
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => requeueIfDirty("tasks", "task", op.cid))
               .then(() => rewriteNoteTaskLinks(op.cid, sid)) // S15
+              .then(() => rewriteTaskExtRefs(op.cid, sid)) // K7: {"$task": cid} → id server di task lain
               .then(() => { result.pushed++; });
           }
           if (classify(res) === "forbidden") { return accessLost("tasks", op.cid, op, result); }
@@ -529,9 +624,16 @@
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return; // held until user resolves the conflict
       if (contextHeld(rec, pending)) return; // Kanban tahap: tunggu create tahap terkirim
-      return Promise.all([tagsOf(op.cid, tagsFor), projectItems(), contextItems()]).then(([tags, projects, contexts]) => {
+      // ext: hanya kunci ext_dirty (patch per kunci); record bersih → payload tanpa kunci ext_patch (K5, R10).
+      const extPatch = extPatchOf(rec);
+      const extP = extPatch ? resolveExtRefs(extPatch, pending) : Promise.resolve(null);
+      return Promise.all([tagsOf(op.cid, tagsFor), projectItems(), contextItems(), extP]).then(([tags, projects, contexts, ext]) => {
+        // K7/R9: kunci kotor merujuk task yang create-nya masih antre → tahan op (pola contextHeld)
+        if (ext && ext.held.length) return;
         const sentRev = rec.rev || 0;
-        return send(transport, "PUT", "/api/tasks/" + sid, taskToUpdatePayload(rec, tags, projects, contexts)).then((res) => {
+        const payload = taskToUpdatePayload(rec, tags, projects, contexts);
+        if (ext) payload.ext_patch = ext.value;
+        return send(transport, "PUT", "/api/tasks/" + sid, payload).then((res) => {
           if (ok(res)) {
             return markPushed("tasks", op.cid, sentRev, updatedAtOf(res), null, taskAdopt(res.data))
               .then(() => TFoutbox.outboxRemove(op.qid))
@@ -2313,6 +2415,8 @@
     healStrandedNotes, healStrandedDrawings, healStrandedContexts, pushOutbox, inflightDrawingData, classify, markSyncError,
     // CAS/rev helper bersama (prinsip 4) — dipakai juga workstream D (mindmap)
     tsEpoch, tsNewer, markPushed, requeueIfDirty, ensureEntityOp, pendingCreateCids,
+    // ext (spec plugin Fase 1 K5/K7)
+    extPatchOf, resolveExtRefs, rewriteTaskExtRefs, taskAdopt,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpush = exported; }
   return exported;
