@@ -310,14 +310,15 @@ test("berkas: pola R2 (const TLCal IIFE, TLHolidays via typeof/require, tanpa gl
   assert.ok(Object.isFrozen(C));
 });
 
-test("sumber parts tanpa Date lokal (calendar/schedule/layout/drag.js hanya getUTC* dan Date.UTC)", () => {
+test("sumber parts tanpa Date lokal (kelima part ada; hanya getUTC* dan Date.UTC)", () => {
   // Pola dirakit dari potongan agar sumber tes ini sendiri tidak cocok.
   const bad = new RegExp(
     ["Date" + "\\.now\\s*\\(", "new\\s+Date\\s*\\(\\s*\\)", "\\.get" + "Date\\s*\\(", "\\.get" + "Day\\s*\\(", "\\.get" + "Month\\s*\\(", "\\.get" + "FullYear\\s*\\(", "\\.get" + "Hours\\s*\\(", "\\.get" + "TimezoneOffset\\s*\\("].join("|"),
   );
-  for (const f of ["calendar.js", "schedule.js", "layout.js", "drag.js"]) {
+  // Kelima part wajib ada (Task 1–5 selesai); tidak ada lagi yang dilewati.
+  for (const f of ["holidays-id.js", "calendar.js", "schedule.js", "layout.js", "drag.js"]) {
     const p = path.join(dir, f);
-    if (!fs.existsSync(p)) continue; // schedule/layout/drag dibuat di Task 3–5; tes ini mengunci setiap berkas begitu ada
+    assert.ok(fs.existsSync(p), `${f} harus ada`);
     assert.doesNotMatch(fs.readFileSync(p, "utf8"), bad, f);
   }
   assert.ok(fs.existsSync(file));
