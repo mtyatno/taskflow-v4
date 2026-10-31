@@ -14,7 +14,11 @@ Yang dipindai: semua `*.py` di akar repo. `scripts/`, `tests/`, `temporary_files
 `node_modules/`, `draw-app/`, `docs/` tidak dipindai.
 """
 import ast
+import sqlite3
 from pathlib import Path
+
+import config
+import webapp
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -28,7 +32,7 @@ ALLOWLIST = {
 PROD_FILES = sorted(p for p in ROOT.glob("*.py") if p.name not in ALLOWLIST)
 
 # Ratchet migrasi bertahap: titik `sqlite3.connect` yang MASIH diizinkan per file (hanya boleh turun).
-REMAINING = {"webapp.py": 29, "repository.py": 1, "bot.py": 1}
+REMAINING = {"webapp.py": 27, "repository.py": 1, "bot.py": 1}
 
 FORBIDDEN_TX_CONTROL = {"isolation_level", "autocommit"}
 
@@ -147,3 +151,80 @@ def test_dbconn_callers_pass_explicit_path():
             if len(call.args) < 1:
                 problems.append(f"{name}:{call.lineno} dbconn.{call.func.attr}() tanpa path")
     assert not problems, "; ".join(problems)
+
+
+# ── webapp: get_db dan _media_db_connect lewat dbconn (Task 2) ───────────────
+
+def _pragma(conn, name):
+    return conn.execute(f"PRAGMA {name}").fetchone()[0]
+
+
+def _assert_dbconn_connection(c):
+    assert c.isolation_level == "IMMEDIATE"  # pembeda: koneksi lama ""
+    assert _pragma(c, "busy_timeout") == 5000
+    assert _pragma(c, "foreign_keys") == 1
+    assert _pragma(c, "journal_mode") == "wal"
+    assert c.row_factory is sqlite3.Row
+
+
+def test_get_db_connection_is_dbconn():
+    with webapp.get_db() as c:
+        _assert_dbconn_connection(c)
+
+
+def test_get_db_reads_webapp_db_path_at_call_time(monkeypatch, tmp_path):
+    tmp = tmp_path / "r1.db"
+    cfg_before = config.DB_PATH
+    monkeypatch.setattr(webapp, "DB_PATH", str(tmp))
+    with webapp.get_db() as c:
+        c.execute("CREATE TABLE tes_r1 (x)")
+    raw = sqlite3.connect(str(tmp))
+    try:
+        assert raw.execute("SELECT name FROM sqlite_master WHERE name='tes_r1'").fetchone()
+    finally:
+        raw.close()
+    assert config.DB_PATH == cfg_before
+    raw = sqlite3.connect(config.DB_PATH)
+    try:
+        assert raw.execute("SELECT name FROM sqlite_master WHERE name='tes_r1'").fetchone() is None
+    finally:
+        raw.close()
+
+
+def test_get_db_rollback_on_exception(monkeypatch, tmp_path):
+    tmp = tmp_path / "rb.db"
+    monkeypatch.setattr(webapp, "DB_PATH", str(tmp))
+    with webapp.get_db() as c:
+        c.execute("CREATE TABLE tes_rb (x)")
+    try:
+        with webapp.get_db() as c:
+            c.execute("INSERT INTO tes_rb (x) VALUES (1)")
+            raise ValueError("boom")
+    except ValueError:
+        pass
+    with webapp.get_db() as c:
+        assert c.execute("SELECT COUNT(*) FROM tes_rb").fetchone()[0] == 0
+
+
+def test_get_db_still_patchable(monkeypatch):
+    """Pola tests/test_mindmap_live.py: get_db diganti pembungkus yang memanggil yang asli."""
+    real = webapp.get_db
+    calls = []
+
+    def wrapped():
+        calls.append(1)
+        return real()
+    monkeypatch.setattr(webapp, "get_db", wrapped)
+    with webapp.get_db() as c:
+        assert c.execute("SELECT 1").fetchone()[0] == 1
+    assert calls == [1]
+
+
+def test_worker_connect_is_dbconn():
+    assert webapp.email_worker._connect is webapp.media_worker._connect
+    assert webapp.media_worker._connect is webapp._media_db_connect
+    c = webapp.media_worker._connect()
+    try:
+        _assert_dbconn_connection(c)
+    finally:
+        c.close()

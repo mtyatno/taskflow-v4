@@ -24,7 +24,6 @@ from collections import defaultdict
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Literal, Any, Dict
-from contextlib import contextmanager
 
 from collections import deque
 import time as _time
@@ -143,6 +142,7 @@ from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date
 from repository import TaskRepository
 import repository
+import dbconn
 import drawing_scope
 import note_comments
 import safehtml
@@ -181,11 +181,8 @@ def _media_utcnow() -> datetime:
 
 
 def _media_db_connect():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    """Koneksi worker media/email lewat dbconn (FK ON). DB_PATH dibaca saat dipanggil (monkeypatch tes)."""
+    return dbconn.connect(DB_PATH)
 
 
 media_storage = get_storage(MEDIA_STORAGE, MEDIA_ROOT)
@@ -292,20 +289,10 @@ note_comment_subscribers: dict[int, set[tuple[int, asyncio.Queue]]] = defaultdic
 
 # ── Database helpers ───────────────────────────────────────────────────────────
 
-@contextmanager
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    """Context manager koneksi DB lewat dbconn.get_conn (commit bila sukses, rollback bila exception,
+    selalu close). DB_PATH dibaca saat dipanggil (monkeypatch tes)."""
+    return dbconn.get_conn(DB_PATH)
 
 
 def _upsert_tags_for_note(conn, note_id: int, user_id: int, tag_names: list):
