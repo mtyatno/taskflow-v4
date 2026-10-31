@@ -555,3 +555,391 @@ def test_list_access(db):
     assert plugin_host.accessible_list_ids(c, 1) == [5, 12, 99]
     assert plugin_host.accessible_list_ids(c, 2) == [12]
     assert plugin_host.accessible_list_ids(c, 7) == []
+
+
+# ── HTTP (PR 1a-2 Task 2): GET/POST /api/plugins/{id}/records + ekspor ───────
+
+import io  # noqa: E402
+import uuid  # noqa: E402
+import zipfile  # noqa: E402
+
+import webapp  # noqa: E402
+from conftest import db as _rawdb, register_user  # noqa: E402
+
+PID = "demo-records"
+URL = f"/api/plugins/{PID}/records"
+
+
+class User:
+    """Pengguna tes lewat Bearer; cookie dibersihkan agar header yang dipakai."""
+
+    def __init__(self, client, prefix="rec"):
+        name = f"{prefix}{uuid.uuid4().hex[:8]}"
+        info = register_user(client, name, f"{name}@test.id")
+        self.client, self.id, self.name = client, info["user_id"], name
+        self.h = {"Authorization": f"Bearer {info['token']}"}
+
+    def call(self, method, url, **kw):
+        self.client.cookies.clear()
+        headers = {**self.h, **kw.pop("headers", {})}
+        return getattr(self.client, method)(url, headers=headers, **kw)
+
+    def get(self, url, **kw):
+        return self.call("get", url, **kw)
+
+    def post(self, url, **kw):
+        return self.call("post", url, **kw)
+
+    def put(self, url, **kw):
+        return self.call("put", url, **kw)
+
+    def records(self, cursor="", **params):
+        r = self.get(URL, params={"cursor": cursor, **params})
+        assert r.status_code == 200, r.text
+        return r.json()
+
+    def send(self, *items, pid=PID):
+        r = self.post(f"/api/plugins/{pid}/records", json={"items": list(items)})
+        assert r.status_code == 200, r.text
+        return r.json()["results"]
+
+    def send1(self, **kw):
+        return self.send(it_http(**kw))[0]
+
+
+def it_http(**kw):
+    base = {"entity": "note", "id": "n1", "scope": "user", "data": {"t": "a"}, "deleted": False,
+            "updated_at": pr_iso(datetime.now(timezone.utc)), "base_version": None}
+    base.update(kw)
+    return base
+
+
+def _sql(sql, *params):
+    c = _rawdb()
+    try:
+        c.execute(sql, params)
+        c.commit()
+    finally:
+        c.close()
+
+
+def _mk_workspace(owner, *members):
+    r = owner.post("/api/lists", json={"name": "ws"})
+    assert r.status_code == 200, r.text
+    lid = r.json()["id"]
+    for m in members:
+        _sql("INSERT INTO list_members (list_id, user_id, joined_at) VALUES (?, ?, datetime('now'))", lid, m.id)
+    return lid
+
+
+def _ids(page):
+    return sorted(i["id"] for i in page["items"])
+
+
+@pytest.fixture
+def http(client, demo_index):
+    pr._reset_for_tests()
+    yield client
+    pr._reset_for_tests()
+
+
+@pytest.fixture
+def table_guard():
+    """Setelah tes yang menjatuhkan tabel: bangun ulang skema (DB tes dipakai bersama)."""
+    yield
+    c = dbconn.connect(webapp.DB_PATH)
+    try:
+        with dbconn.write_tx(c):
+            pr.ensure_schema(c)
+    finally:
+        c.close()
+
+
+def test_auth_and_errors(http, monkeypatch, tmp_path):
+    from fastapi.testclient import TestClient
+    a = User(http)
+    anon = TestClient(webapp.app)
+    assert anon.get(URL).status_code == 401
+    assert anon.post(URL, json={"items": [it_http()]}).status_code == 401
+
+    ext = webapp.create_ext_token(a.id, a.name)
+    now_t = datetime.now(timezone.utc)
+    _sql("INSERT INTO ext_tokens (user_id, token, state, created_at, expires_at) VALUES (?,?,?,?,?)",
+         a.id, ext, None, now_t.isoformat(), (now_t + timedelta(days=30)).isoformat())
+    for r in (anon.get(URL, headers={"Authorization": f"Bearer {ext}"}),
+              anon.post(URL, json={"items": [it_http()]}, headers={"Authorization": f"Bearer {ext}"})):
+        assert r.status_code == 403 and r.json()["detail"]["code"] == "PLUGIN_FORBIDDEN_TOKEN"
+
+    for pid in ("Bad", "state", "demo-ext", "tidak-ada"):
+        for r in (a.get(f"/api/plugins/{pid}/records"),
+                  a.post(f"/api/plugins/{pid}/records", json={"items": [it_http()]})):
+            assert r.status_code == 404 and r.json()["detail"]["code"] == "PLUGIN_UNKNOWN", (pid, r.text)
+
+    r = a.get(URL, params={"entity": "lain"})
+    assert r.status_code == 422 and r.json()["detail"] == {"code": "INVALID", "detail": "entity"}
+    for lim in (0, 1001):
+        assert a.get(URL, params={"limit": lim}).status_code == 422
+    assert a.get(URL, params={"limit": 1000}).status_code == 200
+
+    items = [it_http(id=f"n{i}") for i in range(51)]
+    assert a.post(URL, json={"items": items}).status_code == 422
+    assert a.post(URL, json={"items": []}).status_code == 422
+    assert len(a.send(*items[:50])) == 50
+
+    big = json.dumps({"items": [it_http(id="big", data={"pad": "x" * (300 * 1024)})]})
+    r = a.post(URL, content=big, headers={"Content-Type": "application/json"})
+    assert r.status_code == 413 and r.json()["detail"]["code"] == "TOO_LARGE"
+    # Content-Length yang dinyatakan > 256 KB ditolak walau isi kecil (pemeriksaan sebelum validasi badan)
+    r = a.post(URL, content=json.dumps({"items": [it_http(id="x")]}),
+               headers={"Content-Type": "application/json", "Content-Length": str(300 * 1024)})
+    assert r.status_code == 413 and r.json()["detail"]["code"] == "TOO_LARGE"
+
+    # 503 saat indeks tidak sehat — sebelum keanggotaan indeks
+    monkeypatch.setattr(plugin_loader, "_index_ok", False)
+    for r in (a.get(URL), a.post(URL, json={"items": [it_http()]})):
+        assert r.status_code == 503 and r.json()["detail"]["code"] == "PLUGIN_UNAVAILABLE"
+
+
+def test_refresh_known_once_before_404(http, monkeypatch, tmp_path):
+    for name in ("_known", "_index_ok", "_index_path", "_permissions", "_records"):
+        monkeypatch.setattr(plugin_loader, name, getattr(plugin_loader, name))
+    idx = tmp_path / "index.json"
+    entries = [{"id": "demo-server", "defaultEnabled": False}]
+    idx.write_text(json.dumps({"v": 1, "plugins": entries}), encoding="utf-8")
+    plugin_loader.load_known(idx)
+    a = User(http)
+    calls = []
+    real = plugin_loader.refresh_known
+    monkeypatch.setattr(plugin_loader, "refresh_known", lambda: (calls.append(1), real())[1])
+    assert a.get(URL).status_code == 404
+    assert len(calls) == 1
+    entries.append({"id": PID, "defaultEnabled": False, "permissions": ["records"],
+                    "records": {"note": {"conflict": "lww", "maxBytes": 4096}}})
+    idx.write_text(json.dumps({"v": 1, "plugins": entries}), encoding="utf-8")
+    calls.clear()
+    r = a.get(URL)
+    assert r.status_code == 200, r.text
+    assert len(calls) == 1
+    assert a.send1()["applied"] is True
+    assert len(calls) == 1  # id kini dikenal + berizin → tanpa baca ulang
+
+
+def test_plugin_off_still_accepts(http):
+    a = User(http)
+    r = a.put(f"/api/plugins/state/{PID}", json={"enabled": False})
+    assert r.status_code == 200 and r.json()["state"]["enabled"] is False
+    assert a.send1()["applied"] is True
+    assert _ids(a.records()) == ["n1"]
+
+
+def test_post_get_roundtrip_and_cursor(http):
+    a = User(http)
+    page = a.records()
+    assert page["items"] == [] and page["more"] is False and re.fullmatch(r"1\.\d+\.[0-9a-f]{8}", page["cursor"])
+    res = a.send1()
+    assert res["applied"] is True and res["record"]["version"] == 1 and res["record"]["deleted"] is False
+    assert set(res["record"]) == {"entity", "id", "scope", "data", "updated_at", "version", "deleted"}
+    page = a.records()
+    assert _ids(page) == ["n1"] and page["more"] is False
+    m = re.fullmatch(r"1\.(\d+)\.([0-9a-f]{8})", page["cursor"])
+    assert m
+    again = a.records(page["cursor"])
+    assert again["items"] == [] and again["cursor"] == page["cursor"] and again["more"] is False
+    res = a.send1(id="n2")
+    assert res["applied"] is True
+    res = a.send1(data={"t": "b"}, base_version=1)
+    assert res["applied"] is True and res["record"]["version"] == 2
+    news = a.records(page["cursor"])
+    assert _ids(news) == ["n1", "n2"]
+    assert [i["data"] for i in news["items"] if i["id"] == "n1"] == [{"t": "b"}]
+    # entity filter + limit/more
+    assert a.records(entity="note")["items"]
+    two = a.records(limit=1)
+    assert len(two["items"]) == 1 and two["more"] is True
+    rest = a.records(two["cursor"], limit=1)
+    assert len(rest["items"]) == 1 and rest["more"] is False
+    assert two["items"][0]["id"] != rest["items"][0]["id"]
+
+
+def test_offline_edit_arrives_late_still_pulled(http):
+    a, b = User(http), User(http)
+    ws = _mk_workspace(a, b)
+    scope = f"list:{ws}"
+    a.send1(id="early", scope=scope)
+    k = b.records()["cursor"]
+    late = pr_iso(datetime.now(timezone.utc) - timedelta(days=1))
+    res = a.send1(id="offline", scope=scope, updated_at=late)
+    assert res["applied"] is True and res["record"]["updated_at"] == late
+    got = b.records(k)
+    assert _ids(got) == ["offline"]
+
+
+def test_workspace_sharing(http):
+    a, b, c = User(http), User(http), User(http)
+    ws = _mk_workspace(a, b)
+    scope = f"list:{ws}"
+    k0 = a.records()["cursor"]
+    assert a.send1(id="w1", scope=scope)["record"]["version"] == 1
+    assert _ids(b.records()) == ["w1"]
+    res = b.send1(id="w1", scope=scope, data={"t": "dari-b"}, base_version=1)
+    assert res["applied"] is True and res["record"]["version"] == 2
+    row = _rawdb().execute("SELECT updated_by FROM plugin_records WHERE id = 'w1' AND owner_key = ?",
+                           (f"l:{ws}",)).fetchone()
+    assert row["updated_by"] == b.id
+    seen = a.records(k0)
+    assert _ids(seen) == ["w1"] and seen["items"][0]["data"] == {"t": "dari-b"}
+    assert _ids(c.records()) == []
+    assert c.send1(id="w2", scope=scope) == {"entity": "note", "id": "w2", "error": "FORBIDDEN_SCOPE"}
+
+
+def test_membership_change_resets_cursor(http):
+    a, b, c = User(http), User(http), User(http)
+    ws = _mk_workspace(a, b)
+    scope = f"list:{ws}"
+    a.send1(id="w1", scope=scope)
+    a.send1(id="w2", scope=scope)
+    b.send1(id="own")
+    kb = b.records()["cursor"]
+    kc = c.records()["cursor"]
+    _sql("DELETE FROM list_members WHERE list_id = ? AND user_id = ?", ws, b.id)
+    assert b.records(kb) == {"reset": True}
+    assert _ids(b.records()) == ["own"]
+    assert b.send1(id="w3", scope=scope) == {"entity": "note", "id": "w3", "error": "FORBIDDEN_SCOPE"}
+    _sql("INSERT INTO list_members (list_id, user_id, joined_at) VALUES (?, ?, datetime('now'))", ws, c.id)
+    assert c.records(kc) == {"reset": True}
+    assert _ids(c.records()) == ["w1", "w2"]
+    # format tak terbaca → reset; kursor kosong bukan reset
+    assert c.records("sampah") == {"reset": True}
+    assert "reset" not in c.records("")
+
+
+def test_purge_resets_old_cursor(http, monkeypatch):
+    a = User(http)
+    a.send1(id="t1")
+    k_before = a.records()["cursor"]
+    a.send1(id="t1", deleted=True, base_version=1)
+    old = pr_iso(datetime.now(timezone.utc) - timedelta(days=40))
+    _sql("UPDATE plugin_records SET server_at = ? WHERE id = 't1' AND owner_key = ?", old, f"u:{a.id}")
+    now_t = [1000.0]
+    real = pr.maybe_purge
+    monkeypatch.setattr(pr, "maybe_purge", lambda conn, now: real(conn, now, clock=lambda: now_t[0]))
+    pr._reset_for_tests()
+    page = a.records(k_before)  # halaman dihitung dulu, purge sesudahnya
+    assert _ids(page) == ["t1"] and page["items"][0]["deleted"] is True
+    assert a.records(k_before) == {"reset": True}
+    # purge paling sering sekali per jam
+    a.send1(id="t2")
+    a.send1(id="t2", deleted=True, base_version=1)
+    _sql("UPDATE plugin_records SET server_at = ? WHERE id = 't2' AND owner_key = ?", old, f"u:{a.id}")
+    now_t[0] += pr.PURGE_INTERVAL_S - 1
+    a.records()
+    c = _rawdb()
+    assert c.execute("SELECT COUNT(*) FROM plugin_records WHERE id = 't2'").fetchone()[0] == 1
+    now_t[0] += 1
+    a.records()
+    assert c.execute("SELECT COUNT(*) FROM plugin_records WHERE id = 't2'").fetchone()[0] == 0
+    c.close()
+
+
+def test_maybe_purge_failure_does_not_suppress_next(db, monkeypatch):
+    c, _ = db
+    pr._reset_for_tests()
+    real = pr.purge
+    boom = {"on": True}
+
+    def flaky(conn, now):
+        if boom["on"]:
+            raise sqlite3.OperationalError("database is locked")
+        return real(conn, now)
+
+    monkeypatch.setattr(pr, "purge", flaky)
+    with pytest.raises(sqlite3.OperationalError):
+        pr.maybe_purge(c, NOW, clock=lambda: 5000.0)
+    boom["on"] = False
+    assert pr.maybe_purge(c, NOW, clock=lambda: 5001.0) == 0  # tidak dilewati: kegagalan tidak mencatat waktu
+    assert pr.maybe_purge(c, NOW, clock=lambda: 5002.0) is None  # sukses → throttle aktif
+    pr._reset_for_tests()
+
+
+def test_purge_failure_does_not_break_get(http, monkeypatch):
+    a = User(http)
+    a.send1()
+    monkeypatch.setattr(pr, "maybe_purge", lambda conn, now: (_ for _ in ()).throw(
+        sqlite3.OperationalError("database is locked")))
+    assert _ids(a.records()) == ["n1"]
+
+
+def test_isolation_between_users(http):
+    a, b = User(http), User(http)
+    a.send1(id="cal@user", data={"who": "a"})
+    assert _ids(b.records()) == []
+    assert b.send1(id="cal@user", data={"who": "b"})["record"]["version"] == 1
+    pa, pb = a.records(), b.records()
+    assert [i["data"] for i in pa["items"]] == [{"who": "a"}]
+    assert [i["data"] for i in pb["items"]] == [{"who": "b"}]
+
+
+def test_batch_one_tx_mixed_results(http):
+    a = User(http)
+    c = _rawdb()
+    before = c.execute("SELECT COALESCE(MAX(seq), 0) FROM plugin_records").fetchone()[0]
+    res = a.send(it_http(id="ok"),
+                 it_http(id="huge", data={"x": "y" * 5000}),
+                 it_http(id="forb", scope="list:999999"))
+    assert [r["id"] for r in res] == ["ok", "huge", "forb"]
+    assert res[0]["applied"] is True
+    assert res[1] == {"entity": "note", "id": "huge", "error": "INVALID", "detail": "size"}
+    assert res[2] == {"entity": "note", "id": "forb", "error": "FORBIDDEN_SCOPE"}
+    after = c.execute("SELECT COALESCE(MAX(seq), 0) FROM plugin_records").fetchone()[0]
+    assert after == before + 1
+    assert _ids(a.records()) == ["ok"]
+    c.close()
+
+
+def test_table_missing_returns_503(http, table_guard):
+    a = User(http)
+    _sql("DROP TABLE plugin_records")
+    for r in (a.get(URL), a.post(URL, json={"items": [it_http()]})):
+        assert r.status_code == 503 and r.json()["detail"]["code"] == "PLUGIN_UNAVAILABLE", r.text
+
+
+def _zip_json(resp, name):
+    assert resp.status_code == 200, resp.text
+    with zipfile.ZipFile(io.BytesIO(resp.content)) as zf:
+        return json.loads(zf.read(name).decode("utf-8"))
+
+
+def test_export_contains_plugin_files(http, table_guard):
+    a, b = User(http), User(http)
+    ws = _mk_workspace(a, b)
+    assert a.put(f"/api/plugins/state/{PID}", json={"enabled": True}).status_code == 200
+    a.send1(id="u1", data={"t": "pribadi"})
+    a.send1(id="u2")
+    a.send1(id="u2", deleted=True, base_version=1)
+    a.send1(id="w1", scope=f"list:{ws}")
+    b.send1(id="ub")
+    r = a.get("/api/export/download")
+    states = _zip_json(r, "plugin_states.json")
+    assert states[PID]["enabled"] is True
+    recs = _zip_json(r, "plugin_records.json")
+    assert [x["id"] for x in recs] == ["u1"]
+    assert set(recs[0]) == {"plugin_id", "entity", "id", "scope", "data", "updated_at", "version"}
+    assert recs[0]["plugin_id"] == PID and recs[0]["data"] == {"t": "pribadi"} and recs[0]["version"] == 1
+    # tanpa tabel → berkas kosong, ekspor tidak gagal
+    _sql("DROP TABLE plugin_records")
+    r = a.get("/api/export/download")
+    assert _zip_json(r, "plugin_records.json") == []
+    assert _zip_json(r, "plugin_states.json")[PID]["enabled"] is True
+
+
+def test_route_order():
+    paths = [getattr(r, "path", None) for r in webapp.app.routes]
+    assert "/api/plugins/{plugin_id}/records" in paths
+    host = paths.index("/api/plugins/{plugin_id}/records")
+    for i, r in enumerate(webapp.app.routes):
+        ep = getattr(r, "endpoint", None)
+        if ep is not None and getattr(ep, "__module__", "").startswith(plugin_loader.MODULE_PREFIX + "."):
+            assert host < i, r.path
+    src = (Path(__file__).resolve().parent.parent / "webapp.py").read_text(encoding="utf-8")
+    assert src.index("app.include_router(plugin_records.router)") < src.index("plugin_loader.init_web(app)")
+    assert src.index("app.include_router(plugin_states.router)") < src.index("app.include_router(plugin_records.router)")

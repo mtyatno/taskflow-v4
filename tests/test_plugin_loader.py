@@ -455,7 +455,7 @@ def test_webapp_wiring(monkeypatch, tmp_path):
         assert path in routes, path
         assert not inspect.iscoroutinefunction(routes[path].endpoint)
     extra = [p for p in routes if p and p.startswith("/api/plugins/") and not p.startswith("/api/plugins/state")]
-    assert extra == []
+    assert extra == ["/api/plugins/{plugin_id}/records"]  # rute host plugin_records (PR 1a-2); tanpa router plugin
 
     monkeypatch.setattr(webapp, "DB_PATH", str(tmp_path / "wire.db"))
     webapp.migrate_db()

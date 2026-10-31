@@ -2,8 +2,8 @@
 Alurik — record plugin yang tersinkron (`plugin_records`), spec Fase 1 §5.2, §5.3, §6.2; rencana PR 1a-2 R1, R5–R8.
 
 Bagian murni (tanpa koneksi sendiri, tanpa `sqlite3.connect`, tanpa `webapp`/`repository`): skema, validasi item,
-kursor `seq`, penerapan item (LWW + `base_version`), halaman tarik, dan purge tombstone. Router HTTP menyusul
-(PR 1a-2 T2) dan memanggil fungsi-fungsi ini.
+kursor `seq`, penerapan item (LWW + `base_version`), halaman tarik, dan purge tombstone. Bagian akhir berkas =
+router HTTP `GET/POST /api/plugins/{id}/records` (PR 1a-2 T2, R4, R7, R8) yang memanggil fungsi-fungsi itu.
 
 - Satu baris = `(plugin_id, entity, owner_key, id)`; `owner_key` = `u:<user_id>` | `l:<list_id>`.
 - `seq` = urutan commit server (`MAX(seq) + 1`, dibaca di dalam `write_tx` pemanggil) — kursor tarik berbasis `seq`,
@@ -16,14 +16,22 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import re
+import sqlite3
 import time
 from datetime import datetime, timedelta
 
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, StrictBool, conlist
+
 import dbconn
+import plugin_host
 import plugin_loader
 import plugin_states
 import task_ext
+
+logger = logging.getLogger("alurik.plugins")
 
 ENTITY_RE = plugin_loader.RECORD_ENTITY_RE
 ID_RE = re.compile(r"^[A-Za-z0-9:@._-]{1,80}$")
@@ -329,10 +337,129 @@ def maybe_purge(conn, now: datetime, clock=time.monotonic) -> int | None:
     t = clock()
     if _last_purge is not None and t - _last_purge < PURGE_INTERVAL_S:
         return None
-    _last_purge = t
-    return purge(conn, now)
+    n = purge(conn, now)
+    _last_purge = t  # dicatat hanya setelah sukses: purge gagal (mis. DB terkunci) tidak menahan percobaan berikutnya
+    return n
+
+
+def export_rows(conn, uid: int) -> list[dict]:
+    """Record `user` milik `uid` tanpa tombstone untuk ekspor data (R24); record `list:` milik workspace, tidak diekspor.
+    Tabel tidak ada → `[]` (ekspor tidak boleh gagal)."""
+    try:
+        rows = conn.execute(
+            "SELECT plugin_id, entity, id, scope, data, updated_at, version, deleted FROM plugin_records "
+            "WHERE user_id = ? AND list_id IS NULL AND deleted = 0 ORDER BY plugin_id, entity, id", (uid,),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []
+    out = []
+    for r in rows:
+        rec = row_to_record(r)
+        out.append({"plugin_id": r["plugin_id"], "entity": rec["entity"], "id": rec["id"], "scope": rec["scope"],
+                    "data": rec["data"], "updated_at": rec["updated_at"], "version": rec["version"]})
+    return out
 
 
 def _reset_for_tests() -> None:
     global _last_purge
     _last_purge = None
+
+
+# ── API host (spec §6.2; rencana R1, R2, R4, R7, R8) ─────────────────────────
+
+router = APIRouter()
+
+MAX_BODY_BYTES = 262144
+
+
+class RecordItem(BaseModel):
+    entity: str
+    id: str
+    scope: str
+    data: dict = {}
+    deleted: StrictBool = False
+    updated_at: str
+    base_version: int | None = None
+
+
+class RecordsPost(BaseModel):
+    items: conlist(RecordItem, min_length=1, max_length=50)
+
+
+def _unavailable(plugin_id: str | None = None) -> HTTPException:
+    detail = {"code": "PLUGIN_UNAVAILABLE"}
+    if plugin_id:
+        detail["plugin_id"] = plugin_id
+    return HTTPException(status_code=503, detail=detail)
+
+
+def _guard(plugin_id: str, request: Request, user: dict = Depends(plugin_host.current_user)) -> dict:
+    """Pemeriksaan tingkat permintaan (R4), sebelum badan POST divalidasi: 401 (dependency) → 403 token clipper →
+    404 id tak sah/`state` → 503 indeks tidak sehat → (id tak dikenal / tanpa izin `records`: baca ulang indeks sekali)
+    404 → 413 (hanya POST). TIDAK memeriksa plugin ON (K9: antrean klien tetap terkirim saat plugin dimatikan)."""
+    if user.get("scope") == "ext":
+        raise HTTPException(status_code=403, detail={"code": "PLUGIN_FORBIDDEN_TOKEN"})
+    if not plugin_loader.ID_RE.match(plugin_id) or plugin_id in plugin_loader.RESERVED_IDS:
+        raise HTTPException(status_code=404, detail={"code": "PLUGIN_UNKNOWN"})
+    if not plugin_loader.index_ok():
+        raise _unavailable(plugin_id)
+    if plugin_id not in plugin_loader.known() or "records" not in plugin_loader.permissions(plugin_id):
+        plugin_loader.refresh_known()
+        if plugin_id not in plugin_loader.known() or "records" not in plugin_loader.permissions(plugin_id):
+            raise HTTPException(status_code=404, detail={"code": "PLUGIN_UNKNOWN"})
+    if request.method == "POST":
+        try:
+            length = int(request.headers.get("content-length", ""))
+        except ValueError:
+            length = 0
+        if length > MAX_BODY_BYTES:
+            raise HTTPException(status_code=413, detail={"code": "TOO_LARGE"})
+    return {"uid": user["sub"], "pid": plugin_id, "decl": plugin_loader.records_decl(plugin_id)}
+
+
+@router.get("/api/plugins/{plugin_id}/records")
+def get_records(plugin_id: str, cursor: str = "", limit: int = Query(500, ge=1, le=1000), entity: str | None = None,
+                ctx: dict = Depends(_guard)) -> dict:
+    uid, pid, decl = ctx["uid"], ctx["pid"], ctx["decl"]
+    if entity is not None and entity not in decl:
+        raise HTTPException(status_code=422, detail={"code": "INVALID", "detail": "entity"})
+    now = plugin_host.now_utc()
+    try:
+        with plugin_host.get_conn() as conn:
+            access = plugin_host.accessible_list_ids(conn, uid)
+            fp = fingerprint(access)
+            parsed = parse_cursor(cursor)
+            if parsed is None:
+                out: dict = {"reset": True}
+            else:
+                seq, cfp = parsed
+                if cfp is not None and (cfp != fp or seq < purged_seq(conn)):
+                    out = {"reset": True}  # keanggotaan berubah, atau tombstone yang belum dilihat klien sudah dipurge
+                else:
+                    rows, more = fetch_page(conn, uid, pid, seq, limit, access, entity)
+                    out = {"items": [row_to_record(r) for r in rows],
+                           "cursor": make_cursor(rows[-1]["seq"] if rows else seq, fp), "more": more}
+            try:  # halaman sudah terbaca; purge gagal (mis. DB terkunci) tidak boleh menggagalkan tarik
+                maybe_purge(conn, now)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("plugin_records: purge tombstone gagal (%s: %s)", type(e).__name__, e)
+    except sqlite3.OperationalError as e:  # R1: tabel hilang/DB tak terbuka → klien mengantre ulang (5xx)
+        logger.error("plugin_records GET: %s", e)
+        raise _unavailable(pid) from e
+    return out
+
+
+@router.post("/api/plugins/{plugin_id}/records")
+def post_records(plugin_id: str, body: RecordsPost, ctx: dict = Depends(_guard)) -> dict:
+    uid, pid, decl = ctx["uid"], ctx["pid"], ctx["decl"]
+    now = plugin_host.now_utc()
+    try:
+        with plugin_host.get_conn() as conn:
+            with dbconn.write_tx(conn):  # satu transaksi: `seq` dibaca-lalu-ditulis tanpa celah (R5)
+                access = set(plugin_host.accessible_list_ids(conn, uid))
+                results = [apply_item(conn, uid, pid, it.model_dump(), decl.get(it.entity), now, access)
+                           for it in body.items]
+    except sqlite3.OperationalError as e:
+        logger.error("plugin_records POST: %s", e)
+        raise _unavailable(pid) from e
+    return {"results": results}
