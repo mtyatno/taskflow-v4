@@ -61,7 +61,7 @@ def nav(p, label):
 
 def open_settings(p):
     nav(p, "Pengaturan")
-    p.get_by_text("Fitur opsional. Status disimpan di perangkat ini.").wait_for(state="visible", timeout=20000)
+    p.get_by_text("Fitur opsional. Pilihanmu tersimpan di akun dan berlaku di semua perangkat.").wait_for(state="visible", timeout=20000)
     p.locator(SWITCH).scroll_into_view_if_needed()
 
 
