@@ -24,7 +24,6 @@ from collections import defaultdict
 from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Literal, Any, Dict
-from contextlib import contextmanager
 
 from collections import deque
 import time as _time
@@ -143,6 +142,7 @@ from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date
 from repository import TaskRepository
 import repository
+import dbconn
 import drawing_scope
 import note_comments
 import safehtml
@@ -181,11 +181,8 @@ def _media_utcnow() -> datetime:
 
 
 def _media_db_connect():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    """Koneksi worker media/email lewat dbconn (FK ON). DB_PATH dibaca saat dipanggil (monkeypatch tes)."""
+    return dbconn.connect(DB_PATH)
 
 
 media_storage = get_storage(MEDIA_STORAGE, MEDIA_ROOT)
@@ -292,20 +289,10 @@ note_comment_subscribers: dict[int, set[tuple[int, asyncio.Queue]]] = defaultdic
 
 # ── Database helpers ───────────────────────────────────────────────────────────
 
-@contextmanager
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
+    """Context manager koneksi DB lewat dbconn.get_conn (commit bila sukses, rollback bila exception,
+    selalu close). DB_PATH dibaca saat dipanggil (monkeypatch tes)."""
+    return dbconn.get_conn(DB_PATH)
 
 
 def _upsert_tags_for_note(conn, note_id: int, user_id: int, tag_names: list):
@@ -358,8 +345,7 @@ def migrate_db():
     TaskRepository(DB_PATH).heal_orphan_workspace_items()
 
     # Ensure telegram_link_tokens table exists
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS telegram_link_tokens (
@@ -419,8 +405,7 @@ def migrate_db():
         conn.close()
 
     # Migrate scratchpad_notes.pinned column
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(scratchpad_notes)").fetchall()]
         if "pinned" not in cols:
@@ -430,8 +415,7 @@ def migrate_db():
         conn.close()
 
     # Migrate note_attachments: kolom media audio/video (spec §4.1)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         att_cols = {r["name"] for r in conn.execute("PRAGMA table_info(note_attachments)").fetchall()}
         for name, ddl in [
@@ -462,8 +446,7 @@ def migrate_db():
         conn.close()
 
     # Ensure FTS5 virtual table for scratchpad_notes exists
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         fts_exists = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='scratchpad_notes_fts'"
@@ -506,8 +489,7 @@ def migrate_db():
         conn.close()
 
     # Ensure mindmaps table exists
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS mindmaps (
@@ -525,8 +507,7 @@ def migrate_db():
         conn.close()
 
     # Ensure drawings table exists and migrate legacy schema if needed
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         table = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='drawings'").fetchone()
         if table:
@@ -588,7 +569,7 @@ def migrate_db():
         conn.close()
 
     # client_id: idempotensi retry sync drawings — client mengirim cid; retry POST tidak menduplikasi baris
-    conn = sqlite3.connect(DB_PATH)
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         try:
             conn.execute("ALTER TABLE drawings ADD COLUMN client_id TEXT")
@@ -600,7 +581,7 @@ def migrate_db():
         conn.close()
 
     # client_id: idempotensi retry sync scratchpad_notes — client mengirim cid; retry POST tidak menduplikasi baris
-    conn = sqlite3.connect(DB_PATH)
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         try:
             conn.execute("ALTER TABLE scratchpad_notes ADD COLUMN client_id TEXT")
@@ -620,7 +601,7 @@ def migrate_db():
         ("habits", "idx_habits_user_client"),
         ("mindmaps", "idx_mindmaps_user_client"),
     ):
-        conn = sqlite3.connect(DB_PATH)
+        conn = dbconn.connect(DB_PATH, foreign_keys=False)
         try:
             try:
                 conn.execute(f"ALTER TABLE {_tbl} ADD COLUMN client_id TEXT")
@@ -638,7 +619,7 @@ def migrate_db():
             conn.close()
 
     # Trash note: snapshot note yang dihapus (dipulihkan lewat /api/scratchpad/trash/{id}/restore)
-    conn = sqlite3.connect(DB_PATH)
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS trashed_notes (
@@ -655,7 +636,7 @@ def migrate_db():
         conn.close()
 
     # Sampah mindmap: snapshot peta yang dihapus (dipulihkan lewat /api/mindmaps/trash/{id}/restore)
-    conn = sqlite3.connect(DB_PATH)
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS trashed_mindmaps (
@@ -679,7 +660,7 @@ def migrate_db():
 
     # Pesan Pribadi / DM 1-on-1 (docs/superpowers/specs/2026-10-03-direct-messages-design.md).
     # Terpisah total dari shared list: tidak ada FK ke shared_lists, jadi hapus grup tidak menghapus DM.
-    conn = sqlite3.connect(DB_PATH)
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS dm_conversations (
@@ -730,8 +711,7 @@ def migrate_db():
         conn.close()
 
     # Widen entity_tags CHECK constraint to include 'drawing' and 'mindmap'
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         et = conn.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='entity_tags'").fetchone()
         if et and "'drawing'" not in (et["sql"] or ""):
@@ -758,8 +738,7 @@ def migrate_db():
         conn.close()
 
     # Migrate scratchpad_notes.tags (JSON array) → tags + entity_tags
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         migrated = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tags'").fetchone()
         if migrated:
@@ -776,8 +755,7 @@ def migrate_db():
         conn.close()
 
     # Migrate mindmaps.list_id column
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(mindmaps)").fetchall()]
         if "list_id" not in cols:
@@ -787,8 +765,7 @@ def migrate_db():
         conn.close()
 
     # Migrate mindmaps.last_edited_by column (collaborative shared mindmaps #2h-3)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(mindmaps)").fetchall()]
         if "last_edited_by" not in cols:
@@ -799,8 +776,7 @@ def migrate_db():
 
     # Migrate mindmaps.source_note_id (Petakan: peta tertaut ke catatan, satu peta per catatan).
     # Tanpa FK (catatan bisa dihapus/dipulihkan); index unik parsial dibuat walau kolom sudah ada.
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(mindmaps)").fetchall()]
         if "source_note_id" not in cols:
@@ -844,8 +820,7 @@ def migrate_db():
         conn.close()
 
     # Migrate messages.note_id column
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
         if "note_id" not in cols:
@@ -855,8 +830,7 @@ def migrate_db():
         conn.close()
 
     # Migrate messages.client_id column (offline chat dedup)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
         if "client_id" not in cols:
@@ -866,8 +840,7 @@ def migrate_db():
         conn.close()
 
     # Create note_templates table
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS note_templates (
@@ -889,7 +862,7 @@ def migrate_db():
     # Update default template content (add hardcoded tags)
     from datetime import datetime as _dt
     _now = _dt.now().isoformat()
-    conn = sqlite3.connect(DB_PATH)
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         for t in _DEFAULT_NOTE_TEMPLATES:
             conn.execute(
@@ -902,8 +875,7 @@ def migrate_db():
         conn.close()
 
     # Create ext_tokens table (browser clipper auth)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS ext_tokens (
@@ -922,8 +894,7 @@ def migrate_db():
         conn.close()
 
     # Ensure note_saved_searches table exists
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS note_saved_searches (
@@ -940,8 +911,7 @@ def migrate_db():
         conn.close()
 
     # Ensure workspace_files table exists
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS workspace_files (
@@ -964,8 +934,7 @@ def migrate_db():
         conn.close()
 
     # Migrate messages.file_id column
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         cols = [r["name"] for r in conn.execute("PRAGMA table_info(messages)").fetchall()]
         if "file_id" not in cols:
@@ -975,8 +944,7 @@ def migrate_db():
         conn.close()
 
     # Project sebagai entitas: skema + backfill dari tasks.project (idempoten).
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=True)
     try:
         conn.execute("PRAGMA foreign_keys=ON")
         repository.ensure_projects_schema(conn)
@@ -1001,8 +969,7 @@ def migrate_db():
         conn.close()
 
     # Terakhir: pulihkan trigger yang rusak oleh rebuild tabel lama (lihat _heal_broken_triggers).
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = dbconn.connect(DB_PATH, foreign_keys=False)
     try:
         _heal_broken_triggers(conn)
         conn.commit()

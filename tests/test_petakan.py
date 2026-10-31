@@ -280,7 +280,10 @@ def test_empty_trash_deletes_map_of_note_trashed_between_statements(client, monk
     fired = []
 
     def inject(stmt):
-        if not fired and stmt.lstrip().upper().startswith("DELETE FROM TRASHED_NOTES"):
+        # Disisipkan saat SELECT _purge_trashed_media (sesudah daftar `mine` dibaca, sebelum DELETE, di luar
+        # transaksi). Dulu dipicu oleh DELETE itu sendiri; sejak dbconn (BEGIN IMMEDIATE, ADR-038) kunci tulis
+        # sudah dipegang saat DELETE mulai, sehingga penulis lain tidak bisa menyelip di titik itu.
+        if not fired and stmt.lstrip().upper().startswith("SELECT NOTE_ID, SNAPSHOT_JSON FROM TRASHED_NOTES"):
             fired.append(1)
             cols = list(saved)
             _exec(f"INSERT INTO trashed_notes ({','.join(cols)}) VALUES ({','.join('?' * len(cols))})", *saved.values())

@@ -11,7 +11,6 @@ import secrets
 import hashlib
 from datetime import datetime, date, timedelta
 from typing import Optional
-from contextlib import contextmanager
 
 import pytz as _pytz
 _TZ_JKT = _pytz.timezone("Asia/Jakarta")
@@ -22,6 +21,7 @@ def _today_jkt() -> date:
 
 from models import Task, GTDStatus, Priority, Quadrant
 from config import DB_PATH, UPLOAD_DIR
+import dbconn
 
 _log = logging.getLogger(__name__)
 
@@ -620,20 +620,10 @@ class TaskRepository:
         self.db_path = db_path
         self._init_db()
 
-    @contextmanager
     def _connect(self):
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+        """Context manager koneksi lewat dbconn.get_conn(self.db_path): commit bila sukses,
+        rollback bila exception, selalu close (dipakai `with self._connect() as conn:`)."""
+        return dbconn.get_conn(self.db_path)
 
     def _init_db(self):
         with self._connect() as conn:
