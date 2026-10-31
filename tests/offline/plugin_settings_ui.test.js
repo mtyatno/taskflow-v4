@@ -35,7 +35,10 @@ test("PluginSettingsCard dirender di SettingsPage tepat setelah ThemeSettingsCar
 test("judul, subjudul, kosong, badge, izin: teks persis", () => {
   for (const s of [
     '"Plugin"',
-    '"Fitur opsional. Status disimpan di perangkat ini."',
+    '"Fitur opsional. Pilihanmu tersimpan di akun dan berlaku di semua perangkat."',
+    '"Menunggu sinkron"',
+    '"Dimatikan di perangkat ini karena error"',
+    '"Butuh koneksi internet untuk sebagian fitur"',
     '"Belum ada plugin"',
     '"Bawaan"',
     '"Tidak butuh izin"',
@@ -46,6 +49,14 @@ test("judul, subjudul, kosong, badge, izin: teks persis", () => {
     '"Belum dimuat"',
     '"Error — "',
   ]) assert.ok(card.includes(s), "teks " + s);
+  assert.ok(!card.includes("Status disimpan di perangkat ini."), "subjudul 0a sudah diganti");
+});
+
+test("Fase 0b: Menunggu sinkron saat pending; diredam → teks perangkat ini + Aktifkan lagi/Salin detail", () => {
+  assert.match(card, /it\.pending \? hint\("Menunggu sinkron", "q"\)/);
+  const sup = card.indexOf("it.suppressed");
+  assert.ok(sup > 0, "cabang suppressed");
+  assert.ok(card.indexOf('"Dimatikan di perangkat ini karena error"', sup) > sup);
 });
 
 test("toast ON/OFF persis memakai nama plugin", () => {

@@ -10,8 +10,9 @@ const root = path.join(__dirname, "../..");
 const html = fs.readFileSync(path.join(root, "static/index.html"), "utf8");
 const sw = fs.readFileSync(path.join(root, "static/sw.js"), "utf8");
 
-// Jumlah baris index.html di main sebelum Fase 0a (6bb0c7e). Batas spec: +60 baris bersih per fase plugin.
-const BASELINE_LINES = 46049;
+// Baseline Fase 0b: jumlah baris index.html di main 33dda23b (Fase 0a = 46049 di 6bb0c7e). Batas spec: +60 baris
+// bersih per fase plugin (rencana PR B R16).
+const BASELINE_LINES = 46092;
 const MAX_ADDED_LINES = 60;
 
 function fnSource(name) {
@@ -95,4 +96,38 @@ test("Dashboard merender <TF.Slot name=dashboard.widgets> setelah grid GTD, deng
 test("index.html bertambah ≤ 60 baris (Lampiran A #13)", () => {
   const lines = (html.match(/\n/g) || []).length;
   assert.ok(lines - BASELINE_LINES <= MAX_ADDED_LINES, `index.html +${lines - BASELINE_LINES} baris (batas ${MAX_ADDED_LINES})`);
+});
+
+// ── Fase 0b (spec docs/superpowers/specs/2026-10-31-plugin-fase0b-design.md §6.2–§6.4; rencana PR B Task 11) ──
+test("pluginstate.js dimuat tepat sekali, setelah meta.js/outbox.js dan sebelum syncpush.js; ada di STATIC sw.js", () => {
+  const tag = '<script src="/static/offline/pluginstate.js"></script>';
+  const at = html.indexOf(tag);
+  assert.ok(at > 0, "tag pluginstate.js");
+  assert.equal(html.indexOf(tag, at + 1), -1, "hanya sekali");
+  for (const dep of ["meta.js", "outbox.js", "db.js"]) {
+    const d = html.indexOf(`<script src="/static/offline/${dep}"></script>`);
+    assert.ok(d > 0 && d < at, dep + " lebih dulu");
+  }
+  assert.ok(html.indexOf('<script src="/static/offline/syncpush.js"></script>') > at, "sebelum syncpush.js");
+  assert.match(sw, /^\s*"\/static\/offline\/pluginstate\.js",/m);
+});
+
+test("sync(): langkah pluginstate.pull terisolasi (step) setelah pull sketsa, sebelum pushOutbox", () => {
+  const s = html.indexOf("function sync() {");
+  const body = html.slice(s, html.indexOf("\n}\n", s));
+  const pull = body.indexOf("pluginstate.pull(__syncRawFetch");
+  assert.ok(pull > 0, "langkah pull ada");
+  const stepAt = body.lastIndexOf("step(", pull);
+  assert.ok(stepAt > 0 && body.slice(stepAt, pull).indexOf(".then(") < 0, "dibungkus step(");
+  assert.ok(pull > body.indexOf("pullDrawingsAndReconcile"), "setelah pull sketsa");
+  assert.ok(pull < body.indexOf("syncpush.pushOutbox(__syncTransport)"), "sebelum pushOutbox");
+  assert.match(body, /window\.TF\.pluginstate \? window\.TF\.pluginstate\.pull\(__syncRawFetch, \{ userId: runUid, known: window\.TF\.plugins\?\.knownIds\?\.\(\) \?\? null \}\) : null/);
+});
+
+test("bindHost meneruskan fetch (network: true), isOfflineErr, pushNow", () => {
+  const at = app.indexOf("plugins?.bindHost({");
+  const line = app.slice(at, app.indexOf("\n", at));
+  assert.ok(line.includes("fetch: (p, o) => api.fetch(p, { ...o, network: true })"), "fetch");
+  assert.match(line, /isOfflineErr[,\s}]/);
+  assert.ok(line.includes("pushNow: () => window.__pushNow()"), "pushNow");
 });
