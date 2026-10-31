@@ -21,9 +21,13 @@ const METRIC_NAMES = {
   both: "habit dan task"
 };
 // Geometri dasar (1.0): kotak 11 px, jarak 2, kolom label hari 26, baris label bulan 14, font label 9.
-// 1.1: ukuran kotak mengikuti lebar kontainer, dibatasi CELL_MIN–CELL_MAX; label & tepi ikut skala.
+// 1.1: ukuran kotak mengikuti lebar kontainer, dibatasi CELL_MIN–CELL_MAX; jarak ≈ 14% kotak (2–4 px); kotak dan
+// jarak dibulatkan ke px utuh agar tajam; label & tepi ikut skala.
 const CELL_MIN = 11;
-const CELL_MAX = 18;
+const CELL_MAX = 26;
+const GAP_RATIO = 0.14;
+const GAP_MIN = 2;
+const GAP_MAX = 4;
 const K_LEFT = 26 / 11;
 const K_TOP = 14 / 11;
 const FONT_MAX = 12;
@@ -175,39 +179,31 @@ function svgLabel(metric, active) {
   return "Heatmap " + (METRIC_NAMES[metric] || METRIC_NAMES.habit) + ", " + active + " hari aktif";
 }
 const floor2 = v => Math.floor(v * 100) / 100;
+const gapFor = cell => Math.min(GAP_MAX, Math.max(GAP_MIN, Math.round(cell * GAP_RATIO)));
 
-// Tata letak grid untuk lebar kontainer `containerWidth` (px) dan `cols` kolom. Kotak CELL_MIN–CELL_MAX, jarak
-// ≈ kotak/6 (2–3 px). Kontainer lebih sempit dari grid minimum → kotak 11 (scroll internal seperti 1.0). Kontainer
-// lebih lebar dari grid maksimum → kotak tetap 18, sisa lebar dibagi ke jarak supaya grid tetap mengisi kartu.
+// Tata letak grid untuk lebar kontainer `containerWidth` (px) dan `cols` kolom. Kotak CELL_MIN–CELL_MAX px utuh,
+// jarak gapFor(kotak). Kontainer lebih sempit dari grid minimum → kotak 11 (scroll internal seperti 1.0). Kontainer
+// lebih lebar dari grid maksimum → kotak 26, sisa ruang di kanan (grid rata kiri; jarak tidak dilebarkan).
 // Belum terukur (0) → geometri 1.0.
 function geometry(containerWidth, cols) {
   const w = Number(containerWidth) > 0 ? Number(containerWidth) : 0;
-  let cell = w / (K_LEFT + cols * 7 / 6);
-  let gap = cell / 6;
-  if (gap < 2) {
-    cell = (w - 2 * cols) / (K_LEFT + cols);
-    gap = 2;
-  }
-  if (!(cell > CELL_MIN)) {
-    cell = CELL_MIN;
-    gap = 2;
-  } else if (cell >= CELL_MAX) {
-    cell = CELL_MAX;
-    gap = Math.max(3, (w - K_LEFT * CELL_MAX) / cols - CELL_MAX);
-  }
-  cell = floor2(cell);
-  gap = floor2(gap);
+  let cell = w / (K_LEFT + cols * (1 + GAP_RATIO));
+  for (let i = 0; i < 2; i++) cell = Math.floor((w - cols * gapFor(cell)) / (K_LEFT + cols));
+  cell = Math.min(CELL_MAX, Math.max(CELL_MIN, cell || 0));
+  const fits = c => Math.round(K_LEFT * c) + cols * (c + gapFor(c)) <= w;
+  while (cell > CELL_MIN && !fits(cell)) cell -= 1;
+  const gap = gapFor(cell);
   const step = cell + gap;
-  const left = floor2(K_LEFT * cell);
-  const top = floor2(K_TOP * cell);
+  const left = Math.round(K_LEFT * cell);
+  const top = Math.round(K_TOP * cell);
   return {
     cell,
     gap,
     step,
     left,
     top,
-    width: floor2(left + cols * step),
-    height: floor2(top + 7 * step),
+    width: left + cols * step,
+    height: top + 7 * step,
     font: floor2(Math.min(FONT_MAX, 9 * cell / 11)),
     rx: floor2(2 * cell / 11)
   };

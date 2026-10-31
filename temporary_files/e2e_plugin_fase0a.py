@@ -197,16 +197,18 @@ def run(browser, base, user):
         wide = p.evaluate("""sel => { const c = document.querySelector(sel); const cs = getComputedStyle(c);
             const content = c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
             const sv = c.querySelector('svg').getBoundingClientRect(); const r = c.querySelector('rect').getBoundingClientRect();
+            const xs = [...new Set([...c.querySelectorAll('rect')].map(x => +x.getAttribute('x')))].sort((a, b) => a - b);
+            const gap = xs[1] - xs[0] - +c.querySelector('rect').getAttribute('width');
             const s = c.querySelector('.plg-heatmap-scroll'); const de = document.documentElement;
             const lg = c.querySelector('.plg-heatmap-legend').getBoundingClientRect();
             const sm = c.querySelector('.plg-heatmap-summary').getBoundingClientRect();
-            return { content, svgW: sv.width, cell: r.width, scrollSW: s.scrollWidth, scrollCW: s.clientWidth,
+            return { content, svgW: sv.width, cell: r.width, gap, scrollSW: s.scrollWidth, scrollCW: s.clientWidth,
                      docSW: de.scrollWidth, docCW: de.clientWidth, legendRight: lg.right, cardRight: c.getBoundingClientRect().right
                        - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth), sameRow: Math.abs(lg.top - sm.top) < 8 }; }""", CARD)
-        ok1660 = (wide["svgW"] >= 0.9 * wide["content"] and 11 <= wide["cell"] <= 18.01
+        ok1660 = (wide["svgW"] >= 0.9 * wide["content"] and 11 <= wide["cell"] <= 26.01 and 2 <= wide["gap"] <= 4
                   and wide["scrollSW"] <= wide["scrollCW"] and wide["docSW"] <= wide["docCW"]
                   and wide["sameRow"] and abs(wide["legendRight"] - wide["cardRight"]) < 2)
-        check("1.1b 1660px: lebar svg ≥ 90%% konten kartu, kotak 11–18, tanpa scroll, legenda kanan sejajar ringkasan", ok1660,
+        check("1.1b 1660px: lebar svg ≥ 90%% konten kartu, kotak 11–26, gap ≤ 4 px, tanpa scroll, legenda kanan sejajar ringkasan", ok1660,
               repr(wide))
         p.locator(CARD).scroll_into_view_if_needed()
         shot(p, "1660-dashboard.png")
