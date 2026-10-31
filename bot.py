@@ -50,6 +50,7 @@ def _today_jkt():
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.constants import ParseMode
+from telegram.error import NetworkError
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -69,6 +70,8 @@ from config import (
 from models import Task, GTDStatus, Priority, Quadrant
 from repository import TaskRepository, InvitationExists, AlreadyMember, InvitationNotFound, InvitationClosed, InvitationExpired
 import dbconn
+import plugin_host
+import plugin_loader
 from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date, format_date
 from nlp import parse_task, format_confirmation, parse_query
@@ -2799,6 +2802,25 @@ async def weekly_review_job(context: ContextTypes.DEFAULT_TYPE):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  ERROR HANDLER
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _update_id(update) -> str:
+    uid = getattr(update, "update_id", None)
+    return str(uid) if uid is not None else "-"
+
+
+async def on_error(update: object, context) -> None:
+    """Error handler PTB (juga menerima error polling getUpdates). Gangguan jaringan sesaat
+    (`NetworkError`, termasuk `TimedOut`) = satu baris WARNING tanpa traceback; selain itu ERROR + traceback."""
+    err = context.error
+    if isinstance(err, NetworkError):
+        logger.warning("Telegram: gangguan jaringan sesaat (%s: %s)", type(err).__name__, err)
+        return
+    logger.error("Error saat memproses update %s", _update_id(update), exc_info=err)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  MAIN
 # ══════════════════════════════════════════════════════════════════════════════
 
@@ -2808,6 +2830,11 @@ def main():
         return
 
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app.add_error_handler(on_error)
+
+    # Plugin server (ADR-039): indeks + discover saja — bot tidak menjalankan DDL dan tidak memasang router.
+    plugin_host.bind(current_user=None, db_path=lambda: repo.db_path)
+    plugin_loader.load_for_bot(app)
 
     # ── Conversation: /add ──
     add_conv = ConversationHandler(
