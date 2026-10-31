@@ -1,17 +1,20 @@
 """Pagar AST: `sqlite3.connect` hanya boleh dipanggil di `dbconn.py` (ADR-038, spec Fase 0b §4.3).
 
-Selama migrasi bertahap (PR A Task 2–5) tes memakai *ratchet* `REMAINING`: jumlah titik
-`sqlite3.connect` yang masih diizinkan per file. Angkanya hanya boleh turun; Task 6
-menghapus ratchet dan menjadikannya aturan keras.
-
-Yang ditolak di luar `dbconn.py`:
+Aturan keras (tanpa ratchet sejak PR A Task 6): `dbconn.py` wajib tepat SATU `sqlite3.connect`;
+file produksi lain nol. Yang ditolak di luar `dbconn.py`:
 - `sqlite3.connect(...)` lewat `import sqlite3`, `import sqlite3 as X` (termasuk import di dalam
   fungsi — kasus `bot.py` lama), dan `from sqlite3 import connect [as Y]`;
 - kata kunci `isolation_level=` / `autocommit=` pada pemanggilan apa pun;
 - assignment ke atribut `.isolation_level` / `.autocommit`.
 
-Yang dipindai: semua `*.py` di akar repo. `scripts/`, `tests/`, `temporary_files/`, `venv/`,
-`node_modules/`, `draw-app/`, `docs/` tidak dipindai.
+Yang dipindai: semua `*.py` di akar repo (`PROD_FILES`). Tidak dipindai: `scripts/` (skrip
+pemeliharaan, mis. `scripts/dedup_drawings.py` yang masih memakai `sqlite3.connect`), `tests/`,
+`temporary_files/`, `venv/`, `node_modules/`, `draw-app/`, `docs/`.
+
+Allowlist (`ALLOWLIST`) = skrip sekali jalan di akar repo yang dijalankan manual dan tidak
+pernah di-import layanan: `merge_db.py`, `fix_list_tasks.py`. Menambah pengecualian baru
+harus beralasan di PR (bukan jalan pintas untuk kode layanan): kode yang dipakai `webapp`,
+`repository`, `bot`, worker, atau plugin wajib lewat `dbconn.connect`/`dbconn.get_conn`.
 """
 import ast
 import sqlite3
@@ -31,9 +34,6 @@ ALLOWLIST = {
 }
 
 PROD_FILES = sorted(p for p in ROOT.glob("*.py") if p.name not in ALLOWLIST)
-
-# Ratchet migrasi bertahap: titik `sqlite3.connect` yang MASIH diizinkan per file (hanya boleh turun).
-REMAINING = {}
 
 FORBIDDEN_TX_CONTROL = {"isolation_level", "autocommit"}
 
@@ -114,7 +114,7 @@ def test_prod_files_scanned():
     assert not (ALLOWLIST & names)
 
 
-def test_sqlite_connect_only_in_dbconn_or_remaining():
+def test_sqlite_connect_only_in_dbconn():
     dbconn_py = ROOT / "dbconn.py"
     assert dbconn_py.exists(), "dbconn.py belum ada"
     own = connect_calls(dbconn_py)
@@ -125,10 +125,11 @@ def test_sqlite_connect_only_in_dbconn_or_remaining():
         if path.name == "dbconn.py":
             continue
         hits = connect_calls(path)
-        allowed = REMAINING.get(path.name, 0)
-        if len(hits) != allowed:
-            problems.append(f"{path.name}: {len(hits)} titik (ratchet {allowed}) — {_fmt(path, hits) or '-'}")
-    assert not problems, "sqlite3.connect di luar dbconn.py:\n" + "\n".join(problems)
+        if hits:
+            problems.append(_fmt(path, hits))
+    assert not problems, (
+        "sqlite3.connect di luar dbconn.py (pakai dbconn.connect/dbconn.get_conn): " + "; ".join(problems)
+    )
 
 
 def test_no_isolation_level_or_autocommit_outside_dbconn():
