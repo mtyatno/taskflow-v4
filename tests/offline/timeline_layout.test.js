@@ -188,7 +188,7 @@ test("ringkasan: rentang min–maks anak terjadwal rekursif; tanpa anak terjadwa
   assert.equal(I(row("4").span.s), "2026-11-03");
   assert.equal(I(row("4").span.f), "2026-11-19");
   assert.equal(row("1").childCount, 3);
-  assert.equal(row("1").duration, C.workdays(std(), D("2026-11-03"), D("2026-11-19")));
+  assert.equal(row("1").duration, 13, "hari kerja 3–19 Nov 2026: 4 + 5 + 4");
   assert.equal(row("7").kind, "summary");
   assert.equal(row("7").span, null);
   assert.equal(row("7").duration, null);
@@ -230,12 +230,134 @@ test("rentang: min(start) − 14 .. max(finish, deadline) + 30 ∪ today ± 60",
   assert.deepEqual(lay([mk(1, {}, sch("2031-03-03", 1))], { cal: C.compile({ national: false, cutiBersama: false }) }).missingYears, []);
 });
 
-test("kalender mentah (belum dikompilasi) diterima; compile hanya satu kali per layout (sumber)", () => {
+// Muat salinan baru layout.js dengan TLCal "sama" tetapi compile dibungkus mata-mata (TLCal asli beku, tak bisa ditimpa).
+function loadWithCompileSpy() {
+  const src = fs.readFileSync(path.join(dir, "layout.js"), "utf8");
+  const calls = [];
+  const spyCal = { ...C, compile: (...a) => (calls.push(a), C.compile(...a)) };
+  const mod = new Function("TLCal", "TLSched", "TLHolidays", src + "\nreturn TLLayout;")(spyCal, S, require(path.join(dir, "holidays-id.js")));
+  return { mod, calls };
+}
+
+test("kalender mentah diterima; compile tepat satu kali per layout (mata-mata), nol kali bila sudah terkompilasi", () => {
   const raw = { v: 1, weekdays: [1, 2, 3, 4, 5, 6], national: false, cutiBersama: false, off: [], work: [] };
   const r = lay([mk(1, {}, sch("2026-11-06", 2))], { cal: raw }); // Jum 6 + Sab 7 (hari kerja)
   assert.equal(I(r.rows[0].span.f), "2026-11-07");
-  const src = fs.readFileSync(path.join(dir, "layout.js"), "utf8");
-  assert.equal((src.match(/CAL\.compile\(/g) || []).length, 1, "satu panggilan compile di sumber");
+  const tasks = Array.from({ length: 50 }, (_, i) => mk(i + 1, i ? { parent_id: 1 } : {}, sch("2026-11-02", 3, i ? [{ t: { $task: i }, type: "FS", lag: 0 }] : undefined)));
+  const { mod, calls } = loadWithCompileSpy();
+  const args = { tasks, pageKind: "project", sort: "wbs", today: TODAY, readSchedOf, zoom: "week" };
+  mod.layout({ ...args, cal: raw });
+  assert.equal(calls.length, 1, "satu compile untuk 50 task dan 49 dependensi");
+  mod.layout({ ...args, cal: undefined });
+  assert.equal(calls.length, 2, "tanpa kalender → bawaan, satu compile");
+  mod.layout({ ...args, cal: std() });
+  assert.equal(calls.length, 2, "kalender terkompilasi dipakai apa adanya");
+});
+
+test("layout mengembalikan kalender terkompilasi (cal) dan mengenali kalender terkompilasi lewat duck typing", () => {
+  const c = std();
+  assert.equal(lay([], { cal: c }).cal, c, "objek yang sama dikembalikan");
+  const fromRaw = lay([], { cal: { weekdays: [1, 2, 3] } }).cal;
+  assert.ok(typeof fromRaw.key === "string" && typeof fromRaw.mask.has === "function");
+  assert.equal([1, 2, 3, 4, 5].filter((w) => fromRaw.mask.has(w)).length, 3);
+  // objek mirip-terkompilasi tanpa Set sungguhan (mask/off/work hanya punya has)
+  const duck = { key: "bebek", national: false, cutiBersama: false, mask: { has: (w) => w === 1 || w === 2 }, off: { has: () => false }, work: { has: () => false } };
+  const { mod, calls } = loadWithCompileSpy();
+  const r = mod.layout({ tasks: [mk(1, {}, sch("2026-11-02", 2)), mk(2, {}, sch("2026-11-02", 3))], pageKind: "project", sort: "wbs", cal: duck, today: TODAY, readSchedOf, zoom: "week" });
+  assert.equal(calls.length, 0, "tidak dikompilasi ulang");
+  assert.equal(r.cal, duck);
+  assert.equal(I(r.rows[0].span.f), "2026-11-03", "Sen + Sel saja hari kerja");
+  assert.equal(I(r.rows[1].span.f), "2026-11-09", "Sen 2, Sel 3, Sen 9");
+});
+
+test("rentang dibatasi hari ini ± 1830 hari: tanggal tenggat/mulai tahun 9999 dan 2062 tidak melebarkan grafik (deviasi R22)", () => {
+  const t0 = D(TODAY);
+  const tasks = [mk(1, {}, sch("2026-11-05", 2)), mk(2, { deadline: "9999-12-31" }, sch("2026-11-09", 1)), mk(3, {}, sch("9999-01-04", 3)), mk(4, {}, sch("2062-03-02", 2)), mk(5, { deadline: "1900-01-01" }, sch("1900-01-01", 1)), mk(6, {}, sch("2027-02-01", 1, [{ t: { $task: 3 }, type: "FS", lag: 0 }]))];
+  const r = lay(tasks, { pageKind: "workspace" });
+  assert.ok(r.range.from >= t0 - 1830 - 14, "kiri ≤ jendela + 14");
+  assert.ok(r.range.to <= t0 + 1830 + 30, "kanan ≤ jendela + 30");
+  assert.ok(r.range.to - r.range.from + 1 <= 3661 + 44, "lebar ≤ 3661 + margin");
+  assert.deepEqual(r.missingYears, [2021, 2022, 2023, 2024, 2028, 2029, 2030, 2031], "dihitung dari rentang terjepit; 2025–2027 punya data");
+  assert.ok(r.missingYears.length <= 8);
+  const row = (k) => r.rows.find((x) => x.key === k);
+  // di luar rentang: baris tetap ada, span tetap di data, outOfRange true; tidak digambar sebagai ujung panah
+  for (const k of ["3", "4", "5"]) {
+    assert.ok(row(k), "baris " + k);
+    assert.notEqual(row(k).span, null, "span tetap di data " + k);
+    assert.equal(row(k).outOfRange, true, k);
+  }
+  assert.equal(I(row("3").span.s), "9999-01-04");
+  for (const k of ["1", "2", "6"]) assert.equal(row(k).outOfRange, false, k);
+  assert.equal(r.rows.find((x) => x.kind === "group").outOfRange, false);
+  assert.equal(r.edges.find((e) => e.to === "6").drawn, false, "pendahulu di luar rentang → tidak digambar");
+  assert.equal(r.stats.outOfRange, 3);
+  assert.equal(row("2").deadlineDn, D("9999-12-31"), "tenggat apa adanya di data (dijepit hanya untuk rentang)");
+  // rentang normal tidak berubah: dalam jendela → persis aturan R22
+  const normal = lay([mk(1, {}, sch("2027-06-02", 1)), mk(2, {}, sch("2025-03-03", 1))]);
+  assert.equal(normal.range.from, D("2025-03-03") - 14);
+  assert.equal(normal.range.to, D("2027-06-02") + 30);
+  assert.equal(normal.rows.every((x) => x.outOfRange === false), true);
+  // bar yang melintasi tepi jendela tidak dianggap di luar rentang
+  const edge = lay([mk(1, {}, sch(I(t0 + 1829), 5))]);
+  assert.equal(edge.rows[0].outOfRange, false);
+  assert.equal(lay([mk(1, {}, sch(I(t0 + 1840), 1))]).rows[0].outOfRange, true);
+});
+
+test("ringkasan dengan anak sangat jauh: durasi hari kerja dibatasi 3660 hari kalender; layout 500 task + tanggal 9999 ≤ 150 ms", () => {
+  const sum = lay([mk(1, {}), mk(2, { parent_id: 1 }, sch("2026-11-02", 1)), mk(3, { parent_id: 1 }, sch("9999-01-04", 1))]);
+  const s1 = sum.rows.find((x) => x.key === "1");
+  assert.equal(s1.kind, "summary");
+  assert.equal(I(s1.span.f), "9999-01-04", "span ringkasan apa adanya");
+  assert.ok(s1.duration > 0 && s1.duration <= 3660 * (5 / 7) + 40, "terbatas ±3660 hari: " + s1.duration);
+  assert.equal(s1.outOfRange, false);
+  const tasks = [];
+  for (let i = 1; i <= 500; i++) {
+    const far = i % 50 === 0;
+    tasks.push(mk(i, { project_id: 1 + (i % 12), project: "P" + (i % 12), deadline: i % 7 === 0 ? "9999-12-31" : null, parent_id: i % 10 === 0 && i > 10 ? i - 10 : undefined }, sch(far ? "9999-01-04" : I(D("2026-01-01") + ((i * 7) % 360)), 1 + (i % 9), i > 1 && i <= 401 ? [{ t: { $task: i - 1 }, type: "FS", lag: 1 }] : undefined)));
+  }
+  const times = [];
+  let res;
+  for (let k = 0; k < 5; k++) {
+    const t0 = process.hrtime.bigint();
+    res = lay(tasks, { pageKind: "workspace", zoom: "day" });
+    times.push(Number(process.hrtime.bigint() - t0) / 1e6);
+  }
+  times.sort((a, b) => a - b);
+  console.log("timeline layout dengan tanggal 9999 median: " + times[2].toFixed(1) + " ms");
+  assert.ok(res.range.to - res.range.from <= 3661 + 44);
+  assert.ok(res.missingYears.length <= 8);
+  assert.ok(times[2] <= 150, "median " + times[2]);
+});
+
+test("windowDays: viewW/scrollLeft tidak sah tidak menghasilkan NaN", () => {
+  const range = { from: 1000, to: 1400 };
+  for (const [sl, vw] of [[600, undefined], [undefined, undefined], [NaN, NaN], [undefined, 600], [600, -5]]) {
+    const w = L.windowDays(range, 12, sl, vw);
+    assert.ok(Number.isInteger(w.fromDn) && Number.isInteger(w.toDn), JSON.stringify([sl, vw]));
+    assert.ok(w.fromDn >= 1000 && w.toDn <= 1400 && w.fromDn <= w.toDn);
+  }
+  assert.deepEqual(L.windowDays(range, 12, 600, undefined), { fromDn: 1050, toDn: 1050 }, "layar 0 → satu kolom di scrollLeft");
+});
+
+test("ringkasan 0 hari kerja bukan milestone: barBox/ariaBar memutuskan lewat kind lebih dulu; bar dipangkas ke rentang", () => {
+  // anak milestone di Sabtu → ringkasan s = f = Sab 7 Nov, 0 hari kerja; ext milik ringkasan juga durasi 0
+  const r = lay([mk(1, {}, sch("2026-11-02", 0)), mk(2, { parent_id: 1 }, sch("2026-11-07", 0))]);
+  const row = r.rows[0];
+  assert.equal(row.kind, "summary");
+  assert.equal(row.duration, 0);
+  assert.equal(row.sched.duration, 0, "ext induk durasi 0 tetap tersimpan");
+  const range = { from: row.span.s - 10, to: row.span.s + 10 };
+  assert.deepEqual(L.barBox(row.span, row.sched, range, 12, "summary"), { x: 120, w: 12, milestone: false });
+  assert.deepEqual(L.barBox(row.span, row.sched, range, 12), { x: 126, w: 0, milestone: true }, "tanpa kind: perilaku lama");
+  assert.deepEqual(L.barBox(row.span, row.sched, range, 12, "task"), { x: 126, w: 0, milestone: true });
+  assert.equal(L.ariaBar(row.task, { duration: row.duration }, row.span, 0, "summary"), "T1, Sab 7 Nov sampai Sab 7 Nov, 0 hari kerja, 0%");
+  assert.equal(L.ariaBar(row.task, { duration: 0 }, row.span, 0), "T1, milestone Sab 7 Nov");
+  // pemangkasan ke rentang: bar melewati tepi kiri/kanan; seluruhnya di luar → null
+  const rg = { from: 100, to: 130 };
+  assert.deepEqual(L.barBox({ s: 90, f: 105 }, { duration: 5 }, rg, 12), { x: 0, w: 72, milestone: false });
+  assert.deepEqual(L.barBox({ s: 125, f: 9999 }, { duration: 5 }, rg, 12), { x: 300, w: 72, milestone: false });
+  assert.equal(L.barBox({ s: 131, f: 140 }, { duration: 5 }, rg, 12), null);
+  assert.equal(L.barBox({ s: 50, f: 60 }, { duration: 0 }, rg, 12), null);
 });
 
 test("baris: span/sched/late/violation, bendera tenggat, task tanpa jadwal tetap berbaris (R16, R21)", () => {

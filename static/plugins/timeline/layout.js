@@ -11,6 +11,8 @@ const TLLayout = (function (CAL, SCHED, HOL) {
   const PAD_BEFORE = 14; // hari sebelum mulai paling awal
   const PAD_AFTER = 30; // hari setelah selesai/tenggat paling akhir
   const TODAY_PAD = 60; // hari ± hari ini yang selalu masuk rentang
+  const RANGE_SPAN = 1830; // tanggal yang ikut menentukan rentang dijepit ke hari ini ± 1830 hari (±5 tahun; deviasi R22)
+  const MAX_WD_SPAN = 3660; // hari kalender maks yang dihitung untuk durasi hari kerja ringkasan (pola MAX_LATE_SPAN)
   const ARROW_OUT = 6; // px keluar ke kanan dari ujung pendahulu
   const ARROW_IN = 6; // px lari horizontal terakhir menuju awal penerus
   const NO_PROJECT = "(Tanpa project)";
@@ -37,12 +39,16 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     return (range.to - range.from + 1) * px;
   }
 
-  // Kotak bar {x, w, milestone}. Milestone (durasi 0) = titik pusat hari (lebar 0), selainnya selebar (selesai − mulai + 1) hari.
-  function barBox(span, sched, range, px) {
+  // Kotak bar {x, w, milestone}, dipangkas ke rentang; seluruhnya di luar rentang → null. Milestone (durasi 0 pada task biasa)
+  // = titik pusat hari (lebar 0). `kind === "summary"` menang atas durasi 0: ringkasan selalu bar selebar rentangnya.
+  function barBox(span, sched, range, px, kind) {
     if (!span) return null;
-    const x = xOf(span.s, range, px);
-    if (sched && sched.duration === 0) return { x: x + px / 2, w: 0, milestone: true };
-    return { x, w: (span.f - span.s + 1) * px, milestone: false };
+    const s = Math.max(span.s, range.from);
+    const f = Math.min(span.f, range.to);
+    if (f < s) return null;
+    const x = xOf(s, range, px);
+    if (kind !== "summary" && sched && sched.duration === 0) return { x: x + px / 2, w: 0, milestone: true };
+    return { x, w: (f - s + 1) * px, milestone: false };
   }
 
   // ---------------------------------------------------------------- jendela virtual (R11)
@@ -63,8 +69,10 @@ const TLLayout = (function (CAL, SCHED, HOL) {
 
   // Kolom hari yang dirender: [scrollLeft − 1 layar, scrollLeft + 2 layar] (R11), dijepit ke rentang.
   function windowDays(range, px, scrollLeft, viewW) {
-    const left = (isFin(scrollLeft) ? scrollLeft : 0) - viewW;
-    const right = (isFin(scrollLeft) ? scrollLeft : 0) + 2 * viewW;
+    const sl = isFin(scrollLeft) ? scrollLeft : 0;
+    const vw = isFin(viewW) && viewW > 0 ? viewW : 0;
+    const left = sl - vw;
+    const right = sl + 2 * vw;
     return {
       fromDn: Math.max(range.from, Math.min(range.to, dnAt(left, range, px))),
       toDn: Math.max(range.from, Math.min(range.to, dnAt(right, range, px))),
@@ -223,11 +231,11 @@ const TLLayout = (function (CAL, SCHED, HOL) {
 
   // ---------------------------------------------------------------- aksesibilitas (R23)
   // progress: 0–100 atau null/undefined (dihilangkan). sched.duration = durasi hari kerja (untuk ringkasan: row.duration).
-  function ariaBar(task, sched, span, progress) {
+  function ariaBar(task, sched, span, progress, kind) {
     const raw = task && task.title !== undefined && task.title !== null ? String(task.title).trim() : "";
     const title = raw || "Tanpa judul";
     if (!span) return title + ", belum dijadwalkan";
-    if (sched && sched.duration === 0) return title + ", milestone " + CAL.fmtShort(span.s);
+    if (kind !== "summary" && sched && sched.duration === 0) return title + ", milestone " + CAL.fmtShort(span.s);
     let out = title + ", " + CAL.fmtShort(span.s) + " sampai " + CAL.fmtShort(span.f);
     if (sched && isInt(sched.duration)) out += ", " + sched.duration + " hari kerja";
     if (isFin(progress)) out += ", " + Math.round(Math.min(100, Math.max(0, progress))) + "%";
@@ -295,14 +303,22 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     };
   }
 
+  // Kalender terkompilasi dikenali lewat bentuknya (bukan instanceof Set).
+  function isCompiled(c) {
+    return !!c && typeof c.key === "string" && !!c.mask && typeof c.mask.has === "function" && !!c.off && typeof c.off.has === "function" && !!c.work && typeof c.work.has === "function";
+  }
+
   function layout(args) {
     const a = args || {};
-    const c = a.cal && a.cal.mask instanceof Set && a.cal.off instanceof Set ? a.cal : CAL.compile(a.cal || CAL.DEFAULT_CAL); // sekali per layout
+    const c = isCompiled(a.cal) ? a.cal : CAL.compile(a.cal || CAL.DEFAULT_CAL); // sekali per layout
     const todayDn = toDn(a.today);
     const zoom = PX[a.zoom] ? a.zoom : DEFAULT_ZOOM;
     const px = PX[zoom];
     const workspace = a.pageKind === "workspace";
     const sortStart = a.sort === "start";
+    const w0 = isInt(todayDn) ? todayDn - RANGE_SPAN : -Infinity; // jendela rentang
+    const w1 = isInt(todayDn) ? todayDn + RANGE_SPAN : Infinity;
+    const clampW = (d) => Math.min(w1, Math.max(w0, d));
     const readOf = typeof a.readSchedOf === "function" ? a.readSchedOf : defaultRead;
 
     // 1. dibuang: berulang, archived, deleted; duplikat kunci → yang pertama.
@@ -429,7 +445,7 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     const rowOf = new Map();
     for (const g of groups) {
       if (workspace) {
-        rows.push({ key: "g:" + g.key, task: null, group: g.key, depth: 0, wbs: String(g.n), kind: "group", span: null, sched: null, late: 0, violation: false, duration: null, progress: null, done: false, deadlineDn: null, childCount: 0, parentKey: null, index: rows.length });
+        rows.push({ key: "g:" + g.key, task: null, group: g.key, depth: 0, wbs: String(g.n), kind: "group", span: null, sched: null, late: 0, violation: false, duration: null, progress: null, done: false, deadlineDn: null, childCount: 0, parentKey: null, outOfRange: false, index: rows.length });
       }
       const stack = [];
       for (let i = g.roots.length - 1; i >= 0; i--) stack.push(g.roots[i]);
@@ -452,12 +468,13 @@ const TLLayout = (function (CAL, SCHED, HOL) {
           sched: it.sched,
           late: lateN > 0 ? lateN : 0,
           violation: false,
-          duration: summary ? (it.span ? CAL.workdays(c, it.span.s, it.span.f) : null) : it.sched.duration,
+          duration: summary ? (it.span ? CAL.workdays(c, it.span.s, Math.min(it.span.f, it.span.s + MAX_WD_SPAN)) : null) : it.sched.duration,
           progress: done ? 100 : Number.isFinite(pr) ? Math.min(100, Math.max(0, pr)) : 0,
           done,
           deadlineDn: Number.isInteger(deadlineDn) ? deadlineDn : null,
           childCount: it.children.length,
           parentKey: it.parent ? it.parent.key : null,
+          outOfRange: !!it.span && (it.span.f < w0 || it.span.s > w1),
           index: rows.length,
         };
         rows.push(row);
@@ -479,7 +496,7 @@ const TLLayout = (function (CAL, SCHED, HOL) {
       e.fromRow = fr ? fr.index : null;
       e.toRow = tr ? tr.index : null;
       e.violation = violPair.has(e.from + "\u0000" + e.to);
-      e.drawn = e.ok && !!(fr && tr && fr.span && tr.span);
+      e.drawn = e.ok && !!(fr && tr && fr.span && tr.span && !fr.outOfRange && !tr.outOfRange);
     }
     for (const k of viol) {
       const r = rowOf.get(k);
@@ -491,10 +508,15 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     let hi = -Infinity;
     for (const r of rows) {
       if (r.span) {
-        if (r.span.s < lo) lo = r.span.s;
-        if (r.span.f > hi) hi = r.span.f;
+        const cs = clampW(r.span.s);
+        const cf = clampW(r.span.f);
+        if (cs < lo) lo = cs;
+        if (cf > hi) hi = cf;
       }
-      if (r.deadlineDn !== null && r.deadlineDn > hi) hi = r.deadlineDn;
+      if (r.deadlineDn !== null) {
+        const cd = clampW(r.deadlineDn);
+        if (cd > hi) hi = cd;
+      }
     }
     let from = lo === Infinity ? Infinity : lo - PAD_BEFORE;
     let to = hi === -Infinity ? -Infinity : hi + PAD_AFTER;
@@ -514,8 +536,10 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     let unscheduled = 0;
     let nViol = 0;
     let nLate = 0;
+    let nOut = 0;
     for (const r of rows) {
       if (r.kind === "group") continue;
+      if (r.outOfRange) nOut++;
       if (r.kind === "summary") summaries++;
       if (r.span) scheduled++;
       else unscheduled++;
@@ -524,6 +548,7 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     }
 
     return {
+      cal: c,
       groups: groups.map((g) => ({ key: g.key, name: g.name, n: g.n, taskCount: g.taskCount, rowCount: g.rowCount })),
       rows,
       edges,
@@ -531,7 +556,7 @@ const TLLayout = (function (CAL, SCHED, HOL) {
       px,
       zoom,
       missingYears: CAL.missingYears(c, range.from, range.to),
-      stats: { rows: rows.length, tasks: items.length, summaries, scheduled, unscheduled, violations: nViol, late: nLate, groups: groups.length, edges: edges.length },
+      stats: { rows: rows.length, tasks: items.length, summaries, scheduled, unscheduled, violations: nViol, late: nLate, outOfRange: nOut, groups: groups.length, edges: edges.length },
     };
   }
 
