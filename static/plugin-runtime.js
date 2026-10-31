@@ -16,14 +16,23 @@
 
   const isNode = (typeof module !== "undefined" && module.exports);
   const API_VERSION = 1;
-  const KNOWN_SLOTS = ["dashboard.widgets"];
-  const KNOWN_PERMISSIONS = ["storage", "network"];
-  const RESERVED_PERMISSIONS = ["task.ext", "records", "settings.project", "notifications", "location", "secrets", "noteBlocks", "bot", "timerHooks"];
+  const KNOWN_SLOTS = ["dashboard.widgets", "taskList.views", "taskDetail.sections"];
+  const KNOWN_PERMISSIONS = ["storage", "network", "task.ext"];
+  const RESERVED_PERMISSIONS = ["records", "settings.project", "notifications", "location", "secrets", "noteBlocks", "bot", "timerHooks"];
   const STATE_KEY = "plugins:state:v1";
   const INDEX_KEY = "plugins:index:v1";
   const INDEX_URL = "/static/plugins/index.json";
   const ID_RE = /^[a-z][a-z0-9-]{2,31}$/;
   const SEMVER_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+  // Fase 1 (spec 2026-10-31-plugin-fase1-timeline-design.md K19): manifest.contributes / taskExt — aturan sama
+  // dengan compile.js (validateContributes/validateTaskExt).
+  const CONTRIB_SLOTS = ["taskList.views", "taskDetail.sections"];
+  const CONTRIB_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
+  const VIEW_PAGES = ["project", "workspace"];
+  const ICON_PATH_RE = /^[MmLlHhVvCcSsQqTtAaZz0-9.,\- ]+$/;
+  const ICON_PATH_MAX_BYTES = 2048;
+  const LABEL_MAX = 40;
+  const EXT_FIELD_RE = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
 
   // ── Resolusi malas modul host ──────────────────────────────────────────────
   const NODE_PATHS = {
@@ -34,6 +43,7 @@
     safehtml: "./offline/safehtml.js",
     introgate: "./offline/introgate.js",
     pluginstate: "./offline/pluginstate.js",
+    taskext: "./offline/taskext.js",
   };
   function host(name) {
     const tf = root.TF;
@@ -217,6 +227,101 @@
     return recs.get(id);
   }
 
+  const isPlainObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
+
+  function labelError(where, label) {
+    if (typeof label !== "string" || !label.trim()) return where + ": label wajib diisi";
+    if (Array.from(label).length > LABEL_MAX) return where + ": label maksimal " + LABEL_MAX + " karakter";
+    return null;
+  }
+
+  function iconPathOk(p) {
+    return typeof p === "string" && !!p && ICON_PATH_RE.test(p) && utf8Bytes(p) <= ICON_PATH_MAX_BYTES;
+  }
+
+  // Satu item contributes (tanpa cek id ganda) → alasan | null.
+  function contribItemError(slot, it) {
+    if (!isPlainObj(it)) return "contributes: item " + slot + " harus objek";
+    if (typeof it.id !== "string" || !CONTRIB_ID_RE.test(it.id)) return "contributes: id " + slot + " tidak valid: " + it.id;
+    const where = "contributes: " + slot + " " + it.id;
+    const le = labelError(where, it.label);
+    if (le) return le;
+    if (slot === "taskList.views") {
+      if (!iconPathOk(isPlainObj(it.icon) ? it.icon.path : undefined)) return where + ": icon.path tidak valid";
+      if (!Array.isArray(it.pages) || !it.pages.length) return where + ": pages wajib array tak kosong";
+      if (new Set(it.pages).size !== it.pages.length) return where + ": pages ganda";
+      for (const pg of it.pages) if (VIEW_PAGES.indexOf(pg) < 0) return where + ": pages tidak dikenal: " + pg;
+    } else if (it.order !== undefined && (typeof it.order !== "number" || !Number.isFinite(it.order))) {
+      return where + ": order harus angka";
+    }
+    return null;
+  }
+
+  function contributesError(m) {
+    if (!m || m.contributes === undefined) return null;
+    const c = m.contributes;
+    if (!isPlainObj(c)) return "contributes harus objek";
+    const slots = Array.isArray(m.slots) ? m.slots : [];
+    for (const slot of Object.keys(c)) {
+      if (CONTRIB_SLOTS.indexOf(slot) < 0) return "contributes: slot tidak didukung: " + slot;
+      if (slots.indexOf(slot) < 0) return "contributes: slot " + slot + " tidak ada di slots";
+      if (!Array.isArray(c[slot])) return "contributes: " + slot + " harus array";
+      const seen = new Set();
+      for (const it of c[slot]) {
+        const e = contribItemError(slot, it);
+        if (e) return e;
+        if (seen.has(it.id)) return "contributes: id " + slot + " ganda: " + it.id;
+        seen.add(it.id);
+      }
+    }
+    return null;
+  }
+
+  // Izin task.ext ⇔ taskExt.keys (array field unik, tak kosong).
+  function taskExtError(m) {
+    const perms = (m && Array.isArray(m.permissions)) ? m.permissions : [];
+    const has = !!m && m.taskExt !== undefined;
+    const perm = perms.indexOf("task.ext") >= 0;
+    if (perm && !has) return "izin task.ext butuh taskExt.keys";
+    if (!has) return null;
+    if (!perm) return "taskExt butuh izin task.ext";
+    const keys = isPlainObj(m.taskExt) ? m.taskExt.keys : undefined;
+    if (!Array.isArray(keys) || !keys.length) return "taskExt.keys wajib array tak kosong";
+    if (new Set(keys).size !== keys.length) return "taskExt.keys ganda";
+    for (const k of keys) if (typeof k !== "string" || !EXT_FIELD_RE.test(k)) return "taskExt.keys tidak valid: " + k;
+    return null;
+  }
+
+  // Halaman host → jenis halaman untuk taskList.views (spec Fase 1 §6): proj_* project, slist_* workspace.
+  function pageKindOf(page) {
+    if (typeof page !== "string") return null;
+    if (page.indexOf("proj_") === 0 && page.length > 5) return "project";
+    if (page.indexOf("slist_") === 0 && page.length > 6) return "workspace";
+    return null;
+  }
+
+  // Tombol view dari index.json (tanpa memuat kode plugin): plugin ON, item sah, pages memuat kind.
+  function viewsFor(kind) {
+    if (!kind || VIEW_PAGES.indexOf(kind) < 0 || !index) return [];
+    const out = [];
+    const ids = Array.from(index.keys()).sort();
+    for (const id of ids) {
+      if (!isEnabled(id)) continue;
+      const e = index.get(id);
+      if (!Array.isArray(e.slots) || e.slots.indexOf("taskList.views") < 0) continue;
+      const items = isPlainObj(e.contributes) ? e.contributes["taskList.views"] : null;
+      if (!Array.isArray(items)) continue;
+      const seen = new Set();
+      for (const it of items) {
+        if (contribItemError("taskList.views", it) || seen.has(it.id)) continue;
+        seen.add(it.id);
+        if (it.pages.indexOf(kind) < 0) continue;
+        out.push({ pluginId: id, id: it.id, label: it.label, icon: { path: it.icon.path } });
+      }
+    }
+    return out;
+  }
+
   function validateManifest(m, idx) {
     const fail = (reason) => ({ ok: false, reason });
     if (!m || typeof m !== "object") return fail("manifest bukan objek");
@@ -232,6 +337,10 @@
       if (RESERVED_PERMISSIONS.includes(p)) return fail("izin dicadangkan untuk fase berikutnya: " + p);
       if (!KNOWN_PERMISSIONS.includes(p)) return fail("izin tidak dikenal: " + p);
     }
+    const ce = contributesError(m);
+    if (ce) return fail(ce);
+    const te = taskExtError(m);
+    if (te) return fail(te);
     if (idx !== undefined && idx !== null) {
       const listed = indexEntries(idx).some((e) => e && e.id === m.id);
       if (!listed) return fail("plugin tidak terdaftar di index.json: " + m.id);
@@ -456,11 +565,18 @@
           warn("kontribusi", pluginId, "di", slot, "tidak valid");
           continue;
         }
-        out.push({ pluginId, id: it.id, order: typeof it.order === "number" ? it.order : 0, component: it.component });
+        out.push({ pluginId, id: it.id, order: typeof it.order === "number" ? it.order : manifestOrder(r.manifest, slot, it.id), component: it.component });
       }
     }
     out.sort((a, b) => (a.order - b.order) || (a.pluginId < b.pluginId ? -1 : a.pluginId > b.pluginId ? 1 : 0));
     return out;
+  }
+
+  // Urutan dari manifest.contributes bila komponen tidak menyebut order.
+  function manifestOrder(m, slot, itemId) {
+    const items = m && isPlainObj(m.contributes) ? m.contributes[slot] : null;
+    const it = Array.isArray(items) ? items.find((x) => x && x.id === itemId) : null;
+    return it && typeof it.order === "number" && Number.isFinite(it.order) ? it.order : 0;
   }
 
   function settleLoad(r, ok) {
@@ -1003,6 +1119,142 @@
     return Object.freeze({ info: out("info"), warn: out("warn"), error: out("error") });
   }
 
+  // ── api.taskExt (izin task.ext, spec Fase 1 K4–K7; rencana 1a-1 R14) ─────────
+  // Field plugin di task (`tasks.ext`, kunci "<pluginId>.<field>"), patch per kunci (null menghapus). Tulis lewat
+  // binding host: patchTaskExt (optimistis di state React) → updateTaskExt (PUT {ext_patch} lewat rute lokal +
+  // sinkron) → refreshTasks + event window taskUpdated.
+  function taskext() {
+    const m = host("taskext");
+    if (!m) throw new Error("TF.taskext belum dimuat");
+    return m;
+  }
+
+  function extFieldsOf(id) {
+    const r = recs.get(id);
+    const src = (r && r.manifest) || (index && index.get(id)) || null;
+    const keys = src && isPlainObj(src.taskExt) && Array.isArray(src.taskExt.keys) ? src.taskExt.keys : [];
+    return keys.filter((k) => typeof k === "string" && EXT_FIELD_RE.test(k));
+  }
+
+  function storageError(message, code, key) {
+    const e = new PluginStorageError(message);
+    if (code) e.code = code;
+    if (key !== undefined) e.key = key;
+    return e;
+  }
+
+  // Error host → error plugin: 422 EXT_* (rute lokal: message; jaringan: body.detail.code) → PluginStorageError;
+  // 404 / "Task not found" → Error("Task not found"); selain itu diteruskan apa adanya.
+  function mapExtError(err) {
+    const e = err || {};
+    const detail = e.body && typeof e.body === "object" && e.body.detail && typeof e.body.detail === "object" ? e.body.detail : null;
+    const code = (typeof e.code === "string" && e.code) || (detail && typeof detail.code === "string" && detail.code) || String(e.message || "");
+    if (e.status === 422 && /^EXT_[A-Z_]+$/.test(code)) {
+      const key = e.key !== undefined ? e.key : (detail ? detail.key : undefined);
+      return storageError(code, code, key === undefined ? null : key);
+    }
+    if (e.status === 404 || e.message === "Task not found") return new Error("Task not found");
+    return err;
+  }
+
+  function makeTaskExt(id) {
+    const prefix = id + ".";
+    function guard() {
+      if (permissionsOf(id).indexOf("task.ext") < 0) throw denied(id, "plugin " + id + " tidak punya izin task.ext");
+    }
+    function taskIdOk(taskId) {
+      return (typeof taskId === "number" && Number.isInteger(taskId)) || (typeof taskId === "string" && taskId.length > 0);
+    }
+    // Patch tanpa prefiks → patch berprefiks yang sudah lolos aturan TF.taskext (ukuran diperiksa host).
+    function prefixed(patch) {
+      const tx = taskext();
+      if (!tx.isPlainObject(patch)) throw storageError("patch taskExt harus objek");
+      const fields = Object.keys(patch);
+      if (!fields.length) throw storageError("patch taskExt kosong");
+      const allowed = extFieldsOf(id);
+      const out = {};
+      for (const f of fields) {
+        if (!EXT_FIELD_RE.test(f) || allowed.indexOf(f) < 0) {
+          throw storageError("field " + f + " tidak terdaftar di manifest taskExt.keys", "EXT_INVALID", prefix + f);
+        }
+        out[prefix + f] = patch[f];
+      }
+      const bad = tx.checkPatch(out);
+      if (bad) throw storageError(bad.code, bad.code, bad.key);
+      return out;
+    }
+    function write(taskId, p) {
+      if (typeof hostBinding.patchTaskExt === "function") {
+        try { hostBinding.patchTaskExt(taskId, p); } catch (e) { warn("patchTaskExt gagal:", e); }
+      }
+      if (typeof hostBinding.updateTaskExt === "function") return Promise.resolve().then(() => hostBinding.updateTaskExt(taskId, p));
+      return Promise.resolve().then(() => localTaskRouter().dispatch("PUT", "/api/tasks/" + encodeURIComponent(taskId), { ext_patch: p }));
+    }
+    function refresh() {
+      if (typeof hostBinding.refreshTasks !== "function") return;
+      try { Promise.resolve(hostBinding.refreshTasks()).catch((e) => warn("refreshTasks gagal:", e)); } catch (e) { warn("refreshTasks gagal:", e); }
+    }
+    function announce(detail) {
+      try {
+        if (typeof root.dispatchEvent === "function" && typeof CustomEvent === "function") {
+          root.dispatchEvent(new CustomEvent("taskUpdated", { detail }));
+        }
+      } catch (e) { warn("taskUpdated gagal:", e); }
+    }
+    return Object.freeze({
+      read(task) {
+        guard();
+        const ext = task && typeof task === "object" ? task.ext : null;
+        const out = {};
+        if (!taskext().isPlainObject(ext)) return out;
+        for (const k of Object.keys(ext)) {
+          if (k.indexOf(prefix) === 0 && k.length > prefix.length) out[k.slice(prefix.length)] = JSON.parse(JSON.stringify(ext[k]));
+        }
+        return out;
+      },
+      ref(task) {
+        guard();
+        const tid = task && typeof task === "object" ? task.id : task;
+        if (!taskIdOk(tid)) throw new TypeError("ref butuh task dengan id");
+        return { $task: tid };
+      },
+      set(taskId, patch) {
+        let p;
+        return Promise.resolve().then(() => {
+          guard();
+          if (!taskIdOk(taskId)) throw new TypeError("taskId tidak valid");
+          p = prefixed(patch);
+        }).then(() => write(taskId, p).then(
+          (row) => { refresh(); announce({ taskId }); return row; },
+          (err) => { refresh(); throw mapExtError(err); }));
+      },
+      // Untuk seret massal: berurutan, berhenti pada kegagalan pertama (yang sebelumnya tetap tersimpan);
+      // satu refreshTasks + satu taskUpdated di akhir.
+      setMany(items) {
+        let prepared;
+        return Promise.resolve().then(() => {
+          guard();
+          if (!Array.isArray(items)) throw storageError("setMany butuh array {taskId, patch}");
+          prepared = items.map((it) => {
+            if (!it || typeof it !== "object" || !taskIdOk(it.taskId)) throw storageError("item setMany butuh taskId");
+            return { taskId: it.taskId, patch: prefixed(it.patch) };
+          });
+        }).then(() => {
+          if (!prepared.length) return [];
+          const rows = [];
+          const done = [];
+          const finish = () => { refresh(); if (done.length) announce({ taskIds: done.slice() }); };
+          return prepared.reduce((chain, it) => chain.then(() => write(it.taskId, it.patch).then((row) => {
+            rows.push(row);
+            done.push(it.taskId);
+          })), Promise.resolve()).then(
+            () => { finish(); return rows; },
+            (err) => { finish(); throw mapExtError(err); });
+        });
+      },
+    });
+  }
+
   let apiCache = new Map();
   const api = {
     apiVersion: API_VERSION,
@@ -1021,6 +1273,7 @@
           env,
           log: makeLog(id),
           fetch: makeFetch(id),
+          taskExt: makeTaskExt(id),
         }));
       }
       return apiCache.get(id);
@@ -1050,7 +1303,7 @@
 
   function PluginDebugThrow() { throw new Error("TF.plugins._debugThrow"); }
 
-  const SLOT_CLASS = { "dashboard.widgets": "dash-grid-2 dash-plugins" };
+  const SLOT_CLASS = { "dashboard.widgets": "dash-grid-2 dash-plugins", "taskDetail.sections": "td-plugin-sections" };
 
   function renderSlot(name, context, className) {
     const React = root.React;
@@ -1096,6 +1349,82 @@
     return renderSlot(name, props && props.context, props && props.className);
   }
 
+  const SUBSCRIBE_EVENTS = ["plugins.ready", "plugins.changed", "plugins.loaded"];
+  function useRuntimeVersion(React) {
+    const pair = React.useReducer((x) => x + 1, 0);
+    const force = pair[1];
+    React.useEffect(() => {
+      const bump = () => force();
+      const offs = SUBSCRIBE_EVENTS.map((n) => events.on(n, bump));
+      return () => offs.forEach((off) => off());
+    }, []);
+    return [pair[0], force];
+  }
+
+  // Hook host: tombol view untuk jenis halaman (identitas tetap sampai ada event plugins.*).
+  function useViews(kind) {
+    const React = root.React;
+    const version = useRuntimeVersion(React)[0];
+    return React.useMemo(() => viewsFor(kind), [kind, version, ready]);
+  }
+
+  function findContribution(r, name, itemId) {
+    if (!r || !r.instance || !r.manifest || r.manifest.slots.indexOf(name) < 0) return null;
+    const items = r.instance.slots && r.instance.slots[name];
+    if (!Array.isArray(items)) return null;
+    return items.find((it) => it && it.id === itemId && typeof it.component === "function") || null;
+  }
+
+  // <TF.SlotView name pluginId viewId label context onFallback/>: satu view plugin (taskList.views) yang dipilih
+  // pengguna. Memuat kode plugin saat tampil; gagal → pesan + "Kembali ke Normal"; plugin OFF → null.
+  function SlotView(props) {
+    const React = root.React;
+    const p = props || {};
+    const name = p.name || "taskList.views";
+    const pluginId = p.pluginId;
+    const viewId = p.viewId;
+    const label = typeof p.label === "string" && p.label ? p.label : String(pluginId || "Plugin");
+    const context = p.context;
+    const ctx = React.useMemo(() => Object.freeze(Object.assign({}, context || {})), [context]);
+    const force = useRuntimeVersion(React)[1];
+    const readyNow = ready;
+    React.useEffect(() => {
+      if (!readyNow || !isEnabled(pluginId)) return;
+      load(pluginId, injectOverride ? { inject: injectOverride } : undefined).then(() => force(), () => force());
+    }, [pluginId, readyNow]);
+    if (!ready || !isEnabled(pluginId)) return null;
+    const r = recs.get(pluginId);
+    const item = findContribution(r, name, viewId);
+    if (item) {
+      const B = getBoundary();
+      const Comp = r.debugThrow ? PluginDebugThrow : item.component;
+      return React.createElement("div", { className: "tf-plugin-view", "data-plugin-view": pluginId + ":" + viewId },
+        React.createElement(B, { key: pluginId + ":" + viewId + ":" + r.gen, pluginId },
+          React.createElement(Comp, { context: ctx, api: api.for(pluginId) })));
+    }
+    if (r && (r.instance || r.failed)) {
+      return React.createElement("div", { className: "tf-plugin-view tf-plugin-view-failed", role: "alert" },
+        React.createElement("p", null, label + " tidak bisa dimuat"),
+        React.createElement("button", {
+          type: "button", className: "tf-plugin-view-back",
+          onClick: () => { if (typeof p.onFallback === "function") p.onFallback(); },
+        }, "Kembali ke Normal"));
+    }
+    return React.createElement("div", { className: "tf-plugin-view tf-plugin-view-loading", role: "status" }, "Memuat " + label + "…");
+  }
+
+  // Ikon tombol view dari manifest (path SVG 16×16, garis currentColor).
+  function PluginIcon(props) {
+    const React = root.React;
+    const p = props || {};
+    if (!iconPathOk(p.path)) return null;
+    const size = typeof p.size === "number" && p.size > 0 ? p.size : 16;
+    return React.createElement("svg", {
+      viewBox: "0 0 16 16", width: size, height: size, fill: "none", stroke: "currentColor",
+      strokeWidth: 1.5, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": "true", focusable: "false",
+    }, React.createElement("path", { d: p.path }));
+  }
+
   function _debugThrow(id) {
     if (!inIndex(id)) return false;
     const r = rec(id);
@@ -1108,6 +1437,7 @@
   const plugins = {
     KNOWN_SLOTS, KNOWN_PERMISSIONS, RESERVED_PERMISSIONS, API_VERSION,
     init, list, isEnabled, accountEnabled, setEnabled, reloadState, knownIds, register, validateManifest, contributions, load, markFailed, failures, bindHost,
+    pageKindOf, viewsFor, useViews, SlotView, PluginIcon,
     isReady: () => ready,
     get PluginBoundary() { return getBoundary(); },
     _renderSlot: renderSlot,
@@ -1126,13 +1456,15 @@
     try { bridgeUninstall = installBridge(root); } catch (e) { warn("jembatan event gagal:", e); }
   }
 
-  const exported = { plugins, events, api, Slot, createBus, jktDate };
+  const exported = { plugins, events, api, Slot, SlotView, PluginIcon, createBus, jktDate };
   if (root && typeof root === "object") {
     root.TF = root.TF || {};
     root.TF.plugins = plugins;
     root.TF.events = events;
     root.TF.api = api;
     root.TF.Slot = Slot;
+    root.TF.SlotView = SlotView;
+    root.TF.PluginIcon = PluginIcon;
   }
   return exported;
 });

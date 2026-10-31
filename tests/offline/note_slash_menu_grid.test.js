@@ -267,8 +267,8 @@ test("CSS slash menu grid", async (t) => {
 });
 
 test("cache bust v450 + app.css?v=382", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v490-plugin-akun";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v490-plugin-akun";/);
+  assert.match(swJs, /^const CACHE = "taskflow-v491-plugin-ext";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v491-plugin-ext";/);
   assert.match(indexHtml, /app\.css\?v=382/);
   assert.equal(/app\.css\?v=352/.test(indexHtml), false);
 });

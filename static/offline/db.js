@@ -9,7 +9,11 @@
   "use strict";
 
   const DB_NAME = "taskflow-offline";
+  // Jangan pernah diturunkan: membuka DB yang sudah lebih tinggi memakai versi lebih rendah = VersionError
+  // → semua rute offline mati. Rollback fitur = revert kode, versi dan store tetap (spec plugin Fase 1 §4).
   const DB_VERSION = 6;
+  // K2 / R12: tab lain menaikkan versi DB → koneksi tab ini ditutup dan openDB berikutnya ditolak dengan kode ini.
+  const UPGRADED_ELSEWHERE = "DB_UPGRADED_ELSEWHERE";
 
   // Each entity store keyed by `cid`. Indexes: [name, keyPath, options].
   const ENTITY_STORES = {
@@ -57,6 +61,50 @@
 
   let _dbPromise = null;
   let _db = null;
+
+  // Status pembaruan untuk banner (dbupgrade.js). Event: subscribe(fn) + window "tf:db-<type>".
+  let _upgrade = { blocked: false, upgradedElsewhere: false };
+  const _subs = new Set();
+
+  function upgradeState() { return { blocked: _upgrade.blocked, upgradedElsewhere: _upgrade.upgradedElsewhere }; }
+
+  function subscribe(fn) {
+    if (typeof fn !== "function") return () => {};
+    _subs.add(fn);
+    return () => { _subs.delete(fn); };
+  }
+
+  function emit(type) {
+    for (const fn of Array.from(_subs)) { try { fn({ type }); } catch (_) {} }
+    try {
+      if (root && typeof root.dispatchEvent === "function" && typeof CustomEvent === "function") {
+        root.dispatchEvent(new CustomEvent("tf:db-" + type));
+      }
+    } catch (_) {}
+  }
+
+  // Tab lain membuka versi lebih tinggi (atau menghapus DB). Transaksi yang berjalan selesai dulu; koneksi
+  // ditutup agar upgrade di tab lain tidak tertahan. Hapus DB (newVersion null) → boleh buka ulang tanpa banner.
+  function onVersionChange(db, e) {
+    try { db.close(); } catch (_) {}
+    if (_db === db) _db = null;
+    if (e && e.newVersion === null) { _dbPromise = null; return; }
+    const err = new Error(UPGRADED_ELSEWHERE);
+    err.code = UPGRADED_ELSEWHERE;
+    const rejected = Promise.reject(err);
+    rejected.catch(() => {});
+    _dbPromise = rejected;
+    if (!_upgrade.upgradedElsewhere) {
+      _upgrade = { blocked: _upgrade.blocked, upgradedElsewhere: true };
+      emit("upgraded-elsewhere");
+    }
+  }
+
+  function setBlocked(on) {
+    if (_upgrade.blocked === on) return;
+    _upgrade = { blocked: on, upgradedElsewhere: _upgrade.upgradedElsewhere };
+    emit(on ? "blocked" : "unblocked");
+  }
 
   function createSchema(db, tx) {
     for (const [name, indexes] of Object.entries(ENTITY_STORES)) {
@@ -116,10 +164,17 @@
         createSchema(db, tx);
         migrateLegacy(db, tx, (err) => { _dbPromise = null; reject(err); });
       };
-      req.onsuccess = (e) => { _db = e.target.result; resolve(e.target.result); };
-      req.onerror = () => { _dbPromise = null; reject(req.error); };
+      req.onsuccess = (e) => {
+        const db = e.target.result;
+        _db = db;
+        db.onversionchange = (ev) => onVersionChange(db, ev);
+        setBlocked(false);
+        resolve(db);
+      };
+      req.onerror = () => { _dbPromise = null; setBlocked(false); reject(req.error); };
       req.onblocked = () => {
         try { console.warn("taskflow-offline: openDB blocked by another open connection"); } catch (_) {}
+        setBlocked(true);
       };
     });
     return _dbPromise;
@@ -178,9 +233,13 @@
   function _reset() {
     if (_db) { try { _db.close(); } catch (_) {} _db = null; }
     _dbPromise = null;
+    _upgrade = { blocked: false, upgradedElsewhere: false };
   }
 
-  const publicApi = { DB_NAME, DB_VERSION, ENTITY_STORES, ENTITY_STORE_NAMES, openDB, clearAll, mutate };
+  const publicApi = {
+    DB_NAME, DB_VERSION, UPGRADED_ELSEWHERE, ENTITY_STORES, ENTITY_STORE_NAMES,
+    openDB, clearAll, mutate, subscribe, upgradeState,
+  };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.db = publicApi; }
   return Object.assign({ _reset }, publicApi);
 });

@@ -267,7 +267,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v490-plugin-akun";
+    window.__SW_VERSION = "taskflow-v491-plugin-ext";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -307,6 +307,8 @@
 
   <script src="/static/offline/ids.js"></script>
   <script src="/static/offline/db.js"></script>
+  <script src="/static/offline/taskext.js"></script>
+  <script src="/static/offline/dbupgrade.js"></script>
   <script src="/static/offline/meta.js"></script>
   <script src="/static/offline/idmap.js"></script>
   <script src="/static/offline/outbox.js"></script>
@@ -828,10 +830,10 @@ const api = {
           const _body = opts.body ? JSON.parse(opts.body) : undefined;
           const _res = await _router.dispatch(_method, url, _body)
             .catch(err => {
-              // S14: error router lokal BUKAN error jaringan → isOfflineErr false (jangan masuk antrean legacy OfflineDB)
-              const eLocal = new Error(err && err.message ? err.message : "local route error");
+              // S14: error router lokal BUKAN error jaringan → isOfflineErr false (jangan masuk antrean legacy OfflineDB). DB di-upgrade tab lain (K2) → pesan banner, satu titik untuk semua toast.
+              const eLocal = new Error(err && err.code === "DB_UPGRADED_ELSEWHERE" ? (window.TF?.dbupgrade?.TEXT_ELSEWHERE || "Alurik diperbarui di tab lain. Muat ulang tab ini.") : err && err.message ? err.message : "local route error");
               eLocal.__local = true;
-              if (err && err.status != null) eLocal.status = err.status;
+              if (err) { if (err.status != null) eLocal.status = err.status; for (const k of ["code", "key", "body"]) if (err[k] !== undefined) eLocal[k] = err[k]; } // code/key/body: api.taskExt memetakan EXT_* + key (plugin Fase 1)
               throw eLocal;
             });
           if (_method !== "GET") schedulePush();
@@ -10164,6 +10166,8 @@ function TaskDetailBody({
   }, ...children);
   const assigneeMember = fv.assigned_to ? listMembers.find(u => String(u.id) === String(fv.assigned_to)) : null;
   const assigneeName = assigneeMember ? assigneeMember.display_name || assigneeMember.username : fv.assigned_to ? task.assigned_to_name || "Anggota" : "";
+  // Seksi plugin (taskDetail.sections, rencana R15): pengguna lewat api.env.userId.
+  const tdPluginCtx = React.useMemo(() => ({ task, variant, collaborators, onOpenTask, showToast: window.__showToast }), [task, variant, collaborators, onOpenTask]);
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DetailTopBar, {
     task: parentInfo ? {
       ...task,
@@ -10408,7 +10412,7 @@ function TaskDetailBody({
     rows: 3,
     placeholder: "Tulis deskripsi atau catatan lingkup tugas di sini…",
     "aria-label": "Deskripsi"
-  })), /*#__PURE__*/React.createElement(DetailTabs, {
+  })), window.TF?.Slot && React.createElement(window.TF.Slot, { name: "taskDetail.sections", context: tdPluginCtx }), /*#__PURE__*/React.createElement(DetailTabs, {
     idBase: tabIdBase,
     active: tab,
     onSelect: pickTab,
@@ -17561,20 +17565,17 @@ function readKanbanScope(page) {
     return "";
   }
 }
-// Isi kolom "Selesai" (R2): task done 7 hari terakhir (Asia/Jakarta) dari seluruh task yang lolos predikat
-// non-status halaman. slist_<W> → list_id = W; proj_<nama> → project pribadi NOCASE; lainnya tanpa filter.
+// Predikat non-status halaman: slist_<W> → list_id = W; proj_<nama> → project pribadi NOCASE; lainnya tanpa filter.
+function pageScopePred(page) {
+  const p = String(page || "");
+  if (p.startsWith("slist_")) return t => t.list_id != null && String(t.list_id) === p.slice(6);
+  if (p.startsWith("proj_")) return t => isPersonalProjectTask(t, p.slice(5));
+  return () => true;
+}
+// Isi kolom "Selesai" (R2): task done 7 hari terakhir (Asia/Jakarta) dari seluruh task yang lolos pageScopePred.
 // Scope papan disaring buildContextBoard; filter panel diterapkan pemanggil.
 function kanbanDonePool(allTasks, page, todayIso) {
-  const KB = window.TF.kanbanboard;
-  const p = String(page || "");
-  let pagePred = () => true;
-  if (p.startsWith("slist_")) {
-    const w = p.slice(6);
-    pagePred = t => t.list_id != null && String(t.list_id) === w;
-  } else if (p.startsWith("proj_")) {
-    const name = p.slice(5);
-    pagePred = t => isPersonalProjectTask(t, name);
-  }
+  const KB = window.TF.kanbanboard, pagePred = pageScopePred(page);
   return (allTasks || []).filter(t => t && KB.isDoneRecent(t, todayIso) && pagePred(t));
 }
 // Inisial assignee: huruf pertama dua kata pertama dari display_name || username (kapital);
@@ -19165,6 +19166,14 @@ function TaskListView({
   const [fSearch, setFSearch] = useState("");
   const [groupBy, setGroupBy] = useState(() => localStorage.getItem("tf_groupby") || "quadrant");
   const [viewMode, setViewMode] = useState(() => localStorage.getItem("tf_viewmode") || "normal");
+  // View plugin (taskList.views, spec plugin Fase 1 §6): tombol dari indeks; pilihan per halaman di tf_viewmode_ext:<page>.
+  const pageKind = window.TF?.plugins?.pageKindOf?.(page) ?? null;
+  const extViews = window.TF?.plugins?.useViews ? window.TF.plugins.useViews(pageKind) : [];
+  const readExtPick = () => { try { return localStorage.getItem("tf_viewmode_ext:" + page) || ""; } catch (_) { return ""; } };
+  const [extPick, setExtPick] = useState(readExtPick);
+  useEffect(() => { setExtPick(readExtPick()); }, [page]);
+  const pickExt = v => { setExtPick(v); try { localStorage.setItem("tf_viewmode_ext:" + page, v); } catch (_) {} };
+  const extView = extViews.find(v => v.pluginId + ":" + v.id === extPick) || null;
   const [collapsed, setCollapsed] = useState({});
   const [showFilterPanel, setShowFilterPanel] = useState(false);
   // Pilihan scope papan Kanban per halaman (Group by Context); dibaca ulang saat halaman berganti.
@@ -19189,6 +19198,7 @@ function TaskListView({
   const handleViewMode = val => {
     setViewMode(val);
     localStorage.setItem("tf_viewmode", val);
+    setExtPick(""); try { localStorage.removeItem("tf_viewmode_ext:" + page); } catch (_) {}
   };
   useEffect(() => {
     if ((groupBy === "none" || groupBy === "tag" || groupBy === "quadrant") && viewMode === "kanban") {
@@ -19475,6 +19485,13 @@ function TaskListView({
   const emptyText = !sel.ref ? sel.cleared ? "Pilih task di daftar" : "Tidak ada task" : null;
   const rowClick = liveOn ? t => dispatchSel({ type: "select", task: t }) : onTaskClick;
   const isSel = t => liveOn && window.TF.liveedit.sameTask(t, sel.ref);
+  // Context view plugin (rencana R16): dimemo atas masukan (bukan `filtered`, yang dihitung ulang tiap render).
+  const extCbRef = React.useRef(null);
+  extCbRef.current = { rowClick, isSel };
+  const extCtx = React.useMemo(() => extView ? { page, pageKind, listId: pageKind === "workspace" ? parseInt(page.slice(6)) : null, projectName: pageKind === "project" ? page.slice(5) : null,
+    tasks: applyPanelFilters(tasks), scopeTasks: applyPanelFilters((allTasks || []).filter(t => t && !t.archived && pageScopePred(page)(t))), collaborators, currentUser,
+    onTaskClick: t => extCbRef.current.rowClick && extCbRef.current.rowClick(t), isSelected: t => !!extCbRef.current.isSel(t), liveEdit: liveOn, showToast: showToast || window.__showToast
+  } : null, [extView ? extPick : "", page, tasks, allTasks, fPriority, fQuadrant, fProject, fContext, fAssignee, fSearch, collaborators, currentUser, liveOn, sel.ref]);
   // Panel tampil: isi daftar (Loading / Kanban / kosong / grup) di kolom kiri, panel detail di kanan.
   const liveWrap = content => liveOn ? /*#__PURE__*/React.createElement("div", {
     className: "tl-live"
@@ -19625,7 +19642,7 @@ function TaskListView({
     onClick: () => handleViewMode(mode),
     title: label,
     "aria-label": label,
-    "aria-pressed": viewMode === mode
+    "aria-pressed": viewMode === mode && !extView
   }, /*#__PURE__*/React.createElement(ViewGlyph, {
     name: mode,
     size: 16
@@ -19638,13 +19655,14 @@ function TaskListView({
       onClick: () => !kanbanDisabled && handleViewMode("kanban"),
       title: kanbanTitle,
       "aria-label": "Kanban",
-      "aria-pressed": viewMode === "kanban",
+      "aria-pressed": viewMode === "kanban" && !extView,
       "aria-disabled": kanbanDisabled ? "true" : undefined
     }, /*#__PURE__*/React.createElement(ViewGlyph, {
       name: "kanban",
       size: 16
     }));
-  })()), live.available && detailProps && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
+  })(), extViews.map(v => /*#__PURE__*/React.createElement("button", { type: "button", key: "ext:" + v.pluginId + ":" + v.id, className: "tl-view-btn", onClick: () => pickExt(v.pluginId + ":" + v.id),
+    title: v.label, "aria-label": v.label, "aria-pressed": extView === v }, window.TF.PluginIcon ? React.createElement(window.TF.PluginIcon, { path: v.icon.path, size: 16 }) : v.label.slice(0, 1)))), live.available && detailProps && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("span", {
     className: "tl-live-sep",
     "aria-hidden": "true"
   }), /*#__PURE__*/React.createElement("button", {
@@ -19829,7 +19847,8 @@ function TaskListView({
       padding: 40,
       color: "var(--text-light)"
     }
-  }, "Loading...") : kanbanOn ? /*#__PURE__*/React.createElement("div", null, kanbanHidden > 0 && /*#__PURE__*/React.createElement("div", {
+  }, "Loading...") : extView ? /*#__PURE__*/React.createElement(window.TF.SlotView, { name: "taskList.views", pluginId: extView.pluginId, viewId: extView.id, label: extView.label, context: extCtx,
+    onFallback: () => handleViewMode("normal") }) : kanbanOn ? /*#__PURE__*/React.createElement("div", null, kanbanHidden > 0 && /*#__PURE__*/React.createElement("div", {
     style: {
       fontSize: 12,
       color: "var(--text-light)",
@@ -27204,7 +27223,7 @@ function PluginSettingsCard({ showToast }) {
   const fail = e => showToast(String(e && e.message || e), "error");
   const toggle = it => P.setEnabled(it.id, !it.enabled).then(() => showToast(it.enabled ? `Plugin ${it.name} dinonaktifkan` : `Plugin ${it.name} diaktifkan`), fail);
   const copy = it => { const cb = navigator.clipboard; if (!cb || typeof cb.writeText !== "function") return showToast("Gagal menyalin detail", "error"); Promise.resolve().then(() => cb.writeText(JSON.stringify(P.failures(it.id), null, 2))).then(() => showToast("Detail error disalin"), () => showToast("Gagal menyalin detail", "error")); };
-  const perm = it => it.permissions.length ? it.permissions.map(p => p === "storage" ? "Menyimpan pengaturan di perangkat ini" : p === "network" ? "Butuh koneksi internet untuk sebagian fitur" : p).join(", ") : "Tidak butuh izin";
+  const perm = it => it.permissions.length ? it.permissions.map(p => p === "storage" ? "Menyimpan pengaturan di perangkat ini" : p === "network" ? "Butuh koneksi internet untuk sebagian fitur" : p === "task.ext" ? "Menyimpan data tambahan di task (ikut tersinkron)" : p).join(", ") : "Tidak butuh izin";
   const hint = (text, key) => /*#__PURE__*/React.createElement("span", { key, className: "theme-card-decor-hint" }, text);
   return /*#__PURE__*/React.createElement("div", { className: "card theme-card" }, /*#__PURE__*/React.createElement("div", { className: "theme-card-title" }, "Plugin"), /*#__PURE__*/React.createElement("p", { className: "theme-card-hint" }, "Fitur opsional. Pilihanmu tersimpan di akun dan berlaku di semua perangkat."),
     items.length === 0 ? /*#__PURE__*/React.createElement("p", { className: "theme-card-hint" }, "Belum ada plugin") : items.map(it => /*#__PURE__*/React.createElement("div", { key: it.id, className: "theme-card-decor", style: { alignItems: "flex-start" } },
@@ -27982,7 +28001,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v490-plugin-akun"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v491-plugin-ext"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -43565,7 +43584,7 @@ function App() {
   // Sistem plugin (spec plugin Fase 0a §4.2, §4.7): init sekali (idempoten) + sambungkan UI host ke TF.api.
   React.useEffect(() => {
     window.TF?.plugins?.init()?.catch?.(e => console.warn("[plugins] init gagal:", e));
-    window.TF?.plugins?.bindHost({ toast: showToast, openTask: id => openTaskById(id), navigate: p => setPage(p === "focus" ? "today" : p), userId: user?.id ?? null, fetch: (p, o) => api.fetch(p, { ...o, network: true }), isOfflineErr, pushNow: () => window.__pushNow() });
+    window.TF?.plugins?.bindHost({ toast: showToast, openTask: id => openTaskById(id), navigate: p => setPage(p === "focus" ? "today" : p), userId: user?.id ?? null, fetch: (p, o) => api.fetch(p, { ...o, network: true }), isOfflineErr, pushNow: () => window.__pushNow(), updateTaskExt: (id, p) => api.put(`/api/tasks/${id}`, { ext_patch: p }), patchTaskExt: (id, p) => setTasks(prev => prev.map(t => t.id === id ? { ...t, ext: window.TF.taskext.applyPatch(t.ext, p) } : t)), refreshTasks: () => window.__refreshTasks?.() });
   }, [user?.id]);
   // Pin/unpin workspace — hanya online, tanpa outbox. State berubah hanya setelah respons OK.
   // Pull daftar list di antrean sync (runSyncExclusive) — sama seperti sync(); pull di luar antrean bisa

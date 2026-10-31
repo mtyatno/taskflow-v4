@@ -1,4 +1,4 @@
-"""Jalankan tes node sistem plugin Fase 0a–0b dari pytest, supaya ikut CI (workflow test.yml hanya menjalankan
+"""Jalankan tes node sistem plugin Fase 0a–1a dari pytest, supaya ikut CI (workflow test.yml hanya menjalankan
 pytest; `npm test` tidak mencakup tests/build-plugins.test.js). Spec
 docs/superpowers/specs/2026-10-29-plugin-fase0a-design.md §11. Pola sama dengan tests/test_sw_precache_node.py:
 file wajib yang hilang = gagal (bukan dilewati); dilewati seluruhnya bila node tidak ada."""
@@ -16,6 +16,12 @@ PATTERNS = [
     os.path.join("tests", "offline", "habit_heatmap_*.test.js"),
     os.path.join("tests", "offline", "pluginstate*.test.js"),
     os.path.join("tests", "offline", "syncpush_pluginstate.test.js"),
+    os.path.join("tests", "offline", "taskext*.test.js"),
+    os.path.join("tests", "offline", "taskrepo_ext.test.js"),
+    os.path.join("tests", "offline", "syncpush_ext.test.js"),
+    os.path.join("tests", "offline", "syncpull_ext.test.js"),
+    os.path.join("tests", "offline", "db_versionchange.test.js"),
+    os.path.join("tests", "offline", "dbupgrade*.test.js"),
 ]
 EXTRA = [
     os.path.join("tests", "offline", "meta.test.js"),
@@ -25,6 +31,8 @@ REQUIRED = [
     "plugin_registry", "plugin_events", "plugin_loader", "plugin_failure", "plugin_api", "plugin_storage",
     "plugin_slot", "plugin_host_wiring", "plugin_settings_ui",
     "plugin_fetch", "plugin_accountstate", "pluginstate", "syncpush_pluginstate",
+    "plugin_slot_views", "plugin_taskext_api", "taskext", "taskrepo_ext", "syncpush_ext", "syncpull_ext",
+    "db_versionchange", "dbupgrade",
 ]
 
 

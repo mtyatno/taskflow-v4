@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v490-plugin-akun";
+const CACHE = "taskflow-v491-plugin-ext";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 // Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
@@ -19,6 +19,8 @@ const STATIC = [
   // plugins:end
   "/static/offline/ids.js",
   "/static/offline/db.js",
+  "/static/offline/taskext.js",
+  "/static/offline/dbupgrade.js",
   "/static/offline/meta.js",
   "/static/offline/idmap.js",
   "/static/offline/outbox.js",

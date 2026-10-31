@@ -213,3 +213,145 @@ test("CLI: compile.js gagal → exit 1 (lint), no-op untuk index.html terkompila
   const src = fs.readFileSync(path.join(ROOT, "compile.js"), "utf8");
   assert.match(src, /already compiled, skipping/);
 });
+
+// ── Fase 1 PR 1a-1 (rencana Task 8, R13): contributes, taskExt, parts + plugin contoh demo-ext ──────────────
+const DEMO_EXT = path.join(ROOT, "tests", "fixtures", "plugins", "demo-ext");
+const VIEW_SRC = "function V() { return <div>v</div>; }\n" +
+  "window.TF.plugins.register(manifest, function (api) { return { slots: { \"taskList.views\": [{ id: \"board\", component: V }] } }; });\n";
+function extManifest(id, extra) {
+  return manifest(id, Object.assign({
+    slots: ["taskList.views", "taskDetail.sections"], permissions: ["task.ext"], taskExt: { keys: ["note"] },
+    contributes: {
+      "taskList.views": [{ id: "board", label: "Demo", icon: { path: "M2 4h12M2 8h12" }, pages: ["project", "workspace"] }],
+      "taskDetail.sections": [{ id: "note", label: "Catatan", order: 10 }],
+    },
+  }, extra || {}));
+}
+function buildExt(t, man, files) {
+  const fx = fixture(t, { [man.id]: Object.assign({ "plugin.jsx": VIEW_SRC, "manifest.json": JSON.stringify(man) }, files || {}) });
+  return () => build.buildPlugins(Object.assign({ log: () => {} }, fx));
+}
+
+test("fixture demo-ext: parts digabung sebelum kode plugin.jsx, contributes + taskExt ada di index.json dan konstanta manifest, parts tidak", (t) => {
+  const d = tmpDir(t);
+  const pdir = path.join(d, "plugins");
+  fs.cpSync(DEMO_EXT, path.join(pdir, "demo-ext"), { recursive: true });
+  const sw = path.join(d, "sw.js");
+  fs.writeFileSync(sw, SW_STUB);
+  const res = build.buildPlugins({ pluginsDir: pdir, swPath: sw, log: () => {} });
+  const m = JSON.parse(fs.readFileSync(path.join(DEMO_EXT, "manifest.json"), "utf8"));
+  assert.deepEqual(m.parts, ["util.js"]);
+  const entry = res.index.plugins.find((p) => p.id === "demo-ext");
+  assert.ok(entry);
+  assert.deepEqual(entry.contributes, m.contributes);
+  assert.deepEqual(entry.taskExt, { keys: ["note", "after"] });
+  assert.deepEqual(entry.permissions, ["task.ext"]);
+  assert.equal(entry.parts, undefined, "parts tidak disalin ke index.json");
+  assert.deepEqual(entry.files, ["plugin.js"]);
+  const js = fs.readFileSync(path.join(pdir, "demo-ext", "plugin.js"), "utf8");
+  const partAt = js.indexOf("// part: util.js\n");
+  const regAt = js.indexOf("window.TF.plugins.register(");
+  const manAt = js.indexOf("const manifest = Object.freeze(");
+  assert.ok(manAt > 0 && partAt > manAt && regAt > partAt, "urutan: manifest → part → kode plugin.jsx");
+  assert.ok(js.includes(fs.readFileSync(path.join(DEMO_EXT, "util.js"), "utf8").trim()), "isi part mentah (tanpa Babel)");
+  const manJson = JSON.parse(js.slice(manAt + "const manifest = Object.freeze(".length, js.indexOf(");\n", manAt)));
+  assert.deepEqual(manJson.contributes, m.contributes);
+  assert.deepEqual(manJson.taskExt, m.taskExt);
+  assert.equal(manJson.parts, undefined);
+  // dijalankan di vm: part memasang __demoExt, register memakai kontribusi view + seksi
+  const vm = require("node:vm");
+  const calls = [];
+  const sandbox = { window: { TF: { plugins: { register: (mm, f) => calls.push([mm, f]) } } }, React: { createElement: () => null, useState: (v) => [typeof v === "function" ? v() : v, () => {}], useEffect: () => {} } };
+  sandbox.self = sandbox.window;
+  vm.runInNewContext(js, sandbox);
+  assert.equal(calls.length, 1);
+  assert.equal(typeof sandbox.window.__demoExt.label, "function");
+  const inst = calls[0][1]({ taskExt: { read: () => ({}) } });
+  assert.equal(inst.slots["taskList.views"].map((v) => v.id).join(","), "board");
+  assert.equal(inst.slots["taskDetail.sections"].map((v) => v.id).join(","), "note");
+  // build ulang idempoten
+  assert.deepEqual(build.buildPlugins({ pluginsDir: pdir, swPath: sw, log: () => {} }).written, []);
+  // fixture repo tidak pernah berisi hasil build (demo-ext khusus tes, bukan static/plugins)
+  assert.ok(!fs.existsSync(path.join(DEMO_EXT, "plugin.js")));
+  assert.ok(!fs.existsSync(path.join(PLUGINS, "demo-ext")));
+});
+
+test("util.js bisa di-require Node (fungsi murni teruji terpisah)", () => {
+  const util = require(path.join(DEMO_EXT, "util.js"));
+  assert.equal(util.label({ title: "  Rapat  " }), "Rapat");
+  assert.equal(util.label({ title: "" }), "(tanpa judul)");
+  assert.equal(util.label(null), "(tanpa judul)");
+});
+
+test("parts: berkas hilang / nama ../x.js / plugin.js / duplikat / bukan array → PluginBuildError", (t) => {
+  const cases = [
+    [["hilang.js"], {}],
+    [["../x.js"], {}],
+    [["plugin.js"], {}],
+    [["a.js", "a.js"], { "a.js": "var a = 1;\n" }],
+    ["a.js", { "a.js": "var a = 1;\n" }],
+    [["A.js"], { "A.js": "var a = 1;\n" }],
+  ];
+  for (const [parts, files] of cases) {
+    const run = buildExt(t, extManifest("demo-parts", { parts }), files);
+    assert.throws(run, (err) => err instanceof build.PluginBuildError && /parts/.test(err.message), JSON.stringify(parts));
+  }
+  // lint juga berlaku untuk isi part
+  const lintRun = buildExt(t, extManifest("demo-parts", { parts: ["a.js"] }), { "a.js": "localStorage.clear();\n" });
+  assert.throws(lintRun, /lint/);
+});
+
+test("contributes: slot tidak di slots, pages kosong/asing, icon.path berisi '<' atau > 2048 byte, id view ganda → error", (t) => {
+  const view = (o) => Object.assign({ id: "board", label: "Demo", icon: { path: "M2 4h12" }, pages: ["project"] }, o);
+  const bad = [
+    { slots: ["taskList.views"], contributes: { "taskDetail.sections": [{ id: "note", label: "x" }] } },
+    { contributes: { "dashboard.widgets": [] } },
+    { contributes: { "taskList.views": [view({ pages: [] })] } },
+    { contributes: { "taskList.views": [view({ pages: ["inbox"] })] } },
+    { contributes: { "taskList.views": [view({ icon: { path: "M2 4<script>" } })] } },
+    { contributes: { "taskList.views": [view({ icon: { path: "M" + "1 ".repeat(1100) } })] } },
+    { contributes: { "taskList.views": [view({ icon: null })] } },
+    { contributes: { "taskList.views": [view(), view()] } },
+    { contributes: { "taskList.views": [view({ id: "Board" })] } },
+    { contributes: { "taskList.views": [view({ label: "" })] } },
+    { contributes: { "taskList.views": [view({ label: "x".repeat(41) })] } },
+    { contributes: { "taskDetail.sections": [{ id: "note", label: "x", order: "1" }] } },
+    { contributes: [] },
+  ];
+  for (const extra of bad) {
+    assert.throws(buildExt(t, extManifest("demo-contrib", extra)), /contributes/, JSON.stringify(extra).slice(0, 120));
+  }
+  assert.equal(build.validateContributes(extManifest("demo-contrib")), null);
+  assert.equal(build.validateContributes(manifest("tanpa-contrib")), null);
+  assert.equal(build.ICON_PATH_RE.test("M2 4h12M2 8h12M2 12h8"), true);
+});
+
+test("task.ext tanpa taskExt / taskExt tanpa izin task.ext / keys salah → error", (t) => {
+  const bad = [
+    { taskExt: undefined },
+    { permissions: [], taskExt: { keys: ["note"] } },
+    { taskExt: { keys: [] } },
+    { taskExt: { keys: ["bad-key"] } },
+    { taskExt: { keys: ["a", "a"] } },
+    { taskExt: ["note"] },
+  ];
+  for (const extra of bad) {
+    const man = extManifest("demo-tx", extra);
+    if ("taskExt" in extra && extra.taskExt === undefined) delete man.taskExt;
+    assert.throws(buildExt(t, man), /taskExt|task\.ext/, JSON.stringify(extra));
+  }
+  assert.equal(build.validateTaskExt(extManifest("demo-tx")), null);
+});
+
+test("habit-heatmap: index.json dan hash tidak berubah", (t) => {
+  const d = tmpDir(t);
+  const pdir = path.join(d, "plugins");
+  fs.cpSync(PLUGINS, pdir, { recursive: true });
+  const sw = path.join(d, "sw.js");
+  fs.copyFileSync(SW, sw);
+  const res = build.buildPlugins({ pluginsDir: pdir, swPath: sw, log: () => {} });
+  const real = JSON.parse(fs.readFileSync(path.join(PLUGINS, "index.json"), "utf8"));
+  const hh = res.index.plugins.find((p) => p.id === "habit-heatmap");
+  assert.deepEqual(hh, real.plugins.find((p) => p.id === "habit-heatmap"));
+  assert.ok(!("contributes" in hh) && !("taskExt" in hh));
+});

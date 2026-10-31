@@ -96,3 +96,9 @@ test("Salin detail: sukses hanya bila clipboard.writeText berhasil, selain itu '
   assert.match(card, /typeof cb\.writeText !== "function"/);
   assert.match(card, /cb\.writeText\(JSON\.stringify\(P\.failures\(it\.id\), null, 2\)\)\)\.then\(\(\) => showToast\("Detail error disalin"\), \(\) => showToast\("Gagal menyalin detail", "error"\)\)/);
 });
+
+test("izin task.ext (Fase 1): label persis di baris perm", () => {
+  const line = card.split("\n").find((l) => l.includes("const perm = it =>"));
+  assert.ok(line, "baris perm");
+  assert.ok(line.includes('p === "task.ext" ? "Menyimpan data tambahan di task (ikut tersinkron)"'));
+});

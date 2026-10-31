@@ -90,7 +90,10 @@ test("Toggle tampilan di toolbar task list", async (t) => {
     assert.match(toolbar, /"aria-label":\s*"Kanban"/);
     // Live Edit (tombol setelah segmen, dipisah span.tl-live-sep) tidak ikut dihitung.
     const seg = between(toolbar, 'className: "tl-view-seg"', 'className: "tl-live-sep"');
-    assert.equal((seg.match(/type:\s*"button"/g) || []).length, 2, "dua createElement button (mapped + Kanban) bertipe button");
+    // Tombol view plugin (taskList.views, plugin Fase 1 PR 1a-1) menyusul setelah Kanban, di segmen yang sama.
+    const core = seg.slice(0, seg.indexOf("extViews.map("));
+    assert.ok(core.length > 0 && core.length < seg.length, "tombol view plugin setelah tombol inti");
+    assert.equal((core.match(/type:\s*"button"/g) || []).length, 2, "dua createElement button (mapped + Kanban) bertipe button");
     assert.match(toolbar, /React\.createElement\(ViewGlyph,\s*\{\s*name:\s*mode,\s*size:\s*16\s*\}\)/);
     assert.match(toolbar, /React\.createElement\(ViewGlyph,\s*\{\s*name:\s*"kanban",\s*size:\s*16\s*\}\)/);
   });
@@ -157,9 +160,9 @@ test("CSS segmented toggle", async (t) => {
 
 test("cache bust v432 + app.css?v=382", async (t) => {
   await t.test("sw.js CACHE, dua fallback index.html", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v490-plugin-akun";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v490-plugin-akun";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v490-plugin-akun"/);
+    assert.match(swJs, /^const CACHE = "taskflow-v491-plugin-ext";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v491-plugin-ext";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v491-plugin-ext"/);
   });
 
   await t.test("index.html memuat app.css?v=382", () => {

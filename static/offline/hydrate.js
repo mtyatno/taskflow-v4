@@ -13,6 +13,7 @@
   const TFdb = req("./db.js", root.TF && root.TF.db);
   const TFids = req("./ids.js", root.TF && root.TF.ids);
   const TFidmap = req("./idmap.js", root.TF && root.TF.idmap);
+  const TFtaskext = req("./taskext.js", root.TF && root.TF.taskext);
 
   const COPY = [
     "title", "description", "gtd_status", "priority", "quadrant", "project", "project_id", "context", "context_id",
@@ -38,6 +39,9 @@
     rec.base_rev = dict.updated_at != null ? dict.updated_at : null;
     // client_id server (= cid perangkat pembuat; id link node mindmap) → resolver lokal bisa menemukan record ini
     if (dict.client_id != null && dict.client_id !== "") rec.client_id = String(dict.client_id);
+    // Field plugin (spec plugin Fase 1 K5, rencana 1a-1 R3): hanya bila server mengirim OBJEK. Server lama
+    // (jendela deploy) tidak mengirim ext atau meneruskan kolom mentah sebagai string "{}" → dianggap tidak dikirim.
+    if (TFtaskext.isPlainObject(dict.ext)) rec.ext = dict.ext;
     return rec;
   }
 
