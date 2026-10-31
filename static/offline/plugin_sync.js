@@ -344,14 +344,24 @@
       out.value = { lost: !same };
     }).then((v) => { if (v) emitSync(key, v.lost ? { lost: [key[2]] } : null); });
   }
-  // FORBIDDEN_SCOPE: akses ke scope hilang (mis. dikeluarkan dari workspace) → record + op dihapus.
+  // FORBIDDEN_SCOPE: akses ke scope hilang (mis. dikeluarkan dari workspace) → record + op dihapus. Kursor pull plugin
+  // itu ikut dikosongkan (transaksi yang sama): bila pengguna dimasukkan kembali sebelum tarik berikutnya, sidik jari
+  // keanggotaan sama dengan yang tersimpan dan tarik delta tidak akan mengembalikan salinan server; tanpa kursor
+  // tarik berikutnya penuh (gen naik, sapu berjalan seperti biasa).
   function forbid(key, qid) {
-    return withRecord(key, (cur, store, ob, out) => {
-      ob.delete(qid);
-      if (!cur) return;
-      if (cur.op_qid != null && cur.op_qid !== qid) ob.delete(cur.op_qid);
-      store.delete(key);
-      out.value = !cur.deleted;
+    return runTx([RECORDS, "_outbox", KV], "readwrite", (tx, out, guard) => {
+      const store = tx.objectStore(RECORDS);
+      const ob = tx.objectStore("_outbox");
+      const g = store.get(key);
+      g.onsuccess = guard(() => {
+        const cur = g.result || undefined;
+        ob.delete(qid);
+        if (!cur) return;
+        if (cur.op_qid != null && cur.op_qid !== qid) ob.delete(cur.op_qid);
+        store.delete(key);
+        tx.objectStore(KV).delete([key[0], SYNC, "cursor"]);
+        out.value = !cur.deleted;
+      });
     }).then((v) => { if (v) emitSync(key, { lost: [key[2]] }); });
   }
   // Galat permanen: op dibuang; record tetap dirty 1 + sync_error (hanya bila belum diedit selama terbang —

@@ -7,6 +7,7 @@ const { deleteDB } = require("./setup.js");
 const dbmod = require("../../static/offline/db.js");
 const { outboxAll, outboxAdd } = require("../../static/offline/outbox.js");
 const SPULL = require("../../static/offline/syncpull.js");
+const SP = require("../../static/offline/syncpush.js");
 const PS = require("../../static/offline/plugin_sync.js");
 
 const P = "demo-records";
@@ -447,4 +448,26 @@ test("syncpull.pullPluginRecords: pembungkus malas ke pullAll; error dikumpulkan
     require.cache[key].exports = { put() {} };
     assert.equal(await SPULL.pullPluginRecords(srv.fetch, { userId: 1, ids: ["p-ok"] }), null);
   } finally { require.cache[key].exports = saved; }
+});
+
+test("FORBIDDEN_SCOPE lalu pengguna masuk lagi sebelum tarik berikutnya (sidik jari sama): tarik penuh memulihkan salinan server", async () => {
+  const srv = makeServer();
+  const p = srv.add(P, [row(1, "u1"), row(2, "w1", { scope: "list:7" })]);
+  await pull(srv);
+  assert.ok(await rawRec("w1"));
+  // edit lokal w1 → push ditolak FORBIDDEN_SCOPE (sementara dikeluarkan dari workspace 7)
+  await PS.put(P, E, "w1", { edit: 1 }, { scope: "list:7" });
+  const pushSrv = { request: () => Promise.resolve({ status: 200, data: { results: [{ entity: E, id: "w1", error: "FORBIDDEN_SCOPE" }] } }) };
+  await SP.pushOutbox(pushSrv, { tagsFor: () => Promise.resolve([]) });
+  assert.equal(await rawRec("w1"), null);
+  assert.equal(await kv("cursor"), undefined);
+  // masuk kembali: sidik jari tidak berubah dan tak ada baris baru di server → tarik delta biasa tidak akan mengembalikannya
+  srv.calls.length = 0;
+  const r = await pull(srv);
+  assert.equal(cursorOf(srv.calls[0]), "", "tarik penuh");
+  assert.deepEqual(r.errors, []);
+  assert.ok(await rawRec("w1"), "salinan server kembali");
+  assert.equal(p.rows.length, 2);
+  assert.equal(await kv("gen"), 2);
+  assert.equal(await kv("resetting"), false);
 });

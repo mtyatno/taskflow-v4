@@ -210,6 +210,20 @@ test("FORBIDDEN_SCOPE → record dan op dihapus, onChange lost", async () => {
   assert.deepEqual(seen.filter((d) => d.lost).map((d) => d.lost), [["w1"]]);
 });
 
+test("FORBIDDEN_SCOPE mengosongkan kursor pull plugin itu (tarik penuh berikutnya memulihkan record bila pengguna masuk kembali); gen/plugin lain utuh", async () => {
+  const srv = fakeServer((m, p) => (p === PATH ? one({ entity: E, id: "w1", error: "FORBIDDEN_SCOPE" }) : null));
+  await PS.kvSet(P, "_sync", "cursor", "1.5.aaaa0000");
+  await PS.kvSet(P, "_sync", "gen", 3);
+  await PS.kvSet("other-plugin", "_sync", "cursor", "1.9.aaaa0000");
+  await PS.put(P, E, "w1", { v: 1 }, { scope: "list:9" });
+  assert.equal(await PS.kvGet(P, "_sync", "cursor"), "1.5.aaaa0000", "put lokal tidak menyentuh kursor");
+  await drain(srv);
+  assert.equal(await rawRec("w1"), null);
+  assert.equal(await PS.kvGet(P, "_sync", "cursor"), undefined, "kursor dikosongkan");
+  assert.equal(await PS.kvGet(P, "_sync", "gen"), 3);
+  assert.equal(await PS.kvGet("other-plugin", "_sync", "cursor"), "1.9.aaaa0000");
+});
+
 for (const code of ["INVALID", "SCOPE_IMMUTABLE"]) {
   test(`${code} → op dibuang, sync_error, result.failed 1; put berikutnya menghapus sync_error`, async () => {
     const srv = fakeServer((m, p) => (p === PATH ? one({ entity: E, id: "n1", error: code, detail: "data" }) : null));
