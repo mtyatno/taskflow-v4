@@ -4298,5 +4298,5 @@
 - **Task:** Plugin Fase 0b PR A — fondasi koneksi DB `dbconn.py` (spec 0b disetujui Bapak; dua PR).
 - **Changes:** modul `dbconn` + migrasi semua `sqlite3.connect` (webapp 29, repository 1, bot 1), `migrate_db` FK OFF (K4), fix `/link <KODE>` 3 bug, pagar AST, ADR-038, spec/plan ke docs. Subagent implementer + reviewer terpisah.
 - **Files Touch:** dbconn.py, webapp.py, repository.py, bot.py, tests/test_dbconn*.py, tests/test_migrate_fk.py, tests/test_bot_link_token.py, tests/test_petakan.py (5 baris), docs/superpowers/{specs,plans}/2026-10-31-plugin-fase0b*, .agents/*
-- **Status:** Needs Review (PR draft). pytest 1284/1 skip; npm 3592/3593 (pra-ada). Deploy butuh restart manual web + bot.
+- **Status:** Needs Review (PR draft #117). pytest 1284/1 skip; npm 3592/3593 (pra-ada). Deploy butuh restart manual web + bot.
 
