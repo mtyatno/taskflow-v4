@@ -1,5 +1,8 @@
 {
   "entries": [
+    {"version": "taskflow-v488-plugin-fase0a", "date": "2026-10-31", "title": "Plugin: fitur opsional",
+     "new": ["Pengaturan › Plugin: nyalakan fitur tambahan sesuai kebutuhanmu, juga saat offline.",
+             "Plugin pertama: Heatmap Habit, grid kebiasaanmu setahun terakhir di Dashboard."]},
     {"version": "taskflow-v487-domain-alurik", "date": "2026-10-29", "title": "Alurik pindah ke alurik.com",
      "new": ["Alamat baru Alurik: alurik.com. Buka Alurik saat online sampai semua perubahan tersinkron, lalu masuk lewat alurik.com dan login lagi.",
              "Di browser HP, pasang ulang Alurik dari alurik.com (Tambahkan ke layar utama). Aplikasi Desktop dan Android tidak perlu diubah."]},

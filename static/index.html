@@ -267,7 +267,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v487-domain-alurik";
+    window.__SW_VERSION = "taskflow-v488-plugin-fase0a";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -385,6 +385,7 @@
   <script src="/static/offline/themes.js"></script>
   <script src="/static/offline/decor.js"></script>
   <script src="/static/offline/herobg.js"></script>
+  <script src="/static/plugin-runtime.js"></script>
   <script src="/static/ui-components.js"></script>
   <script>
   // ═══ DEPENDENCIES: Foundation ═══
@@ -11446,6 +11447,7 @@ function usePomodoro({
         }) => {
           try {
             api.post("/api/tasks/" + taskId + "/pomodoros", entry).then(() => window.__refreshTasks?.()).catch(err => console.warn("Gagal mencatat Pomodoro:", err));
+            window.TF?.events?.emit("pomodoro.ended", {taskId: taskId, kind: entry.kind, pomodoros: entry.pomodoros, focusSeconds: entry.focus_seconds, endedAt: entry.ended_at});
           } catch (err) {
             console.warn("Gagal mencatat Pomodoro:", err);
           }
@@ -11548,6 +11550,7 @@ function usePomodoro({
             log_date: window.TF.tasklogic.todayLocalISO(),
             ended_at: new Date().toISOString()
           }).then(() => window.__refreshTasks?.()).catch(err => console.warn("Gagal mencatat Pomodoro:", err));
+          window.TF?.events?.emit("pomodoro.ended", {taskId: loggedTaskId, kind: "session", pomodoros: 1, focusSeconds: 1500, endedAt: new Date().toISOString()});
         }
       } catch (err) {
         console.warn("Gagal mencatat Pomodoro:", err);
@@ -11590,6 +11593,7 @@ function usePomodoro({
       });
       if (entry && loggedTaskId != null) {
         api.post("/api/tasks/" + loggedTaskId + "/pomodoros", entry).then(() => window.__refreshTasks?.()).catch(err => console.warn("Gagal mencatat Overtime:", err));
+        window.TF?.events?.emit("pomodoro.ended", {taskId: loggedTaskId, kind: entry.kind, pomodoros: entry.pomodoros, focusSeconds: entry.focus_seconds, endedAt: entry.ended_at});
       }
     } catch (err) {
       console.warn("Gagal mencatat Overtime:", err);
@@ -23897,6 +23901,12 @@ function Dashboard({
     onTitleClick: () => onNav(key)
   })))),
 
+  /* ── Plugin (spec plugin Fase 0a §4.5): kontrak context dashboard.widgets ── */
+  window.TF && window.TF.Slot && /*#__PURE__*/React.createElement(window.TF.Slot, {
+    name: "dashboard.widgets",
+    context: { user: user ? { id: user.id, username: user.username } : null, now: new Date(), onTaskClick, showToast }
+  }),
+
   /* ── Proyek aktif ── */
   projGroups.length > 0 && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement(DashSection, {
     icon: "folder",
@@ -27176,6 +27186,31 @@ function ExtAuthOverlay({
   }, "Batal"))));
 }
 
+// Kartu Pengaturan › Plugin (spec plugin Fase 0a §4.8): status ON/OFF per perangkat di _meta, bekerja offline.
+function PluginSettingsCard({ showToast }) {
+  const P = window.TF && window.TF.plugins;
+  const [, bump] = React.useReducer(x => x + 1, 0);
+  React.useEffect(() => {
+    if (!P) return;
+    const offs = ["plugins.ready", "plugins.changed", "plugins.loaded"].map(n => window.TF.events.on(n, () => bump()));
+    P.init().then(() => bump(), () => bump());
+    return () => offs.forEach(off => off());
+  }, []);
+  if (!P) return null;
+  const items = P.list();
+  const fail = e => showToast(String(e && e.message || e), "error");
+  const toggle = it => P.setEnabled(it.id, !it.enabled).then(() => showToast(it.enabled ? `Plugin ${it.name} dinonaktifkan` : `Plugin ${it.name} diaktifkan`), fail);
+  const copy = it => { const cb = navigator.clipboard; if (!cb || typeof cb.writeText !== "function") return showToast("Gagal menyalin detail", "error"); Promise.resolve().then(() => cb.writeText(JSON.stringify(P.failures(it.id), null, 2))).then(() => showToast("Detail error disalin"), () => showToast("Gagal menyalin detail", "error")); };
+  const perm = it => it.permissions.length ? it.permissions.map(p => p === "storage" ? "Menyimpan pengaturan di perangkat ini" : p).join(", ") : "Tidak butuh izin";
+  const hint = (text, key) => /*#__PURE__*/React.createElement("span", { key, className: "theme-card-decor-hint" }, text);
+  return /*#__PURE__*/React.createElement("div", { className: "card theme-card" }, /*#__PURE__*/React.createElement("div", { className: "theme-card-title" }, "Plugin"), /*#__PURE__*/React.createElement("p", { className: "theme-card-hint" }, "Fitur opsional. Status disimpan di perangkat ini."),
+    items.length === 0 ? /*#__PURE__*/React.createElement("p", { className: "theme-card-hint" }, "Belum ada plugin") : items.map(it => /*#__PURE__*/React.createElement("div", { key: it.id, className: "theme-card-decor", style: { alignItems: "flex-start" } },
+      /*#__PURE__*/React.createElement("span", { className: "theme-card-decor-text" },
+        /*#__PURE__*/React.createElement("span", { className: "theme-card-decor-title", id: "plugin-name-" + it.id }, it.name, " ", /*#__PURE__*/React.createElement("span", { className: "theme-card-herobg-badge" }, "Bawaan"), " ", /*#__PURE__*/React.createElement("span", { className: "theme-card-herobg-badge" }, "v" + it.version)),
+        hint(it.description, "d"), hint(perm(it), "p"),
+        it.failed ? /*#__PURE__*/React.createElement("span", { className: "theme-card-decor-hint", role: "status" }, "Error — ", /*#__PURE__*/React.createElement("button", { type: "button", className: "btn btn-secondary btn-sm", onClick: () => P.setEnabled(it.id, true).then(() => showToast(`Plugin ${it.name} diaktifkan`), fail) }, "Aktifkan lagi"), " ", /*#__PURE__*/React.createElement("button", { type: "button", className: "btn btn-secondary btn-sm", onClick: () => copy(it) }, "Salin detail")) : hint(it.loaded ? "Dimuat" : "Belum dimuat", "s")),
+      /*#__PURE__*/React.createElement("button", { type: "button", role: "switch", className: "theme-card-switch", "aria-checked": it.enabled ? "true" : "false", "aria-labelledby": "plugin-name-" + it.id, title: it.enabled ? "Aktif" : "Nonaktif", onClick: () => toggle(it) }, /*#__PURE__*/React.createElement("span", { className: "theme-card-switch-knob" }), /*#__PURE__*/React.createElement("span", { className: "sr-only" }, it.enabled ? "Aktif" : "Nonaktif")))));
+}
 // ── Kartu "Tampilan" (Pengaturan) ───────────────────────────
 // Mode (terang/gelap/ikuti sistem), palet, latar hero (hanya bila registri TF.herobg ada; spec latar-hero §7), dekorasi
 // (hanya bila modul TF.decor ada), pratinjau bertoken + strip hero mini dengan latar terpilih.
@@ -27614,6 +27649,8 @@ function SettingsPage({
     themePrefs: themePrefs,
     resolvedTheme: resolvedTheme,
     onThemePrefs: onThemePrefs
+  }), /*#__PURE__*/React.createElement(PluginSettingsCard, {
+    showToast: showToast
   }), needsSetup ? /*#__PURE__*/React.createElement("div", {
     className: "card account-setup-card",
     style: {
@@ -27942,7 +27979,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v487-domain-alurik"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v488-plugin-fase0a"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -43522,6 +43559,11 @@ function App() {
     type,
     action
   }), []);
+  // Sistem plugin (spec plugin Fase 0a §4.2, §4.7): init sekali (idempoten) + sambungkan UI host ke TF.api.
+  React.useEffect(() => {
+    window.TF?.plugins?.init()?.catch?.(e => console.warn("[plugins] init gagal:", e));
+    window.TF?.plugins?.bindHost({ toast: showToast, openTask: id => openTaskById(id), navigate: p => setPage(p === "focus" ? "today" : p), userId: user?.id ?? null });
+  }, [user?.id]);
   // Pin/unpin workspace — hanya online, tanpa outbox. State berubah hanya setelah respons OK.
   // Pull daftar list di antrean sync (runSyncExclusive) — sama seperti sync(); pull di luar antrean bisa
   // bersilang dengan sync berkala (respons server lama ditulis terakhir) dan ensureCid ganda.
@@ -44574,6 +44616,7 @@ function App() {
         }
       }
       setTasks(prev => markTasksDoneLocal(prev, [taskId]));
+      window.TF?.events?.emit("task.completed", { taskId, completedAt: new Date().toISOString() });
       showToast("Task selesai! ✅");
       fetchAll();
       window.dispatchEvent(new CustomEvent("taskUpdated", {

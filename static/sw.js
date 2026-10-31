@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v487-domain-alurik";
+const CACHE = "taskflow-v488-plugin-fase0a";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 // Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
@@ -11,6 +11,12 @@ const STATIC = [
   "/static/app.css?v=382",  // query HARUS sama persis dengan <link> app.css di index.html (catch-all mencocokkan URL persis)
   "/static/themes.css?v=2",  // palet tema; query HARUS sama persis dengan <link> themes.css di index.html
   "/static/ui-components.js",
+  "/static/plugin-runtime.js",
+  // plugins:begin — ditulis compile.js dari static/plugins/index.json, jangan edit manual
+  "/static/plugins/index.json",
+  "/static/plugins/habit-heatmap/plugin.js?v=0248219c",
+  "/static/plugins/habit-heatmap/style.css?v=0248219c",
+  // plugins:end
   "/static/offline/ids.js",
   "/static/offline/db.js",
   "/static/offline/meta.js",

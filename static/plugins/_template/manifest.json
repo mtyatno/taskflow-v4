@@ -1,0 +1,10 @@
+{
+  "id": "my-plugin",
+  "name": "Plugin Saya",
+  "description": "Satu kalimat tentang apa yang dilakukan plugin ini.",
+  "version": "1.0.0",
+  "minApi": 1,
+  "slots": ["dashboard.widgets"],
+  "permissions": [],
+  "defaultEnabled": false
+}
