@@ -22,6 +22,33 @@
   const TFpush = req("./syncpush.js", root.TF && root.TF.syncpush);
   const TFhabitrepo = req("./habitrepo.js", root.TF && root.TF.habitrepo);
   const TFhabitlogic = req("./habitlogic.js", root.TF && root.TF.habitlogic);
+  // Field plugin di task (spec plugin Fase 1 K5). Dibaca malas: tanpa modul → ext dianggap tidak dikirim.
+  function taskExtMod() {
+    try { return isNode ? require("./taskext.js") : (root.TF && root.TF.taskext) || null; } catch (_) { return null; }
+  }
+  const isPlainExt = (v) => { const X = taskExtMod(); return !!X && X.isPlainObject(v); };
+  // Pure (R11): `rec` = record dari server. ext *only-if-sent*: server tidak mengirim ext objek → ext lokal dipakai.
+  // Kunci lokal yang belum terkirim (`ext_dirty`) ditempel di atas ext server (dihapus bila sudah dihapus lokal),
+  // ext_dirty disalin, dirty = 1 → pemanggil mengantre ulang op update supaya kunci itu tetap terkirim.
+  function withLocalExt(rec, localRec) {
+    if (!localRec) return rec;
+    if (!isPlainExt(rec.ext)) {
+      if (isPlainExt(localRec.ext)) rec.ext = localRec.ext; else delete rec.ext;
+    }
+    const keys = Array.isArray(localRec.ext_dirty) && !localRec.deleted ? localRec.ext_dirty : [];
+    if (keys.length) {
+      const src = isPlainExt(localRec.ext) ? localRec.ext : {};
+      const ext = Object.assign({}, isPlainExt(rec.ext) ? rec.ext : {});
+      for (const k of keys) {
+        if (Object.prototype.hasOwnProperty.call(src, k) && src[k] !== undefined) ext[k] = src[k];
+        else delete ext[k];
+      }
+      rec.ext = ext;
+      rec.ext_dirty = keys.slice();
+      rec.dirty = 1;
+    }
+    return rec;
+  }
   // noterepo dibaca malas (prinsip 7: salinan konflik note); modul lama dari cache SW tanpa helper → jalur LWW lama
   function noteRepo() {
     try { return isNode ? require("./noterepo.js") : (root.TF && root.TF.noterepo); } catch (_) { return null; }
@@ -265,11 +292,11 @@
           const rec = Object.assign(TFhydrate.taskFromServer(s, getCid), { rev: localRec ? (localRec.rev || 0) + 1 : 0 });
           const clientId = clientIdForWrite(s, localRec);
           if (clientId != null) rec.client_id = clientId; else delete rec.client_id;
-          return rec;
+          return withLocalExt(rec, localRec); // ext only-if-sent + tempel kunci yang belum terkirim (K5)
         };
         const write = (s, localRec, counter) => putIfUnchanged("tasks", fromServer(s, localRec), localRec)
           .then((wrote) => { if (wrote) result[counter]++; else result.skipped++; });
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0, requeued: 0, derived: 0, clientIds: 0 };
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0, requeued: 0, derived: 0, clientIds: 0, extKept: 0 };
         let chain = requeueDirtyWithoutOps("task", localAll, pendingTaskOps, result);
         for (const s of list) {
           const cid = cache[s.id];
@@ -285,7 +312,18 @@
                 // edit-vs-edit conflict → last-write-wins
                 result.lwwResolved++;
                 if (tsEpoch(s.updated_at) > tsEpoch(localRec.updated_at)) {
-                  return dropOutbox("task", cid).then(() => write(s, localRec, "updated")); // server wins
+                  const extDirty = Array.isArray(localRec.ext_dirty) && localRec.ext_dirty.length > 0;
+                  if (!extDirty) return dropOutbox("task", cid).then(() => write(s, localRec, "updated")); // server wins
+                  // R11: field inti = server, kunci ext yang belum terkirim ditempel (withLocalExt) + op diantre ulang
+                  const rec = fromServer(s, localRec);
+                  return dropOutbox("task", cid)
+                    .then(() => putIfUnchanged("tasks", rec, localRec))
+                    .then((wrote) => {
+                      if (!wrote) { result.skipped++; return; } // berubah selama pull → pull berikutnya (requeue)
+                      result.updated++;
+                      result.extKept++;
+                      return requeueOp("task", rec);
+                    });
                 }
                 return; // local wins — keep dirty, push will send
               }
@@ -1945,6 +1983,7 @@
     pullDrawings, pullDrawingsAndReconcile,
     mergeDrawingSnapshots,
     tsEpoch, ensureNoteCid, listJsonOrThrow, goneOrJson,
+    withLocalExt,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpull = exported; }
   return exported;
