@@ -14,6 +14,7 @@
   const TFoutbox = isNode ? require("./outbox.js") : root.TF.outbox;
   const TFlogic = isNode ? require("./tasklogic.js") : root.TF.tasklogic;
   const TFtagrepo = isNode ? require("./tagrepo.js") : root.TF.tagrepo;
+  const TFtaskext = isNode ? require("./taskext.js") : root.TF.taskext;
   // dimuat malas (siklus: projectcache → taskquery → taskrepo)
   // pomologic dimuat setelah taskrepo di index.html → akses malas (seperti TFprojects).
   const TFpomo = () => (isNode ? require("./pomologic.js") : (root.TF && root.TF.pomologic));
@@ -86,6 +87,7 @@
       is_overdue: derived.is_overdue,
       assigned_to_name: null, // resolution deferred (no local users store yet)
       parent_title: parentTitle != null ? parentTitle : null,
+      ext: TFtaskext.isPlainObject(rec.ext) ? rec.ext : {}, // field plugin (spec plugin Fase 1 K4)
     });
   }
 
@@ -121,6 +123,13 @@
     const cleanTitle = ex.clean;
     if (!cleanTitle) {
       return Promise.reject(new Error("Judul tidak boleh kosong setelah strip tag"));
+    }
+    // Field plugin (spec plugin Fase 1 K4/K5): null dibuang seperti server; kunci terisi = belum terkirim.
+    let ext = {};
+    if (input.ext != null) {
+      const bad = TFtaskext.checkPatch(input.ext) || TFtaskext.sizeError(TFtaskext.cleanNulls(input.ext));
+      if (bad) return Promise.reject(TFtaskext.extError(bad.code, bad.key));
+      ext = TFtaskext.cleanNulls(input.ext);
     }
     const priority = String(input.priority || "P2").toUpperCase();
     const deadline = input.deadline || null;
@@ -166,7 +175,9 @@
         base_rev: null,
         // rev = penghitung versi lokal (naik di setiap tulis lokal); push memakainya sebagai CAS (prinsip 4)
         rev: 1,
+        ext: ext,
       };
+      if (Object.keys(ext).length) rec.ext_dirty = Object.keys(ext);
       return putRaw(rec)
         .then(() => TFoutbox.outboxAdd({ op: "create", entity_type: "task", cid: rec.cid, payload: rec }))
         .then(() => TFtagrepo.setEntityTags("task", rec.cid, ex.tags))
@@ -174,8 +185,21 @@
     });
   }
 
+  function unionKeys(a, b) {
+    const out = Array.isArray(a) ? a.slice() : [];
+    for (const k of b) if (out.indexOf(k) < 0) out.push(k);
+    return out;
+  }
+
   function updateTask(cid, patch, opts) {
     const now = (opts && opts.now) || new Date().toISOString();
+    // Field plugin (spec plugin Fase 1 K5, rencana 1a-1 R7): `ext_patch` = patch per kunci (null menghapus),
+    // body yang sama dengan PUT server. Divalidasi sebelum apa pun ditulis.
+    const hasExt = patch.ext_patch !== undefined && patch.ext_patch !== null;
+    if (hasExt) {
+      const bad = TFtaskext.checkPatch(patch.ext_patch);
+      if (bad) return Promise.reject(TFtaskext.extError(bad.code, bad.key));
+    }
     // PR 5: patch `project` tanpa `project_id` → id dari cache (scope task) bila cocok, selain itu null.
     // F1: teks yang sama (NOCASE) dengan `project` record → id + nama ikatan dipertahankan (form yang menyimpan
     // teks tak berubah setelah rename di cache tidak boleh memutus id).
@@ -190,94 +214,113 @@
       if (!rec || rec.deleted) {
         return Promise.reject(new Error("Task not found"));
       }
-      const next = Object.assign({}, rec);
 
       // Judul tersimpan tanpa #tag (tag di store entity_tags), jadi judul dari form tidak memuat tag task: #tag di
       // judul MENAMBAH tag (tanpa duplikat), judul tanpa #tag tidak menyentuh tag. Dulu tag diganti dengan #tag di
       // judul → setiap simpan form menghapus semua tag, dan push (himpunan tag lokal lengkap) ikut menghapusnya di
       // server. Hapus tag tetap lewat chip × (removeEntityTag).
       let newTags = null;
+      let cleanTitle = null;
       if (patch.title != null) {
         const ex = TFtagrepo.extractTags(patch.title);
         if (!ex.clean) return Promise.reject(new Error("Judul tidak boleh kosong setelah strip tag"));
-        next.title = ex.clean;
+        cleanTitle = ex.clean;
         newTags = ex.tags;
       }
-      if (patch.description != null) next.description = patch.description;
-      if (patch.priority != null) next.priority = String(patch.priority).toUpperCase();
-      const sameProjectText = patch.project != null && rec.project_id != null
-        && nocaseKey(patch.project) === nocaseKey(rec.project);
-      if (patch.project != null) next.project = patch.project;
-      if ("project_id" in patch) {
-        next.project_id = patch.project_id != null ? patch.project_id : null;
-        next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
-      } else if (needLookup && !sameProjectText) {
-        next.project_id = pc ? pc.findId(projectItems, next.list_id, patch.project) : null;
-        next.project_ref_name = next.project_id != null ? next.project : null;
-      }
-      const sameContextText = patch.context != null && rec.context_id != null
-        && nocaseKey(patch.context) === nocaseKey(rec.context);
-      if (patch.context != null) next.context = patch.context;
-      if ("context_id" in patch) {
-        next.context_id = patch.context_id != null ? patch.context_id : null;
-        next.context_ref_name = next.context_id != null ? (next.context != null ? next.context : "") : null;
-      } else if (needCtxLookup && !sameContextText) {
-        const found = cc && cc.findId ? cc.findId(contextItems, next.list_id, patch.context) : null;
-        next.context_id = found != null ? found : null;
-        next.context_ref_name = next.context_id != null ? next.context : null;
-      }
-      if (patch.waiting_for != null) next.waiting_for = patch.waiting_for;
-      if (patch.gtd_status != null) {
-        next.gtd_status = patch.gtd_status;
-        if (patch.gtd_status === "done") next.completed_at = now;
-      }
-      if (patch.deadline != null) {
-        next.deadline = (patch.deadline === "" || patch.deadline === "-") ? null : patch.deadline;
-      }
-      if (patch.assigned_to != null) {
-        next.assigned_to = patch.assigned_to === 0 ? null : patch.assigned_to;
-      }
-      if (patch.estimated_pomodoros != null) next.estimated_pomodoros = TFpomo().clampEstimate(patch.estimated_pomodoros);
-      if (patch.progress != null) {
-        next.progress = Math.max(0, Math.min(100, patch.progress));
-      }
-      if (patch.is_focused != null) {
-        next.is_focused = patch.is_focused ? 1 : 0;
-      }
 
-      if (patch.recurrence_renew) {
-        // T12: perpanjangan baru berlaku di server lewat flag `recurrence_renew` di PUT (server tidak membaca
-        // recurrence_end_date). Simpan flag sampai PUT sukses (syncpush membersihkannya lewat CAS) — tanggal
-        // akhir lokal hanya perkiraan tampilan, nilai server diadopsi dari respons PUT.
-        next.recurrence_end_date = plus90(opts && opts.today);
-        next.recurrence_notif_level = null;
-        next.recurrence_renew_pending = 1;
-      } else if ("recurrence_type" in patch) {
-        const rc = normRecurrence(patch.recurrence_type, patch.recurrence_days);
-        if (rc.type) {
-          next.recurrence_type = rc.type;
-          next.recurrence_days = rc.daysJson;
-          if (!next.recurrence_end_date) next.recurrence_end_date = plus90(opts && opts.today);
-        } else {
-          next.recurrence_type = null;
-          next.recurrence_days = null;
-          next.recurrence_end_date = null;
-          next.recurrence_notif_level = null;
+      // Patch diterapkan ke record TERBARU di dalam transaksi tulis (R8): updateTask yang berjalan bersamaan
+      // (autosave Live Edit + api.taskExt.set) tidak saling menimpa field maupun kunci ext.
+      function applyTo(base) {
+        const next = Object.assign({}, base);
+        if (cleanTitle != null) next.title = cleanTitle;
+        if (patch.description != null) next.description = patch.description;
+        if (patch.priority != null) next.priority = String(patch.priority).toUpperCase();
+        const sameProjectText = patch.project != null && base.project_id != null
+          && nocaseKey(patch.project) === nocaseKey(base.project);
+        if (patch.project != null) next.project = patch.project;
+        if ("project_id" in patch) {
+          next.project_id = patch.project_id != null ? patch.project_id : null;
+          next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
+        } else if (needLookup && !sameProjectText) {
+          next.project_id = pc ? pc.findId(projectItems, next.list_id, patch.project) : null;
+          next.project_ref_name = next.project_id != null ? next.project : null;
         }
+        const sameContextText = patch.context != null && base.context_id != null
+          && nocaseKey(patch.context) === nocaseKey(base.context);
+        if (patch.context != null) next.context = patch.context;
+        if ("context_id" in patch) {
+          next.context_id = patch.context_id != null ? patch.context_id : null;
+          next.context_ref_name = next.context_id != null ? (next.context != null ? next.context : "") : null;
+        } else if (needCtxLookup && !sameContextText) {
+          const found = cc && cc.findId ? cc.findId(contextItems, next.list_id, patch.context) : null;
+          next.context_id = found != null ? found : null;
+          next.context_ref_name = next.context_id != null ? next.context : null;
+        }
+        if (patch.waiting_for != null) next.waiting_for = patch.waiting_for;
+        if (patch.gtd_status != null) {
+          next.gtd_status = patch.gtd_status;
+          if (patch.gtd_status === "done") next.completed_at = now;
+        }
+        if (patch.deadline != null) {
+          next.deadline = (patch.deadline === "" || patch.deadline === "-") ? null : patch.deadline;
+        }
+        if (patch.assigned_to != null) {
+          next.assigned_to = patch.assigned_to === 0 ? null : patch.assigned_to;
+        }
+        if (patch.estimated_pomodoros != null) next.estimated_pomodoros = TFpomo().clampEstimate(patch.estimated_pomodoros);
+        if (patch.progress != null) {
+          next.progress = Math.max(0, Math.min(100, patch.progress));
+        }
+        if (patch.is_focused != null) {
+          next.is_focused = patch.is_focused ? 1 : 0;
+        }
+
+        if (patch.recurrence_renew) {
+          // T12: perpanjangan baru berlaku di server lewat flag `recurrence_renew` di PUT (server tidak membaca
+          // recurrence_end_date). Simpan flag sampai PUT sukses (syncpush membersihkannya lewat CAS) — tanggal
+          // akhir lokal hanya perkiraan tampilan, nilai server diadopsi dari respons PUT.
+          next.recurrence_end_date = plus90(opts && opts.today);
+          next.recurrence_notif_level = null;
+          next.recurrence_renew_pending = 1;
+        } else if ("recurrence_type" in patch) {
+          const rc = normRecurrence(patch.recurrence_type, patch.recurrence_days);
+          if (rc.type) {
+            next.recurrence_type = rc.type;
+            next.recurrence_days = rc.daysJson;
+            if (!next.recurrence_end_date) next.recurrence_end_date = plus90(opts && opts.today);
+          } else {
+            next.recurrence_type = null;
+            next.recurrence_days = null;
+            next.recurrence_end_date = null;
+            next.recurrence_notif_level = null;
+          }
+        }
+
+        if (hasExt) {
+          const ext = TFtaskext.applyPatch(base.ext, patch.ext_patch);
+          const big = TFtaskext.sizeError(ext);
+          if (big) throw TFtaskext.extError(big.code, big.key);
+          next.ext = ext;
+          next.ext_dirty = unionKeys(base.ext_dirty, Object.keys(patch.ext_patch));
+        }
+
+        next.updated_at = now;
+        next.dirty = 1;
+        next.rev = (base.rev || 0) + 1;
+        next.quadrant = TFlogic.calculateQuadrant(
+          { priority: next.priority, deadline: next.deadline },
+          opts && opts.today
+        );
+        return next;
       }
 
-      next.updated_at = now;
-      next.dirty = 1;
-      next.rev = (rec.rev || 0) + 1;
-      next.quadrant = TFlogic.calculateQuadrant(
-        { priority: next.priority, deadline: next.deadline },
-        opts && opts.today
-      );
-
-      return putRaw(next)
-        .then(() => TFoutbox.outboxAdd({ op: "update", entity_type: "task", cid: cid, payload: next }))
-        .then(() => (newTags != null && newTags.length ? TFtagrepo.addEntityTags("task", cid, newTags) : null))
-        .then(() => assemble(next, opts && opts.today));
+      return TFdb.mutate("tasks", cid, (cur) => {
+        if (!cur || cur.deleted) throw new Error("Task not found");
+        return applyTo(cur);
+      })
+        .then((next) => TFoutbox.outboxAdd({ op: "update", entity_type: "task", cid: cid, payload: next })
+          .then(() => (newTags != null && newTags.length ? TFtagrepo.addEntityTags("task", cid, newTags) : null))
+          .then(() => assemble(next, opts && opts.today)));
     });
   }
 

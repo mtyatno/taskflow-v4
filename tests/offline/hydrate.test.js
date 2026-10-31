@@ -97,3 +97,16 @@ test("taskFromServer carries estimated_pomodoros/pomodoros_done and defaults 1/0
   assert.equal(b.estimated_pomodoros, 1);
   assert.equal(b.pomodoros_done, 0);
 });
+
+test("taskFromServer: ext objek disalin; ext string '{}' / tidak ada → tanpa kunci ext", () => {
+  const getCid = (sid) => "c" + sid;
+  const base = { id: 5, title: "a", parent_id: null, updated_at: "2026-01-01T00:00:00" };
+  const withExt = taskFromServer(Object.assign({}, base, { ext: { "demo-ext.a": 1 } }), getCid);
+  assert.deepEqual(withExt.ext, { "demo-ext.a": 1 });
+  assert.equal("ext_dirty" in withExt, false);
+  for (const ext of ["{}", undefined, null, [1]]) {
+    const rec = taskFromServer(Object.assign({}, base, ext === undefined ? {} : { ext }), getCid);
+    assert.equal("ext" in rec, false, String(ext));
+    assert.equal("ext_dirty" in rec, false);
+  }
+});

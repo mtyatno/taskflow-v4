@@ -54,6 +54,7 @@
     e.code = code;
     e.key = key === undefined ? null : key;
     e.status = 422;
+    e.body = { detail: { code: code, key: e.key } }; // bentuk 422 server / rute lokal
     return e;
   }
 
