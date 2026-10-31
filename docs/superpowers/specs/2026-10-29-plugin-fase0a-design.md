@@ -2,7 +2,8 @@
 
 - **Tanggal:** 2026-10-29
 - **Basis kode:** `main` @ `b11ebe1` (mtyatno/taskflow-v4; SW `taskflow-v486-ws-dropdown`, `app.css?v=382`, `themes.css?v=2`, IndexedDB `taskflow-offline` v6, 80 modul `static/offline/`, `webapp.py` 10.838 baris / 213 endpoint / 0 `APIRouter`, `index.html` 46.049 baris)
-- **Status:** disetujui pemilik 2026-10-31 (A1–A4 + istilah diputuskan, lihat §2). Hasil brainstorming 2026-10-28/29 (pemilik + Claude + analisis rekan pemilik: "Peta kebutuhan" dan "Evaluasi Bottleneck"). Belum ada branch.
+- **Status:** disetujui pemilik 2026-10-31 (A1–A4 + istilah diputuskan, lihat §2). Hasil brainstorming 2026-10-28/29 (pemilik + Claude + analisis rekan pemilik: "Peta kebutuhan" dan "Evaluasi Bottleneck").
+- **Status:** diimplementasikan di `claude/plugin-fase0a` (rencana `docs/superpowers/plans/2026-10-31-plugin-fase0a.md`, rilis `taskflow-v488-plugin-fase0a`, ADR-037). Bagian §4.1, §4.6, §5, §6, §7 diperbarui 2026-10-31 agar sesuai implementasi (revisi R1/R2 rencana).
 - **Salinan:** Project claude.ai "alurik" `claude/spec-plugin-fase0a-2026-10-29.md`; saat implementasi dimulai, ikut di-commit ke `docs/superpowers/specs/2026-10-29-plugin-fase0a-design.md`. Isi keduanya harus sama.
 - **Dokumen terkait:** mockup Timeline/Gantt (artifact "Mockup Timeline Alurik", 4 artboard) sebagai gambaran plugin Fase 1; bukan bagian spec ini.
 - **Istilah:**
@@ -30,7 +31,7 @@ Alurik akan mendapat fitur-fitur opsional (Timeline/Gantt, Peliharaan, Boss Ming
 4. **100% offline.** File plugin ada di precache `sw.js`, jadi aktivasi dan render plugin bekerja tanpa jaringan sejak rilis terpasang. Di Tauri (Desktop/APK) file ikut `dist-tauri/static/plugins/`.
 5. **ON/OFF per perangkat tersimpan.** Toggle di Pengaturan › Plugin, tersimpan di IndexedDB `_meta` (bukan `localStorage`), langsung berlaku tanpa reload, bekerja offline.
 6. **Gagal aman.** Plugin yang melempar error saat load atau render tidak membuat layar putih: slot itu kosong, toast sekali, plugin dinonaktifkan otomatis setelah 2 error dalam satu sesi.
-7. **Event bus hidup.** Host memancarkan `task.completed`, `habit.checked`, `habit.unchecked`, `pomodoro.ended`, `app.online`, `app.offline`, `app.dayChanged`, `sync.done`; plugin bisa mendengar dan memancarkan event bernamespace sendiri.
+7. **Event bus hidup.** Host memancarkan `task.completed`, `habit.changed`, `pomodoro.ended`, `app.online`, `app.offline`, `app.dayChanged`, `sync.done`; plugin bisa mendengar dan memancarkan event bernamespace sendiri.
 8. **Plugin #0 Heatmap** menampilkan grid 365 hari habit tercentang (+ opsional task selesai) di Dashboard, dihitung 100% dari IndexedDB, ikut token tema (Default/Sakura/Lavender, terang/gelap), tanpa Chart.js.
 9. **Build & tes.** `npm run compile` mengompilasi `static/plugins/*/plugin.jsx` → `plugin.js`; `npm test` mencakup tes runtime, slot, event bus, status, loader, dan heatmap; `check_inline_scripts` tetap lolos.
 10. **`index.html` bertambah ≤ 60 baris** (slot, emit event, kartu Pengaturan). Semua logika runtime di file terpisah.
@@ -84,11 +85,12 @@ Alurik akan mendapat fitur-fitur opsional (Timeline/Gantt, Peliharaan, Boss Ming
 | `static/plugins/habit-heatmap/plugin.jsx` | baru | plugin #0 |
 | `static/plugins/habit-heatmap/plugin.js` | hasil `compile.js`, di-commit (seperti `index.html` terkompilasi) | – |
 | `static/plugins/habit-heatmap/style.css` | baru, opsional | kelas `.plg-heatmap-*` |
-| `static/plugins/_template/plugin.jsx`, `README.md` | baru | templat plugin |
-| `static/plugins/index.json` | baru, ditulis `compile.js` | daftar plugin bawaan: `[{id, version, files:[…], hash}]` untuk precache dan Pengaturan (nama/deskripsi dibaca dari manifest saat plugin dimuat; sebelum dimuat, dari `index.json` yang menyalin field `name`, `description`, `permissions`) |
-| `static/index.html` | ubah ≤ 60 baris | `<script src="/static/plugin-runtime.js">` setelah modul offline terakhir dan sebelum `ui-components.js`; `<TF.Slot name="dashboard.widgets"/>`; 8 titik `TF.events.emit`; `PluginSettingsCard` di `SettingsPage` |
-| `static/sw.js` | ubah | `STATIC` += `/static/plugin-runtime.js`, `/static/plugins/index.json`, dan setiap file dari `index.json` dengan query `?v=<hash>`; bump `CACHE` |
-| `compile.js` | ubah (+~40 baris) | loop `static/plugins/*/plugin.jsx` → `plugin.js`, tulis `index.json` |
+| `static/plugins/<id>/manifest.json` | baru, **wajib** | sumber kebenaran manifest; `compile.js` menolak plugin tanpa `manifest.json` atau dengan `id` ≠ nama folder, dan menyuntiknya sebagai konstanta `manifest` di `plugin.js` |
+| `static/plugins/_template/plugin.jsx`, `manifest.json`, `README.md` | baru | templat plugin |
+| `static/plugins/index.json` | baru, ditulis `compile.js` | `{v: 1, plugins: [{id, name, description, version, minApi, slots, permissions, defaultEnabled, files, hash}]}` untuk precache, loader (`slots` menentukan plugin mana yang dimuat untuk sebuah slot), dan Pengaturan (sebelum plugin dimuat, nama/deskripsi/izin dibaca dari sini) |
+| `static/index.html` | ubah ≤ 60 baris | `<script src="/static/plugin-runtime.js">` setelah modul offline terakhir dan sebelum `ui-components.js`; `<TF.Slot name="dashboard.widgets"/>`; 4 titik `TF.events.emit` (`task.completed` di `handleDone`, 3× `pomodoro.ended`; event habit lewat jembatan `habitSaved`, §4.6); `PluginSettingsCard` di `SettingsPage` |
+| `static/sw.js` | ubah | `STATIC` += `/static/plugin-runtime.js` (tulis tangan) dan blok `// plugins:begin … // plugins:end` yang ditulis ulang `compile.js` (`/static/plugins/index.json` + setiap file dari `index.json` dengan query `?v=<hash>`); bump `CACHE` |
+| `compile.js` | ubah | loop `static/plugins/*/plugin.jsx` → `plugin.js`, baca `manifest.json`, tulis `index.json` dan blok plugin di `sw.js`; `--plugins-only` (`npm run compile:plugins`) |
 | `scripts/build-tauri-dist.js` | tidak berubah | sudah menyalin seluruh `static/`; cukup pastikan `npm run compile` dijalankan sebelumnya (CI) |
 | `static/whatsnew.json` | ubah | entri rilis |
 | `docs/plugins/README.md` | baru | cara menulis plugin |
@@ -153,8 +155,8 @@ API: `on(name, fn) → off`, `once`, `off`, `emit(name, payload)`. Pola nama: `d
 
 | Event | Titik emit di host | Payload |
 |---|---|---|
-| `task.completed` | `handleDone` di `App` (±44544) setelah sukses lokal | `{taskId, cid, listId, projectId, completedAt}` |
-| `habit.checked` / `habit.unchecked` | setelah `POST /api/habits/{id}/checkin` (±23024) / uncheck sukses lokal | `{habitId, cid, date}` |
+| `task.completed` | `handleDone` di `App` setelah sukses lokal (jalur utama). Titik lain (centang dari child task, Kanban) tidak memancarkan di Fase 0a; plugin yang butuh kelengkapan memakai `sync.done` + pembacaan ulang (R2) | `{taskId, completedAt}` |
+| `habit.changed` | jembatan runtime dari `window` event `habitSaved` yang sudah dipancarkan semua titik check-in/uncheck (Dashboard, halaman Habit, dll.); menggantikan `habit.checked`/`habit.unchecked` (R1) — pendengar membaca ulang data | `{}` |
 | `pomodoro.ended` | 3 titik `api.post(".../pomodoros")` (±11448, 11543, 11592) | `{taskId, kind: "session"∣"overtime", pomodoros, focusSeconds, endedAt}` |
 | `app.online` / `app.offline` | listener `online`/`offline` di runtime | `{}` |
 | `app.dayChanged` | runtime: interval 60 s membandingkan tanggal Asia/Jakarta | `{date}` |
@@ -189,10 +191,10 @@ Tidak ada di v1: `fetch` (0b), `records` (1), `settings.project` (1), `secrets`,
 ## 5. Plugin #0: Heatmap Habit
 
 - **Manifest:** `id: "habit-heatmap"`, `slots: ["dashboard.widgets"]`, `permissions: ["storage"]`, `defaultEnabled: false`.
-- **Tampilan:** kartu `dash-card` berjudul "Heatmap" dengan segmen `Habit | Task selesai | Keduanya` (pilihan tersimpan di `api.storage` kunci `metric`), grid 53 kolom × 7 baris (365 hari berakhir hari ini) di layar lebar; di HP 26 kolom (182 hari) dengan scroll horizontal; kotak 11 px, jarak 2 px, radius 2 px; label bulan di atas, label Sen/Rab/Jum di kiri; tooltip `title="Sel 14 Okt · 3 habit · 2 task"`; ringkasan di bawah: "Streak 12 hari · 87 hari aktif dari 365".
+- **Tampilan:** kartu `dash-card` berjudul "Heatmap" dengan segmen `Habit | Task selesai | Keduanya` (pilihan tersimpan di `api.storage` kunci `metric`), grid 53 kolom × 7 baris (365 hari berakhir hari ini) di layar ≥ 768 px; di HP 26 kolom (176–182 hari, tergantung hari dalam minggu) dengan scroll horizontal; kotak 11 px, jarak 2 px, radius 2 px; label bulan di atas, label Sen/Rab/Jum di kiri; tooltip `title="Sel 14 Okt · 3 habit · 2 task"`; ringkasan di bawah: "Streak 12 hari · 87 hari aktif dari 365".
 - **Warna:** 5 tingkat dari `color-mix(in srgb, var(--accent) X%, var(--bg-card))` X = 0/25/50/75/100 (ikut palet dan mode); kotak hari ini diberi `outline: 1px solid var(--accent)`. Tidak ada warna hex tetap.
 - **Data:** `api.data.habits.logs({from, to})` (hanya `checked`, tanpa `deleted`) dan `api.data.tasks.list({includeDone: true})` dengan `completed_at` dalam rentang, dikonversi ke tanggal Asia/Jakarta. Dihitung di modul murni `heatmaplogic.js` (di dalam `plugin.jsx`, diekspor untuk tes): `bucketByDate(logs, tasks, from, to)`, `levels(counts)` (kuantil, maksimum ≥ 1), `streak(counts, today)`.
-- **Pembaruan:** hitung saat mount, lalu pada `habit.checked/unchecked`, `task.completed`, `sync.done`, `app.dayChanged` (debounce 300 ms).
+- **Pembaruan:** hitung saat mount, lalu pada `habit.changed`, `task.completed`, `sync.done`, `app.dayChanged` (debounce 300 ms).
 - **Offline:** 100% IndexedDB.
 - **Tanpa:** Chart.js, jaringan, `localStorage`, penulisan data host.
 
@@ -200,14 +202,15 @@ Tidak ada di v1: `fetch` (0b), `records` (1), `settings.project` (1), `secrets`,
 
 1. Perilaku lama untuk `index.html` tetap (guard "already compiled").
 2. Baru: untuk setiap `static/plugins/<id>/plugin.jsx` (lewati `_template`): Babel `preset-react` classic → `plugin.js`; header komentar `// generated from plugin.jsx — jangan edit`; gagal kompilasi satu plugin → proses keluar dengan kode 1 (tidak diam-diam melewati).
-3. Tulis `static/plugins/index.json`: `{ "v": 1, "plugins": [{ "id", "name", "description", "version", "permissions", "defaultEnabled", "files": ["plugin.js", "style.css"], "hash": "<sha1 8 hex gabungan isi files>" }] }`. Field manifest dibaca dengan regex ringan dari blok `register({...})` **atau** dari `manifest.json` opsional di folder plugin (lebih aman; direkomendasikan di template).
+3. Tulis `static/plugins/index.json`: `{ "v": 1, "plugins": [{ "id", "name", "description", "version", "minApi", "slots", "permissions", "defaultEnabled", "files": ["plugin.js", "style.css"], "hash": "<sha1 8 hex gabungan isi files>" }] }`. Manifest dibaca dari `manifest.json` di folder plugin, **wajib** (tanpa file itu, JSON tidak valid, field hilang, atau `id` ≠ nama folder → exit 1) dan disuntik ke `plugin.js` sebagai konstanta `manifest`; tidak ada pembacaan regex dari `register({...})`.
+3a. Tulis ulang blok `// plugins:begin … // plugins:end` di `STATIC` `static/sw.js` dari `index.json` (idempoten; dua kali `node compile.js` tanpa diff). Lint: `plugin.js` yang mengandung `tokenStore`, `API_BASE`, `fetch(`, `localStorage` → exit 1.
 4. `package.json` script `compile` tetap; tambah `compile:plugins` untuk menjalankan bagian plugin saja saat pengembangan.
 5. Tes build: `tests/build-plugins.test.js` memverifikasi `index.json` konsisten dengan folder dan `hash` berubah bila isi berubah.
 
 ## 7. Service Worker dan Tauri
 
 - `STATIC` += `/static/plugin-runtime.js`, `/static/plugins/index.json`, `/static/plugins/habit-heatmap/plugin.js?v=<hash>`, `/static/plugins/habit-heatmap/style.css?v=<hash>`. Query `?v=` harus persis sama dengan yang disuntik loader (loader mengambil `hash` dari `index.json`), aturan yang sama seperti `app.css?v=`.
-- `CACHE` bump: `taskflow-v487-plugin-fase0a` (nama final saat rilis).
+- `CACHE` bump: `taskflow-v488-plugin-fase0a` (nomor final mengikuti `main` saat merge).
 - Tauri: tidak ada perubahan; `build-tauri-dist.js` menyalin `static/` utuh. CI harus menjalankan `npm run compile` sebelum `node scripts/build-tauri-dist.js` (periksa workflow). CSP `script-src 'self'` mengizinkan `<script src="/static/plugins/...">`.
 - Fase 0c mengganti bump monolitik dengan revisi per file; Fase 0a sengaja tidak.
 

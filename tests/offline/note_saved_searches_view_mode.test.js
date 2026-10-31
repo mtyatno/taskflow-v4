@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v487-domain-alurik", () => {
-    assert.match(swJs, /taskflow-v487-domain-alurik/);
+  await t.test("sw.js bumped to taskflow-v488-plugin-fase0a", () => {
+    assert.match(swJs, /taskflow-v488-plugin-fase0a/);
   });
 });

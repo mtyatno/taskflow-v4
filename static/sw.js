@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v487-domain-alurik";
+const CACHE = "taskflow-v488-plugin-fase0a";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 // Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
