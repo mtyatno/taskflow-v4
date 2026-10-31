@@ -217,8 +217,11 @@ milik satu task (kalender, preset, entri jadwal); data per task tetap lewat `api
 - **Konflik = last-write-wins** atas `updated_at` (waktu klien, dipotong ke waktu server) per record utuh —
   bukan per field; bagi record per kegunaan bila dua perangkat sering mengedit bagian berbeda.
 - **Galat.** Entitas tak dideklarasikan, id/scope tak sah, atau melebihi `maxBytes` → `PluginStorageError` dengan
-  `code` (`INVALID` dengan `detail` `entity`/`id`/`scope`/`data`/`size`/`task_ref`; `SCOPE_IMMUTABLE` bila scope
-  record yang ada diubah); tanpa izin `records` → `PluginPermissionError`.
+  `code`: `INVALID` dengan `detail` `entity` (entitas tak dideklarasikan), `id`, `scope`, `data` atau `task_ref`;
+  `TOO_LARGE` dengan `detail: "size"` bila `data` melebihi `maxBytes` (pemeriksaan klien sebelum menulis lokal);
+  `SCOPE_IMMUTABLE` bila scope record yang ada diubah. Tanpa izin `records` → `PluginPermissionError`. Server
+  memeriksa ulang saat sinkron: item di atas batas dijawab `INVALID` dengan `detail: "size"` (bukan `TOO_LARGE`; kode
+  itu di sisi server hanya untuk badan POST > 256 KB, 413) dan record lokal tetap `dirty` dengan `error`.
 - **Offline dan plugin OFF.** Bekerja penuh offline (tulis lokal dulu, antre di outbox, satu op per record).
   Plugin OFF tetap **mengirim** perubahan yang sudah ada, tetapi **tidak menarik** record dari server; yang belum
   ditarik datang pada sinkron berikutnya setelah plugin ON.
