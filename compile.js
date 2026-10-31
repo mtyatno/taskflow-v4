@@ -86,6 +86,17 @@ const DOT_FETCH_RE = /\.\s*fetch\s*\(/;
 const PLUGIN_ID_RE = /^[a-z][a-z0-9-]{2,31}$/;
 const RESERVED_PLUGIN_IDS = ['state'];
 const MANIFEST_FIELDS = ['id', 'name', 'description', 'version', 'minApi', 'slots', 'permissions', 'defaultEnabled'];
+// Fase 1 (rencana PR 1a-1 R13): disalin ke index.json dan konstanta manifest hanya bila ada. `parts` hanya saat build.
+const OPTIONAL_FIELDS = ['contributes', 'taskExt'];
+// Aturan contributes/taskExt sama dengan validateManifest di static/plugin-runtime.js (spec Fase 1 K19).
+const CONTRIB_SLOTS = ['taskList.views', 'taskDetail.sections'];
+const CONTRIB_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
+const VIEW_PAGES = ['project', 'workspace'];
+const ICON_PATH_RE = /^[MmLlHhVvCcSsQqTtAaZz0-9.,\- ]+$/;
+const ICON_PATH_MAX_BYTES = 2048;
+const LABEL_MAX = 40;
+const EXT_FIELD_RE = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
+const PART_RE = /^[a-z0-9][a-z0-9_-]*\.js$/;
 const SW_BEGIN = '  // plugins:begin — ditulis compile.js dari static/plugins/index.json, jangan edit manual';
 const SW_END = '  // plugins:end';
 
@@ -101,6 +112,83 @@ function lintPlugin(code, manifest) {
   const perms = (manifest && Array.isArray(manifest.permissions)) ? manifest.permissions : [];
   if (DOT_FETCH_RE.test(code) && perms.indexOf('network') < 0) return '.fetch(';
   return null;
+}
+
+const isPlainObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
+function labelError(where, label) {
+  if (typeof label !== 'string' || !label.trim()) return where + ': label wajib diisi';
+  if (Array.from(label).length > LABEL_MAX) return where + ': label maksimal ' + LABEL_MAX + ' karakter';
+  return null;
+}
+
+// Alasan (string) bila manifest.contributes tidak sah, null bila sah atau tidak ada.
+function validateContributes(m) {
+  if (!m || m.contributes === undefined) return null;
+  const c = m.contributes;
+  if (!isPlainObj(c)) return 'contributes harus objek';
+  const slots = Array.isArray(m.slots) ? m.slots : [];
+  for (const slot of Object.keys(c)) {
+    if (CONTRIB_SLOTS.indexOf(slot) < 0) return 'contributes: slot tidak didukung: ' + slot;
+    if (slots.indexOf(slot) < 0) return 'contributes: slot ' + slot + ' tidak ada di slots';
+    const items = c[slot];
+    if (!Array.isArray(items)) return 'contributes: ' + slot + ' harus array';
+    const seen = new Set();
+    for (const it of items) {
+      if (!isPlainObj(it)) return 'contributes: item ' + slot + ' harus objek';
+      if (typeof it.id !== 'string' || !CONTRIB_ID_RE.test(it.id)) return 'contributes: id ' + slot + ' tidak valid: ' + it.id;
+      if (seen.has(it.id)) return 'contributes: id ' + slot + ' ganda: ' + it.id;
+      seen.add(it.id);
+      const where = 'contributes: ' + slot + ' ' + it.id;
+      const le = labelError(where, it.label);
+      if (le) return le;
+      if (slot === 'taskList.views') {
+        const p = isPlainObj(it.icon) ? it.icon.path : undefined;
+        if (typeof p !== 'string' || !p || !ICON_PATH_RE.test(p)) return where + ': icon.path hanya perintah path SVG (M L H V C S Q T A Z, angka)';
+        if (Buffer.byteLength(p, 'utf8') > ICON_PATH_MAX_BYTES) return where + ': icon.path melebihi ' + ICON_PATH_MAX_BYTES + ' byte';
+        if (!Array.isArray(it.pages) || !it.pages.length) return where + ': pages wajib array tak kosong';
+        if (new Set(it.pages).size !== it.pages.length) return where + ': pages ganda';
+        for (const pg of it.pages) if (VIEW_PAGES.indexOf(pg) < 0) return where + ': pages tidak dikenal: ' + pg;
+      } else if (it.order !== undefined && (typeof it.order !== 'number' || !Number.isFinite(it.order))) {
+        return where + ': order harus angka';
+      }
+    }
+  }
+  return null;
+}
+
+// Izin task.ext ⇔ taskExt.keys (array field unik, tak kosong).
+function validateTaskExt(m) {
+  const perms = (m && Array.isArray(m.permissions)) ? m.permissions : [];
+  const has = !!m && m.taskExt !== undefined;
+  const perm = perms.indexOf('task.ext') >= 0;
+  if (perm && !has) return 'izin task.ext butuh taskExt.keys';
+  if (!has) return null;
+  if (!perm) return 'taskExt butuh izin task.ext';
+  const keys = isPlainObj(m.taskExt) ? m.taskExt.keys : undefined;
+  if (!Array.isArray(keys) || !keys.length) return 'taskExt.keys wajib array tak kosong';
+  if (new Set(keys).size !== keys.length) return 'taskExt.keys ganda';
+  for (const k of keys) if (typeof k !== 'string' || !EXT_FIELD_RE.test(k)) return 'taskExt.keys tidak valid: ' + k;
+  return null;
+}
+
+// Isi parts (mentah, tanpa Babel) yang didahulukan sebelum kode plugin.jsx.
+function readParts(dir, id, parts) {
+  if (parts === undefined) return '';
+  if (!Array.isArray(parts)) throw new PluginBuildError(`plugin ${id}: parts harus array nama berkas`);
+  const seen = new Set();
+  let out = '';
+  for (const name of parts) {
+    if (typeof name !== 'string' || !PART_RE.test(name) || name === 'plugin.js') {
+      throw new PluginBuildError(`plugin ${id}: parts tidak valid: ${name} (pola [a-z0-9][a-z0-9_-]*.js, bukan plugin.js)`);
+    }
+    if (seen.has(name)) throw new PluginBuildError(`plugin ${id}: parts ganda: ${name}`);
+    seen.add(name);
+    const file = path.join(dir, name);
+    if (!fs.existsSync(file) || !fs.statSync(file).isFile()) throw new PluginBuildError(`plugin ${id}: parts ${name} tidak ada`);
+    out += '// part: ' + name + '\n' + fs.readFileSync(file, 'utf8').replace(/\s+$/, '') + '\n';
+  }
+  return out;
 }
 
 function writeIfChanged(file, content, written) {
@@ -120,10 +208,15 @@ function readManifest(dir, id) {
   for (const k of MANIFEST_FIELDS) {
     if (m[k] === undefined) throw new PluginBuildError(`plugin ${id}: manifest.json tanpa field ${k}`);
   }
+  const ce = validateContributes(m);
+  if (ce) throw new PluginBuildError(`plugin ${id}: ${ce}`);
+  const te = validateTaskExt(m);
+  if (te) throw new PluginBuildError(`plugin ${id}: ${te}`);
   const out = {};
   for (const k of MANIFEST_FIELDS) out[k] = m[k];
+  for (const k of OPTIONAL_FIELDS) if (m[k] !== undefined) out[k] = m[k];
   out.builtin = true;
-  return out;
+  return { manifest: out, parts: m.parts };
 }
 
 function buildOne(pluginsDir, id, written) {
@@ -131,26 +224,28 @@ function buildOne(pluginsDir, id, written) {
     throw new PluginBuildError(`plugin ${id}: id tidak valid atau dicadangkan`);
   }
   const dir = path.join(pluginsDir, id);
-  const manifest = readManifest(dir, id);
+  const { manifest, parts } = readManifest(dir, id);
+  const partsCode = readParts(dir, id, parts);
   let code;
   try {
     code = compileJsx(fs.readFileSync(path.join(dir, 'plugin.jsx'), 'utf8'), path.join(id, 'plugin.jsx'));
   } catch (err) {
     throw new PluginBuildError(`plugin ${id}: gagal kompilasi plugin.jsx: ${err.message}`);
   }
-  const lint = lintPlugin(code, manifest);
-  if (lint) {
-    const hint = lint === '.fetch(' ? ' tanpa izin "network"' : '';
-    throw new PluginBuildError(`plugin ${id}: lint — plugin.js tidak boleh memakai "${lint}"${hint} (pakai TF.api)`);
-  }
   // Manifest dari manifest.json disuntik sebagai konstanta `manifest` (satu sumber kebenaran); kode plugin
-  // memanggil window.TF.plugins.register(manifest, factory).
+  // memanggil window.TF.plugins.register(manifest, factory). parts (mentah) mendahului kode plugin.jsx.
   const js = PLUGIN_HEADER +
     '(function () {\n' +
     '"use strict";\n' +
     'const manifest = Object.freeze(' + JSON.stringify(manifest) + ');\n' +
+    partsCode +
     code.replace(/^"use strict";\n*/, '') + '\n' +
     '})();\n';
+  const lint = lintPlugin(js, manifest);
+  if (lint) {
+    const hint = lint === '.fetch(' ? ' tanpa izin "network"' : '';
+    throw new PluginBuildError(`plugin ${id}: lint — plugin.js tidak boleh memakai "${lint}"${hint} (pakai TF.api)`);
+  }
   writeIfChanged(path.join(dir, 'plugin.js'), js, written);
   const files = ['plugin.js'];
   if (fs.existsSync(path.join(dir, 'style.css'))) files.push('style.css');
@@ -159,6 +254,7 @@ function buildOne(pluginsDir, id, written) {
     .digest('hex').slice(0, 8);
   const entry = {};
   for (const k of MANIFEST_FIELDS) entry[k] = manifest[k];
+  for (const k of OPTIONAL_FIELDS) if (manifest[k] !== undefined) entry[k] = manifest[k];
   entry.files = files;
   entry.hash = hash;
   return entry;
@@ -194,7 +290,10 @@ function buildPlugins(opts) {
   return { index, written };
 }
 
-module.exports = { buildPlugins, compileJsx, PluginBuildError, LINT_RE, lintPlugin };
+module.exports = {
+  buildPlugins, compileJsx, PluginBuildError, LINT_RE, lintPlugin,
+  OPTIONAL_FIELDS, ICON_PATH_RE, validateContributes, validateTaskExt,
+};
 
 if (require.main === module) {
   const pluginsOnly = process.argv.includes('--plugins-only');

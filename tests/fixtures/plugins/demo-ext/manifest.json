@@ -1,0 +1,20 @@
+{
+  "id": "demo-ext",
+  "name": "Demo Ext",
+  "description": "Plugin contoh khusus tes (tidak dirilis).",
+  "version": "1.0.0",
+  "minApi": 1,
+  "defaultEnabled": false,
+  "slots": ["taskList.views", "taskDetail.sections"],
+  "permissions": ["task.ext"],
+  "contributes": {
+    "taskList.views": [
+      {"id": "board", "label": "Demo", "icon": {"path": "M2 4h12M2 8h12M2 12h8"}, "pages": ["project", "workspace"]}
+    ],
+    "taskDetail.sections": [
+      {"id": "note", "label": "Catatan demo", "order": 10}
+    ]
+  },
+  "taskExt": {"keys": ["note", "after"]},
+  "parts": ["util.js"]
+}
