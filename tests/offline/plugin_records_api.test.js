@@ -156,6 +156,9 @@ test("entitas tidak dideklarasikan / data terlalu besar (> 4096) / scope list:ab
       return true;
     });
   }
+  const ne = await rec().put("nope", "x", { a: 1 }).catch((e) => e);
+  assert.equal(ne.code, "INVALID");
+  assert.equal(ne.detail, "entity");
   const big = await rec().put("note", "x", { s: "a".repeat(5000) }).catch((e) => e);
   assert.equal(big.code, "TOO_LARGE");
   const sc = await rec().put("note", "x", { a: 1 }, { scope: "list:abc" }).catch((e) => e);
@@ -245,4 +248,45 @@ test("tombstone dan record plugin lain tidak pernah dikembalikan", async () => {
   const r = await rec().put("note", "n1", { a: 3 });
   assert.deepEqual((await rec().get("note", "n1")).data, { a: 3 });
   assert.equal(r.pending, true);
+});
+
+test("entitas tidak dideklarasikan → PluginStorageError code INVALID, detail 'entity'", async () => {
+  for (const f of [() => rec().put("nope", "x", { a: 1 }), () => rec().get("nope", "x"), () => rec().list("nope"), () => rec().remove("nope", "x")]) {
+    const e = await f().catch((x) => x);
+    assert.ok(e instanceof PluginStorageError);
+    assert.equal(e.code, "INVALID");
+    assert.equal(e.detail, "entity");
+  }
+});
+
+test("onChange dilepas saat plugin dinonaktifkan; aktif lagi → factory mendaftar ulang, tepat satu panggilan per peristiwa", async () => {
+  const got = [];
+  let made = 0;
+  P.register(REC, (api) => {
+    made += 1;
+    api.records.onChange((ev) => got.push(ev.ids[0]));
+    return {};
+  });
+  assert.equal(made, 1);
+  PS._internals.emit({ pluginId: "demo-records", entity: "note", ids: ["a"], source: "sync" });
+  assert.deepEqual(got, ["a"]);
+  await P.setEnabled("demo-records", false);
+  PS._internals.emit({ pluginId: "demo-records", entity: "note", ids: ["b"], source: "sync" });
+  assert.deepEqual(got, ["a"], "setelah dinonaktifkan tidak ada callback");
+  await P.setEnabled("demo-records", true);
+  assert.equal(made, 2, "factory dijalankan ulang");
+  PS._internals.emit({ pluginId: "demo-records", entity: "note", ids: ["c"], source: "sync" });
+  assert.deepEqual(got, ["a", "c"], "tepat satu callback per peristiwa (tanpa duplikat)");
+});
+
+test("onChange dilepas bila factory gagal setelah mendaftar; off() idempoten setelah deactivate", async () => {
+  const got = [];
+  let offKeep = null;
+  P.register(REC, (api) => {
+    offKeep = api.records.onChange((ev) => got.push(ev.ids[0]));
+    throw new Error("factory gagal");
+  });
+  PS._internals.emit({ pluginId: "demo-records", entity: "note", ids: ["a"], source: "sync" });
+  assert.deepEqual(got, [], "listener factory gagal dilepas");
+  offKeep(); offKeep();
 });

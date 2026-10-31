@@ -430,6 +430,7 @@
       inst = r.factory(api.for(id)) || {};
     } catch (err) {
       r.events.offAll();
+      releaseRecordListeners(id);
       markFailed(id, "factory", err);
       return;
     }
@@ -446,6 +447,7 @@
     const inst = r.instance;
     r.instance = null;
     r.events.offAll();
+    releaseRecordListeners(id);
     if (typeof inst.onDisable === "function") {
       try { inst.onDisable(); } catch (err) { warn("onDisable", id, "error:", err); }
     }
@@ -848,6 +850,7 @@
   }
 
   function _reset() {
+    for (const pid of Array.from(recordOffs.keys())) releaseRecordListeners(pid);
     if (unsubscribeState) { try { unsubscribeState(); } catch (_) {} }
     unsubscribeState = null;
     psOverride = undefined;
@@ -1307,6 +1310,15 @@
     return m;
   }
 
+  // Pelepas onChange per plugin: dilepas semua saat plugin dinonaktifkan atau factory gagal (deactivate/activate).
+  const recordOffs = new Map();
+  function releaseRecordListeners(id) {
+    const set = recordOffs.get(id);
+    if (!set) return;
+    recordOffs.delete(id);
+    for (const off of Array.from(set)) { try { off(); } catch (_) {} }
+  }
+
   function recordsDeclOf(id) {
     const r = recs.get(id);
     const src = (r && r.manifest) || (index && index.get(id)) || null;
@@ -1331,7 +1343,9 @@
     function decl(entity) {
       const all = recordsDeclOf(id);
       if (typeof entity !== "string" || !Object.prototype.hasOwnProperty.call(all, entity) || !isPlainObj(all[entity])) {
-        throw storageError("entitas tidak dideklarasikan di manifest.records: " + String(entity), "INVALID", "entity");
+        const e = storageError("entitas tidak dideklarasikan di manifest.records: " + String(entity), "INVALID");
+        e.detail = "entity";
+        throw e;
       }
       const mb = all[entity].maxBytes;
       return Number.isInteger(mb) ? { maxBytes: mb } : {};
@@ -1368,8 +1382,18 @@
             if (r && typeof r.then === "function") r.then(null, fail);
           } catch (e) { fail(e); }
         });
-        off = function () { if (stopped) return; stopped = true; try { un(); } catch (_) {} off = null; };
-        return function offChange() { if (off) off(); };
+        let set = recordOffs.get(id);
+        if (!set) { set = new Set(); recordOffs.set(id, set); }
+        const offChange = function () { if (off) off(); };
+        off = function () {
+          if (stopped) return;
+          stopped = true;
+          try { un(); } catch (_) {}
+          off = null;
+          set.delete(offChange);
+        };
+        set.add(offChange);
+        return offChange;
       },
       newId() {
         const c = root.crypto;
