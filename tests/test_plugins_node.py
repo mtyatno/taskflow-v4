@@ -38,12 +38,39 @@ def test_plugins_bridge_lists_required_files():
     assert not absent, f"file tes hilang: {absent}"
 
 
-@pytest.mark.skipif(shutil.which("node") is None, reason="node tidak ada di PATH")
-def test_plugins_node_tests():
-    files = _files()
+def _npm_deps_present():
+    """CI (test.yml) tidak menjalankan `npm install`: tes yang butuh fake-indexeddb / @babel/core dilewati di sana
+    dan dijalankan lewat `npm test` lokal (pola tests/test_tag_node.py)."""
+    code = "require.resolve('fake-indexeddb/auto'); require.resolve('@babel/core')"
+    r = subprocess.run(["node", "-e", code], cwd=ROOT, capture_output=True, text=True, timeout=60)
+    return r.returncode == 0
+
+
+def _needs_npm(rel):
+    with open(os.path.join(ROOT, rel), encoding="utf-8") as fh:
+        src = fh.read()
+    return bool(re.search(r"setup\.js|fake-indexeddb|@babel|compile\.js", src))
+
+
+def _run(files):
     r = subprocess.run(["node", "--test", *files], cwd=ROOT, capture_output=True, text=True, timeout=300)
     out = r.stdout + r.stderr
     assert r.returncode == 0, out[-6000:]
     assert "# fail 0" in out, out[-6000:]
     m = re.search(r"# pass (\d+)", out)
     assert m and int(m.group(1)) > 0, "tidak ada tes yang berjalan:\n" + out[-3000:]
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node tidak ada di PATH")
+def test_plugins_node_tests_pure():
+    files = [f for f in _files() if not _needs_npm(f)]
+    assert files, "tidak ada tes plugin tanpa paket npm"
+    _run(files)
+
+
+@pytest.mark.skipif(shutil.which("node") is None, reason="node tidak ada di PATH")
+def test_plugins_node_tests_npm():
+    if not _npm_deps_present():
+        pytest.skip("paket npm (fake-indexeddb, @babel/core) tidak terpasang (CI tidak menjalankan npm install); "
+                    "jalankan `npm install` lalu `npm test` dan `node --test tests/build-plugins.test.js`")
+    _run([f for f in _files() if _needs_npm(f)])
