@@ -33,7 +33,7 @@ ALLOWLIST = {
 PROD_FILES = sorted(p for p in ROOT.glob("*.py") if p.name not in ALLOWLIST)
 
 # Ratchet migrasi bertahap: titik `sqlite3.connect` yang MASIH diizinkan per file (hanya boleh turun).
-REMAINING = {"bot.py": 1}
+REMAINING = {}
 
 FORBIDDEN_TX_CONTROL = {"isolation_level", "autocommit"}
 

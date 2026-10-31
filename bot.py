@@ -68,6 +68,7 @@ from config import (
 )
 from models import Task, GTDStatus, Priority, Quadrant
 from repository import TaskRepository, InvitationExists, AlreadyMember, InvitationNotFound, InvitationClosed, InvitationExpired
+import dbconn
 from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date, format_date
 from nlp import parse_task, format_confirmation, parse_query
@@ -280,8 +281,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @authorized
 async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if len(context.args) < 2:
-        # Check current status
+    if not context.args:
+        # Check current status (satu argumen = kode dari Pengaturan web, ditangani di bawah)
         tg_id = update.effective_user.id
         user = repo.get_user_by_telegram_id(tg_id)
         if user:
@@ -307,23 +308,20 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Token-based link (dari settings webapp)
     if len(context.args) == 1 and re.match(r'^[0-9A-F]{6}$', context.args[0].upper()):
-        import sqlite3 as _sq
         token = context.args[0].upper()
-        db_path = repo._db_path
-        conn = _sq.connect(db_path)
-        conn.row_factory = _sq.Row
-        try:
+        # Commit di akhir blok (termasuk saat `return` lebih awal), rollback bila exception.
+        with dbconn.get_conn(repo.db_path) as conn:
             row = conn.execute(
                 "SELECT user_id, expires_at FROM telegram_link_tokens WHERE token = ?", (token,)
             ).fetchone()
             if not row:
                 await update.message.reply_text("❌ Kode tidak valid. Generate kode baru dari Settings webapp.")
                 return
-            from datetime import datetime as _dt
-            if _dt.fromisoformat(row["expires_at"]) < _dt.now():
+            # expires_at ditulis webapp ber-zona Asia/Jakarta → bandingkan aware↔aware (naif lama ↔ naif).
+            exp = datetime.fromisoformat(row["expires_at"])
+            if exp < datetime.now(exp.tzinfo):
                 await update.message.reply_text("❌ Kode sudah expired. Generate kode baru dari Settings webapp.")
                 conn.execute("DELETE FROM telegram_link_tokens WHERE token = ?", (token,))
-                conn.commit()
                 return
             user_row = conn.execute("SELECT username, telegram_id FROM users WHERE id = ?", (row["user_id"],)).fetchone()
             if not user_row:
@@ -334,15 +332,14 @@ async def cmd_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             conn.execute("UPDATE users SET telegram_id = ? WHERE id = ?", (tg_id, row["user_id"]))
             conn.execute("DELETE FROM telegram_link_tokens WHERE token = ?", (token,))
-            conn.commit()
             context.user_data["db_user_id"] = row["user_id"]
-            await update.message.reply_text(
-                f"✅ Berhasil! Telegram terhubung ke akun <b>{h(user_row['username'])}</b>. 🎉\n"
-                "Task dari Telegram dan Web sekarang sync!",
-                parse_mode=ParseMode.HTML,
-            )
-        finally:
-            conn.close()
+            username = user_row["username"]
+        # Balasan setelah commit (seperti semula): kunci tulis tidak dipegang selama I/O Telegram.
+        await update.message.reply_text(
+            f"✅ Berhasil! Telegram terhubung ke akun <b>{h(username)}</b>. 🎉\n"
+            "Task dari Telegram dan Web sekarang sync!",
+            parse_mode=ParseMode.HTML,
+        )
         return
 
     # Username + password link (cara lama)
