@@ -7,9 +7,10 @@ file produksi lain nol. Yang ditolak di luar `dbconn.py`:
 - kata kunci `isolation_level=` / `autocommit=` pada pemanggilan apa pun;
 - assignment ke atribut `.isolation_level` / `.autocommit`.
 
-Yang dipindai: semua `*.py` di akar repo (`PROD_FILES`). Tidak dipindai: `scripts/` (skrip
-pemeliharaan, mis. `scripts/dedup_drawings.py` yang masih memakai `sqlite3.connect`), `tests/`,
-`temporary_files/`, `venv/`, `node_modules/`, `draw-app/`, `docs/`.
+Yang dipindai: semua `*.py` di akar repo dan `plugins/*.py` (modul server plugin, PR B; folder
+boleh belum ada) — `PROD_FILES`. Tidak dipindai: `scripts/` (skrip pemeliharaan, mis.
+`scripts/dedup_drawings.py` yang masih memakai `sqlite3.connect`), `tests/`, `temporary_files/`,
+`venv/`, `node_modules/`, `draw-app/`, `docs/`.
 
 Allowlist (`ALLOWLIST`) = skrip sekali jalan di akar repo yang dijalankan manual dan tidak
 pernah di-import layanan: `merge_db.py`, `fix_list_tasks.py`. Menambah pengecualian baru
@@ -33,7 +34,12 @@ ALLOWLIST = {
     "fix_list_tasks.py",  # perbaikan data sekali jalan
 }
 
-PROD_FILES = sorted(p for p in ROOT.glob("*.py") if p.name not in ALLOWLIST)
+DBCONN_PY = ROOT / "dbconn.py"
+
+# Akar repo + modul server plugin (`plugins/<id>.py`, PR B; glob kosong bila folder belum ada).
+PROD_FILES = sorted(
+    p for p in [*ROOT.glob("*.py"), *ROOT.glob("plugins/*.py")] if p.name not in ALLOWLIST
+)
 
 FORBIDDEN_TX_CONTROL = {"isolation_level", "autocommit"}
 
@@ -104,25 +110,29 @@ def dbconn_calls(tree):
     return out
 
 
+def _rel(path):
+    return path.relative_to(ROOT).as_posix()
+
+
 def _fmt(path, hits):
-    return ", ".join(f"{path.name}:{ln} {form}" for ln, form in hits)
+    return ", ".join(f"{_rel(path)}:{ln} {form}" for ln, form in hits)
 
 
 def test_prod_files_scanned():
-    names = {p.name for p in PROD_FILES}
-    assert {"webapp.py", "repository.py", "bot.py"} <= names
-    assert not (ALLOWLIST & names)
+    rels = {_rel(p) for p in PROD_FILES}
+    assert {"webapp.py", "repository.py", "bot.py", "dbconn.py"} <= rels
+    assert not (ALLOWLIST & rels)
+    assert all(r.endswith(".py") and ("/" not in r or r.startswith("plugins/")) for r in rels)
 
 
 def test_sqlite_connect_only_in_dbconn():
-    dbconn_py = ROOT / "dbconn.py"
-    assert dbconn_py.exists(), "dbconn.py belum ada"
-    own = connect_calls(dbconn_py)
-    assert len(own) == 1, f"dbconn.py wajib tepat satu sqlite3.connect: {_fmt(dbconn_py, own)}"
+    assert DBCONN_PY.exists(), "dbconn.py belum ada"
+    own = connect_calls(DBCONN_PY)
+    assert len(own) == 1, f"dbconn.py wajib tepat satu sqlite3.connect: {_fmt(DBCONN_PY, own)}"
 
     problems = []
     for path in PROD_FILES:
-        if path.name == "dbconn.py":
+        if path == DBCONN_PY:
             continue
         hits = connect_calls(path)
         if hits:
@@ -135,7 +145,7 @@ def test_sqlite_connect_only_in_dbconn():
 def test_no_isolation_level_or_autocommit_outside_dbconn():
     problems = []
     for path in PROD_FILES:
-        if path.name == "dbconn.py":
+        if path == DBCONN_PY:
             continue
         hits = forbidden_tx_control(path)
         if hits:

@@ -81,6 +81,68 @@ def test_connect_pragmas(tmp_path):
         plain.close()
 
 
+class _Recording:
+    """Pembungkus koneksi untuk tes `connect()`: mencatat statement yang dijalankan, menandai
+    `close()`, dan (opsional) melempar pada statement yang memuat `fail_on`."""
+
+    def __init__(self, real, fail_on=None):
+        object.__setattr__(self, "_real", real)
+        object.__setattr__(self, "executed", [])
+        object.__setattr__(self, "closed", False)
+        object.__setattr__(self, "_fail_on", fail_on)
+
+    def execute(self, sql, *args):
+        self.executed.append(sql)
+        if self._fail_on and self._fail_on in sql:
+            raise sqlite3.OperationalError("pragma gagal (simulasi)")
+        return self._real.execute(sql, *args)
+
+    def close(self):
+        object.__setattr__(self, "closed", True)
+        self._real.close()
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._real, name, value)
+
+
+def _patch_connect(monkeypatch, fail_on=None):
+    """Ganti `sqlite3.connect` (yang dipanggil dbconn) dengan pembungkus perekam; kembalikan daftarnya."""
+    made = []
+    real_connect = sqlite3.connect
+
+    def fake(*args, **kwargs):
+        w = _Recording(real_connect(*args, **kwargs), fail_on)
+        made.append(w)
+        return w
+
+    monkeypatch.setattr(sqlite3, "connect", fake)
+    return made
+
+
+def test_connect_closes_connection_when_pragma_fails(tmp_path, monkeypatch):
+    made = _patch_connect(monkeypatch, fail_on="journal_mode")
+    with pytest.raises(sqlite3.OperationalError, match="simulasi"):
+        dbconn.connect(str(tmp_path / "gagal.db"))
+    assert len(made) == 1
+    assert made[0].closed is True  # tidak bocor: ditutup sebelum exception diteruskan
+
+
+def test_connect_sets_foreign_keys_pragma_explicitly(tmp_path, monkeypatch):
+    made = _patch_connect(monkeypatch)
+    p = str(tmp_path / "fk.db")
+    dbconn.connect(p).close()
+    dbconn.connect(p, foreign_keys=False).close()
+    on, off = made
+    assert "PRAGMA foreign_keys=ON" in on.executed and "PRAGMA foreign_keys=OFF" not in on.executed
+    assert "PRAGMA foreign_keys=OFF" in off.executed and "PRAGMA foreign_keys=ON" not in off.executed
+    for w in (on, off):
+        assert "PRAGMA busy_timeout=5000" in w.executed and "PRAGMA journal_mode=WAL" in w.executed
+        assert w.closed
+
+
 def test_default_path_is_read_at_call_time(tmp_path, monkeypatch):
     target = tmp_path / "default.db"
     monkeypatch.setattr(config, "DB_PATH", str(target))

@@ -7,7 +7,7 @@ Modul ini adalah SATU-SATUNYA tempat `sqlite3.connect` dipanggil di kode layanan
 `repository`, atau `bot` (keduanya meng-import modul ini).
 
 Pragma per koneksi (K2): `busy_timeout=5000` eksplisit, `journal_mode=WAL`, dan
-`foreign_keys=ON` bila `foreign_keys=True`. Mode transaksi = *legacy* Python dengan
+`foreign_keys=ON`/`OFF` eksplisit sesuai parameter `foreign_keys`. Mode transaksi = *legacy* Python dengan
 `isolation_level="IMMEDIATE"`: SELECT/DDL sebelum DML pertama berjalan di luar
 transaksi, DML pertama memicu `BEGIN IMMEDIATE`. Atribut `conn.autocommit`
 (Python ≥ 3.12) TIDAK PERNAH disentuh — tetap `sqlite3.LEGACY_TRANSACTION_CONTROL`.
@@ -36,17 +36,23 @@ def default_path() -> str:
 
 def connect(path: str | None = None, *, foreign_keys: bool = True,
             row_factory=sqlite3.Row) -> sqlite3.Connection:
-    """Buka koneksi dengan pragma standar. Pemanggil bertanggung jawab commit/close."""
+    """Buka koneksi dengan pragma standar. Pemanggil bertanggung jawab commit/close.
+    Bila pengaturan pragma gagal, koneksi ditutup dulu lalu exception diteruskan (tidak bocor).
+    `foreign_keys=False` menulis `PRAGMA foreign_keys=OFF` eksplisit (tidak bergantung pada
+    default kompilasi SQLite) — K4 `migrate_db`."""
     conn = sqlite3.connect(
         path or default_path(),
         timeout=BUSY_TIMEOUT_MS / 1000,
         isolation_level="IMMEDIATE",
     )
-    conn.row_factory = row_factory
-    conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
-    conn.execute("PRAGMA journal_mode=WAL")
-    if foreign_keys:
-        conn.execute("PRAGMA foreign_keys=ON")
+    try:
+        conn.row_factory = row_factory
+        conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_MS}")
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON" if foreign_keys else "PRAGMA foreign_keys=OFF")
+    except BaseException:
+        conn.close()
+        raise
     return conn
 
 
