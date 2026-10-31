@@ -83,6 +83,26 @@ test("path di luar /api/plugins/<id>/ → PluginPermissionError; path sah → ho
   assert.equal(calls.length, 3);
 });
 
+test("karakter kontrol / path yang dinormalkan URL parser keluar dari /api/plugins/<id> → ditolak (review PR B)", async () => {
+  // URL parser membuang \t \n \r: "/.\t./" menjadi "/../" → /api/tasks.
+  const bad = [
+    "/api/plugins/demo-server/.\t./.\t./tasks", "/api/plugins/demo-server/.\n./.\n./tasks",
+    "/api/plugins/demo-server/.\r./.\r./tasks", "/api/plugins/demo-server/%2e%2e/%2e%2e/tasks",
+    "/api/plugins/demo-server/%2E%2e/state", "/api/plugins/demo-server2/", "/api/plugins/demo-server2/items",
+    "/api/plugins/demo-server/a\u0000b", "/api/plugins/demo-server/a\u007fb", "/api/plugins/demo-server/items\t",
+    "\t/api/plugins/demo-server/items", "/api/plugins/demo-server?\n",
+  ];
+  for (const p of bad) {
+    await assert.rejects(RT.api.for(NET).fetch(p), PluginPermissionError, JSON.stringify(p));
+  }
+  assert.equal(calls.length, 0);
+  for (const ok of ["/api/plugins/demo-server", "/api/plugins/demo-server/", "/api/plugins/demo-server/items/7",
+    "/api/plugins/demo-server/items?q=a%20b&x=1", "/api/plugins/demo-server?x=1", "/api/plugins/demo-server/a-b_c.json"]) {
+    await RT.api.for(NET).fetch(ok);
+  }
+  assert.equal(calls.length, 6);
+});
+
 test("hasil host fetch diteruskan apa adanya", async () => {
   response = () => Promise.resolve({ items: [1, 2] });
   assert.deepEqual(await RT.api.for(NET).fetch("/api/plugins/demo-server/items"), { items: [1, 2] });

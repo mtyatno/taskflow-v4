@@ -379,8 +379,18 @@
     return p;
   }
 
-  function applySnapshot(snap) {
+  // Cache milik akun lain (owner ada dan ≠ userId ter-bind, mis. clearAll gagal saat ganti akun): statusnya
+  // diabaikan (default index.json) dan op-nya tidak ditampilkan sampai pull berikutnya menulis owner yang benar
+  // (review akhir PR B). Owner tidak ada (cache 0a) atau userId belum di-bind → cache dipakai (lebur pertama).
+  function snapshotForUser(snap) {
     const s = snap || {};
+    const uid = bindingUserId(hostBinding);
+    if (s.owner == null || uid == null || String(s.owner) === String(uid)) return s;
+    return { state: {}, pending: [], suppressed: s.suppressed, owner: s.owner };
+  }
+
+  function applySnapshot(snap) {
+    const s = snapshotForUser(snap);
     const ids = index ? Array.from(index.keys()) : [];
     const before = {};
     for (const id of ids) {
@@ -669,7 +679,7 @@
           });
       })
       .then((snap) => {
-        const s = snap || {};
+        const s = snapshotForUser(snap);
         enabledState = (s.state && typeof s.state === "object") ? Object.assign({}, s.state) : {};
         pendingIds = new Set(Array.isArray(s.pending) ? s.pending : []);
         suppressedState = (s.suppressed && typeof s.suppressed === "object") ? Object.assign({}, s.suppressed) : {};
@@ -795,9 +805,13 @@
   const HOST_TIMEOUT_MESSAGE = "Request timeout — coba lagi";
   let pushWaitMs = PUSH_WAIT_MS;
 
-  // Hanya /api/plugins/<id> atau /api/plugins/<id>/…; tanpa segmen ./.. (juga ter-encode), //, \, #, skema/host.
+  // Hanya /api/plugins/<id> atau /api/plugins/<id>/…; tanpa karakter kontrol, segmen ./.. (juga ter-encode), //, \,
+  // #, skema/host. Terakhir dinormalkan URL parser (yang membuang \t \n \r dan melipat ./..): pathname hasilnya wajib
+  // sama persis dengan path asli dan tetap di bawah /api/plugins/<id> (review akhir PR B).
+  const CONTROL_RE = /[\u0000-\u001F\u007F]/;
+  function underBase(base, path) { return path === base || path.indexOf(base + "/") === 0; }
   function pluginPathOk(id, p) {
-    if (typeof p !== "string") return false;
+    if (typeof p !== "string" || CONTROL_RE.test(p)) return false;
     const base = "/api/plugins/" + id;
     if (!(p === base || p.indexOf(base + "/") === 0 || p.indexOf(base + "?") === 0)) return false;
     if (p.indexOf("//") >= 0 || p.indexOf("\\") >= 0 || p.indexOf("#") >= 0 || p.indexOf("://") >= 0) return false;
@@ -807,7 +821,11 @@
       try { dec = decodeURIComponent(seg); } catch (_) { return false; }
       if (dec === "." || dec === ".." || dec.indexOf("/") >= 0 || dec.indexOf("\\") >= 0) return false;
     }
-    return true;
+    if (typeof URL !== "function") return false;
+    let u;
+    try { u = new URL(p, "http://x"); } catch (_) { return false; }
+    if (u.origin !== "http://x" || u.pathname !== pathOnly) return false;
+    return underBase(base, u.pathname);
   }
 
   function hostIsOffline(err) {

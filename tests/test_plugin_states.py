@@ -281,3 +281,29 @@ def test_put_503_when_index_unhealthy(client, monkeypatch):
     monkeypatch.setattr(plugin_loader, "_known", {})
     r = client.put(f"/api/plugins/state/{PID}", json={"enabled": True}, headers=_bearer(tok))
     assert r.status_code == 503
+
+
+def test_put_rereads_index_before_unknown(client, monkeypatch, tmp_path):
+    """Review akhir PR B: indeks baru di disk (deploy sebelum restart) → id baru dikenali tanpa restart."""
+    import json as _json
+    tok, _, _ = _new_user(client)
+    for name in ("_known", "_index_ok", "_index_path"):
+        monkeypatch.setattr(plugin_loader, name, getattr(plugin_loader, name, None))
+    idx = tmp_path / "index.json"
+    entries = [{"id": PID, "defaultEnabled": False}]
+    idx.write_text(_json.dumps({"v": 1, "plugins": entries}), encoding="utf-8")
+    plugin_loader.load_known(idx)
+    url = "/api/plugins/state/timeline-baru"
+    r = client.put(url, json={"enabled": True}, headers=_bearer(tok))
+    assert r.status_code == 404 and r.json() == {"detail": {"code": "PLUGIN_UNKNOWN"}}
+    entries.append({"id": "timeline-baru", "defaultEnabled": False})
+    idx.write_text(_json.dumps({"v": 1, "plugins": entries}), encoding="utf-8")
+    r = client.put(url, json={"enabled": True}, headers=_bearer(tok))
+    assert r.status_code == 200, r.text
+    assert r.json()["state"]["enabled"] is True
+    assert "timeline-baru" in plugin_loader.known()
+    # Baca ulang yang gagal (indeks rusak) tidak merusak daftar yang sudah ada.
+    idx.write_text("{rusak", encoding="utf-8")
+    r = client.put("/api/plugins/state/lain-lagi", json={"enabled": True}, headers=_bearer(tok))
+    assert r.status_code == 404
+    assert plugin_loader.index_ok() is True and PID in plugin_loader.known()

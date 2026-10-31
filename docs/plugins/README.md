@@ -183,6 +183,21 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
 7. **Tanpa `innerHTML`** kecuali lewat `api.ui.sanitize`.
 8. **Ukuran.** Satu plugin satu folder; vendor baru > 100 KB wajib lazy.
 
+**Batas diketahui — ini bukan sandbox.** Pagar di atas menangkap kesalahan tak sengaja, bukan niat jahat:
+
+- Lint `compile.js` berbasis teks dan bisa diakali (`globalThis["fetch"]`, alias `const f = fetch`, `WebSocket`,
+  `EventSource`, `import()` dinamis, dsb.). `plugin.js` berjalan di halaman yang sama dengan host dan secara
+  teknis bisa menjangkau apa pun yang bisa dijangkau halaman.
+- `api.fetch` memeriksa path (karakter kontrol ditolak, path dinormalkan parser URL wajib sama dengan aslinya dan
+  tetap di bawah `/api/plugins/<id>`), tetapi itu hanya menjaga plugin yang memakai fasad.
+- Pagar `ensure_schema` (§11) hanya menangkap DDL tak sengaja di luar prefix `plg_<id_>_`; ia **tidak** menahan
+  `DELETE`/`UPDATE` ke tabel host, `ATTACH DATABASE`, atau trigger `plg_` yang menulis tabel host, dan kode
+  endpoint server memakai koneksi DB host yang sama tanpa pembatasan.
+
+Karena itu semua plugin saat ini **bawaan dan direview manusia** sebelum di-merge. Sandbox sungguhan
+(`sqlite3.Connection.set_authorizer` di server, Worker/iframe ber-origin terpisah di klien) ditunda sampai ada
+plugin pihak ketiga.
+
 ## 9. Menguji
 
 Pola: `tests/offline/habit_heatmap_logic.test.js` dan `habit_heatmap_ui.test.js` (`node --test`).
@@ -232,7 +247,9 @@ ada di `index.json`, atau `state`; import yang melempar (termasuk `SystemExit`);
 (`1`); `router` bukan `APIRouter` atau ber-`prefix`; endpoint `async def` tanpa `@host.allow_async`;
 `ensure_schema` bukan callable satu argumen; simbol yang belum didukung — `on_task_written` ("belum didukung
 (Fase 1)"), `jobs`, `register_bot`, `intake` ("belum didukung (ditunda, Lampiran B)"). Ringkasan di log logger
-`alurik.plugins`: `plugin server: N dimuat, M ditolak` (web dan bot).
+`alurik.plugins`: `plugin server: N dimuat, M ditolak` (web dan bot). Catatan: `webapp.py` tidak memanggil
+`logging.basicConfig`, jadi di proses web hanya `WARNING`/`ERROR` loader yang terlihat; baris INFO ringkasan hanya
+muncul di log bot (`journalctl -u taskflow`).
 
 **Kontrak modul** (`plugins/<id>.py`):
 
@@ -294,7 +311,9 @@ Peredaman lokal (§4) tidak diketahui server: perangkat lain tetap bisa memakai 
 pola id salah atau `state` → 404 `PLUGIN_UNKNOWN`; indeks tidak terbaca → 503 `PLUGIN_UNAVAILABLE` (toggle
 klien tetap antre); id tidak ada di indeks → 404 `PLUGIN_UNKNOWN` (klien membuang op); body tidak valid
 (`enabled` bukan boolean, `settings: null`/bukan objek/terlalu besar, `updated_at` tak terbaca, tanpa field) →
-422. Plugin tidak memanggil API ini; ia milik runtime.
+422. Sebelum menjawab 404 untuk id yang cocok pola tetapi belum dikenal, server membaca ulang `index.json` sekali
+(deploy menulis indeks baru sebelum restart); baca ulang yang gagal mempertahankan daftar lama. Modul server
+plugin baru tetap butuh restart. Plugin tidak memanggil API ini; ia milik runtime.
 
 **Restart.** Setiap perubahan modul server plugin butuh restart dua layanan (`taskflow-web`, `taskflow`); lihat
 §10 butir 4.

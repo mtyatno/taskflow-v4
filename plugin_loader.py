@@ -46,6 +46,7 @@ PENDING_HOOKS = {"on_task_written": "Fase 1", "jobs": None, "register_bot": None
 
 _known: dict[str, dict] = {}
 _index_ok: bool = False
+_index_path = INDEX_PATH
 _loaded: list = []
 _health: dict[str, str] = {}
 
@@ -68,23 +69,42 @@ class SchemaViolation(Exception):
 
 # ── Indeks ────────────────────────────────────────────────────────────────────
 
+def _read_index(index_path) -> dict[str, dict]:
+    data = json.loads(Path(index_path).read_text(encoding="utf-8"))
+    items = data.get("plugins") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        raise ValueError("'plugins' bukan list")
+    known = {}
+    for it in items:
+        if not isinstance(it, dict) or not isinstance(it.get("id"), str):
+            raise ValueError("entri plugin tanpa id")
+        known[it["id"]] = {"defaultEnabled": it.get("defaultEnabled") is True}
+    return known
+
+
 def load_known(index_path=INDEX_PATH) -> dict[str, dict]:
     """Baca indeks plugin. Gagal/bentuk salah → `{}` + `index_ok() is False` + log ERROR; tidak melempar."""
-    global _known, _index_ok
+    global _known, _index_ok, _index_path
+    _index_path = index_path
     try:
-        data = json.loads(Path(index_path).read_text(encoding="utf-8"))
-        items = data.get("plugins") if isinstance(data, dict) else None
-        if not isinstance(items, list):
-            raise ValueError("'plugins' bukan list")
-        known = {}
-        for it in items:
-            if not isinstance(it, dict) or not isinstance(it.get("id"), str):
-                raise ValueError("entri plugin tanpa id")
-            known[it["id"]] = {"defaultEnabled": it.get("defaultEnabled") is True}
+        known = _read_index(index_path)
     except Exception as e:  # noqa: BLE001 — indeks rusak tidak boleh menjatuhkan proses
         logger.error("plugin server: indeks %s tidak terbaca (%s: %s)", index_path, type(e).__name__, e)
         _known, _index_ok = {}, False
         return {}
+    _known, _index_ok = known, True
+    return dict(known)
+
+
+def refresh_known() -> dict[str, dict]:
+    """Baca ulang indeks terakhir (deploy menulis `index.json` baru sebelum proses di-restart). Hanya mengganti
+    daftar bila berhasil; gagal → daftar lama tetap dipakai (log WARNING). Modul server plugin TIDAK dimuat ulang."""
+    global _known, _index_ok
+    try:
+        known = _read_index(_index_path)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("plugin server: baca ulang indeks %s gagal (%s: %s)", _index_path, type(e).__name__, e)
+        return dict(_known)
     _known, _index_ok = known, True
     return dict(known)
 
@@ -394,7 +414,8 @@ def load_for_bot(application=None, *, plugins_dir=PLUGINS_DIR, index_path=INDEX_
 
 
 def _reset_for_tests() -> None:
-    global _known, _index_ok, _loaded, _health
+    global _known, _index_ok, _loaded, _health, _index_path
     _known, _index_ok, _loaded, _health = {}, False, [], {}
+    _index_path = INDEX_PATH
     for name in [n for n in sys.modules if n.startswith(MODULE_PREFIX + ".")]:
         sys.modules.pop(name, None)

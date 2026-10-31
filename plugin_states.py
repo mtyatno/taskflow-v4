@@ -189,7 +189,9 @@ def put_state_endpoint(plugin_id: str, body: StatePut,
     # indeks rusak = daftar kosong, dan 404 PLUGIN_UNKNOWN membuat klien membuang toggle.
     if not plugin_loader.index_ok():
         raise HTTPException(status_code=503, detail={"code": "PLUGIN_UNAVAILABLE", "plugin_id": plugin_id})
-    if plugin_id not in plugin_loader.known():
+    # Id sah tapi belum dikenal: indeks di disk bisa lebih baru dari proses (deploy sebelum restart) →
+    # baca ulang sekali sebelum menjawab PLUGIN_UNKNOWN (yang membuat klien membuang toggle).
+    if plugin_id not in plugin_loader.known() and plugin_id not in plugin_loader.refresh_known():
         raise HTTPException(status_code=404, detail={"code": "PLUGIN_UNKNOWN"})
     sent = body.model_fields_set
     fields: dict = {}

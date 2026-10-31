@@ -101,6 +101,7 @@ Deviasi dari teks K6–K18 dan §4.4–§6 yang diputuskan saat rencana/implemen
 - **R15 — lint `compile.js`:** `fetch(` polos dan `window|self|globalThis.fetch` selalu ditolak; `.fetch(` hanya dengan izin `network`; id tidak cocok pola atau `state` → build gagal. Batas yang diketahui: lint berbasis teks (mis. `globalThis["fetch"]`).
 - **R16 — anggaran `index.html`:** baseline tes dinaikkan ke 46.092 baris (`main` sebelum 0b), batas +60 tetap.
 - **R17 — tes lama yang asersinya berubah karena spec:** contoh izin dicadangkan `"network"` → `"records"`, `KNOWN_PERMISSIONS = ["storage", "network"]`, auto-OFF diperiksa sebagai peredaman lokal, subjudul kartu Pengaturan, baseline `index.html`, dan `plugin_api.test.js:37`. Tes Python lama tidak disentuh.
+- **Review akhir:** `api.fetch` menolak karakter kontrol (`[\u0000-\u001F\u007F]`) dan mewajibkan `new URL(path, …).pathname` sama dengan path asli dan tetap di bawah `/api/plugins/<id>`; `PUT` membaca ulang `index.json` sekali (`plugin_loader.refresh_known`, gagal = daftar lama) sebelum 404 `PLUGIN_UNKNOWN`; runtime mengabaikan cache ber-`owner` ≠ `userId` ter-bind sampai pull menulis owner yang benar. Batas diketahui (lint teks bisa diakali, `ensure_schema` hanya menangkap DDL tak sengaja — bukan sandbox) dicatat di README §8 dan ADR-039.
 - **Rilis:** SW `taskflow-v490-plugin-akun`, entri whatsnew "Plugin ikut akunmu"; `tests/test_plugins_node.py` mencakup `pluginstate*.test.js` dan `syncpush_pluginstate.test.js`.
 
 ## 3. Ruang lingkup

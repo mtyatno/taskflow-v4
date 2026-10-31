@@ -167,6 +167,7 @@ test("bindHost userId berubah → reloadState", async () => {
   await init();
   assert.equal(P.isEnabled(HH), false);
   await metaSet(PS.STATE_KEY, { [HH]: { enabled: true, updatedAt: T1 } });
+  await metaSet(PS.OWNER_KEY, "8");
   P.bindHost({ toast: () => {}, userId: 7 });
   await tick();
   assert.equal(P.isEnabled(HH), false, "userId sama → tidak dibaca ulang");
@@ -201,4 +202,37 @@ test("list() item plugin yang tidak tertunda/diredam berbentuk 0a (tanpa kunci p
   const it = P.list()[0];
   assert.equal("pending" in it, false);
   assert.equal("suppressed" in it, false);
+});
+
+test("cache milik akun lain (owner ≠ userId ter-bind) diabaikan → default, sampai pull menulis owner yang benar (review PR B)", async () => {
+  await metaSet(PS.STATE_KEY, { [HH]: { enabled: true, updatedAt: T1 }, "zeta-widget": { enabled: false, updatedAt: T1 } });
+  await metaSet(PS.OWNER_KEY, "7");
+  P.bindHost({ toast: () => {}, userId: 9 });
+  await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
+  assert.equal(P.isEnabled(HH), false, "status ON akun 7 tidak dipakai untuk akun 9");
+  assert.equal(P.isEnabled("zeta-widget"), true, "defaultEnabled");
+  assert.equal(P.accountEnabled(HH), false);
+  // Akun berganti di sesi yang sama (bindHost) → cache akun lama juga diabaikan.
+  P.bindHost({ toast: () => {}, userId: 7 });
+  await tick();
+  assert.equal(P.isEnabled(HH), true, "owner cocok → cache dipakai");
+  P.bindHost({ toast: () => {}, userId: 9 });
+  await tick();
+  assert.equal(P.isEnabled(HH), false);
+  // Pull akun 9 (server: HH ON) menulis owner 9 → status server dipakai.
+  await PS.pull(rawFetch({ [HH]: row(true) }), { userId: 9, known: [HH, "zeta-widget"] });
+  await tick(30);
+  assert.equal(await metaGet(PS.OWNER_KEY), "9");
+  assert.equal(P.isEnabled(HH), true);
+  assert.equal(P.isEnabled("zeta-widget"), true);
+});
+
+test("cache tanpa owner (0a) atau tanpa userId ter-bind tetap dipakai (lebur pertama)", async () => {
+  await metaSet(PS.STATE_KEY, { [HH]: { enabled: true, updatedAt: T0 } });
+  await init();
+  assert.equal(P.isEnabled(HH), true, "owner tidak ada");
+  P._reset();
+  await metaSet(PS.OWNER_KEY, "7");
+  await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
+  assert.equal(P.isEnabled(HH), true, "userId belum di-bind");
 });
