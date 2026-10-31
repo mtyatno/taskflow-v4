@@ -206,6 +206,9 @@ milik satu task (kalender, preset, entri jadwal); data per task tetap lewat `api
 - **Id deterministik wajib menyandikan scope** (mis. `cal@list:12`, `cal@user`) **atau** pakai id acak
   `newId()` (uuid). Id yang sama di dua scope berbeda yang terlihat satu pengguna **ditolak server**
   `SCOPE_IMMUTABLE` (record lokal tetap `dirty` dengan `error`). Id `^[A-Za-z0-9:@._-]{1,80}$`.
+  Kasus bergabung: record `u:A/x` dan `l:W/x` bisa sama-sama ada di server bila dibuat sebelum A bergabung ke W;
+  secara lokal keduanya memakai kunci `[plugin_id, entity, id]` yang sama dan saling menimpa, itulah sebabnya id
+  deterministik **wajib** menyandikan scope.
 - **`$task`**: rujukan ke task di dalam `data` lewat `api.taskExt.ref(task)` (`{$task: id}`), sama seperti §5
   `taskExt`; host menahan pengiriman record yang merujuk task yang belum terkirim dan menulis ulang ke id server
   setelahnya (tanpa mengubah `updated_at`).
@@ -508,7 +511,8 @@ plugin yang mendefinisikan `/records` ditolak utuh ("rute /records dicadangkan h
 plugin lain, endpoint ini **tidak mensyaratkan plugin ON** (push tetap diterima; pull hanya dipanggil klien untuk
 plugin ON). Sinkron memakai kursor `seq` (nomor urut commit server, bukan `updated_at` klien) sehingga edit offline
 yang terlambat tetap tertarik perangkat lain; kursor tidak sah (format, `seq` di bawah batas purge, atau sidik jari
-keanggotaan workspace berubah) → `{"reset": true}` dan klien menarik penuh. Plugin harus ada di `index.json` dan
+keanggotaan workspace berubah) → `{"reset": true}` dan klien menarik penuh. Kursor dari GET ber-`entity` hanya sah
+untuk filter yang sama (kursor `seq` global per plugin; dipakai tanpa filter ia melewatkan entitas lain). Plugin harus ada di `index.json` dan
 berizin `records` (kalau tidak 404 `PLUGIN_UNKNOWN`); entitas dan `maxBytes` dibaca dari deklarasi indeks.
 Kode: `PLUGIN_UNKNOWN`, `PLUGIN_UNAVAILABLE` (503, antre di klien), `TOO_LARGE` (413, POST > 256 KB),
 `INVALID`, `FORBIDDEN_SCOPE`, `SCOPE_IMMUTABLE`. Rilis yang mengubah `plugin_records`/`plugin_loader` butuh
