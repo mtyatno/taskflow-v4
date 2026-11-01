@@ -19,9 +19,12 @@ Timeline U1 dinyalakan lewat UI Pengaturan › Plugin (A) setelah diperiksa OFF 
    2 seksi Jadwal di modal (antara Deskripsi dan tab): Mulai 2026-03-17 + Durasi 2 → Selesai "Rabu, 25 Maret 2026",
      satu tulis per edit; task berulang tanpa seksi; panel Live Edit: Mulai Sabtu → dijepret ke Senin, satu tulis.
    3 seret bar +3 hari → tepat 1 PUT ext_patch (hanya timeline.start) + toast "Urungkan" mengembalikan; Esc → 0 PUT;
-     dependensi lewat titik → panah; ganda → toast; siklus → toast; notifikasi U2 tidak bertambah (K6).
+     dependensi lewat titik → panah; ganda → toast; siklus → toast; notifikasi U2 tidak bertambah (K6);
+     tinjauan akhir #1: filter panel "si" menyembunyikan B di rantai A→B→C → tautkan C→A tetap ditolak (siklus);
+     induk yang anaknya tersembunyi filter → seret dan jadi penerus dependensi ditolak tanpa tulis.
    4 libur: 25 Des (nasional) dan 24 Des (cuti bersama) diarsir; Kalender kerja "Dipakai semua anggota workspace" →
-     matikan "Ikuti cuti bersama" → Selesai seksi 18 Maret, arsir 24 Des hilang; B (U1) dan F (U4, anggota lain)
+     matikan "Ikuti cuti bersama" → Selesai seksi 18 Maret, arsir 24 Des hilang; tinjauan akhir #2: B perangkat baru
+     tanpa record lokal (tarik record ditahan) → popover "Menunggu data kalender workspace…", kontrol nonaktif; B (U1) dan F (U4, anggota lain)
      sinkron → kalender sama; F mengubah → A ikut (K14); LWW: A offline vs F online lebih baru → toast kalah di A;
      U2 (OFF) mengganti judul lewat API dan lewat klien C → `timeline.*` utuh; C tanpa tombol/seksi.
    5 B offline: seret bar; A mengganti prioritas task yang sama; B online + sinkron → server prioritas A + jadwal B;
@@ -78,7 +81,10 @@ MSG_CYCLE = "Dependensi ini membuat lingkaran"
 MSG_DUP = "Dependensi ini sudah ada"
 MSG_LOST = "Perubahan kalender di perangkat ini kalah oleh perubahan yang lebih baru"
 MSG_SAVE_FAIL = "Jadwal gagal disimpan"
-PHRASES = [MSG_CHANGED, MSG_CYCLE, MSG_DUP, MSG_LOST, MSG_SAVE_FAIL]
+MSG_SUMMARY = "Jadwal task ini mengikuti subtask-nya"
+MSG_SUMMARY_DEP = "Ringkasan tidak bisa diberi dependensi di versi ini"
+MSG_CAL_WAIT = "Menunggu data kalender workspace…"
+PHRASES = [MSG_CHANGED, MSG_CYCLE, MSG_DUP, MSG_LOST, MSG_SAVE_FAIL, MSG_SUMMARY, MSG_SUMMARY_DEP]
 CPU_RATE = 4
 BUDGET_MS = 150
 DOM_BUDGET = 1500
@@ -87,6 +93,7 @@ check = hd.check
 console_log = []   # (perangkat, type, text)
 puts = []          # (perangkat, task_id, body, t) untuk PUT /api/tasks/<id>
 plugin_js = []     # (perangkat, url)
+rec_posts = []     # (perangkat, url) untuk POST /api/plugins/timeline/records (kirim record)
 perf = {}          # angka kinerja untuk laporan
 
 
@@ -210,6 +217,8 @@ def watch(p, label):
     def on_req(r):
         if "/static/plugins/%s/plugin.js" % PID in r.url:
             plugin_js.append((label, r.url))
+        if r.method == "POST" and "/api/plugins/%s/records" % PID in r.url:
+            rec_posts.append((label, r.url))
         m = re.search(r"/api/tasks/(\d+)(\?.*)?$", r.url)
         if r.method == "PUT" and m:
             try:
@@ -651,6 +660,53 @@ def run(browser, base, users, ids, dates):
         check("3h notifikasi U2 'memperbarui task' tidak bertambah oleh seret/urungkan/dependensi (K6)",
               upd_notifs(base, u2, T_A) == n_u2_a and upd_notifs(base, u2, T_B) == n_u2_b,
               "A %d→%d B %d→%d" % (n_u2_a, upd_notifs(base, u2, T_A), n_u2_b, upd_notifs(base, u2, T_B)))
+        # ── 3i–3j (tinjauan akhir #1): filter panel host tidak melemahkan cek siklus/ringkasan ──
+        # Rantai A→B→C (C bergantung pada B lewat API, ext-only); induk "Induk revisi" dengan anak "Anak lain".
+        # Cari "si" menampilkan A, C, dan induk, menyembunyikan B dan anak.
+        hd.api(base, u1, "PUT", "/api/tasks/%d" % ids["tc"],
+               json={"ext_patch": {"timeline.deps": [{"t": {"$task": ids["tb"]}, "type": "FS", "lag": 0}]}})
+        par = task_id(hd.api(base, u1, "POST", "/api/tasks", json={
+            "title": "Induk revisi", "gtd_status": "next", "priority": "P3", "list_id": ws_id, "project": "Alpha",
+            "ext": {"timeline.start": add_workdays(mon, 1).isoformat(), "timeline.duration": 2}}))
+        kid = task_id(hd.api(base, u1, "POST", "/api/tasks", json={
+            "title": "Anak lain", "gtd_status": "next", "priority": "P3", "list_id": ws_id, "project": "Alpha", "parent_id": par,
+            "ext": {"timeline.start": add_workdays(mon, 2).isoformat(), "timeline.duration": 1}}))
+        sync_now(a)
+        refresh_tasks(a)
+        search = a.locator("input[placeholder*='Cari task']").first
+        search.fill("si")
+        a.wait_for_timeout(1000)
+        vis = {k: bar(a, v).count() for k, v in (("A", ids["ta"]), ("B", ids["tb"]), ("C", ids["tc"]), ("induk", par), ("anak", kid))}
+        t0, s0 = now_ms(a), time.time()
+        link_drag(a, ids["tc"], ids["ta"])
+        a.wait_for_timeout(2000)
+        check("3i filter 'si' menyembunyikan B (rantai A→B→C): tautkan C → A → toast siklus, A tanpa tulis/PUT",
+              vis["A"] == 1 and vis["C"] == 1 and vis["B"] == 0 and seen(a, MSG_CYCLE, t0) >= 1 and writes(a, ids["ta"], t0) == 0
+              and not puts_for("A", ids["ta"], s0) and "timeline.deps" not in ext_of(base, u1, ids["ta"]), repr(vis))
+        pb = bar(a, par).bounding_box()
+        ext_p0 = ext_of(base, u1, par)
+        t0, s0 = now_ms(a), time.time()
+        mouse_drag(a, pb["x"] + 6, pb["y"] + pb["height"] / 2, 36)
+        a.wait_for_timeout(2000)
+        pb2 = bar(a, par).bounding_box()
+        drag_blocked = seen(a, MSG_SUMMARY, t0) >= 1 and writes(a, par, t0) == 0 and not puts_for("A", par, s0) and abs(pb2["x"] - pb["x"]) < 1
+        t0, s0 = now_ms(a), time.time()
+        link_drag(a, ids["ta"], par)
+        a.wait_for_timeout(2000)
+        link_blocked = seen(a, MSG_SUMMARY_DEP, t0) >= 1 and writes(a, par, t0) == 0 and not puts_for("A", par, s0)
+        check("3j induk yang anaknya tersembunyi filter: seret → toast '%s', tanpa tulis, bar kembali; jadi penerus dependensi → "
+              "toast ringkasan, tanpa tulis" % MSG_SUMMARY,
+              vis["induk"] == 1 and vis["anak"] == 0 and drag_blocked and link_blocked and ext_of(base, u1, par) == ext_p0,
+              repr((vis, drag_blocked, link_blocked)))
+        shot(a, "3-A-filter-ringkasan.png")
+        search.fill("")
+        a.wait_for_timeout(500)
+        # pulihkan: C tanpa dependensi, induk + anak dihapus (skenario berikutnya tidak berubah)
+        hd.api(base, u1, "PUT", "/api/tasks/%d" % ids["tc"], json={"ext_patch": {"timeline.deps": None}})
+        for tid_ in (kid, par):
+            hd.api(base, u1, "DELETE", "/api/tasks/%d" % tid_)
+        sync_now(a)
+        refresh_tasks(a)
 
         # ── 4 libur + kalender kerja bersama ──
         sync_now(a)
@@ -688,11 +744,38 @@ def run(browser, base, users, ids, dates):
         close_modal(a)
         cb, b = new_device(browser, base, u1, "B")
         ctxs.append(cb)
+        # Tinjauan akhir #2 (jendela D5): tahan tarik record Timeline agar tidak ada sinkron yang selesai setelah view dipasang
+        held = []
+        rec_pull = re.compile(r"/api/plugins/timeline/records\?")
+        posts0 = len([x_ for x_ in rec_posts if x_[0] == "B"])
+
+        def hold_pull(route):
+            if route.request.method == "GET":
+                held.append(route)
+            else:
+                route.continue_()
+        cb.route(rec_pull, hold_pull)
         open_timeline(b, WS)
         b.get_by_role("button", name="Kalender kerja").click()
         bp = b.locator(".plg-timeline-pop")
         bp.wait_for(state="visible", timeout=10000)
         b.wait_for_timeout(1000)
+        wait_view = b.evaluate("""() => { const p = document.querySelector('.plg-timeline-pop');
+            const ctl = [...p.querySelectorAll('button.plg-timeline-pop-day, input, .plg-timeline-pop-form button')];
+            return { note: (p.querySelector('.plg-timeline-pop-wait') || {}).textContent || null, n: ctl.length,
+                     disabled: ctl.filter(e => e.disabled).length }; }""")
+        shot(b, "4-B-kalender-menunggu-sinkron.png")
+        b.wait_for_timeout(500)
+        check("4e-1 B perangkat baru tanpa record lokal, sebelum sinkron pertama: popover kalender workspace menunggu "
+              "('%s'), semua kontrol nonaktif, tanpa kirim record" % MSG_CAL_WAIT,
+              wait_view["note"] == MSG_CAL_WAIT and wait_view["n"] >= 13 and wait_view["disabled"] == wait_view["n"]
+              and len([x_ for x_ in rec_posts if x_[0] == "B"]) == posts0, repr(wait_view))
+        cb.unroute(rec_pull, hold_pull)
+        for r_ in held:
+            try:
+                r_.continue_()
+            except Exception:  # noqa: BLE001
+                pass
         fresh = {"cutiBersama_checked": bp.get_by_label("Ikuti cuti bersama").is_checked(),
                  "recordPluginIds": b.evaluate("() => window.TF.plugins.recordPluginIds()"),
                  "idb": b.evaluate("""() => new Promise(res => { const rq = indexedDB.open('taskflow-offline');
@@ -704,7 +787,8 @@ def run(browser, base, users, ids, dates):
         b.get_by_role("button", name="Kalender kerja").click()
         bp.wait_for(state="visible", timeout=10000)
         b_ok = wait_until(lambda: not bp.get_by_label("Ikuti cuti bersama").is_checked(), 10, 0.3)
-        check("4e B (U1, konteks lain) sinkron → 'Ikuti cuti bersama' OFF juga", b_ok)
+        b_on = bp.locator(".plg-timeline-pop-wait").count() == 0 and bp.get_by_label("Ikuti cuti bersama").is_enabled()
+        check("4e B (U1, konteks lain) sinkron → 'Ikuti cuti bersama' OFF juga; popover tidak lagi menunggu", b_ok and b_on)
         b.keyboard.press("Escape")
         cf, f = new_device(browser, base, u4, "F")
         ctxs.append(cf)
