@@ -1404,3 +1404,574 @@ test("tulis lewat keyboard: fokus dikembalikan ke bar yang sama bila hilang", ()
   }
   h.m.unmount();
 }));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Task 9 — Kalender kerja (popover, R18/U1), Daftar HP (R20/U3), urut + kolom + mode (R19).
+// CalendarPopover memakai hooks → dirender sebagai elemen (React.createElement) oleh view; tes memasangnya sendiri
+// dengan mount() dari props yang dibawa node-nya. window palsu mencatat pendengar (Esc, klik luar).
+// ════════════════════════════════════════════════════════════════════════════
+const CAL_TITLE = "Kalender kerja";
+const WS_NOTE = "Dipakai semua anggota workspace";
+
+function popWin() {
+  const w = fakeWin();
+  w.matchMedia = (q) => ({ matches: false, addEventListener() {}, removeEventListener() {} });
+  return w;
+}
+function withPop(fn) {
+  const prev = global.window;
+  const w = popWin();
+  global.window = w;
+  return Promise.resolve().then(() => fn(w)).finally(() => { global.window = prev; });
+}
+const popNode = (tree) => nodes(tree, (n) => n.type === T.CalendarPopover)[0];
+const input = (tree, label) => nodes(tree, (n) => n.type === "input" && n.props["aria-label"] === label)[0];
+const checkbox = (tree, text) => {
+  const lab = nodes(tree, (n) => n.type === "label" && txt(n).trim() === text)[0];
+  return lab && nodes(lab, (n) => n.type === "input")[0];
+};
+const section = (tree, label) => nodes(tree, (n) => n.type === "section" && n.props["aria-label"] === label)[0];
+const formOf = (tree, label) => nodes(tree, (n) => n.type === "form" && n.props["aria-label"] === label)[0];
+const alerts = (tree) => nodes(tree, (n) => n.props.role === "alert").map((n) => txt(n).trim()).filter(Boolean);
+const dayBtns = (tree) => ["Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min"].map((d) => buttonByText(tree, d));
+const pressed = (tree) => dayBtns(tree).map((b) => b.props["aria-pressed"]);
+
+// Pasang popover sendiri (props standar) lalu muat kalender.
+async function popSetup(o) {
+  const opts = o || {};
+  const fr = opts.records || fakeRecords();
+  const closes = [];
+  const store = T.calendarStore({ records: fr.api });
+  const props = Object.assign({ calId: "cal@list:12", scope: "list:12", pageKind: "workspace", store, onClose: (a) => closes.push(a === undefined ? null : a) }, opts.props || {});
+  const m = mount(T.CalendarPopover);
+  let tree = m.render(props);
+  const rootEl = { focused: 0, focus() { this.focused++; }, contains(t) { return t === this || (this.kids || []).indexOf(t) >= 0; } };
+  const attach = (t) => { const d = nodes(t, (n) => n.props.role === "dialog")[0]; if (d && d.props.ref) d.props.ref.current = rootEl; };
+  attach(tree);
+  m.flush();
+  await tick();
+  await tick();
+  tree = m.render(props);
+  attach(tree);
+  m.flush();
+  const h = {
+    m, fr, closes, rootEl, props, store,
+    get tree() { return tree; },
+    async step() { await tick(); await tick(); tree = m.render(props); attach(tree); m.flush(); return tree; },
+    rerender() { tree = m.render(props); attach(tree); return tree; },
+  };
+  return h;
+}
+
+test("CalendarPopover workspace: judul + 'Dipakai semua anggota workspace'; tujuh sakelar hari; nyalakan Sabtu → save cal@list:12 scope list:12 dengan data ternormalisasi", () => withPop(async () => {
+  const h = await popSetup();
+  const dlg = nodes(h.tree, (n) => n.props.role === "dialog")[0];
+  assert.ok(dlg, "role=dialog");
+  assert.equal(dlg.props["aria-label"], CAL_TITLE);
+  assert.ok(nodes(h.tree, (n) => /^h\d$/.test(String(n.type)) && txt(n).trim() === CAL_TITLE).length === 1, "judul");
+  assert.ok(nodes(h.tree, (n) => txt(n).trim() === WS_NOTE && !(n.children || []).some((c) => c && typeof c === "object")).length >= 1, "keterangan workspace");
+  assert.deepEqual(pressed(h.tree), [true, true, true, true, true, false, false]);
+  assert.deepEqual(dayBtns(h.tree).map((b) => b.props["aria-label"]), ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"]);
+  assert.equal(checkbox(h.tree, "Ikuti libur nasional").props.checked, true);
+  assert.equal(checkbox(h.tree, "Ikuti cuti bersama").props.checked, true);
+  assert.ok(section(h.tree, "Libur tambahan") && section(h.tree, "Hari kerja pengganti"));
+  assert.equal(h.fr.calls.put.length, 0);
+  dayBtns(h.tree)[5].props.onClick({});
+  let tree = await h.step();
+  assert.equal(h.fr.calls.put.length, 1);
+  const [entity, id, data, opts] = h.fr.calls.put[0];
+  assert.equal(entity, "calendar");
+  assert.equal(id, "cal@list:12");
+  assert.deepEqual(opts, { scope: "list:12" });
+  assert.deepEqual(data, { v: 1, weekdays: [1, 2, 3, 4, 5, 6], national: true, cutiBersama: true, off: [], work: [] });
+  assert.deepEqual(pressed(tree), [true, true, true, true, true, true, false], "sakelar mengikuti simpanan");
+  // matikan Sabtu lagi → satu simpan lagi; hari terakhir tidak bisa dimatikan
+  dayBtns(tree)[5].props.onClick({});
+  tree = await h.step();
+  assert.deepEqual(h.fr.calls.put[1][2].weekdays, [1, 2, 3, 4, 5]);
+  for (const i of [1, 2, 3, 4]) { dayBtns(tree)[i].props.onClick({}); tree = await h.step(); }
+  assert.deepEqual(h.fr.calls.put[5][2].weekdays, [1]);
+  const before = h.fr.calls.put.length;
+  assert.equal(dayBtns(tree)[0].props.disabled, true, "hari kerja terakhir tidak bisa dimatikan");
+  dayBtns(tree)[0].props.onClick({});
+  await h.step();
+  assert.equal(h.fr.calls.put.length, before);
+  h.m.unmount();
+}));
+
+test("CalendarPopover: halaman project → cal@user scope user; tanpa 'Dipakai semua anggota workspace'", () => withPop(async () => {
+  const h = await popSetup({ props: { calId: "cal@user", scope: "user", pageKind: "project" } });
+  assert.ok(!txt(h.tree).includes(WS_NOTE));
+  assert.deepEqual(h.fr.calls.get[0], ["calendar", "cal@user"]);
+  dayBtns(h.tree)[6].props.onClick({});
+  await h.step();
+  const [, id, , opts] = h.fr.calls.put[0];
+  assert.equal(id, "cal@user");
+  assert.deepEqual(opts, { scope: "user" });
+  h.m.unmount();
+}));
+
+test("CalendarPopover: cuti bersama OFF → save {cutiBersama:false}; view memuat ulang (onChange local) dan arsir 18 Mar 2026 hilang", () => withPop(async () => {
+  const fr = fakeRecords();
+  const { api } = fakeApi({ records: fr, today: "2026-03-16" });
+  const tasks = [mk(1, "A", { start: "2026-03-16", duration: 3 }, { list_id: 12, project: "P", project_id: 5 })];
+  const { ctx } = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
+  const vm = mount(T.TimelineViewBody);
+  const props = { context: ctx, api };
+  let vt = vm.render(props);
+  vm.flush();
+  await tick();
+  vt = vm.render(props);
+  const holAt = (t, iso) => byCls(t, "plg-timeline-holiday").filter((n) => n.props["data-dn"] === T.TLCal.dn(iso)).length;
+  assert.equal(holAt(vt, "2026-03-18"), 1, "cuti bersama Nyepi 18 Mar diarsir");
+  // buka popover dari tombol toolbar
+  const btn = buttonByText(vt, CAL_TITLE);
+  assert.equal(btn.props["aria-expanded"], false);
+  btn.props.onClick({});
+  vt = vm.render(props);
+  assert.equal(buttonByText(vt, CAL_TITLE).props["aria-expanded"], true);
+  const node = popNode(vt);
+  assert.ok(node, "popover dirender sebagai elemen (hooks sendiri)");
+  assert.equal(node.props.calId, "cal@list:12");
+  assert.equal(node.props.scope, "list:12");
+  assert.equal(node.props.pageKind, "workspace");
+  const pm = mount(T.CalendarPopover);
+  let pt = pm.render(node.props);
+  pm.flush();
+  await tick();
+  await tick();
+  pt = pm.render(node.props);
+  assert.equal(checkbox(pt, "Ikuti cuti bersama").props.checked, true);
+  checkbox(pt, "Ikuti cuti bersama").props.onChange({ target: { checked: false } });
+  await tick();
+  await tick();
+  assert.equal(fr.calls.put.length, 1);
+  assert.equal(fr.calls.put[0][2].cutiBersama, false);
+  assert.equal(fr.calls.put[0][2].national, true);
+  // put asli memancarkan onChange {source:"local", ids:[id]} → view memuat ulang
+  fr.emit({ entity: "calendar", ids: ["cal@list:12"], source: "local", lost: [] });
+  await tick();
+  await tick();
+  vt = vm.render(props);
+  assert.equal(holAt(vt, "2026-03-18"), 0, "cuti bersama OFF → arsir 18 Mar hilang");
+  assert.equal(holAt(vt, "2026-03-19"), 1, "libur nasional 19 Mar tetap");
+  pt = pm.render(node.props);
+  assert.equal(checkbox(pt, "Ikuti cuti bersama").props.checked, false);
+  // libur nasional OFF → 19 Mar hilang juga
+  checkbox(pt, "Ikuti libur nasional").props.onChange({ target: { checked: false } });
+  await tick();
+  await tick();
+  assert.equal(fr.calls.put[1][2].national, false);
+  assert.equal(fr.calls.put[1][2].cutiBersama, false);
+  // tutup lewat onClose view
+  node.props.onClose();
+  vt = vm.render(props);
+  assert.equal(popNode(vt), undefined);
+  assert.equal(buttonByText(vt, CAL_TITLE).props["aria-expanded"], false);
+  pm.unmount();
+  vm.unmount();
+}));
+
+test("CalendarPopover: tambah libur tambahan (nama > 60 dipotong, nama kosong tampil wajar, tanggal ganda ditolak), hapus, hari kerja pengganti", () => withPop(async () => {
+  const h = await popSetup();
+  const fOff = "Tambah libur tambahan";
+  const set = (tree, label, v) => input(tree, label).props.onChange({ target: { value: v } });
+  set(h.tree, "Tanggal libur tambahan", "2026-12-24");
+  set(h.tree, "Nama libur tambahan", "  " + "x".repeat(70) + "  ");
+  let tree = h.rerender();
+  assert.equal(input(tree, "Tanggal libur tambahan").props.value, "2026-12-24");
+  assert.equal(input(tree, "Nama libur tambahan").props.maxLength, 60);
+  formOf(tree, fOff).props.onSubmit({ preventDefault() {} });
+  tree = await h.step();
+  assert.equal(h.fr.calls.put.length, 1);
+  assert.deepEqual(h.fr.calls.put[0][2].off, [{ d: "2026-12-24", n: "x".repeat(60) }]);
+  assert.equal(input(tree, "Tanggal libur tambahan").props.value, "", "formulir dikosongkan setelah tambah");
+  assert.deepEqual(alerts(tree), []);
+  assert.ok(txt(section(tree, "Libur tambahan")).includes("Kam 24 Des 2026"));
+  // tanggal ganda → ditolak, tanpa simpan
+  set(tree, "Tanggal libur tambahan", "2026-12-24");
+  set(tree, "Nama libur tambahan", "lain");
+  tree = h.rerender();
+  formOf(tree, fOff).props.onSubmit({ preventDefault() {} });
+  tree = await h.step();
+  assert.equal(h.fr.calls.put.length, 1);
+  assert.deepEqual(alerts(tree), ["Tanggal ini sudah ada"]);
+  // tanggal kosong → ditolak
+  set(tree, "Tanggal libur tambahan", "");
+  tree = h.rerender();
+  formOf(tree, fOff).props.onSubmit({ preventDefault() {} });
+  tree = await h.step();
+  assert.equal(h.fr.calls.put.length, 1);
+  assert.deepEqual(alerts(tree), ["Pilih tanggal dulu"]);
+  // nama kosong diterima dan tampil "(tanpa nama)"
+  set(tree, "Tanggal libur tambahan", "2026-12-31");
+  set(tree, "Nama libur tambahan", "");
+  tree = h.rerender();
+  formOf(tree, fOff).props.onSubmit({ preventDefault() {} });
+  tree = await h.step();
+  assert.deepEqual(h.fr.calls.put[1][2].off, [{ d: "2026-12-24", n: "x".repeat(60) }, { d: "2026-12-31", n: "" }]);
+  assert.ok(txt(section(tree, "Libur tambahan")).includes("(tanpa nama)"));
+  // hari kerja pengganti: daftar sendiri; tanggal yang sudah ada di Libur tambahan juga ditolak
+  const fWork = "Tambah hari kerja pengganti";
+  set(tree, "Tanggal hari kerja pengganti", "2026-12-24");
+  tree = h.rerender();
+  formOf(tree, fWork).props.onSubmit({ preventDefault() {} });
+  tree = await h.step();
+  assert.equal(h.fr.calls.put.length, 2);
+  assert.deepEqual(alerts(tree), ["Tanggal ini sudah ada"]);
+  set(tree, "Tanggal hari kerja pengganti", "2026-12-26");
+  set(tree, "Nama hari kerja pengganti", "Lembur");
+  tree = h.rerender();
+  formOf(tree, fWork).props.onSubmit({ preventDefault() {} });
+  tree = await h.step();
+  assert.deepEqual(h.fr.calls.put[2][2].work, [{ d: "2026-12-26", n: "Lembur" }]);
+  assert.deepEqual(alerts(tree), [], "galat hilang setelah tambah berhasil");
+  // hapus
+  const del = nodes(section(tree, "Libur tambahan"), (n) => n.type === "button" && /^Hapus /.test(n.props["aria-label"] || ""));
+  assert.deepEqual(del.map((b) => b.props["aria-label"]), ["Hapus Kam 24 Des 2026", "Hapus Kam 31 Des 2026"]);
+  del[0].props.onClick({});
+  tree = await h.step();
+  assert.deepEqual(h.fr.calls.put[3][2].off, [{ d: "2026-12-31", n: "" }]);
+  assert.deepEqual(h.fr.calls.put[3][2].work, [{ d: "2026-12-26", n: "Lembur" }]);
+  h.m.unmount();
+}));
+
+test("CalendarPopover: simpan > 16 KB → pesan persis, tanpa put; daftar tidak berubah", () => withPop(async () => {
+  const fr = fakeRecords();
+  const off = [];
+  const base = T.TLCal.dn("2026-01-01");
+  for (let i = 0; i < 366; i++) {
+    const cand = off.concat([{ d: T.TLCal.iso(base + i), n: "n".repeat(60) }]);
+    if (T.TLCal.byteSize(T.TLCal.normalize({ off: cand })) > 16384) break; // entri berikutnya (~86 byte) pasti melewati batas
+    off.push(cand[cand.length - 1]);
+  }
+  const used = T.TLCal.byteSize(T.TLCal.normalize({ off }));
+  assert.ok(used <= 16384 && used > 16384 - 200 && off.length < 366, "seed: " + used + " byte, " + off.length + " entri");
+  fr.store.set("calendar/cal@list:12", { entity: "calendar", id: "cal@list:12", scope: "list:12", pending: false, data: { v: 1, weekdays: [1, 2, 3, 4, 5], national: true, cutiBersama: true, off, work: [] } });
+  const h = await popSetup({ records: fr });
+  const set = (tree, label, v) => input(tree, label).props.onChange({ target: { value: v } });
+  set(h.tree, "Tanggal hari kerja pengganti", "2027-06-01");
+  set(h.tree, "Nama hari kerja pengganti", "n".repeat(60));
+  formOf(h.rerender(), "Tambah hari kerja pengganti").props.onSubmit({ preventDefault() {} });
+  let tree = await h.step();
+  assert.equal(fr.calls.put.length, 0, "tanpa put");
+  assert.deepEqual(alerts(tree), ["Kalender terlalu besar — hapus sebagian libur tambahan"]);
+  assert.equal(nodes(section(tree, "Hari kerja pengganti"), (n) => n.type === "li").length, 0, "entri tidak ditambahkan");
+  assert.equal(nodes(section(tree, "Libur tambahan"), (n) => n.type === "li").length, off.length);
+  // hapus satu entri → muat lagi; galat hilang
+  nodes(section(tree, "Libur tambahan"), (n) => n.type === "button" && /^Hapus /.test(n.props["aria-label"] || ""))[0].props.onClick({});
+  tree = await h.step();
+  assert.equal(fr.calls.put.length, 1);
+  assert.deepEqual(alerts(tree), []);
+  h.m.unmount();
+}));
+
+test("CalendarPopover: put ditolak TOO_LARGE (pengaman kedua) / galat lain → pesan inline dan keadaan dimuat ulang dari simpanan", () => withPop(async () => {
+  const fr = fakeRecords();
+  const codes = ["TOO_LARGE", "BOOM"];
+  fr.api.put = () => { const e = new Error("rusak"); e.code = codes.shift(); return Promise.reject(e); };
+  const h = await popSetup({ records: fr });
+  dayBtns(h.tree)[5].props.onClick({});
+  let tree = h.rerender();
+  assert.equal(pressed(tree)[5], true, "optimis");
+  tree = await h.step();
+  assert.deepEqual(alerts(tree), ["Kalender terlalu besar — hapus sebagian libur tambahan"]);
+  assert.equal(pressed(tree)[5], false, "kembali ke simpanan");
+  dayBtns(tree)[5].props.onClick({});
+  tree = await h.step();
+  assert.deepEqual(alerts(tree), ["Kalender gagal disimpan"]);
+  assert.equal(pressed(tree)[5], false);
+  h.m.unmount();
+}));
+
+test("CalendarPopover: pending → 'Menunggu sinkron' (dari record dan setelah simpan); kalender bersih tanpa label", () => withPop(async () => {
+  const fr = fakeRecords();
+  fr.store.set("calendar/cal@list:12", { entity: "calendar", id: "cal@list:12", scope: "list:12", pending: true, data: { v: 1, weekdays: [1, 2, 3, 4, 5], national: true, cutiBersama: true, off: [], work: [] } });
+  const h = await popSetup({ records: fr });
+  assert.ok(txt(h.tree).includes("Menunggu sinkron"));
+  h.m.unmount();
+  const fr2 = fakeRecords();
+  fr2.store.set("calendar/cal@list:12", { entity: "calendar", id: "cal@list:12", scope: "list:12", pending: false, data: { v: 1, weekdays: [1, 2, 3, 4, 5], national: true, cutiBersama: true, off: [], work: [] } });
+  const h2 = await popSetup({ records: fr2 });
+  assert.ok(!txt(h2.tree).includes("Menunggu sinkron"));
+  dayBtns(h2.tree)[5].props.onClick({});
+  const tree = await h2.step();
+  assert.ok(txt(tree).includes("Menunggu sinkron"), "put mengembalikan pending:true");
+  h2.m.unmount();
+}));
+
+test("CalendarPopover: dimuat ulang saat sinkron mengubah kalender ini; peristiwa lokal sendiri tidak menimpa", () => withPop(async () => {
+  const h = await popSetup();
+  assert.deepEqual(pressed(h.tree), [true, true, true, true, true, false, false]);
+  h.fr.store.set("calendar/cal@list:12", { entity: "calendar", id: "cal@list:12", scope: "list:12", pending: false, data: { v: 1, weekdays: [1, 2, 3, 4, 5, 6, 7], national: true, cutiBersama: true, off: [], work: [] } });
+  h.fr.emit({ entity: "calendar", ids: ["cal@list:99"], source: "sync", lost: [] });
+  let tree = await h.step();
+  assert.deepEqual(pressed(tree), [true, true, true, true, true, false, false], "kalender lain diabaikan");
+  h.fr.emit({ entity: "calendar", ids: ["cal@list:12"], source: "sync", lost: [] });
+  tree = await h.step();
+  assert.deepEqual(pressed(tree), [true, true, true, true, true, true, true]);
+  // peristiwa lokal (simpanan kita sendiri / tab ini) tidak memuat ulang
+  h.fr.store.set("calendar/cal@list:12", { entity: "calendar", id: "cal@list:12", scope: "list:12", pending: false, data: { v: 1, weekdays: [1], national: true, cutiBersama: true, off: [], work: [] } });
+  const gets = h.fr.calls.get.length;
+  h.fr.emit({ entity: "calendar", ids: ["cal@list:12"], source: "local", lost: [] });
+  tree = await h.step();
+  assert.equal(h.fr.calls.get.length, gets);
+  assert.deepEqual(pressed(tree), [true, true, true, true, true, true, true]);
+  h.m.unmount();
+  assert.equal(h.fr.listenerCount(), 0, "unmount melepas pendengar onChange");
+}));
+
+test("CalendarPopover: fokus ke dialog saat dibuka; Esc menutup (propagasi dihentikan, fokus kembali); klik di luar menutup tanpa mengembalikan fokus; klik di dalam / tombol Kalender kerja tidak", () => withPop(async (w) => {
+  const h = await popSetup();
+  assert.equal(h.rootEl.focused, 1, "fokus dipindah ke dialog saat dipasang");
+  assert.equal(nodes(h.tree, (n) => n.props.role === "dialog")[0].props.tabIndex, -1);
+  assert.ok(w.ls.some((l) => l.type === "keydown" && l.cap), "Esc didengar fase tangkap");
+  assert.ok(w.ls.some((l) => l.type === "pointerdown" && l.cap), "klik luar didengar fase tangkap");
+  // tombol lain tidak menutup
+  let stopped = 0;
+  w.fire("keydown", { key: "Enter", preventDefault() {}, stopPropagation() { stopped++; } });
+  assert.deepEqual(h.closes, []);
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped++; } });
+  assert.deepEqual(h.closes, [{ restoreFocus: true }]);
+  assert.equal(stopped, 1, "Esc tidak menutup modal host di belakangnya");
+  // klik
+  const inside = { closest: () => null };
+  h.rootEl.kids = [inside];
+  w.fire("pointerdown", { target: inside });
+  assert.equal(h.closes.length, 1, "klik di dalam");
+  w.fire("pointerdown", { target: { closest: (sel) => (sel === ".plg-timeline-calbtn" ? {} : null) } });
+  assert.equal(h.closes.length, 1, "klik tombol Kalender kerja ditangani tombolnya sendiri (tidak ditutup-lalu-dibuka)");
+  w.fire("pointerdown", { target: { closest: () => null } });
+  assert.deepEqual(h.closes, [{ restoreFocus: true }, { restoreFocus: false }]);
+  // tombol tutup
+  const close = nodes(h.tree, (n) => n.type === "button" && n.props["aria-label"] === "Tutup")[0];
+  assert.ok(close);
+  close.props.onClick({});
+  assert.deepEqual(h.closes[2], { restoreFocus: true });
+  h.m.unmount();
+  assert.equal(w.ls.filter((l) => l.type === "keydown" || l.type === "pointerdown").length, 0, "pendengar window dilepas");
+}));
+
+test("view: tutup popover dengan Esc mengembalikan fokus ke tombol 'Kalender kerja'; klik luar tidak", () => withPop(async () => {
+  const { api } = fakeApi();
+  const { ctx } = ctxOf([mk(1, "A", { start: "2026-11-02", duration: 3 })]);
+  const vm = mount(T.TimelineViewBody);
+  const props = { context: ctx, api };
+  let vt = vm.render(props);
+  let focused = 0;
+  const calBtn = () => buttonByText(vt, CAL_TITLE);
+  assert.ok(hasCls(calBtn(), "plg-timeline-calbtn"));
+  calBtn().props.ref.current = { focus: () => { focused++; } };
+  calBtn().props.onClick({});
+  vt = vm.render(props);
+  const node = popNode(vt);
+  assert.equal(node.props.calId, "cal@user");
+  assert.equal(node.props.scope, "user");
+  assert.equal(node.props.pageKind, "project");
+  node.props.onClose({ restoreFocus: false });
+  vt = vm.render(props);
+  assert.equal(popNode(vt), undefined);
+  assert.equal(focused, 0);
+  calBtn().props.onClick({});
+  vt = vm.render(props);
+  popNode(vt).props.onClose({ restoreFocus: true });
+  assert.equal(focused, 1);
+  vm.unmount();
+}));
+
+// ── Daftar (HP) ──────────────────────────────────────────────────────────────
+function listTree(tasks, extra) {
+  const { api } = fakeApi(extra);
+  const lay = layOf(tasks, "week", api);
+  const taps = [];
+  const tree = mount(T.ListFallback).render({ rows: lay.rows, cal: lay.cal, onTaskClick: (t) => taps.push(t) });
+  return { tree, taps, lay };
+}
+const weekHeads = (tree) => nodes(tree, (n) => /^h\d$/.test(String(n.type))).map((n) => txt(n).trim());
+const liRows = (tree) => byCls(tree, "plg-timeline-li");
+
+test("ListFallback: urut Mulai, kelompok minggu 'Mg 45 · 2–8 Nov', baris 'Sen 9 Nov → Kam 12 Nov · 4 hk', 🏁 bila lewat tenggat, 'Belum dijadwalkan', ketuk → onTaskClick", () => {
+  const tasks = [
+    mk(1, "Desain", { start: "2026-11-09", duration: 4 }),
+    mk(2, "Riset", { start: "2026-11-02", duration: 3 }, { deadline: "2026-11-03" }),
+    mk(3, "Rencana", {}),
+    mk(4, "Rilis", { start: "2026-11-11", duration: 0 }),
+    mk(5, "Satu hari", { start: "2026-11-10", duration: 1 }),
+    mk(6, "Akhir Okt", { start: "2026-10-28", duration: 2 }),
+  ];
+  const { tree, taps } = listTree(tasks);
+  assert.deepEqual(weekHeads(tree), ["Mg 44 · 26 Okt–1 Nov", "Mg 45 · 2–8 Nov", "Mg 46 · 9–15 Nov", "Belum dijadwalkan"]);
+  const rows = liRows(tree);
+  assert.deepEqual(rows.map((r) => byCls(r, "plg-timeline-li-title").map((n) => txt(n).trim())[0]), ["Akhir Okt", "Riset", "Desain", "Satu hari", "Rilis", "Rencana"]);
+  const meta = (r) => byCls(r, "plg-timeline-li-meta").map((n) => txt(n).trim())[0];
+  assert.equal(meta(rows[2]), "Sen 9 Nov → Kam 12 Nov · 4 hk");
+  assert.equal(meta(rows[1]), "Sen 2 Nov → Rab 4 Nov · 3 hk");
+  assert.equal(meta(rows[0]), "Rab 28 Okt → Kam 29 Okt · 2 hk");
+  assert.equal(meta(rows[3]), "Sel 10 Nov · 1 hk", "satu hari: tanpa panah");
+  assert.equal(meta(rows[4]), "Rab 11 Nov · Milestone");
+  assert.equal(byCls(rows[5], "plg-timeline-li-meta").length, 0, "tanpa jadwal: hanya judul");
+  // 🏁 hanya pada yang lewat tenggat (Riset selesai Rab 4 Nov > tenggat Sel 3 Nov)
+  const flags = (r) => byCls(r, "plg-timeline-li-late");
+  assert.deepEqual(rows.map((r) => flags(r).length), [0, 1, 0, 0, 0, 0]);
+  assert.equal(txt(flags(rows[1])[0]).trim(), "🏁");
+  assert.equal(flags(rows[1])[0].props.role, "img");
+  assert.equal(flags(rows[1])[0].props["aria-label"], "Lewat tenggat");
+  // ketuk → onTaskClick(task); baris = tombol
+  for (const r of rows) assert.equal(r.type, "button");
+  rows[1].props.onClick({});
+  rows[5].props.onClick({});
+  assert.deepEqual(taps.map((t) => t.id), [2, 3]);
+});
+
+test("ListFallback: tahun berbeda → label minggu memuat tahun; daftar kosong tanpa jadwal tetap menampilkan 'Belum dijadwalkan'; kelompok workspace dilewati", () => {
+  const tasks = [mk(1, "A", { start: "2026-12-30", duration: 2 }), mk(2, "B", { start: "2027-01-05", duration: 1 })];
+  const { tree } = listTree(tasks);
+  assert.deepEqual(weekHeads(tree), ["Mg 53 · 28 Des 2026–3 Jan 2027", "Mg 1 · 4–10 Jan 2027"]);
+  const onlyUnsched = listTree([mk(1, "A", {})]).tree;
+  assert.deepEqual(weekHeads(onlyUnsched), ["Belum dijadwalkan"]);
+  // baris group (halaman workspace) tidak muncul sebagai task
+  const { api } = fakeApi();
+  const wsTasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, { list_id: 12, project: "P", project_id: 5 })];
+  const lay = T.TLLayout.layout({ tasks: wsTasks, pageKind: "workspace", cal: T.TLCal.DEFAULT_CAL, today: TODAY, zoom: "week", readSchedOf: (t) => T.TLSched.readSched(api.taskExt.read(t)) });
+  assert.ok(lay.rows.some((r) => r.kind === "group"));
+  const t = mount(T.ListFallback).render({ rows: lay.rows, cal: lay.cal, onTaskClick() {} });
+  assert.equal(liRows(t).length, 1);
+});
+
+test("ListFallback: judul kosong → 'Tanpa judul'", () => {
+  const { tree } = listTree([mk(1, "  ", { start: "2026-11-02", duration: 1 })]);
+  assert.equal(txt(byCls(liRows(tree)[0], "plg-timeline-li-title")[0]).trim(), "Tanpa judul");
+});
+
+function narrowWin() {
+  const w = popWin();
+  w.matchMedia = (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} });
+  return w;
+}
+function withNarrow(fn) {
+  const prev = global.window;
+  global.window = narrowWin();
+  return Promise.resolve().then(fn).finally(() => { global.window = prev; });
+}
+
+test("HP (≤ 640 px): sakelar 'Gantt | Daftar' bawaan Gantt; Daftar → ListFallback (tanpa tabel/grafik) dan tersimpan mode:<page>; terbaca lagi dari storage", () => withNarrow(async () => {
+  const tasks = [mk(1, "A", { start: "2026-11-09", duration: 4 }), mk(2, "B", {})];
+  const { api, calls } = fakeApi();
+  const { ctx, clicked } = ctxOf(tasks);
+  const m = mount(T.TimelineViewBody);
+  const props = { context: ctx, api };
+  let tree = m.render(props);
+  const radio = (t, l) => buttonByText(t, l).props["aria-checked"];
+  assert.deepEqual([radio(tree, "Gantt"), radio(tree, "Daftar")], [true, false]);
+  assert.equal(nodes(tree, (n) => n.props.role === "grid").length, 0 + 1, "Gantt: wadah grid ada");
+  buttonByText(tree, "Daftar").props.onClick({});
+  tree = m.render(props);
+  assert.deepEqual([radio(tree, "Gantt"), radio(tree, "Daftar")], [false, true]);
+  assert.equal(nodes(tree, (n) => n.props.role === "grid").length, 0);
+  assert.equal(liRows(tree).length, 2);
+  assert.deepEqual(weekHeads(tree), ["Mg 46 · 9–15 Nov", "Belum dijadwalkan"]);
+  // alat Gantt tidak berarti di Daftar: hanya Kalender kerja + sakelar
+  for (const l of ["Hari", "Minggu", "Bulan", "Hari ini", "Urutkan menurut Mulai", "Kolom"]) assert.equal(buttonByText(tree, l), undefined, l + " tersembunyi di Daftar");
+  assert.ok(buttonByText(tree, "Kalender kerja"));
+  liRows(tree)[0].props.onClick({});
+  assert.deepEqual(clicked.map((t) => t.id), [1]);
+  await tick();
+  assert.deepEqual(calls.storageSet.filter((s) => s[0].indexOf("mode:") === 0), [["mode:proj_Alpha", "list"]]);
+  // diingat per halaman: storage "list" → Daftar setelah dibaca; halaman lain tetap Gantt
+  const { api: api2, calls: calls2 } = fakeApi({ storageGet: (k) => Promise.resolve(k === "mode:proj_Alpha" ? "list" : null) });
+  const m2 = mount(T.TimelineViewBody);
+  let t2 = m2.render({ context: ctx, api: api2 });
+  assert.equal(radio(t2, "Gantt"), true, "bawaan Gantt sebelum storage terbaca");
+  m2.flush();
+  await tick();
+  t2 = m2.render({ context: ctx, api: api2 });
+  assert.equal(radio(t2, "Daftar"), true);
+  assert.ok(calls2.storageGet.indexOf("mode:proj_Alpha") >= 0);
+  const other = Object.assign({}, ctx, { page: "proj_Beta" });
+  const m3 = mount(T.TimelineViewBody);
+  m3.render({ context: other, api: api2 });
+  m3.flush();
+  await tick();
+  const t3 = m3.render({ context: other, api: api2 });
+  assert.equal(radio(t3, "Gantt"), true);
+  assert.ok(calls2.storageGet.indexOf("mode:proj_Beta") >= 0);
+}));
+
+test("Daftar hanya ≤ 640 px: lebar → mode 'list' tersimpan diabaikan (Gantt penuh); Live Edit lebar tanpa sakelar", async () => {
+  const tasks = [mk(1, "A", { start: "2026-11-09", duration: 4 })];
+  const { api } = fakeApi({ storageGet: (k) => Promise.resolve(k.indexOf("mode:") === 0 ? "list" : null) });
+  const { ctx } = ctxOf(tasks);
+  const m = mount(T.TimelineViewBody);
+  m.render({ context: ctx, api });
+  m.flush();
+  await tick();
+  const tree = m.render({ context: ctx, api });
+  assert.equal(nodes(tree, (n) => n.props.role === "grid").length, 1);
+  assert.equal(liRows(tree).length, 0);
+  assert.equal(buttonByText(tree, "Daftar"), undefined);
+});
+
+test("Kalender kerja di Daftar (HP): popover tetap tersedia; onChange lost → toast persis", () => withNarrow(async () => {
+  const fr = fakeRecords();
+  const { api, calls } = fakeApi({ records: fr });
+  const { ctx } = ctxOf([mk(1, "A", { start: "2026-11-09", duration: 4 })], { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
+  const m = mount(T.TimelineViewBody);
+  const props = { context: ctx, api };
+  m.render(props);
+  let tree = m.render(props);
+  buttonByText(tree, "Daftar").props.onClick({});
+  tree = m.render(props);
+  buttonByText(tree, "Kalender kerja").props.onClick({});
+  tree = m.render(props);
+  assert.ok(popNode(tree));
+  assert.equal(liRows(tree).length, 1, "Daftar tetap tampil di bawah popover");
+  m.flush();
+  await tick();
+  fr.emit({ entity: "calendar", ids: ["cal@list:12"], source: "sync", lost: ["cal@list:12"] });
+  assert.deepEqual(calls.toast.map((t) => t[0]), ["Perubahan kalender di perangkat ini kalah oleh perubahan yang lebih baru"]);
+  m.unmount();
+}));
+
+// ── Urut dan kolom ───────────────────────────────────────────────────────────
+test("Urutkan menurut Mulai mengubah urutan baris, WBS tetap; tersimpan sort:<page>; terbaca lagi", async () => {
+  const tasks = [
+    mk(1, "Pertama", { start: "2026-11-16", duration: 2 }),
+    mk(2, "Kedua", {}),
+    mk(3, "Ketiga", { start: "2026-11-02", duration: 2 }),
+  ];
+  const { api, calls } = fakeApi();
+  const { ctx } = ctxOf(tasks);
+  const m = mount(T.TimelineViewBody);
+  const props = { context: ctx, api };
+  let tree = m.render(props);
+  const order = (t) => renderedRowKeys(t);
+  const wbsOf = (t, k) => txt(cellsOf(rowOf(t, k))[0]).trim();
+  assert.deepEqual(order(tree), ["1", "2", "3"]);
+  const btn = buttonByText(tree, "Urutkan menurut Mulai");
+  assert.equal(btn.props["aria-pressed"], false);
+  btn.props.onClick({});
+  tree = m.render(props);
+  assert.deepEqual(order(tree), ["3", "1", "2"], "Mulai naik, tanpa jadwal terakhir");
+  assert.deepEqual(["1", "2", "3"].map((k) => wbsOf(tree, k)), ["1", "2", "3"], "WBS tetap");
+  assert.equal(buttonByText(tree, "Urutkan menurut Mulai").props["aria-pressed"], true);
+  await tick();
+  assert.deepEqual(calls.storageSet, [["sort:proj_Alpha", "start"]]);
+  buttonByText(tree, "Urutkan menurut Mulai").props.onClick({});
+  tree = m.render(props);
+  assert.deepEqual(order(tree), ["1", "2", "3"]);
+  await tick();
+  assert.deepEqual(calls.storageSet[1], ["sort:proj_Alpha", "wbs"]);
+  // dibaca lagi dari storage
+  const { api: api2 } = fakeApi({ storageGet: (k) => Promise.resolve(k === "sort:proj_Alpha" ? "start" : null) });
+  const m2 = mount(T.TimelineViewBody);
+  m2.render({ context: ctx, api: api2 });
+  m2.flush();
+  await tick();
+  assert.deepEqual(order(m2.render({ context: ctx, api: api2 })), ["3", "1", "2"]);
+});
+
+test("sumber Task 9: teks UI persis ada; CalendarPopover dirender sebagai elemen, bukan dipanggil sebagai fungsi di dalam view", () => {
+  for (const t of ['"Kalender kerja"', '"Dipakai semua anggota workspace"', '"Menunggu sinkron"', '"Ikuti libur nasional"', '"Ikuti cuti bersama"', '"Libur tambahan"', '"Hari kerja pengganti"', '"Belum dijadwalkan"', '"Kalender terlalu besar — hapus sebagian libur tambahan"']) assert.ok(jsx.includes(t) || jsx.includes(t.slice(1, -1)), t);
+  assert.doesNotMatch(jsx, /[^<\w.]CalendarPopover\(\{/);
+  assert.match(jsx, /<CalendarPopover\b/);
+});

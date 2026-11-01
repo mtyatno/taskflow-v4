@@ -100,6 +100,20 @@ const LBL = {
   gantt: "Gantt", list: "Daftar", zoom: "Skala waktu", mode: "Tampilan",
 };
 const MSG_EMPTY = "Belum ada task di halaman ini";
+// Kalender kerja (R18) dan Daftar HP (R20): teks persis.
+const MSG_CAL_NOTE = "Dipakai semua anggota workspace";
+const MSG_PENDING = "Menunggu sinkron";
+const MSG_CAL_SAVE_FAIL = "Kalender gagal disimpan";
+const MSG_CAL_LOAD_FAIL = "Kalender gagal dimuat";
+const MSG_DATE_NEED = "Pilih tanggal dulu";
+const MSG_DATE_DUP = "Tanggal ini sudah ada";
+const MSG_LIST_FULL = "Daftar sudah penuh (366 tanggal)";
+const MSG_NO_NAME = "(tanpa nama)";
+const MSG_UNSCHEDULED = "Belum dijadwalkan";
+const MSG_LATE = "Lewat tenggat";
+const CAL_MAX_NAME = 60; // sama dengan TLCal.normalize
+const CAL_MAX_ENTRIES = 366;
+const DAYS = [["Sen", "Senin"], ["Sel", "Selasa"], ["Rab", "Rabu"], ["Kam", "Kamis"], ["Jum", "Jumat"], ["Sab", "Sabtu"], ["Min", "Minggu"]];
 const MSG_VIOLATION = "Mulai sebelum dependensi selesai";
 const MSG_SCHEDULE_HINT = "Klik untuk menjadwalkan";
 // Interaksi (R13–R15, R21): teks persis.
@@ -333,13 +347,15 @@ function renderToolbar(v) {
       ))}
     </div>
   );
+  // Daftar (HP): zoom, "Hari ini", urut, dan kolom hanya berarti untuk Gantt → disembunyikan.
+  const gantt = !v.listMode;
   return (
     <div className="plg-timeline-toolbar">
-      {seg(ZOOMS, v.zoom, v.pickZoom, LBL.zoom)}
-      <button type="button" className="plg-timeline-btn" onClick={v.goToday}>{LBL.today}</button>
-      <button type="button" className={cx("plg-timeline-btn", v.calOpen && "is-active")} aria-expanded={v.calOpen} onClick={v.toggleCal}>{LBL.calendar}</button>
-      <button type="button" className={cx("plg-timeline-btn", v.sort === "start" && "is-active")} aria-pressed={v.sort === "start"} onClick={() => v.setSort(v.sort === "start" ? "wbs" : "start")}>{LBL.sort}</button>
-      {v.compact ? <button type="button" className={cx("plg-timeline-btn", v.cols && "is-active")} aria-pressed={v.cols} onClick={() => v.setCols(!v.cols)}>{LBL.cols}</button> : null}
+      {gantt ? seg(ZOOMS, v.zoom, v.pickZoom, LBL.zoom) : null}
+      {gantt ? <button type="button" className="plg-timeline-btn" onClick={v.goToday}>{LBL.today}</button> : null}
+      <button type="button" ref={v.calBtnRef} className={cx("plg-timeline-btn", "plg-timeline-calbtn", v.calOpen && "is-active")} aria-expanded={v.calOpen} aria-haspopup="dialog" onClick={v.toggleCal}>{LBL.calendar}</button>
+      {gantt ? <button type="button" className={cx("plg-timeline-btn", v.sort === "start" && "is-active")} aria-pressed={v.sort === "start"} onClick={() => v.setSort(v.sort === "start" ? "wbs" : "start")}>{LBL.sort}</button> : null}
+      {gantt && v.compact ? <button type="button" className={cx("plg-timeline-btn", v.cols && "is-active")} aria-pressed={v.cols} onClick={() => v.setCols(!v.cols)}>{LBL.cols}</button> : null}
       {v.narrow ? seg([["gantt", LBL.gantt], ["list", LBL.list]], v.mode, v.setMode, LBL.mode) : null}
     </div>
   );
@@ -552,13 +568,304 @@ function renderLegend(lay, ref) {
   );
 }
 
-// Task 9: popover kalender kerja (R18) dan tampilan Daftar HP (R20). Kerangka — belum merender apa pun.
+// 4f. Kalender kerja (Task 9; R18, keputusan pemilik U1) dan Daftar HP (R20, U3).
+// Nama libur/hari kerja pengganti: dipangkas, ≤ 60 unit (sama dengan TLCal.normalize, yang membuang entri lebih panjang);
+// pasangan surrogat tidak dipotong di tengah.
+function clipName(s) {
+  let n = s === undefined || s === null ? "" : String(s).trim();
+  if (n.length > CAL_MAX_NAME) {
+    n = n.slice(0, CAL_MAX_NAME);
+    const c = n.charCodeAt(n.length - 1);
+    if (c >= 0xd800 && c <= 0xdbff) n = n.slice(0, -1);
+  }
+  return n;
+}
+
+function dateLabel(d) {
+  return TLCal.fmtShort(TLCal.dn(d)) + " " + String(d).slice(0, 4);
+}
+
+const FORM0 = Object.freeze({ d: "", n: "", err: "" });
+
+// Popover kalender: tujuh sakelar hari, dua sakelar libur, dua daftar (libur tambahan, hari kerja pengganti).
+// Tiap perubahan langsung disimpan lewat store.save (R5), berurutan (satu antrean), dan ditampilkan lebih dulu
+// (optimis); bila gagal, keadaan dimuat ulang dari simpanan dan pesan galat tampil inline. Komponen berhook:
+// dirender sebagai elemen, bukan dipanggil sebagai fungsi.
 function CalendarPopover(props) {
-  return null;
+  const { calId, scope, pageKind, store, onClose } = props;
+  const [st, setSt] = React.useState({ data: null, pending: false });
+  const [err, setErr] = React.useState("");
+  const [form, setForm] = React.useState({ off: FORM0, work: FORM0 });
+  const rootRef = React.useRef(null);
+  const dataRef = React.useRef(null); // kalender terkini (termasuk perubahan yang belum selesai disimpan)
+  const inflight = React.useRef(0);
+  const chain = React.useRef(Promise.resolve());
+  const alive = React.useRef(true);
+  const closeRef = React.useRef(onClose);
+  closeRef.current = onClose;
+
+  const show = (r) => {
+    dataRef.current = r.data;
+    setSt({ data: r.data, pending: r.pending });
+  };
+
+  React.useEffect(() => {
+    alive.current = true;
+    const load = () => store.load(calId).then((r) => {
+      if (alive.current && inflight.current === 0) show(r);
+    }, () => {
+      if (alive.current) setErr(MSG_CAL_LOAD_FAIL);
+    });
+    load();
+    let off = null;
+    try {
+      // Hanya perubahan dari perangkat lain (sinkron) / kalah LWW; peristiwa lokal berasal dari simpanan kita sendiri.
+      off = store.subscribe((ev) => {
+        if (inflight.current > 0) return;
+        if (ev.lost.indexOf(calId) >= 0 || (ev.source === "sync" && ev.ids.indexOf(calId) >= 0)) load();
+      });
+    } catch (e) {
+      off = null;
+    }
+    return () => {
+      alive.current = false;
+      if (typeof off === "function") off();
+    };
+  }, [store, calId]);
+
+  const close = (restoreFocus) => {
+    const f = closeRef.current;
+    if (typeof f === "function") f({ restoreFocus });
+  };
+
+  // Fokus ke dialog saat dibuka; Esc menutup (fase tangkap + stopPropagation agar modal/Live Edit host di belakang tidak
+  // ikut tertutup); tekan di luar menutup tanpa mencuri fokus. Tombol "Kalender kerja" menangani kliknya sendiri.
+  React.useEffect(() => {
+    const el = rootRef.current;
+    if (el && typeof el.focus === "function") el.focus();
+    if (!hasWindow()) return undefined;
+    const onKey = (e) => {
+      if (!e || e.key !== "Escape") return;
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      if (typeof e.stopPropagation === "function") e.stopPropagation();
+      close(true);
+    };
+    const onDown = (e) => {
+      const root = rootRef.current;
+      const t = e && e.target;
+      if (!root || !t) return;
+      if (typeof root.contains === "function" && root.contains(t)) return;
+      if (typeof t.closest === "function" && t.closest(".plg-timeline-calbtn")) return;
+      close(false);
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onDown, true);
+    };
+  }, []);
+
+  // Terapkan perubahan murni `mut(kalender) → kalender` dan simpan. false = tidak ada yang berubah / terlalu besar.
+  const change = (mut) => {
+    const cur = dataRef.current;
+    if (!cur) return false;
+    const next = TLCal.normalize(mut(cur));
+    if (JSON.stringify(next) === JSON.stringify(cur)) return false;
+    if (TLCal.byteSize(next) > CAL_MAX_BYTES) {
+      setErr(MSG_CAL_TOO_LARGE);
+      return false;
+    }
+    dataRef.current = next;
+    setSt((s) => Object.assign({}, s, { data: next }));
+    setErr("");
+    inflight.current++;
+    chain.current = chain.current
+      .then(() => store.save(calId, scope, next))
+      .then((r) => {
+        inflight.current--;
+        if (!alive.current) return;
+        if (inflight.current === 0) show(r);
+        else setSt((s) => Object.assign({}, s, { pending: r.pending }));
+      }, (e) => {
+        inflight.current--;
+        if (alive.current) setErr(e && e.code === "TOO_LARGE" ? MSG_CAL_TOO_LARGE : MSG_CAL_SAVE_FAIL);
+        return store.load(calId).then((r) => {
+          if (alive.current && inflight.current === 0) show(r);
+        }, () => {});
+      })
+      .catch(() => {});
+    return true;
+  };
+
+  const toggleDay = (n) => change((c) => {
+    const set = new Set(c.weekdays);
+    if (set.has(n)) {
+      if (set.size <= 1) return c; // sedikitnya satu hari kerja (normalize akan memulihkan bawaan Sen–Jum, bukan yang dimaksud)
+      set.delete(n);
+    } else set.add(n);
+    return Object.assign({}, c, { weekdays: Array.from(set).sort((a, b) => a - b) });
+  });
+  const addEntry = (kind, e) => {
+    if (e && typeof e.preventDefault === "function") e.preventDefault();
+    const cur = dataRef.current;
+    if (!cur) return;
+    const f = form[kind];
+    const fail = (m) => setForm((s) => Object.assign({}, s, { [kind]: Object.assign({}, s[kind], { err: m }) }));
+    if (!TLCal.isIso(f.d)) return fail(MSG_DATE_NEED);
+    if (cur.off.some((x) => x.d === f.d) || cur.work.some((x) => x.d === f.d)) return fail(MSG_DATE_DUP);
+    if (cur[kind].length >= CAL_MAX_ENTRIES) return fail(MSG_LIST_FULL);
+    const entry = { d: f.d, n: clipName(f.n) };
+    if (change((c) => Object.assign({}, c, { [kind]: c[kind].concat([entry]) }))) setForm((s) => Object.assign({}, s, { [kind]: FORM0 }));
+  };
+  const removeEntry = (kind, d) => change((c) => Object.assign({}, c, { [kind]: c[kind].filter((x) => x.d !== d) }));
+  const edit = (kind, field, value) => setForm((s) => Object.assign({}, s, { [kind]: Object.assign({}, s[kind], { [field]: value, err: "" }) }));
+
+  const cal = st.data;
+  const loading = cal === null;
+  const list = (kind, title, addLabel, delLabel) => (
+    <section className="plg-timeline-pop-sec" aria-label={title}>
+      <h4 className="plg-timeline-pop-sub">{title}</h4>
+      {cal && cal[kind].length ? (
+        <ul className="plg-timeline-pop-list">
+          {cal[kind].map((e) => (
+            <li key={e.d} className="plg-timeline-pop-item">
+              <span className="plg-timeline-pop-date">{dateLabel(e.d)}</span>
+              <span className={cx("plg-timeline-pop-name", !e.n && "is-empty")}>{e.n || MSG_NO_NAME}</span>
+              <button type="button" className="plg-timeline-pop-del" aria-label={"Hapus " + dateLabel(e.d)} title={delLabel} onClick={() => removeEntry(kind, e.d)}>×</button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <form className="plg-timeline-pop-form" aria-label={addLabel} onSubmit={(e) => addEntry(kind, e)}>
+        <input type="date" className="plg-timeline-pop-input" aria-label={"Tanggal " + title.toLowerCase()} value={form[kind].d} disabled={loading}
+          onChange={(e) => edit(kind, "d", e.target.value)} />
+        <input type="text" className="plg-timeline-pop-input" aria-label={"Nama " + title.toLowerCase()} placeholder="Nama" maxLength={CAL_MAX_NAME} value={form[kind].n} disabled={loading}
+          onChange={(e) => edit(kind, "n", e.target.value)} />
+        <button type="submit" className="plg-timeline-btn" disabled={loading}>Tambah</button>
+      </form>
+      {form[kind].err ? <div className="plg-timeline-pop-err" role="alert">{form[kind].err}</div> : null}
+    </section>
+  );
+
+  return (
+    <div className="plg-timeline-pop" role="dialog" aria-label={LBL.calendar} aria-busy={loading} tabIndex={-1} ref={rootRef}>
+      <div className="plg-timeline-pop-head">
+        <h3 className="plg-timeline-pop-title">{LBL.calendar}</h3>
+        {st.pending ? <span className="plg-timeline-pop-pending" role="status">{MSG_PENDING}</span> : null}
+        <button type="button" className="plg-timeline-pop-close" aria-label="Tutup" onClick={() => close(true)}>×</button>
+      </div>
+      {pageKind === "workspace" ? <p className="plg-timeline-pop-note">{MSG_CAL_NOTE}</p> : null}
+      <div className="plg-timeline-pop-days" role="group" aria-label="Hari kerja">
+        {DAYS.map(([short, long], i) => {
+          const on = !!cal && cal.weekdays.indexOf(i + 1) >= 0;
+          return (
+            <button key={short} type="button" className={cx("plg-timeline-pop-day", on && "is-on")} aria-pressed={on} aria-label={long}
+              disabled={loading || (on && cal.weekdays.length <= 1)} onClick={() => toggleDay(i + 1)}>{short}</button>
+          );
+        })}
+      </div>
+      <label className="plg-timeline-pop-check">
+        <input type="checkbox" checked={!!cal && cal.national} disabled={loading} onChange={(e) => change((c) => Object.assign({}, c, { national: !!e.target.checked }))} />
+        <span>Ikuti libur nasional</span>
+      </label>
+      <label className="plg-timeline-pop-check">
+        <input type="checkbox" checked={!!cal && cal.cutiBersama} disabled={loading} onChange={(e) => change((c) => Object.assign({}, c, { cutiBersama: !!e.target.checked }))} />
+        <span>Ikuti cuti bersama</span>
+      </label>
+      {list("off", "Libur tambahan", "Tambah libur tambahan", "Hapus libur tambahan")}
+      {list("work", "Hari kerja pengganti", "Tambah hari kerja pengganti", "Hapus hari kerja pengganti")}
+      {err ? <div className="plg-timeline-pop-err" role="alert">{err}</div> : null}
+    </div>
+  );
+}
+
+// Tampilan Daftar (HP, U3): task terjadwal urut Mulai dikelompokkan per minggu ISO, lalu "Belum dijadwalkan".
+// Baris = tombol → onTaskClick(task). `cal` disediakan untuk kelengkapan antarmuka (tanggal sudah dihitung layout).
+function weekText(mon, showYear) {
+  const sun = mon + 6;
+  const wk = TLCal.isoWeek(mon);
+  const dm = (n) => {
+    const p = TLCal.fmtShort(n).split(" ");
+    return { d: p[1], m: p[2], y: TLCal.iso(n).slice(0, 4) };
+  };
+  const a = dm(mon);
+  const b = dm(sun);
+  let range;
+  if (a.y !== b.y && showYear) range = a.d + " " + a.m + " " + a.y + "–" + b.d + " " + b.m + " " + b.y;
+  else if (a.m !== b.m || a.y !== b.y) range = a.d + " " + a.m + "–" + b.d + " " + b.m + (showYear ? " " + b.y : "");
+  else range = a.d + "–" + b.d + " " + a.m + (showYear ? " " + a.y : "");
+  return "Mg " + wk.week + " · " + range;
+}
+
+function listMeta(r) {
+  const s = TLCal.fmtShort(r.span.s);
+  const f = TLCal.fmtShort(r.span.f);
+  const hk = r.duration === null || r.duration === undefined ? "" : r.duration + " hk";
+  if (r.kind === "task" && r.duration === 0) return { text: s + " · Milestone", aria: s + ", milestone" };
+  const text = (r.span.s === r.span.f ? s : s + " → " + f) + (hk ? " · " + hk : "");
+  const aria = (r.span.s === r.span.f ? s : s + " sampai " + f) + (hk ? ", " + r.duration + " hari kerja" : "");
+  return { text, aria };
 }
 
 function ListFallback(props) {
-  return null;
+  const rows = Array.isArray(props.rows) ? props.rows : [];
+  const open = (r) => {
+    if (typeof props.onTaskClick === "function") props.onTaskClick(r.task);
+  };
+  const sched = [];
+  const unsched = [];
+  for (const r of rows) {
+    if (!r || r.kind === "group" || !r.task) continue;
+    (r.span ? sched : unsched).push(r);
+  }
+  sched.sort((a, b) => a.span.s - b.span.s || a.index - b.index);
+  const weeks = [];
+  const byMon = new Map();
+  for (const r of sched) {
+    const mon = r.span.s - (TLCal.isoWeekday(r.span.s) - 1);
+    let g = byMon.get(mon);
+    if (!g) {
+      g = { mon, rows: [] };
+      byMon.set(mon, g);
+      weeks.push(g);
+    }
+    g.rows.push(r);
+  }
+  const years = new Set();
+  for (const g of weeks) {
+    years.add(TLCal.iso(g.mon).slice(0, 4));
+    years.add(TLCal.iso(g.mon + 6).slice(0, 4));
+  }
+  const showYear = years.size > 1;
+  const item = (r) => {
+    const title = rowCells(r, "").name;
+    const meta = r.span ? listMeta(r) : null;
+    const late = r.span && r.late > 0;
+    const aria = title + (meta ? ", " + meta.aria : ", belum dijadwalkan") + (late ? ", lewat tenggat" : "");
+    return (
+      <li key={r.key} className="plg-timeline-li-item">
+        <button type="button" className={cx("plg-timeline-li", r.kind === "summary" && "is-summary", r.done && "is-done")} aria-label={aria} onClick={() => open(r)}>
+          <span className="plg-timeline-li-title">{title}</span>
+          {meta ? <span className="plg-timeline-li-meta">{meta.text}</span> : null}
+          {late ? <span className="plg-timeline-li-late" role="img" aria-label={MSG_LATE}>🏁</span> : null}
+        </button>
+      </li>
+    );
+  };
+  const sec = (key, head, items) => (
+    <section key={key} className="plg-timeline-li-sec" aria-label={head}>
+      <h4 className="plg-timeline-li-head">{head}</h4>
+      <ul className="plg-timeline-li-list">{items.map(item)}</ul>
+    </section>
+  );
+  if (!weeks.length && !unsched.length) return <div className="plg-timeline-empty">{MSG_EMPTY}</div>;
+  return (
+    <div className="plg-timeline-list">
+      {weeks.map((g) => sec("w" + g.mon, weekText(g.mon, showYear), g.rows))}
+      {unsched.length ? sec("u", MSG_UNSCHEDULED, unsched) : null}
+    </div>
+  );
 }
 
 // 4e'. Interaksi (Task 8; R13–R15, R21, R23). Satu pengendali per instance view (dibuat sekali, disimpan di ref) agar
@@ -1046,6 +1353,7 @@ function TimelineViewBody(props) {
   const [cols, setCols] = usePref(api, "cols", page);
   const [mode, setMode] = usePref(api, "mode", page);
   const [calOpen, setCalOpen] = React.useState(false);
+  const calBtnRef = React.useRef(null);
   const pageKind = context.pageKind === "workspace" ? "workspace" : "project";
   const target = React.useMemo(() => calTarget(pageKind === "workspace" ? context.listId : null), [pageKind, context.listId]);
   const cal = useCalendar(api, target);
@@ -1217,16 +1525,25 @@ function TimelineViewBody(props) {
   const ix = ctl.ix;
 
   const toolbar = renderToolbar({
-    zoom, pickZoom, goToday, sort, setSort, compact, cols, setCols, narrow, mode, setMode,
-    calOpen, toggleCal: () => setCalOpen(!calOpen),
+    zoom, pickZoom, goToday, sort, setSort, compact, cols, setCols, narrow, mode, setMode, listMode,
+    calOpen, toggleCal: () => setCalOpen(!calOpen), calBtnRef,
   });
-  const popover = calOpen ? CalendarPopover({ calId: target.id, scope: target.scope, pageKind, store: cal.store, onClose: () => setCalOpen(false) }) : null;
+  // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
+  // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
+  const closeCal = (how) => {
+    setCalOpen(false);
+    const b = calBtnRef.current;
+    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+  };
+  const popover = calOpen
+    ? <CalendarPopover key={target.id} calId={target.id} scope={target.scope} pageKind={pageKind} store={cal.store} onClose={closeCal} />
+    : null;
+  const top = <div className="plg-timeline-top">{toolbar}{popover}</div>;
 
   if (!hasRows) {
     return (
       <div className="plg-timeline">
-        {toolbar}
-        {popover}
+        {top}
         <div className="plg-timeline-empty">{MSG_EMPTY}</div>
       </div>
     );
@@ -1234,8 +1551,7 @@ function TimelineViewBody(props) {
   if (listMode) {
     return (
       <div className="plg-timeline">
-        {toolbar}
-        {popover}
+        {top}
         {ListFallback({ rows: lay.rows, cal: lay.cal, onTaskClick: context.onTaskClick })}
       </div>
     );
@@ -1243,8 +1559,7 @@ function TimelineViewBody(props) {
   const v = { lay, rw, dw, rowH, colDefs, tableW, chartW, bodyH, todayDn, groupNames, ix, isSel };
   return (
     <div className={cx("plg-timeline", compact && "is-compact")}>
-      {toolbar}
-      {popover}
+      {top}
       <div className="plg-timeline-scroll" ref={scrollRef} onScroll={onScroll} role="grid" aria-label="Timeline" aria-rowcount={lay.rows.length + 1}
         style={{ height: vp.boxH }}>
         {renderHead(v)}
