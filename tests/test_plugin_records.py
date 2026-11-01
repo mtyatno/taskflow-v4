@@ -1,6 +1,7 @@
 """plugin_records (bagian murni) + plugin_host.list_access — skema, vektor, seq, LWW, kursor, purge
 (spec Fase 1 §5.2, §5.3; rencana PR 1a-2 T1, R1–R8, R25)."""
 import json
+import logging
 import re
 import sqlite3
 import threading
@@ -1194,3 +1195,30 @@ def test_reset_for_tests_clears_decl_throttle(http, monkeypatch, tmp_path):
     pr._reset_for_tests()
     a.send1(entity="memo")
     assert len(calls) == 2
+
+
+def test_decl_throttled_returns_current_loader_decl_without_file_read(http, monkeypatch, tmp_path):
+    """Jendela throttle: salinan `_guard` yang basi tidak dipakai; deklarasi proses saat ini (sudah dibaca ulang oleh
+    permintaan lain) dikembalikan tanpa membaca berkas indeks."""
+    write, now, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    stale = plugin_loader.records_decl(PID)  # salinan `_guard` permintaan B, diambil sebelum baca ulang
+    write(["note", "memo"])
+    assert "memo" in pr._decl_for(PID, plugin_loader.records_decl(PID), {"memo"})  # permintaan A: baca ulang
+    assert len(calls) == 1
+    reads = []
+    real_read = plugin_loader._read_index
+    monkeypatch.setattr(plugin_loader, "_read_index", lambda p: (reads.append(p), real_read(p))[1])
+    now[0] += 1
+    got = pr._decl_for(PID, stale, {"memo"})  # permintaan B dalam jendela throttle
+    assert "memo" in got and "note" in got
+    assert len(calls) == 1 and reads == []
+
+
+def test_decl_refresh_logs_warning_once_per_refresh(http, monkeypatch, tmp_path, caplog):
+    _, now, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    caplog.set_level(logging.WARNING, logger="alurik.plugins")
+    pr._decl_for(PID, plugin_loader.records_decl(PID), {"memo"})
+    pr._decl_for(PID, plugin_loader.records_decl(PID), {"memo"})  # di-throttle: tanpa baris baru
+    hits = [r for r in caplog.records if "baca ulang indeks" in r.getMessage()]
+    assert len(hits) == 1 and hits[0].levelno == logging.WARNING and "memo" in hits[0].getMessage()
+    assert len(calls) == 1

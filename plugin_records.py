@@ -358,8 +358,8 @@ def maybe_purge(conn, now: datetime, clock=time.monotonic) -> int | None:
 
 def _decl_for(pid: str, decl: dict, entities: set[str]) -> dict:
     """Deklarasi entitas untuk permintaan ini (K26, rencana 1c-0 R13). Ada nama entitas sah (`ENTITY_RE`) yang belum ada
-    di `decl` → baca ulang indeks sekali (paling sering 1×/`DECL_REFRESH_TTL_S`) lalu pakai deklarasi terbaru; selain itu
-    `decl` apa adanya. Nama tak sah tidak memicu baca ulang. Indeks rusak → `refresh_known` mempertahankan daftar lama.
+    di `decl` → baca ulang indeks sekali (paling sering 1×/`DECL_REFRESH_TTL_S`) lalu pakai deklarasi terbaru (dalam jendela
+    throttle: deklarasi proses saat ini tanpa baca berkas); tidak ada yang hilang → `decl` apa adanya. Nama tak sah tidak memicu baca ulang. Indeks rusak → `refresh_known` mempertahankan daftar lama.
     Dipanggil SEBELUM `write_tx` (baca berkas tidak boleh di dalam transaksi tulis)."""
     global _last_decl_refresh
     missing = sorted(e for e in entities if isinstance(e, str) and ENTITY_RE.fullmatch(e) and e not in decl)
@@ -367,9 +367,13 @@ def _decl_for(pid: str, decl: dict, entities: set[str]) -> dict:
         return decl
     now = _decl_clock()
     if _last_decl_refresh is not None and now - _last_decl_refresh < DECL_REFRESH_TTL_S:
-        return decl
+        # Dalam jendela throttle: tanpa baca berkas, tetapi pakai deklarasi proses saat ini (bisa sudah dibaca ulang
+        # oleh permintaan lain sesudah `_guard` permintaan ini mengambil salinannya).
+        return plugin_loader.records_decl(pid)
     _last_decl_refresh = now
-    logger.info("plugin_records: entitas %s belum dideklarasikan %s → baca ulang indeks", ",".join(missing), pid)
+    # WARNING (bukan INFO): satu baris per baca ulang (sudah di-throttle) dan tampil di `journalctl -u taskflow-web`
+    # — dipakai runbook verifikasi pasca-restart (ADR-043).
+    logger.warning("plugin_records: entitas %s belum dideklarasikan %s → baca ulang indeks", ",".join(missing), pid)
     plugin_loader.refresh_known()
     return plugin_loader.records_decl(pid)
 
