@@ -68,8 +68,8 @@ test("CSS ikon chip Pomodoro", () => {
 test("cache bust v450 + app.css?v=382", () => {
   const swJs = fs.readFileSync(path.join(__dirname, "../../static/sw.js"), "utf8");
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(swJs, /^const CACHE = "taskflow-v492-plugin-records";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v492-plugin-records";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v492-plugin-records"/);
+  assert.match(swJs, /^const CACHE = "taskflow-v493-timeline";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v493-timeline";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v493-timeline"/);
   assert.match(indexHtml, /app\.css\?v=382/);
 });

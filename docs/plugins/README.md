@@ -1,4 +1,4 @@
-# Menulis plugin Alurik (Fase 0a–1a)
+# Menulis plugin Alurik (Fase 0a–1b)
 
 Plugin = fitur opsional yang dinyalakan/dimatikan pengguna di **Pengaturan › Plugin**. Kodenya hidup di
 `static/plugins/<id>/`, bukan di `index.html`, dan baru dieksekusi saat plugin ON dan slot-nya dirender.
@@ -7,8 +7,10 @@ Spec: `docs/superpowers/specs/2026-10-29-plugin-fase0a-design.md` (klien) dan
 `docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md` (Fase 1: `tasks.ext`, slot view/detail,
 `api.taskExt`; ADR-040).
 Runtime: `static/plugin-runtime.js`. Modul server opsional: `plugins/<id>.py` (§11).
-Contoh nyata: `static/plugins/habit-heatmap/` (plugin #0). Contoh `task.ext` + dua slot task: plugin khusus tes
-`tests/fixtures/plugins/demo-ext/` (tidak pernah dirilis). Titik mulai: salin `static/plugins/_template/`.
+Contoh nyata: `static/plugins/habit-heatmap/` (plugin #0) dan `static/plugins/timeline/` (Fase 1b: `parts` +
+`records` + `task.ext` + dua slot task; Gantt, kalender hari kerja, seksi Jadwal). Contoh `task.ext` + dua slot task
+untuk tes: plugin khusus tes `tests/fixtures/plugins/demo-ext/` (tidak pernah dirilis). Titik mulai: salin
+`static/plugins/_template/`.
 
 ## 1. Struktur folder
 
@@ -36,8 +38,15 @@ penyimpanan; rename = plugin baru).
    **`parts` (Fase 1, opsional):** `manifest.parts = ["calendar.js", …]` — nama `^[a-z0-9][a-z0-9_-]*\.js$`, unik,
    ada di folder plugin, bukan `plugin.js`. Isinya disalin **mentah** (tanpa Babel), berurutan, masing-masing
    diawali komentar `// part: <nama>`, sebelum kode `plugin.jsx` di dalam IIFE yang sama. Gunanya: mesin murni
-   (mis. kalender/jadwal) bisa di-`require` dan dites Node terpisah dari UI (pola UMD seperti
-   `tests/fixtures/plugins/demo-ext/util.js`). `parts` hanya dipakai saat build (tidak disalin ke `index.json`),
+   (mis. kalender/jadwal) bisa di-`require` dan dites Node terpisah dari UI.
+   **Pola yang dianjurkan: `parts` tanpa global** (contoh `static/plugins/timeline/*.js`): tiap part berbentuk
+   `const TLCal = (function (deps) { …; return Object.freeze(api); })(…); if (typeof module !== "undefined" &&
+   module.exports) module.exports = TLCal;`. Part yang bergantung pada part lain memakai
+   `typeof TLCal !== "undefined" ? TLCal : require("./calendar.js")`: di `plugin.js` gabungan semua `const` part
+   berada di lingkup IIFE yang sama sehingga cabang `require` tidak pernah jalan di browser, sedangkan di Node
+   tiap part bisa di-`require` sendiri. Tidak ada `window.__x`/`self.__x` (pola lama `demo-ext/util.js`, yang menaruh
+   mesin di global, hanya untuk fixture tes). `plugin.jsx` mengakhiri dengan `module.exports = Object.assign({},
+   {…part}, {…fungsi murni})` agar tes memuat `plugin.js` hasil build lewat `vm` (§9). `parts` hanya dipakai saat build (tidak disalin ke `index.json`),
    dan lint berlaku atas `plugin.js` utuh.
 2. Lint: `plugin.js` yang mengandung `tokenStore`, `API_BASE`, `fetch(` polos, `window|self|globalThis.fetch`,
    `localStorage`, `indexedDB`, `XMLHttpRequest`, `innerHTML`, `TF.api.for(` atau `window.TF.meta|db|taskroutes`
@@ -156,7 +165,7 @@ Plugin menerima `api = TF.api.for(id)` di `factory` dan sebagai prop `api` di ko
 | `api.storage` (izin `storage`) | `get(key) → Promise<nilai∣null>`, `set(key, val)`, `remove(key)`, `keys()`; disimpan di `_meta` `plugin:<id>:<key>`; kunci string 1–128 karakter; nilai JSON ≤ 64 KB (lebih → `PluginStorageError`). Tanpa izin → `PluginPermissionError` (dihitung sebagai error). |
 | `api.data.habits` | `list()` → habit (bentuk `GET /api/habits` lokal); `logs({from, to})` → `[{cid, habitId, habit_cid, date, status, skip_reason}]`, tanggal inklusif `YYYY-MM-DD`, log terhapus dan log dari habit terhapus dibuang |
 | `api.data.tasks` | `list({includeDone, since})` → task dari IndexedDB (bentuk `GET /api/tasks` lokal, `id = server_id ?? cid`); `since` ISO dibandingkan dengan `updated_at` (fallback `completed_at`, `created_at`) |
-| `api.ui` | `toast(message, type)`, `openTask(taskId)`, `navigate(page)` (hanya `dashboard`, `focus`, `inbox`, `settings`; selain itu melempar), `sanitize(html)` (lewat `TF.safehtml`) |
+| `api.ui` | `toast(message, type, action?)` (`action` opsional `{label: 1–20 karakter, onClick}`: tombol di toast, mis. "Urungkan"; host menampilkannya 6 s; error sinkron di `onClick` dicatat `api.log` dan tidak dihitung error plugin, sedangkan `onClick` async wajib menangani reject sendiri; `action` tidak sah diabaikan dan toast tetap tampil), `openTask(taskId)`, `navigate(page)` (hanya `dashboard`, `focus`, `inbox`, `settings`; selain itu melempar), `sanitize(html)` (lewat `TF.safehtml`) |
 | `api.env` | `online` (getter), `platform` (`"web"∣"tauri"`), `theme` (`{palette, mode}`), `today()` (Asia/Jakarta `YYYY-MM-DD`), `userId` |
 | `api.log` | `info/warn/error` berprefiks `[plugin:<id>]` |
 | `api.fetch(path, {method, body, timeoutMs})` (izin `network`, Fase 0b) | `→ Promise<json>` ke rute server plugin sendiri: `path` diawali `/api/plugins/<id>/` (atau sama dengan `/api/plugins/<id>`), tanpa `..`, `//`, `\`, `#`, skema/host; `method` GET/POST/PUT/PATCH/DELETE; `body` JSON ≤ 256 KB; timeout bawaan 15 s. Lewat `api.fetch` host (token, `API_BASE` Tauri, 401 → login ulang). Bila toggle plugin ini masih menunggu sinkron, menunggu push ≤ 5 s dulu. Selalu ada di `api`; tanpa izin `network` / path asing → `PluginPermissionError` (dihitung error). |
@@ -229,6 +238,15 @@ milik satu task (kalender, preset, entri jadwal); data per task tetap lewat `api
   Plugin OFF tetap **mengirim** perubahan yang sudah ada, tetapi **tidak menarik** record dari server; yang belum
   ditarik datang pada sinkron berikutnya setelah plugin ON.
 
+**Contoh: kalender kerja Timeline** (`manifest.records = {"calendar": {"conflict": "lww", "maxBytes": 16384}}`).
+Record `calendar` dengan id deterministik yang menyandikan scope: `cal@list:<id>` (scope `list:<id>`, dipakai dan
+**boleh diubah semua anggota** workspace itu) atau `cal@user` (scope `user`, pribadi), data
+`{v: 1, weekdays, national, cutiBersama, off, work}`. Tidak ada record = kalender bawaan (Sen–Jum, libur nasional dan
+cuti bersama ikut). Plugin hanya menyentuh `api.records` lewat satu adaptor (`calendarStore`), menormalkan data dari
+anggota lain sebelum dipakai, dan memuat ulang pada `onChange` (termasuk `lost` → toast). Setelah plugin baru
+dinyalakan, record belum ditarik sampai sinkron berikutnya: `get` mengembalikan `null` (pakai bawaan) lalu
+`onChange({source: "sync"})` memicu muat ulang.
+
 Semua `data.*` membaca IndexedDB, jadi bekerja offline. Tidak ada di v1: `api.settings` (kolom `settings` server sudah disimpan dan disinkron tetapi belum diekspos), penulisan data host
 selain `api.taskExt`. Fungsi hanya ditambah di v1; perubahan tak kompatibel = `apiVersion: 2`.
 
@@ -282,12 +300,26 @@ View ke-4 di halaman daftar task, setelah Normal/Compact/Kanban.
 | `liveEdit` | `true` bila panel Live Edit aktif |
 | `showToast(message, type)` | toast host |
 
+**Pemakai pertama: Timeline** (`static/plugins/timeline/`, `contributes["taskList.views"]` id `gantt`, `pages`
+`["project", "workspace"]`). `TimelineView` membaca `context.scopeTasks` (termasuk task selesai), menghitung tata
+letak murni (`layout.js`) dan hanya menggambar baris/kolom di jendela tampak (virtualisasi); `context.onTaskClick`
+membuka Live Edit/modal. Jadwal per task lewat `api.taskExt` (`timeline.start|duration|deps`), kalender kerja lewat
+`api.records` (entitas `calendar`, di bawah), preferensi tampilan per perangkat (zoom, urutan, mode HP) lewat
+`api.storage`. Seret bar = satu `api.taskExt.set` per lepas; toast "Urungkan" memakai `api.ui.toast` dengan `action`.
+
 ### 6.3 `taskDetail.sections` (Fase 1)
 
 Seksi di detail task, antara Deskripsi dan tab (Subtask/Komentar/…), di modal maupun panel Live Edit. Tanpa
 kontribusi tidak ada wadah; bila ada, dirender di wadah `td-plugin-sections`, urut `order`. `context`:
 `{task, variant: "modal"∣"panel", collaborators, onOpenTask, showToast}`; pengguna lewat `api.env.userId`.
 Seksi biasanya membaca `api.taskExt.read(context.task)` dan menulis lewat `api.taskExt.set`.
+
+**Pemakai pertama: Timeline** (id `schedule`, label "Jadwal"): Mulai, Durasi, dependensi, tenggat; mengembalikan
+`null` untuk task yang tidak relevan (berulang, tanpa `id`). **`context.task` di modal adalah salinan**
+(`selectedTask` tidak mengikuti daftar `tasks`): setelah `api.taskExt.set`, prop `task` tidak berubah sampai modal
+dibuka ulang. Seksi yang menulis karenanya **menyimpan state lokal optimistis** (nilai yang baru ditulis) dan
+men-seed ulang dari props hanya bila `task.id` berganti atau nilai ext di props berubah; jangan menampilkan langsung
+`api.taskExt.read(context.task)` setelah menulis. Simpan pada `change`/`blur`/Enter (atau debounce), bukan per ketikan.
 
 ## 7. Event
 
@@ -326,7 +358,15 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
    `api.log`.
 6. **Warna dari token tema** (`var(--accent)`, `var(--bg-card)`, `var(--border)`, `color-mix(...)`), tanpa hex
    tetap, agar ikut palet Default/Sakura/Lavender dan terang/gelap. Kelas CSS berawalan `.plg-<id>-`;
-   `app.css` tidak diubah plugin.
+   `app.css` tidak diubah plugin. Token yang belum tentu ada di `app.css` (mis. `--danger`) dibungkus token lokal
+   dengan fallback, mis. `--plg-timeline-danger: var(--danger, var(--pomodoro))`.
+   **Modifier keadaan memakai kelas `.is-*` yang ditempelkan pada selektor `.plg-<id>-*`** (mis.
+   `.plg-timeline-row.is-selected`, `.plg-timeline-btn.is-active`), bukan kelas global tanpa awalan dan bukan gaya inline
+   untuk warna.
+   **Satu pengait host yang boleh dibaca: atribut `[data-theme="dark"]` di elemen dokumen** — hanya untuk
+   `color-scheme` kontrol bawaan (mis. `<input type="date">` agar ikon kalender terang di mode gelap), selektor
+   `[data-theme="dark"] .plg-<id>-…` di `style.css`. Baca saja; jangan menulis atribut itu dan jangan
+   membaca atribut host lain. Untuk logika JS pakai `api.env.theme`.
 7. **Tanpa `innerHTML`** kecuali lewat `api.ui.sanitize`.
    **Jangan menulis kolom task lain.** Plugin hanya menulis `tasks.ext` miliknya lewat `api.taskExt`; judul,
    status, tenggat, `progress`, dsb. tetap milik host (dibaca saja dari `context`/`api.data.tasks`).

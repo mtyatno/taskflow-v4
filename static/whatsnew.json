@@ -1,5 +1,10 @@
 {
   "entries": [
+    {"version": "taskflow-v493-timeline", "date": "2026-11-01", "title": "Timeline: lihat jadwal project sebagai Gantt",
+     "new": ["Nyalakan Timeline di Pengaturan › Plugin, lalu pilih tampilan Timeline di halaman project atau workspace.",
+             "Seret bar untuk menggeser jadwal atau mengubah durasi; panah menandai task yang harus selesai lebih dulu.",
+             "Hari kerja otomatis melewati akhir pekan, libur nasional, dan cuti bersama 2025–2027.",
+             "Atur Mulai, Durasi, dan dependensi dari seksi Jadwal di detail task. Jadwal workspace terlihat semua anggota."]},
     {"version": "taskflow-v492-plugin-records", "date": "2026-11-01", "silent": true},
     {"version": "taskflow-v491-plugin-ext", "date": "2026-10-31", "silent": true},
     {"version": "taskflow-v490-plugin-akun", "date": "2026-10-31", "title": "Plugin ikut akunmu",
