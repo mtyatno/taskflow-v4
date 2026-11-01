@@ -313,6 +313,10 @@ test("hapus tag pada record ext saja (rev naik, updated_at tetap → penanda bas
   assert.deepEqual(a.ext, { "demo-ext.a": 1 });
   assert.equal(a.dirty, 1);
   assert.equal((await outboxAll()).length, 1);
+  // Residual yang didokumentasikan (rencana 1c-0 R8): jalur R11 membuat record ber-inti-server (withLocalExt), jadi
+  // penanda ext saja sah lagi → PUT berikutnya {ext_patch} saja. Penghapusan tag lokal TIDAK ikut terkirim sampai
+  // ada PUT penuh berikutnya (tidak hilang: entity_tags lokal tetap tanpa tag itu; pull task tidak menarik tag).
+  assert.equal(X.extOnlyNow(a), true);
 });
 
 test("withLocalExt murni: kunci ditempel → ext_only_rev = rec.rev; tanpa kunci → tanpa penanda", () => {
