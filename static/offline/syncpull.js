@@ -54,6 +54,12 @@
   function noteRepo() {
     try { return isNode ? require("./noterepo.js") : (root.TF && root.TF.noterepo); } catch (_) { return null; }
   }
+  // Record plugin (rencana PR 1a-2 Task 6, R14): dibaca malas — tanpa modul / modul lama tanpa pullAll → null.
+  function pluginSync() {
+    let m = null;
+    try { m = isNode ? require("./plugin_sync.js") : (root.TF && root.TF.pluginsync); } catch (_) { return null; }
+    return m && typeof m.pullAll === "function" ? m : null;
+  }
   const TFmm = req("./mindmaprepo.js", root.TF && root.TF.mindmaprepo);
   const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
   // Kanban tahap: dibaca malas (contextcache dimuat setelah modul lain; lihat taskrepo)
@@ -1975,6 +1981,29 @@
       .then((list) => pullDrawings(list || [], fetchOne));
   }
 
+  // Satu cabang generik untuk record plugin (B9): pembungkus malas ke TF.pluginsync.pullAll. ids = plugin ON berizin
+  // records (bawaan TF.plugins.recordPluginIds()). Galat per plugin dikumpulkan lalu dilempar di akhir (step()
+  // di sync() mengisolasinya); err.result = hasil lengkap. Modul tidak ada → null.
+  function pullPluginRecords(rawFetch, opts) {
+    const ps = pluginSync();
+    if (!ps) return Promise.resolve(null);
+    const o = Object.assign({}, opts || {});
+    if (o.ids === undefined) {
+      try {
+        const P = root.TF && root.TF.plugins;
+        o.ids = P && typeof P.recordPluginIds === "function" ? P.recordPluginIds() : [];
+      } catch (_) { o.ids = []; }
+    }
+    return ps.pullAll(rawFetch, o).then((res) => {
+      if (res && Array.isArray(res.errors) && res.errors.length) {
+        const e = new Error("pull record plugin gagal: " + res.errors.map((x) => x.pluginId).join(", "));
+        e.result = res;
+        throw e;
+      }
+      return res;
+    });
+  }
+
   const exported = {
     pullTasks, pullAndReconcile,
     reconcileRecurringExceptions, pullRecurringExceptions,
@@ -1984,7 +2013,7 @@
     pullDrawings, pullDrawingsAndReconcile,
     mergeDrawingSnapshots,
     tsEpoch, ensureNoteCid, listJsonOrThrow, goneOrJson,
-    withLocalExt,
+    withLocalExt, pullPluginRecords,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpull = exported; }
   return exported;

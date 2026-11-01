@@ -92,6 +92,9 @@
     return null;
   }
 
+  // Bentuk satu-argumen untuk pemanggil luar (plugin_sync): null | "EXT_INVALID" | "EXT_TASK_REF".
+  function checkValueTop(v) { return checkValue(v, new Set()); }
+
   // Validasi patch: bentuk kunci, nilai JSON baku, referensi task. {code, key} | null.
   // allowNull (bawaan true): false → nilai null di tingkat atas dianggap tidak sah.
   function checkPatch(patch, opts) {
@@ -171,7 +174,7 @@
 
   const exported = {
     KEY_RE, FIELD_RE, PLUGIN_MAX_BYTES, TOTAL_MAX_BYTES, REF_KEY,
-    isPlainObject, utf8Bytes, namespaceOf, extError, checkPatch, cleanNulls, applyPatch, sizeError,
+    isPlainObject, utf8Bytes, namespaceOf, extError, checkValue: checkValueTop, refOk, checkPatch, cleanNulls, applyPatch, sizeError,
     isRef, refsIn, mapRefs,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskext = exported; }

@@ -89,6 +89,29 @@ Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementa
 - **R16 — context `taskList.views` stabil:** `useMemo` atas **masukan** (halaman, task, tujuh state filter panel, kolaborator, pengguna, Live Edit, pilihan, view aktif), bukan `filtered`; `onTaskClick`/`isSelected` lewat ref.
 - **Tes lama yang diubah** selain R18 rencana: `tests/offline/tasklist_view_icons.test.js` kini menghitung tombol view **inti** saja (tombol view plugin ditambahkan dinamis di baris yang sama).
 
+### Catatan implementasi PR 1a-2 (2026-11-01)
+
+Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementasi PR 1a-2 (`docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1a-2.md` R1–R25, branch `claude/plugin-records`, ADR-041, SW `taskflow-v494-plugin-records` silent):
+
+**Ringkasan R1–R19**
+
+- **Server (R1–R8).** `plugin_records.py`: skema di `plugin_loader.migrate` (gagal = 503 `PLUGIN_UNAVAILABLE`, op klien tetap antre); rute host `/api/plugins/<id>/records` dipasang sebelum router plugin dan `/records` dicadangkan (plugin yang mendeklarasikannya ditolak utuh); deklarasi entitas dari `index.json` (`records_decl`); urutan error 401 → 403 token `ext` → 404 `PLUGIN_UNKNOWN` → 503, ON tidak diperiksa (K9); `seq` per tulis diterima di dalam satu `write_tx`; LWW rinci (idempoten, `SCOPE_IMMUTABLE`, `FORBIDDEN_SCOPE`); kursor `1.<seq>.<fp>` dengan `reset` untuk kursor rusak/`seq < purged_seq`/`fp` berbeda; batas 256 KB per permintaan, 50 item, id/scope/ukuran divalidasi, klien mengirim satu item per POST.
+- **IndexedDB v7 (R9).** `PLUGIN_STORES` terpisah dari `ENTITY_STORES`; `createSchema` hanya menambah store/indeks yang belum ada, tidak menyentuh store lama; `DB_VERSION` tidak pernah diturunkan.
+- **Klien (R10–R19).** Tulis lokal satu transaksi `["plugin_records", "_outbox"]` dengan coalescing `op_qid` (satu op per record); `remove` = tombstone lokal; push dengan CAS `op_qid`; `$task` lewat `resolveExtRefs`/`rewriteTaskRefs`; pull per plugin dengan kursor di `plugin_kv`, `gen` + sapu pada tarik penuh (record `dirty` tidak pernah disapu); penjaga pemilik cache; heal untuk op yang hilang; `api.records` (+ `error` pada record bila ada `sync_error`); manifest `records` (`conflict: "lww"` saja); plugin OFF tetap push, tidak pull.
+- **R20–R25.** Hanya asersi lama yang berubah karena spec (versi DB 7, `KNOWN_PERMISSIONS`); `index.html` ≤ 46.119 baris (terpakai 46.116); rilis + restart manual dua layanan; `demo-records` hanya di fixtures tes; ekspor `plugin_records.json`; vektor bersama `tests/fixtures/plugin_records_vectors.json`.
+
+**Penyimpangan yang ditemukan saat implementasi**
+
+- **`next_seq` memperhitungkan `purged_seq`:** `max(MAX(seq), purged_seq) + 1`, bukan `MAX(seq) + 1` (R5 harfiah) — mencegah `seq` dipakai ulang bila tombstone ber-`seq` tertinggi sudah di-purge.
+- **`sync_gen` distempel juga pada record `dirty`** saat tarik (data/`op_qid` tidak disentuh) — sapu tarik penuh tidak menghapus record yang push-nya tidak mendapat `seq` baru.
+- **Kursor maju ke `MAX(seq)` global pada halaman terakhir** (`max(MAX(seq), purged_seq)`, dibaca sebelum `fetch_page`), bukan hanya ke `seq` item terlihat terakhir — tanpa ini pengguna yang barisnya tua (`seq < purged_seq`) di-reset tiap sinkron. Halaman `more: true` tetap di `seq` item terakhir. Kursor dari GET ber-`entity` hanya sah untuk filter yang sama.
+- **`purged_seq` dibaca ulang setelah `fetch_page`:** `seq < purged_seq` → `{"reset": true}` bila purge mendarat di antara pembacaan halaman dan pemeriksaan kursor.
+- **`FORBIDDEN_SCOPE` mengosongkan kursor pull plugin** (`forbid()` menghapus record + op + `[pid, "_sync", "cursor"]` dalam satu transaksi) agar tarik berikutnya penuh dan record server yang masih sah kembali.
+- **`SCOPE_IMMUTABLE` hanya mencari kunci pemilik yang bisa diakses** (`owner_key IN (SELECT value FROM json_each(?))` atas `u:<uid>` + `l:<id>` workspace yang bisa diakses) — tidak membocorkan keberadaan record milik orang lain dan menghindari batas variabel SQLite.
+- **Pendengar `api.records.onChange` dilepas saat plugin dinonaktifkan** (`releaseRecordListeners` di `deactivate()`, gagal-factory, `_reset()`); error entitas tak dideklarasikan membawa `detail: "entity"`.
+- **Tanggal `whatsnew` v494 diatur saat merge** (kini 2026-11-01, entri `silent` sehingga tidak terlihat pengguna).
+- **Sisa (diketahui, tidak diubah):** push ack di antara halaman terakhir tarik penuh dan sapu dapat membuat record berkedip sebentar (kembali di delta berikut); jika purge mendarat di antara pembacaan `MAX(seq)` dan halaman, satu `reset` ekstra lalu pulih sendiri.
+
 ## 3. Ruang lingkup dan pembagian PR
 
 | PR | Isi | Server | IndexedDB | Terlihat pengguna |

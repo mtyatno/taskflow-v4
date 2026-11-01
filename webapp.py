@@ -145,6 +145,7 @@ import repository
 import dbconn
 import plugin_host
 import plugin_loader
+import plugin_records
 import plugin_states
 import task_ext
 import drawing_scope
@@ -7601,6 +7602,16 @@ async def export_user_data(user=Depends(get_current_user)):
             if isinstance(parsed, dict) and isinstance(parsed.get("nodeData"), dict):
                 zf.writestr(f"mindmaps/{base}.md", _mindmap_outline_md(parsed).encode("utf-8"))
 
+        # ── Data plugin (R24): status + record `user`; tabel belum ada → berkas kosong, ekspor tidak gagal ──
+        with get_db() as conn:
+            try:
+                plug_states = plugin_states.get_states(conn, uid)
+            except sqlite3.OperationalError:
+                plug_states = {}
+            plug_records = plugin_records.export_rows(conn, uid)
+        zf.writestr("plugin_states.json", json.dumps(plug_states, ensure_ascii=False, indent=2).encode("utf-8"))
+        zf.writestr("plugin_records.json", json.dumps(plug_records, ensure_ascii=False, indent=2).encode("utf-8"))
+
     buf.seek(0)
     filename = f"alurik-export-{today}.zip"
     return StreamingResponse(
@@ -10868,6 +10879,7 @@ async def get_holidays(year: int, user=Depends(get_current_user)):
 # Dipasang terakhir: rute host status plugin, lalu router plugins/<id>.py di /api/plugins/<id>.
 plugin_host.bind(current_user=get_current_user, db_path=lambda: DB_PATH)
 app.include_router(plugin_states.router)
+app.include_router(plugin_records.router)  # R2: sebelum router plugin; `/records` dicadangkan host
 plugin_loader.init_web(app)
 
 

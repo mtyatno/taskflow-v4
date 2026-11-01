@@ -36,7 +36,7 @@ test("Saved Searches UI and SW v364", async (t) => {
     assert.match(indexHtml, /searchBarRef/);
   });
 
-  await t.test("sw.js bumped to taskflow-v493-banner-pembaruan", () => {
-    assert.match(swJs, /taskflow-v493-banner-pembaruan/);
+  await t.test("sw.js bumped to taskflow-v494-plugin-records", () => {
+    assert.match(swJs, /taskflow-v494-plugin-records/);
   });
 });

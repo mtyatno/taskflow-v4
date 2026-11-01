@@ -1,0 +1,16 @@
+{
+  "id": "demo-records",
+  "name": "Demo Records",
+  "description": "Plugin contoh khusus tes (tidak dirilis).",
+  "version": "1.0.0",
+  "minApi": 1,
+  "defaultEnabled": false,
+  "slots": ["taskList.views"],
+  "permissions": ["records"],
+  "contributes": {
+    "taskList.views": [
+      {"id": "recs", "label": "Demo Rec", "icon": {"path": "M3 3h10v10H3zM5 6h6M5 9h4"}, "pages": ["project", "workspace"]}
+    ]
+  },
+  "records": {"note": {"conflict": "lww", "maxBytes": 4096}}
+}

@@ -102,3 +102,9 @@ test("izin task.ext (Fase 1): label persis di baris perm", () => {
   assert.ok(line, "baris perm");
   assert.ok(line.includes('p === "task.ext" ? "Menyimpan data tambahan di task (ikut tersinkron)"'));
 });
+
+test("izin records (Fase 1 PR 1a-2): label persis di baris perm", () => {
+  const line = card.split("\n").find((l) => l.includes("const perm = it =>"));
+  assert.ok(line, "baris perm");
+  assert.ok(line.includes('p === "records" ? "Menyimpan data plugin di akunmu (ikut tersinkron)"'));
+});

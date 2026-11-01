@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v493-banner-pembaruan";
+const CACHE = "taskflow-v494-plugin-records";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 // Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
@@ -57,6 +57,7 @@ const STATIC = [
   "/static/offline/pomologic.js",
   "/static/offline/pomolog.js",
   "/static/offline/pluginstate.js",
+  "/static/offline/plugin_sync.js",
   "/static/offline/ambient.js",
   "/static/review/digest.js",
   "/static/offline/voicedictate.js",

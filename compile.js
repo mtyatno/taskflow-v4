@@ -87,7 +87,7 @@ const PLUGIN_ID_RE = /^[a-z][a-z0-9-]{2,31}$/;
 const RESERVED_PLUGIN_IDS = ['state'];
 const MANIFEST_FIELDS = ['id', 'name', 'description', 'version', 'minApi', 'slots', 'permissions', 'defaultEnabled'];
 // Fase 1 (rencana PR 1a-1 R13): disalin ke index.json dan konstanta manifest hanya bila ada. `parts` hanya saat build.
-const OPTIONAL_FIELDS = ['contributes', 'taskExt'];
+const OPTIONAL_FIELDS = ['contributes', 'taskExt', 'records'];
 // Aturan contributes/taskExt sama dengan validateManifest di static/plugin-runtime.js (spec Fase 1 K19).
 const CONTRIB_SLOTS = ['taskList.views', 'taskDetail.sections'];
 const CONTRIB_ID_RE = /^[a-z][a-z0-9-]{0,31}$/;
@@ -96,6 +96,10 @@ const ICON_PATH_RE = /^[MmLlHhVvCcSsQqTtAaZz0-9.,\- ]+$/;
 const ICON_PATH_MAX_BYTES = 2048;
 const LABEL_MAX = 40;
 const EXT_FIELD_RE = /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/;
+// manifest.records (rencana PR 1a-2 R18): aturan identik dengan recordsError di runtime, dikunci vektor bersama.
+const RECORD_ENTITY_RE = /^[a-z][a-z0-9_]{0,31}$/;
+const RECORDS_MAX_ENTITIES = 16;
+const RECORDS_MAX_BYTES = 65536;
 const PART_RE = /^[a-z0-9][a-z0-9_-]*\.js$/;
 const SW_BEGIN = '  // plugins:begin — ditulis compile.js dari static/plugins/index.json, jangan edit manual';
 const SW_END = '  // plugins:end';
@@ -172,6 +176,31 @@ function validateTaskExt(m) {
   return null;
 }
 
+// Izin records ⇔ records ({<entitas>: {conflict: "lww", maxBytes?: 1..65536}}, objek tak kosong, ≤ 16 entitas).
+// records null/undefined = tidak ada (vektor bersama memakai null).
+function validateRecords(m) {
+  const perms = (m && Array.isArray(m.permissions)) ? m.permissions : [];
+  const rec = m ? m.records : undefined;
+  const has = rec !== undefined && rec !== null;
+  const perm = perms.indexOf('records') >= 0;
+  if (perm && !has) return 'izin records butuh manifest.records';
+  if (!has) return null;
+  if (!isPlainObj(rec) || !Object.keys(rec).length) return 'manifest.records harus objek tak kosong';
+  if (!perm) return 'manifest.records butuh izin records';
+  const names = Object.keys(rec);
+  if (names.length > RECORDS_MAX_ENTITIES) return 'maksimal ' + RECORDS_MAX_ENTITIES + ' entitas';
+  for (const name of names) {
+    if (!RECORD_ENTITY_RE.test(name)) return 'nama entitas tidak valid: ' + name;
+    const e = rec[name];
+    if (!isPlainObj(e)) return 'records.' + name + ' harus objek';
+    if (e.conflict !== 'lww') return 'strategi konflik ' + String(e.conflict) + ' belum didukung (Fase 1: lww)';
+    if (e.maxBytes !== undefined && !(Number.isInteger(e.maxBytes) && e.maxBytes >= 1 && e.maxBytes <= RECORDS_MAX_BYTES)) {
+      return 'maxBytes harus bilangan bulat 1..' + RECORDS_MAX_BYTES + ': ' + name;
+    }
+  }
+  return null;
+}
+
 // Isi parts (mentah, tanpa Babel) yang didahulukan sebelum kode plugin.jsx.
 function readParts(dir, id, parts) {
   if (parts === undefined) return '';
@@ -212,9 +241,11 @@ function readManifest(dir, id) {
   if (ce) throw new PluginBuildError(`plugin ${id}: ${ce}`);
   const te = validateTaskExt(m);
   if (te) throw new PluginBuildError(`plugin ${id}: ${te}`);
+  const re = validateRecords(m);
+  if (re) throw new PluginBuildError(`plugin ${id}: ${re}`);
   const out = {};
   for (const k of MANIFEST_FIELDS) out[k] = m[k];
-  for (const k of OPTIONAL_FIELDS) if (m[k] !== undefined) out[k] = m[k];
+  for (const k of OPTIONAL_FIELDS) if (m[k] !== undefined && m[k] !== null) out[k] = m[k];
   out.builtin = true;
   return { manifest: out, parts: m.parts };
 }
@@ -292,7 +323,7 @@ function buildPlugins(opts) {
 
 module.exports = {
   buildPlugins, compileJsx, PluginBuildError, LINT_RE, lintPlugin,
-  OPTIONAL_FIELDS, ICON_PATH_RE, validateContributes, validateTaskExt,
+  OPTIONAL_FIELDS, ICON_PATH_RE, validateContributes, validateTaskExt, validateRecords,
 };
 
 if (require.main === module) {

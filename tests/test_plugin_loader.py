@@ -455,7 +455,7 @@ def test_webapp_wiring(monkeypatch, tmp_path):
         assert path in routes, path
         assert not inspect.iscoroutinefunction(routes[path].endpoint)
     extra = [p for p in routes if p and p.startswith("/api/plugins/") and not p.startswith("/api/plugins/state")]
-    assert extra == []
+    assert extra == ["/api/plugins/{plugin_id}/records"]  # rute host plugin_records (PR 1a-2); tanpa router plugin
 
     monkeypatch.setattr(webapp, "DB_PATH", str(tmp_path / "wire.db"))
     webapp.migrate_db()
@@ -476,3 +476,118 @@ def test_webapp_wiring(monkeypatch, tmp_path):
     assert [ast.unparse(a) for a in mig[0].args] == ["DB_PATH"]
     email = [c for c in calls if _is(c, "email_outbox", "ensure_schema")]
     assert email and mig[0].lineno > max(c.lineno for c in email)
+
+
+# ── records (PR 1a-2 T1: R1, R2, R3) ─────────────────────────────────────────
+
+def _write_records_index(dirpath, plugins):
+    p = Path(dirpath) / "index.json"
+    p.write_text(json.dumps({"v": 1, "plugins": plugins}), encoding="utf-8")
+    return p
+
+
+def test_plugin_loader_records_decl(tmp_path, caplog):
+    plugin_loader.load_known(FIXTURES / "index.json")
+    assert plugin_loader.records_decl("demo-records") == {"note": {"conflict": "lww", "maxBytes": 4096}}
+    assert plugin_loader.records_decl("demo-ext") == {}
+    assert plugin_loader.records_decl("demo-server") == {}
+    assert plugin_loader.records_decl("tidak-ada") == {}
+    assert plugin_loader.known()["demo-records"] == {"defaultEnabled": False}
+    assert plugin_loader.permissions("demo-records") == frozenset({"records"})
+    # salinan: mengubah hasil tidak mengubah deklarasi
+    plugin_loader.records_decl("demo-records")["note"]["maxBytes"] = 1
+    assert plugin_loader.records_decl("demo-records")["note"]["maxBytes"] == 4096
+
+    idx = _write_records_index(tmp_path, [
+        {"id": "plug-a", "permissions": ["records"], "records": {
+            "good": {"conflict": "lww"},
+            "sized": {"conflict": "lww", "maxBytes": 65536},
+            "merge": {"conflict": "merge"},
+            "Bad": {"conflict": "lww"},
+            "zero": {"conflict": "lww", "maxBytes": 0},
+            "huge": {"conflict": "lww", "maxBytes": 70000},
+            "strb": {"conflict": "lww", "maxBytes": "10"},
+            "boolb": {"conflict": "lww", "maxBytes": True},
+            "noconf": {},
+            "notdict": 5}},
+        {"id": "plug-b", "permissions": ["storage"], "records": {"good": {"conflict": "lww"}}},  # tanpa izin
+        {"id": "plug-c", "permissions": ["records"], "records": ["x"]},
+        {"id": "plug-d", "permissions": ["records"]},
+    ])
+    with caplog.at_level(logging.WARNING, logger="alurik.plugins"):
+        plugin_loader.load_known(idx)
+    assert plugin_loader.records_decl("plug-a") == {
+        "good": {"conflict": "lww", "maxBytes": 65536},   # maxBytes tidak ada → 65536
+        "sized": {"conflict": "lww", "maxBytes": 65536},
+    }
+    assert plugin_loader.records_decl("plug-b") == {}
+    assert plugin_loader.records_decl("plug-c") == {}
+    assert plugin_loader.records_decl("plug-d") == {}
+    warns = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+    for name in ("merge", "Bad", "zero", "huge", "strb", "boolb", "noconf", "notdict"):
+        assert any("plug-a" in w and name in w for w in warns), (name, warns)
+    assert plugin_loader.known()["plug-a"] == {"defaultEnabled": False}
+
+    # refresh_known memakai bacaan yang sama; indeks rusak → daftar lama dipertahankan
+    idx.write_text(json.dumps({"v": 1, "plugins": [
+        {"id": "plug-a", "permissions": ["records"], "records": {"only": {"conflict": "lww", "maxBytes": 7}}}]}),
+        encoding="utf-8")
+    plugin_loader.refresh_known()
+    assert plugin_loader.records_decl("plug-a") == {"only": {"conflict": "lww", "maxBytes": 7}}
+    idx.write_text("{rusak", encoding="utf-8")
+    plugin_loader.refresh_known()
+    assert plugin_loader.records_decl("plug-a") == {"only": {"conflict": "lww", "maxBytes": 7}}
+    plugin_loader.load_known(idx)  # gagal baca → semuanya dikosongkan
+    assert plugin_loader.records_decl("plug-a") == {}
+    plugin_loader._reset_for_tests()
+    assert plugin_loader.records_decl("plug-a") == {}
+
+
+RECORDS_ROUTE_SRC = DEMO_SRC + '''
+
+@router.get("__PATH__")
+def reserved(user=Depends(host.current_user)):
+    return {}
+'''
+
+
+@pytest.mark.parametrize("path,ok", [("/records", False), ("/records/x", False), ("/records/", False),
+                                     ("/recordsx", True), ("/x/records", True), ("/record", True)])
+def test_router_records_path_reserved(tmp_path, path, ok):
+    d = tmp_path / "plg"
+    d.mkdir()
+    (d / "rec-route.py").write_text(RECORDS_ROUTE_SRC.replace("__PATH__", path), encoding="utf-8")
+    plugin_loader.load_known(_write_index(tmp_path, ["rec-route"]))
+    loaded, rejected = plugin_loader.discover(d, plugin_loader.known())
+    if ok:
+        assert [p.id for p in loaded] == ["rec-route"] and rejected == {}
+    else:
+        assert loaded == []
+        assert "rute /records dicadangkan host" in rejected["rec-route"], rejected
+        assert "alurik_plugins.rec_route" not in sys.modules
+
+
+def test_migrate_creates_plugin_records(tmp_path, caplog, monkeypatch):
+    import plugin_records
+    db = _new_db(tmp_path)
+    plugin_loader.load_known(FIXTURES / "index.json")
+    loaded, _ = plugin_loader.discover(FIXTURES, plugin_loader.known())
+    plugin_loader.migrate(db, loaded)
+    assert {"plugin_states", "plugin_records", "plugin_records_meta"} <= _tables(db)
+    plugin_loader.migrate(db, loaded)  # idempoten
+
+    # ensure_schema record melempar: migrate tidak melempar, plugin_states tetap dibuat, log ERROR
+    db2 = _new_db(tmp_path, "m2.db")
+
+    def boom(conn):
+        conn.execute("CREATE TABLE plugin_records (x INTEGER)")  # setengah jalan lalu gagal → rollback
+        raise RuntimeError("rusak")
+
+    monkeypatch.setattr(plugin_records, "ensure_schema", boom)
+    with caplog.at_level(logging.ERROR):
+        res = plugin_loader.migrate(db2, loaded)
+    assert res == {"demo-server": "ok"}
+    tables = _tables(db2)
+    assert "plugin_states" in tables and "plg_demo_server_items" in tables
+    assert "plugin_records" not in tables  # write_tx rollback
+    assert any(r.levelno == logging.ERROR and "plugin_records" in r.getMessage() for r in caplog.records)

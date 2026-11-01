@@ -28,8 +28,8 @@ function collect() {
 
 const tick = (ms) => new Promise((r) => setTimeout(r, ms || 0));
 
-test("DB_VERSION tetap 6 dan kode penolakan diekspor", () => {
-  assert.equal(DB_VERSION, 6);
+test("DB_VERSION 7 dan kode penolakan diekspor", () => {
+  assert.equal(DB_VERSION, 7);
   assert.equal(UPGRADED_ELSEWHERE, "DB_UPGRADED_ELSEWHERE");
   assert.equal(typeof subscribe, "function");
   assert.deepEqual(upgradeState(), { blocked: false, upgradedElsewhere: false });

@@ -2,6 +2,7 @@
   "v": 1,
   "plugins": [
     {"id": "demo-server", "defaultEnabled": false},
-    {"id": "demo-ext", "defaultEnabled": false, "permissions": ["task.ext"]}
+    {"id": "demo-ext", "defaultEnabled": false, "permissions": ["task.ext"]},
+    {"id": "demo-records", "defaultEnabled": false, "permissions": ["records"], "records": {"note": {"conflict": "lww", "maxBytes": 4096}}}
   ]
 }

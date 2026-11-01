@@ -1,0 +1,422 @@
+{
+  "name": "taskflow-offline",
+  "version": 6,
+  "stores": {
+    "_idmap": {
+      "keyPath": "key",
+      "autoIncrement": false,
+      "indexes": {
+        "cid": {
+          "keyPath": "cid",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "_meta": {
+      "keyPath": null,
+      "autoIncrement": false,
+      "indexes": {}
+    },
+    "_outbox": {
+      "keyPath": "qid",
+      "autoIncrement": true,
+      "indexes": {}
+    },
+    "blobs": {
+      "keyPath": "id",
+      "autoIncrement": false,
+      "indexes": {}
+    },
+    "chat_messages": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "client_id": {
+          "keyPath": "cid",
+          "unique": false,
+          "multiEntry": false
+        },
+        "created_at": {
+          "keyPath": "created_at",
+          "unique": false,
+          "multiEntry": false
+        },
+        "list_id": {
+          "keyPath": "list_id",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "drawings": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "is_pinned": {
+          "keyPath": "is_pinned",
+          "unique": false,
+          "multiEntry": false
+        },
+        "note_cid": {
+          "keyPath": "note_cid",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        },
+        "updated_at": {
+          "keyPath": "updated_at",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "entity_tags": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "entity": {
+          "keyPath": [
+            "entity_type",
+            "entity_cid"
+          ],
+          "unique": false,
+          "multiEntry": false
+        },
+        "tag_cid": {
+          "keyPath": "tag_cid",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "habit_logs": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "date": {
+          "keyPath": "date",
+          "unique": false,
+          "multiEntry": false
+        },
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "habit_date": {
+          "keyPath": [
+            "habit_cid",
+            "date"
+          ],
+          "unique": true,
+          "multiEntry": false
+        }
+      }
+    },
+    "habit_templates": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "habits": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "lists": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "mindmaps": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        },
+        "updated_at": {
+          "keyPath": "updated_at",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "note_attachments": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "note_cid": {
+          "keyPath": "note_cid",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "note_comments": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "list_id": {
+          "keyPath": "list_id",
+          "unique": false,
+          "multiEntry": false
+        },
+        "note_cid": {
+          "keyPath": "note_cid",
+          "unique": false,
+          "multiEntry": false
+        },
+        "note_id": {
+          "keyPath": "note_id",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "note_pins": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "note_cid": {
+          "keyPath": "note_cid",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "note_templates": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "recurring_exceptions": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "task_cid": {
+          "keyPath": "task_cid",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "scratchpad_notes": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "linked_task_cids": {
+          "keyPath": "linked_task_cids",
+          "unique": false,
+          "multiEntry": true
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        },
+        "updated_at": {
+          "keyPath": "updated_at",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "subtasks": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        },
+        "task_cid": {
+          "keyPath": "task_cid",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "tags": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "name": {
+          "keyPath": "name",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "task_attachments": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "task_cid": {
+          "keyPath": "task_cid",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "task_notes": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        },
+        "task_cid": {
+          "keyPath": "task_cid",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    },
+    "tasks": {
+      "keyPath": "cid",
+      "autoIncrement": false,
+      "indexes": {
+        "dirty": {
+          "keyPath": "dirty",
+          "unique": false,
+          "multiEntry": false
+        },
+        "gtd_status": {
+          "keyPath": "gtd_status",
+          "unique": false,
+          "multiEntry": false
+        },
+        "list_cid": {
+          "keyPath": "list_cid",
+          "unique": false,
+          "multiEntry": false
+        },
+        "parent_cid": {
+          "keyPath": "parent_cid",
+          "unique": false,
+          "multiEntry": false
+        },
+        "server_id": {
+          "keyPath": "server_id",
+          "unique": false,
+          "multiEntry": false
+        },
+        "updated_at": {
+          "keyPath": "updated_at",
+          "unique": false,
+          "multiEntry": false
+        }
+      }
+    }
+  }
+}

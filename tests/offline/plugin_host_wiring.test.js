@@ -12,7 +12,9 @@ const sw = fs.readFileSync(path.join(root, "static/sw.js"), "utf8");
 
 // Baseline Fase 1: jumlah baris index.html di main 8a16cd4 (Fase 0b = 46092 di 33dda23b, Fase 0a = 46049 di 6bb0c7e).
 // Batas spec: +60 baris bersih untuk seluruh Fase 1 (spec Fase 1 K20, rencana PR 1a-1 R17).
-const BASELINE_LINES = 46095;
+// PR #121 (banner pembaruan, v493) memangkas index.html 42 baris (gaya inline pindah ke app.css), jadi baseline
+// ikut turun 46095 → 46053 agar anggaran +60 tetap berarti (main 37c9572b = 46072 = 46053 + 19 baris 1a-1).
+const BASELINE_LINES = 46053;
 const MAX_ADDED_LINES = 60;
 
 function fnSource(name) {
@@ -233,4 +235,41 @@ test("bindHost meneruskan updateTaskExt (PUT ext_patch), patchTaskExt (TF.taskex
 test("index.html PR 1a-1 bertambah ≤ 35 baris (spec Fase 1 §12)", () => {
   const lines = (html.match(/\n/g) || []).length;
   assert.ok(lines - BASELINE_LINES <= 35, `index.html +${lines - BASELINE_LINES} baris`);
+});
+
+// ── Fase 1 PR 1a-2 (rencana Task 9, R14, R15, R21) ──
+test("plugin_sync.js dimuat tepat sekali, tepat setelah pluginstate.js, sebelum syncpush.js/syncpull.js/plugin-runtime.js; di STATIC tepat setelah pluginstate.js", () => {
+  const tag = '<script src="/static/offline/plugin_sync.js"></script>';
+  const at = html.indexOf(tag);
+  assert.ok(at > 0, "tag plugin_sync.js");
+  assert.equal(html.indexOf(tag, at + 1), -1, "hanya sekali");
+  const ps = '<script src="/static/offline/pluginstate.js"></script>';
+  const psAt = html.indexOf(ps);
+  assert.ok(psAt > 0 && psAt < at, "setelah pluginstate.js");
+  assert.match(html.slice(psAt + ps.length, at), /^\s*$/, "tepat setelah pluginstate.js");
+  for (const later of ["/static/offline/syncpush.js", "/static/offline/syncpull.js", "/static/plugin-runtime.js"]) {
+    assert.ok(html.indexOf(`<script src="${later}"></script>`) > at, "sebelum " + later);
+  }
+  assert.match(sw, /^\s*"\/static\/offline\/pluginstate\.js",\n\s*"\/static\/offline\/plugin_sync\.js",/m);
+  assert.equal(sw.split('"/static/offline/plugin_sync.js"').length - 1, 1, "sekali di STATIC");
+});
+
+test("sync(): langkah pullPluginRecords terisolasi (step) setelah pluginstate.pull, sebelum pushOutbox (R14)", () => {
+  const s = html.indexOf("function sync() {");
+  const body = html.slice(s, html.indexOf("\n}\n", s));
+  const pull = body.indexOf("pullPluginRecords(__syncRawFetch");
+  assert.ok(pull > 0, "langkah pull record ada");
+  const stepAt = body.lastIndexOf("step(", pull);
+  assert.ok(stepAt > 0 && body.slice(stepAt, pull).indexOf(".then(") < 0, "dibungkus step(");
+  assert.ok(pull > body.indexOf("pluginstate.pull(__syncRawFetch"), "setelah pluginstate.pull");
+  assert.ok(pull < body.indexOf("syncpush.pushOutbox(__syncTransport)"), "sebelum pushOutbox");
+  assert.match(body, /\.then\(\(\) => step\(\(\) => \(window\.TF\.syncpull\.pullPluginRecords \? window\.TF\.syncpull\.pullPluginRecords\(__syncRawFetch, \{ userId: runUid, ids: window\.TF\.plugins\?\.recordPluginIds\?\.\(\) \?\? \[\] \}\) : null\)\)\)/);
+  assert.ok(body.includes("userId: runUid") && body.includes("recordPluginIds"));
+});
+
+// Relatif terhadap main setelah #121 (46072 baris): PR 1a-2 menambah ≤ +5 (semula 46114 + 5 = 46119 sebelum #121).
+const MAIN_LINES_AFTER_121 = 46072;
+test("anggaran PR 1a-2: index.html ≤ main (setelah #121) + 5 baris", () => {
+  const lines = (html.match(/\n/g) || []).length;
+  assert.ok(lines - MAIN_LINES_AFTER_121 <= 5, `index.html ${lines} baris (+${lines - MAIN_LINES_AFTER_121} dari ${MAIN_LINES_AFTER_121}; batas +5)`);
 });

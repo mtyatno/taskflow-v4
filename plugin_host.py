@@ -9,6 +9,7 @@ memuat plugin: `webapp.py` (`current_user` + `DB_PATH`) dan `bot.py` (`db_path` 
                     walau dipakai router dan endpoint). `async` karena `webapp.get_current_user` async.
 - `get_conn()`    — `dbconn.get_conn(<path ter-bind>)`: commit bila sukses, rollback bila error, close.
 - `write_tx`      — `dbconn.write_tx`: wajib untuk baca-lalu-tulis (BEGIN IMMEDIATE sebelum SELECT).
+- `list_access` / `accessible_list_ids` — keanggotaan workspace (`shared_lists.owner_id` ∪ `list_members`).
 - `now_utc()`     — `datetime` aware UTC.
 - `allow_async`   — dekorator: izinkan endpoint `async def` (default loader menolaknya; endpoint wajib `def`).
 """
@@ -56,6 +57,26 @@ def db_path() -> str | None:
 def get_conn():
     """Context manager koneksi standar (pragma ADR-038) ke DB host."""
     return dbconn.get_conn(db_path())
+
+
+def list_access(conn, uid: int, list_id: int) -> bool:
+    """Apakah `uid` pemilik atau anggota workspace `list_id` (pemakai pertama: plugin_records)."""
+    row = conn.execute(
+        "SELECT 1 FROM shared_lists WHERE id = ? AND owner_id = ? "
+        "UNION ALL SELECT 1 FROM list_members WHERE list_id = ? AND user_id = ? LIMIT 1",
+        (list_id, uid, list_id, uid),
+    ).fetchone()
+    return row is not None
+
+
+def accessible_list_ids(conn, uid: int) -> list[int]:
+    """Id workspace yang bisa diakses `uid` (pemilik ∪ anggota), urut naik, tanpa duplikat."""
+    rows = conn.execute(
+        "SELECT id FROM shared_lists WHERE owner_id = ? "
+        "UNION SELECT list_id FROM list_members WHERE user_id = ? ORDER BY 1",
+        (uid, uid),
+    ).fetchall()
+    return [int(r[0]) for r in rows]
 
 
 def now_utc() -> datetime:

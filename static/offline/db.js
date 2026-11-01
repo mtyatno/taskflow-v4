@@ -11,7 +11,8 @@
   const DB_NAME = "taskflow-offline";
   // Jangan pernah diturunkan: membuka DB yang sudah lebih tinggi memakai versi lebih rendah = VersionError
   // → semua rute offline mati. Rollback fitur = revert kode, versi dan store tetap (spec plugin Fase 1 §4).
-  const DB_VERSION = 6;
+  // v7 = plugin_records/plugin_kv (PR 1a-2). Revert fitur ≠ turunkan versi.
+  const DB_VERSION = 7;
   // K2 / R12: tab lain menaikkan versi DB → koneksi tab ini ditutup dan openDB berikutnya ditolak dengan kode ini.
   const UPGRADED_ELSEWHERE = "DB_UPGRADED_ELSEWHERE";
 
@@ -58,6 +59,22 @@
   };
 
   const ENTITY_STORE_NAMES = Object.keys(ENTITY_STORES);
+
+  // v7 (R9): store data plugin. Sengaja terpisah dari ENTITY_STORES (keyPath majemuk, bukan `cid`) dan tidak
+  // masuk ENTITY_STORE_NAMES, jadi syncconflict/heal entitas tidak menyentuhnya. `dirty`/`deleted` disimpan 0/1
+  // (boolean bukan kunci IndexedDB yang valid → tidak akan muncul di indeks).
+  const PLUGIN_STORES = {
+    plugin_records: {
+      keyPath: ["plugin_id", "entity", "id"],
+      indexes: [
+        ["entity", ["plugin_id", "entity"]],
+        ["entity_updated", ["plugin_id", "entity", "updated_at"]],
+        ["entity_dirty", ["plugin_id", "entity", "dirty"]],
+        ["entity_scope", ["plugin_id", "entity", "scope"]],
+      ],
+    },
+    plugin_kv: { keyPath: ["plugin_id", "scope", "key"], indexes: [] },
+  };
 
   let _dbPromise = null;
   let _db = null;
@@ -124,6 +141,15 @@
       db.createObjectStore("_outbox", { keyPath: "qid", autoIncrement: true });
     }
     if (!db.objectStoreNames.contains("blobs")) db.createObjectStore("blobs", { keyPath: "id" });
+    // v7: hanya membuat store/indeks yang belum ada — tanpa memindah data, upgrade atomik dan idempoten.
+    for (const [name, def] of Object.entries(PLUGIN_STORES)) {
+      const store = db.objectStoreNames.contains(name)
+        ? tx.objectStore(name)
+        : db.createObjectStore(name, { keyPath: def.keyPath });
+      for (const [idxName, keyPath] of def.indexes) {
+        if (!store.indexNames.contains(idxName)) store.createIndex(idxName, keyPath);
+      }
+    }
   }
 
   function migrateLegacy(db, tx, onErr) {
@@ -237,7 +263,7 @@
   }
 
   const publicApi = {
-    DB_NAME, DB_VERSION, UPGRADED_ELSEWHERE, ENTITY_STORES, ENTITY_STORE_NAMES,
+    DB_NAME, DB_VERSION, UPGRADED_ELSEWHERE, ENTITY_STORES, ENTITY_STORE_NAMES, PLUGIN_STORES,
     openDB, clearAll, mutate, subscribe, upgradeState,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.db = publicApi; }

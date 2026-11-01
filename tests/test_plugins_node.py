@@ -22,6 +22,7 @@ PATTERNS = [
     os.path.join("tests", "offline", "syncpull_ext.test.js"),
     os.path.join("tests", "offline", "db_versionchange.test.js"),
     os.path.join("tests", "offline", "dbupgrade*.test.js"),
+    os.path.join("tests", "offline", "db_v7.test.js"),
 ]
 EXTRA = [
     os.path.join("tests", "offline", "meta.test.js"),
@@ -33,6 +34,7 @@ REQUIRED = [
     "plugin_fetch", "plugin_accountstate", "pluginstate", "syncpush_pluginstate",
     "plugin_slot_views", "plugin_taskext_api", "taskext", "taskrepo_ext", "syncpush_ext", "syncpull_ext",
     "db_versionchange", "dbupgrade",
+    "db_v7", "plugin_sync", "plugin_sync_push", "plugin_sync_pull", "plugin_records_api",
 ]
 
 
