@@ -109,9 +109,10 @@ const MSG_SAVE_FAIL = "Jadwal gagal disimpan";
 const MSG_CYCLE = "Dependensi ini membuat lingkaran";
 const MSG_MAX_DEPS = "Maksimal 20 dependensi per task";
 const MSG_SUMMARY_DEP = "Ringkasan tidak bisa diberi dependensi di versi ini";
-// Alasan penolakan TLSched.canLink → toast. self/dup/scope tidak bertoast: tidak ada yang perlu ditulis
-// (diri sendiri, sudah ada) atau tidak bisa terjadi di view (kedua ujung adalah baris halaman ini).
-const LINK_MSG = { cycle: MSG_CYCLE, max: MSG_MAX_DEPS, summary: MSG_SUMMARY_DEP };
+const MSG_DUP_DEP = "Dependensi ini sudah ada";
+// Alasan penolakan TLSched.canLink → toast. self/scope tidak bertoast: diri sendiri tidak ada yang perlu ditulis,
+// scope tidak bisa terjadi di view (kedua ujung adalah baris halaman ini).
+const LINK_MSG = { cycle: MSG_CYCLE, max: MSG_MAX_DEPS, summary: MSG_SUMMARY_DEP, dup: MSG_DUP_DEP };
 const DOUBLE_TAP_MS = 400; // R21 sentuh: ketuk ganda
 const DOUBLE_TAP_PX = 24;
 const LEGEND = [
@@ -572,7 +573,7 @@ function ListFallback(props) {
 function createInteractions() {
   const X = {
     cur: null,
-    chartRef: { current: null },
+    chartEl: null, // elemen grafik terpasang (callback ref; pendengar touchmove tetap)
     tipRef: { current: null },
     rubberRef: { current: null },
     lineRef: { current: null },
@@ -580,6 +581,7 @@ function createInteractions() {
     slot: null, // gestur klik-jadwalkan aktif
     tap: null, // ketukan sentuh terakhir pada area kosong (ketuk ganda)
     busy: new Set(), // String(task.id) dengan tulis yang sedang berjalan
+    inflight: new Map(), // String(task.id) → promise tulis berjalan (selalu resolve) untuk antrean Urungkan
     after: new Map(), // String(task.id) → {stale: JSON props saat tulis, eff: nilai ext setelah tulis}
     suppress: false, // klik native setelah seret/batal tidak membuka task
   };
@@ -589,9 +591,24 @@ function createInteractions() {
   const isPrimary = (e) => e.button === undefined || e.button === 0;
   const prevent = (e) => { if (e && typeof e.preventDefault === "function") e.preventDefault(); };
 
+  // Sentuh: peramban memutuskan gulir vs. tidak pada touchmove pertama yang bisa dibatalkan; pendengar yang baru dipasang
+  // saat pointerdown sudah terlambat. Jadi SATU pendengar non-pasif tetap di elemen grafik selama elemen itu terpasang,
+  // yang hanya memanggil preventDefault saat gestur sentuh sudah dipersenjatai (tekan lama) atau sedang menyeret.
+  const onTouchMove = (e) => {
+    const g = X.g;
+    if (g && g.touch && (g.st.armed || g.st.phase === "drag") && e.cancelable !== false) prevent(e);
+  };
+  function setChart(el) {
+    const old = X.chartEl;
+    if (old === (el || null)) return;
+    if (old && typeof old.removeEventListener === "function") old.removeEventListener("touchmove", onTouchMove, false);
+    X.chartEl = el || null;
+    if (el && typeof el.addEventListener === "function") el.addEventListener("touchmove", onTouchMove, { passive: false });
+  }
+
   // Titik pointer dalam koordinat grafik (x = 0 di awal rentang; ikut gulir karena rect grafik ikut bergeser).
   function chartPt(e) {
-    const el = X.chartRef.current;
+    const el = X.chartEl;
     if (!el || typeof el.getBoundingClientRect !== "function") return null;
     const x = Number(e.clientX);
     const y = Number(e.clientY);
@@ -645,13 +662,17 @@ function createInteractions() {
     } catch (e) {
       p = Promise.reject(e);
     }
-    return Promise.resolve(p).then(() => {
+    const done = Promise.resolve(p).then(() => {
       X.busy.delete(k);
     }, (err) => {
       X.busy.delete(k);
       X.after.delete(k);
       throw err;
     });
+    const settled = done.then(() => undefined, () => undefined);
+    X.inflight.set(k, settled);
+    settled.then(() => { if (X.inflight.get(k) === settled) X.inflight.delete(k); });
+    return done;
   }
 
   function failed(api, err) {
@@ -672,8 +693,14 @@ function createInteractions() {
   }
 
   // onClick Urungkan: runtime hanya menangkap lemparan sinkron, jadi penolakan setMany ditangani di sini.
+  // Tulis lain pada task yang sama masih berjalan → Urungkan antre sampai selesai (tulis tidak pernah tumpang tindih).
   function undo(task, prev) {
     const api = X.cur.api;
+    const wait = X.busy.has(keyOf(task)) ? X.inflight.get(keyOf(task)) : null;
+    if (wait) {
+      wait.then(() => undo(task, prev));
+      return;
+    }
     issue(task, rawOf(task), prev, true).catch((err) => failed(api, err));
   }
 
@@ -725,28 +752,21 @@ function createInteractions() {
       if (typeof e.stopPropagation === "function") e.stopPropagation(); // Esc tidak menutup modal/Live Edit host
       cancel();
     };
-    // sentuh: setelah tekan lama, gerak jari menyeret bar (bukan menggulir); sebelum itu peramban bebas menggulir.
-    const tmove = (e) => { if (X.g && (X.g.st.armed || X.g.st.phase === "drag") && e.cancelable) prevent(e); };
+    // sentuh: touchmove dicegah oleh pendengar tetap di elemen grafik (setChart); di sini hanya menu konteks tekan lama.
     const ctxm = (e) => prevent(e);
     w.addEventListener("pointermove", move);
     w.addEventListener("pointerup", up);
     w.addEventListener("pointercancel", cancel);
     w.addEventListener("keydown", key, true);
     w.addEventListener("blur", cancel);
-    if (g.touch) {
-      w.addEventListener("touchmove", tmove, { passive: false });
-      w.addEventListener("contextmenu", ctxm);
-    }
+    if (g.touch) w.addEventListener("contextmenu", ctxm);
     g.off = () => {
       w.removeEventListener("pointermove", move);
       w.removeEventListener("pointerup", up);
       w.removeEventListener("pointercancel", cancel);
       w.removeEventListener("keydown", key, true);
       w.removeEventListener("blur", cancel);
-      if (g.touch) {
-        w.removeEventListener("touchmove", tmove, false);
-        w.removeEventListener("contextmenu", ctxm);
-      }
+      if (g.touch) w.removeEventListener("contextmenu", ctxm);
     };
   }
 
@@ -879,6 +899,14 @@ function createInteractions() {
       if (LINK_MSG[chk.reason]) toastSafe(api, LINK_MSG[chk.reason], "error");
       return;
     }
+    // dependensi tersimpan jenis apa pun (mis. SS dari versi mendatang) ke pendahulu yang sama = ganda
+    if (old.some((d) => {
+      const k = d && typeof d === "object" ? TLSched.refKey(d.t) : null;
+      return k !== null && idx.get(k) === pred;
+    })) {
+      toastSafe(api, MSG_DUP_DEP, "error");
+      return;
+    }
     let ref;
     try {
       ref = api.taskExt.ref(pred);
@@ -953,7 +981,33 @@ function createInteractions() {
     if (X.busy.has(keyOf(row.task))) return; // tombol ditahan: abaikan selama tulis sebelumnya belum selesai
     const rr = rawOf(row.task);
     const r = TLDrag.keyStep({ key: e.key, alt: true, shift: !!e.shiftKey }, schedOf(rr.eff), X.cur.lay.cal);
-    if (r) write(row.task, rr, r.patch, r.prev);
+    if (!r) return;
+    const from = e.currentTarget || null;
+    write(row.task, rr, r.patch, r.prev).then(() => raf(() => refocus(row.key, from)));
+  }
+
+  // Render ulang setelah tulis bisa memasang ulang bar/baris (virtualisasi): fokus kembali ke elemen dengan data-key dan
+  // role yang sama, hanya bila fokus hilang (elemen lama terlepas atau fokus jatuh ke body).
+  function refocus(key, from) {
+    const doc = typeof document !== "undefined" ? document : null;
+    if (!doc) return;
+    const active = doc.activeElement;
+    const lost = !active || active === doc.body || (from && from.isConnected === false && active === from);
+    if (!lost) return;
+    const root = X.cur && X.cur.scrollEl();
+    if (!root || typeof root.querySelectorAll !== "function") return;
+    const role = from && typeof from.getAttribute === "function" ? from.getAttribute("role") : null;
+    const list = root.querySelectorAll("[data-key]");
+    for (let i = 0; i < list.length; i++) {
+      const n = list[i];
+      if (n.getAttribute("data-key") !== String(key) || (role && n.getAttribute("role") !== role)) continue;
+      try {
+        n.focus({ preventScroll: true });
+      } catch (err) {
+        /* elemen tidak bisa difokus */
+      }
+      return;
+    }
   }
 
   function open(row) {
@@ -968,11 +1022,12 @@ function createInteractions() {
     if (X.g) finish(TLDrag.reduce(X.g.st, { type: "cancel" }));
     if (X.slot) slotEnd(X.slot);
     X.tap = null;
+    setChart(null);
   }
 
   X.ix = {
     open, key, barDown, slotDown,
-    chartRef: X.chartRef, tipRef: X.tipRef, rubberRef: X.rubberRef, lineRef: X.lineRef,
+    chartRef: setChart, tipRef: X.tipRef, rubberRef: X.rubberRef, lineRef: X.lineRef,
   };
   X.dispose = dispose;
   return X;
@@ -1227,7 +1282,7 @@ const pure = {
   CAL_ENTITY, CAL_MAX_BYTES, MSG_CAL_TOO_LARGE, MSG_CAL_LOST,
   MSG_EMPTY, MSG_VIOLATION, MSG_SCHEDULE_HINT, LEGEND, ZOOMS, COLS_FULL, COLS_COMPACT,
   engine, rowCells, pomoText, missingYearsNote, barGeom, createInteractions,
-  MSG_CHANGED, MSG_UNDO, MSG_SAVE_FAIL, MSG_CYCLE, MSG_MAX_DEPS, MSG_SUMMARY_DEP,
+  MSG_CHANGED, MSG_UNDO, MSG_SAVE_FAIL, MSG_CYCLE, MSG_MAX_DEPS, MSG_SUMMARY_DEP, MSG_DUP_DEP,
   TimelineViewBody, ScheduleSection, CalendarPopover, ListFallback,
 };
 if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLLayout, TLDrag }, pure);

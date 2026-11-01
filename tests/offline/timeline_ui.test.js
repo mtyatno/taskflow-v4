@@ -880,6 +880,20 @@ function fakeNode() {
   return { style, textContent: "", classList: { add: (c) => cls.add(c), remove: (c) => cls.delete(c), contains: (c) => cls.has(c) }, setAttribute: (k, v) => { attrs[k] = v; }, attrs };
 }
 
+// Elemen dengan addEventListener/removeEventListener tercatat (opsi passive disimpan).
+function fakeListenerEl(base) {
+  const ls = [];
+  return Object.assign(base || {}, {
+    ls,
+    addEventListener(type, fn, opt) { ls.push({ type, fn, cap: capOf(opt), passive: opt && typeof opt === "object" ? opt.passive : undefined }); },
+    removeEventListener(type, fn, opt) {
+      const i = ls.findIndex((l) => l.type === type && l.fn === fn && l.cap === capOf(opt));
+      if (i >= 0) ls.splice(i, 1);
+    },
+    fire(type, ev) { for (const l of ls.filter((x) => x.type === type)) l.fn(ev); },
+  });
+}
+
 // Pemasangan lengkap: wadah gulir + grafik + tooltip/garis karet palsu; o.set / o.setMany mengganti hasil tulis.
 async function ixSetup(tasks, o) {
   const opts = o || {};
@@ -895,7 +909,7 @@ async function ixSetup(tasks, o) {
     scrollTop: 0, scrollLeft: 0, clientWidth: TABLE_W_FULL + 1000, offsetHeight: 0,
     getBoundingClientRect: () => ({ left: 0, top: SCROLL_TOP, right: TABLE_W_FULL + 1000, bottom: SCROLL_TOP + HEAD + 600 }),
   };
-  const chartEl = { getBoundingClientRect: () => ({ left: TABLE_W_FULL - el.scrollLeft, top: SCROLL_TOP + HEAD - el.scrollTop }) };
+  const chartEl = fakeListenerEl({ getBoundingClientRect: () => ({ left: TABLE_W_FULL - el.scrollLeft, top: SCROLL_TOP + HEAD - el.scrollTop }) });
   const tip = fakeNode();
   const rubber = fakeNode();
   const line = fakeNode();
@@ -903,7 +917,8 @@ async function ixSetup(tasks, o) {
     const g = gridOf(tree);
     if (g) g.props.ref.current = el;
     const ch = byCls(tree, "plg-timeline-chart")[0];
-    if (ch && ch.props.ref) ch.props.ref.current = chartEl;
+    if (ch && typeof ch.props.ref === "function") ch.props.ref(chartEl);
+    else if (ch && ch.props.ref) ch.props.ref.current = chartEl;
     const tp = byCls(tree, "plg-timeline-tip")[0];
     if (tp && tp.props.ref) tp.props.ref.current = tip;
     const rb = byCls(tree, "plg-timeline-rubber")[0];
@@ -922,7 +937,7 @@ async function ixSetup(tasks, o) {
   const lay = layOf(tasks, "week", api);
   const row = (k) => lay.rows.find((r) => r.key === k);
   const h = {
-    m, api, calls, clicked, el, tip, rubber, line, lay, props,
+    m, api, calls, clicked, el, chartEl, tip, rubber, line, lay, props, wire,
     get tree() { return tree; },
     rerender() { tree = m.render(props); return tree; },
     row,
@@ -1214,5 +1229,178 @@ test("bar tugas punya pegangan tepi + titik dependensi (aria-hidden); ringkasan 
   assert.equal(kids(h.bar("10"), "plg-timeline-dot"), 0);
   assert.equal(h.bar("10").props.onPointerDown, undefined, "ringkasan tidak bisa diseret");
   for (const t of ['"Jadwal diubah"', '"Urungkan"', '"Jadwal gagal disimpan"', '"Dependensi ini membuat lingkaran"', '"Maksimal 20 dependensi per task"', '"Ringkasan tidak bisa diberi dependensi di versi ini"']) assert.ok(jsx.includes(t), t);
+  h.m.unmount();
+}));
+
+// ── Fix round 1 (review Task 8) ─────────────────────────────────────────────
+test("sentuh: SATU pendengar touchmove non-pasif tetap di elemen grafik; preventDefault hanya saat tekan lama/seret; dilepas saat elemen berganti/unmount", () => withIx(async (w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 3 })];
+  const h = await ixSetup(tasks);
+  const tm = () => h.chartEl.ls.filter((l) => l.type === "touchmove");
+  assert.equal(tm().length, 1, "dipasang saat elemen grafik dipasang");
+  assert.equal(tm()[0].passive, false, "non-pasif agar preventDefault berlaku");
+  h.rerender();
+  h.wire(h.tree);
+  assert.equal(tm().length, 1, "render ulang tidak memasang ganda");
+  let prevented = 0;
+  const tev = () => ({ cancelable: true, preventDefault() { prevented++; } });
+  h.chartEl.fire("touchmove", tev());
+  assert.equal(prevented, 0, "tanpa gestur: peramban bebas menggulir");
+  const b1 = h.box("1");
+  const y = h.cy(h.midY("1"));
+  const x0 = h.cx(b1.x + 10);
+  const barEl = fakeNode();
+  const touch = { pointerType: "touch" };
+  const realNow = performance.now.bind(performance);
+  let fakeT = realNow();
+  performance.now = () => fakeT;
+  try {
+    h.bar("1").props.onPointerDown(pev(x0, y, Object.assign({ currentTarget: barEl }, touch)));
+    h.chartEl.fire("touchmove", tev());
+    assert.equal(prevented, 0, "sebelum 350 ms belum dicegah");
+    fakeT += 400; // tekan lama (gerak setelah 350 ms mempersenjatai walau timer hold belum jalan)
+    w.fire("pointermove", pev(x0 + 1, y, touch));
+    h.chartEl.fire("touchmove", tev());
+    assert.equal(prevented, 1, "tekan lama → gerak jari menyeret, bukan menggulir");
+    w.fire("pointermove", pev(x0 + 84, y, touch));
+    h.chartEl.fire("touchmove", tev());
+    assert.equal(prevented, 2);
+    assert.equal(w.ls.filter((l) => l.type === "touchmove").length, 0, "tidak ada pendengar touchmove di window (terlambat untuk peramban)");
+    w.fire("pointerup", pev(x0 + 84, y, touch));
+  } finally {
+    performance.now = realNow;
+  }
+  assert.deepEqual(h.calls.set, [[1, { start: "2026-11-09" }]]);
+  h.chartEl.fire("touchmove", tev());
+  assert.equal(prevented, 2, "setelah lepas tidak lagi dicegah");
+  // elemen grafik diganti (mis. keadaan kosong → ada task): pendengar pindah
+  const grid = gridOf(h.tree);
+  const ch = byCls(h.tree, "plg-timeline-chart")[0];
+  assert.equal(typeof ch.props.ref, "function", "callback ref");
+  const other = fakeListenerEl({ getBoundingClientRect: () => ({ left: 0, top: 0 }) });
+  ch.props.ref(null);
+  assert.equal(tm().length, 0, "dilepas saat elemen dilepas");
+  ch.props.ref(other);
+  assert.equal(other.ls.filter((l) => l.type === "touchmove").length, 1);
+  assert.ok(grid);
+  h.m.unmount();
+  assert.equal(other.ls.filter((l) => l.type === "touchmove").length, 0, "dilepas saat unmount");
+}));
+
+test("CSS: bar tanpa callout/seleksi sentuh; area kosong touch-action manipulation", () => {
+  const rule = (sel) => { const m = css.match(new RegExp(sel.replace(/[.]/g, "\\.") + "\\s*\\{([^}]*)\\}")); return m ? m[1] : ""; };
+  const bars = css.match(/\.plg-timeline-bar,\s*\.plg-timeline-summary,\s*\.plg-timeline-milestone\s*\{([^}]*)\}/);
+  assert.ok(bars, "aturan bersama bar");
+  assert.match(bars[1], /-webkit-touch-callout:\s*none/);
+  assert.match(bars[1], /user-select:\s*none/);
+  assert.match(rule(".plg-timeline-slot"), /touch-action:\s*manipulation/);
+});
+
+test("dependensi ganda → toast 'Dependensi ini sudah ada'; dep tersimpan jenis apa pun ke pendahulu yang sama = ganda", () => withIx(async (w) => {
+  const tasks = [
+    mk(1, "A", { start: "2026-11-02", duration: 2 }),
+    mk(2, "B", { start: "2026-11-09", duration: 2, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }] }),
+    mk(3, "C", { start: "2026-11-09", duration: 2, deps: [{ t: { $task: 1 }, type: "SS", lag: 0 }] }), // jenis versi mendatang
+    mk(4, "D", { start: "2026-11-12", duration: 1 }),
+  ];
+  const h = await ixSetup(tasks);
+  const linkDrag = (from, to) => {
+    const b = h.box(from);
+    const x = h.cx(b.x + b.w + 5);
+    const y = h.cy(h.midY(from));
+    h.bar(from).props.onPointerDown(pev(x, y, { currentTarget: fakeNode() }));
+    w.fire("pointermove", pev(x + 40, h.cy(h.midY(to))));
+    w.fire("pointerup", pev(x + 40, h.cy(h.midY(to))));
+  };
+  linkDrag("1", "2");
+  await tick();
+  assert.deepEqual(h.calls.toast, [["Dependensi ini sudah ada", "error"]]);
+  h.calls.toast.length = 0;
+  linkDrag("1", "3");
+  await tick();
+  assert.deepEqual(h.calls.toast, [["Dependensi ini sudah ada", "error"]]);
+  assert.deepEqual(h.calls.set, []);
+  // ke diri sendiri tetap senyap
+  h.calls.toast.length = 0;
+  linkDrag("1", "1");
+  await tick();
+  assert.deepEqual(h.calls.toast, []);
+  // C ← D tetap boleh; item SS lama ditulis ulang apa adanya
+  linkDrag("4", "3");
+  assert.deepEqual(h.calls.set, [[3, { deps: [{ t: { $task: 1 }, type: "SS", lag: 0 }, { t: { $task: 4 }, type: "FS", lag: 0 }] }]]);
+  assert.ok(jsx.includes('"Dependensi ini sudah ada"'));
+  h.m.unmount();
+}));
+
+test("Urungkan menunggu tulis yang sedang berjalan pada task yang sama (tidak tumpang tindih)", () => withIx(async () => {
+  const tasks = [mk(1, "K", { start: "2026-11-06", duration: 2 })];
+  const pending = [];
+  const h = await ixSetup(tasks, { set: () => new Promise((r) => pending.push(r)) });
+  const kev = (key, o) => Object.assign({ key, altKey: true, shiftKey: false, preventDefault() {} }, o || {});
+  h.bar("1").props.onKeyDown(kev("ArrowRight"));
+  pending.shift()();
+  await tick();
+  const undo1 = h.calls.toast[h.calls.toast.length - 1][2].onClick;
+  h.bar("1").props.onKeyDown(kev("ArrowLeft", { shiftKey: true })); // tulis kedua berjalan
+  assert.equal(h.calls.set.length, 2);
+  undo1();
+  await tick();
+  assert.equal(h.calls.setMany.length, 0, "Urungkan antre selama tulis berjalan");
+  pending.shift()();
+  await tick();
+  await tick();
+  assert.deepEqual(h.calls.setMany, [[{ taskId: 1, patch: { start: "2026-11-06" } }]]);
+  h.m.unmount();
+}));
+
+test("blur dan dispose (unmount) di tengah seret → tanpa tulis, pendengar dilepas", () => withIx(async (w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 3 })];
+  const h = await ixSetup(tasks);
+  const b1 = h.box("1");
+  const y = h.cy(h.midY("1"));
+  const x0 = h.cx(b1.x + 10);
+  const barEl = fakeNode();
+  const base = "translate(" + b1.x + "px, " + (h.row("1").index * 32 + 8) + "px)";
+  h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: barEl }));
+  w.fire("pointermove", pev(x0 + 84, y));
+  w.fire("blur", {});
+  assert.equal(w.gesture(), 0);
+  assert.equal(barEl.style.transform, base);
+  w.fire("pointerup", pev(x0 + 84, y));
+  h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: barEl }));
+  w.fire("pointermove", pev(x0 + 84, y));
+  assert.ok(w.gesture() > 0);
+  h.m.unmount();
+  assert.equal(w.gesture(), 0, "unmount membatalkan seret");
+  w.fire("pointerup", pev(x0 + 84, y));
+  // klik-jadwalkan yang belum dilepas juga dibersihkan
+  await tick();
+  assert.deepEqual(h.calls.set, []);
+}));
+
+test("tulis lewat keyboard: fokus dikembalikan ke bar yang sama bila hilang", () => withIx(async () => {
+  const tasks = [mk(1, "K", { start: "2026-11-06", duration: 2 })];
+  const h = await ixSetup(tasks);
+  let focused = 0;
+  const newBar = { getAttribute: (k) => (k === "data-key" ? "1" : k === "role" ? "button" : null), focus: () => { focused++; } };
+  h.el.querySelectorAll = () => [newBar];
+  const prevDoc = global.document;
+  const body = {};
+  global.document = { body, activeElement: body };
+  try {
+    const orig = { isConnected: false, getAttribute: (k) => (k === "role" ? "button" : null) };
+    h.bar("1").props.onKeyDown({ key: "ArrowRight", altKey: true, shiftKey: false, currentTarget: orig, preventDefault() {} });
+    await tick();
+    await tick();
+    assert.equal(focused, 1);
+    // fokus masih di tempat lain yang sah → tidak dipindah
+    global.document.activeElement = { isConnected: true };
+    h.bar("1").props.onKeyDown({ key: "ArrowRight", altKey: true, shiftKey: false, currentTarget: { isConnected: true, getAttribute: () => "button" }, preventDefault() {} });
+    await tick();
+    await tick();
+    assert.equal(focused, 1);
+  } finally {
+    global.document = prevDoc;
+  }
   h.m.unmount();
 }));

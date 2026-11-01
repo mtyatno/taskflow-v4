@@ -282,6 +282,7 @@
 .plg-timeline-slot {
   position: absolute;
   cursor: copy;
+  touch-action: manipulation; /* ketuk ganda menjadwalkan, bukan zoom */
 }
 
 .plg-timeline-hint {
@@ -307,6 +308,9 @@
   z-index: 2;
   box-sizing: border-box;
   cursor: pointer;
+  -webkit-touch-callout: none; /* tekan lama = seret, bukan menu salin/bagikan */
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .plg-timeline-bar {
