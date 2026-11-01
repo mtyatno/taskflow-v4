@@ -940,6 +940,9 @@ async function ixSetup(tasks, o) {
   calls.setMany = [];
   api.taskExt.set = (id, p) => { calls.set.push([id, p]); return opts.set ? opts.set(id, p) : Promise.resolve(); };
   api.taskExt.setMany = (items) => { calls.setMany.push(items); return opts.setMany ? opts.setMany(items) : Promise.resolve(); };
+  // Daftar task LENGKAP (api.data.tasks.list) — bawaan = task yang dirender; o.all = daftar tanpa filter panel host.
+  calls.list = [];
+  api.data = { tasks: { list: (q) => { calls.list.push(q); return opts.listImpl ? opts.listImpl(q) : Promise.resolve(opts.all || tasks); } } };
   const { ctx, clicked } = ctxOf(tasks);
   const props = { context: ctx, api };
   const m = mount(T.TimelineViewBody);
@@ -1011,12 +1014,12 @@ test("seret selesai → tepat satu api.taskExt.set {start}; toast 'Jadwal diubah
   assert.notEqual(h.tip.style.display, "none");
   w.fire("pointerup", pev(x0 + 84, y));
   assert.equal(h.m.setCalls.length, n0, "tanpa setState antara pointerdown dan pointerup");
-  assert.deepEqual(h.calls.set, [[1, { start: "2026-11-09" }]]);
   assert.equal(w.gesture(), 0, "pendengar dilepas setelah lepas");
   assert.equal(h.tip.style.display, "none");
   h.bar("1").props.onClick({}); // klik sesudah seret tidak membuka task
   assert.deepEqual(h.clicked, []);
-  await tick();
+  await tick(); // tulis setelah pemeriksaan daftar lengkap (final review #1)
+  assert.deepEqual(h.calls.set, [[1, { start: "2026-11-09" }]]);
   const t = h.calls.toast[h.calls.toast.length - 1];
   assert.equal(t[0], "Jadwal diubah");
   assert.equal(t[2].label, "Urungkan");
@@ -1041,8 +1044,8 @@ test("seret selesai → tepat satu api.taskExt.set {start}; toast 'Jadwal diubah
   assert.equal(bar2El.style.width, (3 * 12) + "px");
   assert.equal(h.tip.textContent, "Sen 2 Nov → Rab 4 Nov · 3 hk");
   w.fire("pointerup", pev(xe + 24, y2));
-  assert.deepEqual(h.calls.set[1], [2, { duration: 3 }]);
   await tick();
+  assert.deepEqual(h.calls.set[1], [2, { duration: 3 }]);
   h.calls.toast[h.calls.toast.length - 1][2].onClick();
   await tick();
   assert.deepEqual(h.calls.setMany[1], [{ taskId: 2, patch: { duration: null } }]);
@@ -1116,9 +1119,9 @@ test("link ke bar lain → set penerus {deps: [...lama, {t: ref(pred), type: 'FS
   const n0 = h.m.setCalls.length;
   linkDrag("1", "2");
   assert.equal(h.m.setCalls.length, n0);
-  assert.deepEqual(h.calls.set, [[2, { deps: [old, { t: { $task: 1 }, type: "FS", lag: 0 }] }]]);
   assert.equal(h.rubber.style.display, "none", "garis karet disembunyikan setelah lepas");
-  await tick();
+  await tick(); // tulis setelah checkLink atas daftar lengkap (final review #1)
+  assert.deepEqual(h.calls.set, [[2, { deps: [old, { t: { $task: 1 }, type: "FS", lag: 0 }] }]]);
   const t = h.calls.toast[h.calls.toast.length - 1];
   assert.equal(t[0], "Jadwal diubah");
   t[2].onClick();
@@ -1158,12 +1161,13 @@ test("klik area kosong baris tanpa jadwal di tanggal Sabtu → set {start: Senin
   // gerak lebih dari ambang = bukan klik
   slot.props.onPointerDown(pev(x, y));
   w.fire("pointerup", pev(x + 30, y));
+  await tick();
   assert.deepEqual(h.calls.set, []);
   slot.props.onPointerDown(pev(x, y));
   w.fire("pointerup", pev(x + 1, y));
-  assert.deepEqual(h.calls.set, [[4, { start: "2026-11-09", duration: 1 }]]);
   assert.equal(w.gesture(), 0);
   await tick();
+  assert.deepEqual(h.calls.set, [[4, { start: "2026-11-09", duration: 1 }]]);
   const t = h.calls.toast[h.calls.toast.length - 1];
   assert.equal(t[0], "Jadwal diubah");
   t[2].onClick();
@@ -1178,9 +1182,11 @@ test("klik area kosong baris tanpa jadwal di tanggal Sabtu → set {start: Senin
   const touch = { pointerType: "touch" };
   s2.props.onPointerDown(pev(x2, y2, touch));
   w.fire("pointerup", pev(x2, y2, touch));
+  await tick();
   assert.deepEqual(h2.calls.set, []);
   s2.props.onPointerDown(pev(x2, y2, touch));
   w.fire("pointerup", pev(x2, y2, touch));
+  await tick();
   assert.deepEqual(h2.calls.set, [[5, { start: "2026-11-10", duration: 1 }]]);
   h.m.unmount();
   h2.m.unmount();
@@ -1193,8 +1199,11 @@ test("Alt+→ pada baris fokus → set {start: hari kerja berikutnya}; tahan tom
   let prevented = 0;
   const kev = (key, o) => Object.assign({ key, altKey: true, shiftKey: false, preventDefault() { prevented++; } }, o || {});
   h.tableRow("1").props.onKeyDown(kev("ArrowRight"));
-  assert.deepEqual(h.calls.set, [[1, { start: "2026-11-09" }]]);
   assert.equal(prevented, 1, "Alt+← / Alt+→ tidak menjadi navigasi peramban");
+  // tombol ditahan (repeat) selama pemeriksaan daftar lengkap (final review #1) → sudah sibuk, diabaikan
+  h.bar("1").props.onKeyDown(kev("ArrowRight", { repeat: true }));
+  await tick();
+  assert.deepEqual(h.calls.set, [[1, { start: "2026-11-09" }]]);
   // tombol ditahan (repeat) saat tulis masih berjalan → diabaikan
   h.bar("1").props.onKeyDown(kev("ArrowRight", { repeat: true }));
   assert.equal(h.calls.set.length, 1);
@@ -1202,6 +1211,7 @@ test("Alt+→ pada baris fokus → set {start: hari kerja berikutnya}; tahan tom
   await tick();
   // props belum mengikuti (task di context masih Jumat) → dihitung dari nilai optimistis Senin
   h.bar("1").props.onKeyDown(kev("ArrowRight", { repeat: true }));
+  await tick();
   assert.deepEqual(h.calls.set[1], [1, { start: "2026-11-10" }]);
   release();
   await tick();
@@ -1210,6 +1220,7 @@ test("Alt+→ pada baris fokus → set {start: hari kerja berikutnya}; tahan tom
   await tick();
   assert.deepEqual(h.calls.setMany[0], [{ taskId: 1, patch: { start: "2026-11-09" } }], "Urungkan = nilai sebelum tekan ini");
   h.bar("1").props.onKeyDown(kev("ArrowLeft", { shiftKey: true }));
+  await tick();
   assert.deepEqual(h.calls.set[2], [1, { duration: 1 }]);
   release();
   await tick();
@@ -1236,8 +1247,8 @@ test("set reject → toast 'Jadwal gagal disimpan' (type error); bar kembali; Ur
   h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: barEl }));
   w.fire("pointermove", pev(x0 + 84, y));
   w.fire("pointerup", pev(x0 + 84, y));
-  assert.equal(h.calls.set.length, 1);
   await tick();
+  assert.equal(h.calls.set.length, 1);
   await tick();
   assert.deepEqual(h.calls.toast, [["Jadwal gagal disimpan", "error"]]);
   assert.equal(barEl.style.transform, base);
@@ -1308,6 +1319,7 @@ test("sentuh: SATU pendengar touchmove non-pasif tetap di elemen grafik; prevent
   } finally {
     performance.now = realNow;
   }
+  await tick();
   assert.deepEqual(h.calls.set, [[1, { start: "2026-11-09" }]]);
   h.chartEl.fire("touchmove", tev());
   assert.equal(prevented, 2, "setelah lepas tidak lagi dicegah");
@@ -1365,6 +1377,7 @@ test("dependensi ganda → toast 'Dependensi ini sudah ada'; dep tersimpan jenis
   assert.deepEqual(h.calls.toast, []);
   // C ← D tetap boleh; item SS lama ditulis ulang apa adanya
   linkDrag("4", "3");
+  await tick();
   assert.deepEqual(h.calls.set, [[3, { deps: [{ t: { $task: 1 }, type: "SS", lag: 0 }, { t: { $task: 4 }, type: "FS", lag: 0 }] }]]);
   assert.ok(jsx.includes('"Dependensi ini sudah ada"'));
   h.m.unmount();
@@ -1376,12 +1389,14 @@ test("Urungkan menunggu tulis yang sedang berjalan pada task yang sama (tidak tu
   const h = await ixSetup(tasks, { set: () => new Promise((r) => pending.push(r)) });
   const kev = (key, o) => Object.assign({ key, altKey: true, shiftKey: false, preventDefault() {} }, o || {});
   h.bar("1").props.onKeyDown(kev("ArrowRight"));
+  await tick(); // pemeriksaan daftar lengkap (final review #1)
   pending.shift()();
   await tick();
   const undo1 = h.calls.toast[h.calls.toast.length - 1][2].onClick;
-  h.bar("1").props.onKeyDown(kev("ArrowLeft", { shiftKey: true })); // tulis kedua berjalan
+  h.bar("1").props.onKeyDown(kev("ArrowLeft", { shiftKey: true })); // tulis kedua: pemeriksaan + set berjalan
+  undo1(); // diklik saat tulis kedua masih diperiksa → antre
+  await tick();
   assert.equal(h.calls.set.length, 2);
-  undo1();
   await tick();
   assert.equal(h.calls.setMany.length, 0, "Urungkan antre selama tulis berjalan");
   pending.shift()();
@@ -2026,4 +2041,122 @@ test("final: CSS — input popover Kalender kerja (tanggal, teks, centang) ikut 
   }
   // input tanggal popover memakai kelas yang tercakup
   assert.match(jsx, /<input type="date" className="plg-timeline-pop-input"/);
+});
+
+// ── Final review #1: Gantt memvalidasi tulis terhadap daftar task LENGKAP (scopeTasks host sudah difilter panel) ──
+const linkDragOf = (h, w) => (from, to) => {
+  const b = h.box(from);
+  const x = h.cx(b.x + b.w + 5);
+  const y = h.cy(h.midY(from));
+  h.bar(from).props.onPointerDown(pev(x, y, { currentTarget: fakeNode() }));
+  w.fire("pointermove", pev(x + 20, h.cy(h.midY(to))));
+  w.fire("pointermove", pev(x + 40, h.cy(h.midY(to))));
+  w.fire("pointerup", pev(x + 40, h.cy(h.midY(to))));
+};
+
+test("final #1: siklus lewat task yang disembunyikan filter panel → toast siklus, tanpa set (B dep A, C dep B, B tersembunyi, tautkan C→A)", () => withIx(async (w) => {
+  const A = mk(1, "A", { start: "2026-11-02", duration: 1 });
+  const B = mk(2, "B", { start: "2026-11-03", duration: 1, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }] }, { priority: "low" });
+  const C = mk(3, "C", { start: "2026-11-04", duration: 1, deps: [{ t: { $task: 2 }, type: "FS", lag: 0 }] });
+  const h = await ixSetup([A, C], { all: [A, B, C] }); // filter panel menyembunyikan B
+  linkDragOf(h, w)("3", "1"); // A bergantung pada C → A→B→C→A
+  await tick();
+  assert.deepEqual(h.calls.set, [], "tidak ada tulis");
+  assert.deepEqual(h.calls.toast, [["Dependensi ini membuat lingkaran", "error"]]);
+  assert.ok(h.calls.list.length >= 1 && h.calls.list.every((q) => q && q.includeDone === true), "daftar lengkap dibaca (includeDone)");
+  // tautan sah tetap ditulis (setelah pemeriksaan async)
+  h.calls.toast.length = 0;
+  linkDragOf(h, w)("1", "3");
+  assert.deepEqual(h.calls.set, [], "belum menulis sebelum daftar lengkap diperiksa");
+  await tick();
+  assert.deepEqual(h.calls.set, [[3, { deps: [{ t: { $task: 2 }, type: "FS", lag: 0 }, { t: { $task: 1 }, type: "FS", lag: 0 }] }]]);
+  assert.equal(h.calls.toast[0][0], "Jadwal diubah");
+  h.m.unmount();
+}));
+
+test("final #1: induk yang anaknya disembunyikan filter = ringkasan — tidak bisa jadi ujung dependensi, diseret, Alt+panah, atau dijadwalkan", () => withIx(async (w) => {
+  const P = mk(10, "Induk", { start: "2026-11-02", duration: 2 });
+  const K = mk(11, "Anak", { start: "2026-11-03", duration: 1 }, { parent_id: 10, priority: "low" });
+  const X1 = mk(1, "Lain", { start: "2026-11-05", duration: 3 });
+  const Q = mk(20, "Induk belum dijadwal", {});
+  const QK = mk(21, "Anak Q", {}, { parent_id: 20, priority: "low" });
+  const h = await ixSetup([P, X1, Q], { all: [P, K, X1, Q, QK] });
+  assert.equal(h.row("10").kind, "task", "di Gantt yang difilter induk tampak seperti task biasa");
+  const SUM_DEP = [["Ringkasan tidak bisa diberi dependensi di versi ini", "error"]];
+  // ujung dependensi (penerus dan pendahulu)
+  linkDragOf(h, w)("1", "10");
+  await tick();
+  assert.deepEqual(h.calls.toast, SUM_DEP, "penerus ringkasan");
+  h.calls.toast.length = 0;
+  linkDragOf(h, w)("10", "1");
+  await tick();
+  assert.deepEqual(h.calls.toast, SUM_DEP, "pendahulu ringkasan");
+  assert.deepEqual(h.calls.set, []);
+  // seret geser → tanpa tulis, bar kembali, toast teks seksi ringkasan
+  h.calls.toast.length = 0;
+  const b = h.box("10");
+  const y = h.cy(h.midY("10"));
+  const x0 = h.cx(b.x + 10);
+  const barEl = fakeNode();
+  h.bar("10").props.onPointerDown(pev(x0, y, { currentTarget: barEl }));
+  w.fire("pointermove", pev(x0 + 30, y));
+  w.fire("pointermove", pev(x0 + 84, y));
+  w.fire("pointerup", pev(x0 + 84, y));
+  await tick();
+  assert.deepEqual(h.calls.set, []);
+  assert.deepEqual(h.calls.toast, [["Jadwal task ini mengikuti subtask-nya", "error"]]);
+  assert.equal(barEl.style.transform, "translate(" + b.x + "px, " + (h.row("10").index * 32 + 8) + "px)", "bar kembali ke posisi semula");
+  // Alt+→ → tanpa tulis; task bisa dicoba lagi (tidak tersangkut sibuk)
+  h.calls.toast.length = 0;
+  const kev = { key: "ArrowRight", altKey: true, shiftKey: false, preventDefault() {}, currentTarget: null };
+  h.bar("10").props.onKeyDown(kev);
+  await tick();
+  h.bar("10").props.onKeyDown(kev);
+  await tick();
+  assert.deepEqual(h.calls.set, []);
+  assert.equal(h.calls.toast.length, 2);
+  // klik-jadwalkan pada induk belum terjadwal → tanpa tulis
+  const slot = h.slot("20");
+  const sx = h.cx(h.xOfIso("2026-11-09") + 6);
+  const sy = h.cy(h.midY("20"));
+  slot.props.onPointerDown(pev(sx, sy));
+  w.fire("pointerup", pev(sx, sy));
+  await tick();
+  assert.deepEqual(h.calls.set, []);
+  // task biasa tetap bisa diseret (tulis setelah pemeriksaan)
+  const b1 = h.box("1");
+  const y1 = h.cy(h.midY("1"));
+  const x1 = h.cx(b1.x + 10);
+  h.bar("1").props.onPointerDown(pev(x1, y1, { currentTarget: fakeNode() }));
+  w.fire("pointermove", pev(x1 + 30, y1));
+  w.fire("pointermove", pev(x1 + 84, y1));
+  w.fire("pointerup", pev(x1 + 84, y1));
+  await tick();
+  assert.deepEqual(h.calls.set, [[1, { start: "2026-11-12" }]]);
+  h.m.unmount();
+}));
+
+test("final #1: daftar lengkap gagal dimuat → tanpa tulis, toast 'Jadwal gagal disimpan'", () => withIx(async (w) => {
+  const A = mk(1, "A", { start: "2026-11-02", duration: 1 });
+  const C = mk(3, "C", { start: "2026-11-04", duration: 1 });
+  const h = await ixSetup([A, C], { listImpl: () => Promise.reject(new Error("idb")) });
+  linkDragOf(h, w)("1", "3");
+  await tick();
+  const b = h.box("1");
+  const y = h.cy(h.midY("1"));
+  const x0 = h.cx(b.x + 6);
+  h.bar("1").props.onPointerDown(pev(x0, y, { currentTarget: fakeNode() }));
+  w.fire("pointermove", pev(x0 + 30, y));
+  w.fire("pointermove", pev(x0 + 84, y));
+  w.fire("pointerup", pev(x0 + 84, y));
+  await tick();
+  assert.deepEqual(h.calls.set, []);
+  assert.deepEqual(h.calls.toast, [["Jadwal gagal disimpan", "error"], ["Jadwal gagal disimpan", "error"]]);
+  h.m.unmount();
+}));
+
+test("final #1: checkLink satu untuk Gantt dan seksi (sumber)", () => {
+  assert.equal((jsx.match(/TLSched\.canLink\(/g) || []).length, 1, "canLink hanya dipanggil dari checkLink");
+  assert.match(jsx, /const chk = checkLink\(api, list, pred, succ,/);
+  assert.match(jsx, /const chk = checkLink\(api, pickIndex\.list, pred, task,/);
 });

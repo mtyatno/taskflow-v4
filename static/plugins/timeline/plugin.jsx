@@ -119,6 +119,8 @@ const MSG_CYCLE = "Dependensi ini membuat lingkaran";
 const MSG_MAX_DEPS = "Maksimal 20 dependensi per task";
 const MSG_SUMMARY_DEP = "Ringkasan tidak bisa diberi dependensi di versi ini";
 const MSG_DUP_DEP = "Dependensi ini sudah ada";
+// Seret/Alt+panah/klik-jadwalkan pada task yang ternyata induk (anaknya tersembunyi filter panel) → teks seksi yang sama.
+const MSG_SUMMARY_SCHED = "Jadwal task ini mengikuti subtask-nya";
 // Alasan penolakan TLSched.canLink → toast. self/scope tidak bertoast: diri sendiri tidak ada yang perlu ditulis,
 // scope tidak bisa terjadi di view (kedua ujung adalah baris halaman ini).
 const LINK_MSG = { cycle: MSG_CYCLE, max: MSG_MAX_DEPS, summary: MSG_SUMMARY_DEP, dup: MSG_DUP_DEP };
@@ -886,6 +888,8 @@ function ListFallback(props) {
 // Nilai ext "efektif": setelah tulis, props bisa tertinggal sebentar (host memperbarui daftar setelah IndexedDB). Agar
 // tombol Alt+panah yang ditahan atau seret berikutnya tidak menghitung dari props basi, nilai hasil tulis terakhir
 // disimpan per task bersama JSON props saat itu; selama props masih sama dengan JSON itu, nilai hasil tulis yang dipakai.
+const BLOCKED = Object.freeze({ blocked: true }); // penolakan pemeriksaan sebelum tulis (bukan galat simpan)
+
 function createInteractions() {
   const X = {
     cur: null,
@@ -965,19 +969,58 @@ function createInteractions() {
     return { eff: props, pj };
   }
   const schedOf = (raw) => Object.assign(TLSched.readSched(raw), { raw });
+  // ext efektif tanpa efek samping (rawOf membuang catatan `after` yang basi; pemeriksaan task lain tidak boleh).
+  function peekRaw(task) {
+    let props;
+    try {
+      props = X.cur.api.taskExt.read(task);
+    } catch (e) {
+      props = null;
+    }
+    if (!props || typeof props !== "object") props = {};
+    const a = X.after.get(keyOf(task));
+    return a && a.stale === JSON.stringify(props) ? a.eff : props;
+  }
 
-  // Satu tulis (set, atau setMany untuk Urungkan). Penolakan diteruskan ke pemanggil.
-  function issue(task, rr, patch, many) {
+  // Daftar task LENGKAP untuk validasi sebelum tulis: context.scopeTasks host sudah difilter panel (prioritas,
+  // penanggung jawab, cari), jadi dependensi ke task tersembunyi dan anak yang tersembunyi tidak terlihat di layout.
+  function fullList() {
+    const api = X.cur.api;
+    return Promise.resolve()
+      .then(() => api.data.tasks.list({ includeDone: true }))
+      .then((l) => (Array.isArray(l) ? l : []));
+  }
+
+  // Induk di daftar lengkap = ringkasan (R10): jadwalnya mengikuti subtask, tidak boleh digeser/diubah/dijadwalkan di 1b.
+  // Resolve true = boleh tulis; false = ditolak (toast sudah tampil); reject = daftar gagal dimuat (tanpa tulis).
+  function summaryGate(task) {
+    const api = X.cur.api;
+    return fullList().then((list) => {
+      if (!isSummaryIn(list, task)) return true;
+      toastSafe(api, MSG_SUMMARY_SCHED, "error");
+      return false;
+    });
+  }
+
+  // Satu tulis (set, atau setMany untuk Urungkan). Penolakan diteruskan ke pemanggil. `gate` (opsional) = promise
+  // pemeriksaan sebelum tulis: false → reject BLOCKED tanpa memanggil api. busy/after diisi SEKETIKA (tombol yang
+  // ditahan dan seret berikutnya tidak menulis dari props basi selama pemeriksaan berjalan).
+  function issue(task, rr, patch, many, gate) {
     const k = keyOf(task);
     const api = X.cur.api;
     X.busy.add(k);
     X.after.set(k, { stale: rr.pj, eff: Object.assign({}, rr.eff, patch) });
-    let p;
-    try {
-      p = many ? api.taskExt.setMany([{ taskId: task.id, patch }]) : api.taskExt.set(task.id, patch);
-    } catch (e) {
-      p = Promise.reject(e);
-    }
+    const send = () => {
+      try {
+        return many ? api.taskExt.setMany([{ taskId: task.id, patch }]) : api.taskExt.set(task.id, patch);
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    };
+    const p = gate ? Promise.resolve(gate).then((ok) => {
+      if (!ok) throw BLOCKED;
+      return send();
+    }) : send();
     const done = Promise.resolve(p).then(() => {
       X.busy.delete(k);
     }, (err) => {
@@ -997,13 +1040,14 @@ function createInteractions() {
   }
 
   // set → toast "Jadwal diubah" + Urungkan (setMany nilai lama persis). Resolve true/false (tidak pernah reject).
-  function write(task, rr, patch, prev) {
+  // Sebelum tulis: induk tersembunyi (ringkasan di daftar lengkap) ditolak, kecuali `checked` (link sudah memeriksa).
+  function write(task, rr, patch, prev, checked) {
     const api = X.cur.api;
-    return issue(task, rr, patch, false).then(() => {
+    return issue(task, rr, patch, false, checked ? null : summaryGate(task)).then(() => {
       toastSafe(api, MSG_CHANGED, "success", { label: MSG_UNDO, onClick: () => undo(task, prev) });
       return true;
     }, (err) => {
-      failed(api, err);
+      if (err !== BLOCKED) failed(api, err);
       return false;
     });
   }
@@ -1191,9 +1235,10 @@ function createInteractions() {
     write(g.row.task, g.rr, res.patch, res.prev).then((ok) => { if (!ok) restore(g); });
   }
 
-  // Dependensi baru (R15): kunci baris → task lewat indeks halaman; ringkasan/di luar rentang ditolak; canLink untuk
-  // diri sendiri/sudah ada/maks/siklus. Dependensi lama ditulis ulang apa adanya (termasuk item yang tidak dikenali
-  // versi ini), item baru lewat sanitizePatch dengan ref api.taskExt.ref(pred).
+  // Dependensi baru (R15): kunci baris → task lewat indeks halaman; ringkasan tampak/di luar rentang ditolak seketika.
+  // Lalu checkLink (sama dengan seksi Jadwal) terhadap daftar task LENGKAP — layout dibangun dari scopeTasks yang sudah
+  // difilter panel host, jadi edge ke task tersembunyi (siklus) dan anak tersembunyi (ringkasan) hanya terlihat di sana.
+  // Selama pemeriksaan penerus ditandai sibuk (satu penautan per penerus). Dependensi lama ditulis ulang apa adanya.
   function link(l) {
     const { api, lay } = X.cur;
     const scope = lay.rows.filter((r) => r.task).map((r) => r.task);
@@ -1207,33 +1252,27 @@ function createInteractions() {
       toastSafe(api, MSG_SUMMARY_DEP, "error");
       return;
     }
-    if (succRow.outOfRange || X.busy.has(keyOf(succ))) return;
-    const rr = rawOf(succ);
-    const old = Array.isArray(rr.eff.deps) ? rr.eff.deps : [];
-    const chk = TLSched.canLink({ pred, succ, scopeTasks: scope, edges: lay.edges, depCount: old.length });
-    if (!chk.ok) {
-      if (LINK_MSG[chk.reason]) toastSafe(api, LINK_MSG[chk.reason], "error");
-      return;
-    }
-    // dependensi tersimpan jenis apa pun (mis. SS dari versi mendatang) ke pendahulu yang sama = ganda
-    if (old.some((d) => {
-      const k = d && typeof d === "object" ? TLSched.refKey(d.t) : null;
-      return k !== null && idx.get(k) === pred;
-    })) {
-      toastSafe(api, MSG_DUP_DEP, "error");
-      return;
-    }
-    let ref;
-    try {
-      ref = api.taskExt.ref(pred);
-    } catch (e) {
-      logWarn(api, "ref dependensi gagal:", e);
-      return;
-    }
-    const san = TLSched.sanitizePatch({ deps: [{ t: ref, type: "FS", lag: 0 }] });
-    if (!san.ok) return;
-    const prev = { deps: rr.eff.deps === undefined ? null : rr.eff.deps };
-    write(succ, rr, { deps: old.concat(san.patch.deps) }, prev);
+    const k = keyOf(succ);
+    if (succRow.outOfRange || X.busy.has(k)) return;
+    X.busy.add(k);
+    const run = fullList().then((list) => {
+      X.busy.delete(k);
+      const rr = rawOf(succ);
+      const chk = checkLink(api, list, pred, succ, (t, isSucc) => (isSucc ? rr.eff : peekRaw(t)));
+      if (!chk.ok) {
+        if (LINK_MSG[chk.reason]) toastSafe(api, LINK_MSG[chk.reason], "error");
+        return undefined;
+      }
+      const prev = { deps: rr.eff.deps === undefined ? null : rr.eff.deps };
+      return write(succ, rr, { deps: chk.deps }, prev, true);
+    }, (err) => {
+      X.busy.delete(k);
+      failed(api, err);
+    });
+    // Urungkan pada penerus yang sama menunggu pemeriksaan + tulis ini (antrean yang sama dengan issue)
+    const settled = run.then(() => undefined, () => undefined);
+    X.inflight.set(k, settled);
+    settled.then(() => { if (X.inflight.get(k) === settled) X.inflight.delete(k); });
   }
 
   // ---- klik-jadwalkan (R21): klik (mouse) / ketuk ganda (sentuh) di area kosong baris tanpa jadwal ----
@@ -1708,6 +1747,57 @@ function childrenOf(list, idx) {
   return kids;
 }
 
+// Induk dengan anak hidup di `list` (daftar task lengkap) = ringkasan (R10) — logika yang sama dengan seksi Jadwal.
+function isSummaryIn(list, task) {
+  const all = Array.isArray(list) ? list : [];
+  const idx = TLSched.buildIndex(all);
+  const self = (task && idx.get(String(task.id))) || task;
+  if (!self || self.id === undefined || self.id === null) return false;
+  const kids = childrenOf(all, idx).get(String(self.id));
+  return !!(kids && kids.length);
+}
+
+// SATU pemeriksaan dependensi baru pred → succ (R15) untuk Gantt (link) dan seksi Jadwal (pemilih), terhadap daftar
+// task LENGKAP `list` (api.data.tasks.list({includeDone: true}); bukan scopeTasks yang difilter panel host):
+// scope = task hidup dengan scopeKeyOf sama dengan penerus; edge dari ext semua task scope; ringkasan = punya anak
+// hidup di scope; canLink (diri sendiri, scope, ringkasan, ganda, maks, siklus); dependensi tersimpan jenis apa pun ke
+// pendahulu yang sama (cid/server_id lewat indeks) = ganda. readRaw(t, isSucc) → ext mentah task (penerus: nilai
+// lokal/efektif pemanggil). → {ok: true, deps: deps lama apa adanya + item baru} | {ok: false, reason}.
+function checkLink(api, list, pred, succ, readRaw) {
+  const all = Array.isArray(list) ? list : [];
+  const idx = TLSched.buildIndex(all);
+  const self = (succ && idx.get(String(succ.id))) || succ;
+  const p = (pred && idx.get(String(pred.id))) || pred;
+  if (!self || !p) return { ok: false, reason: "scope" };
+  const sk = secScopeKey(self);
+  const scope = all.filter((t) => liveTask(t) && secScopeKey(t) === sk);
+  if (scope.indexOf(self) < 0) scope.push(self);
+  const rawOf = (t) => {
+    const r = readRaw(t, t === self);
+    return r && typeof r === "object" && !Array.isArray(r) ? r : {};
+  };
+  const raw = rawOf(self);
+  const old = Array.isArray(raw.deps) ? raw.deps : [];
+  const sidx = TLSched.buildIndex(scope);
+  const edges = TLSched.resolveDeps(scope.map((t) => ({ task: t, sched: TLSched.readSched(t === self ? raw : rawOf(t)) })), sidx);
+  const chk = TLSched.canLink({ pred: p, succ: self, scopeTasks: scope, edges, depCount: old.length });
+  if (!chk.ok) return chk;
+  if (old.some((d) => {
+    const k = d && typeof d === "object" ? TLSched.refKey(d.t) : null;
+    return k !== null && (k === String(p.id) || idx.get(k) === p);
+  })) return { ok: false, reason: "dup" };
+  let ref;
+  try {
+    ref = api.taskExt.ref(p);
+  } catch (e) {
+    logWarn(api, "ref dependensi gagal:", e);
+    return { ok: false, reason: "ref" };
+  }
+  const san = TLSched.sanitizePatch({ deps: [{ t: ref, type: "FS", lag: 0 }] });
+  if (!san.ok) return { ok: false, reason: "ref" };
+  return { ok: true, deps: old.concat(san.patch.deps) };
+}
+
 // Rentang task: daun = spanOf(ext); induk = min–maks anak terjadwal, rekursif (R10). Lingkaran induk diputus.
 function spanTree(c, t, kids, readOf, seen) {
   const k = String(t.id);
@@ -2033,38 +2123,14 @@ function ScheduleBody(props) {
     return { list, idx, kids: childrenOf(list, idx) };
   }, [picker && picker.list]);
 
+  // Pemeriksaan bersama dengan Gantt (checkLink) atas daftar lengkap pemilih; ext penerus = nilai lokal optimistis.
   const addDep = (pred) => {
-    const { list, idx } = pickIndex;
-    const self = idx.get(String(tid)) || task;
-    const sk = secScopeKey(self);
-    const scope = list.filter((t) => liveTask(t) && secScopeKey(t) === sk);
-    if (scope.indexOf(self) < 0) scope.push(self);
-    const sidx = TLSched.buildIndex(scope);
-    const rd = (t) => TLSched.readSched(t === self ? raw : readExtSafe(api, t));
-    const edges = TLSched.resolveDeps(scope.map((t) => ({ task: t, sched: rd(t) })), sidx);
-    const chk = TLSched.canLink({ pred, succ: self, scopeTasks: scope, edges, depCount: rawDeps.length });
+    const chk = checkLink(api, pickIndex.list, pred, task, (t, isSucc) => (isSucc ? raw : readExtSafe(api, t)));
     if (!chk.ok) {
       if (LINK_MSG[chk.reason]) toastSafe(api, LINK_MSG[chk.reason], "error");
       return;
     }
-    // dependensi tersimpan jenis apa pun ke pendahulu yang sama (cid/server_id lewat indeks) = ganda
-    if (rawDeps.some((d) => {
-      const k = d && typeof d === "object" ? TLSched.refKey(d.t) : null;
-      return k !== null && (k === String(pred.id) || idx.get(k) === pred);
-    })) {
-      toastSafe(api, MSG_DUP_DEP, "error");
-      return;
-    }
-    let ref;
-    try {
-      ref = api.taskExt.ref(pred);
-    } catch (e) {
-      logWarn(api, "ref dependensi gagal:", e);
-      return;
-    }
-    const san = TLSched.sanitizePatch({ deps: [{ t: ref, type: "FS", lag: 0 }] });
-    if (!san.ok) return;
-    write({ deps: rawDeps.concat(san.patch.deps) });
+    write({ deps: chk.deps });
     setPicker(null);
   };
 
@@ -2331,8 +2397,8 @@ const pure = {
   calendarStore, calTarget, prefKey, cleanPref, PREF_DEFAULTS, PREF_CHOICES,
   CAL_ENTITY, CAL_MAX_BYTES, MSG_CAL_TOO_LARGE, MSG_CAL_LOST, SEC_TIMING,
   MSG_EMPTY, MSG_VIOLATION, MSG_SCHEDULE_HINT, LEGEND, ZOOMS, COLS_FULL, COLS_COMPACT,
-  engine, rowCells, pomoText, missingYearsNote, barGeom, createInteractions,
-  MSG_CHANGED, MSG_UNDO, MSG_SAVE_FAIL, MSG_CYCLE, MSG_MAX_DEPS, MSG_SUMMARY_DEP, MSG_DUP_DEP,
+  engine, rowCells, pomoText, missingYearsNote, barGeom, createInteractions, checkLink, isSummaryIn,
+  MSG_CHANGED, MSG_UNDO, MSG_SAVE_FAIL, MSG_CYCLE, MSG_MAX_DEPS, MSG_SUMMARY_DEP, MSG_DUP_DEP, MSG_SUMMARY_SCHED,
   TimelineViewBody, ScheduleSection, ScheduleBody, CalendarPopover, ListFallback,
 };
 if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLLayout, TLDrag }, pure);
