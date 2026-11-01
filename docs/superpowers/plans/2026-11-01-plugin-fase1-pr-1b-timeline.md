@@ -59,7 +59,7 @@ Bila 1a-2 di-merge dengan nama/bentuk berbeda, Task 11 Step 1 menyesuaikan adapt
 | `temporary_files/e2e_plugin_fase1_1b.py` | baru | E2E (T13) |
 | `docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md`, `docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1b-timeline.md`, `.agents/CURRENT_STATE.md`, `.agents/SESSION_LOG.md` | ubah/baru | catatan implementasi 1b, salinan rencana, handover (T14) |
 
-**Tidak berubah:** `static/index.html` (selain string versi SW), `static/app.css` + `?v=382`, `static/offline/*`, `db.js` (`DB_VERSION` dari 1a-2), `webapp.py`, `plugin_loader.py`, `task_ext.py`, server lain.
+**Tidak berubah:** `static/index.html` (selain string versi SW), `static/app.css` + `?v=383`, `static/offline/*`, `db.js` (`DB_VERSION` dari 1a-2), `webapp.py`, `plugin_loader.py`, `task_ext.py`, server lain.
 
 ## Keputusan rencana (controller)
 
@@ -88,11 +88,11 @@ Bila 1a-2 di-merge dengan nama/bentuk berbeda, Task 11 Step 1 menyesuaikan adapt
 - **R23 — Aksesibilitas.** Wadah `role="grid"` `aria-rowcount`; baris `role="row"` `aria-rowindex`; bar `role="button"` `tabIndex=0` `aria-label` dari `TLLayout.ariaBar` ("Desain UI, Kam 5 Nov sampai Sel 10 Nov, 4 hari kerja, 60%"; milestone "…, milestone Kam 5 Nov"; tanpa jadwal "…, belum dijadwalkan"); Enter = buka task; Alt+←/→ geser 1 hk, Alt+Shift+←/→ durasi ±1 (lewat `TLDrag` event `key`), satu `set` per tekan (bukan setMany).
 - **R24 — Kinerja.** Tata letak `useMemo([scopeTasks, calKey, zoom, sort])`; `TimelineView` dibungkus `React.memo` (dibuat malas, pola `habit-heatmap/plugin.jsx:236–239`); `context` host sudah stabil (1a-1 R16). Tes Node: `layout(500 task, 400 dep)` median 5 putaran ≤ 30 ms dicatat; asersi CI longgar ≤ 150 ms (mesin CI lebih lambat); anggaran nyata 150 ms render awal di E2E dengan CPU throttle 4×.
 - **R25 — Data libur (spec §8.4, K17).** `TLHolidays.DATA = {2025: {src, libur: [[iso, nama], …], cuti: [[iso, nama], …]}, 2026: …, 2027: …}`; tanggal ganda dalam satu daftar dilarang; satu tanggal boleh muncul sebagai `libur` saja **atau** `cuti` saja. Sumber ditranskripsi dari SKB resmi (bukan berita): 2026 = SKB Menag 1497/2025, Menaker 2/2025, MenPANRB 5/2025 (19 Sep 2025) — **17 libur + 8 cuti**; 2027 = SKB Menag 1205/2026, Menaker 3/2026, MenPANRB 2/2026 (15 Sep 2026) — **18 libur + 8 cuti** (Isra Mikraj muncul dua kali: 5 Jan dan 26 Des 2027 — benar, dua tahun Hijriah); 2025 = SKB Menag 1017/2024, Menaker 2/2024, MenPANRB 2/2024 **beserta revisi Agustus 2025** (18 Agustus 2025 cuti bersama) — jumlah dicatat saat transkripsi, `src` menyebut kedua keputusan. Halaman setneg.go.id yang dipakai dicatat di komentar berkas. Perubahan isi = naik `version` plugin.
-- **R26 — Rilis.** SW = nomor berikutnya setelah 1a-2 (perkiraan `taskflow-v493-timeline`; PROTOCOL §4 butir 4 bila bentrok), whatsnew **tidak silent** (U4), `app.css?v=382` tetap, ADR-042 (nomor berikutnya setelah ADR 1a-2), PROTOCOL §4 butir 6 baru "Sejak Oktober: SKB libur nasional/cuti bersama tahun berikutnya sudah masuk `static/plugins/timeline/holidays-id.js`?". Tanpa restart layanan **bila D6 terpenuhi**; selain itu catat restart `taskflow-web` di handover.
+- **R26 — Rilis.** SW = nomor berikutnya setelah 1a-2 (perkiraan `taskflow-v495-timeline`; PROTOCOL §4 butir 4 bila bentrok), whatsnew **tidak silent** (U4), `app.css?v=382` tetap, ADR-042 (nomor berikutnya setelah ADR 1a-2), PROTOCOL §4 butir 6 baru "Sejak Oktober: SKB libur nasional/cuti bersama tahun berikutnya sudah masuk `static/plugins/timeline/holidays-id.js`?". Tanpa restart layanan **bila D6 terpenuhi**; selain itu catat restart `taskflow-web` di handover.
 
 ## Global Constraints
 
-- `static/index.html` **+0 baris** (hanya string `__SW_VERSION` + fallback berganti); `app.css`/`?v=382` tetap; tidak ada berkas `static/offline/` baru/berubah; tidak ada perubahan server/skema; `DB_VERSION` = nilai 1a-2 (7), tidak disentuh.
+- `static/index.html` **+0 baris** (hanya string `__SW_VERSION` + fallback berganti); `app.css`/`?v=383` tetap; tidak ada berkas `static/offline/` baru/berubah; tidak ada perubahan server/skema; `DB_VERSION` = nilai 1a-2 (7), tidak disentuh.
 - Plugin: id `timeline`, `version` `1.0.0`, `defaultEnabled: false`, `minApi: 1`, `slots: ["taskList.views", "taskDetail.sections"]`, `permissions: ["storage", "task.ext", "records"]`, `contributes` dan `records` persis spec §8.1, `taskExt.keys: ["start", "duration", "deps"]`, `parts` R2. Lint `compile.js` lulus (tanpa `fetch(`, `localStorage`, `innerHTML`, `indexedDB`, `window.TF.<host>`); satu-satunya `window.TF` = `window.TF.plugins.register`.
 - Kunci ext persis `timeline.start` (`"YYYY-MM-DD"`), `timeline.duration` (integer 0..999 hk), `timeline.deps` (≤ 20 `{t: {$task}, type: "FS", lag}` lag −99..999). Ukuran per task ≤ ~1 KB (jauh di bawah 4096).
 - Record `calendar` id persis `cal@user` / `cal@list:<id>`, data `{v: 1, weekdays, national, cutiBersama, off, work}` ≤ 16384 byte.
@@ -366,10 +366,10 @@ Bila 1a-2 di-merge dengan nama/bentuk berbeda, Task 11 Step 1 menyesuaikan adapt
 **Files:**
 - Modify: `static/sw.js` (`CACHE`), `static/index.html` (`__SW_VERSION` + fallback; string saja), berkas `static/`+`tests/` bervers lama (sed **kecuali** `static/whatsnew.json`), `static/whatsnew.json`, `tests/test_plugins_node.py`, `docs/plugins/README.md`, `.agents/DECISIONS.md`, `.agents/PROTOCOL.md`
 
-- [ ] **Step 1: Versi** `<versi main>` → nomor berikutnya (perkiraan `taskflow-v493-timeline`, R26); `app.css?v=382` tetap.
+- [ ] **Step 1: Versi** `<versi main>` → nomor berikutnya (perkiraan `taskflow-v495-timeline`, R26); `app.css?v=383` tetap.
 - [ ] **Step 2: whatsnew** entri teratas (teks final menunggu U4; usulan, semua ≤ 60/140 karakter, tanpa istilah teknis):
   ```json
-  {"version": "taskflow-v493-timeline", "date": "<tanggal rilis WIB>", "title": "Timeline: lihat jadwal project sebagai Gantt",
+  {"version": "taskflow-v495-timeline", "date": "<tanggal rilis WIB>", "title": "Timeline: lihat jadwal project sebagai Gantt",
    "new": ["Nyalakan Timeline di Pengaturan › Plugin, lalu pilih tampilan Timeline di halaman project atau workspace.",
            "Seret bar untuk menggeser jadwal atau mengubah durasi; panah menandai task yang harus selesai lebih dulu.",
            "Hari kerja otomatis melewati akhir pekan, libur nasional, dan cuti bersama 2025–2027.",
@@ -380,7 +380,7 @@ Bila 1a-2 di-merge dengan nama/bentuk berbeda, Task 11 Step 1 menyesuaikan adapt
 - [ ] **Step 5: ADR-042** "Timeline 1b: Gantt Manual sebagai plugin, hari kerja Indonesia dibundel, kalender kerja sebagai record bersama" (Date / Agent / Context / Decision / Consequences): Context (spec §8, Q3–Q5, K15–K18, ketergantungan D1–D8); Decision (R2, R3–R8, R11, R13, R14, R17, R18, R25); Consequences (data libur wajib diperbarui tiap tahun — butir PROTOCOL; mode Manual tidak memindahkan task; seret = satu PUT per task, notifikasi workspace tidak terkirim (K6); kalender bersama diubah semua anggota; `index.html` +0; rollback = matikan plugin atau revert sebagai rilis baru dengan whatsnew `silent`, data `timeline.*` dan record dibiarkan).
 - [ ] **Step 6: PROTOCOL §4** butir 6 (R26).
 - [ ] **Step 7: Verifikasi** `python3 -m pytest tests/test_whatsnew.py tests/test_sw_precache_node.py tests/test_app_update_node.py -q` (PROTOCOL §4 butir 5), `npm test`, `python3 -m pytest tests/ -q`, `node compile.js` idempoten.
-- [ ] **Step 8: Commit** `chore(release): SW v493 Timeline, README, ADR-042, checklist SKB`
+- [ ] **Step 8: Commit** `chore(release): SW v495 Timeline, README, ADR-042, checklist SKB`
 
 ### Task 13: E2E Playwright
 

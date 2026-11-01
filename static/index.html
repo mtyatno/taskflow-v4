@@ -99,7 +99,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=382">
+  <link rel="stylesheet" href="/static/app.css?v=383">
   <link rel="stylesheet" href="/static/themes.css?v=2">
 
 <style>
@@ -267,7 +267,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v493-timeline";
+    window.__SW_VERSION = "taskflow-v495-timeline";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -28003,7 +28003,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v493-timeline"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v495-timeline"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -43159,75 +43159,33 @@ function UpdateNotificationBanner({ onClose }) {
     }
   };
 
+  // Tata letak sepenuhnya lewat kelas di app.css (bukan inline style) agar @media (max-width: 640px) bisa
+  // menumpuk pesan di atas dan tombol di bawah. Inline hanya yang dinamis (cursor/opacity saat updating).
   return /*#__PURE__*/React.createElement("div", {
     className: "update-notification-banner",
-    role: "alert",
-    style: {
-      position: "fixed",
-      bottom: 24,
-      left: "50%",
-      transform: "translateX(-50%)",
-      zIndex: 9999,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "space-between",
-      gap: 14,
-      background: "var(--bg-card)",
-      color: "var(--text-primary)",
-      border: "1px solid var(--accent)",
-      borderRadius: 12,
-      padding: "12px 18px",
-      boxShadow: "0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)",
-      maxWidth: "calc(100vw - 32px)",
-      boxSizing: "border-box"
-    }
+    role: "alert"
   }, /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 10,
-      fontSize: 14,
-      fontWeight: 500
-    }
+    className: "update-notification-banner__msg"
   }, /*#__PURE__*/React.createElement("span", {
-    "aria-hidden": "true",
-    style: { display: "inline-flex", flexShrink: 0, color: "var(--accent)" }
-  }, React.createElement(Icon, { name: "sparkles", size: 20 })), /*#__PURE__*/React.createElement("span", null, "Pembaruan Alurik tersedia! Muat ulang untuk mendapatkan fitur-fitur terbaru.")), /*#__PURE__*/React.createElement("div", {
-    style: {
-      display: "flex",
-      alignItems: "center",
-      gap: 8,
-      flexShrink: 0
-    }
+    className: "update-notification-banner__icon",
+    "aria-hidden": "true"
+  }, React.createElement(Icon, { name: "sparkles", size: 20 })), /*#__PURE__*/React.createElement("span", {
+    className: "update-notification-banner__text"
+  }, "Pembaruan Alurik tersedia! Muat ulang untuk mendapatkan fitur-fitur terbaru.")), /*#__PURE__*/React.createElement("div", {
+    className: "update-notification-banner__actions"
   }, /*#__PURE__*/React.createElement("button", {
     type: "button",
-    className: "btn btn-primary btn-sm",
+    className: "btn btn-primary btn-sm update-notification-banner__btn",
     style: {
-      padding: "6px 14px",
-      fontSize: 13,
-      fontWeight: 600,
-      borderRadius: 8,
       cursor: updating ? "default" : "pointer",
-      opacity: updating ? 0.75 : 1,
-      display: "inline-flex",
-      alignItems: "center",
-      gap: 6
+      opacity: updating ? 0.75 : 1
     },
     disabled: updating,
     onClick: handleUpdate
   }, React.createElement(Icon, { name: "refresh", size: 14 }), updating ? "Memperbarui…" : "Perbarui Sekarang"), /*#__PURE__*/React.createElement("button", {
     type: "button",
+    className: "update-notification-banner__close",
     "aria-label": "Tutup",
-    style: {
-      background: "transparent",
-      border: "none",
-      color: "var(--text-secondary)",
-      cursor: "pointer",
-      fontSize: 16,
-      padding: "4px 8px",
-      borderRadius: 6,
-      lineHeight: 1
-    },
     onClick: onClose
   }, "✕")));
 }

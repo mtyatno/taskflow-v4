@@ -12,7 +12,9 @@ const sw = fs.readFileSync(path.join(root, "static/sw.js"), "utf8");
 
 // Baseline Fase 1: jumlah baris index.html di main 8a16cd4 (Fase 0b = 46092 di 33dda23b, Fase 0a = 46049 di 6bb0c7e).
 // Batas spec: +60 baris bersih untuk seluruh Fase 1 (spec Fase 1 K20, rencana PR 1a-1 R17).
-const BASELINE_LINES = 46095;
+// PR #121 (banner pembaruan, v493) memangkas index.html 42 baris (gaya inline pindah ke app.css), jadi baseline
+// ikut turun 46095 → 46053 agar anggaran +60 tetap berarti (main 37c9572b = 46072 = 46053 + 19 baris 1a-1).
+const BASELINE_LINES = 46053;
 const MAX_ADDED_LINES = 60;
 
 function fnSource(name) {
@@ -265,7 +267,9 @@ test("sync(): langkah pullPluginRecords terisolasi (step) setelah pluginstate.pu
   assert.ok(body.includes("userId: runUid") && body.includes("recordPluginIds"));
 });
 
-test("anggaran PR 1a-2: index.html ≤ 46119 baris", () => {
+// Relatif terhadap main setelah #121 (46072 baris): PR 1a-2 menambah ≤ +5 (semula 46114 + 5 = 46119 sebelum #121).
+const MAIN_LINES_AFTER_121 = 46072;
+test("anggaran PR 1a-2: index.html ≤ main (setelah #121) + 5 baris", () => {
   const lines = (html.match(/\n/g) || []).length;
-  assert.ok(lines <= 46119, `index.html ${lines} baris (batas 46119)`);
+  assert.ok(lines - MAIN_LINES_AFTER_121 <= 5, `index.html ${lines} baris (+${lines - MAIN_LINES_AFTER_121} dari ${MAIN_LINES_AFTER_121}; batas +5)`);
 });

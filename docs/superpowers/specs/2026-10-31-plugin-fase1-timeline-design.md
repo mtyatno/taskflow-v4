@@ -91,7 +91,7 @@ Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementa
 
 ### Catatan implementasi PR 1a-2 (2026-11-01)
 
-Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementasi PR 1a-2 (`docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1a-2.md` R1–R25, branch `claude/plugin-records`, ADR-041, SW `taskflow-v492-plugin-records` silent):
+Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementasi PR 1a-2 (`docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1a-2.md` R1–R25, branch `claude/plugin-records`, ADR-041, SW `taskflow-v494-plugin-records` silent):
 
 **Ringkasan R1–R19**
 
@@ -109,12 +109,12 @@ Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementa
 - **`FORBIDDEN_SCOPE` mengosongkan kursor pull plugin** (`forbid()` menghapus record + op + `[pid, "_sync", "cursor"]` dalam satu transaksi) agar tarik berikutnya penuh dan record server yang masih sah kembali.
 - **`SCOPE_IMMUTABLE` hanya mencari kunci pemilik yang bisa diakses** (`owner_key IN (SELECT value FROM json_each(?))` atas `u:<uid>` + `l:<id>` workspace yang bisa diakses) — tidak membocorkan keberadaan record milik orang lain dan menghindari batas variabel SQLite.
 - **Pendengar `api.records.onChange` dilepas saat plugin dinonaktifkan** (`releaseRecordListeners` di `deactivate()`, gagal-factory, `_reset()`); error entitas tak dideklarasikan membawa `detail: "entity"`.
-- **Tanggal `whatsnew` v492 diatur saat merge** (kini 2026-11-01, entri `silent` sehingga tidak terlihat pengguna).
+- **Tanggal `whatsnew` v494 diatur saat merge** (kini 2026-11-01, entri `silent` sehingga tidak terlihat pengguna).
 - **Sisa (diketahui, tidak diubah):** push ack di antara halaman terakhir tarik penuh dan sapu dapat membuat record berkedip sebentar (kembali di delta berikut); jika purge mendarat di antara pembacaan `MAX(seq)` dan halaman, satu `reset` ekstra lalu pulih sendiri.
 
 ### Catatan implementasi PR 1b (2026-11-01)
 
-Timeline dasar selesai di branch `claude/plugin-timeline` (ditumpuk di atas `claude/plugin-records`, PR #120; baru boleh di-merge setelah #120). Rencana: `docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1b-timeline.md` (R1–R26), ADR-042, SW `taskflow-v493-timeline` dengan whatsnew non-silent (teks disetujui pemilik, U4). Keputusan UI pemilik U1–U4 semuanya opsi (a): kalender kerja di popover toolbar, task tanpa jadwal tetap di posisi WBS (klik untuk menjadwalkan), sakelar Gantt/Daftar di HP, `defaultEnabled: false`. `index.html` hanya berubah dua baris string versi SW (46.116 baris); `app.css`, `static/offline`, server, dan `plugin_loader` tidak disentuh. D1–D8 terpenuhi oleh 1a-2 (D5 dengan keputusan di bawah; D7 lewat kode `TOO_LARGE`).
+Timeline dasar selesai di branch `claude/plugin-timeline` (ditumpuk di atas `claude/plugin-records`, PR #120; baru boleh di-merge setelah #120). Rencana: `docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1b-timeline.md` (R1–R26), ADR-042, SW `taskflow-v495-timeline` dengan whatsnew non-silent (teks disetujui pemilik, U4). Keputusan UI pemilik U1–U4 semuanya opsi (a): kalender kerja di popover toolbar, task tanpa jadwal tetap di posisi WBS (klik untuk menjadwalkan), sakelar Gantt/Daftar di HP, `defaultEnabled: false`. `index.html` hanya berubah dua baris string versi SW (46.116 baris); `app.css`, `static/offline`, server, dan `plugin_loader` tidak disentuh. D1–D8 terpenuhi oleh 1a-2 (D5 dengan keputusan di bawah; D7 lewat kode `TOO_LARGE`).
 
 **Isi.** Lima part murni tanpa global (`holidays-id.js`, `calendar.js`, `schedule.js`, `layout.js`, `drag.js`) + `plugin.jsx` (view Gantt, seksi "Jadwal", popover Kalender kerja, Daftar fallback HP). Tanggal internal = bilangan hari UTC (tanpa `Date` lokal di part). Libur nasional + cuti bersama 2025–2027 dibundel dan dicek silang dengan SKB. Kalender kerja disimpan sebagai record `calendar` (`cal@user` dan `cal@list:<id>` deterministik, dipakai bersama anggota workspace). Drag/resize/link/Alt+panah memakai satu tulisan per lepas, Urungkan lewat aksi `api.ui.toast`.
 
@@ -430,7 +430,7 @@ Tampil untuk task non-berulang bila plugin ON (§15 Q5). Tingkat (1) bawaan: **M
 | 1c | bump; whatsnew | tergantung batch ext | ≤ 5 |
 | 1d | bump; whatsnew | tidak | ≤ 10 (`saveFile`) |
 
-Setiap PR: `CACHE` + `__SW_VERSION` + fallback + tes versi; `STATIC` += modul baru; `app.css?v=382` tetap. **Rollback:** 1a-1 = revert sebagai rilis baru + restart; kolom `ext` dibiarkan (kode lama tidak membacanya; `SELECT *` lama meneruskan string `ext` yang diabaikan klien lama). 1a-2 = revert kode **tanpa** menurunkan `DB_VERSION` (§4); tabel `plugin_records` dibiarkan; op `plugin` di klien lama dibuang fallback `processOp` (`syncpush.js:2175`) — record yang belum terkirim hilang, maka rollback 1a-2 sebelum 1b rilis hampir tanpa data nyata. 1b = matikan plugin (tanpa deploy) atau revert.
+Setiap PR: `CACHE` + `__SW_VERSION` + fallback + tes versi; `STATIC` += modul baru; `app.css?v=383` tetap. **Rollback:** 1a-1 = revert sebagai rilis baru + restart; kolom `ext` dibiarkan (kode lama tidak membacanya; `SELECT *` lama meneruskan string `ext` yang diabaikan klien lama). 1a-2 = revert kode **tanpa** menurunkan `DB_VERSION` (§4); tabel `plugin_records` dibiarkan; op `plugin` di klien lama dibuang fallback `processOp` (`syncpush.js:2175`) — record yang belum terkirim hilang, maka rollback 1a-2 sebelum 1b rilis hampir tanpa data nyata. 1b = matikan plugin (tanpa deploy) atau revert.
 
 ## 13. Risiko dan mitigasi
 
