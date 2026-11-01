@@ -18,6 +18,10 @@
   function drawingRepo() {
     try { return isNode ? require("./drawingrepo.js") : (root.TF && root.TF.drawingrepo); } catch (_) { return null; }
   }
+  // taskext dibaca malas (PR 1c-0 R10): hanya untuk nama kunci penanda ext saja; modul tidak ada → kunci dibiarkan.
+  function taskExtMod() {
+    try { return isNode ? require("./taskext.js") : (root.TF && root.TF.taskext) || null; } catch (_) { return null; }
+  }
 
   const STORE = {
     task: "tasks", note: "scratchpad_notes", mindmap: "mindmaps", habit: "habits", drawing: "drawings",
@@ -143,7 +147,12 @@
         // base_rev null → pull berikutnya melihat revisi server "lebih baru" dan menimpa record ini. ext_dirty ikut
         // dibuang (field plugin di task, spec plugin Fase 1 K5): kunci yang ditolak server tidak ditempel lagi oleh pull.
         return dropOutbox(entity, cid)
-          .then(() => patchRec(store, cid, (next) => { next.dirty = 0; next.base_rev = null; delete next.sync_error; delete next.ext_dirty; return next; }))
+          .then(() => patchRec(store, cid, (next) => {
+            next.dirty = 0; next.base_rev = null; delete next.sync_error; delete next.ext_dirty;
+            const X = taskExtMod();
+            if (X && X.EXT_ONLY_KEY) delete next[X.EXT_ONLY_KEY]; // R10: record bersih → tanpa penanda ext saja
+            return next;
+          }))
           .then(() => ({ ok: true }));
       }
       const cleanup = dropOutbox(entity, cid)

@@ -189,3 +189,168 @@ test("withLocalExt: ext_dirty sisa pada record lokal yang tidak dirty tidak dite
   assert.equal("ext_dirty" in out, false);
   assert.equal(out.dirty, undefined);
 });
+
+// ── PR 1c-0 Task 4 (R7): task yang tertunda hanya karena ext → field inti server menang saat pull ─────────────
+const X = require("../../static/offline/taskext.js");
+const KEY = X.EXT_ONLY_KEY;
+
+test("record ext saja kotor + op, server berubah dengan updated_at LEBIH LAMA dari edit lokal → server menang (bukan LWW lokal): judul/status server, kunci ext_dirty ditempel di atas ext server, dirty 1, penanda = rev record baru, tepat satu op update", async () => {
+  await putTasks([local({
+    cid: "a", server_id: 10, title: "Judul basi", gtd_status: "next", base_rev: "2026-06-01T00:00:00",
+    updated_at: "2026-06-04T09:00:00.000Z", dirty: 1, rev: 3, [KEY]: 3,
+    ext: { "demo-ext.start": "2026-11-09", "lain.k": 1 }, ext_dirty: ["demo-ext.start"],
+  })]);
+  assert.equal(X.extOnlyNow(await getTask("a")), true);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  const r = await pullTasks([srv({
+    id: 10, title: "Judul anggota lain", gtd_status: "done", updated_at: "2026-06-04T02:00:00",
+    ext: { "demo-ext.start": "2026-11-01", "lain.k": 7 },
+  })]);
+  assert.equal(r.lwwResolved, 1);
+  assert.equal(r.extKept, 1);
+  const a = await getTask("a");
+  assert.equal(a.title, "Judul anggota lain");
+  assert.equal(a.gtd_status, "done");
+  assert.equal(a.base_rev, "2026-06-04T02:00:00");
+  assert.deepEqual(a.ext, { "demo-ext.start": "2026-11-09", "lain.k": 7 });
+  assert.deepEqual(a.ext_dirty, ["demo-ext.start"]);
+  assert.equal(a.dirty, 1);
+  assert.equal(a.rev, 4);
+  assert.equal(a[KEY], 4);
+  assert.equal(X.extOnlyNow(a), true);
+  const ops = await outboxAll();
+  assert.equal(ops.length, 1);
+  assert.equal(ops[0].op, "update");
+  assert.equal(ops[0].cid, "a");
+});
+
+test("record ext saja + server tidak berubah (updated_at = base_rev) → dilewati, op tetap", async () => {
+  const rec = local({
+    cid: "a", server_id: 10, title: "Lokal", base_rev: "2026-06-04T00:00:00",
+    updated_at: "2026-06-04T09:00:00.000Z", dirty: 1, rev: 3, [KEY]: 3, ext: { "demo-ext.a": 1 }, ext_dirty: ["demo-ext.a"],
+  });
+  await putTasks([rec]);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  const r = await pullTasks([srv({ id: 10, title: "Lokal", updated_at: "2026-06-04T00:00:00", ext: {} })]);
+  assert.equal(r.lwwResolved, 0);
+  assert.equal(r.skipped, 1);
+  assert.deepEqual(await getTask("a"), rec);
+  assert.equal((await outboxAll()).length, 1);
+});
+
+test("record ext saja tanpa ext_dirty (kasus tepi) → dropOutbox + tulis server, bersih", async () => {
+  await putTasks([local({
+    cid: "a", server_id: 10, title: "Lokal", base_rev: "2026-06-01T00:00:00",
+    updated_at: "2026-06-04T09:00:00.000Z", dirty: 1, rev: 3, [KEY]: 3, ext: { "demo-ext.a": 1 },
+  })]);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  const r = await pullTasks([srv({ id: 10, title: "Server", updated_at: "2026-06-04T02:00:00", ext: { "demo-ext.a": 2 } })]);
+  assert.equal(r.lwwResolved, 1);
+  assert.equal(r.updated, 1);
+  assert.equal(r.extKept, 0);
+  const a = await getTask("a");
+  assert.equal(a.title, "Server");
+  assert.equal(a.dirty, 0);
+  assert.deepEqual(a.ext, { "demo-ext.a": 2 });
+  assert.equal(KEY in a, false);
+  assert.equal("ext_dirty" in a, false);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("jalur R11 untuk record TANPA penanda yang kalah LWW → kini ber-penanda (inti dari server)", async () => {
+  await putTasks([local({
+    cid: "a", server_id: 10, title: "Lokal", base_rev: "2026-06-01T00:00:00",
+    updated_at: "2026-06-04T01:00:00.000Z", dirty: 1, rev: 5, ext: { "demo-ext.a": 1 }, ext_dirty: ["demo-ext.a"],
+  })]);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  const r = await pullTasks([srv({ id: 10, title: "Server", updated_at: "2026-06-04T05:00:00", ext: {} })]);
+  assert.equal(r.extKept, 1);
+  const a = await getTask("a");
+  assert.equal(a.title, "Server");
+  assert.equal(a.rev, 6);
+  assert.equal(a[KEY], 6);
+  assert.equal(X.extOnlyNow(a), true);
+});
+
+test("tab lama menaikkan rev tanpa penanda (record kotor, ext_only_rev < rev) → LWW lama", async () => {
+  // tab lama (kode 1b) menyalin record dan menaikkan rev untuk edit judul → penanda basi
+  const rec = local({
+    cid: "a", server_id: 10, title: "Judul baru tab lama", base_rev: "2026-06-01T00:00:00",
+    updated_at: "2026-06-04T09:00:00.000Z", dirty: 1, rev: 4, [KEY]: 3, ext: { "demo-ext.a": 1 }, ext_dirty: ["demo-ext.a"],
+  });
+  assert.equal(X.extOnlyNow(rec), false);
+  await putTasks([rec]);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  const r = await pullTasks([srv({ id: 10, title: "Server", updated_at: "2026-06-04T02:00:00", ext: {} })]);
+  assert.equal(r.lwwResolved, 1);
+  assert.deepEqual(await getTask("a"), rec, "lokal lebih baru → lokal menang, judul tab lama tidak hilang");
+  assert.equal((await outboxAll()).length, 1);
+});
+
+test("hapus tag pada record ext saja (rev naik, updated_at tetap → penanda basi) → LWW lama, bukan server-menang", async () => {
+  // keadaan setelah rute DELETE tag (Task 2, R8): rev +1 dari record ext saja, updated_at tidak berubah
+  const rec = local({
+    cid: "a", server_id: 10, title: "Lokal", base_rev: "2026-06-01T00:00:00",
+    updated_at: "2026-06-04T09:00:00.000Z", dirty: 1, rev: 4, [KEY]: 3, ext: { "demo-ext.a": 1 }, ext_dirty: ["demo-ext.a"],
+  });
+  assert.equal(X.extOnlyNow(rec), false);
+  await putTasks([rec]);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  // server lebih lama dari edit lokal → lokal menang (PUT penuh berikutnya membawa penghapusan tag)
+  await pullTasks([srv({ id: 10, title: "Server", updated_at: "2026-06-04T02:00:00", ext: {} })]);
+  assert.deepEqual(await getTask("a"), rec);
+  assert.equal((await outboxAll()).length, 1);
+  // server lebih baru → jalur R11 lama (inti server, kunci ext ditempel)
+  await pullTasks([srv({ id: 10, title: "Server2", updated_at: "2026-06-04T10:00:00", ext: {} })]);
+  const a = await getTask("a");
+  assert.equal(a.title, "Server2");
+  assert.deepEqual(a.ext, { "demo-ext.a": 1 });
+  assert.equal(a.dirty, 1);
+  assert.equal((await outboxAll()).length, 1);
+});
+
+test("withLocalExt murni: kunci ditempel → ext_only_rev = rec.rev; tanpa kunci → tanpa penanda", () => {
+  const out = withLocalExt({ cid: "a", rev: 7, ext: { "abc.a": 2 } },
+    { dirty: 1, rev: 6, ext: { "abc.a": 1 }, ext_dirty: ["abc.a"] });
+  assert.equal(out[KEY], 7);
+  assert.equal(X.extOnlyNow(out), true);
+  const none = withLocalExt({ cid: "a", rev: 7, ext: { "abc.a": 2 } }, { dirty: 1, rev: 6, [KEY]: 6, ext: { "abc.a": 1 } });
+  assert.equal(KEY in none, false);
+  const clean = withLocalExt({ cid: "a", rev: 7 }, { dirty: 0, rev: 6, ext: {}, ext_dirty: ["abc.a"] });
+  assert.equal(KEY in clean, false);
+});
+
+test("setelah pull R11, push → {ext_patch} saja", async () => {
+  const { pushOutbox } = require("../../static/offline/syncpush.js");
+  await putTasks([local({
+    cid: "a", server_id: 10, title: "Judul lokal", base_rev: "2026-06-01T00:00:00",
+    updated_at: "2026-06-04T01:00:00.000Z", dirty: 1, rev: 2, ext: { "demo-ext.a": 1 }, ext_dirty: ["demo-ext.a"],
+  })]);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  const row = srv({ id: 10, title: "Judul server", gtd_status: "done", updated_at: "2026-06-04T05:00:00", ext: {} });
+  await pullTasks([row]);
+  const calls = [];
+  const tr = {
+    request(m, p, b) {
+      calls.push({ m, p, b });
+      return Promise.resolve({ status: 200, data: Object.assign({}, row, { updated_at: "2026-06-04T06:00:00", ext: Object.assign({}, b.ext_patch) }) });
+    },
+  };
+  await pushOutbox(tr);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].m, "PUT");
+  assert.deepEqual(calls[0].b, { ext_patch: { "demo-ext.a": 1 } });
+  const a = await getTask("a");
+  assert.equal(a.title, "Judul server");
+  assert.equal(a.dirty, 0);
+  assert.equal(KEY in a, false);
+  assert.deepEqual(a.ext, { "demo-ext.a": 1 });
+  assert.deepEqual(await outboxAll(), []);
+});

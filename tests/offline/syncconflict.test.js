@@ -146,3 +146,49 @@ test("resolveConflict applies changes to the CURRENT record (TFdb.mutate), not t
   assert.equal(rec.conflict, undefined);
   assert.equal(rec.title, "A-edited");
 });
+
+// ── PR 1c-0 Task 4 (R10): penanda ext saja (`ext_only_rev`) ─────────────────────────────────────────
+const X = require("../../static/offline/taskext.js");
+const KEY = X.EXT_ONLY_KEY;
+
+test("discard_local menghapus ext_only_rev dan ext_dirty", async () => {
+  await putTasks([{ cid: "a", server_id: 10, title: "A", dirty: 1, rev: 3, [KEY]: 3, deleted: false,
+    ext: { "demo-ext.big": "x" }, ext_dirty: ["demo-ext.big"], sync_error: { status: 422, detail: "EXT_TOO_LARGE" } }]);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  await resolveConflict("task", "a", "discard_local");
+  const rec = await getTask("a");
+  assert.equal(rec.dirty, 0);
+  assert.equal(KEY in rec, false);
+  assert.equal("ext_dirty" in rec, false);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("retry mempertahankan penanda", async () => {
+  await putTasks([{ cid: "a", server_id: 10, title: "A", dirty: 1, rev: 3, [KEY]: 3, deleted: false,
+    ext: { "demo-ext.big": "x" }, ext_dirty: ["demo-ext.big"], sync_error: { status: 422, detail: "EXT_TOO_LARGE" } }]);
+  await mapPut("task", 10, "a");
+  await resolveConflict("task", "a", "retry");
+  const rec = await getTask("a");
+  assert.equal(rec.sync_error, undefined);
+  assert.equal(rec.dirty, 1);
+  assert.equal(rec[KEY], 3);
+  assert.equal(X.extOnlyNow(rec), true);
+  const ops = await outboxAll();
+  assert.equal(ops.length, 1);
+  assert.equal(ops[0].op, "update");
+});
+
+test("keep_as_new → rev naik, op create", async () => {
+  await putTasks([{ cid: "a", server_id: 10, title: "A", conflict: "remote_deleted", dirty: 1, rev: 3, [KEY]: 3, deleted: false,
+    ext: { "demo-ext.a": 1 }, ext_dirty: ["demo-ext.a"] }]);
+  await mapPut("task", 10, "a");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "a", payload: {} });
+  await resolveConflict("task", "a", "keep_as_new");
+  const rec = await getTask("a");
+  assert.equal(rec.rev, 4);
+  assert.equal(X.extOnlyNow(rec), false, "penanda basi: entitas baru dikirim penuh (POST)");
+  const ops = await outboxAll();
+  assert.equal(ops.length, 1);
+  assert.equal(ops[0].op, "create");
+});

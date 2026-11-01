@@ -30,8 +30,12 @@
   // Pure (R11): `rec` = record dari server. ext *only-if-sent*: server tidak mengirim ext objek → ext lokal dipakai.
   // Kunci lokal yang belum terkirim (`ext_dirty`) ditempel di atas ext server (dihapus bila sudah dihapus lokal),
   // ext_dirty disalin, dirty = 1 → pemanggil mengantre ulang op update supaya kunci itu tetap terkirim.
+  // PR 1c-0 R7: record hasil tempel SELALU tertunda hanya karena ext (field inti baru dari server) → penanda
+  // X.EXT_ONLY_KEY = rec.rev (push berikutnya {ext_patch} saja). Tanpa kunci ditempel → tanpa penanda.
   function withLocalExt(rec, localRec) {
     if (!localRec) return rec;
+    const X = taskExtMod();
+    const markKey = X && X.EXT_ONLY_KEY;
     if (!isPlainExt(rec.ext)) {
       if (isPlainExt(localRec.ext)) rec.ext = localRec.ext; else delete rec.ext;
     }
@@ -47,6 +51,9 @@
       rec.ext = ext;
       rec.ext_dirty = keys.slice();
       rec.dirty = 1;
+      if (markKey) rec[markKey] = rec.rev || 0;
+    } else if (markKey) {
+      delete rec[markKey];
     }
     return rec;
   }
@@ -318,7 +325,12 @@
               if (localRec.base_rev != null && s.updated_at !== localRec.base_rev) {
                 // edit-vs-edit conflict → last-write-wins
                 result.lwwResolved++;
-                if (tsEpoch(s.updated_at) > tsEpoch(localRec.updated_at)) {
+                // PR 1c-0 R7: tertunda hanya karena ext (penanda sah) → tidak ada inti lokal yang perlu menang:
+                // field inti server selalu menang, kunci ext lokal ditempel (R11). Penanda basi (rev naik oleh
+                // tab lama / hapus tag) → extOnlyNow false → LWW lama.
+                const X = taskExtMod();
+                const extOnly = !!X && typeof X.extOnlyNow === "function" && X.extOnlyNow(localRec);
+                if (extOnly || tsEpoch(s.updated_at) > tsEpoch(localRec.updated_at)) {
                   const extDirty = Array.isArray(localRec.ext_dirty) && localRec.ext_dirty.length > 0;
                   if (!extDirty) return dropOutbox("task", cid).then(() => write(s, localRec, "updated")); // server wins
                   // R11: field inti = server, kunci ext yang belum terkirim ditempel (withLocalExt) + op diantre ulang
