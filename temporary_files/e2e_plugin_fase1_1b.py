@@ -26,9 +26,10 @@ Timeline U1 dinyalakan lewat UI Pengaturan › Plugin (A) setelah diperiksa OFF 
      U2 (OFF) mengganti judul lewat API dan lewat klien C → `timeline.*` utuh; C tanpa tombol/seksi.
    5 B offline: seret bar; A mengganti prioritas task yang sama; B online + sinkron → server prioritas A + jadwal B;
      kontrol positif K6: ganti prioritas → notifikasi U2 +1.
-   6 kinerja (D, U3): 500 task + 400 dependensi, CDP CPU throttle 4×: klik kedua tombol Timeline → baris pertama,
-     elemen DOM `.plg-timeline *` diam/saat gulir ≤ 1500, gulir 3 s + PerformanceObserver longtask; seksi Jadwal
-     dan pemilih dependensi di akun besar (dicatat).
+   6 kinerja (D, U3): 500 task + 400 dependensi, CDP CPU throttle 4×: render Timeline sendiri (pemasangan view →
+     Gantt pertama tergambar, plugin.js ter-cache) ≤ 150 ms — waktu ganti view dari Normal (termasuk pembongkaran
+     daftar host) dan buka halaman dengan Timeline diingat dicatat sebagai info; elemen DOM `.plg-timeline *`
+     diam/saat gulir ≤ 1500, gulir 3 s + PerformanceObserver longtask; seksi Jadwal dan pemilih di akun besar.
    7 HP 375 px (E, has_touch): WBS+Nama menempel, gulir horizontal di dalam wadah, halaman 375; tekan lama lalu
      seret (CDP touch) → 1 PUT; sapuan cepat → gulir, 0 PUT; Daftar → kelompok minggu; diingat setelah muat ulang.
    8 Sakura gelap: bar, arsir libur, bendera, panah (tangkapan); konsol tanpa error.
@@ -980,6 +981,45 @@ def run(browser, base, users, ids, dates):
                 pass
 
 
+# Render Timeline sendiri (keputusan controller 2026-11-01: anggaran R24 150 ms @ CPU 4× = dari pemasangan view sampai
+# Gantt pertama tergambar, TANPA pembongkaran daftar Normal 500 baris oleh host). Komponen kontribusi `taskList.views`
+# (TF.plugins.contributions) dipasang ulang dengan props nyata (context + api yang sedang dipakai view, dibaca dari fiber
+# React) ke wadah `.tf-plugin-view` baru di tempat yang sama (view asli disembunyikan) lewat createRoot + flushSync:
+# "dom" = render + commit + layout effect selesai dengan baris task di DOM, "frame" = sampai frame berikut (rAF + task).
+PLUGIN_RENDER_JS = """(n) => new Promise(async (res) => {
+  const view = document.querySelector('.tf-plugin-view');
+  const rootEl = view && view.querySelector('.plg-timeline');
+  const fk = rootEl && Object.keys(rootEl).find((k) => k.indexOf('__reactFiber$') === 0);
+  let f = fk ? rootEl[fk] : null;
+  while (f && !(f.memoizedProps && f.memoizedProps.api && f.memoizedProps.context)) f = f.return;
+  const c = (window.TF.plugins.contributions('taskList.views') || []).find((x) => x.pluginId === 'timeline' && x.id === 'gantt');
+  if (!f || !c) { res({ error: 'props/kontribusi tidak ditemukan', fiber: !!f, contrib: !!c }); return; }
+  const props = { context: f.memoizedProps.context, api: f.memoizedProps.api };
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const frame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  view.style.display = 'none';
+  const host = document.createElement('div');
+  host.className = 'tf-plugin-view';
+  view.parentNode.insertBefore(host, view);
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    await sleep(1500);
+    const root = ReactDOM.createRoot(host);
+    const t0 = performance.now();
+    ReactDOM.flushSync(() => root.render(React.createElement(c.component, props)));
+    const dom = host.querySelector('.plg-timeline-row:not(.is-group)') ? performance.now() - t0 : null;
+    await frame();
+    const fr = performance.now() - t0;
+    const rows = host.querySelectorAll('.plg-timeline-row').length;
+    const bars = host.querySelectorAll('.plg-timeline-bar').length;
+    out.push({ dom, frame: fr, rows, bars });
+    root.unmount();
+  }
+  host.remove();
+  view.style.display = '';
+  res({ runs: out });
+})"""
+
 MEASURE_JS = """() => new Promise((res) => {
   const btn = document.querySelector(".tl-view-btn[aria-label='Timeline']");
   let t1 = null; const t0 = performance.now();
@@ -1042,10 +1082,18 @@ def run_perf(browser, base, u3, ids, ctxs):
             d.wait_for_timeout(2000)
         dom_ms = [round(r_["dom"], 1) for r_ in runs]
         frame_ms = [round(r_["frame"], 1) for r_ in runs]
-        info("6 klik ke-2..4 (plugin.js ter-cache, CPU 4×) baris pertama di DOM ms", dom_ms)
-        info("6 klik ke-2..4 (CPU 4×) sampai frame berikut ms", frame_ms)
-        check("6a CPU 4×, plugin.js ter-cache: klik → baris pertama ≤ %d ms (median %d putaran)" % (BUDGET_MS, len(runs)),
-              statistics.median(dom_ms) <= BUDGET_MS, "dom=%r frame=%r" % (dom_ms, frame_ms))
+        info("6 [info] ganti view Normal (500 baris) → Timeline, CPU 4×: baris pertama di DOM ms (termasuk pembongkaran daftar host)", dom_ms)
+        info("6 [info] ganti view Normal → Timeline, CPU 4×: sampai frame berikut ms", frame_ms)
+        pr = d.evaluate(PLUGIN_RENDER_JS, 9)
+        p_runs = pr.get("runs") or []
+        p_dom = [round(x["dom"], 1) if x["dom"] is not None else None for x in p_runs]
+        p_frame = [round(x["frame"], 1) for x in p_runs]
+        info("6 render Timeline sendiri (pasang view → Gantt tergambar), CPU 4×: DOM ms / frame ms / baris+bar DOM",
+             [p_dom, p_frame, [(x["rows"], x["bars"]) for x in p_runs]])
+        ok_runs = p_runs and all(x["dom"] is not None and x["bars"] > 0 for x in p_runs)
+        check("6a CPU 4×, plugin.js ter-cache: render Timeline sendiri (pemasangan view → Gantt pertama tergambar) ≤ %d ms "
+              "(median %d putaran; keputusan controller: tanpa pembongkaran daftar Normal host)" % (BUDGET_MS, len(p_runs)),
+              ok_runs and statistics.median(p_frame) <= BUDGET_MS, "frame=%r dom=%r %r" % (p_frame, p_dom, pr.get("error")))
         rows = d.evaluate("() => [document.querySelectorAll('.plg-timeline-row').length, document.querySelector('.plg-timeline-scroll').getAttribute('aria-rowcount')]")
         idle = dom_count(d)
         info("6 elemen DOM .plg-timeline * saat diam (baris DOM, aria-rowcount)", [idle] + rows)
@@ -1086,7 +1134,7 @@ def run_perf(browser, base, u3, ids, ctxs):
             const mo = new MutationObserver(() => { if (t1 === null && document.querySelector('.plg-timeline-row:not(.is-group)')) {
               t1 = performance.now(); mo.disconnect(); requestAnimationFrame(() => setTimeout(() => res({ dom: t1 - t0, frame: performance.now() - t0 }), 0)); } });
             mo.observe(document.body, { childList: true, subtree: true }); link.click(); })""", WS_BIG)
-        info("6 CPU 4×: dari Inbox klik sidebar ke workspace besar (Timeline diingat) → baris pertama ms", {k: round(v, 1) for k, v in pg.items()})
+        info("6 [info] CPU 4×: dari Inbox klik sidebar ke workspace besar (Timeline diingat) → baris pertama ms", {k: round(v, 1) for k, v in pg.items()})
         d.locator(".plg-timeline-scroll").wait_for(state="visible", timeout=20000)
         d.wait_for_timeout(1500)
         cdp.send("Emulation.setCPUThrottlingRate", {"rate": 1})
