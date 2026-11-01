@@ -4317,3 +4317,9 @@
 - **Status:** Needs Review (PR draft #119). pytest 1367/1 skip; npm 3744/3745 (pra-ada).
 
 - 2026-11-01 02:10 WIB (Claude): #119 (Plugin Fase 1 PR 1a-1, SW v491) di-merge + deploy workflow; menunggu restart manual taskflow-web + taskflow; PR 1a-2 paling cepat 2026-11-04.
+
+## [2026-11-01 10:00] - Claude (Opus 5.5)
+- **Task:** Banner "Pembaruan Alurik tersedia!" terjepit di layar kecil — pesan di atas, tombol Perbarui + X di bawah.
+- **Changes:** layout banner dipindah dari inline style ke kelas `app.css` (`__msg/__icon/__text/__actions/__btn/__close`), `width: max-content` (perbaikan batas 50vw akibat `left:50%`), media query 640 px menumpuk; SW v493 + `app.css?v=383` + whatsnew; tes versi diperbarui; +2 tes notifier.
+- **Files Touch:** static/index.html, static/app.css, static/sw.js, static/whatsnew.json, tests/offline/app_update_notifier.test.js + tes versi (tests/offline/*, tests/test_static_revalidate.py), .agents/*
+- **Status:** PR DRAFT (branch didorong, PR belum dibuka). pytest 1367/1 skip; npm 3747/3747; PROTOCOL §4 33.
