@@ -428,3 +428,49 @@ test("end-to-end pushOutbox: PUT penuh terbang, lalu edit ext → PUT berikutnya
   assert.equal(rec.dirty, 0);
   assert.deepEqual(srv.rows.get(1).ext, { [EXT_A]: 1 });
 });
+
+test("daftar pull basi (lebih tua dari base_rev) pada record ext saja → inti lokal yang lebih baru tetap, base_rev tidak mundur; edit inti + push tidak membalik judul anggota A", async () => {
+  const srv = fakeServer();
+  const cid = await deviceB(srv, 1, { title: "T0" });
+  const stale = srv.list(); // GET yang dilayani lebih awal (tab lain), diproses terlambat
+  srv.memberEdit(1, { title: "Judul A2" });
+  await repo.updateTask(cid, { ext_patch: { [EXT_A]: 1 } }, TODAY);
+  await drain(srv); // {ext_patch} → inti respons (Judul A2) diadopsi, base_rev = U1
+  let rec = await getRec(cid);
+  assert.equal(rec.title, "Judul A2");
+  const u1 = rec.base_rev;
+  await repo.updateTask(cid, { ext_patch: { [EXT_A]: 2 } }, TODAY); // ext saja lagi
+  assert.equal(X.extOnlyNow(await getRec(cid)), true);
+  await pullTasks(stale);
+  rec = await getRec(cid);
+  assert.equal(rec.title, "Judul A2", "daftar basi tidak boleh menimpa inti yang lebih baru");
+  assert.equal(rec.base_rev, u1, "base_rev tidak mundur");
+  assert.equal(X.extOnlyNow(rec), true, "masih ext saja");
+  assert.equal(rec.ext[EXT_A], 2);
+  stripCalls(srv);
+  await drain(srv);
+  assert.deepEqual(puts(srv).map((c) => c.body), [{ ext_patch: { [EXT_A]: 2 } }], "masih {ext_patch} saja");
+  await repo.updateTask(cid, { gtd_status: "done" }, TODAY);
+  await drain(srv);
+  assert.equal(puts(srv)[1].body.title, "Judul A2");
+  assert.equal(srv.rows.get(1).core.title, "Judul A2", "judul anggota A selamat di server");
+  assert.equal(srv.rows.get(1).core.gtd_status, "done");
+  assert.equal(srv.rows.get(1).ext[EXT_A], 2);
+  rec = await getRec(cid);
+  assert.equal(rec.dirty, 0);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("daftar pull TIDAK basi (lebih baru dari base_rev) pada record ext saja → inti server menang, kunci ext lokal ditempel (R7/R11 tetap)", async () => {
+  const srv = fakeServer();
+  const cid = await deviceB(srv, 1, { title: "T0" });
+  await repo.updateTask(cid, { ext_patch: { [EXT_A]: 1 } }, TODAY);
+  srv.memberEdit(1, { title: "Judul A2" });
+  await pull(srv);
+  const rec = await getRec(cid);
+  assert.equal(rec.title, "Judul A2");
+  assert.equal(rec.base_rev, srv.rows.get(1).updated_at);
+  assert.equal(rec.ext[EXT_A], 1);
+  assert.deepEqual(rec.ext_dirty, [EXT_A]);
+  assert.equal((await outboxAll()).length, 1);
+});

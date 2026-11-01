@@ -330,7 +330,13 @@
                 // tab lama / hapus tag) → extOnlyNow false → LWW lama.
                 const X = taskExtMod();
                 const extOnly = !!X && typeof X.extOnlyNow === "function" && X.extOnlyNow(localRec);
-                if (extOnly || tsEpoch(s.updated_at) > tsEpoch(localRec.updated_at)) {
+                // ...kecuali daftar basi (lebih tua dari base_rev; mis. GET yang dilayani sebelum respons PUT kita
+                // diadopsi): inti lokal = revisi server yang lebih baru → lokal tetap; pull/respons push berikut
+                // yang membetulkan.
+                const serverWins = extOnly
+                  ? !(tsEpoch(localRec.base_rev) > tsEpoch(s.updated_at))
+                  : tsEpoch(s.updated_at) > tsEpoch(localRec.updated_at);
+                if (serverWins) {
                   const extDirty = Array.isArray(localRec.ext_dirty) && localRec.ext_dirty.length > 0;
                   if (!extDirty) return dropOutbox("task", cid).then(() => write(s, localRec, "updated")); // server wins
                   // R11: field inti = server, kunci ext yang belum terkirim ditempel (withLocalExt) + op diantre ulang
