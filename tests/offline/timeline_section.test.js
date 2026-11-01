@@ -13,6 +13,8 @@ const T = require(path.join(dir, "plugin.js"));
 // Debounce Mulai (fix round 1): 700 ms di aplikasi, dipendekkan di tes (objek waktu yang bisa diganti, pola `engine`).
 const DEBOUNCE = 30;
 T.SEC_TIMING.startDebounceMs = DEBOUNCE;
+// Dedupe toast "kalah LWW" (final review #7): 1500 ms di aplikasi; 0 di tes = hanya dalam satu dispatch sinkron.
+if (T.LOST_TIMING) T.LOST_TIMING.dedupeMs = 0;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── React palsu ────────────────────────────────────────────────────────────
@@ -114,6 +116,7 @@ function fakeApi(o) {
   const opts = o || {};
   const calls = { set: [], list: [], storageGet: [], storageSet: [], toast: [], recGet: [], events: [], handlers: {} };
   const recs = new Map(Object.entries(opts.records || {}));
+  const recListeners = opts.recListeners || new Set(); // bersama antar-api palsu = satu pluginsync
   let setImpl = opts.set || (() => Promise.resolve());
   const api = {
     id: "timeline",
@@ -146,7 +149,7 @@ function fakeApi(o) {
         return Promise.resolve(d ? { entity, id, scope: "x", data: d, updated_at: "", version: 1, pending: false } : null);
       },
       put: () => Promise.reject(new Error("tidak dipakai seksi")),
-      onChange: () => () => {},
+      onChange: (fn) => { recListeners.add(fn); return () => recListeners.delete(fn); },
     },
     events: {
       on(name, fn) { calls.events.push(name); (calls.handlers[name] = calls.handlers[name] || []).push(fn); return () => {}; },
@@ -159,7 +162,7 @@ function fakeApi(o) {
     ui: { toast: (...a) => calls.toast.push(a) },
     log: { info() {}, warn() {}, error() {} },
   };
-  return { api, calls, setSet: (fn) => { setImpl = fn; } };
+  return { api, calls, setSet: (fn) => { setImpl = fn; }, recListeners, emitRec: (ev) => { for (const fn of [...recListeners]) fn(ev); } };
 }
 
 // ScheduleSection (penjaga tanpa hooks) dipanggil di luar mount → React global minimal untuk createElement.
@@ -857,4 +860,45 @@ test("final: ketik Mulai di task 300 lalu seksi pindah ke task 301 sebelum debou
   await s.settle();
   assert.deepEqual(s.calls.set, [[300, { start: "2026-11-10" }]], "tidak ada tulis tambahan (ke 300 maupun 301)");
   assert.ok(s.calls.set.every(([id]) => id !== 301));
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Final review #7: toast "kalah LWW" kalender juga dari seksi (tanpa view Gantt), tanpa ganda bila keduanya terpasang
+// ════════════════════════════════════════════════════════════════════════════
+const MSG_LOST = "Perubahan kalender di perangkat ini kalah oleh perubahan yang lebih baru";
+
+test("final #7: seksi saja (tanpa Gantt) → lost untuk kalendernya → satu toast persis; kalender lain → tanpa toast", async () => {
+  const task = mk(400, "Kerja", { start: "2026-11-02", duration: 2 }, { list_id: 12 });
+  const s = await ui(task, { tasks: [task] });
+  assert.ok(s.f.recListeners.size >= 1, "seksi mendengar perubahan kalender");
+  s.f.emitRec({ entity: "calendar", ids: ["cal@list:99"], source: "sync", lost: ["cal@list:99"] });
+  assert.deepEqual(s.calls.toast, [], "kalender lain");
+  s.f.emitRec({ entity: "calendar", ids: ["cal@list:12"], source: "sync", lost: ["cal@list:12"] });
+  assert.deepEqual(s.calls.toast, [[MSG_LOST, "error"]]);
+  await tick();
+  s.m.unmount();
+  assert.equal(s.f.recListeners.size, 0, "pendengar dilepas");
+});
+
+test("final #7: view Gantt + seksi (panel Live Edit) pada kalender yang sama → satu lost = SATU toast", async () => {
+  const recListeners = new Set();
+  const task = mk(401, "Kerja", { start: "2026-11-02", duration: 2 }, { list_id: 12 });
+  const s = await ui(task, { tasks: [task], recListeners });
+  // view Gantt workspace 12 dengan api palsu yang berbagi pendengar record (satu pluginsync)
+  const fv = fakeApi({ tasks: [task], recListeners });
+  const vm = mount(T.TimelineViewBody);
+  const ctx = { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null, tasks: [task], scopeTasks: [task], liveEdit: true, onTaskClick() {}, isSelected: () => false, showToast() {} };
+  vm.render({ context: ctx, api: fv.api });
+  vm.flush();
+  await tick();
+  assert.ok(recListeners.size >= 2, "view dan seksi sama-sama mendengar");
+  s.f.emitRec({ entity: "calendar", ids: ["cal@list:12"], source: "sync", lost: ["cal@list:12"] });
+  const all = s.calls.toast.concat(fv.calls.toast).filter((t) => t[0] === MSG_LOST);
+  assert.equal(all.length, 1, "tanpa toast ganda: " + JSON.stringify(all));
+  // peristiwa lost berikutnya (dispatch lain) memberi tahu lagi
+  await tick();
+  s.f.emitRec({ entity: "calendar", ids: ["cal@list:12"], source: "sync", lost: ["cal@list:12"] });
+  assert.equal(s.calls.toast.concat(fv.calls.toast).filter((t) => t[0] === MSG_LOST).length, 2);
+  vm.unmount();
+  s.m.unmount();
 });

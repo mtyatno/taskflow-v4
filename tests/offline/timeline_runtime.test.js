@@ -310,19 +310,19 @@ test("calendarStore: bulat-pergi lewat api.records nyata + IndexedDB (cal@user s
   const store = T.calendarStore(RT.api.for("timeline"));
   // D5: sebelum ada record apa pun → bawaan, pending false (tanpa menunggu tarik pertama)
   const def = J(await store.load("cal@list:12"));
-  assert.deepEqual(def, { data: J(T.TLCal.normalize(T.TLCal.DEFAULT_CAL)), pending: false });
+  assert.deepEqual(def, { data: J(T.TLCal.normalize(T.TLCal.DEFAULT_CAL)), pending: false, exists: false });
   assert.deepEqual(def.data, { v: 1, weekdays: [1, 2, 3, 4, 5], national: true, cutiBersama: true, off: [], work: [] });
   assert.equal((await rawCal()).length, 0);
   // simpan kalender pribadi dan workspace
   const mine = weekCal({ weekdays: [1, 2, 3, 4, 5, 6], off: [{ d: "2026-11-09", n: "Cuti pribadi" }], work: [{ d: "2026-11-14", n: "Pengganti" }] });
   const sp = await store.save("cal@user", "user", mine);
-  assert.deepEqual(J(sp), { data: J(T.TLCal.normalize(mine)), pending: true });
+  assert.deepEqual(J(sp), { data: J(T.TLCal.normalize(mine)), pending: true, exists: true });
   const ws = weekCal({ cutiBersama: false, off: [{ d: "2026-12-24", n: "Brückentag" }] });
   await store.save("cal@list:12", "list:12", ws);
   const rows = (await rawCal()).sort((a, b) => (a.id < b.id ? -1 : 1));
   assert.deepEqual(rows.map((r) => [r.id, r.scope, r.dirty]), [["cal@list:12", "list:12", 1], ["cal@user", "user", 1]]);
-  assert.deepEqual(J(await store.load("cal@user")), { data: J(T.TLCal.normalize(mine)), pending: true });
-  assert.deepEqual(J(await store.load("cal@list:12")), { data: J(T.TLCal.normalize(ws)), pending: true });
+  assert.deepEqual(J(await store.load("cal@user")), { data: J(T.TLCal.normalize(mine)), pending: true, exists: true });
+  assert.deepEqual(J(await store.load("cal@list:12")), { data: J(T.TLCal.normalize(ws)), pending: true, exists: true });
   assert.equal((await pluginOps()).length, 2);
   // simpan ulang (scope sama) = update, tetap satu op per record
   await store.save("cal@list:12", "list:12", weekCal({ cutiBersama: false, off: [] }));
@@ -429,7 +429,7 @@ test("onChange source sync (tarik) dan lost (kalah LWW saat kirim) → calendarS
   assert.deepEqual(pulled.errors, []);
   assert.deepEqual(pulls, ["/api/plugins/timeline/records?cursor=&limit=500"]);
   assert.deepEqual(J(seen), [{ ids: ["cal@list:12"], source: "sync", lost: [] }]);
-  assert.deepEqual(J(await store.load("cal@list:12")), { data: J(T.TLCal.normalize(SAT_WORK)), pending: false }, "sesudah tarik selesai, kalender server terbaca");
+  assert.deepEqual(J(await store.load("cal@list:12")), { data: J(T.TLCal.normalize(SAT_WORK)), pending: false, exists: true }, "sesudah tarik selesai, kalender server terbaca");
 
   // D8: edit lokal kalah LWW (server menjawab applied:false) → lost
   seen.length = 0;
@@ -440,7 +440,7 @@ test("onChange source sync (tarik) dan lost (kalah LWW saat kirim) → calendarS
   const srv = pushServer((m, p) => (p === PATH ? { status: 200, data: { results: [{ entity: "calendar", id: "cal@list:12", applied: false, record: winner }] } } : null));
   await drain(srv);
   assert.deepEqual(J(seen), [{ ids: ["cal@list:12"], source: "sync", lost: ["cal@list:12"] }]);
-  assert.deepEqual(J(await store.load("cal@list:12")), { data: J(T.TLCal.normalize(winner.data)), pending: false }, "data server menang");
+  assert.deepEqual(J(await store.load("cal@list:12")), { data: J(T.TLCal.normalize(winner.data)), pending: false, exists: true }, "data server menang");
   off();
   seen.length = 0;
   PS._internals.emit({ pluginId: "timeline", entity: "calendar", ids: ["cal@user"], source: "sync" });

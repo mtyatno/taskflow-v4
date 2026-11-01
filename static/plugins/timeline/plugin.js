@@ -1729,19 +1729,22 @@ function calTooLarge() {
   return e;
 }
 
-// Adaptor tunggal api.records untuk entitas `calendar`. Tidak ada record → DEFAULT_CAL (pending false).
+// Adaptor tunggal api.records untuk entitas `calendar`. Tidak ada record → DEFAULT_CAL (pending false, exists false).
 // Data dari anggota lain selalu lewat TLCal.normalize. save menolak > 16384 byte di klien sebelum put.
+// `exists` = record ada di perangkat ini (final review #2: kalender workspace tanpa record lokal bisa saja belum ditarik).
 function calendarStore(api) {
   return {
     load(calId) {
       return Promise.resolve().then(() => api.records.get(CAL_ENTITY, calId)).then(r => {
         if (!r) return {
           data: TLCal.normalize(TLCal.DEFAULT_CAL),
-          pending: false
+          pending: false,
+          exists: false
         };
         return {
           data: TLCal.normalize(r.data),
-          pending: !!r.pending
+          pending: !!r.pending,
+          exists: true
         };
       });
     },
@@ -1753,7 +1756,8 @@ function calendarStore(api) {
           scope
         }).then(r => ({
           data: TLCal.normalize(r && r.data ? r.data : clean),
-          pending: !!(r && r.pending)
+          pending: !!(r && r.pending),
+          exists: true
         }), e => {
           throw e && e.code === "TOO_LARGE" ? calTooLarge() : e;
         });
@@ -1826,6 +1830,7 @@ const MSG_EMPTY = "Belum ada task di halaman ini";
 // Kalender kerja (R18) dan Daftar HP (R20): teks persis.
 const MSG_CAL_NOTE = "Dipakai semua anggota workspace";
 const MSG_PENDING = "Menunggu sinkron";
+const MSG_CAL_WAIT = "Menunggu data kalender workspace…";
 const MSG_CAL_SAVE_FAIL = "Kalender gagal disimpan";
 const MSG_CAL_LOAD_FAIL = "Kalender gagal dimuat";
 const MSG_DATE_NEED = "Pilih tanggal dulu";
@@ -2082,16 +2087,37 @@ function usePref(api, kind, page) {
   return [val, set];
 }
 
+// Toast "kalah LWW" (spec §8.9) dari view DAN seksi Jadwal (final review #7: seksi saja juga memberi tahu bila tidak ada
+// view Gantt terpasang). Keduanya menerima peristiwa yang sama dalam satu dispatch sinkron → dedupe tingkat modul per id
+// kalender selama LOST_TIMING.dedupeMs (view + panel Live Edit bersamaan = satu toast).
+const LOST_TIMING = {
+  dedupeMs: 1500
+};
+const lostShown = new Map(); // id kalender → batas akhir dedupe (Infinity = sampai timer melepasnya)
+function toastLost(api, calId) {
+  const until = lostShown.get(calId);
+  if (until !== undefined && nowMs() < until) return;
+  if (typeof setTimeout === "function") {
+    // timer: dispatch sinkron yang sama selalu terdedupe, juga dengan dedupeMs 0
+    lostShown.set(calId, Infinity);
+    setTimeout(() => lostShown.delete(calId), Math.max(0, LOST_TIMING.dedupeMs));
+  } else lostShown.set(calId, nowMs() + Math.max(1, LOST_TIMING.dedupeMs));
+  toastSafe(api, MSG_CAL_LOST, "error");
+}
+
 // Kalender aktif halaman (R4/R5): muat lewat calendarStore, muat ulang saat sinkron/perubahan id ini;
-// edit lokal yang kalah LWW → toast persis (spec §8.9). `quiet` (seksi Jadwal): tanpa toast — view yang memberi tahu,
-// agar view + panel Live Edit yang tampil bersamaan tidak menampilkan toast ganda.
-function useCalendar(api, target, quiet) {
+// edit lokal yang kalah LWW → toast persis lewat toastLost (dedupe view + seksi).
+// `synced` (final review #2): sudah ada sinkron selesai SETELAH pemasangan ini (sync.done, atau onChange record dengan
+// source "sync") — sebelum itu kalender workspace tanpa record lokal mungkin hanya belum ditarik (D5), jadi popover
+// tidak boleh menimpanya dengan bawaan. Hanya view (`watchSync`) yang butuh `synced` (popover); seksi tidak mendengar sync.done.
+function useCalendar(api, target, watchSync) {
   const store = React.useMemo(() => calendarStore(api), [api]);
   const [st, setSt] = React.useState(() => ({
     id: target.id,
     data: DEFAULT_CAL_DATA,
     pending: false
   }));
+  const [synced, setSynced] = React.useState(false);
   React.useEffect(() => {
     let alive = true;
     const id = target.id;
@@ -2106,14 +2132,9 @@ function useCalendar(api, target, quiet) {
     let off = null;
     try {
       off = store.subscribe(ev => {
+        if (ev.source === "sync") setSynced(true);
         const lost = ev.lost.indexOf(id) >= 0;
-        if (lost && !quiet) {
-          try {
-            api.ui.toast(MSG_CAL_LOST, "error");
-          } catch (e) {
-            logWarn(api, "toast gagal:", e);
-          }
-        }
+        if (lost) toastLost(api, id);
         if (lost || ev.source === "sync" || ev.ids.indexOf(id) >= 0) load();
       });
     } catch (e) {
@@ -2124,11 +2145,25 @@ function useCalendar(api, target, quiet) {
       if (typeof off === "function") off();
     };
   }, [store, target.id]);
+  React.useEffect(() => {
+    const ev = api && api.events;
+    if (!watchSync || !ev || typeof ev.on !== "function") return undefined;
+    let off = null;
+    try {
+      off = ev.on("sync.done", () => setSynced(true));
+    } catch (e) {
+      logWarn(api, "pendengar sync.done gagal:", e);
+    }
+    return () => {
+      if (typeof off === "function") off();
+    };
+  }, [api, watchSync]);
   const mine = st.id === target.id;
   return {
     data: mine ? st.data : DEFAULT_CAL_DATA,
     pending: mine && st.pending,
-    store
+    store,
+    synced
   };
 }
 
@@ -2622,7 +2657,8 @@ function CalendarPopover(props) {
   } = props;
   const [st, setSt] = React.useState({
     data: null,
-    pending: false
+    pending: false,
+    exists: false
   });
   const [err, setErr] = React.useState("");
   const [form, setForm] = React.useState({
@@ -2640,9 +2676,17 @@ function CalendarPopover(props) {
     dataRef.current = r.data;
     setSt({
       data: r.data,
-      pending: r.pending
+      pending: r.pending,
+      exists: r.exists !== false
     });
   };
+  // Jendela sinkron pertama (final review #2, D5): kalender workspace tanpa record di perangkat ini dan belum ada sinkron
+  // selesai sejak view dipasang → bisa jadi kalender bersama hanya belum ditarik. Menulis bawaan + perubahan dengan
+  // base_version null akan menang LWW dan menimpanya, jadi semua kontrol ubah dinonaktifkan sampai sinkron/record tiba.
+  // Setelah sinkron tanpa record (workspace belum pernah punya kalender), mengubah diizinkan. cal@user tidak menunggu.
+  const waiting = scope !== "user" && st.data !== null && !st.exists && !props.synced;
+  const waitRef = React.useRef(waiting);
+  waitRef.current = waiting;
   React.useEffect(() => {
     alive.current = true;
     const load = () => store.load(calId).then(r => {
@@ -2704,7 +2748,7 @@ function CalendarPopover(props) {
   // Terapkan perubahan murni `mut(kalender) → kalender` dan simpan. false = tidak ada yang berubah / terlalu besar.
   const change = mut => {
     const cur = dataRef.current;
-    if (!cur) return false;
+    if (!cur || waitRef.current) return false;
     const next = TLCal.normalize(mut(cur));
     if (JSON.stringify(next) === JSON.stringify(cur)) return false;
     if (TLCal.byteSize(next) > CAL_MAX_BYTES) {
@@ -2745,7 +2789,7 @@ function CalendarPopover(props) {
   const addEntry = (kind, e) => {
     if (e && typeof e.preventDefault === "function") e.preventDefault();
     const cur = dataRef.current;
-    if (!cur) return;
+    if (!cur || waitRef.current) return;
     const f = form[kind];
     const fail = m => setForm(s => Object.assign({}, s, {
       [kind]: Object.assign({}, s[kind], {
@@ -2775,7 +2819,7 @@ function CalendarPopover(props) {
     })
   }));
   const cal = st.data;
-  const loading = cal === null;
+  const loading = cal === null || waiting; // kontrol ubah nonaktif saat memuat atau menunggu sinkron pertama
   const list = (kind, title, addLabel, delLabel) => /*#__PURE__*/React.createElement("section", {
     className: "plg-timeline-pop-sec",
     "aria-label": title
@@ -2795,6 +2839,7 @@ function CalendarPopover(props) {
     className: "plg-timeline-pop-del",
     "aria-label": "Hapus " + dateLabel(e.d),
     title: delLabel,
+    disabled: loading,
     onClick: () => removeEntry(kind, e.d)
   }, "\xD7")))) : null, /*#__PURE__*/React.createElement("form", {
     className: "plg-timeline-pop-form",
@@ -2845,7 +2890,10 @@ function CalendarPopover(props) {
     onClick: () => close(true)
   }, "\xD7")), pageKind === "workspace" ? /*#__PURE__*/React.createElement("p", {
     className: "plg-timeline-pop-note"
-  }, MSG_CAL_NOTE) : null, /*#__PURE__*/React.createElement("div", {
+  }, MSG_CAL_NOTE) : null, waiting ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-pop-wait",
+    role: "status"
+  }, MSG_CAL_WAIT) : null, /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-pop-days",
     role: "group",
     "aria-label": "Hari kerja"
@@ -3646,7 +3694,7 @@ function TimelineViewBody(props) {
   const calBtnRef = React.useRef(null);
   const pageKind = context.pageKind === "workspace" ? "workspace" : "project";
   const target = React.useMemo(() => calTarget(pageKind === "workspace" ? context.listId : null), [pageKind, context.listId]);
-  const cal = useCalendar(api, target);
+  const cal = useCalendar(api, target, true);
   const today = safeToday(api);
   const todayDn = today ? TLCal.dn(today) : null;
   const calKey = React.useMemo(() => JSON.stringify(cal.data), [cal.data]);
@@ -3867,6 +3915,7 @@ function TimelineViewBody(props) {
     scope: target.scope,
     pageKind: pageKind,
     store: cal.store,
+    synced: cal.synced,
     onClose: closeCal
   }) : null;
   const top = /*#__PURE__*/React.createElement("div", {
@@ -4300,7 +4349,7 @@ function ScheduleBody(props) {
   const [picker, setPicker] = React.useState(null); // null | {q, list: null | task[]}
 
   const target = calTarget(task.list_id);
-  const cal = useCalendar(api, target, true);
+  const cal = useCalendar(api, target);
   const c = React.useMemo(() => TLCal.compile(cal.data), [cal.data]);
   React.useEffect(() => {
     loadRef.current.alive = true;
@@ -4880,6 +4929,7 @@ const pure = {
   COLS_FULL,
   COLS_COMPACT,
   engine,
+  LOST_TIMING,
   rowCells,
   pomoText,
   missingYearsNote,

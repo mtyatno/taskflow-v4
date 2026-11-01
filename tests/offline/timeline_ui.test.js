@@ -11,6 +11,8 @@ const jsx = fs.readFileSync(path.join(dir, "plugin.jsx"), "utf8");
 const css = fs.readFileSync(path.join(dir, "style.css"), "utf8");
 const manifest = JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8"));
 const T = require(path.join(dir, "plugin.js"));
+// Dedupe toast "kalah LWW" (final review #7): 1500 ms di aplikasi; 0 di tes = hanya dalam satu dispatch sinkron.
+if (T.LOST_TIMING) T.LOST_TIMING.dedupeMs = 0;
 
 test("manifest persis", () => {
   assert.deepEqual(manifest, {
@@ -68,12 +70,13 @@ test("calendarStore: load tanpa record → DEFAULT_CAL pending false; load recor
   const fr = fakeRecords();
   const store = T.calendarStore({ records: fr.api });
   const r = await store.load("cal@user");
-  assert.deepEqual(r, { data: T.TLCal.DEFAULT_CAL, pending: false });
+  assert.deepEqual(r, { data: T.TLCal.DEFAULT_CAL, pending: false, exists: false });
   assert.deepEqual(fr.calls.get, [["calendar", "cal@user"]]);
   // data anggota lain dinormalisasi (weekdays kosong → bawaan, kunci asing dibuang)
   fr.store.set("calendar/cal@list:7", { entity: "calendar", id: "cal@list:7", scope: "list:7", pending: true, data: { v: 1, weekdays: [], national: false, extra: 1, off: [{ d: "2026-12-24", n: "Libur kantor" }, { d: "bukan", n: "x" }], work: [] } });
   const r2 = await store.load("cal@list:7");
   assert.equal(r2.pending, true);
+  assert.equal(r2.exists, true, "record ada di perangkat ini");
   assert.deepEqual(r2.data, { v: 1, weekdays: [1, 2, 3, 4, 5], national: false, cutiBersama: true, off: [{ d: "2026-12-24", n: "Libur kantor" }], work: [] });
 });
 
@@ -87,7 +90,7 @@ test("calendarStore: save menulis hasil normalisasi + v:1 dengan scope, mengemba
   assert.equal(id, "cal@list:7");
   assert.deepEqual(opts, { scope: "list:7" });
   assert.deepEqual(data, { v: 1, weekdays: [1, 6], national: true, cutiBersama: false, off: [{ d: "2026-12-24", n: "Libur kantor" }], work: [] });
-  assert.deepEqual(res, { data, pending: true });
+  assert.deepEqual(res, { data, pending: true, exists: true });
 });
 
 test("calendarStore: save > 16384 byte → reject pesan persis tanpa memanggil put", async () => {
@@ -328,10 +331,13 @@ function mk(id, title, sched, extra) {
 function fakeApi(opts) {
   const o = opts || {};
   const fr = o.records || fakeRecords();
-  const calls = { storageGet: [], storageSet: [], toast: [], warn: [] };
+  const calls = { storageGet: [], storageSet: [], toast: [], warn: [], handlers: {} };
   const api = {
     id: "timeline",
     records: fr.api,
+    events: {
+      on(name, fn) { (calls.handlers[name] = calls.handlers[name] || []).push(fn); return () => { calls.handlers[name] = calls.handlers[name].filter((f) => f !== fn); }; },
+    },
     taskExt: {
       read(t) {
         const out = {};
@@ -1495,7 +1501,8 @@ async function popSetup(o) {
   const fr = opts.records || fakeRecords();
   const closes = [];
   const store = T.calendarStore({ records: fr.api });
-  const props = Object.assign({ calId: "cal@list:12", scope: "list:12", pageKind: "workspace", store, onClose: (a) => closes.push(a === undefined ? null : a) }, opts.props || {});
+  // synced: true = sinkron pertama sudah selesai sejak view dipasang (final review #2); tes jendela sinkron mengubahnya.
+  const props = Object.assign({ calId: "cal@list:12", scope: "list:12", pageKind: "workspace", store, synced: true, onClose: (a) => closes.push(a === undefined ? null : a) }, opts.props || {});
   const m = mount(T.CalendarPopover);
   let tree = m.render(props);
   const rootEl = { focused: 0, focus() { this.focused++; }, contains(t) { return t === this || (this.kids || []).indexOf(t) >= 0; } };
@@ -1566,7 +1573,7 @@ test("CalendarPopover: halaman project → cal@user scope user; tanpa 'Dipakai s
 
 test("CalendarPopover: cuti bersama OFF → save {cutiBersama:false}; view memuat ulang (onChange local) dan arsir 18 Mar 2026 hilang", () => withPop(async () => {
   const fr = fakeRecords();
-  const { api } = fakeApi({ records: fr, today: "2026-03-16" });
+  const { api, calls } = fakeApi({ records: fr, today: "2026-03-16" });
   const tasks = [mk(1, "A", { start: "2026-03-16", duration: 3 }, { list_id: 12, project: "P", project_id: 5 })];
   const { ctx } = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
   const vm = mount(T.TimelineViewBody);
@@ -1574,6 +1581,8 @@ test("CalendarPopover: cuti bersama OFF → save {cutiBersama:false}; view memua
   let vt = vm.render(props);
   vm.flush();
   await tick();
+  // sinkron pertama selesai tanpa record workspace (workspace belum pernah punya kalender) → popover boleh mengubah
+  for (const f of calls.handlers["sync.done"] || []) f({ initial: false });
   vt = vm.render(props);
   const holAt = (t, iso) => byCls(t, "plg-timeline-holiday").filter((n) => n.props["data-dn"] === T.TLCal.dn(iso)).length;
   assert.equal(holAt(vt, "2026-03-18"), 1, "cuti bersama Nyepi 18 Mar diarsir");
@@ -1588,6 +1597,7 @@ test("CalendarPopover: cuti bersama OFF → save {cutiBersama:false}; view memua
   assert.equal(node.props.calId, "cal@list:12");
   assert.equal(node.props.scope, "list:12");
   assert.equal(node.props.pageKind, "workspace");
+  assert.equal(node.props.synced, true);
   const pm = mount(T.CalendarPopover);
   let pt = pm.render(node.props);
   pm.flush();
@@ -2160,3 +2170,91 @@ test("final #1: checkLink satu untuk Gantt dan seksi (sumber)", () => {
   assert.match(jsx, /const chk = checkLink\(api, list, pred, succ,/);
   assert.match(jsx, /const chk = checkLink\(api, pickIndex\.list, pred, task,/);
 });
+
+// ── Final review #2: kalender workspace tidak ditimpa sebelum sinkron pertama (jendela D5) ──
+const WAIT_NOTE = "Menunggu data kalender workspace…";
+const popControls = (tree) => nodes(tree, (n) => (n.type === "button" && !hasCls(n, "plg-timeline-pop-close") && !hasCls(n, "plg-timeline-pop-del")) || n.type === "input");
+
+test("final #2: popover workspace tanpa record lokal + belum sinkron → semua kontrol nonaktif + catatan persis; tidak ada put; setelah sinkron → aktif", () => withPop(async () => {
+  const h = await popSetup({ props: { synced: false } });
+  const tree = h.tree;
+  assert.ok(nodes(tree, (n) => txt(n).trim() === WAIT_NOTE && n.props.role === "status").length === 1, "catatan menunggu");
+  const ctl = popControls(tree);
+  assert.ok(ctl.length >= 13, "hari + centang + input + tombol Tambah");
+  assert.ok(ctl.every((n) => n.props.disabled === true), "semua kontrol nonaktif");
+  assert.equal(buttonByText(tree, "×") && buttonByText(tree, "×").props.disabled, undefined, "tombol Tutup tetap aktif");
+  // klik paksa (mis. kejadian tertunda) tetap tidak menulis
+  dayBtns(tree)[5].props.onClick({});
+  checkbox(tree, "Ikuti cuti bersama").props.onChange({ target: { checked: false } });
+  await h.step();
+  assert.equal(h.fr.calls.put.length, 0, "tanpa put sebelum sinkron pertama");
+  // sinkron pertama selesai (prop dari view) → aktif, tanpa catatan
+  h.props.synced = true;
+  let t2 = h.rerender();
+  assert.ok(!txt(t2).includes(WAIT_NOTE));
+  assert.equal(dayBtns(t2)[5].props.disabled, false);
+  dayBtns(t2)[5].props.onClick({});
+  await h.step();
+  assert.equal(h.fr.calls.put.length, 1, "workspace yang belum pernah punya kalender: boleh diubah setelah sinkron");
+  h.m.unmount();
+}));
+
+test("final #2: record workspace sudah ada di perangkat → langsung bisa diubah; kalender pribadi (cal@user) tidak menunggu", () => withPop(async () => {
+  const fr = fakeRecords();
+  fr.store.set("calendar/cal@list:12", { entity: "calendar", id: "cal@list:12", scope: "list:12", pending: false, data: { v: 1, weekdays: [1, 2, 3, 4, 5], national: true, cutiBersama: true, off: [], work: [] } });
+  const h = await popSetup({ records: fr, props: { synced: false } });
+  assert.ok(!txt(h.tree).includes(WAIT_NOTE));
+  dayBtns(h.tree)[5].props.onClick({});
+  await h.step();
+  assert.equal(fr.calls.put.length, 1);
+  h.m.unmount();
+  const h2 = await popSetup({ props: { calId: "cal@user", scope: "user", pageKind: "project", synced: false } });
+  assert.ok(!txt(h2.tree).includes(WAIT_NOTE));
+  dayBtns(h2.tree)[5].props.onClick({});
+  await h2.step();
+  assert.equal(h2.fr.calls.put.length, 1);
+  h2.m.unmount();
+}));
+
+test("final #2: record workspace tiba lewat sinkron saat popover menunggu → dimuat dan aktif", () => withPop(async () => {
+  const h = await popSetup({ props: { synced: false } });
+  assert.ok(txt(h.tree).includes(WAIT_NOTE));
+  h.fr.store.set("calendar/cal@list:12", { entity: "calendar", id: "cal@list:12", scope: "list:12", pending: false, data: { v: 1, weekdays: [1, 2, 3, 4, 5, 6], national: true, cutiBersama: true, off: [], work: [] } });
+  h.fr.emit({ entity: "calendar", ids: ["cal@list:12"], source: "sync", lost: [] });
+  const tree = await h.step();
+  assert.ok(!txt(tree).includes(WAIT_NOTE));
+  assert.deepEqual(pressed(tree), [true, true, true, true, true, true, false], "kalender workspace bersama tampil");
+  dayBtns(tree)[6].props.onClick({});
+  await h.step();
+  assert.deepEqual(h.fr.calls.put[0][2].weekdays, [1, 2, 3, 4, 5, 6, 7], "perubahan di atas kalender bersama, bukan bawaan");
+  h.m.unmount();
+}));
+
+test("final #2: view memberi popover synced=false sampai sync.done / onChange sinkron pertama SETELAH view dipasang", () => withPop(async () => {
+  for (const via of ["sync.done", "onChange"]) {
+    const fr = fakeRecords();
+    const { api } = fakeApi({ records: fr });
+    const handlers = {};
+    api.events = { on(name, fn) { (handlers[name] = handlers[name] || []).push(fn); return () => { handlers[name] = handlers[name].filter((f) => f !== fn); }; } };
+    const { ctx } = ctxOf([mk(1, "A", { start: "2026-11-09", duration: 4 })], { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
+    const m = mount(T.TimelineViewBody);
+    const props = { context: ctx, api };
+    let tree = m.render(props);
+    m.flush();
+    await tick();
+    tree = m.render(props);
+    buttonByText(tree, "Kalender kerja").props.onClick({});
+    tree = m.render(props);
+    assert.equal(popNode(tree).props.synced, false, via + ": belum sinkron");
+    if (via === "sync.done") {
+      assert.ok((handlers["sync.done"] || []).length >= 1, "view mendengar sync.done");
+      for (const f of handlers["sync.done"]) f({ initial: false });
+    } else fr.emit({ entity: "calendar", ids: ["cal@list:99"], source: "sync", lost: [] });
+    m.flush();
+    await tick();
+    tree = m.render(props);
+    assert.equal(popNode(tree).props.synced, true, via + ": sesudah sinkron");
+    m.unmount();
+    assert.equal((handlers["sync.done"] || []).length, 0, "pendengar sync.done dilepas saat unmount");
+  }
+}));
