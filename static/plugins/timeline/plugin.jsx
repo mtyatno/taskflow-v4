@@ -306,8 +306,9 @@ function usePref(api, kind, page) {
 }
 
 // Kalender aktif halaman (R4/R5): muat lewat calendarStore, muat ulang saat sinkron/perubahan id ini;
-// edit lokal yang kalah LWW → toast persis (spec §8.9).
-function useCalendar(api, target) {
+// edit lokal yang kalah LWW → toast persis (spec §8.9). `quiet` (seksi Jadwal): tanpa toast — view yang memberi tahu,
+// agar view + panel Live Edit yang tampil bersamaan tidak menampilkan toast ganda.
+function useCalendar(api, target, quiet) {
   const store = React.useMemo(() => calendarStore(api), [api]);
   const [st, setSt] = React.useState(() => ({ id: target.id, data: DEFAULT_CAL_DATA, pending: false }));
   React.useEffect(() => {
@@ -321,7 +322,7 @@ function useCalendar(api, target) {
     try {
       off = store.subscribe((ev) => {
         const lost = ev.lost.indexOf(id) >= 0;
-        if (lost) {
+        if (lost && !quiet) {
           try { api.ui.toast(MSG_CAL_LOST, "error"); } catch (e) { logWarn(api, "toast gagal:", e); }
         }
         if (lost || ev.source === "sync" || ev.ids.indexOf(id) >= 0) load();
@@ -1575,8 +1576,662 @@ function TimelineViewBody(props) {
   );
 }
 
+// 4g. Seksi "Jadwal" di detail task (Task 10; spec §8.8, Q5; R7, R8, R10, R15, R16, R17). Slot taskDetail.sections,
+// context {task, variant: "modal"|"panel", collaborators, onOpenTask, showToast}; modal dan panel Live Edit sama.
+// Plugin hanya menulis ext miliknya (start/duration/deps) — kolom host (progres, tenggat) dibaca saja (README §8.7).
+const SEC_TITLE = "Jadwal";
+const SEC_START = "Mulai";
+const SEC_DUR = "Durasi";
+const SEC_HK = "hari kerja";
+const SEC_ADD_DEP = "Tambah dependensi";
+const SEC_MORE = "Selengkapnya";
+const SEC_LESS = "Sembunyikan";
+const SEC_FINISH = "Selesai";
+const SEC_MILESTONE = "Milestone";
+const SEC_PCT = "% selesai";
+const SEC_PCT_HINT = "Ubah lewat progres di atas";
+const SEC_SHIFT = "Geser ke setelah dependensi";
+const SEC_SUMMARY = "Jadwal task ini mengikuti subtask-nya";
+const SEC_SUMMARY_NONE = "Belum ada subtask yang dijadwalkan";
+const SEC_OUTSIDE = "(task di luar halaman ini)";
+const SEC_DELETED = "(task sudah dihapus)";
+const SEC_DEPS = "Dependensi";
+const SEC_BAD_BTN = "Hapus dependensi rusak";
+const SEC_SEARCH = "Cari task";
+const SEC_LOADING = "Memuat…";
+const SEC_NO_MATCH = "Tidak ada task yang cocok";
+const SEC_IS_DEP = "sudah ada";
+const SEC_CLOSE = "Tutup";
+const SEC_YEAR_MIN = 1970; // tahun parsial saat mengetik di input tanggal (0002-…, 0020-…) tidak disimpan
+const SEC_YEAR_MAX = 2199;
+const PICK_MAX = 50; // R17: ≤ 50 hasil pemilih
+const SEC_REFRESH_MS = 2000; // muat ulang daftar task saat seksi difokus/disentuh, paling sering tiap 2 s
+
+function secBadText(n) {
+  return n + " dependensi rusak atau tidak dikenali versi ini";
+}
+
+function secLateText(finishDn, late) {
+  return "Selesai " + TLCal.fmtShort(finishDn) + ", " + late + " " + SEC_HK + " setelah tenggat";
+}
+
+const liveTask = (t) => !!t && typeof t === "object" && !t.recurrence_type && t.gtd_status !== "archived" && !t.deleted;
+
+// Scope dependensi seksi (R15): workspace sama (`list_id`), atau pribadi dengan project sama (NOCASE; keduanya tanpa
+// project juga sama) — aturan yang sama dengan TLSched.canLink.
+function secScopeKey(t) {
+  const lid = t ? t.list_id : null;
+  if (lid !== undefined && lid !== null && lid !== "" && lid !== 0 && lid !== "0") return "l:" + String(lid);
+  return "p:" + (t && typeof t.project === "string" ? t.project.trim().toLowerCase() : "");
+}
+
+function taskTitle(t) {
+  return t && t.title !== undefined && t.title !== null && String(t.title).trim() ? String(t.title).trim() : "Tanpa judul";
+}
+
+// Kunci kanonik (urut) agar urutan kunci ext dari host tidak dianggap perubahan.
+function stableKey(o) {
+  const src = o && typeof o === "object" ? o : {};
+  const out = {};
+  for (const k of Object.keys(src).sort()) out[k] = src[k];
+  return JSON.stringify(out);
+}
+
+function readExtSafe(api, task) {
+  try {
+    const r = api.taskExt.read(task);
+    return r && typeof r === "object" && !Array.isArray(r) ? r : {};
+  } catch (e) {
+    logWarn(api, "ext jadwal gagal dibaca:", e);
+    return {};
+  }
+}
+
+// Patch → ext mentah baru (null = kunci dihapus), tanpa mengubah masukan.
+function applyRaw(raw, patch) {
+  const out = Object.assign({}, raw);
+  for (const k of Object.keys(patch)) {
+    if (patch[k] === null) delete out[k];
+    else out[k] = patch[k];
+  }
+  return out;
+}
+
+// Kembalikan kunci patch ke nilai `before` (kunci yang dulu tidak ada → dihapus).
+function revertRaw(raw, patch, before) {
+  const out = Object.assign({}, raw);
+  for (const k of Object.keys(patch)) {
+    if (Object.prototype.hasOwnProperty.call(before, k)) out[k] = before[k];
+    else delete out[k];
+  }
+  return out;
+}
+
+// Dependensi tampil dari deps mentah: [{i: indeks mentah, key, lag}] (sah, unik, ≤ 20); bad = sisanya (rusak, tipe
+// yang belum dikenal versi ini seperti SS, ganda, atau deps bukan array). Item mentah tidak pernah ditulis ulang
+// lewat sanitasi (kebijakan Task 8): ubah/hapus menyentuh satu indeks, sisanya apa adanya.
+function depRowsOf(raw) {
+  const list = Array.isArray(raw.deps) ? raw.deps : [];
+  const rows = [];
+  const seen = new Set();
+  list.forEach((item, i) => {
+    const d = TLSched.readSched({ deps: [item] }).deps[0];
+    if (!d || seen.has(d.key) || rows.length >= TLSched.MAX_DEPS) return;
+    seen.add(d.key);
+    rows.push({ i, key: d.key, lag: d.lag });
+  });
+  const bad = raw.deps === undefined || raw.deps === null ? 0 : Array.isArray(raw.deps) ? list.length - rows.length : 1;
+  return { rows, bad };
+}
+
+// Anak hidup per induk (kunci String(id) induk kanonik), parent_id server atau parent_cid offline (R9/R10).
+function childrenOf(list, idx) {
+  const kids = new Map();
+  for (const t of list) {
+    if (!liveTask(t)) continue;
+    const p = t.parent_id !== undefined && t.parent_id !== null ? t.parent_id : t.parent_cid;
+    if (p === undefined || p === null || p === "") continue;
+    const par = idx.get(String(p));
+    if (!par || par === t || par.id === undefined || par.id === null) continue;
+    const k = String(par.id);
+    let a = kids.get(k);
+    if (!a) kids.set(k, (a = []));
+    a.push(t);
+  }
+  return kids;
+}
+
+// Rentang task: daun = spanOf(ext); induk = min–maks anak terjadwal, rekursif (R10). Lingkaran induk diputus.
+function spanTree(c, t, kids, readOf, seen) {
+  const k = String(t.id);
+  const ch = kids.get(k);
+  if (!ch || !ch.length) return TLSched.spanOf(c, readOf(t));
+  if (seen.has(k)) return null;
+  seen.add(k);
+  let s = Infinity;
+  let f = -Infinity;
+  for (const x of ch) {
+    const sp = spanTree(c, x, kids, readOf, seen);
+    if (!sp) continue;
+    if (sp.s < s) s = sp.s;
+    if (sp.f > f) f = sp.f;
+  }
+  return s === Infinity ? null : { s, f };
+}
+
+function calSafe(fn) {
+  try {
+    const v = fn();
+    return Number.isInteger(v) ? v : null;
+  } catch (e) {
+    return null; // TL_CAL_LOOP: kalender tanpa hari kerja terjangkau → tidak terhitung
+  }
+}
+
+// Salinan task yang lebih baru (updated_at) — task di modal adalah salinan saat dibuka (R17), daftar api.data.tasks
+// membawa progres/tenggat terkini. Seri → props.
+function fresherTask(propsTask, listed) {
+  if (!listed) return propsTask;
+  const a = Date.parse(propsTask.updated_at || "");
+  const b = Date.parse(listed.updated_at || "");
+  return Number.isFinite(b) && (!Number.isFinite(a) || b > a) ? listed : propsTask;
+}
+
+function pctOf(t) {
+  if (t.gtd_status === "done" || t.completed_at) return 100;
+  const p = Number(t.progress);
+  return Number.isFinite(p) ? Math.round(Math.min(100, Math.max(0, p))) : 0;
+}
+
+function commitDate(v) {
+  if (typeof v !== "string" || !TLCal.isIso(v)) return false;
+  const y = Number(v.slice(0, 4));
+  return y >= SEC_YEAR_MIN && y <= SEC_YEAR_MAX;
+}
+
+// Angka dari input teks: kosong/bukan angka → null; selain itu dibulatkan dan dijepit.
+function clampText(v, lo, hi) {
+  const s = String(v === undefined || v === null ? "" : v).trim();
+  if (!s) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  return Math.min(hi, Math.max(lo, Math.round(n)));
+}
+
+// Penjaga tanpa hooks: task berulang / tanpa id → null (Q5, R17); selain itu badan berhook sebagai elemen.
 function ScheduleSection(props) {
-  return null;
+  const context = props && props.context;
+  const task = context && context.task;
+  if (!task || typeof task !== "object" || task.recurrence_type) return null;
+  if (task.id === undefined || task.id === null || task.id === "") return null;
+  return React.createElement(ScheduleBody, props);
+}
+
+function ScheduleBody(props) {
+  const { context, api } = props;
+  const task = context.task;
+  const tid = task.id;
+  const propRaw = readExtSafe(api, task);
+  const propKey = stableKey(propRaw);
+
+  // R17 state lokal optimistis: di-seed ulang hanya saat task.id berganti atau ext di props berubah. Selama tulis masih
+  // berjalan, props yang tertinggal tidak menimpa nilai lokal; props yang sudah menyusul (sama dengan lokal) hanya
+  // memperbarui kunci tanpa membuang draf input.
+  const inflight = React.useRef(0);
+  const [loc, setLoc] = React.useState(() => ({ id: tid, key: propKey, raw: propRaw, d: {} }));
+  let cur = loc;
+  if (loc.id !== tid) cur = { id: tid, key: propKey, raw: propRaw, d: {} };
+  else if (loc.key !== propKey && inflight.current === 0) {
+    cur = stableKey(loc.raw) === propKey ? Object.assign({}, loc, { key: propKey }) : { id: tid, key: propKey, raw: propRaw, d: {} };
+  }
+  if (cur !== loc) setLoc(cur);
+  const [, setTick] = React.useState(0);
+  const raw = cur.raw;
+  const sched = TLSched.readSched(raw);
+  const deps = depRowsOf(raw);
+
+  const [open, setOpenPref] = usePref(api, "section", "");
+  const [forceOpen, setForceOpen] = React.useState(false);
+  const expanded = open || forceOpen;
+  const [picker, setPicker] = React.useState(null); // null | {q, list: null | task[]}
+
+  const target = calTarget(task.list_id);
+  const cal = useCalendar(api, target, true);
+  const c = React.useMemo(() => TLCal.compile(cal.data), [cal.data]);
+
+  // Daftar task (judul dependensi, ringkasan, rentang pendahulu, progres terkini). Dimuat saat task/ext berganti, saat
+  // sinkron selesai, dan (dibatasi) saat seksi difokus/disentuh; pemilih memuat sendiri saat dibuka.
+  const [all, setAll] = React.useState(null);
+  const loadRef = React.useRef({ at: 0, alive: true });
+  const loadAll = () => {
+    loadRef.current.at = nowMs();
+    return Promise.resolve()
+      .then(() => api.data.tasks.list({ includeDone: true }))
+      .then((list) => {
+        const arr = Array.isArray(list) ? list : [];
+        if (loadRef.current.alive) setAll(arr);
+        return arr;
+      }, (e) => {
+        logWarn(api, "daftar task gagal dimuat:", e);
+        return null;
+      });
+  };
+  React.useEffect(() => {
+    loadRef.current.alive = true;
+    loadAll();
+    return undefined;
+  }, [api, tid, propKey]);
+  React.useEffect(() => {
+    let off = null;
+    try {
+      off = api.events.on("sync.done", () => { loadAll(); });
+    } catch (e) {
+      logWarn(api, "pendengar sync.done gagal:", e);
+    }
+    return () => {
+      loadRef.current.alive = false;
+      if (typeof off === "function") off();
+    };
+  }, [api]);
+  const refreshSoon = () => {
+    if (nowMs() - loadRef.current.at > SEC_REFRESH_MS) loadAll();
+  };
+
+  const view = React.useMemo(() => {
+    const list = all || [];
+    const idx = TLSched.buildIndex(list);
+    return { list, idx, kids: childrenOf(list, idx) };
+  }, [all]);
+  const listedSelf = view.idx.get(String(tid)) || null;
+  const selfLive = listedSelf || task;
+  const info = fresherTask(task, listedSelf);
+  const readOther = (t) => TLSched.readSched(t === selfLive ? raw : readExtSafe(api, t));
+
+  // ---- tulis ----
+  const setDraft = (name, value) => setLoc((p) => (p.id === tid ? Object.assign({}, p, { d: Object.assign({}, p.d, { [name]: value }) }) : p));
+  const clearDraft = (name) => setLoc((p) => {
+    if (p.id !== tid || !(name in p.d)) return p;
+    const d = Object.assign({}, p.d);
+    delete d[name];
+    return Object.assign({}, p, { d });
+  });
+  const write = (patch, draftName) => {
+    const before = raw;
+    setLoc((p) => {
+      if (p.id !== tid) return p;
+      const d = Object.assign({}, p.d);
+      if (draftName) delete d[draftName];
+      return Object.assign({}, p, { raw: applyRaw(p.raw, patch), d });
+    });
+    inflight.current += 1;
+    let p;
+    try {
+      p = Promise.resolve(api.taskExt.set(tid, patch)); // panggil sinkron: urutan tulis = urutan aksi pengguna
+    } catch (e) {
+      p = Promise.reject(e);
+    }
+    p
+      .then(null, (e) => {
+        logWarn(api, "jadwal gagal disimpan:", e);
+        toastSafe(api, MSG_SAVE_FAIL, "error");
+        setLoc((p) => (p.id === tid ? Object.assign({}, p, { raw: revertRaw(p.raw, patch, before) }) : p));
+      })
+      .then(() => {
+        inflight.current = Math.max(0, inflight.current - 1);
+        setTick((n) => n + 1); // render ulang: props yang menyusul selama tulis kini boleh men-seed
+      });
+  };
+  const writeSched = (p, draftName) => {
+    const san = TLSched.sanitizePatch(p);
+    if (!san.ok) {
+      if (draftName) clearDraft(draftName);
+      return;
+    }
+    write(san.patch, draftName);
+  };
+
+  const commitStart = (v) => {
+    if (v === null) {
+      if (sched.start === null) clearDraft("start");
+      else writeSched({ start: null, duration: null }, "start");
+    } else if (v === sched.start) clearDraft("start");
+    else if (sched.start === null) writeSched({ start: v, duration: 1 }, "start");
+    else writeSched({ start: v }, "start");
+  };
+  const onStartChange = (e) => {
+    const v = e && e.target ? String(e.target.value || "") : "";
+    if (commitDate(v)) commitStart(v);
+    else setDraft("start", v);
+  };
+  const onStartBlur = (e) => {
+    const t = e && e.target ? e.target : {};
+    const v = String(t.value || "");
+    if (commitDate(v)) commitStart(v);
+    else if (v === "" && !(t.validity && t.validity.badInput)) commitStart(null);
+    else clearDraft("start"); // tanggal setengah diketik / tak sah → kembali ke nilai tersimpan
+  };
+
+  const commitDur = (v) => {
+    const n = clampText(v, 1, TLSched.DUR_MAX);
+    if (n === null || n === sched.duration || sched.start === null) clearDraft("dur");
+    else writeSched({ duration: n }, "dur");
+  };
+  const onEnter = (fn) => (e) => {
+    if (!e || e.key !== "Enter") return;
+    if (typeof e.preventDefault === "function") e.preventDefault();
+    fn(e.target ? e.target.value : "");
+  };
+
+  const setMilestone = (on) => {
+    if (sched.start === null) return;
+    const want = on ? 0 : 1;
+    if (sched.duration !== want) writeSched({ duration: want });
+  };
+
+  const rawDeps = Array.isArray(raw.deps) ? raw.deps : [];
+  const commitLag = (row, v) => {
+    const name = "lag:" + row.i;
+    const n = clampText(v, TLSched.LAG_MIN, TLSched.LAG_MAX);
+    if (n === null || n === row.lag) {
+      clearDraft(name);
+      return;
+    }
+    write({ deps: rawDeps.map((it, j) => (j === row.i ? Object.assign({}, it, { lag: n }) : it)) }, name);
+  };
+  const removeDep = (row) => {
+    const next = rawDeps.filter((_, j) => j !== row.i);
+    write({ deps: next.length ? next : null }, "lag:" + row.i);
+  };
+  const cleanBad = () => {
+    const keep = deps.rows.map((r) => rawDeps[r.i]);
+    write({ deps: keep.length ? keep : null });
+  };
+
+  // ---- pemilih dependensi (R15, R17) ----
+  const openPicker = () => {
+    setForceOpen(true);
+    setPicker({ q: "", list: null });
+    loadAll().then((list) => {
+      if (loadRef.current.alive) setPicker((p) => (p ? Object.assign({}, p, { list: list || [] }) : p));
+    });
+  };
+  const closePicker = () => setPicker(null);
+  const pickIndex = React.useMemo(() => {
+    const list = picker && picker.list ? picker.list : [];
+    const idx = TLSched.buildIndex(list);
+    return { list, idx, kids: childrenOf(list, idx) };
+  }, [picker && picker.list]);
+
+  const addDep = (pred) => {
+    const { list, idx } = pickIndex;
+    const self = idx.get(String(tid)) || task;
+    const sk = secScopeKey(self);
+    const scope = list.filter((t) => liveTask(t) && secScopeKey(t) === sk);
+    if (scope.indexOf(self) < 0) scope.push(self);
+    const sidx = TLSched.buildIndex(scope);
+    const rd = (t) => TLSched.readSched(t === self ? raw : readExtSafe(api, t));
+    const edges = TLSched.resolveDeps(scope.map((t) => ({ task: t, sched: rd(t) })), sidx);
+    const chk = TLSched.canLink({ pred, succ: self, scopeTasks: scope, edges, depCount: rawDeps.length });
+    if (!chk.ok) {
+      if (LINK_MSG[chk.reason]) toastSafe(api, LINK_MSG[chk.reason], "error");
+      return;
+    }
+    // dependensi tersimpan jenis apa pun ke pendahulu yang sama (cid/server_id lewat indeks) = ganda
+    if (rawDeps.some((d) => {
+      const k = d && typeof d === "object" ? TLSched.refKey(d.t) : null;
+      return k !== null && (k === String(pred.id) || idx.get(k) === pred);
+    })) {
+      toastSafe(api, MSG_DUP_DEP, "error");
+      return;
+    }
+    let ref;
+    try {
+      ref = api.taskExt.ref(pred);
+    } catch (e) {
+      logWarn(api, "ref dependensi gagal:", e);
+      return;
+    }
+    const san = TLSched.sanitizePatch({ deps: [{ t: ref, type: "FS", lag: 0 }] });
+    if (!san.ok) return;
+    write({ deps: rawDeps.concat(san.patch.deps) });
+    setPicker(null);
+  };
+
+  // ---- turunan tampilan ----
+  const selfKids = view.kids.get(String(selfLive.id)) || [];
+  const summary = selfKids.length > 0;
+  const span = TLSched.spanOf(c, sched);
+  const preds = [];
+  const depView = deps.rows.map((r) => {
+    const p = all ? view.idx.get(r.key) : null;
+    if (p) {
+      const sp = spanTree(c, p, view.kids, readOther, new Set());
+      if (sp) preds.push({ span: sp, lag: r.lag });
+    }
+    return {
+      row: r,
+      name: p ? taskTitle(p) : all ? SEC_DELETED : SEC_LOADING,
+      outside: !!p && secScopeKey(p) !== secScopeKey(selfLive),
+    };
+  });
+  const earliest = span && preds.length ? TLSched.shiftAfterDeps(c, null, preds) : null;
+  const eff = span ? calSafe(() => TLCal.nextWork(c, span.s)) : null;
+  const violated = earliest !== null && eff !== null && eff < TLCal.dn(earliest);
+  const late = span ? TLSched.deadlineLate(c, span.f, info.deadline) : null;
+
+  const head = (withToggle) => (
+    <div className="plg-timeline-sec-head">
+      <span className="plg-timeline-sec-title">{SEC_TITLE}</span>
+      {withToggle ? (
+        <button type="button" className={cx("plg-timeline-sec-more", expanded && "is-open")} aria-expanded={expanded}
+          onClick={() => {
+            if (expanded) {
+              setForceOpen(false);
+              setOpenPref(false);
+            } else setOpenPref(true);
+          }}>
+          {expanded ? SEC_LESS : SEC_MORE}
+        </button>
+      ) : null}
+    </div>
+  );
+
+  // Ringkasan (R10): rentang dari subtask, tanpa input.
+  if (summary) {
+    const sp = spanTree(c, selfLive, view.kids, readOther, new Set());
+    const wd = sp ? calSafe(() => TLCal.workdays(c, sp.s, sp.f)) : null;
+    return (
+      <section className="plg-timeline-section" aria-label={SEC_TITLE} onFocus={refreshSoon} onPointerEnter={refreshSoon}>
+        {head(false)}
+        <p className="plg-timeline-sec-note">{SEC_SUMMARY}</p>
+        <div className="plg-timeline-sec-range">
+          {sp ? TLCal.fmtShort(sp.s) + " → " + TLCal.fmtShort(sp.f) + (wd === null ? "" : " · " + wd + " " + SEC_HK) : SEC_SUMMARY_NONE}
+        </div>
+      </section>
+    );
+  }
+
+  const d = cur.d;
+  const startVal = "start" in d ? d.start : sched.start || "";
+  const durVal = "dur" in d ? d.dur : sched.start === null ? "" : String(sched.duration);
+  const milestone = sched.start !== null && sched.duration === 0;
+
+  const fields = (
+    <div className="plg-timeline-sec-row">
+      <label className="plg-timeline-field">
+        <span className="plg-timeline-field-label">{SEC_START}</span>
+        <input type="date" className="plg-timeline-input" aria-label={SEC_START} value={startVal}
+          onChange={onStartChange} onBlur={onStartBlur} />
+      </label>
+      <label className="plg-timeline-field">
+        <span className="plg-timeline-field-label">{SEC_DUR}</span>
+        <span className="plg-timeline-sec-num">
+          <input type="number" className="plg-timeline-input plg-timeline-num" aria-label={SEC_DUR + " (" + SEC_HK + ")"}
+            min={1} max={TLSched.DUR_MAX} step={1} inputMode="numeric" value={durVal} disabled={sched.start === null || milestone}
+            onChange={(e) => setDraft("dur", e && e.target ? String(e.target.value) : "")}
+            onBlur={(e) => commitDur(e && e.target ? e.target.value : "")} onKeyDown={onEnter(commitDur)} />
+          <span className="plg-timeline-sec-unit">{SEC_HK}</span>
+        </span>
+      </label>
+    </div>
+  );
+
+  let more = null;
+  if (expanded) {
+    const warns = [];
+    if (late > 0) {
+      warns.push(
+        <div key="late" className="plg-timeline-sec-warn" role="status">
+          <span className="plg-timeline-sec-warn-icon" aria-hidden="true">⚠</span>
+          <span className="plg-timeline-sec-warn-text">{secLateText(span.f, late)}</span>
+        </div>
+      );
+    }
+    if (violated) {
+      warns.push(
+        <div key="viol" className="plg-timeline-sec-warn" role="status">
+          <span className="plg-timeline-sec-warn-icon" aria-hidden="true">⚠</span>
+          <span className="plg-timeline-sec-warn-text">{MSG_VIOLATION}</span>
+          <button type="button" className="plg-timeline-btn plg-timeline-sec-shift" onClick={() => writeSched({ start: earliest })}>
+            {SEC_SHIFT}
+          </button>
+        </div>
+      );
+    }
+    more = (
+      <div className="plg-timeline-sec-body">
+        <div className="plg-timeline-sec-row">
+          <div className="plg-timeline-field">
+            <span className="plg-timeline-field-label">{SEC_FINISH}</span>
+            <span className="plg-timeline-sec-val" data-field="finish">{span ? TLCal.fmtLong(span.f) : "—"}</span>
+          </div>
+          <div className="plg-timeline-field">
+            <span className="plg-timeline-field-label">{SEC_PCT}</span>
+            <span className="plg-timeline-sec-val" data-field="pct">{pctOf(info) + "%"}</span>
+            <span className="plg-timeline-sec-hint">{SEC_PCT_HINT}</span>
+          </div>
+        </div>
+        <label className={cx("plg-timeline-sec-check", sched.start === null && "is-disabled")}>
+          <input type="checkbox" aria-label={SEC_MILESTONE} checked={milestone} disabled={sched.start === null}
+            onChange={(e) => setMilestone(!!(e && e.target && e.target.checked))} />
+          <span>{SEC_MILESTONE}</span>
+        </label>
+        {warns}
+        {depView.length || deps.bad ? (
+          <div className="plg-timeline-sec-deps">
+            <span className="plg-timeline-field-label">{SEC_DEPS}</span>
+            {depView.length ? (
+              <ul className="plg-timeline-deps">
+                {depView.map((v) => {
+                  const r = v.row;
+                  const dn = "lag:" + r.i;
+                  return (
+                    <li key={r.i + ":" + r.key} className="plg-timeline-dep" data-key={r.key}>
+                      <span className="plg-timeline-dep-main">
+                        <span className="plg-timeline-dep-name" title={v.name}>{v.name}</span>
+                        {v.outside ? <span className="plg-timeline-dep-note">{SEC_OUTSIDE}</span> : null}
+                      </span>
+                      <span className="plg-timeline-dep-type">FS</span>
+                      <span className="plg-timeline-sec-num">
+                        <input type="number" className="plg-timeline-input plg-timeline-num" aria-label={"Jeda setelah " + v.name + " (" + SEC_HK + ")"}
+                          min={TLSched.LAG_MIN} max={TLSched.LAG_MAX} step={1} value={dn in d ? d[dn] : String(r.lag)}
+                          onChange={(e) => setDraft(dn, e && e.target ? String(e.target.value) : "")}
+                          onBlur={(e) => commitLag(r, e && e.target ? e.target.value : "")} onKeyDown={onEnter((val) => commitLag(r, val))} />
+                        <span className="plg-timeline-sec-unit">{SEC_HK}</span>
+                      </span>
+                      <button type="button" className="plg-timeline-dep-del" aria-label={"Hapus dependensi " + v.name} title="Hapus dependensi"
+                        onClick={() => removeDep(r)}>×</button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+            {deps.bad ? (
+              <div className="plg-timeline-sec-bad">
+                <span>{secBadText(deps.bad)}</span>
+                <button type="button" className="plg-timeline-btn" onClick={cleanBad}>{SEC_BAD_BTN}</button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  let pickerEl = null;
+  if (picker) {
+    const { list, idx, kids } = pickIndex;
+    const self = idx.get(String(tid)) || null;
+    const sk = secScopeKey(self || task);
+    const q = picker.q.trim().toLowerCase();
+    const depSet = new Set();
+    for (const r of rawDeps) {
+      const k = r && typeof r === "object" ? TLSched.refKey(r.t) : null;
+      const found = k === null ? null : idx.get(k);
+      if (found) depSet.add(found);
+    }
+    let cands = [];
+    if (picker.list) {
+      for (const t of list) {
+        if (!liveTask(t) || t.id === undefined || t.id === null || idx.get(String(t.id)) !== t) continue;
+        if (t === self || String(t.id) === String(tid) || secScopeKey(t) !== sk) continue;
+        if ((kids.get(String(t.id)) || []).length) continue; // ringkasan tidak bisa jadi pendahulu di 1b (R10)
+        if (q && taskTitle(t).toLowerCase().indexOf(q) < 0) continue;
+        cands.push(t);
+      }
+      // urutan tetap: belum selesai dulu, lalu judul (id), lalu id; ≤ 50 (R17)
+      const doneOf = (t) => (t.gtd_status === "done" || t.completed_at ? 1 : 0);
+      cands.sort((x, y) => doneOf(x) - doneOf(y) || taskTitle(x).localeCompare(taskTitle(y), "id") || (String(x.id) < String(y.id) ? -1 : String(x.id) > String(y.id) ? 1 : 0));
+      cands = cands.slice(0, PICK_MAX);
+    }
+    pickerEl = (
+      <div className="plg-timeline-picker" onKeyDown={(e) => {
+        if (e && e.key === "Escape") {
+          if (typeof e.preventDefault === "function") e.preventDefault();
+          if (typeof e.stopPropagation === "function") e.stopPropagation();
+          closePicker();
+        }
+      }}>
+        <div className="plg-timeline-picker-bar">
+          <input type="search" className="plg-timeline-input plg-timeline-picker-q" aria-label={SEC_SEARCH} placeholder={SEC_SEARCH + "…"}
+            value={picker.q} autoFocus
+            onChange={(e) => {
+              const v = e && e.target ? String(e.target.value) : "";
+              setPicker((p) => (p ? Object.assign({}, p, { q: v }) : p));
+            }} />
+          <button type="button" className="plg-timeline-btn" onClick={closePicker}>{SEC_CLOSE}</button>
+        </div>
+        {!picker.list ? <div className="plg-timeline-sec-muted">{SEC_LOADING}</div>
+          : !cands.length ? <div className="plg-timeline-sec-muted">{SEC_NO_MATCH}</div>
+          : (
+            <ul className="plg-timeline-picks">
+              {cands.map((t) => (
+                <li key={String(t.id)}>
+                  <button type="button" className="plg-timeline-pick" data-key={String(t.id)} onClick={() => addDep(t)}>
+                    <span className="plg-timeline-pick-title">{taskTitle(t)}</span>
+                    {depSet.has(t) ? <span className="plg-timeline-pick-note">{SEC_IS_DEP}</span> : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+      </div>
+    );
+  }
+
+  return (
+    <section className="plg-timeline-section" aria-label={SEC_TITLE} onFocus={refreshSoon} onPointerEnter={refreshSoon}>
+      {head(true)}
+      {fields}
+      {more}
+      {picker ? null : (
+        <div className="plg-timeline-sec-actions">
+          <button type="button" className="plg-timeline-sec-link" onClick={openPicker}>{SEC_ADD_DEP}</button>
+        </div>
+      )}
+      {pickerEl}
+    </section>
+  );
 }
 
 // React.memo dibuat malas (React tidak ada saat plugin.js di-require di tes Node). Slot menuntut komponen berupa
@@ -1598,7 +2253,7 @@ const pure = {
   MSG_EMPTY, MSG_VIOLATION, MSG_SCHEDULE_HINT, LEGEND, ZOOMS, COLS_FULL, COLS_COMPACT,
   engine, rowCells, pomoText, missingYearsNote, barGeom, createInteractions,
   MSG_CHANGED, MSG_UNDO, MSG_SAVE_FAIL, MSG_CYCLE, MSG_MAX_DEPS, MSG_SUMMARY_DEP, MSG_DUP_DEP,
-  TimelineViewBody, ScheduleSection, CalendarPopover, ListFallback,
+  TimelineViewBody, ScheduleSection, ScheduleBody, CalendarPopover, ListFallback,
 };
 if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLLayout, TLDrag }, pure);
 
