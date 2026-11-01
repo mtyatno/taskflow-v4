@@ -4335,3 +4335,9 @@
 - **Changes:** plugin `static/plugins/timeline/` (part murni `holidays-id.js`/`calendar.js`/`schedule.js`/`layout.js`/`drag.js`, `plugin.jsx`, `style.css`), `plugin-runtime` toast action (Urungkan), `compile.js` parts; SW v495 + whatsnew non-silent (rebased by merge setelah #121/#120; semula v493); README, ADR-042, catatan implementasi PR 1b di spec; E2E 61/61. Subagent implementer per tugas (T1-T13) + reviewer terpisah, review akhir (opus) dengan gelombang perbaikan (cek siklus atas daftar lengkap, kunci kalender workspace sampai `pulled`, milestone tanpa jepret) dan sinyal host `pulled` ditambahkan ke #120.
 - **Files Touch:** static/plugins/timeline/*, static/plugins/index.json, static/plugin-runtime.js, static/index.html (2 baris versi), static/sw.js, static/whatsnew.json, compile.js, tests/offline/timeline_*.test.js + tes plugin/versi, docs/plugins/README.md, docs/superpowers/{specs,plans}/*, temporary_files/e2e_plugin_fase1_1b*, .agents/*
 - **Status:** Needs Review (PR draft; tunggu "merge dan deploy", baru setelah #120). pytest 1422/1 skip; npm 4058/4059 (pra-ada `draw_local_reactive`). Deploy = berkas statis, tanpa restart untuk PR ini.
+
+## [2026-11-01 13:50] - Claude (Opus 5.5)
+- **Task:** Merge + deploy PR #120 (Plugin Fase 1 1a-2: IndexedDB v7, plugin_records, api.records, SW v494) dan #122 (1b Timeline, SW v495) atas "merge dan deploy" Bapak.
+- **Changes:** #120 di-merge (910da3d), lalu #122 (2dea93d); workflow Tests + Deploy keduanya sukses. Bapak memilih merge sekarang tanpa menunggu jeda 3 hari (rencana: 2026-11-04).
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Done. Tindak lanjut Bapak: `sudo systemctl restart taskflow-web taskflow` (wajib untuk #120); cek di HP: seret tekan-lama + gulir vertikal Timeline; verifikasi pasca-deploy sesuai CURRENT_STATE.
