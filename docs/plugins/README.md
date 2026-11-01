@@ -255,7 +255,9 @@ dinyalakan, record belum ditarik sampai sinkron berikutnya: `get` mengembalikan 
 `onChange({source: "sync"})` memicu muat ulang. **Jangan menulis record bersama yang mungkin hanya belum ditarik:**
 `put` tanpa record lokal berangkat dengan `base_version: null` dan menang LWW atas data anggota lain. Timeline
 karenanya menonaktifkan edit kalender workspace tanpa record lokal ("Menunggu data kalender workspace…") sampai
-`sync.done` atau `onChange` ber-`source: "sync"` pertama sejak view dipasang.
+peristiwa **`pulled`** pertama sejak view dipasang (tarik sukses), dan membuka kuncinya hanya **setelah** muat ulang
+sesudah peristiwa itu selesai — tidak pernah di atas data bawaan. `sync.done` (juga menyala saat sinkron gagal) dan
+`onChange` ber-`source: "sync"` biasa (juga dari ack kirim / tulis ulang ref) hanya memicu muat ulang, bukan buka kunci.
 
 Semua `data.*` membaca IndexedDB, jadi bekerja offline. Tidak ada di v1: `api.settings` (kolom `settings` server sudah disimpan dan disinkron tetapi belum diekspos), penulisan data host
 selain `api.taskExt`. Fungsi hanya ditambah di v1; perubahan tak kompatibel = `apiVersion: 2`.
@@ -345,7 +347,7 @@ membatalkan aksi host, dan sebaiknya ringan (debounce kerja berat, mis. 300 ms s
 | `pomodoro.ended` | sesi/overtime Pomodoro tercatat | `{taskId, kind: "session"∣"overtime", pomodoros, focusSeconds, endedAt}` |
 | `app.online` / `app.offline` | event `online`/`offline` browser | `{}` |
 | `app.dayChanged` | tanggal Asia/Jakarta berganti (dicek tiap 60 s) | `{date}` |
-| `sync.done` | sinkron awal selesai (`initial: true`) atau sinkron berkala kembali idle | `{initial}` |
+| `sync.done` | sinkron awal selesai (`initial: true`) atau sinkron berkala kembali idle — **juga saat sinkron gagal**; tanda "record plugin sudah ditarik" = peristiwa `pulled` di `api.records.onChange` (§5) | `{initial}` |
 | `plugins.changed` | plugin dinyalakan/dimatikan | `{id, enabled}` |
 
 Plugin memancarkan event miliknya sendiri dengan awalan id: `api.events.emit("<id>.sesuatu", {...})`; nama lain
@@ -359,7 +361,9 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
    dipakai: `window.TF.plugins.register`.
 2. **Offline by default.** Semua data dari `api.data`. Jaringan hanya lewat `api.fetch` (izin `network`) dan
    hanya ke rute server plugin sendiri `/api/plugins/<id>/…`; fitur yang butuh jaringan menurunkan diri saat
-   offline ("Butuh koneksi internet"), sisanya tetap jalan.
+   offline ("Butuh koneksi internet"), sisanya tetap jalan. Sebelum menulis record **bersama** yang belum ada di
+   perangkat (mis. nilai bawaan ke record workspace), tunggu peristiwa `pulled` (§5) — bukan `sync.done`, yang juga
+   menyala saat sinkron gagal; tanpa itu `put` ber-`base_version: null` bisa menimpa data anggota lain lewat LWW.
 3. **Shell dibekukan.** Fitur yang bisa jadi plugin tidak masuk `index.html`; host tidak boleh berisi
    `if (pluginId === "...")` — kebutuhan baru = slot/event/izin baru yang terdokumentasi.
 4. **Precache, bukan runtime cache.** File plugin masuk `STATIC` lewat `compile.js` (jangan tulis tangan).

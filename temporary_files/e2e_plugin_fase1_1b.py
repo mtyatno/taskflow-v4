@@ -24,7 +24,7 @@ Timeline U1 dinyalakan lewat UI Pengaturan › Plugin (A) setelah diperiksa OFF 
      induk yang anaknya tersembunyi filter → seret dan jadi penerus dependensi ditolak tanpa tulis.
    4 libur: 25 Des (nasional) dan 24 Des (cuti bersama) diarsir; Kalender kerja "Dipakai semua anggota workspace" →
      matikan "Ikuti cuti bersama" → Selesai seksi 18 Maret, arsir 24 Des hilang; tinjauan akhir #2: B perangkat baru
-     tanpa record lokal (tarik record ditahan) → popover "Menunggu data kalender workspace…", kontrol nonaktif; B (U1) dan F (U4, anggota lain)
+     tanpa record lokal, tarik record gagal (503) → popover "Menunggu data kalender workspace…", kontrol nonaktif; B (U1) dan F (U4, anggota lain)
      sinkron → kalender sama; F mengubah → A ikut (K14); LWW: A offline vs F online lebih baru → toast kalah di A;
      U2 (OFF) mengganti judul lewat API dan lewat klien C → `timeline.*` utuh; C tanpa tombol/seksi.
    5 B offline: seret bar; A mengganti prioritas task yang sama; B online + sinkron → server prioritas A + jadwal B;
@@ -744,38 +744,35 @@ def run(browser, base, users, ids, dates):
         close_modal(a)
         cb, b = new_device(browser, base, u1, "B")
         ctxs.append(cb)
-        # Tinjauan akhir #2 (jendela D5): tahan tarik record Timeline agar tidak ada sinkron yang selesai setelah view dipasang
-        held = []
+        # Tinjauan akhir #2 (jendela D5): tarik record Timeline GAGAL (503) → sinkron selesai dengan galat (sync.done tetap
+        # menyala) tetapi tanpa peristiwa `pulled` → popover kalender workspace harus tetap terkunci; lalu tarik sukses → terbuka.
+        fails = []
         rec_pull = re.compile(r"/api/plugins/timeline/records\?")
         posts0 = len([x_ for x_ in rec_posts if x_[0] == "B"])
 
-        def hold_pull(route):
+        def fail_pull(route):
             if route.request.method == "GET":
-                held.append(route)
+                fails.append(route.request.url)
+                route.fulfill(status=503, content_type="application/json", body='{"detail":"OFFLINE"}')
             else:
                 route.continue_()
-        cb.route(rec_pull, hold_pull)
+        cb.route(rec_pull, fail_pull)
         open_timeline(b, WS)
         b.get_by_role("button", name="Kalender kerja").click()
         bp = b.locator(".plg-timeline-pop")
         bp.wait_for(state="visible", timeout=10000)
+        sync_res = sync_now(b)  # sinkron dengan tarik record gagal (popover tetap terbuka)
         b.wait_for_timeout(1000)
         wait_view = b.evaluate("""() => { const p = document.querySelector('.plg-timeline-pop');
             const ctl = [...p.querySelectorAll('button.plg-timeline-pop-day, input, .plg-timeline-pop-form button')];
             return { note: (p.querySelector('.plg-timeline-pop-wait') || {}).textContent || null, n: ctl.length,
                      disabled: ctl.filter(e => e.disabled).length }; }""")
         shot(b, "4-B-kalender-menunggu-sinkron.png")
-        b.wait_for_timeout(500)
-        check("4e-1 B perangkat baru tanpa record lokal, sebelum sinkron pertama: popover kalender workspace menunggu "
-              "('%s'), semua kontrol nonaktif, tanpa kirim record" % MSG_CAL_WAIT,
-              wait_view["note"] == MSG_CAL_WAIT and wait_view["n"] >= 13 and wait_view["disabled"] == wait_view["n"]
-              and len([x_ for x_ in rec_posts if x_[0] == "B"]) == posts0, repr(wait_view))
-        cb.unroute(rec_pull, hold_pull)
-        for r_ in held:
-            try:
-                r_.continue_()
-            except Exception:  # noqa: BLE001
-                pass
+        check("4e-1 B perangkat baru tanpa record lokal, tarik record GAGAL (503, sync.done tanpa pulled): popover kalender "
+              "workspace tetap menunggu ('%s'), semua kontrol nonaktif, tanpa kirim record" % MSG_CAL_WAIT,
+              len(fails) >= 1 and wait_view["note"] == MSG_CAL_WAIT and wait_view["n"] >= 13 and wait_view["disabled"] == wait_view["n"]
+              and len([x_ for x_ in rec_posts if x_[0] == "B"]) == posts0, repr((len(fails), sync_res, wait_view)))
+        cb.unroute(rec_pull, fail_pull)
         fresh = {"cutiBersama_checked": bp.get_by_label("Ikuti cuti bersama").is_checked(),
                  "recordPluginIds": b.evaluate("() => window.TF.plugins.recordPluginIds()"),
                  "idb": b.evaluate("""() => new Promise(res => { const rq = indexedDB.open('taskflow-offline');
@@ -788,7 +785,8 @@ def run(browser, base, users, ids, dates):
         bp.wait_for(state="visible", timeout=10000)
         b_ok = wait_until(lambda: not bp.get_by_label("Ikuti cuti bersama").is_checked(), 10, 0.3)
         b_on = bp.locator(".plg-timeline-pop-wait").count() == 0 and bp.get_by_label("Ikuti cuti bersama").is_enabled()
-        check("4e B (U1, konteks lain) sinkron → 'Ikuti cuti bersama' OFF juga; popover tidak lagi menunggu", b_ok and b_on)
+        check("4e B (U1, konteks lain) tarik record sukses → 'Ikuti cuti bersama' OFF juga; popover terbuka dengan data bersama",
+              b_ok and b_on)
         b.keyboard.press("Escape")
         cf, f = new_device(browser, base, u4, "F")
         ctxs.append(cf)
@@ -1053,9 +1051,12 @@ def run(browser, base, users, ids, dates):
 
         # ── konsol ──
         allowed = re.compile(r"Failed to load resource|net::ERR_")
-        bad = [(dv, t, x_[:200]) for dv, t, x_ in console_log if t in ("error", "pageerror") and not allowed.search(x_)]
+        # 4e-1 sengaja menggagalkan tarik record Timeline di perangkat B (503) → pesan galat tarik itu diharapkan
+        injected = lambda dv, x_: dv == "B" and "pull record plugin gagal" in x_  # noqa: E731
+        bad = [(dv, t, x_[:200]) for dv, t, x_ in console_log if t in ("error", "pageerror") and not allowed.search(x_) and not injected(dv, x_)]
         check("8c konsol tanpa error (selain sumber eksternal/offline yang diblokir)", not bad, repr(bad[:6]))
-        warn = [(dv, x_[:200]) for dv, t, x_ in console_log if t == "warning" and re.search(r"plugin|timeline", x_, re.I)]
+        warn = [(dv, x_[:200]) for dv, t, x_ in console_log if t == "warning" and re.search(r"plugin|timeline", x_, re.I)
+                and not injected(dv, x_)]
         check("8d konsol tanpa peringatan plugin/timeline", not warn, repr(warn[:6]))
     finally:
         for cx in ctxs:

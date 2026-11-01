@@ -428,7 +428,8 @@ test("onChange source sync (tarik) dan lost (kalah LWW saat kirim) → calendarS
   const pulled = await PS.pullAll(fetchPage, { userId: 1, ids: P.recordPluginIds() });
   assert.deepEqual(pulled.errors, []);
   assert.deepEqual(pulls, ["/api/plugins/timeline/records?cursor=&limit=500"]);
-  assert.deepEqual(J(seen), [{ ids: ["cal@list:12"], source: "sync", lost: [] }]);
+  // peristiwa record dulu, lalu satu peristiwa `pulled` host (tarik selesai dan sukses) yang diteruskan adaptor
+  assert.deepEqual(J(seen), [{ ids: ["cal@list:12"], source: "sync", lost: [] }, { ids: [], source: "sync", lost: [], pulled: true }]);
   assert.deepEqual(J(await store.load("cal@list:12")), { data: J(T.TLCal.normalize(SAT_WORK)), pending: false, exists: true }, "sesudah tarik selesai, kalender server terbaca");
 
   // D8: edit lokal kalah LWW (server menjawab applied:false) → lost

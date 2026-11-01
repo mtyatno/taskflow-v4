@@ -1501,8 +1501,8 @@ async function popSetup(o) {
   const fr = opts.records || fakeRecords();
   const closes = [];
   const store = T.calendarStore({ records: fr.api });
-  // synced: true = sinkron pertama sudah selesai sejak view dipasang (final review #2); tes jendela sinkron mengubahnya.
-  const props = Object.assign({ calId: "cal@list:12", scope: "list:12", pageKind: "workspace", store, synced: true, onClose: (a) => closes.push(a === undefined ? null : a) }, opts.props || {});
+  // pulled: true = tarik record sukses sudah terjadi sejak view dipasang (final review #2); tes jendela sinkron mengubahnya.
+  const props = Object.assign({ calId: "cal@list:12", scope: "list:12", pageKind: "workspace", store, pulled: true, onClose: (a) => closes.push(a === undefined ? null : a) }, opts.props || {});
   const m = mount(T.CalendarPopover);
   let tree = m.render(props);
   const rootEl = { focused: 0, focus() { this.focused++; }, contains(t) { return t === this || (this.kids || []).indexOf(t) >= 0; } };
@@ -1582,7 +1582,8 @@ test("CalendarPopover: cuti bersama OFF → save {cutiBersama:false}; view memua
   vm.flush();
   await tick();
   // sinkron pertama selesai tanpa record workspace (workspace belum pernah punya kalender) → popover boleh mengubah
-  for (const f of calls.handlers["sync.done"] || []) f({ initial: false });
+  fr.emit({ entity: null, ids: [], source: "sync", pulled: true });
+  await tick();
   vt = vm.render(props);
   const holAt = (t, iso) => byCls(t, "plg-timeline-holiday").filter((n) => n.props["data-dn"] === T.TLCal.dn(iso)).length;
   assert.equal(holAt(vt, "2026-03-18"), 1, "cuti bersama Nyepi 18 Mar diarsir");
@@ -1597,7 +1598,7 @@ test("CalendarPopover: cuti bersama OFF → save {cutiBersama:false}; view memua
   assert.equal(node.props.calId, "cal@list:12");
   assert.equal(node.props.scope, "list:12");
   assert.equal(node.props.pageKind, "workspace");
-  assert.equal(node.props.synced, true);
+  assert.equal(node.props.pulled, true);
   const pm = mount(T.CalendarPopover);
   let pt = pm.render(node.props);
   pm.flush();
@@ -2175,8 +2176,11 @@ test("final #1: checkLink satu untuk Gantt dan seksi (sumber)", () => {
 const WAIT_NOTE = "Menunggu data kalender workspace…";
 const popControls = (tree) => nodes(tree, (n) => (n.type === "button" && !hasCls(n, "plg-timeline-pop-close") && !hasCls(n, "plg-timeline-pop-del")) || n.type === "input");
 
-test("final #2: popover workspace tanpa record lokal + belum sinkron → semua kontrol nonaktif + catatan persis; tidak ada put; setelah sinkron → aktif", () => withPop(async () => {
-  const h = await popSetup({ props: { synced: false } });
+const PULLED = { entity: null, ids: [], source: "sync", pulled: true };
+const WS_REC = (weekdays) => ({ entity: "calendar", id: "cal@list:12", scope: "list:12", pending: false, data: { v: 1, weekdays, national: true, cutiBersama: true, off: [], work: [] } });
+
+test("final #2: popover workspace tanpa record lokal, belum ada tarik sukses → semua kontrol nonaktif + catatan persis; tidak ada put", () => withPop(async () => {
+  const h = await popSetup({ props: { pulled: false } });
   const tree = h.tree;
   assert.ok(nodes(tree, (n) => txt(n).trim() === WAIT_NOTE && n.props.role === "status").length === 1, "catatan menunggu");
   const ctl = popControls(tree);
@@ -2187,28 +2191,87 @@ test("final #2: popover workspace tanpa record lokal + belum sinkron → semua k
   dayBtns(tree)[5].props.onClick({});
   checkbox(tree, "Ikuti cuti bersama").props.onChange({ target: { checked: false } });
   await h.step();
-  assert.equal(h.fr.calls.put.length, 0, "tanpa put sebelum sinkron pertama");
-  // sinkron pertama selesai (prop dari view) → aktif, tanpa catatan
-  h.props.synced = true;
-  let t2 = h.rerender();
-  assert.ok(!txt(t2).includes(WAIT_NOTE));
-  assert.equal(dayBtns(t2)[5].props.disabled, false);
-  dayBtns(t2)[5].props.onClick({});
-  await h.step();
-  assert.equal(h.fr.calls.put.length, 1, "workspace yang belum pernah punya kalender: boleh diubah setelah sinkron");
+  assert.equal(h.fr.calls.put.length, 0, "tanpa put sebelum tarik sukses");
   h.m.unmount();
 }));
 
-test("final #2: record workspace sudah ada di perangkat → langsung bisa diubah; kalender pribadi (cal@user) tidak menunggu", () => withPop(async () => {
+test("final #2 (pulled): sinkron gagal (sync.done tanpa pulled) dan ack kirim source 'sync' TIDAK membuka kunci", () => withPop(async () => {
+  const h = await popSetup({ props: { pulled: false } });
+  // ack kirim / rewriteTaskRefs: source "sync" tanpa pulled, untuk kalender lain dan kalender ini (tanpa record lokal)
+  h.fr.emit({ entity: "calendar", ids: ["cal@user"], source: "sync", lost: [] });
+  h.fr.emit({ entity: "calendar", ids: ["cal@list:12"], source: "sync", lost: [] });
+  let tree = await h.step();
+  assert.ok(txt(tree).includes(WAIT_NOTE), "ack kirim tidak membuka kunci");
+  assert.equal(dayBtns(tree)[5].props.disabled, true);
+  // entitas lain + peristiwa tak dikenal → tetap terkunci
+  h.fr.emit({ entity: "lain", ids: ["x"], source: "sync" });
+  tree = await h.step();
+  assert.ok(txt(tree).includes(WAIT_NOTE));
+  dayBtns(tree)[5].props.onClick({});
+  await h.step();
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("final #2 (pulled): tarik sukses tanpa record (workspace belum punya kalender) → terbuka setelah muat ulang; put berikutnya", () => withPop(async () => {
+  const h = await popSetup({ props: { pulled: false } });
+  h.fr.emit(PULLED);
+  let tree = h.rerender();
+  assert.ok(txt(tree).includes(WAIT_NOTE), "belum terbuka sebelum muat ulang selesai");
+  tree = await h.step();
+  assert.ok(!txt(tree).includes(WAIT_NOTE));
+  assert.equal(dayBtns(tree)[5].props.disabled, false);
+  dayBtns(tree)[5].props.onClick({});
+  await h.step();
+  assert.equal(h.fr.calls.put.length, 1, "workspace tanpa kalender: boleh diubah setelah tarik sukses");
+  h.m.unmount();
+}));
+
+test("final #2 (pulled): record tiba lewat tarik → kontrol aktif hanya bersama data asli (tanpa jendela di atas bawaan)", () => withPop(async () => {
+  // (a) peristiwa record + pulled dalam satu dispatch
+  const h = await popSetup({ props: { pulled: false } });
+  h.fr.store.set("calendar/cal@list:12", WS_REC([1, 2, 3, 4, 5, 6]));
+  h.fr.emit({ entity: "calendar", ids: ["cal@list:12"], source: "sync", lost: [] });
+  h.fr.emit(PULLED);
+  let tree = h.rerender();
+  assert.ok(txt(tree).includes(WAIT_NOTE), "sebelum muat ulang selesai: masih terkunci");
+  assert.deepEqual(pressed(tree), [true, true, true, true, true, false, false], "masih data bawaan → harus terkunci");
+  tree = await h.step();
+  assert.ok(!txt(tree).includes(WAIT_NOTE));
+  assert.deepEqual(pressed(tree), [true, true, true, true, true, true, false], "kalender bersama tampil saat terbuka");
+  dayBtns(tree)[6].props.onClick({});
+  await h.step();
+  assert.deepEqual(h.fr.calls.put[0][2].weekdays, [1, 2, 3, 4, 5, 6, 7], "perubahan di atas kalender bersama, bukan bawaan");
+  h.m.unmount();
+  // (b) view menyalakan prop pulled (tarik sukses terjadi) saat popover terbuka → muat ulang dulu, baru terbuka
+  const h2 = await popSetup({ props: { pulled: false } });
+  h2.fr.store.set("calendar/cal@list:12", WS_REC([1, 2, 3, 4, 5, 6, 7]));
+  h2.props.pulled = true;
+  tree = h2.rerender();
+  h2.m.flush();
+  tree = h2.rerender();
+  assert.ok(txt(tree).includes(WAIT_NOTE), "prop pulled tidak membuka kunci di atas data bawaan");
+  tree = await h2.step();
+  assert.ok(!txt(tree).includes(WAIT_NOTE));
+  assert.deepEqual(pressed(tree), [true, true, true, true, true, true, true]);
+  h2.m.unmount();
+  // (c) popover dibuka setelah view sudah menerima pulled → terbuka setelah muat awal
+  const h3 = await popSetup({ props: { pulled: true } });
+  assert.ok(!txt(h3.tree).includes(WAIT_NOTE));
+  assert.equal(dayBtns(h3.tree)[5].props.disabled, false);
+  h3.m.unmount();
+}));
+
+test("final #2: record workspace sudah ada di perangkat → langsung bisa diubah; kalender pribadi (cal@user) tidak pernah terkunci", () => withPop(async () => {
   const fr = fakeRecords();
-  fr.store.set("calendar/cal@list:12", { entity: "calendar", id: "cal@list:12", scope: "list:12", pending: false, data: { v: 1, weekdays: [1, 2, 3, 4, 5], national: true, cutiBersama: true, off: [], work: [] } });
-  const h = await popSetup({ records: fr, props: { synced: false } });
+  fr.store.set("calendar/cal@list:12", WS_REC([1, 2, 3, 4, 5]));
+  const h = await popSetup({ records: fr, props: { pulled: false } });
   assert.ok(!txt(h.tree).includes(WAIT_NOTE));
   dayBtns(h.tree)[5].props.onClick({});
   await h.step();
   assert.equal(fr.calls.put.length, 1);
   h.m.unmount();
-  const h2 = await popSetup({ props: { calId: "cal@user", scope: "user", pageKind: "project", synced: false } });
+  const h2 = await popSetup({ props: { calId: "cal@user", scope: "user", pageKind: "project", pulled: false } });
   assert.ok(!txt(h2.tree).includes(WAIT_NOTE));
   dayBtns(h2.tree)[5].props.onClick({});
   await h2.step();
@@ -2216,45 +2279,44 @@ test("final #2: record workspace sudah ada di perangkat → langsung bisa diubah
   h2.m.unmount();
 }));
 
-test("final #2: record workspace tiba lewat sinkron saat popover menunggu → dimuat dan aktif", () => withPop(async () => {
-  const h = await popSetup({ props: { synced: false } });
-  assert.ok(txt(h.tree).includes(WAIT_NOTE));
-  h.fr.store.set("calendar/cal@list:12", { entity: "calendar", id: "cal@list:12", scope: "list:12", pending: false, data: { v: 1, weekdays: [1, 2, 3, 4, 5, 6], national: true, cutiBersama: true, off: [], work: [] } });
-  h.fr.emit({ entity: "calendar", ids: ["cal@list:12"], source: "sync", lost: [] });
-  const tree = await h.step();
-  assert.ok(!txt(tree).includes(WAIT_NOTE));
-  assert.deepEqual(pressed(tree), [true, true, true, true, true, true, false], "kalender workspace bersama tampil");
-  dayBtns(tree)[6].props.onClick({});
-  await h.step();
-  assert.deepEqual(h.fr.calls.put[0][2].weekdays, [1, 2, 3, 4, 5, 6, 7], "perubahan di atas kalender bersama, bukan bawaan");
-  h.m.unmount();
+test("final #2 (pulled): view memberi popover pulled=false sampai peristiwa pulled; sync.done (juga saat gagal) dan ack 'sync' tidak cukup", () => withPop(async () => {
+  const fr = fakeRecords();
+  const { api, calls } = fakeApi({ records: fr });
+  const { ctx } = ctxOf([mk(1, "A", { start: "2026-11-09", duration: 4 })], { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
+  const m = mount(T.TimelineViewBody);
+  const props = { context: ctx, api };
+  let tree = m.render(props);
+  m.flush();
+  await tick();
+  tree = m.render(props);
+  buttonByText(tree, "Kalender kerja").props.onClick({});
+  tree = m.render(props);
+  assert.equal(popNode(tree).props.pulled, false, "belum ada tarik sukses");
+  for (const f of calls.handlers["sync.done"] || []) f({ initial: false }); // sinkron gagal juga memancarkan ini
+  fr.emit({ entity: "calendar", ids: ["cal@user"], source: "sync", lost: [] }); // ack kirim
+  m.flush();
+  await tick();
+  tree = m.render(props);
+  assert.equal(popNode(tree).props.pulled, false, "sync.done / ack bukan tanda tarik sukses");
+  fr.emit(PULLED);
+  tree = m.render(props);
+  assert.equal(popNode(tree).props.pulled, false, "latch view dinyalakan setelah muat ulang selesai");
+  m.flush();
+  await tick();
+  tree = m.render(props);
+  assert.equal(popNode(tree).props.pulled, true);
+  m.unmount();
 }));
 
-test("final #2: view memberi popover synced=false sampai sync.done / onChange sinkron pertama SETELAH view dipasang", () => withPop(async () => {
-  for (const via of ["sync.done", "onChange"]) {
-    const fr = fakeRecords();
-    const { api } = fakeApi({ records: fr });
-    const handlers = {};
-    api.events = { on(name, fn) { (handlers[name] = handlers[name] || []).push(fn); return () => { handlers[name] = handlers[name].filter((f) => f !== fn); }; } };
-    const { ctx } = ctxOf([mk(1, "A", { start: "2026-11-09", duration: 4 })], { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
-    const m = mount(T.TimelineViewBody);
-    const props = { context: ctx, api };
-    let tree = m.render(props);
-    m.flush();
-    await tick();
-    tree = m.render(props);
-    buttonByText(tree, "Kalender kerja").props.onClick({});
-    tree = m.render(props);
-    assert.equal(popNode(tree).props.synced, false, via + ": belum sinkron");
-    if (via === "sync.done") {
-      assert.ok((handlers["sync.done"] || []).length >= 1, "view mendengar sync.done");
-      for (const f of handlers["sync.done"]) f({ initial: false });
-    } else fr.emit({ entity: "calendar", ids: ["cal@list:99"], source: "sync", lost: [] });
-    m.flush();
-    await tick();
-    tree = m.render(props);
-    assert.equal(popNode(tree).props.synced, true, via + ": sesudah sinkron");
-    m.unmount();
-    assert.equal((handlers["sync.done"] || []).length, 0, "pendengar sync.done dilepas saat unmount");
-  }
-}));
+
+test("final #2 (pulled): calendarStore.subscribe meneruskan peristiwa pulled host (entity null) — ack biasa tanpa pulled", () => {
+  const fr = fakeRecords();
+  const store = T.calendarStore({ records: fr.api });
+  const got = [];
+  const off = store.subscribe((ev) => got.push(ev));
+  fr.emit({ entity: null, ids: [], source: "sync", pulled: true });
+  fr.emit({ entity: "calendar", ids: ["cal@user"], source: "sync" });
+  fr.emit({ entity: null, ids: [], source: "sync" }); // entity null tanpa pulled → diabaikan
+  assert.deepEqual(got, [{ ids: [], source: "sync", lost: [], pulled: true }, { ids: ["cal@user"], source: "sync", lost: [] }]);
+  off();
+});
