@@ -10,6 +10,10 @@ const dir = path.join(__dirname, "../../static/plugins/timeline");
 const jsx = fs.readFileSync(path.join(dir, "plugin.jsx"), "utf8");
 const css = fs.readFileSync(path.join(dir, "style.css"), "utf8");
 const T = require(path.join(dir, "plugin.js"));
+// Debounce Mulai (fix round 1): 700 ms di aplikasi, dipendekkan di tes (objek waktu yang bisa diganti, pola `engine`).
+const DEBOUNCE = 30;
+T.SEC_TIMING.startDebounceMs = DEBOUNCE;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ── React palsu ────────────────────────────────────────────────────────────
 function sameDeps(a, b) {
@@ -108,7 +112,7 @@ function mk(id, title, sched, extra) {
 
 function fakeApi(o) {
   const opts = o || {};
-  const calls = { set: [], list: [], storageGet: [], storageSet: [], toast: [], recGet: [], events: [] };
+  const calls = { set: [], list: [], storageGet: [], storageSet: [], toast: [], recGet: [], events: [], handlers: {} };
   const recs = new Map(Object.entries(opts.records || {}));
   let setImpl = opts.set || (() => Promise.resolve());
   const api = {
@@ -128,7 +132,11 @@ function fakeApi(o) {
     },
     data: {
       tasks: {
-        list(q) { calls.list.push(q); return Promise.resolve(JSON.parse(JSON.stringify(opts.tasks || []))); },
+        list(q) {
+          calls.list.push(q);
+          if (opts.listImpl) return opts.listImpl(q, calls.list.length);
+          return Promise.resolve(JSON.parse(JSON.stringify(opts.tasks || [])));
+        },
       },
     },
     records: {
@@ -141,7 +149,7 @@ function fakeApi(o) {
       onChange: () => () => {},
     },
     events: {
-      on(name, fn) { calls.events.push(name); return () => {}; },
+      on(name, fn) { calls.events.push(name); (calls.handlers[name] = calls.handlers[name] || []).push(fn); return () => {}; },
     },
     env: { today: () => "2026-11-04", online: true, userId: 1 },
     storage: {
@@ -236,6 +244,10 @@ test("tingkat 1: Mulai kosong, Durasi nonaktif sampai Mulai diisi, tautan 'Tamba
   assert.equal(s.calls.set.length, 0);
   byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-09"));
   s.render();
+  assert.equal(s.calls.set.length, 0, "tanggal sah tetap draf sampai blur/Enter/debounce");
+  assert.equal(byLabel(s.tree, "Mulai").props.value, "2026-11-09");
+  byLabel(s.tree, "Mulai").props.onBlur(ev("2026-11-09"));
+  s.render();
   assert.deepEqual(s.calls.set, [[5, { start: "2026-11-09", duration: 1 }]]);
   assert.equal(byLabel(s.tree, "Mulai").props.value, "2026-11-09");
   assert.equal(byLabel(s.tree, "Durasi (hari kerja)").props.disabled, false);
@@ -247,7 +259,11 @@ test("tingkat 1: Mulai kosong, Durasi nonaktif sampai Mulai diisi, tautan 'Tamba
   // ganti Mulai saat sudah terjadwal → hanya start
   byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-16"));
   s.render();
+  byLabel(s.tree, "Mulai").props.onKeyDown({ key: "Enter", target: { value: "2026-11-16" }, preventDefault() {} });
+  s.render();
   assert.deepEqual(s.calls.set[1], [5, { start: "2026-11-16" }]);
+  await sleep(DEBOUNCE * 3);
+  assert.equal(s.calls.set.length, 2, "Enter membatalkan debounce");
 });
 
 test("Durasi blur 5 → set {duration: 5}; 0 / 1000 / 'abc' → dijepit 1..999 tanpa set bila sama", async () => {
@@ -343,7 +359,7 @@ test("Selengkapnya: Selesai terhitung (fmtLong), Milestone mencentang → set {d
   assert.equal(txt(nodes(s.tree, (n) => n.props["data-field"] === "finish")[0]).trim(), "Kamis, 5 November 2026");
   byLabel(s.tree, "Milestone").props.onChange({ target: { checked: false } });
   s.render();
-  assert.deepEqual(s.calls.set[1], [8, { duration: 1 }]);
+  assert.deepEqual(s.calls.set[1], [8, { duration: 4 }], "durasi bukan-nol terakhir (fix 4)");
   // tutup → section:open false
   nodes(s.tree, (n) => n.type === "button" && n.props["aria-expanded"] === true)[0].props.onClick();
   s.render();
@@ -580,6 +596,7 @@ test("props task sama id dengan ext berubah (sinkron) → nilai lokal di-seed ul
   const p0 = mk(100, "Snap", { start: "2026-11-02", duration: 3 });
   const s = await ui(p0);
   byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-09"));
+  byLabel(s.tree, "Mulai").props.onBlur(ev("2026-11-09"));
   s.render();
   await s.settle();
   // modal: props tetap salinan lama → nilai lokal tidak kembali
@@ -610,6 +627,7 @@ test("tulis gagal → nilai lokal kembali + toast 'Jadwal gagal disimpan'", asyn
   const s = await ui(mk(110, "Gagal", { start: "2026-11-02", duration: 3 }));
   s.f.setSet(() => Promise.reject(new Error("x")));
   byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-09"));
+  byLabel(s.tree, "Mulai").props.onBlur(ev("2026-11-09"));
   s.render();
   assert.equal(byLabel(s.tree, "Mulai").props.value, "2026-11-09");
   await s.settle();
@@ -634,4 +652,188 @@ test("sumber: teks persis seksi, kelas .plg-timeline-*, tanpa tulis kolom host",
   assert.doesNotMatch(block, /progress\s*:|deadline\s*:|\.records\b/, "seksi tidak menulis progress/deadline dan tidak menyentuh api.records");
   assert.match(css, /\.plg-timeline-section\b/);
   assert.match(css, /\.plg-timeline-picker\b/);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fix round 1 (review Task 10)
+// ════════════════════════════════════════════════════════════════════════════
+
+test("fix 1: Mulai — dua perubahan cepat (ketik hari '3','0') → satu set dengan tanggal akhir setelah debounce", async () => {
+  const s = await ui(mk(200, "Ketik", { start: "2026-11-02", duration: 2 }));
+  byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-03"));
+  s.render();
+  byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-30"));
+  s.render();
+  assert.equal(s.calls.set.length, 0, "tidak menulis per ketikan");
+  assert.equal(byLabel(s.tree, "Mulai").props.value, "2026-11-30");
+  await sleep(DEBOUNCE * 3);
+  s.render();
+  assert.deepEqual(s.calls.set, [[200, { start: "2026-11-30" }]]);
+});
+
+test("fix 1: pilih dari kalender bawaan (satu change) → satu set setelah debounce; blur menyimpan langsung dan membatalkan debounce", async () => {
+  const s = await ui(mk(201, "Pilih", {}));
+  byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-10"));
+  s.render();
+  assert.equal(s.calls.set.length, 0);
+  await sleep(DEBOUNCE * 3);
+  s.render();
+  assert.deepEqual(s.calls.set, [[201, { start: "2026-11-10", duration: 1 }]]);
+  // blur: langsung, debounce dibatalkan (tidak ada tulis kedua)
+  byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-17"));
+  s.render();
+  byLabel(s.tree, "Mulai").props.onBlur(ev("2026-11-17"));
+  s.render();
+  assert.deepEqual(s.calls.set[1], [201, { start: "2026-11-17" }]);
+  await sleep(DEBOUNCE * 3);
+  assert.equal(s.calls.set.length, 2);
+  // tahun parsial membatalkan debounce yang tertunda
+  byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-24"));
+  byLabel(s.tree, "Mulai").props.onChange(ev("0002-11-24"));
+  s.render();
+  await sleep(DEBOUNCE * 3);
+  assert.equal(s.calls.set.length, 2);
+});
+
+test("fix 1: debounce tertunda saat seksi dilepas → disimpan (pilih tanggal lalu tutup modal)", async () => {
+  const s = await ui(mk(202, "Tutup", {}));
+  byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-11"));
+  s.render();
+  s.m.unmount();
+  assert.deepEqual(s.calls.set, [[202, { start: "2026-11-11", duration: 1 }]]);
+  await sleep(DEBOUNCE * 3);
+  assert.equal(s.calls.set.length, 1);
+});
+
+test("fix 2: modal — ext lebih baru di daftar men-seed (deps [A] → daftar [A,B]); tambah C → [A,B,C]", async () => {
+  const A = { t: { $task: 1 }, type: "FS", lag: 0 };
+  const B = { t: { $task: 3 }, type: "FS", lag: 0 };
+  const snap = mk(210, "Modal", { start: "2026-11-16", duration: 1, deps: [A] }, Object.assign({ updated_at: "2026-11-01T01:00:00Z" }, SCOPE));
+  const listed = mk(210, "Modal", { start: "2026-11-16", duration: 1, deps: [A, B] }, Object.assign({ updated_at: "2026-11-01T02:00:00Z" }, SCOPE));
+  const C = mk(4, "Cakupan", {}, SCOPE);
+  const s = await ui(snap, { tasks: depTasks().concat([listed, C]), storage: { "section:open": true } });
+  assert.deepEqual(byCls(s.tree, "plg-timeline-dep").map((n) => n.props["data-key"]), ["1", "3"]);
+  buttonByText(s.tree, "Tambah dependensi").props.onClick();
+  s.render();
+  await s.settle();
+  byLabel(s.tree, "Cari task").props.onChange(ev("cakupan"));
+  s.render();
+  byCls(s.tree, "plg-timeline-pick")[0].props.onClick();
+  s.render();
+  assert.deepEqual(s.calls.set, [[210, { deps: [A, B, { t: { $task: 4 }, type: "FS", lag: 0 }] }]]);
+});
+
+test("fix 2: daftar lebih baru tidak menimpa draf yang sedang diketik; tulis berjalan menunda seed", async () => {
+  const snap = mk(211, "Draf", { start: "2026-11-16", duration: 2 }, { updated_at: "2026-11-01T01:00:00Z" });
+  let listExt = { start: "2026-11-16", duration: 2 };
+  const listImpl = () => Promise.resolve([mk(211, "Draf", listExt, { updated_at: "2026-11-01T0" + (listExt.duration === 2 ? 1 : 3) + ":00:00Z" })]);
+  const s = await ui(snap, { listImpl });
+  byLabel(s.tree, "Durasi (hari kerja)").props.onChange(ev("9"));
+  s.render();
+  listExt = { start: "2026-11-23", duration: 4 };
+  s.calls.handlers["sync.done"][0]();
+  await s.settle();
+  assert.equal(byLabel(s.tree, "Durasi (hari kerja)").props.value, "9", "draf tetap");
+  assert.equal(byLabel(s.tree, "Mulai").props.value, "2026-11-16");
+  byLabel(s.tree, "Durasi (hari kerja)").props.onBlur(ev("9"));
+  s.render();
+  assert.deepEqual(s.calls.set, [[211, { duration: 9 }]]);
+  await s.settle();
+  // tanpa draf dan tanpa tulis berjalan: ext daftar yang lebih baru men-seed
+  s.calls.handlers["sync.done"][0]();
+  await s.settle();
+  assert.equal(byLabel(s.tree, "Mulai").props.value, "2026-11-23");
+  assert.equal(byLabel(s.tree, "Durasi (hari kerja)").props.value, "4");
+});
+
+test("fix 3: Mulai diketik di hari libur/akhir pekan → jepret ke hari kerja (durasi ≥ 1) dan input menampilkannya; milestone tetap", async () => {
+  // Sabtu 7 Nov → Senin 9 Nov; jadwal baru
+  const s = await ui(mk(220, "Jepret", {}));
+  byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-07"));
+  byLabel(s.tree, "Mulai").props.onBlur(ev("2026-11-07"));
+  s.render();
+  assert.deepEqual(s.calls.set, [[220, { start: "2026-11-09", duration: 1 }]]);
+  assert.equal(byLabel(s.tree, "Mulai").props.value, "2026-11-09");
+  // Natal (Jum 25 Des 2026, libur nasional) → Senin 28 Des (26 Sab, 27 Min)
+  byLabel(s.tree, "Mulai").props.onChange(ev("2026-12-25"));
+  byLabel(s.tree, "Mulai").props.onBlur(ev("2026-12-25"));
+  s.render();
+  assert.deepEqual(s.calls.set[1], [220, { start: "2026-12-28" }]);
+  // jepret = nilai tersimpan → tanpa tulis, input kembali ke tanggal tersimpan
+  byLabel(s.tree, "Mulai").props.onChange(ev("2026-12-27"));
+  byLabel(s.tree, "Mulai").props.onBlur(ev("2026-12-27"));
+  s.render();
+  assert.equal(s.calls.set.length, 2);
+  assert.equal(byLabel(s.tree, "Mulai").props.value, "2026-12-28");
+  // milestone (durasi 0) boleh di hari libur (R6)
+  const m = await ui(mk(221, "Rilis", { start: "2026-11-02", duration: 0 }));
+  byLabel(m.tree, "Mulai").props.onChange(ev("2026-11-07"));
+  byLabel(m.tree, "Mulai").props.onBlur(ev("2026-11-07"));
+  m.render();
+  assert.deepEqual(m.calls.set, [[221, { start: "2026-11-07" }]]);
+  assert.equal(byLabel(m.tree, "Mulai").props.value, "2026-11-07");
+});
+
+test("fix 4: hapus centang Milestone → durasi bukan-nol terakhir di mount ini (cadangan 1); mulai di hari libur dijepret", async () => {
+  const s = await ui(mk(230, "Durasi", { start: "2026-11-02", duration: 4 }), { storage: { "section:open": true } });
+  byLabel(s.tree, "Milestone").props.onChange({ target: { checked: true } });
+  s.render();
+  byLabel(s.tree, "Milestone").props.onChange({ target: { checked: false } });
+  s.render();
+  assert.deepEqual(s.calls.set, [[230, { duration: 0 }], [230, { duration: 4 }]]);
+  // dipasang sebagai milestone di Sabtu → cadangan 1, mulai dijepret ke Senin
+  const m = await ui(mk(231, "Rilis", { start: "2026-11-07", duration: 0 }), { storage: { "section:open": true } });
+  byLabel(m.tree, "Milestone").props.onChange({ target: { checked: false } });
+  m.render();
+  assert.deepEqual(m.calls.set, [[231, { duration: 1, start: "2026-11-09" }]]);
+  // task lain di instance yang sama tidak mewarisi durasi terakhir
+  const s2 = await ui(mk(232, "A", { start: "2026-11-02", duration: 6 }), { storage: { "section:open": true } });
+  s2.render(mk(233, "B", { start: "2026-11-02", duration: 0 }));
+  byLabel(s2.tree, "Milestone").props.onChange({ target: { checked: false } });
+  s2.render();
+  assert.deepEqual(s2.calls.set, [[233, { duration: 1 }]]);
+});
+
+test("fix 5: salinan modal ber-cid basi menulis ke id terkini dari daftar", async () => {
+  const stale = mk("c-xyz", "Basi", { start: "2026-11-02", duration: 2 }, SCOPE);
+  const fresh = Object.assign({}, stale, { id: 77, cid: "c-xyz" });
+  const s = await ui(stale, { tasks: [fresh] });
+  byLabel(s.tree, "Durasi (hari kerja)").props.onChange(ev("3"));
+  byLabel(s.tree, "Durasi (hari kerja)").props.onBlur(ev("3"));
+  s.render();
+  assert.deepEqual(s.calls.set, [[77, { duration: 3 }]]);
+});
+
+test("fix 6: sebelum daftar task dimuat hanya kepala seksi (tanpa input) — ringkasan tidak berkedip", async () => {
+  let release = null;
+  const parent = mk(240, "Induk", {}, SCOPE);
+  const kid = mk(241, "Anak", { start: "2026-11-02", duration: 2 }, Object.assign({ parent_id: 240 }, SCOPE));
+  const listImpl = () => new Promise((r) => { release = () => r([parent, kid]); });
+  const s = await ui(parent, { listImpl });
+  assert.ok(hasCls(s.tree, "plg-timeline-section"));
+  assert.equal(txt(byCls(s.tree, "plg-timeline-sec-title")[0]).trim(), "Jadwal");
+  assert.equal(inputs(s.tree).length, 0);
+  assert.equal(buttonByText(s.tree, "Tambah dependensi"), undefined);
+  release();
+  await s.settle();
+  assert.ok(txt(s.tree).includes("Jadwal task ini mengikuti subtask-nya"));
+  // gagal memuat → tetap bisa dipakai (daftar kosong)
+  const f = await ui(mk(242, "Gagal muat", {}), { listImpl: () => Promise.reject(new Error("idb")) });
+  assert.ok(byLabel(f.tree, "Mulai"));
+});
+
+test("fix 7: muat ulang daftar berurutan — jawaban lama yang datang belakangan diabaikan", async () => {
+  const pending = [];
+  const listImpl = () => new Promise((r) => pending.push(r));
+  const task = mk(250, "Urut", { start: "2026-11-16", duration: 1, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }] }, SCOPE);
+  const s = await ui(task, { listImpl, storage: { "section:open": true } });
+  assert.equal(pending.length, 1);
+  s.calls.handlers["sync.done"][0]();
+  await tick();
+  assert.equal(pending.length, 2);
+  pending[1]([mk(1, "Judul baru", {}, SCOPE), task]);
+  await s.settle();
+  pending[0]([mk(1, "Judul lama", {}, SCOPE), task]);
+  await s.settle();
+  assert.equal(txt(byCls(s.tree, "plg-timeline-dep-name")[0]).trim(), "Judul baru");
 });

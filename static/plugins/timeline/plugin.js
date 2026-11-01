@@ -3906,7 +3906,11 @@ const SEC_YEAR_MIN = 1970; // tahun parsial saat mengetik di input tanggal (0002
 const SEC_YEAR_MAX = 2199;
 const PICK_MAX = 50; // R17: ≤ 50 hasil pemilih
 const SEC_REFRESH_MS = 2000; // muat ulang daftar task saat seksi difokus/disentuh, paling sering tiap 2 s
-
+// Waktu yang bisa diganti tes (pola `engine`): Mulai yang sah disimpan setelah jeda ini bila tidak ada blur/Enter
+// (pilihan dari kalender bawaan tidak selalu diikuti blur).
+const SEC_TIMING = {
+  startDebounceMs: 700
+};
 function secBadText(n) {
   return n + " dependensi rusak atau tidak dikenali versi ini";
 }
@@ -4079,29 +4083,70 @@ function ScheduleBody(props) {
   const propRaw = readExtSafe(api, task);
   const propKey = stableKey(propRaw);
 
-  // R17 state lokal optimistis: di-seed ulang hanya saat task.id berganti atau ext di props berubah. Selama tulis masih
-  // berjalan, props yang tertinggal tidak menimpa nilai lokal; props yang sudah menyusul (sama dengan lokal) hanya
-  // memperbarui kunci tanpa membuang draf input.
+  // Daftar task (judul dependensi, ringkasan, rentang pendahulu, progres terkini, ext terbaru). Dimuat saat task/ext
+  // berganti, saat sinkron selesai, dan (dibatasi) saat seksi difokus/disentuh; pemilih memuat sendiri saat dibuka.
+  // Berurutan: hanya jawaban permintaan terbaru yang dipakai.
+  const [all, setAll] = React.useState(null);
+  const loadRef = React.useRef({
+    at: 0,
+    alive: true,
+    seq: 0
+  });
+  const loadAll = () => {
+    const L = loadRef.current;
+    L.at = nowMs();
+    const seq = ++L.seq;
+    return Promise.resolve().then(() => api.data.tasks.list({
+      includeDone: true
+    })).then(list => {
+      const arr = Array.isArray(list) ? list : [];
+      if (L.alive && seq === L.seq) setAll(arr);
+      return arr;
+    }, e => {
+      logWarn(api, "daftar task gagal dimuat:", e);
+      if (L.alive && seq === L.seq) setAll(p => p || []); // tetap bisa dipakai tanpa daftar
+      return null;
+    });
+  };
+  const view = React.useMemo(() => {
+    const list = all || [];
+    const idx = TLSched.buildIndex(list);
+    return {
+      list,
+      idx,
+      kids: childrenOf(list, idx)
+    };
+  }, [all]);
+  const listedSelf = view.idx.get(String(tid)) || null;
+  // Salinan terbaru (updated_at): modal membawa salinan saat dibuka; daftar membawa ext/progres/tenggat terkini.
+  const info = fresherTask(task, listedSelf);
+  const srcRaw = info === task ? propRaw : readExtSafe(api, info);
+  const srcKey = info === task ? propKey : stableKey(srcRaw);
+  const writeId = listedSelf && listedSelf.id !== undefined && listedSelf.id !== null ? listedSelf.id : tid;
+
+  // R17 state lokal optimistis: di-seed ulang saat task.id berganti, atau saat ext sumber terbaru (props atau daftar)
+  // berubah selama tidak ada tulis berjalan dan tidak ada draf input. Sumber yang sudah menyusul (sama dengan lokal)
+  // hanya memperbarui kunci.
   const inflight = React.useRef(0);
   const [loc, setLoc] = React.useState(() => ({
     id: tid,
-    key: propKey,
-    raw: propRaw,
+    key: srcKey,
+    raw: srcRaw,
     d: {}
   }));
   let cur = loc;
   if (loc.id !== tid) cur = {
     id: tid,
-    key: propKey,
-    raw: propRaw,
+    key: srcKey,
+    raw: srcRaw,
     d: {}
-  };else if (loc.key !== propKey && inflight.current === 0) {
-    cur = stableKey(loc.raw) === propKey ? Object.assign({}, loc, {
-      key: propKey
+  };else if (loc.key !== srcKey && inflight.current === 0 && !Object.keys(loc.d).length) {
+    cur = stableKey(loc.raw) === srcKey ? Object.assign({}, loc, {
+      key: srcKey
     }) : {
       id: tid,
-      key: propKey,
-      raw: propRaw,
+      key: srcKey,
+      raw: srcRaw,
       d: {}
     };
   }
@@ -4110,6 +4155,16 @@ function ScheduleBody(props) {
   const raw = cur.raw;
   const sched = TLSched.readSched(raw);
   const deps = depRowsOf(raw);
+  // Durasi bukan-nol terakhir di mount ini (per task) untuk "hapus centang Milestone".
+  const lastDur = React.useRef({
+    id: tid,
+    n: null
+  });
+  if (lastDur.current.id !== tid) lastDur.current = {
+    id: tid,
+    n: null
+  };
+  if (sched.start !== null && sched.duration > 0) lastDur.current.n = sched.duration;
   const [open, setOpenPref] = usePref(api, "section", "");
   const [forceOpen, setForceOpen] = React.useState(false);
   const expanded = open || forceOpen;
@@ -4118,27 +4173,6 @@ function ScheduleBody(props) {
   const target = calTarget(task.list_id);
   const cal = useCalendar(api, target, true);
   const c = React.useMemo(() => TLCal.compile(cal.data), [cal.data]);
-
-  // Daftar task (judul dependensi, ringkasan, rentang pendahulu, progres terkini). Dimuat saat task/ext berganti, saat
-  // sinkron selesai, dan (dibatasi) saat seksi difokus/disentuh; pemilih memuat sendiri saat dibuka.
-  const [all, setAll] = React.useState(null);
-  const loadRef = React.useRef({
-    at: 0,
-    alive: true
-  });
-  const loadAll = () => {
-    loadRef.current.at = nowMs();
-    return Promise.resolve().then(() => api.data.tasks.list({
-      includeDone: true
-    })).then(list => {
-      const arr = Array.isArray(list) ? list : [];
-      if (loadRef.current.alive) setAll(arr);
-      return arr;
-    }, e => {
-      logWarn(api, "daftar task gagal dimuat:", e);
-      return null;
-    });
-  };
   React.useEffect(() => {
     loadRef.current.alive = true;
     loadAll();
@@ -4161,18 +4195,7 @@ function ScheduleBody(props) {
   const refreshSoon = () => {
     if (nowMs() - loadRef.current.at > SEC_REFRESH_MS) loadAll();
   };
-  const view = React.useMemo(() => {
-    const list = all || [];
-    const idx = TLSched.buildIndex(list);
-    return {
-      list,
-      idx,
-      kids: childrenOf(list, idx)
-    };
-  }, [all]);
-  const listedSelf = view.idx.get(String(tid)) || null;
   const selfLive = listedSelf || task;
-  const info = fresherTask(task, listedSelf);
   const readOther = t => TLSched.readSched(t === selfLive ? raw : readExtSafe(api, t));
 
   // ---- tulis ----
@@ -4203,7 +4226,8 @@ function ScheduleBody(props) {
     inflight.current += 1;
     let p;
     try {
-      p = Promise.resolve(api.taskExt.set(tid, patch)); // panggil sinkron: urutan tulis = urutan aksi pengguna
+      // panggil sinkron: urutan tulis = urutan aksi pengguna. Id dari daftar: salinan modal ber-cid basi → id terkini.
+      p = Promise.resolve(api.taskExt.set(writeId, patch));
     } catch (e) {
       p = Promise.reject(e);
     }
@@ -4226,27 +4250,74 @@ function ScheduleBody(props) {
     }
     write(san.patch, draftName);
   };
+
+  // Jepret ke hari kerja seperti seret/klik-jadwalkan (R13, R21): durasi ≥ 1 → nextWork; milestone boleh di hari libur (R6).
+  const snapStart = (v, dur) => {
+    if (dur === 0) return v;
+    const n = calSafe(() => TLCal.nextWork(c, TLCal.dn(v)));
+    return n === null ? v : TLCal.iso(n);
+  };
   const commitStart = v => {
     if (v === null) {
       if (sched.start === null) clearDraft("start");else writeSched({
         start: null,
         duration: null
       }, "start");
-    } else if (v === sched.start) clearDraft("start");else if (sched.start === null) writeSched({
-      start: v,
+      return;
+    }
+    const x = snapStart(v, sched.start === null ? 1 : sched.duration);
+    if (x === sched.start) clearDraft("start");else if (sched.start === null) writeSched({
+      start: x,
       duration: 1
     }, "start");else writeSched({
-      start: v
+      start: x
     }, "start");
   };
+  // Mulai: change hanya menyimpan draf; simpan saat blur / Enter, atau setelah jeda (pilihan kalender bawaan tanpa
+  // blur) — satu tulis per edit. Jeda tertunda saat seksi dilepas/task berganti tetap disimpan (penutupan modal cepat).
+  const startTimer = React.useRef(null); // {id, run}
+  const cancelStartTimer = () => {
+    const t = startTimer.current;
+    startTimer.current = null;
+    if (t) clearTimeout(t.id);
+  };
+  React.useEffect(() => () => {
+    const t = startTimer.current;
+    startTimer.current = null;
+    if (t) {
+      clearTimeout(t.id);
+      t.run();
+    }
+  }, [tid]);
   const onStartChange = e => {
     const v = e && e.target ? String(e.target.value || "") : "";
-    if (commitDate(v)) commitStart(v);else setDraft("start", v);
+    cancelStartTimer();
+    setDraft("start", v);
+    if (!commitDate(v)) return;
+    const run = () => commitStart(v);
+    const id = setTimeout(() => {
+      if (startTimer.current && startTimer.current.id === id) {
+        startTimer.current = null;
+        run();
+      }
+    }, SEC_TIMING.startDebounceMs);
+    startTimer.current = {
+      id,
+      run
+    };
   };
   const onStartBlur = e => {
+    cancelStartTimer();
     const t = e && e.target ? e.target : {};
     const v = String(t.value || "");
     if (commitDate(v)) commitStart(v);else if (v === "" && !(t.validity && t.validity.badInput)) commitStart(null);else clearDraft("start"); // tanggal setengah diketik / tak sah → kembali ke nilai tersimpan
+  };
+  const onStartKey = e => {
+    if (!e || e.key !== "Enter") return;
+    if (typeof e.preventDefault === "function") e.preventDefault();
+    cancelStartTimer();
+    const v = e.target ? String(e.target.value || "") : "";
+    if (commitDate(v)) commitStart(v);
   };
   const commitDur = v => {
     const n = clampText(v, 1, TLSched.DUR_MAX);
@@ -4261,10 +4332,20 @@ function ScheduleBody(props) {
   };
   const setMilestone = on => {
     if (sched.start === null) return;
-    const want = on ? 0 : 1;
-    if (sched.duration !== want) writeSched({
-      duration: want
-    });
+    if (on) {
+      if (sched.duration !== 0) writeSched({
+        duration: 0
+      });
+      return;
+    }
+    if (sched.duration !== 0) return;
+    const n = lastDur.current.id === tid && lastDur.current.n ? lastDur.current.n : 1;
+    const patch = {
+      duration: n
+    };
+    const x = snapStart(sched.start, n); // milestone di hari libur → bar mulai di hari kerja berikutnya
+    if (x !== sched.start) patch.start = x;
+    writeSched(patch);
   };
   const rawDeps = Array.isArray(raw.deps) ? raw.deps : [];
   const commitLag = (row, v) => {
@@ -4411,6 +4492,15 @@ function ScheduleBody(props) {
     }
   }, expanded ? SEC_LESS : SEC_MORE) : null);
 
+  // Daftar belum dimuat: hanya kepala seksi (ringkasan tidak berkedip menjadi input lalu berganti).
+  if (all === null) {
+    return /*#__PURE__*/React.createElement("section", {
+      className: "plg-timeline-section",
+      "aria-label": SEC_TITLE,
+      "aria-busy": "true"
+    }, head(false));
+  }
+
   // Ringkasan (R10): rentang dari subtask, tanpa input.
   if (summary) {
     const sp = spanTree(c, selfLive, view.kids, readOther, new Set());
@@ -4442,7 +4532,8 @@ function ScheduleBody(props) {
     "aria-label": SEC_START,
     value: startVal,
     onChange: onStartChange,
-    onBlur: onStartBlur
+    onBlur: onStartBlur,
+    onKeyDown: onStartKey
   })), /*#__PURE__*/React.createElement("label", {
     className: "plg-timeline-field"
   }, /*#__PURE__*/React.createElement("span", {
@@ -4692,6 +4783,7 @@ const pure = {
   CAL_MAX_BYTES,
   MSG_CAL_TOO_LARGE,
   MSG_CAL_LOST,
+  SEC_TIMING,
   MSG_EMPTY,
   MSG_VIOLATION,
   MSG_SCHEDULE_HINT,
