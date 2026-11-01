@@ -197,8 +197,10 @@ dan ikut sinkron task di semua jalur (hidrasi, push, pull, workspace bersama).
   yang baru diubah orang lain, dan setelah push pertama perangkat itu menampilkan nilai server. Edit yang juga
   menyentuh field inti tetap dikirim penuh seperti biasa (last-write-wins). Sisa batasan: edit inti offline yang
   lebih tua dari edit ext perangkat lain bisa kalah saat ditarik (server menaikkan waktu ubah task pada setiap
-  edit ext); penghapusan tag pada task yang tidak punya edit inti tertunda baru terkirim pada edit inti
-  berikutnya.
+  edit ext). Penghapusan tag pada task yang hanya punya edit ext tertunda mengubahnya menjadi kiriman penuh,
+  jadi tag itu segera terkirim lewat PUT penuh; penghapusan tag baru tertunda sampai PUT penuh berikutnya bila
+  task tidak punya perubahan tertunda sama sekali, bila PUT penuh untuk task itu sedang terkirim, atau bila
+  tarik ulang dari server menyetel task kembali ke "hanya ext" (perubahan ext yang belum terkirim ditempel ulang).
 - **Seret massal:** pakai `setMany`. Semua item diperbarui optimistis di daftar task host dalam **satu render**
   (bukan satu per item), lalu ditulis berurutan ke IndexedDB dan berhenti pada kegagalan pertama (item
   sebelumnya tetap tersimpan); satu muat ulang daftar task + satu event `taskUpdated` di akhir. Penolakan
