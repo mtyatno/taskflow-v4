@@ -286,17 +286,19 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     return isInt(v) ? v : NaN;
   }
 
-  const trimName = (t) => (typeof t.project === "string" ? t.project.trim() : "");
+  const trimName = (t) => (typeof t.project === "string" ? t.project.trim() : ""); // hanya untuk nama tampilan
+  // Kunci nama = SCHED.projectFold (lipatan host projectNameFold, tanpa trim); nama kosong/hanya spasi = tanpa project.
+  const nameKey = (t) => (trimName(t) ? SCHED.projectFold(t.project) : "");
 
-  // Kelompok workspace: project_id, fallback nama project NOCASE; nama yang cocok dengan kelompok ber-id ikut kelompok itu.
+  // Kelompok workspace: project_id, fallback nama project (lipatan host); nama yang cocok dengan kelompok ber-id ikut kelompok itu.
   function groupKeyer(items) {
-    const nameToId = new Map(); // nama NOCASE → project_id
+    const nameToId = new Map(); // lipatan nama → project_id
     for (const it of items) {
-      const nm = trimName(it.task).toLowerCase();
+      const nm = nameKey(it.task);
       if (it.task.project_id != null && nm && !nameToId.has(nm)) nameToId.set(nm, it.task.project_id);
     }
     return (t) => {
-      const nm = trimName(t).toLowerCase();
+      const nm = nameKey(t);
       if (t.project_id != null) return "p:" + t.project_id;
       if (nm) return nameToId.has(nm) ? "p:" + nameToId.get(nm) : "n:" + nm;
       return "none";

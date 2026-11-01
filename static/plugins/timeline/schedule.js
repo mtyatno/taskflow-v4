@@ -137,11 +137,32 @@ const TLSched = (function (CAL) {
     return idx;
   }
 
-  // Kalender yang dipakai task (R4).
+  // Kalender yang dipakai (R4) — SATU pembantu id kalender untuk view, seksi, dan scope dependensi.
+  // list_id sah → kalender workspace `cal@list:<id>` (scope "list:<id>", dibagi semua anggota); kosong/0/id tak sah
+  // (bukan [A-Za-z0-9_-]{1,40}, mis. data rusak) → kalender pribadi `cal@user` (scope "user").
+  const LIST_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
+  function calTarget(listId) {
+    const s = listId === undefined || listId === null ? "" : String(listId).trim();
+    if (!s || s === "0" || !LIST_ID_RE.test(s)) return { id: "cal@user", scope: "user" };
+    return { id: "cal@list:" + s, scope: "list:" + s };
+  }
+
   function calKeyOf(task) {
-    const lid = task && typeof task === "object" ? task.list_id : null;
-    if (lid === undefined || lid === null || lid === "" || lid === 0 || lid === "0") return { id: "cal@user", scope: "user" };
-    return { id: "cal@list:" + lid, scope: "list:" + lid };
+    return calTarget(task && typeof task === "object" ? task.list_id : null);
+  }
+
+  // Lipatan nama project = host `projectNameFold` (index.html): hanya A–Z ASCII ke huruf kecil, tanpa trim — sama dengan
+  // SQLite NOCASE. "Proyek " ≠ "Proyek", "É" ≠ "é", "A" = "a".
+  function projectFold(s) {
+    return String(s === undefined || s === null ? "" : s).replace(/[A-Z]/g, (c) => c.toLowerCase());
+  }
+
+  // Kunci scope dependensi (R15): workspace sama (`l:<id>`), atau pribadi dengan nama project sama menurut projectFold
+  // (`p:<lipatan>`; keduanya tanpa project juga sama).
+  function scopeKeyOf(t) {
+    const cal = calKeyOf(t);
+    if (cal.scope !== "user") return "l:" + cal.scope.slice(5);
+    return "p:" + projectFold(t && typeof t === "object" ? t.project : null);
   }
 
   // ---- rentang hari ----
@@ -214,13 +235,6 @@ const TLSched = (function (CAL) {
 
   const idOf = (t) => (t && typeof t === "object" && t.id !== undefined && t.id !== null ? String(t.id) : null);
 
-  function projectKeyOf(t) {
-    const name = typeof t.project === "string" ? t.project.trim().toLowerCase() : "";
-    return name;
-  }
-
-  const hasList = (t) => calKeyOf(t).scope !== "user";
-
   // Kunci task yang punya anak di scopeTasks (parent_id server atau parent_cid offline).
   function summaryKeys(scopeTasks) {
     const idx = buildIndex(scopeTasks);
@@ -253,13 +267,8 @@ const TLSched = (function (CAL) {
       if (fs) sk = idOf(fs);
     }
     if (pk === sk) return { ok: false, reason: "self" };
-    // scope: workspace sama, atau pribadi dengan project sama (NOCASE; keduanya tanpa project juga sama)
-    const pl = hasList(a.pred);
-    const sl = hasList(a.succ);
-    if (pl !== sl) return { ok: false, reason: "scope" };
-    if (pl) {
-      if (String(a.pred.list_id) !== String(a.succ.list_id)) return { ok: false, reason: "scope" };
-    } else if (projectKeyOf(a.pred) !== projectKeyOf(a.succ)) return { ok: false, reason: "scope" };
+    // scope: workspace sama, atau pribadi dengan project sama (projectFold; keduanya tanpa project juga sama)
+    if (scopeKeyOf(a.pred) !== scopeKeyOf(a.succ)) return { ok: false, reason: "scope" };
     if (idx) {
       if (!inScope) return { ok: false, reason: "scope" };
       const sums = summaryKeys(a.scopeTasks);
@@ -339,7 +348,10 @@ const TLSched = (function (CAL) {
     sanitizePatch,
     refKey,
     buildIndex,
+    calTarget,
     calKeyOf,
+    projectFold,
+    scopeKeyOf,
     spanOf,
     resolveDeps,
     wouldCycle,

@@ -2,6 +2,7 @@
 // (rencana R2, R3, R7, R8, R15, R16). Semua tanggal tetap; tidak ada tes yang bergantung pada "hari ini".
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
 const path = require("node:path");
 
 const dir = path.join(__dirname, "../../static/plugins/timeline");
@@ -480,4 +481,43 @@ test("resolveDeps: dependensi ke task yang sama lewat cid dan id angka menghasil
     { from: "1", to: "2", lag: 0, ok: true },
     { from: "77", to: "2", lag: 0, ok: false },
   ]);
+});
+
+// ── Final review: satu lipatan nama project (sama dengan host projectNameFold) dan satu pembantu id kalender ──
+test("final: projectFold = host projectNameFold (huruf A–Z ASCII saja, tanpa trim, seperti SQLite NOCASE)", () => {
+  assert.equal(S.projectFold("Proyek"), "proyek");
+  assert.equal(S.projectFold(null), "");
+  assert.equal(S.projectFold(undefined), "");
+  assert.notEqual(S.projectFold("Proyek "), S.projectFold("Proyek"), "spasi di ujung tidak dipangkas");
+  assert.notEqual(S.projectFold("É"), S.projectFold("é"), "non-ASCII tidak dilipat");
+  assert.equal(S.projectFold("A"), S.projectFold("a"));
+  // sama persis dengan host (index.html projectNameFold)
+  const host = fs.readFileSync(path.join(__dirname, "../../static/index.html"), "utf8");
+  const m = host.match(/function projectNameFold\(s\) \{\n\s*return ([^\n]+);\n\}/);
+  assert.ok(m, "projectNameFold host ditemukan");
+  const hostFold = new Function("s", "return " + m[1] + ";");
+  for (const s of ["Proyek ", "Proyek", "É", "é", "A", "a", "  ", "ÀbC İ ß", null, undefined, 12]) assert.equal(S.projectFold(s), hostFold(s), String(s));
+});
+
+test("final: scope canLink memakai lipatan host — 'Proyek ' ≠ 'Proyek', 'É' ≠ 'é', 'A' = 'a'", () => {
+  const pr = (x, y) => S.canLink({ pred: { id: 1, project: x }, succ: { id: 2, project: y }, edges: [] });
+  assert.deepEqual(pr("Proyek ", "Proyek"), { ok: false, reason: "scope" });
+  assert.deepEqual(pr("É", "é"), { ok: false, reason: "scope" });
+  assert.deepEqual(pr("A", "a"), { ok: true });
+  assert.equal(S.scopeKeyOf({ project: "Proyek " }) === S.scopeKeyOf({ project: "Proyek" }), false);
+  assert.equal(S.scopeKeyOf({ project: "A" }), S.scopeKeyOf({ project: "a" }));
+  assert.equal(S.scopeKeyOf({ list_id: 7, project: "X" }), S.scopeKeyOf({ list_id: "7", project: "Y" }), "workspace: project tidak berpengaruh");
+  assert.notEqual(S.scopeKeyOf({ list_id: 7 }), S.scopeKeyOf({ list_id: 8 }));
+  assert.notEqual(S.scopeKeyOf({ list_id: 7 }), S.scopeKeyOf({}), "workspace vs pribadi");
+  assert.equal(S.scopeKeyOf({}), S.scopeKeyOf({ project: "" }), "keduanya tanpa project");
+});
+
+test("final: satu pembantu id kalender — calTarget(listId) dan calKeyOf(task) = calTarget(task.list_id) (validasi id sama)", () => {
+  assert.deepEqual(S.calTarget(12), { id: "cal@list:12", scope: "list:12" });
+  assert.deepEqual(S.calTarget(" 12 "), { id: "cal@list:12", scope: "list:12" });
+  for (const v of [null, undefined, "", 0, "0", "a b", "x".repeat(41), "a/b"]) {
+    assert.deepEqual(S.calTarget(v), { id: "cal@user", scope: "user" }, JSON.stringify(v));
+    assert.deepEqual(S.calKeyOf({ list_id: v }), S.calTarget(v), "calKeyOf = calTarget untuk " + JSON.stringify(v));
+  }
+  assert.deepEqual(S.calKeyOf({ list_id: 12 }), S.calTarget(12));
 });

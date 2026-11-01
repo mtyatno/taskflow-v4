@@ -6,7 +6,7 @@
 //
 // Susunan modul (Task 6 = kerangka; komponen diisi Task 7–10):
 //   1. Konstanta + pesan UI persis (kalender, preferensi).
-//   2. calendarStore(api)  — SATU-SATUNYA kode yang menyentuh api.records (R5). calTarget(listId) memilih id/scope.
+//   2. calendarStore(api)  — SATU-SATUNYA kode yang menyentuh api.records (R5). calTarget (= TLSched.calTarget) memilih id/scope.
 //   3. Preferensi per perangkat lewat api.storage: prefKey / cleanPref / PREF_DEFAULTS (R19).
 //   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar), fungsi render
 //      (toolbar/head/tabel/grafik/panah/legenda), TimelineViewBody (Task 7; interaksi Task 8 lewat `ix`; popover
@@ -18,16 +18,11 @@ const CAL_ENTITY = "calendar";
 const CAL_MAX_BYTES = 16384;
 const MSG_CAL_TOO_LARGE = "Kalender terlalu besar — hapus sebagian libur tambahan";
 const MSG_CAL_LOST = "Perubahan kalender di perangkat ini kalah oleh perubahan yang lebih baru";
-const LIST_ID_RE = /^[A-Za-z0-9_-]{1,40}$/;
 
 // ── 2. Kalender (R4, R5) ────────────────────────────────────────────────────
 // Task dengan list_id memakai kalender workspace `cal@list:<id>` (scope "list:<id>", dibagi semua anggota);
-// tanpa list_id kalender pribadi `cal@user` (scope "user").
-function calTarget(listId) {
-  const s = listId == null ? "" : String(listId).trim();
-  if (!s || s === "0" || !LIST_ID_RE.test(s)) return { id: "cal@user", scope: "user" };
-  return { id: "cal@list:" + s, scope: "list:" + s };
-}
+// tanpa list_id kalender pribadi `cal@user` (scope "user"). Satu pembantu untuk semua: TLSched.calTarget.
+const calTarget = TLSched.calTarget;
 
 function calTooLarge() {
   const e = new Error(MSG_CAL_TOO_LARGE);
@@ -1633,13 +1628,9 @@ function secLateText(finishDn, late) {
 
 const liveTask = (t) => !!t && typeof t === "object" && !t.recurrence_type && t.gtd_status !== "archived" && !t.deleted;
 
-// Scope dependensi seksi (R15): workspace sama (`list_id`), atau pribadi dengan project sama (NOCASE; keduanya tanpa
-// project juga sama) — aturan yang sama dengan TLSched.canLink.
-function secScopeKey(t) {
-  const lid = t ? t.list_id : null;
-  if (lid !== undefined && lid !== null && lid !== "" && lid !== 0 && lid !== "0") return "l:" + String(lid);
-  return "p:" + (t && typeof t.project === "string" ? t.project.trim().toLowerCase() : "");
-}
+// Scope dependensi seksi (R15): workspace sama (`list_id`), atau pribadi dengan project sama (lipatan host
+// projectNameFold; keduanya tanpa project juga sama) — kunci yang sama dengan TLSched.canLink.
+const secScopeKey = TLSched.scopeKeyOf;
 
 function taskTitle(t) {
   return t && t.title !== undefined && t.title !== null && String(t.title).trim() ? String(t.title).trim() : "Tanpa judul";

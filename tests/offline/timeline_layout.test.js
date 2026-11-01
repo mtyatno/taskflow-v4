@@ -720,3 +720,24 @@ test("sumber layout.js: tanpa window/self/globalThis, pola R2, tanpa Date lokal,
   assert.doesNotMatch(src, /\bwindow\b|\bself\b|\bglobalThis\b/);
   assert.doesNotMatch(src, /new\s+Date|Date\.now|#[0-9a-fA-F]{3,8}\b|rgb\(|hsl\(/);
 });
+
+test("final: kelompok workspace memakai lipatan host — 'Proyek ' dan 'Proyek' terpisah, 'É'/'é' terpisah, 'A'/'a' satu kelompok", () => {
+  const tasks = [
+    mk(1, { project: "Proyek" }),
+    mk(2, { project: "Proyek " }),
+    mk(3, { project: "É" }),
+    mk(4, { project: "é" }),
+    mk(5, { project: "A" }),
+    mk(6, { project: "a" }),
+  ];
+  const ws = lay(tasks, { pageKind: "workspace" });
+  const groupOf = (id) => ws.rows.find((r) => r.key === String(id)).group;
+  assert.notEqual(groupOf(1), groupOf(2));
+  assert.notEqual(groupOf(3), groupOf(4));
+  assert.equal(groupOf(5), groupOf(6));
+  // nama ber-id: nama yang cocok menurut lipatan host ikut kelompok ber-id itu; yang hanya beda spasi tidak
+  const ws2 = lay([mk(7, { project_id: 9, project: "Beta" }), mk(8, { project: "BETA" }), mk(10, { project: "Beta " })], { pageKind: "workspace" });
+  const g2 = (id) => ws2.rows.find((r) => r.key === String(id)).group;
+  assert.equal(g2(8), "p:9");
+  assert.notEqual(g2(10), "p:9");
+});
