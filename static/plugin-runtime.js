@@ -1377,6 +1377,8 @@
           if (stopped || !ev || ev.pluginId !== id) return;
           const out = { entity: ev.entity, ids: Array.isArray(ev.ids) ? ev.ids.slice() : [], source: ev.source };
           if (Array.isArray(ev.lost)) out.lost = ev.lost.slice();
+          // pulled: true = tarik record plugin ini dari server selesai dan sukses; `entity` null, `ids` kosong.
+          if (ev.pulled === true) out.pulled = true;
           try {
             const r = fn(out);
             if (r && typeof r.then === "function") r.then(null, fail);

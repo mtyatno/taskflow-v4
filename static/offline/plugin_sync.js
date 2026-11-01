@@ -77,7 +77,8 @@
       }
     } catch (_) {}
   }
-  // detail: {pluginId, entity, ids, source: "local" | "sync", lost?}
+  // detail: {pluginId, entity, ids, source: "local" | "sync", lost?, pulled?}. `pulled: true` (entity null, ids []) =
+  // tarik record plugin ini selesai dan sukses (satu kali per tarik, juga bila tak ada record yang berubah).
   function emit(detail) {
     const d = Object.assign({}, detail, { ids: (detail.ids || []).slice() });
     if (Array.isArray(detail.lost)) d.lost = detail.lost.slice(); else delete d.lost;
@@ -661,7 +662,8 @@
   // Satu plugin: ≤ MAX_PAGES request, reset > 1 kali → berhenti. Terputus di tengah tarik penuh → kursor + gen
   // tersimpan, sinkron berikut melanjutkan dengan gen yang sama.
   function pullPlugin(rawFetch, pid) {
-    const stat = { pulled: 0, removed: 0, reset: false, pages: 0 };
+    // complete = tarik mencapai halaman `more: false` (bukan karena batas halaman, galat, dilewati, atau reset ke-2).
+    const stat = { pulled: 0, removed: 0, reset: false, pages: 0, complete: false };
     return readPullState(pid).then((saved) => {
       const st = {
         cursor: typeof saved.cursor === "string" ? saved.cursor : "",
@@ -689,11 +691,17 @@
             stat.removed += r.removed;
             st.cursor = body.cursor;
             if (r.sweep) st.resetting = false;
-            return body.more ? step() : stat;
+            if (!body.more) { stat.complete = true; return stat; }
+            return step();
           });
         });
       };
       return step();
+    }).then((res) => {
+      // Sinyal "tarik selesai dan sukses" (bukan sync.done, yang juga menyala saat gagal): satu event per plugin,
+      // setelah semua event record halaman-halamannya. Galat melempar di atas, jadi tidak sampai ke sini.
+      if (!res.skipped && res.complete) emit({ pluginId: pid, entity: null, ids: [], source: "sync", pulled: true });
+      return res;
     });
   }
 

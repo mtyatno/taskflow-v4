@@ -100,7 +100,7 @@ test("tarik penuh pertama: dua halaman (more) → semua record bersih, kursor di
   assert.equal(srv.calls[0], "/api/plugins/demo-records/records?cursor=&limit=500");
   assert.equal(cursorOf(srv.calls[1]), "1.2." + FP);
   assert.deepEqual(r.errors, []);
-  assert.deepEqual(r.plugins[P], { pulled: 3, removed: 0, reset: false, pages: 2 });
+  assert.deepEqual(r.plugins[P], { pulled: 3, removed: 0, reset: false, pages: 2, complete: true });
   const recs = await recsOf();
   assert.equal(recs.length, 3);
   for (const rec of recs) {
@@ -118,7 +118,7 @@ test("tarik penuh pertama: dua halaman (more) → semua record bersih, kursor di
   assert.equal(await kv("resetting"), false);
   assert.deepEqual((await PS.get(P, E, "a")).data, { t: "a" });
   // onChange source "sync" per halaman, ids = yang ditulis
-  assert.deepEqual(events.map((e) => [e.pluginId, e.entity, e.ids, e.source]),
+  assert.deepEqual(events.filter((e) => !e.pulled).map((e) => [e.pluginId, e.entity, e.ids, e.source]),
     [[P, E, ["a", "b"], "sync"], [P, E, ["c"], "sync"]]);
   assert.equal((await pluginOps()).length, 0);
 });
@@ -135,7 +135,7 @@ test("delta: hanya item baru/berubah; tombstone → record lokal dihapus", async
   const r = await pull(srv);
   assert.equal(srv.calls.length, 1);
   assert.equal(cursorOf(srv.calls[0]), "1.3." + FP);
-  assert.deepEqual(r.plugins[P], { pulled: 2, removed: 1, reset: false, pages: 1 });
+  assert.deepEqual(r.plugins[P], { pulled: 2, removed: 1, reset: false, pages: 1, complete: true });
   assert.equal(await rawRec("a"), null);
   assert.deepEqual((await rawRec("b")).data, { t: "b2" });
   assert.equal((await rawRec("b")).version, 2);
@@ -143,9 +143,10 @@ test("delta: hanya item baru/berubah; tombstone → record lokal dihapus", async
   assert.ok(await rawRec("d"));
   assert.equal(await kv("cursor"), "1.6." + FP);
   assert.equal(await kv("gen"), 1);
-  assert.deepEqual(events.length, 1);
-  assert.deepEqual(events[0].ids.slice().sort(), ["a", "b", "d"]);
-  assert.equal(events[0].source, "sync");
+  const recEv = events.filter((e) => !e.pulled);
+  assert.deepEqual(recEv.length, 1);
+  assert.deepEqual(recEv[0].ids.slice().sort(), ["a", "b", "d"]);
+  assert.equal(recEv[0].source, "sync");
 });
 
 test("record lokal dirty tidak ditimpa pull (data, op_qid tetap)", async () => {
@@ -156,7 +157,7 @@ test("record lokal dirty tidak ditimpa pull (data, op_qid tetap)", async () => {
   srv.add(P, [row(1, "a", { data: { theirs: 1 }, version: 3 }), row(2, "b", { deleted: true, data: {} }), row(3, "c")]);
   srv.pageSize = 10;
   const r = await pull(srv);
-  assert.deepEqual(r.plugins[P], { pulled: 1, removed: 0, reset: false, pages: 1 });
+  assert.deepEqual(r.plugins[P], { pulled: 1, removed: 0, reset: false, pages: 1, complete: true });
   for (const id of ["a", "b"]) {
     const now = await rawRec(id);
     assert.deepEqual(now.data, before[id].data);
@@ -183,7 +184,7 @@ test("reset (keluar workspace): kursor dikosongkan, tarik penuh, record list:W b
   p.rows = [row(1, "u1"), row(4, "u2")];
   const r = await pull(srv);
   assert.deepEqual(srv.calls.map(cursorOf), ["1.3." + FP, ""]);
-  assert.deepEqual(r.plugins[P], { pulled: 2, removed: 1, reset: true, pages: 1 });
+  assert.deepEqual(r.plugins[P], { pulled: 2, removed: 1, reset: true, pages: 1, complete: true });
   assert.equal(await rawRec("w1"), null);
   const w2 = await rawRec("w2");
   assert.equal(w2.dirty, 1);
@@ -237,7 +238,7 @@ test("terputus di tengah tarik penuh (halaman 2 gagal) → sinkron berikut lanju
   srv.calls.length = 0;
   const r2 = await pull(srv);
   assert.deepEqual(srv.calls.map(cursorOf), ["1.2." + FP]);
-  assert.deepEqual(r2.plugins[P], { pulled: 1, removed: 1, reset: false, pages: 1 });
+  assert.deepEqual(r2.plugins[P], { pulled: 1, removed: 1, reset: false, pages: 1, complete: true });
   assert.equal(await rawRec("stale"), null);
   assert.ok(await rawRec("a"));
   assert.ok(await rawRec("c"));
@@ -274,7 +275,7 @@ test("reset dua kali dalam satu sinkron → berhenti (tanpa loop)", async () => 
   const r = await pull(srv);
   assert.deepEqual(srv.calls.map(cursorOf), ["1.9.deadbeef", "", "1.2." + FP]);
   assert.deepEqual(r.errors, []);
-  assert.deepEqual(r.plugins[P], { pulled: 2, removed: 0, reset: true, pages: 1 });
+  assert.deepEqual(r.plugins[P], { pulled: 2, removed: 0, reset: true, pages: 1, complete: false });
   assert.equal(await kv("cursor"), "1.2." + FP);
   assert.equal(await kv("gen"), 4);
   assert.equal(await kv("resetting"), true);
@@ -291,7 +292,7 @@ test("≤ 50 halaman per plugin per sinkron", async () => {
   };
   const r = await pull(srv);
   assert.equal(srv.calls.length, 50);
-  assert.deepEqual(r.plugins[P], { pulled: 50, removed: 0, reset: false, pages: 50 });
+  assert.deepEqual(r.plugins[P], { pulled: 50, removed: 0, reset: false, pages: 50, complete: false });
   assert.equal(await kv("cursor"), "1.50." + FP);
   assert.equal(await kv("resetting"), true);
   assert.equal((await recsOf()).length, 50);
@@ -470,4 +471,135 @@ test("FORBIDDEN_SCOPE lalu pengguna masuk lagi sebelum tarik berikutnya (sidik j
   assert.equal(p.rows.length, 2);
   assert.equal(await kv("gen"), 2);
   assert.equal(await kv("resetting"), false);
+});
+
+// ── Sinyal `pulled`: tarik record plugin ini selesai dan sukses (PR 1a-2 tambahan untuk Timeline 1b) ──────────────
+const pulledEv = () => events.filter((e) => e.pulled === true);
+
+test("pulled: tepat satu per tarik penuh sukses (dua halaman), setelah semua event record; bentuk event", async () => {
+  const srv = makeServer();
+  srv.add(P, [row(1, "a"), row(2, "b"), row(3, "c")]);
+  const r = await pull(srv);
+  assert.equal(r.plugins[P].complete, true);
+  assert.equal(pulledEv().length, 1);
+  assert.deepEqual(pulledEv()[0], { pluginId: P, entity: null, ids: [], source: "sync", pulled: true });
+  assert.equal(events[events.length - 1].pulled, true, "terakhir, setelah event record");
+  assert.equal(events.length, 3, "2 halaman + 1 pulled");
+});
+
+test("pulled: tetap terpancar saat tak ada record yang berubah (server kosong; delta tanpa perubahan)", async () => {
+  const srv = makeServer();
+  srv.add(P, []);
+  const r = await pull(srv);
+  assert.deepEqual(r.plugins[P], { pulled: 0, removed: 0, reset: false, pages: 1, complete: true });
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0], { pluginId: P, entity: null, ids: [], source: "sync", pulled: true });
+  events = [];
+  const r2 = await pull(srv);
+  assert.equal(r2.plugins[P].complete, true);
+  assert.deepEqual(events.map((e) => e.pulled === true), [true]);
+});
+
+test("pulled: tidak terpancar saat galat (jaringan, 404 tanpa kode, respons rusak) dan complete tak ada", async () => {
+  const srv = makeServer();
+  srv.add(P, [row(1, "a")]);
+  for (const h of ["NETWORK", resp(404, { detail: "Not Found" }), resp(200, { nonsense: true }), resp(500, {})]) {
+    srv.hook = () => h;
+    events = [];
+    const r = await pull(srv);
+    assert.equal(r.errors.length, 1);
+    assert.equal(r.plugins[P], undefined);
+    assert.equal(events.length, 0);
+  }
+});
+
+test("pulled: galat di halaman 2 → event record halaman 1 ada tetapi tidak ada pulled; sinkron berikut memancarkannya sekali", async () => {
+  const srv = makeServer();
+  srv.add(P, [row(1, "a"), row(2, "b"), row(3, "c")]);
+  srv.hook = (pid, cursor) => (cursor ? resp(500, {}) : null);
+  const r1 = await pull(srv);
+  assert.equal(r1.errors.length, 1);
+  assert.equal(events.length, 1);
+  assert.equal(pulledEv().length, 0);
+  srv.hook = null;
+  events = [];
+  const r2 = await pull(srv);
+  assert.equal(r2.plugins[P].complete, true);
+  assert.equal(pulledEv().length, 1);
+});
+
+test("pulled: tidak terpancar untuk PLUGIN_UNKNOWN (dilewati); plugin lain tetap memancarkan miliknya sendiri", async () => {
+  const srv = makeServer();
+  srv.add("p-ok", [row(1, "y")]);
+  const r = await PS.pullAll(srv.fetch, { userId: 1, ids: ["p-gone", "p-ok"] });
+  assert.equal(r.plugins["p-gone"].skipped, "PLUGIN_UNKNOWN");
+  assert.notEqual(r.plugins["p-gone"].complete, true);
+  assert.deepEqual(pulledEv().map((e) => e.pluginId), ["p-ok"]);
+});
+
+test("pulled: tidak terpancar bila berhenti di batas 50 halaman dengan more tersisa; complete false", async () => {
+  const srv = makeServer();
+  srv.add(P, []);
+  srv.hook = (pid, cursor) => {
+    const s = cursor ? Number(cursor.split(".")[1]) : 0;
+    const r = row(s + 1, "r" + (s + 1));
+    delete r.seq;
+    return resp(200, { items: [r], cursor: "1." + (s + 1) + "." + FP, more: true });
+  };
+  const r = await pull(srv);
+  assert.equal(r.plugins[P].complete, false);
+  assert.equal(pulledEv().length, 0);
+});
+
+test("pulled: halaman ke-50 yang more:false tetap complete dan memancarkan", async () => {
+  const srv = makeServer();
+  srv.add(P, []);
+  srv.hook = (pid, cursor) => {
+    const s = cursor ? Number(cursor.split(".")[1]) : 0;
+    const r = row(s + 1, "r" + (s + 1));
+    delete r.seq;
+    return resp(200, { items: [r], cursor: "1." + (s + 1) + "." + FP, more: s + 1 < 50 });
+  };
+  const r = await pull(srv);
+  assert.equal(srv.calls.length, 50);
+  assert.equal(r.plugins[P].complete, true);
+  assert.equal(pulledEv().length, 1);
+});
+
+test("pulled: reset dua kali (loop berhenti) → tidak memancarkan; reset sekali lalu tarik penuh selesai → satu kali", async () => {
+  const srv = makeServer();
+  srv.add(P, [row(1, "a"), row(2, "b"), row(3, "c")]);
+  await rawPut("plugin_kv", [{ plugin_id: P, scope: "_sync", key: "cursor", value: "1.9.deadbeef" },
+    { plugin_id: P, scope: "_sync", key: "gen", value: 3 }]);
+  srv.hook = (pid, cursor) => (cursor ? resp(200, { reset: true }) : null);
+  const r = await pull(srv);
+  assert.equal(r.plugins[P].reset, true);
+  assert.equal(r.plugins[P].complete, false);
+  assert.equal(pulledEv().length, 0);
+  // reset sekali (fp berbeda) lalu tarik penuh sampai more:false
+  srv.hook = null;
+  await rawPut("plugin_kv", [{ plugin_id: P, scope: "_sync", key: "cursor", value: "1.2.deadbeef" }]);
+  events = [];
+  const r2 = await pull(srv);
+  assert.equal(r2.plugins[P].reset, true);
+  assert.equal(r2.plugins[P].complete, true);
+  assert.equal(pulledEv().length, 1);
+});
+
+test("pulled: satu per plugin ON; pendengar yang melempar tidak menggagalkan tarik; event window tf:plugin-records ikut", async () => {
+  const srv = makeServer();
+  srv.add("p-a", [row(1, "a")]);
+  srv.add("p-b", []);
+  const win = [];
+  globalThis.dispatchEvent = (ev) => { win.push(ev); return true; };
+  const bad = PS.subscribe(() => { throw new Error("boom"); });
+  try {
+    const r = await PS.pullAll(srv.fetch, { userId: 1, ids: ["p-a", "p-b"] });
+    assert.deepEqual(r.errors, []);
+    assert.deepEqual(pulledEv().map((e) => e.pluginId), ["p-a", "p-b"]);
+  } finally { bad(); }
+  if (typeof CustomEvent === "function") {
+    const w = win.filter((e) => e.type === "tf:plugin-records" && e.detail && e.detail.pulled === true);
+    assert.deepEqual(w.map((e) => e.detail.pluginId), ["p-a", "p-b"]);
+  }
 });

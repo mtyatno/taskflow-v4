@@ -233,6 +233,30 @@ test("onChange: local dari put, sync dari pull (pluginsync memancarkan), lost di
   assert.throws(() => rec().onChange("bukan fungsi"), TypeError);
 });
 
+test("onChange: peristiwa pulled diteruskan {entity: null, ids: [], source: \"sync\", pulled: true} hanya ke plugin pemilik; pendengar berbasis entity tidak rusak", async () => {
+  const got = [];
+  const off = rec().onChange((ev) => got.push(ev));
+  const other = [];
+  const offOther = rec("off-records").onChange((ev) => other.push(ev));
+  const byEntity = [];
+  const offEnt = rec().onChange((ev) => { if (ev.entity !== "note") return; byEntity.push(ev); });
+  PS._internals.emit({ pluginId: "demo-records", entity: null, ids: [], source: "sync", pulled: true });
+  assert.deepEqual(got, [{ entity: null, ids: [], source: "sync", pulled: true }]);
+  assert.equal(other.length, 0, "plugin lain tidak menerima pulled milik demo-records");
+  assert.equal(byEntity.length, 0);
+  PS._internals.emit({ pluginId: "off-records", entity: null, ids: [], source: "sync", pulled: true });
+  assert.equal(got.length, 1, "pulled plugin lain tidak sampai");
+  assert.deepEqual(other, [{ entity: null, ids: [], source: "sync", pulled: true }]);
+  // peristiwa biasa tidak membawa kunci pulled
+  PS._internals.emit({ pluginId: "demo-records", entity: "note", ids: ["n1"], source: "sync" });
+  assert.deepEqual(got[1], { entity: "note", ids: ["n1"], source: "sync" });
+  assert.ok(!("pulled" in got[1]));
+  assert.equal(byEntity.length, 1);
+  got[0].ids.push("x");
+  off(); offOther(); offEnt();
+  assert.equal(P.failures("demo-records").length, 0);
+});
+
 test("tombstone dan record plugin lain tidak pernah dikembalikan", async () => {
   await rec().put("note", "n1", { a: 1 });
   await rec().put("note", "n2", { a: 2 });
