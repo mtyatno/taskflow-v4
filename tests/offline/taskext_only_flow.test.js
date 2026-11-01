@@ -382,6 +382,8 @@ test("hapus tag saat PUT ext saja terbang → record tetap dirty, PUT berikutnya
   await tagrepo.addEntityTags("task", cid, ["kopi", "teh"]);
   stripCalls(srv);
   await repo.updateTask(cid, { ext_patch: { [EXT_A]: 1 } }, TODAY);
+  // anggota A mengubah inti sebelum PUT terbang: respons memuat nilai A, sehingga "inti tidak diadopsi" terbedakan
+  srv.memberEdit(1, { title: "Judul A", progress: 30 });
   const R = buildTaskRouter();
   srv.hook = () => R.dispatch("DELETE", "/api/tasks/1/tags/kopi");
   await drain(srv, { tagsFor: undefined });
@@ -389,6 +391,9 @@ test("hapus tag saat PUT ext saja terbang → record tetap dirty, PUT berikutnya
   let rec = await getRec(cid);
   assert.equal(rec.dirty, 1, "rev berubah selama terbang → record tetap kotor");
   assert.equal(X.extOnlyNow(rec), false);
+  assert.equal(rec.title, "Judul", "inti dari respons (Judul A) TIDAK diadopsi: record sudah bukan ext saja");
+  assert.equal(rec.progress, 0);
+  assert.equal(srv.rows.get(1).core.title, "Judul A");
   assert.equal((await outboxAll()).length, 1, "op susulan");
   await drain(srv, { tagsFor: undefined });
   assert.equal(srv.calls.length, 2);
