@@ -977,9 +977,9 @@ def run_k26(browser):
             with open(log, encoding="utf-8", errors="replace") as fh:
                 lines = [ln.rstrip() for ln in fh if re.search(r"baca ulang indeks|Traceback|ERROR", ln)]
             info("9 log server (baca ulang / error)", lines[:6])
-            # logger "alurik.plugins" level efektif WARNING di proses web (tanpa basicConfig) → baris INFO baca ulang
-            # tidak tercetak; dicatat sebagai temuan (runbook T9 memakai journalctl untuk baris ini), bukan cek.
-            info("9 [temuan] baris INFO 'baca ulang indeks' ada di log server", any("baca ulang indeks" in ln for ln in lines))
+            # baris baca ulang kini WARNING (review akhir 1c-0) → tercetak di proses web (level efektif WARNING); runbook
+            # ADR-043 memakai baris ini di journalctl sebagai bukti opsional proses baru. Informasi, bukan cek.
+            info("9 baris WARNING 'baca ulang indeks' ada di log server", any("baca ulang indeks" in ln for ln in lines))
         shutil.rmtree(tmp, ignore_errors=True)
 
 
