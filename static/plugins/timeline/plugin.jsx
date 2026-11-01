@@ -221,6 +221,17 @@ function toastSafe(api, msg, type, action) {
   }
 }
 
+// Jendela baris diperbarui per kuantum ROW_STEP baris (Task 13, perf), bukan tiap baris: tiap pergeseran jendela
+// melepas/menyisipkan anak di awal daftar saudara, dan aturan posisi host (mis. `:nth-child` universal di app.css)
+// membuat Chromium menghitung ulang gaya semua saudara. Kuantum 8 → ~8× lebih sedikit rekalkulasi saat gulir vertikal;
+// jendela diperlebar ROW_STEP baris ke bawah agar tetap menutup layar.
+const ROW_STEP = 8;
+
+function quantTop(top, rowH) {
+  const q = Math.max(1, rowH * ROW_STEP);
+  return Math.floor(Math.max(0, top) / q) * q;
+}
+
 function quantLeft(left, w) {
   const q = Math.max(1, Math.round(w / 2));
   return Math.floor(Math.max(0, left) / q) * q;
@@ -514,6 +525,8 @@ function renderChart(v) {
 }
 
 // Satu <svg> seukuran jendela tampak; panah digambar bila salah satu ujungnya di baris tampak (spec §8.6).
+// Path memakai koordinat grafik absolut di dalam <g transform> (Task 13): saat jendela bergeser hanya transform <g> dan
+// posisi svg berubah, `d` panah yang tetap tampak tidak ditulis ulang (tiap `d` baru = rekalkulasi gaya per path).
 function renderArrows(v, winX, winW) {
   const { lay, rw, rowH } = v;
   const oy = rw.first * rowH;
@@ -524,7 +537,7 @@ function renderArrows(v, winX, winW) {
     const h = r.kind === "summary" ? SUM_H : box.milestone ? MS_SIZE : BAR_H;
     const x = box.milestone ? box.x - MS_SIZE / 2 : box.x;
     const w = box.milestone ? MS_SIZE : box.w;
-    return { x: x - winX, y: idx * rowH + (rowH - h) / 2 - oy, w, h };
+    return { x, y: idx * rowH + (rowH - h) / 2, w, h };
   };
   const inWin = (i) => i !== null && i >= rw.first && i <= rw.last;
   const paths = [];
@@ -549,7 +562,7 @@ function renderArrows(v, winX, winW) {
           <path className="plg-timeline-head-path is-violation" d="M0 0L6 3L0 6z" />
         </marker>
       </defs>
-      {paths}
+      <g transform={"translate(" + -winX + " " + -oy + ")"}>{paths}</g>
     </svg>
   );
 }
@@ -1398,7 +1411,7 @@ function TimelineViewBody(props) {
   rowHRef.current = rowH;
 
   const sl = vp.left === null ? TLLayout.initialScrollLeft(lay.range, lay.px, today, vp.w) : vp.left;
-  const rw = TLLayout.windowRows(lay.rows.length, vp.top, vp.h, rowH);
+  const rw = TLLayout.windowRows(lay.rows.length, vp.top, vp.h + ROW_STEP * rowH, rowH);
   const dw = TLLayout.windowDays(lay.range, lay.px, sl, vp.w);
   const chartW = TLLayout.widthOf(lay.range, lay.px);
   const rowsH = lay.rows.length * rowH;
@@ -1437,7 +1450,7 @@ function TimelineViewBody(props) {
     measure();
     el.scrollLeft = Math.max(0, Math.round(TLLayout.initialScrollLeft(lay.range, lay.px, today, vp.w)));
     setLeftRef.current = el.scrollLeft;
-    const top = el.scrollTop || 0;
+    const top = quantTop(el.scrollTop || 0, rowH);
     const left = el.scrollLeft;
     setVp((p) => {
       const ql = quantLeft(left, p.w);
@@ -1488,12 +1501,12 @@ function TimelineViewBody(props) {
       rafRef.current = 0;
       const e2 = scrollRef.current;
       if (!e2) return;
-      const top = e2.scrollTop;
-      const left = e2.scrollLeft;
       const h = rowHRef.current;
+      const top = quantTop(e2.scrollTop, h);
+      const left = e2.scrollLeft;
       setVp((p) => {
         const ql = quantLeft(left, p.w);
-        if (Math.floor(p.top / h) === Math.floor(top / h) && p.left === ql) return p;
+        if (p.top === top && p.left === ql) return p;
         return Object.assign({}, p, { top, left: ql });
       });
     });

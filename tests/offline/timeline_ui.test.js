@@ -730,7 +730,40 @@ function attach(m, props, tree, el) {
   return m.render(props);
 }
 
-test("gulir: pertama dibuka → hari ini di 1/3 lebar grafik; setState hanya saat baris/kolom pertama berubah", () => withWindow(async () => {
+// Task 13 (perf): panah memakai koordinat grafik absolut di dalam <g transform> — saat jendela baris bergeser hanya
+// transform <g> (dan posisi svg) yang berubah; atribut `d` panah yang tetap tampak tidak ditulis ulang (tiap `d` baru =
+// rekalkulasi gaya per path di Chromium).
+test("gulir vertikal: d panah yang tetap tampak tidak berubah saat jendela baris bergeser; hanya transform <g> panah", () => withWindow(async () => {
+  const tasks = bigTasks(300, 200);
+  const { api } = fakeApi();
+  const props = { context: ctxOf(tasks).ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const el = fakeEl();
+  let tree = attach(m, props, m.render(props), el);
+  await tick();
+  tree = attach(m, props, m.render(props), el);
+  const snap = (t) => {
+    const svg = nodes(t, (n) => n.type === "svg" && hasCls(n, "plg-timeline-arrows"))[0];
+    const g = nodes(svg, (n) => n.type === "g")[0];
+    const d = new Map(byCls(t, "plg-timeline-arrow").map((a) => [a.props.key, a.props.d]));
+    return { g, d };
+  };
+  const onScroll = gridOf(tree).props.onScroll;
+  el.scrollTop = 32 * 64; onScroll();
+  tree = m.render(props);
+  const s1 = snap(tree);
+  el.scrollTop = 32 * 72; onScroll(); // kuantum jendela berikutnya (ROW_STEP 8)
+  tree = m.render(props);
+  const s2 = snap(tree);
+  assert.ok(s1.g && s2.g, "panah dibungkus <g>");
+  const common = [...s1.d.keys()].filter((k) => s2.d.has(k));
+  assert.ok(common.length >= 3, "panah yang tetap tampak: " + common.length);
+  for (const k of common) assert.equal(s2.d.get(k), s1.d.get(k), "d panah " + k + " tidak berubah");
+  assert.notEqual(s2.g.props.transform, s1.g.props.transform, "transform <g> mengikuti jendela");
+  m.unmount();
+}));
+
+test("gulir: pertama dibuka → hari ini di 1/3 lebar grafik; setState hanya saat kuantum baris (8) / kolom pertama berubah", () => withWindow(async () => {
   const tasks = bigTasks(300, 0);
   const { api } = fakeApi();
   const props = { context: ctxOf(tasks).ctx, api };
@@ -746,10 +779,12 @@ test("gulir: pertama dibuka → hari ini di 1/3 lebar grafik; setState hanya saa
   const n0 = m.setCalls.length;
   el.scrollTop = 5; onScroll(); // masih baris 0
   el.scrollTop = 31; onScroll();
-  assert.equal(m.setCalls.length, n0, "gulir dalam baris yang sama → tanpa setState");
-  el.scrollTop = 33; onScroll(); // baris pertama 0 → 1
+  el.scrollTop = 33; onScroll(); // baris 1: masih kuantum 0 (Task 13: jendela per 8 baris)
+  el.scrollTop = 32 * 8 - 1; onScroll();
+  assert.equal(m.setCalls.length, n0, "gulir dalam kuantum 8 baris yang sama → tanpa setState");
+  el.scrollTop = 32 * 8 + 1; onScroll(); // kuantum 0 → 1
   assert.equal(m.setCalls.length, n0 + 1);
-  el.scrollTop = 40; onScroll();
+  el.scrollTop = 32 * 9; onScroll();
   assert.equal(m.setCalls.length, n0 + 1);
   const left0 = el.scrollLeft;
   el.scrollLeft = left0 + 3; onScroll(); // jangkar kolom (½ layar) belum berubah… kecuali melewati batas kuantum
@@ -765,7 +800,10 @@ test("gulir: pertama dibuka → hari ini di 1/3 lebar grafik; setState hanya saa
   el.scrollTop = 32 * 100; onScroll();
   tree = m.render(props);
   assert.ok(renderedRowKeys(tree).indexOf(firstKey) < 0, "setelah gulir jauh, baris awal tidak dirender");
-  assert.equal(renderedRowKeys(tree)[0], lay.rows[90].key, "jendela mulai di baris 100 − 10");
+  assert.equal(renderedRowKeys(tree)[0], lay.rows[86].key, "jendela mulai di kuantum baris 96 (100 dibulatkan ke bawah per 8) − 10");
+  const keys = renderedRowKeys(tree);
+  const lastIdx = lay.rows.findIndex((r) => r.key === keys[keys.length - 1]);
+  assert.ok(lastIdx >= Math.ceil((32 * 100 + 600) / 32) - 1, "jendela tetap menutup layar sampai baris terbawah tampak: " + lastIdx);
   m.unmount();
 }));
 
