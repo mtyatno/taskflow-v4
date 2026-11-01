@@ -245,7 +245,10 @@ Record `calendar` dengan id deterministik yang menyandikan scope: `cal@list:<id>
 cuti bersama ikut). Plugin hanya menyentuh `api.records` lewat satu adaptor (`calendarStore`), menormalkan data dari
 anggota lain sebelum dipakai, dan memuat ulang pada `onChange` (termasuk `lost` → toast). Setelah plugin baru
 dinyalakan, record belum ditarik sampai sinkron berikutnya: `get` mengembalikan `null` (pakai bawaan) lalu
-`onChange({source: "sync"})` memicu muat ulang.
+`onChange({source: "sync"})` memicu muat ulang. **Jangan menulis record bersama yang mungkin hanya belum ditarik:**
+`put` tanpa record lokal berangkat dengan `base_version: null` dan menang LWW atas data anggota lain. Timeline
+karenanya menonaktifkan edit kalender workspace tanpa record lokal ("Menunggu data kalender workspace…") sampai
+`sync.done` atau `onChange` ber-`source: "sync"` pertama sejak view dipasang.
 
 Semua `data.*` membaca IndexedDB, jadi bekerja offline. Tidak ada di v1: `api.settings` (kolom `settings` server sudah disimpan dan disinkron tetapi belum diekspos), penulisan data host
 selain `api.taskExt`. Fungsi hanya ditambah di v1; perubahan tak kompatibel = `apiVersion: 2`.
@@ -306,6 +309,8 @@ letak murni (`layout.js`) dan hanya menggambar baris/kolom di jendela tampak (vi
 membuka Live Edit/modal. Jadwal per task lewat `api.taskExt` (`timeline.start|duration|deps`), kalender kerja lewat
 `api.records` (entitas `calendar`, di bawah), preferensi tampilan per perangkat (zoom, urutan, mode HP) lewat
 `api.storage`. Seret bar = satu `api.taskExt.set` per lepas; toast "Urungkan" memakai `api.ui.toast` dengan `action`.
+`scopeTasks` sudah difilter panel host, jadi validasi yang butuh semua task (siklus dependensi lewat task tersembunyi,
+induk yang anaknya tersembunyi) membaca `api.data.tasks.list({includeDone: true})` sebelum menulis.
 
 ### 6.3 `taskDetail.sections` (Fase 1)
 
