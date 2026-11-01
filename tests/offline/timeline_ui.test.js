@@ -2013,3 +2013,17 @@ test("sumber Task 9: teks UI persis ada; CalendarPopover dirender sebagai elemen
   assert.doesNotMatch(jsx, /[^<\w.]CalendarPopover\(\{/);
   assert.match(jsx, /<CalendarPopover\b/);
 });
+
+test("final: CSS — input popover Kalender kerja (tanggal, teks, centang) ikut color-scheme gelap seperti input seksi", () => {
+  const rules = [];
+  const re = /([^{}]+)\{([^{}]*)\}/g;
+  const src = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  let m;
+  while ((m = re.exec(src))) rules.push({ sel: m[1].trim(), body: m[2] });
+  const dark = rules.filter((r) => /color-scheme:\s*dark/.test(r.body)).flatMap((r) => r.sel.split(",").map((x) => x.trim()));
+  for (const sel of ['[data-theme="dark"] .plg-timeline-input', '[data-theme="dark"] .plg-timeline-pop-input', '[data-theme="dark"] .plg-timeline-pop-check input']) {
+    assert.ok(dark.indexOf(sel) >= 0, sel + " ada di aturan color-scheme: dark (" + dark.join(" | ") + ")");
+  }
+  // input tanggal popover memakai kelas yang tercakup
+  assert.match(jsx, /<input type="date" className="plg-timeline-pop-input"/);
+});

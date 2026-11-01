@@ -1026,7 +1026,10 @@
   border-radius: 6px;
 }
 
-[data-theme="dark"] .plg-timeline-input {
+/* Kontrol bawaan (pemilih tanggal, centang) mengikuti tema gelap host: seksi Jadwal + popover Kalender kerja. */
+[data-theme="dark"] .plg-timeline-input,
+[data-theme="dark"] .plg-timeline-pop-input,
+[data-theme="dark"] .plg-timeline-pop-check input {
   color-scheme: dark;
 }
 
