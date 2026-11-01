@@ -4347,3 +4347,9 @@
 - **Changes:** penanda `ext_only_rev` (taskext/taskrepo/hydrate/syncpush/syncpull/syncconflict/taskroutes), op basi dibuang, adopsi inti dari respons PUT ext saja (dijaga `base_rev`), jaga daftar pull basi, `setMany` dalam satu `unstable_batchedUpdates` (`plugin-runtime.js`), `plugin_records._decl_for` baca ulang indeks 1x/10 dtk; SW v496 silent; README §5, ADR-043, catatan implementasi spec 1c; tes pagar penulis store `tasks`; E2E 1c-0 40/40. Subagent implementer per tugas + reviewer terpisah, review akhir (opus) dan satu gelombang perbaikan (respons basi, runbook restart, daftar pull basi, server >= 1a-1, kata hapus tag).
 - **Files Touch:** plugin_records.py, static/offline/{taskext,taskrepo,hydrate,syncpush,syncpull,syncconflict,taskroutes}.js, static/plugin-runtime.js, static/index.html (2 baris versi), static/sw.js, static/whatsnew.json, tests/** (baru + versi), docs/plugins/README.md, docs/superpowers/{specs,plans}/*, .agents/DECISIONS.md, temporary_files/e2e_plugin_fase1_1c0*, temporary_files/e2e_plugin_fase1_1a1.py, .agents/*
 - **Status:** Needs Review (branch `claude/plugin-sync-ext`, belum di-push, PR belum dibuka; tunggu "merge dan deploy"). pytest 1435/1 skip; npm 4144/4145 (pra-ada `draw_local_reactive`). Deploy butuh restart manual `taskflow-web` saja; 1c-1 baru boleh di-merge setelah deploy + restart + verifikasi.
+
+## [2026-11-01 20:10] - Claude (Opus 5.5)
+- **Task:** Merge + deploy PR #123 (Plugin Fase 1 1c-0: push ext saja, setMany satu render, entitas record tanpa restart; SW v496 silent) atas "merge dan deploy" Bapak.
+- **Changes:** #123 di-merge (f156919); workflow Deploy sukses.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Done. Tindak lanjut Bapak: `sudo systemctl restart taskflow-web` lalu `systemctl show -p ActiveEnterTimestamp taskflow-web` (harus lebih baru dari selesai deploy). Berikutnya: rencana PR 1c-1 (jangan merge sebelum restart ini terverifikasi).
