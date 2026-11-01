@@ -112,6 +112,33 @@ Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementa
 - **Tanggal `whatsnew` v492 diatur saat merge** (kini 2026-11-01, entri `silent` sehingga tidak terlihat pengguna).
 - **Sisa (diketahui, tidak diubah):** push ack di antara halaman terakhir tarik penuh dan sapu dapat membuat record berkedip sebentar (kembali di delta berikut); jika purge mendarat di antara pembacaan `MAX(seq)` dan halaman, satu `reset` ekstra lalu pulih sendiri.
 
+### Catatan implementasi PR 1b (2026-11-01)
+
+Timeline dasar selesai di branch `claude/plugin-timeline` (ditumpuk di atas `claude/plugin-records`, PR #120; baru boleh di-merge setelah #120). Rencana: `docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1b-timeline.md` (R1–R26), ADR-042, SW `taskflow-v493-timeline` dengan whatsnew non-silent (teks disetujui pemilik, U4). Keputusan UI pemilik U1–U4 semuanya opsi (a): kalender kerja di popover toolbar, task tanpa jadwal tetap di posisi WBS (klik untuk menjadwalkan), sakelar Gantt/Daftar di HP, `defaultEnabled: false`. `index.html` hanya berubah dua baris string versi SW (46.116 baris); `app.css`, `static/offline`, server, dan `plugin_loader` tidak disentuh. D1–D8 terpenuhi oleh 1a-2 (D5 dengan keputusan di bawah; D7 lewat kode `TOO_LARGE`).
+
+**Isi.** Lima part murni tanpa global (`holidays-id.js`, `calendar.js`, `schedule.js`, `layout.js`, `drag.js`) + `plugin.jsx` (view Gantt, seksi "Jadwal", popover Kalender kerja, Daftar fallback HP). Tanggal internal = bilangan hari UTC (tanpa `Date` lokal di part). Libur nasional + cuti bersama 2025–2027 dibundel dan dicek silang dengan SKB. Kalender kerja disimpan sebagai record `calendar` (`cal@user` dan `cal@list:<id>` deterministik, dipakai bersama anggota workspace). Drag/resize/link/Alt+panah memakai satu tulisan per lepas, Urungkan lewat aksi `api.ui.toast`.
+
+**Deviasi dan keputusan selama implementasi**
+
+- **Rentang tampilan dijepit ke hari ini ±1830 hari** (deviasi R22): tanggal salah ketik jauh tidak membuat grafik tak terbentuk. Baris yang seluruhnya di luar rentang bertanda `outOfRange` tanpa bar; `missingYears` dihitung dari rentang terjepit (bisa memuat ~8 tahun).
+- **`MAX_ITER` `calendar.js` 3650 → 10000** (999 hari kerja pada pekan 1 hari butuh ~7000 langkah); pemanggil (`TLSched`, `TLLayout`) menangkap `TL_CAL_LOOP` dan memperlakukannya sebagai tanpa bar.
+- **Token `--plg-timeline-danger: var(--danger, var(--pomodoro))`** (deviasi R12): token `--danger` tidak ada di `app.css`, sehingga warna terlambat = merah pomodoro di semua palet.
+- **Tinggi wadah juga dikurangi tinggi legenda** (deviasi R11) agar legenda tetap terlihat.
+- **`normalize` kalender menjaga entri `off`/`work` tanpa `n` sebagai `n: ""`** (lebih longgar dari R4 harfiah): tanggal tanpa nama dari anggota lain tidak hilang; UI menampilkan "(tanpa nama)".
+- **`calendarStore.save` menulis kalender ternormalisasi dan membuang kunci tak dikenal** (tipe `Calendar` tertutup); field masa depan harus menaikkan `v` agar tidak terhapus simpanan klien lama.
+- **`sanitizePatch` menerima `deps: null` (= hapus kunci)** supaya Urungkan (R14) bisa mengembalikan kunci yang dulu tidak ada lewat sanitizer yang sama.
+- **Bentuk komit link `{link: {pred, succ}}` (kunci baris)**, bukan `{dep: {from, to}}` seperti teks R13; internal, tanpa dampak.
+- **Dependensi yang sudah ada ditulis ulang apa adanya saat menambah link** (`sanitizeDeps` menolak seluruh array bila satu item rusak sehingga memblokir link; tidak ada data buruk baru). Dependensi ganda (tipe apa pun, alias-aware) = toast baru "Dependensi ini sudah ada"; diri sendiri/di luar scope/di luar rentang diam saja. Kebijakan sama di Gantt dan seksi.
+- **`checkLink(api, list, pred, succ, readRaw)` memakai daftar task lengkap**, satu-satunya pemanggil `TLSched.canLink`, dipakai Gantt dan seksi: siklus dan ringkasan tidak lagi bisa lolos karena filter panel menyembunyikan task. Drag/resize/Alt+panah/klik-jadwalkan pada induk yang anaknya tersembunyi filter ditolak saat tulis (toast "Jadwal task ini mengikuti subtask-nya"); bila daftar penuh gagal dimuat tidak ada tulisan ("Jadwal gagal disimpan"). Ringkasan tidak bisa digeser/diubah di 1b.
+- **Seksi: Mulai dijepret ke hari kerja berikutnya bila durasi ≥ 1**; milestone (durasi 0) tidak pernah dijepret, baik lewat seksi maupun seret/Alt+panah (menyatukan perilaku seksi dengan seret). Mematikan milestone memulihkan durasi terakhir dan menjepret mulai. Mulai di seksi = satu tulisan per edit (debounce 700 ms/blur/Enter), dengan flush saat seksi pindah task.
+- **Jendela baris 8-baris** (pasca-E2E): jendela virtual bergeser per 8 baris, panah digambar dalam koordinat grafik tetap di dalam `<g transform>`; long task gulir vertikal 20,5 → 7,5, style recalc 1076 → 174 ms; DOM maks 716 elemen untuk 500 task.
+- **Definisi anggaran render (R24):** 150 ms pada CPU 4× diukur sebagai render Timeline sendiri (pasang view → Gantt pertama tergambar, median), bukan pembongkaran daftar host. Ganti view dari Normal 500 baris (~209–225 ms DOM) dan buka-ulang terpilih (~162 ms) dicatat sebagai info.
+- **Kalender workspace dikunci sampai ada record lokal (`exists`) atau tarik pertama sukses (`pulled`)** (amandemen D5): tanpa ini edit sebelum sinkron pertama menimpa kalender bersama lewat LWW. Karena `sync.done`/`onChange source:"sync"` juga terpicu oleh gagal-sinkron dan ack push (fail-open), **sinyal host `pulled` ditambahkan di #120** (`0418a57e`: `pullAll` memancarkan `{pluginId, entity: null, ids: [], source: "sync", pulled: true}` sekali per plugin setelah tarik record tuntas; aditif, `apiVersion` tetap 1). Akibatnya perangkat baru melihat kalender bawaan (dan edit terkunci) sampai sinkron pertama berhasil (~30 dtk).
+- **Lipatan nama project = `projectNameFold` host** (sebelumnya berbeda); satu pembantu id kalender; input tanggal popover mengikuti `color-scheme` gelap; toast "kalender hilang" kalah LWW dari seksi dan hanya tampil saat Gantt terpasang.
+- **Teks UI tambahan** di luar daftar spec: "Kalender gagal disimpan", "Kalender gagal dimuat", "Pilih tanggal dulu", "Tanggal ini sudah ada", "Daftar sudah penuh (366 tanggal)", "(tanpa nama)", "Tutup", "Tambah", "Dependensi ini sudah ada". Satu tanggal tidak bisa sekaligus libur tambahan dan hari kerja pengganti; hari kerja terakhir dalam sepekan tidak bisa dimatikan. Baris ringkasan tetap tampil di Daftar HP.
+
+**Ditunda (minor, tanpa perubahan):** toast host memakai satu timer bersama (tindak lanjut di host); rincian lain di ledger PR (`ARIA bar di luar role=row`, radiogroup tanpa navigasi panah, label bar tumpang tindih panah, Urungkan setelah edit eksternal menulis nilai lama dalam jendela 6 dtk, geometri kotak ditangkap saat `barDown`). Verifikasi sentuh nyata (tekan lama + gulir vertikal di HP fisik) belum dilakukan; emulator tidak membedakan.
+
 ## 3. Ruang lingkup dan pembagian PR
 
 | PR | Isi | Server | IndexedDB | Terlihat pengguna |
@@ -274,10 +301,10 @@ Task tidak ditemukan → reject `Task not found`; task tanpa hak tulis tidak mun
                  "taskDetail.sections": [{"id": "schedule", "label": "Jadwal", "order": 10}]},
  "records": {"calendar": {"conflict": "lww", "maxBytes": 16384}},
  "taskExt": {"keys": ["start", "duration", "deps"]},
- "parts": ["holidays-id.js", "calendar.js", "schedule.js", "layout.js"]}
+ "parts": ["holidays-id.js", "calendar.js", "schedule.js", "layout.js", "drag.js"]}
 ```
 
-`parts` adalah modul murni (tanpa React/DOM) yang menulis ke `window.__tl` dan diekspor untuk tes Node; `plugin.jsx` berisi UI. Perkiraan `plugin.js` 70–100 KB (tanpa minify), precache, dieksekusi hanya saat view/seksi dibuka.
+`parts` (lima berkas) adalah modul murni (tanpa React/DOM) berbentuk `const TLxxx = (function (deps) {…})(…)` tanpa global (R2) dan diekspor lewat `module.exports` untuk tes Node; `plugin.jsx` berisi UI. Perkiraan `plugin.js` 70–100 KB (tanpa minify), precache, dieksekusi hanya saat view/seksi dibuka.
 
 ### 8.2 Data
 
