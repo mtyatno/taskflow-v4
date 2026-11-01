@@ -225,7 +225,14 @@ milik satu task (kalender, preset, entri jadwal); data per task tetap lewat `api
 - **`onChange(fn)`** → `off`; `fn({entity, ids, source: "local" | "sync", lost?})`. `lost` berisi id record yang
   kalah LWW atas data lokal atau dibuang karena akses scope hilang (keluar dari workspace): muat ulang dari
   `get`/`list`. Error di pendengar dihitung error plugin. Event window `tf:plugin-records`
-  `{pluginId, entity, ids, source, lost?}`.
+  `{pluginId, entity, ids, source, lost?, pulled?}`.
+  - **Peristiwa `pulled`** — `{entity: null, ids: [], source: "sync", pulled: true}`: tarik record plugin ini dari
+    server selesai dan sukses (sampai halaman terakhir; tepat satu kali per tarik, juga bila tak ada record yang
+    berubah; tidak terpancar saat galat, plugin tak dikenal server, atau tarik terpotong batas halaman). Pakai untuk
+    tahu data bersama sudah termuat setidaknya sekali, mis. sebelum menulis nilai bawaan ke record workspace di
+    perangkat baru. **`entity` bisa `null`** pada peristiwa ini — pendengar yang memfilter `ev.entity` tetap aman
+    (peristiwa dilewati), tetapi jangan memakai `ev.entity` sebagai kunci tanpa memeriksa `ev.pulled`. Beda dengan
+    `sync.done` host, yang juga menyala saat sinkron gagal.
 - **Konflik = last-write-wins** atas `updated_at` (waktu klien, dipotong ke waktu server) per record utuh —
   bukan per field; bagi record per kegunaan bila dua perangkat sering mengedit bagian berbeda.
 - **Galat.** Entitas tak dideklarasikan, id/scope tak sah, atau melebihi `maxBytes` → `PluginStorageError` dengan
