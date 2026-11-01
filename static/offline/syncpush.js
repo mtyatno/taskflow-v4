@@ -684,10 +684,18 @@
           if (ok(res)) {
             // R5: payload ext saja → field inti respons diadopsi selama tidak ada edit inti lokal sejak payload
             // dibaca (penanda masih sah di record terkini, termasuk bila rev naik karena edit ext lain).
+            // Pull (tab lain) yang selama request sudah mengadopsi revisi server LEBIH BARU dari respons ini
+            // (base_rev > updated_at respons) → inti respons basi, jangan ditimpakan (markPushed juga tidak
+            // memundurkan base_rev). Timestamp respons tak terbaca → seperti markPushed: respons dipakai.
+            const respAt = updatedAtOf(res);
             const adoptCore = extOnly
-              ? (next, cur) => { if (X.extOnlyNow(cur)) Object.assign(next, H.coreFromServer(res.data)); }
+              ? (next, cur) => {
+                if (!X.extOnlyNow(cur)) return;
+                if (respAt != null && tsPrecise(respAt) && tsNewer(cur.base_rev, respAt)) return;
+                Object.assign(next, H.coreFromServer(res.data));
+              }
               : null;
-            return markPushed("tasks", op.cid, sentRev, updatedAtOf(res), null, taskAdopt(res.data), adoptCore)
+            return markPushed("tasks", op.cid, sentRev, respAt, null, taskAdopt(res.data), adoptCore)
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => requeueIfDirty("tasks", "task", op.cid))
               .then(() => { result.pushed++; });

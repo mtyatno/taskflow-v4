@@ -349,6 +349,7 @@ test("taskAdopt: ext objek diadopsi dan kunci tertahan ditempel kembali", () => 
 
 // ── PR 1c-0 Task 3: push ext saja (K25; rencana R3, R4, R5, R6) ─────────────────────────────────────────────
 const H = require("../../static/offline/hydrate.js");
+const { pullTasks } = require("../../static/offline/syncpull.js");
 const PC = require("../../static/offline/projectcache.js");
 const CC = require("../../static/offline/contextcache.js");
 const TODAY = { today: "2026-11-01" };
@@ -470,6 +471,41 @@ test("PUT ext saja terbang + edit ext lain di dalam transport → inti diadopsi,
   rec = await getRec("t");
   assert.equal(rec.dirty, 0);
   assert.deepEqual(rec.ext, { "demo-ext.a": 1, "demo-ext.b": 2, "lain.k": 5 });
+});
+
+test("respons PUT ext saja basi: server menerapkan PUT (U1), anggota A mengedit judul (T_A > U1), tab lain pull, baru respons tiba → inti respons TIDAK diadopsi (judul A tetap, base_rev = T_A); edit inti + push berikut tidak membalik judul A di server", async () => {
+  const srv = fakeServer();
+  await extEdited(srv, null, { title: "judul server", base_rev: "2026-11-01T00:00:00" });
+  const inner = srv.request;
+  let first = true;
+  let memberAt = null;
+  srv.request = (m, p, b) => {
+    if (!first || m !== "PUT") return inner(m, p, b);
+    first = false;
+    return inner(m, p, b).then((res) => // U1 diterapkan di server
+      inner("PUT", "/api/tasks/7", { title: "Judul A2" }) // anggota A (revisi T_A)
+        .then((a) => { memberAt = a.data.updated_at; return pullTasks([a.data]); }) // tab lain menarik daftar
+        .then(() => res)); // respons U1 baru tiba
+  };
+  await drain(srv);
+  assert.deepEqual(srv.calls[0].body, { ext_patch: { "demo-ext.a": 1 } });
+  assert.ok(memberAt > "2026-11-01T00:00:10", "T_A lebih baru dari U1");
+  let rec = await getRec("t");
+  assert.equal(rec.title, "Judul A2", "inti dari respons basi tidak boleh menimpa inti pull yang lebih baru");
+  assert.equal(rec.base_rev, memberAt, "base_rev tidak mundur ke updated_at respons");
+  assert.equal(srv.rows.get(7).core.title, "Judul A2");
+  // edit inti lokal → PUT penuh dari salinan inti terkini: judul anggota A ikut, tidak dibalik
+  await repo.updateTask("t", { gtd_status: "next" }, TODAY);
+  await drain(srv);
+  const last = srv.calls[srv.calls.length - 1];
+  assert.equal(last.method, "PUT");
+  assert.equal(last.body.title, "Judul A2");
+  assert.equal(last.body.gtd_status, "next");
+  assert.equal(srv.rows.get(7).core.title, "Judul A2", "judul anggota A selamat di server");
+  assert.equal(srv.rows.get(7).ext["demo-ext.a"], 1);
+  rec = await getRec("t");
+  assert.equal(rec.dirty, 0);
+  assert.equal((await outboxAll()).length, 0);
 });
 
 test("dua op update untuk record yang sama (dua edit ext) → satu PUT; op kedua dibuang tanpa request (record bersih)", async () => {
