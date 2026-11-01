@@ -837,3 +837,24 @@ test("fix 7: muat ulang daftar berurutan — jawaban lama yang datang belakangan
   await s.settle();
   assert.equal(txt(byCls(s.tree, "plg-timeline-dep-name")[0]).trim(), "Judul baru");
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Final review (fix-before-merge): task-switch flush
+// ════════════════════════════════════════════════════════════════════════════
+
+test("final: ketik Mulai di task 300 lalu seksi pindah ke task 301 sebelum debounce → tepat satu tulis ke 300, tidak ada ke 301", async () => {
+  const t300 = mk(300, "Pertama", { start: "2026-11-02", duration: 2 });
+  const t301 = mk(301, "Kedua", { start: "2026-11-16", duration: 3 });
+  const s = await ui(t300, { tasks: [t300, t301] });
+  byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-10"));
+  s.render();
+  assert.equal(s.calls.set.length, 0, "masih dalam debounce");
+  s.render(t301); // seksi yang sama sekarang menampilkan task lain (Live Edit / modal pindah task)
+  assert.deepEqual(s.calls.set, [[300, { start: "2026-11-10" }]], "debounce tertunda disimpan ke task lama saat pindah");
+  assert.equal(byLabel(s.tree, "Mulai").props.value, "2026-11-16", "task baru menampilkan nilainya sendiri, bukan draf task lama");
+  await sleep(DEBOUNCE * 3);
+  s.render();
+  await s.settle();
+  assert.deepEqual(s.calls.set, [[300, { start: "2026-11-10" }]], "tidak ada tulis tambahan (ke 300 maupun 301)");
+  assert.ok(s.calls.set.every(([id]) => id !== 301));
+});
