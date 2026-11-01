@@ -184,10 +184,10 @@ test("NotePanel Note Viewer Paper Mode (Viewer Mode Kertas)", async (t) => {
   const webappPath = path.resolve(__dirname, "../../webapp.py");
   const webappPy = fs.readFileSync(webappPath, "utf8");
 
-  await t.test("Service Worker and cache version is taskflow-v495-timeline", () => {
-    assert.match(swJs, /^const CACHE = "taskflow-v495-timeline";/m);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v495-timeline";/);
-    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v495-timeline"/);
+  await t.test("Service Worker and cache version is taskflow-v496-sinkron-ext", () => {
+    assert.match(swJs, /^const CACHE = "taskflow-v496-sinkron-ext";/m);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v496-sinkron-ext";/);
+    assert.match(indexHtml, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v496-sinkron-ext"/);
   });
 
   const notePanelMatch = indexHtml.match(/function NotePanel\([\s\S]*?^function /m);

@@ -191,8 +191,21 @@ dan ikut sinkron task di semua jalur (hidrasi, push, pull, workspace bersama).
   dalam array/objek). Task yang dibuat offline masih ber-id lokal (cid); host menulis ulang ref ke id server
   setelah task itu terkirim, menahan update yang merujuk task yang belum terkirim, dan mengganti ref ke task yang
   tidak pernah terkirim dengan `null`. Jangan menyimpan id task sebagai angka/string polos.
-- **Seret massal:** pakai `setMany` — berurutan, berhenti pada kegagalan pertama (item sebelumnya tetap
-  tersimpan), satu muat ulang daftar task + satu event `taskUpdated` di akhir (bukan per item).
+- **Tidak menimpa field inti.** Edit yang hanya mengubah `ext` dikirim ke server tanpa field inti task
+  (judul, status, tenggat, penanggung jawab, dan seterusnya): field inti selalu milik server, yaitu anggota
+  terakhir yang mengubahnya. Menyeret bar di perangkat yang datanya basi tidak mengembalikan judul atau status
+  yang baru diubah orang lain, dan setelah push pertama perangkat itu menampilkan nilai server. Edit yang juga
+  menyentuh field inti tetap dikirim penuh seperti biasa (last-write-wins). Sisa batasan: edit inti offline yang
+  lebih tua dari edit ext perangkat lain bisa kalah saat ditarik (server menaikkan waktu ubah task pada setiap
+  edit ext); penghapusan tag pada task yang tidak punya edit inti tertunda baru terkirim pada edit inti
+  berikutnya.
+- **Seret massal:** pakai `setMany`. Semua item diperbarui optimistis di daftar task host dalam **satu render**
+  (bukan satu per item), lalu ditulis berurutan ke IndexedDB dan berhenti pada kegagalan pertama (item
+  sebelumnya tetap tersimpan); satu muat ulang daftar task + satu event `taskUpdated` di akhir. Penolakan
+  membawa `err.applied` = larik `taskId` yang sudah tersimpan, berurutan (`[]` bila item pertama gagal;
+  kegagalan validasi sebelum menulis tidak membawa `applied`). Karena semua item diperbarui optimistis lebih
+  dulu, item yang belum tersimpan menampilkan nilai baru sampai muat ulang daftar di akhir selesai; bila muat
+  ulang itu sendiri gagal, tampilan baru pulih pada muat ulang berikutnya.
 - **Optimistis:** state daftar task host diperbarui seketika, lalu ditulis ke IndexedDB (rute lokal
   `PUT /api/tasks/:id` `{ext_patch}`) dan diantre untuk sinkron; gagal → daftar dimuat ulang lalu reject.
   Bekerja offline.
@@ -221,6 +234,10 @@ milik satu task (kalender, preset, entri jadwal); data per task tetap lewat `api
 - **`$task`**: rujukan ke task di dalam `data` lewat `api.taskExt.ref(task)` (`{$task: id}`), sama seperti §5
   `taskExt`; host menahan pengiriman record yang merujuk task yang belum terkirim dan menulis ulang ke id server
   setelahnya (tanpa mengubah `updated_at`).
+- **Entitas baru tanpa restart.** Entitas yang baru ditambahkan ke `manifest.records` diterima server tanpa
+  restart: entitas yang belum dikenal memicu baca ulang `index.json` (paling sering sekali per 10 detik per
+  proses server). Selama deploy belum selesai klien bisa menerima `INVALID` dengan `detail: "entity"` pada record
+  itu (record lokal tetap `dirty` dengan `error`); `put` berikutnya mencoba lagi.
 - **`remove(entity, id)`** = tombstone lokal yang dikirim ke server (tidak hilang bila offline).
 - **`onChange(fn)`** → `off`; `fn({entity, ids, source: "local" | "sync", lost?})`. `lost` berisi id record yang
   kalah LWW atas data lokal atau dibuang karena akses scope hilang (keluar dari workspace): muat ulang dari
@@ -544,7 +561,8 @@ klien tetap antre); id tidak ada di indeks → 404 `PLUGIN_UNKNOWN` (klien membu
 (`enabled` bukan boolean, `settings: null`/bukan objek/terlalu besar, `updated_at` tak terbaca, tanpa field) →
 422. Sebelum menjawab 404 untuk id yang cocok pola tetapi belum dikenal, server membaca ulang `index.json` sekali
 (deploy menulis indeks baru sebelum restart); baca ulang yang gagal mempertahankan daftar lama. Modul server
-plugin baru tetap butuh restart. Plugin tidak memanggil API ini; ia milik runtime.
+plugin baru tetap butuh restart; entitas record baru di `manifest.records` tidak (§5 `api.records`, §11 record).
+Plugin tidak memanggil API ini; ia milik runtime.
 
 **Izin dan `tasks.ext` (Fase 1).** Loader juga menyimpan `permissions` tiap plugin dari `index.json`
 (`plugin_loader.permissions(id)`, `ext_namespaces()`). `POST /api/tasks` menerima `ext` (objek kunci lengkap) dan
@@ -571,6 +589,9 @@ keanggotaan workspace berubah) → `{"reset": true}` dan klien menarik penuh. Ku
 untuk filter yang sama (kursor `seq` global per plugin; dipakai tanpa filter ia melewatkan entitas lain). Plugin harus ada di `index.json` dan
 berizin `records` (kalau tidak 404 `PLUGIN_UNKNOWN`); entitas dan `maxBytes` dibaca dari deklarasi indeks.
 Kode: `PLUGIN_UNKNOWN`, `PLUGIN_UNAVAILABLE` (503, antre di klien), `TOO_LARGE` (413, POST > 256 KB),
-`INVALID`, `FORBIDDEN_SCOPE`, `SCOPE_IMMUTABLE`. Rilis yang mengubah `plugin_records`/`plugin_loader` butuh
+`INVALID`, `FORBIDDEN_SCOPE`, `SCOPE_IMMUTABLE`. Entitas record baru di `manifest.records` **tidak butuh restart**: POST/GET
+ber-`entity` yang belum dikenal membaca ulang `index.json` (paling sering sekali per 10 detik per proses; bukan
+di dalam transaksi tulis; indeks rusak mempertahankan daftar lama). Runbook deploy: tunggu lebih dari 10 detik
+setelah indeks ditulis sebelum menguji entitas baru. Rilis yang mengubah `plugin_records`/`plugin_loader` butuh
 **restart dua layanan** (`taskflow-web`, `taskflow`); selama jendela deploy server lama menjawab 404 tanpa kode dan
 op record tetap antre di klien. Tombstone dibersihkan setelah 30 hari.

@@ -27,6 +27,7 @@ PATTERNS = [
 ]
 EXTRA = [
     os.path.join("tests", "offline", "meta.test.js"),
+    os.path.join("tests", "offline", "syncconflict.test.js"),
     os.path.join("tests", "build-plugins.test.js"),
 ]
 REQUIRED = [
@@ -38,6 +39,7 @@ REQUIRED = [
     "db_v7", "plugin_sync", "plugin_sync_push", "plugin_sync_pull", "plugin_records_api",
     "timeline_holidays", "timeline_calendar", "timeline_schedule", "timeline_layout", "timeline_drag",
     "timeline_ui", "timeline_section", "timeline_runtime",
+    "taskext_only_flow", "taskext_writers_fence", "syncconflict",
 ]
 
 
