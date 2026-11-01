@@ -39,9 +39,14 @@ SCOPE_RE = re.compile(r"^(user|list:[1-9][0-9]{0,17})$")
 MAX_DATA_BYTES = plugin_loader.RECORD_MAX_BYTES  # 65536
 TOMBSTONE_DAYS = 30
 PURGE_INTERVAL_S = 3600
+# K26 (PR 1c-0): entitas record yang belum dideklarasikan memicu baca ulang `index.json` paling sering sekali per
+# DECL_REFRESH_TTL_S (deploy menulis indeks baru sebelum proses di-restart). Pola sama dengan `task_ext.REFRESH_TTL_S`.
+DECL_REFRESH_TTL_S = 10.0
 
 _CURSOR_RE = re.compile(r"^1\.([0-9]{1,18})\.([0-9a-f]{8})$")
 _last_purge: float | None = None
+_decl_clock = time.monotonic  # bisa disuntik tes
+_last_decl_refresh: float | None = None
 
 
 def ensure_schema(conn) -> None:
@@ -351,6 +356,24 @@ def maybe_purge(conn, now: datetime, clock=time.monotonic) -> int | None:
     return n
 
 
+def _decl_for(pid: str, decl: dict, entities: set[str]) -> dict:
+    """Deklarasi entitas untuk permintaan ini (K26, rencana 1c-0 R13). Ada nama entitas sah (`ENTITY_RE`) yang belum ada
+    di `decl` → baca ulang indeks sekali (paling sering 1×/`DECL_REFRESH_TTL_S`) lalu pakai deklarasi terbaru; selain itu
+    `decl` apa adanya. Nama tak sah tidak memicu baca ulang. Indeks rusak → `refresh_known` mempertahankan daftar lama.
+    Dipanggil SEBELUM `write_tx` (baca berkas tidak boleh di dalam transaksi tulis)."""
+    global _last_decl_refresh
+    missing = sorted(e for e in entities if isinstance(e, str) and ENTITY_RE.fullmatch(e) and e not in decl)
+    if not missing:
+        return decl
+    now = _decl_clock()
+    if _last_decl_refresh is not None and now - _last_decl_refresh < DECL_REFRESH_TTL_S:
+        return decl
+    _last_decl_refresh = now
+    logger.info("plugin_records: entitas %s belum dideklarasikan %s → baca ulang indeks", ",".join(missing), pid)
+    plugin_loader.refresh_known()
+    return plugin_loader.records_decl(pid)
+
+
 def export_rows(conn, uid: int) -> list[dict]:
     """Record `user` milik `uid` tanpa tombstone untuk ekspor data (R24); record `list:` milik workspace, tidak diekspor.
     Tabel tidak ada → `[]` (ekspor tidak boleh gagal)."""
@@ -370,8 +393,9 @@ def export_rows(conn, uid: int) -> list[dict]:
 
 
 def _reset_for_tests() -> None:
-    global _last_purge
+    global _last_purge, _last_decl_refresh
     _last_purge = None
+    _last_decl_refresh = None
 
 
 # ── API host (spec §6.2; rencana R1, R2, R4, R7, R8) ─────────────────────────
@@ -433,6 +457,8 @@ def get_records(plugin_id: str, cursor: str = "", limit: int = Query(500, ge=1, 
     # Kursor `seq` bersifat global per plugin (bukan per entitas): kursor dari GET ber-`entity` hanya sah untuk
     # filter `entity` yang sama. Dipakai tanpa filter (atau dengan entitas lain) ia melewatkan record entitas lain
     # yang `seq`-nya lebih kecil dari kursor. Klien menarik per plugin tanpa filter.
+    if entity is not None:
+        decl = _decl_for(pid, decl, {entity})
     if entity is not None and entity not in decl:
         raise HTTPException(status_code=422, detail={"code": "INVALID", "detail": "entity"})
     now = plugin_host.now_utc()
@@ -476,6 +502,7 @@ def get_records(plugin_id: str, cursor: str = "", limit: int = Query(500, ge=1, 
 @router.post("/api/plugins/{plugin_id}/records")
 def post_records(plugin_id: str, body: RecordsPost, ctx: dict = Depends(_guard)) -> dict:
     uid, pid, decl = ctx["uid"], ctx["pid"], ctx["decl"]
+    decl = _decl_for(pid, decl, {it.entity for it in body.items})  # K26: sebelum write_tx
     now = plugin_host.now_utc()
     try:
         with plugin_host.get_conn() as conn:
