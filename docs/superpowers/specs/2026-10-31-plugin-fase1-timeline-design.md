@@ -91,7 +91,7 @@ Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementa
 
 ### Catatan implementasi PR 1a-2 (2026-11-01)
 
-Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementasi PR 1a-2 (`docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1a-2.md` R1–R25, branch `claude/plugin-records`, ADR-041, SW `taskflow-v492-plugin-records` silent):
+Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementasi PR 1a-2 (`docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1a-2.md` R1–R25, branch `claude/plugin-records`, ADR-041, SW `taskflow-v494-plugin-records` silent):
 
 **Ringkasan R1–R19**
 
@@ -109,7 +109,7 @@ Deviasi dari teks K1–K21 dan §4–§7 yang diputuskan saat rencana/implementa
 - **`FORBIDDEN_SCOPE` mengosongkan kursor pull plugin** (`forbid()` menghapus record + op + `[pid, "_sync", "cursor"]` dalam satu transaksi) agar tarik berikutnya penuh dan record server yang masih sah kembali.
 - **`SCOPE_IMMUTABLE` hanya mencari kunci pemilik yang bisa diakses** (`owner_key IN (SELECT value FROM json_each(?))` atas `u:<uid>` + `l:<id>` workspace yang bisa diakses) — tidak membocorkan keberadaan record milik orang lain dan menghindari batas variabel SQLite.
 - **Pendengar `api.records.onChange` dilepas saat plugin dinonaktifkan** (`releaseRecordListeners` di `deactivate()`, gagal-factory, `_reset()`); error entitas tak dideklarasikan membawa `detail: "entity"`.
-- **Tanggal `whatsnew` v492 diatur saat merge** (kini 2026-11-01, entri `silent` sehingga tidak terlihat pengguna).
+- **Tanggal `whatsnew` v494 diatur saat merge** (kini 2026-11-01, entri `silent` sehingga tidak terlihat pengguna).
 - **Sisa (diketahui, tidak diubah):** push ack di antara halaman terakhir tarik penuh dan sapu dapat membuat record berkedip sebentar (kembali di delta berikut); jika purge mendarat di antara pembacaan `MAX(seq)` dan halaman, satu `reset` ekstra lalu pulih sendiri.
 
 ## 3. Ruang lingkup dan pembagian PR

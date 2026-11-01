@@ -1,6 +1,8 @@
 {
   "entries": [
-    {"version": "taskflow-v492-plugin-records", "date": "2026-11-01", "silent": true},
+    {"version": "taskflow-v494-plugin-records", "date": "2026-11-01", "silent": true},
+    {"version": "taskflow-v493-banner-pembaruan", "date": "2026-11-01", "title": "Notifikasi pembaruan rapi di layar kecil",
+     "fixed": ["Di HP, pesan pembaruan kini tampil di atas dan tombol Perbarui di bawahnya, tidak lagi terjepit."]},
     {"version": "taskflow-v491-plugin-ext", "date": "2026-10-31", "silent": true},
     {"version": "taskflow-v490-plugin-akun", "date": "2026-10-31", "title": "Plugin ikut akunmu",
      "new": ["Plugin yang kamu nyalakan kini ikut aktif di perangkat lain setelah tersinkron.",

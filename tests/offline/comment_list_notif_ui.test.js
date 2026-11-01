@@ -48,9 +48,9 @@ test("index.html memuat commentui & commenthighlight setelah commentroutes", () 
 test("sw.js precache modul dan versi baru", () => {
   assert.ok(swJs.includes('"/static/offline/commentui.js"'));
   assert.ok(swJs.includes('"/static/offline/commenthighlight.js"'));
-  assert.ok(swJs.includes('const CACHE = "taskflow-v492-plugin-records"'));
-  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v492-plugin-records"'));
-  assert.ok(indexHtml.includes("app.css?v=382"));
+  assert.ok(swJs.includes('const CACHE = "taskflow-v494-plugin-records"'));
+  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v494-plugin-records"'));
+  assert.ok(indexHtml.includes("app.css?v=383"));
 });
 
 test("NotePanel memasang dan melepas listener tf:comments-open", () => {
