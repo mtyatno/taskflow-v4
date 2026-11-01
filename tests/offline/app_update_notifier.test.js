@@ -18,8 +18,8 @@ function fnSource(name) {
   return indexHtml.slice(start, end);
 }
 
-test("1. Service Worker: CACHE version is bumped to taskflow-v491-plugin-ext", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v491-plugin-ext";/m);
+test("1. Service Worker: CACHE version is bumped to taskflow-v493-banner-pembaruan", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v493-banner-pembaruan";/m);
 });
 
 test("2. Service Worker: install event respects active worker (waits for skipWaiting prompt)", () => {
@@ -55,7 +55,7 @@ test("5. Frontend: UpdateNotificationBanner component exists with required eleme
 test("6. Frontend: Service Worker registration and update detection logic exists", () => {
   // Pemasangan tetap di skrip inline index.html.
   assert.match(indexHtml, /window\.__APP_VERSION\s*=\s*"4\.0\.0";/);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v491-plugin-ext";/);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v493-banner-pembaruan";/);
   assert.match(indexHtml, /<script src="\/static\/offline\/appupdate\.js"><\/script>/);
   assert.match(indexHtml, /window\.TF\.appupdate\.createAppUpdater\(/);
   assert.match(indexHtml, /navigator\.serviceWorker\.register\("\/sw\.js"/);
@@ -94,6 +94,39 @@ test("8. Frontend: App layout renders UpdateNotificationBanner when hasAppUpdate
 test("9. CSS: .update-notification-banner styles and slideUpFade animation exist", () => {
   assert.match(appCss, /\.update-notification-banner/);
   assert.match(appCss, /@keyframes slideUpFade/);
+});
+
+test("9b. Banner: layout lewat kelas CSS, bukan inline style, agar media query 640px berlaku", () => {
+  const src = fnSource("UpdateNotificationBanner");
+  // Akar banner: tidak ada inline style yang mengalahkan @media (display/flexDirection/alignItems/position…)
+  const rootIdx = src.indexOf('className: "update-notification-banner"');
+  assert.ok(rootIdx >= 0, "root className must exist");
+  const rootProps = src.slice(rootIdx, src.indexOf("}, ", rootIdx));
+  assert.doesNotMatch(rootProps, /style:/, "root must not carry inline style");
+  // Tidak ada inline layout flex di komponen (opacity/cursor dinamis tombol boleh)
+  assert.doesNotMatch(src, /display:\s*"(inline-)?flex"/);
+  assert.doesNotMatch(src, /flexDirection|alignItems|justifyContent/);
+  assert.match(src, /className: "update-notification-banner__msg"/);
+  assert.match(src, /className: "update-notification-banner__actions"/);
+  assert.match(src, /className: "update-notification-banner__close"/);
+  assert.match(appCss, /\.update-notification-banner__msg\s*\{/);
+  assert.match(appCss, /\.update-notification-banner__actions\s*\{/);
+  assert.match(appCss, /\.update-notification-banner__close\s*\{/);
+  // left:50% tanpa lebar eksplisit membatasi banner ke 50vw (teks terjepit di 641–900px)
+  assert.match(appCss, /\.update-notification-banner\s*\{[^}]*width:\s*max-content;[^}]*max-width:\s*calc\(100vw - 32px\)/);
+});
+
+test("9c. CSS: @media (max-width: 640px) menumpuk banner (column) dan tombol X ≥ 32px", () => {
+  const i = appCss.indexOf(".update-notification-banner {");
+  const mq = appCss.indexOf("@media (max-width: 640px)", i);
+  assert.ok(mq > i, "640px media query must follow banner base rule");
+  const block = appCss.slice(mq, appCss.indexOf("\n}\n", mq));
+  assert.match(block, /\.update-notification-banner\s*\{[^}]*flex-direction:\s*column/);
+  assert.match(block, /\.update-notification-banner__actions\s*\{/);
+  const close = appCss.match(/\.update-notification-banner__close\s*\{([^}]*)\}/);
+  assert.ok(close, "close rule exists");
+  assert.match(close[1], /min-width:\s*(3[2-9]|[4-9]\d)px/);
+  assert.match(close[1], /min-height:\s*(3[2-9]|[4-9]\d)px/);
 });
 
 test("10. CSS: .dash defines full-width fluid layout without 1320px restriction", () => {

@@ -352,12 +352,12 @@ test("6. static/index.html includes clearLocalUserData, OfflineDB.clearAll, and 
   assert.match(html, /const handleLogin = async data =>\s*\{[\s\S]*?sameUser[\s\S]*?window\.__syncNow\?\.\(\)/);
 });
 
-test("7. Service Worker cache version is taskflow-v491-plugin-ext", () => {
+test("7. Service Worker cache version is taskflow-v493-banner-pembaruan", () => {
   const sw = fs.readFileSync(swPath, "utf8");
   const html = fs.readFileSync(htmlPath, "utf8");
   const webapp = fs.readFileSync(webappPath, "utf8");
 
-  assert.match(sw, /^const CACHE = "taskflow-v491-plugin-ext";/m, "sw.js CACHE must be v401");
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v491-plugin-ext";/, "index.html fallback SW version must be v401");
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v491-plugin-ext"/, "index.html About modal SW version fallback must be v401");
+  assert.match(sw, /^const CACHE = "taskflow-v493-banner-pembaruan";/m, "sw.js CACHE must be v401");
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v493-banner-pembaruan";/, "index.html fallback SW version must be v401");
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v493-banner-pembaruan"/, "index.html About modal SW version fallback must be v401");
 });
