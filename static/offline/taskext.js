@@ -172,10 +172,39 @@
     return out;
   }
 
+  // --- Penanda "perubahan tertunda hanya ext" (spec 1c K25; rencana 1c-0 R1, R2) ---
+  // `rec.ext_only_rev` = nilai `rev` saat record terakhir ditulis oleh edit yang HANYA mengubah ext. Diikat ke
+  // `rev` (bukan boolean): setiap penulis yang menaikkan `rev` tanpa lewat aturan ini (termasuk tab lama yang
+  // menyalin seluruh record) otomatis membatalkannya → payload penuh (arah aman). Record tanpa kunci = penuh.
+  // Hanya dibaca lewat extOnlyNow — jangan bandingkan kunci ini langsung di tempat lain.
+  const EXT_ONLY_KEY = "ext_only_rev";
+
+  // Patch updateTask yang hanya berisi `ext_patch` (objek polos); kunci lain apa pun yang tidak undefined
+  // (termasuk null/0) → bukan ext saja.
+  function isExtOnlyPatch(patch) {
+    if (!patch || typeof patch !== "object" || !isPlainObject(patch.ext_patch)) return false;
+    for (const k of Object.keys(patch)) {
+      if (k !== "ext_patch" && patch[k] !== undefined) return false;
+    }
+    return true;
+  }
+
+  // Perubahan tertunda record ini hanya ext (boleh dikirim sebagai {ext_patch} tanpa field inti).
+  function extOnlyNow(rec) {
+    return !!rec && !!rec.dirty && !rec.deleted && Number.isInteger(rec[EXT_ONLY_KEY])
+      && rec[EXT_ONLY_KEY] === (rec.rev || 0);
+  }
+
+  // Nilai penanda untuk record berikutnya (rev = nextRev): number = ext saja, undefined = hapus kunci.
+  // Ext saja hanya bila patch ext saja DAN record sebelumnya bersih atau tertunda ext saja.
+  function extOnlyNext(cur, patchIsExtOnly, nextRev) {
+    return patchIsExtOnly && (!cur || !cur.dirty || extOnlyNow(cur)) ? nextRev : undefined;
+  }
+
   const exported = {
-    KEY_RE, FIELD_RE, PLUGIN_MAX_BYTES, TOTAL_MAX_BYTES, REF_KEY,
+    KEY_RE, FIELD_RE, PLUGIN_MAX_BYTES, TOTAL_MAX_BYTES, REF_KEY, EXT_ONLY_KEY,
     isPlainObject, utf8Bytes, namespaceOf, extError, checkValue: checkValueTop, refOk, checkPatch, cleanNulls, applyPatch, sizeError,
-    isRef, refsIn, mapRefs,
+    isRef, refsIn, mapRefs, isExtOnlyPatch, extOnlyNow, extOnlyNext,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.taskext = exported; }
   return exported;

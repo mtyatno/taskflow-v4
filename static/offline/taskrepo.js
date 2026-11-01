@@ -307,6 +307,10 @@
         next.updated_at = now;
         next.dirty = 1;
         next.rev = (base.rev || 0) + 1;
+        // Penanda ext saja (spec 1c K25; rencana 1c-0 R1, R2) dihitung atas record TERKINI di transaksi ini.
+        const extOnly = TFtaskext.extOnlyNext(base, TFtaskext.isExtOnlyPatch(patch), next.rev);
+        if (extOnly === undefined) delete next[TFtaskext.EXT_ONLY_KEY];
+        else next[TFtaskext.EXT_ONLY_KEY] = extOnly;
         next.quadrant = TFlogic.calculateQuadrant(
           { priority: next.priority, deadline: next.deadline },
           opts && opts.today
@@ -331,6 +335,7 @@
         return Promise.reject(new Error("Task not found"));
       }
       const next = Object.assign({}, rec, { deleted: true, dirty: 1, updated_at: now, rev: (rec.rev || 0) + 1 });
+      delete next[TFtaskext.EXT_ONLY_KEY]; // rev+1 sudah membatalkan penanda; kunci dihapus demi kebersihan
       return putRaw(next)
         .then(() => TFoutbox.outboxAdd({ op: "delete", entity_type: "task", cid: cid, payload: { cid: cid } }))
         .then(() => ({ ok: true }));

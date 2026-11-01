@@ -132,3 +132,50 @@ test("namespaceOf, FIELD_RE, extError", () => {
   assert.equal(e.key, "demo-ext");
   assert.equal(e.status, 422);
 });
+
+// --- PR 1c-0 (K25; rencana R1, R2): penanda ext_only_rev untuk edit yang hanya mengubah ext ---
+
+test("EXT_ONLY_KEY = ext_only_rev", () => {
+  assert.equal(X.EXT_ONLY_KEY, "ext_only_rev");
+});
+
+test("isExtOnlyPatch: {ext_patch:{}} benar; + title/gtd_status/progress:0/is_focused:0/project_id:null/recurrence_type:null → salah; ext_patch null/array → salah; kunci lain undefined → benar", () => {
+  assert.equal(X.isExtOnlyPatch({ ext_patch: {} }), true);
+  assert.equal(X.isExtOnlyPatch({ ext_patch: { "demo-ext.a": 1 } }), true);
+  for (const extra of [{ title: "t" }, { gtd_status: "done" }, { progress: 0 }, { is_focused: 0 },
+    { project_id: null }, { recurrence_type: null }, { title: null }, { recurrence_renew: true }]) {
+    assert.equal(X.isExtOnlyPatch(Object.assign({ ext_patch: { "demo-ext.a": 1 } }, extra)), false, JSON.stringify(extra));
+  }
+  assert.equal(X.isExtOnlyPatch({ ext_patch: null }), false);
+  assert.equal(X.isExtOnlyPatch({ ext_patch: [] }), false);
+  assert.equal(X.isExtOnlyPatch({ ext_patch: "{}" }), false);
+  assert.equal(X.isExtOnlyPatch({}), false);
+  assert.equal(X.isExtOnlyPatch({ title: "t" }), false);
+  assert.equal(X.isExtOnlyPatch(null), false);
+  assert.equal(X.isExtOnlyPatch(undefined), false);
+  assert.equal(X.isExtOnlyPatch({ ext_patch: {}, title: undefined, progress: undefined }), true);
+});
+
+test("extOnlyNow: dirty + ext_only_rev === rev → benar; rev beda / dirty 0 / deleted / kunci hilang / string '3' → salah; rev hilang dianggap 0", () => {
+  assert.equal(X.extOnlyNow({ dirty: 1, rev: 3, ext_only_rev: 3 }), true);
+  assert.equal(X.extOnlyNow({ dirty: 1, rev: 4, ext_only_rev: 3 }), false);
+  assert.equal(X.extOnlyNow({ dirty: 0, rev: 3, ext_only_rev: 3 }), false);
+  assert.equal(X.extOnlyNow({ dirty: 1, rev: 3, ext_only_rev: 3, deleted: true }), false);
+  assert.equal(X.extOnlyNow({ dirty: 1, rev: 3 }), false);
+  assert.equal(X.extOnlyNow({ dirty: 1, rev: 3, ext_only_rev: "3" }), false);
+  assert.equal(X.extOnlyNow({ dirty: 1, rev: 3, ext_only_rev: true }), false);
+  assert.equal(X.extOnlyNow({ dirty: 1, ext_only_rev: 0 }), true);
+  assert.equal(X.extOnlyNow({ dirty: 1, ext_only_rev: 1 }), false);
+  assert.equal(X.extOnlyNow(null), false);
+  assert.equal(X.extOnlyNow(undefined), false);
+});
+
+test("extOnlyNext: bersih + ext → nextRev; kotor-ext-saja + ext → nextRev; kotor tanpa penanda + ext → undefined; patch inti → undefined", () => {
+  assert.equal(X.extOnlyNext({ dirty: 0, rev: 2 }, true, 3), 3);
+  assert.equal(X.extOnlyNext({ dirty: 0, rev: 2, ext_only_rev: 1 }, true, 3), 3); // kunci basi di record bersih
+  assert.equal(X.extOnlyNext({ dirty: 1, rev: 3, ext_only_rev: 3 }, true, 4), 4);
+  assert.equal(X.extOnlyNext({ dirty: 1, rev: 3 }, true, 4), undefined);
+  assert.equal(X.extOnlyNext({ dirty: 1, rev: 4, ext_only_rev: 3 }, true, 5), undefined);
+  assert.equal(X.extOnlyNext({ dirty: 0, rev: 2 }, false, 3), undefined);
+  assert.equal(X.extOnlyNext({ dirty: 1, rev: 3, ext_only_rev: 3 }, false, 4), undefined);
+});

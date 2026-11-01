@@ -45,6 +45,30 @@
     return rec;
   }
 
+  // Field inti dari dict server untuk diadopsi ke record yang sudah ada (spec 1c K25; rencana 1c-0 R5): kunci
+  // COPY kecuali created_at/updated_at, HANYA yang ada di `dict`, dengan nilai bawaan yang sama seperti
+  // taskFromServer; plus project_ref_name/context_ref_name bila project*/context* ikut. parent/list/client_id/ext
+  // dan rev tidak disentuh (ext diurus taskAdopt).
+  const CORE_SKIP = { created_at: 1, updated_at: 1 };
+  function coreFromServer(dict) {
+    const out = {};
+    if (!dict || typeof dict !== "object") return out;
+    const has = (k) => Object.prototype.hasOwnProperty.call(dict, k);
+    for (const k of COPY) {
+      if (CORE_SKIP[k] || !has(k)) continue;
+      out[k] = dict[k] != null ? dict[k] : (k === "is_focused" || k === "progress" || k === "pomodoros_done" ? 0 : k === "estimated_pomodoros" ? 1 : null);
+    }
+    if (has("project_id") || has("project")) {
+      const pid = out.project_id != null ? out.project_id : null;
+      out.project_ref_name = pid != null ? (out.project != null ? out.project : "") : null;
+    }
+    if (has("context_id") || has("context")) {
+      const xid = out.context_id != null ? out.context_id : null;
+      out.context_ref_name = xid != null ? (out.context != null ? out.context : "") : null;
+    }
+    return out;
+  }
+
   // Ensure a stable cid for a server id via _idmap; create + persist if missing.
   function ensureCid(serverId, cache) {
     if (cache[serverId]) return Promise.resolve(cache[serverId]);
@@ -77,7 +101,7 @@
       });
   }
 
-  const exported = { taskFromServer, hydrateTasks };
+  const exported = { taskFromServer, coreFromServer, hydrateTasks };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.hydrate = exported; }
   return exported;
 });
