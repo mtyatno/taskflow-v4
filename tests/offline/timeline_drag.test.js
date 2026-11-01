@@ -109,10 +109,17 @@ test("geser jatuh di Sabtu → Senin; durasi 4 hk melewati libur tetap 4 hk; pat
   // gerak 0 hari setelah melewati ambang → null
   s = run(mouse(r3), [{ type: "move", x: 105, t: 10 }, { type: "up", x: 105, inside: true }]);
   assert.equal(G.commit(s, c), null);
-  // milestone ikut jepret ke hari kerja
+  // milestone TIDAK dijepret (final review, R6: milestone boleh di hari libur): bergeser per hari kalender
   const rm = row("2026-11-05", 0);
-  s = run(mouse(rm), [{ type: "move", x: 100 + PX * 3, t: 10 }, { type: "up", x: 100 + PX * 3, inside: true }]); // Min 8 → Sen 9
-  assert.deepEqual(G.commit(s, c).patch, { start: "2026-11-09" });
+  s = run(mouse(rm), [{ type: "move", x: 100 + PX * 3, t: 10 }, { type: "up", x: 100 + PX * 3, inside: true }]); // Kam 5 + 3 = Min 8
+  assert.deepEqual(G.commit(s, c).patch, { start: "2026-11-08" });
+  const pvm = G.preview(run(mouse(rm), [{ type: "move", x: 100 + PX * 3, t: 10 }]), c, { from: D("2026-10-01"), to: D("2027-01-31") }, PX);
+  assert.equal(pvm.tooltip, "Min 8 Nov · milestone");
+  assert.equal(pvm.dx, 3 * PX);
+  // milestone di hari libur (Kam 24 Des 2026) digeser +1 → Jum 25 Des (libur) tetap persis
+  const rh = row("2026-12-24", 0);
+  s = run(mouse(rh), [{ type: "move", x: 100 + PX, t: 10 }, { type: "up", x: 100 + PX, inside: true }]);
+  assert.deepEqual(G.commit(s, c).patch, { start: "2026-12-25" });
 });
 
 test("resize: tepi kanan, durasi minimum 1; milestone → hitZone edge null", () => {
@@ -267,8 +274,8 @@ test("tooltip 'Sen 9 Nov → Kam 12 Nov · 4 hk'", () => {
   assert.equal(pv2.dx, 0);
   assert.equal(pv2.width, 12 * PX, "bar membentang dari Sen 2 s.d. Jum 13 Nov (12 hari kalender)");
   // milestone
-  const pv3 = G.preview(run(mouse(row("2026-11-05", 0)), [{ type: "move", x: 100 + PX * 4, t: 10 }]), c, rng, PX);
-  assert.equal(pv3.tooltip, "Sen 9 Nov · milestone");
+  const pv3 = G.preview(run(mouse(row("2026-11-05", 0)), [{ type: "move", x: 100 + PX * 2, t: 10 }]), c, rng, PX);
+  assert.equal(pv3.tooltip, "Sab 7 Nov · milestone", "milestone tidak dijepret ke hari kerja");
   assert.equal(pv3.width, 0);
   // belum seret → null
   assert.equal(G.preview(mouse(r), c, rng, PX), null);
@@ -295,8 +302,11 @@ test("keyStep Alt+→ geser 1 hk (lewati libur), Alt+Shift+← durasi − 1 berh
   assert.deepEqual(k.patch, { duration: 1 });
   assert.equal(G.keyStep({ key: "ArrowLeft", alt: true, shift: true }, sc("2026-11-09", 1), c), null, "berhenti di 1");
   assert.equal(G.keyStep({ key: "ArrowRight", alt: true, shift: true }, sc("2026-11-09", 999), c), null, "maks 999");
-  // milestone: geser boleh, durasi tidak
+  // milestone: geser boleh (per hari kalender, tanpa jepret — final review), durasi tidak
   assert.deepEqual(G.keyStep({ key: "ArrowRight", alt: true }, sc("2026-11-05", 0), c).patch, { start: "2026-11-06" });
+  assert.deepEqual(G.keyStep({ key: "ArrowRight", alt: true }, sc("2026-11-06", 0), c).patch, { start: "2026-11-07" }, "Jum → Sab");
+  assert.deepEqual(G.keyStep({ key: "ArrowLeft", alt: true }, sc("2026-11-09", 0), c).patch, { start: "2026-11-08" }, "Sen → Min");
+  assert.deepEqual(G.keyStep({ key: "ArrowRight", alt: true }, sc("2026-12-24", 0), c).patch, { start: "2026-12-25" }, "libur → libur");
   assert.equal(G.keyStep({ key: "ArrowRight", alt: true, shift: true }, sc("2026-11-05", 0), c), null);
   // prev: kunci durasi tidak ada di ext (raw) → null
   k = G.keyStep({ key: "ArrowRight", alt: true, shift: true }, { ...sc("2026-11-09", 1), raw: { start: "2026-11-09" } }, c);

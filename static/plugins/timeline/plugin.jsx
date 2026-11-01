@@ -1283,7 +1283,7 @@ function createInteractions() {
     if (r) write(s.row.task, rr, r.patch, r.prev);
   }
 
-  // ---- keyboard (R23): Enter buka; Alt+←/→ geser 1 hk; Alt+Shift+←/→ durasi ±1; satu set per tekan ----
+  // ---- keyboard (R23): Enter buka; Alt+←/→ geser 1 hk (milestone 1 hari kalender); Alt+Shift+←/→ durasi ±1; satu set per tekan ----
   function key(row, e) {
     if (!e) return;
     if (e.key === "Enter") {

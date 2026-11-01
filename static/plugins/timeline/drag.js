@@ -192,9 +192,12 @@ const TLDrag = (function (CAL, SCHED) {
     const dur0 = state.sched.duration;
     const delta = clamp(Math.round((state.x - state.x0) / px) || 0, -MAX_DELTA, MAX_DELTA);
     if (state.kind === "move") {
-      const target = delta === 0 ? s0 : CAL.nextWork(c, s0 + delta); // jepret per hari; hari libur → hari kerja berikutnya
-      const fin = CAL.finish(c, target, dur0); // durasi hari kerja tetap
-      const shown = CAL.nextWork(c, target);
+      // Task: jepret per hari, hari libur → hari kerja berikutnya. Milestone (durasi 0) TIDAK dijepret: bergeser per hari
+      // kalender dan boleh jatuh di hari libur (R6) — sama dengan seksi Jadwal yang menyimpan tanggal milestone apa adanya.
+      const ms = dur0 === 0;
+      const target = delta === 0 || ms ? s0 + delta : CAL.nextWork(c, s0 + delta);
+      const fin = ms ? target : CAL.finish(c, target, dur0); // durasi hari kerja tetap
+      const shown = ms ? target : CAL.nextWork(c, target);
       const out = {
         kind: "move",
         start: shown,
@@ -259,7 +262,7 @@ const TLDrag = (function (CAL, SCHED) {
     return { taskId: state.taskId, patch: san.patch, prev: r.prev };
   }
 
-  // ---- keyboard (R23): Alt+←/→ geser 1 hari kerja, Alt+Shift+←/→ durasi ±1 ----
+  // ---- keyboard (R23): Alt+←/→ geser 1 hari kerja (milestone: 1 hari kalender), Alt+Shift+←/→ durasi ±1 ----
   function keyStep(ev, sched, c) {
     const e = ev || {};
     if (!e.alt || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return null;
@@ -276,7 +279,8 @@ const TLDrag = (function (CAL, SCHED) {
       prev = { duration: prevValue(sched, "duration") };
     } else {
       const s = CAL.dn(sched.start);
-      const ns = safe(() => CAL.addWork(c, CAL.nextWork(c, s), dir));
+      // milestone: ±1 hari kalender tanpa jepret (R6); task: ±1 hari kerja
+      const ns = dur === 0 ? s + dir : safe(() => CAL.addWork(c, CAL.nextWork(c, s), dir));
       if (!Number.isInteger(ns)) return null;
       patch = { start: CAL.iso(ns) };
       prev = { start: prevValue(sched, "start") };
