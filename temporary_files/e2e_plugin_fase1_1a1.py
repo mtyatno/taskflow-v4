@@ -17,8 +17,9 @@ U2 "ext1a2" (anggota W, demo-ext OFF, hanya lewat API).
     server ext == {"demo-ext.note": "hai"} → B sinkron → seksi B "hai"; notifikasi U2 "memperbarui task" tidak bertambah.
   2 B offline: put lokal ext_patch {"demo-ext.after": {"$task": T2}}; A ganti judul (notifikasi +1, kontrol positif) →
     B online + sinkron → server: judul A + kedua kunci; U2 (OFF) ganti prioritas lewat API → ext utuh.
-  3 jendela deploy di A: rute PUT /api/tasks/* meniru server lama (ext_patch diabaikan, respons `"ext": "{}"` string) →
-    ext_dirty tetap, ≤ 1 PUT per sinkron → unroute → sinkron → server punya kunci, ext_dirty hilang.
+  3 respons tanpa ext objek di A: rute PUT /api/tasks/* meneruskan ext_patch apa adanya (server pra-1a-1 sudah tidak
+    ada; review akhir 1c-0) tetapi respons membawa `"ext": "{}"` string → server punya kunci, klien tak bisa memastikan:
+    ext_dirty tetap, ≤ 1 PUT per sinkron → unroute → sinkron → ext_dirty hilang.
   4 C (sesi segar): tombol "Demo" di proj_* dan slist_* tanpa request plugin.js sampai diklik → "Memuat Demo…" → view;
     reload → tetap Demo per halaman; Inbox tanpa tombol, tf_viewmode tetap; Normal → kunci per halaman hilang;
     Live Edit + klik item view → panel; D: plugin.js 404 → "Demo tidak bisa dimuat" → "Kembali ke Normal".
@@ -456,9 +457,8 @@ def run(browser, base, u1, u2, ids, pdir, idx_body):
                 route.fallback()
                 return
             body = req.post_data_json or {}
-            had = "ext_patch" in body
-            body.pop("ext_patch", None)  # server lama: pydantic mengabaikan field asing
-            resp = route.fetch(post_data=json.dumps(body))
+            had = "ext_patch" in body  # diteruskan apa adanya: server ≥ 1a-1 menerapkannya
+            resp = route.fetch()
             data = resp.json()
             if isinstance(data, dict):
                 data["ext"] = "{}"  # R3: kolom baru terlihat lewat SELECT *, dikirim sebagai string
@@ -473,8 +473,8 @@ def run(browser, base, u1, u2, ids, pdir, idx_body):
             r3 = idb_task(a, t2)
             s3 = server_task(base, u1, t2)
             mine = [h for h in hits if h[0].endswith("/api/tasks/%d" % t2)]
-            check("3a jendela deploy: PUT terkirim membawa ext_patch, server lama mengabaikannya",
-                  mine and all(h[1] for h in mine) and "demo-ext.note" not in (s3.get("ext") or {}),
+            check("3a PUT terkirim membawa ext_patch, server menerapkannya (respons tetap ext string)",
+                  mine and all(h[1] for h in mine) and (s3.get("ext") or {}).get("demo-ext.note") == "deploy",
                   "hits=%r server=%r" % (mine, s3.get("ext")))
             check("3b respons tanpa ext objek ('{}' string) → record tetap ext_dirty ['demo-ext.note'], dirty 1",
                   r3 and r3["ext_dirty"] == ["demo-ext.note"] and r3["dirty"] == 1
@@ -496,7 +496,7 @@ def run(browser, base, u1, u2, ids, pdir, idx_body):
         sync_now(a)
         s3 = wait_until(lambda: (lambda t: t if (t.get("ext") or {}).get("demo-ext.note") == "deploy" else None)(server_task(base, u1, t2)), 15)
         r3 = idb_task(a, t2)
-        check("3d server di-restart (rute dilepas) → sinkron → server punya kunci, ext_dirty hilang",
+        check("3d rute dilepas (respons ext objek) → sinkron → server punya kunci, ext_dirty hilang",
               s3 is not None and r3["ext_dirty"] is None and r3["dirty"] == 0, repr((s3 and s3.get("ext"), r3)))
 
         # ── 4 ──

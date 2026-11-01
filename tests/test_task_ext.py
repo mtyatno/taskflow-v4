@@ -416,6 +416,32 @@ def test_ext_only_put_no_workspace_notification(client, demo_index):
     assert _get(a, tid)["ext"] == {"demo-ext.a": 1, "demo-ext.b": 2, "demo-ext.c": 4}
 
 
+def test_put_ext_patch_only_from_stale_member_keeps_core(client, demo_index):
+    """K25 (PR 1c-0): perangkat anggota basi mengirim `{ext_patch}` saja → field inti dari anggota lain tidak
+    tertimpa, respons memuat baris inti server (dipakai klien untuk adopsi, R5), tanpa notifikasi (K6)."""
+    a, b = U(client, "sa"), U(client, "sb")
+    list_id = _mk_list(a, b, name="ws")
+    t = _post(a, title="rapat", list_id=list_id)
+    tid = t["id"]
+    before = _get(a, tid)
+    _put(a, tid, **_full_payload(t, title="Judul A", gtd_status="done", progress=40))
+    mid = _get(a, tid)
+    assert mid["updated_at"] > before["updated_at"]
+    n_updates = len(_updates(a.id, tid))
+    out = _put(b, tid, ext_patch={"demo-ext.a": 1})
+    assert out["title"] == "Judul A" and out["gtd_status"] == "done" and out["progress"] == 40
+    assert out["completed_at"] is not None
+    assert out["ext"] == {"demo-ext.a": 1}
+    assert out["updated_at"] > mid["updated_at"]
+    for key in ("quadrant", "project", "context", "assigned_to", "recurrence_days"):
+        assert key in out, key
+    again = _get(a, tid)
+    for key in ("title", "gtd_status", "progress", "completed_at"):
+        assert again[key] == mid[key], key
+    assert again["ext"] == {"demo-ext.a": 1}
+    assert len(_updates(a.id, tid)) == n_updates
+
+
 def test_old_client_payload_ignored_fields(client, demo_index):
     u = U(client, "ex")
     t = _post(u, title="a", ext={"demo-ext.a": 1})

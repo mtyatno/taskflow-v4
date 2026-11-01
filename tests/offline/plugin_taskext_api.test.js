@@ -199,3 +199,143 @@ test("review akhir: set lewat api.put host (rute lokal) → PluginStorageError d
   await assert.rejects(tx().set(7, { note: "x" }),
     (err) => err instanceof PluginStorageError && err.code === "EXT_TOO_LARGE" && err.key === "demo-ext");
 });
+
+// ── PR 1c-0 Task 6 (R11, R12): setMany satu render + err.applied ─────────────
+function fakeReactDOM(log, over) {
+  let depth = 0;
+  const rd = {
+    unstable_batchedUpdates: (f) => {
+      log.push(["batch-start"]);
+      depth++;
+      try { f(); } finally { depth--; log.push(["batch-end"]); }
+      if (over && over.throwAfter) throw new Error("batch boom");
+    },
+    depth: () => depth,
+  };
+  return rd;
+}
+function withReactDOM(rd, fn) {
+  const had = Object.prototype.hasOwnProperty.call(globalThis, "ReactDOM");
+  const prev = globalThis.ReactDOM;
+  globalThis.ReactDOM = rd;
+  const restore = () => { if (had) globalThis.ReactDOM = prev; else delete globalThis.ReactDOM; };
+  return Promise.resolve().then(fn).then((v) => { restore(); return v; }, (e) => { restore(); throw e; });
+}
+function silenceWarn(fn) {
+  const orig = console.warn;
+  const warns = [];
+  console.warn = (...a) => { warns.push(a); };
+  return Promise.resolve().then(() => fn(warns)).then((v) => { console.warn = orig; return v; }, (e) => { console.warn = orig; throw e; });
+}
+const many = (n) => Array.from({ length: n }, (_, i) => ({ taskId: i + 1, patch: { note: "n" + i } }));
+
+test("setMany 200 item → satu unstable_batchedUpdates; urutan panggilan: batch-mulai, patch×200, batch-selesai, update×200, refresh", async () => {
+  const log = [];
+  const rd = fakeReactDOM(log);
+  const depths = [];
+  P.bindHost(binding({
+    patchTaskExt: (id, p) => { depths.push(rd.depth()); log.push(["patch", id]); },
+    updateTaskExt: (id) => { log.push(["update", id]); return Promise.resolve({ id }); },
+    refreshTasks: () => { log.push(["refresh"]); },
+  }));
+  const items = many(200);
+  await withReactDOM(rd, () => tx().setMany(items));
+  const expected = [["batch-start"]]
+    .concat(items.map((it) => ["patch", it.taskId]))
+    .concat([["batch-end"]])
+    .concat(items.map((it) => ["update", it.taskId]))
+    .concat([["refresh"]]);
+  assert.deepEqual(log, expected);
+  assert.equal(log.filter((c) => c[0] === "batch-start").length, 1);
+  assert.equal(depths.length, 200);
+  assert.ok(depths.every((d) => d === 1), "semua patch di kedalaman 1");
+});
+
+test("patchTaskExt tepat sekali per item (tidak dipanggil lagi saat tulis)", async () => {
+  const items = many(7);
+  await tx().setMany(items);
+  const patches = calls.filter((c) => c[0] === "patch");
+  assert.equal(patches.length, 7);
+  assert.deepEqual(patches.map((c) => c[1]), items.map((it) => it.taskId));
+});
+
+test("tanpa ReactDOM (Node) → patch tetap semua di depan, berurutan", async () => {
+  assert.equal(globalThis.ReactDOM, undefined);
+  const items = many(5);
+  await tx().setMany(items);
+  const kinds = calls.map((c) => c[0]);
+  assert.deepEqual(kinds, ["patch", "patch", "patch", "patch", "patch", "update", "update", "update", "update", "update", "refresh"]);
+  assert.deepEqual(calls.slice(0, 5).map((c) => c[1]), [1, 2, 3, 4, 5]);
+});
+
+test("unstable_batchedUpdates melempar → warn, semua item tetap ditulis", async () => {
+  const log = [];
+  await silenceWarn(async (warns) => {
+    await withReactDOM(fakeReactDOM(log, { throwAfter: true }), () => tx().setMany(many(4)));
+    assert.ok(warns.length >= 1);
+  });
+  assert.equal(calls.filter((c) => c[0] === "update").length, 4);
+  assert.equal(calls.filter((c) => c[0] === "patch").length, 4);
+});
+
+test("patchTaskExt melempar untuk satu item → warn, item lain tetap dipatch, semua tetap ditulis", async () => {
+  P.bindHost(binding({
+    patchTaskExt: (id, p) => { calls.push(["patch", id, p]); if (id === 2) throw new Error("patch boom"); },
+  }));
+  await silenceWarn(async (warns) => {
+    await tx().setMany(many(4));
+    assert.equal(warns.length, 1);
+  });
+  assert.deepEqual(calls.filter((c) => c[0] === "patch").map((c) => c[1]), [1, 2, 3, 4]);
+  assert.deepEqual(calls.filter((c) => c[0] === "update").map((c) => c[1]), [1, 2, 3, 4]);
+});
+
+test("gagal di item 3 (EXT_TOO_LARGE) → PluginStorageError dengan applied [1, 2]; satu refreshTasks; taskUpdated {taskIds: [1, 2]}", async () => {
+  P.bindHost(binding({
+    updateTaskExt: (id, p) => {
+      calls.push(["update", id, p]);
+      if (id === 3) return Promise.reject(Object.assign(new Error("EXT_TOO_LARGE"), { status: 422 }));
+      return Promise.resolve({ id });
+    },
+  }));
+  await assert.rejects(tx().setMany(many(5)), (err) => err instanceof PluginStorageError && err.code === "EXT_TOO_LARGE" && Array.isArray(err.applied) && JSON.stringify(err.applied) === "[1,2]");
+  assert.equal(calls.filter((c) => c[0] === "refresh").length, 1);
+  assert.deepEqual(events, [{ type: "taskUpdated", detail: { taskIds: [1, 2] } }]);
+});
+
+test("gagal di item 1 → applied []", async () => {
+  P.bindHost(binding({ updateTaskExt: () => Promise.reject(Object.assign(new Error("EXT_TOO_LARGE"), { status: 422 })) }));
+  await assert.rejects(tx().setMany(many(3)), (err) => err instanceof PluginStorageError && Array.isArray(err.applied) && err.applied.length === 0);
+  assert.deepEqual(events, []);
+  assert.equal(calls.filter((c) => c[0] === "refresh").length, 1);
+});
+
+test("'Task not found' → Error dengan applied", async () => {
+  P.bindHost(binding({
+    updateTaskExt: (id) => id === 2 ? Promise.reject(Object.assign(new Error("Task not found"), { status: 404 })) : Promise.resolve({ id }),
+  }));
+  await assert.rejects(tx().setMany(many(3)), (err) => !(err instanceof PluginStorageError) && err.message === "Task not found" && JSON.stringify(err.applied) === "[1]");
+});
+
+test("penolakan bukan objek (string) → Error dengan applied", async () => {
+  P.bindHost(binding({
+    updateTaskExt: (id) => id === 2 ? Promise.reject("kacau") : Promise.resolve({ id }),
+  }));
+  await assert.rejects(tx().setMany(many(3)), (err) => err instanceof Error && err.message === "kacau" && JSON.stringify(err.applied) === "[1]");
+});
+
+test("validasi gagal (field tak terdaftar) → reject tanpa patch, tanpa tulis, tanpa applied", async () => {
+  const items = [{ taskId: 1, patch: { note: "ok" } }, { taskId: 2, patch: { salah: 1 } }];
+  await assert.rejects(tx().setMany(items), (err) => err instanceof PluginStorageError && !("applied" in err));
+  assert.deepEqual(calls, []);
+  assert.deepEqual(events, []);
+});
+
+test("set tunggal: urutan patch → update tidak berubah", async () => {
+  await tx().set(9, { note: "a" });
+  assert.deepEqual(calls.map((c) => c[0]), ["patch", "update", "refresh"]);
+});
+
+test("apiVersion tetap 1 (1c-0)", () => {
+  assert.equal(RT.api.apiVersion, 1);
+});

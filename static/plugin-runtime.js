@@ -1242,12 +1242,36 @@
       if (bad) throw storageError(bad.code, bad.code, bad.key);
       return out;
     }
-    function write(taskId, p) {
+    // write = patch (optimistis di state host) + persist (PUT {ext_patch}); set tunggal memanggil keduanya,
+    // setMany memanggil patch semua item dalam satu batch lalu persist berurutan (PR 1c-0 R11).
+    function patch(taskId, p) {
       if (typeof hostBinding.patchTaskExt === "function") {
         try { hostBinding.patchTaskExt(taskId, p); } catch (e) { warn("patchTaskExt gagal:", e); }
       }
+    }
+    function persist(taskId, p) {
       if (typeof hostBinding.updateTaskExt === "function") return Promise.resolve().then(() => hostBinding.updateTaskExt(taskId, p));
       return Promise.resolve().then(() => localTaskRouter().dispatch("PUT", "/api/tasks/" + encodeURIComponent(taskId), { ext_patch: p }));
+    }
+    function write(taskId, p) {
+      patch(taskId, p);
+      return persist(taskId, p);
+    }
+    // Host memakai ReactDOM.render lama (tanpa batching otomatis): satu unstable_batchedUpdates menggabungkan
+    // semua setTasks optimistis menjadi satu render. Tanpa ReactDOM (Node/tes) → langsung berurutan.
+    function patchAll(prepared) {
+      if (typeof hostBinding.patchTaskExt !== "function") return;
+      const rd = root.ReactDOM;
+      const batch = rd && typeof rd.unstable_batchedUpdates === "function" ? (f) => rd.unstable_batchedUpdates(f) : (f) => f();
+      try {
+        batch(() => { for (const it of prepared) patch(it.taskId, it.patch); });
+      } catch (e) { warn("batch patchTaskExt gagal:", e); }
+    }
+    // Penolakan setMany membawa applied = taskId yang sudah tersimpan (R12); bukan objek → dibungkus Error.
+    function withApplied(err, applied) {
+      const e = err !== null && typeof err === "object" ? err : new Error(String(err));
+      try { e.applied = applied.slice(); } catch (_) { /* objek beku: abaikan */ }
+      return e;
     }
     function refresh() {
       if (typeof hostBinding.refreshTasks !== "function") return;
@@ -1288,7 +1312,8 @@
           (err) => { refresh(); throw mapExtError(err); }));
       },
       // Untuk seret massal: berurutan, berhenti pada kegagalan pertama (yang sebelumnya tetap tersimpan);
-      // satu refreshTasks + satu taskUpdated di akhir.
+      // satu refreshTasks + satu taskUpdated di akhir. Optimistis: semua item di-patch dalam SATU batch render;
+      // penolakan membawa err.applied (taskId yang tersimpan).
       setMany(items) {
         let prepared;
         return Promise.resolve().then(() => {
@@ -1303,12 +1328,13 @@
           const rows = [];
           const done = [];
           const finish = () => { refresh(); if (done.length) announce({ taskIds: done.slice() }); };
-          return prepared.reduce((chain, it) => chain.then(() => write(it.taskId, it.patch).then((row) => {
+          patchAll(prepared);
+          return prepared.reduce((chain, it) => chain.then(() => persist(it.taskId, it.patch).then((row) => {
             rows.push(row);
             done.push(it.taskId);
           })), Promise.resolve()).then(
             () => { finish(); return rows; },
-            (err) => { finish(); throw mapExtError(err); });
+            (err) => { finish(); throw withApplied(mapExtError(err), done); });
         });
       },
     });

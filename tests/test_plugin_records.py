@@ -1,6 +1,7 @@
 """plugin_records (bagian murni) + plugin_host.list_access — skema, vektor, seq, LWW, kursor, purge
 (spec Fase 1 §5.2, §5.3; rencana PR 1a-2 T1, R1–R8, R25)."""
 import json
+import logging
 import re
 import sqlite3
 import threading
@@ -1034,3 +1035,190 @@ def test_route_order():
     src = (Path(__file__).resolve().parent.parent / "webapp.py").read_text(encoding="utf-8")
     assert src.index("app.include_router(plugin_records.router)") < src.index("plugin_loader.init_web(app)")
     assert src.index("app.include_router(plugin_states.router)") < src.index("app.include_router(plugin_records.router)")
+
+
+# ── K26 (PR 1c-0 T1): entitas record baru tanpa restart, baca ulang indeks 1×/10 dtk ──────────
+
+import contextlib  # noqa: E402
+
+
+def _decl_env(monkeypatch, tmp_path, entities):
+    """Indeks tmp untuk `demo-records` dengan `entities`; jam palsu untuk TTL; penghitung `refresh_known`.
+    Mengembalikan `(tulis_indeks, jam, panggilan)`."""
+    for name in ("_known", "_index_ok", "_index_path", "_permissions", "_records"):
+        monkeypatch.setattr(plugin_loader, name, getattr(plugin_loader, name))
+    idx = tmp_path / "index.json"
+
+    def write(ents):
+        decl = {e: {"conflict": "lww", "maxBytes": 4096} for e in ents}
+        idx.write_text(json.dumps({"v": 1, "plugins": [
+            {"id": PID, "defaultEnabled": False, "permissions": ["records"], "records": decl}]}), encoding="utf-8")
+
+    write(entities)
+    plugin_loader.load_known(idx)
+    pr._reset_for_tests()
+    now = [1000.0]
+    monkeypatch.setattr(pr, "_decl_clock", lambda: now[0])
+    calls = []
+    real = plugin_loader.refresh_known
+    monkeypatch.setattr(plugin_loader, "refresh_known", lambda: (calls.append(now[0]), real())[1])
+    return write, now, calls, idx
+
+
+def _max_seq():
+    c = _rawdb()
+    try:
+        return c.execute("SELECT MAX(seq) AS m FROM plugin_records").fetchone()["m"] or 0
+    finally:
+        c.close()
+
+
+def test_decl_refresh_ttl_constant():
+    assert pr.DECL_REFRESH_TTL_S == 10.0
+
+
+def test_new_entity_after_start_accepted_without_restart(http, monkeypatch, tmp_path):
+    write, now, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    a = User(http)
+    res = a.send1(entity="memo", id="m1")
+    assert res["error"] == "INVALID" and res["detail"] == "entity"
+    assert len(calls) == 1
+    write(["note", "memo"])
+    now[0] += 11
+    res = a.send1(entity="memo", id="m1")
+    assert res["applied"] is True and res["record"]["version"] == 1, res
+    assert len(calls) == 2
+    assert any(i["entity"] == "memo" and i["id"] == "m1" for i in a.records()["items"])
+    assert a.send1(entity="memo", id="m2")["applied"] is True
+    assert len(calls) == 2  # sudah dideklarasikan → tanpa baca ulang
+
+
+def test_decl_refresh_throttled(http, monkeypatch, tmp_path):
+    _, now, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    a = User(http)
+    assert a.send1(entity="memo")["error"] == "INVALID"
+    now[0] += 9.9
+    assert a.send1(entity="memo")["error"] == "INVALID"
+    assert len(calls) == 1
+    now[0] += 0.1
+    assert a.send1(entity="memo")["error"] == "INVALID"
+    assert len(calls) == 2
+
+
+def test_invalid_entity_name_never_refreshes(http, monkeypatch, tmp_path):
+    _, _, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    a = User(http)
+    for bad in ("Bad", "a-b", ""):
+        res = a.send1(entity=bad)
+        assert res["error"] == "INVALID" and res["detail"] == "entity", bad
+    assert calls == []
+
+
+def test_declared_entities_do_not_refresh(http, monkeypatch, tmp_path):
+    _, _, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    a = User(http)
+    assert a.send1()["applied"] is True
+    assert _ids(a.records()) == ["n1"]
+    assert a.records(entity="note")["items"]
+    assert calls == []
+
+
+def test_get_entity_param_refreshes_once(http, monkeypatch, tmp_path):
+    write, now, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    a = User(http)
+    r = a.get(URL, params={"entity": "memo"})
+    assert r.status_code == 422 and r.json()["detail"] == {"code": "INVALID", "detail": "entity"}
+    assert len(calls) == 1
+    write(["note", "memo"])
+    now[0] += 11
+    r = a.get(URL, params={"entity": "memo"})
+    assert r.status_code == 200, r.text
+    assert len(calls) == 2
+
+
+def test_mixed_batch_one_refresh(http, monkeypatch, tmp_path):
+    write, _, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    write(["note", "memo"])  # indeks sudah baru di disk, proses belum membacanya
+    a = User(http)
+    before = _max_seq()
+    res = a.send(it_http(entity="note", id="n1"), it_http(entity="memo", id="m1"))
+    assert [r.get("applied") for r in res] == [True, True], res
+    assert _max_seq() == before + 2
+    assert len(calls) == 1
+
+
+def test_refresh_failure_keeps_old_decl(http, monkeypatch, tmp_path):
+    _, now, calls, idx = _decl_env(monkeypatch, tmp_path, ["note"])
+    a = User(http)
+    idx.write_text("{rusak", encoding="utf-8")
+    now[0] += 11
+    res = a.send1(entity="memo")
+    assert res["error"] == "INVALID" and res["detail"] == "entity"
+    assert len(calls) == 1
+    assert a.send1(entity="note", id="n9")["applied"] is True  # deklarasi lama bertahan, tanpa 500
+
+
+def test_refresh_not_inside_write_tx(http, monkeypatch, tmp_path):
+    write, _, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    write(["note", "memo"])
+    depth = [0]
+    entered = []
+    real_tx = dbconn.write_tx
+
+    @contextlib.contextmanager
+    def spy(conn):
+        depth[0] += 1
+        entered.append(1)
+        try:
+            with real_tx(conn):
+                yield
+        finally:
+            depth[0] -= 1
+
+    monkeypatch.setattr(dbconn, "write_tx", spy)
+    seen = []
+    real_refresh = plugin_loader.refresh_known  # sudah dibungkus penghitung
+    monkeypatch.setattr(plugin_loader, "refresh_known", lambda: (seen.append(depth[0]), real_refresh())[1])
+    a = User(http)
+    entered.clear()
+    assert a.send1(entity="memo")["applied"] is True
+    assert seen == [0]
+    assert entered  # tulis memang lewat write_tx, setelah baca ulang
+
+
+def test_reset_for_tests_clears_decl_throttle(http, monkeypatch, tmp_path):
+    _, _, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    a = User(http)
+    a.send1(entity="memo")
+    a.send1(entity="memo")
+    assert len(calls) == 1
+    pr._reset_for_tests()
+    a.send1(entity="memo")
+    assert len(calls) == 2
+
+
+def test_decl_throttled_returns_current_loader_decl_without_file_read(http, monkeypatch, tmp_path):
+    """Jendela throttle: salinan `_guard` yang basi tidak dipakai; deklarasi proses saat ini (sudah dibaca ulang oleh
+    permintaan lain) dikembalikan tanpa membaca berkas indeks."""
+    write, now, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    stale = plugin_loader.records_decl(PID)  # salinan `_guard` permintaan B, diambil sebelum baca ulang
+    write(["note", "memo"])
+    assert "memo" in pr._decl_for(PID, plugin_loader.records_decl(PID), {"memo"})  # permintaan A: baca ulang
+    assert len(calls) == 1
+    reads = []
+    real_read = plugin_loader._read_index
+    monkeypatch.setattr(plugin_loader, "_read_index", lambda p: (reads.append(p), real_read(p))[1])
+    now[0] += 1
+    got = pr._decl_for(PID, stale, {"memo"})  # permintaan B dalam jendela throttle
+    assert "memo" in got and "note" in got
+    assert len(calls) == 1 and reads == []
+
+
+def test_decl_refresh_logs_warning_once_per_refresh(http, monkeypatch, tmp_path, caplog):
+    _, now, calls, _ = _decl_env(monkeypatch, tmp_path, ["note"])
+    caplog.set_level(logging.WARNING, logger="alurik.plugins")
+    pr._decl_for(PID, plugin_loader.records_decl(PID), {"memo"})
+    pr._decl_for(PID, plugin_loader.records_decl(PID), {"memo"})  # di-throttle: tanpa baris baru
+    hits = [r for r in caplog.records if "baca ulang indeks" in r.getMessage()]
+    assert len(hits) == 1 and hits[0].levelno == logging.WARNING and "memo" in hits[0].getMessage()
+    assert len(calls) == 1

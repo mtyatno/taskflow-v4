@@ -45,6 +45,11 @@
   function taskExtMod() {
     try { return isNode ? require("./taskext.js") : (root.TF && root.TF.taskext) || null; } catch (_) { return null; }
   }
+  // PR 1c-0 R4/R5: TF.hydrate.coreFromServer untuk adopsi field inti dari respons PUT ext saja. Dibaca malas: modul
+  // lama dari cache SW (tanpa coreFromServer) → payload penuh seperti sebelumnya (arah aman).
+  function hydrateMod() {
+    try { return isNode ? require("./hydrate.js") : (root.TF && root.TF.hydrate) || null; } catch (_) { return null; }
+  }
   // Sampah mindmap (A4) dibaca malas: modul lama dari cache SW bisa belum memuatnya.
   function mindmapTrash() {
     try { return isNode ? require("./mindmaptrash.js") : (root.TF && root.TF.mindmaptrash); } catch (_) { return null; }
@@ -377,7 +382,9 @@
   //   server_id  diisi bila masih kosong.
   //   adopt(next) (opsional) → menerapkan field turunan server (kuadran, tanggal akhir recurring, …) pada
   //                record baru, hanya bila rev tidak berubah — jangan menimpa field yang baru diedit pengguna.
-  function markPushed(storeName, cid, sentRev, updatedAt, sid, adopt) {
+  //   adoptAny(next, cur, unchanged) (opsional, PR 1c-0 R5) → dipanggil SEBELUM adopt, terlepas dari `unchanged`;
+  //                pemanggil sendiri yang memutuskan dari `cur` (record terkini di transaksi ini) apa yang aman.
+  function markPushed(storeName, cid, sentRev, updatedAt, sid, adopt, adoptAny) {
     return TFdb.mutate(storeName, cid, (cur) => {
       if (!cur) return undefined;
       const next = Object.assign({}, cur);
@@ -396,6 +403,7 @@
       // push ke baris server sukses = record tidak lagi sedang dibuat ulang (mis. PUT berhasil setelah baris asli
       // dipulihkan dari Sampah, sementara POST buat ulang yang responsnya hilang sempat membuat baris yatim)
       delete next.recreate_of_sid;
+      if (typeof adoptAny === "function") adoptAny(next, cur, unchanged);
       if (unchanged && typeof adopt === "function") adopt(next);
       return next;
     });
@@ -493,7 +501,15 @@
         if (!changed.length) return undefined;
         const dirtyKeys = Array.isArray(cur.ext_dirty) ? cur.ext_dirty.slice() : [];
         for (const k of changed) if (dirtyKeys.indexOf(k) < 0) dirtyKeys.push(k);
-        return Object.assign({}, cur, { ext, ext_dirty: dirtyKeys, dirty: 1, rev: (cur.rev || 0) + 1 });
+        const nextRev = (cur.rev || 0) + 1;
+        const next = Object.assign({}, cur, { ext, ext_dirty: dirtyKeys, dirty: 1, rev: nextRev });
+        // PR 1c-0 R6: perubahan ext teknis → penanda ext saja menurut aturan yang sama dengan updateTask (R2)
+        // (modul taskext lama dari cache SW tanpa penanda → tidak disentuh; record lama tanpa kunci = payload penuh)
+        if (X.EXT_ONLY_KEY && typeof X.extOnlyNext === "function") {
+          const mark = X.extOnlyNext(cur, true, nextRev);
+          if (mark === undefined) delete next[X.EXT_ONLY_KEY]; else next[X.EXT_ONLY_KEY] = mark;
+        }
+        return next;
       }).then((saved) => (saved ? ensureEntityOp("task", saved).then(() => n + 1) : n))), Promise.resolve(0));
     }).catch(() => 0);
   }
@@ -507,15 +523,22 @@
       const d = (data && typeof data === "object") ? data : {};
       const X = taskExtMod();
       if (X) {
+        // PR 1c-0 R6: dipanggil hanya bila rev tidak berubah → perubahan inti (bila ada) sudah terkirim penuh /
+        // diadopsi; yang tersisa (kunci tertahan, server lama tanpa ext) hanya ext → penanda = rev.
+        const KEY = X.EXT_ONLY_KEY;
+        if (KEY) delete next[KEY];
+        let extPending = false;
         if (X.isPlainObject(d.ext)) {
           const local = X.isPlainObject(next.ext) ? next.ext : {};
           const ext = Object.assign({}, d.ext);
           for (const k of held) if (Object.prototype.hasOwnProperty.call(local, k)) ext[k] = local[k];
           next.ext = ext;
-          if (held.length) { next.ext_dirty = held.slice(); next.dirty = 1; } else delete next.ext_dirty;
+          if (held.length) { next.ext_dirty = held.slice(); next.dirty = 1; extPending = true; } else delete next.ext_dirty;
         } else if (Array.isArray(next.ext_dirty) && next.ext_dirty.length) {
           next.dirty = 1;
+          extPending = true;
         }
+        if (KEY && extPending && !next.deleted) next[KEY] = next.rev || 0;
       }
       delete next.recurrence_renew_pending; // T12: perpanjangan sudah diterima server
       if (d.quadrant != null) next.quadrant = d.quadrant;
@@ -631,19 +654,48 @@
     return Promise.all([getTaskRaw(op.cid), TFidmap.serverIdOf(op.cid)]).then(([rec, sid]) => {
       if (!rec || sid == null) return TFoutbox.outboxRemove(op.qid);
       if (rec.conflict) return; // held until user resolves the conflict
+      // PR 1c-0 R3: op basi — perubahan sudah terkirim op sebelumnya (drain yang sama) atau diadopsi pull → buang
+      // tanpa request (tanpa ini edit ext kedua menghasilkan PUT penuh kedua dari salinan inti yang bisa basi).
+      if (!rec.dirty) return TFoutbox.outboxRemove(op.qid);
       if (contextHeld(rec, pending)) return; // Kanban tahap: tunggu create tahap terkirim
       // ext: hanya kunci ext_dirty (patch per kunci); record bersih → payload tanpa kunci ext_patch (K5, R10).
       const extPatch = extPatchOf(rec);
+      // PR 1c-0 R4 (K25): perubahan tertunda hanya ext → kirim {ext_patch} saja (field inti milik server). Ragu
+      // (modul lama dari cache SW, penanda tidak sah, tanpa patch) → payload penuh persis seperti sebelumnya.
+      const X = taskExtMod();
+      const H = hydrateMod();
+      const extOnly = !!(X && typeof X.extOnlyNow === "function" && X.extOnlyNow(rec) && extPatch != null
+        && H && typeof H.coreFromServer === "function");
       const extP = extPatch ? resolveExtRefs(extPatch, pending) : Promise.resolve(null);
-      return Promise.all([tagsOf(op.cid, tagsFor), projectItems(), contextItems(), extP]).then(([tags, projects, contexts, ext]) => {
+      const restP = extOnly
+        ? Promise.resolve([null, null, null])
+        : Promise.all([tagsOf(op.cid, tagsFor), projectItems(), contextItems()]);
+      return Promise.all([restP, extP]).then(([[tags, projects, contexts], ext]) => {
         // K7/R9: kunci kotor merujuk task yang create-nya masih antre → tahan op (pola contextHeld)
         if (ext && ext.held.length) return;
         const sentRev = rec.rev || 0;
-        const payload = taskToUpdatePayload(rec, tags, projects, contexts);
-        if (ext) payload.ext_patch = ext.value;
+        let payload;
+        if (extOnly) payload = { ext_patch: ext.value };
+        else {
+          payload = taskToUpdatePayload(rec, tags, projects, contexts);
+          if (ext) payload.ext_patch = ext.value;
+        }
         return send(transport, "PUT", "/api/tasks/" + sid, payload).then((res) => {
           if (ok(res)) {
-            return markPushed("tasks", op.cid, sentRev, updatedAtOf(res), null, taskAdopt(res.data))
+            // R5: payload ext saja → field inti respons diadopsi selama tidak ada edit inti lokal sejak payload
+            // dibaca (penanda masih sah di record terkini, termasuk bila rev naik karena edit ext lain).
+            // Pull (tab lain) yang selama request sudah mengadopsi revisi server LEBIH BARU dari respons ini
+            // (base_rev > updated_at respons) → inti respons basi, jangan ditimpakan (markPushed juga tidak
+            // memundurkan base_rev). Timestamp respons tak terbaca → seperti markPushed: respons dipakai.
+            const respAt = updatedAtOf(res);
+            const adoptCore = extOnly
+              ? (next, cur) => {
+                if (!X.extOnlyNow(cur)) return;
+                if (respAt != null && tsPrecise(respAt) && tsNewer(cur.base_rev, respAt)) return;
+                Object.assign(next, H.coreFromServer(res.data));
+              }
+              : null;
+            return markPushed("tasks", op.cid, sentRev, respAt, null, taskAdopt(res.data), adoptCore)
               .then(() => TFoutbox.outboxRemove(op.qid))
               .then(() => requeueIfDirty("tasks", "task", op.cid))
               .then(() => { result.pushed++; });

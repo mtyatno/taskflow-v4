@@ -27,6 +27,7 @@
   const TFcontexts = req("./contextcache.js", root.TF && root.TF.contextcache);
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
   const TFpomolog = req("./pomolog.js", root.TF && root.TF.pomolog);
+  const TFtaskext = req("./taskext.js", root.TF && root.TF.taskext);
 
   function todayISO() {
     const n = new Date();
@@ -298,8 +299,17 @@
 
     router.register("GET", "/api/tags", () => TFtag.getAllTags());
 
+    // Hapus tag tidak membuat op: tag menumpang PUT penuh berikutnya (titleWithTags). Record yang tertunda ext saja
+    // dijadikan penuh dengan rev+1 (penanda batal; PUT ext saja yang sedang terbang tidak membersihkannya) —
+    // spec 1c K25, rencana 1c-0 R8. Record bersih tidak berubah.
     router.register("DELETE", "/api/tasks/:id/tags/:name", ({ params }) =>
-      resolveCid(params.id).then((cid) => (cid ? TFtag.removeEntityTag("task", cid, params.name) : notFound())));
+      resolveCid(params.id).then((cid) => {
+        if (!cid) return notFound();
+        return TFtag.removeEntityTag("task", cid, params.name).then((res) =>
+          TFdb.mutate("tasks", cid, (cur) => (TFtaskext.extOnlyNow(cur)
+            ? Object.assign({}, cur, { rev: (cur.rev || 0) + 1 })
+            : undefined)).then(() => res));
+      }));
 
     router.register("GET", "/api/recurring/exceptions", ({ query }) =>
       Promise.all([TFrec.getExceptions(query.from, query.to), getAllTasks()]).then(([byCid, all]) => {
