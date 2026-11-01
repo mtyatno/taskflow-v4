@@ -1,4 +1,4 @@
-"""Jalankan tes node sistem plugin Fase 0a–1a dari pytest, supaya ikut CI (workflow test.yml hanya menjalankan
+"""Jalankan tes node sistem plugin Fase 0a–1b dari pytest, supaya ikut CI (workflow test.yml hanya menjalankan
 pytest; `npm test` tidak mencakup tests/build-plugins.test.js). Spec
 docs/superpowers/specs/2026-10-29-plugin-fase0a-design.md §11. Pola sama dengan tests/test_sw_precache_node.py:
 file wajib yang hilang = gagal (bukan dilewati); dilewati seluruhnya bila node tidak ada."""
@@ -23,6 +23,7 @@ PATTERNS = [
     os.path.join("tests", "offline", "db_versionchange.test.js"),
     os.path.join("tests", "offline", "dbupgrade*.test.js"),
     os.path.join("tests", "offline", "db_v7.test.js"),
+    os.path.join("tests", "offline", "timeline_*.test.js"),
 ]
 EXTRA = [
     os.path.join("tests", "offline", "meta.test.js"),
@@ -35,6 +36,8 @@ REQUIRED = [
     "plugin_slot_views", "plugin_taskext_api", "taskext", "taskrepo_ext", "syncpush_ext", "syncpull_ext",
     "db_versionchange", "dbupgrade",
     "db_v7", "plugin_sync", "plugin_sync_push", "plugin_sync_pull", "plugin_records_api",
+    "timeline_holidays", "timeline_calendar", "timeline_schedule", "timeline_layout", "timeline_drag",
+    "timeline_ui", "timeline_section", "timeline_runtime",
 ]
 
 

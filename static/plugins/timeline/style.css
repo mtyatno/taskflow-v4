@@ -1,0 +1,1275 @@
+/* Plugin Timeline (Fase 1, PR 1b). Hanya kelas .plg-timeline-* (pengubah .is-* selalu menempel pada kelas plugin) dan
+   token tema (README §8.6): tanpa warna tetap. --danger belum didefinisikan app.css (host memakai cadangan hex), jadi
+   plugin memakai token lokal --plg-timeline-danger dengan cadangan token host --pomodoro. */
+.plg-timeline {
+  --plg-timeline-danger: var(--danger, var(--pomodoro));
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+/* ── toolbar ─────────────────────────────────────────────────────────────── */
+.plg-timeline-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.plg-timeline-seg {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.plg-timeline-seg-btn,
+.plg-timeline-btn {
+  font: inherit;
+  font-size: 12px;
+  line-height: 1;
+  padding: 6px 10px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.plg-timeline-btn {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.plg-timeline-seg-btn + .plg-timeline-seg-btn {
+  border-left: 1px solid var(--border);
+}
+
+.plg-timeline-seg-btn.is-active,
+.plg-timeline-btn.is-active {
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+  font-weight: 600;
+}
+
+.plg-timeline-seg-btn:focus-visible,
+.plg-timeline-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* ── wadah gulir dua arah (R11) ──────────────────────────────────────────── */
+.plg-timeline-scroll {
+  position: relative;
+  overflow: auto;
+  min-height: 360px;
+  overscroll-behavior: contain;
+}
+
+.plg-timeline-head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+}
+
+.plg-timeline-corner {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.plg-timeline-scale {
+  position: relative;
+  z-index: 0;
+  flex: none;
+}
+
+.plg-timeline-tick {
+  position: absolute;
+  bottom: 0;
+  height: 24px;
+  line-height: 24px;
+  padding: 0 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-secondary);
+  border-left: 1px solid var(--border);
+  box-sizing: border-box;
+}
+
+.plg-timeline-tick.is-top {
+  top: 0;
+  bottom: auto;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.plg-timeline-tick[data-sub]::after {
+  content: attr(data-sub);
+  margin-left: 3px;
+  color: var(--text-secondary);
+  font-weight: 400;
+}
+
+/* zoom Hari: sel 28 px → tanggal di atas nama hari */
+.plg-timeline-tick[data-sub]:not(.is-top) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 10px;
+  line-height: 11px;
+}
+
+.plg-timeline-tick[data-sub]:not(.is-top)::after {
+  margin-left: 0;
+  font-size: 9px;
+}
+
+.plg-timeline-body {
+  position: relative;
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+}
+
+/* ── tabel kiri menempel ─────────────────────────────────────────────────── */
+.plg-timeline-table {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  flex: none;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+}
+
+.plg-timeline-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.plg-timeline-row:hover,
+.plg-timeline-row:focus-visible {
+  background: var(--bg-subtle);
+  outline: none;
+}
+
+.plg-timeline-row.is-selected {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-card));
+}
+
+.plg-timeline-row.is-group {
+  cursor: default;
+  font-weight: 600;
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-row.is-summary .plg-timeline-name {
+  font-weight: 600;
+}
+
+.plg-timeline-cell {
+  flex: none;
+  box-sizing: border-box;
+  padding: 0 6px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.plg-timeline-col-wbs,
+.plg-timeline-col-dur,
+.plg-timeline-col-pomo,
+.plg-timeline-col-pct {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.plg-timeline-col-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plg-timeline-row.is-group .plg-timeline-col-name {
+  flex: 1 1 auto;
+  width: auto;
+}
+
+.plg-timeline-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plg-timeline-warn {
+  flex: none;
+  color: var(--plg-timeline-danger);
+}
+
+/* ── grafik ──────────────────────────────────────────────────────────────── */
+/* z-index 0 = konteks tumpukan sendiri: bar/label tidak pernah menutupi tabel yang menempel (z-index 2). */
+.plg-timeline-chart {
+  position: relative;
+  z-index: 0;
+  flex: none;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.plg-timeline-holiday,
+.plg-timeline-workday {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  pointer-events: none;
+}
+
+.plg-timeline-holiday {
+  background: color-mix(in srgb, var(--plg-timeline-danger) 8%, transparent);
+}
+
+/* hari kerja pengganti di atas arsir akhir pekan */
+.plg-timeline-workday {
+  background: var(--bg-card);
+}
+
+.plg-timeline-today {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  z-index: 1;
+  background: var(--accent);
+  pointer-events: none;
+}
+
+.plg-timeline-band {
+  position: absolute;
+  background: var(--bg-subtle);
+  pointer-events: none;
+}
+
+.plg-timeline-slot {
+  position: absolute;
+  cursor: copy;
+  touch-action: manipulation; /* ketuk ganda menjadwalkan, bukan zoom */
+}
+
+.plg-timeline-hint {
+  position: sticky;
+  display: inline-block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 0.12s;
+  pointer-events: none;
+}
+
+.plg-timeline-slot:hover .plg-timeline-hint {
+  opacity: 1;
+}
+
+.plg-timeline-bar,
+.plg-timeline-summary,
+.plg-timeline-milestone {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  box-sizing: border-box;
+  cursor: pointer;
+  -webkit-touch-callout: none; /* tekan lama = seret, bukan menu salin/bagikan */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.plg-timeline-bar {
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--accent) 55%, var(--bg-card));
+}
+
+.plg-timeline-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: var(--accent);
+}
+
+.plg-timeline-bar.is-done,
+.plg-timeline-bar.is-done .plg-timeline-fill {
+  background: var(--success);
+}
+
+.plg-timeline-bar.is-late {
+  background: color-mix(in srgb, var(--plg-timeline-danger) 55%, var(--bg-card));
+}
+
+.plg-timeline-bar.is-late .plg-timeline-fill {
+  background: var(--plg-timeline-danger);
+}
+
+/* ringkasan: garis tipis berujung kurung */
+.plg-timeline-summary {
+  background: var(--text-secondary);
+  border-radius: 1px;
+}
+
+.plg-timeline-summary::before,
+.plg-timeline-summary::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-top: 6px solid var(--text-secondary);
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  transform: translateY(6px);
+}
+
+.plg-timeline-summary::before {
+  left: -4px;
+}
+
+.plg-timeline-summary::after {
+  right: -4px;
+}
+
+.plg-timeline-summary.is-late::before,
+.plg-timeline-summary.is-late::after {
+  border-top-color: var(--plg-timeline-danger);
+}
+
+.plg-timeline-summary.is-late {
+  background: var(--plg-timeline-danger);
+}
+
+/* milestone: belah ketupat 12 px (pseudo diputar, label tetap tegak) */
+.plg-timeline-milestone::before {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  background: var(--text-primary);
+  transform: rotate(45deg);
+}
+
+.plg-timeline-milestone.is-done::before {
+  background: var(--success);
+}
+
+.plg-timeline-milestone.is-late::before {
+  background: var(--plg-timeline-danger);
+}
+
+.plg-timeline-bar.is-selected,
+.plg-timeline-summary.is-selected,
+.plg-timeline-milestone.is-selected {
+  outline: 2px solid var(--text-primary);
+  outline-offset: 2px;
+}
+
+.plg-timeline-bar:focus-visible,
+.plg-timeline-summary:focus-visible,
+.plg-timeline-milestone:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.plg-timeline-label {
+  position: absolute;
+  left: calc(100% + 12px); /* setelah titik dependensi */
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  font-size: 11px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+/* bendera tenggat: tiang di akhir hari tenggat + bendera kecil */
+.plg-timeline-flag {
+  position: absolute;
+  width: 2px;
+  z-index: 1;
+  background: var(--text-secondary);
+}
+
+.plg-timeline-flag::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 4px;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 7px solid var(--text-secondary);
+}
+
+.plg-timeline-flag.is-late {
+  background: var(--plg-timeline-danger);
+}
+
+.plg-timeline-flag.is-late::after {
+  border-left-color: var(--plg-timeline-danger);
+}
+
+/* panah dependensi: satu svg overlay jendela tampak */
+.plg-timeline-arrows {
+  position: absolute;
+  z-index: 1;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.plg-timeline-arrow {
+  fill: none;
+  stroke: var(--text-secondary);
+  stroke-width: 1.25;
+}
+
+.plg-timeline-arrow.is-violation {
+  stroke: var(--plg-timeline-danger);
+  stroke-dasharray: 4 3;
+}
+
+.plg-timeline-head-path {
+  fill: var(--text-secondary);
+}
+
+.plg-timeline-head-path.is-violation {
+  fill: var(--plg-timeline-danger);
+}
+
+/* ── interaksi (Task 8): pegangan durasi, titik dependensi, seret, tooltip, garis karet ── */
+.plg-timeline-edge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(8px, 50%);
+  cursor: ew-resize;
+}
+
+.plg-timeline-dot {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 100%;
+  width: 10px;
+  cursor: crosshair;
+}
+
+.plg-timeline-dot::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.plg-timeline-bar:hover .plg-timeline-dot::before,
+.plg-timeline-bar:focus-visible .plg-timeline-dot::before,
+.plg-timeline-milestone:hover .plg-timeline-dot::before,
+.plg-timeline-milestone:focus-visible .plg-timeline-dot::before {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .plg-timeline-edge,
+  .plg-timeline-dot {
+    display: none;
+  }
+}
+
+.plg-timeline-bar.is-dragging,
+.plg-timeline-milestone.is-dragging {
+  z-index: 3;
+  opacity: 0.85;
+  cursor: grabbing;
+}
+
+.plg-timeline-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  background: var(--text-primary);
+  color: var(--bg-card);
+  pointer-events: none;
+}
+
+.plg-timeline-rubber {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 4;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.plg-timeline-rubber-line {
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 4 3;
+}
+
+/* ── legenda + catatan ───────────────────────────────────────────────────── */
+.plg-timeline-foot {
+  padding: 8px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.plg-timeline-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plg-timeline-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.plg-timeline-swatch.is-done {
+  background: var(--success);
+}
+
+.plg-timeline-swatch.is-late {
+  background: var(--plg-timeline-danger);
+}
+
+.plg-timeline-swatch.is-summary {
+  height: 4px;
+  background: var(--text-secondary);
+}
+
+.plg-timeline-swatch.is-milestone {
+  width: 8px;
+  background: var(--text-primary);
+  transform: rotate(45deg);
+}
+
+.plg-timeline-swatch.is-flag {
+  width: 2px;
+  height: 12px;
+  background: var(--text-secondary);
+}
+
+.plg-timeline-swatch.is-holiday {
+  height: 12px;
+  background: color-mix(in srgb, var(--plg-timeline-danger) 8%, transparent);
+  border: 1px solid var(--border);
+}
+
+.plg-timeline-swatch.is-dep {
+  height: 0;
+  border-top: 1.5px solid var(--text-secondary);
+  background: transparent;
+}
+
+.plg-timeline-note {
+  margin-top: 6px;
+}
+
+.plg-timeline-empty {
+  padding: 32px 16px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+/* ── popover Kalender kerja (R18, U1) ─────────────────────────────────────── */
+.plg-timeline-top {
+  position: relative;
+  z-index: 6;
+}
+
+.plg-timeline-pop {
+  position: absolute;
+  top: 100%;
+  left: 8px;
+  z-index: 10;
+  box-sizing: border-box;
+  width: 340px;
+  max-width: calc(100% - 16px);
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text-primary) 18%, transparent);
+}
+
+.plg-timeline-pop:focus {
+  outline: none;
+}
+
+.plg-timeline-pop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plg-timeline-pop-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+
+.plg-timeline-pop-pending {
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.plg-timeline-pop-close,
+.plg-timeline-pop-del {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.plg-timeline-pop-close:hover,
+.plg-timeline-pop-del:hover {
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-pop-note {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-pop-days {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+}
+
+.plg-timeline-pop-day {
+  font: inherit;
+  font-size: 12px;
+  min-height: 32px;
+  padding: 0;
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.plg-timeline-pop-day.is-on {
+  color: var(--text-primary);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-card));
+  border-color: var(--accent);
+}
+
+.plg-timeline-pop-day:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.plg-timeline-pop-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  cursor: pointer;
+}
+
+.plg-timeline-pop-check input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.plg-timeline-pop-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.plg-timeline-pop-sub {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.plg-timeline-pop-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 132px;
+  overflow-y: auto;
+}
+
+.plg-timeline-pop-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+}
+
+.plg-timeline-pop-date {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.plg-timeline-pop-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plg-timeline-pop-name.is-empty {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.plg-timeline-pop-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.plg-timeline-pop-input {
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 12px;
+  min-height: 30px;
+  min-width: 0;
+  padding: 4px 8px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.plg-timeline-pop-input[type="date"] {
+  flex: 0 1 134px;
+}
+
+.plg-timeline-pop-input[type="text"] {
+  flex: 1 1 72px;
+}
+
+.plg-timeline-pop-input:focus-visible,
+.plg-timeline-pop-day:focus-visible,
+.plg-timeline-pop-close:focus-visible,
+.plg-timeline-pop-del:focus-visible,
+.plg-timeline-pop-check input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.plg-timeline-pop-err {
+  font-size: 12px;
+  color: var(--plg-timeline-danger);
+}
+
+/* ── Daftar (HP, U3) ──────────────────────────────────────────────────────── */
+.plg-timeline-list {
+  padding: 4px 0 12px;
+}
+
+.plg-timeline-li-head {
+  margin: 12px 0 4px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-li-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plg-timeline-li-item {
+  border-top: 1px solid var(--border);
+}
+
+.plg-timeline-li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 40px 8px 12px;
+  font: inherit;
+  text-align: left;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.plg-timeline-li:hover {
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-li:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.plg-timeline-li-title {
+  overflow-wrap: anywhere;
+}
+
+.plg-timeline-li.is-summary .plg-timeline-li-title {
+  font-weight: 600;
+}
+
+.plg-timeline-li.is-done .plg-timeline-li-title {
+  color: var(--text-secondary);
+  text-decoration: line-through;
+}
+
+.plg-timeline-li-meta {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.plg-timeline-li-late {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  font-size: 16px;
+}
+
+/* ── seksi "Jadwal" di detail task (Task 10; spec §8.8) — modal dan panel Live Edit sama ─────────────────── */
+.plg-timeline-section {
+  --plg-timeline-danger: var(--danger, var(--pomodoro));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 0 12px;
+  padding: 10px 0 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 13px;
+  container-type: inline-size;
+}
+
+.plg-timeline-sec-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.plg-timeline-sec-title,
+.plg-timeline-field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+}
+
+.plg-timeline-sec-more,
+.plg-timeline-sec-link {
+  font: inherit;
+  font-size: 12.5px;
+  padding: 2px 4px;
+  color: var(--accent-text-strong, var(--accent));
+  background: none;
+  border: 0;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.plg-timeline-sec-more::after {
+  content: "";
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin: 0 2px 2px 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transition: transform 0.15s;
+}
+
+.plg-timeline-sec-more.is-open::after {
+  margin-bottom: -1px;
+  transform: rotate(-135deg);
+}
+
+.plg-timeline-sec-link {
+  margin-left: -4px;
+}
+
+.plg-timeline-sec-link::before {
+  content: "+ ";
+}
+
+.plg-timeline-sec-more:hover,
+.plg-timeline-sec-link:hover {
+  text-decoration: underline;
+}
+
+.plg-timeline-sec-more:focus-visible,
+.plg-timeline-sec-link:focus-visible,
+.plg-timeline-pick:focus-visible,
+.plg-timeline-dep-del:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.plg-timeline-sec-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 12px;
+}
+
+.plg-timeline-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.plg-timeline-input {
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  height: 32px;
+  padding: 4px 8px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+/* Kontrol bawaan (pemilih tanggal, centang) mengikuti tema gelap host: seksi Jadwal + popover Kalender kerja. */
+[data-theme="dark"] .plg-timeline-input,
+[data-theme="dark"] .plg-timeline-pop-input,
+[data-theme="dark"] .plg-timeline-pop-check input {
+  color-scheme: dark;
+}
+
+.plg-timeline-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.plg-timeline-input:disabled {
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  cursor: not-allowed;
+}
+
+.plg-timeline-sec-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.plg-timeline-num {
+  width: 72px;
+  font-variant-numeric: tabular-nums;
+}
+
+.plg-timeline-sec-unit,
+.plg-timeline-sec-hint,
+.plg-timeline-sec-muted,
+.plg-timeline-dep-note,
+.plg-timeline-pick-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-sec-val {
+  min-height: 20px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.plg-timeline-sec-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plg-timeline-sec-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  cursor: pointer;
+}
+
+.plg-timeline-sec-check input {
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.plg-timeline-sec-check.is-disabled {
+  color: var(--text-secondary);
+  cursor: not-allowed;
+}
+
+.plg-timeline-sec-warn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 8px;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--plg-timeline-danger) 10%, transparent);
+  border-left: 3px solid var(--plg-timeline-danger);
+  border-radius: 6px;
+}
+
+.plg-timeline-sec-warn-icon {
+  flex: none;
+  color: var(--plg-timeline-danger);
+}
+
+.plg-timeline-sec-warn-text {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+
+.plg-timeline-sec-shift {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-primary);
+  background: var(--bg-card);
+}
+
+.plg-timeline-sec-deps {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plg-timeline-deps,
+.plg-timeline-picks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plg-timeline-dep {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.plg-timeline-dep:last-child {
+  border-bottom: 0;
+}
+
+/* Seksi sempit (HP, panel Live Edit kecil): nama dependensi satu baris penuh, FS + jeda + hapus di bawahnya. */
+@container (max-width: 380px) {
+  .plg-timeline-dep .plg-timeline-dep-main {
+    flex-basis: 100%;
+  }
+}
+
+.plg-timeline-dep-main {
+  display: flex;
+  flex: 1 1 140px;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.plg-timeline-dep-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plg-timeline-dep-type {
+  padding: 1px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.plg-timeline-dep-del {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-secondary);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.plg-timeline-dep-del:hover {
+  color: var(--plg-timeline-danger);
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-sec-bad {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-sec-actions {
+  display: flex;
+}
+
+.plg-timeline-sec-note {
+  margin: 0;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-sec-range {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.plg-timeline-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.plg-timeline-picker-bar {
+  display: flex;
+  gap: 6px;
+}
+
+.plg-timeline-picker-q {
+  flex: 1 1 auto;
+}
+
+.plg-timeline-picks {
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.plg-timeline-pick {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text-primary);
+  background: none;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.plg-timeline-pick:hover {
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-pick-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
