@@ -152,6 +152,7 @@ function fakeApi(o) {
       // 1c-1 Task 11: unit jadwal workspace (record project scope list:<lid>) untuk mode efektif seksi
       list(entity, q) {
         calls.recList.push([entity, q]);
+        if (opts.recList) return opts.recList(entity, q); // fix T11: jendela muat unit (ditahan / gagal)
         const pre = "prj@" + (q && q.scope) + ":";
         const items = [...recs.keys()].filter((id) => id.indexOf(pre) === 0).sort()
           .map((id) => ({ entity, id, scope: q.scope, data: recs.get(id), updated_at: "2026-11-03T02:00:00Z", version: 1, pending: false }));
@@ -1168,4 +1169,125 @@ test("sumber Task 11: teks persis R20 + writeMany satu pintu setMany seksi", () 
   assert.match(block, /engine\.run\(/, "mesin seksi lewat engine.run (pintu spy)");
   assert.doesNotMatch(block, /TLCpm\.run\(/);
   assert.match(css, /\.plg-timeline-chip\b/);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fix review Task 11: aliran edit tingkat 1, kunci jendela muat unit, urutan Urungkan seksi
+// ════════════════════════════════════════════════════════════════════════════
+function manualWithSucc(nSucc, extraDeps) {
+  const M = mk(700, "Induk", Object.assign({ start: "2026-11-02", duration: 2 }, extraDeps ? { deps: extraDeps } : {}), WS("Fondasi"));
+  const succ = [];
+  for (let k = 0; k < nSucc; k++) succ.push(mk(701 + k, "S" + k, { start: "2026-11-04", duration: 1, mode: "auto", deps: [{ t: { $task: 700 }, type: "FS", lag: 0 }] }, WS("Fondasi")));
+  return { M, succ };
+}
+
+test("fix 1: tingkat 1 Manual dengan 3 penerus otomatis — ubah Durasi → SATU setMany (task + 3) + 'Jadwal diubah · 3 task ikut bergeser'; tanpa turunan tetap set 1b", async () => {
+  const { M, succ } = manualWithSucc(3);
+  const s = await ui(M, { tasks: [M].concat(succ) });
+  byLabel(s.tree, "Durasi (hari kerja)").props.onChange(ev("3"));
+  byLabel(s.tree, "Durasi (hari kerja)").props.onBlur(ev("3"));
+  s.render();
+  assert.deepEqual(s.calls.setMany, [[
+    { taskId: 700, patch: { duration: 3 } },
+    { taskId: 701, patch: { start: "2026-11-05" } },
+    { taskId: 702, patch: { start: "2026-11-05" } },
+    { taskId: 703, patch: { start: "2026-11-05" } },
+  ]]);
+  assert.equal(s.calls.set.length, 0);
+  assert.equal(byLabel(s.tree, "Durasi (hari kerja)").props.value, "3", "optimistis + draf dibersihkan");
+  await s.settle();
+  assert.equal(lastToast(s)[0], "Jadwal diubah · 3 task ikut bergeser");
+  assert.equal(lastToast(s)[2].label, "Urungkan");
+  // Mulai juga mengalir
+  byLabel(s.tree, "Mulai").props.onChange(ev("2026-11-09"));
+  byLabel(s.tree, "Mulai").props.onBlur(ev("2026-11-09"));
+  s.render();
+  assert.deepEqual(s.calls.setMany[1].map((x) => x.taskId), [700, 701, 702, 703]);
+  assert.deepEqual(s.calls.setMany[1][0], { taskId: 700, patch: { start: "2026-11-09" } });
+  // tanpa penerus otomatis → set 1b tunggal
+  const lone = mk(710, "Sendiri", { start: "2026-11-02", duration: 2 }, WS("Fondasi"));
+  const s2 = await ui(lone, { tasks: [lone] });
+  byLabel(s2.tree, "Durasi (hari kerja)").props.onChange(ev("3"));
+  byLabel(s2.tree, "Durasi (hari kerja)").props.onBlur(ev("3"));
+  s2.render();
+  assert.deepEqual(s2.calls.set, [[710, { duration: 3 }]]);
+  assert.equal(s2.calls.setMany.length, 0);
+});
+
+test("fix 1 (sementara, Task 12 → PreviewCard): > 20 penerus otomatis bergeser → task ini saja lewat set 1b, 0 setMany", async () => {
+  const { M, succ } = manualWithSucc(21);
+  const s = await ui(M, { tasks: [M].concat(succ) });
+  byLabel(s.tree, "Durasi (hari kerja)").props.onChange(ev("3"));
+  byLabel(s.tree, "Durasi (hari kerja)").props.onBlur(ev("3"));
+  s.render();
+  assert.deepEqual(s.calls.set, [[700, { duration: 3 }]]);
+  assert.equal(s.calls.setMany.length, 0);
+});
+
+test("fix 2: unit belum termuat dan ext.mode bukan 'manual' → input Mulai nonaktif; termuat / gagal muat / mode manual → aktif", async () => {
+  let release = null;
+  const recList = () => new Promise((r) => { release = () => r({ items: [], next: null }); });
+  const t = mk(720, "Tunggu", { start: "2026-11-02", duration: 2 }, WS("Fondasi"));
+  const s = await ui(t, { tasks: [t], recList });
+  assert.equal(byLabel(s.tree, "Mulai").props.disabled, true);
+  release();
+  await s.settle();
+  assert.equal(byLabel(s.tree, "Mulai").props.disabled, false);
+  const man = mk(721, "Manual", { start: "2026-11-02", duration: 2, mode: "manual" }, WS("Fondasi"));
+  const s2 = await ui(man, { tasks: [man], recList: () => new Promise(() => {}) });
+  assert.equal(byLabel(s2.tree, "Mulai").props.disabled, false, "mode manual tersimpan tidak bergantung unit");
+  const s3 = await ui(t, { tasks: [t], recList: () => Promise.reject(new Error("idb")) });
+  assert.equal(byLabel(s3.tree, "Mulai").props.disabled, false, "gagal muat tidak mengunci selamanya");
+});
+
+test("fix 3: Urungkan seksi menunggu set 1b dan setMany yang berjalan (urut); set 1b pada task yang sedang setMany diabaikan", async () => {
+  const P = mk(730, "Pendahulu", { start: "2026-10-26", duration: 2 }, WS("Fondasi"));
+  const { M, succ } = manualWithSucc(3, [{ t: { $task: 730 }, type: "FS", lag: 0 }]);
+  let held = null;
+  const setMany = () => (held ? new Promise((r) => { held.release = r; }) : Promise.resolve([]));
+  const s = await ui(M, { tasks: [P, M].concat(succ), storage: { "section:open": true }, setMany });
+  const order = [];
+  const origSet = s.f.api.taskExt.set;
+  const origMany = s.f.api.taskExt.setMany;
+  s.f.api.taskExt.set = (...a) => { order.push("set"); return origSet(...a); };
+  s.f.api.taskExt.setMany = (...a) => { order.push("setMany"); return origMany(...a); };
+  // writeMany #1 (aliran Durasi) selesai → toast dengan Urungkan
+  byLabel(s.tree, "Durasi (hari kerja)").props.onChange(ev("3"));
+  byLabel(s.tree, "Durasi (hari kerja)").props.onBlur(ev("3"));
+  await s.settle();
+  const undo1 = lastToast(s)[2];
+  // set 1b (lag dependensi) ditahan → Urungkan menunggu sampai set selesai
+  let relSet = null;
+  s.f.setSet(() => new Promise((r) => { relSet = r; }));
+  byLabel(s.tree, "Jeda setelah Pendahulu (hari kerja)").props.onChange(ev("2"));
+  byLabel(s.tree, "Jeda setelah Pendahulu (hari kerja)").props.onBlur(ev("2"));
+  s.render();
+  assert.equal(s.calls.set.length, 1);
+  undo1.onClick();
+  await s.settle();
+  assert.equal(s.calls.setMany.length, 1, "Urungkan menunggu set 1b task yang sama");
+  relSet();
+  await s.settle();
+  assert.equal(s.calls.setMany.length, 2);
+  assert.deepEqual(order, ["setMany", "set", "setMany"]);
+  assert.deepEqual(s.calls.setMany[1].map((x) => x.taskId), [700, 701, 702, 703]);
+  assert.equal(s.calls.setMany[1][0].patch.duration, 2);
+  s.f.setSet(() => Promise.resolve());
+  // setMany ditahan: set 1b pada task yang sama diabaikan; Urungkan berikutnya menunggu setMany
+  held = {};
+  byLabel(s.tree, "Durasi (hari kerja)").props.onChange(ev("4"));
+  byLabel(s.tree, "Durasi (hari kerja)").props.onBlur(ev("4"));
+  s.render();
+  assert.equal(s.calls.setMany.length, 3);
+  byLabel(s.tree, "Jeda setelah Pendahulu (hari kerja)").props.onChange(ev("5"));
+  byLabel(s.tree, "Jeda setelah Pendahulu (hari kerja)").props.onBlur(ev("5"));
+  s.render();
+  assert.equal(s.calls.set.length, 1, "set 1b diabaikan selama setMany task ini berjalan");
+  assert.equal(txt(byLabel(s.tree, "Jeda setelah Pendahulu (hari kerja)").props.value), "2", "draf kembali ke nilai tersimpan");
+  const h = held;
+  held = null;
+  h.release([]);
+  await s.settle();
+  assert.equal(lastToast(s)[0], "Jadwal diubah · 3 task ikut bergeser");
+  assert.deepEqual(order, ["setMany", "set", "setMany", "setMany"]);
 });

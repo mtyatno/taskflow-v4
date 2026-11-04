@@ -756,7 +756,7 @@ function useUnits(api, page) {
   const pageKind = p.pageKind === "workspace" ? "workspace" : "project";
   const key = unitsPageKey(pageKind, p.listId, p.projectName);
   const store = React.useMemo(() => projectStore(api), [api]);
-  const [st, setSt] = React.useState(() => ({ key, units: EMPTY_UNITS, loaded: false }));
+  const [st, setSt] = React.useState(() => ({ key, units: EMPTY_UNITS, loaded: false, failed: false }));
   const [pulled, setPulled] = React.useState(false);
   const argRef = React.useRef(null);
   argRef.current = { pageKind, listId: pageKind === "workspace" ? p.listId : null, projectName: pageKind === "workspace" ? null : p.projectName };
@@ -768,10 +768,12 @@ function useUnits(api, page) {
     const load = () => {
       const my = ++seq;
       return store.loadUnits(arg).then((units) => {
-        if (alive && my === seq) setSt({ key, units, loaded: true });
+        if (alive && my === seq) setSt({ key, units, loaded: true, failed: false });
         return true;
       }, (e) => {
         logWarn(api, "unit jadwal gagal dimuat:", e);
+        // `failed` (seksi Jadwal): muat gagal tidak boleh mengunci input selamanya; `loaded`/units tidak berubah.
+        if (alive && my === seq) setSt((p) => (p.key === key ? Object.assign({}, p, { failed: true }) : { key, units: EMPTY_UNITS, loaded: false, failed: true }));
         return false;
       });
     };
@@ -800,7 +802,7 @@ function useUnits(api, page) {
     };
   }, [store, key]);
   const mine = st.key === key;
-  return { units: mine ? st.units : EMPTY_UNITS, loaded: mine && st.loaded, pulled, store };
+  return { units: mine ? st.units : EMPTY_UNITS, loaded: mine && st.loaded, failed: mine && st.failed, pulled, store };
 }
 
 // Mesin jadwal di view (1c-1 R7, K31, K43): useEngine(api, {scopeTasks, calData, units}). Memuat daftar task LENGKAP (api.data.tasks.list({includeDone: true});
@@ -3360,6 +3362,11 @@ function ScheduleBody(props) {
   // berubah selama tidak ada tulis berjalan dan tidak ada draf input. Sumber yang sudah menyusul (sama dengan lokal)
   // hanya memperbarui kunci.
   const inflight = React.useRef(0);
+  // Fix T11: tulis berjalan seksi — set 1b (promise selesai per tulis) dan writeMany (satu sekaligus + kunci task-nya);
+  // Urungkan menunggu keduanya, set 1b pada task yang sedang di-setMany diabaikan.
+  const singleRef = React.useRef(new Set());
+  const manyRef = React.useRef(null);
+  const manyKeys = React.useRef(new Set());
   const [loc, setLoc] = React.useState(() => ({ id: tid, key: srcKey, raw: srcRaw, d: {} }));
   let cur = loc;
   if (loc.id !== tid) cur = { id: tid, key: srcKey, raw: srcRaw, d: {} };
@@ -3447,6 +3454,10 @@ function ScheduleBody(props) {
     return Object.assign({}, p, { d });
   });
   const write = (patch, draftName) => {
+    if (manyRef.current && manyKeys.current.has(String(writeId))) {
+      if (draftName) clearDraft(draftName); // task ini sedang ditulis massal → diabaikan (aturan sibuk)
+      return;
+    }
     const before = raw;
     setLoc((p) => {
       if (p.id !== tid) return p;
@@ -3472,12 +3483,27 @@ function ScheduleBody(props) {
         inflight.current = Math.max(0, inflight.current - 1);
         setTick((n) => n + 1); // render ulang: props yang menyusul selama tulis kini boleh men-seed
       });
+    const settled = p.then(() => undefined, () => undefined);
+    singleRef.current.add(settled);
+    settled.then(() => singleRef.current.delete(settled));
   };
   const writeSched = (p, draftName) => {
     const san = TLSched.sanitizePatch(p);
     if (!san.ok) {
       if (draftName) clearDraft(draftName);
       return;
+    }
+    // R20 "Aliran dari seksi" (fix T11): edit tingkat 1 dengan turunan otomatis yang bergeser → TLPlan.cascade (before =
+    // hasil mesin seksi) + writeMany + "Jadwal diubah · {n} task ikut bergeser". 0 turunan → set 1b apa adanya.
+    // SEMENTARA (Task 12 menggantinya dengan PreviewCard): > CASCADE_MAX turunan → task ini saja lewat set 1b; penerus
+    // tampil sebagai drift (tidak ada tulis massal diam-diam).
+    if (secEngine) {
+      const items = flowItems(TLPlan.cascade(secEngine.ctx, [{ task: selfLive, patch: san.patch }], secEngine.result).items);
+      const down = items.filter((it) => !isSelf(it.task)).length;
+      if (down > 0 && down <= TLPlan.CASCADE_MAX) {
+        writeMany(items, { text: flowText(down), draft: draftName });
+        return;
+      }
     }
     write(san.patch, draftName);
   };
@@ -3488,28 +3514,50 @@ function ScheduleBody(props) {
   // daftar dimuat ulang (turunan terbaru). Gagal → nilai lokal kembali + "Jadwal gagal disimpan"; sebagian (err.applied)
   // → "Sebagian jadwal gagal disimpan ({k} dari {n})" + Urungkan hanya yang tersimpan. Satu tulis massal sekaligus:
   // klik berikutnya selama berjalan diabaikan, Urungkan menunggu. → Promise<boolean>, tidak pernah reject.
-  const manyRef = React.useRef(null);
   const isSelf = (t) => !!t && (t === selfLive || String(t.id) === String(selfLive.id));
+  const idOf = (t) => (isSelf(t) ? writeId : t.id); // task ini: id terkini dari daftar (penjaga salinan modal basi)
   const writeMany = (items, opts) => {
     const o = opts || {};
     const list = (Array.isArray(items) ? items : []).filter((it) => it && it.task && it.patch);
     if (!list.length) return Promise.resolve(false);
-    if (manyRef.current) return o.undo ? manyRef.current.then(() => writeMany(list, o)) : Promise.resolve(false);
+    if (manyRef.current) {
+      if (o.undo) return manyRef.current.then(() => writeMany(list, o));
+      if (o.draft) clearDraft(o.draft);
+      return Promise.resolve(false);
+    }
     const mine = list.find((it) => isSelf(it.task)) || null;
     const before = raw;
-    if (mine) setLoc((p) => (p.id === tid ? Object.assign({}, p, { raw: applyRaw(p.raw, mine.patch) }) : p));
+    if (mine || o.draft) {
+      setLoc((p) => {
+        if (p.id !== tid) return p;
+        const d = Object.assign({}, p.d);
+        if (o.draft) delete d[o.draft];
+        return Object.assign({}, p, { raw: mine ? applyRaw(p.raw, mine.patch) : p.raw, d });
+      });
+    }
     inflight.current += 1;
+    manyKeys.current = new Set(list.map((it) => String(idOf(it.task))));
     let p;
     try {
-      p = Promise.resolve(api.taskExt.setMany(list.map((it) => ({ taskId: it.task.id, patch: it.patch }))));
+      p = Promise.resolve(api.taskExt.setMany(list.map((it) => ({ taskId: idOf(it.task), patch: it.patch }))));
     } catch (e) {
       p = Promise.reject(e);
     }
+    // Urungkan: tunggu writeMany yang berjalan dan set 1b task ini yang belum selesai (pola undoAction T9), lalu kirim.
     const undoOf = (done) => ({
       label: MSG_UNDO,
       onClick: () => {
         const u = TLPlan.undoItems(done);
-        writeMany(u.map((x, i) => ({ task: done[i].task, patch: x.patch })), { undo: true });
+        const send = () => {
+          const waits = manyRef.current ? [manyRef.current] : [];
+          if (done.some((it) => isSelf(it.task))) for (const w of singleRef.current) waits.push(w);
+          if (waits.length) {
+            Promise.all(waits).then(send);
+            return;
+          }
+          writeMany(u.map((x, i) => ({ task: done[i].task, patch: x.patch })), { undo: true });
+        };
+        send();
       },
     });
     const run = p.then(() => {
@@ -3519,7 +3567,7 @@ function ScheduleBody(props) {
     }, (err) => {
       logWarn(api, "jadwal gagal disimpan:", err);
       const ids = err && Array.isArray(err.applied) ? new Set(err.applied.map(String)) : null;
-      const saved = ids ? list.filter((it) => ids.has(String(it.task.id))) : [];
+      const saved = ids ? list.filter((it) => ids.has(String(idOf(it.task)))) : [];
       if (mine && saved.indexOf(mine) < 0) {
         setLoc((q) => (q.id === tid ? Object.assign({}, q, { raw: revertRaw(q.raw, mine.patch, before) }) : q));
       }
@@ -3529,6 +3577,7 @@ function ScheduleBody(props) {
       return false;
     }).then((r) => {
       manyRef.current = null;
+      manyKeys.current = new Set();
       inflight.current = Math.max(0, inflight.current - 1);
       setTick((n) => n + 1);
       return r;
@@ -3547,7 +3596,7 @@ function ScheduleBody(props) {
     } else {
       const before = {};
       for (const k of SEC_ITEM_KEYS) before[k] = raw[k] === undefined ? null : JSON.parse(JSON.stringify(raw[k]));
-      items = [{ task: selfLive, key: String(selfLive.id), before, patch }];
+      items = [{ task: selfLive, key: String(writeId), before, patch }];
     }
     if (!items.length) return;
     const down = items.filter((it) => !isSelf(it.task)).length;
@@ -3816,6 +3865,9 @@ function ScheduleBody(props) {
     );
   }
 
+  // Fix T11 (pola R13 "tanpa tulis saat belum siap"): unit belum termuat dan task tidak Manual tersimpan → mode efektif
+  // belum pasti, Mulai dikunci (gagal muat tidak mengunci).
+  const unitWait = !un.loaded && !un.failed && raw.mode !== "manual";
   const d = cur.d;
   const startVal = "start" in d ? d.start : sched.start || "";
   const durVal = "dur" in d ? d.dur : sched.start === null ? "" : String(sched.duration);
@@ -3825,7 +3877,7 @@ function ScheduleBody(props) {
     <div className="plg-timeline-sec-row">
       <label className="plg-timeline-field">
         <span className="plg-timeline-field-label">{SEC_START}</span>
-        <input type="date" className="plg-timeline-input" aria-label={SEC_START} value={startVal}
+        <input type="date" className="plg-timeline-input" aria-label={SEC_START} value={startVal} disabled={unitWait}
           onChange={onStartChange} onBlur={onStartBlur} onKeyDown={onStartKey} />
       </label>
       <label className="plg-timeline-field">

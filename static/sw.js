@@ -16,8 +16,8 @@ const STATIC = [
   "/static/plugins/index.json",
   "/static/plugins/habit-heatmap/plugin.js?v=aff4ba9b",
   "/static/plugins/habit-heatmap/style.css?v=aff4ba9b",
-  "/static/plugins/timeline/plugin.js?v=36d5e5b2",
-  "/static/plugins/timeline/style.css?v=36d5e5b2",
+  "/static/plugins/timeline/plugin.js?v=4bd5f9e0",
+  "/static/plugins/timeline/style.css?v=4bd5f9e0",
   // plugins:end
   "/static/offline/ids.js",
   "/static/offline/db.js",
