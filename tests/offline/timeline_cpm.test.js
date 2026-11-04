@@ -56,9 +56,10 @@ const node = (r, id) => r.nodes.get(String(id));
 
 test("modul: pola part R2 (tanpa global, require fallback, ekspor beku)", () => {
   const src = fs.readFileSync(path.join(dir, "cpm.js"), "utf8");
-  assert.match(src, /const TLCpm = \(function \(CAL, SCHED\)/);
+  assert.match(src, /const TLCpm = \(function \(CAL, SCHED, HOL\)/);
   assert.match(src, /typeof TLCal !== "undefined" \? TLCal : require\("\.\/calendar\.js"\)/);
   assert.match(src, /typeof TLSched !== "undefined" \? TLSched : require\("\.\/schedule\.js"\)/);
+  assert.match(src, /typeof TLHolidays !== "undefined" \? TLHolidays : require\("\.\/holidays-id\.js"\)/);
   assert.match(src, /module\.exports = TLCpm/);
   assert.doesNotMatch(src, /\bwindow\b|\bself\b|\bglobalThis\b/);
   assert.ok(Object.isFrozen(M));
@@ -642,4 +643,295 @@ test("kinerja: 500 simpul / 400 sisi (generator tetap) → median 5 putaran dica
   times.sort((a, b) => a - b);
   console.log(`TLCpm.run 500 simpul / ${edges} sisi: median ${times[2].toFixed(2)} ms (${times.map((t) => t.toFixed(1)).join(", ")})`);
   assert.ok(times[2] <= 150, "median " + times[2]);
+});
+
+// ---- Task 3: TLCpm.explain — "Kenapa dijadwalkan di sini?" (struktur data; teks/UI di task berikutnya) ----
+const ex = (r, id, cal = std(), re = readExt) => M.explain(r, String(id), cal, re);
+const dnOf = (s) => D(s);
+const sk = (s, why, name) => (name === undefined ? { dn: D(s), why } : { dn: D(s), why, name });
+
+test("explain: contoh mockup — pendahulu selesai Sel 3 Nov, FS lag 1, d 4, tenggat Sen 9 Nov", () => {
+  const r = run([mk({ id: 1, start: "2026-11-03", d: 1 }), mk({ id: 2, d: 4, deps: [[1, "FS", 1]], deadline: "2026-11-09" })]);
+  const e = ex(r, 2);
+  assert.deepEqual(e, {
+    kind: "pred",
+    pred: "1",
+    type: "FS",
+    lag: 1,
+    base: dnOf("2026-11-03"),
+    lagDays: [dnOf("2026-11-04")],
+    start: dnOf("2026-11-05"),
+    skipped: [],
+    finish: dnOf("2026-11-10"),
+    durSkipped: [sk("2026-11-07", "Sabtu"), sk("2026-11-08", "Minggu")],
+    late: 1,
+    deadline: dnOf("2026-11-09"),
+  });
+  // tidak pernah berbeda dari mesin
+  assert.equal(e.start, node(r, 2).es);
+  assert.equal(e.finish, node(r, 2).ef);
+  assert.equal(e.late, node(r, 2).late);
+});
+
+test("explain: FS lag 0 dari Jumat → skipped Sabtu+Minggu, start Senin, lagDays kosong", () => {
+  const r = run([mk({ id: 1, start: "2026-11-06", d: 1 }), mk({ id: 2, d: 1, deps: [[1]] })]);
+  const e = ex(r, 2);
+  assert.equal(e.kind, "pred");
+  assert.equal(e.type, "FS");
+  assert.equal(e.base, dnOf("2026-11-06"));
+  assert.deepEqual(e.lagDays, []);
+  assert.deepEqual(e.skipped, [sk("2026-11-07", "Sabtu"), sk("2026-11-08", "Minggu")]);
+  assert.equal(e.start, dnOf("2026-11-09"));
+  assert.equal(e.start, node(r, 2).es);
+  assert.deepEqual(e.durSkipped, []);
+  assert.equal(e.late, 0);
+  assert.equal(e.deadline, null);
+});
+
+test("explain: base per tipe — FS/FF = selesai pendahulu, SS/SF = mulai pendahulu; start selalu = mesin", () => {
+  for (const type of ["FS", "SS", "FF", "SF"]) {
+    for (const lag of [-2, 0, 1, 3]) {
+      for (const d of [0, 1, 3]) {
+        const r = run([mk({ id: 1, start: "2026-11-05", d: 3 }), mk({ id: 2, d, deps: [[1, type, lag]] })]);
+        const n2 = node(r, 2);
+        const e = ex(r, 2);
+        const p = node(r, 1);
+        const tag = `${type} lag ${lag} d ${d}`;
+        assert.equal(e.kind, "pred", tag);
+        assert.equal(e.base, type === "SS" || type === "SF" ? p.es : p.ef, tag);
+        assert.equal(e.start, n2.es, tag);
+        assert.equal(e.finish, n2.ef, tag);
+        assert.equal(e.lagDays.length, Math.abs(lag), tag); // jumlah hari kerja yang dipakai lag
+        assert.ok(e.lagDays.every((x) => C.isWork(std(), x)), tag);
+        assert.ok(e.skipped.every((s) => !C.isWork(std(), s.dn) && s.dn > e.base && s.dn < e.start), tag);
+        assert.ok(e.durSkipped.every((s) => !C.isWork(std(), s.dn) && s.dn >= e.start && s.dn <= e.finish), tag);
+        if (d === 0) assert.deepEqual(e.durSkipped, [], tag);
+      }
+    }
+  }
+});
+
+test("explain: lag negatif (lead) — lagDays = hari kerja yang dimundurkan", () => {
+  const r = run([mk({ id: 1, start: "2026-11-05", d: 1 }), mk({ id: 2, d: 1, deps: [[1, "FS", -1]] })]);
+  const e = ex(r, 2);
+  // FS lag 0 → Jum 6; lead 1 → Kam 5; hari kerja yang dimundurkan = [Kam 5]
+  assert.equal(e.start, dnOf("2026-11-05"));
+  assert.deepEqual(e.lagDays, [dnOf("2026-11-05")]);
+  assert.deepEqual(e.skipped, []);
+});
+
+test("explain: pendahulu penentu = driver mesin (maks atas beberapa pendahulu)", () => {
+  const r = run([mk({ id: 1, start: "2026-11-03", d: 1 }), mk({ id: 2, start: "2026-11-05", d: 2 }), mk({ id: 3, d: 1, deps: [[1], [2]] })]);
+  const e = ex(r, 3);
+  assert.equal(e.pred, "2");
+  assert.equal(e.base, node(r, 2).ef);
+  assert.equal(e.start, node(r, 3).es);
+});
+
+test("explain: akar — tanggal mulai sendiri; mulai Sabtu digeser ke Senin tercatat di skipped", () => {
+  const r = run([mk({ id: 1, start: "2026-11-09", d: 2 }), mk({ id: 2, start: "2026-11-07", d: 2 })]);
+  const a = ex(r, 1);
+  assert.equal(a.kind, "root");
+  assert.equal(a.base, dnOf("2026-11-09"));
+  assert.deepEqual(a.skipped, []);
+  assert.equal(a.start, dnOf("2026-11-09"));
+  assert.equal(a.finish, dnOf("2026-11-10"));
+  const b = ex(r, 2);
+  assert.equal(b.kind, "root");
+  assert.equal(b.base, dnOf("2026-11-07"));
+  assert.deepEqual(b.skipped, [sk("2026-11-07", "Sabtu"), sk("2026-11-08", "Minggu")]);
+  assert.equal(b.start, node(r, 2).es);
+  assert.equal(b.start, dnOf("2026-11-09"));
+  // tanpa readExt: base tidak diketahui, tetap konsisten dengan mesin
+  const b2 = ex(r, 2, std(), null);
+  assert.equal(b2.kind, "root");
+  assert.equal(b2.base, null);
+  assert.deepEqual(b2.skipped, []);
+  assert.equal(b2.start, node(r, 2).es);
+});
+
+test("explain: milestone akar di akhir pekan tidak digeser (bukan 'dikoreksi')", () => {
+  const r = run([mk({ id: 1, start: "2026-11-07", d: 0 })]);
+  const e = ex(r, 1);
+  assert.equal(e.kind, "root");
+  assert.equal(e.start, dnOf("2026-11-07"));
+  assert.equal(e.finish, dnOf("2026-11-07"));
+  assert.deepEqual(e.skipped, []);
+  assert.deepEqual(e.durSkipped, []);
+});
+
+test("explain: SNET — batasan 'tidak mulai sebelum' menang atas pendahulu", () => {
+  const r = run([
+    mk({ id: 1, start: "2026-11-03", d: 1 }),
+    mk({ id: 2, d: 1, deps: [[1]], constraint: { type: "SNET", date: "2026-11-14" } }), // Sabtu → Senin
+  ]);
+  const e = ex(r, 2);
+  assert.equal(e.kind, "snet");
+  assert.equal(e.base, dnOf("2026-11-14"));
+  assert.deepEqual(e.skipped, [sk("2026-11-14", "Sabtu"), sk("2026-11-15", "Minggu")]);
+  assert.equal(e.start, dnOf("2026-11-16"));
+  assert.equal(e.start, node(r, 2).es);
+});
+
+test("explain: MFO — selesai dipaku, mulai dihitung mundur", () => {
+  const r = run([mk({ id: 1, start: "2026-11-02", d: 3, constraint: { type: "MFO", date: "2026-11-12" } })]);
+  const e = ex(r, 1);
+  assert.equal(e.kind, "mfo");
+  assert.equal(e.start, node(r, 1).es);
+  assert.equal(e.finish, dnOf("2026-11-12"));
+  assert.equal(e.start, dnOf("2026-11-10"));
+  assert.equal(e.base, null);
+  assert.deepEqual(e.lagDays, []);
+  assert.deepEqual(e.skipped, []);
+});
+
+test("explain: Manual — tanggal tersimpan dipakai apa adanya", () => {
+  const r = run([mk({ id: 1, start: "2026-11-03", d: 1 }), mk({ id: 2, start: "2026-11-04", d: 3, mode: "manual", deps: [[1]] })], new Map());
+  const e = ex(r, 2);
+  assert.equal(e.kind, "manual");
+  assert.equal(e.start, dnOf("2026-11-04"));
+  assert.equal(e.finish, dnOf("2026-11-06"));
+  assert.equal(e.base, null);
+  assert.deepEqual(e.skipped, []);
+  assert.deepEqual(e.durSkipped, []);
+});
+
+test("explain: Manual di hari Sabtu — tanggal tidak 'dikoreksi'", () => {
+  const r = run([mk({ id: 1, start: "2026-11-07", d: 2, mode: "manual" })], new Map());
+  const e = ex(r, 1);
+  assert.equal(e.kind, "manual");
+  assert.equal(e.start, dnOf("2026-11-07")); // Sabtu apa adanya (drift, bukan konflik)
+  assert.equal(e.finish, node(r, 1).ef);
+  assert.deepEqual(e.skipped, []);
+});
+
+test("explain: selesai — tanggal selesai nyata dari completed_at", () => {
+  const r = run([mk({ id: 1, start: "2026-11-02", d: 3, done: true, completed_at: "2026-11-04T05:00:00Z" })]);
+  const e = ex(r, 1);
+  assert.equal(e.kind, "done");
+  assert.equal(e.start, dnOf("2026-11-02"));
+  assert.equal(e.finish, dnOf("2026-11-04"));
+  assert.equal(e.finish, node(r, 1).ef);
+  assert.equal(e.base, null);
+});
+
+test("explain: sudah berjalan — mulai terkunci", () => {
+  const r = run([mk({ id: 1, start: "2026-11-02", d: 2, progress: 40 })]);
+  const e = ex(r, 1);
+  assert.equal(e.kind, "started");
+  assert.equal(e.start, dnOf("2026-11-02"));
+  assert.equal(e.finish, dnOf("2026-11-03"));
+  assert.equal(e.late, 0);
+});
+
+test("explain: tenggat terlampaui → late > 0, deadline = hari tenggat; tepat waktu → late 0", () => {
+  const r = run([mk({ id: 1, start: "2026-11-02", d: 3, deadline: "2026-11-03" }), mk({ id: 2, start: "2026-11-02", d: 1, deadline: "2026-11-05T10:00:00Z" })]);
+  const a = ex(r, 1);
+  assert.equal(a.late, 1);
+  assert.equal(a.deadline, dnOf("2026-11-03"));
+  const b = ex(r, 2);
+  assert.equal(b.late, 0);
+  assert.equal(b.deadline, dnOf("2026-11-05"));
+});
+
+test("explain: lingkaran — kind cycle, cycleWith = anggota lain terurut kode UTF-16", () => {
+  const r = run([
+    mk({ id: "a", start: "2026-11-02", d: 1, deps: [["m"]] }),
+    mk({ id: "m", start: "2026-11-03", d: 1, deps: [["Z"]] }),
+    mk({ id: "Z", start: "2026-11-04", d: 1, deps: [["a"]] }),
+  ]);
+  assert.equal(r.cycles.length, 1);
+  assert.deepEqual(ex(r, "m").cycleWith, ["Z", "a"]); // "Z" < "a" (kode), bukan urutan lokal
+  assert.equal(ex(r, "m").kind, "cycle");
+  assert.deepEqual(ex(r, "a").cycleWith, ["Z", "m"]);
+  // anggota lingkaran bertanggal: tanggal tersimpan dari mesin
+  assert.equal(ex(r, "m").start, node(r, "m").es);
+  // tidak terpengaruh localeCompare
+  const orig = String.prototype.localeCompare;
+  String.prototype.localeCompare = () => {
+    throw new Error("localeCompare dilarang");
+  };
+  try {
+    assert.deepEqual(ex(r, "Z").cycleWith, ["a", "m"]);
+  } finally {
+    String.prototype.localeCompare = orig;
+  }
+});
+
+test("explain: lingkaran tanpa Mulai (tak terhitung) — kind cycle, start/finish null", () => {
+  const r = run([mk({ id: 1, start: "2026-11-02", d: 1, deps: [[2]] }), mk({ id: 2, d: 1, deps: [[1]] }), mk({ id: 3, start: "2026-11-02", d: 1, deps: [[3]] })]);
+  const e = ex(r, 3);
+  assert.equal(e.kind, "cycle");
+  assert.deepEqual(e.cycleWith, []); // sisi diri
+  assert.equal(e.start, node(r, 3).es);
+  // lingkaran 1↔2: 1 bertanggal (terhitung), 2 tanpa Mulai → tak terhitung; keduanya kind cycle dari run()
+  assert.deepEqual(r.cycles.find((c) => c.includes("2")), ["1", "2"]);
+  const e2 = ex(r, 2);
+  assert.equal(e2.kind, "cycle");
+  assert.deepEqual(e2.cycleWith, ["1"]);
+  assert.equal(e2.start, null);
+  assert.equal(e2.finish, null);
+});
+
+test("explain: tak terjadwal — tanpa tanggal & tanpa pendahulu terhitung, atau kunci tak dikenal", () => {
+  const r = run([mk({ id: 1, d: 2 })]);
+  for (const key of ["1", "tidak-ada"]) {
+    const e = ex(r, key);
+    assert.deepEqual(e, { kind: "unscheduled", base: null, lagDays: [], start: null, skipped: [], finish: null, durSkipped: [], late: 0, deadline: null });
+  }
+});
+
+test("explain: simpul tak terhitung (kalender buntu) → unscheduled, tidak melempar, tidak menebak tanggal", () => {
+  const off = new Set();
+  for (let d = D("2020-01-06"); d <= D("2070-12-31"); d += 7) off.add(d);
+  const synth = { mask: new Set([1]), off, work: new Set(), key: "sintetis" };
+  const r = run([mk({ id: 1, start: "2026-11-04", d: 2 }), mk({ id: 2, start: "2026-11-04", d: 1, deps: [[1]] })], autoUnits("Alpha"), synth);
+  assert.deepEqual([...r.uncomputable].sort(), ["1", "2"]);
+  for (const k of ["1", "2"]) {
+    let e;
+    assert.doesNotThrow(() => (e = M.explain(r, k, synth, readExt)));
+    assert.equal(e.kind, "unscheduled");
+    assert.equal(e.start, null);
+    assert.equal(e.finish, null);
+  }
+});
+
+test("explain: libur bernama — Nyepi (libur) dan cuti bersama; akhir pekan didahulukan", () => {
+  const r = run([mk({ id: 1, start: "2026-03-17", d: 1 }), mk({ id: 2, d: 1, deps: [[1]] })]);
+  const e = ex(r, 2);
+  assert.equal(e.kind, "pred");
+  assert.equal(e.start, dnOf("2026-03-25"));
+  assert.equal(e.start, node(r, 2).es);
+  assert.deepEqual(e.skipped, [
+    { dn: D("2026-03-18"), why: "cuti", name: "Hari Suci Nyepi (Tahun Baru Saka 1948)" },
+    { dn: D("2026-03-19"), why: "libur", name: "Hari Suci Nyepi (Tahun Baru Saka 1948)" },
+    { dn: D("2026-03-20"), why: "cuti", name: "Idulfitri 1447 H" },
+    sk("2026-03-21", "Sabtu"),
+    sk("2026-03-22", "Minggu"),
+    { dn: D("2026-03-23"), why: "cuti", name: "Idulfitri 1447 H" },
+    { dn: D("2026-03-24"), why: "cuti", name: "Idulfitri 1447 H" },
+  ]);
+});
+
+test("explain: hari libur tambahan kalender → why 'tambahan' (tanpa nama)", () => {
+  const cal = C.compile({ v: 1, weekdays: [1, 2, 3, 4, 5], national: true, cutiBersama: true, off: [{ d: "2026-11-04", n: "Cuti kantor" }], work: [] });
+  const r = run([mk({ id: 1, start: "2026-11-03", d: 1 }), mk({ id: 2, d: 1, deps: [[1]] })], autoUnits("Alpha"), cal);
+  const e = ex(r, 2, cal);
+  assert.deepEqual(e.skipped, [{ dn: D("2026-11-04"), why: "tambahan" }]);
+  assert.equal(e.start, dnOf("2026-11-05"));
+});
+
+test("explain: durSkipped bernama di dalam rentang kerja (libur nasional di tengah durasi)", () => {
+  const r = run([mk({ id: 1, start: "2026-08-14", d: 3 })]); // Jum 14, Sen 17 (libur), Sel 18 … 17 Agu libur
+  const e = ex(r, 1);
+  assert.deepEqual(e.durSkipped, [sk("2026-08-15", "Sabtu"), sk("2026-08-16", "Minggu"), { dn: D("2026-08-17"), why: "libur", name: "Proklamasi Kemerdekaan" }]);
+  assert.equal(e.finish, dnOf("2026-08-19"));
+});
+
+test("explain: kalender buntu tidak melempar; murni (tanpa Date.parse/localeCompare/new Date(string))", () => {
+  const src = fs.readFileSync(path.join(dir, "cpm.js"), "utf8");
+  assert.ok(!/Date\.parse|new Date\(|localeCompare\(/.test(src.replace(/\/\/.*$/gm, "")), "cpm.js tanpa Date.parse/new Date/localeCompare");
+  assert.deepEqual(Object.keys(M).sort(), ["cmpKey", "explain", "jkt", "run"]);
+  assert.equal(M.explain(null, "1", std()).kind, "unscheduled");
+  assert.equal(M.explain({}, "1", std()).kind, "unscheduled");
 });

@@ -4,7 +4,7 @@
 // (K27) — hanya menghitung. Semua rumus dependensi lewat TLSched.depReq/depLimit/fin/sff (satu sumber, R4) dan aturan
 // "terlalu awal" jangkar lewat TLSched.isEarly (sama dengan violations). Kalender buntu (TL_CAL_LOOP) → simpul
 // "tak terhitung" (uncomputable), run tidak melempar.
-const TLCpm = (function (CAL, SCHED) {
+const TLCpm = (function (CAL, SCHED, HOL) {
   const SPAN_MAX = 3660; // rentang hari kalender maks untuk hitung slack (pola MAX_LATE_SPAN)
   const MS_DAY = 864e5;
   const JKT_OFFSET = 7 * 3600e3; // Asia/Jakarta, tanpa DST
@@ -453,6 +453,100 @@ const TLCpm = (function (CAL, SCHED) {
     };
   }
 
-  return Object.freeze({ run, jkt, cmpKey });
-})(typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"), typeof TLSched !== "undefined" ? TLSched : require("./schedule.js"));
+  // ---- explain: "Kenapa dijadwalkan di sini?" (spec 1c §5.6) ----
+  // Dipanggil untuk SATU task sesuai permintaan (popover), tidak di jalur render. TIDAK menghitung jadwal sendiri: tanggal
+  // (start/finish/late) dibaca dari hasil run(); rumus dependensi hanya dipakai ulang (TLSched.depReq) untuk memisahkan
+  // "hari lag" dari "hari yang dilewati", jadi tidak mungkin berbeda dari mesin.
+
+  // Hari non-kerja → {dn, why, name?}. Akhir pekan didahulukan atas libur bernama (Sabtu/Minggu yang kebetulan libur nasional
+  // tetap "Sabtu"/"Minggu"); hari kerja biasa yang dikecualikan kalender (mis. Jumat dinonaktifkan, atau libur tambahan
+  // buatan pengguna) = "tambahan" tanpa nama (nama libur tambahan tidak disimpan di kalender terkompilasi).
+  function nonWorkInfo(c, n) {
+    const wd = CAL.isoWeekday(n);
+    if (!c.mask.has(wd)) return wd === 6 ? { dn: n, why: "Sabtu" } : wd === 7 ? { dn: n, why: "Minggu" } : { dn: n, why: "tambahan" };
+    const h = HOL && typeof HOL.lookup === "function" ? HOL.lookup(CAL.iso(n)) : null;
+    if (h && ((h.kind === "libur" && c.national) || (h.kind === "cuti" && c.cutiBersama))) return { dn: n, why: h.kind, name: h.nama };
+    return { dn: n, why: "tambahan" };
+  }
+
+  // Hari non-kerja di [from, to] inklusif, berurut (rentang dibatasi SPAN_MAX).
+  function nonWorkIn(c, from, to) {
+    const out = [];
+    if (!isDn(from) || !isDn(to)) return out;
+    for (let d = from, hi = Math.min(to, from + SPAN_MAX); d <= hi; d++) if (!CAL.isWork(c, d)) out.push(nonWorkInfo(c, d));
+    return out;
+  }
+
+  // Hari kerja di [from, to) (setengah terbuka), berurut.
+  function workIn(c, from, to) {
+    const out = [];
+    for (let d = from, hi = Math.min(to - 1, from + SPAN_MAX); d <= hi; d++) if (CAL.isWork(c, d)) out.push(d);
+    return out;
+  }
+
+  // explain(result, key, cal, readExt?) → {kind, base, lagDays, start, skipped, finish, durSkipped, late, deadline, pred?, type?, lag?, cycleWith?}
+  //   kind: pred | root | snet | mfo | manual | done | started | cycle | unscheduled
+  //   base = titik acuan: FS/FF → selesai pendahulu, SS/SF → mulai pendahulu; snet → tanggal batasan; root → tanggal mulai
+  //   tersimpan (dua yang terakhir butuh readExt, tanpanya null); lainnya null.
+  //   lagDays = hari kerja yang dipakai lag (selisih syarat lag 0 dan syarat ber-lag: [min, max) hari kerja); lag 0 → [].
+  //   skipped = hari non-kerja strictly di antara base dan start (hanya bila start > base; root/snet: dari base inklusif);
+  //   durSkipped = hari non-kerja di dalam [start, finish] (milestone d = 0 → []); keduanya tidak pernah tumpang tindih.
+  //   late = hari kerja lewat tenggat (0 bila tepat/tanpa tenggat); deadline = hari tenggat atau null.
+  //   cycle → cycleWith = anggota lingkaran lain (terurut cmpKey); unscheduled → semua tanggal null.
+  function explain(result, key, cal, readExt) {
+    const k = String(key);
+    const out = (kind, extra) =>
+      Object.assign({ kind, base: null, lagDays: [], start: null, skipped: [], finish: null, durSkipped: [], late: 0, deadline: null }, extra);
+    const nodes = isObj(result) && result.nodes instanceof Map ? result.nodes : null;
+    const n = nodes ? nodes.get(k) : undefined;
+    const ring = isObj(result) && Array.isArray(result.cycles) ? result.cycles.find((cy) => cy.indexOf(k) >= 0) : undefined;
+    const cycleWith = ring ? ring.filter((x) => x !== k).sort(cmpKey) : null;
+    if (!n || n.es === null || n.ef === null || !isObj(cal)) return cycleWith ? out("cycle", { cycleWith }) : out("unscheduled");
+
+    const c = cal;
+    const dl = n.task.deadline === null || n.task.deadline === undefined ? NaN : CAL.dn(String(n.task.deadline).slice(0, 10));
+    const e = out(cycleWith ? "cycle" : n.fixed || n.driver.kind, {
+      start: n.es,
+      finish: n.ef,
+      late: n.late || 0,
+      deadline: isDn(dl) ? dl : null,
+      durSkipped: n.d >= 1 ? nonWorkIn(c, n.es, n.ef) : [],
+    });
+    if (cycleWith) e.cycleWith = cycleWith;
+    if (e.kind === "pred") {
+      const dr = n.driver;
+      const pn = nodes.get(dr.from);
+      e.pred = dr.from;
+      e.type = dr.type;
+      e.lag = dr.lag;
+      e.base = dr.type === "SS" || dr.type === "SF" ? pn.es : pn.ef;
+      // hari lag: syarat ber-lag vs syarat lag 0 (rumus yang sama dengan mesin → tidak bisa berbeda)
+      const r = SCHED.depReq(c, dr.type, pn.es, pn.ef, dr.lag, n.d);
+      const r0 = SCHED.depReq(c, dr.type, pn.es, pn.ef, 0, n.d);
+      if (isDn(r) && isDn(r0) && r !== r0) e.lagDays = workIn(c, Math.min(r, r0), Math.max(r, r0));
+      if (e.start > e.base) e.skipped = nonWorkIn(c, e.base + 1, e.start - 1);
+    } else if ((e.kind === "snet" || e.kind === "root") && typeof readExt === "function") {
+      // acuan tersimpan: tanggal batasan SNET, atau tanggal Mulai akar (bisa jatuh di akhir pekan → digeser)
+      let sched = null;
+      try {
+        sched = SCHED.readSched(readExt(n.task));
+      } catch (err) {
+        sched = null;
+      }
+      const ref = sched ? (e.kind === "snet" ? (sched.constraint ? sched.constraint.date : null) : sched.start) : null;
+      const b = ref === null ? NaN : CAL.dn(ref);
+      if (isDn(b)) {
+        e.base = b;
+        if (e.start > b) e.skipped = nonWorkIn(c, b, e.start - 1);
+      }
+    }
+    return e;
+  }
+
+  return Object.freeze({ run, jkt, cmpKey, explain });
+})(
+  typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"),
+  typeof TLSched !== "undefined" ? TLSched : require("./schedule.js"),
+  typeof TLHolidays !== "undefined" ? TLHolidays : require("./holidays-id.js"),
+);
 if (typeof module !== "undefined" && module.exports) module.exports = TLCpm;
