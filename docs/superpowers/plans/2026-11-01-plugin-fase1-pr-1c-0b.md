@@ -6,7 +6,7 @@
 
 ## Bagian A — Spec ringkas
 
-- **Status:** disetujui pemilik 2026-11-04 16.17 WIB — Q1 (a): task yang dihapus offline tetap terhapus walau anggota lain hanya menggeser jadwalnya. Pemilik memutuskan menutup residual **R2** (spec 1c §11, ADR-043) **sebelum** PR 1c-1. Zona waktu VPS belum dikonfirmasi pemilik; rancangan ini tidak bergantung padanya (aturan (1) hanya membandingkan cap waktu server).
+- **Status:** disetujui pemilik 2026-11-04 16.17 WIB — Q1 (a): task yang dihapus offline tetap terhapus walau anggota lain hanya menggeser jadwalnya. Pemilik memutuskan menutup residual **R2** (spec 1c §11, ADR-043) **sebelum** PR 1c-1. Zona waktu VPS dikonfirmasi pemilik 2026-11-04: **Etc/UTC** — cap waktu naif server = UTC, jadi S9 (server tampak 7 jam lebih baru) **tidak muncul di produksi saat ini**; tetap laten bila zona VPS diubah atau di lingkungan dev ber-zona lain. Rancangan ini tetap tidak bergantung pada zona (aturan (1) hanya membandingkan cap waktu server).
 - **Basis kode:** `main` @ `390e151d` (sudah memuat PR 1c-0 #123, SW `taskflow-v496-sinkron-ext`, IndexedDB `taskflow-offline` **v7**, 84 modul `static/offline/`, `index.html` 46.074 baris, `webapp.py` 10.888, `task_ext.py` 207, `syncpull.js` 2.038, `syncpush.js` 2.513).
 - **Sumber:** spec 1c `docs/superpowers/specs/2026-11-01-plugin-fase1-1c-otomatis-design.md` (§6.3, "Catatan implementasi PR 1c-0", §6.4, §11 R2), ADR-040 dan ADR-043 `.agents/DECISIONS.md`, rencana 1c-0 `docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1c-0.md` (R1–R20), audit sinkron `docs/superpowers/specs/2026-10-15-offline-sync-audit.md` (S9). Spec ini melanjutkan penomoran keputusan spec 1c (**K45–K50**).
 
