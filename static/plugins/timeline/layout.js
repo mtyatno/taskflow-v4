@@ -500,8 +500,19 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     }
 
     // 7. dependensi (R8, R16): kunci kanonik String(id); spans memuat rentang ringkasan.
+    // Task DONE (bukan ringkasan): selesai pelanggaran = TLSched.doneFinish (aturan yang SAMA dengan jangkar "done" mesin —
+    // selesai lebih awal tidak menandai ⚠ pada tanggal yang baru ditulis mesin); durasi d dibawa agar penerus done tetap
+    // memakai durasi tersimpannya. Rentang bar (row.span) tidak berubah.
     const spans = new Map();
-    for (const it of all) if (it.span) spans.set(it.key, it.span);
+    for (const it of all) {
+      if (!it.span) continue;
+      const t = it.task;
+      if (it.children.length === 0 && (t.gtd_status === "done" || !!t.completed_at)) {
+        const d = it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+        const f = SCHED.doneFinish(c, t, it.span.s, d);
+        spans.set(it.key, isInt(f) ? { s: it.span.s, f, d } : it.span);
+      } else spans.set(it.key, it.span);
+    }
     const edges = SCHED.resolveDeps(items.map((it) => ({ key: it.key, sched: it.sched })), index);
     const viol = SCHED.violations(c, spans, edges);
     const violPair = new Set(viol.detail.map((d) => d.pred + "\u0000" + d.succ));

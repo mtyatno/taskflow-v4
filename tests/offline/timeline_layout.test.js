@@ -851,3 +851,44 @@ test("final: kelompok workspace memakai lipatan host — 'Proyek ' dan 'Proyek' 
   assert.equal(g2(8), "p:9");
   assert.notEqual(g2(10), "p:9");
 });
+
+// Fix wave final 1c-1 (α1): violations memakai selesai pendahulu done yang SAMA dengan mesin (jkt(completed_at), ≥ Mulai).
+test("α1: pendahulu selesai lebih awal → penerus di tanggal tulisan mesin TIDAK ⚠ (tanpa panah merah); bar tetap rentang tersimpan", () => {
+  const M = require(path.join(dir, "cpm.js"));
+  const pred = mk(1, { list_id: 7, project: "Alpha", gtd_status: "done", completed_at: "2026-11-03T03:00:00Z" }, sch("2026-11-02", 5)); // Sen 2–Jum 6, selesai Sel 3
+  const succ0 = mk(2, { list_id: 7, project: "Alpha", gtd_status: "next" }, sch("2026-11-09", 1, [{ t: { $task: 1 }, type: "FS", lag: 0 }]));
+  const units = new Map([[S.unitOf(succ0).recId, { auto: true }]]);
+  const readExt = (t) => {
+    const o = {};
+    for (const k of Object.keys(t.ext || {})) if (k.indexOf("timeline.") === 0) o[k.slice(9)] = t.ext[k];
+    return o;
+  };
+  const r0 = M.run({ tasks: [pred, succ0], cal: std(), units, readExt });
+  const es = I(r0.nodes.get("2").es);
+  assert.equal(es, "2026-11-04", "mesin: Rab 4 (setelah selesai nyata Sel 3)");
+  // Terapkan menulis tanggal mesin → layout atas data tertulis
+  const succ = mk(2, { list_id: 7, project: "Alpha", gtd_status: "next" }, sch(es, 1, [{ t: { $task: 1 }, type: "FS", lag: 0 }]));
+  const r = lay([pred, succ]);
+  const e = r.edges.find((x) => x.from === "1" && x.to === "2");
+  assert.equal(e.violation, false, "tanpa panah merah putus-putus");
+  assert.equal(r.rows.find((x) => x.key === "2").violation, false, "tanpa ⚠");
+  assert.equal(r.stats.violations, 0);
+  assert.deepEqual(r.rows.find((x) => x.key === "1").span, { s: D("2026-11-02"), f: D("2026-11-06") }, "bar = rentang tersimpan");
+});
+
+test("α1: penerus yang benar-benar lebih awal dari hari completed_at tetap ⚠ (selesai lebih awal maupun terlambat)", () => {
+  const dep = [{ t: { $task: 1 }, type: "FS", lag: 0 }];
+  const early = lay([
+    mk(1, { gtd_status: "done", completed_at: "2026-11-03T03:00:00Z" }, sch("2026-11-02", 5)), // selesai Sel 3
+    mk(2, {}, sch("2026-11-03", 1, dep)), // Sel 3 < Rab 4
+  ]);
+  assert.equal(early.rows.find((x) => x.key === "2").violation, true);
+  assert.equal(early.edges.find((x) => x.to === "2").violation, true);
+  const late = lay([
+    mk(1, { gtd_status: "done", completed_at: "2026-11-05T03:00:00Z" }, sch("2026-11-02", 1)), // rentang Sen 2, selesai nyata Kam 5
+    mk(2, {}, sch("2026-11-04", 1, dep)), // Rab 4 ≥ Sel 3 (rentang) tetapi < Jum 6 (selesai nyata)
+  ]);
+  assert.equal(late.rows.find((x) => x.key === "2").violation, true, "mesin: conflict; violations sama");
+  const doneNoTs = lay([mk(1, { gtd_status: "done" }, sch("2026-11-02", 2)), mk(2, {}, sch("2026-11-03", 1, dep))]);
+  assert.equal(doneNoTs.rows.find((x) => x.key === "2").violation, true, "done tanpa completed_at → fin (1b)");
+});

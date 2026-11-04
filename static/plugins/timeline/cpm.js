@@ -6,8 +6,6 @@
 // "tak terhitung" (uncomputable), run tidak melempar.
 const TLCpm = (function (CAL, SCHED, HOL) {
   const SPAN_MAX = 3660; // rentang hari kalender maks untuk hitung slack (pola MAX_LATE_SPAN)
-  const MS_DAY = 864e5;
-  const JKT_OFFSET = 7 * 3600e3; // Asia/Jakarta, tanpa DST
   const DUR_MAX = SCHED.DUR_MAX;
 
   const isInt = (n) => typeof n === "number" && Number.isInteger(n);
@@ -27,37 +25,9 @@ const TLCpm = (function (CAL, SCHED, HOL) {
     }
   }
 
-  // completed_at → bilangan hari Jakarta (Asia/Jakarta, UTC+7 tanpa DST). Hanya bentuk ISO bertanggal-jam; tanpa zona = UTC
-  // (termasuk "YYYY-MM-DD HH:MM:SS[.ffffff]" SQLite/server); tanggal saja → hari itu; selain itu → null. Epoch dirakit dari
-  // bilangan hari TLCal.dn (= Date.UTC) + grup regex (tanpa Date.parse → bebas mesin JS). Pecahan detik dipotong ke milidetik: hasil dibulatkan ke
-  // hari, jadi presisi mikrodetik hanya berpengaruh di batas 23:59:59.999xxx Jakarta (dipotong = masih hari itu, benar).
-  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-  const ISO_TS = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:(Z)|([+-])(\d{2}):?(\d{2}))?$/;
-  function jkt(v) {
-    if (typeof v !== "string") return null;
-    const s = v.trim();
-    if (ISO_DATE.test(s)) {
-      const n = CAL.dn(s);
-      return isDn(n) ? n : null;
-    }
-    const m = ISO_TS.exec(s);
-    if (!m) return null;
-    const day = CAL.dn(m[1]);
-    const h = +m[2];
-    const mi = +m[3];
-    const sec = m[4] === undefined ? 0 : +m[4];
-    if (!isDn(day) || h > 23 || mi > 59 || sec > 59) return null;
-    const ms = m[5] === undefined ? 0 : +(m[5] + "00").slice(0, 3);
-    let off = 0; // menit, positif = di depan UTC
-    if (m[7]) {
-      const oh = +m[8];
-      const om = +m[9];
-      if (oh > 23 || om > 59) return null;
-      off = (m[7] === "-" ? -1 : 1) * (oh * 60 + om);
-    }
-    const t = day * MS_DAY + ((h * 60 + mi - off) * 60 + sec) * 1000 + ms;
-    return Math.floor((t + JKT_OFFSET) / MS_DAY);
-  }
+  // completed_at → bilangan hari Jakarta: satu sumber di TLSched.jkt (dipakai juga violations lewat TLSched.doneFinish);
+  // TLCpm.jkt tetap diekspor sebagai alias (kompatibilitas tes/konsumen).
+  const jkt = SCHED.jkt;
 
   // Tenggat task → bilangan hari (10 karakter pertama, R3); tak ada/tak sah → NaN. Satu sumber untuk run() dan explain().
   const deadlineDn = (t) => (t.deadline === null || t.deadline === undefined ? NaN : CAL.dn(String(t.deadline).slice(0, 10)));
@@ -339,9 +309,7 @@ const TLCpm = (function (CAL, SCHED, HOL) {
         } else if (it.s !== null) {
           es = it.s;
           if (fixed === "done") {
-            ef = jkt(t.completed_at);
-            if (ef === null) ef = SCHED.fin(c, es, d);
-            if (isDn(ef) && ef < es) ef = es;
+            ef = SCHED.doneFinish(c, t, es, d);
           } else ef = SCHED.fin(c, es, d);
         }
         if (isDn(es) && isDn(ef)) {

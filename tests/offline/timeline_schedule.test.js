@@ -840,3 +840,26 @@ test("modeOf: ext.mode menang; tanpa ext.mode → units.get(recId).auto", () => 
   assert.equal(S.modeOf({}, new Map([[rec, { auto: "ya" }]]), t), "manual", "auto harus true");
   assert.equal(S.modeOf({}, on, { id: 2, list_id: 12, project: "Lain" }), "manual", "unit lain");
 });
+
+// Fix wave final 1c-1 (α1): SATU aturan selesai pendahulu done untuk mesin (TLCpm) dan violations (layout).
+test("jkt pindah ke TLSched (TLCpm.jkt = alias identik); schedule.js tidak bergantung cpm.js", () => {
+  const M = require(path.join(dir, "cpm.js"));
+  assert.equal(typeof S.jkt, "function");
+  assert.equal(M.jkt, S.jkt, "alias, bukan salinan");
+  assert.equal(I(S.jkt("2026-11-05T17:30:00Z")), "2026-11-06");
+  assert.equal(S.jkt("bukan"), null);
+  const src = fs.readFileSync(path.join(dir, "schedule.js"), "utf8");
+  assert.doesNotMatch(src, /require\(["']\.\/cpm\.js["']\)|TLCpm\./, "tanpa dependensi kode ke cpm.js");
+  assert.match(src, /\}\)\(typeof TLCal !== "undefined" \? TLCal : require\("\.\/calendar\.js"\)\);/, "parameter modul tetap CAL saja");
+});
+
+test("doneFinish = maks(mulai, jkt(completed_at) ?? fin(mulai, d))", () => {
+  const c = std();
+  const s = D("2026-11-02"); // Sen
+  assert.equal(I(S.doneFinish(c, { completed_at: "2026-11-03T03:00:00Z" }, s, 5)), "2026-11-03", "selesai lebih awal");
+  assert.equal(I(S.doneFinish(c, { completed_at: "2026-11-12T03:00:00Z" }, s, 2)), "2026-11-12", "selesai terlambat");
+  assert.equal(I(S.doneFinish(c, { completed_at: "2026-10-20T03:00:00Z" }, s, 3)), "2026-11-02", "sebelum Mulai → mulai");
+  assert.equal(I(S.doneFinish(c, { completed_at: null, gtd_status: "done" }, s, 3)), "2026-11-04", "tanpa completed_at → fin");
+  assert.equal(I(S.doneFinish(c, {}, s, 0)), "2026-11-02");
+  assert.equal(S.doneFinish(c, {}, NaN, 2), undefined);
+});
