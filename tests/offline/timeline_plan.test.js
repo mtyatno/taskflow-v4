@@ -89,9 +89,10 @@ test("modul: pola part R2 (tanpa global, require fallback, ekspor beku, CASCADE_
   }
 });
 
-test("sumber plan.js murni: tanpa Date.parse/new Date/Date.now/localeCompare, tanpa api/store/fetch/localStorage/innerHTML", () => {
+test("sumber plan.js murni: tanpa Date sama sekali (termasuk Date.UTC), tanpa localeCompare, tanpa api/store/fetch/localStorage/innerHTML", () => {
   const src = fs.readFileSync(path.join(dir, "plan.js"), "utf8").replace(/\/\/.*$/gm, "");
-  assert.ok(!/Date\.parse\(|new Date\(|Date\.now\(|localeCompare\(/.test(src), "plan.js tanpa Date.parse/new Date/Date.now/localeCompare");
+  assert.ok(!/\bDate\b/.test(src), "plan.js tanpa Date");
+  assert.ok(!/localeCompare\(/.test(src), "plan.js tanpa localeCompare");
   assert.ok(!/\bapi\.|\bfetch\(|localStorage|innerHTML|#[0-9a-fA-F]{3,6}\b/.test(src), "plan.js tanpa api/fetch/localStorage/innerHTML/hex");
 });
 
@@ -187,6 +188,33 @@ test("cascade: patch gestur batasan pada task otomatis → item gestur ditambah 
   assert.deepEqual(keys(man.items), ["7"]);
   assert.deepEqual(man.items[0].patch, { start: "2026-11-03" });
   assertSane([...out.items, ...sat.items, ...man.items]);
+});
+
+test("cascade (K32): hanya turunan yang DIGESER gestur yang ditulis — drift di belakang jangkar yang tidak bergeser, dan drift turunan langsung yang ES-nya tidak berubah, tidak ikut; patch tetap relatif ke nilai tersimpan", () => {
+  const tasks = [
+    mk({ id: 1, start: "2026-11-02", d: 2 }), // A akar, digeser ke Sen 9
+    mk({ id: 2, start: "2026-11-04", d: 1, mode: "manual", deps: [[1]] }), // M jangkar Manual, tidak bergeser
+    mk({ id: 3, start: "2026-11-02", d: 1, deps: [[2]] }), // C drift di belakang M (ES Kam 5 sebelum & sesudah)
+    mk({ id: 4, start: "2026-11-02", d: 1, deps: [[2], [1]] }), // D di belakang M DAN A: jalur A menggesernya
+    mk({ id: 5, start: "2026-11-02", d: 1, constraint: SNET("2026-11-20"), deps: [[1]] }), // B drift, ES Jum 20 tetap
+    mk({ id: 6, start: "2026-11-04", d: 1, deps: [[1]] }), // E konsisten → digeser
+  ];
+  const ctx = ctxOf(tasks);
+  const before = M.run(ctx);
+  assert.ok(before.drift.has("3") && before.drift.has("4") && before.drift.has("5"), "prasyarat drift");
+  const out = P.cascade(ctx, [{ task: tasks[0], patch: { start: "2026-11-09" } }]);
+  assert.deepEqual(keys(out.items), ["1", "4", "6"]);
+  assert.equal(out.gestureCount, 1);
+  assert.equal(out.over, false);
+  const m = byKey(out.items);
+  // (iii) D digeser jalur A (Kam 5 → Rab 11); patch & Δ relatif ke Mulai tersimpan Sen 2
+  assert.deepEqual(m.get("4").patch, { start: "2026-11-11" });
+  assert.equal(m.get("4").deltaHk, 7);
+  assert.equal(m.get("4").before.start, "2026-11-02");
+  assert.deepEqual(m.get("6").patch, { start: "2026-11-11" });
+  assert.ok(out.result.drift.has("3") && out.result.drift.has("5"), "C dan B tetap drift (tidak diselundupkan)");
+  // hasil sebelum boleh diberikan pemanggil (tanpa hitung ulang) → hasil sama
+  assert.deepEqual(P.cascade(ctx, [{ task: tasks[0], patch: { start: "2026-11-09" } }], before).items, out.items);
 });
 
 test("cascade: 25 turunan berubah → over true; 20 → false; 21 → true", () => {
@@ -329,6 +357,26 @@ test("reschedule: sisa r = max(1, ⌈d × (1 − p/100)⌉) — progress ≥ 100
   assert.deepEqual(out2.items[0].patch, { duration: 999 });
 });
 
+test("reschedule: milestone yang sudah mulai ikut cabang belum-mulai (otomatis SNET T + start T; Manual start T), durasi tidak pernah ditulis; drift hilir yang tidak digeser tidak ditulis", () => {
+  const T = D("2026-11-09");
+  const tasks = [
+    mk({ id: 1, start: "2026-11-04", d: 0, progress: 10 }), // milestone otomatis sudah mulai
+    mk({ id: 2, start: "2026-11-04", d: 0, pomo: 1, project: "Beta" }), // milestone Manual sudah mulai
+    mk({ id: 3, start: "2026-11-02", d: 1 }), // akar lampau → SNET T
+    mk({ id: 4, start: "2026-11-02", d: 1, constraint: SNET("2026-11-20"), deps: [[3]] }), // drift, ES Jum 20 tetap
+  ];
+  const ctx = ctxOf(tasks);
+  const r = M.run(ctx);
+  const out = P.reschedule(ctx, r, T, new Set([unitKey("Alpha"), unitKey("Beta")]));
+  const m = byKey(out.items);
+  assert.deepEqual([...m.keys()].sort(), ["1", "2", "3"]);
+  assert.deepEqual(m.get("1").patch, { constraint: SNET("2026-11-09"), start: "2026-11-09" });
+  assert.deepEqual(m.get("2").patch, { start: "2026-11-09" });
+  assert.ok(out.items.every((i) => !("duration" in i.patch)), "milestone tidak menjadi bar");
+  assert.equal(out.result.nodes.get("1").es, T);
+  assertSane(out.items);
+});
+
 test("revalidate: start sama → ok; constraint berubah → {ok:false, keys}", () => {
   const tasks = cascadeData();
   const ctx = ctxOf(tasks);
@@ -368,7 +416,8 @@ test("undoItems: kunci constraint/mode yang dulu tidak ada → null; urutan sama
     { taskId: 2, patch: { start: "2026-11-04", duration: 2, constraint: null, mode: null } },
     { taskId: 3, patch: { start: "2026-11-04", duration: 1, constraint: null, mode: null } },
   ]);
-  for (const u of undo) assert.ok(S.sanitizePatch(u.patch).ok);
+  const sane = (list) => assertSane(list.map((u) => ({ key: String(u.taskId), patch: u.patch })));
+  sane(undo);
   undo[0].patch.start = "x";
   assert.equal(items[0].before.start, "2026-11-04", "salinan, bukan alias");
   // Mulai yang dulu tidak ada (new) → start null; durasi lama dipertahankan persis
@@ -379,11 +428,26 @@ test("undoItems: kunci constraint/mode yang dulu tidak ada → null; urutan sama
     { taskId: 2, patch: NOTHING },
     { taskId: 3, patch: { start: null, duration: 4, constraint: null, mode: "auto" } },
   ]);
+  sane(u2);
   // gestur tautkan (patch deps) → before ikut memuat deps lama agar Urungkan melepas tautan
   const link = P.cascade(ctx, [{ task: tasks[3], patch: { deps: [{ t: { $task: 2 }, type: "FS", lag: 0 }] } }]);
   const u3 = P.undoItems(link.items);
   assert.equal(u3[0].taskId, 4);
   assert.deepEqual(u3[0].patch, { start: "2026-11-02", duration: 1, constraint: null, mode: null, deps: null });
+  sane(u3);
+});
+
+test("undoItems: nilai before yang korup (gagal sanitizePatch per kunci) → null; batch Urungkan tetap sah", () => {
+  const tasks = [
+    mk({ id: 1, start: "2026-11-02", d: 2 }),
+    mk({ id: 2, start: "2026-11-04", d: "x", mode: "kacau", constraint: { type: "XX", date: "2026-11-01" }, deps: [[1]] }),
+  ];
+  const ctx = ctxOf(tasks);
+  const { items } = P.cascade(ctx, [{ task: tasks[1], patch: { constraint: SNET("2026-11-12") } }]);
+  assert.deepEqual(items[0].before, { start: "2026-11-04", duration: "x", constraint: { type: "XX", date: "2026-11-01" }, mode: "kacau" }, "before tetap mentah (CAS)");
+  const undo = P.undoItems(items);
+  assert.deepEqual(undo, [{ taskId: 2, patch: { start: "2026-11-04", duration: null, constraint: null, mode: null } }]);
+  assertSane(undo.map((u) => ({ key: String(u.taskId), patch: u.patch })));
 });
 
 test("preview: moved, Selesai project lama → baru + Δ hk, late, notMoved (jangkar bertabrakan, cycle), brokenDeps", () => {
@@ -427,6 +491,35 @@ test("preview: moved, Selesai project lama → baru + Δ hk, late, notMoved (jan
   // tanpa item
   const empty = P.preview([], out.result, ctx, before);
   assert.deepEqual(empty, { rows: [], moved: 0, endBefore: null, endAfter: null, endDelta: null, late: 0, notMoved: [], brokenDeps: 0 });
+});
+
+test("preview: before null → null (pelanggaran yang sudah ada tidak pernah dianggap baru)", () => {
+  const tasks = cascadeData();
+  const ctx = ctxOf(tasks);
+  const out = P.cascade(ctx, [{ task: tasks[0], patch: { start: "2026-11-04" } }]);
+  assert.equal(P.preview(out.items, out.result, ctx, null), null);
+  assert.equal(P.preview(out.items, out.result, ctx, undefined), null);
+});
+
+test("preview seedKeys (pratinjau sakelar): lingkaran unit yang tidak di hilir item tetap tercantum di notMoved", () => {
+  const tasks = [
+    mk({ id: 1, start: "2026-11-02", d: 3 }),
+    mk({ id: 2, start: "2026-11-03", d: 2, deps: [[1]] }), // berpelanggaran → dipindah saat ON
+    mk({ id: 7, start: "2026-11-02", d: 1, deps: [[8]] }), // Y ↔ Z lingkaran, terpisah dari rantai
+    mk({ id: 8, start: "2026-11-02", d: 1, deps: [[7]] }),
+  ];
+  const ctx = ctxOf(tasks, new Map());
+  const before = M.run(ctx);
+  const on = P.toggleUnit(ctx, unitKey("Alpha"), true);
+  assert.deepEqual(keys(on.items), ["2"]);
+  assert.deepEqual(P.preview(on.items, on.result, ctx, before).notMoved, [], "tanpa seedKeys: tidak terjangkau");
+  const unitNodes = new Set([...on.result.nodes.values()].filter((n) => n.g === unitKey("Alpha")).map((n) => n.key));
+  const pv = P.preview(on.items, on.result, ctx, before, unitNodes);
+  assert.deepEqual(pv.notMoved, [
+    { key: "7", why: "cycle" },
+    { key: "8", why: "cycle" },
+  ]);
+  assert.equal(pv.rows.length, 1);
 });
 
 test("preview: baris durasi berubah (jadwalkan ulang task sudah mulai) — from = to, durFrom → durTo", () => {

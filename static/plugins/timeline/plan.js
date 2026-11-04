@@ -130,11 +130,19 @@ const TLPlan = (function (CAL, SCHED, CPM) {
     return seen;
   }
 
+  const isResult = (r) => isObj(r) && r.nodes instanceof Map && Array.isArray(r.order);
+
+  // Apakah operasi menggeser simpul ini (es/ef/d sesudah ≠ sebelum; bukan simpul sebelumnya = berubah).
+  const shifted = (bn, an) => !bn || bn.es !== an.es || bn.ef !== an.ef || bn.d !== an.d;
+
   // Inti aliran (K32): mesin atas data + patch → item = patch (+ start hasil mesin bila task otomatis non-jangkar) ∪
-  // turunan otomatis non-jangkar (BFS result.succ dari seeds) yang berubah terhadap nilai tersimpan. Drift di luar
-  // turunan tidak ikut. patches: Map<key, {task, patch}>; seedsOf(after) → kunci awal BFS.
-  function flow(ctx, patches, units, seedsOf) {
+  // turunan otomatis non-jangkar (BFS result.succ dari seeds) yang DIGESER operasi ini (hasil sesudah ≠ hasil sebelum)
+  // DAN berbeda dari nilai tersimpan (patch relatif ke tersimpan). Drift yang tidak digeser operasi — di luar turunan,
+  // di belakang jangkar yang tidak bergeser, atau turunan yang ES-nya tetap — tidak pernah ikut. patches: Map<key,
+  // {task, patch}>; seedsOf(after) → kunci awal BFS; before = hasil mesin atas ctx tanpa patch (tidak ada → dihitung).
+  function flow(ctx, patches, units, seedsOf, before) {
     const c = ctx.cal;
+    const prior = isResult(before) ? before : CPM.run({ tasks: ctx.tasks, cal: c, units: ctx.units, readExt: (t) => rawOf(ctx, t) });
     const merged = new Map();
     for (const [k, g] of patches) merged.set(k, mergeRaw(rawOf(ctx, g.task), g.patch));
     const read = (t) => {
@@ -150,6 +158,7 @@ const TLPlan = (function (CAL, SCHED, CPM) {
     for (const k of reach(after, seedsOf(after), false)) {
       if (patches.has(k)) continue;
       const n = after.nodes.get(k);
+      if (!shifted(prior.nodes.get(k), n)) continue;
       const raw = rawOf(ctx, n.task);
       const p = enginePatch(n, raw);
       if (Object.keys(p).length) items.push(mkItem(c, n.task, raw, p));
@@ -196,8 +205,9 @@ const TLPlan = (function (CAL, SCHED, CPM) {
   }
 
   // cascade (K32, R13): gestures [{task, patch}] (patch sudah lewat gesture()); patch ganda untuk task sama digabung.
-  // → {items, gestureCount, over, result: hasil mesin sesudah}. over = turunan berubah > CASCADE_MAX.
-  function cascade(ctx, gestures) {
+  // before (opsional) = run(ctx) yang sudah dimiliki pemanggil (mis. useEngine) agar mesin tidak dijalankan dua kali.
+  // → {items, gestureCount, over, result: hasil mesin sesudah}. over = turunan yang digeser > CASCADE_MAX.
+  function cascade(ctx, gestures, before) {
     const patches = new Map();
     for (const g of Array.isArray(gestures) ? gestures : []) {
       const k = g ? keyOf(g.task) : null;
@@ -205,7 +215,7 @@ const TLPlan = (function (CAL, SCHED, CPM) {
       const prev = patches.get(k);
       patches.set(k, { task: g.task, patch: Object.assign(prev ? prev.patch : {}, cleanPatch(g.patch)) });
     }
-    const r = flow(ctx, patches, ctx.units, () => [...patches.keys()]);
+    const r = flow(ctx, patches, ctx.units, () => [...patches.keys()], before);
     const gestureCount = patches.size;
     return { items: r.items, gestureCount, over: r.items.length - gestureCount > CASCADE_MAX, result: r.result };
   }
@@ -228,8 +238,11 @@ const TLPlan = (function (CAL, SCHED, CPM) {
 
   // reschedule (K36, R17): T = bilangan hari (atau ISO) hari kerja pertama ≥ hari ini; unitKeys = Set recId unit halaman.
   // Per simpul unit halaman (tak selesai, terhitung), urut topologis:
-  //  - sudah mulai (jangkar "started", atau Manual dengan progress/pomodoro) dan EF < T → Mulai tetap, duration =
-  //    hari kerja Mulai..add(T, r − 1), r = max(1, ⌈d × (1 − progress/100)⌉), dijepit ≤ 999;
+  //  - sudah mulai (jangkar "started", atau Manual dengan progress/pomodoro), durasi ≥ 1, EF < T → Mulai tetap,
+  //    duration = hari kerja Mulai..add(T, r − 1), r = max(1, ⌈d × (1 − progress/100)⌉), dijepit ≤ 999;
+  //  - milestone (d = 0) yang sudah mulai ikut cabang belum-mulai (amandemen K36): durasi TIDAK pernah ditulis
+  //    (berlian tidak boleh diam-diam menjadi bar). Otomatis → constraint SNET T + start T (start ditulis eksplisit karena
+  //    jangkar "started" mesin berdiri di Mulai tersimpan; tanpa itu SNET tidak berpengaruh); Manual → start T;
   //  - belum mulai dan Mulai (ES) < T → Manual: start T (milestone ikut); otomatis non-jangkar: constraint SNET T
   //    (+ start hasil mesin); lingkaran/MFO otomatis tidak disentuh.
   // Lalu aliran tanpa ambang (penerus otomatis ikut; penerus Manual tidak dipindah). broken = pelanggaran BARU dengan
@@ -244,7 +257,8 @@ const TLPlan = (function (CAL, SCHED, CPM) {
       const n = result.nodes.get(k);
       if (!unitKeys.has(n.g) || n.es === null || n.fixed === "done") continue;
       const task = n.task;
-      if (n.fixed === "started" || (n.mode === "manual" && isStarted(task))) {
+      const started = n.fixed === "started" || (n.mode === "manual" && isStarted(task));
+      if (started && n.d >= 1) {
         if (n.ef >= t) continue;
         const p = Math.min(100, Math.max(0, Number(task.progress) || 0));
         const r = Math.max(1, Math.ceil(n.d * (1 - p / 100)));
@@ -256,9 +270,10 @@ const TLPlan = (function (CAL, SCHED, CPM) {
       }
       if (n.es >= t) continue;
       if (n.mode === "manual") patches.set(k, { task, patch: { start: tIso } });
+      else if (started) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso }, start: tIso } });
       else if (!n.fixed) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso } } });
     }
-    const r = flow(ctx, patches, ctx.units, () => [...patches.keys()]);
+    const r = flow(ctx, patches, ctx.units, () => [...patches.keys()], result);
     const manual = (k) => {
       const n = r.result.nodes.get(k);
       return !!n && n.mode === "manual";
@@ -302,11 +317,14 @@ const TLPlan = (function (CAL, SCHED, CPM) {
   }
 
   // preview (K34, R14): model murni pratinjau. result = hasil mesin SESUDAH (mis. cascade().result), before = hasil
-  // SEBELUM (null boleh). rows per item (urutan item): {key, task, kind, from, to, deltaHk, durFrom, durTo, isNew,
+  // SEBELUM; tanpa before → null (pelanggaran yang sudah ada tidak boleh dianggap baru). seedKeys (Set, opsional) ikut
+  // jangkauan notMoved/brokenDeps — pratinjau sakelar memberi kunci simpul unit agar lingkaran/jangkar bertabrakan unit
+  // yang tidak di hilir item tetap tercantum. rows per item (urutan item): {key, task, kind, from, to, deltaHk, durFrom, durTo, isNew,
   // durChanged, durGuess, late}. Selesai project = maks groupEnd kelompok item. notMoved = jangkar bertabrakan
   // ("anchor"/"mfo") dan anggota lingkaran ("cycle") yang terjangkau dari item (turunan + lingkarannya), bukan item.
   // brokenDeps = pelanggaran baru dengan penerus di jangkauan itu. Tanpa teks: "Kenapa" disusun UI dari TLCpm.explain.
-  function preview(items, result, ctx, before) {
+  function preview(items, result, ctx, before, seedKeys) {
+    if (!isResult(before)) return null;
     const c = ctx.cal;
     const list = Array.isArray(items) ? items : [];
     const nodes = result.nodes;
@@ -346,7 +364,9 @@ const TLPlan = (function (CAL, SCHED, CPM) {
     const endBefore = endOf(before);
     const endAfter = endOf(result);
     const itemKeys = new Set(list.map((it) => it.key));
-    const near = reach(result, itemKeys, true);
+    const seeds = new Set(itemKeys);
+    if (seedKeys instanceof Set) for (const k of seedKeys) seeds.add(k);
+    const near = reach(result, seeds, true);
     const notMoved = [];
     for (const k of result.order) {
       const n = nodes.get(k);
@@ -377,9 +397,19 @@ const TLPlan = (function (CAL, SCHED, CPM) {
     return keys.length ? { ok: false, keys } : { ok: true };
   }
 
-  // undoItems (R13): patch = `before` persis (kunci yang dulu tidak ada → null = hapus); urutan item sama.
+  // undoItems (R13): patch = `before` (kunci yang dulu tidak ada → null = hapus); urutan item sama. Nilai mentah yang
+  // gagal sanitizePatch untuk kuncinya (data korup) → null: mesin memperlakukannya sebagai tidak ada, dan satu nilai
+  // korup tidak boleh membuat seluruh batch Urungkan ditolak (R22). Nilai sah ditulis dalam bentuk bersih sanitizePatch.
   function undoItems(items) {
-    return (Array.isArray(items) ? items : []).map((it) => ({ taskId: it.task.id, patch: clone(it.before) }));
+    return (Array.isArray(items) ? items : []).map((it) => {
+      const patch = {};
+      for (const k of Object.keys(it.before)) {
+        const v = it.before[k];
+        const s = v === null ? null : SCHED.sanitizePatch({ [k]: v });
+        patch[k] = s && s.ok ? clone(s.patch[k]) : null;
+      }
+      return { taskId: it.task.id, patch };
+    });
   }
 
   return Object.freeze({ CASCADE_MAX, diff, cascade, toggleUnit, reschedule, gesture, modePatch, preview, revalidate, undoItems });
