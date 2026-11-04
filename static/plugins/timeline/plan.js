@@ -311,7 +311,7 @@ const TLPlan = (function (CAL, SCHED, CPM) {
 
   // modePatch (R3): pilihan sama dengan mode unit → {mode: null} (hapus kunci, ikut project); selain itu {mode: want}.
   function modePatch(task, units, want) {
-    const u = units instanceof Map ? units.get(SCHED.unitOf(task).recId) : null;
+    const u = SCHED.unitFor(units, task); // penjaga fold unit sama dengan modeOf
     const unitMode = u && u.auto === true ? "auto" : "manual";
     return { mode: want === unitMode || (want !== "auto" && want !== "manual") ? null : want };
   }

@@ -2353,7 +2353,7 @@ test("final #2 (pulled): calendarStore.subscribe meneruskan peristiwa pulled hos
 // ════════════════════════════════════════════════════════════════════════════
 const { mock } = test;
 const settle = () => new Promise((r) => setImmediate(r)); // setImmediate tidak dipalsukan mock.timers
-const NO_UNIT = { auto: false, by: null, updatedAt: null, pending: false, exists: false };
+const NO_UNIT = { auto: false, by: null, updatedAt: null, pending: false, exists: false, fold: null };
 
 // Record `project` yang sah untuk nama project di workspace lid (null = pribadi); data/extra menimpa bawaan.
 function unitRec(lid, name, data, extra) {
@@ -2440,15 +2440,16 @@ test("projectStore.loadUnits workspace: list scope list:12 (dua halaman next) �
   assert.deepEqual(fr.calls.list[1], ["project", { scope: "list:12", limit: 1000, after: ids12[999] }]);
   assert.ok(units instanceof Map);
   assert.equal(units.size, ids12.length);
-  assert.deepEqual(units.get(alpha.id), { auto: true, by: 7, updatedAt: "2026-11-03T02:00:00Z", pending: true, exists: true });
-  assert.deepEqual(units.get(none.id), { auto: true, by: 7, updatedAt: "2026-11-03T02:00:00Z", pending: false, exists: true });
+  assert.deepEqual(units.get(alpha.id), { auto: true, by: 7, updatedAt: "2026-11-03T02:00:00Z", pending: true, exists: true, fold: "alpha" });
+  assert.deepEqual(units.get(none.id), { auto: true, by: 7, updatedAt: "2026-11-03T02:00:00Z", pending: false, exists: true, fold: "" });
   assert.equal(none.id, "prj@list:12:-");
   assert.equal(units.get(caseOnly.id).exists, true);
+  assert.equal(units.get(caseOnly.id).fold, "delta");
   for (const r of [bad, v2, autoStr, byStr, noBy]) assert.deepEqual(units.get(r.id), NO_UNIT, r.data.name + " dianggap tidak ada");
   const p4 = units.get(unitRec(12, "Proyek 4").id);
-  assert.deepEqual(p4, { auto: true, by: 4, updatedAt: "2026-11-03T02:00:00Z", pending: false, exists: true });
+  assert.deepEqual(p4, { auto: true, by: 4, updatedAt: "2026-11-03T02:00:00Z", pending: false, exists: true, fold: "proyek 4" });
   for (const id of ids12.slice(1000)) assert.ok(units.has(id), "halaman kedua ikut: " + id);
-  assert.deepEqual(units.get(unitRec(12, "Proyek 1000").id), { auto: true, by: 1000, updatedAt: "2026-11-03T02:00:00Z", pending: false, exists: true });
+  assert.deepEqual(units.get(unitRec(12, "Proyek 1000").id), { auto: true, by: 1000, updatedAt: "2026-11-03T02:00:00Z", pending: false, exists: true, fold: "proyek 1000" });
   assert.equal(units.get(unitRec(12, "Proyek 3").id).by, null);
   assert.equal(units.has(other.id), false);
   assert.equal(units.has(mine.id), false);
@@ -2481,7 +2482,7 @@ test("setAuto menulis {v:1, auto, name, by} scope unit", async () => {
   assert.equal(rec.pending, true);
   // bulat-pergi: loadUnits melihat record yang baru ditulis
   const units = await store.loadUnits({ pageKind: "workspace", listId: 12 });
-  assert.deepEqual(units.get(u.recId), { auto: true, by: 7, updatedAt: "2026-11-01T00:00:00Z", pending: true, exists: true });
+  assert.deepEqual(units.get(u.recId), { auto: true, by: 7, updatedAt: "2026-11-01T00:00:00Z", pending: true, exists: true, fold: "alpha" });
   // pribadi, OFF, userId bukan bilangan bulat → by null
   const p = T.TLSched.unitOf({ list_id: null, project: "Rumah" });
   await store.setAuto(p, false, "7");
@@ -2511,7 +2512,7 @@ test("setAuto menulis {v:1, auto, name, by} scope unit", async () => {
   assert.equal(fr.listenerCount(), 0);
 });
 
-test("useUnits: muat unit halaman; latch pulled menyala hanya setelah peristiwa pulled + muat ulang (P3 a: kunci sakelar T8)", async () => {
+test("useUnits: muat unit halaman; latch pulled menyala hanya setelah peristiwa pulled + muat ulang (P3 a: kunci sakelar T8)", () => withEngineClock(async (clock) => {
   const fr = fakeRecords();
   const { api } = fakeApi({ records: fr });
   const Hook = (p) => T.useUnits(p.api, p.page);
@@ -2523,12 +2524,14 @@ test("useUnits: muat unit halaman; latch pulled menyala hanya setelah peristiwa 
   assert.equal(r.units.size, 0);
   m.flush();
   await settle();
+  assert.equal(fr.calls.list.length, 1, "muat pertama saat pasang tanpa debounce (tanpa memajukan timer)");
   r = m.render({ api, page });
   assert.equal(r.loaded, true);
   assert.equal(r.pulled, false, "muat lokal bukan tanda tarik sukses");
-  // record tiba lewat sinkron (bukan pulled) → dimuat ulang, latch tetap mati
+  // record tiba lewat sinkron (bukan pulled) → dimuat ulang (debounce), latch tetap mati
   putRec(fr, unitRec(12, "Alpha"));
   fr.emit({ entity: "project", ids: [unitRec(12, "Alpha").id], source: "sync" });
+  clock.tick(300);
   await settle();
   r = m.render({ api, page });
   assert.equal(r.units.get(unitRec(12, "Alpha").id).auto, true);
@@ -2540,7 +2543,37 @@ test("useUnits: muat unit halaman; latch pulled menyala hanya setelah peristiwa 
   assert.equal(fr.calls.put.length, 0);
   m.unmount();
   assert.equal(fr.listenerCount(), 0);
-});
+}));
+
+test("useUnits: peristiwa record project beruntun → satu muat ulang 300 ms (konstanta bersama useEngine)", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  const { api } = fakeApi({ records: fr });
+  const m = mount((p) => T.useUnits(p.api, p.page));
+  const page = { pageKind: "workspace", listId: 12, projectName: null };
+  m.render({ api, page });
+  m.flush();
+  await settle();
+  assert.equal(fr.calls.list.length, 1);
+  assert.equal(T.RELOAD_TIMING.debounceMs, 300);
+  const ev = { entity: "project", ids: ["prj@list:12:-"], source: "sync" };
+  fr.emit(ev);
+  clock.tick(200);
+  fr.emit(ev);
+  clock.tick(299);
+  await settle();
+  assert.equal(fr.calls.list.length, 1);
+  clock.tick(1);
+  await settle();
+  assert.equal(fr.calls.list.length, 2, "dua kejadian beruntun = satu muat");
+  clock.tick(1000);
+  await settle();
+  assert.equal(fr.calls.list.length, 2);
+  fr.emit(ev);
+  m.unmount();
+  clock.tick(1000);
+  await settle();
+  assert.equal(fr.calls.list.length, 2, "timer tertunda dibatalkan saat dilepas");
+}));
 
 test("useEngine: render pertama status loading tanpa memanggil TLCpm.run (spy); setelah raf + setTimeout palsu → ready; scopeTasks identitas sama → tidak muat ulang; berubah / sync.done → satu muat ulang setelah 300 ms (dua kejadian beruntun = satu)", () => withEngineClock(async (clock) => {
   const a = mk(1, "A", { start: "2026-11-02", duration: 2 });
@@ -2552,7 +2585,7 @@ test("useEngine: render pertama status loading tanpa memanggil TLCpm.run (spy); 
   api.data = { tasks: { list: (q) => { listCalls += 1; assert.deepEqual(q, { includeDone: true }); return Promise.resolve(list); } } };
   const units = new Map([[T.TLSched.unitOf(a).recId, { auto: true, by: 7, updatedAt: null, pending: false, exists: true }]]);
   const scope = [a, b];
-  const opts = { scopeTasks: scope, calData: T.TLCal.normalize(T.TLCal.DEFAULT_CAL), units, pageKind: "project" };
+  const opts = { scopeTasks: scope, calData: T.TLCal.normalize(T.TLCal.DEFAULT_CAL), units };
   const spy = spyRun();
   const writes = spyWrites(api);
   try {
@@ -2677,7 +2710,7 @@ test("useEngine: daftar gagal dimuat sebelum ada hasil → status error, tanpa m
   const spy = spyRun();
   try {
     const m = mount((p) => T.useEngine(p.api, p.opts));
-    const opts = { scopeTasks: [mk(1, "A", {})], calData: T.TLCal.normalize(T.TLCal.DEFAULT_CAL), units: new Map(), pageKind: "project" };
+    const opts = { scopeTasks: [mk(1, "A", {})], calData: T.TLCal.normalize(T.TLCal.DEFAULT_CAL), units: new Map() };
     m.render({ api, opts });
     m.flush();
     await settle();
@@ -2759,7 +2792,7 @@ test("task pindah ke project lain / project diganti nama → unitOf baru tanpa r
   }
 }));
 
-test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 500 task dengan drift > 0, sync.done, onChange project dari sync, pulled, app.dayChanged, kalender berubah, scopeTasks baru", () => withEngineClock(async (clock) => {
+test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 500 task dengan drift > 0, sync.done, onChange project dari sync, pulled, env.today berubah + rerender, kalender berubah, scopeTasks baru", () => withEngineClock(async (clock) => {
   const tasks = bigTasks(500, 400).map((t) => Object.assign({}, t, { list_id: 12 }));
   const fr = fakeRecords();
   for (let i = 0; i < 5; i++) putRec(fr, unitRec(12, "P" + i)); // semua project otomatis
@@ -2800,11 +2833,11 @@ test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 50
     fr.emit(PULLED);
     await settleView(m, () => props, clock);
     ok("pulled");
-    // hari berganti
+    // env.today berubah + rerender (plugin tidak berlangganan app.dayChanged: hari dibaca dari api.env.today tiap render)
     api.env.today = () => "2026-11-05";
-    for (const f of calls.handlers["app.dayChanged"] || []) f({ date: "2026-11-05" });
+    assert.equal((calls.handlers["app.dayChanged"] || []).length, 0, "tidak ada pendengar app.dayChanged");
     await settleView(m, () => props, clock);
-    ok("app.dayChanged");
+    ok("env.today berubah + rerender");
     // kalender workspace berubah (sinkron)
     fr.store.set("calendar/cal@list:12", WS_REC([1, 2, 3, 4, 5, 6]));
     const beforeCal = spy.runs.length;
@@ -2912,4 +2945,76 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
   // regex mentah tetap cocok dengan jumlah hit AST (tidak ada pemanggilan yang luput dari parser)
   const raw = (code.match(/taskExt\.set\(|taskExt\.setMany\(|records\.put\(/g) || []).length;
   assert.equal(raw, hits.length);
+});
+
+// ── Fix review Task 6: pagar fold unit di jalur lookup, potong nama simetris sadar surrogate ─────────────────────
+test("pagar fold unit: entri Map dengan fold beda dari project task (tabrakan fnv1a32) → mode efektif manual / unitFor null, 0 tulis", () => withEngineClock(async (clock) => {
+  const S = T.TLSched;
+  const p = mk(1, "P", { start: "2026-11-02", duration: 2 }, { list_id: 12, project: "Proyek P" });
+  const q = mk(2, "Q", { duration: 1, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }] }, { list_id: 12, project: "Proyek P" });
+  const rec = S.unitOf(p).recId;
+  const unit = (fold) => ({ auto: true, by: 7, updatedAt: "2026-11-03T02:00:00Z", pending: false, exists: true, fold });
+  // fold cocok → otomatis; fold milik project lain (hash sama) → tidak ada / Manual
+  const okUnits = new Map([[rec, unit("proyek p")]]);
+  const clash = new Map([[rec, unit("proyek q")]]);
+  assert.equal(S.unitFor(okUnits, p), okUnits.get(rec));
+  assert.equal(S.modeOf({}, okUnits, p), "auto");
+  assert.equal(S.unitFor(clash, p), null);
+  assert.equal(S.modeOf({}, clash, p), "manual");
+  assert.equal(S.modeOf({ mode: "auto" }, clash, p), "auto", "mode tersimpan tetap menang");
+  assert.deepEqual(T.TLPlan.modePatch(p, clash, "manual"), { mode: null }, "unit tabrakan = Manual → pilihan Manual ikut project");
+  assert.deepEqual(T.TLPlan.modePatch(p, okUnits, "manual"), { mode: "manual" });
+  // mesin lewat useEngine: Q tidak terjadwal otomatis, tanpa drift, tanpa tulis
+  const { api } = fakeApi();
+  api.data = { tasks: { list: () => Promise.resolve([p, q]) } };
+  const writes = spyWrites(api);
+  const spy = spyRun();
+  try {
+    const m = mount((x) => T.useEngine(x.api, x.opts));
+    const opts = { scopeTasks: [p, q], calData: T.TLCal.normalize(T.TLCal.DEFAULT_CAL), units: clash };
+    for (let i = 0; i < 3; i++) { m.render({ api, opts }); m.flush(); await settle(); clock.frames(); clock.tick(0); }
+    const r = m.render({ api, opts });
+    assert.equal(r.status, "ready");
+    assert.equal(r.result.nodes.get("1").mode, "manual");
+    assert.equal(r.result.drift.size, 0);
+    assert.deepEqual(writes, []);
+    m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
+test("cutName: potong 120 unit UTF-16 simetris (tulis = baca); tidak memisah pasangan surrogate di batas → setAuto lalu baca → tetap otomatis", async () => {
+  const S = T.TLSched;
+  assert.equal(S.NAME_MAX, 120);
+  assert.equal(S.cutName("Alpha"), "Alpha");
+  assert.equal(S.cutName(null), "");
+  assert.equal(S.cutName("x".repeat(130)).length, 120);
+  const emoji = "\u{1F600}"; // pasangan surrogate (2 unit)
+  const straddle = "a".repeat(119) + emoji + " akhir"; // unit 119 = surrogate tinggi
+  assert.equal(S.cutName(straddle), "a".repeat(119), "potong di 119, tidak memisah pasangan");
+  assert.equal(S.cutName("a".repeat(118) + emoji + "z"), "a".repeat(118) + emoji, "pasangan utuh di 118–119 tetap");
+  for (const [lid, page] of [[12, { pageKind: "workspace", listId: 12 }], [null, { pageKind: "project", listId: null, projectName: straddle }]]) {
+    const fr = fakeRecords();
+    const store = T.projectStore({ records: fr.api });
+    const task = { id: 1, list_id: lid, project: straddle };
+    const u = S.unitOf(task);
+    await store.setAuto(u, true, 7);
+    const name = fr.calls.put[0][2].name;
+    assert.equal(name, "a".repeat(119));
+    assert.doesNotMatch(name, /[\uD800-\uDFFF]/, "tanpa surrogate tunggal");
+    const units = await store.loadUnits(page);
+    assert.equal(units.get(u.recId).exists, true);
+    assert.equal(units.get(u.recId).fold, S.projectFold(S.cutName(straddle)));
+    assert.equal(S.modeOf({}, units, task), "auto", "baca kembali → tetap otomatis (" + (lid ? "workspace" : "project") + ")");
+  }
+  // nama panjang biasa (> 120, tanpa surrogate) juga bulat-pergi; dua project berawalan 120 sama tetapi hash beda tidak saling memakai
+  const long = "Proyek " + "Abc".repeat(50);
+  const fr = fakeRecords();
+  const store = T.projectStore({ records: fr.api });
+  const lt = { id: 2, list_id: 12, project: long };
+  await store.setAuto(S.unitOf(lt), true, 7);
+  const units = await store.loadUnits({ pageKind: "workspace", listId: 12 });
+  assert.equal(S.modeOf({}, units, lt), "auto");
+  assert.equal(S.modeOf({}, units, { id: 3, list_id: 12, project: long + " lain" }), "manual");
 });

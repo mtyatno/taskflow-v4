@@ -81,35 +81,31 @@ function calendarStore(api) {
 // Satu record per unit jadwal (project dalam workspace, atau project pribadi): id dari TLSched.unitOf (satu-satunya
 // pembuat id), data {v: 1, auto, name, by}. Tidak ada record / data tidak sah → unit dianggap tidak ada (Manual).
 const PRJ_ENTITY = "project";
-const PRJ_MAX_NAME = 120;
 const PRJ_PAGE = 1000; // batas atas limit api.records.list
-const NO_UNIT = Object.freeze({ auto: false, by: null, updatedAt: null, pending: false, exists: false });
+const NO_UNIT = Object.freeze({ auto: false, by: null, updatedAt: null, pending: false, exists: false, fold: null });
 const EMPTY_UNITS = new Map();
 
-// Nama record cocok dengan lipatan unit (penjaga tabrakan hash): projectFold sama. Nama yang ditulis setAuto dipotong
-// 120 karakter dan projectFold mempertahankan panjang, jadi nama tepat 120 karakter cocok dengan awalan lipatan unit.
-function prjNameFits(name, fold) {
-  const f = TLSched.projectFold(name);
-  if (f === fold) return true;
-  return name.length === PRJ_MAX_NAME && fold.length > PRJ_MAX_NAME && fold.slice(0, PRJ_MAX_NAME) === f;
-}
-
-// Record → Unit. `fold` = lipatan unit yang diharapkan; null = lipatan tidak diketahui (dari daftar workspace: nama
-// harus menghasilkan id record yang sama lewat TLSched.unitOf, kecuali nama terpotong 120 karakter).
-function prjUnitOf(r, fold, lid) {
+// Record → Unit {auto, by, updatedAt, pending, exists, fold}. `fold` = projectFold(nama record) — nama record sudah
+// dipotong TLSched.cutName saat ditulis, jadi sama dengan projectFold(cutName(nama project task)) untuk project yang
+// sama. PENJAGA TABRAKAN HASH ada di lookup (TLSched.unitFor / modeOf membandingkan fold dengan project task), bukan
+// di sini: daftar workspace tidak tahu project mana yang akan mencari id ini.
+//   expect = lipatan unit halaman project (jalur get: harus sama, selain itu tidak ada); null = jalur daftar workspace,
+//   yang hanya memeriksa konsistensi diri (nama menghasilkan id record ini) bila nama pasti tidak terpotong.
+function prjUnitOf(r, expect, lid) {
   const d = r && typeof r === "object" ? r.data : null;
   if (!d || typeof d !== "object" || Array.isArray(d)) return NO_UNIT;
-  if (d.v !== 1 || typeof d.auto !== "boolean" || typeof d.name !== "string" || d.name.length > PRJ_MAX_NAME) return NO_UNIT;
+  if (d.v !== 1 || typeof d.auto !== "boolean" || typeof d.name !== "string" || d.name !== TLSched.cutName(d.name)) return NO_UNIT;
   if (!(d.by === null || Number.isInteger(d.by))) return NO_UNIT;
-  if (fold !== null) {
-    if (!prjNameFits(d.name, fold)) return NO_UNIT;
-  } else if (TLSched.unitOf({ pageKind: "workspace", listId: lid, projectName: d.name }).recId !== r.id && d.name.length !== PRJ_MAX_NAME) {
-    return NO_UNIT;
+  const fold = TLSched.projectFold(d.name);
+  if (expect !== null) {
+    if (fold !== expect) return NO_UNIT;
+  } else if (d.name.length < TLSched.NAME_MAX - 1 && TLSched.unitOf({ pageKind: "workspace", listId: lid, projectName: d.name }).recId !== r.id) {
+    return NO_UNIT; // nama utuh yang tidak menghasilkan id ini = data rusak (nama ≥ 119 bisa hasil potong cutName)
   }
   return {
     auto: d.auto, by: d.by,
     updatedAt: typeof r.updated_at === "string" ? r.updated_at : null,
-    pending: !!r.pending, exists: true,
+    pending: !!r.pending, exists: true, fold,
   };
 }
 
@@ -141,7 +137,7 @@ function projectStore(api) {
           return page1(null);
         }
         return Promise.resolve(api.records.get(PRJ_ENTITY, unit.recId)).then((r) => {
-          out.set(unit.recId, r ? prjUnitOf(r, unit.fold, null) : NO_UNIT);
+          out.set(unit.recId, r ? prjUnitOf(r, TLSched.projectFold(TLSched.cutName(unit.name)), null) : NO_UNIT);
           return out;
         });
       });
@@ -152,7 +148,7 @@ function projectStore(api) {
         const data = {
           v: 1,
           auto: on === true,
-          name: String(unit.name === undefined || unit.name === null ? "" : unit.name).slice(0, PRJ_MAX_NAME),
+          name: TLSched.cutName(unit.name), // potong simetris dengan baca/lookup (sadar surrogate)
           by: Number.isInteger(userId) ? userId : null,
         };
         return api.records.put(PRJ_ENTITY, unit.recId, data, { scope: unit.scope });
@@ -482,9 +478,12 @@ function useCalendar(api, target) {
   return { data: mine ? st.data : DEFAULT_CAL_DATA, pending: mine && st.pending, store, pulled };
 }
 
-// Unit jadwal halaman (1c-1 R6; pola useCalendar): muat lewat projectStore, muat ulang pada setiap perubahan entitas
-// project dan pada peristiwa tarik sukses. `pulled` = latch "tarik record plugin SUKSES sejak pemasangan ini", dinyalakan
-// SETELAH muat ulang sesudah peristiwa `pulled` selesai (bukan sync.done, yang juga menyala saat sinkron gagal).
+// Jeda muat ulang bersama useUnits (peristiwa record project) dan useEngine (scopeTasks / sync.done).
+const RELOAD_TIMING = { debounceMs: 300 };
+
+// Unit jadwal halaman (1c-1 R6; pola useCalendar): muat lewat projectStore (pertama segera saat pasang), muat ulang pada
+// perubahan entitas project (debounce RELOAD_TIMING) dan segera pada peristiwa tarik sukses. `pulled` = latch "tarik
+// record plugin SUKSES sejak pemasangan ini", dinyalakan SETELAH muat ulang sesudah peristiwa `pulled` selesai (bukan sync.done, yang juga menyala saat sinkron gagal).
 // P3 (a): sakelar "Jadwal otomatis" workspace dikunci "Menunggu data jadwal workspace…" selama unitnya tidak `exists`
 // dan `pulled` belum menyala (Task 8). `loaded` = muat pertama halaman ini selesai. Hook ini tidak pernah menulis.
 // page = {pageKind, listId, projectName}; workspace dimuat per scope list, halaman project per recId unitOf(page).
@@ -505,6 +504,7 @@ function useUnits(api, page) {
   React.useEffect(() => {
     let alive = true;
     let seq = 0;
+    let timer = null;
     const arg = argRef.current;
     const load = () => {
       const my = ++seq;
@@ -524,13 +524,19 @@ function useUnits(api, page) {
           load().then((ok) => { if (ok && alive) setPulled(true); });
           return;
         }
-        load();
+        // perubahan record project (sinkron bisa memancarkan beruntun) → satu muat ulang setelah jeda
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          if (alive) load();
+        }, RELOAD_TIMING.debounceMs);
       });
     } catch (e) {
       logWarn(api, "pendengar unit jadwal gagal:", e);
     }
     return () => {
       alive = false;
+      if (timer !== null) clearTimeout(timer);
       if (typeof off === "function") off();
     };
   }, [store, key]);
@@ -538,14 +544,13 @@ function useUnits(api, page) {
   return { units: mine ? st.units : EMPTY_UNITS, loaded: mine && st.loaded, pulled, store };
 }
 
-// Mesin jadwal di view (1c-1 R7, K31, K43). Memuat daftar task LENGKAP (api.data.tasks.list({includeDone: true});
-// scopeTasks host sudah difilter panel) saat pasang, lalu — debounce ENGINE_TIMING.debounceMs, hanya jawaban terbaru —
+// Mesin jadwal di view (1c-1 R7, K31, K43): useEngine(api, {scopeTasks, calData, units}). Memuat daftar task LENGKAP (api.data.tasks.list({includeDone: true});
+// scopeTasks host sudah difilter panel) saat pasang, lalu — debounce RELOAD_TIMING.debounceMs, hanya jawaban terbaru —
 // saat identitas scopeTasks berubah dan saat sync.done. Saringan scope = TLSched.scopeKeyOf halaman. TLCpm.run
 // dijalankan SESUDAH gambar pertama (raf → setTimeout 0) dan hanya bila engineKey (data task + ext jadwal, kalender,
 // unit) berubah. Keluaran {status: "loading"|"ready"|"error", result, tasks, ctx, rawOf, rerun}: ctx = {tasks, cal,
 // units, readExt} = masukan run yang sama untuk TLCpm.explain / TLPlan; hasil lama tetap "ready" sampai hasil baru siap.
 // R25: hook ini TIDAK PERNAH menulis (drift hanya ditampilkan; tulisan berasal dari aksi pengguna).
-const ENGINE_TIMING = { debounceMs: 300 };
 const ENGINE_IDLE = Object.freeze({ key: null, status: "loading", result: null, ctx: null });
 const NO_TASKS = Object.freeze([]);
 const ENGINE_TASK_FIELDS = ["id", "cid", "server_id", "parent_id", "parent_cid", "list_id", "project", "gtd_status", "progress",
@@ -564,7 +569,9 @@ function engineKeyOf(tasks, readExt) {
 
 function unitsKeyOf(units) {
   const out = [];
-  for (const [k, u] of units) out.push(k + "=" + (u && u.auto === true ? 1 : 0));
+  // auto + fold: keduanya menentukan mode efektif (TLSched.unitFor); updatedAt/by tidak memengaruhi mesin — sakelar
+  // (Task 8) membaca keduanya dari useUnits().units, BUKAN eng.ctx.units (hasil memo bisa membawa Map lama).
+  for (const [k, u] of units) out.push(k + "=" + (u && u.auto === true ? 1 : 0) + ":" + (u && typeof u.fold === "string" ? u.fold : ""));
   return out.sort().join(",");
 }
 
@@ -608,7 +615,7 @@ function useEngine(api, opts) {
     R.timer = setTimeout(() => {
       R.timer = null;
       if (R.alive) load();
-    }, ENGINE_TIMING.debounceMs);
+    }, RELOAD_TIMING.debounceMs);
   };
 
   React.useEffect(() => {
@@ -1792,7 +1799,7 @@ function TimelineViewBody(props) {
   // 1c-1 (R6, R7): unit jadwal halaman + mesin CPM sesudah gambar pertama. Hasilnya dipakai Task 7–10 (Slack, kritis,
   // banner, sakelar, aliran gestur lewat X.cur.eng); keduanya hanya membaca — tidak ada tulisan latar (R25).
   const un = useUnits(api, { pageKind, listId: context.listId, projectName: context.projectName });
-  const eng = useEngine(api, { scopeTasks: context.scopeTasks, calData: cal.data, units: un.units, pageKind });
+  const eng = useEngine(api, { scopeTasks: context.scopeTasks, calData: cal.data, units: un.units });
 
   // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari berubah (bukan tiap context baru).
   const lay = React.useMemo(() => engine.layout({
@@ -2779,7 +2786,7 @@ function TimelineView(props) {
 
 // ── 5. Ekspor Node + registrasi ─────────────────────────────────────────────
 const pure = {
-  calendarStore, calTarget, projectStore, recordEvent, PRJ_ENTITY, NO_UNIT, useUnits, useEngine, ENGINE_TIMING, engineKeyOf, prefKey, cleanPref, PREF_DEFAULTS, PREF_CHOICES,
+  calendarStore, calTarget, projectStore, recordEvent, PRJ_ENTITY, NO_UNIT, useUnits, useEngine, RELOAD_TIMING, engineKeyOf, prefKey, cleanPref, PREF_DEFAULTS, PREF_CHOICES,
   CAL_ENTITY, CAL_MAX_BYTES, MSG_CAL_TOO_LARGE, MSG_CAL_LOST, SEC_TIMING,
   MSG_EMPTY, MSG_VIOLATION, MSG_SCHEDULE_HINT, LEGEND, ZOOMS, COLS_FULL, COLS_COMPACT,
   engine, LOST_TIMING, rowCells, pomoText, missingYearsNote, barGeom, createInteractions, checkLink, isSummaryIn,

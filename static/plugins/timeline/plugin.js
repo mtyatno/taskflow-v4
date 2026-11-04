@@ -655,11 +655,36 @@ const TLSched = (function (CAL) {
     return { key: recId, recId, scope: cal.scope, name, fold };
   }
 
-  // Mode efektif: ext.mode (raw ext atau hasil readSched) menang; selain itu unit (Map<recId, {auto}>) → auto/manual.
+  // Nama project di record `project` (1c-1 R6, amandemen review T6): KEDUA sisi (tulis setAuto dan setiap baca/lookup)
+  // memotong nama ke NAME_MAX unit UTF-16 sebelum dilipat/dibandingkan. Bila unit ke-120 (indeks 119) adalah surrogate
+  // tinggi, potong di 119 — pasangan tidak pernah terbelah (surrogate tunggal bisa kembali sebagai U+FFFD dan lipatannya
+  // tidak akan pernah cocok lagi).
+  const NAME_MAX = 120;
+  function cutName(s) {
+    const str = s === undefined || s === null ? "" : String(s);
+    if (str.length <= NAME_MAX) return str;
+    const hi = str.charCodeAt(NAME_MAX - 1);
+    return str.slice(0, hi >= 0xd800 && hi <= 0xdbff ? NAME_MAX - 1 : NAME_MAX);
+  }
+
+  // Unit milik task dari Map<recId, Unit> (projectStore.loadUnits) atau null. Penjaga tabrakan hash (R6): entri yang
+  // membawa `fold` (lipatan nama terpotong record) hanya berlaku bila sama dengan projectFold(cutName(nama project
+  // task)) — dua project dengan fnv1a32 sama di satu workspace tidak saling memakai unit. Entri tanpa `fold` (Map
+  // buatan tes/pemanggil lama) diterima apa adanya.
+  function unitFor(units, task) {
+    if (!(units instanceof Map)) return null;
+    const unit = unitOf(task);
+    const u = units.get(unit.recId);
+    if (!u || typeof u !== "object") return null;
+    if (typeof u.fold === "string" && u.fold !== projectFold(cutName(unit.name))) return null;
+    return u;
+  }
+
+  // Mode efektif: ext.mode (raw ext atau hasil readSched) menang; selain itu unit (unitFor) → auto/manual.
   function modeOf(raw, units, task) {
     const m = isObj(raw) ? raw.mode : undefined;
     if (MODES.indexOf(m) >= 0) return m;
-    const u = units instanceof Map ? units.get(unitOf(task).recId) : null;
+    const u = unitFor(units, task);
     return u && u.auto === true ? "auto" : "manual";
   }
 
@@ -959,6 +984,9 @@ const TLSched = (function (CAL) {
     depLimit,
     fnv1a32,
     unitOf,
+    NAME_MAX,
+    cutName,
+    unitFor,
     modeOf,
   });
 })(typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"));
@@ -1836,7 +1864,7 @@ const TLPlan = (function (CAL, SCHED, CPM) {
 
   // modePatch (R3): pilihan sama dengan mode unit → {mode: null} (hapus kunci, ikut project); selain itu {mode: want}.
   function modePatch(task, units, want) {
-    const u = units instanceof Map ? units.get(SCHED.unitOf(task).recId) : null;
+    const u = SCHED.unitFor(units, task); // penjaga fold unit sama dengan modeOf
     const unitMode = u && u.auto === true ? "auto" : "manual";
     return { mode: want === unitMode || (want !== "auto" && want !== "manual") ? null : want };
   }
@@ -2960,47 +2988,45 @@ function calendarStore(api) {
 // Satu record per unit jadwal (project dalam workspace, atau project pribadi): id dari TLSched.unitOf (satu-satunya
 // pembuat id), data {v: 1, auto, name, by}. Tidak ada record / data tidak sah → unit dianggap tidak ada (Manual).
 const PRJ_ENTITY = "project";
-const PRJ_MAX_NAME = 120;
 const PRJ_PAGE = 1000; // batas atas limit api.records.list
 const NO_UNIT = Object.freeze({
   auto: false,
   by: null,
   updatedAt: null,
   pending: false,
-  exists: false
+  exists: false,
+  fold: null
 });
 const EMPTY_UNITS = new Map();
 
-// Nama record cocok dengan lipatan unit (penjaga tabrakan hash): projectFold sama. Nama yang ditulis setAuto dipotong
-// 120 karakter dan projectFold mempertahankan panjang, jadi nama tepat 120 karakter cocok dengan awalan lipatan unit.
-function prjNameFits(name, fold) {
-  const f = TLSched.projectFold(name);
-  if (f === fold) return true;
-  return name.length === PRJ_MAX_NAME && fold.length > PRJ_MAX_NAME && fold.slice(0, PRJ_MAX_NAME) === f;
-}
-
-// Record → Unit. `fold` = lipatan unit yang diharapkan; null = lipatan tidak diketahui (dari daftar workspace: nama
-// harus menghasilkan id record yang sama lewat TLSched.unitOf, kecuali nama terpotong 120 karakter).
-function prjUnitOf(r, fold, lid) {
+// Record → Unit {auto, by, updatedAt, pending, exists, fold}. `fold` = projectFold(nama record) — nama record sudah
+// dipotong TLSched.cutName saat ditulis, jadi sama dengan projectFold(cutName(nama project task)) untuk project yang
+// sama. PENJAGA TABRAKAN HASH ada di lookup (TLSched.unitFor / modeOf membandingkan fold dengan project task), bukan
+// di sini: daftar workspace tidak tahu project mana yang akan mencari id ini.
+//   expect = lipatan unit halaman project (jalur get: harus sama, selain itu tidak ada); null = jalur daftar workspace,
+//   yang hanya memeriksa konsistensi diri (nama menghasilkan id record ini) bila nama pasti tidak terpotong.
+function prjUnitOf(r, expect, lid) {
   const d = r && typeof r === "object" ? r.data : null;
   if (!d || typeof d !== "object" || Array.isArray(d)) return NO_UNIT;
-  if (d.v !== 1 || typeof d.auto !== "boolean" || typeof d.name !== "string" || d.name.length > PRJ_MAX_NAME) return NO_UNIT;
+  if (d.v !== 1 || typeof d.auto !== "boolean" || typeof d.name !== "string" || d.name !== TLSched.cutName(d.name)) return NO_UNIT;
   if (!(d.by === null || Number.isInteger(d.by))) return NO_UNIT;
-  if (fold !== null) {
-    if (!prjNameFits(d.name, fold)) return NO_UNIT;
-  } else if (TLSched.unitOf({
+  const fold = TLSched.projectFold(d.name);
+  if (expect !== null) {
+    if (fold !== expect) return NO_UNIT;
+  } else if (d.name.length < TLSched.NAME_MAX - 1 && TLSched.unitOf({
     pageKind: "workspace",
     listId: lid,
     projectName: d.name
-  }).recId !== r.id && d.name.length !== PRJ_MAX_NAME) {
-    return NO_UNIT;
+  }).recId !== r.id) {
+    return NO_UNIT; // nama utuh yang tidak menghasilkan id ini = data rusak (nama ≥ 119 bisa hasil potong cutName)
   }
   return {
     auto: d.auto,
     by: d.by,
     updatedAt: typeof r.updated_at === "string" ? r.updated_at : null,
     pending: !!r.pending,
-    exists: true
+    exists: true,
+    fold
   };
 }
 
@@ -3043,7 +3069,7 @@ function projectStore(api) {
           return page1(null);
         }
         return Promise.resolve(api.records.get(PRJ_ENTITY, unit.recId)).then(r => {
-          out.set(unit.recId, r ? prjUnitOf(r, unit.fold, null) : NO_UNIT);
+          out.set(unit.recId, r ? prjUnitOf(r, TLSched.projectFold(TLSched.cutName(unit.name)), null) : NO_UNIT);
           return out;
         });
       });
@@ -3054,7 +3080,8 @@ function projectStore(api) {
         const data = {
           v: 1,
           auto: on === true,
-          name: String(unit.name === undefined || unit.name === null ? "" : unit.name).slice(0, PRJ_MAX_NAME),
+          name: TLSched.cutName(unit.name),
+          // potong simetris dengan baca/lookup (sadar surrogate)
           by: Number.isInteger(userId) ? userId : null
         };
         return api.records.put(PRJ_ENTITY, unit.recId, data, {
@@ -3460,9 +3487,14 @@ function useCalendar(api, target) {
   };
 }
 
-// Unit jadwal halaman (1c-1 R6; pola useCalendar): muat lewat projectStore, muat ulang pada setiap perubahan entitas
-// project dan pada peristiwa tarik sukses. `pulled` = latch "tarik record plugin SUKSES sejak pemasangan ini", dinyalakan
-// SETELAH muat ulang sesudah peristiwa `pulled` selesai (bukan sync.done, yang juga menyala saat sinkron gagal).
+// Jeda muat ulang bersama useUnits (peristiwa record project) dan useEngine (scopeTasks / sync.done).
+const RELOAD_TIMING = {
+  debounceMs: 300
+};
+
+// Unit jadwal halaman (1c-1 R6; pola useCalendar): muat lewat projectStore (pertama segera saat pasang), muat ulang pada
+// perubahan entitas project (debounce RELOAD_TIMING) dan segera pada peristiwa tarik sukses. `pulled` = latch "tarik
+// record plugin SUKSES sejak pemasangan ini", dinyalakan SETELAH muat ulang sesudah peristiwa `pulled` selesai (bukan sync.done, yang juga menyala saat sinkron gagal).
 // P3 (a): sakelar "Jadwal otomatis" workspace dikunci "Menunggu data jadwal workspace…" selama unitnya tidak `exists`
 // dan `pulled` belum menyala (Task 8). `loaded` = muat pertama halaman ini selesai. Hook ini tidak pernah menulis.
 // page = {pageKind, listId, projectName}; workspace dimuat per scope list, halaman project per recId unitOf(page).
@@ -3494,6 +3526,7 @@ function useUnits(api, page) {
   React.useEffect(() => {
     let alive = true;
     let seq = 0;
+    let timer = null;
     const arg = argRef.current;
     const load = () => {
       const my = ++seq;
@@ -3519,13 +3552,19 @@ function useUnits(api, page) {
           });
           return;
         }
-        load();
+        // perubahan record project (sinkron bisa memancarkan beruntun) → satu muat ulang setelah jeda
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          if (alive) load();
+        }, RELOAD_TIMING.debounceMs);
       });
     } catch (e) {
       logWarn(api, "pendengar unit jadwal gagal:", e);
     }
     return () => {
       alive = false;
+      if (timer !== null) clearTimeout(timer);
       if (typeof off === "function") off();
     };
   }, [store, key]);
@@ -3538,16 +3577,13 @@ function useUnits(api, page) {
   };
 }
 
-// Mesin jadwal di view (1c-1 R7, K31, K43). Memuat daftar task LENGKAP (api.data.tasks.list({includeDone: true});
-// scopeTasks host sudah difilter panel) saat pasang, lalu — debounce ENGINE_TIMING.debounceMs, hanya jawaban terbaru —
+// Mesin jadwal di view (1c-1 R7, K31, K43): useEngine(api, {scopeTasks, calData, units}). Memuat daftar task LENGKAP (api.data.tasks.list({includeDone: true});
+// scopeTasks host sudah difilter panel) saat pasang, lalu — debounce RELOAD_TIMING.debounceMs, hanya jawaban terbaru —
 // saat identitas scopeTasks berubah dan saat sync.done. Saringan scope = TLSched.scopeKeyOf halaman. TLCpm.run
 // dijalankan SESUDAH gambar pertama (raf → setTimeout 0) dan hanya bila engineKey (data task + ext jadwal, kalender,
 // unit) berubah. Keluaran {status: "loading"|"ready"|"error", result, tasks, ctx, rawOf, rerun}: ctx = {tasks, cal,
 // units, readExt} = masukan run yang sama untuk TLCpm.explain / TLPlan; hasil lama tetap "ready" sampai hasil baru siap.
 // R25: hook ini TIDAK PERNAH menulis (drift hanya ditampilkan; tulisan berasal dari aksi pengguna).
-const ENGINE_TIMING = {
-  debounceMs: 300
-};
 const ENGINE_IDLE = Object.freeze({
   key: null,
   status: "loading",
@@ -3569,7 +3605,9 @@ function engineKeyOf(tasks, readExt) {
 }
 function unitsKeyOf(units) {
   const out = [];
-  for (const [k, u] of units) out.push(k + "=" + (u && u.auto === true ? 1 : 0));
+  // auto + fold: keduanya menentukan mode efektif (TLSched.unitFor); updatedAt/by tidak memengaruhi mesin — sakelar
+  // (Task 8) membaca keduanya dari useUnits().units, BUKAN eng.ctx.units (hasil memo bisa membawa Map lama).
+  for (const [k, u] of units) out.push(k + "=" + (u && u.auto === true ? 1 : 0) + ":" + (u && typeof u.fold === "string" ? u.fold : ""));
   return out.sort().join(",");
 }
 function useEngine(api, opts) {
@@ -3618,7 +3656,7 @@ function useEngine(api, opts) {
     R.timer = setTimeout(() => {
       R.timer = null;
       if (R.alive) load();
-    }, ENGINE_TIMING.debounceMs);
+    }, RELOAD_TIMING.debounceMs);
   };
   React.useEffect(() => {
     const R = L.current;
@@ -5294,8 +5332,7 @@ function TimelineViewBody(props) {
   const eng = useEngine(api, {
     scopeTasks: context.scopeTasks,
     calData: cal.data,
-    units: un.units,
-    pageKind
+    units: un.units
   });
 
   // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari berubah (bukan tiap context baru).
@@ -6519,7 +6556,7 @@ const pure = {
   NO_UNIT,
   useUnits,
   useEngine,
-  ENGINE_TIMING,
+  RELOAD_TIMING,
   engineKeyOf,
   prefKey,
   cleanPref,

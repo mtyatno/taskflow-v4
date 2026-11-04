@@ -232,11 +232,36 @@ const TLSched = (function (CAL) {
     return { key: recId, recId, scope: cal.scope, name, fold };
   }
 
-  // Mode efektif: ext.mode (raw ext atau hasil readSched) menang; selain itu unit (Map<recId, {auto}>) → auto/manual.
+  // Nama project di record `project` (1c-1 R6, amandemen review T6): KEDUA sisi (tulis setAuto dan setiap baca/lookup)
+  // memotong nama ke NAME_MAX unit UTF-16 sebelum dilipat/dibandingkan. Bila unit ke-120 (indeks 119) adalah surrogate
+  // tinggi, potong di 119 — pasangan tidak pernah terbelah (surrogate tunggal bisa kembali sebagai U+FFFD dan lipatannya
+  // tidak akan pernah cocok lagi).
+  const NAME_MAX = 120;
+  function cutName(s) {
+    const str = s === undefined || s === null ? "" : String(s);
+    if (str.length <= NAME_MAX) return str;
+    const hi = str.charCodeAt(NAME_MAX - 1);
+    return str.slice(0, hi >= 0xd800 && hi <= 0xdbff ? NAME_MAX - 1 : NAME_MAX);
+  }
+
+  // Unit milik task dari Map<recId, Unit> (projectStore.loadUnits) atau null. Penjaga tabrakan hash (R6): entri yang
+  // membawa `fold` (lipatan nama terpotong record) hanya berlaku bila sama dengan projectFold(cutName(nama project
+  // task)) — dua project dengan fnv1a32 sama di satu workspace tidak saling memakai unit. Entri tanpa `fold` (Map
+  // buatan tes/pemanggil lama) diterima apa adanya.
+  function unitFor(units, task) {
+    if (!(units instanceof Map)) return null;
+    const unit = unitOf(task);
+    const u = units.get(unit.recId);
+    if (!u || typeof u !== "object") return null;
+    if (typeof u.fold === "string" && u.fold !== projectFold(cutName(unit.name))) return null;
+    return u;
+  }
+
+  // Mode efektif: ext.mode (raw ext atau hasil readSched) menang; selain itu unit (unitFor) → auto/manual.
   function modeOf(raw, units, task) {
     const m = isObj(raw) ? raw.mode : undefined;
     if (MODES.indexOf(m) >= 0) return m;
-    const u = units instanceof Map ? units.get(unitOf(task).recId) : null;
+    const u = unitFor(units, task);
     return u && u.auto === true ? "auto" : "manual";
   }
 
@@ -536,6 +561,9 @@ const TLSched = (function (CAL) {
     depLimit,
     fnv1a32,
     unitOf,
+    NAME_MAX,
+    cutName,
+    unitFor,
     modeOf,
   });
 })(typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"));
