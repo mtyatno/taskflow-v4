@@ -209,6 +209,7 @@ dan ikut sinkron task di semua jalur (hidrasi, push, pull, workspace bersama).
   kegagalan validasi sebelum menulis tidak membawa `applied`). Karena semua item diperbarui optimistis lebih
   dulu, item yang belum tersimpan menampilkan nilai baru sampai muat ulang daftar di akhir selesai; bila muat
   ulang itu sendiri gagal, tampilan baru pulih pada muat ulang berikutnya.
+  `setMany` menulis semua item dalam satu transaksi lokal bila tersedia; kontrak sama.
 - **Optimistis:** state daftar task host diperbarui seketika, lalu ditulis ke IndexedDB (rute lokal
   `PUT /api/tasks/:id` `{ext_patch}`) dan diantre untuk sinkron; gagal → daftar dimuat ulang lalu reject.
   Bekerja offline.
