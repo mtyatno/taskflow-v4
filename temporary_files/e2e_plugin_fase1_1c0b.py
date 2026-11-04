@@ -38,7 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import e2e_hero_dashboard as hd  # noqa: E402
 import e2e_plugin_fase1_1c0 as c0  # noqa: E402
 
-c0.OLD["static/offline/syncpull.js"] = c0.old_src("static/offline/syncpull.js", "origin/main")  # kode sebelum 1c-0b (main memuat 1c-0)
+c0.OLD["static/offline/syncpull.js"] = c0.old_src("static/offline/syncpull.js", "390e151d")  # kode sebelum 1c-0b (main memuat 1c-0)
 c0.SHOTS = SHOTS = os.path.join(hd.ROOT, "temporary_files", "e2e_plugin_fase1_1c0b")
 
 WS, PID, PULL_RE, FULL_KEYS = c0.WS, c0.PID, c0.PULL_RE, c0.FULL_KEYS

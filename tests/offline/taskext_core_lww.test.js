@@ -414,6 +414,7 @@ function fakeServer() {
     },
     list() { return Array.from(rows.values()).map((r) => s.dict(r)); },
     request(method, p, body) {
+      // Catatan: server palsu ini lebih ketat dari server asli (kunci inti apa pun, bahkan null, dianggap tidak murni; server asli menganggap null = tidak dikirim, diuji di tes server).
       calls.push({ method, path: p, body: JSON.parse(JSON.stringify(body || {})) });
       const m = /^\/api\/tasks\/(\d+)$/.exec(p);
       if (method === "PUT" && m) {
