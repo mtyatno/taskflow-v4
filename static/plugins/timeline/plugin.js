@@ -3206,6 +3206,10 @@ const EMPTY_PV_MODEL = Object.freeze({
 });
 const PV_ROWS_MAX = 50; // R14: ≤ 50 baris sebelum "Tampilkan semua"
 const appliedText = n => "Jadwal diterapkan · " + n + " task";
+// 1c-1 R12, R13 (K32, K33): aliran gestur di Gantt (teks persis).
+const flowText = n => "Jadwal diubah · " + n + " task ikut bergeser";
+const MSG_EARLY = "Tidak bisa lebih awal dari dependensinya";
+const PV_FLOW = "Tinjau jadwal otomatis"; // judul pratinjau aliran gestur > 20 turunan (teks §7.6 yang ada)
 const partialText = (k, n) => "Sebagian jadwal gagal disimpan (" + k + " dari " + n + ")"; // k = item yang gagal
 const MSG_EMPTY = "Belum ada task di halaman ini";
 // Kalender kerja (R18) dan Daftar HP (R20): teks persis.
@@ -3449,6 +3453,24 @@ function unitSnap(u) {
 }
 function sameSnap(a, b) {
   return a.updatedAt === b.updatedAt && a.by === b.by;
+}
+
+// JSON kanonik (urutan kunci objek tidak relevan; undefined = null) — pembanding nilai ext.
+function canonJson(v) {
+  if (v === undefined || v === null) return "null";
+  if (Array.isArray(v)) return "[" + v.map(canonJson).join(",") + "]";
+  if (typeof v === "object") return "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + canonJson(v[k])).join(",") + "}";
+  return JSON.stringify(v);
+}
+
+// Item aliran yang benar-benar mengubah ext (T4: gestur {start: null} pada task otomatis berpendahulu menjadi item
+// deltaHk 0 yang menulis nilai tersimpan). Item tanpa kunci berbeda dari `before` (nilai mentah) dibuang: gestur yang
+// seluruhnya tanpa efek = diam (tanpa tulis, tanpa toast "Jadwal diubah"; R13 hanya mengenal toast untuk perubahan).
+function flowItems(items) {
+  return (Array.isArray(items) ? items : []).filter(it => {
+    const b = it && it.before && typeof it.before === "object" ? it.before : {};
+    return !!it && !!it.patch && Object.keys(it.patch).some(k => canonJson(it.patch[k]) !== canonJson(b[k]));
+  });
 }
 function rowCells(row, groupName, slack) {
   if (row.kind === "group") return {
@@ -5527,7 +5549,8 @@ function createInteractions() {
 
   // 1c-1 R13: banyak task dalam SATU api.taskExt.setMany. items = [{task, patch}]; semua kunci masuk busy/after
   // SEKETIKA (seret/tombol berikutnya tidak menulis dari props basi). Penolakan (err.applied) diteruskan ke pemanggil.
-  function issueMany(items) {
+  // `gate` (opsional, pola issue) = promise pemeriksaan sebelum tulis: false → reject BLOCKED tanpa memanggil api.
+  function issueMany(items, gate) {
     const api = X.cur.api;
     const list = (Array.isArray(items) ? items : []).filter(it => it && it.task && it.patch);
     const keys = [];
@@ -5541,15 +5564,20 @@ function createInteractions() {
         eff: Object.assign({}, rr.eff, it.patch)
       });
     }
-    let p;
-    try {
-      p = api.taskExt.setMany(list.map(it => ({
-        taskId: it.task.id,
-        patch: it.patch
-      })));
-    } catch (e) {
-      p = Promise.reject(e);
-    }
+    const send = () => {
+      try {
+        return api.taskExt.setMany(list.map(it => ({
+          taskId: it.task.id,
+          patch: it.patch
+        })));
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    };
+    const p = gate ? Promise.resolve(gate).then(ok => {
+      if (!ok) throw BLOCKED;
+      return send();
+    }) : send();
     const done = Promise.resolve(p).then(r => {
       for (const k of keys) X.busy.delete(k);
       return r;
@@ -5587,6 +5615,8 @@ function createInteractions() {
   // (sebagian tersimpan) → onDone TIDAK dipanggil, toast "Sebagian jadwal gagal disimpan ({k} dari {n})" (k = gagal)
   // + Urungkan hanya untuk item yang tersimpan; tanpa applied / 0 tersimpan → "Jadwal gagal disimpan".
   // → Promise<boolean> (true = semua tersimpan dan onDone sukses); tidak pernah reject.
+  // Task 9 (aliran gestur): opts.gate = pemeriksaan sebelum tulis (ditolak → false tanpa toast; toast sudah tampil),
+  // opts.text = teks toast sukses ("Jadwal diubah · {n} task ikut bergeser"); bawaan "Jadwal diterapkan · {n} task".
   function applyPlan(items, opts) {
     const api = X.cur.api;
     const o = opts || {};
@@ -5597,14 +5627,15 @@ function createInteractions() {
       failed(api, err);
       return false;
     });
-    return issueMany(list).then(() => after().then(() => {
-      toastSafe(api, appliedText(n), "success", undoAction(api, list));
+    return issueMany(list, o.gate).then(() => after().then(() => {
+      toastSafe(api, typeof o.text === "string" ? o.text : appliedText(n), "success", undoAction(api, list));
       return true;
     }, err => {
       logWarn(api, "jadwal tersimpan, langkah lanjutan gagal:", err);
       toastSafe(api, MSG_SAVE_FAIL, "error", undoAction(api, list));
       return false;
     }), err => {
+      if (err === BLOCKED) return false; // pemeriksaan sebelum tulis menolak (toast sudah tampil), 0 tulis
       const ids = err && Array.isArray(err.applied) ? new Set(err.applied.map(String)) : null;
       const saved = ids ? list.filter(it => ids.has(String(it.task.id))) : [];
       if (!saved.length) {
@@ -5643,6 +5674,81 @@ function createInteractions() {
       return;
     }
     issue(task, rawOf(task), prev, true).catch(err => failed(api, err));
+  }
+
+  // ---- 1c-1 R12, R13 (K32, K33): SATU pintu tulis untuk seret, Alt+panah, klik-jadwalkan, dan tautkan ----
+  // flow(task, rr, patch, prev, checked) → Promise<boolean> (true = tersimpan; false = tidak ada tulis atau gagal;
+  // tidak pernah reject). `rr` = rawOf(task) saat gestur dimulai; `prev` = nilai lama 1b (TLDrag/tautkan);
+  // `checked` = pemeriksaan ringkasan sudah dilakukan (tautkan).
+  //  - Mesin belum siap/gagal: task otomatis menurut ext.mode + unit lokal (useUnits) → 0 tulis + "Jadwal gagal
+  //    disimpan"; selain itu `write` 1b apa adanya.
+  //  - Mesin siap: TLPlan.gesture (R12; terlalu awal → 0 tulis + "Tidak bisa lebih awal dari dependensinya") →
+  //    TLPlan.cascade (K32: hanya gestur ∪ turunan yang DIGESER gestur; drift lain tidak pernah ikut) → item tanpa
+  //    perubahan dibuang (flowItems). 0 item → diam. Item menyentuh task yang sedang ditulis → diabaikan (tanpa antre).
+  //    Hanya task gestur → `write` 1b (patch 1b persis bila mesin tidak menambah apa pun, selain itu patch item +
+  //    Urungkan = undoItems). Turunan > CASCADE_MAX → PreviewDialog (0 tulis sampai Terapkan). Selain itu applyPlan:
+  //    satu setMany + "Jadwal diubah · {n} task ikut bergeser" + Urungkan (undoItems persis).
+  function flow(task, rr, patch, prev, checked) {
+    const api = X.cur.api;
+    const eng = X.cur.eng;
+    const k = keyOf(task);
+    if (!eng || eng.status !== "ready" || !eng.ctx || !eng.result) {
+      const un = X.cur.units;
+      if (TLSched.modeOf(rr.eff, un && un.units, task) === "auto") {
+        toastSafe(api, MSG_SAVE_FAIL, "error");
+        return Promise.resolve(false);
+      }
+      return write(task, rr, patch, prev, checked);
+    }
+    // ext efektif (nilai optimistis tulis yang belum diikuti props); ada yang berlaku → hasil useEngine basi, hitung ulang.
+    const ctx = Object.assign({}, eng.ctx, {
+      readExt: peekRaw
+    });
+    const before = pendingIn(ctx.tasks) ? engine.run(ctx) : eng.result;
+    const g = TLPlan.gesture(before, task, rr.eff, patch, ctx.cal);
+    if (!g.ok) {
+      toastSafe(api, MSG_EARLY, "error");
+      return Promise.resolve(false);
+    }
+    const gestures = [{
+      task,
+      patch: g.patch
+    }];
+    const c = TLPlan.cascade(ctx, gestures, before);
+    const items = flowItems(c.items);
+    if (!items.length) return Promise.resolve(false);
+    if (items.some(it => X.busy.has(it.key))) return Promise.resolve(false);
+    const down = items.filter(it => it.key !== k).length;
+    if (!down) {
+      const it = items[0];
+      const san = TLSched.sanitizePatch(patch);
+      if (canonJson(it.patch) === canonJson(san.ok ? san.patch : patch)) return write(task, rr, patch, prev, checked);
+      return write(task, rr, it.patch, TLPlan.undoItems([it])[0].patch, checked);
+    }
+    if (down > TLPlan.CASCADE_MAX) {
+      if (typeof X.cur.openPreview === "function") X.cur.openPreview({
+        items,
+        result: c.result,
+        before,
+        ctx,
+        gestures
+      });
+      return Promise.resolve(false);
+    }
+    return applyPlan(items, {
+      gate: checked ? null : summaryGate(task),
+      text: flowText(down)
+    });
+  }
+
+  // Ada nilai optimistis (X.after) yang masih berlaku untuk task di ctx → hasil mesin useEngine belum memuatnya.
+  function pendingIn(tasks) {
+    if (!X.after.size) return false;
+    for (const t of tasks) {
+      const a = X.after.get(keyOf(t));
+      if (a && peekRaw(t) === a.eff) return true;
+    }
+    return false;
   }
   function suppressClick() {
     X.suppress = true;
@@ -5867,7 +5973,7 @@ function createInteractions() {
       if (res) link(res.link);
       return;
     }
-    write(g.row.task, g.rr, res.patch, res.prev).then(ok => {
+    flow(g.row.task, g.rr, res.patch, res.prev).then(ok => {
       if (!ok) restore(g);
     });
   }
@@ -5906,7 +6012,7 @@ function createInteractions() {
       const prev = {
         deps: rr.eff.deps === undefined ? null : rr.eff.deps
       };
-      return write(succ, rr, {
+      return flow(succ, rr, {
         deps: chk.deps
       }, prev, true);
     }, err => {
@@ -5978,7 +6084,7 @@ function createInteractions() {
     if (dn < lay.range.from || dn > lay.range.to || X.busy.has(keyOf(s.row.task))) return;
     const rr = rawOf(s.row.task);
     const r = TLDrag.scheduleAt(lay.cal, dn, schedOf(rr.eff));
-    if (r) write(s.row.task, rr, r.patch, r.prev);
+    if (r) flow(s.row.task, rr, r.patch, r.prev);
   }
 
   // ---- keyboard (R23): Enter buka; Alt+←/→ geser 1 hk (milestone 1 hari kalender); Alt+Shift+←/→ durasi ±1; satu set per tekan ----
@@ -6001,7 +6107,7 @@ function createInteractions() {
     }, schedOf(rr.eff), X.cur.lay.cal);
     if (!r) return;
     const from = e.currentTarget || null;
-    write(row.task, rr, r.patch, r.prev).then(() => raf(() => refocus(row.key, from)));
+    flow(row.task, rr, r.patch, r.prev).then(() => raf(() => refocus(row.key, from)));
   }
 
   // Render ulang setelah tulis bisa memasang ulang bar/baris (virtualisasi): fokus kembali ke elemen dengan data-key dan
@@ -6389,6 +6495,38 @@ function TimelineViewBody(props) {
     });
   };
   const cancelPv = () => setPv(null);
+  // Task 9 (R13): aliran gestur dengan turunan > 20 → pratinjau "Tinjau jadwal otomatis" (0 tulis sampai Terapkan).
+  // Hitung ulang setelah CAS = gestur yang sama (patch sudah lewat TLPlan.gesture) atas data terbaru.
+  const buildFlow = (ctx, before, gestures, pre) => {
+    const c = pre || TLPlan.cascade(ctx, gestures, before);
+    const items = pre ? pre.items : flowItems(c.items);
+    const pm = items.length ? TLPlan.preview(items, c.result, ctx, before) : null;
+    return {
+      items,
+      model: pm ? dialogModel(pm, c.result, wbsOfPage()) : null
+    };
+  };
+  const openFlowPv = p => {
+    if (pvRef.current) return; // satu dialog pada satu waktu
+    const b = buildFlow(p.ctx, p.before, p.gestures, {
+      items: p.items,
+      result: p.result
+    });
+    if (!b.model) return;
+    setUnitOpen(false);
+    setCalOpen(false); // satu Esc = dialog saja
+    const next = {
+      id: ++pvSeq.current,
+      title: PV_FLOW,
+      items: b.items,
+      model: b.model,
+      busy: false,
+      rebuild: (ctx2, before2) => buildFlow(ctx2, before2, p.gestures)
+    };
+    pvRef.current = next;
+    setPv(next);
+  };
+  ctl.cur.openPreview = openFlowPv;
   // Terapkan (R14): muat ulang daftar lengkap (+ unit) → TLPlan.revalidate (nilai mentah) dan, untuk sakelar, potret
   // updatedAt/by unit. Berbeda → toast + hitung ulang dari data terbaru (Terapkan perlu ditekan lagi), 0 tulis.
   const applyPv = () => {
@@ -7594,7 +7732,8 @@ const pure = {
   pageUnits,
   unitCaption,
   signedHk,
-  scopeFilter
+  scopeFilter,
+  flowItems
 };
 if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, {
   TLHolidays,

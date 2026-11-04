@@ -968,7 +968,7 @@ function fakeListenerEl(base) {
 // Pemasangan lengkap: wadah gulir + grafik + tooltip/garis karet palsu; o.set / o.setMany mengganti hasil tulis.
 async function ixSetup(tasks, o) {
   const opts = o || {};
-  const { api, calls } = fakeApi();
+  const { api, calls } = fakeApi(opts.records ? { records: opts.records } : undefined);
   calls.set = [];
   calls.setMany = [];
   api.taskExt.set = (id, p) => { calls.set.push([id, p]); return opts.set ? opts.set(id, p) : Promise.resolve(); };
@@ -1003,10 +1003,24 @@ async function ixSetup(tasks, o) {
   let tree = m.render(props);
   wire(tree);
   m.flush();
-  await tick();
-  tree = m.render(props);
-  wire(tree);
-  m.flush();
+  if (opts.clock) {
+    // 1c-1 Task 9: jam mesin palsu (withEngineClock) — useUnits/useEngine selesai; opts.noEngine = raf tidak dijalankan
+    // (mesin tetap "loading").
+    for (let i = 0; i < 4; i++) {
+      await settle();
+      if (!opts.noEngine) opts.clock.frames();
+      opts.clock.tick(300);
+      await settle();
+      tree = m.render(props);
+      wire(tree);
+      m.flush();
+    }
+  } else {
+    await tick();
+    tree = m.render(props);
+    wire(tree);
+    m.flush();
+  }
   tree = m.render(props);
   const lay = layOf(tasks, "week", api);
   const row = (k) => lay.rows.find((r) => r.key === k);
@@ -3843,3 +3857,317 @@ test("fix T8 #5: Terapkan ditekan dua kali cepat → satu setMany, satu put", ()
   assert.deepEqual(h.writes().map((x) => x[0]), ["setMany", "put"]);
   h.m.unmount();
 }));
+
+// ── 1c-1 Task 9: aliran gestur di Gantt (R12, R13; K32, K33) ─────────────────────────────────────────────────
+// Halaman project pribadi "Alpha"; record unit auto (kecuali manualUnit). Tanggal tersimpan bebas drift kecuali
+// disebut. Jam mesin palsu + window palsu (pendengar seret).
+const AL = { project: "Alpha" };
+const fsDep = (id) => [{ t: { $task: id }, type: "FS", lag: 0 }];
+const withAuto = (fn) => withEngineClock((clock) => withIx((w) => fn(clock, w)));
+async function autoIx(clock, tasks, o) {
+  const fr = fakeRecords();
+  if (!(o && o.manualUnit)) putRec(fr, unitRec(null, "Alpha"));
+  return ixSetup(tasks, Object.assign({ clock, records: fr }, o || {}));
+}
+const engReadyIn = (tree) => !!switchOf(tree); // tombol "Jadwal otomatis" hanya tampil saat mesin siap
+// Seret bar k sejauh `days` hari kalender (zoom Minggu = 12 px/hari; bar ≥ 2 hari agar titik +10 px di zona geser,
+// bukan tepi); frames() = cat bar (restore butuh cat).
+function dragBy(h, w, clock, k, days) {
+  const b = h.box(k);
+  const y = h.cy(h.midY(k));
+  const x0 = h.cx(b.x + 10);
+  const el = fakeNode();
+  h.bar(k).props.onPointerDown(pev(x0, y, { currentTarget: el }));
+  w.fire("pointermove", pev(x0 + Math.sign(days) * 6, y));
+  w.fire("pointermove", pev(x0 + days * 12, y));
+  clock.frames();
+  w.fire("pointerup", pev(x0 + days * 12, y));
+  return { el, base: "translate(" + b.x + "px, " + (h.row(k).index * 32 + 8) + "px)" };
+}
+const lastToast = (h) => h.calls.toast[h.calls.toast.length - 1];
+const settle2 = async () => { await settle(); await settle(); await settle(); };
+const U4 = (start, duration) => ({ start, duration, constraint: null, mode: null }); // patch Urungkan (undoItems)
+
+test("unit Manual tanpa penerus otomatis: seret = satu set + toast 'Jadwal diubah' (1b, tanpa ubah asersi lama)", () => withAuto(async (clock, w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, AL), mk(2, "B", { start: "2026-11-04", duration: 1, deps: fsDep(1) }, AL)];
+  const h = await autoIx(clock, tasks, { manualUnit: true });
+  assert.ok(engReadyIn(h.tree), "mesin siap");
+  dragBy(h, w, clock, "1", 2);
+  await settle2();
+  assert.deepEqual(h.calls.set, [[1, { start: "2026-11-04" }]]);
+  assert.equal(h.calls.setMany.length, 0, "penerus Manual tidak ikut");
+  const t = lastToast(h);
+  assert.deepEqual([t[0], t[1], t[2].label], ["Jadwal diubah", "success", "Urungkan"]);
+  t[2].onClick();
+  await settle2();
+  assert.deepEqual(h.calls.setMany, [[{ taskId: 1, patch: { start: "2026-11-02" } }]]);
+  h.m.unmount();
+}));
+
+test("unit otomatis: seret akar +2 hk dengan 3 turunan → satu setMany 4 item (gestur + turunan) + toast 'Jadwal diubah · 3 task ikut bergeser' + Urungkan → setMany nilai lama", () => withAuto(async (clock, w) => {
+  const tasks = [
+    mk(1, "A", { start: "2026-11-02", duration: 2 }, AL),
+    mk(2, "B", { start: "2026-11-04", duration: 1, deps: fsDep(1) }, AL),
+    mk(3, "C", { start: "2026-11-05", duration: 1, deps: fsDep(2) }, AL),
+    mk(4, "D", { start: "2026-11-06", duration: 1, deps: fsDep(3) }, AL),
+  ];
+  const h = await autoIx(clock, tasks);
+  assert.ok(engReadyIn(h.tree), "mesin siap");
+  dragBy(h, w, clock, "1", 2);
+  await settle2();
+  assert.deepEqual(h.calls.set, [], "tidak ada set + setMany berpasangan");
+  assert.deepEqual(h.calls.setMany, [[
+    { taskId: 1, patch: { start: "2026-11-04" } }, { taskId: 2, patch: { start: "2026-11-06" } },
+    { taskId: 3, patch: { start: "2026-11-09" } }, { taskId: 4, patch: { start: "2026-11-10" } },
+  ]]);
+  const t = lastToast(h);
+  assert.deepEqual([t[0], t[1], t[2].label], ["Jadwal diubah · 3 task ikut bergeser", "success", "Urungkan"]);
+  assert.equal(h.calls.toast.length, 1);
+  t[2].onClick();
+  await settle2();
+  assert.deepEqual(h.calls.setMany[1], [
+    { taskId: 1, patch: U4("2026-11-02", 2) }, { taskId: 2, patch: U4("2026-11-04", 1) },
+    { taskId: 3, patch: U4("2026-11-05", 1) }, { taskId: 4, patch: U4("2026-11-06", 1) },
+  ]);
+  assert.equal(h.calls.set.length, 0);
+  h.m.unmount();
+}));
+
+test("turunan 0 → set + 'Jadwal diubah'", () => withAuto(async (clock, w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, AL), mk(5, "E", { start: "2026-11-02", duration: 1 }, AL)];
+  const h = await autoIx(clock, tasks);
+  assert.ok(engReadyIn(h.tree));
+  dragBy(h, w, clock, "1", 2);
+  await settle2();
+  assert.deepEqual(h.calls.set, [[1, { start: "2026-11-04" }]]);
+  assert.equal(h.calls.setMany.length, 0);
+  const t = lastToast(h);
+  assert.deepEqual([t[0], t[1], t[2].label], ["Jadwal diubah", "success", "Urungkan"]);
+  t[2].onClick();
+  await settle2();
+  assert.deepEqual(h.calls.setMany, [[{ taskId: 1, patch: { start: "2026-11-02" } }]]);
+  h.m.unmount();
+}));
+
+test("turunan 21 → PreviewDialog, 0 tulis sebelum Terapkan", () => withAuto(async (clock, w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, AL)];
+  for (let i = 0; i < 21; i++) tasks.push(mk(100 + i, "S" + i, { start: "2026-11-04", duration: 1, deps: fsDep(1) }, AL));
+  const h = await autoIx(clock, tasks);
+  assert.ok(engReadyIn(h.tree));
+  const d = dragBy(h, w, clock, "1", 2);
+  await settle2();
+  assert.deepEqual(h.calls.set, []);
+  assert.deepEqual(h.calls.setMany, [], "0 tulis sebelum Terapkan");
+  assert.deepEqual(h.calls.toast, []);
+  assert.equal(d.el.style.transform, d.base, "bar kembali sampai Terapkan");
+  const dlg = dialogOf(h.rerender());
+  assert.ok(dlg, "pratinjau terbuka");
+  assert.equal(dlg.props.title, "Tinjau jadwal otomatis");
+  assert.equal(dlg.props.model.rows.length, 22);
+  assert.equal(dlg.props.model.rows[0].key, "1");
+  // Batal → 0 tulis
+  dlg.props.onCancel();
+  assert.equal(dialogOf(h.rerender()), undefined);
+  assert.deepEqual(h.calls.setMany, []);
+  // seret lagi → Terapkan → satu setMany 22 item
+  dragBy(h, w, clock, "1", 2);
+  await settle2();
+  dialogOf(h.rerender()).props.onApply();
+  await settle2();
+  assert.equal(h.calls.setMany.length, 1);
+  assert.equal(h.calls.setMany[0].length, 22);
+  assert.deepEqual(h.calls.setMany[0][0], { taskId: 1, patch: { start: "2026-11-04" } });
+  assert.ok(h.calls.setMany[0].slice(1).every((x) => x.patch.start === "2026-11-06"));
+  assert.equal(lastToast(h)[0], "Jadwal diterapkan · 22 task");
+  assert.equal(h.calls.set.length, 0);
+  h.m.unmount();
+}));
+
+test("seret task berpendahulu ke sebelum syaratnya → 0 tulis, bar kembali (restore), toast 'Tidak bisa lebih awal dari dependensinya'", () => withAuto(async (clock, w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, AL), mk(2, "B", { start: "2026-11-04", duration: 2, deps: fsDep(1) }, AL)];
+  const h = await autoIx(clock, tasks);
+  assert.ok(engReadyIn(h.tree));
+  const d = dragBy(h, w, clock, "2", -1);
+  assert.notEqual(d.base, undefined);
+  await settle2();
+  assert.deepEqual(h.calls.set, []);
+  assert.deepEqual(h.calls.setMany, []);
+  assert.deepEqual(h.calls.toast, [["Tidak bisa lebih awal dari dependensinya", "error"]]);
+  assert.equal(d.el.style.transform, d.base, "bar kembali ke posisi semula");
+  h.m.unmount();
+}));
+
+test("seret task berpendahulu ke setelah syarat → patch berisi constraint SNET tanggal jatuh", () => withAuto(async (clock, w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, AL), mk(2, "B", { start: "2026-11-04", duration: 2, deps: fsDep(1) }, AL)];
+  const h = await autoIx(clock, tasks);
+  assert.ok(engReadyIn(h.tree));
+  dragBy(h, w, clock, "2", 2);
+  await settle2();
+  assert.deepEqual(h.calls.set, [[2, { start: "2026-11-06", constraint: { type: "SNET", date: "2026-11-06" } }]]);
+  const t = lastToast(h);
+  assert.equal(t[0], "Jadwal diubah");
+  t[2].onClick();
+  await settle2();
+  assert.deepEqual(h.calls.setMany, [[{ taskId: 2, patch: U4("2026-11-04", 2) }]], "Urungkan menghapus SNET (null)");
+  h.m.unmount();
+}));
+
+test("Alt+→ pada task otomatis = satu tulis per tekan (set/setMany), tombol ditahan saat busy diabaikan", () => withAuto(async (clock, w) => {
+  // P = pendahulu kedua B: gestur pada P yang hilirnya menyentuh B yang sedang ditulis → diabaikan (tanpa antre)
+  const tasks = [
+    mk(1, "A", { start: "2026-11-02", duration: 2 }, AL),
+    mk(2, "B", { start: "2026-11-04", duration: 1, deps: fsDep(1).concat(fsDep(3)) }, AL),
+    mk(3, "P", { start: "2026-11-02", duration: 2 }, AL),
+  ];
+  let release = null;
+  const h = await autoIx(clock, tasks, { setMany: () => new Promise((r) => { release = r; }) });
+  assert.ok(engReadyIn(h.tree));
+  const kev = (key, o) => Object.assign({ key, altKey: true, shiftKey: false, preventDefault() {} }, o || {});
+  h.tableRow("1").props.onKeyDown(kev("ArrowRight"));
+  h.bar("1").props.onKeyDown(kev("ArrowRight", { repeat: true })); // selama pemeriksaan → sibuk, diabaikan
+  h.bar("2").props.onKeyDown(kev("ArrowRight")); // turunan ikut sibuk seketika
+  await settle2();
+  assert.deepEqual(h.calls.setMany, [[{ taskId: 1, patch: { start: "2026-11-03" } }, { taskId: 2, patch: { start: "2026-11-05" } }]]);
+  h.bar("1").props.onKeyDown(kev("ArrowRight", { repeat: true })); // tulis masih berjalan → diabaikan (tanpa antre)
+  const d = dragBy(h, w, clock, "3", 3); // P → Kam 5: B (sibuk) ikut bergeser → seluruh gestur diabaikan
+  await settle2();
+  assert.equal(h.calls.setMany.length, 1);
+  assert.deepEqual(h.calls.set, []);
+  assert.equal(d.el.style.transform, d.base, "bar P kembali");
+  release();
+  await settle2();
+  assert.equal(h.calls.setMany.length, 1, "tekan yang diabaikan tidak diputar ulang");
+  // tekan berikutnya dihitung dari nilai optimistis (props belum mengikuti)
+  h.bar("1").props.onKeyDown(kev("ArrowRight"));
+  await settle2();
+  assert.deepEqual(h.calls.setMany[1], [{ taskId: 1, patch: { start: "2026-11-04" } }, { taskId: 2, patch: { start: "2026-11-06" } }]);
+  release();
+  await settle2();
+  assert.deepEqual(h.calls.toast.map((t) => t[0]), ["Jadwal diubah · 1 task ikut bergeser", "Jadwal diubah · 1 task ikut bergeser"]);
+  assert.equal(h.calls.set.length, 0);
+  h.m.unmount();
+}));
+
+test("klik-jadwalkan di unit otomatis → akar baru {start, duration: 1}", () => withAuto(async (clock, w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, AL), mk(5, "E", {}, AL)];
+  const h = await autoIx(clock, tasks);
+  assert.ok(engReadyIn(h.tree));
+  const x = h.cx(h.xOfIso("2026-11-10") + 5);
+  const y = h.cy(h.midY("5"));
+  h.slot("5").props.onPointerDown(pev(x, y));
+  w.fire("pointerup", pev(x + 1, y));
+  await settle2();
+  assert.deepEqual(h.calls.set, [[5, { start: "2026-11-10", duration: 1 }]]);
+  assert.equal(h.calls.setMany.length, 0);
+  assert.equal(lastToast(h)[0], "Jadwal diubah");
+  h.m.unmount();
+}));
+
+test("tautkan A→B (B otomatis) → deps + B dan hilirnya mengalir dalam satu setMany", () => withAuto(async (clock, w) => {
+  const tasks = [
+    mk(1, "A", { start: "2026-11-02", duration: 2 }, AL),
+    mk(2, "B", { start: "2026-11-02", duration: 1 }, AL),
+    mk(3, "C", { start: "2026-11-03", duration: 1, deps: fsDep(2) }, AL),
+  ];
+  const h = await autoIx(clock, tasks);
+  assert.ok(engReadyIn(h.tree));
+  linkDragOf(h, w)("1", "2");
+  await settle2();
+  assert.deepEqual(h.calls.set, []);
+  assert.deepEqual(h.calls.setMany, [[
+    { taskId: 2, patch: { deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }], start: "2026-11-04" } },
+    { taskId: 3, patch: { start: "2026-11-05" } },
+  ]]);
+  const t = lastToast(h);
+  assert.equal(t[0], "Jadwal diubah · 1 task ikut bergeser");
+  t[2].onClick();
+  await settle2();
+  assert.deepEqual(h.calls.setMany[1], [
+    { taskId: 2, patch: Object.assign(U4("2026-11-02", 1), { deps: null }) },
+    { taskId: 3, patch: U4("2026-11-03", 1) },
+  ], "Urungkan memulihkan deps lama (tidak ada → null)");
+  h.m.unmount();
+}));
+
+test("mesin belum siap/gagal: task otomatis (unit auto) → 0 tulis + 'Jadwal gagal disimpan'; task Manual → perilaku 1b", () => withAuto(async (clock, w) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, AL), mk(6, "M", { start: "2026-11-02", duration: 2, mode: "manual" }, AL)];
+  // belum siap: raf mesin tidak pernah dijalankan (status loading); unit sudah dimuat (auto)
+  const h = await autoIx(clock, tasks, { noEngine: true });
+  assert.ok(!engReadyIn(h.tree), "mesin belum siap");
+  dragBy(h, w, clock, "1", 2);
+  await settle2();
+  assert.deepEqual(h.calls.set, []);
+  assert.deepEqual(h.calls.setMany, []);
+  assert.deepEqual(h.calls.toast, [["Jadwal gagal disimpan", "error"]]);
+  dragBy(h, w, clock, "6", 2);
+  await settle2();
+  assert.deepEqual(h.calls.set, [[6, { start: "2026-11-04" }]], "Manual eksplisit → set 1b");
+  assert.equal(lastToast(h)[0], "Jadwal diubah");
+  h.m.unmount();
+  // gagal: daftar lengkap pertama ditolak (status error); pemeriksaan sebelum tulis berikutnya berhasil
+  let n = 0;
+  const g = await autoIx(clock, tasks, { listImpl: () => (n++ === 0 ? Promise.reject(new Error("idb")) : Promise.resolve(tasks)) });
+  assert.ok(!engReadyIn(g.tree), "mesin gagal");
+  dragBy(g, w, clock, "1", 2);
+  await settle2();
+  assert.deepEqual(g.calls.set, []);
+  assert.deepEqual(g.calls.setMany, []);
+  assert.deepEqual(g.calls.toast, [["Jadwal gagal disimpan", "error"]]);
+  dragBy(g, w, clock, "6", 2);
+  await settle2();
+  assert.deepEqual(g.calls.set, [[6, { start: "2026-11-04" }]]);
+  g.m.unmount();
+}));
+
+test("drift di luar turunan tidak ikut setMany", () => withAuto(async (clock, w) => {
+  const tasks = [
+    mk(1, "A", { start: "2026-11-02", duration: 2 }, AL),
+    mk(2, "B", { start: "2026-11-04", duration: 1, deps: fsDep(1) }, AL),
+    // drift bukan turunan: X → D, D tersimpan Sen 2 padahal hasil hitung Rab 4
+    mk(7, "X", { start: "2026-11-02", duration: 2 }, AL),
+    mk(8, "D", { start: "2026-11-02", duration: 1, deps: fsDep(7) }, AL),
+    // turunan drift yang tidak digeser gestur (SNET Jum 20 mendominasi; tersimpan Kam 19)
+    mk(9, "E", { start: "2026-11-19", duration: 1, deps: fsDep(1), constraint: { type: "SNET", date: "2026-11-20" } }, AL),
+    // di belakang jangkar Manual yang tidak bergeser: G (Manual, Sen 9) → H drift (tersimpan Sen 9, hitung Sel 10)
+    mk(10, "G", { start: "2026-11-09", duration: 1, deps: fsDep(1), mode: "manual" }, AL),
+    mk(11, "H", { start: "2026-11-09", duration: 1, deps: fsDep(10) }, AL),
+  ];
+  const h = await autoIx(clock, tasks);
+  assert.ok(engReadyIn(h.tree));
+  dragBy(h, w, clock, "1", 2);
+  await settle2();
+  assert.deepEqual(h.calls.setMany, [[{ taskId: 1, patch: { start: "2026-11-04" } }, { taskId: 2, patch: { start: "2026-11-06" } }]]);
+  assert.equal(lastToast(h)[0], "Jadwal diubah · 1 task ikut bergeser");
+  assert.deepEqual(h.calls.set, []);
+  h.m.unmount();
+}));
+
+test("flowItems: item tanpa perubahan (deltaHk 0, nilai = tersimpan) dibuang → gestur tanpa efek diam (tanpa tulis/toast)", () => {
+  const it = (key, before, patch) => ({ key, task: { id: Number(key) }, before, patch, deltaHk: 0, kind: "move" });
+  const b = { start: "2026-11-04", duration: 1, constraint: { type: "SNET", date: "2026-11-04" }, mode: null };
+  const same = it("1", b, { start: "2026-11-04" });
+  const sameCst = it("2", b, { constraint: { date: "2026-11-04", type: "SNET" } }); // urutan kunci tidak relevan
+  const moved = it("3", b, { start: "2026-11-05" });
+  const cleared = it("4", b, { constraint: null });
+  assert.deepEqual(T.flowItems([same, sameCst, moved, cleared]).map((x) => x.key), ["3", "4"]);
+  // kasus T4: {start: null} pada task otomatis berpendahulu → mesin mengisi start = tersimpan → no-op
+  const ctxTasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, AL), mk(2, "B", { start: "2026-11-04", duration: 1, deps: fsDep(1) }, AL)];
+  const api = fakeApi().api;
+  const units = new Map([[T.TLSched.unitOf(ctxTasks[0]).recId, { auto: true }]]);
+  const ctx = { tasks: ctxTasks, cal: T.TLCal.compile(T.TLCal.DEFAULT_CAL), units, readExt: (t) => api.taskExt.read(t) };
+  const c = T.TLPlan.cascade(ctx, [{ task: ctxTasks[1], patch: { start: null } }]);
+  assert.equal(c.items.length, 1);
+  assert.equal(c.items[0].deltaHk, 0);
+  assert.deepEqual(T.flowItems(c.items), []);
+});
+
+test("sumber Task 9: teks persis + satu pintu flow untuk empat gestur", () => {
+  for (const t of ['"Tidak bisa lebih awal dari dependensinya"', '"Jadwal diubah · "', '" task ikut bergeser"']) assert.ok(jsx.includes(t), t);
+  const body = jsx.slice(jsx.indexOf("function createInteractions()"), jsx.indexOf("function TimelineViewBody("));
+  for (const fn of ["finish", "link", "slotUp", "key"]) {
+    const s = body.slice(body.indexOf("  function " + fn + "("));
+    const f = s.slice(0, s.indexOf("\n  }\n"));
+    assert.ok(/\bflow\(/.test(f), fn + " lewat flow()");
+    assert.ok(!/\bwrite\(/.test(f), fn + " tidak memanggil write langsung");
+  }
+});
