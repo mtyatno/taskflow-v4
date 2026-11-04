@@ -1960,14 +1960,24 @@ function createInteractions() {
   }
 
   // Urungkan (R13): setMany(TLPlan.undoItems(items)) persis — kunci yang dulu tidak ada ditulis null.
+  // Tulis lain pada salah satu task yang sama masih berjalan → Urungkan antre sampai semuanya selesai (pola undo 1b;
+  // tulis tidak pernah tumpang tindih, tekan berikutnya tidak bisa mendarat setelah Urungkan dan menimpanya).
   function undoAction(api, items) {
-    return {
-      label: MSG_UNDO,
-      onClick: () => {
-        const u = TLPlan.undoItems(items);
-        issueMany(u.map((x, i) => ({ task: items[i].task, patch: x.patch }))).catch((err) => failed(api, err));
-      },
+    const run = () => {
+      const waits = [];
+      for (const it of items) {
+        const k = keyOf(it.task);
+        const w = X.busy.has(k) ? X.inflight.get(k) : null;
+        if (w && waits.indexOf(w) < 0) waits.push(w);
+      }
+      if (waits.length) {
+        Promise.all(waits).then(run);
+        return;
+      }
+      const u = TLPlan.undoItems(items);
+      issueMany(u.map((x, i) => ({ task: items[i].task, patch: x.patch }))).catch((err) => failed(api, err));
     };
+    return { label: MSG_UNDO, onClick: run };
   }
 
   // applyPlan (R14/R15; pintu tunggal Terapkan untuk Task 8–10): satu setMany semua item → onDone (mis. setAuto sakelar,

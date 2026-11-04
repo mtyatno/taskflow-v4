@@ -4171,3 +4171,37 @@ test("sumber Task 9: teks persis + satu pintu flow untuk empat gestur", () => {
     assert.ok(!/\bwrite\(/.test(f), fn + " tidak memanggil write langsung");
   }
 });
+
+test("fix T9: Urungkan gestur antre di belakang tulis yang sedang berjalan (task sama); tekan berikutnya selama itu diabaikan", () => withAuto(async (clock) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, AL), mk(2, "B", { start: "2026-11-04", duration: 1, deps: fsDep(1) }, AL)];
+  const rel = [];
+  const h = await autoIx(clock, tasks, { setMany: () => new Promise((r) => { rel.push(r); }) });
+  assert.ok(engReadyIn(h.tree));
+  const kev = (key) => ({ key, altKey: true, shiftKey: false, preventDefault() {} });
+  h.bar("1").props.onKeyDown(kev("ArrowRight"));
+  await settle2();
+  rel.shift()();
+  await settle2();
+  const first = lastToast(h);
+  assert.equal(first[0], "Jadwal diubah · 1 task ikut bergeser");
+  h.bar("1").props.onKeyDown(kev("ArrowRight")); // tekan kedua: setMany masih terbang
+  await settle2();
+  assert.equal(h.calls.setMany.length, 2);
+  first[2].onClick(); // Urungkan dari toast pertama
+  await settle2();
+  assert.equal(h.calls.setMany.length, 2, "Urungkan menunggu tulis yang sedang berjalan");
+  h.bar("1").props.onKeyDown(kev("ArrowRight")); // masih sibuk → diabaikan
+  await settle2();
+  assert.equal(h.calls.setMany.length, 2);
+  rel.shift()(); // tulis kedua selesai → Urungkan berjalan
+  await settle2();
+  assert.equal(h.calls.setMany.length, 3);
+  assert.deepEqual(h.calls.setMany[2], [{ taskId: 1, patch: U4("2026-11-02", 2) }, { taskId: 2, patch: U4("2026-11-04", 1) }]);
+  // selama Urungkan terbang, tekan berikutnya diabaikan (busy)
+  h.bar("1").props.onKeyDown(kev("ArrowRight"));
+  await settle2();
+  assert.equal(h.calls.setMany.length, 3);
+  rel.shift()();
+  await settle2();
+  h.m.unmount();
+}));
