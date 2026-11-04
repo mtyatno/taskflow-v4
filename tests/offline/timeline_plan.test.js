@@ -765,3 +765,58 @@ test("compareBaseline: mundur 2 hk → ds 2 (positif = mundur, akhir pekan tidak
   const empty = P.compareBaseline(r2, null, c2);
   assert.deepEqual([empty.perTask.size, empty.group.size], [0, 0]);
 });
+
+// ---- PR 1c-2 Task 3 (carry-over T2): Jadwalkan ulang selaras jangkar aktual (K30/K36) ----
+
+test("reschedule (K30/K36): task otomatis berjalan karena actual.start saja → perpanjangan durasi diukur dari es = actual.start (bukan Mulai tersimpan)", () => {
+  const T = D("2026-11-09");
+  // Mulai tersimpan Sen 19 Okt, aktual Sen 26 Okt, progress 0: jangkar started es Sen 26 Okt, ef Jum 6 Nov < T
+  const tasks = [mk({ id: 1, start: "2026-10-19", d: 10, actual: { start: "2026-10-26" } })];
+  const ctx = ctxOf(tasks);
+  const r = M.run(ctx);
+  assert.equal(r.nodes.get("1").fixed, "started");
+  assert.equal(r.nodes.get("1").es, D("2026-10-26"));
+  const out = P.reschedule(ctx, r, T, new Set([unitKey("Alpha")]));
+  const c = ctx.cal;
+  // r = 10 → selesai add(T, 9) = Jum 20 Nov; hari kerja 26 Okt..20 Nov = 20 (dari Mulai tersimpan akan 25)
+  assert.equal(C.workdays(c, D("2026-10-26"), C.addWork(c, T, 9)), 20);
+  assert.deepEqual(out.items.map((i) => [i.key, i.patch]), [["1", { duration: 20 }]]);
+  assertSane(out.items);
+});
+
+test("reschedule (K30/K36): Manual d ≥ 1 dengan actual.start saja (progress 0) = sudah mulai → durasi diperpanjang dari Mulai tersimpan (jangkar Manual), tidak dipindah ke T; EF ≥ T → tidak ditulis", () => {
+  const T = D("2026-11-09");
+  const tasks = [
+    mk({ id: 11, start: "2026-10-19", d: 5, project: "Beta", actual: { start: "2026-10-20" } }), // EF Jum 23 Okt < T
+    mk({ id: 12, start: "2026-11-04", d: 5, project: "Beta", actual: { start: "2026-11-04" } }), // EF Sel 10 ≥ T
+    mk({ id: 13, start: "2026-11-04", d: 5, project: "Beta" }), // kontrol: belum mulai → start T
+  ];
+  const ctx = ctxOf(tasks);
+  const r = M.run(ctx);
+  const out = P.reschedule(ctx, r, T, new Set([unitKey("Beta")]));
+  const m = byKey(out.items);
+  assert.deepEqual([...m.keys()].sort(), ["11", "13"]);
+  // r = 5 → selesai add(T, 4) = Jum 13 Nov; hari kerja 19 Okt..13 Nov = 20
+  assert.deepEqual(m.get("11").patch, { duration: 20 });
+  assert.deepEqual(m.get("13").patch, { start: "2026-11-09" });
+  assertSane(out.items);
+});
+
+test("reschedule (K36): milestone dengan actual.start — Manual → start T (jangkar Manual = tersimpan, tulisan efektif); otomatis → DILEWATI seluruhnya (SNET/start inert terhadap jangkar aktual); otomatis tanpa aktual (progress) tetap SNET T + start T", () => {
+  const T = D("2026-11-09");
+  const tasks = [
+    mk({ id: 1, start: "2026-11-04", d: 0, actual: { start: "2026-11-04" } }), // otomatis, berjangkar aktual → lewati
+    mk({ id: 2, start: "2026-11-04", d: 0, progress: 10 }), // otomatis, started tanpa aktual → amandemen 1c-1
+    mk({ id: 3, start: "2026-11-04", d: 0, project: "Beta", actual: { start: "2026-11-04" } }), // Manual → start T
+  ];
+  const ctx = ctxOf(tasks);
+  const r = M.run(ctx);
+  const out = P.reschedule(ctx, r, T, new Set([unitKey("Alpha"), unitKey("Beta")]));
+  const m = byKey(out.items);
+  assert.deepEqual([...m.keys()].sort(), ["2", "3"]);
+  assert.deepEqual(m.get("2").patch, { constraint: SNET("2026-11-09"), start: "2026-11-09" });
+  assert.deepEqual(m.get("3").patch, { start: "2026-11-09" });
+  assert.equal(out.result.nodes.get("1").es, D("2026-11-04"), "jangkar aktual tetap");
+  assert.ok(out.items.every((i) => !("duration" in i.patch)));
+  assertSane(out.items);
+});

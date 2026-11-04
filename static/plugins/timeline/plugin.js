@@ -1630,8 +1630,10 @@ const TLPlan = (function (CAL, SCHED, CPM) {
   const keyOf = (t) => (isObj(t) && t.id !== undefined && t.id !== null ? String(t.id) : null);
   const clone = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
   const startDn = (s) => (typeof s === "string" ? CAL.dn(s) : NaN); // Mulai tersimpan sah → bilangan hari, selain itu NaN
-  // Sama dengan isStarted di cpm.js (penanda "sudah mulai" K30).
-  const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
+  // Penanda "sudah mulai" K30 (1c-2): progress/pomodoro ATAU actual.start tercatat (TLSched.actualOf atas ext mentah —
+  // satu-satunya pembaca aktual). Dipakai reschedule untuk task Manual (task otomatis: n.fixed === "started" dari mesin).
+  const hasActualStart = (ctx, t) => SCHED.actualOf(t, rawOf(ctx, t)).start !== null;
+  const isStarted = (ctx, t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0 || hasActualStart(ctx, t);
 
   function safe(fn) {
     try {
@@ -1850,11 +1852,13 @@ const TLPlan = (function (CAL, SCHED, CPM) {
 
   // reschedule (K36, R17): T = bilangan hari (atau ISO) hari kerja pertama ≥ hari ini; unitKeys = Set recId unit halaman.
   // Per simpul unit halaman (tak selesai, terhitung), urut topologis:
-  //  - sudah mulai (jangkar "started", atau Manual dengan progress/pomodoro), durasi ≥ 1, EF < T → Mulai tetap,
+  //  - sudah mulai (jangkar "started", atau Manual dengan progress/pomodoro/actual.start — K30), durasi ≥ 1, EF < T → Mulai tetap,
   //    duration = hari kerja Mulai..add(T, r − 1), r = max(1, ⌈d × (1 − progress/100)⌉), dijepit ≤ 999;
   //  - milestone (d = 0) yang sudah mulai ikut cabang belum-mulai (amandemen K36): durasi TIDAK pernah ditulis
   //    (berlian tidak boleh diam-diam menjadi bar). Otomatis → constraint SNET T + start T (start ditulis eksplisit karena
   //    jangkar "started" mesin berdiri di Mulai tersimpan; tanpa itu SNET tidak berpengaruh); Manual → start T;
+  //    1c-2: milestone OTOMATIS ber-actual.start DILEWATI seluruhnya — jangkar mesin = actual.start, jadi start/SNET
+  //    inert; Manual ber-actual.start tetap start T (jangkar Manual = tanggal tersimpan, tulisan efektif);
   //  - belum mulai dan Mulai (ES) < T → Manual: start T (milestone ikut); otomatis non-jangkar: constraint SNET T
   //    (+ start hasil mesin); lingkaran/MFO otomatis tidak disentuh.
   // Lalu aliran tanpa ambang (penerus otomatis ikut; penerus Manual tidak dipindah). broken = pelanggaran BARU dengan
@@ -1869,7 +1873,7 @@ const TLPlan = (function (CAL, SCHED, CPM) {
       const n = result.nodes.get(k);
       if (!unitKeys.has(n.g) || n.es === null || n.fixed === "done") continue;
       const task = n.task;
-      const started = n.fixed === "started" || (n.mode === "manual" && isStarted(task));
+      const started = n.fixed === "started" || (n.mode === "manual" && isStarted(ctx, task));
       if (started && n.d >= 1) {
         if (n.ef >= t) continue;
         const p = Math.min(100, Math.max(0, Number(task.progress) || 0));
@@ -1882,7 +1886,10 @@ const TLPlan = (function (CAL, SCHED, CPM) {
       }
       if (n.es >= t) continue;
       if (n.mode === "manual") patches.set(k, { task, patch: { start: tIso } });
-      else if (started) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso }, start: tIso } });
+      else if (started) {
+        if (hasActualStart(ctx, task)) continue; // jangkar aktual menang: tulisan inert (K30/K36)
+        patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso }, start: tIso } });
+      }
       else if (!n.fixed) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso } } });
     }
     const r = flow(ctx, patches, ctx.units, () => [...patches.keys()], result);
