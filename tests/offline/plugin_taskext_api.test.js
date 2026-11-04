@@ -486,3 +486,36 @@ test("setMany jalur massal lewat router lokal NYATA (fake-indexeddb): record ter
     (err) => err.message === "Task not found" && JSON.stringify(err.applied) === JSON.stringify([a.cid]));
   assert.equal((await repo.getRaw(a.cid)).ext["demo-ext.note"], "y");
 });
+
+test("setMany jalur massal: DB_UPGRADED_ELSEWHERE → pesan dan code sama dengan jalur per item (pembungkus api host)", async () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const dbErr = () => Object.assign(new Error("DB_UPGRADED_ELSEWHERE"), { code: "DB_UPGRADED_ELSEWHERE" });
+  // jalur per item lewat api.put host asli (index.html)
+  const html = fs.readFileSync(path.join(__dirname, "../../static/index.html"), "utf8");
+  const src = html.match(/\nconst api = \{[\s\S]*?\n\};/)[0];
+  const router = { hasRoute: () => true, dispatch: () => Promise.reject(dbErr()) };
+  const win = { TF: { taskroutes: { buildTaskRouter: () => router, shouldRouteLocally: () => true } } };
+  const hostApi = new Function("window", "schedulePush", src + "\nreturn api;")(win, () => {});
+  P.bindHost(binding({ updateTaskExt: (id, p) => hostApi.put(`/api/tasks/${id}`, { ext_patch: p }) }));
+  let perItem;
+  await tx().setMany(many(2)).catch((e) => { perItem = e; });
+  assert.ok(perItem);
+  const expected = require("../../static/offline/dbupgrade.js").TEXT_ELSEWHERE;
+  assert.equal(perItem.message, expected);
+  assert.equal(perItem.code, "DB_UPGRADED_ELSEWHERE");
+
+  // jalur massal: error di tengah (res.error) dan penolakan total
+  for (const over of [{ failAt: 1, errAt: dbErr() }, { throwAll: dbErr() }]) {
+    P._reset();
+    await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
+    P.bindHost(binding());
+    useBulk(bulkRouter([], over));
+    let fast;
+    await tx().setMany(many(2)).catch((e) => { fast = e; });
+    assert.ok(fast);
+    assert.equal(fast.message, perItem.message);
+    assert.equal(fast.code, perItem.code);
+    assert.ok(Array.isArray(fast.applied));
+  }
+});

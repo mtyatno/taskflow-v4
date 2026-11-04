@@ -345,6 +345,8 @@
     const now = (opts && opts.now) || new Date().toISOString();
     const today = opts && opts.today;
     if (!Array.isArray(items)) return Promise.reject(TFtaskext.extError("EXT_INVALID", null));
+    // Sengaja lebih ketat dari updateTask: `ext_patch: null` ditolak (EXT_INVALID), padahal updateTask memperlakukan
+    // null sebagai patch tanpa ext (tetap rev+1). Runtime (setMany) tidak pernah mengirim null.
     for (const it of items) {
       const bad = TFtaskext.checkPatch(it && it.ext_patch);
       if (bad) return Promise.reject(TFtaskext.extError(bad.code, bad.key));
@@ -396,8 +398,10 @@
         applied: applied,
         error: error,
       });
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error || new Error("tasks mutation aborted"));
+      // Di browser nyata error request bisa naik ke tx.onerror sebelum abort mengisi tx.error → alasan diambil dari
+      // target event dulu (seperti TFdb.mutate yang menyimpan r.error), agar penolakan tidak pernah null.
+      tx.onerror = (ev) => reject((ev && ev.target && ev.target.error) || tx.error || new Error("TX_ABORTED"));
+      tx.onabort = (ev) => reject((ev && ev.target && ev.target.error) || tx.error || new Error("TX_ABORTED"));
     }));
   }
 

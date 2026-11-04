@@ -1291,6 +1291,17 @@
       try { r = localTaskRouter(); } catch (_) { return null; }
       return r && typeof r.extPatchMany === "function" ? r : null;
     }
+    // Paritas pesan dengan jalur per item: pembungkus api.fetch host (index.html) mengganti pesan error rute lokal
+    // DB_UPGRADED_ELSEWHERE dengan teks banner (TF.dbupgrade.TEXT_ELSEWHERE) dan menyalin status/code/key/body.
+    // Jalur massal tidak lewat pembungkus itu → pemetaan yang sama di sini agar kedua jalur menolak identik.
+    function hostLocalError(err) {
+      if (!err || typeof err !== "object" || err.code !== "DB_UPGRADED_ELSEWHERE") return err;
+      const dbu = host("dbupgrade");
+      const e = new Error((dbu && dbu.TEXT_ELSEWHERE) || "Alurik diperbarui di tab lain. Muat ulang tab ini.");
+      if (err.status != null) e.status = err.status;
+      for (const k of ["code", "key", "body"]) if (err[k] !== undefined) e[k] = err[k];
+      return e;
+    }
     // Kontrak sama dengan jalur per item: satu refreshTasks + satu taskUpdated {taskIds} (bila ada yang tersimpan),
     // penolakan membawa err.applied. Op outbox ditulis langsung (tanpa api.put host) → tf:outbox-queued agar host
     // menjadwalkan push.
@@ -1308,10 +1319,10 @@
           }
           refresh();
           if (applied.length) announce({ taskIds: applied.slice() });
-          if (res && res.error) throw withApplied(mapExtError(res.error), applied);
+          if (res && res.error) throw withApplied(mapExtError(hostLocalError(res.error)), applied);
           return res && Array.isArray(res.rows) ? res.rows : [];
         },
-        (err) => { refresh(); throw withApplied(mapExtError(err), []); });
+        (err) => { refresh(); throw withApplied(mapExtError(hostLocalError(err)), []); });
     }
     return Object.freeze({
       read(task) {

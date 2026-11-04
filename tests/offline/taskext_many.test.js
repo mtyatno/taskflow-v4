@@ -335,3 +335,29 @@ test("extPatchMany: id tak dikenal = titik berhenti 'Task not found' dengan appl
   assert.deepEqual(await all("_outbox"), []);
   assert.deepEqual(byCid(await all("tasks"))[cidOf(1)], makeRec(1));
 });
+
+test("transaksi gagal (request put ConstraintError) → reject dengan alasan bukan null, nol tulis", async () => {
+  await seed();
+  const before = await all("tasks");
+  const db = await openDB();
+  const orig = db.transaction;
+  // put diganti add atas kunci yang sudah ada → request error yang naik ke tx.onerror (sebelum abort)
+  db.transaction = function () {
+    const tx = orig.apply(this, arguments);
+    const os = tx.objectStore.bind(tx);
+    tx.objectStore = (name) => {
+      const s = os(name);
+      if (name === "tasks") s.put = (rec) => s.add(rec);
+      return s;
+    };
+    return tx;
+  };
+  let err;
+  try {
+    await repo.updateTaskExtMany([{ cid: cidOf(1), ext_patch: { "demo-ext.a": 1 } }], OPTS).then(() => assert.fail("harus reject"), (e) => { err = e; });
+  } finally { db.transaction = orig; }
+  assert.ok(err != null, "alasan reject tidak null");
+  assert.equal(err.name, "ConstraintError");
+  assert.deepEqual(await all("tasks"), before);
+  assert.deepEqual(await all("_outbox"), []);
+});
