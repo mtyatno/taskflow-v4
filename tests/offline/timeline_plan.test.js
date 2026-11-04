@@ -33,7 +33,12 @@ function mk(o) {
   if (o.deps) ext["timeline.deps"] = o.deps.map(([id, type, lag]) => Object.assign({ t: { $task: id }, lag: lag || 0 }, type ? { type } : {}));
   if (o.mode !== undefined) ext["timeline.mode"] = o.mode;
   if (o.constraint !== undefined) ext["timeline.constraint"] = o.constraint;
+  if (o.actual !== undefined) ext["timeline.actual"] = o.actual;
+  const extra = {};
+  if (o.cid !== undefined) extra.cid = o.cid;
+  if (o.est !== undefined) extra.estimated_pomodoros = o.est;
   return {
+    ...extra,
     id: o.id,
     title: "T" + o.id,
     list_id: o.list_id === undefined ? LIST : o.list_id,
@@ -43,7 +48,7 @@ function mk(o) {
     progress: o.progress || 0,
     pomodoros_done: o.pomo || 0,
     deadline: o.deadline === undefined ? null : o.deadline,
-    parent_id: null,
+    parent_id: o.parent === undefined ? null : o.parent,
     recurrence_type: null,
     archived: false,
     deleted: false,
@@ -567,4 +572,196 @@ test("modePatch: pilih nilai sama dengan unit → {mode: null}", () => {
   assert.deepEqual(P.modePatch(t, manual, "auto"), { mode: "auto" });
   assert.deepEqual(P.modePatch(t, new Map([[unitKey("Alpha"), { auto: false }]]), "manual"), { mode: null });
   assert.deepEqual(P.modePatch(t, null, "manual"), { mode: null }, "units bukan Map = Manual");
+});
+
+// ---- PR 1c-2 Task 3: kodek baseline + pembanding rencana-vs-baseline (K41, Review Focus 3) ----
+
+const utf8 = (data) => Buffer.byteLength(JSON.stringify(data), "utf8");
+const META = { n: 2, name: "Rencana awal ✓🌸", savedAt: "2026-11-05T03:00:00Z", by: "Yatno" };
+
+// Unit Alpha (otomatis) + Beta (Manual): terjadwal biasa, selesai (K41: ikut), tanpa Mulai (bukan simpul), ringkasan.
+function blTasks() {
+  return [
+    mk({ id: 1, start: "2026-11-02", d: 2, est: 4 }), // Sen 2 → Sel 3
+    mk({ id: 2, start: "2026-11-04", d: 3, deps: [[1]] }), // Rab 4 → Jum 6
+    mk({ id: 3, start: "2026-10-26", d: 1, done: true }), // selesai: completed_at 17:30Z Kam 5 → Jum 6 Jakarta
+    mk({ id: 4, d: 2 }), // tanpa Mulai, tanpa pendahulu → bukan simpul
+    mk({ id: 5, start: "2026-11-02", d: 1 }), // ringkasan (punya anak 6) → tidak ikut
+    mk({ id: 6, start: "2026-11-03", d: 1, parent: 5 }),
+    mk({ id: 11, start: "2026-11-05", d: 1, project: "Beta" }),
+  ];
+}
+
+test("modul 1c-2: ekspor BL_MAX 65536 + baselineEncode/baselineByteSize/baselineDecode/compareBaseline", () => {
+  assert.equal(P.BL_MAX, 65536);
+  for (const f of ["baselineEncode", "baselineByteSize", "baselineDecode", "compareBaseline"]) assert.equal(typeof P[f], "function", f);
+});
+
+test("baselineEncode: simpul terjadwal non-ringkasan di unit TERMASUK selesai (K41); t = [[{$task: id}, iso(es), iso(ef), d, w]] urut cmpKey; w = estimated_pomodoros (tak ada → 0); bytes = UTF-8 JSON", () => {
+  const ctx = ctxOf(blTasks(), autoUnits("Alpha"));
+  const before = snap(ctx);
+  const r = M.run(ctx);
+  const out = P.baselineEncode(r, ctx, META, unitKey("Alpha"));
+  assert.deepEqual(out.data, {
+    v: 1,
+    n: 2,
+    name: "Rencana awal ✓🌸",
+    savedAt: "2026-11-05T03:00:00Z",
+    by: "Yatno",
+    t: [
+      [{ $task: 1 }, "2026-11-02", "2026-11-03", 2, 4],
+      [{ $task: 2 }, "2026-11-04", "2026-11-06", 3, 0],
+      [{ $task: 3 }, "2026-10-26", "2026-11-06", 1, 0],
+      [{ $task: 6 }, "2026-11-03", "2026-11-03", 1, 0],
+    ],
+  });
+  assert.equal(out.count, 4);
+  assert.equal(out.bytes, utf8(out.data), "byte UTF-8 (nama multibyte ✓🌸)");
+  assert.equal(P.baselineByteSize(out.data), out.bytes);
+  assert.notEqual(out.bytes, JSON.stringify(out.data).length, "bukan panjang unit kode");
+  // tanpa unit → semua simpul (urut cmpKey: "11" sebelum "2")
+  const all = P.baselineEncode(r, ctx, META);
+  assert.deepEqual(all.data.t.map((e) => e[0].$task), [1, 11, 2, 3, 6]);
+  // id task mentah dipertahankan (cid string tetap string; host menulis ulang ke id server)
+  const ctx2 = ctxOf([mk({ id: "c-7", start: "2026-11-02", d: 1 })]);
+  assert.deepEqual(P.baselineEncode(M.run(ctx2), ctx2, META).data.t, [[{ $task: "c-7" }, "2026-11-02", "2026-11-02", 1, 0]]);
+  // w: hanya bilangan bulat ≥ 0
+  const ctx3 = ctxOf([mk({ id: 1, start: "2026-11-02", d: 1, est: -1 }), mk({ id: 2, start: "2026-11-02", d: 1, est: 2.5 }), mk({ id: 3, start: "2026-11-02", d: 0, est: 0 })]);
+  assert.deepEqual(P.baselineEncode(M.run(ctx3), ctx3, META).data.t.map((e) => e[4]), [0, 0, 0]);
+  assert.equal(snap(ctx), before, "ctx tidak diubah");
+});
+
+test("baselineEncode: determinisme — urutan task masukan diacak → data identik (cmpKey, bukan urutan lokal)", () => {
+  const tasks = blTasks();
+  const a = ctxOf(tasks, autoUnits("Alpha"));
+  const b = ctxOf(tasks.slice().reverse(), autoUnits("Alpha"));
+  const ea = P.baselineEncode(M.run(a), a, META);
+  const eb = P.baselineEncode(M.run(b), b, META);
+  assert.equal(JSON.stringify(ea.data), JSON.stringify(eb.data));
+  // kunci string campuran: urut unit kode ("B" < "a" < "c-1")
+  const c = ctxOf([mk({ id: "c-1", start: "2026-11-02", d: 1 }), mk({ id: "a", start: "2026-11-02", d: 1 }), mk({ id: "B", start: "2026-11-02", d: 1 })]);
+  assert.deepEqual(P.baselineEncode(M.run(c), c, META).data.t.map((e) => e[0].$task), ["B", "a", "c-1"]);
+});
+
+test("baselineByteSize: ±55 B/task — 1000 task muat < 65536 dan 1300 task > BL_MAX (ditolak di T5); ukuran akurat", () => {
+  const big = (n) => {
+    const tasks = [];
+    for (let i = 0; i < n; i++) tasks.push(mk({ id: 100000 + i, start: "2026-11-02", d: 10, est: 12 }));
+    const ctx = ctxOf(tasks);
+    return P.baselineEncode(M.run(ctx), ctx, META);
+  };
+  const k = big(1000);
+  assert.equal(k.count, 1000);
+  assert.equal(k.bytes, utf8(k.data));
+  assert.ok(k.bytes / 1000 <= 55, "≤ 55 B/task: " + k.bytes);
+  assert.ok(k.bytes < P.BL_MAX);
+  const over = big(1300);
+  assert.ok(over.bytes > P.BL_MAX, "1300 task > 64 KB: " + over.bytes);
+  assert.equal(over.bytes, utf8(over.data));
+  // pasangan surrogate (emoji) = 4 byte, BMP non-ASCII = 3/2 byte
+  for (const name of ["🌸", "✓", "é", "abc", ""]) {
+    const d = { v: 1, n: 1, name, savedAt: null, by: null, t: [] };
+    assert.equal(P.baselineByteSize(d), utf8(d), name);
+  }
+});
+
+test("baselineDecode: round-trip encode → JSON → decode; rows Map<key, {s: dn, f: dn, d}>", () => {
+  const ctx = ctxOf(blTasks(), autoUnits("Alpha"));
+  const enc = P.baselineEncode(M.run(ctx), ctx, META, unitKey("Alpha"));
+  const dec = P.baselineDecode(JSON.parse(JSON.stringify(enc.data)));
+  assert.equal(dec.n, 2);
+  assert.equal(dec.name, "Rencana awal ✓🌸");
+  assert.equal(dec.savedAt, "2026-11-05T03:00:00Z");
+  assert.equal(dec.by, "Yatno");
+  assert.ok(dec.rows instanceof Map);
+  assert.deepEqual([...dec.rows.keys()], ["1", "2", "3", "6"]);
+  assert.deepEqual(dec.rows.get("1"), { s: D("2026-11-02"), f: D("2026-11-03"), d: 2 });
+  assert.deepEqual(dec.rows.get("3"), { s: D("2026-10-26"), f: D("2026-11-06"), d: 1 });
+});
+
+test("baselineDecode (Review Focus 3): v 2 / bukan objek / t bukan larik / n di luar 1–3 → null; entri rusak dan ref tak terpecahkan → dilewati, bukan null total", () => {
+  const ok = [{ $task: 1 }, "2026-11-02", "2026-11-03", 2, 0];
+  const base = (t, extra) => Object.assign({ v: 1, n: 1, name: "Baseline 1", savedAt: "2026-11-05T03:00:00Z", by: null, t }, extra || {});
+  assert.equal(P.baselineDecode(base([ok], { v: 2 })), null);
+  assert.equal(P.baselineDecode(null), null);
+  assert.equal(P.baselineDecode("x"), null);
+  assert.equal(P.baselineDecode([ok]), null);
+  assert.equal(P.baselineDecode(base({})), null);
+  assert.equal(P.baselineDecode(base([ok], { n: 4 })), null);
+  assert.equal(P.baselineDecode(base([ok], { n: "1" })), null);
+  const dec = P.baselineDecode(
+    base([
+      ["x"], // pendek
+      "baris", // bukan larik
+      [null, "2026-11-02", "2026-11-03", 1, 0], // ref null (task tak pernah terkirim)
+      [{ $task: true }, "2026-11-02", "2026-11-03", 1, 0], // ref tak sah
+      [{}, "2026-11-02", "2026-11-03", 1, 0], // tanpa $task
+      [{ $task: 2 }, "2026-13-40", "2026-11-03", 1, 0], // tanggal rusak
+      [{ $task: 3 }, "2026-11-04", "2026-11-03", 1, 0], // f < s
+      [{ $task: 4 }, "2026-11-02", "2026-11-03", -1, 0], // durasi tak sah
+      [{ $task: 5 }, "2026-11-02", "2026-11-03", 1.5, 0],
+      ok,
+      [{ $task: 1 }, "2026-11-09", "2026-11-09", 1, 0], // ganda → yang pertama menang
+      [{ $task: "c-9" }, "2026-11-04", "2026-11-04", 0], // tanpa w (larik 4) → tetap sah; cid string
+    ]),
+  );
+  assert.ok(dec, "data dengan entri rusak tidak null total");
+  assert.deepEqual([...dec.rows.keys()], ["1", "c-9"]);
+  assert.deepEqual(dec.rows.get("1"), { s: D("2026-11-02"), f: D("2026-11-03"), d: 2 });
+  assert.deepEqual(dec.rows.get("c-9"), { s: D("2026-11-04"), f: D("2026-11-04"), d: 0 });
+  // meta asing → bentuk aman
+  const odd = P.baselineDecode({ v: 1, n: 3, t: [] });
+  assert.deepEqual([odd.n, odd.name, odd.savedAt, odd.by, odd.rows.size], [3, "", null, null, 0]);
+});
+
+test("compareBaseline: mundur 2 hk → ds 2 (positif = mundur, akhir pekan tidak dihitung); durasi beda → dd; task terhapus / ref asing → dilewati; cid → id server; blEnd/nowEnd per kelompok", () => {
+  const units = autoUnits("Alpha");
+  const v1 = [
+    mk({ id: 1, start: "2026-11-02", d: 2 }), // Sen 2 → Sel 3
+    mk({ id: 2, start: "2026-11-04", d: 3, deps: [[1]] }), // Rab 4 → Jum 6
+    mk({ id: 3, start: "2026-11-02", d: 1 }), // akan dihapus
+    mk({ id: 6, start: "2026-11-03", d: 1 }),
+    mk({ id: 8, start: "2026-11-06", d: 1 }), // Jum 6
+    mk({ id: 9, start: "2026-11-04", d: 1 }), // Rab 4
+    mk({ id: "c-7", start: "2026-11-05", d: 1 }), // dibuat offline
+    mk({ id: 11, start: "2026-11-05", d: 1, project: "Beta" }), // Kam 5
+  ];
+  const c1 = ctxOf(v1, units);
+  const dec = P.baselineDecode(JSON.parse(JSON.stringify(P.baselineEncode(M.run(c1), c1, META).data)));
+  dec.rows.set("999", { s: D("2026-11-02"), f: D("2026-11-02"), d: 1 }); // task asing / sudah dihapus dari scope
+  const v2 = [
+    mk({ id: 1, start: "2026-11-04", d: 2 }), // Rab 4 → Kam 5: +2 hk
+    mk({ id: 2, start: "2026-11-04", d: 5, deps: [[1]] }), // FS → Jum 6, d 5 → Kam 12
+    mk({ id: 6, start: "2026-11-03", d: 1 }), // tetap
+    mk({ id: 8, start: "2026-11-09", d: 1 }), // Jum 6 → Sen 9: +1 hk (Sab/Min tidak dihitung)
+    mk({ id: 9, start: "2026-11-02", d: 1 }), // Rab 4 → Sen 2: −2 hk (maju)
+    Object.assign(mk({ id: 70, start: "2026-11-05", d: 1 }), { cid: "c-7" }), // sudah terkirim: id server 70
+    mk({ id: 11, start: "2026-11-10", d: 1, project: "Beta" }), // Kam 5 → Sel 10: +3 hk
+  ];
+  const c2 = ctxOf(v2, units);
+  const before = snap(c2);
+  const r2 = M.run(c2);
+  const cmp = P.compareBaseline(r2, dec, c2);
+  assert.ok(cmp.perTask instanceof Map && cmp.group instanceof Map);
+  assert.deepEqual([...cmp.perTask.keys()], ["1", "11", "2", "6", "8", "9", "70"]);
+  assert.deepEqual(cmp.perTask.get("1"), { ds: 2, df: 2, dd: 0 });
+  assert.deepEqual(cmp.perTask.get("2"), { ds: 2, df: 4, dd: 2 });
+  assert.deepEqual(cmp.perTask.get("6"), { ds: 0, df: 0, dd: 0 });
+  assert.deepEqual(cmp.perTask.get("8"), { ds: 1, df: 1, dd: 0 });
+  assert.deepEqual(cmp.perTask.get("9"), { ds: -2, df: -2, dd: 0 });
+  assert.deepEqual(cmp.perTask.get("70"), { ds: 0, df: 0, dd: 0 }, "ref cid c-7 → task id 70");
+  assert.deepEqual(cmp.perTask.get("11"), { ds: 3, df: 3, dd: 0 });
+  assert.ok(!cmp.perTask.has("3") && !cmp.perTask.has("999") && !cmp.perTask.has("c-7"));
+  assert.ok(!Object.is(cmp.perTask.get("6").ds, -0), "tanpa −0");
+  const gA = unitKey("Alpha");
+  const gB = unitKey("Beta");
+  assert.deepEqual([...cmp.group.keys()].sort(), [gA, gB].sort());
+  assert.deepEqual(cmp.group.get(gA), { blEnd: D("2026-11-06"), nowEnd: D("2026-11-12") });
+  assert.deepEqual(cmp.group.get(gB), { blEnd: D("2026-11-05"), nowEnd: D("2026-11-10") });
+  assert.equal(snap(c2), before, "ctx tidak diubah");
+  // task di result tapi tidak di baseline → tidak ada entri; baseline null/rusak → kosong tanpa lempar
+  const c3 = ctxOf([mk({ id: 50, start: "2026-11-02", d: 1 })], units);
+  assert.equal(P.compareBaseline(M.run(c3), dec, c3).perTask.size, 0);
+  const empty = P.compareBaseline(r2, null, c2);
+  assert.deepEqual([empty.perTask.size, empty.group.size], [0, 0]);
 });
