@@ -972,6 +972,7 @@ def migrate_db():
         # Field plugin di task (spec plugin Fase 1 K4, rencana 1a-1 R1): di sini, bukan di plugin_loader.migrate
         # yang menelan error — kolom ini dipakai setiap INSERT/UPDATE task, gagal harus menghentikan deploy.
         task_ext.ensure_schema(conn)
+        task_ext.ensure_core_schema(conn)  # waktu inti task (PR 1c-0b K45): kolom terikat updated_at, tanpa backfill
         conn.commit()
     finally:
         conn.close()
@@ -1536,6 +1537,7 @@ def task_row_to_dict(row, conn=None) -> dict:
     d["days_until_deadline"] = days_left
     d["is_focused"] = bool(d.get("is_focused", 0))
     d["ext"] = task_ext.parse(d.get("ext"))  # selalu objek ({} bila kosong/rusak)
+    task_ext.apply_core_at(d)  # core_updated_at = waktu inti (PR 1c-0b K47); kolom mentah dibuang
     # Resolve assigned_to display name
     assigned_id = d.get("assigned_to")
     if assigned_id:
@@ -2676,6 +2678,8 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
                 updates["recurrence_end_date"] = None
                 updates["recurrence_notif_level"] = None
 
+        # PR 1c-0b K46: PUT ext murni (body tanpa field inti; null = tidak dikirim) membekukan waktu inti.
+        pure_ext = ext_patch is not None and not updates and not req.recurrence_renew
         if not updates and ext_patch is None:
             raise HTTPException(status_code=400, detail="No fields to update")
         # K6: PUT yang hanya mengubah ext (field inti sama dengan baris lama) tidak memberi tahu anggota workspace.
@@ -2691,6 +2695,9 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
 
         set_clause = ", ".join(f"{k} = ?" for k in updates)
         values = list(updates.values()) + [task_id]
+        if pure_ext:  # nilai beku dihitung SQL atas baris terkini (bukan `existing`), atomik di UPDATE ini
+            set_clause += ", " + task_ext.CORE_FREEZE_SET
+            values.insert(-1, updates["updated_at"])
         conn.execute(f"UPDATE tasks SET {set_clause} WHERE id = ?", values)
         if ext_patch is not None:
             # UPDATE di atas = DML pertama → BEGIN IMMEDIATE sudah aktif: baca-gabung-tulis ext atomik.

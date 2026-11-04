@@ -207,7 +207,17 @@ Penyimpangan dari teks spec atau ledger awal (semuanya dengan bukti di rencana):
 - **Restart hanya `taskflow-web`.** `plugin_records.py` dimuat web saja; bot tidak perlu restart.
 - **`setMany` 200 item lambat bukan karena render.** Satu render sudah dicapai (1 commit oleh resolve, 6 oleh `refreshTasks` host); 4,2-4,8 dtk pada CPU 4x berasal dari tulis lokal berurutan dan PUT. Dicatat untuk 1c-1 (target <= 2 dtk di spec belum tercapai).
 
-Risiko residual: **R2** (PUT ext saja menaikkan `updated_at` server sehingga edit inti offline yang lebih tua dari perangkat lain kalah saat pull; dicatat, tidak diselesaikan, tanya pemilik lagi sebelum 1c-1 di-merge) dan **R8** (hapus tag pada task bersih/PUT penuh terbang tertunda; pull task tetap tidak menarik tag).
+Risiko residual: **R2** (PUT ext saja menaikkan `updated_at` server sehingga edit inti offline yang lebih tua dari perangkat lain kalah saat pull; dicatat, tidak diselesaikan, tanya pemilik lagi sebelum 1c-1 di-merge; **diselesaikan di PR 1c-0b**, lihat catatan berikutnya) dan **R8** (hapus tag pada task bersih/PUT penuh terbang tertunda; pull task tetap tidak menarik tag).
+
+### Catatan implementasi PR 1c-0b (2026-11-04)
+
+PR 1c-0b (branch `claude/plugin-core-time`, rencana `docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1c-0b.md`, ADR-044) menutup R2. Ringkasan K45-K50: (K45) waktu inti server terikat `updated_at` lewat dua kolom mentah `tasks.ext_core_at`/`ext_only_at` (nullable, tanpa backfill, `migrate_db`); (K46) pembekuan hanya pada PUT ext murni, dihitung di SQL atas baris terkini; (K47) respons memuat `core_updated_at`, kolom mentah dibuang dari respons; (K48) aturan tarik: (1) inti server tidak berubah sejak `base_rev` (bandingkan cap waktu server saja) maka inti lokal menang, lalu (2) LWW memakai waktu inti; (K49) tanpa penyimpanan klien baru (IndexedDB v7, hanya `syncpull.js` berubah); (K50) SW `taskflow-v497-waktu-inti`, whatsnew `silent`, restart `taskflow-web` saja.
+
+- **Q1 (a):** penghapusan offline tetap terhapus (diuji di tingkat pull).
+- **S9 laten:** VPS memakai Etc/UTC (dikonfirmasi pemilik 2026-11-04), jadi cap naif server tidak bergeser di produksi; hanya muncul bila zona waktu berubah atau di lingkungan dev (E2E dijalankan dengan `TZ=Asia/Jakarta`).
+- **Penyimpangan:** `core_updated_at` tak terbaca/tak terurai membuat klien kembali ke aturan lama (bukan menebak).
+- **Residual:** (a) quadrant pada PUT ext murni dihitung ulang dari `existing` basi (pra-1c-0, field turunan, cron memperbaiki); (b) edit inti yang dibuat saat PUT ext-only 1c-0 sedang berjalan memajukan `base_rev` tanpa mengadopsi inti server, sehingga seret oleh perangkat ketiga kemudian mencapai aturan (1) dan PUT penuh A diterapkan sebagai LWW satu record menurut urutan waktu nyata (dapat diterima); aturan (1) mengasumsikan jam server tidak mundur; ekspor `tasks.json` memuat kolom mentah (tanpa pembaca).
+- **Bug terpisah, pra-ada:** `PUT` dengan `recurrence_type` valid menghasilkan 500 (`sqlite3.Row.get`); di `main` hari ini setiap PUT penuh task berulang gagal 500. Bukan bagian PR ini; **perbaikan terpisah disarankan sebelum 1c-1**.
 
 ### 6.4 Skenario
 
@@ -317,7 +327,7 @@ Semua PR: checklist PROTOCOL §4 (CACHE + `__SW_VERSION` + fallback, entri `what
 | # | Risiko | Mitigasi |
 |---|---|---|
 | R1 | **Penulisan massal mengembalikan perubahan field inti anggota lain** (payload penuh dari salinan basi) | K25 (push ext saja + pull inti server menang) di 1c-0, sebelum fitur massal mana pun; tes pagar penulis; E2E judul bertahan |
-| R2 | **Sisa arah sebaliknya:** PUT ext saja tetap menaikkan `tasks.updated_at` server, sehingga edit inti **offline** perangkat lain yang lebih tua dari Terapkan kalah LWW saat tarik (`syncpull.js:321`) | Tidak diselesaikan di 1c (butuh `updated_at` terpisah untuk ext/inti di server = perubahan skema + semantik sinkron). Dibatasi: diff saja, aliran hilir saja. Dicatat sebagai tindak lanjut host "LWW per kelompok field task" |
+| R2 | **Sisa arah sebaliknya:** PUT ext saja tetap menaikkan `tasks.updated_at` server, sehingga edit inti **offline** perangkat lain yang lebih tua dari Terapkan kalah LWW saat tarik (`syncpull.js:321`) | **Diselesaikan di PR 1c-0b (ADR-044):** server menyimpan waktu inti terikat `updated_at` (`core_updated_at`), PUT ext murni tidak menaikkannya, tarik memakai waktu inti. Residual: lihat "Catatan implementasi PR 1c-0b" |
 | R3 | Audit `ext_only` terlewat satu penulis → perubahan inti tidak terkirim | default aman (`ext_only` tidak ada = payload penuh); syarat tambahan tag kotor; tes pagar memindai semua penulis store `tasks`; review fokus |
 | R4 | Anggota dengan klien 1.0 menghapus dependensi SS/FF/SF lewat "Hapus dependensi rusak" | jendela singkat (SW memperbarui klien; plugin ikut hash); teks 1.0 sudah "tidak dikenali versi ini"; catatan rilis |
 | R5 | Drift banner sering muncul di workspace aktif → pengguna jenuh | banner bisa ditutup per sesi; jumlah task disebut; tidak ada tulisan otomatis sebagai gantinya |

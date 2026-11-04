@@ -1,5 +1,6 @@
 {
   "entries": [
+    {"version": "taskflow-v497-waktu-inti", "date": "2026-11-04", "silent": true},
     {"version": "taskflow-v496-sinkron-ext", "date": "2026-11-01", "silent": true},
     {"version": "taskflow-v495-timeline", "date": "2026-11-01", "title": "Timeline: lihat jadwal project sebagai Gantt",
      "new": ["Nyalakan Timeline di Pengaturan › Plugin, lalu pilih tampilan Timeline di halaman project atau workspace.",
