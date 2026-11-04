@@ -254,6 +254,27 @@ test("core_updated_at tak terbaca → aturan (2) memakai fallback updated_at (se
   assert.deepEqual([r.lwwResolved, r.coreKept, r.updated], [1, 0, 1]);
 });
 
+test("core_updated_at tak terbaca (\"bukan waktu\") → aturan lama pada s.updated_at (aturan 1 dan 2)", async () => {
+  // updated_at server lebih baru dari edit lokal → server menang (bukan lokal menang selamanya)
+  const cid = await seedClean(10);
+  await repo.updateTask(cid, { title: "Judul A" }, Object.assign({ now: LOCAL }, TODAY));
+  assert.equal(SPULL.coreUnchangedSince(srv({ id: 10, core_updated_at: "bukan waktu" }), T0), false);
+  const r = await pullTasks([srv({ id: 10, title: "Server", updated_at: T2, core_updated_at: "bukan waktu" })]);
+  const rec = await getTask(cid);
+  assert.equal(rec.title, "Server");
+  assert.equal(rec.dirty, 0);
+  assert.equal((await taskOps(cid)).length, 0);
+  assert.deepEqual([r.lwwResolved, r.coreKept, r.updated], [1, 0, 1]);
+  // updated_at server lebih tua dari edit lokal → lokal menang (sama seperti aturan lama)
+  const cid2 = await seedClean(11);
+  await repo.updateTask(cid2, { title: "Judul A2" }, Object.assign({ now: "2026-11-01T10:40:00.000Z" }, TODAY));
+  const r2 = await pullTasks([srv({ id: 11, title: "Server", updated_at: "2026-11-01T10:30:00.000001", core_updated_at: "bukan waktu" })]);
+  const rec2 = await getTask(cid2);
+  assert.equal(rec2.title, "Judul A2");
+  assert.equal(rec2.dirty, 1);
+  assert.deepEqual([r2.lwwResolved, r2.coreKept, r2.updated], [1, 0, 0]);
+});
+
 // ── field inti lain + hapus (Q1 a) ─────────────────────────────────────────────────────────────────────────
 
 for (const [name, patch, field, want] of [

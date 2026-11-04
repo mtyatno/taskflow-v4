@@ -372,7 +372,9 @@
                   serverWins = false;
                   result.coreKept++;
                 } else {
-                  serverWins = tsEpoch(serverCoreAt(s) || s.updated_at) > tsEpoch(localRec.updated_at);
+                  // waktu inti hanya dipakai bila terbaca; tak terbaca → aturan lama (s.updated_at), spec A.4
+                  const c = serverCoreAt(s);
+                  serverWins = tsEpoch(c && tsEpoch(c) > 0 ? c : s.updated_at) > tsEpoch(localRec.updated_at);
                 }
                 if (serverWins) {
                   const extDirty = Array.isArray(localRec.ext_dirty) && localRec.ext_dirty.length > 0;
