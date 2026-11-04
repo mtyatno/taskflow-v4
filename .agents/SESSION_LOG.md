@@ -4353,3 +4353,9 @@
 - **Changes:** #123 di-merge (f156919); workflow Deploy sukses.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Done. Tindak lanjut Bapak: `sudo systemctl restart taskflow-web` lalu `systemctl show -p ActiveEnterTimestamp taskflow-web` (harus lebih baru dari selesai deploy). Berikutnya: rencana PR 1c-1 (jangan merge sebelum restart ini terverifikasi).
+
+## [2026-11-04] - Claude
+- **Task:** Perbaiki PUT task berulang 500 (`sqlite3.Row` tidak punya `.get`) di `update_task`.
+- **Changes:** `existing.get("recurrence_end_date")` -> `existing["recurrence_end_date"]`; tes regresi baru `tests/test_task_recurrence_put.py` (TDD, merah lalu hijau).
+- **Files Touch:** webapp.py, tests/test_task_recurrence_put.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (branch `claude/fix-recurrence-put-500`, belum di-push; tunggu "merge dan deploy"). pytest 1438/1 skip. Deploy: restart `taskflow-web` saja; tanpa SW bump.
