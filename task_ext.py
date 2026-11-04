@@ -12,6 +12,8 @@ koneksi sendiri): `ensure_schema` menerima koneksi pemanggil dan tidak commit; t
 - `apply_patch(old_raw, patch)` → JSON baru; ukuran per namespace ≤ 4096 byte lalu total ≤ 16384 byte
   (byte UTF-8 `dumps` ringkas) → `EXT_TOO_LARGE` dengan `key` = namespace / `None`.
 - `parse(raw)` → selalu `dict` (`{}` bila kosong/rusak).
+- Waktu inti task (PR 1c-0b): `ensure_core_schema`, `CORE_FREEZE_SET` (PUT ext murni), `core_at_of`/`apply_core_at`
+  (`core_updated_at` di API) — kolom terikat `updated_at`, lihat blok setelah `ensure_schema`.
 
 Aturan yang sama ada di klien `static/offline/taskext.js` (vektor bersama `tests/fixtures/taskext_vectors.json`).
 """
@@ -73,6 +75,57 @@ def ensure_schema(conn) -> bool:
         return False
     conn.execute("ALTER TABLE tasks ADD COLUMN ext TEXT NOT NULL DEFAULT '{}'")
     return True
+
+
+# ── Waktu inti task (PR 1c-0b, K45–K47, ADR-044) ──────────────────────────────
+# Dua kolom mentah TERIKAT pada `tasks.updated_at` (pola `ext_only_rev` 1c-0 R1, sisi server): `ext_only_at` =
+# nilai `updated_at` yang ditulis PUT ext murni terakhir, `ext_core_at` = waktu inti yang dibekukannya. Waktu inti
+# efektif = `ext_core_at` HANYA bila `ext_only_at = updated_at` dan `ext_core_at` tidak kosong, selain itu
+# `updated_at`. Penulis lain yang menaikkan `updated_at` (bot, kode lama setelah rollback, penulis baru) tanpa
+# mengenal kolom ini otomatis membatalkan pembekuan. Nama kolom hanya ada di modul ini (pagar
+# tests/test_task_core_time.py); API memakai nama lain (`core_updated_at`, K47).
+CORE_COLS = ("ext_core_at", "ext_only_at")
+
+# Potongan SET untuk UPDATE utama PUT ext murni; satu `?` = nilai `updated_at` baru yang sama persis. Nilai beku
+# dihitung SQL atas baris TERKINI (RHS SQLite memakai nilai baris lama di urutan SET mana pun), bukan dari baris
+# yang dibaca sebelum BEGIN IMMEDIATE — penulis inti konkuren yang commit di antaranya tetap menjadi waktu inti.
+CORE_FREEZE_SET = (
+    "ext_core_at = CASE WHEN ext_only_at IS NOT NULL AND ext_only_at = updated_at "
+    "AND ext_core_at IS NOT NULL AND ext_core_at <> '' THEN ext_core_at ELSE updated_at END, "
+    "ext_only_at = ?"
+)
+
+
+def ensure_core_schema(conn) -> bool:
+    """Kolom waktu inti (`CORE_COLS`, TEXT nullable tanpa default) bila belum ada: idempoten per kolom, tanpa
+    backfill (NULL = waktu inti `updated_at`), tanpa commit. True bila ada kolom ditambahkan; tabel tidak ada →
+    False."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tasks)").fetchall()}
+    if not cols:
+        return False
+    added = False
+    for col in CORE_COLS:
+        if col not in cols:
+            conn.execute(f"ALTER TABLE tasks ADD COLUMN {col} TEXT")
+            added = True
+    return added
+
+
+def core_at_of(d) -> str | None:
+    """Waktu inti efektif baris task (dict): sama dengan `CASE` di `CORE_FREEZE_SET`."""
+    only = d.get("ext_only_at")
+    core = d.get("ext_core_at")
+    if only is not None and only == d.get("updated_at") and core:
+        return core
+    return d.get("updated_at")
+
+
+def apply_core_at(d: dict) -> dict:
+    """`d["core_updated_at"]` = waktu inti efektif; kolom mentah dibuang dari keluaran API (K47). Mengubah `d`."""
+    d["core_updated_at"] = core_at_of(d)
+    for col in CORE_COLS:
+        d.pop(col, None)
+    return d
 
 
 def parse(raw) -> dict:
