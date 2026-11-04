@@ -1,5 +1,11 @@
 {
   "entries": [
+    {"version": "taskflow-v498-jadwal-otomatis", "date": "2026-11-04", "title": "Timeline: jadwal otomatis dan jalur kritis",
+     "new": ["Nyalakan Jadwal otomatis per project: task mengikuti dependensinya, selalu lewat pratinjau sebelum ada tanggal yang berubah.",
+             "Di project otomatis, menggeser satu task ikut menggeser task sesudahnya. Salah geser? Tekan Urungkan.",
+             "Jalur kritis dan kolom Slack menunjukkan task mana yang tidak boleh terlambat.",
+             "Dependensi kini bisa Mulai–Mulai, Selesai–Selesai, dan Mulai–Selesai, dengan jeda hari kerja.",
+             "Jadwalkan ulang task yang terlambat ke setelah hari ini dalam satu langkah. Detail task menjelaskan kenapa dijadwalkan di sana."]},
     {"version": "taskflow-v497-waktu-inti", "date": "2026-11-04", "silent": true},
     {"version": "taskflow-v496-sinkron-ext", "date": "2026-11-01", "silent": true},
     {"version": "taskflow-v495-timeline", "date": "2026-11-01", "title": "Timeline: lihat jadwal project sebagai Gantt",
