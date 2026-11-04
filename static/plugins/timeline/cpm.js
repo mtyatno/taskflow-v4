@@ -59,6 +59,8 @@ const TLCpm = (function (CAL, SCHED, HOL) {
     return Math.floor((t + JKT_OFFSET) / MS_DAY);
   }
 
+  // Tenggat task → bilangan hari (10 karakter pertama, R3); tak ada/tak sah → NaN. Satu sumber untuk run() dan explain().
+  const deadlineDn = (t) => (t.deadline === null || t.deadline === undefined ? NaN : CAL.dn(String(t.deadline).slice(0, 10)));
   const isDone = (t) => t.gtd_status === "done" || !!t.completed_at;
   const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
   const parentOf = (t) => (t.parent_id !== undefined && t.parent_id !== null ? t.parent_id : t.parent_cid);
@@ -414,7 +416,7 @@ const TLCpm = (function (CAL, SCHED, HOL) {
       if (n.es === null) continue;
       const d = n.d;
       let lf = groupEnd.get(n.g);
-      const dl = n.task.deadline === null || n.task.deadline === undefined ? NaN : CAL.dn(String(n.task.deadline).slice(0, 10));
+      const dl = deadlineDn(n.task);
       if (isDn(dl)) {
         const cap = d >= 1 ? safe(() => CAL.prevWork(c, dl)) : dl;
         if (isDn(cap) && cap < lf) lf = cap;
@@ -484,6 +486,9 @@ const TLCpm = (function (CAL, SCHED, HOL) {
     return out;
   }
 
+  // PENTING: `cal` HARUS kalender terkompilasi yang sama dengan yang diberikan ke run(); kalender lain membuat atribusi
+  // hari yang dilewati (skipped/lagDays/durSkipped) bisa berbeda dari mesin. Tanpa `readExt`, `base` untuk root/snet = null
+  // (Task 4+ wajib meneruskannya).
   // explain(result, key, cal, readExt?) → {kind, base, lagDays, start, skipped, finish, durSkipped, late, deadline, pred?, type?, lag?, cycleWith?}
   //   kind: pred | root | snet | mfo | manual | done | started | cycle | unscheduled
   //   base = titik acuan: FS/FF → selesai pendahulu, SS/SF → mulai pendahulu; snet → tanggal batasan; root → tanggal mulai
@@ -492,7 +497,7 @@ const TLCpm = (function (CAL, SCHED, HOL) {
   //   skipped = hari non-kerja strictly di antara base dan start (hanya bila start > base; root/snet: dari base inklusif);
   //   durSkipped = hari non-kerja di dalam [start, finish] (milestone d = 0 → []); keduanya tidak pernah tumpang tindih.
   //   late = hari kerja lewat tenggat (0 bila tepat/tanpa tenggat); deadline = hari tenggat atau null.
-  //   cycle → cycleWith = anggota lingkaran lain (terurut cmpKey); unscheduled → semua tanggal null.
+  //   cycle → cycleWith = anggota lingkaran lain (terurut cmpKey; anggota yang selesai → kind done, tanpa cycleWith); unscheduled → semua tanggal null.
   function explain(result, key, cal, readExt) {
     const k = String(key);
     const out = (kind, extra) =>
@@ -500,11 +505,12 @@ const TLCpm = (function (CAL, SCHED, HOL) {
     const nodes = isObj(result) && result.nodes instanceof Map ? result.nodes : null;
     const n = nodes ? nodes.get(k) : undefined;
     const ring = isObj(result) && Array.isArray(result.cycles) ? result.cycles.find((cy) => cy.indexOf(k) >= 0) : undefined;
-    const cycleWith = ring ? ring.filter((x) => x !== k).sort(cmpKey) : null;
+    // Prioritas jangkar mesin: done > cycle → anggota lingkaran yang selesai dijelaskan sebagai "done" (tanggal dari completed_at).
+    const cycleWith = ring && !(n && n.fixed === "done") ? ring.filter((x) => x !== k).sort(cmpKey) : null;
     if (!n || n.es === null || n.ef === null || !isObj(cal)) return cycleWith ? out("cycle", { cycleWith }) : out("unscheduled");
 
     const c = cal;
-    const dl = n.task.deadline === null || n.task.deadline === undefined ? NaN : CAL.dn(String(n.task.deadline).slice(0, 10));
+    const dl = deadlineDn(n.task);
     const e = out(cycleWith ? "cycle" : n.fixed || n.driver.kind, {
       start: n.es,
       finish: n.ef,

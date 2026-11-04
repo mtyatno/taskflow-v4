@@ -935,3 +935,38 @@ test("explain: kalender buntu tidak melempar; murni (tanpa Date.parse/localeComp
   assert.equal(M.explain(null, "1", std()).kind, "unscheduled");
   assert.equal(M.explain({}, "1", std()).kind, "unscheduled");
 });
+
+// ---- Task 3, putaran perbaikan 1 ----
+test("explain: task selesai di dalam siklus → kind done (tanggal dari completed_at), pasangannya tetap cycle", () => {
+  const r = run([
+    mk({ id: 1, start: "2026-11-02", d: 3, done: true, completed_at: "2026-11-04T05:00:00Z", deps: [[2]] }),
+    mk({ id: 2, start: "2026-11-05", d: 1, deps: [[1]] }),
+  ]);
+  assert.equal(r.cycles.length, 1);
+  const e = ex(r, 1);
+  assert.equal(e.kind, "done");
+  assert.equal(e.cycleWith, undefined);
+  assert.equal(e.start, dnOf("2026-11-02"));
+  assert.equal(e.finish, dnOf("2026-11-04"));
+  assert.equal(e.finish, node(r, 1).ef);
+  const p = ex(r, 2);
+  assert.equal(p.kind, "cycle");
+  assert.deepEqual(p.cycleWith, ["1"]);
+});
+
+test("explain: FF dari milestone Sabtu, lag 1, d 2 → lag tercatat tetapi lagDays kosong (whyText tak boleh render 'lag 1 hari ()')", () => {
+  const r = run([mk({ id: 1, start: "2026-11-07", d: 0 }), mk({ id: 2, d: 2, deps: [[1, "FF", 1]] })]);
+  const e = ex(r, 2);
+  assert.equal(e.kind, "pred");
+  assert.equal(e.type, "FF");
+  assert.equal(e.lag, 1);
+  assert.equal(e.lagDays.length, 0);
+  assert.equal(e.start, node(r, 2).es);
+});
+
+test("explain: Manual tersimpan Sabtu, d ≥ 1 → durSkipped memuat Sabtu 7 (hari mulai itu sendiri) dan Minggu 8", () => {
+  const r = run([mk({ id: 1, start: "2026-11-07", d: 3, mode: "manual" })], new Map());
+  const e = ex(r, 1);
+  assert.equal(e.start, dnOf("2026-11-07"));
+  assert.deepEqual(e.durSkipped.slice(0, 2), [sk("2026-11-07", "Sabtu"), sk("2026-11-08", "Minggu")]);
+});
