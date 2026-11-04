@@ -195,9 +195,10 @@ dan ikut sinkron task di semua jalur (hidrasi, push, pull, workspace bersama).
   (judul, status, tenggat, penanggung jawab, dan seterusnya): field inti selalu milik server, yaitu anggota
   terakhir yang mengubahnya. Menyeret bar di perangkat yang datanya basi tidak mengembalikan judul atau status
   yang baru diubah orang lain, dan setelah push pertama perangkat itu menampilkan nilai server. Edit yang juga
-  menyentuh field inti tetap dikirim penuh seperti biasa (last-write-wins). Sisa batasan: edit inti offline yang
-  lebih tua dari edit ext perangkat lain bisa kalah saat ditarik (server menaikkan waktu ubah task pada setiap
-  edit ext). Penghapusan tag pada task yang hanya punya edit ext tertunda mengubahnya menjadi kiriman penuh,
+  menyentuh field inti tetap dikirim penuh seperti biasa (last-write-wins). Edit ext tidak membuat edit inti offline
+  perangkat lain kalah: server mencatat waktu inti task terpisah (`core_updated_at`, tidak naik oleh PUT yang
+  hanya membawa `ext_patch`), dan perangkat yang tertunda dengan edit inti menang bila inti server belum berubah
+  sejak terakhir ia sinkron. Bila kedua sisi mengubah field inti, last-write-wins seperti biasa. Penghapusan tag pada task yang hanya punya edit ext tertunda mengubahnya menjadi kiriman penuh,
   jadi tag itu segera terkirim lewat PUT penuh; penghapusan tag baru tertunda sampai PUT penuh berikutnya bila
   task tidak punya perubahan tertunda sama sekali, bila PUT penuh untuk task itu sedang terkirim, atau bila
   tarik ulang dari server menyetel task kembali ke "hanya ext" (perubahan ext yang belum terkirim ditempel ulang).
