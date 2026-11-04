@@ -4690,3 +4690,31 @@ test("render awal tidak menjalankan TLCpm.run (spy) — mesin setelah raf+setTim
     spy.restore();
   }
 }));
+
+// ── Fix 2 review Task 8: menu "Lainnya" tidak meluap di HP 375 px (E2E 12a) ───────────────────────────────────────
+test("fix T8 r2: menu 'Lainnya' rata kanan tombol bila rata kiri meluap viewport (375 px, tombol x≈262); tombol di kiri (Daftar) tetap rata kiri", () => {
+  assert.equal(T.menuAlign({ left: 262, right: 330 }, 375, 180), "end", "262 + 180 > 367 → rata kanan");
+  assert.equal(T.menuAlign({ left: 8, right: 78 }, 375, 180), "start", "Daftar: tombol paling kiri → rata kiri (rata kanan meluap kiri)");
+  assert.equal(T.menuAlign({ left: 150, right: 220 }, 375, 180), "start", "150 + 180 ≤ 367 → muat rata kiri");
+  assert.equal(T.menuAlign({ left: 200, right: 270 }, 375, 180), "end");
+  assert.equal(T.menuAlign({ left: 100, right: 170 }, 1280, 180), "start", "lebar: rata kiri seperti biasa");
+  assert.equal(T.menuAlign(null, 375, 180), "start", "tanpa ukuran → bawaan");
+  const prev = global.window;
+  global.window = { innerWidth: 375, addEventListener() {}, removeEventListener() {} };
+  try {
+    const items = [{ id: "auto", text: "Jadwal otomatis", role: "menuitem" }];
+    for (const [rect, end] of [[{ left: 262, right: 330 }, true], [{ left: 8, right: 78 }, false]]) {
+      const m = mount(T.MoreMenu);
+      let t = m.render({ items });
+      nodes(t, (n) => hasCls(n, "plg-timeline-more"))[0].props.ref.current = { getBoundingClientRect: () => rect, contains: () => false };
+      buttonByText(t, "Lainnya").props.onClick({});
+      t = m.render({ items });
+      const menu = nodes(t, (n) => n.props.role === "menu")[0];
+      assert.equal(hasCls(menu, "is-end"), end, JSON.stringify(rect));
+    }
+  } finally {
+    global.window = prev;
+  }
+  assert.match(css, /\.plg-timeline-more-menu\.is-end\s*\{[^}]*right:\s*0;[^}]*left:\s*auto;/);
+  assert.match(css, /\.plg-timeline-more-menu\s*\{[^}]*max-width:\s*calc\(100vw - 16px\)/);
+});

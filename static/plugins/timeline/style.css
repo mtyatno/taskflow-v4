@@ -1493,12 +1493,17 @@
   display: inline-flex;
 }
 
+/* Konteks posisi = .plg-timeline-more (pembungkus tombol). Rata kiri bawaan; .is-end (menuAlign di plugin.jsx, saat
+   rata kiri melewati tepi kanan viewport, mis. toolbar terbungkus di 375 px) rata kanan tombol. max-width menjaga
+   menu tidak pernah lebih lebar dari viewport. */
 .plg-timeline-more-menu {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
   z-index: 11;
   min-width: 180px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
   padding: 4px;
   display: flex;
   flex-direction: column;
@@ -1506,6 +1511,11 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--text-primary) 18%, transparent);
+}
+
+.plg-timeline-more-menu.is-end {
+  right: 0;
+  left: auto;
 }
 
 .plg-timeline-more-item {

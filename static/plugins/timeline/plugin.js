@@ -5110,13 +5110,38 @@ function useDismiss(active, rootRef, onDismiss, skipSel) {
   }, [active]);
 }
 
+// Perataan menu "Lainnya" terhadap tombolnya (fix E2E 375 px): rata kiri bawaan; bila rata kiri melewati tepi kanan
+// viewport (toolbar terbungkus, tombol di separuh kanan) DAN rata kanan muat di tepi kiri → "end" (right: 0). Dengan
+// menu 180 px dan viewport ≥ 320 px salah satunya selalu muat (tombol ≥ 60 px lebar). rect = getBoundingClientRect
+// pembungkus tombol (konteks posisi menu). Murni.
+const MORE_MENU_W = 180; // = min-width .plg-timeline-more-menu
+const MORE_GAP = 8;
+function menuAlign(rect, viewW, menuW) {
+  if (!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.right) || !Number.isFinite(viewW)) return "start";
+  return rect.left + menuW > viewW - MORE_GAP && rect.right - menuW >= MORE_GAP ? "end" : "start";
+}
+
 // Menu "Lainnya" (HP ≤ 640 px / Live Edit): items = [{id, text, role: "menuitem"|"menuitemcheckbox", checked, disabled,
 // haspopup, onSelect}]. Memilih item menutup menu lalu menjalankan onSelect.
 function MoreMenu(props) {
   const items = Array.isArray(props.items) ? props.items : [];
   const [open, setOpen] = React.useState(false);
+  const [align, setAlign] = React.useState("start");
   const rootRef = React.useRef(null);
   useDismiss(open, rootRef, () => setOpen(false), null);
+  const toggle = () => {
+    if (!open) {
+      const el = rootRef.current;
+      let rect = null;
+      try {
+        rect = el && typeof el.getBoundingClientRect === "function" ? el.getBoundingClientRect() : null;
+      } catch (e) {
+        rect = null;
+      }
+      setAlign(menuAlign(rect, hasWindow() ? Number(window.innerWidth) : NaN, MORE_MENU_W));
+    }
+    setOpen(!open);
+  };
   const pick = it => {
     setOpen(false);
     if (!it.disabled && typeof it.onSelect === "function") it.onSelect();
@@ -5129,9 +5154,9 @@ function MoreMenu(props) {
     className: cx("plg-timeline-btn", open && "is-active"),
     "aria-haspopup": "menu",
     "aria-expanded": open,
-    onClick: () => setOpen(!open)
+    onClick: toggle
   }, LBL.more), open ? /*#__PURE__*/React.createElement("div", {
-    className: "plg-timeline-more-menu",
+    className: cx("plg-timeline-more-menu", align === "end" && "is-end"),
     role: "menu",
     "aria-label": LBL.more
   }, items.map(it => /*#__PURE__*/React.createElement("button", {
@@ -9075,6 +9100,7 @@ const pure = {
   CalendarPopover,
   ListFallback,
   MoreMenu,
+  menuAlign,
   UnitPopover,
   PreviewDialog,
   PreviewCard,
