@@ -1490,6 +1490,27 @@ test("Ubah (Mulai otomatis) → input; tanggal sebelum syarat → toast 'Tidak b
   assert.equal(lastToast(s)[0], "Jadwal diubah · 1 task ikut bergeser");
 });
 
+test("fix final 1: 'Ubah' lalu blur TANPA ubah pada task drift → 0 tulis (tanpa start/SNET); tanggal yang benar-benar berubah tetap menulis", async () => {
+  const { s } = await open3({ start: "2026-11-09", cStart: "2026-11-13" }); // tersimpan Sen 9, hasil hitung Kam 5 → drift
+  buttonByText(part(s.tree, "start"), "Ubah").props.onClick();
+  s.render();
+  const inp = byLabel(part(s.tree, "start"), "Mulai");
+  assert.equal(inp.props.value, "2026-11-05", "diisi hasil hitung");
+  inp.props.onBlur(ev("2026-11-05"));
+  s.render();
+  await s.settle();
+  assert.equal(s.calls.set.length + s.calls.setMany.length, 0, "blur tanpa ubah = 0 tulis");
+  assert.equal(txt(byCls(part(s.tree, "start"), "plg-timeline-sec-val")[0]).trim(), "Kam 5 Nov", "kembali ke teks");
+  // tanggal berubah → tetap menulis (start + SNET)
+  buttonByText(part(s.tree, "start"), "Ubah").props.onClick();
+  s.render();
+  byLabel(part(s.tree, "start"), "Mulai").props.onChange(ev("2026-11-10"));
+  byLabel(part(s.tree, "start"), "Mulai").props.onBlur(ev("2026-11-10"));
+  s.render();
+  assert.equal(s.calls.setMany.length, 1);
+  assert.deepEqual(s.calls.setMany[0][0], { taskId: 20, patch: { start: "2026-11-10", constraint: { type: "SNET", date: "2026-11-10" } } });
+});
+
 test("whyText contoh mockup persis (R21) — 'Kenapa' terlipat bawaan; explain dipanggil hanya saat dibuka (spy), dengan kalender run dan readExt", async () => {
   const orig = T.engine.explain;
   const origRun = T.engine.run;

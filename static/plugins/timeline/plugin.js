@@ -1967,11 +1967,18 @@ const TLPlan = (function (CAL, SCHED, CPM) {
   // undoItems (R13): patch = `before` (kunci yang dulu tidak ada → null = hapus); urutan item sama. Nilai mentah yang
   // gagal sanitizePatch untuk kuncinya (data korup) → null: mesin memperlakukannya sebagai tidak ada, dan satu nilai
   // korup tidak boleh membuat seluruh batch Urungkan ditolak (R22). Nilai sah ditulis dalam bentuk bersih sanitizePatch.
+  // Pengecualian `deps`: nilai MENTAH ditulis apa adanya (salinan) — satu entri format asing/masa depan tidak boleh
+  // membuat Urungkan menghapus SEMUA dependensi; store menerima kembali yang dulu ia simpan, dan mesin/readSched
+  // mengabaikan entri yang tidak terbaca (invalidDeps).
   function undoItems(items) {
     return (Array.isArray(items) ? items : []).map((it) => {
       const patch = {};
       for (const k of Object.keys(it.before)) {
         const v = it.before[k];
+        if (k === "deps") {
+          patch[k] = v === null || v === undefined ? null : clone(v);
+          continue;
+        }
         const s = v === null ? null : SCHED.sanitizePatch({ [k]: v });
         patch[k] = s && s.ok ? clone(s.patch[k]) : null;
       }
@@ -6746,7 +6753,8 @@ function TimelineViewBody(props) {
       },
       onDone: () => un.store.setAuto(entry.unit, true, uid),
       // setMany dulu; setAuto hanya setelah sukses
-      rebuild: (ctx2, before, units) => Object.assign(buildToggle(ctx2, before, recId), {
+      // "sebelum" = mesin atas ctx2 (data terbaru), bukan hasil lama eng.result (K32: endBefore/brokenDeps dari data segar)
+      rebuild: (ctx2, before2, units) => Object.assign(buildToggle(ctx2, engine.run(ctx2), recId), {
         unit: {
           unit: entry.unit,
           rep: entry.rep,
@@ -6785,7 +6793,8 @@ function TimelineViewBody(props) {
       model: b.model,
       busy: false,
       whyOf: b.whyOf,
-      rebuild: (ctx2, before2) => buildFlow(ctx2, before2, p.gestures)
+      // K32: "sebelum" dihitung dari ctx2 — turunan yang ES-nya berubah karena SINKRON (bukan gestur) tidak dihitung bergeser.
+      rebuild: ctx2 => buildFlow(ctx2, engine.run(ctx2), p.gestures)
     };
     pvRef.current = next;
     setPv(next);
@@ -8196,7 +8205,9 @@ function ScheduleBody(props) {
       return;
     }
     const x = snapStart(v, sched.start === null ? autoNode.d : sched.duration);
-    if (x === sched.start && x === TLCal.iso(autoNode.es)) {
+    // Input diisi iso(es): blur/Enter tanpa ubah (juga pada task drift / tanpa Mulai tersimpan) = 0 tulis. Menyelaraskan
+    // Mulai tersimpan dengan hasil hitung adalah tugas "Perbarui" (tanpa SNET), bukan "Ubah".
+    if (x === TLCal.iso(autoNode.es)) {
       clearDraft("start");
       return;
     }

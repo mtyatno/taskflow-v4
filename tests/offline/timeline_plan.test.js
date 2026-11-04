@@ -450,6 +450,26 @@ test("undoItems: nilai before yang korup (gagal sanitizePatch per kunci) → nul
   assertSane(undo.map((u) => ({ key: String(u.taskId), patch: u.patch })));
 });
 
+test("undoItems: deps lama dengan SATU entri format masa depan → ditulis MENTAH apa adanya (tidak menghapus semua dependensi)", () => {
+  const tasks = [
+    mk({ id: 1, start: "2026-11-02", d: 1 }),
+    mk({ id: 2, start: "2026-11-03", d: 1 }),
+    mk({ id: 3, start: "2026-11-04", d: 1, deps: [[1], [2, "ZZ", 2]] }), // "ZZ" = tipe versi mendatang
+  ];
+  tasks[2].ext["timeline.deps"][0].note = "kunci tak dikenal"; // bentuk masa depan lain pada entri sah
+  const ctx = ctxOf(tasks);
+  const rawDeps = JSON.parse(JSON.stringify(tasks[2].ext["timeline.deps"]));
+  assert.equal(S.sanitizePatch({ deps: rawDeps }).ok, false, "prasyarat: deps lama gagal sanitizePatch");
+  const link = P.cascade(ctx, [{ task: tasks[2], patch: { deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }] } }]);
+  assert.deepEqual(link.items[0].before.deps, rawDeps, "before mentah");
+  const undo = P.undoItems(link.items);
+  assert.deepEqual(undo[0].patch.deps, rawDeps, "Urungkan membawa deps mentah verbatim");
+  assert.notEqual(undo[0].patch.deps, link.items[0].before.deps, "salinan, bukan alias");
+  // kunci lain tetap dipetakan null bila korup (R22)
+  const bad = P.undoItems([{ task: { id: 9 }, before: { start: "2026-11-04", duration: "x", deps: null } }]);
+  assert.deepEqual(bad[0].patch, { start: "2026-11-04", duration: null, deps: null });
+});
+
 test("preview: moved, Selesai project lama → baru + Δ hk, late, notMoved (jangkar bertabrakan, cycle), brokenDeps", () => {
   const tasks = [
     mk({ id: 1, start: "2026-11-02", d: 2 }), // A akar

@@ -400,11 +400,18 @@ const TLPlan = (function (CAL, SCHED, CPM) {
   // undoItems (R13): patch = `before` (kunci yang dulu tidak ada → null = hapus); urutan item sama. Nilai mentah yang
   // gagal sanitizePatch untuk kuncinya (data korup) → null: mesin memperlakukannya sebagai tidak ada, dan satu nilai
   // korup tidak boleh membuat seluruh batch Urungkan ditolak (R22). Nilai sah ditulis dalam bentuk bersih sanitizePatch.
+  // Pengecualian `deps`: nilai MENTAH ditulis apa adanya (salinan) — satu entri format asing/masa depan tidak boleh
+  // membuat Urungkan menghapus SEMUA dependensi; store menerima kembali yang dulu ia simpan, dan mesin/readSched
+  // mengabaikan entri yang tidak terbaca (invalidDeps).
   function undoItems(items) {
     return (Array.isArray(items) ? items : []).map((it) => {
       const patch = {};
       for (const k of Object.keys(it.before)) {
         const v = it.before[k];
+        if (k === "deps") {
+          patch[k] = v === null || v === undefined ? null : clone(v);
+          continue;
+        }
         const s = v === null ? null : SCHED.sanitizePatch({ [k]: v });
         patch[k] = s && s.ok ? clone(s.patch[k]) : null;
       }

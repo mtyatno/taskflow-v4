@@ -2870,7 +2870,8 @@ function TimelineViewBody(props) {
       items: b.items, model: b.model, busy: false, whyOf: b.whyOf,
       unit: { unit: entry.unit, rep: entry.rep, snap: entry.snap },
       onDone: () => un.store.setAuto(entry.unit, true, uid), // setMany dulu; setAuto hanya setelah sukses
-      rebuild: (ctx2, before, units) => Object.assign(buildToggle(ctx2, before, recId), { unit: { unit: entry.unit, rep: entry.rep, snap: unitSnap(TLSched.unitFor(units, entry.rep)) } }),
+      // "sebelum" = mesin atas ctx2 (data terbaru), bukan hasil lama eng.result (K32: endBefore/brokenDeps dari data segar)
+      rebuild: (ctx2, before2, units) => Object.assign(buildToggle(ctx2, engine.run(ctx2), recId), { unit: { unit: entry.unit, rep: entry.rep, snap: unitSnap(TLSched.unitFor(units, entry.rep)) } }),
     });
   };
   const cancelPv = () => setPv(null);
@@ -2891,7 +2892,8 @@ function TimelineViewBody(props) {
     setCalOpen(false); // satu Esc = dialog saja
     const next = {
       id: ++pvSeq.current, title: PV_FLOW, items: b.items, model: b.model, busy: false, whyOf: b.whyOf,
-      rebuild: (ctx2, before2) => buildFlow(ctx2, before2, p.gestures),
+      // K32: "sebelum" dihitung dari ctx2 — turunan yang ES-nya berubah karena SINKRON (bukan gestur) tidak dihitung bergeser.
+      rebuild: (ctx2) => buildFlow(ctx2, engine.run(ctx2), p.gestures),
     };
     pvRef.current = next;
     setPv(next);
@@ -3988,7 +3990,9 @@ function ScheduleBody(props) {
       return;
     }
     const x = snapStart(v, sched.start === null ? autoNode.d : sched.duration);
-    if (x === sched.start && x === TLCal.iso(autoNode.es)) {
+    // Input diisi iso(es): blur/Enter tanpa ubah (juga pada task drift / tanpa Mulai tersimpan) = 0 tulis. Menyelaraskan
+    // Mulai tersimpan dengan hasil hitung adalah tugas "Perbarui" (tanpa SNET), bukan "Ubah".
+    if (x === TLCal.iso(autoNode.es)) {
       clearDraft("start");
       return;
     }

@@ -3709,6 +3709,27 @@ test("CAS: daftar lengkap berubah (start item 2) sebelum Terapkan → toast 'Dat
   h.m.unmount();
 }));
 
+test("fix final 2 (K32): hitung ulang pratinjau sakelar ON setelah CAS memakai 'sebelum' dari ctx SEGAR (Selesai project lama = data terbaru)", () => withEngineClock(async (clock) => {
+  const h = await swView(clock);
+  switchOf(h.tree).props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  assert.equal(dlg.props.model.endBefore, T.TLCal.dn("2026-11-03"), "Manual: Selesai project Sel 3");
+  // sinkron: D (Manual) dipindah ke Sen 9 → Selesai project sebelum = Sen 9
+  const changed = chainTasks();
+  changed[3] = mk(4, "D", { start: "2026-11-09", duration: 1, deps: [{ t: { $task: 3 }, type: "FS", lag: 0 }] }, { project: "Alpha" });
+  h.setList(changed);
+  dlg.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), [], "0 tulis");
+  const again = dialogOf(h.render());
+  assert.ok(again);
+  assert.equal(again.props.model.endBefore, T.TLCal.dn("2026-11-09"), "sebelum dari data terbaru, bukan hasil mesin lama");
+  assert.equal(again.props.model.rows.find((r) => r.key === "4").from, "2026-11-09");
+  h.m.unmount();
+}));
+
 test("anggota lain mematikan unit (onChange project, updatedAt baru) saat pratinjau ON terbuka → Terapkan ditolak dengan toast yang sama, 0 tulis", () => withEngineClock(async (clock) => {
   const h = await swView(clock);
   switchOf(h.tree).props.onClick({});
@@ -4470,6 +4491,38 @@ test("fix T10 #1: Jadwalkan ulang di unit otomatis; anggota lain mematikan Otoma
   h.m.unmount();
 }));
 
+const m_flush = (h) => { if (typeof h.m.flush === "function") h.m.flush(); };
+test("fix final 5: CAS auto terisolasi — record unit terbaru = potret (updatedAt/by sama) tetapi auto RENCANA (ctx.units mesin, debounce) ≠ auto terbaru → Terapkan ditolak, 0 tulis", () => withEngineClock(async (clock) => {
+  const autoT = [mk(1, "A", { start: "2026-11-06", duration: 2 }, AL), mk(2, "B", { start: "2026-11-10", duration: 1, deps: fsDep(1) }, AL)];
+  const h = await swView(clock, { records: autoRecs(), tasks: autoT, today: SAT });
+  // anggota lain mematikan Otomatis: useUnits memuat ulang (debounce 300 ms) → un.units = record baru; mesin dijadwalkan
+  // raf + setTimeout(0) tetapi raf BELUM dijalankan → eng.ctx.units masih auto (jendela debounce mesin).
+  const rec = offRec();
+  putRec(h.fr, rec);
+  h.fr.emit({ entity: "project", ids: [rec.id], source: "sync" });
+  clock.tick(300);
+  await settle();
+  await settle();
+  h.render();
+  m_flush(h);
+  reschedBtn(h.render()).props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  assert.deepEqual(dlg.props.model.rows.map((r) => r.key), ["1", "2"], "rencana masih otomatis (ctx.units mesin lama)");
+  dlg.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), [], "0 tulis: auto rencana (true) ≠ auto terbaru (false) walau updatedAt/by sama");
+  assert.deepEqual(h.calls.toast.map((t) => t.slice(0, 2)), [[MSG_STALE, "error"]]);
+  const again = dialogOf(h.render());
+  assert.deepEqual(again.props.model.rows.map((r) => [r.key, r.to]), [["1", "2026-11-09"]], "hitung ulang sebagai Manual");
+  again.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), [["setMany", [{ taskId: 1, patch: { start: "2026-11-09" } }]]]);
+  h.m.unmount();
+}));
+
 test("fix T10 #1: Tinjau; anggota lain mematikan Otomatis → Terapkan ditolak, 0 tulis, hitung ulang tanpa drift (0 item)", () => withEngineClock(async (clock) => {
   const h = await swView(clock, { records: autoRecs(), tasks: driftTasks() });
   bannerBtn(bannersOf(h.tree)[0], "Tinjau").props.onClick({});
@@ -4601,6 +4654,37 @@ test("fix T12 #1: pratinjau gestur > 20 turunan — baris dibuka → teks 'Kenap
   } finally {
     spy.restore();
   }
+}));
+
+test("fix final 2 (K32): pratinjau gestur > 20 ditolak CAS; sinkron menggeser turunan yang TIDAK digeser gestur → hitung ulang TIDAK mencantumkannya ('sebelum' dari ctx segar)", () => withAuto(async (clock, w) => {
+  // A → S0..S20 (FS); D menunggu A dan X — D digerakkan X (selesai Jum 13 → D Sen 16), seret A +2 tidak menggeser D.
+  const base = [mk(1, "A", { start: "2026-11-02", duration: 2 }, AL)];
+  for (let i = 0; i < 21; i++) base.push(mk(100 + i, "S" + i, { start: "2026-11-04", duration: 1, deps: fsDep(1) }, AL));
+  base.push(mk(50, "X", { start: "2026-11-09", duration: 5 }, AL));
+  base.push(mk(60, "D", { start: "2026-11-16", duration: 1, deps: fsDep(50).concat(fsDep(1)) }, AL));
+  let list = base;
+  const h = await autoIx(clock, base, { listImpl: () => Promise.resolve(list) });
+  dragBy(h, w, clock, "1", 2);
+  await settle2();
+  const dlg = dialogOf(h.rerender());
+  assert.ok(dlg, "pratinjau > 20");
+  const ks = (d) => d.props.model.rows.map((r) => r.key);
+  assert.ok(!ks(dlg).includes("60"), "D tidak digeser gestur");
+  // sinkron: X mulai Rab 11 (D kini hasil hitung Rab 18, tersimpan masih Sen 16) + S0 berubah (CAS gagal)
+  list = base.map((t) => {
+    if (t.id === 50) return mk(50, "X", { start: "2026-11-11", duration: 5 }, AL);
+    if (t.id === 100) return mk(100, "S0", { start: "2026-11-05", duration: 1, deps: fsDep(1) }, AL);
+    return t;
+  });
+  dlg.props.onApply();
+  await settle2();
+  assert.deepEqual(h.calls.setMany, [], "0 tulis");
+  assert.deepEqual(h.calls.toast.map((t) => t.slice(0, 2)), [[MSG_STALE, "error"]]);
+  const again = dialogOf(h.rerender());
+  assert.ok(again, "dialog menghitung ulang");
+  assert.ok(ks(again).includes("100"), "turunan gestur tetap tercantum");
+  assert.ok(!ks(again).includes("60"), "D bergeser karena SINKRON, bukan gestur → tidak tercantum");
+  h.m.unmount();
 }));
 
 // ════════════════════════════════════════════════════════════════════════════
