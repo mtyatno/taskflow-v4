@@ -4602,3 +4602,91 @@ test("fix T12 #1: pratinjau gestur > 20 turunan — baris dibuka → teks 'Kenap
     spy.restore();
   }
 }));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1c-1 — Task 13: anggaran DOM dan kinerja (R24) dengan mesin, Jalur kritis, Slack, banner drift
+// ════════════════════════════════════════════════════════════════════════════
+// 500 task/400 dep (bigTasks) di workspace 12, lima project P0–P4 semuanya Otomatis → banyak drift; pref Jalur kritis ON.
+function perfSetup() {
+  const tasks = bigTasks(500, 400).map((t) => Object.assign(t, { list_id: 12 }));
+  const fr = fakeRecords();
+  for (let k = 0; k < 5; k++) putRec(fr, unitRec(12, "P" + k));
+  const { api, calls } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "crit:slist_12" ? true : null) });
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const { ctx } = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
+  return { tasks, fr, api, calls, writes, props: { context: ctx, api } };
+}
+const slackCells = (tree) => {
+  const i = headerCells(tree).indexOf("Slack");
+  // baris task saja (baris kelompok project is-group tidak punya sel Slack berisi)
+  return i < 0 ? [] : nodes(tree, (n) => n.props.role === "row" && n.props["aria-rowindex"] > 1 && !hasCls(n, "is-group")).map((r) => txt(cellsOf(r)[i]).trim());
+};
+
+test("DOM 500 task/400 dep, Jalur kritis ON, Slack, banner drift → ≤ 1.500 elemen", () => withEngineClock(async (clock) => {
+  const s = perfSetup();
+  const spy = spyRun();
+  try {
+    const m = mount(T.TimelineViewBody);
+    const tree = await settleView(m, () => s.props, clock);
+    assert.ok(spy.runs.length >= 1, "mesin sudah jalan");
+    // semua beban tambahan 1c-1 hadir
+    assert.equal(headerCells(tree).indexOf("Slack") >= 0, true, "kolom Slack");
+    assert.ok(slackCells(tree).some((v) => /hk$|^0$/.test(v)), "nilai Slack terisi");
+    const crit = buttonByText(tree, "Jalur kritis");
+    assert.ok(crit, "sakelar Jalur kritis tampil (mesin siap)");
+    assert.equal(crit.props["aria-pressed"], true, "Jalur kritis ON dari pref");
+    assert.ok(nodes(tree, (n) => hasCls(n, "is-critical")).length > 0, "ada elemen is-critical");
+    const bs = bannersOf(tree);
+    assert.equal(bs.length >= 1, true, "banner drift tampil");
+    assert.match(bannerText(bs[0]), /^Jadwal otomatis belum mutakhir: \d+ task berbeda dari hasil hitung\.$/);
+    assert.ok(byCls(tree, "plg-timeline-arrow").length > 0, "ada panah");
+    const rows = nodes(tree, (n) => n.props.role === "row" && n.props["aria-rowindex"] > 1);
+    assert.ok(rows.length > 20 && rows.length <= 60, "baris tervirtualisasi: " + rows.length);
+    // elemen = node pohon bertipe string (tag DOM); teks dan komponen tidak dihitung
+    const n = domCount(tree);
+    assert.ok(n <= 1500, "elemen: " + n);
+    console.log("# DOM elemen 500 task/400 dep + Jalur kritis + Slack + banner: " + n);
+    assert.deepEqual(s.writes, [], "0 tulisan latar");
+    assert.equal(s.fr.calls.put.length, 0);
+    m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
+test("render awal tidak menjalankan TLCpm.run (spy) — mesin setelah raf+setTimeout", () => withEngineClock(async (clock) => {
+  const s = perfSetup();
+  const spy = spyRun(); // T.engine.run = satu-satunya pintu TLCpm.run di plugin (TLCpm beku, tidak bisa di-spy langsung)
+  try {
+    const m = mount(T.TimelineViewBody);
+    let tree = m.render(s.props);
+    assert.equal(spy.runs.length, 0, "render pertama tanpa mesin");
+    assert.ok(domCount(tree) > 0, "tabel/grafik langsung tergambar");
+    m.flush();
+    await settle();
+    tree = m.render(s.props); // pref terbaca, daftar + unit termuat; mesin dijadwalkan
+    m.flush();
+    await settle();
+    tree = m.render(s.props);
+    assert.equal(spy.runs.length, 0, "mesin belum jalan sebelum gambar pertama");
+    assert.ok(headerCells(tree).indexOf("Slack") >= 0, "kolom Slack ada sejak awal (tanpa geser tata letak)");
+    assert.ok(slackCells(tree).length > 0 && slackCells(tree).every((v) => v === "—"), "tanpa nilai Slack sebelum mesin");
+    assert.equal(bannersOf(tree).length, 0, "tanpa banner sebelum mesin");
+    assert.equal(nodes(tree, (n) => hasCls(n, "is-critical")).length, 0);
+    assert.ok(clock.frames() >= 1, "raf terjadwal");
+    assert.equal(spy.runs.length, 0, "raf hanya menjadwalkan setTimeout 0");
+    clock.tick(0);
+    assert.equal(spy.runs.length, 1, "mesin jalan setelah raf + setTimeout");
+    tree = m.render(s.props);
+    m.flush();
+    await settle();
+    tree = m.render(s.props);
+    assert.ok(slackCells(tree).some((v) => v !== "—"), "nilai Slack ada setelah mesin");
+    assert.equal(bannersOf(tree).length >= 1, true, "banner drift setelah mesin");
+    assert.deepEqual(s.writes, [], "0 tulisan");
+    m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
