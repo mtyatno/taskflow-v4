@@ -5655,7 +5655,7 @@ test("1c-2 T5: workspace — SATU list baseline se-scope untuk semua unit; dialo
 
 test("sumber Task 5 (1c-2): teks persis §7.6; simpan hanya lewat baselineStore (pagar R25), pilihan lewat usePref 'bl'", () => {
   for (const t of ['"Baseline"', '"Simpan baseline"', '"Tidak ada"', '"Baseline terlalu besar"', '"Menunggu data baseline workspace…"', '"Timpa "', '" (disimpan "', '"(versi lebih baru)"',
-    '"Baseline gagal disimpan"', '"Data berubah sejak dialog dibuka — muat ulang"', '"Hapus "', '" dihapus"']) {
+    '"Baseline gagal disimpan"', '"Baseline gagal dihapus"', '"Data berubah sejak dialog dibuka — muat ulang"', '"Hapus "', '" dihapus"']) {
     assert.ok(jsx.includes(t), t);
   }
   assert.match(jsx, /usePref\(api, "bl", page\)/);
@@ -5827,3 +5827,20 @@ test("fix T5 #5: Esc di langkah konfirmasi (Timpa / Hapus) → 0 tulis; workspac
   dw.dm.unmount();
   hw.m.unmount();
 })));
+
+test("fix T5 r2: remove ditolak (galat lain) → toast 'Baseline gagal dihapus' (bukan teks simpan), dialog tetap terbuka", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Rencana awal" }));
+  const h = await swView(clock, { records: fr });
+  fr.api.remove = () => Promise.reject(Object.assign(new Error("idb"), { code: "IDB" }));
+  const d = openBlDialog(h);
+  delBtns(d.tree)[0].props.onClick({});
+  d.sync();
+  d.click("Hapus");
+  await settleN();
+  d.sync();
+  assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], ["Baseline gagal dihapus", "error"]);
+  assert.equal(h.calls.toast.filter((t) => t[0] === MSG_BL_SAVE_FAIL).length, 0);
+  assert.ok(blDlgOf(h.tree));
+  h.m.unmount();
+}));

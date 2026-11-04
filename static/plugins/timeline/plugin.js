@@ -3671,6 +3671,7 @@ const MSG_MANUAL = "Manual"; // 1c-1 R19: pin task Manual di unit otomatis
 // ("Hapus", "Hapus {nama} (disimpan {tanggal})?", "{nama} dihapus") — dicatat untuk ADR T11/R28.
 const MSG_BL_STALE = "Data berubah sejak dialog dibuka — muat ulang";
 const MSG_BL_SAVE_FAIL = "Baseline gagal disimpan";
+const MSG_BL_DEL_FAIL = "Baseline gagal dihapus";
 const BL_DELETE = "Hapus";
 const blDeleteText = (name, date) => "Hapus " + name + (date ? " (disimpan " + date + ")" : "") + "?";
 const blRemovedText = name => name + " dihapus";
@@ -7936,12 +7937,13 @@ function TimelineViewBody(props) {
   };
   const cancelBl = () => setDlg(null);
   // Hasil gagal simpan/hapus: TOO_LARGE → "Baseline terlalu besar"; STALE → MSG_BL_STALE + potret dimuat ulang (satu
-  // loadScope), dialog kembali ke form; lainnya → "Baseline gagal disimpan". Dialog tetap terbuka.
-  const blFail = (cur, live, err) => {
+  // loadScope), dialog kembali ke form; lainnya → "Baseline gagal disimpan" / (hapus) "Baseline gagal dihapus".
+  // Dialog tetap terbuka.
+  const blFail = (cur, live, err, del) => {
     const code = err && err.code;
     if (code === "TOO_LARGE") toastSafe(api, MSG_BL_TOO_LARGE, "error");else if (code === "STALE") toastSafe(api, MSG_BL_STALE, "error");else {
-      logWarn(api, "baseline gagal disimpan:", err);
-      toastSafe(api, MSG_BL_SAVE_FAIL, "error");
+      logWarn(api, del ? "baseline gagal dihapus:" : "baseline gagal disimpan:", err);
+      toastSafe(api, del ? MSG_BL_DEL_FAIL : MSG_BL_SAVE_FAIL, "error");
     }
     if (!live()) return undefined;
     if (code !== "STALE") {
@@ -7965,7 +7967,7 @@ function TimelineViewBody(props) {
     });
   };
   // Satu aksi tulis dialog (simpan / hapus) lewat baselineStore; busy seketika (klik ganda = satu tulis).
-  const blRun = (cur, act, okText) => {
+  const blRun = (cur, act, okText, del) => {
     setDlg(Object.assign({}, cur, {
       busy: true
     }));
@@ -7973,7 +7975,7 @@ function TimelineViewBody(props) {
     Promise.resolve().then(act).then(() => {
       if (live()) setDlg(null);
       toastSafe(api, okText, "success");
-    }, err => blFail(cur, live, err));
+    }, err => blFail(cur, live, err, del));
   };
   const saveBl = (recId, n, name) => {
     const cur = blDlgRef.current;
@@ -7999,7 +8001,7 @@ function TimelineViewBody(props) {
     const slots = cur ? cur.bases.get(recId) : null;
     const ent = slots instanceof Map ? slots.get(n) : null;
     if (!cur || cur.busy || !pu || !ent || ent.foreign || bls.lockedOf(n, recId)) return;
-    blRun(cur, () => bls.store.remove(pu.unit, n, ent.snap), blRemovedText(blShownName(ent, n)));
+    blRun(cur, () => bls.store.remove(pu.unit, n, ent.snap), blRemovedText(blShownName(ent, n)), true);
   };
   // Fix review T5 #3: kunci/muat berubah (mis. slot tiba bersama `pulled`) saat dialog di langkah FORM dan tidak sibuk →
   // potret diambil ulang dari useBaselines (rev naik), sehingga slot yang baru tiba meminta konfirmasi Timpa, bukan
