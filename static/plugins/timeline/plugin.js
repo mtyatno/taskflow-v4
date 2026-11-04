@@ -3193,6 +3193,17 @@ const PV_NEW = "baru dijadwalkan";
 const PV_DUR = "durasi berubah";
 const PV_DUR_GUESS = "durasi belum diisi, dianggap 1 hari kerja";
 const PV_WHY = "Kenapa dijadwalkan di sini?";
+// Model kosong (hitung ulang tanpa item): tanpa Selesai project / lewat tenggat lama di ringkasan.
+const EMPTY_PV_MODEL = Object.freeze({
+  rows: [],
+  moved: 0,
+  endBefore: null,
+  endAfter: null,
+  endDelta: null,
+  late: 0,
+  notMoved: [],
+  brokenDeps: 0
+});
 const PV_ROWS_MAX = 50; // R14: ≤ 50 baris sebelum "Tampilkan semua"
 const appliedText = n => "Jadwal diterapkan · " + n + " task";
 const partialText = (k, n) => "Sebagian jadwal gagal disimpan (" + k + " dari " + n + ")"; // k = item yang gagal
@@ -4916,7 +4927,8 @@ function CalendarPopover(props) {
 
 // ── 1c-1 Task 8: menu "Lainnya" (R23), popover unit workspace (R15), dialog pratinjau (R14) ─────────────────────────
 // Pendengar Esc (fase tangkap, propagasi dihentikan agar modal/Live Edit host di belakang tidak ikut tertutup) dan
-// tekan di luar `root` (kecuali target yang cocok `skipSel`). Dipakai MoreMenu/UnitPopover/PreviewDialog.
+// tekan di luar `root` (kecuali target yang cocok `skipSel`). Dipakai MoreMenu/UnitPopover (PreviewDialog punya pendengar
+// window sendiri: Esc + perangkap Tab).
 function useDismiss(active, rootRef, onDismiss, skipSel) {
   const fnRef = React.useRef(onDismiss);
   fnRef.current = onDismiss;
@@ -4937,10 +4949,10 @@ function useDismiss(active, rootRef, onDismiss, skipSel) {
       fnRef.current("outside");
     };
     window.addEventListener("keydown", onKey, true);
-    if (skipSel !== false) window.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("pointerdown", onDown, true);
     return () => {
       window.removeEventListener("keydown", onKey, true);
-      if (skipSel !== false) window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("pointerdown", onDown, true);
     };
   }, [active]);
 }
@@ -5054,15 +5066,7 @@ function focusables(root) {
 // "Tidak dipindah"; ≤ 50 baris + "Tampilkan semua". whyOf(key) → Array<string|{b}> (opsional, Task 12) membuka "Kenapa".
 // Terapkan nonaktif bila 0 item atau `busy` (pemeriksaan CAS berjalan). Komponen ini tidak menulis apa pun.
 function PreviewDialog(props) {
-  const model = props.model || {
-    rows: [],
-    moved: 0,
-    endBefore: null,
-    endAfter: null,
-    endDelta: null,
-    late: 0,
-    notMoved: []
-  };
+  const model = props.model || EMPTY_PV_MODEL;
   const [all, setAll] = React.useState(false);
   const [why, setWhy] = React.useState(null);
   const rootRef = React.useRef(null);
@@ -5082,31 +5086,45 @@ function PreviewDialog(props) {
       if (prev && typeof prev.focus === "function") prev.focus(); // kembali ke pemicu
     };
   }, []);
-  useDismiss(true, rootRef, cancel, false); // Esc saja; tekan di luar dialog modal tidak menutup
-  const onKeyDown = e => {
-    if (!e || e.key !== "Tab") return;
-    const root = rootRef.current;
-    const list = focusables(root);
-    const stop = () => {
-      if (typeof e.preventDefault === "function") e.preventDefault();
+  // Esc dan Tab di window (fase tangkap): klik backdrop/area lain memindah fokus ke luar dialog, jadi perangkap di elemen
+  // dialog (onKeyDown) bisa lolos. Esc = Batal (propagasi dihentikan); Tab/Shift+Tab berputar di dalam dialog dan menarik
+  // fokus kembali bila sedang di luar. Klik di luar dialog modal tidak menutupnya.
+  React.useEffect(() => {
+    if (!hasWindow() || typeof window.addEventListener !== "function") return undefined;
+    const onKey = e => {
+      if (!e) return;
+      const stop = () => {
+        if (typeof e.preventDefault === "function") e.preventDefault();
+      };
+      if (e.key === "Escape") {
+        stop();
+        if (typeof e.stopPropagation === "function") e.stopPropagation();
+        cancel();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const root = rootRef.current;
+      const list = focusables(root);
+      if (!list.length) return stop();
+      const doc = root && root.ownerDocument ? root.ownerDocument : null;
+      const active = doc ? doc.activeElement : null;
+      const first = list[0];
+      const last = list[list.length - 1];
+      const inside = !!active && typeof root.contains === "function" && root.contains(active);
+      if (!inside) {
+        stop();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && active === first) {
+        stop();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        stop();
+        first.focus();
+      }
     };
-    if (!list.length) return stop();
-    const doc = root && root.ownerDocument ? root.ownerDocument : null;
-    const active = doc ? doc.activeElement : null;
-    const first = list[0];
-    const last = list[list.length - 1];
-    const inside = !!active && typeof root.contains === "function" && root.contains(active);
-    if (!inside) {
-      stop();
-      (e.shiftKey ? last : first).focus();
-    } else if (e.shiftKey && active === first) {
-      stop();
-      last.focus();
-    } else if (!e.shiftKey && active === last) {
-      stop();
-      first.focus();
-    }
-  };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
   const rows = model.rows || [];
   const shown = all ? rows : rows.slice(0, PV_ROWS_MAX);
   const parts = [model.moved + " task bergeser"];
@@ -5133,8 +5151,7 @@ function PreviewDialog(props) {
     "aria-modal": "true",
     "aria-label": props.title,
     tabIndex: -1,
-    ref: rootRef,
-    onKeyDown: onKeyDown
+    ref: rootRef
   }, /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-pop-head"
   }, /*#__PURE__*/React.createElement("h3", {
@@ -6348,6 +6365,7 @@ function TimelineViewBody(props) {
     if (!b.model) return; // preview tanpa "sebelum" sah → tidak ada dialog kosong
     const uid = userId();
     setUnitOpen(false);
+    setCalOpen(false); // satu Esc = dialog saja (popover lain tidak ikut mendengar)
     setPv({
       id: ++pvSeq.current,
       title: MSG_PV_ON + entry.label,
@@ -6377,9 +6395,11 @@ function TimelineViewBody(props) {
     const cur = pvRef.current;
     if (!cur || cur.busy) return;
     const live = () => pvRef.current && pvRef.current.id === cur.id;
-    setPv(Object.assign({}, cur, {
+    const busyPv = Object.assign({}, cur, {
       busy: true
-    }));
+    });
+    pvRef.current = busyPv; // seketika: klik ganda sebelum render berikutnya tidak memicu setMany kedua
+    setPv(busyPv);
     const listP = Promise.resolve().then(() => api.data.tasks.list({
       includeDone: true
     }));
@@ -6404,11 +6424,7 @@ function TimelineViewBody(props) {
         const next = cur.rebuild(ctx2, e.result, units);
         setPv(Object.assign({}, cur, next, {
           busy: false,
-          model: next.model || Object.assign({}, cur.model, {
-            rows: [],
-            moved: 0,
-            notMoved: []
-          })
+          model: next.model || EMPTY_PV_MODEL
         }));
         return;
       }
@@ -6428,7 +6444,10 @@ function TimelineViewBody(props) {
   // Entri unit halaman (urutan kelompok) dengan keadaan sakelar, kunci P3 (a), dan keterangan "Dinyalakan oleh …".
   const unitsEntries = pageUnits(lay, pageKind, context.projectName, groupNames).map(x => {
     const u = TLSched.unitFor(un.units, x.rep);
-    const locked = !un.loaded || pageKind === "workspace" && !(u && u.exists) && !un.pulled;
+    // P3 (a), pola ADR-042 #12: catatan tunggu hanya setelah muat pertama selesai (unit tanpa record lokal, belum ada
+    // tarik sukses); selama memuat sakelar nonaktif tanpa catatan.
+    const waiting = un.loaded && pageKind === "workspace" && !(u && u.exists) && !un.pulled;
+    const locked = !un.loaded || waiting;
     const entry = {
       key: x.unit.recId,
       label: x.label,
@@ -6436,6 +6455,7 @@ function TimelineViewBody(props) {
       rep: x.rep,
       on: !!(u && u.auto === true),
       locked,
+      waiting,
       snap: unitSnap(u),
       caption: unitCaption(u, context, userId())
     };
@@ -6507,7 +6527,7 @@ function TimelineViewBody(props) {
   };
   const unitPop = unitOpen && pageKind === "workspace" && ov.ready ? /*#__PURE__*/React.createElement(UnitPopover, {
     entries: unitsEntries,
-    waiting: unitsEntries.some(e => e.locked),
+    waiting: unitsEntries.some(e => e.waiting),
     onClose: closeUnits
   }) : null;
   const top = /*#__PURE__*/React.createElement("div", {

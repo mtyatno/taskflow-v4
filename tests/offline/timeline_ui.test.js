@@ -3614,7 +3614,8 @@ test("dialog: baris 'WBS · Task · Mulai lama → baru · Δ hk', 'baru dijadwa
   nodes(t.tree, (n) => n.props.role === "dialog")[0].props.ref.current = root;
   t.m.flush();
   assert.equal(doc.activeElement, f1, "fokus ke elemen pertama saat dibuka");
-  const keyDlg = nodes(t.tree, (n) => n.props.role === "dialog")[0].props.onKeyDown;
+  assert.equal(nodes(t.tree, (n) => n.props.role === "dialog")[0].props.onKeyDown, undefined, "perangkap di window (fase tangkap), bukan di elemen dialog");
+  const keyDlg = (ev) => w.fire("keydown", ev);
   let prevented = 0;
   doc.activeElement = f3;
   keyDlg({ key: "Tab", shiftKey: false, preventDefault() { prevented++; } });
@@ -3625,9 +3626,14 @@ test("dialog: baris 'WBS · Task · Mulai lama → baru · Δ hk', 'baru dijadwa
   keyDlg({ key: "Tab", shiftKey: false, preventDefault() { prevented++; } });
   assert.equal(doc.activeElement, f2, "di tengah: peramban yang memindah");
   assert.equal(prevented, 2);
-  doc.activeElement = { name: "luar" };
+  // klik backdrop memindah fokus ke body (di luar dialog): Tab tetap tertangkap di window
+  doc.activeElement = { name: "body" };
   keyDlg({ key: "Tab", shiftKey: false, preventDefault() { prevented++; } });
   assert.equal(doc.activeElement, f1, "fokus di luar dialog → ditarik kembali");
+  doc.activeElement = { name: "body" };
+  keyDlg({ key: "Tab", shiftKey: true, preventDefault() { prevented++; } });
+  assert.equal(doc.activeElement, f3, "Shift+Tab dari luar → elemen terakhir");
+  assert.equal(prevented, 4);
   let stopped = 0;
   w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped++; } });
   assert.equal(t.ev.cancel, 1, "Esc = Batal");
@@ -3757,4 +3763,83 @@ test("pratinjau sakelar memberi seedKeys unit: lingkaran Y↔Z di luar hilir ite
   } finally {
     spy.restore();
   }
+}));
+
+
+// ── Fix review Task 8 ───────────────────────────────────────────────────────────────────────────────────────────
+test("fix T8 #1: catatan 'Menunggu data jadwal workspace…' hanya setelah muat pertama (bukan saat memuat); sakelar tetap nonaktif saat memuat", () => withEngineClock(async (clock) => {
+  const { fr, tasks, ctx } = wsSetup({ all: false });
+  const listP = [];
+  const list0 = fr.api.list;
+  fr.api.list = (...a) => new Promise((res) => listP.push(() => res(list0(...a)))); // muat unit tertahan
+  const h = await swView(clock, { records: fr, tasks, ctx });
+  buttonByText(h.tree, "Jadwal otomatis").props.onClick({});
+  let pop = unitPopOf(h.render());
+  assert.deepEqual(pop.props.entries.map((e) => e.locked), [true, true, true, true], "memuat → semua nonaktif");
+  assert.equal(pop.props.waiting, false, "memuat → tanpa catatan tunggu");
+  assert.equal(nodes(child(pop), (n) => n.props.role === "status").length, 0);
+  // muat selesai (record Alpha ada lokal, belum pulled) → catatan tampil untuk unit tanpa record
+  while (listP.length) listP.shift()();
+  await h.again();
+  pop = unitPopOf(h.tree);
+  assert.deepEqual(pop.props.entries.map((e) => e.locked), [false, true, true, true]);
+  assert.equal(pop.props.waiting, true);
+  assert.ok(nodes(child(pop), (n) => n.props.role === "status" && txt(n).trim() === MSG_WAIT_UNITS).length === 1);
+  h.m.unmount();
+}));
+
+test("fix T8 #3: hitung ulang setelah CAS tanpa item → ringkasan '0 task bergeser' (Selesai project/lewat tenggat dibersihkan), Terapkan nonaktif", () => withEngineClock(async (clock) => {
+  const h = await swView(clock);
+  switchOf(h.tree).props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  // anggota lain sudah menyalakan unit → hitung ulang: 0 item
+  const rec = unitRec(null, "Alpha", { auto: true, by: 9 }, { updated_at: "2026-11-04T05:00:00Z" });
+  putRec(h.fr, rec);
+  dlg.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), []);
+  const again = dialogOf(h.render());
+  assert.equal(again.props.model.rows.length, 0);
+  const dt = child(again);
+  assert.equal(txt(byCls(dt, "plg-timeline-pv-summary")[0]).trim(), "0 task bergeser");
+  assert.equal(buttonByText(dt, "Terapkan").props.disabled, true);
+  h.m.unmount();
+}));
+
+test("fix T8 #4/#6: membuka pratinjau menutup popover Kalender kerja (satu Esc = dialog saja); Esc di dialog terbuka → 0 tulis, dialog tertutup", () => withEngineClock((clock) => withPop(async (w) => {
+  const h = await swView(clock);
+  buttonByText(h.tree, "Kalender kerja").props.onClick({});
+  assert.ok(popNode(h.render()), "popover kalender terbuka");
+  switchOf(h.tree).props.onClick({});
+  await settle();
+  const tree = h.render();
+  assert.equal(popNode(tree), undefined, "pratinjau menutup popover kalender");
+  const dlg = dialogOf(tree);
+  assert.ok(dlg);
+  // pasang dialog sungguhan (efek → pendengar window), lalu Esc lewat window
+  const dm = mount(dlg.type);
+  dm.render(dlg.props);
+  dm.flush();
+  assert.equal(w.ls.filter((l) => l.type === "keydown").length, 1, "hanya pendengar dialog");
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() {} });
+  assert.equal(dialogOf(h.render()), undefined, "Esc menutup dialog");
+  dm.unmount();
+  await settle();
+  assert.deepEqual(h.writes(), []);
+  h.m.unmount();
+})));
+
+test("fix T8 #5: Terapkan ditekan dua kali cepat → satu setMany, satu put", () => withEngineClock(async (clock) => {
+  const h = await swView(clock);
+  switchOf(h.tree).props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  dlg.props.onApply();
+  dlg.props.onApply(); // props basi (render belum terjadi)
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes().map((x) => x[0]), ["setMany", "put"]);
+  h.m.unmount();
 }));
