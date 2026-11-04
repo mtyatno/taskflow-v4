@@ -406,25 +406,28 @@ function dialogModel(pm, result, wbsOf) {
 }
 
 // Banner R16 (murni): drift = kunci result.drift yang ada di scopeTasks halaman (task tersaring panel tidak dihitung
-// walau ikut scope mesin); cycle = anggota lingkaran yang menyentuh halaman (seluruh anggota lingkaran itu, urutan
+// walau ikut scope mesin); first = anggota lingkaran pertama di halaman (cadangan cycle[0]); cycle = anggota lingkaran yang menyentuh halaman (seluruh anggota lingkaran itu, urutan
 // result.cycles). Teks lingkaran: ≤ 3 judul + " dan {n} lainnya".
 function bannerInfo(result, scopeTasks) {
-  if (!result || !(result.nodes instanceof Map)) return { drift: [], cycle: [], cycleText: "" };
+  if (!result || !(result.nodes instanceof Map)) return { drift: [], cycle: [], first: null, cycleText: "" };
   const page = new Set();
   for (const t of Array.isArray(scopeTasks) ? scopeTasks : []) if (t && t.id !== undefined && t.id !== null) page.add(String(t.id));
   const drift = result.drift instanceof Set ? [...result.drift].filter((k) => page.has(k)) : [];
   const cycle = [];
+  let first = null; // "Buka" (R16): anggota pertama yang ADA di halaman; tidak ada → anggota pertama
   for (const c of Array.isArray(result.cycles) ? result.cycles : []) {
     if (!c.some((k) => page.has(k))) continue;
     for (const k of c) {
       const n = result.nodes.get(k);
-      if (n && n.task) cycle.push(n.task);
+      if (!n || !n.task) continue;
+      cycle.push(n.task);
+      if (first === null && page.has(k)) first = n.task;
     }
   }
   const names = cycle.slice(0, BANNER_NAMES_MAX).map(taskTitle).join(", ");
   const rest = cycle.length - BANNER_NAMES_MAX;
   const cycleText = cycle.length ? "Dependensi melingkar: " + names + (rest > 0 ? " dan " + rest + " lainnya" : "") + " — tidak dihitung" : "";
-  return { drift, cycle, cycleText };
+  return { drift, cycle, first: first || cycle[0] || null, cycleText };
 }
 
 // Tutup banner per sesi (R16): Set tingkat modul berkunci page + jenis + n — bertahan saat view dipasang ulang, tampil
@@ -444,6 +447,17 @@ function unitSnap(u) {
 }
 function sameSnap(a, b) {
   return a.updatedAt === b.updatedAt && a.by === b.by;
+}
+// CAS unit pv (R14; T8 satu unit, T10 daftar): pv.unit = entri `{rep, snap}` atau daftar entri `{rep, snap, auto?}`.
+// Setiap entri cocok bila potret updatedAt/by record terbaru sama dan — bila `auto` (boolean) dicatat — mode otomatis
+// unit terbaru sama dengan mode yang dipakai rencana. Tanpa entri → selalu cocok.
+const pvUnitList = (u) => (!u ? [] : Array.isArray(u) ? u : [u]);
+const unitAuto = (u) => !!(u && u.auto === true);
+function unitsStillOk(unitField, units) {
+  return pvUnitList(unitField).every((x) => {
+    const u = TLSched.unitFor(units, x.rep);
+    return sameSnap(x.snap, unitSnap(u)) && (typeof x.auto !== "boolean" || x.auto === unitAuto(u));
+  });
 }
 
 // JSON kanonik (urutan kunci objek tidak relevan; undefined = null) — pembanding nilai ext.
@@ -2677,7 +2691,7 @@ function TimelineViewBody(props) {
 
   // ── 1c-1 Task 8: sakelar Jadwal otomatis (R15), pratinjau + CAS (R14) ──
   const [unitOpen, setUnitOpen] = React.useState(false);
-  const [pv, setPv] = React.useState(null); // {id, title, items, model, busy, unit?: {unit, rep, snap}, onDone, rebuild}
+  const [pv, setPv] = React.useState(null); // {id, title, items, model, busy, unit?: {unit, rep, snap} | Array<{rep, snap, auto}>, broken?, todayLabel?, onDone, rebuild}
   const [, setNet] = React.useState(0);
   const autoBtnRef = React.useRef(null);
   const pvRef = React.useRef(null);
@@ -2787,6 +2801,12 @@ function TimelineViewBody(props) {
   // Task 10 (R16): "Tinjau" — item = TLPlan.diff dibatasi drift halaman (bannerInfo). Menulis Mulai = ES tidak mengubah
   // hasil mesin (simpul otomatis non-jangkar), jadi "sebelum" = "sesudah" = result: tanpa run tambahan, tanpa pelanggaran
   // baru. Hitung ulang setelah CAS: mesin dijalankan atas data terbaru (drift lama tidak dipakai).
+  // Potret unit halaman untuk CAS (ruling 4): updatedAt/by dari useUnits() terbaru (`live`), `auto` = mode yang dipakai
+  // rencana (`plan` = ctx.units mesin). Anggota lain mematikan/menyalakan Otomatis saat dialog terbuka → Terapkan ditolak.
+  const pageSnaps = (plan, live) => pageUnits(lay, pageKind, context.projectName, groupNames).map((x) => ({
+    rep: x.rep, snap: unitSnap(TLSched.unitFor(live, x.rep)), auto: unitAuto(TLSched.unitFor(plan, x.rep)),
+  }));
+  const freshSnaps = (ctx2, units) => pageSnaps(ctx2.units, units instanceof Map ? units : ctx2.units);
   const buildReview = (ctx, result) => {
     const keys = new Set(bannerInfo(result, context.scopeTasks).drift);
     const items = flowItems(TLPlan.diff(result, ctx, keys));
@@ -2797,7 +2817,10 @@ function TimelineViewBody(props) {
     const e = engRef.current;
     if (e.status !== "ready" || !e.ctx || !e.result) return;
     const b = buildReview(e.ctx, e.result);
-    openPv({ title: PV_FLOW, items: b.items, model: b.model, rebuild: (ctx2) => buildReview(ctx2, engine.run(ctx2)) });
+    openPv({
+      title: PV_FLOW, items: b.items, model: b.model, unit: pageSnaps(e.ctx.units, un.units),
+      rebuild: (ctx2, before2, units) => Object.assign(buildReview(ctx2, engine.run(ctx2)), { unit: freshSnaps(ctx2, units) }),
+    });
   };
   // Task 10 (R17, K36): Jadwalkan ulang — T = nextWork(dn(hari ini)) menurut kalender unit (eng.ctx.cal), unitKeys =
   // unit halaman (pageUnits). Selalu pratinjau, juga 0 item (Terapkan nonaktif). Teks pelanggaran memakai
@@ -2823,7 +2846,8 @@ function TimelineViewBody(props) {
     const b = buildResched(e.ctx, e.result, T, unitKeys);
     openPv({
       title: PV_RESCHED, items: b.items, model: b.model, broken: b.broken, todayLabel: TLCal.fmtShort(td),
-      rebuild: (ctx2) => buildResched(ctx2, engine.run(ctx2), T, unitKeys),
+      unit: pageSnaps(e.ctx.units, un.units),
+      rebuild: (ctx2, before2, units) => Object.assign(buildResched(ctx2, engine.run(ctx2), T, unitKeys), { unit: freshSnaps(ctx2, units) }),
     });
   };
   // Banner R16: dihitung sekali per hasil mesin / scopeTasks (bukan tiap render); disembunyikan sebelum mesin siap.
@@ -2840,7 +2864,7 @@ function TimelineViewBody(props) {
   }
   if (engResult && banner.cycle.length) {
     const k = bannerKey(page, "cycle", banner.cycle.length);
-    const first = banner.cycle[0];
+    const first = banner.first;
     const open = () => {
       if (typeof context.onTaskClick === "function") context.onTaskClick(first);
     };
@@ -2857,14 +2881,14 @@ function TimelineViewBody(props) {
     pvRef.current = busyPv; // seketika: klik ganda sebelum render berikutnya tidak memicu setMany kedua
     setPv(busyPv);
     const listP = Promise.resolve().then(() => api.data.tasks.list({ includeDone: true }));
-    const unitsP = cur.unit ? Promise.resolve().then(() => un.store.loadUnits(unitPage)) : Promise.resolve(null);
+    const unitsP = pvUnitList(cur.unit).length ? Promise.resolve().then(() => un.store.loadUnits(unitPage)) : Promise.resolve(null);
     Promise.all([listP, unitsP]).then(([l, units]) => {
       if (!live()) return;
       const list = Array.isArray(l) ? l : [];
       const rawNow = new Map();
       for (const t of list) if (t && t.id !== undefined && t.id !== null) rawNow.set(String(t.id), readExtSafe(api, t));
       const cas = TLPlan.revalidate(cur.items, rawNow);
-      const unitOk = !cur.unit || sameSnap(cur.unit.snap, unitSnap(TLSched.unitFor(units, cur.unit.rep)));
+      const unitOk = unitsStillOk(cur.unit, units);
       if (!cas.ok || !unitOk) {
         toastSafe(api, MSG_STALE, "error");
         const e = engRef.current;

@@ -4438,3 +4438,83 @@ test("sumber Task 10: teks persis (R16, R17) dan CSS banner hanya token tema", (
   assert.ok(css.includes(".plg-timeline-banner"), "kelas banner");
   assert.ok(!/#[0-9a-f]{3,8}\b|rgb\(|hsl\(/i.test(block.slice(0, block.indexOf("/* ──", 10) > 0 ? block.indexOf("/* ──", 10) : block.length)), "tanpa warna tetap");
 });
+
+// ── fix T10 (review): CAS unit untuk Tinjau/Jadwalkan ulang; Buka anggota di halaman; T lewat libur; unitKeys ──
+const offRec = () => unitRec(null, "Alpha", { auto: false, by: 9 }, { updated_at: "2026-11-04T05:00:00Z" });
+
+test("fix T10 #1: Jadwalkan ulang di unit otomatis; anggota lain mematikan Otomatis (onChange, updatedAt baru) → Terapkan ditolak, toast persis, 0 tulis, hitung ulang sebagai Manual", () => withEngineClock(async (clock) => {
+  const autoT = [mk(1, "A", { start: "2026-11-06", duration: 2 }, AL), mk(2, "B", { start: "2026-11-10", duration: 1, deps: fsDep(1) }, AL)];
+  const h = await swView(clock, { records: autoRecs(), tasks: autoT, today: SAT });
+  reschedBtn(h.tree).props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  assert.deepEqual(dlg.props.model.rows.map((r) => r.key), ["1", "2"], "otomatis: A + penerus B");
+  const rec = offRec();
+  putRec(h.fr, rec);
+  h.fr.emit({ entity: "project", ids: [rec.id], source: "sync" });
+  dlg.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), [], "0 tulis");
+  assert.deepEqual(h.calls.toast.map((t) => t.slice(0, 2)), [[MSG_STALE, "error"]]);
+  const again = dialogOf(h.render());
+  assert.ok(again, "dialog tetap terbuka");
+  // Manual: hanya A (Mulai < T) → start T tanpa SNET; B tidak dipindah → 1 dependensi dilanggar
+  assert.deepEqual(again.props.model.rows.map((r) => [r.key, r.to]), [["1", "2026-11-09"]]);
+  assert.equal(again.props.broken, 1);
+  again.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), [["setMany", [{ taskId: 1, patch: { start: "2026-11-09" } }]]], "Terapkan kedua menulis rencana Manual");
+  h.m.unmount();
+}));
+
+test("fix T10 #1: Tinjau; anggota lain mematikan Otomatis → Terapkan ditolak, 0 tulis, hitung ulang tanpa drift (0 item)", () => withEngineClock(async (clock) => {
+  const h = await swView(clock, { records: autoRecs(), tasks: driftTasks() });
+  bannerBtn(bannersOf(h.tree)[0], "Tinjau").props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  assert.equal(dlg.props.model.rows.length, 4);
+  const rec = offRec();
+  putRec(h.fr, rec);
+  h.fr.emit({ entity: "project", ids: [rec.id], source: "sync" });
+  dlg.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), []);
+  assert.deepEqual(h.calls.toast.map((t) => t.slice(0, 2)), [[MSG_STALE, "error"]]);
+  const again = dialogOf(h.render());
+  assert.equal(again.props.model.rows.length, 0, "unit Manual → tidak ada drift");
+  h.m.unmount();
+}));
+
+test("fix T10 #2: 'Buka' membuka anggota lingkaran pertama yang ADA di halaman (A tersaring panel → B)", () => withEngineClock(async (clock) => {
+  const clicked = [];
+  const all = cycleTasks(2);
+  const h = await swView(clock, { tasks: all, ctx: { page: "proj_CycBuka", scopeTasks: all.filter((t) => t.id !== 1), onTaskClick: (t) => clicked.push(t) } });
+  const b = bannersOf(h.tree)[0];
+  assert.equal(bannerText(b), "Dependensi melingkar: A, B — tidak dihitung");
+  bannerBtn(b, "Buka").props.onClick({});
+  assert.deepEqual(clicked.map((t) => t.id), [2]);
+  h.m.unmount();
+}));
+
+test("fix T10 #3: T lewat libur bernama di kalender unit (Sab 15 Agu → Senin 17 Agu libur Proklamasi → T Sel 18 Agu)", () => withEngineClock(async (clock) => {
+  const h = await swView(clock, { tasks: [mk(1, "A", { start: "2026-08-10", duration: 1 }, AL)], today: "2026-08-15" });
+  reschedBtn(h.tree).props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  assert.equal(dlg.props.todayLabel, T.TLCal.fmtShort(T.TLCal.dn("2026-08-15")));
+  assert.deepEqual(dlg.props.model.rows.map((r) => [r.key, r.to]), [["1", "2026-08-18"]]);
+  h.m.unmount();
+}));
+
+test("fix T10 #3: workspace — unitKeys = unit halaman; task unit lain (tersaring panel, tetap di scope mesin) tidak dijadwalkan ulang", () => withEngineClock(async (clock) => {
+  const s = wsSetup();
+  const h = await swView(clock, { records: s.fr, tasks: s.tasks, today: SAT, ctx: Object.assign({}, s.ctx, { scopeTasks: s.tasks.filter((t) => t.id !== 2) }) });
+  reschedBtn(h.tree).props.onClick({});
+  await settle();
+  const keys = dialogOf(h.render()).props.model.rows.map((r) => r.key);
+  assert.deepEqual(keys.slice().sort(), ["1", "3", "4"], "Beta (task 2) di luar unit halaman");
+  h.m.unmount();
+}));
