@@ -1,4 +1,4 @@
-## 🟡 Fix: PUT task berulang 500 (sqlite3.Row.get) — claude/fix-recurrence-put-500 — 2026-11-04 (Claude) — PR DRAFT, menunggu "merge dan deploy"
+## 🟡 Fix: PUT task berulang 500 (sqlite3.Row.get) — claude/fix-recurrence-put-500 — 2026-11-04 (Claude) — PR DRAFT #125, menunggu "merge dan deploy"
 - **Bug (pra-ada di main):** `PUT /api/tasks/{id}` dengan `recurrence_type` daily/weekly/monthly/weekdays -> 500, karena `update_task` memanggil `existing.get("recurrence_end_date")` padahal `existing` adalah `sqlite3.Row` (tidak punya `.get`). Klien offline mengirim `recurrence_type` di setiap PUT penuh (`taskToUpdatePayload`), jadi **setiap push penuh task berulang gagal 500 di produksi**. Ditemukan saat review 1c-0b.
 - **Perbaikan:** `webapp.py` satu baris: `existing["recurrence_end_date"]` (kolom selalu ada di `SELECT *`); tidak ada `.get` lain pada `existing`. Perilaku tidak berubah selain crash hilang.
 - **Tes:** `tests/test_task_recurrence_put.py` (3 tes: PUT minimal, PUT penuh bentuk klien mempertahankan recurrence/end_date, ubah dan hapus recurrence); merah sebelum fix. pytest 1438 passed, 1 skipped; `import webapp, bot` OK.
