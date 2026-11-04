@@ -1214,14 +1214,33 @@ test("fix 1: tingkat 1 Manual dengan 3 penerus otomatis — ubah Durasi → SATU
   assert.equal(s2.calls.setMany.length, 0);
 });
 
-test("fix 1 (sementara, Task 12 → PreviewCard): > 20 penerus otomatis bergeser → task ini saja lewat set 1b, 0 setMany", async () => {
+// Task 12 (satu-satunya perubahan tes T11 yang disetujui): aturan sementara "> 20 → set 1b task ini saja" diganti
+// gerbang PreviewCard — 0 tulis sampai Terapkan; Terapkan = SATU setMany seluruh item; Batal = 0 tulis.
+test("fix 1 → Task 12: > 20 penerus otomatis bergeser → PreviewCard (0 tulis), Batal = 0, Terapkan = satu setMany", async () => {
   const { M, succ } = manualWithSucc(21);
   const s = await ui(M, { tasks: [M].concat(succ) });
   byLabel(s.tree, "Durasi (hari kerja)").props.onChange(ev("3"));
   byLabel(s.tree, "Durasi (hari kerja)").props.onBlur(ev("3"));
   s.render();
-  assert.deepEqual(s.calls.set, [[700, { duration: 3 }]]);
+  assert.equal(s.calls.set.length, 0);
   assert.equal(s.calls.setMany.length, 0);
+  assert.equal(byCls(s.tree, "plg-timeline-pvcard").length, 1);
+  assert.equal(byLabel(s.tree, "Durasi (hari kerja)").props.value, "2", "draf kembali ke nilai tersimpan sampai Terapkan");
+  buttonByText(s.tree, "Batal").props.onClick();
+  await s.settle();
+  assert.equal(byCls(s.tree, "plg-timeline-pvcard").length, 0);
+  assert.equal(s.calls.set.length + s.calls.setMany.length, 0);
+  byLabel(s.tree, "Durasi (hari kerja)").props.onChange(ev("3"));
+  byLabel(s.tree, "Durasi (hari kerja)").props.onBlur(ev("3"));
+  s.render();
+  buttonByText(s.tree, "Terapkan").props.onClick();
+  await s.settle();
+  assert.equal(s.calls.set.length, 0);
+  assert.equal(s.calls.setMany.length, 1);
+  assert.equal(s.calls.setMany[0].length, 22);
+  assert.deepEqual(s.calls.setMany[0][0], { taskId: 700, patch: { duration: 3 } });
+  assert.equal(lastToast(s)[0], "Jadwal diterapkan · 22 task");
+  assert.equal(byCls(s.tree, "plg-timeline-pvcard").length, 0);
 });
 
 test("fix 2: unit belum termuat dan ext.mode bukan 'manual' → input Mulai nonaktif; termuat / gagal muat / mode manual → aktif", async () => {
@@ -1290,4 +1309,383 @@ test("fix 3: Urungkan seksi menunggu set 1b dan setMany yang berjalan (urut); se
   await s.settle();
   assert.equal(lastToast(s)[0], "Jadwal diubah · 3 task ikut bergeser");
   assert.deepEqual(order, ["setMany", "set", "setMany", "setMany"]);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 1c-1 Task 12 (R20 tingkat 3, R21, R14 PreviewCard): Batasan, Dependensi bertipe, "Kenapa", "Ubah ke Manual"
+// ════════════════════════════════════════════════════════════════════════════
+const body3 = (tree) => byCls(tree, "plg-timeline-sec-body")[0];
+const part = (tree, p) => nodes(tree, (n) => n.props["data-part"] === p)[0];
+const optTexts = (sel) => nodes(sel, (n) => n.type === "option").map((n) => txt(n).trim());
+const TYPE_LABELS = ["Selesai → Mulai (FS)", "Mulai → Mulai (SS)", "Selesai → Selesai (FF)", "Mulai → Selesai (SF)"];
+const MOCKUP_WHY = "Mulai Kam 5 Nov karena menunggu 1.2 Palet Sakura + Lavender selesai Sel 3 Nov, ditambah lag 1 hari (Rab 4 Nov dilewati). Durasi 4 hari kerja melompati Sab–Min, jadi selesai Sel 10 Nov, 1 hari kerja setelah tenggat Sen 9 Nov.";
+const whyStr = (arr) => arr.map((p) => (typeof p === "string" ? p : p.b)).join("");
+async function open3(o) {
+  const m = mockup(o);
+  const s = await ui(m.self, Object.assign({ tasks: m.tasks, records: m.records, storage: { "section:open": true } }, (o && o.ui) || {}));
+  return { m, s };
+}
+
+test("tingkat 3 urutan: Mode · Mulai (teks + 'Ubah') · Durasi · Selesai · Milestone · % selesai · Batasan · Dependensi (Menunggu / Diikuti oleh) · Tambah dependensi · Kenapa dijadwalkan di sini? · Ubah ke Manual", async () => {
+  const { s } = await open3();
+  const b = body3(s.tree);
+  assert.ok(b, "badan tingkat 3");
+  const order = nodes(b, (n) => typeof n.props["data-part"] === "string").map((n) => n.props["data-part"]);
+  assert.deepEqual(order, ["mode", "start", "dur", "finish", "milestone", "pct", "constraint", "deps", "add", "why", "manual"]);
+  const st = part(s.tree, "start");
+  assert.equal(txt(byCls(st, "plg-timeline-sec-val")[0]).trim(), "Kam 5 Nov");
+  assert.ok(buttonByText(st, "Ubah"));
+  assert.equal(nodes(st, (n) => n.type === "input").length, 0, "Mulai otomatis = teks, bukan input");
+  assert.ok(txt(part(s.tree, "finish")).includes("Selasa, 10 November 2026") || txt(part(s.tree, "finish")).includes("10"), txt(part(s.tree, "finish")));
+  assert.equal(byLabel(part(s.tree, "dur"), "Durasi (hari kerja)").props.value, "4");
+  assert.ok(byLabel(part(s.tree, "milestone"), "Milestone"));
+  assert.ok(txt(part(s.tree, "pct")).includes("% selesai"));
+  assert.ok(txt(part(s.tree, "constraint")).startsWith("Batasan"));
+  const deps = part(s.tree, "deps");
+  assert.ok(txt(deps).includes("Menunggu") && txt(deps).includes("Diikuti oleh"));
+  assert.ok(txt(deps).indexOf("Menunggu") < txt(deps).indexOf("Diikuti oleh"));
+  assert.ok(buttonByText(part(s.tree, "add"), "Tambah dependensi"));
+  assert.ok(buttonByText(part(s.tree, "why"), "Kenapa dijadwalkan di sini?"));
+  assert.ok(buttonByText(part(s.tree, "manual"), "Ubah ke Manual"));
+  assert.equal(s.calls.set.length + s.calls.setMany.length, 0);
+});
+
+test("tingkat 3: catatan dependensi rusak + 'Hapus dependensi rusak' kembali (dependensi sah apa adanya)", async () => {
+  const good = { t: { $task: 12 }, type: "FS", lag: 1 };
+  const m = mockup();
+  const self = mk(20, "Token tema", { start: "2026-11-05", duration: 4, deps: [good, { t: { $task: 11 }, type: "XX" }, "x"] }, WS("Fondasi"));
+  const tasks = m.tasks.map((t) => (t.id === 20 ? self : t));
+  const s = await ui(self, { tasks, records: m.records, storage: { "section:open": true } });
+  assert.ok(body3(s.tree));
+  const note = byCls(part(s.tree, "deps"), "plg-timeline-sec-bad")[0];
+  assert.ok(note && txt(note).includes("2 dependensi rusak"), note && txt(note));
+  buttonByText(s.tree, "Hapus dependensi rusak").props.onClick();
+  s.render();
+  assert.deepEqual(s.calls.set, [[20, { deps: [good] }]]);
+  assert.equal(s.calls.setMany.length, 0);
+});
+
+test("Batasan: pilih 'Mulai tidak lebih awal dari' + 2026-11-12 → patch constraint SNET + aliran; 'Harus selesai pada' → MFO; 'Secepatnya (ASAP)' → constraint null", async () => {
+  const { s } = await open3();
+  const g = part(s.tree, "constraint");
+  assert.equal(g.props.role, "group");
+  assert.equal(g.props["aria-label"], "Batasan");
+  const sel = byLabel(g, "Jenis batasan");
+  assert.equal(sel.type, "select");
+  assert.deepEqual(optTexts(sel), ["Secepatnya (ASAP)", "Mulai tidak lebih awal dari", "Harus selesai pada"]);
+  assert.equal(sel.props.value, "");
+  assert.equal(byLabel(g, "Tanggal batasan"), undefined, "ASAP tanpa tanggal");
+  sel.props.onChange(ev("SNET"));
+  s.render();
+  assert.deepEqual(s.calls.set, [[20, { constraint: { type: "SNET", date: "2026-11-05" } }]], "tanggal bawaan = Mulai hasil hitung (tanpa geser)");
+  await s.settle();
+  const date = byLabel(part(s.tree, "constraint"), "Tanggal batasan");
+  assert.equal(date.props.value, "2026-11-05");
+  assert.equal(byLabel(part(s.tree, "constraint"), "Jenis batasan").props.value, "SNET");
+  date.props.onChange(ev("2026-11-12"));
+  byLabel(part(s.tree, "constraint"), "Tanggal batasan").props.onBlur(ev("2026-11-12"));
+  s.render();
+  assert.deepEqual(s.calls.setMany, [[
+    { taskId: 20, patch: { constraint: { type: "SNET", date: "2026-11-12" }, start: "2026-11-12" } },
+    { taskId: 31, patch: { start: "2026-11-18" } },
+  ]]);
+  await s.settle();
+  assert.equal(lastToast(s)[0], "Jadwal diubah · 1 task ikut bergeser");
+  // MFO: tanggal bawaan = Selesai hasil hitung
+  const b = await open3();
+  byLabel(part(b.s.tree, "constraint"), "Jenis batasan").props.onChange(ev("MFO"));
+  b.s.render();
+  assert.deepEqual(b.s.calls.set, [[20, { constraint: { type: "MFO", date: "2026-11-10" } }]]);
+  // ASAP dari SNET tersimpan → constraint null (+ Mulai kembali ke hasil hitung)
+  const m = mockup({ start: "2026-11-09" });
+  const self = mk(20, "Token tema", { start: "2026-11-09", duration: 4, constraint: { type: "SNET", date: "2026-11-09" }, deps: [{ t: { $task: 12 }, type: "FS", lag: 1 }] }, WS("Fondasi"));
+  const c = await ui(self, { tasks: m.tasks.map((t) => (t.id === 20 ? self : t)), records: m.records, storage: { "section:open": true } });
+  assert.equal(byLabel(part(c.tree, "constraint"), "Jenis batasan").props.value, "SNET");
+  byLabel(part(c.tree, "constraint"), "Jenis batasan").props.onChange(ev(""));
+  c.render();
+  assert.deepEqual(c.calls.set, [[20, { constraint: null, start: "2026-11-05" }]]);
+  assert.equal(c.calls.setMany.length, 0);
+});
+
+test("Menunggu: pilihan tipe berlabel 'Selesai → Mulai (FS)'…'Mulai → Selesai (SF)'; ubah ke SS → deps ditulis ulang utuh (dependensi lain apa adanya); lag 1 → '+1 hk'; Diikuti oleh = penerus dari daftar lengkap, tanpa input", async () => {
+  const d12 = { t: { $task: 12 }, lag: 1 }; // bentuk 1b tanpa type → tetap tanpa type (byte-identik)
+  const d11 = { t: { $task: 11 }, type: "FS", lag: 0 };
+  const m = mockup();
+  const self = mk(20, "Token tema", { start: "2026-11-05", duration: 4, deps: [d12, d11, "x"] }, WS("Fondasi"));
+  const note = mk(32, "Catatan rilis", { mode: "manual", deps: [{ t: { $task: 20 }, type: "FF", lag: 2 }] }, WS("Rilis")); // Manual tanpa Mulai: bukan simpul
+  const tasks = m.tasks.map((t) => (t.id === 20 ? self : t)).concat([note]);
+  const s = await ui(self, { tasks, records: m.records, storage: { "section:open": true } });
+  const deps = part(s.tree, "deps");
+  const pred = nodes(deps, (n) => n.props["data-group"] === "pred")[0];
+  const succ = nodes(deps, (n) => n.props["data-group"] === "succ")[0];
+  assert.ok(txt(pred).startsWith("Menunggu"));
+  assert.ok(txt(succ).startsWith("Diikuti oleh"));
+  const rows = byCls(pred, "plg-timeline-dep");
+  assert.equal(rows.length, 2);
+  assert.equal(txt(byCls(rows[0], "plg-timeline-dep-name")[0]).trim(), "1.2 Palet Sakura + Lavender");
+  const sel = byLabel(rows[0], "Tipe dependensi Palet Sakura + Lavender");
+  assert.equal(sel.type, "select");
+  assert.deepEqual(optTexts(sel), TYPE_LABELS);
+  assert.equal(sel.props.value, "FS");
+  assert.equal(txt(byCls(rows[0], "plg-timeline-dep-lag")[0]).trim(), "+1 hk");
+  assert.equal(byCls(rows[1], "plg-timeline-dep-lag").length, 0, "lag 0 tanpa keterangan");
+  assert.ok(byLabel(rows[0], "Jeda setelah Palet Sakura + Lavender (hari kerja)"));
+  assert.ok(byLabel(rows[0], "Hapus dependensi Palet Sakura + Lavender"));
+  // Diikuti oleh: 3.1 (simpul) + Catatan rilis (bukan simpul, dari daftar lengkap); baca saja
+  const srows = byCls(succ, "plg-timeline-dep");
+  assert.deepEqual(srows.map((r) => txt(byCls(r, "plg-timeline-dep-name")[0]).trim()), ["3.1 Uji tema", "3.2 Catatan rilis"]);
+  assert.equal(nodes(succ, (n) => n.type === "input" || n.type === "select" || n.type === "button").length, 0);
+  // ubah dependensi 11 → SS: tidak menggeser (pendorong tetap 12) → set tunggal; deps utuh, item lain apa adanya
+  byLabel(rows[1], "Tipe dependensi Riset warna").props.onChange(ev("SS"));
+  s.render();
+  assert.equal(s.calls.setMany.length, 0);
+  assert.deepEqual(s.calls.set, [[20, { deps: [d12, { t: { $task: 11 }, type: "SS", lag: 0 }, "x"] }]]);
+  assert.equal(JSON.stringify(s.calls.set[0][1].deps[0]), JSON.stringify(d12));
+  // pendorong 12 → SS (lag 1): Mulai maju ke Sel 3, penerus 3.1 ikut → satu setMany (aliran)
+  const s2 = await ui(self, { tasks, records: m.records, storage: { "section:open": true } });
+  const r2 = byCls(nodes(part(s2.tree, "deps"), (n) => n.props["data-group"] === "pred")[0], "plg-timeline-dep");
+  byLabel(r2[0], "Tipe dependensi Palet Sakura + Lavender").props.onChange(ev("SS"));
+  s2.render();
+  assert.equal(s2.calls.set.length, 0);
+  assert.deepEqual(s2.calls.setMany, [[
+    { taskId: 20, patch: { deps: [{ t: { $task: 12 }, lag: 1, type: "SS" }, d11, "x"], start: "2026-11-03" } },
+    { taskId: 31, patch: { start: "2026-11-09" } },
+  ]]);
+});
+
+test("Ubah (Mulai otomatis) → input; tanggal sebelum syarat → toast 'Tidak bisa lebih awal dari dependensinya', 0 tulis; sesudah → start + SNET", async () => {
+  const { s } = await open3();
+  buttonByText(part(s.tree, "start"), "Ubah").props.onClick();
+  s.render();
+  const inp = byLabel(part(s.tree, "start"), "Mulai");
+  assert.equal(inp.type, "input");
+  assert.equal(inp.props.type, "date");
+  assert.equal(inp.props.value, "2026-11-05");
+  inp.props.onChange(ev("2026-11-04"));
+  byLabel(part(s.tree, "start"), "Mulai").props.onBlur(ev("2026-11-04"));
+  s.render();
+  assert.equal(s.calls.set.length + s.calls.setMany.length, 0);
+  assert.deepEqual(lastToast(s), ["Tidak bisa lebih awal dari dependensinya", "error"]);
+  assert.equal(txt(byCls(part(s.tree, "start"), "plg-timeline-sec-val")[0]).trim(), "Kam 5 Nov", "kembali ke teks");
+  buttonByText(part(s.tree, "start"), "Ubah").props.onClick();
+  s.render();
+  byLabel(part(s.tree, "start"), "Mulai").props.onChange(ev("2026-11-09"));
+  byLabel(part(s.tree, "start"), "Mulai").props.onBlur(ev("2026-11-09"));
+  s.render();
+  assert.deepEqual(s.calls.setMany, [[
+    { taskId: 20, patch: { start: "2026-11-09", constraint: { type: "SNET", date: "2026-11-09" } } },
+    { taskId: 31, patch: { start: "2026-11-13" } },
+  ]]);
+  assert.equal(s.calls.set.length, 0);
+  await s.settle();
+  assert.equal(lastToast(s)[0], "Jadwal diubah · 1 task ikut bergeser");
+});
+
+test("whyText contoh mockup persis (R21) — 'Kenapa' terlipat bawaan; explain dipanggil hanya saat dibuka (spy), dengan kalender run dan readExt", async () => {
+  const orig = T.engine.explain;
+  const seen = [];
+  T.engine.explain = (...a) => { seen.push(a); return orig(...a); };
+  try {
+    const { s } = await open3({ deadline: "2026-11-09" });
+    const box = part(s.tree, "why");
+    const btn = buttonByText(box, "Kenapa dijadwalkan di sini?");
+    assert.equal(btn.props["aria-expanded"], false);
+    assert.equal(byCls(s.tree, "plg-timeline-sec-why").length, 0);
+    s.render();
+    await s.settle();
+    assert.equal(seen.length, 0, "terlipat → explain tidak dipanggil");
+    btn.props.onClick();
+    s.render();
+    assert.ok(seen.length > 0);
+    const [result, key, cal, readExt] = seen[0];
+    assert.ok(result.nodes instanceof Map);
+    assert.equal(key, "20");
+    assert.ok(cal && typeof cal === "object");
+    assert.equal(typeof readExt, "function");
+    const p = byCls(s.tree, "plg-timeline-sec-why")[0];
+    assert.equal(txt(p), MOCKUP_WHY);
+    assert.deepEqual(nodes(p, (n) => n.type === "strong").map((n) => txt(n)), ["Kam 5 Nov", "1.2 Palet Sakura + Lavender", "Sel 10 Nov"]);
+    assert.equal(buttonByText(part(s.tree, "why"), "Kenapa dijadwalkan di sini?").props["aria-expanded"], true);
+    buttonByText(part(s.tree, "why"), "Kenapa dijadwalkan di sini?").props.onClick();
+    s.render();
+    assert.equal(byCls(s.tree, "plg-timeline-sec-why").length, 0);
+    assert.equal(s.calls.set.length + s.calls.setMany.length, 0);
+  } finally {
+    T.engine.explain = orig;
+  }
+});
+
+test("whyText murni: varian root/snet/mfo/manual/done/started/cycle/unscheduled persis; SS/FF; lag tanpa hari lag; > 6 hari dilewati → 'dan {n} hari lain'", () => {
+  const ctx = { label: (k) => ({ 12: "1.2 Palet Sakura + Lavender", 7: "1.1 A" })[k] || k, title: (k) => ({ 7: "Riset", 8: "Desain" })[k] || k };
+  const W = (ex) => whyStr(T.whyText(Object.assign({ base: null, lagDays: [], start: null, skipped: [], finish: null, durSkipped: [], late: 0, deadline: null }, ex), ctx));
+  const wk = (iso, why) => ({ dn: D(iso), why });
+  // mockup sebagai struktur explain
+  const mock = { kind: "pred", pred: "12", type: "FS", lag: 1, base: D("2026-11-03"), lagDays: [D("2026-11-04")], start: D("2026-11-05"), finish: D("2026-11-10"),
+    durSkipped: [wk("2026-11-07", "Sabtu"), wk("2026-11-08", "Minggu")], late: 1, deadline: D("2026-11-09") };
+  assert.equal(W(mock), MOCKUP_WHY);
+  const arr = T.whyText(Object.assign({}, mock), ctx);
+  assert.deepEqual(arr.filter((x) => typeof x !== "string"), [{ b: "Kam 5 Nov" }, { b: "1.2 Palet Sakura + Lavender" }, { b: "Sel 10 Nov" }]);
+  // tanpa tenggat terlewat → "."
+  assert.equal(W(Object.assign({}, mock, { late: 0, deadline: D("2026-11-20") })),
+    "Mulai Kam 5 Nov karena menunggu 1.2 Palet Sakura + Lavender selesai Sel 3 Nov, ditambah lag 1 hari (Rab 4 Nov dilewati). Durasi 4 hari kerja melompati Sab–Min, jadi selesai Sel 10 Nov.");
+  // SS → "mulai {tglP}"; FS dari Jumat tanpa lag → Sab–Min dilewati
+  assert.equal(W({ kind: "pred", pred: "7", type: "SS", lag: 0, base: D("2026-11-02"), start: D("2026-11-02"), finish: D("2026-11-02") }),
+    "Mulai Sen 2 Nov karena menunggu 1.1 A mulai Sen 2 Nov. Durasi 1 hari kerja, jadi selesai Sen 2 Nov.");
+  assert.equal(W({ kind: "pred", pred: "7", type: "FS", lag: 0, base: D("2026-11-06"), skipped: [wk("2026-11-07", "Sabtu"), wk("2026-11-08", "Minggu")], start: D("2026-11-09"), finish: D("2026-11-09") }),
+    "Mulai Sen 9 Nov karena menunggu 1.1 A selesai Jum 6 Nov (Sab–Min dilewati). Durasi 1 hari kerja, jadi selesai Sen 9 Nov.");
+  // tepi T3: lag ≠ 0 tanpa hari lag (FF dari milestone akhir pekan) → tanpa "()"
+  const ff = W({ kind: "pred", pred: "7", type: "FF", lag: 1, base: D("2026-11-07"), start: D("2026-11-09"), finish: D("2026-11-10") });
+  assert.equal(ff, "Mulai Sen 9 Nov karena menunggu 1.1 A selesai Sab 7 Nov, ditambah lag 1 hari. Durasi 2 hari kerja, jadi selesai Sel 10 Nov.");
+  assert.ok(!ff.includes("()"));
+  // varian persis
+  assert.equal(W({ kind: "root", base: D("2026-11-02"), start: D("2026-11-02"), finish: D("2026-11-04") }),
+    "Mulai di tanggal yang kamu tentukan. Durasi 3 hari kerja, jadi selesai Rab 4 Nov.");
+  assert.equal(W({ kind: "snet", base: D("2026-11-07"), skipped: [wk("2026-11-07", "Sabtu"), wk("2026-11-08", "Minggu")], start: D("2026-11-09"), finish: D("2026-11-11") }),
+    "Mulai Sen 9 Nov karena batasan: mulai tidak lebih awal dari Sab 7 Nov. Durasi 3 hari kerja, jadi selesai Rab 11 Nov.");
+  assert.equal(W({ kind: "mfo", start: D("2026-11-09"), finish: D("2026-11-11") }),
+    "Harus selesai pada Rab 11 Nov (batasan). Durasi 3 hari kerja, jadi selesai Rab 11 Nov.");
+  // tepi T3: Manual tersimpan Sabtu — durSkipped memuat hari mulai sendiri → tidak disebut "melompati"
+  assert.equal(W({ kind: "manual", start: D("2026-11-07"), finish: D("2026-11-11"), durSkipped: [wk("2026-11-07", "Sabtu"), wk("2026-11-08", "Minggu")] }),
+    "Task ini Manual: tanggal mengikuti yang kamu isi. Durasi 3 hari kerja, jadi selesai Rab 11 Nov.");
+  assert.equal(W({ kind: "done", start: D("2026-11-02"), finish: D("2026-11-03") }), "Task ini sudah selesai: tanggalnya tidak dihitung ulang.");
+  assert.equal(W({ kind: "started", start: D("2026-11-02"), finish: D("2026-11-03"), late: 2, deadline: D("2026-10-30") }),
+    "Task ini sudah mulai: tanggal mulainya dikunci. Durasi 2 hari kerja, jadi selesai Sel 3 Nov, 2 hari kerja setelah tenggat Jum 30 Okt.");
+  assert.equal(W({ kind: "cycle", cycleWith: ["7", "8"] }), "Dependensinya melingkar dengan Riset, Desain; tidak dihitung.");
+  assert.equal(W({ kind: "unscheduled" }), "Belum dijadwalkan.");
+  // milestone (ctx.d = 0): tanpa kalimat durasi; task 1 hari pada tanggal sama tetap berkalimat durasi
+  const W0 = (ex, d) => whyStr(T.whyText(Object.assign({ base: null, lagDays: [], start: null, skipped: [], finish: null, durSkipped: [], late: 0, deadline: null }, ex), Object.assign({}, ctx, { d })));
+  assert.equal(W0({ kind: "root", base: D("2026-11-07"), start: D("2026-11-07"), finish: D("2026-11-07") }, 0), "Mulai di tanggal yang kamu tentukan.");
+  assert.equal(W0({ kind: "root", base: D("2026-11-09"), start: D("2026-11-09"), finish: D("2026-11-09") }, 1), "Mulai di tanggal yang kamu tentukan. Durasi 1 hari kerja, jadi selesai Sen 9 Nov.");
+  // libur bernama (libur + cuti bernama sama berurutan = satu sebutan), akhir pekan yang juga libur = Sab–Min
+  const hol = [{ dn: D("2026-03-18"), why: "cuti", name: "Nyepi" }, { dn: D("2026-03-19"), why: "libur", name: "Nyepi" }];
+  assert.equal(W({ kind: "pred", pred: "7", type: "FS", lag: 0, base: D("2026-03-17"), skipped: hol, start: D("2026-03-20"), finish: D("2026-03-20") }),
+    "Mulai Jum 20 Mar karena menunggu 1.1 A selesai Sel 17 Mar (Nyepi dilewati). Durasi 1 hari kerja, jadi selesai Jum 20 Mar.");
+  // > 6 hari dilewati → 6 disebut + "dan {n} hari lain"; hari tambahan tanpa nama = tanggal
+  const nine = [];
+  for (let k = 0; k < 9; k++) nine.push({ dn: D("2026-11-10") + k, why: "tambahan" });
+  const many = W({ kind: "pred", pred: "7", type: "FS", lag: 0, base: D("2026-11-09"), skipped: nine, start: D("2026-11-19"), finish: D("2026-11-19") });
+  const six = nine.slice(0, 6).map((x) => T.TLCal.fmtShort(x.dn)).join(", ");
+  assert.ok(many.includes("(" + six + " dan 3 hari lain dilewati)"), many);
+  // dua akhir pekan → dibedakan dengan tanggal
+  const two = W({ kind: "manual", start: D("2026-11-06"), finish: D("2026-11-16"), durSkipped: [wk("2026-11-07", "Sabtu"), wk("2026-11-08", "Minggu"), wk("2026-11-14", "Sabtu"), wk("2026-11-15", "Minggu")] });
+  assert.ok(two.includes("melompati Sab 7–Min 8 Nov, Sab 14–Min 15 Nov, jadi"), two);
+  assert.equal(T.whyText(null, ctx).map((p) => (typeof p === "string" ? p : p.b)).join(""), "Belum dijadwalkan.");
+});
+
+test("Ubah ke Manual di unit otomatis → {mode: 'manual'}", async () => {
+  const { s } = await open3();
+  buttonByText(part(s.tree, "manual"), "Ubah ke Manual").props.onClick();
+  s.render();
+  assert.deepEqual(s.calls.setMany, [[{ taskId: 20, patch: { mode: "manual" } }]]);
+  assert.equal(s.calls.set.length, 0);
+  await s.settle();
+  assert.equal(lastToast(s)[0], "Jadwal diubah");
+  assert.ok(byLabel(s.tree, "Mulai") && byLabel(s.tree, "Mulai").type === "input", "tingkat 1 (Manual)");
+});
+
+// B otomatis eksplisit (unit Manual) tersimpan Sen 9 (hasil Kam 5) + n penerus otomatis setelah B.
+function autoWithSucc(n, succStart) {
+  const A = mk(800, "A", { start: "2026-11-02", duration: 3 }, WS("Fondasi"));
+  const B = mk(801, "B", { start: "2026-11-09", duration: 2, mode: "auto", deps: [{ t: { $task: 800 }, type: "FS", lag: 0 }] }, WS("Fondasi"));
+  const succ = [];
+  for (let k = 0; k < n; k++) succ.push(mk(810 + k, "T" + k, { start: succStart, duration: 1, mode: "auto", deps: [{ t: { $task: 801 }, type: "FS", lag: 0 }] }, WS("Fondasi")));
+  return { A, B, succ, tasks: [A, B].concat(succ) };
+}
+
+test("aliran dari seksi > 20 → PreviewCard 5 baris + 'dan {n} lainnya' (Mode dan Perbarui juga); Terapkan = satu setMany, Batal = 0", async () => {
+  // Mode: B → Manual (jangkar Sen 9) menggeser 21 penerus (tersimpan Sen 9 → Rab 11)
+  const x = autoWithSucc(21, "2026-11-09");
+  const s = await ui(x.B, { tasks: x.tasks, storage: { "section:open": true } });
+  modeBtn(s.tree, "manual").props.onClick();
+  s.render();
+  assert.equal(s.calls.set.length + s.calls.setMany.length, 0);
+  const card = byCls(s.tree, "plg-timeline-pvcard")[0];
+  assert.ok(card);
+  assert.equal(card.props.role, "group");
+  assert.equal(byCls(card, "plg-timeline-pv-row").length, 5);
+  assert.equal(txt(byCls(card, "plg-timeline-pvcard-more")[0]).trim(), "dan 17 lainnya");
+  assert.ok(txt(byCls(card, "plg-timeline-pv-summary")[0]).startsWith("22 task bergeser") || txt(byCls(card, "plg-timeline-pv-summary")[0]).startsWith("21 task bergeser"), txt(byCls(card, "plg-timeline-pv-summary")[0]));
+  assert.equal(modeBtn(s.tree, "auto").props["aria-pressed"], true, "tanpa tulis optimistis sebelum Terapkan");
+  buttonByText(card, "Batal").props.onClick();
+  await s.settle();
+  assert.equal(byCls(s.tree, "plg-timeline-pvcard").length, 0);
+  assert.equal(s.calls.set.length + s.calls.setMany.length, 0);
+  modeBtn(s.tree, "manual").props.onClick();
+  s.render();
+  buttonByText(byCls(s.tree, "plg-timeline-pvcard")[0], "Terapkan").props.onClick();
+  await s.settle();
+  assert.equal(s.calls.setMany.length, 1);
+  assert.equal(s.calls.setMany[0].length, 22);
+  assert.deepEqual(s.calls.setMany[0][0], { taskId: 801, patch: { mode: null } });
+  assert.deepEqual(s.calls.setMany[0][1], { taskId: 810, patch: { start: "2026-11-11" } });
+  assert.equal(lastToast(s)[0], "Jadwal diterapkan · 22 task");
+  assert.equal(lastToast(s)[2].label, "Urungkan");
+  // Perbarui: B drift + 21 penerus drift (tersimpan Sen 16, hasil Sen 9) → PreviewCard, bukan tulis langsung
+  const y = autoWithSucc(21, "2026-11-16");
+  const s2 = await ui(y.B, { tasks: y.tasks });
+  buttonByText(s2.tree, "Perbarui").props.onClick();
+  s2.render();
+  assert.equal(s2.calls.setMany.length, 0);
+  const card2 = byCls(s2.tree, "plg-timeline-pvcard")[0];
+  assert.ok(card2, "kartu tampil juga saat terlipat");
+  assert.equal(txt(byCls(card2, "plg-timeline-pvcard-more")[0]).trim(), "dan 17 lainnya");
+  buttonByText(card2, "Terapkan").props.onClick();
+  await s2.settle();
+  assert.equal(s2.calls.setMany.length, 1);
+  assert.deepEqual(s2.calls.setMany[0].slice(0, 2), [{ taskId: 801, patch: { start: "2026-11-05" } }, { taskId: 810, patch: { start: "2026-11-09" } }]);
+  // Terapkan saat data berubah (CAS) → toast hitung ulang, 0 tulis, kartu tetap
+  const z = autoWithSucc(21, "2026-11-16");
+  let calls = 0;
+  const listImpl = () => {
+    calls++;
+    const out = JSON.parse(JSON.stringify(z.tasks));
+    if (calls > 1) out[2].ext["timeline.start"] = "2026-11-17";
+    return Promise.resolve(out);
+  };
+  const s3 = await ui(z.B, { listImpl });
+  buttonByText(s3.tree, "Perbarui").props.onClick();
+  s3.render();
+  buttonByText(byCls(s3.tree, "plg-timeline-pvcard")[0], "Terapkan").props.onClick();
+  await s3.settle();
+  assert.equal(s3.calls.setMany.length, 0);
+  assert.equal(lastToast(s3)[0], "Data berubah sejak pratinjau dibuka — hitung ulang");
+  assert.ok(byCls(s3.tree, "plg-timeline-pvcard")[0], "kartu dihitung ulang");
+});
+
+test("PreviewCard: durasi hilang → 'durasi belum diisi, dianggap 1 hari kerja'; Terapkan nonaktif tanpa baris", () => {
+  const prev = global.React;
+  global.React = { createElement: (type, p, ...children) => ({ type, props: p || {}, children: children.flat(Infinity) }) };
+  try {
+    let applied = 0;
+    let cancelled = 0;
+    const model = { rows: [{ key: "9", task: { title: "Baru" }, wbs: "2.3", from: null, to: "2026-11-05", deltaHk: null, isNew: true, durChanged: false, durGuess: true }],
+      moved: 1, endBefore: null, endAfter: null, endDelta: null, late: 0, notMoved: [], brokenDeps: 0 };
+    const el = T.PreviewCard({ model, onApply: () => applied++, onCancel: () => cancelled++ });
+    assert.ok(txt(el).includes("durasi belum diisi, dianggap 1 hari kerja"));
+    assert.ok(txt(el).includes("baru dijadwalkan"));
+    assert.ok(txt(byCls(el, "plg-timeline-pv-row")[0]).includes("2.3 · Baru · — → Kam 5 Nov"));
+    assert.equal(byCls(el, "plg-timeline-pvcard-more").length, 0);
+    buttonByText(el, "Terapkan").props.onClick();
+    buttonByText(el, "Batal").props.onClick();
+    assert.deepEqual([applied, cancelled], [1, 1]);
+    const empty = T.PreviewCard({ model: Object.assign({}, model, { rows: [], moved: 0 }), onApply() {}, onCancel() {} });
+    assert.equal(buttonByText(empty, "Terapkan").props.disabled, true);
+  } finally {
+    global.React = prev;
+  }
+});
+
+test("sumber Task 12: teks persis R20/R21 tingkat 3, tetap satu setMany di seksi", () => {
+  for (const t of TYPE_LABELS.concat(["Batasan", "Secepatnya (ASAP)", "Mulai tidak lebih awal dari", "Harus selesai pada", "Menunggu", "Diikuti oleh",
+    "Kenapa dijadwalkan di sini?", "Ubah ke Manual", "Ubah", "Mulai di tanggal yang kamu tentukan.", "Task ini Manual: tanggal mengikuti yang kamu isi.",
+    "Task ini sudah selesai: tanggalnya tidak dihitung ulang.", "Task ini sudah mulai: tanggal mulainya dikunci.", "Belum dijadwalkan.", "Sab–Min", " hari lain"])) {
+    assert.ok(jsx.includes('"' + t + '"') || jsx.includes(t), t);
+  }
+  const start = jsx.indexOf("// 4g.");
+  const block = jsx.slice(start, jsx.indexOf("// React.memo dibuat malas", start));
+  assert.equal((block.match(/taskExt\.setMany\(/g) || []).length, 1);
+  assert.equal((block.match(/taskExt\.set\(/g) || []).length, 1);
+  assert.match(block, /engine\.explain\(/, "explain lewat pintu spy");
+  assert.doesNotMatch(block, /TLCpm\.explain\(/);
+  for (const c of [".plg-timeline-pvcard", ".plg-timeline-sec-why", ".plg-timeline-dep-lag"]) assert.ok(css.includes(c), c);
 });

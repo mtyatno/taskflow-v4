@@ -1320,6 +1320,88 @@
   font-size: 12px;
 }
 
+/* 1c-1 R20 tingkat 3 (Task 12): Mulai otomatis + "Ubah", Batasan, Menunggu / Diikuti oleh, "Kenapa", kartu pratinjau */
+.plg-timeline-sec-startval {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.plg-timeline-sec-cst {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.plg-timeline-sec-cst .plg-timeline-field-label {
+  flex-basis: 100%;
+}
+
+.plg-timeline-dep-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plg-timeline-dep-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-dep-typesel {
+  max-width: 190px;
+  height: 28px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+.plg-timeline-dep-lag {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-sec-whybox {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.plg-timeline-sec-why {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border-radius: 6px;
+}
+
+.plg-timeline-sec-why strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.plg-timeline-pvcard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.plg-timeline-pvcard-more {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .plg-timeline-picker {
   display: flex;
   flex-direction: column;
