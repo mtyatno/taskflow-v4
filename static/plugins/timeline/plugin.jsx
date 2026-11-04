@@ -853,7 +853,7 @@ const ENGINE_IDLE = Object.freeze({ key: null, status: "loading", result: null, 
 const NO_TASKS = Object.freeze([]);
 const ENGINE_TASK_FIELDS = ["id", "cid", "server_id", "parent_id", "parent_cid", "list_id", "project", "gtd_status", "progress",
   "pomodoros_done", "completed_at", "deadline", "recurrence_type", "archived", "deleted"];
-const ENGINE_EXT_KEYS = ["start", "duration", "deps", "mode", "constraint"];
+const ENGINE_EXT_KEYS = ["start", "duration", "deps", "mode", "constraint", "actual"]; // actual: jangkar K30 (1c-2)
 
 // Kunci memo mesin: JSON ringkas per task (kolom yang dibaca mesin + ext jadwal), urutan daftar dipertahankan.
 function engineKeyOf(tasks, readExt) {
@@ -2629,11 +2629,13 @@ function TimelineViewBody(props) {
 
   const engResult = eng.status === "ready" ? eng.result : null;
   // 1c-2 (K30): resolver jangkar untuk rentang pelanggaran task berjalan via actual.start (layout langkah 7) — SUMBER yang
-  // sama dengan mesin: modeOf = TLSched.modeOf(readSched(ext), useUnits().units, task); inCycle = engResult.cycles.
-  // Mesin belum siap → inCycle selalu false (jendela muat, sama seperti 1c-1 sebelum mesin siap). Kunci string unit
-  // (auto+fold) dan anggota lingkaran ikut memicu tata letak ulang HANYA bila scope punya task belum selesai dengan
-  // actual.start (satu-satunya pemakai resolver); tanpa itu `lay` tetap tidak bergantung pada mesin/unit (perilaku 1c-1).
-  const needsAnchor = React.useMemo(() => {
+  // sama dengan mesin: modeOf = TLSched.modeOf(readSched(ext), useUnits().units, task); inCycle = engResult.cycles;
+  // inEngine/durOf = engResult.nodes (simpul + durasi mesin, untuk task tanpa Mulai). Mesin belum siap → inCycle false dan
+  // inEngine false (jendela muat: task tanpa Mulai dilewati, sama seperti 1c-1). Kunci unit (auto+fold), anggota lingkaran
+  // dan simpul tanpa-Mulai ikut memicu tata letak ulang HANYA bila scope punya task belum selesai dengan actual.start
+  // (satu-satunya pemakai resolver); tanpa itu `lay` tetap tidak bergantung pada mesin/unit (perilaku 1c-1).
+  const anchorTasks = React.useMemo(() => {
+    const out = []; // [{key, startless}]
     for (const t of Array.isArray(context.scopeTasks) ? context.scopeTasks : []) {
       if (!t || t.gtd_status === "done" || t.completed_at) continue;
       let raw = null;
@@ -2642,12 +2644,17 @@ function TimelineViewBody(props) {
       } catch (e) {
         raw = null;
       }
-      if (TLSched.actualOf(t, raw).start !== null) return true;
+      if (TLSched.actualOf(t, raw).start === null) continue;
+      out.push({ key: String(t.id), startless: TLSched.readSched(raw).start === null });
     }
-    return false;
+    return out;
   }, [context.scopeTasks, api]);
+  const needsAnchor = anchorTasks.length > 0;
   const unitsKey = needsAnchor ? unitsKeyOf(un.units) : "";
   const cycleKey = needsAnchor && engResult && Array.isArray(engResult.cycles) ? [].concat(...engResult.cycles).map(String).sort().join("\u0000") : "";
+  const nodeKey = needsAnchor && engResult && engResult.nodes instanceof Map
+    ? anchorTasks.filter((x) => x.startless && engResult.nodes.has(x.key)).map((x) => x.key + "\u0001" + engResult.nodes.get(x.key).d).join("\u0000")
+    : "";
 
   // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari / unit / lingkaran berubah (bukan tiap context baru).
   const lay = React.useMemo(() => {
@@ -2660,13 +2667,19 @@ function TimelineViewBody(props) {
     };
     const units = un.units;
     const ring = new Set(cycleKey ? cycleKey.split("\u0000") : []);
+    const nd = new Map(nodeKey ? nodeKey.split("\u0000").map((x) => x.split("\u0001")).map(([k, d]) => [k, Number(d)]) : []);
     return engine.layout({
       tasks: Array.isArray(context.scopeTasks) ? context.scopeTasks : [],
       pageKind, sort, cal: cal.data, today, zoom,
       readSchedOf,
-      anchorInfo: { modeOf: (t) => TLSched.modeOf(readSchedOf(t), units, t), inCycle: (k) => ring.has(String(k)) },
+      anchorInfo: {
+        modeOf: (t) => TLSched.modeOf(readSchedOf(t), units, t),
+        inCycle: (k) => ring.has(String(k)),
+        inEngine: (k) => nd.has(String(k)),
+        durOf: (k) => nd.get(String(k)),
+      },
     });
-  }, [context.scopeTasks, calKey, zoom, sort, today, pageKind, api, unitsKey, cycleKey]);
+  }, [context.scopeTasks, calKey, zoom, sort, today, pageKind, api, unitsKey, cycleKey, nodeKey]);
   const groupNames = React.useMemo(() => new Map(lay.groups.map((g) => [g.key, g.name])), [lay]);
   // 1c-1 (R18, R19): overlay mesin dalam memo TERPISAH. Belum siap → NO_OVERLAY.
   // eng.ctx berasal dari keluaran run yang sama dengan eng.result, jadi kunci [lay, engResult] cukup.

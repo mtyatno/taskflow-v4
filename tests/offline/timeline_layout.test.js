@@ -928,7 +928,12 @@ function engAndLay(tasks, units) {
   const M = require(path.join(dir, "cpm.js"));
   const r = M.run({ tasks, cal: std(), units, readExt: extOf });
   const ring = new Set([].concat(...r.cycles));
-  const anchorInfo = { modeOf: (t) => S.modeOf(readSchedOf(t), units, t), inCycle: (k) => ring.has(String(k)) };
+  const anchorInfo = {
+    modeOf: (t) => S.modeOf(readSchedOf(t), units, t),
+    inCycle: (k) => ring.has(String(k)),
+    inEngine: (k) => r.nodes.has(String(k)),
+    durOf: (k) => (r.nodes.has(String(k)) ? r.nodes.get(String(k)).d : undefined),
+  };
   return { r, l: lay(tasks, { anchorInfo }), plain: lay(tasks) };
 }
 const viol = (l, id) => l.rows.find((x) => x.key === String(id)).violation;
@@ -979,18 +984,48 @@ test("anggota lingkaran dengan actual.start → rentang tersimpan (prioritas cyc
   assert.equal(viol(a.l, 2), true);
 });
 
-test("rentang null (tanpa Mulai) + aktual → rentang pelanggaran dibangun dari actual.start (tidak dilewati)", () => {
-  const done = lay([
-    mk(1, { ...AK, gtd_status: "done", completed_at: "2026-11-05T03:00:00Z" }, withAct(sch(undefined, 2), { start: "2026-11-04", finish: "2026-11-05" })),
-    mk(2, AK, sch("2026-11-05", 1, dep1())), // Kam 5 ≤ selesai aktual Kam 5
-  ]);
-  assert.equal(viol(done, 2), true, "done");
-  assert.equal(done.rows.find((x) => x.key === "1").span, null, "bar tetap tanpa rentang");
-  // tanpa Mulai readSched tidak membawa durasi (null → d 1): X Rab 4–Rab 4, penerus FS Rab 4 < Kam 5
-  const started = [mk(1, AK, withAct(sch(undefined, 2), { start: "2026-11-04" })), mk(2, AK, sch("2026-11-04", 1, dep1()))];
-  const anchorInfo = { modeOf: () => "auto", inCycle: () => false };
-  assert.equal(viol(lay(started, { anchorInfo }), 2), true, "berjalan (resolver ada): Rab 4 (d 1)");
-  assert.equal(viol(lay(started), 2), false, "tanpa resolver → perilaku lama");
+// Fix 2: rentang dari actual.start untuk task TANPA Mulai hanya bila task itu simpul mesin (anchorInfo.inEngine) —
+// layout melewatinya persis seperti mesin; durasi = durasi mesin (anchorInfo.durOf) agar tidak 1-vs-tersimpan.
+test("rentang null (tanpa Mulai) + aktual: (iv-a) simpul mesin → dibangun dari actual.start, penerus diperiksa", () => {
+  // X tanpa Mulai, otomatis, belum selesai, berpendahulu simpul P → simpul mesin, jangkar started di actual.start
+  const P = mk(9, AK, sch("2026-10-26", 1));
+  const X = mk(1, AK, withAct({ "timeline.duration": 2, "timeline.deps": [{ t: { $task: 9 }, type: "FS", lag: 0 }] }, { start: "2026-11-04" }));
+  const ok = engAndLay([P, X, mk(2, AK, manualY("2026-11-06"))], autoU()); // mesin: X Rab 4–Kam 5 → Y Jum 6 sah
+  assert.equal(ok.r.nodes.get("1").fixed, "started");
+  assert.equal(I(ok.r.nodes.get("1").ef), "2026-11-05");
+  assert.equal(ok.r.nodes.get("2").conflict, undefined);
+  assert.equal(viol(ok.l, 2), false);
+  const bad = engAndLay([P, X, mk(2, AK, manualY("2026-11-05"))], autoU()); // Kam 5 ≤ selesai X → ⚠
+  assert.equal(bad.r.nodes.get("2").conflict, true);
+  assert.equal(viol(bad.l, 2), true, "penerus diperiksa");
+  assert.equal(viol(bad.plain, 2), false, "tanpa resolver → dilewati (perilaku lama)");
+  assert.equal(bad.l.rows.find((x) => x.key === "1").span, null, "bar tetap tanpa rentang");
+});
+
+test("rentang null (tanpa Mulai) + aktual: (iv-b) bukan simpul mesin → dilewati seperti mesin, tanpa ⚠", () => {
+  // X tanpa Mulai, tanpa pendahulu, otomatis, belum selesai → bukan simpul (sisi X→Y "notNode" di mesin)
+  const X = mk(1, AK, withAct({ "timeline.duration": 2 }, { start: "2026-11-04" }));
+  const a = engAndLay([X, mk(2, AK, manualY("2026-11-04"))], autoU());
+  assert.equal(a.r.nodes.has("1"), false);
+  assert.equal(a.r.nodes.get("2").conflict, undefined);
+  assert.equal(viol(a.l, 2), false);
+  // done tanpa Mulai tidak pernah simpul mesin (BFS melewati task selesai) → juga dilewati
+  const D0 = mk(1, { ...AK, gtd_status: "done", completed_at: "2026-11-05T03:00:00Z" }, withAct({ "timeline.duration": 2 }, { start: "2026-11-04", finish: "2026-11-05" }));
+  const b = engAndLay([D0, mk(2, AK, manualY("2026-11-05"))], autoU());
+  assert.equal(b.r.nodes.has("1"), false);
+  assert.equal(viol(b.l, 2), false);
+});
+
+test("rentang null (tanpa Mulai) + aktual: (iv-c) durasi = durasi mesin (bukan d 1 dari readSched tanpa Mulai)", () => {
+  const P = mk(9, AK, sch("2026-10-26", 1));
+  const X = mk(1, AK, withAct({ "timeline.duration": 3, "timeline.deps": [{ t: { $task: 9 }, type: "FS", lag: 0 }] }, { start: "2026-11-02" }));
+  // mesin: X Sen 2–Rab 4 (d 3) → Y Kam 5 sah, Y Rab 4 ⚠ (dengan d 1 layout akan keliru: Sen 2 → Y Rab 4 sah)
+  for (const [y, v] of [["2026-11-05", false], ["2026-11-04", true]]) {
+    const r = engAndLay([P, X, mk(2, AK, manualY(y))], autoU());
+    assert.equal(I(r.r.nodes.get("1").ef), "2026-11-04");
+    assert.equal(!!r.r.nodes.get("2").conflict, v, "mesin " + y);
+    assert.equal(viol(r.l, 2), v, "layout " + y);
+  }
 });
 
 test("α1: penerus yang benar-benar lebih awal dari hari completed_at tetap ⚠ (selesai lebih awal maupun terlambat)", () => {

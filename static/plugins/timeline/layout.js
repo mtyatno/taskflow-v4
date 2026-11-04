@@ -504,22 +504,31 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     //  - DONE: mulai = actual.start ?? Mulai, selesai = TLSched.doneFinish (prioritas done tertinggi → tanpa resolver);
     //  - BERJALAN via actual.start: hanya bila resolver `a.anchorInfo` ada DAN modeOf(task) = "auto" DAN bukan anggota
     //    lingkaran (manual/cycle > started di mesin → tetap rentang tersimpan); mulai = actual.start, selesai = fin(mulai, d).
-    //  Tanpa Mulai (rentang null) tetapi aktual memenuhi aturan di atas → rentang dibangun dari actual.start.
+    //  Tanpa Mulai (rentang null): dibangun dari actual.start HANYA bila resolver ada dan anchorInfo.inEngine(key) (task itu
+    //  simpul mesin — selain itu mesin melewatinya, layout juga); durasi = anchorInfo.durOf(key) (durasi simpul mesin)
+    //  ?? durasi readSched ?? 1. Resolver absen / tanpa inEngine → dilewati (perilaku 1c-1).
     // Aktual dari it.sched (bacaan ext yang sama dengan bar). d dibawa agar penerus tetap memakai durasi tersimpannya.
     // Rentang bar (row.span) tidak berubah. Tanpa resolver → perilaku 1c-1 untuk task yang belum selesai.
     const ai = a.anchorInfo && typeof a.anchorInfo.modeOf === "function" && typeof a.anchorInfo.inCycle === "function" ? a.anchorInfo : null;
+    const inEngine = (k) => !!ai && typeof ai.inEngine === "function" && ai.inEngine(k) === true;
+    const durOf = (it) => {
+      const v = ai && typeof ai.durOf === "function" ? ai.durOf(it.key) : undefined;
+      if (isInt(v) && v >= 0) return v;
+      return it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+    };
     const spans = new Map();
     for (const it of all) {
       const t = it.task;
       const leaf = it.children.length === 0;
       const a0 = leaf ? SCHED.actualOf(t, it.sched).start : null;
-      const d = it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+      const built = !it.span && a0 !== null && inEngine(it.key); // rentang null → hanya simpul mesin
+      const d = built ? durOf(it) : it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
       let sp = it.span;
       if (leaf && (t.gtd_status === "done" || !!t.completed_at)) {
-        const s = a0 !== null ? a0 : it.span ? it.span.s : null;
+        const s = it.span ? (a0 !== null ? a0 : it.span.s) : built ? a0 : null;
         const f = s === null ? undefined : SCHED.doneFinish(c, t, it.sched, s, d);
         if (isInt(f)) sp = { s, f, d };
-      } else if (a0 !== null && ai && ai.modeOf(t) === "auto" && !ai.inCycle(it.key)) {
+      } else if (a0 !== null && (it.span || built) && ai && ai.modeOf(t) === "auto" && !ai.inCycle(it.key)) {
         const f = SCHED.fin(c, a0, d);
         if (isInt(f)) sp = { s: a0, f, d };
       }

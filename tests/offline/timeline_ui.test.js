@@ -2737,6 +2737,49 @@ test("useEngine: render pertama status loading tanpa memanggil TLCpm.run (spy); 
   }
 }));
 
+test("1c-2: useEngine — suntingan HANYA actual ({actual:{start}}) → engineKey berubah, mesin jalan ulang sekali (debounce)", () => withEngineClock(async (clock) => {
+  const a = mk(1, "A", { start: "2026-11-09", duration: 2 });
+  const b = mk(2, "B", { duration: 1, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }] });
+  const rd = (t) => { const o = {}; for (const k of Object.keys(t.ext)) o[k.slice(9)] = t.ext[k]; return o; };
+  const a2 = mk(1, "A", { start: "2026-11-09", duration: 2, actual: { start: "2026-11-02" } });
+  assert.notEqual(T.engineKeyOf([a2, b], rd), T.engineKeyOf([a, b], rd), "kunci memuat actual");
+  let list = [a, b];
+  const { api, calls } = fakeApi();
+  api.data = { tasks: { list: () => Promise.resolve(list) } };
+  const units = new Map([[T.TLSched.unitOf(a).recId, { auto: true, by: 7, updatedAt: null, pending: false, exists: true }]]);
+  const opts = { scopeTasks: [a, b], calData: T.TLCal.normalize(T.TLCal.DEFAULT_CAL), units };
+  const spy = spyRun();
+  try {
+    const m = mount((p) => T.useEngine(p.api, p.opts));
+    m.render({ api, opts });
+    m.flush();
+    await settle();
+    m.render({ api, opts });
+    m.flush();
+    clock.frames();
+    clock.tick(0);
+    let r = m.render({ api, opts });
+    assert.equal(r.status, "ready");
+    assert.equal(spy.runs.length, 1);
+    assert.equal(T.TLCal.iso(r.result.nodes.get("2").es), "2026-11-11");
+    list = [a2, b];
+    for (const f of calls.handlers["sync.done"] || []) f({ initial: false });
+    clock.tick(300);
+    await settle();
+    m.render({ api, opts });
+    m.flush();
+    clock.frames();
+    clock.tick(0);
+    r = m.render({ api, opts });
+    assert.equal(spy.runs.length, 2, "satu kali jalan ulang");
+    assert.equal(r.result.nodes.get("1").fixed, "started");
+    assert.equal(T.TLCal.iso(r.result.nodes.get("2").es), "2026-11-04", "penerus mengikuti jangkar actual.start");
+    m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
 test("useEngine: daftar gagal dimuat sebelum ada hasil → status error, tanpa mesin dan tanpa tulis", () => withEngineClock(async (clock) => {
   const { api, calls } = fakeApi();
   api.data = { tasks: { list: () => Promise.reject(new Error("offline")) } };
@@ -3175,6 +3218,29 @@ test("1c-2: task berjalan via actual.start di unit Otomatis → ⚠ view setuju 
     const manual = await critView(clock, { tasks, auto: false });
     assert.equal(last.rows.find((r) => r.key === "2").violation, true, "unit Manual → mesin berjangkar di tersimpan → ⚠");
     manual.m.unmount();
+  } finally {
+    T.engine.layout = orig;
+  }
+}));
+
+test("1c-2: task berjalan TANPA Mulai (simpul mesin) → rentang pelanggaran dari actual.start + durasi mesin setelah mesin siap", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const fs9 = [{ t: { $task: 9 }, type: "FS", lag: 0 }];
+  const fs1 = [{ t: { $task: 1 }, type: "FS", lag: 0 }];
+  const mkT = (y) => [
+    mk(9, "P", { start: "2026-10-26", duration: 1 }, al),
+    mk(1, "X", { duration: 3, deps: fs9, actual: { start: "2026-11-02" } }, al), // mesin: Sen 2–Rab 4
+    mk(2, "Y", { start: y, duration: 1, mode: "manual", deps: fs1 }, al),
+  ];
+  const orig = T.engine.layout;
+  let last = null;
+  T.engine.layout = (a) => (last = orig(a));
+  try {
+    for (const [y, v] of [["2026-11-04", true], ["2026-11-05", false]]) {
+      const { m } = await critView(clock, { tasks: mkT(y) });
+      assert.equal(last.rows.find((r) => r.key === "2").violation, v, "Y " + y);
+      m.unmount();
+    }
   } finally {
     T.engine.layout = orig;
   }

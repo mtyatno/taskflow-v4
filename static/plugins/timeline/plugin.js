@@ -2544,22 +2544,31 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     //  - DONE: mulai = actual.start ?? Mulai, selesai = TLSched.doneFinish (prioritas done tertinggi → tanpa resolver);
     //  - BERJALAN via actual.start: hanya bila resolver `a.anchorInfo` ada DAN modeOf(task) = "auto" DAN bukan anggota
     //    lingkaran (manual/cycle > started di mesin → tetap rentang tersimpan); mulai = actual.start, selesai = fin(mulai, d).
-    //  Tanpa Mulai (rentang null) tetapi aktual memenuhi aturan di atas → rentang dibangun dari actual.start.
+    //  Tanpa Mulai (rentang null): dibangun dari actual.start HANYA bila resolver ada dan anchorInfo.inEngine(key) (task itu
+    //  simpul mesin — selain itu mesin melewatinya, layout juga); durasi = anchorInfo.durOf(key) (durasi simpul mesin)
+    //  ?? durasi readSched ?? 1. Resolver absen / tanpa inEngine → dilewati (perilaku 1c-1).
     // Aktual dari it.sched (bacaan ext yang sama dengan bar). d dibawa agar penerus tetap memakai durasi tersimpannya.
     // Rentang bar (row.span) tidak berubah. Tanpa resolver → perilaku 1c-1 untuk task yang belum selesai.
     const ai = a.anchorInfo && typeof a.anchorInfo.modeOf === "function" && typeof a.anchorInfo.inCycle === "function" ? a.anchorInfo : null;
+    const inEngine = (k) => !!ai && typeof ai.inEngine === "function" && ai.inEngine(k) === true;
+    const durOf = (it) => {
+      const v = ai && typeof ai.durOf === "function" ? ai.durOf(it.key) : undefined;
+      if (isInt(v) && v >= 0) return v;
+      return it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+    };
     const spans = new Map();
     for (const it of all) {
       const t = it.task;
       const leaf = it.children.length === 0;
       const a0 = leaf ? SCHED.actualOf(t, it.sched).start : null;
-      const d = it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+      const built = !it.span && a0 !== null && inEngine(it.key); // rentang null → hanya simpul mesin
+      const d = built ? durOf(it) : it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
       let sp = it.span;
       if (leaf && (t.gtd_status === "done" || !!t.completed_at)) {
-        const s = a0 !== null ? a0 : it.span ? it.span.s : null;
+        const s = it.span ? (a0 !== null ? a0 : it.span.s) : built ? a0 : null;
         const f = s === null ? undefined : SCHED.doneFinish(c, t, it.sched, s, d);
         if (isInt(f)) sp = { s, f, d };
-      } else if (a0 !== null && ai && ai.modeOf(t) === "auto" && !ai.inCycle(it.key)) {
+      } else if (a0 !== null && (it.span || built) && ai && ai.modeOf(t) === "auto" && !ai.inCycle(it.key)) {
         const f = SCHED.fin(c, a0, d);
         if (isInt(f)) sp = { s: a0, f, d };
       }
@@ -4073,7 +4082,7 @@ const ENGINE_IDLE = Object.freeze({
 });
 const NO_TASKS = Object.freeze([]);
 const ENGINE_TASK_FIELDS = ["id", "cid", "server_id", "parent_id", "parent_cid", "list_id", "project", "gtd_status", "progress", "pomodoros_done", "completed_at", "deadline", "recurrence_type", "archived", "deleted"];
-const ENGINE_EXT_KEYS = ["start", "duration", "deps", "mode", "constraint"];
+const ENGINE_EXT_KEYS = ["start", "duration", "deps", "mode", "constraint", "actual"]; // actual: jangkar K30 (1c-2)
 
 // Kunci memo mesin: JSON ringkas per task (kolom yang dibaca mesin + ext jadwal), urutan daftar dipertahankan.
 function engineKeyOf(tasks, readExt) {
@@ -6522,11 +6531,13 @@ function TimelineViewBody(props) {
   });
   const engResult = eng.status === "ready" ? eng.result : null;
   // 1c-2 (K30): resolver jangkar untuk rentang pelanggaran task berjalan via actual.start (layout langkah 7) — SUMBER yang
-  // sama dengan mesin: modeOf = TLSched.modeOf(readSched(ext), useUnits().units, task); inCycle = engResult.cycles.
-  // Mesin belum siap → inCycle selalu false (jendela muat, sama seperti 1c-1 sebelum mesin siap). Kunci string unit
-  // (auto+fold) dan anggota lingkaran ikut memicu tata letak ulang HANYA bila scope punya task belum selesai dengan
-  // actual.start (satu-satunya pemakai resolver); tanpa itu `lay` tetap tidak bergantung pada mesin/unit (perilaku 1c-1).
-  const needsAnchor = React.useMemo(() => {
+  // sama dengan mesin: modeOf = TLSched.modeOf(readSched(ext), useUnits().units, task); inCycle = engResult.cycles;
+  // inEngine/durOf = engResult.nodes (simpul + durasi mesin, untuk task tanpa Mulai). Mesin belum siap → inCycle false dan
+  // inEngine false (jendela muat: task tanpa Mulai dilewati, sama seperti 1c-1). Kunci unit (auto+fold), anggota lingkaran
+  // dan simpul tanpa-Mulai ikut memicu tata letak ulang HANYA bila scope punya task belum selesai dengan actual.start
+  // (satu-satunya pemakai resolver); tanpa itu `lay` tetap tidak bergantung pada mesin/unit (perilaku 1c-1).
+  const anchorTasks = React.useMemo(() => {
+    const out = []; // [{key, startless}]
     for (const t of Array.isArray(context.scopeTasks) ? context.scopeTasks : []) {
       if (!t || t.gtd_status === "done" || t.completed_at) continue;
       let raw = null;
@@ -6535,12 +6546,18 @@ function TimelineViewBody(props) {
       } catch (e) {
         raw = null;
       }
-      if (TLSched.actualOf(t, raw).start !== null) return true;
+      if (TLSched.actualOf(t, raw).start === null) continue;
+      out.push({
+        key: String(t.id),
+        startless: TLSched.readSched(raw).start === null
+      });
     }
-    return false;
+    return out;
   }, [context.scopeTasks, api]);
+  const needsAnchor = anchorTasks.length > 0;
   const unitsKey = needsAnchor ? unitsKeyOf(un.units) : "";
   const cycleKey = needsAnchor && engResult && Array.isArray(engResult.cycles) ? [].concat(...engResult.cycles).map(String).sort().join("\u0000") : "";
+  const nodeKey = needsAnchor && engResult && engResult.nodes instanceof Map ? anchorTasks.filter(x => x.startless && engResult.nodes.has(x.key)).map(x => x.key + "\u0001" + engResult.nodes.get(x.key).d).join("\u0000") : "";
 
   // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari / unit / lingkaran berubah (bukan tiap context baru).
   const lay = React.useMemo(() => {
@@ -6553,6 +6570,7 @@ function TimelineViewBody(props) {
     };
     const units = un.units;
     const ring = new Set(cycleKey ? cycleKey.split("\u0000") : []);
+    const nd = new Map(nodeKey ? nodeKey.split("\u0000").map(x => x.split("\u0001")).map(([k, d]) => [k, Number(d)]) : []);
     return engine.layout({
       tasks: Array.isArray(context.scopeTasks) ? context.scopeTasks : [],
       pageKind,
@@ -6563,10 +6581,12 @@ function TimelineViewBody(props) {
       readSchedOf,
       anchorInfo: {
         modeOf: t => TLSched.modeOf(readSchedOf(t), units, t),
-        inCycle: k => ring.has(String(k))
+        inCycle: k => ring.has(String(k)),
+        inEngine: k => nd.has(String(k)),
+        durOf: k => nd.get(String(k))
       }
     });
-  }, [context.scopeTasks, calKey, zoom, sort, today, pageKind, api, unitsKey, cycleKey]);
+  }, [context.scopeTasks, calKey, zoom, sort, today, pageKind, api, unitsKey, cycleKey, nodeKey]);
   const groupNames = React.useMemo(() => new Map(lay.groups.map(g => [g.key, g.name])), [lay]);
   // 1c-1 (R18, R19): overlay mesin dalam memo TERPISAH. Belum siap → NO_OVERLAY.
   // eng.ctx berasal dari keluaran run yang sama dengan eng.result, jadi kunci [lay, engResult] cukup.
