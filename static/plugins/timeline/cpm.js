@@ -32,7 +32,8 @@ const TLCpm = (function (CAL, SCHED, HOL) {
   // Tenggat task → bilangan hari (10 karakter pertama, R3); tak ada/tak sah → NaN. Satu sumber untuk run() dan explain().
   const deadlineDn = (t) => (t.deadline === null || t.deadline === undefined ? NaN : CAL.dn(String(t.deadline).slice(0, 10)));
   const isDone = (t) => t.gtd_status === "done" || !!t.completed_at;
-  // Sudah mulai dari task saja; K30 juga menghitung actual.start (diperiksa di forward pass lewat TLSched.actualOf).
+  // Penanda kolom task SAJA (progress/pomodoro) — SENGAJA tanpa aktual: "sudah mulai karena actual.start" (K30) diperiksa
+  // di situs jangkar forward pass (TLSched.actualOf atas it.sched), satu-satunya pemanggil predikat ini.
   const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
   const parentOf = (t) => (t.parent_id !== undefined && t.parent_id !== null ? t.parent_id : t.parent_cid);
 

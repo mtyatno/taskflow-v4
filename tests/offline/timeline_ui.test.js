@@ -565,6 +565,26 @@ test("context baru dengan scopeTasks identik → layout tidak dihitung ulang (R2
   assert.match(jsx, /React\.memo\(TimelineViewBody\)/);
 });
 
+test("1c-2: layout menerima resolver jangkar (anchorInfo) dari sumber mesin — modeOf lewat TLSched.modeOf + useUnits, inCycle false sebelum mesin siap", () => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 3, actual: { start: "2026-10-30" } })];
+  const { api } = fakeApi();
+  const { ctx } = ctxOf(tasks);
+  const orig = T.engine.layout;
+  const seen = [];
+  T.engine.layout = (a) => { seen.push(a); return orig(a); };
+  try {
+    mount(T.TimelineViewBody).render({ context: ctx, api });
+  } finally {
+    T.engine.layout = orig;
+  }
+  const ai = seen[0].anchorInfo;
+  assert.equal(typeof ai.modeOf, "function");
+  assert.equal(ai.modeOf(tasks[0]), "manual", "unit belum dimuat/tanpa record → manual (sama dengan mesin)");
+  assert.equal(ai.inCycle("1"), false, "mesin belum siap → bukan anggota lingkaran");
+  assert.match(jsx, /modeOf: \(t\) => TLSched\.modeOf\(readSchedOf\(t\), units, t\)/);
+  assert.match(jsx, /const units = un\.units;/);
+});
+
 const headerCells = (tree) => nodes(tree, (n) => n.props.role === "columnheader").map((n) => txt(n).trim());
 
 test("≤ 640 px / liveEdit: hanya WBS + Nama + tombol Kolom", async () => {
@@ -3135,6 +3155,28 @@ test("sebelum mesin siap: sel Slack '—' dan tanpa is-critical", () => withEngi
     m.unmount();
   } finally {
     spy.restore();
+  }
+}));
+
+test("1c-2: task berjalan via actual.start di unit Otomatis → ⚠ view setuju dengan mesin (tata letak ulang setelah unit dimuat)", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const dep = [{ t: { $task: 1 }, type: "FS", lag: 0 }];
+  const tasks = [
+    mk(1, "X", { start: "2026-11-11", duration: 2, actual: { start: "2026-11-04" } }, al), // mesin: Rab 4–Kam 5
+    mk(2, "Y", { start: "2026-11-06", duration: 1, mode: "manual", deps: dep }, al), // Jum 6 = setelah jangkar aktual
+  ];
+  const orig = T.engine.layout;
+  let last = null;
+  T.engine.layout = (a) => (last = orig(a));
+  try {
+    const { m } = await critView(clock, { tasks });
+    assert.equal(last.rows.find((r) => r.key === "2").violation, false, "tanpa ⚠ palsu (rentang tersimpan Rab 11 tidak dipakai)");
+    m.unmount();
+    const manual = await critView(clock, { tasks, auto: false });
+    assert.equal(last.rows.find((r) => r.key === "2").violation, true, "unit Manual → mesin berjangkar di tersimpan → ⚠");
+    manual.m.unmount();
+  } finally {
+    T.engine.layout = orig;
   }
 }));
 

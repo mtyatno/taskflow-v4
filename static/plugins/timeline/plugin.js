@@ -1107,7 +1107,8 @@ const TLCpm = (function (CAL, SCHED, HOL) {
   // Tenggat task → bilangan hari (10 karakter pertama, R3); tak ada/tak sah → NaN. Satu sumber untuk run() dan explain().
   const deadlineDn = (t) => (t.deadline === null || t.deadline === undefined ? NaN : CAL.dn(String(t.deadline).slice(0, 10)));
   const isDone = (t) => t.gtd_status === "done" || !!t.completed_at;
-  // Sudah mulai dari task saja; K30 juga menghitung actual.start (diperiksa di forward pass lewat TLSched.actualOf).
+  // Penanda kolom task SAJA (progress/pomodoro) — SENGAJA tanpa aktual: "sudah mulai karena actual.start" (K30) diperiksa
+  // di situs jangkar forward pass (TLSched.actualOf atas it.sched), satu-satunya pemanggil predikat ini.
   const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
   const parentOf = (t) => (t.parent_id !== undefined && t.parent_id !== null ? t.parent_id : t.parent_cid);
 
@@ -2539,22 +2540,30 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     }
 
     // 7. dependensi (R8, R16): kunci kanonik String(id); spans memuat rentang ringkasan.
-    // Task DONE (bukan ringkasan): mulai/selesai pelanggaran = actual.start ?? Mulai dan TLSched.doneFinish (aturan yang SAMA
-    // dengan jangkar "done" mesin, termasuk tanggal aktual 1c-2 —
-    // selesai lebih awal tidak menandai ⚠ pada tanggal yang baru ditulis mesin); durasi d dibawa agar penerus done tetap
-    // memakai durasi tersimpannya. Rentang bar (row.span) tidak berubah.
+    // Rentang pelanggaran daun = jangkar mesin (aturan α1 1c-1, diperluas aktual 1c-2) — SATU aturan "terlalu awal":
+    //  - DONE: mulai = actual.start ?? Mulai, selesai = TLSched.doneFinish (prioritas done tertinggi → tanpa resolver);
+    //  - BERJALAN via actual.start: hanya bila resolver `a.anchorInfo` ada DAN modeOf(task) = "auto" DAN bukan anggota
+    //    lingkaran (manual/cycle > started di mesin → tetap rentang tersimpan); mulai = actual.start, selesai = fin(mulai, d).
+    //  Tanpa Mulai (rentang null) tetapi aktual memenuhi aturan di atas → rentang dibangun dari actual.start.
+    // Aktual dari it.sched (bacaan ext yang sama dengan bar). d dibawa agar penerus tetap memakai durasi tersimpannya.
+    // Rentang bar (row.span) tidak berubah. Tanpa resolver → perilaku 1c-1 untuk task yang belum selesai.
+    const ai = a.anchorInfo && typeof a.anchorInfo.modeOf === "function" && typeof a.anchorInfo.inCycle === "function" ? a.anchorInfo : null;
     const spans = new Map();
     for (const it of all) {
-      if (!it.span) continue;
       const t = it.task;
-      if (it.children.length === 0 && (t.gtd_status === "done" || !!t.completed_at)) {
-        const d = it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
-        // mulai = actual.start ?? rentang (sama dengan es jangkar mesin); aktual dari it.sched (bacaan ext yang sama).
-        const a0 = SCHED.actualOf(t, it.sched).start;
-        const s = a0 !== null ? a0 : it.span.s;
-        const f = SCHED.doneFinish(c, t, it.sched, s, d);
-        spans.set(it.key, isInt(f) ? { s, f, d } : it.span);
-      } else spans.set(it.key, it.span);
+      const leaf = it.children.length === 0;
+      const a0 = leaf ? SCHED.actualOf(t, it.sched).start : null;
+      const d = it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+      let sp = it.span;
+      if (leaf && (t.gtd_status === "done" || !!t.completed_at)) {
+        const s = a0 !== null ? a0 : it.span ? it.span.s : null;
+        const f = s === null ? undefined : SCHED.doneFinish(c, t, it.sched, s, d);
+        if (isInt(f)) sp = { s, f, d };
+      } else if (a0 !== null && ai && ai.modeOf(t) === "auto" && !ai.inCycle(it.key)) {
+        const f = SCHED.fin(c, a0, d);
+        if (isInt(f)) sp = { s: a0, f, d };
+      }
+      if (sp) spans.set(it.key, sp);
     }
     const edges = SCHED.resolveDeps(items.map((it) => ({ key: it.key, sched: it.sched })), index);
     const viol = SCHED.violations(c, spans, edges);
@@ -6511,27 +6520,56 @@ function TimelineViewBody(props) {
     calData: cal.data,
     units: un.units
   });
+  const engResult = eng.status === "ready" ? eng.result : null;
+  // 1c-2 (K30): resolver jangkar untuk rentang pelanggaran task berjalan via actual.start (layout langkah 7) — SUMBER yang
+  // sama dengan mesin: modeOf = TLSched.modeOf(readSched(ext), useUnits().units, task); inCycle = engResult.cycles.
+  // Mesin belum siap → inCycle selalu false (jendela muat, sama seperti 1c-1 sebelum mesin siap). Kunci string unit
+  // (auto+fold) dan anggota lingkaran ikut memicu tata letak ulang HANYA bila scope punya task belum selesai dengan
+  // actual.start (satu-satunya pemakai resolver); tanpa itu `lay` tetap tidak bergantung pada mesin/unit (perilaku 1c-1).
+  const needsAnchor = React.useMemo(() => {
+    for (const t of Array.isArray(context.scopeTasks) ? context.scopeTasks : []) {
+      if (!t || t.gtd_status === "done" || t.completed_at) continue;
+      let raw = null;
+      try {
+        raw = api.taskExt.read(t);
+      } catch (e) {
+        raw = null;
+      }
+      if (TLSched.actualOf(t, raw).start !== null) return true;
+    }
+    return false;
+  }, [context.scopeTasks, api]);
+  const unitsKey = needsAnchor ? unitsKeyOf(un.units) : "";
+  const cycleKey = needsAnchor && engResult && Array.isArray(engResult.cycles) ? [].concat(...engResult.cycles).map(String).sort().join("\u0000") : "";
 
-  // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari berubah (bukan tiap context baru).
-  const lay = React.useMemo(() => engine.layout({
-    tasks: Array.isArray(context.scopeTasks) ? context.scopeTasks : [],
-    pageKind,
-    sort,
-    cal: cal.data,
-    today,
-    zoom,
-    readSchedOf: t => {
+  // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari / unit / lingkaran berubah (bukan tiap context baru).
+  const lay = React.useMemo(() => {
+    const readSchedOf = t => {
       try {
         return TLSched.readSched(api.taskExt.read(t));
       } catch (e) {
         return TLSched.readSched({});
       }
-    }
-  }), [context.scopeTasks, calKey, zoom, sort, today, pageKind, api]);
+    };
+    const units = un.units;
+    const ring = new Set(cycleKey ? cycleKey.split("\u0000") : []);
+    return engine.layout({
+      tasks: Array.isArray(context.scopeTasks) ? context.scopeTasks : [],
+      pageKind,
+      sort,
+      cal: cal.data,
+      today,
+      zoom,
+      readSchedOf,
+      anchorInfo: {
+        modeOf: t => TLSched.modeOf(readSchedOf(t), units, t),
+        inCycle: k => ring.has(String(k))
+      }
+    });
+  }, [context.scopeTasks, calKey, zoom, sort, today, pageKind, api, unitsKey, cycleKey]);
   const groupNames = React.useMemo(() => new Map(lay.groups.map(g => [g.key, g.name])), [lay]);
-  // 1c-1 (R18, R19): overlay mesin dalam memo TERPISAH — `lay` tidak bergantung pada mesin. Belum siap → NO_OVERLAY.
+  // 1c-1 (R18, R19): overlay mesin dalam memo TERPISAH. Belum siap → NO_OVERLAY.
   // eng.ctx berasal dari keluaran run yang sama dengan eng.result, jadi kunci [lay, engResult] cukup.
-  const engResult = eng.status === "ready" ? eng.result : null;
   const ov = React.useMemo(() => engineOverlay(lay, engResult, eng.ctx), [lay, engResult]);
   const crit = critPref === true && ov.ready;
   const compact = narrow || !!context.liveEdit;
