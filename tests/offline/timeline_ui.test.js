@@ -3821,14 +3821,14 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   }
   // lebar, mesin siap: urutan R23
   const h = await swView(clock);
-  assert.deepEqual(toolbarTexts(h.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Jadwal otomatis", "Jalur kritis", "Jadwalkan ulang", "Kalender kerja", "Urutkan menurut Mulai"]);
+  assert.deepEqual(toolbarTexts(h.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang", "Kalender kerja", "Urutkan menurut Mulai"]); // 1c-2 T5: §7.1
   assert.equal(moreOf(h.tree), undefined);
   h.m.unmount();
   // Live Edit: tiga tombol pindah ke 'Lainnya' (posisi sama di urutan), Kolom tetap di toolbar
   const le = await swView(clock, { ctx: { liveEdit: true } });
   assert.deepEqual(toolbarTexts(le.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "[Lainnya]", "Kalender kerja", "Urutkan menurut Mulai", "Kolom"]);
   const mm = moreOf(le.tree);
-  assert.deepEqual(mm.props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Jadwalkan ulang"]);
+  assert.deepEqual(mm.props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
   // MoreMenu: tombol 'Lainnya' aria-haspopup="menu"; dibuka → role menu dengan item menuitemcheckbox/menuitem
   const mt = mount(T.MoreMenu);
   let t = mt.render(mm.props);
@@ -3841,7 +3841,8 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   assert.ok(menu);
   const its = nodes(menu, (n) => n.type === "button");
   assert.deepEqual(its.map((n) => [txt(n).trim(), n.props.role, n.props["aria-checked"]]), [
-    ["Jadwal otomatis", "menuitemcheckbox", false], ["Jalur kritis", "menuitemcheckbox", false], ["Jadwalkan ulang", "menuitem", undefined],
+    ["Jadwal otomatis", "menuitemcheckbox", false], ["Jalur kritis", "menuitemcheckbox", false],
+    ["Baseline", "menuitem", undefined], ["Simpan baseline", "menuitem", undefined], ["Jadwalkan ulang", "menuitem", undefined],
   ]);
   // pilih Jalur kritis → pref crit ditulis, menu tertutup
   its[1].props.onClick({});
@@ -3856,11 +3857,12 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   global.window = { matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }), innerHeight: 800, addEventListener() {}, removeEventListener() {} };
   try {
     const n = await swView(clock);
-    assert.deepEqual(moreOf(n.tree).props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Jadwalkan ulang"]);
+    assert.deepEqual(moreOf(n.tree).props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
     assert.equal(switchOf(n.tree), undefined, "sakelar tidak di toolbar HP");
     buttonByText(n.tree, "Daftar").props.onClick({});
     const lt = n.render();
-    assert.deepEqual(moreOf(lt).props.items.map((it) => it.text), ["Jadwal otomatis", "Jadwalkan ulang"]);
+    // 1c-2 T5: pilihan Baseline hanya untuk Gantt (seperti Jalur kritis); Simpan baseline tetap (aksi data)
+    assert.deepEqual(moreOf(lt).props.items.map((it) => it.text), ["Jadwal otomatis", "Simpan baseline", "Jadwalkan ulang"]);
     n.m.unmount();
   } finally {
     global.window = prevWin;
@@ -5298,4 +5300,361 @@ test("fix T8 r2: menu 'Lainnya' rata kanan tombol bila rata kiri meluap viewport
   }
   assert.match(css, /\.plg-timeline-more-menu\.is-end\s*\{[^}]*right:\s*0;[^}]*left:\s*auto;/);
   assert.match(css, /\.plg-timeline-more-menu\s*\{[^}]*max-width:\s*calc\(100vw - 16px\)/);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1c-2 — Task 5: toolbar "Baseline" (pilihan = pref bl:<page>) + "Simpan baseline" (dialog slot 1–3)
+// ════════════════════════════════════════════════════════════════════════════
+const blPickOf = (tree) => nodes(tree, (n) => n.type === T.BaselinePicker)[0];
+const blDlgOf = (tree) => nodes(tree, (n) => n.type === T.SaveBaselineDialog)[0];
+const radios = (tree, label) => {
+  const g = nodes(tree, (n) => n.props.role === "radiogroup" && n.props["aria-label"] === label)[0];
+  return g ? nodes(g, (n) => n.props.role === "radio") : [];
+};
+const radioTexts = (tree, label) => radios(tree, label).map((n) => txt(n).trim());
+const blPuts = (fr) => fr.calls.put.filter((p) => p[0] === "baseline");
+const blLists = (fr) => fr.calls.list.filter((l) => l[0] === "baseline");
+const settleN = async (k) => { for (let i = 0; i < (k || 4); i++) await settle(); };
+
+// Dialog simpan dipasang sebagai komponen anak tetap (state slot/nama/langkah miliknya); props selalu dari view terbaru.
+function blDialog(h) {
+  const dm = mount(T.SaveBaselineDialog);
+  const d = {
+    dm,
+    tree: null,
+    sync() {
+      h.render();
+      const nd = blDlgOf(h.tree);
+      d.tree = nd ? dm.render(nd.props) : null;
+      return nd;
+    },
+    btn: (t) => buttonByText(d.tree, t),
+    click(t) { d.btn(t).props.onClick({}); d.sync(); },
+    slot(n) { radios(d.tree, "Baseline")[n - 1].props.onClick({}); d.sync(); },
+    unit(i) { radios(d.tree, "Project")[i].props.onClick({}); d.sync(); },
+    name(v) { input(d.tree, "Nama").props.onChange({ target: { value: v } }); d.sync(); },
+  };
+  d.sync();
+  return d;
+}
+function openBlDialog(h) {
+  buttonByText(h.tree, "Simpan baseline").props.onClick({});
+  h.render();
+  assert.ok(blDlgOf(h.tree), "dialog Simpan baseline terbuka");
+  return blDialog(h);
+}
+
+test("1c-2 T5: Baseline · Simpan baseline di antara Jalur kritis dan Jadwalkan ulang; Lainnya (≤ 640 px / Live Edit) memuat keduanya; mesin belum siap → keduanya tidak tampil", () => withEngineClock(async (clock) => {
+  const { api } = fakeApi();
+  api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
+  const m0 = mount(T.TimelineViewBody);
+  const props0 = { context: ctxOf(chainTasks()).ctx, api };
+  m0.render(props0);
+  const t0 = m0.render(props0);
+  assert.equal(buttonByText(t0, "Baseline"), undefined, "mesin belum siap");
+  assert.equal(buttonByText(t0, "Simpan baseline"), undefined);
+  m0.unmount();
+  const h = await swView(clock);
+  const tt = toolbarTexts(h.tree);
+  assert.deepEqual(tt.slice(tt.indexOf("Jalur kritis"), tt.indexOf("Jadwalkan ulang") + 1), ["Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+  const b = buttonByText(h.tree, "Baseline");
+  assert.equal(b.props["aria-haspopup"], "menu");
+  assert.equal(b.props["aria-expanded"], false);
+  assert.equal(buttonByText(h.tree, "Simpan baseline").props["aria-haspopup"], "dialog");
+  h.m.unmount();
+  const le = await swView(clock, { ctx: { liveEdit: true } });
+  const items = moreOf(le.tree).props.items;
+  const blIt = items.find((it) => it.text === "Baseline");
+  assert.equal(blIt.haspopup, "menu");
+  assert.equal(items.find((it) => it.text === "Simpan baseline").haspopup, "dialog");
+  // dari Lainnya: Baseline membuka pemilih, Simpan baseline membuka dialog
+  blIt.onSelect();
+  le.render();
+  assert.ok(blPickOf(le.tree));
+  items.find((it) => it.text === "Simpan baseline").onSelect();
+  le.render();
+  assert.ok(blDlgOf(le.tree));
+  assert.equal(blPickOf(le.tree), undefined, "satu lapisan: dialog menutup pemilih");
+  le.m.unmount();
+}));
+
+test("1c-2 T5: pemilih Baseline — 'Tidak ada' + 'Baseline {n}' (nama slot bila ada); pilih = HANYA pref bl:<page> (0 tulis record); pref terbaca lagi; nilai rusak → Tidak ada", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Rencana awal" }));
+  putRec(fr, blRec(null, "Alpha", 3, { v: 2 })); // asing: terdaftar, tanpa nama
+  const h = await swView(clock, { records: fr });
+  buttonByText(h.tree, "Baseline").props.onClick({});
+  h.render();
+  assert.equal(buttonByText(h.tree, "Baseline").props["aria-expanded"], true);
+  const node = blPickOf(h.tree);
+  const pm = mount(T.BaselinePicker);
+  let pt = pm.render(node.props);
+  const menu = nodes(pt, (n) => n.props.role === "menu")[0];
+  assert.equal(menu.props["aria-label"], "Baseline");
+  const its = nodes(menu, (n) => n.type === "button");
+  assert.deepEqual(its.map((n) => [txt(n).trim(), n.props.role, n.props["aria-checked"]]), [
+    ["Tidak ada", "menuitemradio", true], ["Rencana awal", "menuitemradio", false], ["Baseline 2", "menuitemradio", false], ["Baseline 3", "menuitemradio", false],
+  ]);
+  its[2].props.onClick({});
+  await settle();
+  h.render();
+  assert.equal(blPickOf(h.tree), undefined, "memilih menutup pemilih");
+  assert.deepEqual(h.calls.storageSet.filter((s) => s[0].indexOf("bl:") === 0), [["bl:proj_Alpha", 2]]);
+  assert.ok(nodes(h.tree, (n) => n.type === "button" && txt(n).trim() === "Baseline" && hasCls(n, "is-active")).length === 1, "pilihan ≠ Tidak ada → tombol aktif");
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "pilihan baseline tidak pernah menulis record (P2 a)");
+  // pref round-trip: dibaca dari api.storage saat pasang
+  h.m.unmount();
+  for (const [stored, want] of [[1, 1], [3, 3], ["2", 0], [7, 0], [null, 0]]) {
+    const fr2 = fakeRecords();
+    const { api } = fakeApi({ records: fr2, storageGet: (k) => Promise.resolve(k === "bl:proj_Alpha" ? stored : null) });
+    api.env.userId = 7;
+    api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
+    const m = mount(T.TimelineViewBody);
+    const props = { context: ctxOf(chainTasks()).ctx, api };
+    let tree = await settleView(m, () => props, clock);
+    buttonByText(tree, "Baseline").props.onClick({});
+    tree = m.render(props);
+    assert.equal(blPickOf(tree).props.value, want, "tersimpan " + JSON.stringify(stored));
+    m.unmount();
+  }
+}));
+
+test("1c-2 T5: activeBaseline — slot pref dari semua unit halaman digabung (urutan unit); asing / kosong → baris kosong; 0 → null", () => {
+  const a = blUnit(12, "Alpha");
+  const b = blUnit(12, "Beta");
+  const dec = (rows) => ({ n: 1, foreign: false, name: "x", rows: new Map(rows) });
+  const byUnit = new Map([
+    [a.recId, new Map([[1, dec([["1", { s: 1, f: 2, d: 2 }], ["9", { s: 5, f: 5, d: 1 }]])], [2, { n: 2, foreign: true, rows: new Map() }]])],
+    [b.recId, new Map([[1, dec([["2", { s: 3, f: 3, d: 1 }], ["9", { s: 7, f: 7, d: 1 }]])]])],
+  ]);
+  assert.equal(T.activeBaseline(byUnit, [a.recId, b.recId], 0), null);
+  const one = T.activeBaseline(byUnit, [a.recId, b.recId], 1);
+  assert.equal(one.n, 1);
+  assert.deepEqual([...one.rows.keys()], ["1", "9", "2"]);
+  assert.deepEqual(one.rows.get("9"), { s: 5, f: 5, d: 1 }, "kunci ganda lintas unit → unit pertama menang");
+  assert.equal(T.activeBaseline(byUnit, [a.recId, b.recId], 2).rows.size, 0, "slot asing → pembanding kosong");
+  assert.equal(T.activeBaseline(byUnit, [a.recId, b.recId], 3).rows.size, 0, "slot kosong → pembanding kosong");
+  assert.equal(T.activeBaseline(new Map(), [], 1).rows.size, 0);
+});
+
+test("1c-2 T5: Simpan baseline — slot 1–3 (nama + 'disimpan {tanggal}'), nama bawaan 'Baseline {n}'; slot kosong tanpa konfirmasi → SATU records.put dari hasil useEngine (g = unit); terisi → 'Timpa {nama} (disimpan {tanggal})?'; Batal → 0 tulis", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Rencana awal" }));
+  const spy = spyRun();
+  try {
+    const h = await swView(clock, { records: fr });
+    const unit = blUnit(null, "Alpha");
+    let d = openBlDialog(h);
+    const dlg = nodes(d.tree, (n) => n.props.role === "dialog")[0];
+    assert.equal(dlg.props["aria-modal"], "true");
+    assert.equal(dlg.props["aria-label"], "Simpan baseline");
+    assert.deepEqual(radios(d.tree, "Project"), [], "halaman project: unit = halaman, tanpa pemilih");
+    assert.deepEqual(radioTexts(d.tree, "Baseline"), ["Rencana awal · disimpan Rab 4 Nov", "Baseline 2", "Baseline 3"]);
+    assert.equal(radios(d.tree, "Baseline")[0].props["aria-checked"], true, "bawaan slot 1");
+    assert.equal(input(d.tree, "Nama").props.value, "Baseline 1");
+    assert.equal(input(d.tree, "Nama").props.maxLength, 40);
+    // Batal → 0 tulis
+    d.click("Batal");
+    assert.equal(blDlgOf(h.tree), undefined);
+    // slot kosong 2 → tanpa konfirmasi, satu put
+    d = openBlDialog(h);
+    d.slot(2);
+    assert.equal(input(d.tree, "Nama").props.value, "Baseline 2", "nama bawaan ikut slot selama belum diubah");
+    const gets0 = fr.calls.get.length;
+    d.click("Simpan baseline");
+    await settleN();
+    h.render();
+    const run = spy.runs[spy.runs.length - 1];
+    const want = T.TLPlan.baselineEncode(run.result, run.ctx, { n: 2, name: "Baseline 2", savedAt: TODAY, by: 7 }, unit.recId).data;
+    assert.deepEqual(blPuts(fr), [["baseline", "bl2" + unit.recId.slice(3), want, { scope: "user" }]]);
+    assert.equal(want.t.length, 4);
+    assert.equal(fr.calls.get.length, gets0 + 1, "CAS baca slot dulu");
+    assert.equal(blDlgOf(h.tree), undefined, "sukses → dialog tertutup");
+    assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], ["Baseline 2 disimpan", "success"]);
+    // slot terisi → konfirmasi; Batal di konfirmasi → 0 tulis
+    d = openBlDialog(h);
+    d.name("  Rencana revisi  ");
+    d.click("Simpan baseline");
+    assert.equal(txt(byCls(d.tree, "plg-timeline-bl-confirm-text")[0]).trim(), "Timpa Rencana awal (disimpan Rab 4 Nov)?");
+    assert.equal(blPuts(fr).length, 1);
+    d.click("Batal");
+    assert.equal(blDlgOf(h.tree), undefined);
+    assert.equal(blPuts(fr).length, 1, "Batal konfirmasi → 0 tulis");
+    // terisi → Timpa → satu put (nama dipangkas); klik ganda saat busy = satu put
+    d = openBlDialog(h);
+    d.name("  Rencana revisi  ");
+    d.click("Simpan baseline");
+    const timpa = d.btn("Timpa");
+    timpa.props.onClick({});
+    timpa.props.onClick({});
+    await settleN();
+    h.render();
+    assert.equal(blPuts(fr).length, 2);
+    assert.equal(blPuts(fr)[1][1], "bl1" + unit.recId.slice(3));
+    assert.equal(blPuts(fr)[1][2].name, "Rencana revisi");
+    assert.equal(fr.calls.remove.length, 0);
+    h.m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
+test("1c-2 T5: Esc = Batal (0 tulis, propagasi dihentikan); fokus ke kontrol pertama; nama > 40 dipotong, kosong → 'Baseline {n}'", () => withEngineClock((clock) => withPop(async (w) => {
+  const fr = fakeRecords();
+  const h = await swView(clock, { records: fr });
+  let d = openBlDialog(h);
+  const doc = { activeElement: null };
+  const f1 = { focus() { doc.activeElement = this; } };
+  const f2 = { focus() { doc.activeElement = this; } };
+  nodes(d.tree, (n) => n.props.role === "dialog")[0].props.ref.current = { ownerDocument: doc, focus() {}, contains: (t) => t === f1 || t === f2, querySelectorAll: () => [f1, f2] };
+  d.dm.flush();
+  assert.equal(doc.activeElement, f1);
+  let stopped = 0;
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped++; } });
+  assert.equal(stopped, 1);
+  d.sync();
+  assert.equal(blDlgOf(h.tree), undefined, "Esc menutup");
+  d.dm.unmount();
+  assert.equal(w.ls.filter((l) => l.type === "keydown").length, 0, "pendengar dilepas");
+  // nama panjang / kosong
+  d = openBlDialog(h);
+  d.name("x".repeat(39) + "🌸🌸");
+  d.click("Simpan baseline");
+  await settleN();
+  assert.equal(blPuts(fr)[0][2].name, "x".repeat(39), "potong 40 unit tanpa memisah pasangan surrogate");
+  d = openBlDialog(h);
+  d.slot(2);
+  d.name("   ");
+  d.click("Simpan baseline");
+  await settleN();
+  assert.equal(blPuts(fr)[1][2].name, "Baseline 2");
+  assert.equal(fr.calls.put.length, 2);
+  h.m.unmount();
+})));
+
+test("1c-2 T5: slot asing (record klien lebih baru) tampil TERISI '(versi lebih baru)'; konfirmasi 'Timpa (versi lebih baru) (disimpan {tanggal})?'; Timpa memakai snap loadAll → satu put", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, blRec(null, "Alpha", 3, { v: 2 }, { updated_at: "2026-11-03T18:00:00Z" })); // 01.00 WIB Rab 4 Nov
+  const h = await swView(clock, { records: fr });
+  const d = openBlDialog(h);
+  assert.deepEqual(radioTexts(d.tree, "Baseline"), ["Baseline 1", "Baseline 2", "(versi lebih baru) · disimpan Rab 4 Nov"]);
+  d.slot(3);
+  d.click("Simpan baseline");
+  assert.equal(txt(byCls(d.tree, "plg-timeline-bl-confirm-text")[0]).trim(), "Timpa (versi lebih baru) (disimpan Rab 4 Nov)?");
+  d.click("Timpa");
+  await settleN();
+  assert.equal(blPuts(fr).length, 1);
+  assert.equal(blPuts(fr)[0][2].v, 1);
+  assert.equal(h.calls.toast.filter((t) => t[1] === "error").length, 0, "bukan STALE");
+  h.m.unmount();
+}));
+
+test("1c-2 T5: STALE — slot diisi anggota lain sejak dialog dibuka → toast 'Data berubah sejak pratinjau dibuka — hitung ulang', 0 put, dialog memuat potret baru → konfirmasi Timpa → satu put", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  const h = await swView(clock, { records: fr });
+  const d = openBlDialog(h);
+  assert.equal(radioTexts(d.tree, "Baseline")[0], "Baseline 1");
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Punya Sari", by: 9 }, { updated_at: "2026-11-04T05:00:00Z" })); // tanpa peristiwa
+  d.click("Simpan baseline");
+  await settleN();
+  d.sync();
+  assert.equal(blPuts(fr).length, 0);
+  assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], [MSG_STALE, "error"]);
+  assert.ok(blDlgOf(h.tree), "dialog tetap terbuka");
+  assert.equal(radioTexts(d.tree, "Baseline")[0], "Punya Sari · disimpan Rab 4 Nov", "potret segar");
+  d.click("Simpan baseline");
+  assert.equal(txt(byCls(d.tree, "plg-timeline-bl-confirm-text")[0]).trim(), "Timpa Punya Sari (disimpan Rab 4 Nov)?");
+  d.click("Timpa");
+  await settleN();
+  assert.equal(blPuts(fr).length, 1);
+  h.m.unmount();
+}));
+
+// Fixture ukuran eksak: task Manual Alpha Mulai Sen 2 Nov durasi 1, id 5 digit (10000+i) atau 6 digit (100000+i) —
+// tiap id 6 digit menambah tepat 1 byte, jadi jumlah baris + digit menyetel ukuran data ke byte yang diinginkan.
+function blBigTasks(k, six) {
+  const out = [];
+  for (let i = 0; i < k; i++) out.push(mk(i < six ? 100000 + i : 10000 + i, "T", { start: "2026-11-02", duration: 1 }, { project: "Alpha" }));
+  return out;
+}
+const blSizeOf = (tasks, name) => T.TLPlan.baselineByteSize({ v: 1, n: 1, name, savedAt: TODAY, by: 7, t: tasks.map((t) => [{ $task: t.id }, "2026-11-02", "2026-11-02", 1, 0]) });
+
+test("1c-2 T5: batas BL_MAX di UI — data tepat 65536 byte → satu put; 65537 → toast 'Baseline terlalu besar', 0 put (dan 0 baca)", () => withEngineClock(async (clock) => {
+  let k = Math.floor((65536 - blSizeOf([], "B")) / (blSizeOf(blBigTasks(2, 0), "B") - blSizeOf(blBigTasks(1, 0), "B")));
+  while (blSizeOf(blBigTasks(k, 0), "B") > 65536) k--;
+  const six = 65536 - blSizeOf(blBigTasks(k, 0), "B");
+  assert.ok(six >= 0 && six < k);
+  const tasks = blBigTasks(k, six);
+  assert.equal(blSizeOf(tasks, "B"), 65536);
+  const fr = fakeRecords();
+  const h = await swView(clock, { records: fr, tasks });
+  let d = openBlDialog(h);
+  d.name("B");
+  d.click("Simpan baseline");
+  await settleN();
+  assert.equal(blPuts(fr).length, 1);
+  assert.equal(T.TLPlan.baselineByteSize(blPuts(fr)[0][2]), 65536, "fixture = byte yang benar-benar ditulis");
+  assert.equal(blPuts(fr)[0][2].t.length, k);
+  d = openBlDialog(h);
+  d.slot(2);
+  d.name("BB");
+  const gets = fr.calls.get.length;
+  d.click("Simpan baseline");
+  await settleN();
+  assert.equal(blPuts(fr).length, 1, "65537 → 0 put");
+  assert.equal(fr.calls.get.length, gets, "ditolak sebelum baca");
+  assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], ["Baseline terlalu besar", "error"]);
+  h.m.unmount();
+}));
+
+test("1c-2 T5: workspace — SATU list baseline se-scope untuk semua unit; dialog memilih project dulu; kunci 'Menunggu data baseline workspace…' + Simpan nonaktif sampai pulled; simpan Beta → put bl1@list:12:<hBeta> berisi task Beta saja", () => withEngineClock(async (clock) => {
+  const ws = wsSetup();
+  putRec(ws.fr, blRec(12, "Alpha", 1, { name: "Awal Alpha" }));
+  const spy = spyRun();
+  try {
+    const h = await swView(clock, { records: ws.fr, tasks: ws.tasks, ctx: ws.ctx });
+    const loads = blLists(ws.fr).length;
+    assert.ok(loads >= 1);
+    assert.ok(blLists(ws.fr).every((l) => l[1].scope === "list:12"));
+    assert.equal(new Set(blLists(ws.fr).map((l) => JSON.stringify(l[1]))).size, 1, "tidak ada list per unit");
+    const d = openBlDialog(h);
+    assert.deepEqual(radioTexts(d.tree, "Project"), ["Alpha", "Beta", "Gamma", "(Tanpa project)"]);
+    assert.equal(radios(d.tree, "Project")[0].props["aria-checked"], true);
+    // Alpha: slot 1 ada lokal (terbuka), slot 2/3 menunggu
+    assert.deepEqual(radios(d.tree, "Baseline").map((r) => !!r.props.disabled), [false, true, true]);
+    assert.equal(txt(nodes(d.tree, (n) => hasCls(n, "plg-timeline-bl-wait"))[0]).trim(), "Menunggu data baseline workspace…");
+    d.unit(1); // Beta: semua slot menunggu
+    assert.deepEqual(radios(d.tree, "Baseline").map((r) => !!r.props.disabled), [true, true, true]);
+    assert.equal(d.btn("Simpan baseline").props.disabled, true);
+    d.click("Simpan baseline");
+    await settleN();
+    assert.equal(blPuts(ws.fr).length, 0);
+    // tarik sukses → terbuka
+    ws.fr.emit(PULLED);
+    await settleN();
+    d.sync();
+    assert.equal(nodes(d.tree, (n) => hasCls(n, "plg-timeline-bl-wait")).length, 0);
+    assert.equal(d.btn("Simpan baseline").props.disabled, false);
+    assert.equal(blLists(ws.fr).length, loads + 1, "muat ulang sesudah pulled = satu list se-scope");
+    d.slot(1);
+    d.click("Simpan baseline");
+    await settleN();
+    const beta = blUnit(12, "Beta");
+    assert.equal(blPuts(ws.fr).length, 1);
+    const p = blPuts(ws.fr)[0];
+    assert.equal(p[1], "bl1" + beta.recId.slice(3));
+    assert.deepEqual(p[3], { scope: "list:12" });
+    assert.deepEqual(p[2].t.map((r) => r[0]), [{ $task: 2 }], "g = recId unit terpilih");
+    h.m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
+test("sumber Task 5 (1c-2): teks persis §7.6; simpan hanya lewat baselineStore (pagar R25), pilihan lewat usePref 'bl'", () => {
+  for (const t of ['"Baseline"', '"Simpan baseline"', '"Tidak ada"', '"Baseline terlalu besar"', '"Menunggu data baseline workspace…"', '"Timpa "', '" (disimpan "', '"(versi lebih baru)"']) {
+    assert.ok(jsx.includes(t), t);
+  }
+  assert.match(jsx, /usePref\(api, "bl", page\)/);
+  assert.equal((jsx.match(/records\.put\(/g) || []).length, 3, "tidak ada situs records.put baru (calendar, project, baseline)");
 });

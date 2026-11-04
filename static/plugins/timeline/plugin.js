@@ -3159,10 +3159,12 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
 //      menyentuh api.records (R5), masing-masing hanya entitasnya sendiri. calTarget (= TLSched.calTarget) /
 //      TLSched.unitOf memilih id/scope. Tulisan hanya di calendarStore.save, projectStore.setAuto, dan
 //      baselineStore → saveBaseline (put + remove) (R25: mesin dan pemuat tidak pernah menulis).
-//   3. Preferensi per perangkat lewat api.storage: prefKey / cleanPref / PREF_DEFAULTS (R19).
+//   3. Preferensi per perangkat lewat api.storage: prefKey / cleanPref / PREF_DEFAULTS (R19); 1c-2: bl:<page> = baseline
+//      aktif yang ditampilkan (P2 a, tanpa record).
 //   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar/useUnits/useBaselines/useEngine), fungsi render
 //      (toolbar/head/tabel/grafik/panah/legenda), TimelineViewBody (Task 7; interaksi Task 8 lewat `ix`; popover
-//      kalender + Daftar HP Task 9), ScheduleSection (Task 10); pembungkus React.memo malas (R24).
+//      kalender + Daftar HP Task 9; 1c-2 T5: BaselinePicker + SaveBaselineDialog), ScheduleSection (Task 10);
+//      pembungkus React.memo malas (R24).
 //   5. `pure` + module.exports untuk tes Node; registrasi hanya bila host plugin (TF.plugins) ada.
 
 // ── 1. Konstanta ────────────────────────────────────────────────────────────
@@ -3375,6 +3377,7 @@ const BL_NO_SNAP = Object.freeze({
   by: null
 });
 const EMPTY_BASES = new Map();
+const EMPTY_BY_UNIT = new Map();
 function blError(code, msg) {
   const e = new Error(msg);
   e.code = code;
@@ -3436,6 +3439,8 @@ function blSameSnap(a, b) {
 //     baselineDecode dengan n sama → entri biasa (foreign false); record asing → entri terisi foreign true (blEntry).
 //     Tidak pernah menulis. Catatan T5: satu unit per halaman → boleh diganti 3 get; beberapa unit di halaman
 //     workspace → SATU pemuat se-scope dibagi semua unit (jangan list scope per unit — unit × ukuran scope, R24).
+//   loadScope(units) → Promise<Map<recId, Map<n, entri>>>: pemuat se-scope itu (1c-2 T5) — satu list untuk semua unit
+//     (satu scope; beda scope / kosong → INVALID). loadAll(unit) = loadScope([unit]).
 //   save(unit, n, name, data, snap) → Promise<record>: tulis {v: 1, n, name, savedAt, by, t} (n/nama dari argumen,
 //     savedAt/by/t dari data encode). Galat ber-`code`: INVALID (unit/slot/data/nama/snap), TOO_LARGE (> BL_MAX byte,
 //     pesan "Baseline terlalu besar", diperiksa SEBELUM baca/tulis; = BL_MAX boleh, sama dengan host), STALE (potret
@@ -3487,35 +3492,47 @@ function baselineStore(api) {
       });
     });
   }
+  // Pemuat se-scope (catatan T4 → T5): SATU list scope (ikuti `next`) dibagi semua unit; unit harus satu scope.
+  function loadScope(units) {
+    return Promise.resolve().then(() => {
+      const us = Array.isArray(units) ? units : [];
+      if (!us.length) throw blError("INVALID", "unit jadwal tidak sah");
+      const scope = us[0] && typeof us[0] === "object" ? us[0].scope : null;
+      const ids = new Map(); // id slot → [recId, n]
+      const out = new Map();
+      for (const u of us) {
+        if (!u || u.scope !== scope) throw blError("INVALID", "unit jadwal beda scope");
+        for (const n of BL_SLOTS) ids.set(blRecId(u, n), [u.recId, n]);
+        out.set(u.recId, new Map());
+      }
+      const page1 = after => {
+        const q = after === null ? {
+          scope,
+          limit: BL_PAGE
+        } : {
+          scope,
+          limit: BL_PAGE,
+          after
+        };
+        return Promise.resolve(api.records.list(BL_ENTITY, q)).then(res => {
+          const items = res && Array.isArray(res.items) ? res.items : [];
+          for (const r of items) {
+            const hit = r && typeof r.id === "string" ? ids.get(r.id) : undefined;
+            const e = hit === undefined ? null : blEntry(r, hit[1]);
+            if (e) out.get(hit[0]).set(hit[1], e);
+          }
+          const next = res && typeof res.next === "string" && res.next ? res.next : null;
+          return next !== null && next !== after ? page1(next) : out;
+        });
+      };
+      return page1(null);
+    });
+  }
   return {
     loadAll(unit) {
-      return Promise.resolve().then(() => {
-        const ids = new Map(BL_SLOTS.map(n => [blRecId(unit, n), n]));
-        const scope = unit.scope;
-        const out = new Map();
-        const page1 = after => {
-          const q = after === null ? {
-            scope,
-            limit: BL_PAGE
-          } : {
-            scope,
-            limit: BL_PAGE,
-            after
-          };
-          return Promise.resolve(api.records.list(BL_ENTITY, q)).then(res => {
-            const items = res && Array.isArray(res.items) ? res.items : [];
-            for (const r of items) {
-              const n = r && typeof r.id === "string" ? ids.get(r.id) : undefined;
-              const e = n === undefined ? null : blEntry(r, n);
-              if (e) out.set(n, e);
-            }
-            const next = res && typeof res.next === "string" && res.next ? res.next : null;
-            return next !== null && next !== after ? page1(next) : out;
-          });
-        };
-        return page1(null);
-      });
+      return loadScope([unit]).then(m => m.get(unit.recId));
     },
+    loadScope,
     save(unit, n, name, data, snap) {
       return saveBaseline("put", unit, n, name, data, snap);
     },
@@ -3538,15 +3555,19 @@ const PREF_DEFAULTS = Object.freeze({
   cols: false,
   mode: "gantt",
   section: false,
-  crit: false
+  crit: false,
+  bl: 0
 });
 const PREF_CHOICES = Object.freeze({
   zoom: ["day", "week", "month"],
   sort: ["wbs", "start"],
-  mode: ["gantt", "list"]
+  mode: ["gantt", "list"],
+  bl: [0, 1, 2, 3]
 });
 
 // "zoom:<page>", "sort:<page>", "cols:<page>", "mode:<page>", "crit:<page>" (1c-1 R18); seksi Jadwal global: "section:open".
+// 1c-2 P2 (a): "bl:<page>" = baseline aktif yang DITAMPILKAN (0 = "Tidak ada", 1–3 = slot) per perangkat per halaman —
+// pilihan tampilan, tidak pernah ditulis ke record.
 function prefKey(kind, page) {
   return kind === "section" ? "section:open" : kind + ":" + page;
 }
@@ -3583,7 +3604,10 @@ const LBL = {
   crit: "Jalur kritis",
   auto: "Jadwal otomatis",
   reschedule: "Jadwalkan ulang",
-  more: "Lainnya" // 1c-1 R23
+  more: "Lainnya",
+  // 1c-1 R23
+  bl: "Baseline",
+  blSave: "Simpan baseline" // 1c-2 §7.1
 };
 // 1c-1 R14, R15, R28: sakelar Jadwal otomatis dan dialog pratinjau (teks persis).
 const MSG_AUTO_ON0 = "Jadwal otomatis menyala — tidak ada task yang bergeser";
@@ -3642,6 +3666,17 @@ const MSG_NO_NAME = "(tanpa nama)";
 const MSG_UNSCHEDULED = "Belum dijadwalkan";
 const MSG_LATE = "Lewat tenggat";
 const MSG_MANUAL = "Manual"; // 1c-1 R19: pin task Manual di unit otomatis
+// 1c-2 Task 5 (§7.6): pemilih Baseline + dialog Simpan baseline. Toast STALE baseline = MSG_STALE 1c-1 apa adanya
+// (§contract T4 tidak menamai teks sendiri). "Project"/"Nama"/"Timpa"/"{nama} disimpan" bukan string §7.6 (dicatat).
+const BL_NONE = "Tidak ada";
+const BL_NAME_MAX = 40; // spec §4: name ≤ 40
+const MSG_BL_FOREIGN = "(versi lebih baru)"; // slot berisi record asing (klien lebih baru) — ruling T4
+const BL_OVERWRITE = "Timpa";
+const BL_UNIT_LABEL = "Project";
+const BL_NAME_LABEL = "Nama";
+const blSlotName = n => "Baseline " + n;
+const blConfirmText = (name, date) => "Timpa " + name + (date ? " (disimpan " + date + ")" : "") + "?";
+const blSavedText = name => name + " disimpan";
 const CAL_MAX_NAME = 60; // sama dengan TLCal.normalize
 const CAL_MAX_ENTRIES = 366;
 const DAYS = [["Sen", "Senin"], ["Sel", "Selasa"], ["Rab", "Rabu"], ["Kam", "Kamis"], ["Jum", "Jumat"], ["Sab", "Sabtu"], ["Min", "Minggu"]];
@@ -4392,31 +4427,38 @@ function useUnits(api, page) {
 //   Project pribadi tidak pernah menunggu (muat gagal → terbuka); workspace gagal-muat terbuka setelah `pulled`
 //   (latch menyala walau muat ulangnya gagal) — tidak terkunci selamanya, CAS saveBaseline tetap menjaga.
 // snapOf(n) = potret CAS slot untuk dialog simpan (BL_NO_SNAP bila kosong).
+// 1c-2 T5 — banyak unit: unit boleh berupa LARIK unit satu scope (unit halaman workspace) → SATU pemuat se-scope
+// (baselineStore.loadScope) dibagi semua unit, tidak pernah list per unit. byUnit = Map<recId, Map<n, entri>>;
+// bases/waitingOf/lockedOf/snapOf tanpa argumen kedua = unit PERTAMA (bentuk satu unit T4); argumen kedua recId memilih
+// unit lain. `waiting` = ada slot unit mana pun yang menunggu. Kunci muat = recId terurut (urutan unit tidak memuat ulang).
+const blUnitOk = u => !!u && typeof u === "object" && typeof u.recId === "string" && typeof u.scope === "string";
 function useBaselines(api, unit) {
-  const u = unit && typeof unit === "object" && typeof unit.recId === "string" && typeof unit.scope === "string" ? unit : null;
-  const key = u ? u.recId : "";
+  const list0 = (Array.isArray(unit) ? unit : [unit]).filter(blUnitOk);
+  const us = list0.length && list0.every(x => x.scope === list0[0].scope) ? list0 : [];
+  const u = us.length ? us[0] : null;
+  const key = us.map(x => x.recId).sort().join("\u0000");
   const store = React.useMemo(() => baselineStore(api), [api]);
   const [st, setSt] = React.useState(() => ({
     key,
-    bases: EMPTY_BASES,
+    byUnit: EMPTY_BY_UNIT,
     loaded: false,
     failed: false
   }));
   const [pulled, setPulled] = React.useState(false);
   const argRef = React.useRef(null);
-  argRef.current = u;
+  argRef.current = us;
   React.useEffect(() => {
     let alive = true;
     let seq = 0;
     let timer = null;
     const arg = argRef.current;
     const load = () => {
-      if (!arg) return Promise.resolve(true);
+      if (!arg.length) return Promise.resolve(true);
       const my = ++seq;
-      return store.loadAll(arg).then(bases => {
+      return store.loadScope(arg).then(byUnit => {
         if (alive && my === seq) setSt({
           key,
-          bases,
+          byUnit,
           loaded: true,
           failed: false
         });
@@ -4427,7 +4469,7 @@ function useBaselines(api, unit) {
           failed: true
         }) : {
           key,
-          bases: EMPTY_BASES,
+          byUnit: EMPTY_BY_UNIT,
           loaded: false,
           failed: true
         });
@@ -4462,16 +4504,20 @@ function useBaselines(api, unit) {
     };
   }, [store, key]);
   const mine = u !== null && st.key === key;
-  const bases = mine ? st.bases : EMPTY_BASES;
+  const byUnit = mine ? st.byUnit : EMPTY_BY_UNIT;
   const loaded = mine && st.loaded;
   const failed = mine && st.failed;
   const shared = u !== null && u.scope !== "user";
+  const basesOf = recId => byUnit.get(recId === undefined ? u ? u.recId : "" : recId) || EMPTY_BASES;
+  const known = recId => recId === undefined || us.some(x => x.recId === recId);
   // Muat gagal sebelum pernah termuat: pribadi terbuka; workspace tetap menunggu sampai `pulled` (ruling review T4).
-  const waitingOf = n => shared && !pulled && (loaded ? !bases.has(n) : failed);
-  const lockedOf = n => u === null || !loaded && !failed || waitingOf(n);
-  const snapOf = n => bases.has(n) ? bases.get(n).snap : BL_NO_SNAP;
+  const waitingOf = (n, recId) => shared && known(recId) && !pulled && (loaded ? !basesOf(recId).has(n) : failed);
+  const lockedOf = (n, recId) => u === null || !known(recId) || !loaded && !failed || waitingOf(n, recId);
+  const snapOf = (n, recId) => basesOf(recId).has(n) ? basesOf(recId).get(n).snap : BL_NO_SNAP;
+  const waiting = us.some(x => BL_SLOTS.some(n => waitingOf(n, x.recId)));
   return {
-    bases,
+    bases: basesOf(),
+    byUnit,
     loaded,
     failed,
     pulled,
@@ -4479,7 +4525,25 @@ function useBaselines(api, unit) {
     waitingOf,
     lockedOf,
     snapOf,
-    waiting: BL_SLOTS.some(waitingOf)
+    waiting
+  };
+}
+
+// Baseline aktif yang DITAMPILKAN (1c-2 T5, P2 a): pref `bl:<page>` = n (0 = "Tidak ada" → null). Halaman workspace
+// menggabungkan slot n SEMUA unit halaman (recIds, urutan kelompok; kunci task ganda → unit pertama menang) menjadi satu
+// dec {n, rows} untuk TLPlan.compareBaseline (T6 bar, T7 tabel). Slot kosong / asing (rows kosong) → rows kosong
+// (pembanding kosong, bukan galat). Murni.
+function activeBaseline(byUnit, recIds, n) {
+  if (BL_SLOTS.indexOf(n) < 0) return null;
+  const rows = new Map();
+  for (const id of Array.isArray(recIds) ? recIds : []) {
+    const e = byUnit instanceof Map && byUnit.get(id) instanceof Map ? byUnit.get(id).get(n) : null;
+    if (!e || !(e.rows instanceof Map)) continue;
+    for (const [k, r] of e.rows) if (!rows.has(k)) rows.set(k, r);
+  }
+  return {
+    n,
+    rows
   };
 }
 
@@ -4693,7 +4757,8 @@ function renderToolbar(v) {
   }, text)));
   // Daftar (HP): zoom, "Hari ini", urut, dan kolom hanya berarti untuk Gantt → disembunyikan.
   const gantt = !v.listMode;
-  // 1c-1 R23: Jadwal otomatis · Jalur kritis · Jadwalkan ulang — hanya saat mesin siap; ≤ 640 px / Live Edit → "Lainnya".
+  // 1c-1 R23 + 1c-2 §7.1: Jadwal otomatis · Jalur kritis · Baseline · Simpan baseline · Jadwalkan ulang — hanya saat mesin
+  // siap; ≤ 640 px / Live Edit → "Lainnya".
   // Jalur kritis tidak di Daftar. "Jadwalkan ulang" → v.onReschedule (Task 10; nonaktif bila tidak diberikan).
   const ac = v.engReady ? v.auto : null;
   const extras = [];
@@ -4719,6 +4784,22 @@ function renderToolbar(v) {
     role: "menuitemcheckbox",
     checked: v.crit,
     onSelect: () => v.setCrit(!v.crit)
+  });
+  // 1c-2 §7.1: Baseline (pemilih; hanya Gantt, seperti Jalur kritis) · Simpan baseline (aksi data; juga di Daftar).
+  const bl = v.engReady ? v.bl : null;
+  if (gantt && bl) extras.push({
+    id: "bl",
+    text: LBL.bl,
+    role: "menuitem",
+    haspopup: "menu",
+    onSelect: bl.onPick
+  });
+  if (bl) extras.push({
+    id: "blsave",
+    text: LBL.blSave,
+    role: "menuitem",
+    haspopup: "dialog",
+    onSelect: bl.onSave
   });
   if (v.engReady) extras.push({
     id: "resched",
@@ -4757,6 +4838,24 @@ function renderToolbar(v) {
       "aria-pressed": v.crit,
       onClick: it.onSelect
     }, LBL.crit);
+    if (it.id === "bl") {
+      return /*#__PURE__*/React.createElement("button", {
+        key: "bl",
+        type: "button",
+        ref: bl.btnRef,
+        "aria-haspopup": "menu",
+        "aria-expanded": bl.open,
+        className: cx("plg-timeline-btn", "plg-timeline-blbtn", (bl.open || bl.value > 0) && "is-active"),
+        onClick: it.onSelect
+      }, LBL.bl);
+    }
+    if (it.id === "blsave") return /*#__PURE__*/React.createElement("button", {
+      key: "blsave",
+      type: "button",
+      className: "plg-timeline-btn",
+      "aria-haspopup": "dialog",
+      onClick: it.onSelect
+    }, LBL.blSave);
     return /*#__PURE__*/React.createElement("button", {
       key: it.id,
       type: "button",
@@ -5768,18 +5867,12 @@ function pvRowText(r) {
   return main.join(" · ");
 }
 
-// Dialog pratinjau (R14, K34; pola CalendarPopover di dalam wadah view): role dialog + aria-modal, fokus ke elemen
-// pertama saat dibuka dan terjebak di dalam (Tab/Shift+Tab berputar), Esc = Batal. model = dialogModel(TLPlan.preview…).
-// Baris "WBS · Task · Mulai lama → baru · Δ hk" (+ "baru dijadwalkan", "durasi berubah", catatan durGuess); ringkasan;
-// "Tidak dipindah"; ≤ 50 baris + "Tampilkan semua". whyOf(key) → Array<string|{b}> (opsional, Task 12) membuka "Kenapa".
-// Terapkan nonaktif bila 0 item atau `busy` (pemeriksaan CAS berjalan). Komponen ini tidak menulis apa pun.
-function PreviewDialog(props) {
-  const model = props.model || EMPTY_PV_MODEL;
-  const [all, setAll] = React.useState(false);
-  const [why, setWhy] = React.useState(null);
-  const rootRef = React.useRef(null);
-  const cancelRef = React.useRef(props.onCancel);
-  cancelRef.current = props.onCancel;
+// Perilaku modal bersama PreviewDialog dan SaveBaselineDialog (1c-2 T5: diekstrak tanpa ubah perilaku): fokus ke elemen
+// pertama saat dibuka (kembali ke pemicu saat ditutup), Esc = onCancel (propagasi dihentikan), Tab/Shift+Tab berputar di
+// dalam dialog dan menarik fokus kembali bila sedang di luar. Klik di luar dialog modal tidak menutupnya.
+function useModal(rootRef, onCancel) {
+  const cancelRef = React.useRef(onCancel);
+  cancelRef.current = onCancel;
   const cancel = () => {
     if (typeof cancelRef.current === "function") cancelRef.current();
   };
@@ -5833,6 +5926,20 @@ function PreviewDialog(props) {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
+  return cancel;
+}
+
+// Dialog pratinjau (R14, K34; pola CalendarPopover di dalam wadah view): role dialog + aria-modal, fokus ke elemen
+// pertama saat dibuka dan terjebak di dalam (Tab/Shift+Tab berputar), Esc = Batal. model = dialogModel(TLPlan.preview…).
+// Baris "WBS · Task · Mulai lama → baru · Δ hk" (+ "baru dijadwalkan", "durasi berubah", catatan durGuess); ringkasan;
+// "Tidak dipindah"; ≤ 50 baris + "Tampilkan semua". whyOf(key) → Array<string|{b}> (opsional, Task 12) membuka "Kenapa".
+// Terapkan nonaktif bila 0 item atau `busy` (pemeriksaan CAS berjalan). Komponen ini tidak menulis apa pun.
+function PreviewDialog(props) {
+  const model = props.model || EMPTY_PV_MODEL;
+  const [all, setAll] = React.useState(false);
+  const [why, setWhy] = React.useState(null);
+  const rootRef = React.useRef(null);
+  const cancel = useModal(rootRef, props.onCancel);
   const rows = model.rows || [];
   const shown = all ? rows : rows.slice(0, PV_ROWS_MAX);
   const label = pvLabel;
@@ -5925,6 +6032,202 @@ function PreviewDialog(props) {
     disabled: !rows.length || !!props.busy,
     onClick: props.onApply
   }, PV_APPLY))));
+}
+
+// ── 1c-2 Task 5: pemilih Baseline (P2 a) dan dialog Simpan baseline (K41) ──────────────────────────────────────────
+// Nama baseline (spec §4): dipangkas, ≤ 40 unit UTF-16 tanpa memisah pasangan surrogate; kosong → "Baseline {n}". Murni.
+function blNameOf(raw, n) {
+  const s = (raw === undefined || raw === null ? "" : String(raw)).trim();
+  let out = s;
+  if (out.length > BL_NAME_MAX) {
+    const hi = out.charCodeAt(BL_NAME_MAX - 1);
+    out = out.slice(0, hi >= 0xd800 && hi <= 0xdbff ? BL_NAME_MAX - 1 : BL_NAME_MAX).trim();
+  }
+  return out || blSlotName(n);
+}
+
+// Tanggal simpan slot (fmtShort, zona Jakarta): savedAt (tanggal ISO atau stempel waktu) → updated_at record; null bila
+// keduanya tak terbaca (record asing tidak punya savedAt terbaca → updated_at).
+function blDateOf(e) {
+  if (!e) return null;
+  let d = typeof e.savedAt === "string" ? TLCpm.jkt(e.savedAt) : null;
+  if (!Number.isInteger(d) && e.snap && typeof e.snap.updatedAt === "string") d = TLCpm.jkt(e.snap.updatedAt);
+  return Number.isInteger(d) ? TLCal.fmtShort(d) : null;
+}
+// Nama tampil slot terisi: asing → "(versi lebih baru)"; tanpa nama → "Baseline {n}".
+const blShownName = (e, n) => e.foreign ? MSG_BL_FOREIGN : e.name || blSlotName(n);
+
+// Pemilih "Baseline" (pola UnitPopover/MoreMenu): role menu, item menuitemradio "Tidak ada" + slot 1–3; fokus ke item
+// terpilih saat dibuka; Esc / pilih → tutup + fokus kembali ke tombol "Baseline"; klik luar → tutup. items = [{n, label}],
+// value = pref aktif, onPick(n) — pemanggil HANYA menulis pref bl:<page> (tanpa record). Komponen ini tidak menulis.
+function BaselinePicker(props) {
+  const items = Array.isArray(props.items) ? props.items : [];
+  const rootRef = React.useRef(null);
+  const closeRef = React.useRef(props.onClose);
+  closeRef.current = props.onClose;
+  const close = restoreFocus => {
+    if (typeof closeRef.current === "function") closeRef.current({
+      restoreFocus
+    });
+  };
+  React.useEffect(() => {
+    const el = rootRef.current;
+    let on = null;
+    try {
+      on = el && typeof el.querySelector === "function" ? el.querySelector("[aria-checked='true']") : null;
+    } catch (e) {
+      on = null;
+    }
+    const f = on || el;
+    if (f && typeof f.focus === "function") f.focus();
+  }, []);
+  useDismiss(true, rootRef, how => close(how === "key"), ".plg-timeline-blbtn");
+  const pick = n => {
+    if (typeof props.onPick === "function") props.onPick(n);
+    close(true);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop plg-timeline-blpick",
+    role: "menu",
+    "aria-label": LBL.bl,
+    tabIndex: -1,
+    ref: rootRef
+  }, items.map(it => /*#__PURE__*/React.createElement("button", {
+    key: it.n,
+    type: "button",
+    role: "menuitemradio",
+    "aria-checked": props.value === it.n,
+    className: cx("plg-timeline-more-item", props.value === it.n && "is-on"),
+    onClick: () => pick(it.n)
+  }, it.label)));
+}
+
+// Dialog "Simpan baseline" (K41; pola PreviewDialog: role dialog + aria-modal, fokus terjebak, Esc = Batal).
+// props: units [{key: recId, label}] (> 1 = halaman workspace → pilih project dulu), bases = Map<recId, Map<n, entri>>
+// POTRET saat dialog dibuka (label + konfirmasi + snap CAS memakai potret yang sama), lockedOf(n, recId) /
+// waitingOf(n, recId) (langsung dari useBaselines), busy, rev (naik saat potret disegarkan setelah STALE → kembali ke
+// form), onSave(recId, n, nama), onCancel. Slot terisi (termasuk asing) → langkah konfirmasi "Timpa {nama} (disimpan
+// {tanggal})?" sebelum onSave. Komponen ini tidak menulis apa pun; nama dinormalkan blNameOf.
+function SaveBaselineDialog(props) {
+  const units = Array.isArray(props.units) ? props.units : [];
+  const bases = props.bases instanceof Map ? props.bases : EMPTY_BY_UNIT;
+  const lockedOf = typeof props.lockedOf === "function" ? props.lockedOf : () => true;
+  const waitingOf = typeof props.waitingOf === "function" ? props.waitingOf : () => false;
+  const [unitKey, setUnitKey] = React.useState(() => units.length ? units[0].key : "");
+  const [slot, setSlot] = React.useState(() => {
+    const free = BL_SLOTS.find(n => !lockedOf(n, units.length ? units[0].key : ""));
+    return free === undefined ? BL_SLOTS[0] : free;
+  });
+  const [name, setName] = React.useState(null); // null = belum diubah → bawaan "Baseline {slot}"
+  const [st, setSt] = React.useState({
+    rev: props.rev,
+    step: "form"
+  });
+  const step = st.rev === props.rev ? st.step : "form";
+  const setStep = v => setSt({
+    rev: props.rev,
+    step: v
+  });
+  const rootRef = React.useRef(null);
+  const cancel = useModal(rootRef, props.onCancel);
+  const slotsOf = bases.get(unitKey) instanceof Map ? bases.get(unitKey) : EMPTY_BASES;
+  const entry = slotsOf.get(slot) || null;
+  const shownName = name === null ? blSlotName(slot) : name;
+  const locked = lockedOf(slot, unitKey);
+  const waiting = BL_SLOTS.some(n => waitingOf(n, unitKey));
+  const save = () => {
+    if (props.busy || lockedOf(slot, unitKey) || typeof props.onSave !== "function") return;
+    props.onSave(unitKey, slot, blNameOf(shownName, slot));
+  };
+  const submit = () => {
+    if (props.busy || locked) return;
+    if (entry) setStep("confirm");else save();
+  };
+  const slotLabel = n => {
+    const e = slotsOf.get(n);
+    if (!e) return [/*#__PURE__*/React.createElement("span", {
+      key: "n",
+      className: "plg-timeline-bl-slot-name"
+    }, blSlotName(n))];
+    const d = blDateOf(e);
+    return [/*#__PURE__*/React.createElement("span", {
+      key: "n",
+      className: "plg-timeline-bl-slot-name"
+    }, blShownName(e, n)), d ? /*#__PURE__*/React.createElement("span", {
+      key: "d",
+      className: "plg-timeline-bl-slot-date"
+    }, " · disimpan " + d) : null];
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv-backdrop"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv plg-timeline-bl-dlg",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": LBL.blSave,
+    tabIndex: -1,
+    ref: rootRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop-head"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-pop-title"
+  }, LBL.blSave)), step === "confirm" && entry ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-bl-confirm",
+    role: "alert"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-bl-confirm-text"
+  }, blConfirmText(blShownName(entry, slot), blDateOf(entry)))) : /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-bl-form"
+  }, units.length > 1 ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-bl-units",
+    role: "radiogroup",
+    "aria-label": BL_UNIT_LABEL
+  }, units.map(u => /*#__PURE__*/React.createElement("button", {
+    key: u.key,
+    type: "button",
+    role: "radio",
+    "aria-checked": u.key === unitKey,
+    className: cx("plg-timeline-bl-opt", u.key === unitKey && "is-active"),
+    onClick: () => setUnitKey(u.key)
+  }, u.label))) : null, waiting ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-bl-wait",
+    role: "status"
+  }, MSG_BL_WAIT) : null, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-bl-slots",
+    role: "radiogroup",
+    "aria-label": LBL.bl
+  }, BL_SLOTS.map(n => /*#__PURE__*/React.createElement("button", {
+    key: n,
+    type: "button",
+    role: "radio",
+    "aria-checked": n === slot,
+    disabled: lockedOf(n, unitKey),
+    className: cx("plg-timeline-bl-opt", n === slot && "is-active"),
+    onClick: () => setSlot(n)
+  }, slotLabel(n)))), /*#__PURE__*/React.createElement("input", {
+    type: "text",
+    className: "plg-timeline-pop-input plg-timeline-bl-name",
+    "aria-label": BL_NAME_LABEL,
+    maxLength: BL_NAME_MAX,
+    value: shownName,
+    onChange: e => setName(e && e.target ? String(e.target.value) : "")
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn",
+    onClick: cancel
+  }, PV_CANCEL), step === "confirm" && entry ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-pv-apply",
+    disabled: !!props.busy,
+    onClick: save
+  }, BL_OVERWRITE) : /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-pv-apply",
+    disabled: locked || !!props.busy,
+    onClick: submit
+  }, LBL.blSave))));
 }
 
 // Kartu pratinjau ringkas di seksi Jadwal (R14, R20 "Aliran dari seksi > 20"): ringkasan + 5 baris pertama + "dan {n}
@@ -6925,6 +7228,7 @@ function TimelineViewBody(props) {
   const [cols, setCols] = usePref(api, "cols", page);
   const [mode, setMode] = usePref(api, "mode", page);
   const [critPref, setCrit] = usePref(api, "crit", page);
+  const [blPref, setBl] = usePref(api, "bl", page); // 1c-2 P2 (a): baseline aktif = pref per perangkat per halaman
   const [calOpen, setCalOpen] = React.useState(false);
   const calBtnRef = React.useRef(null);
   const pageKind = context.pageKind === "workspace" ? "workspace" : "project";
@@ -7004,6 +7308,13 @@ function TimelineViewBody(props) {
     });
   }, [context.scopeTasks, calKey, zoom, sort, today, pageKind, api, unitsKey, cycleKey, nodeKey]);
   const groupNames = React.useMemo(() => new Map(lay.groups.map(g => [g.key, g.name])), [lay]);
+  // 1c-2 Task 5 (K41): baseline unit halaman — halaman project = satu unit, workspace = unit per kelompok (pageUnits);
+  // SATU pemuat se-scope untuk semua unit (useBaselines larik). blDec = baseline aktif tergabung (activeBaseline) — sumber
+  // pembanding T6 (bar, lewat v.bl) dan T7; hanya baca (R25).
+  const blPage = React.useMemo(() => pageUnits(lay, pageKind, context.projectName, groupNames), [lay, pageKind, context.projectName, groupNames]);
+  const bls = useBaselines(api, blPage.map(x => x.unit));
+  const blIdsKey = blPage.map(x => x.unit.recId).join("\u0000");
+  const blDec = React.useMemo(() => activeBaseline(bls.byUnit, blPage.map(x => x.unit.recId), blPref), [bls.byUnit, blIdsKey, blPref]);
   // 1c-1 (R18, R19): overlay mesin dalam memo TERPISAH. Belum siap → NO_OVERLAY.
   // eng.ctx berasal dari keluaran run yang sama dengan eng.result, jadi kunci [lay, engResult] cukup.
   const ov = React.useMemo(() => engineOverlay(lay, engResult, eng.ctx), [lay, engResult]);
@@ -7182,6 +7493,11 @@ function TimelineViewBody(props) {
 
   // ── 1c-1 Task 8: sakelar Jadwal otomatis (R15), pratinjau + CAS (R14) ──
   const [unitOpen, setUnitOpen] = React.useState(false);
+  const [blOpen, setBlOpen] = React.useState(false); // pemilih Baseline (1c-2)
+  const [blDlg, setBlDlg] = React.useState(null); // dialog Simpan baseline: {id, bases (potret), rev, busy}
+  const blDlgRef = React.useRef(null);
+  blDlgRef.current = blDlg;
+  const blBtnRef = React.useRef(null);
   const [pv, setPv] = React.useState(null); // {id, title, items, model, busy, unit?: {unit, rep, snap} | Array<{rep, snap, auto}>, broken?, todayLabel?, onDone, rebuild}
   const [, setNet] = React.useState(0);
   const autoBtnRef = React.useRef(null);
@@ -7245,7 +7561,7 @@ function TimelineViewBody(props) {
   };
   const toggleEntry = entry => {
     const e = engRef.current;
-    if (entry.locked || toggling.current || pvRef.current || e.status !== "ready" || !e.ctx || !e.result) return;
+    if (entry.locked || toggling.current || pvRef.current || blDlgRef.current || e.status !== "ready" || !e.ctx || !e.result) return;
     if (entry.on) {
       setAutoNow(entry, false); // OFF: tanpa tulis task (tanggal tetap)
       return;
@@ -7260,6 +7576,7 @@ function TimelineViewBody(props) {
     const uid = userId();
     setUnitOpen(false);
     setCalOpen(false); // satu Esc = dialog saja (popover lain tidak ikut mendengar)
+    setBlOpen(false);
     setPv({
       id: ++pvSeq.current,
       title: MSG_PV_ON + entry.label,
@@ -7299,7 +7616,7 @@ function TimelineViewBody(props) {
     };
   };
   const openFlowPv = p => {
-    if (pvRef.current) return; // satu dialog pada satu waktu
+    if (pvRef.current || blDlgRef.current) return; // satu dialog pada satu waktu
     const b = buildFlow(p.ctx, p.before, p.gestures, {
       items: p.items,
       result: p.result
@@ -7307,6 +7624,7 @@ function TimelineViewBody(props) {
     if (!b.model) return;
     setUnitOpen(false);
     setCalOpen(false); // satu Esc = dialog saja
+    setBlOpen(false);
     const next = {
       id: ++pvSeq.current,
       title: PV_FLOW,
@@ -7323,9 +7641,10 @@ function TimelineViewBody(props) {
   ctl.cur.openPreview = openFlowPv;
   // Buka pratinjau milik view (Task 10) bila belum ada dialog; popover lain ditutup (satu Esc = dialog saja).
   const openPv = spec => {
-    if (pvRef.current) return;
+    if (pvRef.current || blDlgRef.current) return;
     setUnitOpen(false);
     setCalOpen(false);
+    setBlOpen(false);
     const next = Object.assign({
       id: ++pvSeq.current,
       busy: false
@@ -7526,9 +7845,106 @@ function TimelineViewBody(props) {
     expanded: unitOpen,
     onClick: () => {
       setCalOpen(false);
+      setBlOpen(false);
       setUnitOpen(!unitOpen);
     }
   };
+
+  // ── 1c-2 Task 5: Baseline (pemilih = pref saja) + Simpan baseline (dialog → SATU baselineStore.save) ──
+  // Simpan: encode dari hasil useEngine AKTIF (engRef) dengan g = recId unit terpilih (T3); snap = potret saat dialog
+  // dibuka (bentuk loadAll; slot asing ikut). Galat: TOO_LARGE → "Baseline terlalu besar"; STALE → toast MSG_STALE 1c-1,
+  // potret dimuat ulang (satu loadScope), dialog tetap terbuka kembali ke form (konfirmasi Timpa ditanya lagi bila terisi);
+  // lainnya → "Jadwal gagal disimpan". Hapus baseline TIDAK ditawarkan di 1c-2 Task 5 (di luar brief).
+  const openSaveBl = () => {
+    const e = engRef.current;
+    if (pvRef.current || blDlgRef.current || e.status !== "ready" || !blPage.length) return;
+    setUnitOpen(false);
+    setCalOpen(false);
+    setBlOpen(false);
+    const next = {
+      id: ++pvSeq.current,
+      bases: bls.byUnit,
+      rev: 0,
+      busy: false
+    };
+    blDlgRef.current = next;
+    setBlDlg(next);
+  };
+  const setDlg = next => {
+    blDlgRef.current = next;
+    setBlDlg(next);
+  };
+  const cancelBl = () => setDlg(null);
+  const saveBl = (recId, n, name) => {
+    const cur = blDlgRef.current;
+    const e = engRef.current;
+    const pu = blPage.find(x => x.unit.recId === recId);
+    if (!cur || cur.busy || !pu || e.status !== "ready" || !e.result || !e.ctx) return;
+    const slots = cur.bases.get(recId);
+    const ent = slots instanceof Map ? slots.get(n) : null;
+    const uid = api.env ? api.env.userId : null;
+    const enc = TLPlan.baselineEncode(e.result, e.ctx, {
+      n,
+      name,
+      savedAt: today,
+      by: Number.isInteger(uid) ? uid : null
+    }, recId);
+    setDlg(Object.assign({}, cur, {
+      busy: true
+    })); // seketika: klik ganda sebelum render berikutnya = satu put
+    const live = () => blDlgRef.current !== null && blDlgRef.current.id === cur.id;
+    Promise.resolve().then(() => bls.store.save(pu.unit, n, name, enc.data, ent ? ent.snap : BL_NO_SNAP)).then(() => {
+      if (live()) setDlg(null);
+      toastSafe(api, blSavedText(name), "success");
+    }, err => {
+      const code = err && err.code;
+      if (code === "TOO_LARGE") toastSafe(api, MSG_BL_TOO_LARGE, "error");else if (code === "STALE") toastSafe(api, MSG_STALE, "error");else {
+        logWarn(api, "baseline gagal disimpan:", err);
+        toastSafe(api, MSG_SAVE_FAIL, "error");
+      }
+      if (!live()) return undefined;
+      if (code !== "STALE") {
+        setDlg(Object.assign({}, cur, {
+          busy: false
+        }));
+        return undefined;
+      }
+      return bls.store.loadScope(blPage.map(x => x.unit)).then(fresh => {
+        if (live()) setDlg(Object.assign({}, cur, {
+          bases: fresh,
+          rev: cur.rev + 1,
+          busy: false
+        }));
+      }, err2 => {
+        logWarn(api, "baseline gagal dimuat:", err2);
+        if (live()) setDlg(Object.assign({}, cur, {
+          busy: false
+        }));
+      });
+    });
+  };
+  const blPickItems = [{
+    n: 0,
+    label: BL_NONE
+  }].concat(BL_SLOTS.map(n => {
+    // halaman project: nama slot (bila ada dan terbaca); workspace (banyak unit) / kosong / asing → "Baseline {n}"
+    const e = blPage.length === 1 ? bls.bases.get(n) : null;
+    return {
+      n,
+      label: e && !e.foreign && e.name ? e.name : blSlotName(n)
+    };
+  }));
+  const blTool = blPage.length ? {
+    value: blPref,
+    open: blOpen,
+    btnRef: blBtnRef,
+    onPick: () => {
+      setCalOpen(false);
+      setUnitOpen(false);
+      setBlOpen(!blOpen);
+    },
+    onSave: openSaveBl
+  } : null;
   const toolbar = renderToolbar({
     zoom,
     pickZoom,
@@ -7548,6 +7964,7 @@ function TimelineViewBody(props) {
     calOpen,
     toggleCal: () => {
       setUnitOpen(false);
+      setBlOpen(false);
       setCalOpen(!calOpen);
     },
     calBtnRef,
@@ -7555,7 +7972,8 @@ function TimelineViewBody(props) {
     autoBtnRef,
     collapse: compact,
     summary,
-    onReschedule: openResched
+    onReschedule: openResched,
+    bl: blTool
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
@@ -7584,9 +8002,35 @@ function TimelineViewBody(props) {
     waiting: unitsEntries.some(e => e.waiting),
     onClose: closeUnits
   }) : null;
+  // Pemilih Baseline: Esc / pilih mengembalikan fokus ke tombol "Baseline"; klik luar tidak. Hanya Gantt, mesin siap.
+  const closeBl = how => {
+    setBlOpen(false);
+    const b = blBtnRef.current;
+    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+  };
+  const blPop = blOpen && ov.ready && !listMode && blTool ? /*#__PURE__*/React.createElement(BaselinePicker, {
+    items: blPickItems,
+    value: blPref,
+    onPick: setBl,
+    onClose: closeBl
+  }) : null;
   const top = /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-top"
-  }, toolbar, popover, unitPop);
+  }, toolbar, popover, unitPop, blPop);
+  const blDialog = blDlg ? /*#__PURE__*/React.createElement(SaveBaselineDialog, {
+    key: "bl" + blDlg.id,
+    units: blPage.map(x => ({
+      key: x.unit.recId,
+      label: x.label
+    })),
+    bases: blDlg.bases,
+    rev: blDlg.rev,
+    busy: blDlg.busy,
+    lockedOf: bls.lockedOf,
+    waitingOf: bls.waitingOf,
+    onSave: saveBl,
+    onCancel: cancelBl
+  }) : null;
   const dialog = pv && pv.model ? /*#__PURE__*/React.createElement(PreviewDialog, {
     key: pv.id,
     title: pv.title,
@@ -7598,7 +8042,7 @@ function TimelineViewBody(props) {
     whyOf: pv.whyOf,
     onApply: applyPv,
     onCancel: cancelPv
-  }) : null;
+  }) : blDialog;
   if (!hasRows) {
     return /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline"
@@ -7629,7 +8073,8 @@ function TimelineViewBody(props) {
     ix,
     isSel,
     ov,
-    crit
+    crit,
+    bl: blDec
   };
   return /*#__PURE__*/React.createElement("div", {
     className: cx("plg-timeline", compact && "is-compact")
@@ -9663,6 +10108,10 @@ const pure = {
   ScheduleBody,
   CalendarPopover,
   ListFallback,
+  BaselinePicker,
+  SaveBaselineDialog,
+  activeBaseline,
+  blNameOf,
   MoreMenu,
   menuAlign,
   UnitPopover,

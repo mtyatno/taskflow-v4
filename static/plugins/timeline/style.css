@@ -1757,3 +1757,79 @@
 .plg-timeline-pv-broken {
   color: var(--plg-timeline-danger);
 }
+
+/* ── 1c-2 Task 5: pemilih Baseline + dialog Simpan baseline (K41, P2 a) ──────────────────────────────────── */
+.plg-timeline-blpick {
+  width: 220px;
+  padding: 4px;
+  gap: 0;
+}
+
+.plg-timeline-bl-dlg {
+  width: 420px;
+}
+
+.plg-timeline-bl-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.plg-timeline-bl-units,
+.plg-timeline-bl-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plg-timeline-bl-opt {
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  min-height: 32px;
+  padding: 6px 10px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plg-timeline-bl-opt:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-bl-opt.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-card));
+  font-weight: 600;
+}
+
+.plg-timeline-bl-opt:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.plg-timeline-bl-opt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.plg-timeline-bl-slot-date {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-bl-name {
+  width: 100%;
+  font-size: 13px;
+}
+
+.plg-timeline-bl-confirm-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}

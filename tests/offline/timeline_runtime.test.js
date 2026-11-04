@@ -467,8 +467,9 @@ test("view nyata: lost untuk kalender aktif → toast persis lewat api.ui.toast 
   const m = mount(T.TimelineViewBody);
   let tree = m.render({ context, api });
   m.flush();
-  // dua pendengar onChange: useCalendar (entitas calendar) + useUnits (entitas project, 1c-1 R6)
-  await until(() => PS._internals.listeners.size === base + 2, "view berlangganan onChange");
+  // tiga pendengar onChange: useCalendar (entitas calendar) + useUnits (entitas project, 1c-1 R6) + useBaselines
+  // (entitas baseline, 1c-2 Task 5: satu pemuat se-scope untuk semua unit halaman)
+  await until(() => PS._internals.listeners.size === base + 3, "view berlangganan onChange");
   const bg = () => byCls(m.render({ context, api }), "plg-timeline-chart")[0].props.style.backgroundImage;
   const bgDefault = bg();
   // kalender workspace di-IndexedDB (Sabtu kerja): view memuat dari api.records nyata ketika ada perubahan lokal
