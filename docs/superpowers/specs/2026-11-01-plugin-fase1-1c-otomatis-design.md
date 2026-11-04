@@ -1,6 +1,6 @@
 # Spec turunan: Sistem Plugin Alurik — Fase 1, PR 1c (Timeline: jadwal otomatis, CPM, baseline, tracking)
 
-- **Status:** disetujui pemilik 2026-11-01 16.21 WIB — §13: Q1 (a) tiga PR 1c-0 / 1c-1 / 1c-2; Q2 (a) penerus langsung ikut bergeser + Urungkan, pratinjau bila > 20 task; Q3 (a) semua anggota yang Timeline-nya ON boleh menyalakan Otomatis, dengan keterangan "Dinyalakan oleh {nama}"; Q4 (a) sakelar per project di dalam workspace; Q5 (a) tanggal aktual tercatat otomatis dari aksi nyata, bisa diubah, tombol "Catat". PR 1c-0 diimplementasi di branch `claude/plugin-sync-ext` (lihat "Catatan implementasi PR 1c-0" setelah §6.3); 1c-1 dan 1c-2 belum.
+- **Status:** disetujui pemilik 2026-11-01 16.21 WIB — §13: Q1 (a) tiga PR 1c-0 / 1c-1 / 1c-2; Q2 (a) penerus langsung ikut bergeser + Urungkan, pratinjau bila > 20 task; Q3 (a) semua anggota yang Timeline-nya ON boleh menyalakan Otomatis, dengan keterangan "Dinyalakan oleh {nama}"; Q4 (a) sakelar per project di dalam workspace; Q5 (a) tanggal aktual tercatat otomatis dari aksi nyata, bisa diubah, tombol "Catat". PR 1c-0 diimplementasi di branch `claude/plugin-sync-ext` (lihat "Catatan implementasi PR 1c-0" setelah §6.3); 1c-0b di `claude/plugin-core-time`; 1c-1 di `claude/plugin-auto-schedule` (lihat "Catatan implementasi PR 1c-1"; P1–P3 semua (a)); 1c-2 belum.
 - **Tanggal:** 2026-11-01
 - **Agent:** Claude (Opus 5.5)
 - **Spec induk:** `docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md` (salinan Project `claude/spec-plugin-fase1-timeline-2026-10-31.md`; disetujui pemilik 2026-10-31) — terutama §2 K4–K7, K14, K15, K21; §8 (1b); **§9 "Garis besar 1c dan 1d"**; §10; §12; §13; §15. Spec ini melanjutkan penomoran keputusan induk (**K22–K44**); K1–K21 tetap berlaku kecuali disebut lain.
@@ -218,6 +218,24 @@ PR 1c-0b (branch `claude/plugin-core-time`, rencana `docs/superpowers/plans/2026
 - **Penyimpangan:** `core_updated_at` tak terbaca/tak terurai membuat klien kembali ke aturan lama (bukan menebak).
 - **Residual:** (a) quadrant pada PUT ext murni dihitung ulang dari `existing` basi (pra-1c-0, field turunan, cron memperbaiki); (b) edit inti yang dibuat saat PUT ext-only 1c-0 sedang berjalan memajukan `base_rev` tanpa mengadopsi inti server, sehingga seret oleh perangkat ketiga kemudian mencapai aturan (1) dan PUT penuh A diterapkan sebagai LWW satu record menurut urutan waktu nyata (dapat diterima); aturan (1) mengasumsikan jam server tidak mundur; ekspor `tasks.json` memuat kolom mentah (tanpa pembaca).
 - **Bug terpisah, pra-ada:** `PUT` dengan `recurrence_type` valid menghasilkan 500 (`sqlite3.Row.get`); di `main` hari ini setiap PUT penuh task berulang gagal 500. Bukan bagian PR ini; **perbaikan terpisah disarankan sebelum 1c-1**.
+
+### Catatan implementasi PR 1c-1 (2026-11-05)
+
+PR 1c-1 (branch `claude/plugin-auto-schedule`, ditumpuk di atas `claude/plugin-core-time`; rencana `docs/superpowers/plans/2026-11-01-plugin-fase1-pr-1c-1.md`; ADR-045) mengimplementasi jadwal otomatis + jalur kritis sesuai P1–P3 semua (a). 16 tugas, tiap tugas direview independen; review akhir seluruh branch + satu gelombang perbaikan. SW `taskflow-v498-jadwal-otomatis`, whatsnew non-silent (teks P1 (a) verbatim), deploy statis **tanpa restart** (K26).
+
+**Penyimpangan/amandemen terhadap spec-rencana (rincian di ADR-045):**
+- **R9 diamandemen:** semua urutan keluaran mesin memakai perbandingan unit kode UTF-16 (`TLCpm.cmpKey`), bukan `localeCompare` (urutan lokal berbeda antar perangkat).
+- **R6 diamandemen:** `Unit` membawa `fold`; pagar tabrakan hash di lookup (`TLSched.unitFor`); nama dipotong simetris 120 unit UTF-16 (`cutName`, mundur 1 bila memecah surrogate).
+- **K36 diamandemen:** milestone (d=0) yang sudah mulai tapi belum selesai mengikuti cabang belum-mulai; durasi tidak pernah ditulis untuk d=0; otomatis menulis `{constraint SNET T, start T}`.
+- **K32 dipertegas:** "berubah" = berubah akibat gestur/operasi (dibandingkan dengan hasil mesin atas data TANPA patch), bukan "berbeda dari tersimpan" — drift lama tidak pernah ikut tertulis.
+- **Satu aturan selesai pendahulu done:** `TLSched.doneFinish` (= maks(mulai, `jkt(completed_at)` ?? `fin`)) dipakai mesin DAN `violations` langkah 7 layout — selesai lebih awal tidak lagi menandai ⚠/panah merah pada tanggal yang baru ditulis mesin.
+- **R20 "aliran dari seksi" berlaku seksi-wide:** edit Mulai/Durasi/Selesai tingkat 1 pada task Manual berpenerus otomatis ikut mengalir (setMany + toast), bukan hanya kontrol Mode.
+- **Mockup R18/R21 tidak konsisten internal** ("lewat tenggat 1 hk" + "slack 0" pada satu task mustahil karena R10 menjepit LF ke tenggat): tiap string mockup dites verbatim pada fixture terpisah.
+- Nama entri pagar fence `P_TX_MULTI` (pola pemindai), bukan `P_TX` rencana.
+
+**Angka E2E (45 cek; `temporary_files/e2e_plugin_fase1_1c1.py`):** Terapkan 200 task (CPU 4×, offline) 750 ms, satu commit React (jalur lama 10,1 dtk); drain 200/50 task @RTT 150 ms = 36,3/11,1 dtk (pemicu batch generik K23 >60 dtk TIDAK terpenuhi); mesin 32,7 ms (≤40); DOM 593 diam/918 scroll (≤1.500); render awal 254,6 ms vs anggaran 150 ms = derau mesin uji (Timeline 1.0 pada data dan mesin sama 206 ms; cek 1b juga gagal di main bersih) — cek tidak diubah. Regresi: 1c0b 26/26, 1c0 40/40 (kelonggaran 8c ≤4 commit, mesin 1.1 menghitung ulang O(1)), 1a2 49/49, 1a1 45/45, 0b 36/36, 1b 60/61 (6a derau), 0a = flake pra-ada (reload `controllerchange` SW ±5,5 dtk menabrak langkah 1.1b; sama di main bersih).
+
+**Residual (lengkap di ADR-045):** jendela muat unit (gestur sebelum data unit tiba berperilaku Manual; penerus tampil sebagai drift); perangkat baru melihat semua project Manual sampai tarik records pertama (sakelar terkunci P3 (a), gestur tidak); pratinjau aliran (>20 gestur, kartu seksi) memeriksa item saja tanpa CAS unit (R14 hanya mewajibkannya untuk sakelar); ringkasan Slack = min anak yang tampil di halaman; Urungkan menulis semua kunci `before` (bisa mengembalikan edit kunci lain yang datang bersamaan — sifat undo); flush unmount seksi lewat aliran.
 
 ### 6.4 Skenario
 
