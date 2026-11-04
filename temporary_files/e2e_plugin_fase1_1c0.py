@@ -850,9 +850,10 @@ def run_setmany(browser, base, u2):
         info("8 setMany 200 (PR): commit total / saat resolve / di batch (panggilan) / di refreshTasks (panggilan)",
              [r["commits"], r["commitsAtResolve"], r["batchCommits"], r["batchCalls"], r["refreshCommits"], r["refreshCalls"]])
         outside = r["commits"] - r["refreshCommits"]
+        # ≤ 4: mesin Timeline 1.1 menghitung ulang setelah tulis (O(1), bukan per item) — setList/setFailed/setOut useEngine.
         check("8c setMany 200 item: resolve 200 baris; optimistis SATU unstable_batchedUpdates = 1 commit; satu refreshTasks; "
-              "commit di luar refreshTasks ≤ 2 (batch + toleransi 1)",
-              r["rows"] == 200 and r["batchCalls"] == 1 and r["batchCommits"] == 1 and r["refreshCalls"] == 1 and outside <= 2,
+              "commit di luar refreshTasks ≤ 4 (batch + mesin Timeline 1.1)",
+              r["rows"] == 200 and r["batchCalls"] == 1 and r["batchCommits"] == 1 and r["refreshCalls"] == 1 and outside <= 4,
               "commit total %d (refresh %d)" % (r["commits"], r["refreshCommits"]))
         check("8d setMany: IndexedDB dan state React memuat 200 nilai baru",
               all(local1.get(str(k), local1.get(k)) == v for k, v in exp.items())
