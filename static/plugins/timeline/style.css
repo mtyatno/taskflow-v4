@@ -1560,3 +1560,39 @@
     margin-left: 0;
   }
 }
+
+/* ── banner jadwal belum mutakhir / lingkaran (1c-1 R16, K35) ─────────────── */
+.plg-timeline-banners {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+}
+
+.plg-timeline-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
+}
+
+.plg-timeline-banner + .plg-timeline-banner {
+  border-top: 1px solid var(--border);
+}
+
+.plg-timeline-banner-text {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.plg-timeline-banner-close {
+  margin-left: auto;
+}
+
+.plg-timeline-pv-broken {
+  color: var(--plg-timeline-danger);
+}

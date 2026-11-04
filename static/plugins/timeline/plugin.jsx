@@ -225,6 +225,13 @@ const flowText = (n) => "Jadwal diubah · " + n + " task ikut bergeser";
 const MSG_EARLY = "Tidak bisa lebih awal dari dependensinya";
 const PV_FLOW = "Tinjau jadwal otomatis"; // judul pratinjau aliran gestur > 20 turunan (teks §7.6 yang ada)
 const partialText = (k, n) => "Sebagian jadwal gagal disimpan (" + k + " dari " + n + ")"; // k = item yang gagal
+// 1c-1 R16, R17 (K35, K36): banner drift/lingkaran, Tinjau, Jadwalkan ulang (teks persis).
+const driftText = (n) => "Jadwal otomatis belum mutakhir: " + n + " task berbeda dari hasil hitung.";
+const BANNER_REVIEW = "Tinjau";
+const BANNER_OPEN = "Buka";
+const BANNER_NAMES_MAX = 3; // R16: ≤ 3 judul + "dan {n} lainnya"
+const PV_RESCHED = "Jadwalkan ulang yang belum selesai";
+const brokenText = (n) => n + " dependensi akan dilanggar";
 const MSG_EMPTY = "Belum ada task di halaman ini";
 // Kalender kerja (R18) dan Daftar HP (R20): teks persis.
 const MSG_CAL_NOTE = "Dipakai semua anggota workspace";
@@ -397,6 +404,33 @@ function dialogModel(pm, result, wbsOf) {
     }),
   });
 }
+
+// Banner R16 (murni): drift = kunci result.drift yang ada di scopeTasks halaman (task tersaring panel tidak dihitung
+// walau ikut scope mesin); cycle = anggota lingkaran yang menyentuh halaman (seluruh anggota lingkaran itu, urutan
+// result.cycles). Teks lingkaran: ≤ 3 judul + " dan {n} lainnya".
+function bannerInfo(result, scopeTasks) {
+  if (!result || !(result.nodes instanceof Map)) return { drift: [], cycle: [], cycleText: "" };
+  const page = new Set();
+  for (const t of Array.isArray(scopeTasks) ? scopeTasks : []) if (t && t.id !== undefined && t.id !== null) page.add(String(t.id));
+  const drift = result.drift instanceof Set ? [...result.drift].filter((k) => page.has(k)) : [];
+  const cycle = [];
+  for (const c of Array.isArray(result.cycles) ? result.cycles : []) {
+    if (!c.some((k) => page.has(k))) continue;
+    for (const k of c) {
+      const n = result.nodes.get(k);
+      if (n && n.task) cycle.push(n.task);
+    }
+  }
+  const names = cycle.slice(0, BANNER_NAMES_MAX).map(taskTitle).join(", ");
+  const rest = cycle.length - BANNER_NAMES_MAX;
+  const cycleText = cycle.length ? "Dependensi melingkar: " + names + (rest > 0 ? " dan " + rest + " lainnya" : "") + " — tidak dihitung" : "";
+  return { drift, cycle, cycleText };
+}
+
+// Tutup banner per sesi (R16): Set tingkat modul berkunci page + jenis + n — bertahan saat view dipasang ulang, tampil
+// lagi bila jumlahnya berubah. Hanya memori tampilan (tidak pernah disimpan / ditulis).
+const BANNER_CLOSED = new Set();
+const bannerKey = (page, kind, n) => page + "\u0000" + kind + "\u0000" + n;
 
 // Daftar lengkap → task di scope dependensi halaman (saringan sama dengan useEngine).
 function scopeFilter(list, scopeTasks) {
@@ -930,7 +964,7 @@ function renderToolbar(v) {
   // Daftar (HP): zoom, "Hari ini", urut, dan kolom hanya berarti untuk Gantt → disembunyikan.
   const gantt = !v.listMode;
   // 1c-1 R23: Jadwal otomatis · Jalur kritis · Jadwalkan ulang — hanya saat mesin siap; ≤ 640 px / Live Edit → "Lainnya".
-  // Jalur kritis tidak di Daftar. "Jadwalkan ulang" nonaktif sampai v.onReschedule tersedia (Task 10).
+  // Jalur kritis tidak di Daftar. "Jadwalkan ulang" → v.onReschedule (Task 10; nonaktif bila tidak diberikan).
   const ac = v.engReady ? v.auto : null;
   const extras = [];
   if (ac) {
@@ -966,6 +1000,22 @@ function renderToolbar(v) {
           {sum.late > 0 ? <span className="plg-timeline-latechip">{sum.late + " lewat tenggat"}</span> : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// Banner R16 (K35, §7.3): satu baris `.plg-timeline-banner` per jenis di atas grafik (di luar header sticky):
+// teks + tombol aksi ("Tinjau" / "Buka") + Tutup (aria-label "Tutup"). items = [{k, text, action, onAction}].
+function renderBanners(items, onClose) {
+  return (
+    <div className="plg-timeline-banners">
+      {items.map((b) => (
+        <div key={b.k} className="plg-timeline-banner" role="status">
+          <span className="plg-timeline-banner-text">{b.text}</span>
+          <button type="button" className="plg-timeline-btn plg-timeline-banner-act" onClick={b.onAction}>{b.action}</button>
+          <button type="button" className="plg-timeline-pop-close plg-timeline-banner-close" aria-label="Tutup" onClick={() => onClose(b.k)}>×</button>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1621,6 +1671,9 @@ function PreviewDialog(props) {
     return arr.map((p, i) => (p && typeof p === "object" ? <strong key={i}>{p.b}</strong> : <span key={i}>{String(p)}</span>));
   };
   const canWhy = typeof props.whyOf === "function";
+  // "{n} dependensi akan dilanggar": Jadwalkan ulang memberi `broken` = reschedule().broken (pelanggaran baru, penerus
+  // Manual); pratinjau lain memakai model.brokenDeps (terfilter jangkauan) — keputusan T4.
+  const broken = Number.isInteger(props.broken) ? props.broken : Number.isInteger(model.brokenDeps) ? model.brokenDeps : 0;
   return (
     <div className="plg-timeline-pv-backdrop">
       <div className="plg-timeline-pv" role="dialog" aria-modal="true" aria-label={props.title} tabIndex={-1} ref={rootRef}>
@@ -1630,6 +1683,7 @@ function PreviewDialog(props) {
         {props.todayLabel ? <p className="plg-timeline-pop-note plg-timeline-pv-today">{"Hari ini: " + props.todayLabel}</p> : null}
         {props.offline ? <p className="plg-timeline-pop-note plg-timeline-pv-offline" role="note">{MSG_OFFLINE}</p> : null}
         <p className="plg-timeline-pv-summary">{parts.join(" · ")}</p>
+        {broken > 0 ? <p className="plg-timeline-pop-note plg-timeline-pv-broken" role="note">{brokenText(broken)}</p> : null}
         <ul className="plg-timeline-pv-list">
           {shown.map((r) => {
             const main = [label(r), (r.from ? dayText(r.from) : "—") + " → " + (r.to ? dayText(r.to) : "—")];
@@ -2721,6 +2775,78 @@ function TimelineViewBody(props) {
     setPv(next);
   };
   ctl.cur.openPreview = openFlowPv;
+  // Buka pratinjau milik view (Task 10) bila belum ada dialog; popover lain ditutup (satu Esc = dialog saja).
+  const openPv = (spec) => {
+    if (pvRef.current) return;
+    setUnitOpen(false);
+    setCalOpen(false);
+    const next = Object.assign({ id: ++pvSeq.current, busy: false }, spec);
+    pvRef.current = next;
+    setPv(next);
+  };
+  // Task 10 (R16): "Tinjau" — item = TLPlan.diff dibatasi drift halaman (bannerInfo). Menulis Mulai = ES tidak mengubah
+  // hasil mesin (simpul otomatis non-jangkar), jadi "sebelum" = "sesudah" = result: tanpa run tambahan, tanpa pelanggaran
+  // baru. Hitung ulang setelah CAS: mesin dijalankan atas data terbaru (drift lama tidak dipakai).
+  const buildReview = (ctx, result) => {
+    const keys = new Set(bannerInfo(result, context.scopeTasks).drift);
+    const items = flowItems(TLPlan.diff(result, ctx, keys));
+    const pm = TLPlan.preview(items, result, ctx, result);
+    return { items, model: pm ? dialogModel(pm, result, wbsOfPage()) : EMPTY_PV_MODEL };
+  };
+  const openReview = () => {
+    const e = engRef.current;
+    if (e.status !== "ready" || !e.ctx || !e.result) return;
+    const b = buildReview(e.ctx, e.result);
+    openPv({ title: PV_FLOW, items: b.items, model: b.model, rebuild: (ctx2) => buildReview(ctx2, engine.run(ctx2)) });
+  };
+  // Task 10 (R17, K36): Jadwalkan ulang — T = nextWork(dn(hari ini)) menurut kalender unit (eng.ctx.cal), unitKeys =
+  // unit halaman (pageUnits). Selalu pratinjau, juga 0 item (Terapkan nonaktif). Teks pelanggaran memakai
+  // reschedule().broken (bukan preview.brokenDeps). Hitung ulang setelah CAS memakai T yang sama atas data terbaru.
+  const buildResched = (ctx, before, T, unitKeys) => {
+    const r = TLPlan.reschedule(ctx, before, T, unitKeys);
+    const items = flowItems(r.items);
+    const pm = r.result ? TLPlan.preview(items, r.result, ctx, before) : null;
+    return { items, broken: r.broken, model: pm ? dialogModel(pm, r.result, wbsOfPage()) : EMPTY_PV_MODEL };
+  };
+  const openResched = () => {
+    const e = engRef.current;
+    const td = today ? TLCal.dn(today) : null;
+    if (e.status !== "ready" || !e.ctx || !e.result || td === null) return;
+    let T = null;
+    try {
+      T = TLCal.nextWork(e.ctx.cal, td);
+    } catch (err) {
+      logWarn(api, "hari kerja berikutnya tidak ditemukan:", err); // TL_CAL_LOOP: kalender tanpa hari kerja
+      return;
+    }
+    const unitKeys = new Set(pageUnits(lay, pageKind, context.projectName, groupNames).map((x) => x.unit.recId));
+    const b = buildResched(e.ctx, e.result, T, unitKeys);
+    openPv({
+      title: PV_RESCHED, items: b.items, model: b.model, broken: b.broken, todayLabel: TLCal.fmtShort(td),
+      rebuild: (ctx2) => buildResched(ctx2, engine.run(ctx2), T, unitKeys),
+    });
+  };
+  // Banner R16: dihitung sekali per hasil mesin / scopeTasks (bukan tiap render); disembunyikan sebelum mesin siap.
+  const banner = React.useMemo(() => bannerInfo(engResult, context.scopeTasks), [engResult, context.scopeTasks]);
+  const [, setClosed] = React.useState(0);
+  const closeBanner = (k) => {
+    BANNER_CLOSED.add(k);
+    setClosed((x) => x + 1);
+  };
+  const banners = [];
+  if (engResult && banner.drift.length) {
+    const k = bannerKey(page, "drift", banner.drift.length);
+    if (!BANNER_CLOSED.has(k)) banners.push({ k, text: driftText(banner.drift.length), action: BANNER_REVIEW, onAction: openReview });
+  }
+  if (engResult && banner.cycle.length) {
+    const k = bannerKey(page, "cycle", banner.cycle.length);
+    const first = banner.cycle[0];
+    const open = () => {
+      if (typeof context.onTaskClick === "function") context.onTaskClick(first);
+    };
+    if (!BANNER_CLOSED.has(k)) banners.push({ k, text: banner.cycleText, action: BANNER_OPEN, onAction: open });
+  }
+  const bannerEl = banners.length ? renderBanners(banners, closeBanner) : null;
   // Terapkan (R14): muat ulang daftar lengkap (+ unit) → TLPlan.revalidate (nilai mentah) dan, untuk sakelar, potret
   // updatedAt/by unit. Berbeda → toast + hitung ulang dari data terbaru (Terapkan perlu ditekan lagi), 0 tulis.
   const applyPv = () => {
@@ -2776,7 +2902,7 @@ function TimelineViewBody(props) {
   const toolbar = renderToolbar({
     zoom, pickZoom, goToday, sort, setSort, compact, cols, setCols, narrow, mode, setMode, listMode,
     engReady: ov.ready, crit, setCrit, calOpen, toggleCal: () => { setUnitOpen(false); setCalOpen(!calOpen); }, calBtnRef,
-    auto, autoBtnRef, collapse: compact, summary,
+    auto, autoBtnRef, collapse: compact, summary, onReschedule: openResched,
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
@@ -2799,7 +2925,7 @@ function TimelineViewBody(props) {
     : null;
   const top = <div className="plg-timeline-top">{toolbar}{popover}{unitPop}</div>;
   const dialog = pv && pv.model
-    ? <PreviewDialog key={pv.id} title={pv.title} model={pv.model} offline={offline} todayLabel={pv.todayLabel} busy={pv.busy} whyOf={pv.whyOf} onApply={applyPv} onCancel={cancelPv} />
+    ? <PreviewDialog key={pv.id} title={pv.title} model={pv.model} offline={offline} todayLabel={pv.todayLabel} broken={pv.broken} busy={pv.busy} whyOf={pv.whyOf} onApply={applyPv} onCancel={cancelPv} />
     : null;
 
   if (!hasRows) {
@@ -2815,6 +2941,7 @@ function TimelineViewBody(props) {
     return (
       <div className="plg-timeline">
         {top}
+        {bannerEl}
         {ListFallback({ rows: lay.rows, cal: lay.cal, onTaskClick: context.onTaskClick })}
         {dialog}
       </div>
@@ -2824,6 +2951,7 @@ function TimelineViewBody(props) {
   return (
     <div className={cx("plg-timeline", compact && "is-compact")}>
       {top}
+      {bannerEl}
       <div className="plg-timeline-scroll" ref={scrollRef} onScroll={onScroll} role="grid" aria-label="Timeline" aria-rowcount={lay.rows.length + 1}
         style={{ height: vp.boxH }}>
         {renderHead(v)}

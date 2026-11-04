@@ -3282,7 +3282,7 @@ async function swView(clock, o) {
   const opt = o || {};
   const fr = opt.records || fakeRecords();
   let list = opt.tasks || chainTasks();
-  const { api, calls } = fakeApi({ records: fr });
+  const { api, calls } = fakeApi({ records: fr, today: opt.today });
   api.env.userId = 7;
   api.data = { tasks: { list: () => Promise.resolve(opt.listOf ? opt.listOf() : list) } };
   const log = [];
@@ -4205,3 +4205,236 @@ test("fix T9: Urungkan gestur antre di belakang tulis yang sedang berjalan (task
   await settle2();
   h.m.unmount();
 }));
+
+// ── Task 10: banner jadwal belum mutakhir dan lingkaran (R16), Tinjau, Jadwalkan ulang (R17) ──
+const bannersOf = (tree) => byCls(tree, "plg-timeline-banner");
+const bannerText = (b) => txt(byCls(b, "plg-timeline-banner-text")[0]).trim();
+const bannerBtn = (b, t) => nodes(b, (n) => n.type === "button" && (txt(n).trim() === t || n.props["aria-label"] === t))[0];
+const driftTasks = () => [...chainTasks(), mk(5, "E", { start: "2026-11-02", duration: 1, deps: fsDep(4) }, AL)];
+const autoRecs = () => {
+  const fr = fakeRecords();
+  putRec(fr, unitRec(null, "Alpha"));
+  return fr;
+};
+const MSG_DRIFT4 = "Jadwal otomatis belum mutakhir: 4 task berbeda dari hasil hitung.";
+
+test("drift 4 task di halaman → banner 'Jadwal otomatis belum mutakhir: 4 task berbeda dari hasil hitung.' + 'Tinjau' → dialog 'Tinjau jadwal otomatis' berisi 4 item; Terapkan = satu setMany", () => withEngineClock(async (clock) => {
+  const h = await swView(clock, { records: autoRecs(), tasks: driftTasks() });
+  const bs = bannersOf(h.tree);
+  assert.equal(bs.length, 1, "satu banner (tanpa lingkaran)");
+  assert.equal(bannerText(bs[0]), MSG_DRIFT4);
+  assert.deepEqual(h.writes(), [], "banner tidak menulis");
+  bannerBtn(bs[0], "Tinjau").props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  assert.ok(dlg, "pratinjau terbuka");
+  assert.equal(dlg.props.title, "Tinjau jadwal otomatis");
+  assert.deepEqual(dlg.props.model.rows.map((r) => [r.key, r.from, r.to]), [
+    ["2", "2026-11-02", "2026-11-04"], ["3", "2026-11-02", "2026-11-05"], ["4", "2026-11-02", "2026-11-06"], ["5", "2026-11-02", "2026-11-09"],
+  ]);
+  assert.equal(dlg.props.todayLabel, undefined, "Hari ini hanya untuk Jadwalkan ulang");
+  assert.deepEqual(h.writes(), [], "0 tulis saat dibuka");
+  dlg.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), [["setMany", [
+    { taskId: 2, patch: { start: "2026-11-04" } }, { taskId: 3, patch: { start: "2026-11-05" } },
+    { taskId: 4, patch: { start: "2026-11-06" } }, { taskId: 5, patch: { start: "2026-11-09" } },
+  ]]], "satu setMany lewat applyPlan");
+  assert.ok(h.calls.toast.find((t) => t[0] === "Jadwal diterapkan · 4 task" && t[1] === "success"));
+  h.m.unmount();
+}));
+
+test("drift di luar halaman (task tersaring panel tetapi di scope) tidak dihitung; banner tidak tampil saat loading", () => withEngineClock(async (clock) => {
+  // loading: render pertama (mesin belum jalan) → tanpa banner
+  {
+    const { api } = fakeApi({ records: autoRecs() });
+    api.data = { tasks: { list: () => Promise.resolve(driftTasks()) } };
+    const m = mount(T.TimelineViewBody);
+    const props = { context: ctxOf(driftTasks()).ctx, api };
+    assert.equal(bannersOf(m.render(props)).length, 0);
+    m.flush();
+    await settle();
+    assert.equal(bannersOf(m.render(props)).length, 0, "daftar dimuat, mesin belum jalan → tetap tanpa banner");
+    m.unmount();
+  }
+  // C (id 3) tersaring panel: tetap di daftar lengkap/scope mesin, tetapi tidak dihitung di banner maupun Tinjau
+  const all = driftTasks();
+  const h = await swView(clock, { records: autoRecs(), tasks: all, ctx: { scopeTasks: all.filter((t) => t.id !== 3) } });
+  const bs = bannersOf(h.tree);
+  assert.equal(bs.length, 1);
+  assert.equal(bannerText(bs[0]), "Jadwal otomatis belum mutakhir: 3 task berbeda dari hasil hitung.");
+  bannerBtn(bs[0], "Tinjau").props.onClick({});
+  await settle();
+  assert.deepEqual(dialogOf(h.render()).props.model.rows.map((r) => r.key), ["2", "4", "5"]);
+  h.m.unmount();
+  // tanpa drift (unit Manual) → tanpa banner
+  const n = await swView(clock, { tasks: driftTasks() });
+  assert.equal(bannersOf(n.tree).length, 0);
+  n.m.unmount();
+}));
+
+const cycleTasks = (n) => {
+  const ids = Array.from({ length: n }, (_, i) => i + 1);
+  return ids.map((id) => mk(id, String.fromCharCode(64 + id), { start: "2026-11-0" + (1 + id), duration: 1, deps: fsDep(id === 1 ? n : id - 1) }, AL));
+};
+
+test("lingkaran A↔B → 'Dependensi melingkar: A, B — tidak dihitung' + 'Buka' → onTaskClick(A)", () => withEngineClock(async (clock) => {
+  const clicked = [];
+  const h = await swView(clock, { tasks: cycleTasks(2), ctx: { page: "proj_Cyc2", onTaskClick: (t) => clicked.push(t) } });
+  const bs = bannersOf(h.tree);
+  assert.equal(bs.length, 1);
+  assert.equal(bannerText(bs[0]), "Dependensi melingkar: A, B — tidak dihitung");
+  bannerBtn(bs[0], "Buka").props.onClick({});
+  assert.deepEqual(clicked.map((t) => t.id), [1]);
+  assert.deepEqual(h.writes(), []);
+  h.m.unmount();
+  // > 3 anggota → 3 judul + "dan {n} lainnya"
+  const f = await swView(clock, { tasks: cycleTasks(5), ctx: { page: "proj_Cyc5" } });
+  assert.equal(bannerText(bannersOf(f.tree)[0]), "Dependensi melingkar: A, B, C dan 2 lainnya — tidak dihitung");
+  f.m.unmount();
+}));
+
+test("Tutup → tidak tampil lagi sampai jumlah berubah, termasuk setelah view dipasang ulang (Set modul)", () => withEngineClock(async (clock) => {
+  const page = { page: "proj_Tutup" };
+  const h = await swView(clock, { tasks: cycleTasks(2), ctx: page });
+  const close = bannerBtn(bannersOf(h.tree)[0], "Tutup");
+  assert.equal(close.props["aria-label"], "Tutup");
+  close.props.onClick({});
+  assert.equal(bannersOf(h.render()).length, 0, "tertutup");
+  h.m.unmount();
+  const again = await swView(clock, { tasks: cycleTasks(2), ctx: page });
+  assert.equal(bannersOf(again.tree).length, 0, "pasang ulang: tetap tertutup");
+  again.m.unmount();
+  const other = await swView(clock, { tasks: cycleTasks(2), ctx: { page: "proj_Lain" } });
+  assert.equal(bannersOf(other.tree).length, 1, "halaman lain tidak ikut tertutup");
+  other.m.unmount();
+  const more = await swView(clock, { tasks: cycleTasks(3), ctx: page });
+  assert.equal(bannerText(bannersOf(more.tree)[0]), "Dependensi melingkar: A, B, C — tidak dihitung", "jumlah berubah → tampil lagi");
+  more.m.unmount();
+  // drift: Tutup per jenis + n
+  const d = await swView(clock, { records: autoRecs(), tasks: driftTasks(), ctx: page });
+  bannerBtn(bannersOf(d.tree)[0], "Tutup").props.onClick({});
+  assert.equal(bannersOf(d.render()).length, 0);
+  d.m.unmount();
+  const d2 = await swView(clock, { records: autoRecs(), tasks: driftTasks(), ctx: page });
+  assert.equal(bannersOf(d2.tree).length, 0);
+  d2.m.unmount();
+  const d3 = await swView(clock, { records: autoRecs(), tasks: chainTasks(), ctx: page });
+  assert.equal(bannerText(bannersOf(d3.tree)[0]), "Jadwal otomatis belum mutakhir: 3 task berbeda dari hasil hitung.");
+  d3.m.unmount();
+}));
+
+const SAT = "2026-11-07"; // Sabtu → T = Senin 9 Nov
+const reschedBtn = (tree) => buttonByText(tree, "Jadwalkan ulang");
+const pvTexts = (dlg, cls) => byCls(child(dlg), cls).map((n) => txt(n).trim());
+
+test("Jadwalkan ulang (today 2026-11-07 Sabtu → T Sen 9 Nov): dialog 'Jadwalkan ulang yang belum selesai' + 'Hari ini: Sab 7 Nov'; unit otomatis → SNET T + penerus; unit Manual → start T + '{n} dependensi akan dilanggar'; 0 item → Terapkan nonaktif", () => withEngineClock(async (clock) => {
+  // unit otomatis: A (Jum 6, 2 hk) belum mulai, ES < T → SNET T (+ start T); B (ES Sel 10 ≥ T) hanya mengalir → Rab 11
+  const autoT = [mk(1, "A", { start: "2026-11-06", duration: 2 }, AL), mk(2, "B", { start: "2026-11-10", duration: 1, deps: fsDep(1) }, AL)];
+  const h = await swView(clock, { records: autoRecs(), tasks: autoT, today: SAT });
+  const btn = reschedBtn(h.tree);
+  assert.ok(btn && !btn.props.disabled, "tombol aktif");
+  btn.props.onClick({});
+  await settle();
+  let dlg = dialogOf(h.render());
+  assert.equal(dlg.props.title, "Jadwalkan ulang yang belum selesai");
+  assert.equal(dlg.props.todayLabel, "Sab 7 Nov");
+  assert.deepEqual(pvTexts(dlg, "plg-timeline-pv-today"), ["Hari ini: Sab 7 Nov"]);
+  assert.deepEqual(dlg.props.model.rows.map((r) => [r.key, r.from, r.to]), [["1", "2026-11-06", "2026-11-09"], ["2", "2026-11-10", "2026-11-11"]]);
+  assert.deepEqual(pvTexts(dlg, "plg-timeline-pv-broken"), [], "tanpa pelanggaran");
+  assert.deepEqual(h.writes(), []);
+  dlg.props.onCancel();
+  assert.equal(dialogOf(h.render()), undefined);
+  reschedBtn(h.tree).props.onClick({});
+  await settle();
+  dialogOf(h.render()).props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), [["setMany", [
+    { taskId: 1, patch: { constraint: { type: "SNET", date: "2026-11-09" }, start: "2026-11-09" } },
+    { taskId: 2, patch: { start: "2026-11-11" } },
+  ]]]);
+  h.m.unmount();
+  // unit Manual: semua yang lewat → start T; penerus tidak dipindah → 2 dependensi dilanggar (reschedule().broken)
+  const manT = [
+    mk(1, "A", { start: "2026-11-02", duration: 2 }, AL),
+    mk(2, "B", { start: "2026-11-04", duration: 1, deps: fsDep(1) }, AL),
+    mk(3, "C", { start: "2026-11-05", duration: 1, deps: fsDep(2) }, AL),
+    mk(4, "D", { start: "2026-11-20", duration: 1 }, AL),
+  ];
+  const m = await swView(clock, { tasks: manT, today: SAT });
+  reschedBtn(m.tree).props.onClick({});
+  await settle();
+  dlg = dialogOf(m.render());
+  assert.deepEqual(dlg.props.model.rows.map((r) => [r.key, r.to]), [["1", "2026-11-09"], ["2", "2026-11-09"], ["3", "2026-11-09"]]);
+  assert.equal(dlg.props.broken, 2);
+  assert.deepEqual(pvTexts(dlg, "plg-timeline-pv-broken"), ["2 dependensi akan dilanggar"]);
+  assert.deepEqual(m.writes(), []);
+  m.m.unmount();
+  // 0 item → dialog tetap dibuka, Terapkan nonaktif, 0 tulis
+  const z = await swView(clock, { records: autoRecs(), tasks: [mk(1, "A", { start: "2026-11-10", duration: 1 }, AL)], today: SAT });
+  reschedBtn(z.tree).props.onClick({});
+  await settle();
+  dlg = dialogOf(z.render());
+  assert.ok(dlg, "selalu pratinjau (R17)");
+  assert.equal(dlg.props.model.rows.length, 0);
+  const apply = nodes(child(dlg), (n) => n.type === "button" && txt(n).trim() === "Terapkan")[0];
+  assert.equal(apply.props.disabled, true);
+  assert.deepEqual(z.writes(), []);
+  z.m.unmount();
+}));
+
+test("0 tulisan sampai Terapkan; Batal → 0", () => withEngineClock(async (clock) => {
+  const h = await swView(clock, { records: autoRecs(), tasks: driftTasks(), today: SAT });
+  // Tinjau → Batal
+  bannerBtn(bannersOf(h.tree)[0], "Tinjau").props.onClick({});
+  await settle();
+  dialogOf(h.render()).props.onCancel();
+  assert.equal(dialogOf(h.render()), undefined);
+  // Jadwalkan ulang → Batal
+  reschedBtn(h.tree).props.onClick({});
+  await settle();
+  assert.ok(dialogOf(h.render()));
+  dialogOf(h.render()).props.onCancel();
+  await settle();
+  await h.again();
+  assert.deepEqual(h.writes(), [], "0 tulis");
+  assert.deepEqual(h.calls.toast, []);
+  h.m.unmount();
+}));
+
+test("CAS Jadwalkan ulang: data berubah sebelum Terapkan → toast persis, 0 tulis, dihitung ulang dengan T yang sama", () => withEngineClock(async (clock) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 1 }, AL), mk(2, "B", { start: "2026-11-03", duration: 1 }, AL)];
+  const h = await swView(clock, { tasks, today: SAT });
+  reschedBtn(h.tree).props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  assert.deepEqual(dlg.props.model.rows.map((r) => r.key), ["1", "2"]);
+  h.setList([tasks[0], mk(2, "B", { start: "2026-11-12", duration: 1 }, AL)]); // sinkron memindah B ke depan T
+  dlg.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), []);
+  assert.deepEqual(h.calls.toast.map((t) => t.slice(0, 2)), [[MSG_STALE, "error"]]);
+  const again = dialogOf(h.render());
+  assert.deepEqual(again.props.model.rows.map((r) => [r.key, r.to]), [["1", "2026-11-09"]]);
+  assert.equal(again.props.todayLabel, "Sab 7 Nov");
+  again.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), [["setMany", [{ taskId: 1, patch: { start: "2026-11-09" } }]]]);
+  h.m.unmount();
+}));
+
+test("sumber Task 10: teks persis (R16, R17) dan CSS banner hanya token tema", () => {
+  const src = fs.readFileSync(path.join(dir, "plugin.jsx"), "utf8");
+  for (const s of ["Jadwal otomatis belum mutakhir: ", " task berbeda dari hasil hitung.", "Tinjau", "Dependensi melingkar: ", " — tidak dihitung", " lainnya",
+    "Buka", "Jadwalkan ulang yang belum selesai", " dependensi akan dilanggar"]) {
+    assert.ok(src.includes(s), s);
+  }
+  const css = fs.readFileSync(path.join(dir, "style.css"), "utf8");
+  const block = css.slice(css.indexOf(".plg-timeline-banner"));
+  assert.ok(css.includes(".plg-timeline-banner"), "kelas banner");
+  assert.ok(!/#[0-9a-f]{3,8}\b|rgb\(|hsl\(/i.test(block.slice(0, block.indexOf("/* ──", 10) > 0 ? block.indexOf("/* ──", 10) : block.length)), "tanpa warna tetap");
+});
