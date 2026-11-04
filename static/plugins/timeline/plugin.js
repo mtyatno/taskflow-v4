@@ -421,8 +421,9 @@ const TLCal = (function (H) {
 })(typeof TLHolidays !== "undefined" ? TLHolidays : require("./holidays-id.js"));
 if (typeof module !== "undefined" && module.exports) module.exports = TLCal;
 // part: schedule.js
-// Plugin Timeline — TLSched: baca/validasi ext jadwal task, dependensi FS, siklus, pelanggaran, tenggat
-// (spec §8.2/§8.7, rencana R2, R3, R7, R8, R15, R16). Murni: tanpa Date lokal, tanpa global, tanpa akses api.
+// Plugin Timeline — TLSched: baca/validasi ext jadwal task, dependensi FS/SS/FF/SF, mode, batasan, unit jadwal,
+// siklus, pelanggaran, tenggat (spec 1b §8.2/§8.7, rencana 1b R2, R3, R7, R8, R15, R16; spec 1c §4–§5, rencana 1c-1 R3–R5).
+// Murni: tanpa Date lokal, tanpa global, tanpa akses api.
 // Semua nilai yang diteruskan ke TLCal dijamin integer / bilangan hari sah (TLCal tidak menjaga NaN).
 // Fungsi yang memanggil TLCal.finish/addWork/nextWork/fsEarliest menangkap Error("TL_CAL_LOOP") dan menurun
 // (hasil "tidak terhitung": tanpa selesai → tanpa pelanggaran/keterlambatan), tidak melempar.
@@ -432,6 +433,11 @@ const TLSched = (function (CAL) {
   const LAG_MIN = -99;
   const LAG_MAX = 999;
   const MAX_LATE_SPAN = 3660; // hari kalender maks yang dihitung deadlineLate
+  const TYPES = Object.freeze(["FS", "SS", "FF", "SF"]);
+  const CONSTRAINT_TYPES = Object.freeze(["SNET", "MFO"]);
+  const MODES = ["auto", "manual"];
+  const YEAR_MIN = 1970;
+  const YEAR_MAX = 2199;
 
   const isInt = (n) => typeof n === "number" && Number.isInteger(n);
   const isObj = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
@@ -460,13 +466,28 @@ const TLSched = (function (CAL) {
     if (!isObj(raw)) return null;
     const key = refKey(raw.t);
     if (key === null) return null;
-    if (raw.type !== "FS") return null;
+    // type tidak ada = FS (bentuk 1b); tipe di luar TYPES → tidak sah (dihitung invalidDeps oleh pemanggil)
+    const type = raw.type === undefined ? "FS" : raw.type;
+    if (TYPES.indexOf(type) < 0) return null;
     const lag = raw.lag === undefined ? 0 : raw.lag;
     if (!isInt(lag) || lag < LAG_MIN || lag > LAG_MAX) return null;
-    return { key, ref: { $task: raw.t.$task }, type: "FS", lag };
+    return { key, ref: { $task: raw.t.$task }, type, lag };
   }
 
-  // Masukan = hasil api.taskExt.read (kunci tanpa prefiks: start, duration, deps).
+  // Tanggal batasan: ISO sah dengan tahun 1970–2199 (R3).
+  function isConstraintDate(s) {
+    if (typeof s !== "string" || !CAL.isIso(s)) return false;
+    const y = +s.slice(0, 4);
+    return y >= YEAR_MIN && y <= YEAR_MAX;
+  }
+
+  // {type: SNET|MFO, date} bersih, atau null (rusak → ASAP).
+  function readConstraint(v) {
+    if (!isObj(v) || CONSTRAINT_TYPES.indexOf(v.type) < 0 || !isConstraintDate(v.date)) return null;
+    return { type: v.type, date: v.date };
+  }
+
+  // Masukan = hasil api.taskExt.read (kunci tanpa prefiks: start, duration, deps, mode, constraint).
   function readSched(extObj) {
     const src = isObj(extObj) ? extObj : {};
     const start = typeof src.start === "string" && CAL.isIso(src.start) ? src.start : null;
@@ -490,7 +511,9 @@ const TLSched = (function (CAL) {
         }
       }
     }
-    return { start, duration, deps, invalidDeps };
+    const mode = MODES.indexOf(src.mode) >= 0 ? src.mode : null;
+    const constraint = readConstraint(src.constraint);
+    return { start, duration, deps, invalidDeps, mode, constraint };
   }
 
   // ---- tulis ext: validasi + jepit (R7) ----
@@ -508,12 +531,13 @@ const TLSched = (function (CAL) {
       const t = raw.t !== undefined ? raw.t : raw.ref; // bentuk ext atau bentuk hasil readSched
       const key = refKey(t);
       if (key === null || seen.has(key)) return { ok: false, reason: "dep" };
-      if (raw.type !== undefined && raw.type !== "FS") return { ok: false, reason: "dep" };
+      const type = raw.type === undefined ? "FS" : raw.type;
+      if (TYPES.indexOf(type) < 0) return { ok: false, reason: "dep" };
       let lag = raw.lag === undefined ? 0 : raw.lag;
       if (typeof lag !== "number" || !Number.isFinite(lag)) return { ok: false, reason: "dep" };
       lag = clampInt(lag, LAG_MIN, LAG_MAX);
       seen.add(key);
-      out.push({ t: { $task: t.$task }, type: "FS", lag });
+      out.push({ t: { $task: t.$task }, type, lag });
     }
     return { ok: true, deps: out };
   }
@@ -540,7 +564,18 @@ const TLSched = (function (CAL) {
         const r = sanitizeDeps(v);
         if (!r.ok) return r;
         patch.deps = r.deps;
-      } else return { ok: false, reason: "key" };
+      } else if (k === "mode") {
+        // null = hapus kunci (ikut unit); pemanggil menulis null bila pilihan sama dengan unit (TLPlan.modePatch)
+        if (v !== null && MODES.indexOf(v) < 0) return { ok: false, reason: "mode" };
+        patch.mode = v;
+      } else if (k === "constraint") {
+        if (v === null) patch.constraint = null;
+        else {
+          const cst = readConstraint(v);
+          if (!cst) return { ok: false, reason: "constraint" };
+          patch.constraint = cst;
+        }
+      } else return { ok: false, reason: "key" }; // termasuk "actual" (1c-2)
     }
     return { ok: true, patch };
   }
@@ -588,6 +623,46 @@ const TLSched = (function (CAL) {
     return "p:" + projectFold(t && typeof t === "object" ? t.project : null);
   }
 
+  // ---- unit jadwal (R5) ----
+  // FNV-1a 32 bit atas unit kode UTF-16 → 8 hex huruf kecil.
+  function fnv1a32(str) {
+    const s = String(str === undefined || str === null ? "" : str);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(16).padStart(8, "0");
+  }
+
+  // x = task ({list_id, project}) atau halaman ({pageKind, listId, projectName}). SATU-SATUNYA pembuat id record
+  // `project`: workspace → "prj@list:<lid>:<h|->" (scope "list:<lid>"); pribadi → "prj@user:<h|->" (scope "user").
+  // <h> = fnv1a32(projectFold(nama)); nama kosong → "-". lid divalidasi calTarget → id selalu cocok pola README.
+  function unitOf(x) {
+    const o = isObj(x) ? x : {};
+    const page = o.pageKind !== undefined || o.listId !== undefined || o.projectName !== undefined;
+    const lid = page ? o.listId : o.list_id;
+    const raw = page ? o.projectName : o.project;
+    const name = raw === undefined || raw === null ? "" : String(raw);
+    const fold = projectFold(name);
+    const tail = fold ? fnv1a32(fold) : "-";
+    const cal = calTarget(lid);
+    if (cal.scope === "user") {
+      const recId = "prj@user:" + tail;
+      return { key: recId, recId, scope: "user", name, fold };
+    }
+    const recId = "prj@" + cal.scope + ":" + tail;
+    return { key: recId, recId, scope: cal.scope, name, fold };
+  }
+
+  // Mode efektif: ext.mode (raw ext atau hasil readSched) menang; selain itu unit (Map<recId, {auto}>) → auto/manual.
+  function modeOf(raw, units, task) {
+    const m = isObj(raw) ? raw.mode : undefined;
+    if (MODES.indexOf(m) >= 0) return m;
+    const u = units instanceof Map ? units.get(unitOf(task).recId) : null;
+    return u && u.auto === true ? "auto" : "manual";
+  }
+
   // ---- rentang hari ----
   function spanOf(c, sched) {
     if (!sched || typeof sched !== "object" || typeof sched.start !== "string") return null;
@@ -623,7 +698,7 @@ const TLSched = (function (CAL) {
         const pair = from + "\u0000" + to;
         if (seen.has(pair)) continue;
         seen.add(pair);
-        out.push({ from, to, lag: d.lag, ok: found });
+        out.push({ from, to, type: TYPES.indexOf(d.type) >= 0 ? d.type : "FS", lag: d.lag, ok: found });
       }
     }
     return out;
@@ -712,40 +787,127 @@ const TLSched = (function (CAL) {
     return sp && Number.isInteger(sp.s) && Number.isInteger(sp.f) ? sp : null;
   };
 
-  // Set kunci penerus yang mulai sebelum fsEarliest(selesai pendahulu, lag); .detail = [{succ, pred, earliest}].
-  // Dependensi tidak memindahkan task (Manual). Tanpa jadwal / tak terpecahkan / kalender buntu → diabaikan.
+  // ---- rumus dependensi bersama (R4, spec 1c §5.3/§5.4) — satu sumber untuk mesin, penanda Manual, dan
+  // "Geser ke setelah dependensi". Semua kalender lewat safe(): TL_CAL_LOOP / masukan tak sah → undefined.
+  const isDn = (n) => Number.isInteger(n);
+  const isDur = (d) => isInt(d) && d >= 0 && d <= DUR_MAX;
+  const typeOf = (t) => (t === undefined || t === null ? "FS" : TYPES.indexOf(t) >= 0 ? t : null);
+
+  // Selesai dari mulai: d = 0 → s; selain itu add(nw(s), d − 1).
+  function fin(c, s, d) {
+    if (!isDn(s) || !isDur(d)) return undefined;
+    return safe(() => (d === 0 ? s : CAL.addWork(c, CAL.nextWork(c, s), d - 1)));
+  }
+
+  // Mulai dari selesai: d = 0 → f; selain itu add(pw(f), −(d − 1)).
+  function sff(c, f, d) {
+    if (!isDn(f) || !isDur(d)) return undefined;
+    return safe(() => (d === 0 ? f : CAL.addWork(c, CAL.prevWork(c, f), -(d - 1))));
+  }
+
+  // ES terkecil penerus berdurasi d dari pendahulu (pES, pEF) lewat dependensi `type` dengan lag (§5.3).
+  // Hasil belum dijepret nw untuk d ≥ 1 kecuali yang rumusnya sudah hari kerja (pemanggil: ES = nw(ES) bila d ≥ 1).
+  function depReq(c, type, pES, pEF, lag, d) {
+    const t = typeOf(type);
+    if (t === null || !isDur(d)) return undefined;
+    const L = lagOf(lag);
+    if (t === "FS") return isDn(pEF) ? safe(() => CAL.addWork(c, CAL.nextWork(c, pEF + 1), L)) : undefined;
+    if (t === "SS") return isDn(pES) ? safe(() => CAL.addWork(c, CAL.nextWork(c, pES), L)) : undefined;
+    let e;
+    if (t === "FF") {
+      if (!isDn(pEF)) return undefined;
+      e = safe(() => CAL.addWork(c, pEF, L));
+    } else {
+      if (!isDn(pES)) return undefined;
+      e = safe(() => CAL.addWork(c, CAL.prevWork(c, pES - 1), L));
+    }
+    if (!isDn(e)) return undefined;
+    if (d >= 1) e = safe(() => CAL.nextWork(c, e));
+    return isDn(e) ? sff(c, e, d) : undefined;
+  }
+
+  // Batas LF pendahulu berdurasi dP dari penerus (sLS, sLF) lewat dependensi `type` dengan lag (§5.4).
+  function depLimit(c, type, sLS, sLF, lag, dP) {
+    const t = typeOf(type);
+    if (t === null || !isDur(dP)) return undefined;
+    const L = lagOf(lag);
+    if (t === "FS" || t === "SS") {
+      if (!isDn(sLS)) return undefined;
+      const y = safe(() => CAL.addWork(c, sLS, -L));
+      if (!isDn(y)) return undefined;
+      if (t === "FS") return safe(() => CAL.prevWork(c, y - 1));
+      const ls = safe(() => CAL.prevWork(c, y));
+      return isDn(ls) ? fin(c, ls, dP) : undefined;
+    }
+    if (!isDn(sLF)) return undefined;
+    const y = safe(() => CAL.addWork(c, sLF, -L));
+    if (!isDn(y)) return undefined;
+    if (t === "FF") return dP === 0 ? y : safe(() => CAL.prevWork(c, y)); // milestone pendahulu: tanpa pw
+    const ls = safe(() => CAL.nextWork(c, y + 1));
+    return isDn(ls) ? fin(c, ls, dP) : undefined;
+  }
+
+  // Durasi penerus dari rentang: sp.d bila ada; selain itu hari kerja [nw(s), f] (s = f di hari non-kerja → 0).
+  function spanDur(c, sp) {
+    if (isDur(sp.d)) return sp.d;
+    const s0 = safe(() => CAL.nextWork(c, sp.s));
+    if (!isDn(s0)) return undefined;
+    if (s0 > sp.f) return 0;
+    return Math.min(DUR_MAX, CAL.workdays(c, s0, sp.f));
+  }
+
+  // Set kunci penerus yang mulai sebelum depReq (per tipe, edge tanpa type = FS); .detail = [{succ, pred, earliest, type}].
+  // Dilanggar bila nw(mulai) < depReq — juga untuk milestone (perilaku 1b "milestone Sabtu setelah selesai Jumat aman"
+  // dipertahankan; R4 menulis "milestone: mulai < depReq", lihat laporan Task 1). Dependensi tidak memindahkan task (Manual).
+  // Tanpa jadwal / tak terpecahkan / tipe tak dikenal / kalender buntu → diabaikan.
   function violations(c, spans, edges) {
     const out = new Set();
     const detail = [];
     for (const e of Array.isArray(edges) ? edges : []) {
       if (!e || e.ok === false) continue;
+      const type = typeOf(e.type);
+      if (type === null) continue;
       const p = spanAt(spans, e.from);
       const s = spanAt(spans, e.to);
       if (!p || !s) continue;
-      const earliest = safe(() => CAL.fsEarliest(c, p.f, lagOf(e.lag)));
-      if (!Number.isInteger(earliest)) continue;
+      const d = spanDur(c, s);
+      if (d === undefined) continue;
+      const earliest = depReq(c, type, p.s, p.f, e.lag, d);
+      if (!isDn(earliest)) continue;
       // mulai efektif = hari kerja pertama ≥ mulai tersimpan (mulai di akhir pekan/libur tidak dihitung terlalu awal)
       const eff = safe(() => CAL.nextWork(c, s.s));
-      if (!Number.isInteger(eff)) continue;
+      if (!isDn(eff)) continue;
       if (eff < earliest) {
         out.add(e.to);
-        detail.push({ succ: e.to, pred: e.from, earliest });
+        detail.push({ succ: e.to, pred: e.from, earliest, type });
       }
     }
     out.detail = detail;
     return out;
   }
 
-  // "Geser ke setelah dependensi": maks fsEarliest atas pendahulu terjadwal, sebagai iso; tak ada → null.
-  // preds: [{span: {s, f} | null, lag}] (atau {f, lag}). `succ` dicadangkan (belum dipakai di Manual).
+  // "Geser ke setelah dependensi": maks depReq atas pendahulu terjadwal, sebagai iso; tak ada → null.
+  // preds: [{span: {s, f} | null, lag, type?}] (atau {f, lag} untuk FS). succ: {d} | {duration} | rentang {s, f} | null
+  // (durasi penerus untuk FF/SF; tidak ada → 1).
   function shiftAfterDeps(c, succ, preds) {
+    let d = 1;
+    if (isObj(succ)) {
+      if (isDur(succ.d)) d = succ.d;
+      else if (isDur(succ.duration)) d = succ.duration;
+      else if (isDn(succ.s) && isDn(succ.f)) {
+        const sd = spanDur(c, succ);
+        if (sd !== undefined) d = sd;
+      }
+    }
     let best = null;
     for (const p of Array.isArray(preds) ? preds : []) {
       if (!p || typeof p !== "object") continue;
-      const f = p.span && Number.isInteger(p.span.f) ? p.span.f : p.f;
-      if (!Number.isInteger(f)) continue;
-      const e = safe(() => CAL.fsEarliest(c, f, lagOf(p.lag)));
-      if (!Number.isInteger(e)) continue;
+      const type = typeOf(p.type);
+      if (type === null) continue;
+      const f = p.span && isDn(p.span.f) ? p.span.f : p.f;
+      const s = p.span && isDn(p.span.s) ? p.span.s : p.s;
+      const e = depReq(c, type, s, f, p.lag, d);
+      if (!isDn(e)) continue;
       if (best === null || e > best) best = e;
     }
     return best === null ? null : CAL.iso(best);
@@ -763,6 +925,8 @@ const TLSched = (function (CAL) {
   }
 
   return Object.freeze({
+    TYPES,
+    CONSTRAINT_TYPES,
     MAX_DEPS,
     DUR_MAX,
     LAG_MIN,
@@ -782,6 +946,13 @@ const TLSched = (function (CAL) {
     violations,
     shiftAfterDeps,
     deadlineLate,
+    fin,
+    sff,
+    depReq,
+    depLimit,
+    fnv1a32,
+    unitOf,
+    modeOf,
   });
 })(typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"));
 if (typeof module !== "undefined" && module.exports) module.exports = TLSched;

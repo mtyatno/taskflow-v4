@@ -434,7 +434,7 @@ test("dependensi: daftar judul + FS + lag; ubah lag blur → set deps; hapus →
 
 test("dependensi rusak/tidak dikenali: dihitung, tombol 'Hapus dependensi rusak' menyimpan hanya yang sah (apa adanya)", async () => {
   const good = { t: { $task: 1 }, type: "FS", lag: 1 };
-  const deps = [good, { t: { $task: 3 }, type: "SS", lag: 0 }, { t: null, type: "FS" }, "x"];
+  const deps = [good, { t: { $task: 3 }, type: "XX", lag: 0 }, { t: null, type: "FS" }, "x"]; // 1c-1: SS/FF/SF sah
   const task = mk(11, "Uji", { start: "2026-11-16", duration: 1, deps }, SCOPE);
   const s = await ui(task, { tasks: depTasks().concat([task]), storage: { "section:open": true } });
   assert.equal(byCls(s.tree, "plg-timeline-dep").length, 1);
