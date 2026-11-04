@@ -1,14 +1,18 @@
-// Plugin Timeline (Fase 1, PR 1b; spec docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md §8).
-// Gantt Manual untuk project dan workspace: view `gantt` (slot taskList.views) dan seksi `schedule` (slot
-// taskDetail.sections). Mesin murni ada di `parts` (holidays-id.js, calendar.js, schedule.js, layout.js, drag.js —
-// compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLLayout/TLDrag tersedia sebagai
-// const di lingkup yang sama; tidak ada global window). `manifest` disuntik compile.js dari manifest.json.
+// Plugin Timeline (Fase 1, PR 1b; spec docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md §8;
+// 1.1.0 = PR 1c-1 jadwal otomatis, spec docs/superpowers/specs/2026-11-01-plugin-fase1-1c-otomatis-design.md).
+// Gantt untuk project dan workspace: view `gantt` (slot taskList.views) dan seksi `schedule` (slot
+// taskDetail.sections). Mesin murni ada di `parts` (holidays-id.js, calendar.js, schedule.js, cpm.js, plan.js,
+// layout.js, drag.js — compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLCpm/TLPlan/
+// TLLayout/TLDrag tersedia sebagai const di lingkup yang sama; tidak ada global window). `manifest` disuntik
+// compile.js dari manifest.json.
 //
 // Susunan modul (Task 6 = kerangka; komponen diisi Task 7–10):
 //   1. Konstanta + pesan UI persis (kalender, preferensi).
-//   2. calendarStore(api)  — SATU-SATUNYA kode yang menyentuh api.records (R5). calTarget (= TLSched.calTarget) memilih id/scope.
+//   2. calendarStore(api) dan projectStore(api) (1c-1 R6) — SATU-SATUNYA kode yang menyentuh api.records (R5), masing-
+//      masing hanya entitasnya sendiri. calTarget (= TLSched.calTarget) / TLSched.unitOf memilih id/scope.
+//      Tulisan hanya di calendarStore.save dan projectStore.setAuto (R25: mesin dan pemuat tidak pernah menulis).
 //   3. Preferensi per perangkat lewat api.storage: prefKey / cleanPref / PREF_DEFAULTS (R19).
-//   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar), fungsi render
+//   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar/useUnits/useEngine), fungsi render
 //      (toolbar/head/tabel/grafik/panah/legenda), TimelineViewBody (Task 7; interaksi Task 8 lewat `ix`; popover
 //      kalender + Daftar HP Task 9), ScheduleSection (Task 10); pembungkus React.memo malas (R24).
 //   5. `pure` + module.exports untuk tes Node; registrasi hanya bila host plugin (TF.plugins) ada.
@@ -28,6 +32,16 @@ function calTooLarge() {
   const e = new Error(MSG_CAL_TOO_LARGE);
   e.code = "TOO_LARGE";
   return e;
+}
+
+// Peristiwa api.records.onChange → bentuk adaptor untuk satu entitas, atau null bila bukan untuknya. Peristiwa tarik
+// sukses host {entity: null, pulled: true} (README §5) diteruskan ke semua adaptor sebagai {ids: [], source: "sync",
+// lost: [], pulled: true}. Murni (tanpa akses api) — dipakai bersama calendarStore dan projectStore.
+function recordEvent(ev, entity) {
+  if (!ev) return null;
+  if (ev.pulled === true) return { ids: [], source: "sync", lost: [], pulled: true };
+  if (ev.entity !== entity) return null;
+  return { ids: Array.isArray(ev.ids) ? ev.ids.slice() : [], source: ev.source, lost: Array.isArray(ev.lost) ? ev.lost.slice() : [] };
 }
 
 // Adaptor tunggal api.records untuk entitas `calendar`. Tidak ada record → DEFAULT_CAL (pending false, exists false).
@@ -56,13 +70,98 @@ function calendarStore(api) {
     // host {ids: [], source: "sync", lost: [], pulled: true} (entity null; README §5); mengembalikan off().
     subscribe(fn) {
       return api.records.onChange((ev) => {
-        if (!ev) return;
-        if (ev.pulled === true) {
-          fn({ ids: [], source: "sync", lost: [], pulled: true });
-          return;
+        const e = recordEvent(ev, CAL_ENTITY);
+        if (e) fn(e);
+      });
+    },
+  };
+}
+
+// ── 2b. Unit jadwal otomatis: record `project` (1c-1 R5, R6) ─────────────────
+// Satu record per unit jadwal (project dalam workspace, atau project pribadi): id dari TLSched.unitOf (satu-satunya
+// pembuat id), data {v: 1, auto, name, by}. Tidak ada record / data tidak sah → unit dianggap tidak ada (Manual).
+const PRJ_ENTITY = "project";
+const PRJ_MAX_NAME = 120;
+const PRJ_PAGE = 1000; // batas atas limit api.records.list
+const NO_UNIT = Object.freeze({ auto: false, by: null, updatedAt: null, pending: false, exists: false });
+const EMPTY_UNITS = new Map();
+
+// Nama record cocok dengan lipatan unit (penjaga tabrakan hash): projectFold sama. Nama yang ditulis setAuto dipotong
+// 120 karakter dan projectFold mempertahankan panjang, jadi nama tepat 120 karakter cocok dengan awalan lipatan unit.
+function prjNameFits(name, fold) {
+  const f = TLSched.projectFold(name);
+  if (f === fold) return true;
+  return name.length === PRJ_MAX_NAME && fold.length > PRJ_MAX_NAME && fold.slice(0, PRJ_MAX_NAME) === f;
+}
+
+// Record → Unit. `fold` = lipatan unit yang diharapkan; null = lipatan tidak diketahui (dari daftar workspace: nama
+// harus menghasilkan id record yang sama lewat TLSched.unitOf, kecuali nama terpotong 120 karakter).
+function prjUnitOf(r, fold, lid) {
+  const d = r && typeof r === "object" ? r.data : null;
+  if (!d || typeof d !== "object" || Array.isArray(d)) return NO_UNIT;
+  if (d.v !== 1 || typeof d.auto !== "boolean" || typeof d.name !== "string" || d.name.length > PRJ_MAX_NAME) return NO_UNIT;
+  if (!(d.by === null || Number.isInteger(d.by))) return NO_UNIT;
+  if (fold !== null) {
+    if (!prjNameFits(d.name, fold)) return NO_UNIT;
+  } else if (TLSched.unitOf({ pageKind: "workspace", listId: lid, projectName: d.name }).recId !== r.id && d.name.length !== PRJ_MAX_NAME) {
+    return NO_UNIT;
+  }
+  return {
+    auto: d.auto, by: d.by,
+    updatedAt: typeof r.updated_at === "string" ? r.updated_at : null,
+    pending: !!r.pending, exists: true,
+  };
+}
+
+// Adaptor tunggal api.records untuk entitas `project` (pola calendarStore). page = {pageKind, listId, projectName}.
+//   loadUnits(page) → Promise<Map<recId, Unit>>: workspace → semua record scope "list:<lid>" (ikuti `next`); halaman
+//     project → satu record unitOf(page) (tanpa record → NO_UNIT). Unit = {auto, by, updatedAt, pending, exists}.
+//     Tidak pernah menulis (record rusak tidak dinormalisasi ulang).
+//   setAuto(unit, on, userId) → Promise<record>: SATU-SATUNYA tulisan record project (aksi eksplisit sakelar, R15).
+//   subscribe(fn) → off: perubahan entitas project + peristiwa tarik sukses (recordEvent).
+function projectStore(api) {
+  return {
+    loadUnits(page) {
+      return Promise.resolve().then(() => {
+        const p = page && typeof page === "object" ? page : {};
+        const unit = TLSched.unitOf({ pageKind: p.pageKind, listId: p.pageKind === "workspace" ? p.listId : null, projectName: p.projectName });
+        const out = new Map();
+        if (p.pageKind === "workspace" && unit.scope !== "user") {
+          const scope = unit.scope;
+          const lid = scope.slice(5);
+          const page1 = (after) => {
+            const q = after === null ? { scope, limit: PRJ_PAGE } : { scope, limit: PRJ_PAGE, after };
+            return Promise.resolve(api.records.list(PRJ_ENTITY, q)).then((res) => {
+              const items = res && Array.isArray(res.items) ? res.items : [];
+              for (const r of items) if (r && typeof r.id === "string") out.set(r.id, prjUnitOf(r, null, lid));
+              const next = res && typeof res.next === "string" && res.next ? res.next : null;
+              return next !== null && next !== after ? page1(next) : out;
+            });
+          };
+          return page1(null);
         }
-        if (ev.entity !== CAL_ENTITY) return;
-        fn({ ids: Array.isArray(ev.ids) ? ev.ids.slice() : [], source: ev.source, lost: Array.isArray(ev.lost) ? ev.lost.slice() : [] });
+        return Promise.resolve(api.records.get(PRJ_ENTITY, unit.recId)).then((r) => {
+          out.set(unit.recId, r ? prjUnitOf(r, unit.fold, null) : NO_UNIT);
+          return out;
+        });
+      });
+    },
+    setAuto(unit, on, userId) {
+      return Promise.resolve().then(() => {
+        if (!unit || typeof unit.recId !== "string" || typeof unit.scope !== "string") throw new Error("unit jadwal tidak sah");
+        const data = {
+          v: 1,
+          auto: on === true,
+          name: String(unit.name === undefined || unit.name === null ? "" : unit.name).slice(0, PRJ_MAX_NAME),
+          by: Number.isInteger(userId) ? userId : null,
+        };
+        return api.records.put(PRJ_ENTITY, unit.recId, data, { scope: unit.scope });
+      });
+    },
+    subscribe(fn) {
+      return api.records.onChange((ev) => {
+        const e = recordEvent(ev, PRJ_ENTITY);
+        if (e) fn(e);
       });
     },
   };
@@ -151,7 +250,8 @@ function missingYearsNote(years) {
 }
 
 // Tata letak lewat objek yang bisa diganti tes (TLLayout beku; tes R24 memata-matai jumlah panggilan).
-const engine = { layout: (args) => TLLayout.layout(args) };
+// Satu pintu ke mesin murni (spy di tes): tata letak (R24) dan CPM (1c-1 R7; dipanggil hanya dari useEngine).
+const engine = { layout: (args) => TLLayout.layout(args), run: (ctx) => TLCpm.run(ctx) };
 
 const DEFAULT_CAL_DATA = TLCal.normalize(TLCal.DEFAULT_CAL);
 
@@ -380,6 +480,224 @@ function useCalendar(api, target) {
   }, [store, target.id]);
   const mine = st.id === target.id;
   return { data: mine ? st.data : DEFAULT_CAL_DATA, pending: mine && st.pending, store, pulled };
+}
+
+// Unit jadwal halaman (1c-1 R6; pola useCalendar): muat lewat projectStore, muat ulang pada setiap perubahan entitas
+// project dan pada peristiwa tarik sukses. `pulled` = latch "tarik record plugin SUKSES sejak pemasangan ini", dinyalakan
+// SETELAH muat ulang sesudah peristiwa `pulled` selesai (bukan sync.done, yang juga menyala saat sinkron gagal).
+// P3 (a): sakelar "Jadwal otomatis" workspace dikunci "Menunggu data jadwal workspace…" selama unitnya tidak `exists`
+// dan `pulled` belum menyala (Task 8). `loaded` = muat pertama halaman ini selesai. Hook ini tidak pernah menulis.
+// page = {pageKind, listId, projectName}; workspace dimuat per scope list, halaman project per recId unitOf(page).
+function unitsPageKey(pageKind, listId, projectName) {
+  if (pageKind === "workspace") return "w|" + calTarget(listId).scope;
+  return "p|" + TLSched.unitOf({ pageKind: "project", listId: null, projectName }).recId;
+}
+
+function useUnits(api, page) {
+  const p = page && typeof page === "object" ? page : {};
+  const pageKind = p.pageKind === "workspace" ? "workspace" : "project";
+  const key = unitsPageKey(pageKind, p.listId, p.projectName);
+  const store = React.useMemo(() => projectStore(api), [api]);
+  const [st, setSt] = React.useState(() => ({ key, units: EMPTY_UNITS, loaded: false }));
+  const [pulled, setPulled] = React.useState(false);
+  const argRef = React.useRef(null);
+  argRef.current = { pageKind, listId: pageKind === "workspace" ? p.listId : null, projectName: pageKind === "workspace" ? null : p.projectName };
+  React.useEffect(() => {
+    let alive = true;
+    let seq = 0;
+    const arg = argRef.current;
+    const load = () => {
+      const my = ++seq;
+      return store.loadUnits(arg).then((units) => {
+        if (alive && my === seq) setSt({ key, units, loaded: true });
+        return true;
+      }, (e) => {
+        logWarn(api, "unit jadwal gagal dimuat:", e);
+        return false;
+      });
+    };
+    load();
+    let off = null;
+    try {
+      off = store.subscribe((ev) => {
+        if (ev.pulled) {
+          load().then((ok) => { if (ok && alive) setPulled(true); });
+          return;
+        }
+        load();
+      });
+    } catch (e) {
+      logWarn(api, "pendengar unit jadwal gagal:", e);
+    }
+    return () => {
+      alive = false;
+      if (typeof off === "function") off();
+    };
+  }, [store, key]);
+  const mine = st.key === key;
+  return { units: mine ? st.units : EMPTY_UNITS, loaded: mine && st.loaded, pulled, store };
+}
+
+// Mesin jadwal di view (1c-1 R7, K31, K43). Memuat daftar task LENGKAP (api.data.tasks.list({includeDone: true});
+// scopeTasks host sudah difilter panel) saat pasang, lalu — debounce ENGINE_TIMING.debounceMs, hanya jawaban terbaru —
+// saat identitas scopeTasks berubah dan saat sync.done. Saringan scope = TLSched.scopeKeyOf halaman. TLCpm.run
+// dijalankan SESUDAH gambar pertama (raf → setTimeout 0) dan hanya bila engineKey (data task + ext jadwal, kalender,
+// unit) berubah. Keluaran {status: "loading"|"ready"|"error", result, tasks, ctx, rawOf, rerun}: ctx = {tasks, cal,
+// units, readExt} = masukan run yang sama untuk TLCpm.explain / TLPlan; hasil lama tetap "ready" sampai hasil baru siap.
+// R25: hook ini TIDAK PERNAH menulis (drift hanya ditampilkan; tulisan berasal dari aksi pengguna).
+const ENGINE_TIMING = { debounceMs: 300 };
+const ENGINE_IDLE = Object.freeze({ key: null, status: "loading", result: null, ctx: null });
+const NO_TASKS = Object.freeze([]);
+const ENGINE_TASK_FIELDS = ["id", "cid", "server_id", "parent_id", "parent_cid", "list_id", "project", "gtd_status", "progress",
+  "pomodoros_done", "completed_at", "deadline", "recurrence_type", "archived", "deleted"];
+const ENGINE_EXT_KEYS = ["start", "duration", "deps", "mode", "constraint"];
+
+// Kunci memo mesin: JSON ringkas per task (kolom yang dibaca mesin + ext jadwal), urutan daftar dipertahankan.
+function engineKeyOf(tasks, readExt) {
+  const rows = [];
+  for (const t of tasks) {
+    const raw = readExt(t);
+    rows.push([ENGINE_TASK_FIELDS.map((f) => (t[f] === undefined ? null : t[f])), ENGINE_EXT_KEYS.map((k) => (raw[k] === undefined ? null : raw[k]))]);
+  }
+  return JSON.stringify(rows);
+}
+
+function unitsKeyOf(units) {
+  const out = [];
+  for (const [k, u] of units) out.push(k + "=" + (u && u.auto === true ? 1 : 0));
+  return out.sort().join(",");
+}
+
+function useEngine(api, opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const scopeTasks = Array.isArray(o.scopeTasks) ? o.scopeTasks : NO_TASKS;
+  const calData = o.calData || DEFAULT_CAL_DATA;
+  const units = o.units instanceof Map ? o.units : EMPTY_UNITS;
+  const [list, setList] = React.useState(null); // daftar lengkap terakhir (null = belum ada)
+  const [failed, setFailed] = React.useState(false);
+  const [out, setOut] = React.useState(ENGINE_IDLE);
+  const L = React.useRef(null);
+  if (!L.current) L.current = { alive: true, seq: 0, timer: null, scope: null, api };
+  L.current.api = api;
+
+  const load = () => {
+    const R = L.current;
+    const seq = ++R.seq;
+    const a = R.api;
+    let p;
+    try {
+      p = Promise.resolve(a.data.tasks.list({ includeDone: true })); // panggil sinkron: permintaan berurutan = urutan kejadian
+    } catch (e) {
+      p = Promise.reject(e);
+    }
+    return p
+      .then((l) => {
+        if (R.alive && seq === R.seq) {
+          setList(Array.isArray(l) ? l : []);
+          setFailed(false);
+        }
+      }, (e) => {
+        logWarn(a, "daftar task gagal dimuat (mesin jadwal):", e);
+        if (R.alive && seq === R.seq) setFailed(true);
+      });
+  };
+  const loadSoon = () => {
+    const R = L.current;
+    if (!R.alive) return;
+    if (R.timer !== null) clearTimeout(R.timer);
+    R.timer = setTimeout(() => {
+      R.timer = null;
+      if (R.alive) load();
+    }, ENGINE_TIMING.debounceMs);
+  };
+
+  React.useEffect(() => {
+    const R = L.current;
+    R.alive = true;
+    load();
+    let off = null;
+    try {
+      off = api.events.on("sync.done", loadSoon);
+    } catch (e) {
+      logWarn(api, "pendengar sync.done gagal:", e);
+    }
+    return () => {
+      R.alive = false;
+      if (R.timer !== null) clearTimeout(R.timer);
+      R.timer = null;
+      if (typeof off === "function") off();
+    };
+  }, [api]);
+  React.useEffect(() => {
+    const R = L.current;
+    if (R.scope === null) {
+      R.scope = scopeTasks; // pasang: sudah dimuat efek di atas
+      return;
+    }
+    if (R.scope === scopeTasks) return;
+    R.scope = scopeTasks;
+    loadSoon();
+  }, [scopeTasks]);
+
+  const readExt = React.useMemo(() => (t) => readExtSafe(api, t), [api]);
+  const tasks = React.useMemo(() => {
+    if (list === null) return null;
+    const keys = new Set(scopeTasks.map(TLSched.scopeKeyOf));
+    return list.filter((t) => !!t && typeof t === "object" && keys.has(TLSched.scopeKeyOf(t)));
+  }, [list, scopeTasks]);
+  const tasksKey = React.useMemo(() => (tasks === null ? null : engineKeyOf(tasks, readExt)), [tasks, readExt]);
+  const calKey = React.useMemo(() => JSON.stringify(calData), [calData]);
+  const unitsKey = React.useMemo(() => unitsKeyOf(units), [units]);
+  const key = tasksKey === null ? null : tasksKey + "\n" + calKey + "\n" + unitsKey;
+
+  React.useEffect(() => {
+    if (key === null || key === out.key) return undefined;
+    let alive = true;
+    let tid = null;
+    const id = raf(() => {
+      if (!alive) return;
+      tid = setTimeout(() => {
+        tid = null;
+        if (!alive) return;
+        let next;
+        try {
+          const ctx = { tasks, cal: TLCal.compile(calData), units, readExt };
+          next = { key, status: "ready", result: engine.run(ctx), ctx };
+        } catch (e) {
+          logWarn(api, "mesin jadwal gagal:", e);
+          next = { key, status: "error", result: null, ctx: null };
+        }
+        setOut(next);
+      }, 0);
+    });
+    return () => {
+      alive = false;
+      caf(id);
+      if (tid !== null) clearTimeout(tid);
+    };
+  }, [key]);
+
+  return React.useMemo(() => {
+    const status = out.status !== "loading" ? out.status : list === null && failed ? "error" : "loading";
+    const ctx = out.ctx;
+    // Hitung ulang atas data + patch ([{task, patch}], null = kunci dihapus) tanpa menulis; null bila belum siap.
+    const rerun = (patches) => {
+      if (!ctx) return null;
+      const pm = new Map();
+      for (const it of Array.isArray(patches) ? patches : []) {
+        if (!it || !it.task || !it.patch) continue;
+        const k = String(it.task.id);
+        pm.set(k, Object.assign({}, pm.get(k) || {}, it.patch));
+      }
+      const rx = (t) => {
+        const raw = ctx.readExt(t);
+        const p = t && t.id !== undefined && t.id !== null ? pm.get(String(t.id)) : undefined;
+        return p ? applyRaw(raw, p) : raw;
+      };
+      return engine.run({ tasks: ctx.tasks, cal: ctx.cal, units: ctx.units, readExt: rx });
+    };
+    return { status, result: out.result, tasks: ctx ? ctx.tasks : NO_TASKS, ctx, rawOf: ctx ? ctx.readExt : readExt, rerun };
+  }, [out, list === null, failed, readExt]);
 }
 
 // 4d. Render (fungsi biasa dipanggil langsung → pohon utuh untuk tes anggaran DOM; tanpa hooks di dalamnya).
@@ -1471,6 +1789,10 @@ function TimelineViewBody(props) {
   const today = safeToday(api);
   const todayDn = today ? TLCal.dn(today) : null;
   const calKey = React.useMemo(() => JSON.stringify(cal.data), [cal.data]);
+  // 1c-1 (R6, R7): unit jadwal halaman + mesin CPM sesudah gambar pertama. Hasilnya dipakai Task 7–10 (Slack, kritis,
+  // banner, sakelar, aliran gestur lewat X.cur.eng); keduanya hanya membaca — tidak ada tulisan latar (R25).
+  const un = useUnits(api, { pageKind, listId: context.listId, projectName: context.projectName });
+  const eng = useEngine(api, { scopeTasks: context.scopeTasks, calData: cal.data, units: un.units, pageKind });
 
   // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari berubah (bukan tiap context baru).
   const lay = React.useMemo(() => engine.layout({
@@ -1631,7 +1953,7 @@ function TimelineViewBody(props) {
   const ctlRef = React.useRef(null);
   if (!ctlRef.current) ctlRef.current = createInteractions();
   const ctl = ctlRef.current;
-  ctl.cur = { api, context, lay, rowH, tableW, scrollEl: () => scrollRef.current };
+  ctl.cur = { api, context, lay, rowH, tableW, scrollEl: () => scrollRef.current, eng, units: un };
   React.useEffect(() => () => ctl.dispose(), [ctl]);
   const ix = ctl.ix;
 
@@ -2457,14 +2779,14 @@ function TimelineView(props) {
 
 // ── 5. Ekspor Node + registrasi ─────────────────────────────────────────────
 const pure = {
-  calendarStore, calTarget, prefKey, cleanPref, PREF_DEFAULTS, PREF_CHOICES,
+  calendarStore, calTarget, projectStore, recordEvent, PRJ_ENTITY, NO_UNIT, useUnits, useEngine, ENGINE_TIMING, engineKeyOf, prefKey, cleanPref, PREF_DEFAULTS, PREF_CHOICES,
   CAL_ENTITY, CAL_MAX_BYTES, MSG_CAL_TOO_LARGE, MSG_CAL_LOST, SEC_TIMING,
   MSG_EMPTY, MSG_VIOLATION, MSG_SCHEDULE_HINT, LEGEND, ZOOMS, COLS_FULL, COLS_COMPACT,
   engine, LOST_TIMING, rowCells, pomoText, missingYearsNote, barGeom, createInteractions, checkLink, isSummaryIn,
   MSG_CHANGED, MSG_UNDO, MSG_SAVE_FAIL, MSG_CYCLE, MSG_MAX_DEPS, MSG_SUMMARY_DEP, MSG_DUP_DEP, MSG_SUMMARY_SCHED,
   TimelineViewBody, ScheduleSection, ScheduleBody, CalendarPopover, ListFallback,
 };
-if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLLayout, TLDrag }, pure);
+if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLCpm, TLPlan, TLLayout, TLDrag }, pure);
 
 const host = typeof window !== "undefined" ? window : null;
 if (host && host.TF && host.TF.plugins) {

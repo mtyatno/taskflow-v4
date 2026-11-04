@@ -196,14 +196,14 @@ function nodes(node, pred, out = []) {
 const byCls = (tree, c) => nodes(tree, (n) => typeof n.props.className === "string" && n.props.className.split(/\s+/).indexOf(c) >= 0);
 
 // ── D1, D2: manifest dan index.json repo ────────────────────────────────────
-test("index.json repo: timeline valid (izin records dikenal, records.calendar tersalin), defaultEnabled false", () => {
+test("index.json repo: timeline valid (izin records dikenal, records.calendar + records.project tersalin), defaultEnabled false", () => {
   assert.ok(entry, "entri timeline di index.json");
   assert.deepEqual(P.validateManifest(entry, idx), { ok: true, reason: null }, "validateManifest runtime nyata menerima entri");
   assert.ok(P.KNOWN_PERMISSIONS.includes("records") && !P.RESERVED_PERMISSIONS.includes("records"), "D1: records dikenal");
   assert.deepEqual(entry.permissions, ["storage", "task.ext", "records"]);
-  assert.deepEqual(entry.records, { calendar: { conflict: "lww", maxBytes: 16384 } }, "D2: records tersalin ke index.json");
+  assert.deepEqual(entry.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 } }, "D2: records tersalin ke index.json (1c-1 R6: + project)");
   assert.deepEqual(entry.records, manifest.records, "sama dengan manifest.json");
-  assert.deepEqual(entry.taskExt, { keys: ["start", "duration", "deps"] });
+  assert.deepEqual(entry.taskExt, { keys: ["start", "duration", "deps", "mode", "constraint"] });
   assert.equal(entry.defaultEnabled, false);
   assert.equal(P.recordsError(entry), null);
   assert.equal(build.validateRecords(entry), null, "compile.js dan runtime sepakat");
@@ -402,8 +402,8 @@ test("api.taskExt nyata (rute lokal): set {start} lalu baca task lewat api.data.
   const after = await api.data.tasks.list();
   assert.deepEqual(api.taskExt.read(after.find((t) => t.id === a.id)), {});
   assert.equal("timeline.deps" in after.find((t) => t.id === b.id).ext, false);
-  // kunci di luar manifest.taskExt.keys ditolak runtime
-  await assert.rejects(api.taskExt.set(a.id, { mode: "auto" }), (e) => e instanceof PluginStorageError);
+  // kunci di luar manifest.taskExt.keys ditolak runtime (`mode` sah sejak 1.1.0; `actual` baru di 1c-2)
+  await assert.rejects(api.taskExt.set(a.id, { actual: "2026-11-05" }), (e) => e instanceof PluginStorageError);
   assert.equal(P.failures("timeline").length, 0);
 });
 
@@ -467,7 +467,8 @@ test("view nyata: lost untuk kalender aktif → toast persis lewat api.ui.toast 
   const m = mount(T.TimelineViewBody);
   let tree = m.render({ context, api });
   m.flush();
-  await until(() => PS._internals.listeners.size === base + 1, "view berlangganan onChange");
+  // dua pendengar onChange: useCalendar (entitas calendar) + useUnits (entitas project, 1c-1 R6)
+  await until(() => PS._internals.listeners.size === base + 2, "view berlangganan onChange");
   const bg = () => byCls(m.render({ context, api }), "plg-timeline-chart")[0].props.style.backgroundImage;
   const bgDefault = bg();
   // kalender workspace di-IndexedDB (Sabtu kerja): view memuat dari api.records nyata ketika ada perubahan lokal

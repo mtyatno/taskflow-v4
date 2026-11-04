@@ -1,7 +1,7 @@
 // generated from plugin.jsx — jangan edit
 (function () {
 "use strict";
-const manifest = Object.freeze({"id":"timeline","name":"Timeline","description":"Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.","version":"1.0.0","minApi":1,"slots":["taskList.views","taskDetail.sections"],"permissions":["storage","task.ext","records"],"defaultEnabled":false,"contributes":{"taskList.views":[{"id":"gantt","label":"Timeline","icon":{"path":"M2 4h7M5 8h8M3 12h5"},"pages":["project","workspace"]}],"taskDetail.sections":[{"id":"schedule","label":"Jadwal","order":10}]},"taskExt":{"keys":["start","duration","deps"]},"records":{"calendar":{"conflict":"lww","maxBytes":16384}},"builtin":true});
+const manifest = Object.freeze({"id":"timeline","name":"Timeline","description":"Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.","version":"1.1.0","minApi":1,"slots":["taskList.views","taskDetail.sections"],"permissions":["storage","task.ext","records"],"defaultEnabled":false,"contributes":{"taskList.views":[{"id":"gantt","label":"Timeline","icon":{"path":"M2 4h7M5 8h8M3 12h5"},"pages":["project","workspace"]}],"taskDetail.sections":[{"id":"schedule","label":"Jadwal","order":10}]},"taskExt":{"keys":["start","duration","deps","mode","constraint"]},"records":{"calendar":{"conflict":"lww","maxBytes":16384},"project":{"conflict":"lww","maxBytes":1024}},"builtin":true});
 // part: holidays-id.js
 // Plugin Timeline — TLHolidays: libur nasional + cuti bersama Indonesia 2025–2027 (spec §8.4, rencana R2/R25).
 // Murni data + pembantu kecil; tanpa Date lokal, tanpa global. Ditranskripsi dari SKB 3 Menteri (Menag, Menaker,
@@ -963,6 +963,987 @@ const TLSched = (function (CAL) {
   });
 })(typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"));
 if (typeof module !== "undefined" && module.exports) module.exports = TLSched;
+// part: cpm.js
+// Plugin Timeline — TLCpm: mesin jadwal otomatis (Critical Path Method) — graf dependensi FS/SS/FF/SF dengan lag,
+// Tarjan SCC (iteratif) + Kahn terurut, forward/backward pass, slack, jalur kritis, drift, jangkar
+// (spec 1c §5.1–§5.5, rencana 1c-1 R8–R10). Murni: tanpa Date lokal, tanpa global, tanpa akses api, TIDAK PERNAH menulis
+// (K27) — hanya menghitung. Semua rumus dependensi lewat TLSched.depReq/depLimit/fin/sff (satu sumber, R4) dan aturan
+// "terlalu awal" jangkar lewat TLSched.isEarly (sama dengan violations). Kalender buntu (TL_CAL_LOOP) → simpul
+// "tak terhitung" (uncomputable), run tidak melempar.
+const TLCpm = (function (CAL, SCHED, HOL) {
+  const SPAN_MAX = 3660; // rentang hari kalender maks untuk hitung slack (pola MAX_LATE_SPAN)
+  const MS_DAY = 864e5;
+  const JKT_OFFSET = 7 * 3600e3; // Asia/Jakarta, tanpa DST
+  const DUR_MAX = SCHED.DUR_MAX;
+
+  const isInt = (n) => typeof n === "number" && Number.isInteger(n);
+  const isDn = (n) => Number.isInteger(n);
+  const isObj = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
+  // Pembanding kunci = unit kode UTF-16 (bukan localeCompare: urutan lokal berbeda antar perangkat, mis. "aa" di Denmark).
+  // Dipakai untuk semua urutan keluaran (order, ignored, cycles, summaries, succ) → deterministik lintas perangkat.
+  const cmpKey = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  const cmp = cmpKey;
+
+  function safe(fn) {
+    try {
+      return fn();
+    } catch (e) {
+      if (e instanceof Error && e.message === "TL_CAL_LOOP") return undefined;
+      throw e;
+    }
+  }
+
+  // completed_at → bilangan hari Jakarta (Asia/Jakarta, UTC+7 tanpa DST). Hanya bentuk ISO bertanggal-jam; tanpa zona = UTC
+  // (termasuk "YYYY-MM-DD HH:MM:SS[.ffffff]" SQLite/server); tanggal saja → hari itu; selain itu → null. Epoch dirakit dari
+  // bilangan hari TLCal.dn (= Date.UTC) + grup regex (tanpa Date.parse → bebas mesin JS). Pecahan detik dipotong ke milidetik: hasil dibulatkan ke
+  // hari, jadi presisi mikrodetik hanya berpengaruh di batas 23:59:59.999xxx Jakarta (dipotong = masih hari itu, benar).
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+  const ISO_TS = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:(Z)|([+-])(\d{2}):?(\d{2}))?$/;
+  function jkt(v) {
+    if (typeof v !== "string") return null;
+    const s = v.trim();
+    if (ISO_DATE.test(s)) {
+      const n = CAL.dn(s);
+      return isDn(n) ? n : null;
+    }
+    const m = ISO_TS.exec(s);
+    if (!m) return null;
+    const day = CAL.dn(m[1]);
+    const h = +m[2];
+    const mi = +m[3];
+    const sec = m[4] === undefined ? 0 : +m[4];
+    if (!isDn(day) || h > 23 || mi > 59 || sec > 59) return null;
+    const ms = m[5] === undefined ? 0 : +(m[5] + "00").slice(0, 3);
+    let off = 0; // menit, positif = di depan UTC
+    if (m[7]) {
+      const oh = +m[8];
+      const om = +m[9];
+      if (oh > 23 || om > 59) return null;
+      off = (m[7] === "-" ? -1 : 1) * (oh * 60 + om);
+    }
+    const t = day * MS_DAY + ((h * 60 + mi - off) * 60 + sec) * 1000 + ms;
+    return Math.floor((t + JKT_OFFSET) / MS_DAY);
+  }
+
+  // Tenggat task → bilangan hari (10 karakter pertama, R3); tak ada/tak sah → NaN. Satu sumber untuk run() dan explain().
+  const deadlineDn = (t) => (t.deadline === null || t.deadline === undefined ? NaN : CAL.dn(String(t.deadline).slice(0, 10)));
+  const isDone = (t) => t.gtd_status === "done" || !!t.completed_at;
+  const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
+  const parentOf = (t) => (t.parent_id !== undefined && t.parent_id !== null ? t.parent_id : t.parent_cid);
+
+  // Antrean prioritas min atas bilangan peringkat (Kahn terurut kunci).
+  function heapPush(h, v) {
+    h.push(v);
+    let i = h.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (h[p] <= v) break;
+      h[i] = h[p];
+      i = p;
+    }
+    h[i] = v;
+  }
+  function heapPop(h) {
+    const top = h[0];
+    const last = h.pop();
+    if (h.length) {
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        if (l >= h.length) break;
+        const r = l + 1;
+        const m = r < h.length && h[r] < h[l] ? r : l;
+        if (h[m] >= last) break;
+        h[i] = h[m];
+        i = m;
+      }
+      h[i] = last;
+    }
+    return top;
+  }
+
+  // Tarjan iteratif (tanpa rekursi). keys terurut, adj: Map<key, key[] terurut>. → komponen (urutan selesai Tarjan).
+  function tarjan(keys, adj) {
+    const index = new Map();
+    const low = new Map();
+    const onStack = new Set();
+    const stack = [];
+    const comps = [];
+    let counter = 0;
+    for (const v of keys) {
+      if (index.has(v)) continue;
+      index.set(v, counter);
+      low.set(v, counter);
+      counter++;
+      stack.push(v);
+      onStack.add(v);
+      const work = [{ u: v, i: 0 }];
+      while (work.length) {
+        const top = work[work.length - 1];
+        const nb = adj.get(top.u) || [];
+        if (top.i < nb.length) {
+          const w = nb[top.i++];
+          if (!index.has(w)) {
+            index.set(w, counter);
+            low.set(w, counter);
+            counter++;
+            stack.push(w);
+            onStack.add(w);
+            work.push({ u: w, i: 0 });
+          } else if (onStack.has(w) && index.get(w) < low.get(top.u)) low.set(top.u, index.get(w));
+        } else {
+          work.pop();
+          const u = top.u;
+          if (work.length) {
+            const p = work[work.length - 1].u;
+            if (low.get(u) < low.get(p)) low.set(p, low.get(u));
+          }
+          if (low.get(u) === index.get(u)) {
+            const comp = [];
+            let w;
+            do {
+              w = stack.pop();
+              onStack.delete(w);
+              comp.push(w);
+            } while (w !== u);
+            comps.push(comp);
+          }
+        }
+      }
+    }
+    return comps;
+  }
+
+  // run({tasks, cal, units, readExt}) → Result (lihat laporan Task 2 / spec §5.5). tasks = daftar lengkap scope;
+  // cal = TLCal.compile(...); units = Map<recId, {auto}>; readExt(task) → ext mentah tanpa prefiks.
+  function run(input) {
+    const a = isObj(input) ? input : {};
+    const c = a.cal;
+    const units = a.units instanceof Map ? a.units : new Map();
+    const readExt = typeof a.readExt === "function" ? a.readExt : (t) => (t && isObj(t.ext) ? t.ext : {});
+
+    // 1. task hidup: buang berulang / archived / deleted / tanpa id; duplikat kunci → yang pertama. Urut kunci.
+    const items = [];
+    const byKey = new Map();
+    for (const t of Array.isArray(a.tasks) ? a.tasks : []) {
+      if (!isObj(t) || t.id === undefined || t.id === null) continue;
+      if (t.recurrence_type || t.gtd_status === "archived" || t.archived || t.deleted) continue;
+      const key = String(t.id);
+      if (byKey.has(key)) continue;
+      let raw;
+      try {
+        raw = readExt(t);
+      } catch (e) {
+        raw = {};
+      }
+      if (!isObj(raw)) raw = {};
+      const sched = SCHED.readSched(raw);
+      const s = sched.start === null ? null : CAL.dn(sched.start);
+      const durOk = isInt(raw.duration) && raw.duration >= 0 && raw.duration <= DUR_MAX;
+      const it = {
+        key,
+        task: t,
+        sched,
+        s,
+        d: durOk ? raw.duration : 1,
+        durGuess: !durOk,
+        mode: SCHED.modeOf(sched, units, t),
+        scope: SCHED.scopeKeyOf(t),
+        g: SCHED.unitOf(t).recId,
+      };
+      byKey.set(key, it);
+      items.push(it);
+    }
+    items.sort((x, y) => cmp(x.key, y.key));
+    const index = SCHED.buildIndex(items.map((it) => it.task));
+
+    // 2. ringkasan: punya anak hidup (parent_id / parent_cid terpecahkan ke task lain)
+    const summaries = new Map();
+    for (const it of items) {
+      const p = parentOf(it.task);
+      if (p === undefined || p === null || p === "") continue;
+      const parent = index.get(String(p));
+      if (!parent) continue;
+      const pk = String(parent.id);
+      if (pk === it.key) continue;
+      if (!summaries.has(pk)) summaries.set(pk, []);
+      summaries.get(pk).push(it.key);
+    }
+    for (const list of summaries.values()) list.sort(cmp);
+
+    // 3. sisi kandidat dari deps penerus (urutan deps tersimpan); alasan diabaikan: unresolved → scope → summary.
+    const ignored = [];
+    const cand = []; // {from, to, type, lag}
+    const seenPair = new Set();
+    for (const it of items) {
+      for (const dep of it.sched.deps) {
+        const pt = index.get(dep.key);
+        const from = pt ? String(pt.id) : dep.key;
+        const pair = from + "\u0000" + it.key;
+        if (seenPair.has(pair)) continue;
+        seenPair.add(pair);
+        if (!pt) ignored.push({ from, to: it.key, reason: "unresolved" });
+        else if (byKey.get(from).scope !== it.scope) ignored.push({ from, to: it.key, reason: "scope" });
+        else if (summaries.has(from) || summaries.has(it.key)) ignored.push({ from, to: it.key, reason: "summary" });
+        else cand.push({ from, to: it.key, type: dep.type, lag: dep.lag });
+      }
+    }
+
+    // 4. simpul: non-ringkasan dengan Mulai; lalu (BFS) tanpa Mulai, otomatis, belum selesai, dengan pendahulu simpul.
+    const isNode = new Set();
+    for (const it of items) if (it.s !== null && !summaries.has(it.key)) isNode.add(it.key);
+    const candFrom = new Map();
+    for (const e of cand) {
+      if (!candFrom.has(e.from)) candFrom.set(e.from, []);
+      candFrom.get(e.from).push(e.to);
+    }
+    const queue = [...isNode];
+    while (queue.length) {
+      const k = queue.pop();
+      for (const to of candFrom.get(k) || []) {
+        if (isNode.has(to)) continue;
+        const it = byKey.get(to);
+        if (it.s !== null || it.mode !== "auto" || isDone(it.task)) continue;
+        isNode.add(to);
+        queue.push(to);
+      }
+    }
+    const nodeKeys = items.filter((it) => isNode.has(it.key)).map((it) => it.key); // terurut
+
+    // 5. graf: sisi dengan kedua ujung simpul; selain itu notNode.
+    const edges = [];
+    for (const e of cand) {
+      if (isNode.has(e.from) && isNode.has(e.to)) edges.push(e);
+      else ignored.push({ from: e.from, to: e.to, reason: "notNode" });
+    }
+    const adj = new Map(nodeKeys.map((k) => [k, []]));
+    for (const e of edges) adj.get(e.from).push(e.to);
+    for (const l of adj.values()) l.sort(cmp);
+
+    // 6. Tarjan: komponen > 1 atau sisi diri = lingkaran; sisi di dalamnya diabaikan ("cycle").
+    const comps = tarjan(nodeKeys, adj);
+    const compOf = new Map();
+    comps.forEach((comp, i) => comp.forEach((k) => compOf.set(k, i)));
+    const selfLoop = new Set(edges.filter((e) => e.from === e.to).map((e) => e.from));
+    const inCycle = new Set();
+    const cycles = [];
+    for (const comp of comps) {
+      if (comp.length > 1 || selfLoop.has(comp[0])) {
+        const sorted = comp.slice().sort(cmp);
+        sorted.forEach((k) => inCycle.add(k));
+        cycles.push(sorted);
+      }
+    }
+    cycles.sort((x, y) => cmp(x[0], y[0]));
+
+    const succ = new Map(nodeKeys.map((k) => [k, []]));
+    const succE = new Map(nodeKeys.map((k) => [k, []]));
+    const pred = new Map(nodeKeys.map((k) => [k, []]));
+    for (const e of edges) {
+      if (compOf.get(e.from) === compOf.get(e.to)) {
+        ignored.push({ from: e.from, to: e.to, reason: "cycle" });
+        continue;
+      }
+      pred.get(e.to).push({ key: e.from, type: e.type, lag: e.lag });
+      succE.get(e.from).push({ key: e.to, type: e.type, lag: e.lag });
+    }
+    for (const [k, l] of succE) {
+      l.sort((x, y) => cmp(x.key, y.key));
+      succ.set(k, l.map((x) => x.key));
+    }
+    ignored.sort((x, y) => cmp(x.to, y.to) || cmp(x.from, y.from));
+
+    // 7. Kahn terurut kunci (antrean min atas peringkat).
+    const rank = new Map(nodeKeys.map((k, i) => [k, i]));
+    const indeg = new Map(nodeKeys.map((k) => [k, pred.get(k).length]));
+    const heap = [];
+    for (const k of nodeKeys) if (indeg.get(k) === 0) heapPush(heap, rank.get(k));
+    const order = [];
+    while (heap.length) {
+      const k = nodeKeys[heapPop(heap)];
+      order.push(k);
+      for (const s of succ.get(k)) {
+        const n = indeg.get(s) - 1;
+        indeg.set(s, n);
+        if (n === 0) heapPush(heap, rank.get(s));
+      }
+    }
+
+    // 8. forward pass
+    const nodes = new Map();
+    const uncomputable = new Set();
+    const drift = new Set();
+    for (const k of order) {
+      const it = byKey.get(k);
+      const t = it.task;
+      const d = it.d;
+      const cst = it.sched.constraint;
+      let fixed = null;
+      if (isDone(t)) fixed = "done";
+      else if (inCycle.has(k)) fixed = "cycle";
+      else if (it.mode === "manual") fixed = "manual";
+      else if (isStarted(t) && it.s !== null) fixed = "started";
+      else if (cst && cst.type === "MFO") fixed = "mfo";
+
+      const n = { key: k, task: t, es: null, ef: null, ls: null, lf: null, slack: null, critical: false, mode: it.mode };
+      if (fixed) n.fixed = fixed;
+      if (it.durGuess) n.durGuess = true;
+      n.d = d;
+      n.g = it.g;
+      n.late = null;
+      nodes.set(k, n);
+
+      const preds = pred.get(k);
+      let es;
+      let ef;
+      if (fixed) {
+        n.driver = { kind: "fixed" };
+        if (fixed === "mfo") {
+          const md = CAL.dn(cst.date);
+          ef = d >= 1 ? safe(() => CAL.prevWork(c, md)) : md;
+          es = isDn(ef) ? SCHED.sff(c, ef, d) : undefined;
+        } else if (it.s !== null) {
+          es = it.s;
+          if (fixed === "done") {
+            ef = jkt(t.completed_at);
+            if (ef === null) ef = SCHED.fin(c, es, d);
+            if (isDn(ef) && ef < es) ef = es;
+          } else ef = SCHED.fin(c, es, d);
+        }
+        if (isDn(es) && isDn(ef)) {
+          for (const p of preds) {
+            const pn = nodes.get(p.key);
+            if (pn.es === null) continue;
+            const r = SCHED.depReq(c, p.type, pn.es, pn.ef, p.lag, d);
+            if (isDn(r) && SCHED.isEarly(c, es, r)) {
+              n.conflict = true;
+              break;
+            }
+          }
+        }
+      } else {
+        let best = null;
+        let driver = null;
+        let bad = false;
+        for (const p of preds) {
+          const pn = nodes.get(p.key);
+          const r = pn.es === null ? undefined : SCHED.depReq(c, p.type, pn.es, pn.ef, p.lag, d);
+          if (!isDn(r)) {
+            bad = true; // pendahulu tak terhitung → penerus tak terhitung (tidak menebak ES lebih awal)
+            break;
+          }
+          if (best === null || r > best) {
+            best = r;
+            driver = { kind: "pred", from: p.key, type: p.type, lag: p.lag };
+          }
+        }
+        if (!bad) {
+          if (cst && cst.type === "SNET") {
+            const sd = CAL.dn(cst.date);
+            if (best === null || sd > best) {
+              best = sd;
+              driver = { kind: "snet" };
+            }
+          }
+          if (!preds.length && it.s !== null && (best === null || it.s > best)) {
+            best = it.s;
+            driver = { kind: "root" };
+          }
+        }
+        n.driver = driver || { kind: "root" };
+        if (!bad && best !== null) {
+          es = d >= 1 ? safe(() => CAL.nextWork(c, best)) : best;
+          ef = isDn(es) ? SCHED.fin(c, es, d) : undefined;
+        }
+      }
+      if (isDn(es) && isDn(ef)) {
+        n.es = es;
+        n.ef = ef;
+        n.late = SCHED.deadlineLate(c, ef, t.deadline);
+        if (!fixed && CAL.iso(es) !== it.sched.start) drift.add(k);
+      } else {
+        delete n.conflict;
+        uncomputable.add(k);
+      }
+    }
+
+    // 9. akhir kelompok project: P_g = maks EF simpul kelompok
+    const groupEnd = new Map();
+    for (const n of nodes.values()) {
+      if (n.ef === null) continue;
+      const cur = groupEnd.get(n.g);
+      if (cur === undefined || n.ef > cur) groupEnd.set(n.g, n.ef);
+    }
+
+    // 10. backward pass (topologis terbalik), slack, kritis
+    for (let i = order.length - 1; i >= 0; i--) {
+      const k = order[i];
+      const n = nodes.get(k);
+      if (n.es === null) continue;
+      const d = n.d;
+      let lf = groupEnd.get(n.g);
+      const dl = deadlineDn(n.task);
+      if (isDn(dl)) {
+        const cap = d >= 1 ? safe(() => CAL.prevWork(c, dl)) : dl;
+        if (isDn(cap) && cap < lf) lf = cap;
+      }
+      if (n.fixed === "mfo" && n.ef < lf) lf = n.ef;
+      for (const e of succE.get(k)) {
+        const sn = nodes.get(e.key);
+        if (sn.ls === null) continue;
+        const lim = SCHED.depLimit(c, e.type, sn.ls, sn.lf, e.lag, d);
+        if (isDn(lim) && lim < lf) lf = lim;
+      }
+      const ls = SCHED.sff(c, lf, d);
+      if (!isDn(ls)) continue;
+      n.lf = lf;
+      n.ls = ls;
+      if (n.fixed === "done") continue; // slack null, tidak kritis
+      let slack;
+      if (lf >= n.ef) slack = CAL.workdays(c, n.ef + 1, Math.min(lf, n.ef + SPAN_MAX));
+      else slack = -CAL.workdays(c, lf + 1, Math.min(n.ef, lf + SPAN_MAX));
+      slack = slack === 0 ? 0 : slack; // tanpa −0
+      n.slack = slack;
+      n.critical = slack <= 0;
+    }
+
+    return {
+      nodes,
+      order,
+      succ,
+      pred,
+      cycles,
+      ignored,
+      groupEnd,
+      drift,
+      summaries,
+      uncomputable,
+    };
+  }
+
+  // ---- explain: "Kenapa dijadwalkan di sini?" (spec 1c §5.6) ----
+  // Dipanggil untuk SATU task sesuai permintaan (popover), tidak di jalur render. TIDAK menghitung jadwal sendiri: tanggal
+  // (start/finish/late) dibaca dari hasil run(); rumus dependensi hanya dipakai ulang (TLSched.depReq) untuk memisahkan
+  // "hari lag" dari "hari yang dilewati", jadi tidak mungkin berbeda dari mesin.
+
+  // Hari non-kerja → {dn, why, name?}. Akhir pekan didahulukan atas libur bernama (Sabtu/Minggu yang kebetulan libur nasional
+  // tetap "Sabtu"/"Minggu"); hari kerja biasa yang dikecualikan kalender (mis. Jumat dinonaktifkan, atau libur tambahan
+  // buatan pengguna) = "tambahan" tanpa nama (nama libur tambahan tidak disimpan di kalender terkompilasi).
+  function nonWorkInfo(c, n) {
+    const wd = CAL.isoWeekday(n);
+    if (!c.mask.has(wd)) return wd === 6 ? { dn: n, why: "Sabtu" } : wd === 7 ? { dn: n, why: "Minggu" } : { dn: n, why: "tambahan" };
+    const h = HOL && typeof HOL.lookup === "function" ? HOL.lookup(CAL.iso(n)) : null;
+    if (h && ((h.kind === "libur" && c.national) || (h.kind === "cuti" && c.cutiBersama))) return { dn: n, why: h.kind, name: h.nama };
+    return { dn: n, why: "tambahan" };
+  }
+
+  // Hari non-kerja di [from, to] inklusif, berurut (rentang dibatasi SPAN_MAX).
+  function nonWorkIn(c, from, to) {
+    const out = [];
+    if (!isDn(from) || !isDn(to)) return out;
+    for (let d = from, hi = Math.min(to, from + SPAN_MAX); d <= hi; d++) if (!CAL.isWork(c, d)) out.push(nonWorkInfo(c, d));
+    return out;
+  }
+
+  // Hari kerja di [from, to) (setengah terbuka), berurut.
+  function workIn(c, from, to) {
+    const out = [];
+    for (let d = from, hi = Math.min(to - 1, from + SPAN_MAX); d <= hi; d++) if (CAL.isWork(c, d)) out.push(d);
+    return out;
+  }
+
+  // PENTING: `cal` HARUS kalender terkompilasi yang sama dengan yang diberikan ke run(); kalender lain membuat atribusi
+  // hari yang dilewati (skipped/lagDays/durSkipped) bisa berbeda dari mesin. Tanpa `readExt`, `base` untuk root/snet = null
+  // (Task 4+ wajib meneruskannya).
+  // explain(result, key, cal, readExt?) → {kind, base, lagDays, start, skipped, finish, durSkipped, late, deadline, pred?, type?, lag?, cycleWith?}
+  //   kind: pred | root | snet | mfo | manual | done | started | cycle | unscheduled
+  //   base = titik acuan: FS/FF → selesai pendahulu, SS/SF → mulai pendahulu; snet → tanggal batasan; root → tanggal mulai
+  //   tersimpan (dua yang terakhir butuh readExt, tanpanya null); lainnya null.
+  //   lagDays = hari kerja yang dipakai lag (selisih syarat lag 0 dan syarat ber-lag: [min, max) hari kerja); lag 0 → [].
+  //   skipped = hari non-kerja strictly di antara base dan start (hanya bila start > base; root/snet: dari base inklusif);
+  //   durSkipped = hari non-kerja di dalam [start, finish] (milestone d = 0 → []); keduanya tidak pernah tumpang tindih.
+  //   late = hari kerja lewat tenggat (0 bila tepat/tanpa tenggat); deadline = hari tenggat atau null.
+  //   cycle → cycleWith = anggota lingkaran lain (terurut cmpKey; anggota yang selesai → kind done, tanpa cycleWith); unscheduled → semua tanggal null.
+  function explain(result, key, cal, readExt) {
+    const k = String(key);
+    const out = (kind, extra) =>
+      Object.assign({ kind, base: null, lagDays: [], start: null, skipped: [], finish: null, durSkipped: [], late: 0, deadline: null }, extra);
+    const nodes = isObj(result) && result.nodes instanceof Map ? result.nodes : null;
+    const n = nodes ? nodes.get(k) : undefined;
+    const ring = isObj(result) && Array.isArray(result.cycles) ? result.cycles.find((cy) => cy.indexOf(k) >= 0) : undefined;
+    // Prioritas jangkar mesin: done > cycle → anggota lingkaran yang selesai dijelaskan sebagai "done" (tanggal dari completed_at).
+    const cycleWith = ring && !(n && n.fixed === "done") ? ring.filter((x) => x !== k).sort(cmpKey) : null;
+    if (!n || n.es === null || n.ef === null || !isObj(cal)) return cycleWith ? out("cycle", { cycleWith }) : out("unscheduled");
+
+    const c = cal;
+    const dl = deadlineDn(n.task);
+    const e = out(cycleWith ? "cycle" : n.fixed || n.driver.kind, {
+      start: n.es,
+      finish: n.ef,
+      late: n.late || 0,
+      deadline: isDn(dl) ? dl : null,
+      durSkipped: n.d >= 1 ? nonWorkIn(c, n.es, n.ef) : [],
+    });
+    if (cycleWith) e.cycleWith = cycleWith;
+    if (e.kind === "pred") {
+      const dr = n.driver;
+      const pn = nodes.get(dr.from);
+      e.pred = dr.from;
+      e.type = dr.type;
+      e.lag = dr.lag;
+      e.base = dr.type === "SS" || dr.type === "SF" ? pn.es : pn.ef;
+      // hari lag: syarat ber-lag vs syarat lag 0 (rumus yang sama dengan mesin → tidak bisa berbeda)
+      const r = SCHED.depReq(c, dr.type, pn.es, pn.ef, dr.lag, n.d);
+      const r0 = SCHED.depReq(c, dr.type, pn.es, pn.ef, 0, n.d);
+      if (isDn(r) && isDn(r0) && r !== r0) e.lagDays = workIn(c, Math.min(r, r0), Math.max(r, r0));
+      if (e.start > e.base) e.skipped = nonWorkIn(c, e.base + 1, e.start - 1);
+    } else if ((e.kind === "snet" || e.kind === "root") && typeof readExt === "function") {
+      // acuan tersimpan: tanggal batasan SNET, atau tanggal Mulai akar (bisa jatuh di akhir pekan → digeser)
+      let sched = null;
+      try {
+        sched = SCHED.readSched(readExt(n.task));
+      } catch (err) {
+        sched = null;
+      }
+      const ref = sched ? (e.kind === "snet" ? (sched.constraint ? sched.constraint.date : null) : sched.start) : null;
+      const b = ref === null ? NaN : CAL.dn(ref);
+      if (isDn(b)) {
+        e.base = b;
+        if (e.start > b) e.skipped = nonWorkIn(c, b, e.start - 1);
+      }
+    }
+    return e;
+  }
+
+  return Object.freeze({ run, jkt, cmpKey, explain });
+})(
+  typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"),
+  typeof TLSched !== "undefined" ? TLSched : require("./schedule.js"),
+  typeof TLHolidays !== "undefined" ? TLHolidays : require("./holidays-id.js"),
+);
+if (typeof module !== "undefined" && module.exports) module.exports = TLCpm;
+// part: plan.js
+// Plugin Timeline — TLPlan: rencana tulis murni (spec 1c §5.7, rencana 1c-1 R11, R12, R14, R17; K32–K36).
+// Mengubah hasil mesin (TLCpm.run) menjadi daftar item {task, key, before, patch, deltaHk, kind} yang diterapkan UI lewat
+// satu api.taskExt.setMany. Murni: tanpa Date, tanpa global, tanpa akses api/store, TIDAK menulis (K27) dan tidak mengubah
+// masukan (ctx, tasks, units, patch). Tanggal dijadwalkan HANYA oleh TLCpm.run atas data + patch (aliran = mesin dijalankan
+// ulang, bukan dihitung di sini); rumus dependensi lewat TLSched (satu sumber, R4); urutan = result.order (topologis) lalu
+// TLCpm.cmpKey. ctx = {tasks, cal, units, readExt} = masukan run().
+const TLPlan = (function (CAL, SCHED, CPM) {
+  const CASCADE_MAX = 20; // K32: turunan berubah > 20 → pratinjau dulu
+  const SPAN_MAX = 3660; // rentang hari kalender maks untuk hitung Δ hk (pola MAX_LATE_SPAN)
+  const DUR_MAX = SCHED.DUR_MAX;
+  const KEYS = ["start", "duration", "constraint", "mode"]; // kunci `before` (R11)
+  const cmpKey = CPM.cmpKey;
+
+  const isObj = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
+  const isDn = (n) => Number.isInteger(n);
+  const isDur = (d) => Number.isInteger(d) && d >= 0 && d <= DUR_MAX;
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const keyOf = (t) => (isObj(t) && t.id !== undefined && t.id !== null ? String(t.id) : null);
+  const clone = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
+  const startDn = (s) => (typeof s === "string" ? CAL.dn(s) : NaN); // Mulai tersimpan sah → bilangan hari, selain itu NaN
+  // Sama dengan isStarted di cpm.js (penanda "sudah mulai" K30).
+  const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
+
+  function safe(fn) {
+    try {
+      return fn();
+    } catch (e) {
+      if (e instanceof Error && e.message === "TL_CAL_LOOP") return undefined;
+      throw e;
+    }
+  }
+
+  // Ext mentah task (tanpa prefiks) — fallback dan penanganan lempar sama dengan run().
+  function rawOf(ctx, task) {
+    let raw;
+    try {
+      raw = typeof ctx.readExt === "function" ? ctx.readExt(task) : task && isObj(task.ext) ? task.ext : {};
+    } catch (e) {
+      raw = {};
+    }
+    return isObj(raw) ? raw : {};
+  }
+
+  // Bentuk kanonik untuk CAS: urutan kunci objek tidak relevan; undefined = null.
+  function canon(v) {
+    if (v === undefined || v === null) return "null";
+    if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+    if (typeof v === "object") return "{" + Object.keys(v).sort(cmpKey).map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
+    return JSON.stringify(v);
+  }
+
+  // Selisih hari kerja bertanda a → b: maju = hari kerja [a, b), mundur = −hari kerja [b, a); rentang dibatasi.
+  function wdDelta(c, a, b) {
+    if (!isDn(a) || !isDn(b)) return null;
+    if (a <= b) return a === b ? 0 : CAL.workdays(c, a, Math.min(b - 1, a + SPAN_MAX));
+    const n = CAL.workdays(c, b, Math.min(a - 1, b + SPAN_MAX));
+    return n === 0 ? 0 : -n;
+  }
+
+  // Patch gestur → bentuk bersih sanitizePatch bila sah (deps bentuk readSched → bentuk ext); tak sah → salinan apa adanya.
+  function cleanPatch(p) {
+    const s = SCHED.sanitizePatch(p);
+    return s.ok ? s.patch : clone(p);
+  }
+
+  // Ext mentah + patch (null = hapus kunci) → ext baru; masukan tidak diubah.
+  function mergeRaw(raw, patch) {
+    const out = clone(raw);
+    for (const k of Object.keys(patch)) {
+      if (patch[k] === null) delete out[k];
+      else out[k] = clone(patch[k]);
+    }
+    return out;
+  }
+
+  // Patch hasil mesin untuk simpul otomatis non-jangkar: start = iso(es) bila beda dari tersimpan; tanpa Mulai tersimpan
+  // (baru dijadwalkan) + durasi hilang → duration 1. Jangkar / tak terhitung / bukan simpul → {}.
+  function enginePatch(n, raw) {
+    const out = {};
+    if (!n || n.fixed || n.es === null) return out;
+    const s = CAL.iso(n.es);
+    if (s !== raw.start) out.start = s;
+    if (!isDn(startDn(raw.start)) && n.durGuess) out.duration = 1;
+    return out;
+  }
+
+  // Item rencana (R11). before = nilai MENTAH ext (kunci tak ada → null) agar Urungkan persis; patch membawa `deps`
+  // (gestur tautkan) → before juga memuat deps lama.
+  function mkItem(c, task, raw, patch) {
+    const before = {};
+    for (const k of KEYS) before[k] = clone(raw[k]);
+    if (has(patch, "deps")) before.deps = clone(raw.deps);
+    const old = startDn(raw.start);
+    const next = has(patch, "start") ? patch.start : raw.start;
+    let kind = "move";
+    if (has(patch, "start") && patch.start !== null && !isDn(old)) kind = "new";
+    else if (has(patch, "start") && patch.start !== raw.start) kind = "move";
+    else if (has(patch, "duration")) kind = "duration";
+    else if (has(patch, "constraint")) kind = "constraint";
+    else if (has(patch, "mode")) kind = "mode";
+    const deltaHk = isDn(old) && isDn(startDn(next)) ? wdDelta(c, old, startDn(next)) : null;
+    return { task, key: keyOf(task), before, patch, deltaHk, kind };
+  }
+
+  // Urut item topologis menurut result.order; kunci di luar order (bukan simpul) di akhir, cmpKey.
+  function sortTopo(items, result) {
+    const pos = new Map(result.order.map((k, i) => [k, i]));
+    const at = (k) => (pos.has(k) ? pos.get(k) : Infinity);
+    return items.sort((a, b) => at(a.key) - at(b.key) || cmpKey(a.key, b.key));
+  }
+
+  // Kunci yang terjangkau dari seeds lewat result.succ (semua tipe), termasuk seeds; opsional + anggota lingkaran penuh.
+  function reach(result, seeds, withCycles) {
+    const seen = new Set();
+    const stack = [];
+    for (const k of seeds) {
+      if (!result.nodes.has(k) || seen.has(k)) continue;
+      seen.add(k);
+      stack.push(k);
+    }
+    while (stack.length) {
+      for (const s of result.succ.get(stack.pop()) || []) {
+        if (!seen.has(s)) {
+          seen.add(s);
+          stack.push(s);
+        }
+      }
+    }
+    if (withCycles) for (const cy of result.cycles) if (cy.some((k) => seen.has(k))) cy.forEach((k) => seen.add(k));
+    return seen;
+  }
+
+  const isResult = (r) => isObj(r) && r.nodes instanceof Map && Array.isArray(r.order);
+
+  // Apakah operasi menggeser simpul ini (es/ef/d sesudah ≠ sebelum; bukan simpul sebelumnya = berubah).
+  const shifted = (bn, an) => !bn || bn.es !== an.es || bn.ef !== an.ef || bn.d !== an.d;
+
+  // Inti aliran (K32): mesin atas data + patch → item = patch (+ start hasil mesin bila task otomatis non-jangkar) ∪
+  // turunan otomatis non-jangkar (BFS result.succ dari seeds) yang DIGESER operasi ini (hasil sesudah ≠ hasil sebelum)
+  // DAN berbeda dari nilai tersimpan (patch relatif ke tersimpan). Drift yang tidak digeser operasi — di luar turunan,
+  // di belakang jangkar yang tidak bergeser, atau turunan yang ES-nya tetap — tidak pernah ikut. patches: Map<key,
+  // {task, patch}>; seedsOf(after) → kunci awal BFS; before = hasil mesin atas ctx tanpa patch (tidak ada → dihitung).
+  function flow(ctx, patches, units, seedsOf, before) {
+    const c = ctx.cal;
+    const prior = isResult(before) ? before : CPM.run({ tasks: ctx.tasks, cal: c, units: ctx.units, readExt: (t) => rawOf(ctx, t) });
+    const merged = new Map();
+    for (const [k, g] of patches) merged.set(k, mergeRaw(rawOf(ctx, g.task), g.patch));
+    const read = (t) => {
+      const k = keyOf(t);
+      return k !== null && merged.has(k) ? clone(merged.get(k)) : rawOf(ctx, t);
+    };
+    const after = CPM.run({ tasks: ctx.tasks, cal: c, units, readExt: read });
+    const items = [];
+    for (const [k, g] of patches) {
+      const extra = enginePatch(after.nodes.get(k), merged.get(k));
+      items.push(mkItem(c, g.task, rawOf(ctx, g.task), Object.assign({}, g.patch, extra)));
+    }
+    for (const k of reach(after, seedsOf(after), false)) {
+      if (patches.has(k)) continue;
+      const n = after.nodes.get(k);
+      if (!shifted(prior.nodes.get(k), n)) continue;
+      const raw = rawOf(ctx, n.task);
+      const p = enginePatch(n, raw);
+      if (Object.keys(p).length) items.push(mkItem(c, n.task, raw, p));
+    }
+    return { items: sortTopo(items, after), result: after };
+  }
+
+  // Pasangan pendahulu→penerus yang dilanggar (TLSched.violations atas rentang hasil mesin); keep(kunci penerus) menyaring.
+  function violated(c, res, keep) {
+    const out = new Set();
+    if (!isObj(res) || !(res.nodes instanceof Map) || !(res.pred instanceof Map)) return out;
+    const spans = new Map();
+    for (const [k, n] of res.nodes) if (n.es !== null) spans.set(k, { s: n.es, f: n.ef, d: n.d });
+    const edges = [];
+    for (const [to, list] of res.pred) {
+      if (keep(to)) for (const p of list) edges.push({ from: p.key, to, type: p.type, lag: p.lag, ok: true });
+    }
+    for (const d of SCHED.violations(c, spans, edges).detail) out.add(d.pred + "\u0000" + d.succ);
+    return out;
+  }
+
+  // Jumlah pelanggaran BARU (ada di after, tidak di before).
+  function newBroken(c, before, after, keep) {
+    const old = violated(c, before, keep);
+    let n = 0;
+    for (const p of violated(c, after, keep)) if (!old.has(p)) n++;
+    return n;
+  }
+
+  // ---- API ----
+
+  // diff (R11): simpul otomatis non-jangkar yang iso(es) ≠ Mulai tersimpan atau tanpa Mulai ("new", duration 1 bila hilang).
+  // result = run(ctx); onlyKeys (Set) membatasi (mis. drift halaman). Urutan = result.order.
+  function diff(result, ctx, onlyKeys) {
+    const items = [];
+    for (const k of result.order) {
+      if (onlyKeys instanceof Set && !onlyKeys.has(k)) continue;
+      const n = result.nodes.get(k);
+      const raw = rawOf(ctx, n.task);
+      const p = enginePatch(n, raw);
+      if (Object.keys(p).length) items.push(mkItem(ctx.cal, n.task, raw, p));
+    }
+    return items;
+  }
+
+  // cascade (K32, R13): gestures [{task, patch}] (patch sudah lewat gesture()); patch ganda untuk task sama digabung.
+  // before (opsional) = run(ctx) yang sudah dimiliki pemanggil (mis. useEngine) agar mesin tidak dijalankan dua kali.
+  // → {items, gestureCount, over, result: hasil mesin sesudah}. over = turunan yang digeser > CASCADE_MAX.
+  function cascade(ctx, gestures, before) {
+    const patches = new Map();
+    for (const g of Array.isArray(gestures) ? gestures : []) {
+      const k = g ? keyOf(g.task) : null;
+      if (k === null || !isObj(g.patch)) continue;
+      const prev = patches.get(k);
+      patches.set(k, { task: g.task, patch: Object.assign(prev ? prev.patch : {}, cleanPatch(g.patch)) });
+    }
+    const r = flow(ctx, patches, ctx.units, () => [...patches.keys()], before);
+    const gestureCount = patches.size;
+    return { items: r.items, gestureCount, over: r.items.length - gestureCount > CASCADE_MAX, result: r.result };
+  }
+
+  // toggleUnit (K40, R15): units baru (salinan, auto = on). ON → item = simpul unit yang mode efektifnya berubah ke
+  // otomatis + turunannya, yang hasilnya berbeda dari tersimpan (akar tetap tidak berubah). OFF → tanpa item task.
+  function toggleUnit(ctx, recId, on) {
+    const units = new Map(ctx.units instanceof Map ? ctx.units : []);
+    const prev = units.get(recId);
+    units.set(recId, Object.assign({}, isObj(prev) ? prev : {}, { auto: !!on }));
+    if (!on) return { items: [], units, result: null };
+    const seedsOf = (after) =>
+      after.order.filter((k) => {
+        const n = after.nodes.get(k);
+        return n.g === recId && n.mode === "auto" && SCHED.modeOf(rawOf(ctx, n.task), ctx.units, n.task) !== "auto";
+      });
+    const r = flow(ctx, new Map(), units, seedsOf);
+    return { items: r.items, units, result: r.result };
+  }
+
+  // reschedule (K36, R17): T = bilangan hari (atau ISO) hari kerja pertama ≥ hari ini; unitKeys = Set recId unit halaman.
+  // Per simpul unit halaman (tak selesai, terhitung), urut topologis:
+  //  - sudah mulai (jangkar "started", atau Manual dengan progress/pomodoro), durasi ≥ 1, EF < T → Mulai tetap,
+  //    duration = hari kerja Mulai..add(T, r − 1), r = max(1, ⌈d × (1 − progress/100)⌉), dijepit ≤ 999;
+  //  - milestone (d = 0) yang sudah mulai ikut cabang belum-mulai (amandemen K36): durasi TIDAK pernah ditulis
+  //    (berlian tidak boleh diam-diam menjadi bar). Otomatis → constraint SNET T + start T (start ditulis eksplisit karena
+  //    jangkar "started" mesin berdiri di Mulai tersimpan; tanpa itu SNET tidak berpengaruh); Manual → start T;
+  //  - belum mulai dan Mulai (ES) < T → Manual: start T (milestone ikut); otomatis non-jangkar: constraint SNET T
+  //    (+ start hasil mesin); lingkaran/MFO otomatis tidak disentuh.
+  // Lalu aliran tanpa ambang (penerus otomatis ikut; penerus Manual tidak dipindah). broken = pelanggaran BARU dengan
+  // penerus Manual. → {items, broken, result: hasil mesin sesudah}.
+  function reschedule(ctx, result, T, unitKeys) {
+    const c = ctx.cal;
+    const t = typeof T === "string" ? CAL.dn(T) : T;
+    if (!isDn(t) || !isObj(result) || !(result.nodes instanceof Map) || !(unitKeys instanceof Set)) return { items: [], broken: 0, result: null };
+    const tIso = CAL.iso(t);
+    const patches = new Map();
+    for (const k of result.order) {
+      const n = result.nodes.get(k);
+      if (!unitKeys.has(n.g) || n.es === null || n.fixed === "done") continue;
+      const task = n.task;
+      const started = n.fixed === "started" || (n.mode === "manual" && isStarted(task));
+      if (started && n.d >= 1) {
+        if (n.ef >= t) continue;
+        const p = Math.min(100, Math.max(0, Number(task.progress) || 0));
+        const r = Math.max(1, Math.ceil(n.d * (1 - p / 100)));
+        const end = safe(() => CAL.addWork(c, t, r - 1));
+        if (!isDn(end)) continue;
+        const dur = Math.min(DUR_MAX, CAL.workdays(c, n.es, Math.min(end, n.es + SPAN_MAX)));
+        if (dur !== rawOf(ctx, task).duration) patches.set(k, { task, patch: { duration: dur } });
+        continue;
+      }
+      if (n.es >= t) continue;
+      if (n.mode === "manual") patches.set(k, { task, patch: { start: tIso } });
+      else if (started) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso }, start: tIso } });
+      else if (!n.fixed) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso } } });
+    }
+    const r = flow(ctx, patches, ctx.units, () => [...patches.keys()], result);
+    const manual = (k) => {
+      const n = r.result.nodes.get(k);
+      return !!n && n.mode === "manual";
+    };
+    return { items: r.items, broken: newBroken(c, result, r.result, manual), result: r.result };
+  }
+
+  // gesture (K33, R12): task otomatis non-jangkar dengan patch.start → syarat req = maks depReq atas pendahulu terpakai
+  // (result.pred; durasi = patch.duration bila sah, selain itu durasi simpul). start < req → {ok:false, reason:"early",
+  // es: req}. Berpendahulu atau ber-SNET → + constraint SNET tanggal jatuh; akar tanpa SNET → patch apa adanya.
+  // Selain itu (Manual, jangkar, bukan simpul, tanpa start) → {ok:true, patch} apa adanya (perilaku 1b / aliran K32).
+  // Pilihan (bawaan Task 1): pembanding HARFIAH start < req, bukan TLSched.isEarly — jatuh di Sabtu sebelum syarat Senin
+  // DITOLAK walau nw(Sabtu) = Senin, agar tanggal tersimpan tidak pernah lebih awal dari syarat dependensinya.
+  function gesture(result, task, raw, patch, cal) {
+    const p = Object.assign({}, patch);
+    const k = keyOf(task);
+    const n = k !== null && isObj(result) && result.nodes instanceof Map ? result.nodes.get(k) : undefined;
+    if (!n || n.fixed || n.mode !== "auto" || typeof p.start !== "string") return { ok: true, patch: p };
+    const sd = CAL.dn(p.start);
+    if (!isDn(sd)) return { ok: true, patch: p };
+    const d = isDur(p.duration) ? p.duration : n.d;
+    const preds = (result.pred instanceof Map && result.pred.get(k)) || [];
+    let req = null;
+    for (const e of preds) {
+      const pn = result.nodes.get(e.key);
+      if (!pn || pn.es === null) continue;
+      const r = SCHED.depReq(cal, e.type, pn.es, pn.ef, e.lag, d);
+      if (isDn(r) && (req === null || r > req)) req = r;
+    }
+    if (req !== null && sd < req) return { ok: false, reason: "early", es: req };
+    const cst = SCHED.readSched(raw).constraint;
+    if (preds.length || (cst && cst.type === "SNET")) p.constraint = { type: "SNET", date: p.start };
+    return { ok: true, patch: p };
+  }
+
+  // modePatch (R3): pilihan sama dengan mode unit → {mode: null} (hapus kunci, ikut project); selain itu {mode: want}.
+  function modePatch(task, units, want) {
+    const u = units instanceof Map ? units.get(SCHED.unitOf(task).recId) : null;
+    const unitMode = u && u.auto === true ? "auto" : "manual";
+    return { mode: want === unitMode || (want !== "auto" && want !== "manual") ? null : want };
+  }
+
+  // preview (K34, R14): model murni pratinjau. result = hasil mesin SESUDAH (mis. cascade().result), before = hasil
+  // SEBELUM; tanpa before → null (pelanggaran yang sudah ada tidak boleh dianggap baru). seedKeys (Set, opsional) ikut
+  // jangkauan notMoved/brokenDeps — pratinjau sakelar memberi kunci simpul unit agar lingkaran/jangkar bertabrakan unit
+  // yang tidak di hilir item tetap tercantum. rows per item (urutan item): {key, task, kind, from, to, deltaHk, durFrom, durTo, isNew,
+  // durChanged, durGuess, late}. Selesai project = maks groupEnd kelompok item. notMoved = jangkar bertabrakan
+  // ("anchor"/"mfo") dan anggota lingkaran ("cycle") yang terjangkau dari item (turunan + lingkarannya), bukan item.
+  // brokenDeps = pelanggaran baru dengan penerus di jangkauan itu. Tanpa teks: "Kenapa" disusun UI dari TLCpm.explain.
+  function preview(items, result, ctx, before, seedKeys) {
+    if (!isResult(before)) return null;
+    const c = ctx.cal;
+    const list = Array.isArray(items) ? items : [];
+    const nodes = result.nodes;
+    const groups = new Set();
+    const rows = list.map((it) => {
+      const n = nodes.get(it.key);
+      if (n) groups.add(n.g);
+      const from = isDn(startDn(it.before.start)) ? it.before.start : null;
+      const to = has(it.patch, "start") ? it.patch.start : from;
+      const durFrom = isDur(it.before.duration) ? it.before.duration : null;
+      const durTo = has(it.patch, "duration") ? it.patch.duration : durFrom;
+      return {
+        key: it.key,
+        task: it.task,
+        kind: it.kind,
+        from,
+        to,
+        deltaHk: it.deltaHk,
+        durFrom,
+        durTo,
+        isNew: it.kind === "new",
+        // task baru dijadwalkan yang durasinya diisi 1 bukan "durasi berubah" (UI: "baru dijadwalkan" + catatan durGuess)
+        durChanged: it.kind !== "new" && has(it.patch, "duration") && durTo !== durFrom,
+        durGuess: !!(n && n.durGuess),
+        late: n && n.late > 0 ? n.late : 0,
+      };
+    });
+    const endOf = (res) => {
+      let best = null;
+      if (!isObj(res) || !(res.groupEnd instanceof Map)) return best;
+      for (const g of groups) {
+        const e = res.groupEnd.get(g);
+        if (isDn(e) && (best === null || e > best)) best = e;
+      }
+      return best;
+    };
+    const endBefore = endOf(before);
+    const endAfter = endOf(result);
+    const itemKeys = new Set(list.map((it) => it.key));
+    const seeds = new Set(itemKeys);
+    if (seedKeys instanceof Set) for (const k of seedKeys) seeds.add(k);
+    const near = reach(result, seeds, true);
+    const notMoved = [];
+    for (const k of result.order) {
+      const n = nodes.get(k);
+      if (!near.has(k) || itemKeys.has(k) || !n.fixed) continue;
+      if (n.fixed === "cycle") notMoved.push({ key: k, why: "cycle" });
+      else if (n.conflict) notMoved.push({ key: k, why: n.fixed === "mfo" ? "mfo" : "anchor" });
+    }
+    return {
+      rows,
+      moved: rows.filter((r) => r.to !== r.from).length,
+      endBefore,
+      endAfter,
+      endDelta: endBefore !== null && endAfter !== null ? wdDelta(c, endBefore, endAfter) : null,
+      late: rows.filter((r) => r.late > 0).length,
+      notMoved,
+      brokenDeps: newBroken(c, before, result, (k) => near.has(k)),
+    };
+  }
+
+  // revalidate (CAS, K34): rawNow = Map<key, ext mentah terkini>. Setiap item: semua kunci `before` (start, duration,
+  // constraint, mode; + deps bila ada) dibandingkan MENTAH (bentuk kanonik) dengan nilai terkini; task hilang = berubah.
+  function revalidate(items, rawNow) {
+    const keys = [];
+    for (const it of Array.isArray(items) ? items : []) {
+      const raw = rawNow instanceof Map ? rawNow.get(it.key) : undefined;
+      if (!isObj(raw) || Object.keys(it.before).some((f) => canon(raw[f]) !== canon(it.before[f]))) keys.push(it.key);
+    }
+    return keys.length ? { ok: false, keys } : { ok: true };
+  }
+
+  // undoItems (R13): patch = `before` (kunci yang dulu tidak ada → null = hapus); urutan item sama. Nilai mentah yang
+  // gagal sanitizePatch untuk kuncinya (data korup) → null: mesin memperlakukannya sebagai tidak ada, dan satu nilai
+  // korup tidak boleh membuat seluruh batch Urungkan ditolak (R22). Nilai sah ditulis dalam bentuk bersih sanitizePatch.
+  function undoItems(items) {
+    return (Array.isArray(items) ? items : []).map((it) => {
+      const patch = {};
+      for (const k of Object.keys(it.before)) {
+        const v = it.before[k];
+        const s = v === null ? null : SCHED.sanitizePatch({ [k]: v });
+        patch[k] = s && s.ok ? clone(s.patch[k]) : null;
+      }
+      return { taskId: it.task.id, patch };
+    });
+  }
+
+  return Object.freeze({ CASCADE_MAX, diff, cascade, toggleUnit, reschedule, gesture, modePatch, preview, revalidate, undoItems });
+})(
+  typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"),
+  typeof TLSched !== "undefined" ? TLSched : require("./schedule.js"),
+  typeof TLCpm !== "undefined" ? TLCpm : require("./cpm.js"),
+);
+if (typeof module !== "undefined" && module.exports) module.exports = TLPlan;
 // part: layout.js
 // Plugin Timeline — TLLayout: tata letak Gantt murni — kelompok, WBS, ringkasan, skala & rentang, header, jendela virtual,
 // arsir akhir pekan, panah dependensi, label aksesibilitas (spec §8.5/§8.6, rencana R2, R9, R10, R11, R16, R21–R24).
@@ -1876,17 +2857,21 @@ const TLDrag = (function (CAL, SCHED) {
 );
 if (typeof module !== "undefined" && module.exports) module.exports = TLDrag;
 function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
-// Plugin Timeline (Fase 1, PR 1b; spec docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md §8).
-// Gantt Manual untuk project dan workspace: view `gantt` (slot taskList.views) dan seksi `schedule` (slot
-// taskDetail.sections). Mesin murni ada di `parts` (holidays-id.js, calendar.js, schedule.js, layout.js, drag.js —
-// compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLLayout/TLDrag tersedia sebagai
-// const di lingkup yang sama; tidak ada global window). `manifest` disuntik compile.js dari manifest.json.
+// Plugin Timeline (Fase 1, PR 1b; spec docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md §8;
+// 1.1.0 = PR 1c-1 jadwal otomatis, spec docs/superpowers/specs/2026-11-01-plugin-fase1-1c-otomatis-design.md).
+// Gantt untuk project dan workspace: view `gantt` (slot taskList.views) dan seksi `schedule` (slot
+// taskDetail.sections). Mesin murni ada di `parts` (holidays-id.js, calendar.js, schedule.js, cpm.js, plan.js,
+// layout.js, drag.js — compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLCpm/TLPlan/
+// TLLayout/TLDrag tersedia sebagai const di lingkup yang sama; tidak ada global window). `manifest` disuntik
+// compile.js dari manifest.json.
 //
 // Susunan modul (Task 6 = kerangka; komponen diisi Task 7–10):
 //   1. Konstanta + pesan UI persis (kalender, preferensi).
-//   2. calendarStore(api)  — SATU-SATUNYA kode yang menyentuh api.records (R5). calTarget (= TLSched.calTarget) memilih id/scope.
+//   2. calendarStore(api) dan projectStore(api) (1c-1 R6) — SATU-SATUNYA kode yang menyentuh api.records (R5), masing-
+//      masing hanya entitasnya sendiri. calTarget (= TLSched.calTarget) / TLSched.unitOf memilih id/scope.
+//      Tulisan hanya di calendarStore.save dan projectStore.setAuto (R25: mesin dan pemuat tidak pernah menulis).
 //   3. Preferensi per perangkat lewat api.storage: prefKey / cleanPref / PREF_DEFAULTS (R19).
-//   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar), fungsi render
+//   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar/useUnits/useEngine), fungsi render
 //      (toolbar/head/tabel/grafik/panah/legenda), TimelineViewBody (Task 7; interaksi Task 8 lewat `ix`; popover
 //      kalender + Daftar HP Task 9), ScheduleSection (Task 10); pembungkus React.memo malas (R24).
 //   5. `pure` + module.exports untuk tes Node; registrasi hanya bila host plugin (TF.plugins) ada.
@@ -1905,6 +2890,25 @@ function calTooLarge() {
   const e = new Error(MSG_CAL_TOO_LARGE);
   e.code = "TOO_LARGE";
   return e;
+}
+
+// Peristiwa api.records.onChange → bentuk adaptor untuk satu entitas, atau null bila bukan untuknya. Peristiwa tarik
+// sukses host {entity: null, pulled: true} (README §5) diteruskan ke semua adaptor sebagai {ids: [], source: "sync",
+// lost: [], pulled: true}. Murni (tanpa akses api) — dipakai bersama calendarStore dan projectStore.
+function recordEvent(ev, entity) {
+  if (!ev) return null;
+  if (ev.pulled === true) return {
+    ids: [],
+    source: "sync",
+    lost: [],
+    pulled: true
+  };
+  if (ev.entity !== entity) return null;
+  return {
+    ids: Array.isArray(ev.ids) ? ev.ids.slice() : [],
+    source: ev.source,
+    lost: Array.isArray(ev.lost) ? ev.lost.slice() : []
+  };
 }
 
 // Adaptor tunggal api.records untuk entitas `calendar`. Tidak ada record → DEFAULT_CAL (pending false, exists false).
@@ -1945,22 +2949,123 @@ function calendarStore(api) {
     // host {ids: [], source: "sync", lost: [], pulled: true} (entity null; README §5); mengembalikan off().
     subscribe(fn) {
       return api.records.onChange(ev => {
-        if (!ev) return;
-        if (ev.pulled === true) {
-          fn({
-            ids: [],
-            source: "sync",
-            lost: [],
-            pulled: true
-          });
-          return;
-        }
-        if (ev.entity !== CAL_ENTITY) return;
-        fn({
-          ids: Array.isArray(ev.ids) ? ev.ids.slice() : [],
-          source: ev.source,
-          lost: Array.isArray(ev.lost) ? ev.lost.slice() : []
+        const e = recordEvent(ev, CAL_ENTITY);
+        if (e) fn(e);
+      });
+    }
+  };
+}
+
+// ── 2b. Unit jadwal otomatis: record `project` (1c-1 R5, R6) ─────────────────
+// Satu record per unit jadwal (project dalam workspace, atau project pribadi): id dari TLSched.unitOf (satu-satunya
+// pembuat id), data {v: 1, auto, name, by}. Tidak ada record / data tidak sah → unit dianggap tidak ada (Manual).
+const PRJ_ENTITY = "project";
+const PRJ_MAX_NAME = 120;
+const PRJ_PAGE = 1000; // batas atas limit api.records.list
+const NO_UNIT = Object.freeze({
+  auto: false,
+  by: null,
+  updatedAt: null,
+  pending: false,
+  exists: false
+});
+const EMPTY_UNITS = new Map();
+
+// Nama record cocok dengan lipatan unit (penjaga tabrakan hash): projectFold sama. Nama yang ditulis setAuto dipotong
+// 120 karakter dan projectFold mempertahankan panjang, jadi nama tepat 120 karakter cocok dengan awalan lipatan unit.
+function prjNameFits(name, fold) {
+  const f = TLSched.projectFold(name);
+  if (f === fold) return true;
+  return name.length === PRJ_MAX_NAME && fold.length > PRJ_MAX_NAME && fold.slice(0, PRJ_MAX_NAME) === f;
+}
+
+// Record → Unit. `fold` = lipatan unit yang diharapkan; null = lipatan tidak diketahui (dari daftar workspace: nama
+// harus menghasilkan id record yang sama lewat TLSched.unitOf, kecuali nama terpotong 120 karakter).
+function prjUnitOf(r, fold, lid) {
+  const d = r && typeof r === "object" ? r.data : null;
+  if (!d || typeof d !== "object" || Array.isArray(d)) return NO_UNIT;
+  if (d.v !== 1 || typeof d.auto !== "boolean" || typeof d.name !== "string" || d.name.length > PRJ_MAX_NAME) return NO_UNIT;
+  if (!(d.by === null || Number.isInteger(d.by))) return NO_UNIT;
+  if (fold !== null) {
+    if (!prjNameFits(d.name, fold)) return NO_UNIT;
+  } else if (TLSched.unitOf({
+    pageKind: "workspace",
+    listId: lid,
+    projectName: d.name
+  }).recId !== r.id && d.name.length !== PRJ_MAX_NAME) {
+    return NO_UNIT;
+  }
+  return {
+    auto: d.auto,
+    by: d.by,
+    updatedAt: typeof r.updated_at === "string" ? r.updated_at : null,
+    pending: !!r.pending,
+    exists: true
+  };
+}
+
+// Adaptor tunggal api.records untuk entitas `project` (pola calendarStore). page = {pageKind, listId, projectName}.
+//   loadUnits(page) → Promise<Map<recId, Unit>>: workspace → semua record scope "list:<lid>" (ikuti `next`); halaman
+//     project → satu record unitOf(page) (tanpa record → NO_UNIT). Unit = {auto, by, updatedAt, pending, exists}.
+//     Tidak pernah menulis (record rusak tidak dinormalisasi ulang).
+//   setAuto(unit, on, userId) → Promise<record>: SATU-SATUNYA tulisan record project (aksi eksplisit sakelar, R15).
+//   subscribe(fn) → off: perubahan entitas project + peristiwa tarik sukses (recordEvent).
+function projectStore(api) {
+  return {
+    loadUnits(page) {
+      return Promise.resolve().then(() => {
+        const p = page && typeof page === "object" ? page : {};
+        const unit = TLSched.unitOf({
+          pageKind: p.pageKind,
+          listId: p.pageKind === "workspace" ? p.listId : null,
+          projectName: p.projectName
         });
+        const out = new Map();
+        if (p.pageKind === "workspace" && unit.scope !== "user") {
+          const scope = unit.scope;
+          const lid = scope.slice(5);
+          const page1 = after => {
+            const q = after === null ? {
+              scope,
+              limit: PRJ_PAGE
+            } : {
+              scope,
+              limit: PRJ_PAGE,
+              after
+            };
+            return Promise.resolve(api.records.list(PRJ_ENTITY, q)).then(res => {
+              const items = res && Array.isArray(res.items) ? res.items : [];
+              for (const r of items) if (r && typeof r.id === "string") out.set(r.id, prjUnitOf(r, null, lid));
+              const next = res && typeof res.next === "string" && res.next ? res.next : null;
+              return next !== null && next !== after ? page1(next) : out;
+            });
+          };
+          return page1(null);
+        }
+        return Promise.resolve(api.records.get(PRJ_ENTITY, unit.recId)).then(r => {
+          out.set(unit.recId, r ? prjUnitOf(r, unit.fold, null) : NO_UNIT);
+          return out;
+        });
+      });
+    },
+    setAuto(unit, on, userId) {
+      return Promise.resolve().then(() => {
+        if (!unit || typeof unit.recId !== "string" || typeof unit.scope !== "string") throw new Error("unit jadwal tidak sah");
+        const data = {
+          v: 1,
+          auto: on === true,
+          name: String(unit.name === undefined || unit.name === null ? "" : unit.name).slice(0, PRJ_MAX_NAME),
+          by: Number.isInteger(userId) ? userId : null
+        };
+        return api.records.put(PRJ_ENTITY, unit.recId, data, {
+          scope: unit.scope
+        });
+      });
+    },
+    subscribe(fn) {
+      return api.records.onChange(ev => {
+        const e = recordEvent(ev, PRJ_ENTITY);
+        if (e) fn(e);
       });
     }
   };
@@ -2094,8 +3199,10 @@ function missingYearsNote(years) {
 }
 
 // Tata letak lewat objek yang bisa diganti tes (TLLayout beku; tes R24 memata-matai jumlah panggilan).
+// Satu pintu ke mesin murni (spy di tes): tata letak (R24) dan CPM (1c-1 R7; dipanggil hanya dari useEngine).
 const engine = {
-  layout: args => TLLayout.layout(args)
+  layout: args => TLLayout.layout(args),
+  run: ctx => TLCpm.run(ctx)
 };
 const DEFAULT_CAL_DATA = TLCal.normalize(TLCal.DEFAULT_CAL);
 
@@ -2351,6 +3458,279 @@ function useCalendar(api, target) {
     store,
     pulled
   };
+}
+
+// Unit jadwal halaman (1c-1 R6; pola useCalendar): muat lewat projectStore, muat ulang pada setiap perubahan entitas
+// project dan pada peristiwa tarik sukses. `pulled` = latch "tarik record plugin SUKSES sejak pemasangan ini", dinyalakan
+// SETELAH muat ulang sesudah peristiwa `pulled` selesai (bukan sync.done, yang juga menyala saat sinkron gagal).
+// P3 (a): sakelar "Jadwal otomatis" workspace dikunci "Menunggu data jadwal workspace…" selama unitnya tidak `exists`
+// dan `pulled` belum menyala (Task 8). `loaded` = muat pertama halaman ini selesai. Hook ini tidak pernah menulis.
+// page = {pageKind, listId, projectName}; workspace dimuat per scope list, halaman project per recId unitOf(page).
+function unitsPageKey(pageKind, listId, projectName) {
+  if (pageKind === "workspace") return "w|" + calTarget(listId).scope;
+  return "p|" + TLSched.unitOf({
+    pageKind: "project",
+    listId: null,
+    projectName
+  }).recId;
+}
+function useUnits(api, page) {
+  const p = page && typeof page === "object" ? page : {};
+  const pageKind = p.pageKind === "workspace" ? "workspace" : "project";
+  const key = unitsPageKey(pageKind, p.listId, p.projectName);
+  const store = React.useMemo(() => projectStore(api), [api]);
+  const [st, setSt] = React.useState(() => ({
+    key,
+    units: EMPTY_UNITS,
+    loaded: false
+  }));
+  const [pulled, setPulled] = React.useState(false);
+  const argRef = React.useRef(null);
+  argRef.current = {
+    pageKind,
+    listId: pageKind === "workspace" ? p.listId : null,
+    projectName: pageKind === "workspace" ? null : p.projectName
+  };
+  React.useEffect(() => {
+    let alive = true;
+    let seq = 0;
+    const arg = argRef.current;
+    const load = () => {
+      const my = ++seq;
+      return store.loadUnits(arg).then(units => {
+        if (alive && my === seq) setSt({
+          key,
+          units,
+          loaded: true
+        });
+        return true;
+      }, e => {
+        logWarn(api, "unit jadwal gagal dimuat:", e);
+        return false;
+      });
+    };
+    load();
+    let off = null;
+    try {
+      off = store.subscribe(ev => {
+        if (ev.pulled) {
+          load().then(ok => {
+            if (ok && alive) setPulled(true);
+          });
+          return;
+        }
+        load();
+      });
+    } catch (e) {
+      logWarn(api, "pendengar unit jadwal gagal:", e);
+    }
+    return () => {
+      alive = false;
+      if (typeof off === "function") off();
+    };
+  }, [store, key]);
+  const mine = st.key === key;
+  return {
+    units: mine ? st.units : EMPTY_UNITS,
+    loaded: mine && st.loaded,
+    pulled,
+    store
+  };
+}
+
+// Mesin jadwal di view (1c-1 R7, K31, K43). Memuat daftar task LENGKAP (api.data.tasks.list({includeDone: true});
+// scopeTasks host sudah difilter panel) saat pasang, lalu — debounce ENGINE_TIMING.debounceMs, hanya jawaban terbaru —
+// saat identitas scopeTasks berubah dan saat sync.done. Saringan scope = TLSched.scopeKeyOf halaman. TLCpm.run
+// dijalankan SESUDAH gambar pertama (raf → setTimeout 0) dan hanya bila engineKey (data task + ext jadwal, kalender,
+// unit) berubah. Keluaran {status: "loading"|"ready"|"error", result, tasks, ctx, rawOf, rerun}: ctx = {tasks, cal,
+// units, readExt} = masukan run yang sama untuk TLCpm.explain / TLPlan; hasil lama tetap "ready" sampai hasil baru siap.
+// R25: hook ini TIDAK PERNAH menulis (drift hanya ditampilkan; tulisan berasal dari aksi pengguna).
+const ENGINE_TIMING = {
+  debounceMs: 300
+};
+const ENGINE_IDLE = Object.freeze({
+  key: null,
+  status: "loading",
+  result: null,
+  ctx: null
+});
+const NO_TASKS = Object.freeze([]);
+const ENGINE_TASK_FIELDS = ["id", "cid", "server_id", "parent_id", "parent_cid", "list_id", "project", "gtd_status", "progress", "pomodoros_done", "completed_at", "deadline", "recurrence_type", "archived", "deleted"];
+const ENGINE_EXT_KEYS = ["start", "duration", "deps", "mode", "constraint"];
+
+// Kunci memo mesin: JSON ringkas per task (kolom yang dibaca mesin + ext jadwal), urutan daftar dipertahankan.
+function engineKeyOf(tasks, readExt) {
+  const rows = [];
+  for (const t of tasks) {
+    const raw = readExt(t);
+    rows.push([ENGINE_TASK_FIELDS.map(f => t[f] === undefined ? null : t[f]), ENGINE_EXT_KEYS.map(k => raw[k] === undefined ? null : raw[k])]);
+  }
+  return JSON.stringify(rows);
+}
+function unitsKeyOf(units) {
+  const out = [];
+  for (const [k, u] of units) out.push(k + "=" + (u && u.auto === true ? 1 : 0));
+  return out.sort().join(",");
+}
+function useEngine(api, opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const scopeTasks = Array.isArray(o.scopeTasks) ? o.scopeTasks : NO_TASKS;
+  const calData = o.calData || DEFAULT_CAL_DATA;
+  const units = o.units instanceof Map ? o.units : EMPTY_UNITS;
+  const [list, setList] = React.useState(null); // daftar lengkap terakhir (null = belum ada)
+  const [failed, setFailed] = React.useState(false);
+  const [out, setOut] = React.useState(ENGINE_IDLE);
+  const L = React.useRef(null);
+  if (!L.current) L.current = {
+    alive: true,
+    seq: 0,
+    timer: null,
+    scope: null,
+    api
+  };
+  L.current.api = api;
+  const load = () => {
+    const R = L.current;
+    const seq = ++R.seq;
+    const a = R.api;
+    let p;
+    try {
+      p = Promise.resolve(a.data.tasks.list({
+        includeDone: true
+      })); // panggil sinkron: permintaan berurutan = urutan kejadian
+    } catch (e) {
+      p = Promise.reject(e);
+    }
+    return p.then(l => {
+      if (R.alive && seq === R.seq) {
+        setList(Array.isArray(l) ? l : []);
+        setFailed(false);
+      }
+    }, e => {
+      logWarn(a, "daftar task gagal dimuat (mesin jadwal):", e);
+      if (R.alive && seq === R.seq) setFailed(true);
+    });
+  };
+  const loadSoon = () => {
+    const R = L.current;
+    if (!R.alive) return;
+    if (R.timer !== null) clearTimeout(R.timer);
+    R.timer = setTimeout(() => {
+      R.timer = null;
+      if (R.alive) load();
+    }, ENGINE_TIMING.debounceMs);
+  };
+  React.useEffect(() => {
+    const R = L.current;
+    R.alive = true;
+    load();
+    let off = null;
+    try {
+      off = api.events.on("sync.done", loadSoon);
+    } catch (e) {
+      logWarn(api, "pendengar sync.done gagal:", e);
+    }
+    return () => {
+      R.alive = false;
+      if (R.timer !== null) clearTimeout(R.timer);
+      R.timer = null;
+      if (typeof off === "function") off();
+    };
+  }, [api]);
+  React.useEffect(() => {
+    const R = L.current;
+    if (R.scope === null) {
+      R.scope = scopeTasks; // pasang: sudah dimuat efek di atas
+      return;
+    }
+    if (R.scope === scopeTasks) return;
+    R.scope = scopeTasks;
+    loadSoon();
+  }, [scopeTasks]);
+  const readExt = React.useMemo(() => t => readExtSafe(api, t), [api]);
+  const tasks = React.useMemo(() => {
+    if (list === null) return null;
+    const keys = new Set(scopeTasks.map(TLSched.scopeKeyOf));
+    return list.filter(t => !!t && typeof t === "object" && keys.has(TLSched.scopeKeyOf(t)));
+  }, [list, scopeTasks]);
+  const tasksKey = React.useMemo(() => tasks === null ? null : engineKeyOf(tasks, readExt), [tasks, readExt]);
+  const calKey = React.useMemo(() => JSON.stringify(calData), [calData]);
+  const unitsKey = React.useMemo(() => unitsKeyOf(units), [units]);
+  const key = tasksKey === null ? null : tasksKey + "\n" + calKey + "\n" + unitsKey;
+  React.useEffect(() => {
+    if (key === null || key === out.key) return undefined;
+    let alive = true;
+    let tid = null;
+    const id = raf(() => {
+      if (!alive) return;
+      tid = setTimeout(() => {
+        tid = null;
+        if (!alive) return;
+        let next;
+        try {
+          const ctx = {
+            tasks,
+            cal: TLCal.compile(calData),
+            units,
+            readExt
+          };
+          next = {
+            key,
+            status: "ready",
+            result: engine.run(ctx),
+            ctx
+          };
+        } catch (e) {
+          logWarn(api, "mesin jadwal gagal:", e);
+          next = {
+            key,
+            status: "error",
+            result: null,
+            ctx: null
+          };
+        }
+        setOut(next);
+      }, 0);
+    });
+    return () => {
+      alive = false;
+      caf(id);
+      if (tid !== null) clearTimeout(tid);
+    };
+  }, [key]);
+  return React.useMemo(() => {
+    const status = out.status !== "loading" ? out.status : list === null && failed ? "error" : "loading";
+    const ctx = out.ctx;
+    // Hitung ulang atas data + patch ([{task, patch}], null = kunci dihapus) tanpa menulis; null bila belum siap.
+    const rerun = patches => {
+      if (!ctx) return null;
+      const pm = new Map();
+      for (const it of Array.isArray(patches) ? patches : []) {
+        if (!it || !it.task || !it.patch) continue;
+        const k = String(it.task.id);
+        pm.set(k, Object.assign({}, pm.get(k) || {}, it.patch));
+      }
+      const rx = t => {
+        const raw = ctx.readExt(t);
+        const p = t && t.id !== undefined && t.id !== null ? pm.get(String(t.id)) : undefined;
+        return p ? applyRaw(raw, p) : raw;
+      };
+      return engine.run({
+        tasks: ctx.tasks,
+        cal: ctx.cal,
+        units: ctx.units,
+        readExt: rx
+      });
+    };
+    return {
+      status,
+      result: out.result,
+      tasks: ctx ? ctx.tasks : NO_TASKS,
+      ctx,
+      rawOf: ctx ? ctx.readExt : readExt,
+      rerun
+    };
+  }, [out, list === null, failed, readExt]);
 }
 
 // 4d. Render (fungsi biasa dipanggil langsung → pohon utuh untuk tes anggaran DOM; tanpa hooks di dalamnya).
@@ -3904,6 +5284,19 @@ function TimelineViewBody(props) {
   const today = safeToday(api);
   const todayDn = today ? TLCal.dn(today) : null;
   const calKey = React.useMemo(() => JSON.stringify(cal.data), [cal.data]);
+  // 1c-1 (R6, R7): unit jadwal halaman + mesin CPM sesudah gambar pertama. Hasilnya dipakai Task 7–10 (Slack, kritis,
+  // banner, sakelar, aliran gestur lewat X.cur.eng); keduanya hanya membaca — tidak ada tulisan latar (R25).
+  const un = useUnits(api, {
+    pageKind,
+    listId: context.listId,
+    projectName: context.projectName
+  });
+  const eng = useEngine(api, {
+    scopeTasks: context.scopeTasks,
+    calData: cal.data,
+    units: un.units,
+    pageKind
+  });
 
   // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari berubah (bukan tiap context baru).
   const lay = React.useMemo(() => engine.layout({
@@ -4087,7 +5480,9 @@ function TimelineViewBody(props) {
     lay,
     rowH,
     tableW,
-    scrollEl: () => scrollRef.current
+    scrollEl: () => scrollRef.current,
+    eng,
+    units: un
   };
   React.useEffect(() => () => ctl.dispose(), [ctl]);
   const ix = ctl.ix;
@@ -5118,6 +6513,14 @@ function TimelineView(props) {
 const pure = {
   calendarStore,
   calTarget,
+  projectStore,
+  recordEvent,
+  PRJ_ENTITY,
+  NO_UNIT,
+  useUnits,
+  useEngine,
+  ENGINE_TIMING,
+  engineKeyOf,
   prefKey,
   cleanPref,
   PREF_DEFAULTS,
@@ -5161,6 +6564,8 @@ if (typeof module !== "undefined" && module.exports) module.exports = Object.ass
   TLHolidays,
   TLCal,
   TLSched,
+  TLCpm,
+  TLPlan,
   TLLayout,
   TLDrag
 }, pure);
