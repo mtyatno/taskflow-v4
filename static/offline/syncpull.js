@@ -248,6 +248,33 @@
     const v = Date.parse(hasTz ? s : s + "Z");
     return isNaN(v) ? 0 : v;
   }
+  // PR 1c-0b (K47/K48): waktu inti server = updated_at revisi terakhir yang mengubah field inti. Satu-satunya
+  // pembaca field API ini di klien (pagar tests/offline/taskext_core_lww.test.js). Bukan string tak kosong → null.
+  function serverCoreAt(s) {
+    const v = s && typeof s === "object" ? s.core_updated_at : null;
+    return typeof v === "string" && v !== "" ? v : null;
+  }
+  // Seperti tsEpoch + digit pecahan setelah milidetik (cap waktu server bermikrodetik; pola syncpush.tsPrecise,
+  // disalin agar syncpull tidak bergantung pada ekspor syncpush). Juga menerima bentuk SQLite berspasi.
+  function tsMicro(ts) {
+    if (ts == null) return 0;
+    const str = String(ts);
+    const base = tsEpoch(str);
+    if (base <= 0) return 0;
+    const m = /[T ]\d\d:\d\d:\d\d\.(\d+)/.exec(str);
+    const sub = (m && m[1].length > 3) ? Number("0." + m[1].slice(3)) : 0;
+    return base + sub;
+  }
+  // K48 (1): inti server tidak berubah sejak base_rev — membandingkan dua cap waktu SERVER saja (kebal S9: jam
+  // perangkat tidak ikut). Tidak pernah benar bila salah satu tak ada / tak terbaca.
+  function coreUnchangedSince(s, baseRev) {
+    const c = serverCoreAt(s);
+    if (c == null || baseRev == null || baseRev === "") return false;
+    const cm = tsMicro(c);
+    const bm = tsMicro(baseRev);
+    if (cm <= 0 || bm <= 0) return false;
+    return !(cm > bm);
+  }
   function dropOutbox(entityType, cid) {
     return TFoutbox.outboxByEntity(entityType, cid).then((ops) =>
       ops.reduce((p, o) => p.then(() => TFoutbox.outboxRemove(o.qid)), Promise.resolve()));
@@ -310,7 +337,7 @@
         };
         const write = (s, localRec, counter) => putIfUnchanged("tasks", fromServer(s, localRec), localRec)
           .then((wrote) => { if (wrote) result[counter]++; else result.skipped++; });
-        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0, requeued: 0, derived: 0, clientIds: 0, extKept: 0 };
+        const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0, requeued: 0, derived: 0, clientIds: 0, extKept: 0, coreKept: 0 };
         let chain = requeueDirtyWithoutOps("task", localAll, pendingTaskOps, result);
         for (const s of list) {
           const cid = cache[s.id];
@@ -333,9 +360,20 @@
                 // ...kecuali daftar basi (lebih tua dari base_rev; mis. GET yang dilayani sebelum respons PUT kita
                 // diadopsi): inti lokal = revisi server yang lebih baru → lokal tetap; pull/respons push berikut
                 // yang membetulkan.
-                const serverWins = extOnly
-                  ? !(tsEpoch(localRec.base_rev) > tsEpoch(s.updated_at))
-                  : tsEpoch(s.updated_at) > tsEpoch(localRec.updated_at);
+                // PR 1c-0b K48, record dengan edit INTI tertunda (termasuk hapus, Q1 a):
+                // (1) inti server tidak berubah sejak base_rev (mis. hanya PUT ext anggota lain menaikkan updated_at)
+                //     → inti lokal menang tanpa membandingkan jam perangkat (cap waktu server naif vs jam perangkat
+                //     tidak sebanding — S9); push mengirim payload penuh, ext server diadopsi dari respons PUT.
+                // (2) selain itu LWW lama, sisi server memakai waktu inti (fallback updated_at = server tanpa field).
+                let serverWins;
+                if (extOnly) {
+                  serverWins = !(tsEpoch(localRec.base_rev) > tsEpoch(s.updated_at));
+                } else if (coreUnchangedSince(s, localRec.base_rev)) {
+                  serverWins = false;
+                  result.coreKept++;
+                } else {
+                  serverWins = tsEpoch(serverCoreAt(s) || s.updated_at) > tsEpoch(localRec.updated_at);
+                }
                 if (serverWins) {
                   const extDirty = Array.isArray(localRec.ext_dirty) && localRec.ext_dirty.length > 0;
                   if (!extDirty) return dropOutbox("task", cid).then(() => write(s, localRec, "updated")); // server wins
@@ -2032,6 +2070,7 @@
     mergeDrawingSnapshots,
     tsEpoch, ensureNoteCid, listJsonOrThrow, goneOrJson,
     withLocalExt, pullPluginRecords,
+    serverCoreAt, coreUnchangedSince,
   };
   if (root && typeof root === "object") { root.TF = root.TF || {}; root.TF.syncpull = exported; }
   return exported;
