@@ -37,7 +37,7 @@ test("konstanta: MAX_DEPS 20, DUR_MAX 999, LAG_MIN −99, LAG_MAX 999; modul bek
 });
 
 test("readSched: start rusak → null; start ada + duration hilang → 1; duration 1000 / −1 / 1.5 → 1; deps tipe XX / ref null / lag 1000 → dibuang, invalidDeps dihitung; > 20 dipotong", () => {
-  const EMPTY = { start: null, duration: null, deps: [], invalidDeps: 0, mode: null, constraint: null };
+  const EMPTY = { start: null, duration: null, deps: [], invalidDeps: 0, mode: null, constraint: null, actual: null };
   assert.deepEqual(S.readSched(null), EMPTY);
   assert.deepEqual(S.readSched({}), EMPTY);
   for (const bad of ["2026-02-30", "2026-11-1", 20261101, "2026-11-01T10:00", "", {}, []]) {
@@ -45,7 +45,7 @@ test("readSched: start rusak → null; start ada + duration hilang → 1; durati
     assert.equal(r.start, null, JSON.stringify(bad));
     assert.equal(r.duration, null, "tanpa start tidak ada durasi");
   }
-  assert.deepEqual(sched({ "timeline.start": "2026-11-02" }), { start: "2026-11-02", duration: 1, deps: [], invalidDeps: 0, mode: null, constraint: null });
+  assert.deepEqual(sched({ "timeline.start": "2026-11-02" }), { start: "2026-11-02", duration: 1, deps: [], invalidDeps: 0, mode: null, constraint: null, actual: null });
   for (const bad of [1000, -1, 1.5, "3", null, NaN, true]) {
     assert.equal(sched({ "timeline.start": "2026-11-02", "timeline.duration": bad }).duration, 1, String(bad));
   }
@@ -132,7 +132,7 @@ test("sanitizePatch: durasi dijepit 0..999 dan dibulatkan; NaN/bukan angka gagal
   assert.equal(S.sanitizePatch({ deps: [dep({ t: { $task: 1.5 } })] }).ok, false);
   assert.equal(S.sanitizePatch({ deps: [dep(), dep({ t: { $task: "4" } })] }).ok, false, "ref sama dua kali");
   assert.equal(S.sanitizePatch({ deps: "x" }).ok, false);
-  assert.equal(S.sanitizePatch({ actual: null }).ok, false, "1c-1: mode sah; actual = 1c-2");
+  assert.equal(S.sanitizePatch({ actual: null }).ok, true, "1c-2: actual sah");
   assert.equal(S.sanitizePatch({}).ok, false);
   assert.equal(S.sanitizePatch(null).ok, false);
   assert.equal(S.sanitizePatch([]).ok, false);
@@ -579,7 +579,7 @@ test("readSched: deps SS/FF/SF dibaca dengan type; type 'XX' → invalidDeps; mo
   assert.equal(JSON.stringify(input), snap);
 });
 
-test("sanitizePatch: {mode: null} ok; {mode: 'x'} gagal; {constraint: {type: 'MFO', date: '2026-02-30'}} gagal; {constraint: null} ok; deps tanpa type → 'FS'; type 'SF' dipertahankan; kunci 'actual' ditolak (1c-2)", () => {
+test("sanitizePatch: {mode: null} ok; {mode: 'x'} gagal; {constraint: {type: 'MFO', date: '2026-02-30'}} gagal; {constraint: null} ok; deps tanpa type → 'FS'; type 'SF' dipertahankan; kunci tak dikenal ditolak", () => {
   assert.deepEqual(S.sanitizePatch({ mode: null }), { ok: true, patch: { mode: null } });
   assert.deepEqual(S.sanitizePatch({ mode: "auto" }), { ok: true, patch: { mode: "auto" } });
   assert.deepEqual(S.sanitizePatch({ mode: "manual" }), { ok: true, patch: { mode: "manual" } });
@@ -608,7 +608,7 @@ test("sanitizePatch: {mode: null} ok; {mode: 'x'} gagal; {constraint: {type: 'MF
   assert.equal(S.sanitizePatch({ deps: [{ t: { $task: 4 }, type: "SS" }, { t: { $task: 4 }, type: "FF" }] }).ok, false, "pasangan sama, tipe beda = duplikat");
   assert.equal(S.sanitizePatch({ deps: [{ t: { $task: 4 }, type: null }] }).ok, false);
 
-  assert.deepEqual(S.sanitizePatch({ actual: { start: "2026-11-02" } }), { ok: false, reason: "key" });
+  assert.deepEqual(S.sanitizePatch({ aktual: { start: "2026-11-02" } }), { ok: false, reason: "key" });
   assert.deepEqual(S.sanitizePatch({ start: "2026-11-02", foo: 1 }), { ok: false, reason: "key" });
   // gabungan + bacaan ulang
   const out = S.sanitizePatch({ start: "2026-11-02", mode: "auto", constraint: { type: "SNET", date: "2026-11-03" }, deps: [{ t: { $task: 4 }, type: "SS", lag: 1 }] }).patch;
@@ -862,4 +862,69 @@ test("doneFinish = maks(mulai, jkt(completed_at) ?? fin(mulai, d))", () => {
   assert.equal(I(S.doneFinish(c, { completed_at: null, gtd_status: "done" }, s, 3)), "2026-11-04", "tanpa completed_at → fin");
   assert.equal(I(S.doneFinish(c, {}, s, 0)), "2026-11-02");
   assert.equal(S.doneFinish(c, {}, NaN, 2), undefined);
+});
+
+test("sanitizePatch actual: null sah; {start} sah; {finish} sah; finish < start ditolak; tanggal tak sah ditolak; kunci lain di dalam actual ditolak", () => {
+  assert.deepEqual(S.sanitizePatch({ actual: null }), { ok: true, patch: { actual: null } });
+  assert.deepEqual(S.sanitizePatch({ actual: { start: "2026-11-02" } }), { ok: true, patch: { actual: { start: "2026-11-02" } } });
+  assert.deepEqual(S.sanitizePatch({ actual: { finish: "2026-11-05" } }), { ok: true, patch: { actual: { finish: "2026-11-05" } } });
+  assert.deepEqual(S.sanitizePatch({ actual: { start: "2026-11-05", finish: "2026-11-05" } }), { ok: true, patch: { actual: { start: "2026-11-05", finish: "2026-11-05" } } }, "finish = start sah");
+  assert.deepEqual(S.sanitizePatch({ actual: { start: "1970-01-01", finish: "2199-12-31" } }).ok, true, "batas tahun");
+  for (const bad of [
+    { start: "2026-11-05", finish: "2026-11-04" },
+    { start: "2026-02-30" },
+    { finish: "2026-13-01" },
+    { start: "1969-12-31" },
+    { finish: "2200-01-01" },
+    { start: 20261102 },
+    { start: null },
+    { start: "2026-11-02", x: 1 },
+    { foo: "2026-11-02" },
+    {},
+    "2026-11-02",
+    [],
+    undefined,
+  ]) assert.deepEqual(S.sanitizePatch({ actual: bad }), { ok: false, reason: "actual" }, JSON.stringify(bad));
+  assert.deepEqual(S.sanitizePatch({ actual: { start: "2026-11-02" }, foo: 1 }), { ok: false, reason: "key" });
+});
+
+test("readSched actual: bentuk sah dibaca; bentuk rusak → null; bentuk 1.1 (tanpa actual) → actual null, kunci lain utuh", () => {
+  const r11 = sched({ "timeline.start": "2026-11-02", "timeline.duration": 3, "timeline.mode": "auto", "timeline.constraint": { type: "SNET", date: "2026-11-03" } });
+  assert.equal(r11.actual, null);
+  assert.deepEqual({ ...r11, actual: undefined }, { start: "2026-11-02", duration: 3, deps: [], invalidDeps: 0, mode: "auto", constraint: { type: "SNET", date: "2026-11-03" }, actual: undefined });
+  assert.deepEqual(sched({ "timeline.actual": { start: "2026-11-02", finish: "2026-11-04", x: 1 } }).actual, null, "kunci asing → rusak");
+  assert.deepEqual(sched({ "timeline.actual": { start: "2026-11-02", finish: "2026-11-04" } }).actual, { start: "2026-11-02", finish: "2026-11-04" });
+  assert.deepEqual(sched({ "timeline.actual": { start: "2026-11-02" } }).actual, { start: "2026-11-02" });
+  assert.deepEqual(sched({ "timeline.actual": { finish: "2026-11-04" } }).actual, { finish: "2026-11-04" });
+  for (const bad of [{ start: "2026-11-05", finish: "2026-11-04" }, { start: "2026-02-30" }, {}, [], "x", 5, { start: "1969-12-31" }]) {
+    assert.equal(sched({ "timeline.actual": bad }).actual, null, JSON.stringify(bad));
+  }
+  assert.equal(sched({ "timeline.start": "2026-11-02", "timeline.actual": { start: "2026-02-30" } }).start, "2026-11-02", "actual rusak tidak merusak kunci lain");
+});
+
+test("actualOf: completed_at '2026-11-04 23:30:00' (UTC) → finish = dn(2026-11-05); actual.finish menang atas completed_at; tanpa keduanya → finish null; finishDerived benar", () => {
+  const t = { completed_at: "2026-11-04 23:30:00" };
+  assert.deepEqual(S.actualOf(t, { actual: null }), { start: null, finish: D("2026-11-05"), finishDerived: true });
+  assert.deepEqual(S.actualOf(t, S.readSched({})), { start: null, finish: D("2026-11-05"), finishDerived: true }, "hasil readSched");
+  assert.deepEqual(S.actualOf(t, { actual: { start: "2026-11-02" } }), { start: D("2026-11-02"), finish: D("2026-11-05"), finishDerived: true }, "hapus actual.finish → kembali ke turunan");
+  assert.deepEqual(S.actualOf(t, { actual: { start: "2026-11-02", finish: "2026-11-03" } }), { start: D("2026-11-02"), finish: D("2026-11-03"), finishDerived: false }, "actual.finish menang");
+  assert.deepEqual(S.actualOf({ completed_at: null }, { actual: { start: "2026-11-02" } }), { start: D("2026-11-02"), finish: null, finishDerived: false });
+  assert.deepEqual(S.actualOf({}, null), { start: null, finish: null, finishDerived: false });
+  assert.deepEqual(S.actualOf(null, undefined), { start: null, finish: null, finishDerived: false });
+  assert.deepEqual(S.actualOf({ completed_at: "sampah" }, { actual: { finish: "2026-02-30" } }), { start: null, finish: null, finishDerived: false }, "actual rusak diabaikan, completed_at rusak → null");
+  assert.deepEqual(S.actualOf(t, { actual: { start: "2026-11-05", finish: "2026-11-04" } }), { start: null, finish: D("2026-11-05"), finishDerived: true }, "actual rusak diabaikan seluruhnya");
+});
+
+test("doneFinish(c, task, ext, s, d): actual.finish menang; tanpa itu completed_at; tanpa keduanya fin; tetap maks(mulai, …); arity lama (c, task, s, d) berperilaku sama", () => {
+  const c = std();
+  const s = D("2026-11-02");
+  const T = { completed_at: "2026-11-04 23:30:00" };
+  assert.equal(I(S.doneFinish(c, T, { actual: { finish: "2026-11-03" } }, s, 5)), "2026-11-03", "actual.finish menang");
+  assert.equal(I(S.doneFinish(c, T, { actual: { start: "2026-11-02" } }, s, 5)), "2026-11-05", "turunan completed_at hari Jakarta");
+  assert.equal(I(S.doneFinish(c, T, null, s, 5)), "2026-11-05");
+  assert.equal(I(S.doneFinish(c, { completed_at: null }, { actual: null }, s, 3)), "2026-11-04", "fin");
+  assert.equal(I(S.doneFinish(c, {}, { actual: { finish: "2026-10-20" } }, s, 3)), "2026-11-02", "sebelum mulai → mulai");
+  assert.equal(S.doneFinish(c, {}, null, NaN, 2), undefined);
+  assert.equal(I(S.doneFinish(c, T, s, 5)), "2026-11-05", "arity lama (deprecated)");
+  assert.equal(I(S.doneFinish(c, {}, s, 3)), "2026-11-04", "arity lama tanpa completed_at");
 });

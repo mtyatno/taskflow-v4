@@ -64,7 +64,22 @@ const TLSched = (function (CAL) {
     return { type: v.type, date: v.date };
   }
 
-  // Masukan = hasil api.taskExt.read (kunci tanpa prefiks: start, duration, deps, mode, constraint).
+  // {start?, finish?} aktual bersih (1c-2), atau null (rusak → tak ada aktual). Pola sama dengan readConstraint:
+  // objek tanpa kunci lain, minimal satu tanggal, ISO sah 1970–2199, finish ≥ start bila keduanya ada.
+  function readActual(v) {
+    if (!isObj(v)) return null;
+    const ks = Object.keys(v);
+    if (!ks.length || ks.some((k) => k !== "start" && k !== "finish")) return null;
+    const out = {};
+    for (const k of ks) {
+      if (!isConstraintDate(v[k])) return null;
+      out[k] = v[k];
+    }
+    if (out.start !== undefined && out.finish !== undefined && CAL.dn(out.finish) < CAL.dn(out.start)) return null;
+    return out;
+  }
+
+  // Masukan = hasil api.taskExt.read (kunci tanpa prefiks: start, duration, deps, mode, constraint, actual).
   function readSched(extObj) {
     const src = isObj(extObj) ? extObj : {};
     const start = typeof src.start === "string" && CAL.isIso(src.start) ? src.start : null;
@@ -90,7 +105,8 @@ const TLSched = (function (CAL) {
     }
     const mode = MODES.indexOf(src.mode) >= 0 ? src.mode : null;
     const constraint = readConstraint(src.constraint);
-    return { start, duration, deps, invalidDeps, mode, constraint };
+    const actual = readActual(src.actual);
+    return { start, duration, deps, invalidDeps, mode, constraint, actual };
   }
 
   // ---- tulis ext: validasi + jepit (R7) ----
@@ -152,7 +168,14 @@ const TLSched = (function (CAL) {
           if (!cst) return { ok: false, reason: "constraint" };
           patch.constraint = cst;
         }
-      } else return { ok: false, reason: "key" }; // termasuk "actual" (1c-2)
+      } else if (k === "actual") {
+        if (v === null) patch.actual = null;
+        else {
+          const act = readActual(v);
+          if (!act) return { ok: false, reason: "actual" };
+          patch.actual = act;
+        }
+      } else return { ok: false, reason: "key" };
     }
     return { ok: true, patch };
   }
@@ -435,11 +458,29 @@ const TLSched = (function (CAL) {
     return Math.floor((t + JKT_OFFSET) / MS_DAY);
   }
 
+  // Aktual task (1c-2): ext = hasil readSched atau objek ext mentah (kunci `actual`); bentuk rusak diabaikan.
+  // start = actual.start; finish = actual.finish ?? jkt(completed_at) (K42: turunan tidak pernah disimpan);
+  // finishDerived true hanya bila finish berasal dari completed_at. Murni, tanpa kalender.
+  function actualOf(task, ext) {
+    const act = readActual(isObj(ext) ? ext.actual : null);
+    const start = act && act.start !== undefined ? CAL.dn(act.start) : null;
+    if (act && act.finish !== undefined) return { start, finish: CAL.dn(act.finish), finishDerived: false };
+    const f = jkt(task && typeof task === "object" ? task.completed_at : null);
+    return { start, finish: f, finishDerived: f !== null };
+  }
+
   // Selesai pendahulu DONE — SATU aturan untuk jangkar "done" mesin (TLCpm) dan violations (layout langkah 7):
-  // maks(mulai, jkt(completed_at) ?? fin(mulai, d)). Mulai tak sah / kalender buntu → undefined.
-  function doneFinish(c, task, s, d) {
+  // maks(mulai, actualOf(task, ext).finish ?? fin(mulai, d)). Mulai tak sah / kalender buntu → undefined.
+  // Shim DEPRECATED: arity lama (c, task, s, d) — argumen ke-3 bilangan — berperilaku seperti 1c-1 (tanpa aktual:
+  // jkt(completed_at) ?? fin). Dihapus setelah pemanggil cpm.js/layout.js bermigrasi (1c-2 T2).
+  function doneFinish(c, task, ext, s, d) {
+    if (typeof ext === "number") {
+      d = s;
+      s = ext;
+      ext = null;
+    }
     if (!isDn(s)) return undefined;
-    let f = jkt(task ? task.completed_at : null);
+    let f = actualOf(task, ext).finish;
     if (f === null) f = fin(c, s, d);
     if (isDn(f) && f < s) f = s;
     return f;
@@ -603,6 +644,7 @@ const TLSched = (function (CAL) {
     sff,
     jkt,
     doneFinish,
+    actualOf,
     depReq,
     depLimit,
     fnv1a32,
