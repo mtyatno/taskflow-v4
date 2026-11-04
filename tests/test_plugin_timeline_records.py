@@ -76,7 +76,7 @@ def real_index(client):
 
 
 def test_records_decl_from_repo_index(real_index):
-    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}}
+    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}, "project": {"conflict": "lww", "maxBytes": 1024}}
     assert "timeline" in plugin_loader.load_known()
     assert plugin_loader.default_enabled("timeline") is False
 
@@ -142,4 +142,4 @@ def test_deploy_window_reads_index_again_before_404(real_index, monkeypatch, tmp
     r = a.get(URL)
     assert r.status_code == 200, r.text
     assert a.send(cal_item())[0]["applied"] is True
-    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}}
+    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}, "project": {"conflict": "lww", "maxBytes": 1024}}

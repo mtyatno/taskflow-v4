@@ -3,6 +3,7 @@
    plugin memakai token lokal --plg-timeline-danger dengan cadangan token host --pomodoro. */
 .plg-timeline {
   --plg-timeline-danger: var(--danger, var(--pomodoro));
+  position: relative; /* 1c-1: dialog pratinjau menutup wadah view */
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -208,7 +209,8 @@
 .plg-timeline-col-wbs,
 .plg-timeline-col-dur,
 .plg-timeline-col-pomo,
-.plg-timeline-col-pct {
+.plg-timeline-col-pct,
+.plg-timeline-col-slack {
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -233,6 +235,18 @@
 .plg-timeline-warn {
   flex: none;
   color: var(--plg-timeline-danger);
+}
+
+/* 1c-1 R19: pin "Manual" (task Manual di project otomatis), 10 px, dua lapis */
+.plg-timeline-pin {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  fill: var(--text-secondary);
+}
+
+.plg-timeline-pin-head {
+  opacity: 0.55;
 }
 
 /* ── grafik ──────────────────────────────────────────────────────────────── */
@@ -468,6 +482,17 @@
   fill: var(--plg-timeline-danger);
 }
 
+/* 1c-1 R18 Jalur kritis: bar bergaris tepi 2 px merah (isi tetap), panah antar simpul kritis tebal 2 px */
+.plg-timeline-bar.is-critical,
+.plg-timeline-milestone.is-critical::before {
+  box-shadow: 0 0 0 2px var(--plg-timeline-danger);
+}
+
+.plg-timeline-arrow.is-critical {
+  stroke: var(--plg-timeline-danger);
+  stroke-width: 2;
+}
+
 /* ── interaksi (Task 8): pegangan durasi, titik dependensi, seret, tooltip, garis karet ── */
 .plg-timeline-edge {
   position: absolute;
@@ -609,6 +634,11 @@
   height: 12px;
   background: color-mix(in srgb, var(--plg-timeline-danger) 8%, transparent);
   border: 1px solid var(--border);
+}
+
+.plg-timeline-swatch.is-critical {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--plg-timeline-danger);
 }
 
 .plg-timeline-swatch.is-dep {
@@ -1221,6 +1251,157 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 1c-1 R20: kontrol Mode dan kartu otomatis (tingkat 2) seksi Jadwal */
+.plg-timeline-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.plg-timeline-chip.is-late,
+.plg-timeline-chip.is-critical {
+  color: var(--plg-timeline-danger);
+  background: color-mix(in srgb, var(--plg-timeline-danger) 10%, transparent);
+}
+
+.plg-timeline-sec-links {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.plg-timeline-sec-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.plg-timeline-sec-drift {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-sec-drift-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.plg-timeline-sec-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.plg-timeline-sec-mode .plg-timeline-seg-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.plg-timeline-seg-note {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-sec-shiftnote {
+  flex-basis: 100%;
+  font-size: 12px;
+}
+
+/* 1c-1 R20 tingkat 3 (Task 12): Mulai otomatis + "Ubah", Batasan, Menunggu / Diikuti oleh, "Kenapa", kartu pratinjau */
+.plg-timeline-sec-startval {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.plg-timeline-sec-cst {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.plg-timeline-sec-cst .plg-timeline-field-label {
+  flex-basis: 100%;
+}
+
+.plg-timeline-dep-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plg-timeline-dep-sub {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-dep-typesel {
+  max-width: 190px;
+  height: 28px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+
+.plg-timeline-dep-lag {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-sec-whybox {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.plg-timeline-sec-why {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border-radius: 6px;
+}
+
+.plg-timeline-sec-why strong {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.plg-timeline-pvcard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.plg-timeline-pvcard-more {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
 .plg-timeline-picker {
   display: flex;
   flex-direction: column;
@@ -1272,4 +1453,307 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── 1c-1 Task 8: Jadwal otomatis, menu Lainnya, popover unit, dialog pratinjau (R14, R15, R23) ───────────── */
+.plg-timeline-btn:disabled,
+.plg-timeline-more-item:disabled,
+.plg-timeline-switch:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.plg-timeline-switch.is-on {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 16%, var(--bg-card));
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.plg-timeline-toolbar-end {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.plg-timeline-latechip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--plg-timeline-danger);
+  background: color-mix(in srgb, var(--plg-timeline-danger) 10%, transparent);
+  font-weight: 600;
+}
+
+.plg-timeline-more {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Konteks posisi = .plg-timeline-more (pembungkus tombol). Rata kiri bawaan; .is-end (menuAlign di plugin.jsx, saat
+   rata kiri melewati tepi kanan viewport, mis. toolbar terbungkus di 375 px) rata kanan tombol. max-width menjaga
+   menu tidak pernah lebih lebar dari viewport. */
+.plg-timeline-more-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 11;
+  min-width: 180px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text-primary) 18%, transparent);
+}
+
+.plg-timeline-more-menu.is-end {
+  right: 0;
+  left: auto;
+}
+
+.plg-timeline-more-item {
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 8px 10px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.plg-timeline-more-item:hover,
+.plg-timeline-more-item:focus-visible {
+  background: var(--bg-subtle);
+  outline: none;
+}
+
+.plg-timeline-more-item.is-on {
+  font-weight: 600;
+}
+
+.plg-timeline-units-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plg-timeline-units-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.plg-timeline-units-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plg-timeline-units-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plg-timeline-units-by {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-units .plg-timeline-switch {
+  flex: none;
+  position: relative;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.plg-timeline-units .plg-timeline-switch.is-on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.plg-timeline-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  transition: transform 0.15s;
+}
+
+.plg-timeline-switch.is-on .plg-timeline-switch-knob {
+  transform: translateX(14px);
+}
+
+.plg-timeline-pv-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 48px 16px 16px;
+  background: color-mix(in srgb, var(--text-primary) 18%, transparent);
+  border-radius: 8px;
+}
+
+.plg-timeline-pv {
+  box-sizing: border-box;
+  width: 520px;
+  max-width: 100%;
+  max-height: min(80vh, 640px);
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--text-primary) 18%, transparent);
+}
+
+.plg-timeline-pv:focus {
+  outline: none;
+}
+
+.plg-timeline-pv-summary {
+  margin: 0;
+  font-weight: 600;
+}
+
+.plg-timeline-pv-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plg-timeline-pv-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.plg-timeline-pv-main {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.plg-timeline-pv-tag {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-pv-note {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-pv-why {
+  font: inherit;
+  font-size: 11px;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.plg-timeline-pv-whytext {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-pv-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.plg-timeline-pv-apply:not(:disabled) {
+  color: var(--bg-card);
+  background: var(--accent);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .plg-timeline-pv-backdrop {
+    padding: 8px;
+  }
+
+  .plg-timeline-toolbar-end {
+    margin-left: 0;
+  }
+}
+
+/* ── banner jadwal belum mutakhir / lingkaran (1c-1 R16, K35) ─────────────── */
+.plg-timeline-banners {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+}
+
+.plg-timeline-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-card));
+}
+
+.plg-timeline-banner + .plg-timeline-banner {
+  border-top: 1px solid var(--border);
+}
+
+.plg-timeline-banner-text {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.plg-timeline-banner-close {
+  margin-left: auto;
+}
+
+.plg-timeline-pv-broken {
+  color: var(--plg-timeline-danger);
 }

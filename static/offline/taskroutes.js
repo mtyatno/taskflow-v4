@@ -191,6 +191,36 @@
     router.register("PUT", "/api/tasks/:id", ({ params, body }) =>
       resolveCid(params.id).then((cid) => (cid ? TFrepo.updateTask(cid, body || {}, opts()) : notFound())).then(withTaskRow));
 
+    // Tulis ext massal (rencana 1c-1 R22; dipakai api.taskExt.setMany): bukan rute HTTP, metode router. Satu getAll
+    // memetakan id → cid dengan urutan resolveCid (cid, server_id, client_id; id dibandingkan sebagai string seperti
+    // param path), lalu updateTaskExtMany (satu transaksi) dan withTaskRows sekali → baris berbentuk sama dengan PUT
+    // /api/tasks/:id lokal. id tak dikenal = titik berhenti "Task not found" (item sebelumnya tetap tersimpan).
+    // → {rows, appliedIds (id masukan apa adanya), error}; patch tak sah di item mana pun → reject tanpa tulis.
+    router.extPatchMany = (items) => {
+      if (!Array.isArray(items)) return Promise.reject(TFtaskext.extError("EXT_INVALID", null));
+      return getAllTasks().then((all) => {
+        const byCid = new Map();
+        const bySid = new Map();
+        const byClient = new Map();
+        for (const r of all) {
+          if (!byCid.has(r.cid)) byCid.set(r.cid, r.cid);
+          if (r.server_id != null && !bySid.has(String(r.server_id))) bySid.set(String(r.server_id), r.cid);
+          if (r.client_id != null && !byClient.has(String(r.client_id))) byClient.set(String(r.client_id), r.cid);
+        }
+        const resolve = (id) => {
+          if (id == null) return null;
+          const s = String(id);
+          return byCid.has(s) ? byCid.get(s) : (bySid.has(s) ? bySid.get(s) : (byClient.has(s) ? byClient.get(s) : null));
+        };
+        const mapped = items.map((it) => ({ cid: it ? resolve(it.id) : null, ext_patch: it ? it.ext_patch : undefined }));
+        return TFrepo.updateTaskExtMany(mapped, opts()).then((res) => withTaskRows(res.recs).then((rows) => ({
+          rows: rows,
+          appliedIds: items.slice(0, res.applied.length).map((it) => it.id),
+          error: res.error,
+        })));
+      });
+    };
+
     router.register("DELETE", "/api/tasks/:id", ({ params }) =>
       resolveCid(params.id).then((cid) => (cid ? TFrepo.deleteTask(cid, opts()) : notFound())));
 

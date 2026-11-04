@@ -1,11 +1,12 @@
-# Menulis plugin Alurik (Fase 0a–1b)
+# Menulis plugin Alurik (Fase 0a–1c-1)
 
 Plugin = fitur opsional yang dinyalakan/dimatikan pengguna di **Pengaturan › Plugin**. Kodenya hidup di
 `static/plugins/<id>/`, bukan di `index.html`, dan baru dieksekusi saat plugin ON dan slot-nya dirender.
 Spec: `docs/superpowers/specs/2026-10-29-plugin-fase0a-design.md` (klien) dan
 `docs/superpowers/specs/2026-10-31-plugin-fase0b-design.md` (status per akun, server, `api.fetch`; ADR-039),
 `docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md` (Fase 1: `tasks.ext`, slot view/detail,
-`api.taskExt`; ADR-040).
+`api.taskExt`; ADR-040), `docs/superpowers/specs/2026-11-01-plugin-fase1-1c-otomatis-design.md` (Fase 1c: jadwal
+otomatis Timeline 1.1, `setMany` satu transaksi; ADR-043–045).
 Runtime: `static/plugin-runtime.js`. Modul server opsional: `plugins/<id>.py` (§11).
 Contoh nyata: `static/plugins/habit-heatmap/` (plugin #0) dan `static/plugins/timeline/` (Fase 1b: `parts` +
 `records` + `task.ext` + dua slot task; Gantt, kalender hari kerja, seksi Jadwal). Contoh `task.ext` + dua slot task
@@ -209,6 +210,15 @@ dan ikut sinkron task di semua jalur (hidrasi, push, pull, workspace bersama).
   kegagalan validasi sebelum menulis tidak membawa `applied`). Karena semua item diperbarui optimistis lebih
   dulu, item yang belum tersimpan menampilkan nilai baru sampai muat ulang daftar di akhir selesai; bila muat
   ulang itu sendiri gagal, tampilan baru pulih pada muat ulang berikutnya.
+- **Jalur cepat `setMany` (Fase 1c-1).** Bila router task lokal host punya `extPatchMany` (sejak SW v498), `setMany`
+  memvalidasi semua patch dulu (gagal → reject tanpa menulis, tanpa `applied`), lalu menulis semua item dalam
+  **satu** transaksi IndexedDB atas `tasks` + `_outbox` (satu op outbox per task, bentuk sama dengan jalur per item;
+  item sebelum titik gagal tetap ter-commit), memancarkan `tf:outbox-queued` agar host menjadwalkan push, lalu satu
+  muat ulang daftar + satu `taskUpdated`. Jalur per item butuh 4,2–4,8 s untuk 200 item (catatan 1c-0: pencarian
+  id O(N) dan tiga transaksi per item); di tes Node (fake-indexeddb, 500 task) 200 item turun dari ±1,6–1,7 s ke
+  ±0,3–0,4 s. **Kontrak tidak berubah**
+  (urutan, berhenti di kegagalan pertama, `err.applied`, satu render). Modul host lama dari cache SW tanpa
+  `extPatchMany` → jalur per item apa adanya. `set` tunggal tidak berubah.
 - **Optimistis:** state daftar task host diperbarui seketika, lalu ditulis ke IndexedDB (rute lokal
   `PUT /api/tasks/:id` `{ext_patch}`) dan diantre untuk sinkron; gagal → daftar dimuat ulang lalu reject.
   Bekerja offline.
@@ -279,6 +289,23 @@ peristiwa **`pulled`** pertama sejak view dipasang (tarik sukses), dan membuka k
 sesudah peristiwa itu selesai — tidak pernah di atas data bawaan. `sync.done` (juga menyala saat sinkron gagal) dan
 `onChange` ber-`source: "sync"` biasa (juga dari ack kirim / tulis ulang ref) hanya memicu muat ulang, bukan buka kunci.
 
+**Contoh kedua: unit jadwal Timeline 1.1** (`manifest.records.project = {"conflict": "lww", "maxBytes": 1024}`).
+Satu record per unit jadwal (project pribadi, atau satu project di dalam workspace) menyimpan sakelar Jadwal otomatis,
+data `{v: 1, auto, name, by}`. Tidak ada record = Manual.
+
+- **Id deterministik ber-hash.** Nama project bebas (spasi, huruf non-ASCII, panjang) tidak muat pola id, jadi id =
+  `prj@user:<h>` (scope `user`) atau `prj@list:<lid>:<h>` (scope `list:<lid>`), `<h>` = FNV-1a 32 bit (8 hex huruf
+  kecil) atas nama project yang dilipat (A–Z → a–z); task tanpa project → `-` di tempat `<h>`. Scope tetap tersandi di
+  id (aturan di atas). Hanya satu fungsi yang membuat id (`TLSched.unitOf`).
+- **Penjaga nama.** Hash bisa bertabrakan, jadi `data.name` menyimpan nama project (dipotong 120 unit UTF-16 tanpa
+  memotong pasangan surrogate; potongan yang sama dipakai saat tulis dan saat baca) dan pembaca hanya memakai record
+  bila lipatan `name` sama dengan lipatan nama project task. Record rusak atau tidak cocok = tidak ada (Manual). Ganti
+  nama project = unit baru (kembali Manual); record lama dibiarkan.
+- **Jangan menulis dari efek.** Satu adaptor (`projectStore`): `loadUnits` hanya membaca (record rusak tidak
+  dinormalisasi lalu disimpan ulang) dan `setAuto` satu-satunya `put`, dipanggil hanya dari klik sakelar. Mount,
+  `onChange`, `pulled`, dan `sync.done` hanya memicu baca ulang. Dua anggota menyalakan unit yang sama = LWW per
+  record, hasil sama (idempoten).
+
 Semua `data.*` membaca IndexedDB, jadi bekerja offline. Tidak ada di v1: `api.settings` (kolom `settings` server sudah disimpan dan disinkron tetapi belum diekspos), penulisan data host
 selain `api.taskExt`. Fungsi hanya ditambah di v1; perubahan tak kompatibel = `apiVersion: 2`.
 
@@ -340,6 +367,16 @@ membuka Live Edit/modal. Jadwal per task lewat `api.taskExt` (`timeline.start|du
 `api.storage`. Seret bar = satu `api.taskExt.set` per lepas; toast "Urungkan" memakai `api.ui.toast` dengan `action`.
 `scopeTasks` sudah difilter panel host, jadi validasi yang butuh semua task (siklus dependensi lewat task tersembunyi,
 induk yang anaknya tersembunyi) membaca `api.data.tasks.list({includeDone: true})` sebelum menulis.
+
+**Timeline 1.1 (jadwal otomatis, Fase 1c-1).** Mesin jadwal (CPM murni, parts `cpm.js`/`plan.js`) dihitung dari
+**daftar lengkap** `api.data.tasks.list({includeDone: true})` yang disaring ke scope dependensi halaman, **bukan** dari
+`scopeTasks`: filter panel tidak boleh membuang pendahulu dari perhitungan. `scopeTasks` hanya menentukan baris yang
+digambar dan, saat identitasnya berubah (juga `sync.done`), memicu muat ulang daftar lengkap (debounce 300 ms, hanya
+jawaban terbaru dipakai). Mesin dijalankan **setelah gambar pertama** (`requestAnimationFrame` lalu
+`setTimeout(…, 0)`, hasil di-memo per kunci data): render awal menampilkan bar tanpa Slack, jalur kritis, atau banner,
+lalu nilai itu menyusul; selama mesin belum siap atau gagal, kontrol otomatis disembunyikan. Hasil hitung hanya untuk
+tampilan (§8 butir 9). Gestur pada task otomatis menulis task itu dan turunannya dengan **satu** `setMany` (> 20
+turunan → pratinjau dulu); Urungkan = `setMany` atas nilai mentah sebelumnya (`null` untuk kunci yang dulu tidak ada).
 
 ### 6.3 `taskDetail.sections` (Fase 1)
 
@@ -409,6 +446,12 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
    **Jangan menyimpan data per task di record.** Field yang melekat pada task (mulai, durasi, dependensi) pakai
    `task.ext` lewat `api.taskExt`, agar ikut task di semua jalur; `api.records` untuk data yang berdiri sendiri.
 8. **Ukuran.** Satu plugin satu folder; vendor baru > 100 KB wajib lazy.
+9. **Hasil hitung tidak pernah ditulis otomatis — tampilkan drift, tulis hanya dari gestur** (K27). Mesin (CPM,
+   agregat, normalisasi) boleh berjalan kapan saja, tetapi `api.taskExt.set`/`setMany` dan `api.records.put` hanya
+   dipanggil dari klik/ketik pengguna di perangkat ini (seret, Terapkan, sakelar, Perbarui), tidak pernah dari mount,
+   `sync.done`, `pulled`, `onChange`, atau `app.dayChanged`. Data yang berbeda dari hasil hitung ditampilkan sebagai
+   drift (banner/seksi + "Tinjau"); dua perangkat yang menulis hasil hitung masing-masing di latar akan saling
+   menimpa. Timeline menjaganya dengan tes sumber (panggilan tulis hanya di fungsi daftar-izin) + tes perilaku (spy 0).
 
 **Batas diketahui — ini bukan sandbox.** Pagar di atas menangkap kesalahan tak sengaja, bukan niat jahat:
 

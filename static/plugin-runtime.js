@@ -1284,6 +1284,46 @@
         }
       } catch (e) { warn("taskUpdated gagal:", e); }
     }
+    // Jalur tulis massal lokal (rencana 1c-1 R22): router lokal dengan extPatchMany → semua item dalam satu transaksi.
+    // Router tanpa metode itu (taskroutes.js lama dari cache SW) atau TF.taskroutes belum ada → null (jalur per item).
+    function bulkRouter() {
+      let r = null;
+      try { r = localTaskRouter(); } catch (_) { return null; }
+      return r && typeof r.extPatchMany === "function" ? r : null;
+    }
+    // Paritas pesan dengan jalur per item: pembungkus api.fetch host (index.html) mengganti pesan error rute lokal
+    // DB_UPGRADED_ELSEWHERE dengan teks banner (TF.dbupgrade.TEXT_ELSEWHERE) dan menyalin status/code/key/body.
+    // Jalur massal tidak lewat pembungkus itu → pemetaan yang sama di sini agar kedua jalur menolak identik.
+    function hostLocalError(err) {
+      if (!err || typeof err !== "object" || err.code !== "DB_UPGRADED_ELSEWHERE") return err;
+      const dbu = host("dbupgrade");
+      const e = new Error((dbu && dbu.TEXT_ELSEWHERE) || "Alurik diperbarui di tab lain. Muat ulang tab ini.");
+      if (err.status != null) e.status = err.status;
+      for (const k of ["code", "key", "body"]) if (err[k] !== undefined) e[k] = err[k];
+      return e;
+    }
+    // Kontrak sama dengan jalur per item: satu refreshTasks + satu taskUpdated {taskIds} (bila ada yang tersimpan),
+    // penolakan membawa err.applied. Op outbox ditulis langsung (tanpa api.put host) → tf:outbox-queued agar host
+    // menjadwalkan push.
+    function persistMany(router, prepared) {
+      const items = prepared.map((it) => ({ id: it.taskId, ext_patch: it.patch }));
+      return Promise.resolve().then(() => router.extPatchMany(items)).then(
+        (res) => {
+          const applied = res && Array.isArray(res.appliedIds) ? res.appliedIds.slice() : [];
+          if (applied.length) {
+            try {
+              if (typeof root.dispatchEvent === "function" && typeof CustomEvent === "function") {
+                root.dispatchEvent(new CustomEvent("tf:outbox-queued"));
+              }
+            } catch (e) { warn("tf:outbox-queued gagal:", e); }
+          }
+          refresh();
+          if (applied.length) announce({ taskIds: applied.slice() });
+          if (res && res.error) throw withApplied(mapExtError(hostLocalError(res.error)), applied);
+          return res && Array.isArray(res.rows) ? res.rows : [];
+        },
+        (err) => { refresh(); throw withApplied(mapExtError(hostLocalError(err)), []); });
+    }
     return Object.freeze({
       read(task) {
         guard();
@@ -1313,7 +1353,8 @@
       },
       // Untuk seret massal: berurutan, berhenti pada kegagalan pertama (yang sebelumnya tetap tersimpan);
       // satu refreshTasks + satu taskUpdated di akhir. Optimistis: semua item di-patch dalam SATU batch render;
-      // penolakan membawa err.applied (taskId yang tersimpan).
+      // penolakan membawa err.applied (taskId yang tersimpan). Router lokal dengan extPatchMany → satu transaksi
+      // (R22); tanpa itu → persist per item.
       setMany(items) {
         let prepared;
         return Promise.resolve().then(() => {
@@ -1329,6 +1370,8 @@
           const done = [];
           const finish = () => { refresh(); if (done.length) announce({ taskIds: done.slice() }); };
           patchAll(prepared);
+          const bulk = bulkRouter();
+          if (bulk) return persistMany(bulk, prepared);
           return prepared.reduce((chain, it) => chain.then(() => persist(it.taskId, it.patch).then((row) => {
             rows.push(row);
             done.push(it.taskId);

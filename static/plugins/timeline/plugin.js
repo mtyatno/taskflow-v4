@@ -1,7 +1,7 @@
 // generated from plugin.jsx — jangan edit
 (function () {
 "use strict";
-const manifest = Object.freeze({"id":"timeline","name":"Timeline","description":"Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.","version":"1.0.0","minApi":1,"slots":["taskList.views","taskDetail.sections"],"permissions":["storage","task.ext","records"],"defaultEnabled":false,"contributes":{"taskList.views":[{"id":"gantt","label":"Timeline","icon":{"path":"M2 4h7M5 8h8M3 12h5"},"pages":["project","workspace"]}],"taskDetail.sections":[{"id":"schedule","label":"Jadwal","order":10}]},"taskExt":{"keys":["start","duration","deps"]},"records":{"calendar":{"conflict":"lww","maxBytes":16384}},"builtin":true});
+const manifest = Object.freeze({"id":"timeline","name":"Timeline","description":"Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.","version":"1.1.0","minApi":1,"slots":["taskList.views","taskDetail.sections"],"permissions":["storage","task.ext","records"],"defaultEnabled":false,"contributes":{"taskList.views":[{"id":"gantt","label":"Timeline","icon":{"path":"M2 4h7M5 8h8M3 12h5"},"pages":["project","workspace"]}],"taskDetail.sections":[{"id":"schedule","label":"Jadwal","order":10}]},"taskExt":{"keys":["start","duration","deps","mode","constraint"]},"records":{"calendar":{"conflict":"lww","maxBytes":16384},"project":{"conflict":"lww","maxBytes":1024}},"builtin":true});
 // part: holidays-id.js
 // Plugin Timeline — TLHolidays: libur nasional + cuti bersama Indonesia 2025–2027 (spec §8.4, rencana R2/R25).
 // Murni data + pembantu kecil; tanpa Date lokal, tanpa global. Ditranskripsi dari SKB 3 Menteri (Menag, Menaker,
@@ -421,8 +421,9 @@ const TLCal = (function (H) {
 })(typeof TLHolidays !== "undefined" ? TLHolidays : require("./holidays-id.js"));
 if (typeof module !== "undefined" && module.exports) module.exports = TLCal;
 // part: schedule.js
-// Plugin Timeline — TLSched: baca/validasi ext jadwal task, dependensi FS, siklus, pelanggaran, tenggat
-// (spec §8.2/§8.7, rencana R2, R3, R7, R8, R15, R16). Murni: tanpa Date lokal, tanpa global, tanpa akses api.
+// Plugin Timeline — TLSched: baca/validasi ext jadwal task, dependensi FS/SS/FF/SF, mode, batasan, unit jadwal,
+// siklus, pelanggaran, tenggat (spec 1b §8.2/§8.7, rencana 1b R2, R3, R7, R8, R15, R16; spec 1c §4–§5, rencana 1c-1 R3–R5).
+// Murni: tanpa Date lokal, tanpa global, tanpa akses api.
 // Semua nilai yang diteruskan ke TLCal dijamin integer / bilangan hari sah (TLCal tidak menjaga NaN).
 // Fungsi yang memanggil TLCal.finish/addWork/nextWork/fsEarliest menangkap Error("TL_CAL_LOOP") dan menurun
 // (hasil "tidak terhitung": tanpa selesai → tanpa pelanggaran/keterlambatan), tidak melempar.
@@ -432,6 +433,11 @@ const TLSched = (function (CAL) {
   const LAG_MIN = -99;
   const LAG_MAX = 999;
   const MAX_LATE_SPAN = 3660; // hari kalender maks yang dihitung deadlineLate
+  const TYPES = Object.freeze(["FS", "SS", "FF", "SF"]);
+  const CONSTRAINT_TYPES = Object.freeze(["SNET", "MFO"]);
+  const MODES = ["auto", "manual"];
+  const YEAR_MIN = 1970;
+  const YEAR_MAX = 2199;
 
   const isInt = (n) => typeof n === "number" && Number.isInteger(n);
   const isObj = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
@@ -460,13 +466,28 @@ const TLSched = (function (CAL) {
     if (!isObj(raw)) return null;
     const key = refKey(raw.t);
     if (key === null) return null;
-    if (raw.type !== "FS") return null;
+    // type tidak ada = FS (bentuk 1b); tipe di luar TYPES → tidak sah (dihitung invalidDeps oleh pemanggil)
+    const type = raw.type === undefined ? "FS" : raw.type;
+    if (TYPES.indexOf(type) < 0) return null;
     const lag = raw.lag === undefined ? 0 : raw.lag;
     if (!isInt(lag) || lag < LAG_MIN || lag > LAG_MAX) return null;
-    return { key, ref: { $task: raw.t.$task }, type: "FS", lag };
+    return { key, ref: { $task: raw.t.$task }, type, lag };
   }
 
-  // Masukan = hasil api.taskExt.read (kunci tanpa prefiks: start, duration, deps).
+  // Tanggal batasan: ISO sah dengan tahun 1970–2199 (R3).
+  function isConstraintDate(s) {
+    if (typeof s !== "string" || !CAL.isIso(s)) return false;
+    const y = +s.slice(0, 4);
+    return y >= YEAR_MIN && y <= YEAR_MAX;
+  }
+
+  // {type: SNET|MFO, date} bersih, atau null (rusak → ASAP).
+  function readConstraint(v) {
+    if (!isObj(v) || CONSTRAINT_TYPES.indexOf(v.type) < 0 || !isConstraintDate(v.date)) return null;
+    return { type: v.type, date: v.date };
+  }
+
+  // Masukan = hasil api.taskExt.read (kunci tanpa prefiks: start, duration, deps, mode, constraint).
   function readSched(extObj) {
     const src = isObj(extObj) ? extObj : {};
     const start = typeof src.start === "string" && CAL.isIso(src.start) ? src.start : null;
@@ -490,7 +511,9 @@ const TLSched = (function (CAL) {
         }
       }
     }
-    return { start, duration, deps, invalidDeps };
+    const mode = MODES.indexOf(src.mode) >= 0 ? src.mode : null;
+    const constraint = readConstraint(src.constraint);
+    return { start, duration, deps, invalidDeps, mode, constraint };
   }
 
   // ---- tulis ext: validasi + jepit (R7) ----
@@ -508,12 +531,13 @@ const TLSched = (function (CAL) {
       const t = raw.t !== undefined ? raw.t : raw.ref; // bentuk ext atau bentuk hasil readSched
       const key = refKey(t);
       if (key === null || seen.has(key)) return { ok: false, reason: "dep" };
-      if (raw.type !== undefined && raw.type !== "FS") return { ok: false, reason: "dep" };
+      const type = raw.type === undefined ? "FS" : raw.type;
+      if (TYPES.indexOf(type) < 0) return { ok: false, reason: "dep" };
       let lag = raw.lag === undefined ? 0 : raw.lag;
       if (typeof lag !== "number" || !Number.isFinite(lag)) return { ok: false, reason: "dep" };
       lag = clampInt(lag, LAG_MIN, LAG_MAX);
       seen.add(key);
-      out.push({ t: { $task: t.$task }, type: "FS", lag });
+      out.push({ t: { $task: t.$task }, type, lag });
     }
     return { ok: true, deps: out };
   }
@@ -540,7 +564,18 @@ const TLSched = (function (CAL) {
         const r = sanitizeDeps(v);
         if (!r.ok) return r;
         patch.deps = r.deps;
-      } else return { ok: false, reason: "key" };
+      } else if (k === "mode") {
+        // null = hapus kunci (ikut unit); pemanggil menulis null bila pilihan sama dengan unit (TLPlan.modePatch)
+        if (v !== null && MODES.indexOf(v) < 0) return { ok: false, reason: "mode" };
+        patch.mode = v;
+      } else if (k === "constraint") {
+        if (v === null) patch.constraint = null;
+        else {
+          const cst = readConstraint(v);
+          if (!cst) return { ok: false, reason: "constraint" };
+          patch.constraint = cst;
+        }
+      } else return { ok: false, reason: "key" }; // termasuk "actual" (1c-2)
     }
     return { ok: true, patch };
   }
@@ -588,6 +623,71 @@ const TLSched = (function (CAL) {
     return "p:" + projectFold(t && typeof t === "object" ? t.project : null);
   }
 
+  // ---- unit jadwal (R5) ----
+  // FNV-1a 32 bit atas unit kode UTF-16 → 8 hex huruf kecil.
+  function fnv1a32(str) {
+    const s = String(str === undefined || str === null ? "" : str);
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) {
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(16).padStart(8, "0");
+  }
+
+  // x = task ({list_id, project}) atau halaman ({pageKind, listId, projectName}). SATU-SATUNYA pembuat id record
+  // `project`: workspace → "prj@list:<lid>:<h|->" (scope "list:<lid>"); pribadi → "prj@user:<h|->" (scope "user").
+  // <h> = fnv1a32(projectFold(nama)); nama kosong → "-". lid divalidasi calTarget → id selalu cocok pola README.
+  function unitOf(x) {
+    const o = isObj(x) ? x : {};
+    const page = o.pageKind !== undefined || o.listId !== undefined || o.projectName !== undefined;
+    const lid = page ? o.listId : o.list_id;
+    const raw = page ? o.projectName : o.project;
+    const name = raw === undefined || raw === null ? "" : String(raw);
+    const fold = projectFold(name);
+    const tail = fold ? fnv1a32(fold) : "-";
+    const cal = calTarget(lid);
+    if (cal.scope === "user") {
+      const recId = "prj@user:" + tail;
+      return { key: recId, recId, scope: "user", name, fold };
+    }
+    const recId = "prj@" + cal.scope + ":" + tail;
+    return { key: recId, recId, scope: cal.scope, name, fold };
+  }
+
+  // Nama project di record `project` (1c-1 R6, amandemen review T6): KEDUA sisi (tulis setAuto dan setiap baca/lookup)
+  // memotong nama ke NAME_MAX unit UTF-16 sebelum dilipat/dibandingkan. Bila unit ke-120 (indeks 119) adalah surrogate
+  // tinggi, potong di 119 — pasangan tidak pernah terbelah (surrogate tunggal bisa kembali sebagai U+FFFD dan lipatannya
+  // tidak akan pernah cocok lagi).
+  const NAME_MAX = 120;
+  function cutName(s) {
+    const str = s === undefined || s === null ? "" : String(s);
+    if (str.length <= NAME_MAX) return str;
+    const hi = str.charCodeAt(NAME_MAX - 1);
+    return str.slice(0, hi >= 0xd800 && hi <= 0xdbff ? NAME_MAX - 1 : NAME_MAX);
+  }
+
+  // Unit milik task dari Map<recId, Unit> (projectStore.loadUnits) atau null. Penjaga tabrakan hash (R6): entri yang
+  // membawa `fold` (lipatan nama terpotong record) hanya berlaku bila sama dengan projectFold(cutName(nama project
+  // task)) — dua project dengan fnv1a32 sama di satu workspace tidak saling memakai unit. Entri tanpa `fold` (Map
+  // buatan tes/pemanggil lama) diterima apa adanya.
+  function unitFor(units, task) {
+    if (!(units instanceof Map)) return null;
+    const unit = unitOf(task);
+    const u = units.get(unit.recId);
+    if (!u || typeof u !== "object") return null;
+    if (typeof u.fold === "string" && u.fold !== projectFold(cutName(unit.name))) return null;
+    return u;
+  }
+
+  // Mode efektif: ext.mode (raw ext atau hasil readSched) menang; selain itu unit (unitFor) → auto/manual.
+  function modeOf(raw, units, task) {
+    const m = isObj(raw) ? raw.mode : undefined;
+    if (MODES.indexOf(m) >= 0) return m;
+    const u = unitFor(units, task);
+    return u && u.auto === true ? "auto" : "manual";
+  }
+
   // ---- rentang hari ----
   function spanOf(c, sched) {
     if (!sched || typeof sched !== "object" || typeof sched.start !== "string") return null;
@@ -623,7 +723,7 @@ const TLSched = (function (CAL) {
         const pair = from + "\u0000" + to;
         if (seen.has(pair)) continue;
         seen.add(pair);
-        out.push({ from, to, lag: d.lag, ok: found });
+        out.push({ from, to, type: TYPES.indexOf(d.type) >= 0 ? d.type : "FS", lag: d.lag, ok: found });
       }
     }
     return out;
@@ -712,40 +812,177 @@ const TLSched = (function (CAL) {
     return sp && Number.isInteger(sp.s) && Number.isInteger(sp.f) ? sp : null;
   };
 
-  // Set kunci penerus yang mulai sebelum fsEarliest(selesai pendahulu, lag); .detail = [{succ, pred, earliest}].
-  // Dependensi tidak memindahkan task (Manual). Tanpa jadwal / tak terpecahkan / kalender buntu → diabaikan.
+  // ---- rumus dependensi bersama (R4, spec 1c §5.3/§5.4) — satu sumber untuk mesin, penanda Manual, dan
+  // "Geser ke setelah dependensi". Semua kalender lewat safe(): TL_CAL_LOOP / masukan tak sah → undefined.
+  const isDn = (n) => Number.isInteger(n);
+  const isDur = (d) => isInt(d) && d >= 0 && d <= DUR_MAX;
+  const typeOf = (t) => (t === undefined || t === null ? "FS" : TYPES.indexOf(t) >= 0 ? t : null);
+
+  // Selesai dari mulai: d = 0 → s; selain itu add(nw(s), d − 1).
+  function fin(c, s, d) {
+    if (!isDn(s) || !isDur(d)) return undefined;
+    return safe(() => (d === 0 ? s : CAL.addWork(c, CAL.nextWork(c, s), d - 1)));
+  }
+
+  const MS_DAY = 864e5;
+  const JKT_OFFSET = 7 * 3600e3; // Asia/Jakarta, tanpa DST
+  // completed_at → bilangan hari Jakarta (Asia/Jakarta, UTC+7 tanpa DST). Hanya bentuk ISO bertanggal-jam; tanpa zona = UTC
+  // (termasuk "YYYY-MM-DD HH:MM:SS[.ffffff]" SQLite/server); tanggal saja → hari itu; selain itu → null. Epoch dirakit dari
+  // bilangan hari TLCal.dn (= Date.UTC) + grup regex (tanpa Date.parse → bebas mesin JS). Pecahan detik dipotong ke milidetik: hasil dibulatkan ke
+  // hari, jadi presisi mikrodetik hanya berpengaruh di batas 23:59:59.999xxx Jakarta (dipotong = masih hari itu, benar).
+  const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+  const ISO_TS = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:(Z)|([+-])(\d{2}):?(\d{2}))?$/;
+  function jkt(v) {
+    if (typeof v !== "string") return null;
+    const s = v.trim();
+    if (ISO_DATE.test(s)) {
+      const n = CAL.dn(s);
+      return isDn(n) ? n : null;
+    }
+    const m = ISO_TS.exec(s);
+    if (!m) return null;
+    const day = CAL.dn(m[1]);
+    const h = +m[2];
+    const mi = +m[3];
+    const sec = m[4] === undefined ? 0 : +m[4];
+    if (!isDn(day) || h > 23 || mi > 59 || sec > 59) return null;
+    const ms = m[5] === undefined ? 0 : +(m[5] + "00").slice(0, 3);
+    let off = 0; // menit, positif = di depan UTC
+    if (m[7]) {
+      const oh = +m[8];
+      const om = +m[9];
+      if (oh > 23 || om > 59) return null;
+      off = (m[7] === "-" ? -1 : 1) * (oh * 60 + om);
+    }
+    const t = day * MS_DAY + ((h * 60 + mi - off) * 60 + sec) * 1000 + ms;
+    return Math.floor((t + JKT_OFFSET) / MS_DAY);
+  }
+
+  // Selesai pendahulu DONE — SATU aturan untuk jangkar "done" mesin (TLCpm) dan violations (layout langkah 7):
+  // maks(mulai, jkt(completed_at) ?? fin(mulai, d)). Mulai tak sah / kalender buntu → undefined.
+  function doneFinish(c, task, s, d) {
+    if (!isDn(s)) return undefined;
+    let f = jkt(task ? task.completed_at : null);
+    if (f === null) f = fin(c, s, d);
+    if (isDn(f) && f < s) f = s;
+    return f;
+  }
+
+  // Mulai dari selesai: d = 0 → f; selain itu add(pw(f), −(d − 1)).
+  function sff(c, f, d) {
+    if (!isDn(f) || !isDur(d)) return undefined;
+    return safe(() => (d === 0 ? f : CAL.addWork(c, CAL.prevWork(c, f), -(d - 1))));
+  }
+
+  // ES terkecil penerus berdurasi d dari pendahulu (pES, pEF) lewat dependensi `type` dengan lag (§5.3).
+  // Hasil belum dijepret nw untuk d ≥ 1 kecuali yang rumusnya sudah hari kerja (pemanggil: ES = nw(ES) bila d ≥ 1).
+  function depReq(c, type, pES, pEF, lag, d) {
+    const t = typeOf(type);
+    if (t === null || !isDur(d)) return undefined;
+    const L = lagOf(lag);
+    if (t === "FS") return isDn(pEF) ? safe(() => CAL.addWork(c, CAL.nextWork(c, pEF + 1), L)) : undefined;
+    if (t === "SS") return isDn(pES) ? safe(() => CAL.addWork(c, CAL.nextWork(c, pES), L)) : undefined;
+    let e;
+    if (t === "FF") {
+      if (!isDn(pEF)) return undefined;
+      e = safe(() => CAL.addWork(c, pEF, L));
+    } else {
+      if (!isDn(pES)) return undefined;
+      e = safe(() => CAL.addWork(c, CAL.prevWork(c, pES - 1), L));
+    }
+    if (!isDn(e)) return undefined;
+    if (d >= 1) e = safe(() => CAL.nextWork(c, e));
+    return isDn(e) ? sff(c, e, d) : undefined;
+  }
+
+  // Batas LF pendahulu berdurasi dP dari penerus (sLS, sLF) lewat dependensi `type` dengan lag (§5.4).
+  function depLimit(c, type, sLS, sLF, lag, dP) {
+    const t = typeOf(type);
+    if (t === null || !isDur(dP)) return undefined;
+    const L = lagOf(lag);
+    if (t === "FS" || t === "SS") {
+      if (!isDn(sLS)) return undefined;
+      const y = safe(() => CAL.addWork(c, sLS, -L));
+      if (!isDn(y)) return undefined;
+      if (t === "FS") return safe(() => CAL.prevWork(c, y - 1));
+      const ls = safe(() => CAL.prevWork(c, y));
+      return isDn(ls) ? fin(c, ls, dP) : undefined;
+    }
+    if (!isDn(sLF)) return undefined;
+    const y = safe(() => CAL.addWork(c, sLF, -L));
+    if (!isDn(y)) return undefined;
+    if (t === "FF") return dP === 0 ? y : safe(() => CAL.prevWork(c, y)); // milestone pendahulu: tanpa pw
+    const ls = safe(() => CAL.nextWork(c, y + 1));
+    return isDn(ls) ? fin(c, ls, dP) : undefined;
+  }
+
+  // Durasi penerus dari rentang: sp.d bila ada; selain itu hari kerja [nw(s), f] (s = f di hari non-kerja → 0).
+  function spanDur(c, sp) {
+    if (isDur(sp.d)) return sp.d;
+    const s0 = safe(() => CAL.nextWork(c, sp.s));
+    if (!isDn(s0)) return undefined;
+    if (s0 > sp.f) return 0;
+    return Math.min(DUR_MAX, CAL.workdays(c, s0, sp.f));
+  }
+
+  // "Terlalu awal" — SATU aturan untuk violations (Manual) dan conflict jangkar di mesin (TLCpm): hari kerja pertama
+  // ≥ mulai < req, untuk semua durasi termasuk milestone (mulai di akhir pekan/libur tidak dihitung terlalu awal).
+  // Masukan tak sah / kalender buntu → false.
+  function isEarly(c, startDn, req) {
+    if (!isDn(startDn) || !isDn(req)) return false;
+    const eff = safe(() => CAL.nextWork(c, startDn));
+    return isDn(eff) && eff < req;
+  }
+
+  // Set kunci penerus yang mulai sebelum depReq (per tipe, edge tanpa type = FS); .detail = [{succ, pred, earliest, type}].
+  // Dilanggar bila isEarly (nw(mulai) < depReq) — juga untuk milestone (perilaku 1b "milestone Sabtu setelah selesai Jumat
+  // aman" dipertahankan; lihat laporan Task 1). Dependensi tidak memindahkan task (Manual).
+  // Tanpa jadwal / tak terpecahkan / tipe tak dikenal / kalender buntu → diabaikan.
   function violations(c, spans, edges) {
     const out = new Set();
     const detail = [];
     for (const e of Array.isArray(edges) ? edges : []) {
       if (!e || e.ok === false) continue;
+      const type = typeOf(e.type);
+      if (type === null) continue;
       const p = spanAt(spans, e.from);
       const s = spanAt(spans, e.to);
       if (!p || !s) continue;
-      const earliest = safe(() => CAL.fsEarliest(c, p.f, lagOf(e.lag)));
-      if (!Number.isInteger(earliest)) continue;
-      // mulai efektif = hari kerja pertama ≥ mulai tersimpan (mulai di akhir pekan/libur tidak dihitung terlalu awal)
-      const eff = safe(() => CAL.nextWork(c, s.s));
-      if (!Number.isInteger(eff)) continue;
-      if (eff < earliest) {
+      const d = spanDur(c, s);
+      if (d === undefined) continue;
+      const earliest = depReq(c, type, p.s, p.f, e.lag, d);
+      if (!isDn(earliest)) continue;
+      if (isEarly(c, s.s, earliest)) {
         out.add(e.to);
-        detail.push({ succ: e.to, pred: e.from, earliest });
+        detail.push({ succ: e.to, pred: e.from, earliest, type });
       }
     }
     out.detail = detail;
     return out;
   }
 
-  // "Geser ke setelah dependensi": maks fsEarliest atas pendahulu terjadwal, sebagai iso; tak ada → null.
-  // preds: [{span: {s, f} | null, lag}] (atau {f, lag}). `succ` dicadangkan (belum dipakai di Manual).
+  // "Geser ke setelah dependensi": maks depReq atas pendahulu terjadwal, sebagai iso; tak ada → null.
+  // preds: [{span: {s, f} | null, lag, type?}] (atau {f, lag} untuk FS). succ: {d} | {duration} | rentang {s, f} | null
+  // (durasi penerus untuk FF/SF; tidak ada → 1).
   function shiftAfterDeps(c, succ, preds) {
+    let d = 1;
+    if (isObj(succ)) {
+      if (isDur(succ.d)) d = succ.d;
+      else if (isDur(succ.duration)) d = succ.duration;
+      else if (isDn(succ.s) && isDn(succ.f)) {
+        const sd = spanDur(c, succ);
+        if (sd !== undefined) d = sd;
+      }
+    }
     let best = null;
     for (const p of Array.isArray(preds) ? preds : []) {
       if (!p || typeof p !== "object") continue;
-      const f = p.span && Number.isInteger(p.span.f) ? p.span.f : p.f;
-      if (!Number.isInteger(f)) continue;
-      const e = safe(() => CAL.fsEarliest(c, f, lagOf(p.lag)));
-      if (!Number.isInteger(e)) continue;
+      const type = typeOf(p.type);
+      if (type === null) continue;
+      const f = p.span && isDn(p.span.f) ? p.span.f : p.f;
+      const s = p.span && isDn(p.span.s) ? p.span.s : p.s;
+      const e = depReq(c, type, s, f, p.lag, d);
+      if (!isDn(e)) continue;
       if (best === null || e > best) best = e;
     }
     return best === null ? null : CAL.iso(best);
@@ -763,6 +1000,8 @@ const TLSched = (function (CAL) {
   }
 
   return Object.freeze({
+    TYPES,
+    CONSTRAINT_TYPES,
     MAX_DEPS,
     DUR_MAX,
     LAG_MIN,
@@ -780,11 +1019,980 @@ const TLSched = (function (CAL) {
     wouldCycle,
     canLink,
     violations,
+    isEarly,
     shiftAfterDeps,
     deadlineLate,
+    fin,
+    sff,
+    jkt,
+    doneFinish,
+    depReq,
+    depLimit,
+    fnv1a32,
+    unitOf,
+    NAME_MAX,
+    cutName,
+    unitFor,
+    modeOf,
   });
 })(typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"));
 if (typeof module !== "undefined" && module.exports) module.exports = TLSched;
+// part: cpm.js
+// Plugin Timeline — TLCpm: mesin jadwal otomatis (Critical Path Method) — graf dependensi FS/SS/FF/SF dengan lag,
+// Tarjan SCC (iteratif) + Kahn terurut, forward/backward pass, slack, jalur kritis, drift, jangkar
+// (spec 1c §5.1–§5.5, rencana 1c-1 R8–R10). Murni: tanpa Date lokal, tanpa global, tanpa akses api, TIDAK PERNAH menulis
+// (K27) — hanya menghitung. Semua rumus dependensi lewat TLSched.depReq/depLimit/fin/sff (satu sumber, R4) dan aturan
+// "terlalu awal" jangkar lewat TLSched.isEarly (sama dengan violations). Kalender buntu (TL_CAL_LOOP) → simpul
+// "tak terhitung" (uncomputable), run tidak melempar.
+const TLCpm = (function (CAL, SCHED, HOL) {
+  const SPAN_MAX = 3660; // rentang hari kalender maks untuk hitung slack (pola MAX_LATE_SPAN)
+  const DUR_MAX = SCHED.DUR_MAX;
+
+  const isInt = (n) => typeof n === "number" && Number.isInteger(n);
+  const isDn = (n) => Number.isInteger(n);
+  const isObj = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
+  // Pembanding kunci = unit kode UTF-16 (bukan localeCompare: urutan lokal berbeda antar perangkat, mis. "aa" di Denmark).
+  // Dipakai untuk semua urutan keluaran (order, ignored, cycles, summaries, succ) → deterministik lintas perangkat.
+  const cmpKey = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  const cmp = cmpKey;
+
+  function safe(fn) {
+    try {
+      return fn();
+    } catch (e) {
+      if (e instanceof Error && e.message === "TL_CAL_LOOP") return undefined;
+      throw e;
+    }
+  }
+
+  // completed_at → bilangan hari Jakarta: satu sumber di TLSched.jkt (dipakai juga violations lewat TLSched.doneFinish);
+  // TLCpm.jkt tetap diekspor sebagai alias (kompatibilitas tes/konsumen).
+  const jkt = SCHED.jkt;
+
+  // Tenggat task → bilangan hari (10 karakter pertama, R3); tak ada/tak sah → NaN. Satu sumber untuk run() dan explain().
+  const deadlineDn = (t) => (t.deadline === null || t.deadline === undefined ? NaN : CAL.dn(String(t.deadline).slice(0, 10)));
+  const isDone = (t) => t.gtd_status === "done" || !!t.completed_at;
+  const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
+  const parentOf = (t) => (t.parent_id !== undefined && t.parent_id !== null ? t.parent_id : t.parent_cid);
+
+  // Antrean prioritas min atas bilangan peringkat (Kahn terurut kunci).
+  function heapPush(h, v) {
+    h.push(v);
+    let i = h.length - 1;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (h[p] <= v) break;
+      h[i] = h[p];
+      i = p;
+    }
+    h[i] = v;
+  }
+  function heapPop(h) {
+    const top = h[0];
+    const last = h.pop();
+    if (h.length) {
+      let i = 0;
+      for (;;) {
+        const l = 2 * i + 1;
+        if (l >= h.length) break;
+        const r = l + 1;
+        const m = r < h.length && h[r] < h[l] ? r : l;
+        if (h[m] >= last) break;
+        h[i] = h[m];
+        i = m;
+      }
+      h[i] = last;
+    }
+    return top;
+  }
+
+  // Tarjan iteratif (tanpa rekursi). keys terurut, adj: Map<key, key[] terurut>. → komponen (urutan selesai Tarjan).
+  function tarjan(keys, adj) {
+    const index = new Map();
+    const low = new Map();
+    const onStack = new Set();
+    const stack = [];
+    const comps = [];
+    let counter = 0;
+    for (const v of keys) {
+      if (index.has(v)) continue;
+      index.set(v, counter);
+      low.set(v, counter);
+      counter++;
+      stack.push(v);
+      onStack.add(v);
+      const work = [{ u: v, i: 0 }];
+      while (work.length) {
+        const top = work[work.length - 1];
+        const nb = adj.get(top.u) || [];
+        if (top.i < nb.length) {
+          const w = nb[top.i++];
+          if (!index.has(w)) {
+            index.set(w, counter);
+            low.set(w, counter);
+            counter++;
+            stack.push(w);
+            onStack.add(w);
+            work.push({ u: w, i: 0 });
+          } else if (onStack.has(w) && index.get(w) < low.get(top.u)) low.set(top.u, index.get(w));
+        } else {
+          work.pop();
+          const u = top.u;
+          if (work.length) {
+            const p = work[work.length - 1].u;
+            if (low.get(u) < low.get(p)) low.set(p, low.get(u));
+          }
+          if (low.get(u) === index.get(u)) {
+            const comp = [];
+            let w;
+            do {
+              w = stack.pop();
+              onStack.delete(w);
+              comp.push(w);
+            } while (w !== u);
+            comps.push(comp);
+          }
+        }
+      }
+    }
+    return comps;
+  }
+
+  // run({tasks, cal, units, readExt}) → Result (lihat laporan Task 2 / spec §5.5). tasks = daftar lengkap scope;
+  // cal = TLCal.compile(...); units = Map<recId, {auto}>; readExt(task) → ext mentah tanpa prefiks.
+  function run(input) {
+    const a = isObj(input) ? input : {};
+    const c = a.cal;
+    const units = a.units instanceof Map ? a.units : new Map();
+    const readExt = typeof a.readExt === "function" ? a.readExt : (t) => (t && isObj(t.ext) ? t.ext : {});
+
+    // 1. task hidup: buang berulang / archived / deleted / tanpa id; duplikat kunci → yang pertama. Urut kunci.
+    const items = [];
+    const byKey = new Map();
+    for (const t of Array.isArray(a.tasks) ? a.tasks : []) {
+      if (!isObj(t) || t.id === undefined || t.id === null) continue;
+      if (t.recurrence_type || t.gtd_status === "archived" || t.archived || t.deleted) continue;
+      const key = String(t.id);
+      if (byKey.has(key)) continue;
+      let raw;
+      try {
+        raw = readExt(t);
+      } catch (e) {
+        raw = {};
+      }
+      if (!isObj(raw)) raw = {};
+      const sched = SCHED.readSched(raw);
+      const s = sched.start === null ? null : CAL.dn(sched.start);
+      const durOk = isInt(raw.duration) && raw.duration >= 0 && raw.duration <= DUR_MAX;
+      const it = {
+        key,
+        task: t,
+        sched,
+        s,
+        d: durOk ? raw.duration : 1,
+        durGuess: !durOk,
+        mode: SCHED.modeOf(sched, units, t),
+        scope: SCHED.scopeKeyOf(t),
+        g: SCHED.unitOf(t).recId,
+      };
+      byKey.set(key, it);
+      items.push(it);
+    }
+    items.sort((x, y) => cmp(x.key, y.key));
+    const index = SCHED.buildIndex(items.map((it) => it.task));
+
+    // 2. ringkasan: punya anak hidup (parent_id / parent_cid terpecahkan ke task lain)
+    const summaries = new Map();
+    for (const it of items) {
+      const p = parentOf(it.task);
+      if (p === undefined || p === null || p === "") continue;
+      const parent = index.get(String(p));
+      if (!parent) continue;
+      const pk = String(parent.id);
+      if (pk === it.key) continue;
+      if (!summaries.has(pk)) summaries.set(pk, []);
+      summaries.get(pk).push(it.key);
+    }
+    for (const list of summaries.values()) list.sort(cmp);
+
+    // 3. sisi kandidat dari deps penerus (urutan deps tersimpan); alasan diabaikan: unresolved → scope → summary.
+    const ignored = [];
+    const cand = []; // {from, to, type, lag}
+    const seenPair = new Set();
+    for (const it of items) {
+      for (const dep of it.sched.deps) {
+        const pt = index.get(dep.key);
+        const from = pt ? String(pt.id) : dep.key;
+        const pair = from + "\u0000" + it.key;
+        if (seenPair.has(pair)) continue;
+        seenPair.add(pair);
+        if (!pt) ignored.push({ from, to: it.key, reason: "unresolved" });
+        else if (byKey.get(from).scope !== it.scope) ignored.push({ from, to: it.key, reason: "scope" });
+        else if (summaries.has(from) || summaries.has(it.key)) ignored.push({ from, to: it.key, reason: "summary" });
+        else cand.push({ from, to: it.key, type: dep.type, lag: dep.lag });
+      }
+    }
+
+    // 4. simpul: non-ringkasan dengan Mulai; lalu (BFS) tanpa Mulai, otomatis, belum selesai, dengan pendahulu simpul.
+    const isNode = new Set();
+    for (const it of items) if (it.s !== null && !summaries.has(it.key)) isNode.add(it.key);
+    const candFrom = new Map();
+    for (const e of cand) {
+      if (!candFrom.has(e.from)) candFrom.set(e.from, []);
+      candFrom.get(e.from).push(e.to);
+    }
+    const queue = [...isNode];
+    while (queue.length) {
+      const k = queue.pop();
+      for (const to of candFrom.get(k) || []) {
+        if (isNode.has(to)) continue;
+        const it = byKey.get(to);
+        if (it.s !== null || it.mode !== "auto" || isDone(it.task)) continue;
+        isNode.add(to);
+        queue.push(to);
+      }
+    }
+    const nodeKeys = items.filter((it) => isNode.has(it.key)).map((it) => it.key); // terurut
+
+    // 5. graf: sisi dengan kedua ujung simpul; selain itu notNode.
+    const edges = [];
+    for (const e of cand) {
+      if (isNode.has(e.from) && isNode.has(e.to)) edges.push(e);
+      else ignored.push({ from: e.from, to: e.to, reason: "notNode" });
+    }
+    const adj = new Map(nodeKeys.map((k) => [k, []]));
+    for (const e of edges) adj.get(e.from).push(e.to);
+    for (const l of adj.values()) l.sort(cmp);
+
+    // 6. Tarjan: komponen > 1 atau sisi diri = lingkaran; sisi di dalamnya diabaikan ("cycle").
+    const comps = tarjan(nodeKeys, adj);
+    const compOf = new Map();
+    comps.forEach((comp, i) => comp.forEach((k) => compOf.set(k, i)));
+    const selfLoop = new Set(edges.filter((e) => e.from === e.to).map((e) => e.from));
+    const inCycle = new Set();
+    const cycles = [];
+    for (const comp of comps) {
+      if (comp.length > 1 || selfLoop.has(comp[0])) {
+        const sorted = comp.slice().sort(cmp);
+        sorted.forEach((k) => inCycle.add(k));
+        cycles.push(sorted);
+      }
+    }
+    cycles.sort((x, y) => cmp(x[0], y[0]));
+
+    const succ = new Map(nodeKeys.map((k) => [k, []]));
+    const succE = new Map(nodeKeys.map((k) => [k, []]));
+    const pred = new Map(nodeKeys.map((k) => [k, []]));
+    for (const e of edges) {
+      if (compOf.get(e.from) === compOf.get(e.to)) {
+        ignored.push({ from: e.from, to: e.to, reason: "cycle" });
+        continue;
+      }
+      pred.get(e.to).push({ key: e.from, type: e.type, lag: e.lag });
+      succE.get(e.from).push({ key: e.to, type: e.type, lag: e.lag });
+    }
+    for (const [k, l] of succE) {
+      l.sort((x, y) => cmp(x.key, y.key));
+      succ.set(k, l.map((x) => x.key));
+    }
+    ignored.sort((x, y) => cmp(x.to, y.to) || cmp(x.from, y.from));
+
+    // 7. Kahn terurut kunci (antrean min atas peringkat).
+    const rank = new Map(nodeKeys.map((k, i) => [k, i]));
+    const indeg = new Map(nodeKeys.map((k) => [k, pred.get(k).length]));
+    const heap = [];
+    for (const k of nodeKeys) if (indeg.get(k) === 0) heapPush(heap, rank.get(k));
+    const order = [];
+    while (heap.length) {
+      const k = nodeKeys[heapPop(heap)];
+      order.push(k);
+      for (const s of succ.get(k)) {
+        const n = indeg.get(s) - 1;
+        indeg.set(s, n);
+        if (n === 0) heapPush(heap, rank.get(s));
+      }
+    }
+
+    // 8. forward pass
+    const nodes = new Map();
+    const uncomputable = new Set();
+    const drift = new Set();
+    for (const k of order) {
+      const it = byKey.get(k);
+      const t = it.task;
+      const d = it.d;
+      const cst = it.sched.constraint;
+      let fixed = null;
+      if (isDone(t)) fixed = "done";
+      else if (inCycle.has(k)) fixed = "cycle";
+      else if (it.mode === "manual") fixed = "manual";
+      else if (isStarted(t) && it.s !== null) fixed = "started";
+      else if (cst && cst.type === "MFO") fixed = "mfo";
+
+      const n = { key: k, task: t, es: null, ef: null, ls: null, lf: null, slack: null, critical: false, mode: it.mode };
+      if (fixed) n.fixed = fixed;
+      if (it.durGuess) n.durGuess = true;
+      n.d = d;
+      n.g = it.g;
+      n.late = null;
+      nodes.set(k, n);
+
+      const preds = pred.get(k);
+      let es;
+      let ef;
+      if (fixed) {
+        n.driver = { kind: "fixed" };
+        if (fixed === "mfo") {
+          const md = CAL.dn(cst.date);
+          ef = d >= 1 ? safe(() => CAL.prevWork(c, md)) : md;
+          es = isDn(ef) ? SCHED.sff(c, ef, d) : undefined;
+        } else if (it.s !== null) {
+          es = it.s;
+          if (fixed === "done") {
+            ef = SCHED.doneFinish(c, t, es, d);
+          } else ef = SCHED.fin(c, es, d);
+        }
+        if (isDn(es) && isDn(ef)) {
+          for (const p of preds) {
+            const pn = nodes.get(p.key);
+            if (pn.es === null) continue;
+            const r = SCHED.depReq(c, p.type, pn.es, pn.ef, p.lag, d);
+            if (isDn(r) && SCHED.isEarly(c, es, r)) {
+              n.conflict = true;
+              break;
+            }
+          }
+        }
+      } else {
+        let best = null;
+        let driver = null;
+        let bad = false;
+        for (const p of preds) {
+          const pn = nodes.get(p.key);
+          const r = pn.es === null ? undefined : SCHED.depReq(c, p.type, pn.es, pn.ef, p.lag, d);
+          if (!isDn(r)) {
+            bad = true; // pendahulu tak terhitung → penerus tak terhitung (tidak menebak ES lebih awal)
+            break;
+          }
+          if (best === null || r > best) {
+            best = r;
+            driver = { kind: "pred", from: p.key, type: p.type, lag: p.lag };
+          }
+        }
+        if (!bad) {
+          if (cst && cst.type === "SNET") {
+            const sd = CAL.dn(cst.date);
+            if (best === null || sd > best) {
+              best = sd;
+              driver = { kind: "snet" };
+            }
+          }
+          if (!preds.length && it.s !== null && (best === null || it.s > best)) {
+            best = it.s;
+            driver = { kind: "root" };
+          }
+        }
+        n.driver = driver || { kind: "root" };
+        if (!bad && best !== null) {
+          es = d >= 1 ? safe(() => CAL.nextWork(c, best)) : best;
+          ef = isDn(es) ? SCHED.fin(c, es, d) : undefined;
+        }
+      }
+      if (isDn(es) && isDn(ef)) {
+        n.es = es;
+        n.ef = ef;
+        n.late = SCHED.deadlineLate(c, ef, t.deadline);
+        if (!fixed && CAL.iso(es) !== it.sched.start) drift.add(k);
+      } else {
+        delete n.conflict;
+        uncomputable.add(k);
+      }
+    }
+
+    // 9. akhir kelompok project: P_g = maks EF simpul kelompok
+    const groupEnd = new Map();
+    for (const n of nodes.values()) {
+      if (n.ef === null) continue;
+      const cur = groupEnd.get(n.g);
+      if (cur === undefined || n.ef > cur) groupEnd.set(n.g, n.ef);
+    }
+
+    // 10. backward pass (topologis terbalik), slack, kritis
+    for (let i = order.length - 1; i >= 0; i--) {
+      const k = order[i];
+      const n = nodes.get(k);
+      if (n.es === null) continue;
+      const d = n.d;
+      let lf = groupEnd.get(n.g);
+      const dl = deadlineDn(n.task);
+      if (isDn(dl)) {
+        const cap = d >= 1 ? safe(() => CAL.prevWork(c, dl)) : dl;
+        if (isDn(cap) && cap < lf) lf = cap;
+      }
+      if (n.fixed === "mfo" && n.ef < lf) lf = n.ef;
+      for (const e of succE.get(k)) {
+        const sn = nodes.get(e.key);
+        if (sn.ls === null) continue;
+        const lim = SCHED.depLimit(c, e.type, sn.ls, sn.lf, e.lag, d);
+        if (isDn(lim) && lim < lf) lf = lim;
+      }
+      const ls = SCHED.sff(c, lf, d);
+      if (!isDn(ls)) continue;
+      n.lf = lf;
+      n.ls = ls;
+      if (n.fixed === "done") continue; // slack null, tidak kritis
+      let slack;
+      if (lf >= n.ef) slack = CAL.workdays(c, n.ef + 1, Math.min(lf, n.ef + SPAN_MAX));
+      else slack = -CAL.workdays(c, lf + 1, Math.min(n.ef, lf + SPAN_MAX));
+      slack = slack === 0 ? 0 : slack; // tanpa −0
+      n.slack = slack;
+      n.critical = slack <= 0;
+    }
+
+    return {
+      nodes,
+      order,
+      succ,
+      pred,
+      cycles,
+      ignored,
+      groupEnd,
+      drift,
+      summaries,
+      uncomputable,
+    };
+  }
+
+  // ---- explain: "Kenapa dijadwalkan di sini?" (spec 1c §5.6) ----
+  // Dipanggil untuk SATU task sesuai permintaan (popover), tidak di jalur render. TIDAK menghitung jadwal sendiri: tanggal
+  // (start/finish/late) dibaca dari hasil run(); rumus dependensi hanya dipakai ulang (TLSched.depReq) untuk memisahkan
+  // "hari lag" dari "hari yang dilewati", jadi tidak mungkin berbeda dari mesin.
+
+  // Hari non-kerja → {dn, why, name?}. Akhir pekan didahulukan atas libur bernama (Sabtu/Minggu yang kebetulan libur nasional
+  // tetap "Sabtu"/"Minggu"); hari kerja biasa yang dikecualikan kalender (mis. Jumat dinonaktifkan, atau libur tambahan
+  // buatan pengguna) = "tambahan" tanpa nama (nama libur tambahan tidak disimpan di kalender terkompilasi).
+  function nonWorkInfo(c, n) {
+    const wd = CAL.isoWeekday(n);
+    if (!c.mask.has(wd)) return wd === 6 ? { dn: n, why: "Sabtu" } : wd === 7 ? { dn: n, why: "Minggu" } : { dn: n, why: "tambahan" };
+    const h = HOL && typeof HOL.lookup === "function" ? HOL.lookup(CAL.iso(n)) : null;
+    if (h && ((h.kind === "libur" && c.national) || (h.kind === "cuti" && c.cutiBersama))) return { dn: n, why: h.kind, name: h.nama };
+    return { dn: n, why: "tambahan" };
+  }
+
+  // Hari non-kerja di [from, to] inklusif, berurut (rentang dibatasi SPAN_MAX).
+  function nonWorkIn(c, from, to) {
+    const out = [];
+    if (!isDn(from) || !isDn(to)) return out;
+    for (let d = from, hi = Math.min(to, from + SPAN_MAX); d <= hi; d++) if (!CAL.isWork(c, d)) out.push(nonWorkInfo(c, d));
+    return out;
+  }
+
+  // Hari kerja di [from, to) (setengah terbuka), berurut.
+  function workIn(c, from, to) {
+    const out = [];
+    for (let d = from, hi = Math.min(to - 1, from + SPAN_MAX); d <= hi; d++) if (CAL.isWork(c, d)) out.push(d);
+    return out;
+  }
+
+  // PENTING: `cal` HARUS kalender terkompilasi yang sama dengan yang diberikan ke run(); kalender lain membuat atribusi
+  // hari yang dilewati (skipped/lagDays/durSkipped) bisa berbeda dari mesin. Tanpa `readExt`, `base` untuk root/snet = null
+  // (Task 4+ wajib meneruskannya).
+  // explain(result, key, cal, readExt?) → {kind, base, lagDays, start, skipped, finish, durSkipped, late, deadline, pred?, type?, lag?, cycleWith?}
+  //   kind: pred | root | snet | mfo | manual | done | started | cycle | unscheduled
+  //   base = titik acuan: FS/FF → selesai pendahulu, SS/SF → mulai pendahulu; snet → tanggal batasan; root → tanggal mulai
+  //   tersimpan (dua yang terakhir butuh readExt, tanpanya null); lainnya null.
+  //   lagDays = hari kerja yang dipakai lag (selisih syarat lag 0 dan syarat ber-lag: [min, max) hari kerja); lag 0 → [].
+  //   skipped = hari non-kerja strictly di antara base dan start (hanya bila start > base; root/snet: dari base inklusif);
+  //   durSkipped = hari non-kerja di dalam [start, finish] (milestone d = 0 → []); keduanya tidak pernah tumpang tindih.
+  //   late = hari kerja lewat tenggat (0 bila tepat/tanpa tenggat); deadline = hari tenggat atau null.
+  //   cycle → cycleWith = anggota lingkaran lain (terurut cmpKey; anggota yang selesai → kind done, tanpa cycleWith); unscheduled → semua tanggal null.
+  function explain(result, key, cal, readExt) {
+    const k = String(key);
+    const out = (kind, extra) =>
+      Object.assign({ kind, base: null, lagDays: [], start: null, skipped: [], finish: null, durSkipped: [], late: 0, deadline: null }, extra);
+    const nodes = isObj(result) && result.nodes instanceof Map ? result.nodes : null;
+    const n = nodes ? nodes.get(k) : undefined;
+    const ring = isObj(result) && Array.isArray(result.cycles) ? result.cycles.find((cy) => cy.indexOf(k) >= 0) : undefined;
+    // Prioritas jangkar mesin: done > cycle → anggota lingkaran yang selesai dijelaskan sebagai "done" (tanggal dari completed_at).
+    const cycleWith = ring && !(n && n.fixed === "done") ? ring.filter((x) => x !== k).sort(cmpKey) : null;
+    if (!n || n.es === null || n.ef === null || !isObj(cal)) return cycleWith ? out("cycle", { cycleWith }) : out("unscheduled");
+
+    const c = cal;
+    const dl = deadlineDn(n.task);
+    const e = out(cycleWith ? "cycle" : n.fixed || n.driver.kind, {
+      start: n.es,
+      finish: n.ef,
+      late: n.late || 0,
+      deadline: isDn(dl) ? dl : null,
+      durSkipped: n.d >= 1 ? nonWorkIn(c, n.es, n.ef) : [],
+    });
+    if (cycleWith) e.cycleWith = cycleWith;
+    if (e.kind === "pred") {
+      const dr = n.driver;
+      const pn = nodes.get(dr.from);
+      e.pred = dr.from;
+      e.type = dr.type;
+      e.lag = dr.lag;
+      e.base = dr.type === "SS" || dr.type === "SF" ? pn.es : pn.ef;
+      // hari lag: syarat ber-lag vs syarat lag 0 (rumus yang sama dengan mesin → tidak bisa berbeda)
+      const r = SCHED.depReq(c, dr.type, pn.es, pn.ef, dr.lag, n.d);
+      const r0 = SCHED.depReq(c, dr.type, pn.es, pn.ef, 0, n.d);
+      if (isDn(r) && isDn(r0) && r !== r0) e.lagDays = workIn(c, Math.min(r, r0), Math.max(r, r0));
+      if (e.start > e.base) e.skipped = nonWorkIn(c, e.base + 1, e.start - 1);
+    } else if ((e.kind === "snet" || e.kind === "root") && typeof readExt === "function") {
+      // acuan tersimpan: tanggal batasan SNET, atau tanggal Mulai akar (bisa jatuh di akhir pekan → digeser)
+      let sched = null;
+      try {
+        sched = SCHED.readSched(readExt(n.task));
+      } catch (err) {
+        sched = null;
+      }
+      const ref = sched ? (e.kind === "snet" ? (sched.constraint ? sched.constraint.date : null) : sched.start) : null;
+      const b = ref === null ? NaN : CAL.dn(ref);
+      if (isDn(b)) {
+        e.base = b;
+        if (e.start > b) e.skipped = nonWorkIn(c, b, e.start - 1);
+      }
+    }
+    return e;
+  }
+
+  return Object.freeze({ run, jkt, cmpKey, explain });
+})(
+  typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"),
+  typeof TLSched !== "undefined" ? TLSched : require("./schedule.js"),
+  typeof TLHolidays !== "undefined" ? TLHolidays : require("./holidays-id.js"),
+);
+if (typeof module !== "undefined" && module.exports) module.exports = TLCpm;
+// part: plan.js
+// Plugin Timeline — TLPlan: rencana tulis murni (spec 1c §5.7, rencana 1c-1 R11, R12, R14, R17; K32–K36).
+// Mengubah hasil mesin (TLCpm.run) menjadi daftar item {task, key, before, patch, deltaHk, kind} yang diterapkan UI lewat
+// satu api.taskExt.setMany. Murni: tanpa Date, tanpa global, tanpa akses api/store, TIDAK menulis (K27) dan tidak mengubah
+// masukan (ctx, tasks, units, patch). Tanggal dijadwalkan HANYA oleh TLCpm.run atas data + patch (aliran = mesin dijalankan
+// ulang, bukan dihitung di sini); rumus dependensi lewat TLSched (satu sumber, R4); urutan = result.order (topologis) lalu
+// TLCpm.cmpKey. ctx = {tasks, cal, units, readExt} = masukan run().
+const TLPlan = (function (CAL, SCHED, CPM) {
+  const CASCADE_MAX = 20; // K32: turunan berubah > 20 → pratinjau dulu
+  const SPAN_MAX = 3660; // rentang hari kalender maks untuk hitung Δ hk (pola MAX_LATE_SPAN)
+  const DUR_MAX = SCHED.DUR_MAX;
+  const KEYS = ["start", "duration", "constraint", "mode"]; // kunci `before` (R11)
+  const cmpKey = CPM.cmpKey;
+
+  const isObj = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
+  const isDn = (n) => Number.isInteger(n);
+  const isDur = (d) => Number.isInteger(d) && d >= 0 && d <= DUR_MAX;
+  const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const keyOf = (t) => (isObj(t) && t.id !== undefined && t.id !== null ? String(t.id) : null);
+  const clone = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
+  const startDn = (s) => (typeof s === "string" ? CAL.dn(s) : NaN); // Mulai tersimpan sah → bilangan hari, selain itu NaN
+  // Sama dengan isStarted di cpm.js (penanda "sudah mulai" K30).
+  const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
+
+  function safe(fn) {
+    try {
+      return fn();
+    } catch (e) {
+      if (e instanceof Error && e.message === "TL_CAL_LOOP") return undefined;
+      throw e;
+    }
+  }
+
+  // Ext mentah task (tanpa prefiks) — fallback dan penanganan lempar sama dengan run().
+  function rawOf(ctx, task) {
+    let raw;
+    try {
+      raw = typeof ctx.readExt === "function" ? ctx.readExt(task) : task && isObj(task.ext) ? task.ext : {};
+    } catch (e) {
+      raw = {};
+    }
+    return isObj(raw) ? raw : {};
+  }
+
+  // Bentuk kanonik untuk CAS: urutan kunci objek tidak relevan; undefined = null.
+  function canon(v) {
+    if (v === undefined || v === null) return "null";
+    if (Array.isArray(v)) return "[" + v.map(canon).join(",") + "]";
+    if (typeof v === "object") return "{" + Object.keys(v).sort(cmpKey).map((k) => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}";
+    return JSON.stringify(v);
+  }
+
+  // Selisih hari kerja bertanda a → b: maju = hari kerja [a, b), mundur = −hari kerja [b, a); rentang dibatasi.
+  function wdDelta(c, a, b) {
+    if (!isDn(a) || !isDn(b)) return null;
+    if (a <= b) return a === b ? 0 : CAL.workdays(c, a, Math.min(b - 1, a + SPAN_MAX));
+    const n = CAL.workdays(c, b, Math.min(a - 1, b + SPAN_MAX));
+    return n === 0 ? 0 : -n;
+  }
+
+  // Patch gestur → bentuk bersih sanitizePatch bila sah (deps bentuk readSched → bentuk ext); tak sah → salinan apa adanya.
+  function cleanPatch(p) {
+    const s = SCHED.sanitizePatch(p);
+    return s.ok ? s.patch : clone(p);
+  }
+
+  // Ext mentah + patch (null = hapus kunci) → ext baru; masukan tidak diubah.
+  function mergeRaw(raw, patch) {
+    const out = clone(raw);
+    for (const k of Object.keys(patch)) {
+      if (patch[k] === null) delete out[k];
+      else out[k] = clone(patch[k]);
+    }
+    return out;
+  }
+
+  // Patch hasil mesin untuk simpul otomatis non-jangkar: start = iso(es) bila beda dari tersimpan; tanpa Mulai tersimpan
+  // (baru dijadwalkan) + durasi hilang → duration 1. Jangkar / tak terhitung / bukan simpul → {}.
+  function enginePatch(n, raw) {
+    const out = {};
+    if (!n || n.fixed || n.es === null) return out;
+    const s = CAL.iso(n.es);
+    if (s !== raw.start) out.start = s;
+    if (!isDn(startDn(raw.start)) && n.durGuess) out.duration = 1;
+    return out;
+  }
+
+  // Item rencana (R11). before = nilai MENTAH ext (kunci tak ada → null) agar Urungkan persis; patch membawa `deps`
+  // (gestur tautkan) → before juga memuat deps lama.
+  function mkItem(c, task, raw, patch) {
+    const before = {};
+    for (const k of KEYS) before[k] = clone(raw[k]);
+    if (has(patch, "deps")) before.deps = clone(raw.deps);
+    const old = startDn(raw.start);
+    const next = has(patch, "start") ? patch.start : raw.start;
+    let kind = "move";
+    if (has(patch, "start") && patch.start !== null && !isDn(old)) kind = "new";
+    else if (has(patch, "start") && patch.start !== raw.start) kind = "move";
+    else if (has(patch, "duration")) kind = "duration";
+    else if (has(patch, "constraint")) kind = "constraint";
+    else if (has(patch, "mode")) kind = "mode";
+    const deltaHk = isDn(old) && isDn(startDn(next)) ? wdDelta(c, old, startDn(next)) : null;
+    return { task, key: keyOf(task), before, patch, deltaHk, kind };
+  }
+
+  // Urut item topologis menurut result.order; kunci di luar order (bukan simpul) di akhir, cmpKey.
+  function sortTopo(items, result) {
+    const pos = new Map(result.order.map((k, i) => [k, i]));
+    const at = (k) => (pos.has(k) ? pos.get(k) : Infinity);
+    return items.sort((a, b) => at(a.key) - at(b.key) || cmpKey(a.key, b.key));
+  }
+
+  // Kunci yang terjangkau dari seeds lewat result.succ (semua tipe), termasuk seeds; opsional + anggota lingkaran penuh.
+  function reach(result, seeds, withCycles) {
+    const seen = new Set();
+    const stack = [];
+    for (const k of seeds) {
+      if (!result.nodes.has(k) || seen.has(k)) continue;
+      seen.add(k);
+      stack.push(k);
+    }
+    while (stack.length) {
+      for (const s of result.succ.get(stack.pop()) || []) {
+        if (!seen.has(s)) {
+          seen.add(s);
+          stack.push(s);
+        }
+      }
+    }
+    if (withCycles) for (const cy of result.cycles) if (cy.some((k) => seen.has(k))) cy.forEach((k) => seen.add(k));
+    return seen;
+  }
+
+  const isResult = (r) => isObj(r) && r.nodes instanceof Map && Array.isArray(r.order);
+
+  // Apakah operasi menggeser simpul ini (es/ef/d sesudah ≠ sebelum; bukan simpul sebelumnya = berubah).
+  const shifted = (bn, an) => !bn || bn.es !== an.es || bn.ef !== an.ef || bn.d !== an.d;
+
+  // Inti aliran (K32): mesin atas data + patch → item = patch (+ start hasil mesin bila task otomatis non-jangkar) ∪
+  // turunan otomatis non-jangkar (BFS result.succ dari seeds) yang DIGESER operasi ini (hasil sesudah ≠ hasil sebelum)
+  // DAN berbeda dari nilai tersimpan (patch relatif ke tersimpan). Drift yang tidak digeser operasi — di luar turunan,
+  // di belakang jangkar yang tidak bergeser, atau turunan yang ES-nya tetap — tidak pernah ikut. patches: Map<key,
+  // {task, patch}>; seedsOf(after) → kunci awal BFS; before = hasil mesin atas ctx tanpa patch (tidak ada → dihitung).
+  function flow(ctx, patches, units, seedsOf, before) {
+    const c = ctx.cal;
+    const prior = isResult(before) ? before : CPM.run({ tasks: ctx.tasks, cal: c, units: ctx.units, readExt: (t) => rawOf(ctx, t) });
+    const merged = new Map();
+    for (const [k, g] of patches) merged.set(k, mergeRaw(rawOf(ctx, g.task), g.patch));
+    const read = (t) => {
+      const k = keyOf(t);
+      return k !== null && merged.has(k) ? clone(merged.get(k)) : rawOf(ctx, t);
+    };
+    const after = CPM.run({ tasks: ctx.tasks, cal: c, units, readExt: read });
+    const items = [];
+    for (const [k, g] of patches) {
+      const extra = enginePatch(after.nodes.get(k), merged.get(k));
+      items.push(mkItem(c, g.task, rawOf(ctx, g.task), Object.assign({}, g.patch, extra)));
+    }
+    for (const k of reach(after, seedsOf(after), false)) {
+      if (patches.has(k)) continue;
+      const n = after.nodes.get(k);
+      if (!shifted(prior.nodes.get(k), n)) continue;
+      const raw = rawOf(ctx, n.task);
+      const p = enginePatch(n, raw);
+      if (Object.keys(p).length) items.push(mkItem(c, n.task, raw, p));
+    }
+    return { items: sortTopo(items, after), result: after };
+  }
+
+  // Pasangan pendahulu→penerus yang dilanggar (TLSched.violations atas rentang hasil mesin); keep(kunci penerus) menyaring.
+  function violated(c, res, keep) {
+    const out = new Set();
+    if (!isObj(res) || !(res.nodes instanceof Map) || !(res.pred instanceof Map)) return out;
+    const spans = new Map();
+    for (const [k, n] of res.nodes) if (n.es !== null) spans.set(k, { s: n.es, f: n.ef, d: n.d });
+    const edges = [];
+    for (const [to, list] of res.pred) {
+      if (keep(to)) for (const p of list) edges.push({ from: p.key, to, type: p.type, lag: p.lag, ok: true });
+    }
+    for (const d of SCHED.violations(c, spans, edges).detail) out.add(d.pred + "\u0000" + d.succ);
+    return out;
+  }
+
+  // Jumlah pelanggaran BARU (ada di after, tidak di before).
+  function newBroken(c, before, after, keep) {
+    const old = violated(c, before, keep);
+    let n = 0;
+    for (const p of violated(c, after, keep)) if (!old.has(p)) n++;
+    return n;
+  }
+
+  // ---- API ----
+
+  // diff (R11): simpul otomatis non-jangkar yang iso(es) ≠ Mulai tersimpan atau tanpa Mulai ("new", duration 1 bila hilang).
+  // result = run(ctx); onlyKeys (Set) membatasi (mis. drift halaman). Urutan = result.order.
+  function diff(result, ctx, onlyKeys) {
+    const items = [];
+    for (const k of result.order) {
+      if (onlyKeys instanceof Set && !onlyKeys.has(k)) continue;
+      const n = result.nodes.get(k);
+      const raw = rawOf(ctx, n.task);
+      const p = enginePatch(n, raw);
+      if (Object.keys(p).length) items.push(mkItem(ctx.cal, n.task, raw, p));
+    }
+    return items;
+  }
+
+  // cascade (K32, R13): gestures [{task, patch}] (patch sudah lewat gesture()); patch ganda untuk task sama digabung.
+  // before (opsional) = run(ctx) yang sudah dimiliki pemanggil (mis. useEngine) agar mesin tidak dijalankan dua kali.
+  // → {items, gestureCount, over, result: hasil mesin sesudah}. over = turunan yang digeser > CASCADE_MAX.
+  function cascade(ctx, gestures, before) {
+    const patches = new Map();
+    for (const g of Array.isArray(gestures) ? gestures : []) {
+      const k = g ? keyOf(g.task) : null;
+      if (k === null || !isObj(g.patch)) continue;
+      const prev = patches.get(k);
+      patches.set(k, { task: g.task, patch: Object.assign(prev ? prev.patch : {}, cleanPatch(g.patch)) });
+    }
+    const r = flow(ctx, patches, ctx.units, () => [...patches.keys()], before);
+    const gestureCount = patches.size;
+    return { items: r.items, gestureCount, over: r.items.length - gestureCount > CASCADE_MAX, result: r.result };
+  }
+
+  // toggleUnit (K40, R15): units baru (salinan, auto = on). ON → item = simpul unit yang mode efektifnya berubah ke
+  // otomatis + turunannya, yang hasilnya berbeda dari tersimpan (akar tetap tidak berubah). OFF → tanpa item task.
+  function toggleUnit(ctx, recId, on) {
+    const units = new Map(ctx.units instanceof Map ? ctx.units : []);
+    const prev = units.get(recId);
+    units.set(recId, Object.assign({}, isObj(prev) ? prev : {}, { auto: !!on }));
+    if (!on) return { items: [], units, result: null };
+    const seedsOf = (after) =>
+      after.order.filter((k) => {
+        const n = after.nodes.get(k);
+        return n.g === recId && n.mode === "auto" && SCHED.modeOf(rawOf(ctx, n.task), ctx.units, n.task) !== "auto";
+      });
+    const r = flow(ctx, new Map(), units, seedsOf);
+    return { items: r.items, units, result: r.result };
+  }
+
+  // reschedule (K36, R17): T = bilangan hari (atau ISO) hari kerja pertama ≥ hari ini; unitKeys = Set recId unit halaman.
+  // Per simpul unit halaman (tak selesai, terhitung), urut topologis:
+  //  - sudah mulai (jangkar "started", atau Manual dengan progress/pomodoro), durasi ≥ 1, EF < T → Mulai tetap,
+  //    duration = hari kerja Mulai..add(T, r − 1), r = max(1, ⌈d × (1 − progress/100)⌉), dijepit ≤ 999;
+  //  - milestone (d = 0) yang sudah mulai ikut cabang belum-mulai (amandemen K36): durasi TIDAK pernah ditulis
+  //    (berlian tidak boleh diam-diam menjadi bar). Otomatis → constraint SNET T + start T (start ditulis eksplisit karena
+  //    jangkar "started" mesin berdiri di Mulai tersimpan; tanpa itu SNET tidak berpengaruh); Manual → start T;
+  //  - belum mulai dan Mulai (ES) < T → Manual: start T (milestone ikut); otomatis non-jangkar: constraint SNET T
+  //    (+ start hasil mesin); lingkaran/MFO otomatis tidak disentuh.
+  // Lalu aliran tanpa ambang (penerus otomatis ikut; penerus Manual tidak dipindah). broken = pelanggaran BARU dengan
+  // penerus Manual. → {items, broken, result: hasil mesin sesudah}.
+  function reschedule(ctx, result, T, unitKeys) {
+    const c = ctx.cal;
+    const t = typeof T === "string" ? CAL.dn(T) : T;
+    if (!isDn(t) || !isObj(result) || !(result.nodes instanceof Map) || !(unitKeys instanceof Set)) return { items: [], broken: 0, result: null };
+    const tIso = CAL.iso(t);
+    const patches = new Map();
+    for (const k of result.order) {
+      const n = result.nodes.get(k);
+      if (!unitKeys.has(n.g) || n.es === null || n.fixed === "done") continue;
+      const task = n.task;
+      const started = n.fixed === "started" || (n.mode === "manual" && isStarted(task));
+      if (started && n.d >= 1) {
+        if (n.ef >= t) continue;
+        const p = Math.min(100, Math.max(0, Number(task.progress) || 0));
+        const r = Math.max(1, Math.ceil(n.d * (1 - p / 100)));
+        const end = safe(() => CAL.addWork(c, t, r - 1));
+        if (!isDn(end)) continue;
+        const dur = Math.min(DUR_MAX, CAL.workdays(c, n.es, Math.min(end, n.es + SPAN_MAX)));
+        if (dur !== rawOf(ctx, task).duration) patches.set(k, { task, patch: { duration: dur } });
+        continue;
+      }
+      if (n.es >= t) continue;
+      if (n.mode === "manual") patches.set(k, { task, patch: { start: tIso } });
+      else if (started) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso }, start: tIso } });
+      else if (!n.fixed) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso } } });
+    }
+    const r = flow(ctx, patches, ctx.units, () => [...patches.keys()], result);
+    const manual = (k) => {
+      const n = r.result.nodes.get(k);
+      return !!n && n.mode === "manual";
+    };
+    return { items: r.items, broken: newBroken(c, result, r.result, manual), result: r.result };
+  }
+
+  // gesture (K33, R12): task otomatis non-jangkar dengan patch.start → syarat req = maks depReq atas pendahulu terpakai
+  // (result.pred; durasi = patch.duration bila sah, selain itu durasi simpul). start < req → {ok:false, reason:"early",
+  // es: req}. Berpendahulu atau ber-SNET → + constraint SNET tanggal jatuh; akar tanpa SNET → patch apa adanya.
+  // Selain itu (Manual, jangkar, bukan simpul, tanpa start) → {ok:true, patch} apa adanya (perilaku 1b / aliran K32).
+  // Pilihan (bawaan Task 1): pembanding HARFIAH start < req, bukan TLSched.isEarly — jatuh di Sabtu sebelum syarat Senin
+  // DITOLAK walau nw(Sabtu) = Senin, agar tanggal tersimpan tidak pernah lebih awal dari syarat dependensinya.
+  function gesture(result, task, raw, patch, cal) {
+    const p = Object.assign({}, patch);
+    const k = keyOf(task);
+    const n = k !== null && isObj(result) && result.nodes instanceof Map ? result.nodes.get(k) : undefined;
+    if (!n || n.fixed || n.mode !== "auto" || typeof p.start !== "string") return { ok: true, patch: p };
+    const sd = CAL.dn(p.start);
+    if (!isDn(sd)) return { ok: true, patch: p };
+    const d = isDur(p.duration) ? p.duration : n.d;
+    const preds = (result.pred instanceof Map && result.pred.get(k)) || [];
+    let req = null;
+    for (const e of preds) {
+      const pn = result.nodes.get(e.key);
+      if (!pn || pn.es === null) continue;
+      const r = SCHED.depReq(cal, e.type, pn.es, pn.ef, e.lag, d);
+      if (isDn(r) && (req === null || r > req)) req = r;
+    }
+    if (req !== null && sd < req) return { ok: false, reason: "early", es: req };
+    const cst = SCHED.readSched(raw).constraint;
+    if (preds.length || (cst && cst.type === "SNET")) p.constraint = { type: "SNET", date: p.start };
+    return { ok: true, patch: p };
+  }
+
+  // modePatch (R3): pilihan sama dengan mode unit → {mode: null} (hapus kunci, ikut project); selain itu {mode: want}.
+  function modePatch(task, units, want) {
+    const u = SCHED.unitFor(units, task); // penjaga fold unit sama dengan modeOf
+    const unitMode = u && u.auto === true ? "auto" : "manual";
+    return { mode: want === unitMode || (want !== "auto" && want !== "manual") ? null : want };
+  }
+
+  // preview (K34, R14): model murni pratinjau. result = hasil mesin SESUDAH (mis. cascade().result), before = hasil
+  // SEBELUM; tanpa before → null (pelanggaran yang sudah ada tidak boleh dianggap baru). seedKeys (Set, opsional) ikut
+  // jangkauan notMoved/brokenDeps — pratinjau sakelar memberi kunci simpul unit agar lingkaran/jangkar bertabrakan unit
+  // yang tidak di hilir item tetap tercantum. rows per item (urutan item): {key, task, kind, from, to, deltaHk, durFrom, durTo, isNew,
+  // durChanged, durGuess, late}. Selesai project = maks groupEnd kelompok item. notMoved = jangkar bertabrakan
+  // ("anchor"/"mfo") dan anggota lingkaran ("cycle") yang terjangkau dari item (turunan + lingkarannya), bukan item.
+  // brokenDeps = pelanggaran baru dengan penerus di jangkauan itu. Tanpa teks: "Kenapa" disusun UI dari TLCpm.explain.
+  function preview(items, result, ctx, before, seedKeys) {
+    if (!isResult(before)) return null;
+    const c = ctx.cal;
+    const list = Array.isArray(items) ? items : [];
+    const nodes = result.nodes;
+    const groups = new Set();
+    const rows = list.map((it) => {
+      const n = nodes.get(it.key);
+      if (n) groups.add(n.g);
+      const from = isDn(startDn(it.before.start)) ? it.before.start : null;
+      const to = has(it.patch, "start") ? it.patch.start : from;
+      const durFrom = isDur(it.before.duration) ? it.before.duration : null;
+      const durTo = has(it.patch, "duration") ? it.patch.duration : durFrom;
+      return {
+        key: it.key,
+        task: it.task,
+        kind: it.kind,
+        from,
+        to,
+        deltaHk: it.deltaHk,
+        durFrom,
+        durTo,
+        isNew: it.kind === "new",
+        // task baru dijadwalkan yang durasinya diisi 1 bukan "durasi berubah" (UI: "baru dijadwalkan" + catatan durGuess)
+        durChanged: it.kind !== "new" && has(it.patch, "duration") && durTo !== durFrom,
+        durGuess: !!(n && n.durGuess),
+        late: n && n.late > 0 ? n.late : 0,
+      };
+    });
+    const endOf = (res) => {
+      let best = null;
+      if (!isObj(res) || !(res.groupEnd instanceof Map)) return best;
+      for (const g of groups) {
+        const e = res.groupEnd.get(g);
+        if (isDn(e) && (best === null || e > best)) best = e;
+      }
+      return best;
+    };
+    const endBefore = endOf(before);
+    const endAfter = endOf(result);
+    const itemKeys = new Set(list.map((it) => it.key));
+    const seeds = new Set(itemKeys);
+    if (seedKeys instanceof Set) for (const k of seedKeys) seeds.add(k);
+    const near = reach(result, seeds, true);
+    const notMoved = [];
+    for (const k of result.order) {
+      const n = nodes.get(k);
+      if (!near.has(k) || itemKeys.has(k) || !n.fixed) continue;
+      if (n.fixed === "cycle") notMoved.push({ key: k, why: "cycle" });
+      else if (n.conflict) notMoved.push({ key: k, why: n.fixed === "mfo" ? "mfo" : "anchor" });
+    }
+    return {
+      rows,
+      moved: rows.filter((r) => r.to !== r.from).length,
+      endBefore,
+      endAfter,
+      endDelta: endBefore !== null && endAfter !== null ? wdDelta(c, endBefore, endAfter) : null,
+      late: rows.filter((r) => r.late > 0).length,
+      notMoved,
+      brokenDeps: newBroken(c, before, result, (k) => near.has(k)),
+    };
+  }
+
+  // revalidate (CAS, K34): rawNow = Map<key, ext mentah terkini>. Setiap item: semua kunci `before` (start, duration,
+  // constraint, mode; + deps bila ada) dibandingkan MENTAH (bentuk kanonik) dengan nilai terkini; task hilang = berubah.
+  function revalidate(items, rawNow) {
+    const keys = [];
+    for (const it of Array.isArray(items) ? items : []) {
+      const raw = rawNow instanceof Map ? rawNow.get(it.key) : undefined;
+      if (!isObj(raw) || Object.keys(it.before).some((f) => canon(raw[f]) !== canon(it.before[f]))) keys.push(it.key);
+    }
+    return keys.length ? { ok: false, keys } : { ok: true };
+  }
+
+  // undoItems (R13): patch = `before` (kunci yang dulu tidak ada → null = hapus); urutan item sama. Nilai mentah yang
+  // gagal sanitizePatch untuk kuncinya (data korup) → null: mesin memperlakukannya sebagai tidak ada, dan satu nilai
+  // korup tidak boleh membuat seluruh batch Urungkan ditolak (R22). Nilai sah ditulis dalam bentuk bersih sanitizePatch.
+  // Pengecualian `deps`: nilai MENTAH ditulis apa adanya (salinan) — satu entri format asing/masa depan tidak boleh
+  // membuat Urungkan menghapus SEMUA dependensi; store menerima kembali yang dulu ia simpan, dan mesin/readSched
+  // mengabaikan entri yang tidak terbaca (invalidDeps).
+  function undoItems(items) {
+    return (Array.isArray(items) ? items : []).map((it) => {
+      const patch = {};
+      for (const k of Object.keys(it.before)) {
+        const v = it.before[k];
+        if (k === "deps") {
+          patch[k] = v === null || v === undefined ? null : clone(v);
+          continue;
+        }
+        const s = v === null ? null : SCHED.sanitizePatch({ [k]: v });
+        patch[k] = s && s.ok ? clone(s.patch[k]) : null;
+      }
+      return { taskId: it.task.id, patch };
+    });
+  }
+
+  return Object.freeze({ CASCADE_MAX, diff, cascade, toggleUnit, reschedule, gesture, modePatch, preview, revalidate, undoItems });
+})(
+  typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"),
+  typeof TLSched !== "undefined" ? TLSched : require("./schedule.js"),
+  typeof TLCpm !== "undefined" ? TLCpm : require("./cpm.js"),
+);
+if (typeof module !== "undefined" && module.exports) module.exports = TLPlan;
 // part: layout.js
 // Plugin Timeline — TLLayout: tata letak Gantt murni — kelompok, WBS, ringkasan, skala & rentang, header, jendela virtual,
 // arsir akhir pekan, panah dependensi, label aksesibilitas (spec §8.5/§8.6, rencana R2, R9, R10, R11, R16, R21–R24).
@@ -801,8 +2009,8 @@ const TLLayout = (function (CAL, SCHED, HOL) {
   const TODAY_PAD = 60; // hari ± hari ini yang selalu masuk rentang
   const RANGE_SPAN = 1830; // tanggal yang ikut menentukan rentang dijepit ke hari ini ± 1830 hari (±5 tahun; deviasi R22)
   const MAX_WD_SPAN = 3660; // hari kalender maks yang dihitung untuk durasi hari kerja ringkasan (pola MAX_LATE_SPAN)
-  const ARROW_OUT = 6; // px keluar ke kanan dari ujung pendahulu
-  const ARROW_IN = 6; // px lari horizontal terakhir menuju awal penerus
+  const ARROW_OUT = 6; // px keluar dari sisi pendahulu (R19: ujung → kanan, awal → kiri)
+  const ARROW_IN = 6; // px lari horizontal terakhir menuju sisi penerus
   const NO_PROJECT = "(Tanpa project)";
 
   const BULAN_SHORT = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
@@ -999,21 +2207,34 @@ const TLLayout = (function (CAL, SCHED, HOL) {
   // ---------------------------------------------------------------- panah (R11, R16)
   const fmt = (n) => String(Math.round(n * 100) / 100);
 
-  // Rect = {x, y, w, h}. Keluar 6 px ke kanan dari ujung pendahulu, ortogonal (hanya H/V), masuk ke awal penerus.
-  // Penerus ≥ 12 px di kanan ujung pendahulu: M H V H. Selain itu (penerus di kiri/menempel): memutar lewat celah antarbaris
-  // (M H V H V H), lari masuk terakhir 6 px ke kanan.
-  function arrowPath(fromRect, toRect) {
-    const x1 = fromRect.x + fromRect.w;
+  // Sisi panah per tipe dependensi (R19): [keluar dari AWAL pendahulu?, masuk ke UJUNG penerus?].
+  // FS ujung→awal (1b), SS awal→awal, FF ujung→ujung, SF awal→ujung. Tipe tak dikenal = FS.
+  const ARROW_SIDES = Object.freeze({ FS: [false, false], SS: [true, false], FF: [false, true], SF: [true, true] });
+
+  // Rect = {x, y, w, h}. Hanya H/V. Keluar 6 px dari sisi pendahulu (ujung → ke kanan, awal → ke kiri); lari masuk
+  // terakhir ≥ 6 px menuju sisi penerus (awal: dari kiri, bergerak ke kanan; ujung: dari kanan, bergerak ke kiri).
+  // Arah keluar ≠ arah masuk (SS, FF): satu garis tegak di x terjauh yang memenuhi keduanya (M H V H) — selalu bisa.
+  // Arah sama (FS, SF): M H V H bila penerus cukup jauh ke arah itu (FS: ≥ 12 px di kanan ujung pendahulu); selain itu
+  // memutar lewat celah antarbaris (M H V H V H). Baris sama: lewat tepat di bawah bar. FS = path 1b persis.
+  function arrowPath(fromRect, toRect, type) {
+    const sides = ARROW_SIDES[type] || ARROW_SIDES.FS;
+    const dOut = sides[0] ? -1 : 1; // arah lari keluar
+    const dIn = sides[1] ? -1 : 1; // arah lari masuk terakhir
+    const x1 = sides[0] ? fromRect.x : fromRect.x + fromRect.w;
     const y1 = fromRect.y + fromRect.h / 2;
-    const x2 = toRect.x;
+    const x2 = sides[1] ? toRect.x + toRect.w : toRect.x;
     const y2 = toRect.y + toRect.h / 2;
-    const xo = x1 + ARROW_OUT;
-    if (x2 >= x1 + ARROW_OUT + ARROW_IN) return "M" + fmt(x1) + " " + fmt(y1) + "H" + fmt(xo) + "V" + fmt(y2) + "H" + fmt(x2);
+    const xo = x1 + dOut * ARROW_OUT;
+    const xi = x2 - dIn * ARROW_IN;
+    if (dOut !== dIn && y1 !== y2) {
+      const xv = dOut > 0 ? Math.max(xo, xi) : Math.min(xo, xi);
+      return "M" + fmt(x1) + " " + fmt(y1) + "H" + fmt(xv) + "V" + fmt(y2) + "H" + fmt(x2);
+    }
+    if (dOut === dIn && (xi - xo) * dOut >= 0) return "M" + fmt(x1) + " " + fmt(y1) + "H" + fmt(xo) + "V" + fmt(y2) + "H" + fmt(x2);
     let yt;
     if (y2 > y1) yt = (fromRect.y + fromRect.h + toRect.y) / 2;
     else if (y2 < y1) yt = (toRect.y + toRect.h + fromRect.y) / 2;
     else yt = fromRect.y + fromRect.h + 2; // baris sama: lewat tepat di bawah bar
-    const xi = x2 - ARROW_IN;
     return "M" + fmt(x1) + " " + fmt(y1) + "H" + fmt(xo) + "V" + fmt(yt) + "H" + fmt(xi) + "V" + fmt(y2) + "H" + fmt(x2);
   }
 
@@ -1275,8 +2496,19 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     }
 
     // 7. dependensi (R8, R16): kunci kanonik String(id); spans memuat rentang ringkasan.
+    // Task DONE (bukan ringkasan): selesai pelanggaran = TLSched.doneFinish (aturan yang SAMA dengan jangkar "done" mesin —
+    // selesai lebih awal tidak menandai ⚠ pada tanggal yang baru ditulis mesin); durasi d dibawa agar penerus done tetap
+    // memakai durasi tersimpannya. Rentang bar (row.span) tidak berubah.
     const spans = new Map();
-    for (const it of all) if (it.span) spans.set(it.key, it.span);
+    for (const it of all) {
+      if (!it.span) continue;
+      const t = it.task;
+      if (it.children.length === 0 && (t.gtd_status === "done" || !!t.completed_at)) {
+        const d = it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+        const f = SCHED.doneFinish(c, t, it.span.s, d);
+        spans.set(it.key, isInt(f) ? { s: it.span.s, f, d } : it.span);
+      } else spans.set(it.key, it.span);
+    }
     const edges = SCHED.resolveDeps(items.map((it) => ({ key: it.key, sched: it.sched })), index);
     const viol = SCHED.violations(c, spans, edges);
     const violPair = new Set(viol.detail.map((d) => d.pred + "\u0000" + d.succ));
@@ -1350,6 +2582,15 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     };
   }
 
+  // Nomor WBS per kunci task (1c-1 R20): sama dengan tata letak (urut bawaan; urut tampilan tidak mengubah WBS),
+  // tanpa baris kelompok. Kalender bawaan: WBS tidak bergantung pada kalender.
+  function wbsMap(tasks, pageKind, readSchedOf) {
+    const res = layout({ tasks, pageKind, readSchedOf, sort: "wbs" });
+    const out = new Map();
+    for (const r of res.rows) if (r.kind !== "group") out.set(r.key, r.wbs);
+    return out;
+  }
+
   return Object.freeze({
     PX,
     ROW_H,
@@ -1365,6 +2606,7 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     weekendGradient,
     holidaySpans,
     arrowPath,
+    wbsMap,
     ariaBar,
     initialScrollLeft,
   });
@@ -1698,17 +2940,21 @@ const TLDrag = (function (CAL, SCHED) {
 );
 if (typeof module !== "undefined" && module.exports) module.exports = TLDrag;
 function _extends() { return _extends = Object.assign ? Object.assign.bind() : function (n) { for (var e = 1; e < arguments.length; e++) { var t = arguments[e]; for (var r in t) ({}).hasOwnProperty.call(t, r) && (n[r] = t[r]); } return n; }, _extends.apply(null, arguments); }
-// Plugin Timeline (Fase 1, PR 1b; spec docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md §8).
-// Gantt Manual untuk project dan workspace: view `gantt` (slot taskList.views) dan seksi `schedule` (slot
-// taskDetail.sections). Mesin murni ada di `parts` (holidays-id.js, calendar.js, schedule.js, layout.js, drag.js —
-// compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLLayout/TLDrag tersedia sebagai
-// const di lingkup yang sama; tidak ada global window). `manifest` disuntik compile.js dari manifest.json.
+// Plugin Timeline (Fase 1, PR 1b; spec docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md §8;
+// 1.1.0 = PR 1c-1 jadwal otomatis, spec docs/superpowers/specs/2026-11-01-plugin-fase1-1c-otomatis-design.md).
+// Gantt untuk project dan workspace: view `gantt` (slot taskList.views) dan seksi `schedule` (slot
+// taskDetail.sections). Mesin murni ada di `parts` (holidays-id.js, calendar.js, schedule.js, cpm.js, plan.js,
+// layout.js, drag.js — compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLCpm/TLPlan/
+// TLLayout/TLDrag tersedia sebagai const di lingkup yang sama; tidak ada global window). `manifest` disuntik
+// compile.js dari manifest.json.
 //
 // Susunan modul (Task 6 = kerangka; komponen diisi Task 7–10):
 //   1. Konstanta + pesan UI persis (kalender, preferensi).
-//   2. calendarStore(api)  — SATU-SATUNYA kode yang menyentuh api.records (R5). calTarget (= TLSched.calTarget) memilih id/scope.
+//   2. calendarStore(api) dan projectStore(api) (1c-1 R6) — SATU-SATUNYA kode yang menyentuh api.records (R5), masing-
+//      masing hanya entitasnya sendiri. calTarget (= TLSched.calTarget) / TLSched.unitOf memilih id/scope.
+//      Tulisan hanya di calendarStore.save dan projectStore.setAuto (R25: mesin dan pemuat tidak pernah menulis).
 //   3. Preferensi per perangkat lewat api.storage: prefKey / cleanPref / PREF_DEFAULTS (R19).
-//   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar), fungsi render
+//   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar/useUnits/useEngine), fungsi render
 //      (toolbar/head/tabel/grafik/panah/legenda), TimelineViewBody (Task 7; interaksi Task 8 lewat `ix`; popover
 //      kalender + Daftar HP Task 9), ScheduleSection (Task 10); pembungkus React.memo malas (R24).
 //   5. `pure` + module.exports untuk tes Node; registrasi hanya bila host plugin (TF.plugins) ada.
@@ -1727,6 +2973,25 @@ function calTooLarge() {
   const e = new Error(MSG_CAL_TOO_LARGE);
   e.code = "TOO_LARGE";
   return e;
+}
+
+// Peristiwa api.records.onChange → bentuk adaptor untuk satu entitas, atau null bila bukan untuknya. Peristiwa tarik
+// sukses host {entity: null, pulled: true} (README §5) diteruskan ke semua adaptor sebagai {ids: [], source: "sync",
+// lost: [], pulled: true}. Murni (tanpa akses api) — dipakai bersama calendarStore dan projectStore.
+function recordEvent(ev, entity) {
+  if (!ev) return null;
+  if (ev.pulled === true) return {
+    ids: [],
+    source: "sync",
+    lost: [],
+    pulled: true
+  };
+  if (ev.entity !== entity) return null;
+  return {
+    ids: Array.isArray(ev.ids) ? ev.ids.slice() : [],
+    source: ev.source,
+    lost: Array.isArray(ev.lost) ? ev.lost.slice() : []
+  };
 }
 
 // Adaptor tunggal api.records untuk entitas `calendar`. Tidak ada record → DEFAULT_CAL (pending false, exists false).
@@ -1767,22 +3032,122 @@ function calendarStore(api) {
     // host {ids: [], source: "sync", lost: [], pulled: true} (entity null; README §5); mengembalikan off().
     subscribe(fn) {
       return api.records.onChange(ev => {
-        if (!ev) return;
-        if (ev.pulled === true) {
-          fn({
-            ids: [],
-            source: "sync",
-            lost: [],
-            pulled: true
-          });
-          return;
-        }
-        if (ev.entity !== CAL_ENTITY) return;
-        fn({
-          ids: Array.isArray(ev.ids) ? ev.ids.slice() : [],
-          source: ev.source,
-          lost: Array.isArray(ev.lost) ? ev.lost.slice() : []
+        const e = recordEvent(ev, CAL_ENTITY);
+        if (e) fn(e);
+      });
+    }
+  };
+}
+
+// ── 2b. Unit jadwal otomatis: record `project` (1c-1 R5, R6) ─────────────────
+// Satu record per unit jadwal (project dalam workspace, atau project pribadi): id dari TLSched.unitOf (satu-satunya
+// pembuat id), data {v: 1, auto, name, by}. Tidak ada record / data tidak sah → unit dianggap tidak ada (Manual).
+const PRJ_ENTITY = "project";
+const PRJ_PAGE = 1000; // batas atas limit api.records.list
+const NO_UNIT = Object.freeze({
+  auto: false,
+  by: null,
+  updatedAt: null,
+  pending: false,
+  exists: false,
+  fold: null
+});
+const EMPTY_UNITS = new Map();
+
+// Record → Unit {auto, by, updatedAt, pending, exists, fold}. `fold` = projectFold(nama record) — nama record sudah
+// dipotong TLSched.cutName saat ditulis, jadi sama dengan projectFold(cutName(nama project task)) untuk project yang
+// sama. PENJAGA TABRAKAN HASH ada di lookup (TLSched.unitFor / modeOf membandingkan fold dengan project task), bukan
+// di sini: daftar workspace tidak tahu project mana yang akan mencari id ini.
+//   expect = lipatan unit halaman project (jalur get: harus sama, selain itu tidak ada); null = jalur daftar workspace,
+//   yang hanya memeriksa konsistensi diri (nama menghasilkan id record ini) bila nama pasti tidak terpotong.
+function prjUnitOf(r, expect, lid) {
+  const d = r && typeof r === "object" ? r.data : null;
+  if (!d || typeof d !== "object" || Array.isArray(d)) return NO_UNIT;
+  if (d.v !== 1 || typeof d.auto !== "boolean" || typeof d.name !== "string" || d.name !== TLSched.cutName(d.name)) return NO_UNIT;
+  if (!(d.by === null || Number.isInteger(d.by))) return NO_UNIT;
+  const fold = TLSched.projectFold(d.name);
+  if (expect !== null) {
+    if (fold !== expect) return NO_UNIT;
+  } else if (d.name.length < TLSched.NAME_MAX - 1 && TLSched.unitOf({
+    pageKind: "workspace",
+    listId: lid,
+    projectName: d.name
+  }).recId !== r.id) {
+    return NO_UNIT; // nama utuh yang tidak menghasilkan id ini = data rusak (nama ≥ 119 bisa hasil potong cutName)
+  }
+  return {
+    auto: d.auto,
+    by: d.by,
+    updatedAt: typeof r.updated_at === "string" ? r.updated_at : null,
+    pending: !!r.pending,
+    exists: true,
+    fold
+  };
+}
+
+// Adaptor tunggal api.records untuk entitas `project` (pola calendarStore). page = {pageKind, listId, projectName}.
+//   loadUnits(page) → Promise<Map<recId, Unit>>: workspace → semua record scope "list:<lid>" (ikuti `next`); halaman
+//     project → satu record unitOf(page) (tanpa record → NO_UNIT). Unit = {auto, by, updatedAt, pending, exists}.
+//     Tidak pernah menulis (record rusak tidak dinormalisasi ulang).
+//   setAuto(unit, on, userId) → Promise<record>: SATU-SATUNYA tulisan record project (aksi eksplisit sakelar, R15).
+//   subscribe(fn) → off: perubahan entitas project + peristiwa tarik sukses (recordEvent).
+function projectStore(api) {
+  return {
+    loadUnits(page) {
+      return Promise.resolve().then(() => {
+        const p = page && typeof page === "object" ? page : {};
+        const unit = TLSched.unitOf({
+          pageKind: p.pageKind,
+          listId: p.pageKind === "workspace" ? p.listId : null,
+          projectName: p.projectName
         });
+        const out = new Map();
+        if (p.pageKind === "workspace" && unit.scope !== "user") {
+          const scope = unit.scope;
+          const lid = scope.slice(5);
+          const page1 = after => {
+            const q = after === null ? {
+              scope,
+              limit: PRJ_PAGE
+            } : {
+              scope,
+              limit: PRJ_PAGE,
+              after
+            };
+            return Promise.resolve(api.records.list(PRJ_ENTITY, q)).then(res => {
+              const items = res && Array.isArray(res.items) ? res.items : [];
+              for (const r of items) if (r && typeof r.id === "string") out.set(r.id, prjUnitOf(r, null, lid));
+              const next = res && typeof res.next === "string" && res.next ? res.next : null;
+              return next !== null && next !== after ? page1(next) : out;
+            });
+          };
+          return page1(null);
+        }
+        return Promise.resolve(api.records.get(PRJ_ENTITY, unit.recId)).then(r => {
+          out.set(unit.recId, r ? prjUnitOf(r, TLSched.projectFold(TLSched.cutName(unit.name)), null) : NO_UNIT);
+          return out;
+        });
+      });
+    },
+    setAuto(unit, on, userId) {
+      return Promise.resolve().then(() => {
+        if (!unit || typeof unit.recId !== "string" || typeof unit.scope !== "string") throw new Error("unit jadwal tidak sah");
+        const data = {
+          v: 1,
+          auto: on === true,
+          name: TLSched.cutName(unit.name),
+          // potong simetris dengan baca/lookup (sadar surrogate)
+          by: Number.isInteger(userId) ? userId : null
+        };
+        return api.records.put(PRJ_ENTITY, unit.recId, data, {
+          scope: unit.scope
+        });
+      });
+    },
+    subscribe(fn) {
+      return api.records.onChange(ev => {
+        const e = recordEvent(ev, PRJ_ENTITY);
+        if (e) fn(e);
       });
     }
   };
@@ -1794,7 +3159,8 @@ const PREF_DEFAULTS = Object.freeze({
   sort: "wbs",
   cols: false,
   mode: "gantt",
-  section: false
+  section: false,
+  crit: false
 });
 const PREF_CHOICES = Object.freeze({
   zoom: ["day", "week", "month"],
@@ -1802,7 +3168,7 @@ const PREF_CHOICES = Object.freeze({
   mode: ["gantt", "list"]
 });
 
-// "zoom:<page>", "sort:<page>", "cols:<page>", "mode:<page>"; seksi Jadwal global: "section:open".
+// "zoom:<page>", "sort:<page>", "cols:<page>", "mode:<page>", "crit:<page>" (1c-1 R18); seksi Jadwal global: "section:open".
 function prefKey(kind, page) {
   return kind === "section" ? "section:open" : kind + ":" + page;
 }
@@ -1835,8 +3201,55 @@ const LBL = {
   gantt: "Gantt",
   list: "Daftar",
   zoom: "Skala waktu",
-  mode: "Tampilan"
+  mode: "Tampilan",
+  crit: "Jalur kritis",
+  auto: "Jadwal otomatis",
+  reschedule: "Jadwalkan ulang",
+  more: "Lainnya" // 1c-1 R23
 };
+// 1c-1 R14, R15, R28: sakelar Jadwal otomatis dan dialog pratinjau (teks persis).
+const MSG_AUTO_ON0 = "Jadwal otomatis menyala — tidak ada task yang bergeser";
+const MSG_AUTO_OFF = "Jadwal otomatis dimatikan — tanggal tetap seperti sekarang";
+const MSG_PV_ON = "Nyalakan jadwal otomatis — "; // + nama project
+const MSG_STALE = "Data berubah sejak pratinjau dibuka — hitung ulang";
+const MSG_UNITS_WAIT = "Menunggu data jadwal workspace…";
+const MSG_OFFLINE = "Kamu sedang offline — jadwal dihitung dari data di perangkat ini";
+const MSG_BY = "Dinyalakan oleh ";
+const MSG_BY_OTHER = "Dinyalakan oleh anggota lain";
+const MSG_NO_PROJECT = "(Tanpa project)";
+const PV_APPLY = "Terapkan";
+const PV_CANCEL = "Batal";
+const PV_SHOW_ALL = "Tampilkan semua";
+const PV_NOT_MOVED = "Tidak dipindah";
+const PV_NEW = "baru dijadwalkan";
+const PV_DUR = "durasi berubah";
+const PV_DUR_GUESS = "durasi belum diisi, dianggap 1 hari kerja";
+const PV_WHY = "Kenapa dijadwalkan di sini?";
+// Model kosong (hitung ulang tanpa item): tanpa Selesai project / lewat tenggat lama di ringkasan.
+const EMPTY_PV_MODEL = Object.freeze({
+  rows: [],
+  moved: 0,
+  endBefore: null,
+  endAfter: null,
+  endDelta: null,
+  late: 0,
+  notMoved: [],
+  brokenDeps: 0
+});
+const PV_ROWS_MAX = 50; // R14: ≤ 50 baris sebelum "Tampilkan semua"
+const appliedText = n => "Jadwal diterapkan · " + n + " task";
+// 1c-1 R12, R13 (K32, K33): aliran gestur di Gantt (teks persis).
+const flowText = n => "Jadwal diubah · " + n + " task ikut bergeser";
+const MSG_EARLY = "Tidak bisa lebih awal dari dependensinya";
+const PV_FLOW = "Tinjau jadwal otomatis"; // judul pratinjau aliran gestur > 20 turunan (teks §7.6 yang ada)
+const partialText = (k, n) => "Sebagian jadwal gagal disimpan (" + k + " dari " + n + ")"; // k = item yang gagal
+// 1c-1 R16, R17 (K35, K36): banner drift/lingkaran, Tinjau, Jadwalkan ulang (teks persis).
+const driftText = n => "Jadwal otomatis belum mutakhir: " + n + " task berbeda dari hasil hitung.";
+const BANNER_REVIEW = "Tinjau";
+const BANNER_OPEN = "Buka";
+const BANNER_NAMES_MAX = 3; // R16: ≤ 3 judul + "dan {n} lainnya"
+const PV_RESCHED = "Jadwalkan ulang yang belum selesai";
+const brokenText = n => n + " dependensi akan dilanggar";
 const MSG_EMPTY = "Belum ada task di halaman ini";
 // Kalender kerja (R18) dan Daftar HP (R20): teks persis.
 const MSG_CAL_NOTE = "Dipakai semua anggota workspace";
@@ -1850,6 +3263,7 @@ const MSG_LIST_FULL = "Daftar sudah penuh (366 tanggal)";
 const MSG_NO_NAME = "(tanpa nama)";
 const MSG_UNSCHEDULED = "Belum dijadwalkan";
 const MSG_LATE = "Lewat tenggat";
+const MSG_MANUAL = "Manual"; // 1c-1 R19: pin task Manual di unit otomatis
 const CAL_MAX_NAME = 60; // sama dengan TLCal.normalize
 const CAL_MAX_ENTRIES = 366;
 const DAYS = [["Sen", "Senin"], ["Sel", "Selasa"], ["Rab", "Rabu"], ["Kam", "Kamis"], ["Jum", "Jumat"], ["Sab", "Sabtu"], ["Min", "Minggu"]];
@@ -1901,7 +3315,12 @@ const COLS_FULL = [{
   id: "pct",
   label: "%",
   w: 56
-}];
+}, {
+  id: "slack",
+  label: "Slack",
+  w: 56
+} // 1c-1 R18: hanya di COLS_FULL (ringkas: lewat "Kolom")
+];
 const COLS_COMPACT = [{
   id: "wbs",
   label: "WBS",
@@ -1916,8 +3335,12 @@ function missingYearsNote(years) {
 }
 
 // Tata letak lewat objek yang bisa diganti tes (TLLayout beku; tes R24 memata-matai jumlah panggilan).
+// Satu pintu ke mesin murni (spy di tes): tata letak (R24) dan CPM (1c-1 R7; dipanggil hanya dari useEngine).
+// explain (1c-1 R21, Task 12): hanya saat "Kenapa dijadwalkan di sini?" dibuka — kalender + readExt = masukan run.
 const engine = {
-  layout: args => TLLayout.layout(args)
+  layout: args => TLLayout.layout(args),
+  run: ctx => TLCpm.run(ctx),
+  explain: (result, key, cal, readExt) => TLCpm.explain(result, key, cal, readExt)
 };
 const DEFAULT_CAL_DATA = TLCal.normalize(TLCal.DEFAULT_CAL);
 
@@ -1946,15 +3369,246 @@ function pomoText(t) {
   return done || est ? done + "/" + est : "—";
 }
 
-// Isi sel tabel satu baris: {wbs, name, start, dur, pomo, pct}.
-function rowCells(row, groupName) {
+// Teks Slack (1c-1 R18): 0 → "0" (juga −0), n > 0 → "{n} hk", n < 0 → "−{|n|} hk" (minus U+2212); selesai / tak terhitung /
+// bukan simpul / mesin belum siap (null, undefined, bukan angka hingga) → "—".
+function slackText(n) {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  if (n === 0) return "0";
+  return n > 0 ? n + " hk" : "\u2212" + -n + " hk";
+}
+
+// Isi sel tabel satu baris: {wbs, name, start, dur, pomo, pct, slack}. slack = nilai overlay mesin (undefined = "—").
+// Selisih hari kerja bertanda: "+2 hk", "−1 hk" (minus U+2212), "0 hk".
+function signedHk(n) {
+  if (!Number.isFinite(n) || n === 0) return "0 hk";
+  return (n > 0 ? "+" : "−") + Math.abs(n) + " hk";
+}
+
+// ISO "YYYY-MM-DD" (atau bilangan hari) → "Kam 5 Nov"; tidak sah → "—".
+function dayText(v) {
+  const d = typeof v === "number" ? v : typeof v === "string" ? TLCal.dn(v) : NaN;
+  return Number.isInteger(d) ? TLCal.fmtShort(d) : "—";
+}
+
+// Ringkasan kanan toolbar (R23): Selesai = maks groupEnd unit halaman; lewat tenggat = simpul halaman yang belum
+// selesai dengan late > 0. Murni; null bila mesin belum siap.
+function toolbarSummary(lay, result) {
+  if (!result || !(result.nodes instanceof Map) || !(result.groupEnd instanceof Map)) return null;
+  const gs = new Set();
+  let late = 0;
+  for (const r of lay.rows) {
+    if (!r.task) continue;
+    const n = result.nodes.get(r.key);
+    gs.add(n ? n.g : TLSched.unitOf(r.task).recId);
+    if (n && n.late > 0 && n.fixed !== "done") late++;
+  }
+  let end = null;
+  for (const g of gs) {
+    const e = result.groupEnd.get(g);
+    if (Number.isInteger(e) && (end === null || e > end)) end = e;
+  }
+  return {
+    end,
+    late
+  };
+}
+
+// Unit jadwal halaman (R15): halaman project = satu unit (nama project halaman); workspace = satu per kelompok project
+// di layout (urutan kelompok; "(Tanpa project)" = unit "-"). rep = task wakil untuk TLSched.unitFor (pagar fold).
+function pageUnits(lay, pageKind, projectName, groupNames) {
+  if (pageKind !== "workspace") {
+    const rep = {
+      list_id: null,
+      project: projectName === undefined || projectName === null ? "" : String(projectName)
+    };
+    return [{
+      unit: TLSched.unitOf(rep),
+      rep,
+      label: rep.project.trim() || MSG_NO_PROJECT
+    }];
+  }
+  const out = [];
+  const seen = new Set();
+  for (const r of lay.rows) {
+    if (!r.task) continue;
+    const unit = TLSched.unitOf(r.task);
+    if (seen.has(unit.recId)) continue;
+    seen.add(unit.recId);
+    out.push({
+      unit,
+      rep: r.task,
+      label: groupNames.get(r.group) || unit.name.trim() || MSG_NO_PROJECT
+    });
+  }
+  return out;
+}
+
+// "Dinyalakan oleh {nama} · {tgl Jakarta}" (R15): by = pengguna aktif → currentUser; selain itu collaborators;
+// tidak ditemukan → "Dinyalakan oleh anggota lain". Tanggal = updated_at record di zona Asia/Jakarta (TLCpm.jkt).
+function unitCaption(u, context, userId) {
+  if (!u || u.auto !== true) return null;
+  const nameOf = x => x && typeof x === "object" ? String(x.display_name || x.username || "").trim() : "";
+  let name = "";
+  if (u.by !== null && u.by !== undefined) {
+    const id = String(u.by);
+    const users = [];
+    if (userId !== undefined && userId !== null && String(userId) === id) users.push(context.currentUser);
+    for (const c of Array.isArray(context.collaborators) ? context.collaborators : []) users.push(c);
+    const hit = users.find(x => x && typeof x === "object" && x.id !== undefined && x.id !== null && String(x.id) === id);
+    name = nameOf(hit);
+  }
+  const head = name ? MSG_BY + name : MSG_BY_OTHER;
+  const d = typeof u.updatedAt === "string" ? TLCpm.jkt(u.updatedAt) : null;
+  return Number.isInteger(d) ? head + " · " + TLCal.fmtShort(d) : head;
+}
+
+// Model dialog = TLPlan.preview + WBS/judul untuk tampilan (rows: wbs; notMoved: task + wbs). Murni.
+function dialogModel(pm, result, wbsOf) {
+  const nodes = result && result.nodes instanceof Map ? result.nodes : new Map();
+  return Object.assign({}, pm, {
+    rows: pm.rows.map(r => Object.assign({}, r, {
+      wbs: wbsOf(r.key)
+    })),
+    notMoved: pm.notMoved.map(x => {
+      const n = nodes.get(x.key);
+      return Object.assign({}, x, {
+        task: n ? n.task : null,
+        wbs: wbsOf(x.key)
+      });
+    })
+  });
+}
+
+// "Kenapa dijadwalkan di sini?" per baris PreviewDialog (R14 + R21; Task 12 fix): whyOf(key) atas hasil mesin yang SAMA
+// dengan baris dialog (hasil sesudah rencana) dan kalender ctx yang dipakai run-nya. readExt = ext ctx + patch item rencana
+// (acuan root/SNET explain = nilai sesudah Terapkan). explain hanya dipanggil saat baris dibuka (pemanggil: PreviewDialog).
+function planWhy(result, ctx, items, wbsOf) {
+  const patches = new Map((Array.isArray(items) ? items : []).map(it => [it.key, it.patch]));
+  const readExt = t => {
+    let raw = {};
+    try {
+      raw = typeof ctx.readExt === "function" ? ctx.readExt(t) : {};
+    } catch (e) {
+      raw = {};
+    }
+    const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const p = t && t.id !== undefined && t.id !== null ? patches.get(String(t.id)) : undefined;
+    return p ? applyRaw(r, p) : r;
+  };
+  return key => {
+    const k = String(key);
+    const n = result && result.nodes instanceof Map ? result.nodes.get(k) : null;
+    const titleOf = x => {
+      const m = result && result.nodes instanceof Map ? result.nodes.get(String(x)) : null;
+      return taskTitle(m ? m.task : null);
+    };
+    const label = x => {
+      const w = wbsOf(String(x));
+      return (w ? w + " " : "") + titleOf(x);
+    };
+    const ex = engine.explain(result, k, ctx.cal, readExt);
+    return whyText(ex, {
+      label,
+      title: titleOf,
+      d: n ? n.d : undefined
+    });
+  };
+}
+
+// Banner R16 (murni): drift = kunci result.drift yang ada di scopeTasks halaman (task tersaring panel tidak dihitung
+// walau ikut scope mesin); first = anggota lingkaran pertama di halaman (cadangan cycle[0]); cycle = anggota lingkaran yang menyentuh halaman (seluruh anggota lingkaran itu, urutan
+// result.cycles). Teks lingkaran: ≤ 3 judul + " dan {n} lainnya".
+function bannerInfo(result, scopeTasks) {
+  if (!result || !(result.nodes instanceof Map)) return {
+    drift: [],
+    cycle: [],
+    first: null,
+    cycleText: ""
+  };
+  const page = new Set();
+  for (const t of Array.isArray(scopeTasks) ? scopeTasks : []) if (t && t.id !== undefined && t.id !== null) page.add(String(t.id));
+  const drift = result.drift instanceof Set ? [...result.drift].filter(k => page.has(k)) : [];
+  const cycle = [];
+  let first = null; // "Buka" (R16): anggota pertama yang ADA di halaman; tidak ada → anggota pertama
+  for (const c of Array.isArray(result.cycles) ? result.cycles : []) {
+    if (!c.some(k => page.has(k))) continue;
+    for (const k of c) {
+      const n = result.nodes.get(k);
+      if (!n || !n.task) continue;
+      cycle.push(n.task);
+      if (first === null && page.has(k)) first = n.task;
+    }
+  }
+  const names = cycle.slice(0, BANNER_NAMES_MAX).map(taskTitle).join(", ");
+  const rest = cycle.length - BANNER_NAMES_MAX;
+  const cycleText = cycle.length ? "Dependensi melingkar: " + names + (rest > 0 ? " dan " + rest + " lainnya" : "") + " — tidak dihitung" : "";
+  return {
+    drift,
+    cycle,
+    first: first || cycle[0] || null,
+    cycleText
+  };
+}
+
+// Tutup banner per sesi (R16): Set tingkat modul berkunci page + jenis + n — bertahan saat view dipasang ulang, tampil
+// lagi bila jumlahnya berubah. Hanya memori tampilan (tidak pernah disimpan / ditulis).
+const BANNER_CLOSED = new Set();
+const bannerKey = (page, kind, n) => page + "\u0000" + kind + "\u0000" + n;
+
+// Daftar lengkap → task di scope dependensi halaman (saringan sama dengan useEngine).
+function scopeFilter(list, scopeTasks) {
+  const keys = new Set((Array.isArray(scopeTasks) ? scopeTasks : []).map(TLSched.scopeKeyOf));
+  return (Array.isArray(list) ? list : []).filter(t => !!t && typeof t === "object" && keys.has(TLSched.scopeKeyOf(t)));
+}
+
+// Potret CAS unit (R14): updatedAt/by record dari useUnits().units (BUKAN eng.ctx.units — memo mesin hanya berkunci auto+fold).
+function unitSnap(u) {
+  return {
+    updatedAt: u && typeof u.updatedAt === "string" ? u.updatedAt : null,
+    by: u && u.by !== undefined ? u.by : null
+  };
+}
+function sameSnap(a, b) {
+  return a.updatedAt === b.updatedAt && a.by === b.by;
+}
+// CAS unit pv (R14; T8 satu unit, T10 daftar): pv.unit = entri `{rep, snap}` atau daftar entri `{rep, snap, auto?}`.
+// Setiap entri cocok bila potret updatedAt/by record terbaru sama dan — bila `auto` (boolean) dicatat — mode otomatis
+// unit terbaru sama dengan mode yang dipakai rencana. Tanpa entri → selalu cocok.
+const pvUnitList = u => !u ? [] : Array.isArray(u) ? u : [u];
+const unitAuto = u => !!(u && u.auto === true);
+function unitsStillOk(unitField, units) {
+  return pvUnitList(unitField).every(x => {
+    const u = TLSched.unitFor(units, x.rep);
+    return sameSnap(x.snap, unitSnap(u)) && (typeof x.auto !== "boolean" || x.auto === unitAuto(u));
+  });
+}
+
+// JSON kanonik (urutan kunci objek tidak relevan; undefined = null) — pembanding nilai ext.
+function canonJson(v) {
+  if (v === undefined || v === null) return "null";
+  if (Array.isArray(v)) return "[" + v.map(canonJson).join(",") + "]";
+  if (typeof v === "object") return "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + canonJson(v[k])).join(",") + "}";
+  return JSON.stringify(v);
+}
+
+// Item aliran yang benar-benar mengubah ext (T4: gestur {start: null} pada task otomatis berpendahulu menjadi item
+// deltaHk 0 yang menulis nilai tersimpan). Item tanpa kunci berbeda dari `before` (nilai mentah) dibuang: gestur yang
+// seluruhnya tanpa efek = diam (tanpa tulis, tanpa toast "Jadwal diubah"; R13 hanya mengenal toast untuk perubahan).
+function flowItems(items) {
+  return (Array.isArray(items) ? items : []).filter(it => {
+    const b = it && it.before && typeof it.before === "object" ? it.before : {};
+    return !!it && !!it.patch && Object.keys(it.patch).some(k => canonJson(it.patch[k]) !== canonJson(b[k]));
+  });
+}
+function rowCells(row, groupName, slack) {
   if (row.kind === "group") return {
     wbs: row.wbs,
     name: groupName || "",
     start: "",
     dur: "",
     pomo: "",
-    pct: ""
+    pct: "",
+    slack: ""
   };
   const t = row.task;
   const title = t.title !== undefined && t.title !== null && String(t.title).trim() ? String(t.title).trim() : "Tanpa judul";
@@ -1964,7 +3618,78 @@ function rowCells(row, groupName) {
     start: row.span ? TLCal.fmtShort(row.span.s) : "—",
     dur: row.duration === null || row.duration === undefined ? "—" : row.duration + " hk",
     pomo: pomoText(t),
-    pct: Math.round(row.progress) + "%"
+    pct: Math.round(row.progress) + "%",
+    slack: slackText(slack)
+  };
+}
+
+// Overlay mesin di atas tata letak (1c-1 R18, R19) — murni, TIDAK mengubah `lay`. Dihitung dalam memo terpisah
+// [lay, result] sehingga mesin selesai / sakelar Jalur kritis tidak menghitung ulang tata letak (R24).
+//   slack: Map<rowKey, number|null> — task = node.slack; ringkasan = min slack anak (baris halaman, rekursif); lainnya null
+//   crit: Set<rowKey> — node.critical (slack ≤ 0 ∧ bukan selesai); critEdge: Set<"from>to"> — kedua ujung kritis
+//   conflictEdge: Set<"from>to"> — sisi terpakai ke jangkar ber-`conflict` yang depReq-nya dilanggar (merah putus-putus)
+//   manual: Set<rowKey> — fixed "manual" di unit otomatis (pin "Manual")
+// result null (mesin belum siap / gagal) → NO_OVERLAY: semua "—", tanpa kritis/pin/konflik (tampilan 1b).
+const NO_OVERLAY = Object.freeze({
+  ready: false,
+  slack: new Map(),
+  crit: new Set(),
+  critEdge: new Set(),
+  conflictEdge: new Set(),
+  manual: new Set()
+});
+function engineOverlay(lay, result, ctx) {
+  if (!lay || !result || !(result.nodes instanceof Map)) return NO_OVERLAY;
+  const nodes = result.nodes;
+  const slack = new Map();
+  const crit = new Set();
+  const manual = new Set();
+  const minOf = new Map(); // kunci ringkasan → min slack anak
+  const units = ctx && ctx.units instanceof Map ? ctx.units : null;
+  // pra-urut (induk sebelum turunan) dibalik → anak selalu selesai sebelum induknya
+  for (let i = lay.rows.length - 1; i >= 0; i--) {
+    const r = lay.rows[i];
+    if (r.kind === "group") continue;
+    let v = null;
+    if (r.kind === "summary") v = minOf.has(r.key) ? minOf.get(r.key) : null;else {
+      const n = nodes.get(r.key);
+      if (n) {
+        v = typeof n.slack === "number" && Number.isFinite(n.slack) ? n.slack : null;
+        if (n.critical === true) crit.add(r.key);
+        if (n.fixed === "manual" && units) {
+          const u = TLSched.unitFor(units, r.task);
+          if (u && u.auto === true) manual.add(r.key);
+        }
+      }
+    }
+    slack.set(r.key, v);
+    if (v !== null && r.parentKey !== null) {
+      const cur = minOf.get(r.parentKey);
+      if (cur === undefined || v < cur) minOf.set(r.parentKey, v);
+    }
+  }
+  const critEdge = new Set();
+  const conflictEdge = new Set();
+  const cal = ctx ? ctx.cal : null;
+  const preds = result.pred instanceof Map ? result.pred : null;
+  for (const e of lay.edges) {
+    const id = e.from + ">" + e.to;
+    if (crit.has(e.from) && crit.has(e.to)) critEdge.add(id);
+    const sn = nodes.get(e.to);
+    const pn = nodes.get(e.from);
+    if (!cal || !preds || !sn || !sn.conflict || !pn || pn.es === null || sn.es === null) continue;
+    const used = (preds.get(e.to) || []).find(p => p.key === e.from); // hanya sisi yang dipakai mesin
+    if (!used) continue;
+    const req = TLSched.depReq(cal, used.type, pn.es, pn.ef, used.lag, sn.d);
+    if (TLSched.isEarly(cal, sn.es, req)) conflictEdge.add(id);
+  }
+  return {
+    ready: true,
+    slack,
+    crit,
+    critEdge,
+    conflictEdge,
+    manual
   };
 }
 
@@ -2175,6 +3900,302 @@ function useCalendar(api, target) {
   };
 }
 
+// Jeda muat ulang bersama useUnits (peristiwa record project) dan useEngine (scopeTasks / sync.done).
+const RELOAD_TIMING = {
+  debounceMs: 300
+};
+
+// Unit jadwal halaman (1c-1 R6; pola useCalendar): muat lewat projectStore (pertama segera saat pasang), muat ulang pada
+// perubahan entitas project (debounce RELOAD_TIMING) dan segera pada peristiwa tarik sukses. `pulled` = latch "tarik
+// record plugin SUKSES sejak pemasangan ini", dinyalakan SETELAH muat ulang sesudah peristiwa `pulled` selesai (bukan sync.done, yang juga menyala saat sinkron gagal).
+// P3 (a): sakelar "Jadwal otomatis" workspace dikunci "Menunggu data jadwal workspace…" selama unitnya tidak `exists`
+// dan `pulled` belum menyala (Task 8). `loaded` = muat pertama halaman ini selesai. Hook ini tidak pernah menulis.
+// page = {pageKind, listId, projectName}; workspace dimuat per scope list, halaman project per recId unitOf(page).
+function unitsPageKey(pageKind, listId, projectName) {
+  if (pageKind === "workspace") return "w|" + calTarget(listId).scope;
+  return "p|" + TLSched.unitOf({
+    pageKind: "project",
+    listId: null,
+    projectName
+  }).recId;
+}
+function useUnits(api, page) {
+  const p = page && typeof page === "object" ? page : {};
+  const pageKind = p.pageKind === "workspace" ? "workspace" : "project";
+  const key = unitsPageKey(pageKind, p.listId, p.projectName);
+  const store = React.useMemo(() => projectStore(api), [api]);
+  const [st, setSt] = React.useState(() => ({
+    key,
+    units: EMPTY_UNITS,
+    loaded: false,
+    failed: false
+  }));
+  const [pulled, setPulled] = React.useState(false);
+  const argRef = React.useRef(null);
+  argRef.current = {
+    pageKind,
+    listId: pageKind === "workspace" ? p.listId : null,
+    projectName: pageKind === "workspace" ? null : p.projectName
+  };
+  React.useEffect(() => {
+    let alive = true;
+    let seq = 0;
+    let timer = null;
+    const arg = argRef.current;
+    const load = () => {
+      const my = ++seq;
+      return store.loadUnits(arg).then(units => {
+        if (alive && my === seq) setSt({
+          key,
+          units,
+          loaded: true,
+          failed: false
+        });
+        return true;
+      }, e => {
+        logWarn(api, "unit jadwal gagal dimuat:", e);
+        // `failed` (seksi Jadwal): muat gagal tidak boleh mengunci input selamanya; `loaded`/units tidak berubah.
+        if (alive && my === seq) setSt(p => p.key === key ? Object.assign({}, p, {
+          failed: true
+        }) : {
+          key,
+          units: EMPTY_UNITS,
+          loaded: false,
+          failed: true
+        });
+        return false;
+      });
+    };
+    load();
+    let off = null;
+    try {
+      off = store.subscribe(ev => {
+        if (ev.pulled) {
+          load().then(ok => {
+            if (ok && alive) setPulled(true);
+          });
+          return;
+        }
+        // perubahan record project (sinkron bisa memancarkan beruntun) → satu muat ulang setelah jeda
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          if (alive) load();
+        }, RELOAD_TIMING.debounceMs);
+      });
+    } catch (e) {
+      logWarn(api, "pendengar unit jadwal gagal:", e);
+    }
+    return () => {
+      alive = false;
+      if (timer !== null) clearTimeout(timer);
+      if (typeof off === "function") off();
+    };
+  }, [store, key]);
+  const mine = st.key === key;
+  return {
+    units: mine ? st.units : EMPTY_UNITS,
+    loaded: mine && st.loaded,
+    failed: mine && st.failed,
+    pulled,
+    store
+  };
+}
+
+// Mesin jadwal di view (1c-1 R7, K31, K43): useEngine(api, {scopeTasks, calData, units}). Memuat daftar task LENGKAP (api.data.tasks.list({includeDone: true});
+// scopeTasks host sudah difilter panel) saat pasang, lalu — debounce RELOAD_TIMING.debounceMs, hanya jawaban terbaru —
+// saat identitas scopeTasks berubah dan saat sync.done. Saringan scope = TLSched.scopeKeyOf halaman. TLCpm.run
+// dijalankan SESUDAH gambar pertama (raf → setTimeout 0) dan hanya bila engineKey (data task + ext jadwal, kalender,
+// unit) berubah. Keluaran {status: "loading"|"ready"|"error", result, tasks, ctx, rawOf, rerun}: ctx = {tasks, cal,
+// units, readExt} = masukan run yang sama untuk TLCpm.explain / TLPlan; hasil lama tetap "ready" sampai hasil baru siap.
+// R25: hook ini TIDAK PERNAH menulis (drift hanya ditampilkan; tulisan berasal dari aksi pengguna).
+const ENGINE_IDLE = Object.freeze({
+  key: null,
+  status: "loading",
+  result: null,
+  ctx: null
+});
+const NO_TASKS = Object.freeze([]);
+const ENGINE_TASK_FIELDS = ["id", "cid", "server_id", "parent_id", "parent_cid", "list_id", "project", "gtd_status", "progress", "pomodoros_done", "completed_at", "deadline", "recurrence_type", "archived", "deleted"];
+const ENGINE_EXT_KEYS = ["start", "duration", "deps", "mode", "constraint"];
+
+// Kunci memo mesin: JSON ringkas per task (kolom yang dibaca mesin + ext jadwal), urutan daftar dipertahankan.
+function engineKeyOf(tasks, readExt) {
+  const rows = [];
+  for (const t of tasks) {
+    const raw = readExt(t);
+    rows.push([ENGINE_TASK_FIELDS.map(f => t[f] === undefined ? null : t[f]), ENGINE_EXT_KEYS.map(k => raw[k] === undefined ? null : raw[k])]);
+  }
+  return JSON.stringify(rows);
+}
+function unitsKeyOf(units) {
+  const out = [];
+  // auto + fold: keduanya menentukan mode efektif (TLSched.unitFor); updatedAt/by tidak memengaruhi mesin — sakelar
+  // (Task 8) membaca keduanya dari useUnits().units, BUKAN eng.ctx.units (hasil memo bisa membawa Map lama).
+  for (const [k, u] of units) out.push(k + "=" + (u && u.auto === true ? 1 : 0) + ":" + (u && typeof u.fold === "string" ? u.fold : ""));
+  return out.sort().join(",");
+}
+function useEngine(api, opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const scopeTasks = Array.isArray(o.scopeTasks) ? o.scopeTasks : NO_TASKS;
+  const calData = o.calData || DEFAULT_CAL_DATA;
+  const units = o.units instanceof Map ? o.units : EMPTY_UNITS;
+  const [list, setList] = React.useState(null); // daftar lengkap terakhir (null = belum ada)
+  const [failed, setFailed] = React.useState(false);
+  const [out, setOut] = React.useState(ENGINE_IDLE);
+  const L = React.useRef(null);
+  if (!L.current) L.current = {
+    alive: true,
+    seq: 0,
+    timer: null,
+    scope: null,
+    api
+  };
+  L.current.api = api;
+  const load = () => {
+    const R = L.current;
+    const seq = ++R.seq;
+    const a = R.api;
+    let p;
+    try {
+      p = Promise.resolve(a.data.tasks.list({
+        includeDone: true
+      })); // panggil sinkron: permintaan berurutan = urutan kejadian
+    } catch (e) {
+      p = Promise.reject(e);
+    }
+    return p.then(l => {
+      if (R.alive && seq === R.seq) {
+        setList(Array.isArray(l) ? l : []);
+        setFailed(false);
+      }
+    }, e => {
+      logWarn(a, "daftar task gagal dimuat (mesin jadwal):", e);
+      if (R.alive && seq === R.seq) setFailed(true);
+    });
+  };
+  const loadSoon = () => {
+    const R = L.current;
+    if (!R.alive) return;
+    if (R.timer !== null) clearTimeout(R.timer);
+    R.timer = setTimeout(() => {
+      R.timer = null;
+      if (R.alive) load();
+    }, RELOAD_TIMING.debounceMs);
+  };
+  React.useEffect(() => {
+    const R = L.current;
+    R.alive = true;
+    load();
+    let off = null;
+    try {
+      off = api.events.on("sync.done", loadSoon);
+    } catch (e) {
+      logWarn(api, "pendengar sync.done gagal:", e);
+    }
+    return () => {
+      R.alive = false;
+      if (R.timer !== null) clearTimeout(R.timer);
+      R.timer = null;
+      if (typeof off === "function") off();
+    };
+  }, [api]);
+  React.useEffect(() => {
+    const R = L.current;
+    if (R.scope === null) {
+      R.scope = scopeTasks; // pasang: sudah dimuat efek di atas
+      return;
+    }
+    if (R.scope === scopeTasks) return;
+    R.scope = scopeTasks;
+    loadSoon();
+  }, [scopeTasks]);
+  const readExt = React.useMemo(() => t => readExtSafe(api, t), [api]);
+  const tasks = React.useMemo(() => {
+    if (list === null) return null;
+    const keys = new Set(scopeTasks.map(TLSched.scopeKeyOf));
+    return list.filter(t => !!t && typeof t === "object" && keys.has(TLSched.scopeKeyOf(t)));
+  }, [list, scopeTasks]);
+  const tasksKey = React.useMemo(() => tasks === null ? null : engineKeyOf(tasks, readExt), [tasks, readExt]);
+  const calKey = React.useMemo(() => JSON.stringify(calData), [calData]);
+  const unitsKey = React.useMemo(() => unitsKeyOf(units), [units]);
+  const key = tasksKey === null ? null : tasksKey + "\n" + calKey + "\n" + unitsKey;
+  React.useEffect(() => {
+    if (key === null || key === out.key) return undefined;
+    let alive = true;
+    let tid = null;
+    const id = raf(() => {
+      if (!alive) return;
+      tid = setTimeout(() => {
+        tid = null;
+        if (!alive) return;
+        let next;
+        try {
+          const ctx = {
+            tasks,
+            cal: TLCal.compile(calData),
+            units,
+            readExt
+          };
+          next = {
+            key,
+            status: "ready",
+            result: engine.run(ctx),
+            ctx
+          };
+        } catch (e) {
+          logWarn(api, "mesin jadwal gagal:", e);
+          next = {
+            key,
+            status: "error",
+            result: null,
+            ctx: null
+          };
+        }
+        setOut(next);
+      }, 0);
+    });
+    return () => {
+      alive = false;
+      caf(id);
+      if (tid !== null) clearTimeout(tid);
+    };
+  }, [key]);
+  return React.useMemo(() => {
+    const status = out.status !== "loading" ? out.status : list === null && failed ? "error" : "loading";
+    const ctx = out.ctx;
+    // Hitung ulang atas data + patch ([{task, patch}], null = kunci dihapus) tanpa menulis; null bila belum siap.
+    const rerun = patches => {
+      if (!ctx) return null;
+      const pm = new Map();
+      for (const it of Array.isArray(patches) ? patches : []) {
+        if (!it || !it.task || !it.patch) continue;
+        const k = String(it.task.id);
+        pm.set(k, Object.assign({}, pm.get(k) || {}, it.patch));
+      }
+      const rx = t => {
+        const raw = ctx.readExt(t);
+        const p = t && t.id !== undefined && t.id !== null ? pm.get(String(t.id)) : undefined;
+        return p ? applyRaw(raw, p) : raw;
+      };
+      return engine.run({
+        tasks: ctx.tasks,
+        cal: ctx.cal,
+        units: ctx.units,
+        readExt: rx
+      });
+    };
+    return {
+      status,
+      result: out.result,
+      tasks: ctx ? ctx.tasks : NO_TASKS,
+      ctx,
+      rawOf: ctx ? ctx.readExt : readExt,
+      rerun
+    };
+  }, [out, list === null, failed, readExt]);
+}
+
 // 4d. Render (fungsi biasa dipanggil langsung → pohon utuh untuk tes anggaran DOM; tanpa hooks di dalamnya).
 function renderToolbar(v) {
   const seg = (items, cur, pick, label) => /*#__PURE__*/React.createElement("div", {
@@ -2191,13 +4212,88 @@ function renderToolbar(v) {
   }, text)));
   // Daftar (HP): zoom, "Hari ini", urut, dan kolom hanya berarti untuk Gantt → disembunyikan.
   const gantt = !v.listMode;
+  // 1c-1 R23: Jadwal otomatis · Jalur kritis · Jadwalkan ulang — hanya saat mesin siap; ≤ 640 px / Live Edit → "Lainnya".
+  // Jalur kritis tidak di Daftar. "Jadwalkan ulang" → v.onReschedule (Task 10; nonaktif bila tidak diberikan).
+  const ac = v.engReady ? v.auto : null;
+  const extras = [];
+  if (ac) {
+    extras.push(ac.kind === "switch" ? {
+      id: "auto",
+      text: LBL.auto,
+      role: "menuitemcheckbox",
+      checked: ac.on,
+      disabled: ac.disabled,
+      onSelect: ac.onClick
+    } : {
+      id: "auto",
+      text: LBL.auto,
+      role: "menuitem",
+      haspopup: "dialog",
+      onSelect: ac.onClick
+    });
+  }
+  if (gantt && v.engReady) extras.push({
+    id: "crit",
+    text: LBL.crit,
+    role: "menuitemcheckbox",
+    checked: v.crit,
+    onSelect: () => v.setCrit(!v.crit)
+  });
+  if (v.engReady) extras.push({
+    id: "resched",
+    text: LBL.reschedule,
+    role: "menuitem",
+    disabled: typeof v.onReschedule !== "function",
+    onSelect: v.onReschedule
+  });
+  const extraBtn = it => {
+    if (it.id === "auto" && ac.kind === "switch") {
+      return /*#__PURE__*/React.createElement("button", {
+        key: "auto",
+        type: "button",
+        role: "switch",
+        "aria-checked": ac.on,
+        disabled: ac.disabled,
+        className: cx("plg-timeline-btn", "plg-timeline-switch", ac.on && "is-on"),
+        onClick: ac.onClick
+      }, LBL.auto);
+    }
+    if (it.id === "auto") {
+      return /*#__PURE__*/React.createElement("button", {
+        key: "auto",
+        type: "button",
+        ref: v.autoBtnRef,
+        "aria-haspopup": "dialog",
+        "aria-expanded": ac.expanded,
+        className: cx("plg-timeline-btn", "plg-timeline-autobtn", ac.expanded && "is-active"),
+        onClick: ac.onClick
+      }, LBL.auto);
+    }
+    if (it.id === "crit") return /*#__PURE__*/React.createElement("button", {
+      key: "crit",
+      type: "button",
+      className: cx("plg-timeline-btn", v.crit && "is-active"),
+      "aria-pressed": v.crit,
+      onClick: it.onSelect
+    }, LBL.crit);
+    return /*#__PURE__*/React.createElement("button", {
+      key: it.id,
+      type: "button",
+      className: "plg-timeline-btn",
+      disabled: it.disabled,
+      onClick: it.onSelect
+    }, it.text);
+  };
+  const sum = v.summary;
   return /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-toolbar"
   }, gantt ? seg(ZOOMS, v.zoom, v.pickZoom, LBL.zoom) : null, gantt ? /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "plg-timeline-btn",
     onClick: v.goToday
-  }, LBL.today) : null, /*#__PURE__*/React.createElement("button", {
+  }, LBL.today) : null, extras.length && v.collapse ? /*#__PURE__*/React.createElement(MoreMenu, {
+    items: extras
+  }) : extras.map(extraBtn), /*#__PURE__*/React.createElement("button", {
     type: "button",
     ref: v.calBtnRef,
     className: cx("plg-timeline-btn", "plg-timeline-calbtn", v.calOpen && "is-active"),
@@ -2214,7 +4310,36 @@ function renderToolbar(v) {
     className: cx("plg-timeline-btn", v.cols && "is-active"),
     "aria-pressed": v.cols,
     onClick: () => v.setCols(!v.cols)
-  }, LBL.cols) : null, v.narrow ? seg([["gantt", LBL.gantt], ["list", LBL.list]], v.mode, v.setMode, LBL.mode) : null);
+  }, LBL.cols) : null, v.narrow ? seg([["gantt", LBL.gantt], ["list", LBL.list]], v.mode, v.setMode, LBL.mode) : null, sum && sum.end !== null ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-toolbar-end"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-finish"
+  }, "Selesai " + TLCal.fmtShort(sum.end)), sum.late > 0 ? /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-latechip"
+  }, sum.late + " lewat tenggat") : null) : null);
+}
+
+// Banner R16 (K35, §7.3): satu baris `.plg-timeline-banner` per jenis di atas grafik (di luar header sticky):
+// teks + tombol aksi ("Tinjau" / "Buka") + Tutup (aria-label "Tutup"). items = [{k, text, action, onAction}].
+function renderBanners(items, onClose) {
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-banners"
+  }, items.map(b => /*#__PURE__*/React.createElement("div", {
+    key: b.k,
+    className: "plg-timeline-banner",
+    role: "status"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-banner-text"
+  }, b.text), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-banner-act",
+    onClick: b.onAction
+  }, b.action), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-pop-close plg-timeline-banner-close",
+    "aria-label": "Tutup",
+    onClick: () => onClose(b.k)
+  }, "\xD7"))));
 }
 function renderHead(v) {
   const {
@@ -2269,12 +4394,13 @@ function renderTableRows(v) {
     colDefs,
     groupNames,
     ix,
-    isSel
+    isSel,
+    ov
   } = v;
   const out = [];
   for (let i = rw.first; i <= rw.last; i++) {
     const r = lay.rows[i];
-    const c = rowCells(r, groupNames.get(r.group));
+    const c = rowCells(r, groupNames.get(r.group), ov.slack.get(r.key));
     const sel = !!r.task && isSel(r.task);
     out.push(/*#__PURE__*/React.createElement("div", {
       key: r.key,
@@ -2302,7 +4428,7 @@ function renderTableRows(v) {
           }
         }, /*#__PURE__*/React.createElement("span", {
           className: "plg-timeline-name"
-        }, c.name), r.violation ? /*#__PURE__*/React.createElement("span", {
+        }, c.name), ov.manual.has(r.key) ? renderPin() : null, r.violation ? /*#__PURE__*/React.createElement("span", {
           className: "plg-timeline-warn",
           role: "img",
           "aria-label": MSG_VIOLATION,
@@ -2322,6 +4448,23 @@ function renderTableRows(v) {
   return out;
 }
 
+// Ikon pin 10 px (1c-1 R19): task Manual di unit otomatis; dua lapis (duotone) dengan warna dari CSS.
+function renderPin() {
+  return /*#__PURE__*/React.createElement("svg", {
+    className: "plg-timeline-pin",
+    role: "img",
+    "aria-label": MSG_MANUAL,
+    viewBox: "0 0 10 10",
+    width: "10",
+    height: "10"
+  }, /*#__PURE__*/React.createElement("path", {
+    className: "plg-timeline-pin-head",
+    d: "M3 0.5H7V1.7L6.2 2.5V4.5L8 5.8V6.8H2V5.8L3.8 4.5V2.5L3 1.7Z"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M4.6 6.8H5.4V9.8H4.6Z"
+  }));
+}
+
 // Bar / ringkasan / milestone satu baris (R11, R12, R23). Label nama di kanan bar (anak, aria-hidden).
 // Task 8: bar task/milestone menerima pointerdown (ix.barDown: zona badan/tepi/titik dari TLDrag.hitZone) + pegangan tepi
 // kanan (bukan milestone) dan titik dependensi di kanan ujung (desktop; CSS menyembunyikannya di layar sentuh).
@@ -2333,6 +4476,7 @@ function renderBar(r, box, y, v) {
   } = v;
   const t = r.task;
   const sel = isSel(t);
+  const crit = v.crit && v.ov.crit.has(r.key); // 1c-1 R18: garis tepi merah, bukan isi
   const title = rowCells(r).name;
   const aria = TLLayout.ariaBar(t, r.kind === "summary" ? {
     duration: r.duration
@@ -2358,7 +4502,7 @@ function renderBar(r, box, y, v) {
   });
   if (box.milestone) {
     return /*#__PURE__*/React.createElement("div", _extends({}, common, {
-      className: cx("plg-timeline-milestone", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected"),
+      className: cx("plg-timeline-milestone", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical"),
       style: {
         transform: translate(g.x, g.top),
         width: g.w,
@@ -2378,7 +4522,7 @@ function renderBar(r, box, y, v) {
   }
   const pct = r.done ? 100 : Math.round(r.progress);
   return /*#__PURE__*/React.createElement("div", _extends({}, common, {
-    className: cx("plg-timeline-bar", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected"),
+    className: cx("plg-timeline-bar", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical"),
     style: {
       transform: translate(g.x, g.top),
       width: g.w,
@@ -2546,7 +4690,8 @@ function renderArrows(v, winX, winW) {
   const {
     lay,
     rw,
-    rowH
+    rowH,
+    ov
   } = v;
   const oy = rw.first * rowH;
   const rect = idx => {
@@ -2570,11 +4715,15 @@ function renderArrows(v, winX, winW) {
     const a = rect(e.fromRow);
     const b = rect(e.toRow);
     if (!a || !b) continue;
+    // 1c-1: panah per tipe (R19); konflik jangkar mesin = pelanggaran 1b (merah putus-putus); antar kritis (R18) tebal.
+    const id = e.from + ">" + e.to;
+    const bad = e.violation || ov.conflictEdge.has(id);
+    const crit = v.crit && ov.critEdge.has(id);
     paths.push(/*#__PURE__*/React.createElement("path", {
-      key: e.from + ">" + e.to,
-      className: cx("plg-timeline-arrow", e.violation && "is-violation"),
-      d: TLLayout.arrowPath(a, b),
-      markerEnd: e.violation ? "url(#plg-timeline-ah-v)" : "url(#plg-timeline-ah)"
+      key: id,
+      className: cx("plg-timeline-arrow", bad && "is-violation", crit && "is-critical"),
+      d: TLLayout.arrowPath(a, b, e.type),
+      markerEnd: bad || crit ? "url(#plg-timeline-ah-v)" : "url(#plg-timeline-ah)"
     }));
   }
   return /*#__PURE__*/React.createElement("svg", {
@@ -2613,13 +4762,14 @@ function renderArrows(v, winX, winW) {
     transform: "translate(" + -winX + " " + -oy + ")"
   }, paths));
 }
-function renderLegend(lay, ref) {
+function renderLegend(lay, ref, crit) {
+  const items = crit ? LEGEND.concat([["critical", LBL.crit]]) : LEGEND; // 1c-1 R18
   return /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-foot",
     ref: ref
   }, /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-legend"
-  }, LEGEND.map(([id, text]) => /*#__PURE__*/React.createElement("span", {
+  }, items.map(([id, text]) => /*#__PURE__*/React.createElement("span", {
     key: id,
     className: "plg-timeline-legend-item"
   }, /*#__PURE__*/React.createElement("span", {
@@ -2960,6 +5110,390 @@ function CalendarPopover(props) {
   }, err) : null);
 }
 
+// ── 1c-1 Task 8: menu "Lainnya" (R23), popover unit workspace (R15), dialog pratinjau (R14) ─────────────────────────
+// Pendengar Esc (fase tangkap, propagasi dihentikan agar modal/Live Edit host di belakang tidak ikut tertutup) dan
+// tekan di luar `root` (kecuali target yang cocok `skipSel`). Dipakai MoreMenu/UnitPopover (PreviewDialog punya pendengar
+// window sendiri: Esc + perangkap Tab).
+function useDismiss(active, rootRef, onDismiss, skipSel) {
+  const fnRef = React.useRef(onDismiss);
+  fnRef.current = onDismiss;
+  React.useEffect(() => {
+    if (!active || !hasWindow() || typeof window.addEventListener !== "function") return undefined;
+    const onKey = e => {
+      if (!e || e.key !== "Escape") return;
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      if (typeof e.stopPropagation === "function") e.stopPropagation();
+      fnRef.current("key");
+    };
+    const onDown = e => {
+      const root = rootRef.current;
+      const t = e && e.target;
+      if (!root || !t) return;
+      if (typeof root.contains === "function" && root.contains(t)) return;
+      if (skipSel && typeof t.closest === "function" && t.closest(skipSel)) return;
+      fnRef.current("outside");
+    };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onDown, true);
+    };
+  }, [active]);
+}
+
+// Perataan menu "Lainnya" terhadap tombolnya (fix E2E 375 px): rata kiri bawaan; bila rata kiri melewati tepi kanan
+// viewport (toolbar terbungkus, tombol di separuh kanan) DAN rata kanan muat di tepi kiri → "end" (right: 0). Dengan
+// menu 180 px dan viewport ≥ 320 px salah satunya selalu muat (tombol ≥ 60 px lebar). rect = getBoundingClientRect
+// pembungkus tombol (konteks posisi menu). Murni.
+const MORE_MENU_W = 180; // = min-width .plg-timeline-more-menu
+const MORE_GAP = 8;
+function menuAlign(rect, viewW, menuW) {
+  if (!rect || !Number.isFinite(rect.left) || !Number.isFinite(rect.right) || !Number.isFinite(viewW)) return "start";
+  return rect.left + menuW > viewW - MORE_GAP && rect.right - menuW >= MORE_GAP ? "end" : "start";
+}
+
+// Menu "Lainnya" (HP ≤ 640 px / Live Edit): items = [{id, text, role: "menuitem"|"menuitemcheckbox", checked, disabled,
+// haspopup, onSelect}]. Memilih item menutup menu lalu menjalankan onSelect.
+function MoreMenu(props) {
+  const items = Array.isArray(props.items) ? props.items : [];
+  const [open, setOpen] = React.useState(false);
+  const [align, setAlign] = React.useState("start");
+  const rootRef = React.useRef(null);
+  useDismiss(open, rootRef, () => setOpen(false), null);
+  const toggle = () => {
+    if (!open) {
+      const el = rootRef.current;
+      let rect = null;
+      try {
+        rect = el && typeof el.getBoundingClientRect === "function" ? el.getBoundingClientRect() : null;
+      } catch (e) {
+        rect = null;
+      }
+      setAlign(menuAlign(rect, hasWindow() ? Number(window.innerWidth) : NaN, MORE_MENU_W));
+    }
+    setOpen(!open);
+  };
+  const pick = it => {
+    setOpen(false);
+    if (!it.disabled && typeof it.onSelect === "function") it.onSelect();
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-more",
+    ref: rootRef
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: cx("plg-timeline-btn", open && "is-active"),
+    "aria-haspopup": "menu",
+    "aria-expanded": open,
+    onClick: toggle
+  }, LBL.more), open ? /*#__PURE__*/React.createElement("div", {
+    className: cx("plg-timeline-more-menu", align === "end" && "is-end"),
+    role: "menu",
+    "aria-label": LBL.more
+  }, items.map(it => /*#__PURE__*/React.createElement("button", {
+    key: it.id,
+    type: "button",
+    role: it.role,
+    className: cx("plg-timeline-more-item", it.checked && "is-on"),
+    "aria-checked": it.role === "menuitemcheckbox" ? !!it.checked : undefined,
+    "aria-haspopup": it.haspopup,
+    disabled: !!it.disabled,
+    onClick: () => pick(it)
+  }, it.text))) : null);
+}
+
+// Popover workspace (R15, Q4 a): satu sakelar per kelompok project halaman. entries = [{key, label, on, locked, caption,
+// onToggle}]; waiting (P3 a) → catatan "Menunggu data jadwal workspace…" (sakelar terkunci = disabled).
+function UnitPopover(props) {
+  const entries = Array.isArray(props.entries) ? props.entries : [];
+  const rootRef = React.useRef(null);
+  const closeRef = React.useRef(props.onClose);
+  closeRef.current = props.onClose;
+  const close = restoreFocus => {
+    if (typeof closeRef.current === "function") closeRef.current({
+      restoreFocus
+    });
+  };
+  React.useEffect(() => {
+    const el = rootRef.current;
+    if (el && typeof el.focus === "function") el.focus();
+  }, []);
+  useDismiss(true, rootRef, how => close(how === "key"), ".plg-timeline-autobtn");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop plg-timeline-units",
+    role: "dialog",
+    "aria-label": LBL.auto,
+    tabIndex: -1,
+    ref: rootRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop-head"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-pop-title"
+  }, LBL.auto), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-pop-close",
+    "aria-label": "Tutup",
+    onClick: () => close(true)
+  }, "\xD7")), props.waiting ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-pop-wait",
+    role: "status"
+  }, MSG_UNITS_WAIT) : null, /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-units-list"
+  }, entries.map(e => /*#__PURE__*/React.createElement("li", {
+    key: e.key,
+    className: "plg-timeline-units-item"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-units-text"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-units-name"
+  }, e.label), e.caption ? /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-units-by"
+  }, e.caption) : null), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "switch",
+    "aria-checked": e.on,
+    "aria-label": e.label,
+    disabled: e.locked,
+    className: cx("plg-timeline-switch", e.on && "is-on"),
+    onClick: e.onToggle
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-switch-knob",
+    "aria-hidden": "true"
+  }))))));
+}
+
+// Elemen yang bisa difokus di dalam dialog (fokus terjebak).
+const FOCUSABLE = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
+function focusables(root) {
+  if (!root || typeof root.querySelectorAll !== "function") return [];
+  return Array.from(root.querySelectorAll(FOCUSABLE)).filter(el => el && !el.disabled && typeof el.focus === "function");
+}
+
+// Teks bersama PreviewDialog dan PreviewCard (R14): ringkasan "{n} task bergeser · Selesai project … (±k hk) · {m} lewat
+// tenggat" dan baris "WBS · Task · Mulai lama → baru · Δ hk".
+function pvSummaryText(model) {
+  const parts = [model.moved + " task bergeser"];
+  if (Number.isInteger(model.endBefore) && Number.isInteger(model.endAfter)) {
+    parts.push("Selesai project " + dayText(model.endBefore) + " → " + dayText(model.endAfter) + " (" + signedHk(model.endDelta) + ")");
+  }
+  if (model.late > 0) parts.push(model.late + " lewat tenggat");
+  return parts.join(" · ");
+}
+const pvLabel = r => [r.wbs, taskTitle(r.task)].filter(x => x !== undefined && x !== null && x !== "").join(" · ");
+function pvRowText(r) {
+  const main = [pvLabel(r), (r.from ? dayText(r.from) : "—") + " → " + (r.to ? dayText(r.to) : "—")];
+  if (r.deltaHk !== null && r.deltaHk !== undefined) main.push(signedHk(r.deltaHk));
+  return main.join(" · ");
+}
+
+// Dialog pratinjau (R14, K34; pola CalendarPopover di dalam wadah view): role dialog + aria-modal, fokus ke elemen
+// pertama saat dibuka dan terjebak di dalam (Tab/Shift+Tab berputar), Esc = Batal. model = dialogModel(TLPlan.preview…).
+// Baris "WBS · Task · Mulai lama → baru · Δ hk" (+ "baru dijadwalkan", "durasi berubah", catatan durGuess); ringkasan;
+// "Tidak dipindah"; ≤ 50 baris + "Tampilkan semua". whyOf(key) → Array<string|{b}> (opsional, Task 12) membuka "Kenapa".
+// Terapkan nonaktif bila 0 item atau `busy` (pemeriksaan CAS berjalan). Komponen ini tidak menulis apa pun.
+function PreviewDialog(props) {
+  const model = props.model || EMPTY_PV_MODEL;
+  const [all, setAll] = React.useState(false);
+  const [why, setWhy] = React.useState(null);
+  const rootRef = React.useRef(null);
+  const cancelRef = React.useRef(props.onCancel);
+  cancelRef.current = props.onCancel;
+  const cancel = () => {
+    if (typeof cancelRef.current === "function") cancelRef.current();
+  };
+  React.useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+    const doc = root.ownerDocument || null;
+    const prev = doc ? doc.activeElement : null;
+    const first = focusables(root)[0];
+    if (first) first.focus();else if (typeof root.focus === "function") root.focus();
+    return () => {
+      if (prev && typeof prev.focus === "function") prev.focus(); // kembali ke pemicu
+    };
+  }, []);
+  // Esc dan Tab di window (fase tangkap): klik backdrop/area lain memindah fokus ke luar dialog, jadi perangkap di elemen
+  // dialog (onKeyDown) bisa lolos. Esc = Batal (propagasi dihentikan); Tab/Shift+Tab berputar di dalam dialog dan menarik
+  // fokus kembali bila sedang di luar. Klik di luar dialog modal tidak menutupnya.
+  React.useEffect(() => {
+    if (!hasWindow() || typeof window.addEventListener !== "function") return undefined;
+    const onKey = e => {
+      if (!e) return;
+      const stop = () => {
+        if (typeof e.preventDefault === "function") e.preventDefault();
+      };
+      if (e.key === "Escape") {
+        stop();
+        if (typeof e.stopPropagation === "function") e.stopPropagation();
+        cancel();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const root = rootRef.current;
+      const list = focusables(root);
+      if (!list.length) return stop();
+      const doc = root && root.ownerDocument ? root.ownerDocument : null;
+      const active = doc ? doc.activeElement : null;
+      const first = list[0];
+      const last = list[list.length - 1];
+      const inside = !!active && typeof root.contains === "function" && root.contains(active);
+      if (!inside) {
+        stop();
+        (e.shiftKey ? last : first).focus();
+      } else if (e.shiftKey && active === first) {
+        stop();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        stop();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, []);
+  const rows = model.rows || [];
+  const shown = all ? rows : rows.slice(0, PV_ROWS_MAX);
+  const label = pvLabel;
+  const whyLines = key => {
+    const out = typeof props.whyOf === "function" ? props.whyOf(key) : null;
+    const arr = Array.isArray(out) ? out : out ? [out] : [];
+    return arr.map((p, i) => p && typeof p === "object" ? /*#__PURE__*/React.createElement("strong", {
+      key: i
+    }, p.b) : /*#__PURE__*/React.createElement("span", {
+      key: i
+    }, String(p)));
+  };
+  const canWhy = typeof props.whyOf === "function";
+  // "{n} dependensi akan dilanggar": Jadwalkan ulang memberi `broken` = reschedule().broken (pelanggaran baru, penerus
+  // Manual); pratinjau lain memakai model.brokenDeps (terfilter jangkauan) — keputusan T4.
+  const broken = Number.isInteger(props.broken) ? props.broken : Number.isInteger(model.brokenDeps) ? model.brokenDeps : 0;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv-backdrop"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": props.title,
+    tabIndex: -1,
+    ref: rootRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop-head"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-pop-title"
+  }, props.title)), props.todayLabel ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-pv-today"
+  }, "Hari ini: " + props.todayLabel) : null, props.offline ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-pv-offline",
+    role: "note"
+  }, MSG_OFFLINE) : null, /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pv-summary"
+  }, pvSummaryText(model)), broken > 0 ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-pv-broken",
+    role: "note"
+  }, brokenText(broken)) : null, /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-pv-list"
+  }, shown.map(r => {
+    return /*#__PURE__*/React.createElement("li", {
+      key: r.key,
+      className: "plg-timeline-pv-row",
+      "data-key": r.key
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-pv-main"
+    }, pvRowText(r)), r.isNew ? /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-pv-tag"
+    }, PV_NEW) : null, r.durChanged ? /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-pv-tag"
+    }, PV_DUR) : null, r.durGuess ? /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-pv-note"
+    }, PV_DUR_GUESS) : null, canWhy ? /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-pv-why",
+      "aria-expanded": why === r.key,
+      onClick: () => setWhy(why === r.key ? null : r.key)
+    }, PV_WHY) : null, canWhy && why === r.key ? /*#__PURE__*/React.createElement("p", {
+      className: "plg-timeline-pv-whytext"
+    }, whyLines(r.key)) : null);
+  })), !all && rows.length > PV_ROWS_MAX ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-pv-all",
+    onClick: () => setAll(true)
+  }, PV_SHOW_ALL) : null, model.notMoved && model.notMoved.length ? /*#__PURE__*/React.createElement("section", {
+    className: "plg-timeline-pv-notmoved",
+    "aria-label": PV_NOT_MOVED
+  }, /*#__PURE__*/React.createElement("h4", {
+    className: "plg-timeline-pop-sub"
+  }, PV_NOT_MOVED), /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-pv-list"
+  }, model.notMoved.map(x => /*#__PURE__*/React.createElement("li", {
+    key: x.key,
+    className: "plg-timeline-pv-row plg-timeline-pv-nm",
+    "data-key": x.key,
+    "data-why": x.why
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-pv-nmtext"
+  }, label(x)))))) : null, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn",
+    onClick: cancel
+  }, PV_CANCEL), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-pv-apply",
+    disabled: !rows.length || !!props.busy,
+    onClick: props.onApply
+  }, PV_APPLY))));
+}
+
+// Kartu pratinjau ringkas di seksi Jadwal (R14, R20 "Aliran dari seksi > 20"): ringkasan + 5 baris pertama + "dan {n}
+// lainnya", Batal / Terapkan (nonaktif bila 0 baris atau `busy`). Tanpa hooks dan tanpa tulis — pemanggil yang menulis
+// (Terapkan = satu setMany lewat writeMany seksi). Props {model (dialogModel), onApply, onCancel, busy?}.
+const PV_CARD_ROWS = 5;
+function PreviewCard(props) {
+  const model = props.model || EMPTY_PV_MODEL;
+  const rows = model.rows || [];
+  const rest = rows.length - PV_CARD_ROWS;
+  const broken = Number.isInteger(model.brokenDeps) ? model.brokenDeps : 0;
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pvcard",
+    role: "group",
+    "aria-label": PV_FLOW
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pv-summary"
+  }, pvSummaryText(model)), broken > 0 ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-pv-broken",
+    role: "note"
+  }, brokenText(broken)) : null, /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-pv-list"
+  }, rows.slice(0, PV_CARD_ROWS).map(r => /*#__PURE__*/React.createElement("li", {
+    key: r.key,
+    className: "plg-timeline-pv-row",
+    "data-key": r.key
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-pv-main"
+  }, pvRowText(r)), r.isNew ? /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-pv-tag"
+  }, PV_NEW) : null, r.durChanged ? /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-pv-tag"
+  }, PV_DUR) : null, r.durGuess ? /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-pv-note"
+  }, PV_DUR_GUESS) : null))), rest > 0 ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pvcard-more"
+  }, "dan " + rest + " lainnya") : null, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn",
+    onClick: props.onCancel
+  }, PV_CANCEL), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-pv-apply",
+    disabled: !rows.length || !!props.busy,
+    onClick: props.onApply
+  }, PV_APPLY)));
+}
+
 // Tampilan Daftar (HP, U3): task terjadwal urut Mulai dikelompokkan per minggu ISO, lalu "Belum dijadwalkan".
 // Baris = tombol → onTaskClick(task). `cal` disediakan untuk kelengkapan antarmuka (tanggal sudah dihitung layout).
 function weekText(mon, showYear) {
@@ -3265,6 +5799,120 @@ function createInteractions() {
     toastSafe(api, MSG_SAVE_FAIL, "error");
   }
 
+  // 1c-1 R13: banyak task dalam SATU api.taskExt.setMany. items = [{task, patch}]; semua kunci masuk busy/after
+  // SEKETIKA (seret/tombol berikutnya tidak menulis dari props basi). Penolakan (err.applied) diteruskan ke pemanggil.
+  // `gate` (opsional, pola issue) = promise pemeriksaan sebelum tulis: false → reject BLOCKED tanpa memanggil api.
+  function issueMany(items, gate) {
+    const api = X.cur.api;
+    const list = (Array.isArray(items) ? items : []).filter(it => it && it.task && it.patch);
+    const keys = [];
+    for (const it of list) {
+      const k = keyOf(it.task);
+      const rr = rawOf(it.task);
+      keys.push(k);
+      X.busy.add(k);
+      X.after.set(k, {
+        stale: rr.pj,
+        eff: Object.assign({}, rr.eff, it.patch)
+      });
+    }
+    const send = () => {
+      try {
+        return api.taskExt.setMany(list.map(it => ({
+          taskId: it.task.id,
+          patch: it.patch
+        })));
+      } catch (e) {
+        return Promise.reject(e);
+      }
+    };
+    const p = gate ? Promise.resolve(gate).then(ok => {
+      if (!ok) throw BLOCKED;
+      return send();
+    }) : send();
+    const done = Promise.resolve(p).then(r => {
+      for (const k of keys) X.busy.delete(k);
+      return r;
+    }, err => {
+      for (const k of keys) {
+        X.busy.delete(k);
+        X.after.delete(k);
+      }
+      throw err;
+    });
+    const settled = done.then(() => undefined, () => undefined);
+    for (const k of keys) X.inflight.set(k, settled);
+    settled.then(() => {
+      for (const k of keys) if (X.inflight.get(k) === settled) X.inflight.delete(k);
+    });
+    return done;
+  }
+
+  // Urungkan (R13): setMany(TLPlan.undoItems(items)) persis — kunci yang dulu tidak ada ditulis null.
+  // Tulis lain pada salah satu task yang sama masih berjalan → Urungkan antre sampai semuanya selesai (pola undo 1b;
+  // tulis tidak pernah tumpang tindih, tekan berikutnya tidak bisa mendarat setelah Urungkan dan menimpanya).
+  function undoAction(api, items) {
+    const run = () => {
+      const waits = [];
+      for (const it of items) {
+        const k = keyOf(it.task);
+        const w = X.busy.has(k) ? X.inflight.get(k) : null;
+        if (w && waits.indexOf(w) < 0) waits.push(w);
+      }
+      if (waits.length) {
+        Promise.all(waits).then(run);
+        return;
+      }
+      const u = TLPlan.undoItems(items);
+      issueMany(u.map((x, i) => ({
+        task: items[i].task,
+        patch: x.patch
+      }))).catch(err => failed(api, err));
+    };
+    return {
+      label: MSG_UNDO,
+      onClick: run
+    };
+  }
+
+  // applyPlan (R14/R15; pintu tunggal Terapkan untuk Task 8–10): satu setMany semua item → onDone (mis. setAuto sakelar,
+  // HANYA setelah setMany sukses) → toast "Jadwal diterapkan · {n} task" + Urungkan. setMany ditolak dengan err.applied
+  // (sebagian tersimpan) → onDone TIDAK dipanggil, toast "Sebagian jadwal gagal disimpan ({k} dari {n})" (k = gagal)
+  // + Urungkan hanya untuk item yang tersimpan; tanpa applied / 0 tersimpan → "Jadwal gagal disimpan".
+  // → Promise<boolean> (true = semua tersimpan dan onDone sukses); tidak pernah reject.
+  // Task 9 (aliran gestur): opts.gate = pemeriksaan sebelum tulis (ditolak → false tanpa toast; toast sudah tampil),
+  // opts.text = teks toast sukses ("Jadwal diubah · {n} task ikut bergeser"); bawaan "Jadwal diterapkan · {n} task".
+  function applyPlan(items, opts) {
+    const api = X.cur.api;
+    const o = opts || {};
+    const list = (Array.isArray(items) ? items : []).filter(it => it && it.task && it.patch);
+    const n = list.length;
+    const after = () => typeof o.onDone === "function" ? Promise.resolve().then(o.onDone) : Promise.resolve();
+    if (!n) return after().then(() => true, err => {
+      failed(api, err);
+      return false;
+    });
+    return issueMany(list, o.gate).then(() => after().then(() => {
+      toastSafe(api, typeof o.text === "string" ? o.text : appliedText(n), "success", undoAction(api, list));
+      return true;
+    }, err => {
+      logWarn(api, "jadwal tersimpan, langkah lanjutan gagal:", err);
+      toastSafe(api, MSG_SAVE_FAIL, "error", undoAction(api, list));
+      return false;
+    }), err => {
+      if (err === BLOCKED) return false; // pemeriksaan sebelum tulis menolak (toast sudah tampil), 0 tulis
+      const ids = err && Array.isArray(err.applied) ? new Set(err.applied.map(String)) : null;
+      const saved = ids ? list.filter(it => ids.has(String(it.task.id))) : [];
+      if (!saved.length) {
+        failed(api, err);
+        return false;
+      }
+      logWarn(api, "jadwal tersimpan sebagian:", err);
+      toastSafe(api, partialText(n - saved.length, n), "error", undoAction(api, saved));
+      return false;
+    });
+  }
+
   // set → toast "Jadwal diubah" + Urungkan (setMany nilai lama persis). Resolve true/false (tidak pernah reject).
   // Sebelum tulis: induk tersembunyi (ringkasan di daftar lengkap) ditolak, kecuali `checked` (link sudah memeriksa).
   function write(task, rr, patch, prev, checked) {
@@ -3291,6 +5939,81 @@ function createInteractions() {
       return;
     }
     issue(task, rawOf(task), prev, true).catch(err => failed(api, err));
+  }
+
+  // ---- 1c-1 R12, R13 (K32, K33): SATU pintu tulis untuk seret, Alt+panah, klik-jadwalkan, dan tautkan ----
+  // flow(task, rr, patch, prev, checked) → Promise<boolean> (true = tersimpan; false = tidak ada tulis atau gagal;
+  // tidak pernah reject). `rr` = rawOf(task) saat gestur dimulai; `prev` = nilai lama 1b (TLDrag/tautkan);
+  // `checked` = pemeriksaan ringkasan sudah dilakukan (tautkan).
+  //  - Mesin belum siap/gagal: task otomatis menurut ext.mode + unit lokal (useUnits) → 0 tulis + "Jadwal gagal
+  //    disimpan"; selain itu `write` 1b apa adanya.
+  //  - Mesin siap: TLPlan.gesture (R12; terlalu awal → 0 tulis + "Tidak bisa lebih awal dari dependensinya") →
+  //    TLPlan.cascade (K32: hanya gestur ∪ turunan yang DIGESER gestur; drift lain tidak pernah ikut) → item tanpa
+  //    perubahan dibuang (flowItems). 0 item → diam. Item menyentuh task yang sedang ditulis → diabaikan (tanpa antre).
+  //    Hanya task gestur → `write` 1b (patch 1b persis bila mesin tidak menambah apa pun, selain itu patch item +
+  //    Urungkan = undoItems). Turunan > CASCADE_MAX → PreviewDialog (0 tulis sampai Terapkan). Selain itu applyPlan:
+  //    satu setMany + "Jadwal diubah · {n} task ikut bergeser" + Urungkan (undoItems persis).
+  function flow(task, rr, patch, prev, checked) {
+    const api = X.cur.api;
+    const eng = X.cur.eng;
+    const k = keyOf(task);
+    if (!eng || eng.status !== "ready" || !eng.ctx || !eng.result) {
+      const un = X.cur.units;
+      if (TLSched.modeOf(rr.eff, un && un.units, task) === "auto") {
+        toastSafe(api, MSG_SAVE_FAIL, "error");
+        return Promise.resolve(false);
+      }
+      return write(task, rr, patch, prev, checked);
+    }
+    // ext efektif (nilai optimistis tulis yang belum diikuti props); ada yang berlaku → hasil useEngine basi, hitung ulang.
+    const ctx = Object.assign({}, eng.ctx, {
+      readExt: peekRaw
+    });
+    const before = pendingIn(ctx.tasks) ? engine.run(ctx) : eng.result;
+    const g = TLPlan.gesture(before, task, rr.eff, patch, ctx.cal);
+    if (!g.ok) {
+      toastSafe(api, MSG_EARLY, "error");
+      return Promise.resolve(false);
+    }
+    const gestures = [{
+      task,
+      patch: g.patch
+    }];
+    const c = TLPlan.cascade(ctx, gestures, before);
+    const items = flowItems(c.items);
+    if (!items.length) return Promise.resolve(false);
+    if (items.some(it => X.busy.has(it.key))) return Promise.resolve(false);
+    const down = items.filter(it => it.key !== k).length;
+    if (!down) {
+      const it = items[0];
+      const san = TLSched.sanitizePatch(patch);
+      if (canonJson(it.patch) === canonJson(san.ok ? san.patch : patch)) return write(task, rr, patch, prev, checked);
+      return write(task, rr, it.patch, TLPlan.undoItems([it])[0].patch, checked);
+    }
+    if (down > TLPlan.CASCADE_MAX) {
+      if (typeof X.cur.openPreview === "function") X.cur.openPreview({
+        items,
+        result: c.result,
+        before,
+        ctx,
+        gestures
+      });
+      return Promise.resolve(false);
+    }
+    return applyPlan(items, {
+      gate: checked ? null : summaryGate(task),
+      text: flowText(down)
+    });
+  }
+
+  // Ada nilai optimistis (X.after) yang masih berlaku untuk task di ctx → hasil mesin useEngine belum memuatnya.
+  function pendingIn(tasks) {
+    if (!X.after.size) return false;
+    for (const t of tasks) {
+      const a = X.after.get(keyOf(t));
+      if (a && peekRaw(t) === a.eff) return true;
+    }
+    return false;
   }
   function suppressClick() {
     X.suppress = true;
@@ -3515,7 +6238,7 @@ function createInteractions() {
       if (res) link(res.link);
       return;
     }
-    write(g.row.task, g.rr, res.patch, res.prev).then(ok => {
+    flow(g.row.task, g.rr, res.patch, res.prev).then(ok => {
       if (!ok) restore(g);
     });
   }
@@ -3554,7 +6277,7 @@ function createInteractions() {
       const prev = {
         deps: rr.eff.deps === undefined ? null : rr.eff.deps
       };
-      return write(succ, rr, {
+      return flow(succ, rr, {
         deps: chk.deps
       }, prev, true);
     }, err => {
@@ -3626,7 +6349,7 @@ function createInteractions() {
     if (dn < lay.range.from || dn > lay.range.to || X.busy.has(keyOf(s.row.task))) return;
     const rr = rawOf(s.row.task);
     const r = TLDrag.scheduleAt(lay.cal, dn, schedOf(rr.eff));
-    if (r) write(s.row.task, rr, r.patch, r.prev);
+    if (r) flow(s.row.task, rr, r.patch, r.prev);
   }
 
   // ---- keyboard (R23): Enter buka; Alt+←/→ geser 1 hk (milestone 1 hari kalender); Alt+Shift+←/→ durasi ±1; satu set per tekan ----
@@ -3649,7 +6372,7 @@ function createInteractions() {
     }, schedOf(rr.eff), X.cur.lay.cal);
     if (!r) return;
     const from = e.currentTarget || null;
-    write(row.task, rr, r.patch, r.prev).then(() => raf(() => refocus(row.key, from)));
+    flow(row.task, rr, r.patch, r.prev).then(() => raf(() => refocus(row.key, from)));
   }
 
   // Render ulang setelah tulis bisa memasang ulang bar/baris (virtualisasi): fokus kembali ke elemen dengan data-key dan
@@ -3703,6 +6426,8 @@ function createInteractions() {
     lineRef: X.lineRef
   };
   X.dispose = dispose;
+  X.issueMany = issueMany;
+  X.applyPlan = applyPlan;
   return X;
 }
 
@@ -3718,6 +6443,7 @@ function TimelineViewBody(props) {
   const [sort, setSort] = usePref(api, "sort", page);
   const [cols, setCols] = usePref(api, "cols", page);
   const [mode, setMode] = usePref(api, "mode", page);
+  const [critPref, setCrit] = usePref(api, "crit", page);
   const [calOpen, setCalOpen] = React.useState(false);
   const calBtnRef = React.useRef(null);
   const pageKind = context.pageKind === "workspace" ? "workspace" : "project";
@@ -3726,6 +6452,18 @@ function TimelineViewBody(props) {
   const today = safeToday(api);
   const todayDn = today ? TLCal.dn(today) : null;
   const calKey = React.useMemo(() => JSON.stringify(cal.data), [cal.data]);
+  // 1c-1 (R6, R7): unit jadwal halaman + mesin CPM sesudah gambar pertama. Hasilnya dipakai Task 7–10 (Slack, kritis,
+  // banner, sakelar, aliran gestur lewat X.cur.eng); keduanya hanya membaca — tidak ada tulisan latar (R25).
+  const un = useUnits(api, {
+    pageKind,
+    listId: context.listId,
+    projectName: context.projectName
+  });
+  const eng = useEngine(api, {
+    scopeTasks: context.scopeTasks,
+    calData: cal.data,
+    units: un.units
+  });
 
   // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari berubah (bukan tiap context baru).
   const lay = React.useMemo(() => engine.layout({
@@ -3744,6 +6482,11 @@ function TimelineViewBody(props) {
     }
   }), [context.scopeTasks, calKey, zoom, sort, today, pageKind, api]);
   const groupNames = React.useMemo(() => new Map(lay.groups.map(g => [g.key, g.name])), [lay]);
+  // 1c-1 (R18, R19): overlay mesin dalam memo TERPISAH — `lay` tidak bergantung pada mesin. Belum siap → NO_OVERLAY.
+  // eng.ctx berasal dari keluaran run yang sama dengan eng.result, jadi kunci [lay, engResult] cukup.
+  const engResult = eng.status === "ready" ? eng.result : null;
+  const ov = React.useMemo(() => engineOverlay(lay, engResult, eng.ctx), [lay, engResult]);
+  const crit = critPref === true && ov.ready;
   const compact = narrow || !!context.liveEdit;
   const colDefs = !compact || cols ? COLS_FULL : COLS_COMPACT;
   let tableW = 0;
@@ -3909,10 +6652,362 @@ function TimelineViewBody(props) {
     lay,
     rowH,
     tableW,
-    scrollEl: () => scrollRef.current
+    scrollEl: () => scrollRef.current,
+    eng,
+    units: un
   };
   React.useEffect(() => () => ctl.dispose(), [ctl]);
   const ix = ctl.ix;
+
+  // ── 1c-1 Task 8: sakelar Jadwal otomatis (R15), pratinjau + CAS (R14) ──
+  const [unitOpen, setUnitOpen] = React.useState(false);
+  const [pv, setPv] = React.useState(null); // {id, title, items, model, busy, unit?: {unit, rep, snap} | Array<{rep, snap, auto}>, broken?, todayLabel?, onDone, rebuild}
+  const [, setNet] = React.useState(0);
+  const autoBtnRef = React.useRef(null);
+  const pvRef = React.useRef(null);
+  pvRef.current = pv;
+  const engRef = React.useRef(eng);
+  engRef.current = eng;
+  const toggling = React.useRef(false);
+  const pvSeq = React.useRef(0);
+  const unitPage = {
+    pageKind,
+    listId: pageKind === "workspace" ? context.listId : null,
+    projectName: pageKind === "workspace" ? null : context.projectName
+  };
+  const summary = React.useMemo(() => toolbarSummary(lay, engResult), [lay, engResult]);
+  const offline = !!(api.env && api.env.online === false);
+  // Catatan offline di dialog mengikuti event host app.online/app.offline selama dialog terbuka.
+  React.useEffect(() => {
+    if (!pv) return undefined;
+    const offs = [];
+    try {
+      for (const ev of ["app.online", "app.offline"]) offs.push(api.events.on(ev, () => setNet(x => x + 1)));
+    } catch (e) {
+      logWarn(api, "pendengar online gagal:", e);
+    }
+    return () => {
+      for (const off of offs) if (typeof off === "function") off();
+    };
+  }, [!pv]);
+  const userId = () => api.env ? api.env.userId : null;
+  const wbsOfPage = () => {
+    const m = new Map(lay.rows.map(r => [r.key, r.wbs]));
+    return key => m.has(key) ? m.get(key) : null;
+  };
+  // Pratinjau sakelar ON atas ctx: item TLPlan.toggleUnit; "sebelum" = hasil useEngine (tanpa run tambahan);
+  // seedKeys = simpul unit agar lingkaran/jangkar bertabrakan unit tercantum di "Tidak dipindah" (K34).
+  const buildToggle = (ctx, before, recId) => {
+    const t = TLPlan.toggleUnit(ctx, recId, true);
+    if (!t.items.length || !t.result) return {
+      items: [],
+      model: null
+    };
+    const seed = new Set();
+    for (const [k, n] of t.result.nodes) if (n.g === recId) seed.add(k);
+    const pm = TLPlan.preview(t.items, t.result, ctx, before, seed);
+    const wbs = wbsOfPage();
+    return {
+      items: t.items,
+      model: pm ? dialogModel(pm, t.result, wbs) : null,
+      whyOf: planWhy(t.result, ctx, t.items, wbs)
+    };
+  };
+  const setAutoNow = (entry, on) => {
+    toggling.current = true;
+    return Promise.resolve().then(() => un.store.setAuto(entry.unit, on, userId())).then(() => toastSafe(api, on ? MSG_AUTO_ON0 : MSG_AUTO_OFF, "success"), err => {
+      logWarn(api, "unit jadwal gagal disimpan:", err);
+      toastSafe(api, MSG_SAVE_FAIL, "error");
+    }).then(() => {
+      toggling.current = false;
+    });
+  };
+  const toggleEntry = entry => {
+    const e = engRef.current;
+    if (entry.locked || toggling.current || pvRef.current || e.status !== "ready" || !e.ctx || !e.result) return;
+    if (entry.on) {
+      setAutoNow(entry, false); // OFF: tanpa tulis task (tanggal tetap)
+      return;
+    }
+    const recId = entry.unit.recId;
+    const b = buildToggle(e.ctx, e.result, recId);
+    if (!b.items.length) {
+      setAutoNow(entry, true);
+      return;
+    }
+    if (!b.model) return; // preview tanpa "sebelum" sah → tidak ada dialog kosong
+    const uid = userId();
+    setUnitOpen(false);
+    setCalOpen(false); // satu Esc = dialog saja (popover lain tidak ikut mendengar)
+    setPv({
+      id: ++pvSeq.current,
+      title: MSG_PV_ON + entry.label,
+      items: b.items,
+      model: b.model,
+      busy: false,
+      whyOf: b.whyOf,
+      unit: {
+        unit: entry.unit,
+        rep: entry.rep,
+        snap: entry.snap
+      },
+      onDone: () => un.store.setAuto(entry.unit, true, uid),
+      // setMany dulu; setAuto hanya setelah sukses
+      // "sebelum" = mesin atas ctx2 (data terbaru), bukan hasil lama eng.result (K32: endBefore/brokenDeps dari data segar)
+      rebuild: (ctx2, before2, units) => Object.assign(buildToggle(ctx2, engine.run(ctx2), recId), {
+        unit: {
+          unit: entry.unit,
+          rep: entry.rep,
+          snap: unitSnap(TLSched.unitFor(units, entry.rep))
+        }
+      })
+    });
+  };
+  const cancelPv = () => setPv(null);
+  // Task 9 (R13): aliran gestur dengan turunan > 20 → pratinjau "Tinjau jadwal otomatis" (0 tulis sampai Terapkan).
+  // Hitung ulang setelah CAS = gestur yang sama (patch sudah lewat TLPlan.gesture) atas data terbaru.
+  const buildFlow = (ctx, before, gestures, pre) => {
+    const c = pre || TLPlan.cascade(ctx, gestures, before);
+    const items = pre ? pre.items : flowItems(c.items);
+    const pm = items.length ? TLPlan.preview(items, c.result, ctx, before) : null;
+    const wbs = wbsOfPage();
+    return {
+      items,
+      model: pm ? dialogModel(pm, c.result, wbs) : null,
+      whyOf: planWhy(c.result, ctx, items, wbs)
+    };
+  };
+  const openFlowPv = p => {
+    if (pvRef.current) return; // satu dialog pada satu waktu
+    const b = buildFlow(p.ctx, p.before, p.gestures, {
+      items: p.items,
+      result: p.result
+    });
+    if (!b.model) return;
+    setUnitOpen(false);
+    setCalOpen(false); // satu Esc = dialog saja
+    const next = {
+      id: ++pvSeq.current,
+      title: PV_FLOW,
+      items: b.items,
+      model: b.model,
+      busy: false,
+      whyOf: b.whyOf,
+      // K32: "sebelum" dihitung dari ctx2 — turunan yang ES-nya berubah karena SINKRON (bukan gestur) tidak dihitung bergeser.
+      rebuild: ctx2 => buildFlow(ctx2, engine.run(ctx2), p.gestures)
+    };
+    pvRef.current = next;
+    setPv(next);
+  };
+  ctl.cur.openPreview = openFlowPv;
+  // Buka pratinjau milik view (Task 10) bila belum ada dialog; popover lain ditutup (satu Esc = dialog saja).
+  const openPv = spec => {
+    if (pvRef.current) return;
+    setUnitOpen(false);
+    setCalOpen(false);
+    const next = Object.assign({
+      id: ++pvSeq.current,
+      busy: false
+    }, spec);
+    pvRef.current = next;
+    setPv(next);
+  };
+  // Task 10 (R16): "Tinjau" — item = TLPlan.diff dibatasi drift halaman (bannerInfo). Menulis Mulai = ES tidak mengubah
+  // hasil mesin (simpul otomatis non-jangkar), jadi "sebelum" = "sesudah" = result: tanpa run tambahan, tanpa pelanggaran
+  // baru. Hitung ulang setelah CAS: mesin dijalankan atas data terbaru (drift lama tidak dipakai).
+  // Potret unit halaman untuk CAS (ruling 4): updatedAt/by dari useUnits() terbaru (`live`), `auto` = mode yang dipakai
+  // rencana (`plan` = ctx.units mesin). Anggota lain mematikan/menyalakan Otomatis saat dialog terbuka → Terapkan ditolak.
+  const pageSnaps = (plan, live) => pageUnits(lay, pageKind, context.projectName, groupNames).map(x => ({
+    rep: x.rep,
+    snap: unitSnap(TLSched.unitFor(live, x.rep)),
+    auto: unitAuto(TLSched.unitFor(plan, x.rep))
+  }));
+  const freshSnaps = (ctx2, units) => pageSnaps(ctx2.units, units instanceof Map ? units : ctx2.units);
+  const buildReview = (ctx, result) => {
+    const keys = new Set(bannerInfo(result, context.scopeTasks).drift);
+    const items = flowItems(TLPlan.diff(result, ctx, keys));
+    const pm = TLPlan.preview(items, result, ctx, result);
+    const wbs = wbsOfPage();
+    return {
+      items,
+      model: pm ? dialogModel(pm, result, wbs) : EMPTY_PV_MODEL,
+      whyOf: planWhy(result, ctx, items, wbs)
+    };
+  };
+  const openReview = () => {
+    const e = engRef.current;
+    if (e.status !== "ready" || !e.ctx || !e.result) return;
+    const b = buildReview(e.ctx, e.result);
+    openPv({
+      title: PV_FLOW,
+      items: b.items,
+      model: b.model,
+      whyOf: b.whyOf,
+      unit: pageSnaps(e.ctx.units, un.units),
+      rebuild: (ctx2, before2, units) => Object.assign(buildReview(ctx2, engine.run(ctx2)), {
+        unit: freshSnaps(ctx2, units)
+      })
+    });
+  };
+  // Task 10 (R17, K36): Jadwalkan ulang — T = nextWork(dn(hari ini)) menurut kalender unit (eng.ctx.cal), unitKeys =
+  // unit halaman (pageUnits). Selalu pratinjau, juga 0 item (Terapkan nonaktif). Teks pelanggaran memakai
+  // reschedule().broken (bukan preview.brokenDeps). Hitung ulang setelah CAS memakai T yang sama atas data terbaru.
+  const buildResched = (ctx, before, T, unitKeys) => {
+    const r = TLPlan.reschedule(ctx, before, T, unitKeys);
+    const items = flowItems(r.items);
+    const pm = r.result ? TLPlan.preview(items, r.result, ctx, before) : null;
+    const wbs = wbsOfPage();
+    return {
+      items,
+      broken: r.broken,
+      model: pm ? dialogModel(pm, r.result, wbs) : EMPTY_PV_MODEL,
+      whyOf: r.result ? planWhy(r.result, ctx, items, wbs) : undefined
+    };
+  };
+  const openResched = () => {
+    const e = engRef.current;
+    const td = today ? TLCal.dn(today) : null;
+    if (e.status !== "ready" || !e.ctx || !e.result || td === null) return;
+    let T = null;
+    try {
+      T = TLCal.nextWork(e.ctx.cal, td);
+    } catch (err) {
+      logWarn(api, "hari kerja berikutnya tidak ditemukan:", err); // TL_CAL_LOOP: kalender tanpa hari kerja
+      return;
+    }
+    const unitKeys = new Set(pageUnits(lay, pageKind, context.projectName, groupNames).map(x => x.unit.recId));
+    const b = buildResched(e.ctx, e.result, T, unitKeys);
+    openPv({
+      title: PV_RESCHED,
+      items: b.items,
+      model: b.model,
+      broken: b.broken,
+      whyOf: b.whyOf,
+      todayLabel: TLCal.fmtShort(td),
+      unit: pageSnaps(e.ctx.units, un.units),
+      rebuild: (ctx2, before2, units) => Object.assign(buildResched(ctx2, engine.run(ctx2), T, unitKeys), {
+        unit: freshSnaps(ctx2, units)
+      })
+    });
+  };
+  // Banner R16: dihitung sekali per hasil mesin / scopeTasks (bukan tiap render); disembunyikan sebelum mesin siap.
+  const banner = React.useMemo(() => bannerInfo(engResult, context.scopeTasks), [engResult, context.scopeTasks]);
+  const [, setClosed] = React.useState(0);
+  const closeBanner = k => {
+    BANNER_CLOSED.add(k);
+    setClosed(x => x + 1);
+  };
+  const banners = [];
+  if (engResult && banner.drift.length) {
+    const k = bannerKey(page, "drift", banner.drift.length);
+    if (!BANNER_CLOSED.has(k)) banners.push({
+      k,
+      text: driftText(banner.drift.length),
+      action: BANNER_REVIEW,
+      onAction: openReview
+    });
+  }
+  if (engResult && banner.cycle.length) {
+    const k = bannerKey(page, "cycle", banner.cycle.length);
+    const first = banner.first;
+    const open = () => {
+      if (typeof context.onTaskClick === "function") context.onTaskClick(first);
+    };
+    if (!BANNER_CLOSED.has(k)) banners.push({
+      k,
+      text: banner.cycleText,
+      action: BANNER_OPEN,
+      onAction: open
+    });
+  }
+  const bannerEl = banners.length ? renderBanners(banners, closeBanner) : null;
+  // Terapkan (R14): muat ulang daftar lengkap (+ unit) → TLPlan.revalidate (nilai mentah) dan, untuk sakelar, potret
+  // updatedAt/by unit. Berbeda → toast + hitung ulang dari data terbaru (Terapkan perlu ditekan lagi), 0 tulis.
+  const applyPv = () => {
+    const cur = pvRef.current;
+    if (!cur || cur.busy) return;
+    const live = () => pvRef.current && pvRef.current.id === cur.id;
+    const busyPv = Object.assign({}, cur, {
+      busy: true
+    });
+    pvRef.current = busyPv; // seketika: klik ganda sebelum render berikutnya tidak memicu setMany kedua
+    setPv(busyPv);
+    const listP = Promise.resolve().then(() => api.data.tasks.list({
+      includeDone: true
+    }));
+    const unitsP = pvUnitList(cur.unit).length ? Promise.resolve().then(() => un.store.loadUnits(unitPage)) : Promise.resolve(null);
+    Promise.all([listP, unitsP]).then(([l, units]) => {
+      if (!live()) return;
+      const list = Array.isArray(l) ? l : [];
+      const rawNow = new Map();
+      for (const t of list) if (t && t.id !== undefined && t.id !== null) rawNow.set(String(t.id), readExtSafe(api, t));
+      const cas = TLPlan.revalidate(cur.items, rawNow);
+      const unitOk = unitsStillOk(cur.unit, units);
+      if (!cas.ok || !unitOk) {
+        toastSafe(api, MSG_STALE, "error");
+        const e = engRef.current;
+        const base = e.ctx || {};
+        const ctx2 = {
+          tasks: scopeFilter(list, context.scopeTasks),
+          cal: base.cal,
+          units: units instanceof Map ? units : base.units,
+          readExt: base.readExt || (t => readExtSafe(api, t))
+        };
+        const next = cur.rebuild(ctx2, e.result, units);
+        setPv(Object.assign({}, cur, next, {
+          busy: false,
+          model: next.model || EMPTY_PV_MODEL
+        }));
+        return;
+      }
+      setPv(null);
+      ctl.applyPlan(cur.items, {
+        onDone: cur.onDone
+      });
+    }).catch(err => {
+      logWarn(api, "pratinjau gagal diperiksa:", err);
+      toastSafe(api, MSG_SAVE_FAIL, "error");
+      if (live()) setPv(Object.assign({}, cur, {
+        busy: false
+      }));
+    });
+  };
+
+  // Entri unit halaman (urutan kelompok) dengan keadaan sakelar, kunci P3 (a), dan keterangan "Dinyalakan oleh …".
+  const unitsEntries = pageUnits(lay, pageKind, context.projectName, groupNames).map(x => {
+    const u = TLSched.unitFor(un.units, x.rep);
+    // P3 (a), pola ADR-042 #12: catatan tunggu hanya setelah muat pertama selesai (unit tanpa record lokal, belum ada
+    // tarik sukses); selama memuat sakelar nonaktif tanpa catatan.
+    const waiting = un.loaded && pageKind === "workspace" && !(u && u.exists) && !un.pulled;
+    const locked = !un.loaded || waiting;
+    const entry = {
+      key: x.unit.recId,
+      label: x.label,
+      unit: x.unit,
+      rep: x.rep,
+      on: !!(u && u.auto === true),
+      locked,
+      waiting,
+      snap: unitSnap(u),
+      caption: unitCaption(u, context, userId())
+    };
+    entry.onToggle = () => toggleEntry(entry);
+    return entry;
+  });
+  const pageEntry = pageKind === "workspace" ? null : unitsEntries[0];
+  const auto = pageEntry ? {
+    kind: "switch",
+    on: pageEntry.on,
+    disabled: pageEntry.locked,
+    onClick: pageEntry.onToggle
+  } : {
+    kind: "popover",
+    expanded: unitOpen,
+    onClick: () => {
+      setCalOpen(false);
+      setUnitOpen(!unitOpen);
+    }
+  };
   const toolbar = renderToolbar({
     zoom,
     pickZoom,
@@ -3926,9 +7021,20 @@ function TimelineViewBody(props) {
     mode,
     setMode,
     listMode,
+    engReady: ov.ready,
+    crit,
+    setCrit,
     calOpen,
-    toggleCal: () => setCalOpen(!calOpen),
-    calBtnRef
+    toggleCal: () => {
+      setUnitOpen(false);
+      setCalOpen(!calOpen);
+    },
+    calBtnRef,
+    auto,
+    autoBtnRef,
+    collapse: compact,
+    summary,
+    onReschedule: openResched
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
@@ -3946,24 +7052,47 @@ function TimelineViewBody(props) {
     pulled: cal.pulled,
     onClose: closeCal
   }) : null;
+  // Popover unit workspace (R15): Esc / tombol tutup mengembalikan fokus ke "Jadwal otomatis"; klik luar tidak.
+  const closeUnits = how => {
+    setUnitOpen(false);
+    const b = autoBtnRef.current;
+    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+  };
+  const unitPop = unitOpen && pageKind === "workspace" && ov.ready ? /*#__PURE__*/React.createElement(UnitPopover, {
+    entries: unitsEntries,
+    waiting: unitsEntries.some(e => e.waiting),
+    onClose: closeUnits
+  }) : null;
   const top = /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-top"
-  }, toolbar, popover);
+  }, toolbar, popover, unitPop);
+  const dialog = pv && pv.model ? /*#__PURE__*/React.createElement(PreviewDialog, {
+    key: pv.id,
+    title: pv.title,
+    model: pv.model,
+    offline: offline,
+    todayLabel: pv.todayLabel,
+    broken: pv.broken,
+    busy: pv.busy,
+    whyOf: pv.whyOf,
+    onApply: applyPv,
+    onCancel: cancelPv
+  }) : null;
   if (!hasRows) {
     return /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline"
     }, top, /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline-empty"
-    }, MSG_EMPTY));
+    }, MSG_EMPTY), dialog);
   }
   if (listMode) {
     return /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline"
-    }, top, ListFallback({
+    }, top, bannerEl, ListFallback({
       rows: lay.rows,
       cal: lay.cal,
       onTaskClick: context.onTaskClick
-    }));
+    }), dialog);
   }
   const v = {
     lay,
@@ -3977,11 +7106,13 @@ function TimelineViewBody(props) {
     todayDn,
     groupNames,
     ix,
-    isSel
+    isSel,
+    ov,
+    crit
   };
   return /*#__PURE__*/React.createElement("div", {
     className: cx("plg-timeline", compact && "is-compact")
-  }, top, /*#__PURE__*/React.createElement("div", {
+  }, top, bannerEl, /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-scroll",
     ref: scrollRef,
     onScroll: onScroll,
@@ -4002,7 +7133,7 @@ function TimelineViewBody(props) {
       width: tableW,
       height: bodyH
     }
-  }, renderTableRows(v)), renderChart(v))), renderLegend(lay, footRef));
+  }, renderTableRows(v)), renderChart(v))), renderLegend(lay, footRef, crit), dialog);
 }
 
 // 4g. Seksi "Jadwal" di detail task (Task 10; spec §8.8, Q5; R7, R8, R10, R15, R16, R17). Slot taskDetail.sections,
@@ -4040,6 +7171,243 @@ const SEC_REFRESH_MS = 2000; // muat ulang daftar task saat seksi difokus/disent
 const SEC_TIMING = {
   startDebounceMs: 700
 };
+
+// 1c-1 R20 (Task 11): mode per task (tingkat 1 "Selengkapnya") dan kartu otomatis terlipat (tingkat 2).
+const SEC_MODE = "Mode";
+const SEC_MODE_MANUAL = "Manual";
+const SEC_MODE_AUTO = "Otomatis";
+const SEC_MODE_UNIT = "sama dengan project";
+const SEC_CRIT = "Di jalur kritis";
+const SEC_UPDATE = "Perbarui";
+const SEC_WAIT = "menunggu ";
+const SEC_FOLLOW = "diikuti ";
+const SEC_SLACK = "slack ";
+const SEC_LINK_MAX = 2; // R20: maks 2 pendahulu/penerus + "…"
+const SEC_WBS_TITLE_MAX = 24; // R20: tanpa nomor WBS → judul ≤ 24 karakter
+const SEC_MODES = [["manual", SEC_MODE_MANUAL], ["auto", SEC_MODE_AUTO]];
+const SEC_ITEM_KEYS = ["start", "duration", "constraint", "mode"]; // kunci `before` item rencana (R11)
+
+function secLateChip(n) {
+  return "lewat tenggat " + n + " hk";
+}
+function secDriftText(es) {
+  return "Belum mutakhir — hasil hitung " + TLCal.fmtShort(es) + ".";
+}
+function secShiftText(n) {
+  return "Mengubah task ini menggeser " + n + " task otomatis";
+}
+
+// Label task di baris dependensi kartu: nomor WBS daftar lengkap scope; tanpa nomor → judul ≤ 24 karakter (sadar surrogate).
+function secWbsLabel(wbs, task) {
+  const w = wbs.get(String(task.id));
+  if (w) return w;
+  let t = taskTitle(task);
+  if (t.length <= SEC_WBS_TITLE_MAX) return t;
+  t = t.slice(0, SEC_WBS_TITLE_MAX - 1);
+  const c = t.charCodeAt(t.length - 1);
+  if (c >= 0xd800 && c <= 0xdbff) t = t.slice(0, -1);
+  return t + "…";
+}
+
+// Lag pendahulu: 0 → tanpa keterangan; selain itu " (+n hk)" / " (−n hk)" (minus U+2212, pola slackText).
+function secLagText(lag) {
+  if (!Number.isFinite(lag) || lag === 0) return "";
+  return " (" + (lag > 0 ? "+" : "−") + Math.abs(lag) + " hk)";
+}
+
+// Baris kartu tingkat 2: "menunggu {WBS} (+{lag} hk) · diikuti {WBS} · slack {teks R18}" — sisi pendahulu dari
+// result.pred (urutan deps tersimpan), penerus dari result.succ; bagian kosong dihilangkan, slack selalu ada.
+function secLinksText(eng) {
+  const {
+    result,
+    node,
+    wbs
+  } = eng;
+  const nameOf = key => {
+    const n = result.nodes.get(key);
+    return n ? secWbsLabel(wbs, n.task) : key;
+  };
+  const cap = a => a.length > SEC_LINK_MAX ? a.slice(0, SEC_LINK_MAX).concat(["…"]) : a;
+  const preds = (result.pred.get(node.key) || []).map(p => nameOf(p.key) + secLagText(p.lag));
+  const succs = (result.succ.get(node.key) || []).map(nameOf);
+  const parts = [];
+  if (preds.length) parts.push(SEC_WAIT + cap(preds).join(", "));
+  if (succs.length) parts.push(SEC_FOLLOW + cap(succs).join(", "));
+  parts.push(SEC_SLACK + slackText(node.slack));
+  return parts.join(" · ");
+}
+
+// Turunan otomatis non-jangkar dari `key` (BFS result.succ, hanya menembus simpul otomatis non-jangkar: jangkar
+// menahan aliran) → Set kunci tanpa `key` sendiri. Ukurannya = "Mengubah task ini menggeser {n} task otomatis";
+// isinya + `key` = batas diff "Perbarui".
+function secAutoReach(result, key) {
+  const out = new Set();
+  const seen = new Set([key]);
+  const stack = [key];
+  while (stack.length) {
+    for (const s of result.succ.get(stack.pop()) || []) {
+      if (seen.has(s)) continue;
+      seen.add(s);
+      const n = result.nodes.get(s);
+      if (!n || n.fixed || n.mode !== "auto") continue;
+      out.add(s);
+      stack.push(s);
+    }
+  }
+  return out;
+}
+
+// 1c-1 R20 tingkat 3 (Task 12): Batasan, Dependensi bertipe, "Kenapa", "Ubah ke Manual" (teks persis §7.6).
+const SEC_EDIT = "Ubah";
+const SEC_CST = "Batasan";
+const SEC_CST_KIND = "Jenis batasan";
+const SEC_CST_DATE = "Tanggal batasan";
+const SEC_CSTS = [["", "Secepatnya (ASAP)"], ["SNET", "Mulai tidak lebih awal dari"], ["MFO", "Harus selesai pada"]];
+const SEC_WAITS = "Menunggu";
+const SEC_FOLLOWS = "Diikuti oleh";
+const SEC_TYPES = [["FS", "Selesai → Mulai (FS)"], ["SS", "Mulai → Mulai (SS)"], ["FF", "Selesai → Selesai (FF)"], ["SF", "Mulai → Selesai (SF)"]];
+const SEC_WHY = "Kenapa dijadwalkan di sini?";
+const SEC_TO_MANUAL = "Ubah ke Manual";
+
+// ── "Kenapa dijadwalkan di sini?" (R21) ──
+// whyText(ex, ctx) → Array<string | {b: string}> (murni). ex = hasil explain mesin; ctx = {label(key) → "{WBS} {judul}",
+// title(key) → judul, d?: durasi simpul (hari kerja)}. Kalimat Mulai per jenis, lalu (bila ada tanggal dan durasi ≥ 1)
+// "Durasi {d} hari kerja[ melompati {daftar}], jadi selesai **{tglF}**" + tenggat ", {k} hari kerja setelah tenggat {tglDl}."
+// atau ".". d = ctx.d (milestone 0 tidak bisa dibedakan dari 1 hari tanpa itu), cadangan rentang − durSkipped (= hari
+// bukan kerja di [start, finish]); hari bukan kerja di ujung rentang (Manual tersimpan di
+// akhir pekan: hari mulai sendiri) tidak disebut "melompati". Daftar hari: akhir pekan berurutan "Sab–Min", libur/cuti =
+// nama (berurutan bernama sama = satu sebutan), hari lain = tanggal; maks 6 hari disebut lalu "dan {n} hari lain".
+const WHY_TEXT = {
+  root: "Mulai di tanggal yang kamu tentukan.",
+  manual: "Task ini Manual: tanggal mengikuti yang kamu isi.",
+  done: "Task ini sudah selesai: tanggalnya tidak dihitung ulang.",
+  started: "Task ini sudah mulai: tanggal mulainya dikunci.",
+  unscheduled: "Belum dijadwalkan."
+};
+const WHY_LIST_MAX = 6;
+const WHY_WEEKEND = "Sab–Min";
+const WHY_DAY = {
+  Sabtu: "Sabtu",
+  Minggu: "Minggu"
+};
+
+// Hari {dn, why, name?} (urut naik) → kelompok sebutan [{label, n}]: Sabtu+Minggu berurutan = satu kelompok; libur/cuti
+// berurutan dengan nama sama = satu kelompok; selain itu per hari. Lebih dari satu kelompok akhir pekan → diberi tanggal.
+function whyGroups(days) {
+  const list = days.slice().sort((a, b) => a.dn - b.dn);
+  const groups = [];
+  for (const x of list) {
+    const last = groups[groups.length - 1];
+    const prev = last ? last.days[last.days.length - 1] : null;
+    const next = !!prev && x.dn === prev.dn + 1;
+    if (next && last.kind === "wk" && prev.why === "Sabtu" && x.why === "Minggu" && last.days.length === 1) last.days.push(x);else if (next && last.kind === "name" && x.name && x.name === last.name && (x.why === "libur" || x.why === "cuti")) last.days.push(x);else if (x.why === "Sabtu" || x.why === "Minggu") groups.push({
+      kind: "wk",
+      days: [x]
+    });else if ((x.why === "libur" || x.why === "cuti") && x.name) groups.push({
+      kind: "name",
+      name: x.name,
+      days: [x]
+    });else groups.push({
+      kind: "day",
+      days: [x]
+    });
+  }
+  const wkCount = groups.filter(g => g.kind === "wk").length;
+  return groups.map(g => {
+    const first = g.days[0];
+    const lastDay = g.days[g.days.length - 1];
+    let label;
+    if (g.kind === "name") label = g.name;else if (g.kind === "day") label = TLCal.fmtShort(first.dn);else if (g.days.length === 2) {
+      if (wkCount === 1) label = WHY_WEEKEND;else {
+        const a = TLCal.fmtShort(first.dn).split(" ");
+        const b = TLCal.fmtShort(lastDay.dn).split(" ");
+        label = a[0] + " " + a[1] + (a[2] === b[2] ? "" : " " + a[2]) + "–" + b[0] + " " + b[1] + " " + b[2];
+      }
+    } else label = wkCount === 1 ? WHY_DAY[first.why] : TLCal.fmtShort(first.dn);
+    return {
+      label,
+      n: g.days.length
+    };
+  });
+}
+function whyList(days) {
+  const groups = whyGroups(days);
+  const total = groups.reduce((a, g) => a + g.n, 0);
+  const shown = [];
+  let used = 0;
+  for (const g of groups) {
+    if (shown.length && used + g.n > WHY_LIST_MAX) break;
+    shown.push(g.label);
+    used += g.n;
+  }
+  return shown.join(", ") + (total > used ? " dan " + (total - used) + " hari lain" : "");
+}
+function whyText(ex, ctx) {
+  const e = ex && typeof ex === "object" ? ex : {
+    kind: "unscheduled"
+  };
+  const cx2 = ctx && typeof ctx === "object" ? ctx : {};
+  const label = k => typeof cx2.label === "function" ? String(cx2.label(k)) : String(k);
+  const title = k => typeof cx2.title === "function" ? String(cx2.title(k)) : String(k);
+  const dated = Number.isInteger(e.start) && Number.isInteger(e.finish);
+  const out = [];
+  const say = p => {
+    if (typeof p === "string" && typeof out[out.length - 1] === "string") out[out.length - 1] += p;else out.push(p);
+  };
+  const kind = e.kind;
+  if (kind === "cycle") {
+    const w = Array.isArray(e.cycleWith) ? e.cycleWith.map(title) : [];
+    // "dirinya sendiri": cadangan defensif untuk lingkaran diri (cycleWith kosong) — hanya data rusak (canLink menolak
+    // dependensi ke diri sendiri); teks di luar R28 (dicatat controller untuk T14).
+    say("Dependensinya melingkar dengan " + (w.length ? w.join(", ") : "dirinya sendiri") + "; tidak dihitung.");
+    return out;
+  }
+  if (!dated || kind === "unscheduled") return [WHY_TEXT.unscheduled];
+  if (kind === "done") return [WHY_TEXT.done];
+  if (kind === "pred") {
+    const lag = Number.isFinite(e.lag) ? e.lag : 0;
+    const days = (lag > 0 && Array.isArray(e.lagDays) ? e.lagDays.map(dn => ({
+      dn,
+      why: "lag"
+    })) : []).concat(Array.isArray(e.skipped) ? e.skipped : []);
+    const side = e.type === "SS" || e.type === "SF" ? " mulai " : " selesai ";
+    say("Mulai ");
+    say({
+      b: TLCal.fmtShort(e.start)
+    });
+    say(" karena menunggu ");
+    say({
+      b: label(e.pred)
+    });
+    say(side + (Number.isInteger(e.base) ? TLCal.fmtShort(e.base) : "—"));
+    if (lag !== 0) say(", ditambah lag " + (lag < 0 ? "−" + -lag : lag) + " hari");
+    if (days.length) say(" (" + whyList(days) + " dilewati)");
+    say(".");
+  } else if (kind === "snet") {
+    say("Mulai ");
+    say({
+      b: TLCal.fmtShort(e.start)
+    });
+    say(" karena batasan: mulai tidak lebih awal dari " + TLCal.fmtShort(Number.isInteger(e.base) ? e.base : e.start) + ".");
+  } else if (kind === "mfo") say("Harus selesai pada " + TLCal.fmtShort(e.finish) + " (batasan).");else say(WHY_TEXT[kind] || WHY_TEXT.root);
+  // Kalimat durasi + tenggat
+  const span = e.finish - e.start + 1;
+  const skip = (Array.isArray(e.durSkipped) ? e.durSkipped : []).filter(x => x && Number.isInteger(x.dn) && x.dn >= e.start && x.dn <= e.finish);
+  const d = Number.isInteger(cx2.d) ? cx2.d : span - skip.length;
+  if (d < 1) return out; // milestone
+  const set = new Set(skip.map(x => x.dn));
+  let lo = e.start;
+  while (set.has(lo)) lo++;
+  let hi = e.finish;
+  while (set.has(hi)) hi--;
+  const inner = skip.filter(x => x.dn > lo && x.dn < hi);
+  say(" Durasi " + d + " " + SEC_HK + (inner.length ? " melompati " + whyList(inner) : "") + ", jadi selesai ");
+  say({
+    b: TLCal.fmtShort(e.finish)
+  });
+  say(e.late > 0 && Number.isInteger(e.deadline) ? ", " + e.late + " " + SEC_HK + " setelah tenggat " + TLCal.fmtShort(e.deadline) + "." : ".");
+  return out;
+}
 function secBadText(n) {
   return n + " dependensi rusak atau tidak dikenali versi ini";
 }
@@ -4090,7 +7458,7 @@ function revertRaw(raw, patch, before) {
   return out;
 }
 
-// Dependensi tampil dari deps mentah: [{i: indeks mentah, key, lag}] (sah, unik, ≤ 20); bad = sisanya (rusak, tipe
+// Dependensi tampil dari deps mentah: [{i: indeks mentah, key, lag, type}] (sah, unik, ≤ 20); bad = sisanya (rusak, tipe
 // yang belum dikenal versi ini seperti SS, ganda, atau deps bukan array). Item mentah tidak pernah ditulis ulang
 // lewat sanitasi (kebijakan Task 8): ubah/hapus menyentuh satu indeks, sisanya apa adanya.
 function depRowsOf(raw) {
@@ -4106,7 +7474,8 @@ function depRowsOf(raw) {
     rows.push({
       i,
       key: d.key,
-      lag: d.lag
+      lag: d.lag,
+      type: d.type
     });
   });
   const bad = raw.deps === undefined || raw.deps === null ? 0 : Array.isArray(raw.deps) ? list.length - rows.length : 1;
@@ -4334,6 +7703,11 @@ function ScheduleBody(props) {
   // berubah selama tidak ada tulis berjalan dan tidak ada draf input. Sumber yang sudah menyusul (sama dengan lokal)
   // hanya memperbarui kunci.
   const inflight = React.useRef(0);
+  // Fix T11: tulis berjalan seksi — set 1b (promise selesai per tulis) dan writeMany (satu sekaligus + kunci task-nya);
+  // Urungkan menunggu keduanya, set 1b pada task yang sedang di-setMany diabaikan.
+  const singleRef = React.useRef(new Set());
+  const manyRef = React.useRef(null);
+  const manyKeys = React.useRef(new Set());
   const [loc, setLoc] = React.useState(() => ({
     id: tid,
     key: srcKey,
@@ -4379,6 +7753,17 @@ function ScheduleBody(props) {
   const target = calTarget(task.list_id);
   const cal = useCalendar(api, target);
   const c = React.useMemo(() => TLCal.compile(cal.data), [cal.data]);
+  // 1c-1 R20: unit jadwal task (mode efektif). Workspace → record project scope list (projectStore.loadUnits jalur
+  // daftar); pribadi → satu record unitOf(task) (jalur get). Penjaga tabrakan fold di TLSched.unitFor / modeOf.
+  const wsTask = target.scope !== "user";
+  const pageKind = wsTask ? "workspace" : "project";
+  const un = useUnits(api, wsTask ? {
+    pageKind,
+    listId: task.list_id
+  } : {
+    pageKind,
+    projectName: task.project
+  });
   React.useEffect(() => {
     loadRef.current.alive = true;
     loadAll();
@@ -4404,6 +7789,102 @@ function ScheduleBody(props) {
   const selfLive = listedSelf || task;
   const readOther = t => TLSched.readSched(t === selfLive ? raw : readExtSafe(api, t));
 
+  // 1c-1 R20 secEngine = {result, node, wbs, ctx}: mesin seksi sendiri atas daftar LENGKAP scope task (`all` 1b; ext
+  // task ini = nilai lokal optimistis). Dihitung di useMemo HANYA setelah `all` ada — render pertama tidak menjalankan
+  // mesin. Tidak pernah menulis (R25): drift hanya ditampilkan, tulisan berasal dari klik Mode / "Perbarui".
+  const rawKey = stableKey(raw);
+  const unitsKey = unitsKeyOf(un.units);
+  const secEngine = React.useMemo(() => {
+    if (all === null) return null;
+    const scope = scopeFilter(all, [selfLive]);
+    if (scope.indexOf(selfLive) < 0) scope.push(selfLive);
+    const readExt = t => t === selfLive ? raw : readExtSafe(api, t);
+    try {
+      const ctx = {
+        tasks: scope,
+        cal: c,
+        units: un.units,
+        readExt
+      };
+      const result = engine.run(ctx);
+      const wbs = TLLayout.wbsMap(scope, pageKind, t => TLSched.readSched(readExt(t)));
+      return {
+        result,
+        node: result.nodes.get(String(selfLive.id)) || null,
+        wbs,
+        ctx,
+        self: selfLive
+      };
+    } catch (e) {
+      logWarn(api, "mesin jadwal seksi gagal:", e);
+      return null;
+    }
+  }, [all, selfLive, rawKey, unitsKey, c, pageKind]);
+  const effMode = TLSched.modeOf(raw, un.units, selfLive);
+  const unitU = TLSched.unitFor(un.units, selfLive);
+  const unitMode = unitU && unitU.auto === true ? "auto" : "manual";
+  // Task 12: simpul otomatis terhitung = tingkat 2/3 (Mulai otomatis = teks + "Ubah" → R12).
+  const autoNode = effMode === "auto" && secEngine && secEngine.node && secEngine.node.es !== null && secEngine.node.ef !== null ? secEngine.node : null;
+  // Mesin seksi atas daftar segar (hitung ulang PreviewCard setelah CAS gagal): semua ext dari daftar terbaru.
+  const runSec = list => {
+    const me = TLSched.buildIndex(list).get(String(selfLive.id)) || selfLive;
+    const scope = scopeFilter(list, [me]);
+    if (scope.indexOf(me) < 0) scope.push(me);
+    const readExt = t => readExtSafe(api, t);
+    try {
+      const ctx = {
+        tasks: scope,
+        cal: c,
+        units: un.units,
+        readExt
+      };
+      const result = engine.run(ctx);
+      const wbs = TLLayout.wbsMap(scope, pageKind, t => TLSched.readSched(readExt(t)));
+      return {
+        result,
+        node: result.nodes.get(String(me.id)) || null,
+        wbs,
+        ctx,
+        self: me
+      };
+    } catch (e) {
+      logWarn(api, "mesin jadwal seksi gagal:", e);
+      return null;
+    }
+  };
+
+  // Task 12 state tingkat 3 (semua per task: nilai = tid saat aktif): "Ubah" Mulai otomatis, "Kenapa" terbuka, kartu
+  // pratinjau aliran > CASCADE_MAX ({id, tid, op, items, model, busy}; ref = penjaga sinkron klik ganda Terapkan).
+  const [editStart, setEditStart] = React.useState(null);
+  const [whyOpen, setWhyOpen] = React.useState(null);
+  const [card, setCardS] = React.useState(null);
+  const cardRef = React.useRef(null);
+  const cardSeq = React.useRef(0);
+  const setCard = v => {
+    cardRef.current = v;
+    setCardS(v);
+  };
+  // R21: explain HANYA saat "Kenapa" dibuka (terlipat bawaan), atas hasil + kalender + readExt run seksi yang sama.
+  const whyParts = React.useMemo(() => {
+    if (whyOpen !== tid || !autoNode) return null;
+    const eng = secEngine;
+    const ex = engine.explain(eng.result, autoNode.key, eng.ctx.cal, eng.ctx.readExt);
+    const taskOf = k => {
+      const n = eng.result.nodes.get(String(k));
+      return n ? n.task : view.idx.get(String(k)) || null;
+    };
+    const title = k => taskTitle(taskOf(k));
+    const label = k => {
+      const w = eng.wbs.get(String(k));
+      return (w ? w + " " : "") + title(k);
+    };
+    return whyText(ex, {
+      label,
+      title,
+      d: autoNode.d
+    });
+  }, [whyOpen, tid, secEngine, autoNode, view.idx]);
+
   // ---- tulis ----
   const setDraft = (name, value) => setLoc(p => p.id === tid ? Object.assign({}, p, {
     d: Object.assign({}, p.d, {
@@ -4419,6 +7900,10 @@ function ScheduleBody(props) {
     });
   });
   const write = (patch, draftName) => {
+    if (manyRef.current && manyKeys.current.has(String(writeId))) {
+      if (draftName) clearDraft(draftName); // task ini sedang ditulis massal → diabaikan (aturan sibuk)
+      return;
+    }
     const before = raw;
     setLoc(p => {
       if (p.id !== tid) return p;
@@ -4447,14 +7932,262 @@ function ScheduleBody(props) {
       inflight.current = Math.max(0, inflight.current - 1);
       setTick(n => n + 1); // render ulang: props yang menyusul selama tulis kini boleh men-seed
     });
+    const settled = p.then(() => undefined, () => undefined);
+    singleRef.current.add(settled);
+    settled.then(() => singleRef.current.delete(settled));
   };
-  const writeSched = (p, draftName) => {
-    const san = TLSched.sanitizePatch(p);
-    if (!san.ok) {
-      if (draftName) clearDraft(draftName);
+  // R20 "Aliran dari seksi" (fix T11 + Task 12; R12: perubahan start/duration/deps/mode/constraint mengalir K32):
+  // op(eng) → {items (flowItems), after} atas mesin seksi. 0 item → diam. Turunan > CASCADE_MAX → PreviewCard (0 tulis
+  // sampai Terapkan; draf dibuang). 1..20 → writeMany + "Jadwal diubah · {n} task ikut bergeser". 0 turunan: `single`
+  // (edit isian/dependensi) → set 1b dengan patch item task ini; selain itu (Mode, Perbarui) → writeMany "Jadwal diubah".
+  const runFlow = (op, o) => {
+    const r = op(secEngine);
+    const items = r.items;
+    if (!items.length) {
+      if (o.draft) clearDraft(o.draft);
       return;
     }
-    write(san.patch, draftName);
+    const down = items.filter(it => !isSelf(it.task)).length;
+    if (down > TLPlan.CASCADE_MAX) {
+      if (o.draft) clearDraft(o.draft);
+      setCard({
+        id: ++cardSeq.current,
+        tid,
+        op,
+        items,
+        model: cardModel(secEngine, r),
+        busy: false
+      });
+      return;
+    }
+    const mine = items.find(it => isSelf(it.task));
+    if (!down && o.single && mine) {
+      write(mine.patch, o.draft);
+      return;
+    }
+    writeMany(items, {
+      text: down ? flowText(down) : MSG_CHANGED,
+      draft: o.draft
+    });
+  };
+  // Patch task ini → TLPlan.cascade. Patch `deps` = larik mentah apa adanya (kebijakan Task 8: item lain tidak pernah
+  // ditulis ulang lewat sanitasi — cascade memakai bentuk bersih untuk menghitung, item task ini menulis larik mentah).
+  const cascadeOp = patch => eng => {
+    const r = TLPlan.cascade(eng.ctx, [{
+      task: eng.self,
+      patch
+    }], eng.result);
+    let items = flowItems(r.items);
+    if ("deps" in patch) items = items.map(it => isSelf(it.task) ? Object.assign({}, it, {
+      patch: Object.assign({}, it.patch, {
+        deps: patch.deps
+      })
+    }) : it);
+    return {
+      items,
+      after: r.result
+    };
+  };
+  // Model PreviewCard: TLPlan.preview (sebelum = hasil mesin seksi saat itu) + WBS seksi.
+  const cardModel = (eng, r) => {
+    const pm = TLPlan.preview(r.items, r.after, eng.ctx, eng.result);
+    return pm ? dialogModel(pm, r.after, k => eng.wbs.get(k) || "") : EMPTY_PV_MODEL;
+  };
+  const writeSched = (p, draftName) => {
+    let patch = p;
+    if (!("deps" in p)) {
+      const san = TLSched.sanitizePatch(p);
+      if (!san.ok) {
+        if (draftName) clearDraft(draftName);
+        return;
+      }
+      patch = san.patch;
+    }
+    if (!secEngine) {
+      write(patch, draftName);
+      return;
+    }
+    runFlow(cascadeOp(patch), {
+      single: true,
+      draft: draftName
+    });
+  };
+  // PreviewCard Terapkan (R14): muat ulang daftar lengkap → TLPlan.revalidate (nilai mentah). Berubah → toast "Data
+  // berubah sejak pratinjau dibuka — hitung ulang" + kartu dihitung ulang dari daftar terbaru (op yang sama), 0 tulis.
+  // Sama → SATU setMany lewat writeMany + "Jadwal diterapkan · {n} task" + Urungkan. Tulis massal berjalan → diabaikan
+  // (aturan sibuk T11; kartu tetap). Batal = tutup, 0 tulis.
+  const cancelCard = () => setCard(null);
+  const applyCard = () => {
+    const cd = cardRef.current;
+    if (!cd || cd.busy || manyRef.current) return;
+    const busy = Object.assign({}, cd, {
+      busy: true
+    });
+    setCard(busy);
+    loadAll().then(list => {
+      if (cardRef.current !== busy) return;
+      if (!list) {
+        toastSafe(api, MSG_SAVE_FAIL, "error");
+        setCard(cd);
+        return;
+      }
+      const rawNow = new Map();
+      for (const t of list) if (t && t.id !== undefined && t.id !== null) rawNow.set(String(t.id), readExtSafe(api, t));
+      if (!TLPlan.revalidate(cd.items, rawNow).ok) {
+        toastSafe(api, MSG_STALE, "error");
+        const eng = runSec(list);
+        if (!eng) {
+          setCard(null);
+          return;
+        }
+        const r = cd.op(eng);
+        setCard(Object.assign({}, cd, {
+          items: r.items,
+          model: cardModel(eng, r),
+          busy: false
+        }));
+        return;
+      }
+      setCard(null);
+      writeMany(cd.items, {
+        text: appliedText(cd.items.length)
+      });
+    });
+  };
+
+  // 1c-1 R20/R25 writeMany(items, {text, undo}) — pintu tulis massal seksi: SATU api.taskExt.setMany untuk semua item
+  // ([{task, patch, before}] dari TLPlan); patch task ini langsung ke state lokal optimistis (diselaraskan seed 1b saat
+  // host memperbarui props/daftar). Sukses → toast `text` + Urungkan (= writeMany(undoItems), tanpa toast sukses) dan
+  // daftar dimuat ulang (turunan terbaru). Gagal → nilai lokal kembali + "Jadwal gagal disimpan"; sebagian (err.applied)
+  // → "Sebagian jadwal gagal disimpan ({k} dari {n})" + Urungkan hanya yang tersimpan. Satu tulis massal sekaligus:
+  // klik berikutnya selama berjalan diabaikan, Urungkan menunggu. → Promise<boolean>, tidak pernah reject.
+  const isSelf = t => !!t && (t === selfLive || String(t.id) === String(selfLive.id));
+  const idOf = t => isSelf(t) ? writeId : t.id; // task ini: id terkini dari daftar (penjaga salinan modal basi)
+  const writeMany = (items, opts) => {
+    const o = opts || {};
+    const list = (Array.isArray(items) ? items : []).filter(it => it && it.task && it.patch);
+    if (!list.length) return Promise.resolve(false);
+    if (manyRef.current) {
+      if (o.undo) return manyRef.current.then(() => writeMany(list, o));
+      if (o.draft) clearDraft(o.draft);
+      return Promise.resolve(false);
+    }
+    const mine = list.find(it => isSelf(it.task)) || null;
+    const before = raw;
+    if (mine || o.draft) {
+      setLoc(p => {
+        if (p.id !== tid) return p;
+        const d = Object.assign({}, p.d);
+        if (o.draft) delete d[o.draft];
+        return Object.assign({}, p, {
+          raw: mine ? applyRaw(p.raw, mine.patch) : p.raw,
+          d
+        });
+      });
+    }
+    inflight.current += 1;
+    manyKeys.current = new Set(list.map(it => String(idOf(it.task))));
+    let p;
+    try {
+      p = Promise.resolve(api.taskExt.setMany(list.map(it => ({
+        taskId: idOf(it.task),
+        patch: it.patch
+      }))));
+    } catch (e) {
+      p = Promise.reject(e);
+    }
+    // Urungkan: tunggu writeMany yang berjalan dan set 1b task ini yang belum selesai (pola undoAction T9), lalu kirim.
+    const undoOf = done => ({
+      label: MSG_UNDO,
+      onClick: () => {
+        const u = TLPlan.undoItems(done);
+        const send = () => {
+          const waits = manyRef.current ? [manyRef.current] : [];
+          if (done.some(it => isSelf(it.task))) for (const w of singleRef.current) waits.push(w);
+          if (waits.length) {
+            Promise.all(waits).then(send);
+            return;
+          }
+          writeMany(u.map((x, i) => ({
+            task: done[i].task,
+            patch: x.patch
+          })), {
+            undo: true
+          });
+        };
+        send();
+      }
+    });
+    const run = p.then(() => {
+      if (!o.undo) toastSafe(api, o.text || MSG_CHANGED, "success", undoOf(list));
+      loadAll();
+      return true;
+    }, err => {
+      logWarn(api, "jadwal gagal disimpan:", err);
+      const ids = err && Array.isArray(err.applied) ? new Set(err.applied.map(String)) : null;
+      const saved = ids ? list.filter(it => ids.has(String(idOf(it.task)))) : [];
+      if (mine && saved.indexOf(mine) < 0) {
+        setLoc(q => q.id === tid ? Object.assign({}, q, {
+          raw: revertRaw(q.raw, mine.patch, before)
+        }) : q);
+      }
+      if (!saved.length || o.undo) toastSafe(api, MSG_SAVE_FAIL, "error");else toastSafe(api, partialText(list.length - saved.length, list.length), "error", undoOf(saved));
+      if (saved.length) loadAll();
+      return false;
+    }).then(r => {
+      manyRef.current = null;
+      manyKeys.current = new Set();
+      inflight.current = Math.max(0, inflight.current - 1);
+      setTick(n => n + 1);
+      return r;
+    });
+    manyRef.current = run;
+    return run;
+  };
+
+  // Aliran dari seksi (K32, R13 semantik cascade): patch task ini → TLPlan.cascade atas secEngine → item tanpa perubahan
+  // dibuang (flowItems) → writeMany. Toast: hanya task ini → "Jadwal diubah"; ada turunan → "Jadwal diubah · {n} task
+  // ikut bergeser". Turunan > CASCADE_MAX → PreviewCard sebelum menulis (Task 12). Mesin gagal → satu item task ini.
+  const flowFrom = patch => {
+    if (secEngine) {
+      runFlow(cascadeOp(patch), {});
+      return;
+    }
+    const before = {};
+    for (const k of SEC_ITEM_KEYS) before[k] = raw[k] === undefined ? null : JSON.parse(JSON.stringify(raw[k]));
+    writeMany([{
+      task: selfLive,
+      key: String(writeId),
+      before,
+      patch
+    }], {
+      text: MSG_CHANGED
+    });
+  };
+  // Kontrol Mode: pilihan = mode unit → {mode: null}, selain itu {mode: pilihan} (TLPlan.modePatch, penjaga fold unit).
+  const pickMode = want => {
+    if (want === effMode) return;
+    const patch = TLPlan.modePatch(selfLive, un.units, want);
+    if ((raw.mode === undefined ? null : raw.mode) === patch.mode) return;
+    flowFrom(patch);
+  };
+  // "Perbarui" (drift task ini): Mulai task ini + turunan otomatis non-jangkar yang drift = TLPlan.diff dibatasi kunci
+  // itu (start = iso(es), tanpa SNET) → SATU setMany. Hanya dari klik; pasang ulang / props berubah tidak menulis.
+  // TLPlan.diff tidak punya `over`: gerbang PreviewCard dihitung runFlow dari jumlah item turunan (Task 12).
+  const updateAuto = () => {
+    if (!secEngine || !secEngine.node) return;
+    runFlow(eng => {
+      if (!eng.node) return {
+        items: [],
+        after: eng.result
+      };
+      const keys = secAutoReach(eng.result, eng.node.key);
+      keys.add(eng.node.key);
+      return {
+        items: flowItems(TLPlan.diff(eng.result, eng.ctx, keys)),
+        after: eng.result
+      };
+    }, {});
   };
 
   // Jepret ke hari kerja seperti seret/klik-jadwalkan (R13, R21): durasi ≥ 1 → nextWork; milestone boleh di hari libur (R6).
@@ -4463,7 +8196,38 @@ function ScheduleBody(props) {
     const n = calSafe(() => TLCal.nextWork(c, TLCal.dn(v)));
     return n === null ? v : TLCal.iso(n);
   };
+  // Task 12 "Ubah" (Mulai otomatis, R12 = aturan jatuh Gantt): sebelum syarat dependensi → toast "Tidak bisa lebih awal
+  // dari dependensinya", 0 tulis; selain itu patch TLPlan.gesture (berpendahulu / ber-SNET → + SNET) lalu mengalir.
+  const commitAutoStart = v => {
+    setEditStart(null);
+    if (v === null) {
+      clearDraft("start");
+      return;
+    }
+    const x = snapStart(v, sched.start === null ? autoNode.d : sched.duration);
+    // Input diisi iso(es): blur/Enter tanpa ubah (juga pada task drift / tanpa Mulai tersimpan) = 0 tulis. Menyelaraskan
+    // Mulai tersimpan dengan hasil hitung adalah tugas "Perbarui" (tanpa SNET), bukan "Ubah".
+    if (x === TLCal.iso(autoNode.es)) {
+      clearDraft("start");
+      return;
+    }
+    const p = {
+      start: x
+    };
+    if (sched.start === null && !Number.isInteger(raw.duration)) p.duration = 1;
+    const g = TLPlan.gesture(secEngine.result, selfLive, raw, p, c);
+    if (!g.ok) {
+      toastSafe(api, MSG_EARLY, "error");
+      clearDraft("start");
+      return;
+    }
+    writeSched(g.patch, "start");
+  };
   const commitStart = v => {
+    if (autoNode) {
+      commitAutoStart(v);
+      return;
+    }
     if (v === null) {
       if (sched.start === null) clearDraft("start");else writeSched({
         start: null,
@@ -4561,7 +8325,7 @@ function ScheduleBody(props) {
       clearDraft(name);
       return;
     }
-    write({
+    writeSched({
       deps: rawDeps.map((it, j) => j === row.i ? Object.assign({}, it, {
         lag: n
       }) : it)
@@ -4569,15 +8333,96 @@ function ScheduleBody(props) {
   };
   const removeDep = row => {
     const next = rawDeps.filter((_, j) => j !== row.i);
-    write({
+    writeSched({
       deps: next.length ? next : null
     }, "lag:" + row.i);
   };
   const cleanBad = () => {
     const keep = deps.rows.map(r => rawDeps[r.i]);
-    write({
+    writeSched({
       deps: keep.length ? keep : null
     });
+  };
+  // Task 12 (R20 "Menunggu"): ganti tipe satu dependensi → deps ditulis ulang UTUH, item lain apa adanya; mengalir.
+  const changeType = (row, type) => {
+    if (type === row.type || TLSched.TYPES.indexOf(type) < 0) return;
+    writeSched({
+      deps: rawDeps.map((it, j) => j === row.i ? Object.assign({}, it, {
+        type
+      }) : it)
+    });
+  };
+  // Batasan (R20/R12): ASAP → constraint null; SNET/MFO dipilih → tanggal bawaan hasil hitung (Mulai / Selesai) agar
+  // memilih jenis tidak menggeser apa pun; tanggal diubah lewat input → {type, date} baru. Semua mengalir.
+  const pickCst = v => {
+    const cur = sched.constraint;
+    if (!autoNode) return;
+    if (v === "") {
+      if (cur) writeSched({
+        constraint: null
+      });
+      return;
+    }
+    if (v !== "SNET" && v !== "MFO" || cur && cur.type === v) return;
+    writeSched({
+      constraint: {
+        type: v,
+        date: TLCal.iso(v === "SNET" ? autoNode.es : autoNode.ef)
+      }
+    });
+  };
+  const commitCst = v => {
+    const cur = sched.constraint;
+    if (!cur || !commitDate(v) || v === cur.date) clearDraft("cst");else writeSched({
+      constraint: {
+        type: cur.type,
+        date: v
+      }
+    }, "cst");
+  };
+  // Tanggal batasan: pola Mulai 1b — change = draf + jeda; blur / Enter = langsung; jeda tertunda saat dilepas disimpan.
+  const cstTimer = React.useRef(null);
+  const cancelCstTimer = () => {
+    const t = cstTimer.current;
+    cstTimer.current = null;
+    if (t) clearTimeout(t.id);
+  };
+  React.useEffect(() => () => {
+    const t = cstTimer.current;
+    cstTimer.current = null;
+    if (t) {
+      clearTimeout(t.id);
+      t.run();
+    }
+  }, [tid]);
+  const onCstChange = e => {
+    const v = e && e.target ? String(e.target.value || "") : "";
+    cancelCstTimer();
+    setDraft("cst", v);
+    if (!commitDate(v)) return;
+    const run = () => commitCst(v);
+    const id = setTimeout(() => {
+      if (cstTimer.current && cstTimer.current.id === id) {
+        cstTimer.current = null;
+        run();
+      }
+    }, SEC_TIMING.startDebounceMs);
+    cstTimer.current = {
+      id,
+      run
+    };
+  };
+  const onCstBlur = e => {
+    cancelCstTimer();
+    const v = e && e.target ? String(e.target.value || "") : "";
+    if (commitDate(v)) commitCst(v);else clearDraft("cst");
+  };
+  const onCstKey = e => {
+    if (!e || e.key !== "Enter") return;
+    if (typeof e.preventDefault === "function") e.preventDefault();
+    cancelCstTimer();
+    const v = e.target ? String(e.target.value || "") : "";
+    if (commitDate(v)) commitCst(v);
   };
 
   // ---- pemilih dependensi (R15, R17) ----
@@ -4611,7 +8456,7 @@ function ScheduleBody(props) {
       if (LINK_MSG[chk.reason]) toastSafe(api, LINK_MSG[chk.reason], "error");
       return;
     }
-    write({
+    writeSched({
       deps: chk.deps
     });
     setPicker(null);
@@ -4631,9 +8476,12 @@ function ScheduleBody(props) {
         lag: r.lag
       });
     }
+    const name = p ? taskTitle(p) : all ? SEC_DELETED : SEC_LOADING;
+    const w = p && secEngine ? secEngine.wbs.get(String(p.id)) : null;
     return {
       row: r,
-      name: p ? taskTitle(p) : all ? SEC_DELETED : SEC_LOADING,
+      name,
+      full: w ? w + " " + name : name,
       outside: !!p && secScopeKey(p) !== secScopeKey(selfLive)
     };
   });
@@ -4641,199 +8489,6 @@ function ScheduleBody(props) {
   const eff = span ? calSafe(() => TLCal.nextWork(c, span.s)) : null;
   const violated = earliest !== null && eff !== null && eff < TLCal.dn(earliest);
   const late = span ? TLSched.deadlineLate(c, span.f, info.deadline) : null;
-  const head = withToggle => /*#__PURE__*/React.createElement("div", {
-    className: "plg-timeline-sec-head"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "plg-timeline-sec-title"
-  }, SEC_TITLE), withToggle ? /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: cx("plg-timeline-sec-more", expanded && "is-open"),
-    "aria-expanded": expanded,
-    onClick: () => {
-      if (expanded) {
-        setForceOpen(false);
-        setOpenPref(false);
-      } else setOpenPref(true);
-    }
-  }, expanded ? SEC_LESS : SEC_MORE) : null);
-
-  // Daftar belum dimuat: hanya kepala seksi (ringkasan tidak berkedip menjadi input lalu berganti).
-  if (all === null) {
-    return /*#__PURE__*/React.createElement("section", {
-      className: "plg-timeline-section",
-      "aria-label": SEC_TITLE,
-      "aria-busy": "true"
-    }, head(false));
-  }
-
-  // Ringkasan (R10): rentang dari subtask, tanpa input.
-  if (summary) {
-    const sp = spanTree(c, selfLive, view.kids, readOther, new Set());
-    const wd = sp ? calSafe(() => TLCal.workdays(c, sp.s, sp.f)) : null;
-    return /*#__PURE__*/React.createElement("section", {
-      className: "plg-timeline-section",
-      "aria-label": SEC_TITLE,
-      onFocus: refreshSoon,
-      onPointerEnter: refreshSoon
-    }, head(false), /*#__PURE__*/React.createElement("p", {
-      className: "plg-timeline-sec-note"
-    }, SEC_SUMMARY), /*#__PURE__*/React.createElement("div", {
-      className: "plg-timeline-sec-range"
-    }, sp ? TLCal.fmtShort(sp.s) + " → " + TLCal.fmtShort(sp.f) + (wd === null ? "" : " · " + wd + " " + SEC_HK) : SEC_SUMMARY_NONE));
-  }
-  const d = cur.d;
-  const startVal = "start" in d ? d.start : sched.start || "";
-  const durVal = "dur" in d ? d.dur : sched.start === null ? "" : String(sched.duration);
-  const milestone = sched.start !== null && sched.duration === 0;
-  const fields = /*#__PURE__*/React.createElement("div", {
-    className: "plg-timeline-sec-row"
-  }, /*#__PURE__*/React.createElement("label", {
-    className: "plg-timeline-field"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "plg-timeline-field-label"
-  }, SEC_START), /*#__PURE__*/React.createElement("input", {
-    type: "date",
-    className: "plg-timeline-input",
-    "aria-label": SEC_START,
-    value: startVal,
-    onChange: onStartChange,
-    onBlur: onStartBlur,
-    onKeyDown: onStartKey
-  })), /*#__PURE__*/React.createElement("label", {
-    className: "plg-timeline-field"
-  }, /*#__PURE__*/React.createElement("span", {
-    className: "plg-timeline-field-label"
-  }, SEC_DUR), /*#__PURE__*/React.createElement("span", {
-    className: "plg-timeline-sec-num"
-  }, /*#__PURE__*/React.createElement("input", {
-    type: "number",
-    className: "plg-timeline-input plg-timeline-num",
-    "aria-label": SEC_DUR + " (" + SEC_HK + ")",
-    min: 1,
-    max: TLSched.DUR_MAX,
-    step: 1,
-    inputMode: "numeric",
-    value: durVal,
-    disabled: sched.start === null || milestone,
-    onChange: e => setDraft("dur", e && e.target ? String(e.target.value) : ""),
-    onBlur: e => commitDur(e && e.target ? e.target.value : ""),
-    onKeyDown: onEnter(commitDur)
-  }), /*#__PURE__*/React.createElement("span", {
-    className: "plg-timeline-sec-unit"
-  }, SEC_HK))));
-  let more = null;
-  if (expanded) {
-    const warns = [];
-    if (late > 0) {
-      warns.push(/*#__PURE__*/React.createElement("div", {
-        key: "late",
-        className: "plg-timeline-sec-warn",
-        role: "status"
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "plg-timeline-sec-warn-icon",
-        "aria-hidden": "true"
-      }, "\u26A0"), /*#__PURE__*/React.createElement("span", {
-        className: "plg-timeline-sec-warn-text"
-      }, secLateText(span.f, late))));
-    }
-    if (violated) {
-      warns.push(/*#__PURE__*/React.createElement("div", {
-        key: "viol",
-        className: "plg-timeline-sec-warn",
-        role: "status"
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "plg-timeline-sec-warn-icon",
-        "aria-hidden": "true"
-      }, "\u26A0"), /*#__PURE__*/React.createElement("span", {
-        className: "plg-timeline-sec-warn-text"
-      }, MSG_VIOLATION), /*#__PURE__*/React.createElement("button", {
-        type: "button",
-        className: "plg-timeline-btn plg-timeline-sec-shift",
-        onClick: () => writeSched({
-          start: earliest
-        })
-      }, SEC_SHIFT)));
-    }
-    more = /*#__PURE__*/React.createElement("div", {
-      className: "plg-timeline-sec-body"
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "plg-timeline-sec-row"
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "plg-timeline-field"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "plg-timeline-field-label"
-    }, SEC_FINISH), /*#__PURE__*/React.createElement("span", {
-      className: "plg-timeline-sec-val",
-      "data-field": "finish"
-    }, span ? TLCal.fmtLong(span.f) : "—")), /*#__PURE__*/React.createElement("div", {
-      className: "plg-timeline-field"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "plg-timeline-field-label"
-    }, SEC_PCT), /*#__PURE__*/React.createElement("span", {
-      className: "plg-timeline-sec-val",
-      "data-field": "pct"
-    }, pctOf(info) + "%"), /*#__PURE__*/React.createElement("span", {
-      className: "plg-timeline-sec-hint"
-    }, SEC_PCT_HINT))), /*#__PURE__*/React.createElement("label", {
-      className: cx("plg-timeline-sec-check", sched.start === null && "is-disabled")
-    }, /*#__PURE__*/React.createElement("input", {
-      type: "checkbox",
-      "aria-label": SEC_MILESTONE,
-      checked: milestone,
-      disabled: sched.start === null,
-      onChange: e => setMilestone(!!(e && e.target && e.target.checked))
-    }), /*#__PURE__*/React.createElement("span", null, SEC_MILESTONE)), warns, depView.length || deps.bad ? /*#__PURE__*/React.createElement("div", {
-      className: "plg-timeline-sec-deps"
-    }, /*#__PURE__*/React.createElement("span", {
-      className: "plg-timeline-field-label"
-    }, SEC_DEPS), depView.length ? /*#__PURE__*/React.createElement("ul", {
-      className: "plg-timeline-deps"
-    }, depView.map(v => {
-      const r = v.row;
-      const dn = "lag:" + r.i;
-      return /*#__PURE__*/React.createElement("li", {
-        key: r.i + ":" + r.key,
-        className: "plg-timeline-dep",
-        "data-key": r.key
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "plg-timeline-dep-main"
-      }, /*#__PURE__*/React.createElement("span", {
-        className: "plg-timeline-dep-name",
-        title: v.name
-      }, v.name), v.outside ? /*#__PURE__*/React.createElement("span", {
-        className: "plg-timeline-dep-note"
-      }, SEC_OUTSIDE) : null), /*#__PURE__*/React.createElement("span", {
-        className: "plg-timeline-dep-type"
-      }, "FS"), /*#__PURE__*/React.createElement("span", {
-        className: "plg-timeline-sec-num"
-      }, /*#__PURE__*/React.createElement("input", {
-        type: "number",
-        className: "plg-timeline-input plg-timeline-num",
-        "aria-label": "Jeda setelah " + v.name + " (" + SEC_HK + ")",
-        min: TLSched.LAG_MIN,
-        max: TLSched.LAG_MAX,
-        step: 1,
-        value: dn in d ? d[dn] : String(r.lag),
-        onChange: e => setDraft(dn, e && e.target ? String(e.target.value) : ""),
-        onBlur: e => commitLag(r, e && e.target ? e.target.value : ""),
-        onKeyDown: onEnter(val => commitLag(r, val))
-      }), /*#__PURE__*/React.createElement("span", {
-        className: "plg-timeline-sec-unit"
-      }, SEC_HK)), /*#__PURE__*/React.createElement("button", {
-        type: "button",
-        className: "plg-timeline-dep-del",
-        "aria-label": "Hapus dependensi " + v.name,
-        title: "Hapus dependensi",
-        onClick: () => removeDep(r)
-      }, "\xD7"));
-    })) : null, deps.bad ? /*#__PURE__*/React.createElement("div", {
-      className: "plg-timeline-sec-bad"
-    }, /*#__PURE__*/React.createElement("span", null, secBadText(deps.bad)), /*#__PURE__*/React.createElement("button", {
-      type: "button",
-      className: "plg-timeline-btn",
-      onClick: cleanBad
-    }, SEC_BAD_BTN)) : null) : null);
-  }
   let pickerEl = null;
   if (picker) {
     const {
@@ -4911,12 +8566,503 @@ function ScheduleBody(props) {
       className: "plg-timeline-pick-note"
     }, SEC_IS_DEP) : null)))));
   }
+  const head = (withToggle, chips) => /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-sec-head"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-sec-title"
+  }, SEC_TITLE), chips || null, withToggle ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: cx("plg-timeline-sec-more", expanded && "is-open"),
+    "aria-expanded": expanded,
+    onClick: () => {
+      if (expanded) {
+        setForceOpen(false);
+        setOpenPref(false);
+      } else setOpenPref(true);
+    }
+  }, expanded ? SEC_LESS : SEC_MORE) : null);
+
+  // Daftar belum dimuat: hanya kepala seksi (ringkasan tidak berkedip menjadi input lalu berganti).
+  if (all === null) {
+    return /*#__PURE__*/React.createElement("section", {
+      className: "plg-timeline-section",
+      "aria-label": SEC_TITLE,
+      "aria-busy": "true"
+    }, head(false));
+  }
+
+  // Ringkasan (R10): rentang dari subtask, tanpa input.
+  if (summary) {
+    const sp = spanTree(c, selfLive, view.kids, readOther, new Set());
+    const wd = sp ? calSafe(() => TLCal.workdays(c, sp.s, sp.f)) : null;
+    return /*#__PURE__*/React.createElement("section", {
+      className: "plg-timeline-section",
+      "aria-label": SEC_TITLE,
+      onFocus: refreshSoon,
+      onPointerEnter: refreshSoon
+    }, head(false), /*#__PURE__*/React.createElement("p", {
+      className: "plg-timeline-sec-note"
+    }, SEC_SUMMARY), /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-sec-range"
+    }, sp ? TLCal.fmtShort(sp.s) + " → " + TLCal.fmtShort(sp.f) + (wd === null ? "" : " · " + wd + " " + SEC_HK) : SEC_SUMMARY_NONE));
+  }
+
+  // 1c-1 R20 kontrol Mode (tingkat 1 "Selengkapnya"; tingkat 2 "Selengkapnya" = awal tingkat 3, dilanjutkan Task 12).
+  const shiftN = effMode === "manual" && secEngine && secEngine.node ? secAutoReach(secEngine.result, secEngine.node.key).size : 0;
+  // part = penanda urutan tingkat 3 (data-part); tingkat 1 tanpa penanda.
+  const modeElOf = part => /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-sec-mode",
+    role: "group",
+    "aria-label": SEC_MODE,
+    "data-part": part
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-field-label"
+  }, SEC_MODE), /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-seg"
+  }, SEC_MODES.map(([m, label]) => /*#__PURE__*/React.createElement("button", {
+    key: m,
+    type: "button",
+    "data-mode": m,
+    className: cx("plg-timeline-seg-btn", effMode === m && "is-active"),
+    "aria-pressed": effMode === m,
+    onClick: () => pickMode(m)
+  }, label, unitMode === m ? /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-seg-note"
+  }, SEC_MODE_UNIT) : null))), shiftN > 0 ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-sec-note plg-timeline-sec-shiftnote"
+  }, secShiftText(shiftN)) : null);
+
+  // Kartu pratinjau aliran > CASCADE_MAX (Task 12; R14/R20): tampil di tingkat 1–3, juga saat terlipat ("Perbarui").
+  const cardEl = card && card.tid === tid ? PreviewCard({
+    model: card.model,
+    busy: card.busy,
+    onApply: applyCard,
+    onCancel: cancelCard
+  }) : null;
+  const d = cur.d;
+  const durVal = "dur" in d ? d.dur : sched.start === null ? "" : String(sched.duration);
+  const milestone = sched.start !== null && sched.duration === 0;
+  const durInput = /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-sec-num"
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: "plg-timeline-input plg-timeline-num",
+    "aria-label": SEC_DUR + " (" + SEC_HK + ")",
+    min: 1,
+    max: TLSched.DUR_MAX,
+    step: 1,
+    inputMode: "numeric",
+    value: durVal,
+    disabled: sched.start === null || milestone,
+    onChange: e => setDraft("dur", e && e.target ? String(e.target.value) : ""),
+    onBlur: e => commitDur(e && e.target ? e.target.value : ""),
+    onKeyDown: onEnter(commitDur)
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-sec-unit"
+  }, SEC_HK));
+  const milestoneEl = part => /*#__PURE__*/React.createElement("label", {
+    className: cx("plg-timeline-sec-check", sched.start === null && "is-disabled"),
+    "data-part": part
+  }, /*#__PURE__*/React.createElement("input", {
+    type: "checkbox",
+    "aria-label": SEC_MILESTONE,
+    checked: milestone,
+    disabled: sched.start === null,
+    onChange: e => setMilestone(!!(e && e.target && e.target.checked))
+  }), /*#__PURE__*/React.createElement("span", null, SEC_MILESTONE));
+  const pctEl = part => /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-field",
+    "data-part": part
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-field-label"
+  }, SEC_PCT), /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-sec-val",
+    "data-field": "pct"
+  }, pctOf(info) + "%"), /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-sec-hint"
+  }, SEC_PCT_HINT));
+  const badEl = deps.bad ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-sec-bad"
+  }, /*#__PURE__*/React.createElement("span", null, secBadText(deps.bad)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn",
+    onClick: cleanBad
+  }, SEC_BAD_BTN)) : null;
+  const addEl = part => picker ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-sec-add",
+    "data-part": part
+  }, pickerEl) : /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-sec-actions",
+    "data-part": part
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-sec-link",
+    onClick: openPicker
+  }, SEC_ADD_DEP));
+
+  // Tingkat 2 (mode efektif otomatis, simpul terhitung): kartu terlipat dari hasil mesin seksi, tanpa input.
+  // "Selengkapnya" → tingkat 3 (R20, urutan tetap): Mode · Mulai (teks + "Ubah") · Durasi · Selesai · Milestone · % selesai
+  // · Batasan · Dependensi (Menunggu / Diikuti oleh) · Tambah dependensi · Kenapa dijadwalkan di sini? · Ubah ke Manual.
+  const node = autoNode;
+  if (node) {
+    const drift = secEngine.result.drift.has(node.key);
+    let body = null;
+    if (expanded) {
+      const editing = editStart === tid;
+      const cst = sched.constraint;
+      // Diikuti oleh: penerus dari daftar LENGKAP scope (bukan hanya simpul mesin), baca saja.
+      const succView = [];
+      const sk = secScopeKey(selfLive);
+      for (const t of view.list) {
+        if (!liveTask(t) || isSelf(t) || secScopeKey(t) !== sk || view.idx.get(String(t.id)) !== t) continue;
+        const dd = TLSched.readSched(readExtSafe(api, t)).deps.find(x => {
+          const h = view.idx.get(x.key);
+          return !!h && isSelf(h);
+        });
+        if (dd) succView.push({
+          task: t,
+          type: dd.type,
+          lag: dd.lag
+        });
+      }
+      const fullOf = t => {
+        const w = secEngine.wbs.get(String(t.id));
+        return (w ? w + " " : "") + taskTitle(t);
+      };
+      body = /*#__PURE__*/React.createElement("div", {
+        className: "plg-timeline-sec-body"
+      }, modeElOf("mode"), /*#__PURE__*/React.createElement("div", {
+        className: "plg-timeline-field",
+        "data-part": "start"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-field-label"
+      }, SEC_START), editing ? /*#__PURE__*/React.createElement("input", {
+        type: "date",
+        className: "plg-timeline-input",
+        "aria-label": SEC_START,
+        autoFocus: true,
+        value: "start" in d ? d.start : TLCal.iso(node.es),
+        onChange: onStartChange,
+        onBlur: onStartBlur,
+        onKeyDown: onStartKey
+      }) : /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-sec-startval"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-sec-val"
+      }, TLCal.fmtShort(node.es)), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "plg-timeline-btn",
+        "aria-label": SEC_EDIT + " " + SEC_START,
+        onClick: () => setEditStart(tid)
+      }, SEC_EDIT))), /*#__PURE__*/React.createElement("label", {
+        className: "plg-timeline-field",
+        "data-part": "dur"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-field-label"
+      }, SEC_DUR), durInput), /*#__PURE__*/React.createElement("div", {
+        className: "plg-timeline-field",
+        "data-part": "finish"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-field-label"
+      }, SEC_FINISH), /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-sec-val",
+        "data-field": "finish"
+      }, TLCal.fmtLong(node.ef))), milestoneEl("milestone"), pctEl("pct"), /*#__PURE__*/React.createElement("div", {
+        className: "plg-timeline-sec-cst",
+        role: "group",
+        "aria-label": SEC_CST,
+        "data-part": "constraint"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-field-label"
+      }, SEC_CST), /*#__PURE__*/React.createElement("select", {
+        className: "plg-timeline-input",
+        "aria-label": SEC_CST_KIND,
+        value: cst ? cst.type : "",
+        onChange: e => pickCst(e && e.target ? String(e.target.value) : "")
+      }, SEC_CSTS.map(([v, l]) => /*#__PURE__*/React.createElement("option", {
+        key: v,
+        value: v
+      }, l))), cst ? /*#__PURE__*/React.createElement("input", {
+        type: "date",
+        className: "plg-timeline-input",
+        "aria-label": SEC_CST_DATE,
+        value: "cst" in d ? d.cst : cst.date,
+        onChange: onCstChange,
+        onBlur: onCstBlur,
+        onKeyDown: onCstKey
+      }) : null), /*#__PURE__*/React.createElement("div", {
+        className: "plg-timeline-sec-deps",
+        "data-part": "deps"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-field-label"
+      }, SEC_DEPS), depView.length ? /*#__PURE__*/React.createElement("div", {
+        className: "plg-timeline-dep-group",
+        "data-group": "pred"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-dep-sub"
+      }, SEC_WAITS), /*#__PURE__*/React.createElement("ul", {
+        className: "plg-timeline-deps"
+      }, depView.map(v => {
+        const r = v.row;
+        const dn = "lag:" + r.i;
+        return /*#__PURE__*/React.createElement("li", {
+          key: r.i + ":" + r.key,
+          className: "plg-timeline-dep",
+          "data-key": r.key
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "plg-timeline-dep-main"
+        }, /*#__PURE__*/React.createElement("span", {
+          className: "plg-timeline-dep-name",
+          title: v.full
+        }, v.full), v.outside ? /*#__PURE__*/React.createElement("span", {
+          className: "plg-timeline-dep-note"
+        }, SEC_OUTSIDE) : null), /*#__PURE__*/React.createElement("select", {
+          className: "plg-timeline-input plg-timeline-dep-typesel",
+          "aria-label": "Tipe dependensi " + v.name,
+          value: r.type,
+          onChange: e => changeType(r, e && e.target ? String(e.target.value) : "")
+        }, SEC_TYPES.map(([t, l]) => /*#__PURE__*/React.createElement("option", {
+          key: t,
+          value: t
+        }, l))), r.lag !== 0 ? /*#__PURE__*/React.createElement("span", {
+          className: "plg-timeline-dep-lag"
+        }, signedHk(r.lag)) : null, /*#__PURE__*/React.createElement("span", {
+          className: "plg-timeline-sec-num"
+        }, /*#__PURE__*/React.createElement("input", {
+          type: "number",
+          className: "plg-timeline-input plg-timeline-num",
+          "aria-label": "Jeda setelah " + v.name + " (" + SEC_HK + ")",
+          min: TLSched.LAG_MIN,
+          max: TLSched.LAG_MAX,
+          step: 1,
+          value: dn in d ? d[dn] : String(r.lag),
+          onChange: e => setDraft(dn, e && e.target ? String(e.target.value) : ""),
+          onBlur: e => commitLag(r, e && e.target ? e.target.value : ""),
+          onKeyDown: onEnter(val => commitLag(r, val))
+        }), /*#__PURE__*/React.createElement("span", {
+          className: "plg-timeline-sec-unit"
+        }, SEC_HK)), /*#__PURE__*/React.createElement("button", {
+          type: "button",
+          className: "plg-timeline-dep-del",
+          "aria-label": "Hapus dependensi " + v.name,
+          title: "Hapus dependensi",
+          onClick: () => removeDep(r)
+        }, "\xD7"));
+      }))) : null, succView.length ? /*#__PURE__*/React.createElement("div", {
+        className: "plg-timeline-dep-group",
+        "data-group": "succ"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-dep-sub"
+      }, SEC_FOLLOWS), /*#__PURE__*/React.createElement("ul", {
+        className: "plg-timeline-deps"
+      }, succView.map(x => /*#__PURE__*/React.createElement("li", {
+        key: String(x.task.id),
+        className: "plg-timeline-dep is-succ",
+        "data-key": String(x.task.id)
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-dep-main"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-dep-name",
+        title: fullOf(x.task)
+      }, fullOf(x.task))), /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-dep-type"
+      }, x.type), x.lag !== 0 ? /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-dep-lag"
+      }, signedHk(x.lag)) : null)))) : null, badEl), addEl("add"), /*#__PURE__*/React.createElement("div", {
+        className: "plg-timeline-sec-whybox",
+        "data-part": "why"
+      }, /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: cx("plg-timeline-sec-more", whyParts && "is-open"),
+        "aria-expanded": !!whyParts,
+        onClick: () => setWhyOpen(whyOpen === tid ? null : tid)
+      }, SEC_WHY), whyParts ? /*#__PURE__*/React.createElement("p", {
+        className: "plg-timeline-sec-why"
+      }, whyParts.map((x, i) => typeof x === "string" ? x : /*#__PURE__*/React.createElement("strong", {
+        key: i
+      }, x.b))) : null), /*#__PURE__*/React.createElement("div", {
+        className: "plg-timeline-sec-actions",
+        "data-part": "manual"
+      }, /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "plg-timeline-btn",
+        onClick: () => pickMode("manual")
+      }, SEC_TO_MANUAL)));
+    }
+    return /*#__PURE__*/React.createElement("section", {
+      className: "plg-timeline-section",
+      "aria-label": SEC_TITLE,
+      onFocus: refreshSoon,
+      onPointerEnter: refreshSoon
+    }, head(true, [/*#__PURE__*/React.createElement("span", {
+      key: "auto",
+      className: "plg-timeline-chip"
+    }, SEC_MODE_AUTO), node.late > 0 ? /*#__PURE__*/React.createElement("span", {
+      key: "late",
+      className: "plg-timeline-chip is-late"
+    }, secLateChip(node.late)) : null]), /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-sec-range"
+    }, TLCal.fmtShort(node.es) + " → " + TLCal.fmtShort(node.ef) + " · " + node.d + " " + SEC_HK), /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-sec-links"
+    }, secLinksText(secEngine)), node.critical ? /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-sec-flags"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-chip is-critical"
+    }, SEC_CRIT)) : null, drift ? /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-sec-drift",
+      role: "status"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-sec-drift-text"
+    }, secDriftText(node.es)), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-btn",
+      onClick: updateAuto
+    }, SEC_UPDATE)) : null, cardEl, body);
+  }
+
+  // Fix T11 (pola R13 "tanpa tulis saat belum siap"): unit belum termuat dan task tidak Manual tersimpan → mode efektif
+  // belum pasti, Mulai dikunci (gagal muat tidak mengunci).
+  const unitWait = !un.loaded && !un.failed && raw.mode !== "manual";
+  const startVal = "start" in d ? d.start : sched.start || "";
+  const fields = /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-sec-row"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "plg-timeline-field"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-field-label"
+  }, SEC_START), /*#__PURE__*/React.createElement("input", {
+    type: "date",
+    className: "plg-timeline-input",
+    "aria-label": SEC_START,
+    value: startVal,
+    disabled: unitWait,
+    onChange: onStartChange,
+    onBlur: onStartBlur,
+    onKeyDown: onStartKey
+  })), /*#__PURE__*/React.createElement("label", {
+    className: "plg-timeline-field"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-field-label"
+  }, SEC_DUR), durInput));
+  let more = null;
+  if (expanded) {
+    const warns = [];
+    if (late > 0) {
+      warns.push(/*#__PURE__*/React.createElement("div", {
+        key: "late",
+        className: "plg-timeline-sec-warn",
+        role: "status"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-sec-warn-icon",
+        "aria-hidden": "true"
+      }, "\u26A0"), /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-sec-warn-text"
+      }, secLateText(span.f, late))));
+    }
+    if (violated) {
+      warns.push(/*#__PURE__*/React.createElement("div", {
+        key: "viol",
+        className: "plg-timeline-sec-warn",
+        role: "status"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-sec-warn-icon",
+        "aria-hidden": "true"
+      }, "\u26A0"), /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-sec-warn-text"
+      }, MSG_VIOLATION), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "plg-timeline-btn plg-timeline-sec-shift",
+        onClick: () => writeSched({
+          start: earliest
+        })
+      }, SEC_SHIFT)));
+    }
+    more = /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-sec-body"
+    }, modeElOf(), /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-sec-row"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-field"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-field-label"
+    }, SEC_FINISH), /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-sec-val",
+      "data-field": "finish"
+    }, span ? TLCal.fmtLong(span.f) : "—")), /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-field"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-field-label"
+    }, SEC_PCT), /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-sec-val",
+      "data-field": "pct"
+    }, pctOf(info) + "%"), /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-sec-hint"
+    }, SEC_PCT_HINT))), /*#__PURE__*/React.createElement("label", {
+      className: cx("plg-timeline-sec-check", sched.start === null && "is-disabled")
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "checkbox",
+      "aria-label": SEC_MILESTONE,
+      checked: milestone,
+      disabled: sched.start === null,
+      onChange: e => setMilestone(!!(e && e.target && e.target.checked))
+    }), /*#__PURE__*/React.createElement("span", null, SEC_MILESTONE)), warns, depView.length || deps.bad ? /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-sec-deps"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-field-label"
+    }, SEC_DEPS), depView.length ? /*#__PURE__*/React.createElement("ul", {
+      className: "plg-timeline-deps"
+    }, depView.map(v => {
+      const r = v.row;
+      const dn = "lag:" + r.i;
+      return /*#__PURE__*/React.createElement("li", {
+        key: r.i + ":" + r.key,
+        className: "plg-timeline-dep",
+        "data-key": r.key
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-dep-main"
+      }, /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-dep-name",
+        title: v.name
+      }, v.name), v.outside ? /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-dep-note"
+      }, SEC_OUTSIDE) : null), /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-dep-type"
+      }, r.type), /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-sec-num"
+      }, /*#__PURE__*/React.createElement("input", {
+        type: "number",
+        className: "plg-timeline-input plg-timeline-num",
+        "aria-label": "Jeda setelah " + v.name + " (" + SEC_HK + ")",
+        min: TLSched.LAG_MIN,
+        max: TLSched.LAG_MAX,
+        step: 1,
+        value: dn in d ? d[dn] : String(r.lag),
+        onChange: e => setDraft(dn, e && e.target ? String(e.target.value) : ""),
+        onBlur: e => commitLag(r, e && e.target ? e.target.value : ""),
+        onKeyDown: onEnter(val => commitLag(r, val))
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "plg-timeline-sec-unit"
+      }, SEC_HK)), /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "plg-timeline-dep-del",
+        "aria-label": "Hapus dependensi " + v.name,
+        title: "Hapus dependensi",
+        onClick: () => removeDep(r)
+      }, "\xD7"));
+    })) : null, deps.bad ? /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-sec-bad"
+    }, /*#__PURE__*/React.createElement("span", null, secBadText(deps.bad)), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-btn",
+      onClick: cleanBad
+    }, SEC_BAD_BTN)) : null) : null);
+  }
   return /*#__PURE__*/React.createElement("section", {
     className: "plg-timeline-section",
     "aria-label": SEC_TITLE,
     onFocus: refreshSoon,
     onPointerEnter: refreshSoon
-  }, head(true), fields, more, picker ? null : /*#__PURE__*/React.createElement("div", {
+  }, head(true), fields, cardEl, more, picker ? null : /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-sec-actions"
   }, /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -4940,6 +9086,14 @@ function TimelineView(props) {
 const pure = {
   calendarStore,
   calTarget,
+  projectStore,
+  recordEvent,
+  PRJ_ENTITY,
+  NO_UNIT,
+  useUnits,
+  useEngine,
+  RELOAD_TIMING,
+  engineKeyOf,
   prefKey,
   cleanPref,
   PREF_DEFAULTS,
@@ -4959,6 +9113,9 @@ const pure = {
   engine,
   LOST_TIMING,
   rowCells,
+  slackText,
+  engineOverlay,
+  NO_OVERLAY,
   pomoText,
   missingYearsNote,
   barGeom,
@@ -4977,12 +9134,27 @@ const pure = {
   ScheduleSection,
   ScheduleBody,
   CalendarPopover,
-  ListFallback
+  ListFallback,
+  MoreMenu,
+  menuAlign,
+  UnitPopover,
+  PreviewDialog,
+  PreviewCard,
+  whyText,
+  dialogModel,
+  toolbarSummary,
+  pageUnits,
+  unitCaption,
+  signedHk,
+  scopeFilter,
+  flowItems
 };
 if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, {
   TLHolidays,
   TLCal,
   TLSched,
+  TLCpm,
+  TLPlan,
   TLLayout,
   TLDrag
 }, pure);

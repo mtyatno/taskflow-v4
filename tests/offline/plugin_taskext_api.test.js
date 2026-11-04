@@ -19,6 +19,11 @@ const INDEX = { v: 1, plugins: [DEMO, PLAIN] };
 let calls;
 let events;
 let origDispatch;
+let origTaskroutes;
+
+// PR 1c-1 Task 5 (R22): setMany memakai router.extPatchMany bila ada. Tes 1c-0 di bawah memakai router lokal TANPA
+// extPatchMany (seperti taskroutes.js lama dari cache SW) → jalur per item lewat updateTaskExt, asersi tidak berubah.
+const legacyTaskroutes = { buildTaskRouter: () => ({ hasRoute: () => false, dispatch: () => Promise.reject(new Error("router lama")) }) };
 
 function binding(over) {
   return Object.assign({
@@ -36,11 +41,15 @@ beforeEach(async () => {
   await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
   calls = [];
   events = [];
+  globalThis.TF = globalThis.TF || {};
+  origTaskroutes = globalThis.TF.taskroutes;
+  globalThis.TF.taskroutes = legacyTaskroutes;
   origDispatch = globalThis.dispatchEvent;
   globalThis.dispatchEvent = (ev) => { events.push({ type: ev.type, detail: ev.detail }); return true; };
   P.bindHost(binding());
 });
 afterEach(() => {
+  globalThis.TF.taskroutes = origTaskroutes;
   if (origDispatch === undefined) delete globalThis.dispatchEvent; else globalThis.dispatchEvent = origDispatch;
 });
 
@@ -338,4 +347,175 @@ test("set tunggal: urutan patch → update tidak berubah", async () => {
 
 test("apiVersion tetap 1 (1c-0)", () => {
   assert.equal(RT.api.apiVersion, 1);
+});
+
+// ── PR 1c-1 Task 5 (R22): jalur tulis massal lokal ─────────────────────────────────────────────────────────────
+// Router palsu dengan extPatchMany; failAt = indeks item gagal (error = errAt), throwAll = penolakan seluruh panggilan.
+function bulkRouter(log, over) {
+  const o = over || {};
+  return {
+    hasRoute: () => true,
+    dispatch: (m, p) => { log.push(["dispatch", m, p]); return Promise.resolve({}); },
+    extPatchMany: (items) => {
+      log.push(["extPatchMany", items.map((it) => ({ id: it.id, ext_patch: it.ext_patch }))]);
+      if (o.throwAll) return Promise.reject(o.throwAll);
+      const n = o.failAt == null ? items.length : o.failAt;
+      const ok = items.slice(0, n);
+      return Promise.resolve({ rows: ok.map((it) => ({ id: it.id, ext: it.ext_patch })), appliedIds: ok.map((it) => it.id), error: o.failAt == null ? null : o.errAt });
+    },
+  };
+}
+function useBulk(router) { globalThis.TF.taskroutes = { buildTaskRouter: () => router }; }
+
+test("setMany dengan router.extPatchMany: patchTaskExt semua item dalam satu batch, satu extPatchMany, satu refreshTasks, satu taskUpdated, event tf:outbox-queued dipancarkan sekali; reject membawa applied dari appliedIds", async () => {
+  const log = [];
+  const rd = fakeReactDOM(log);
+  const depths = [];
+  P.bindHost(binding({
+    patchTaskExt: (id, p) => { depths.push(rd.depth()); log.push(["patch", id]); },
+    updateTaskExt: (id) => { log.push(["update", id]); return Promise.resolve({ id }); },
+    refreshTasks: () => { log.push(["refresh"]); },
+  }));
+  useBulk(bulkRouter(log));
+  const items = many(200);
+  const rows = await withReactDOM(rd, () => tx().setMany(items));
+  const expected = [["batch-start"]]
+    .concat(items.map((it) => ["patch", it.taskId]))
+    .concat([["batch-end"]])
+    .concat([["extPatchMany", items.map((it) => ({ id: it.taskId, ext_patch: { "demo-ext.note": it.patch.note } }))]])
+    .concat([["refresh"]]);
+  assert.deepEqual(log, expected, "tanpa updateTaskExt per item, tanpa dispatch PUT");
+  assert.ok(depths.length === 200 && depths.every((d) => d === 1));
+  assert.deepEqual(rows.map((r) => r.id), items.map((it) => it.taskId));
+  assert.deepEqual(events, [
+    { type: "tf:outbox-queued", detail: null },
+    { type: "taskUpdated", detail: { taskIds: items.map((it) => it.taskId) } },
+  ]);
+
+  // gagal di item 3 → applied dari appliedIds, tetap satu refresh/taskUpdated/tf:outbox-queued
+  log.length = 0;
+  events = [];
+  P._reset();
+  await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
+  P.bindHost(binding({ refreshTasks: () => { log.push(["refresh"]); } }));
+  useBulk(bulkRouter(log, { failAt: 2, errAt: Object.assign(new Error("EXT_TOO_LARGE"), { status: 422, code: "EXT_TOO_LARGE", key: "demo-ext" }) }));
+  await assert.rejects(tx().setMany(many(5)), (err) => err instanceof PluginStorageError && err.code === "EXT_TOO_LARGE" && err.key === "demo-ext"
+    && JSON.stringify(err.applied) === "[1,2]");
+  assert.equal(log.filter((c) => c[0] === "extPatchMany").length, 1);
+  assert.equal(log.filter((c) => c[0] === "refresh").length, 1);
+  assert.deepEqual(events, [{ type: "tf:outbox-queued", detail: null }, { type: "taskUpdated", detail: { taskIds: [1, 2] } }]);
+  assert.equal(calls.filter((c) => c[0] === "update").length, 0);
+
+  // 'Task not found' di item 1 → Error biasa, applied [], tanpa event
+  log.length = 0;
+  events = [];
+  P._reset();
+  await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
+  P.bindHost(binding({ refreshTasks: () => { log.push(["refresh"]); } }));
+  useBulk(bulkRouter(log, { failAt: 0, errAt: new Error("Task not found") }));
+  await assert.rejects(tx().setMany(many(3)), (err) => !(err instanceof PluginStorageError) && err.message === "Task not found" && JSON.stringify(err.applied) === "[]");
+  assert.deepEqual(events, []);
+  assert.equal(log.filter((c) => c[0] === "refresh").length, 1);
+
+  // extPatchMany menolak seluruhnya (mis. transaksi batal) → applied [], satu refresh
+  log.length = 0;
+  P._reset();
+  await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
+  P.bindHost(binding({ refreshTasks: () => { log.push(["refresh"]); } }));
+  const boom = new Error("transaksi batal");
+  useBulk(bulkRouter(log, { throwAll: boom }));
+  await assert.rejects(tx().setMany(many(3)), (err) => err === boom && JSON.stringify(err.applied) === "[]");
+  assert.equal(log.filter((c) => c[0] === "refresh").length, 1);
+  assert.deepEqual(events, []);
+});
+
+test("setMany jalur massal: validasi gagal → reject tanpa patch, tanpa extPatchMany, tanpa applied", async () => {
+  const log = [];
+  useBulk(bulkRouter(log));
+  await assert.rejects(tx().setMany([{ taskId: 1, patch: { note: "ok" } }, { taskId: 2, patch: { salah: 1 } }]),
+    (err) => err instanceof PluginStorageError && !("applied" in err));
+  assert.deepEqual(log, []);
+  assert.deepEqual(calls, []);
+  assert.deepEqual(await tx().setMany([]), []);
+  assert.deepEqual(log, []);
+});
+
+test("router tanpa extPatchMany → jalur per item lama (tes 1c-0 tetap lulus tanpa ubah asersi)", async () => {
+  const log = [];
+  const r = bulkRouter(log);
+  delete r.extPatchMany;
+  useBulk(r);
+  await tx().setMany(many(3));
+  assert.deepEqual(calls.map((c) => c[0]), ["patch", "patch", "patch", "update", "update", "update", "refresh"]);
+  assert.deepEqual(log, []);
+  assert.deepEqual(events, [{ type: "taskUpdated", detail: { taskIds: [1, 2, 3] } }]);
+  // TF.taskroutes tidak dimuat sama sekali → juga jalur per item
+  P._reset();
+  await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
+  P.bindHost(binding());
+  calls = [];
+  globalThis.TF.taskroutes = { buildTaskRouter: () => { throw new Error("belum siap"); } };
+  await tx().setMany(many(2));
+  assert.deepEqual(calls.map((c) => c[0]), ["patch", "patch", "update", "update", "refresh"]);
+});
+
+test("set tunggal tidak memakai extPatchMany", async () => {
+  const log = [];
+  useBulk(bulkRouter(log));
+  await tx().set(9, { note: "a" });
+  assert.deepEqual(calls.map((c) => c[0]), ["patch", "update", "refresh"]);
+  assert.deepEqual(log, []);
+  assert.deepEqual(events, [{ type: "taskUpdated", detail: { taskId: 9 } }]);
+});
+
+test("setMany jalur massal lewat router lokal NYATA (fake-indexeddb): record tersimpan, applied, satu op per item", async () => {
+  const realTr = require("../../static/offline/taskroutes.js");
+  const repo = require("../../static/offline/taskrepo.js");
+  const { outboxAll } = require("../../static/offline/outbox.js");
+  globalThis.TF.taskroutes = realTr;
+  P.bindHost(binding({ updateTaskExt: () => { throw new Error("tidak boleh dipanggil"); } }));
+  const a = await repo.createTask({ title: "A" }, { today: "2026-11-01" });
+  const b = await repo.createTask({ title: "B" }, { today: "2026-11-01" });
+  const before = (await outboxAll()).length;
+  const rows = await tx().setMany([{ taskId: a.cid, patch: { note: "x" } }, { taskId: b.cid, patch: { after: [{ $task: a.cid }] } }]);
+  assert.deepEqual(rows.map((r) => r.id), [a.cid, b.cid]);
+  assert.deepEqual(rows[1].ext, { "demo-ext.after": [{ $task: a.cid }] });
+  assert.equal((await outboxAll()).length, before + 2);
+  assert.deepEqual(events.map((e) => e.type), ["tf:outbox-queued", "taskUpdated"]);
+  await assert.rejects(tx().setMany([{ taskId: a.cid, patch: { note: "y" } }, { taskId: "cid-hilang", patch: { note: "z" } }]),
+    (err) => err.message === "Task not found" && JSON.stringify(err.applied) === JSON.stringify([a.cid]));
+  assert.equal((await repo.getRaw(a.cid)).ext["demo-ext.note"], "y");
+});
+
+test("setMany jalur massal: DB_UPGRADED_ELSEWHERE → pesan dan code sama dengan jalur per item (pembungkus api host)", async () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const dbErr = () => Object.assign(new Error("DB_UPGRADED_ELSEWHERE"), { code: "DB_UPGRADED_ELSEWHERE" });
+  // jalur per item lewat api.put host asli (index.html)
+  const html = fs.readFileSync(path.join(__dirname, "../../static/index.html"), "utf8");
+  const src = html.match(/\nconst api = \{[\s\S]*?\n\};/)[0];
+  const router = { hasRoute: () => true, dispatch: () => Promise.reject(dbErr()) };
+  const win = { TF: { taskroutes: { buildTaskRouter: () => router, shouldRouteLocally: () => true } } };
+  const hostApi = new Function("window", "schedulePush", src + "\nreturn api;")(win, () => {});
+  P.bindHost(binding({ updateTaskExt: (id, p) => hostApi.put(`/api/tasks/${id}`, { ext_patch: p }) }));
+  let perItem;
+  await tx().setMany(many(2)).catch((e) => { perItem = e; });
+  assert.ok(perItem);
+  const expected = require("../../static/offline/dbupgrade.js").TEXT_ELSEWHERE;
+  assert.equal(perItem.message, expected);
+  assert.equal(perItem.code, "DB_UPGRADED_ELSEWHERE");
+
+  // jalur massal: error di tengah (res.error) dan penolakan total
+  for (const over of [{ failAt: 1, errAt: dbErr() }, { throwAll: dbErr() }]) {
+    P._reset();
+    await P.init({ fetchIndex: () => Promise.resolve(INDEX) });
+    P.bindHost(binding());
+    useBulk(bulkRouter([], over));
+    let fast;
+    await tx().setMany(many(2)).catch((e) => { fast = e; });
+    assert.ok(fast);
+    assert.equal(fast.message, perItem.message);
+    assert.equal(fast.code, perItem.code);
+    assert.ok(Array.isArray(fast.applied));
+  }
 });

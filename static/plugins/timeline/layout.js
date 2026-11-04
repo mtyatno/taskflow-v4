@@ -13,8 +13,8 @@ const TLLayout = (function (CAL, SCHED, HOL) {
   const TODAY_PAD = 60; // hari ± hari ini yang selalu masuk rentang
   const RANGE_SPAN = 1830; // tanggal yang ikut menentukan rentang dijepit ke hari ini ± 1830 hari (±5 tahun; deviasi R22)
   const MAX_WD_SPAN = 3660; // hari kalender maks yang dihitung untuk durasi hari kerja ringkasan (pola MAX_LATE_SPAN)
-  const ARROW_OUT = 6; // px keluar ke kanan dari ujung pendahulu
-  const ARROW_IN = 6; // px lari horizontal terakhir menuju awal penerus
+  const ARROW_OUT = 6; // px keluar dari sisi pendahulu (R19: ujung → kanan, awal → kiri)
+  const ARROW_IN = 6; // px lari horizontal terakhir menuju sisi penerus
   const NO_PROJECT = "(Tanpa project)";
 
   const BULAN_SHORT = ["Jan", "Feb", "Mar", "Apr", "Mei", "Jun", "Jul", "Agu", "Sep", "Okt", "Nov", "Des"];
@@ -211,21 +211,34 @@ const TLLayout = (function (CAL, SCHED, HOL) {
   // ---------------------------------------------------------------- panah (R11, R16)
   const fmt = (n) => String(Math.round(n * 100) / 100);
 
-  // Rect = {x, y, w, h}. Keluar 6 px ke kanan dari ujung pendahulu, ortogonal (hanya H/V), masuk ke awal penerus.
-  // Penerus ≥ 12 px di kanan ujung pendahulu: M H V H. Selain itu (penerus di kiri/menempel): memutar lewat celah antarbaris
-  // (M H V H V H), lari masuk terakhir 6 px ke kanan.
-  function arrowPath(fromRect, toRect) {
-    const x1 = fromRect.x + fromRect.w;
+  // Sisi panah per tipe dependensi (R19): [keluar dari AWAL pendahulu?, masuk ke UJUNG penerus?].
+  // FS ujung→awal (1b), SS awal→awal, FF ujung→ujung, SF awal→ujung. Tipe tak dikenal = FS.
+  const ARROW_SIDES = Object.freeze({ FS: [false, false], SS: [true, false], FF: [false, true], SF: [true, true] });
+
+  // Rect = {x, y, w, h}. Hanya H/V. Keluar 6 px dari sisi pendahulu (ujung → ke kanan, awal → ke kiri); lari masuk
+  // terakhir ≥ 6 px menuju sisi penerus (awal: dari kiri, bergerak ke kanan; ujung: dari kanan, bergerak ke kiri).
+  // Arah keluar ≠ arah masuk (SS, FF): satu garis tegak di x terjauh yang memenuhi keduanya (M H V H) — selalu bisa.
+  // Arah sama (FS, SF): M H V H bila penerus cukup jauh ke arah itu (FS: ≥ 12 px di kanan ujung pendahulu); selain itu
+  // memutar lewat celah antarbaris (M H V H V H). Baris sama: lewat tepat di bawah bar. FS = path 1b persis.
+  function arrowPath(fromRect, toRect, type) {
+    const sides = ARROW_SIDES[type] || ARROW_SIDES.FS;
+    const dOut = sides[0] ? -1 : 1; // arah lari keluar
+    const dIn = sides[1] ? -1 : 1; // arah lari masuk terakhir
+    const x1 = sides[0] ? fromRect.x : fromRect.x + fromRect.w;
     const y1 = fromRect.y + fromRect.h / 2;
-    const x2 = toRect.x;
+    const x2 = sides[1] ? toRect.x + toRect.w : toRect.x;
     const y2 = toRect.y + toRect.h / 2;
-    const xo = x1 + ARROW_OUT;
-    if (x2 >= x1 + ARROW_OUT + ARROW_IN) return "M" + fmt(x1) + " " + fmt(y1) + "H" + fmt(xo) + "V" + fmt(y2) + "H" + fmt(x2);
+    const xo = x1 + dOut * ARROW_OUT;
+    const xi = x2 - dIn * ARROW_IN;
+    if (dOut !== dIn && y1 !== y2) {
+      const xv = dOut > 0 ? Math.max(xo, xi) : Math.min(xo, xi);
+      return "M" + fmt(x1) + " " + fmt(y1) + "H" + fmt(xv) + "V" + fmt(y2) + "H" + fmt(x2);
+    }
+    if (dOut === dIn && (xi - xo) * dOut >= 0) return "M" + fmt(x1) + " " + fmt(y1) + "H" + fmt(xo) + "V" + fmt(y2) + "H" + fmt(x2);
     let yt;
     if (y2 > y1) yt = (fromRect.y + fromRect.h + toRect.y) / 2;
     else if (y2 < y1) yt = (toRect.y + toRect.h + fromRect.y) / 2;
     else yt = fromRect.y + fromRect.h + 2; // baris sama: lewat tepat di bawah bar
-    const xi = x2 - ARROW_IN;
     return "M" + fmt(x1) + " " + fmt(y1) + "H" + fmt(xo) + "V" + fmt(yt) + "H" + fmt(xi) + "V" + fmt(y2) + "H" + fmt(x2);
   }
 
@@ -487,8 +500,19 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     }
 
     // 7. dependensi (R8, R16): kunci kanonik String(id); spans memuat rentang ringkasan.
+    // Task DONE (bukan ringkasan): selesai pelanggaran = TLSched.doneFinish (aturan yang SAMA dengan jangkar "done" mesin —
+    // selesai lebih awal tidak menandai ⚠ pada tanggal yang baru ditulis mesin); durasi d dibawa agar penerus done tetap
+    // memakai durasi tersimpannya. Rentang bar (row.span) tidak berubah.
     const spans = new Map();
-    for (const it of all) if (it.span) spans.set(it.key, it.span);
+    for (const it of all) {
+      if (!it.span) continue;
+      const t = it.task;
+      if (it.children.length === 0 && (t.gtd_status === "done" || !!t.completed_at)) {
+        const d = it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+        const f = SCHED.doneFinish(c, t, it.span.s, d);
+        spans.set(it.key, isInt(f) ? { s: it.span.s, f, d } : it.span);
+      } else spans.set(it.key, it.span);
+    }
     const edges = SCHED.resolveDeps(items.map((it) => ({ key: it.key, sched: it.sched })), index);
     const viol = SCHED.violations(c, spans, edges);
     const violPair = new Set(viol.detail.map((d) => d.pred + "\u0000" + d.succ));
@@ -562,6 +586,15 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     };
   }
 
+  // Nomor WBS per kunci task (1c-1 R20): sama dengan tata letak (urut bawaan; urut tampilan tidak mengubah WBS),
+  // tanpa baris kelompok. Kalender bawaan: WBS tidak bergantung pada kalender.
+  function wbsMap(tasks, pageKind, readSchedOf) {
+    const res = layout({ tasks, pageKind, readSchedOf, sort: "wbs" });
+    const out = new Map();
+    for (const r of res.rows) if (r.kind !== "group") out.set(r.key, r.wbs);
+    return out;
+  }
+
   return Object.freeze({
     PX,
     ROW_H,
@@ -577,6 +610,7 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     weekendGradient,
     holidaySpans,
     arrowPath,
+    wbsMap,
     ariaBar,
     initialScrollLeft,
   });

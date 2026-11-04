@@ -310,17 +310,19 @@ test("berkas: pola R2 (const TLCal IIFE, TLHolidays via typeof/require, tanpa gl
   assert.ok(Object.isFrozen(C));
 });
 
-test("sumber parts tanpa Date lokal (kelima part ada; hanya getUTC* dan Date.UTC)", () => {
+test("sumber parts tanpa Date lokal (part 1b + cpm.js ada, plan.js bila ada; hanya getUTC* dan Date.UTC)", () => {
   // Pola dirakit dari potongan agar sumber tes ini sendiri tidak cocok.
   const bad = new RegExp(
     ["Date" + "\\.now\\s*\\(", "new\\s+Date\\s*\\(\\s*\\)", "\\.get" + "Date\\s*\\(", "\\.get" + "Day\\s*\\(", "\\.get" + "Month\\s*\\(", "\\.get" + "FullYear\\s*\\(", "\\.get" + "Hours\\s*\\(", "\\.get" + "TimezoneOffset\\s*\\("].join("|"),
   );
-  // Kelima part wajib ada (Task 1–5 selesai); tidak ada lagi yang dilewati.
-  for (const f of ["holidays-id.js", "calendar.js", "schedule.js", "layout.js", "drag.js"]) {
+  // Part 1b + cpm.js (1c-1 Task 2) wajib ada; plan.js (1c-1 Task 4) diperiksa begitu ada.
+  for (const f of ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "layout.js", "drag.js"]) {
     const p = path.join(dir, f);
     assert.ok(fs.existsSync(p), `${f} harus ada`);
     assert.doesNotMatch(fs.readFileSync(p, "utf8"), bad, f);
   }
+  const planJs = path.join(dir, "plan.js");
+  if (fs.existsSync(planJs)) assert.doesNotMatch(fs.readFileSync(planJs, "utf8"), bad, "plan.js");
   assert.ok(fs.existsSync(file));
   assert.doesNotMatch(fs.readFileSync(__filename, "utf8"), bad, "timeline_calendar.test.js");
 });

@@ -657,6 +657,116 @@ test("arrowPath: penerus di kanan dan di kiri pendahulu → path valid berawal M
   for (const p of [right, left, up, same]) assert.equal(+/H(\d+)/.exec(p)[1], 154);
 });
 
+// ── 1c-1 Task 7 (R19): panah per tipe dependensi ──────────────────────────────────────────────────────────
+// Urai path "M x y H.. V.." → titik-titik sudut (hanya H/V; huruf lain = gagal urai).
+function arrowPts(p) {
+  const m = /^M(-?[\d.]+) (-?[\d.]+)((?:[HV]-?[\d.]+)+)$/.exec(p);
+  assert.ok(m, "path tak terurai: " + p);
+  const pts = [{ x: +m[1], y: +m[2] }];
+  for (const s of m[3].match(/[HV]-?[\d.]+/g)) {
+    const last = pts[pts.length - 1];
+    pts.push(s[0] === "H" ? { x: +s.slice(1), y: last.y } : { x: last.x, y: +s.slice(1) });
+  }
+  return pts;
+}
+
+test("arrowPath FS identik dengan 1b untuk semua kasus lama; SS/FF/SF: titik awal dan akhir di sisi benar, hanya H/V, penerus di kiri/kanan", () => {
+  const A = { x: 100, y: 10, w: 48, h: 12 };
+  const A2 = { x: 100, y: 42, w: 48, h: 12 };
+  const B = { x: 200, y: 42, w: 36, h: 12 }; // kanan, bawah
+  const Bl = { x: 40, y: 42, w: 36, h: 12 }; // kiri, bawah
+  const Bu = { x: 40, y: 10, w: 36, h: 12 }; // kiri, atas
+  const Bt = { x: 152, y: 42, w: 36, h: 12 }; // menempel
+  const Bs = { x: 60, y: 10, w: 20, h: 12 }; // baris sama
+  const M1 = { x: 100, y: 10, w: 0, h: 12 };
+  const M2 = { x: 140, y: 42, w: 0, h: 12 };
+  // FS: string persis 1b — tanpa tipe, "FS", dan tipe tak dikenal semuanya sama
+  const old = [
+    [A, B, "M148 16H154V48H200"], [A, Bl, "M148 16H154V32H34V48H40"], [A2, Bu, "M148 48H154V32H34V16H40"],
+    [A, Bt, "M148 16H154V32H146V48H152"], [A, Bs, "M148 16H154V24H54V16H60"], [M1, M2, "M100 16H106V48H140"],
+  ];
+  for (const [f, t, want] of old) {
+    assert.equal(L.arrowPath(f, t), want);
+    assert.equal(L.arrowPath(f, t, "FS"), want);
+    assert.equal(L.arrowPath(f, t, "XX"), want, "tipe tak dikenal = FS");
+  }
+  // SS/FF/SF: beberapa string persis (mengunci geometri)
+  assert.equal(L.arrowPath(A, B, "SS"), "M100 16H94V48H200");
+  assert.equal(L.arrowPath(A, Bl, "SS"), "M100 16H34V48H40");
+  assert.equal(L.arrowPath(A, B, "FF"), "M148 16H242V48H236");
+  assert.equal(L.arrowPath(A, Bl, "FF"), "M148 16H154V48H76");
+  assert.equal(L.arrowPath(A, Bl, "SF"), "M100 16H94V48H76");
+  assert.equal(L.arrowPath(A, B, "SF"), "M100 16H94V32H242V48H236");
+  // sisi: [awal pendahulu?, ujung penerus?]
+  const SIDE = { FS: [false, false], SS: [true, false], FF: [false, true], SF: [true, true] };
+  const cases = [[A, B], [A, Bl], [A2, Bu], [A, Bt], [A, Bs], [M1, M2], [A2, { x: 260, y: 10, w: 20, h: 12 }], [A, { x: 90, y: 74, w: 80, h: 12 }]];
+  for (const type of ["FS", "SS", "FF", "SF"]) {
+    const [fromStart, toEnd] = SIDE[type];
+    for (const [f, t] of cases) {
+      const p = L.arrowPath(f, t, type);
+      const pts = arrowPts(p);
+      const a = pts[0];
+      const z = pts[pts.length - 1];
+      const what = type + " " + p;
+      // titik awal: sisi pendahulu (awal = x, ujung = x + w), tengah tinggi
+      assert.equal(a.x, fromStart ? f.x : f.x + f.w, what);
+      assert.equal(a.y, f.y + f.h / 2, what);
+      // titik akhir: sisi penerus, tengah tinggi
+      assert.equal(z.x, toEnd ? t.x + t.w : t.x, what);
+      assert.equal(z.y, t.y + t.h / 2, what);
+      // segmen bergantian H/V, tidak ada segmen nol kecuali V pada baris sama
+      for (let i = 1; i < pts.length; i++) {
+        const h = pts[i].y === pts[i - 1].y;
+        const v = pts[i].x === pts[i - 1].x;
+        assert.ok(h || v, "hanya H/V: " + what);
+      }
+      // keluar: kiri dari awal (SS/SF), kanan dari ujung (FS/FF), ≥ 6 px
+      const out = pts[1].x - a.x;
+      assert.ok(fromStart ? out <= -6 : out >= 6, "keluar " + what);
+      // masuk: ke awal dari kiri (bergerak ke kanan), ke ujung dari kanan (bergerak ke kiri), ≥ 6 px
+      const inn = z.x - pts[pts.length - 2].x;
+      assert.ok(toEnd ? inn <= -6 : inn >= 6, "masuk " + what);
+    }
+  }
+});
+
+test("edges membawa type", () => {
+  const tasks = [
+    mk(1, {}, sch("2026-11-02", 2)),
+    mk(2, {}, sch("2026-11-04", 2, [{ t: { $task: 1 }, type: "SS", lag: 0 }])),
+    mk(3, {}, sch("2026-11-04", 2, [{ t: { $task: 1 }, type: "FF", lag: 1 }, { t: { $task: 2 }, type: "SF", lag: 0 }])),
+    mk(4, {}, sch("2026-11-09", 1, [{ t: { $task: 3 }, lag: 0 }])),
+  ];
+  const res = lay(tasks);
+  const got = res.edges.map((e) => e.from + ">" + e.to + ":" + e.type).sort();
+  assert.deepEqual(got, ["1>2:SS", "1>3:FF", "2>3:SF", "3>4:FS"]);
+});
+
+test("wbsMap = nomor WBS layout", () => {
+  const tasks = [
+    mk(1, { project: "Beta", project_id: 2 }, sch("2026-11-02", 2)),
+    mk(2, { project: "Alpha", project_id: 1 }),
+    mk(3, { project: "Alpha", project_id: 1, parent_id: 2 }, sch("2026-11-05", 1)),
+    mk(4, { project: "Alpha", project_id: 1, parent_id: 2 }, sch("2026-11-03", 1)),
+    mk(5, { gtd_status: "archived" }),
+  ];
+  for (const pageKind of ["workspace", "project"]) {
+    const res = lay(tasks, { pageKind });
+    const want = new Map(res.rows.filter((r) => r.kind !== "group").map((r) => [r.key, r.wbs]));
+    const got = L.wbsMap(tasks, pageKind, readSchedOf);
+    assert.ok(got instanceof Map);
+    assert.deepEqual([...got.entries()].sort(), [...want.entries()].sort(), pageKind);
+    // urut tampilan "Mulai" tidak mengubah WBS
+    const byStart = lay(tasks, { pageKind, sort: "start" });
+    for (const r of byStart.rows) if (r.kind !== "group") assert.equal(got.get(r.key), r.wbs);
+  }
+  assert.equal(L.wbsMap(tasks, "workspace", readSchedOf).get("4"), "1.1.2");
+  assert.equal(L.wbsMap(tasks, "project", readSchedOf).get("1"), "1");
+  assert.equal(L.wbsMap(tasks, "project", readSchedOf).has("5"), false, "arsip dibuang");
+  // tanpa readSchedOf: pembaca bawaan (ext timeline.*)
+  assert.equal(L.wbsMap(tasks, "project").get("3"), "2.1");
+});
+
 test("ariaBar: 'Desain UI, Kam 5 Nov sampai Sel 10 Nov, 4 hari kerja, 60%'; milestone; belum dijadwalkan", () => {
   const c = std();
   const sched = S.readSched({ start: "2026-11-05", duration: 4 });
@@ -740,4 +850,45 @@ test("final: kelompok workspace memakai lipatan host — 'Proyek ' dan 'Proyek' 
   const g2 = (id) => ws2.rows.find((r) => r.key === String(id)).group;
   assert.equal(g2(8), "p:9");
   assert.notEqual(g2(10), "p:9");
+});
+
+// Fix wave final 1c-1 (α1): violations memakai selesai pendahulu done yang SAMA dengan mesin (jkt(completed_at), ≥ Mulai).
+test("α1: pendahulu selesai lebih awal → penerus di tanggal tulisan mesin TIDAK ⚠ (tanpa panah merah); bar tetap rentang tersimpan", () => {
+  const M = require(path.join(dir, "cpm.js"));
+  const pred = mk(1, { list_id: 7, project: "Alpha", gtd_status: "done", completed_at: "2026-11-03T03:00:00Z" }, sch("2026-11-02", 5)); // Sen 2–Jum 6, selesai Sel 3
+  const succ0 = mk(2, { list_id: 7, project: "Alpha", gtd_status: "next" }, sch("2026-11-09", 1, [{ t: { $task: 1 }, type: "FS", lag: 0 }]));
+  const units = new Map([[S.unitOf(succ0).recId, { auto: true }]]);
+  const readExt = (t) => {
+    const o = {};
+    for (const k of Object.keys(t.ext || {})) if (k.indexOf("timeline.") === 0) o[k.slice(9)] = t.ext[k];
+    return o;
+  };
+  const r0 = M.run({ tasks: [pred, succ0], cal: std(), units, readExt });
+  const es = I(r0.nodes.get("2").es);
+  assert.equal(es, "2026-11-04", "mesin: Rab 4 (setelah selesai nyata Sel 3)");
+  // Terapkan menulis tanggal mesin → layout atas data tertulis
+  const succ = mk(2, { list_id: 7, project: "Alpha", gtd_status: "next" }, sch(es, 1, [{ t: { $task: 1 }, type: "FS", lag: 0 }]));
+  const r = lay([pred, succ]);
+  const e = r.edges.find((x) => x.from === "1" && x.to === "2");
+  assert.equal(e.violation, false, "tanpa panah merah putus-putus");
+  assert.equal(r.rows.find((x) => x.key === "2").violation, false, "tanpa ⚠");
+  assert.equal(r.stats.violations, 0);
+  assert.deepEqual(r.rows.find((x) => x.key === "1").span, { s: D("2026-11-02"), f: D("2026-11-06") }, "bar = rentang tersimpan");
+});
+
+test("α1: penerus yang benar-benar lebih awal dari hari completed_at tetap ⚠ (selesai lebih awal maupun terlambat)", () => {
+  const dep = [{ t: { $task: 1 }, type: "FS", lag: 0 }];
+  const early = lay([
+    mk(1, { gtd_status: "done", completed_at: "2026-11-03T03:00:00Z" }, sch("2026-11-02", 5)), // selesai Sel 3
+    mk(2, {}, sch("2026-11-03", 1, dep)), // Sel 3 < Rab 4
+  ]);
+  assert.equal(early.rows.find((x) => x.key === "2").violation, true);
+  assert.equal(early.edges.find((x) => x.to === "2").violation, true);
+  const late = lay([
+    mk(1, { gtd_status: "done", completed_at: "2026-11-05T03:00:00Z" }, sch("2026-11-02", 1)), // rentang Sen 2, selesai nyata Kam 5
+    mk(2, {}, sch("2026-11-04", 1, dep)), // Rab 4 ≥ Sel 3 (rentang) tetapi < Jum 6 (selesai nyata)
+  ]);
+  assert.equal(late.rows.find((x) => x.key === "2").violation, true, "mesin: conflict; violations sama");
+  const doneNoTs = lay([mk(1, { gtd_status: "done" }, sch("2026-11-02", 2)), mk(2, {}, sch("2026-11-03", 1, dep))]);
+  assert.equal(doneNoTs.rows.find((x) => x.key === "2").violation, true, "done tanpa completed_at → fin (1b)");
 });
