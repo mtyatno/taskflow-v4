@@ -201,9 +201,9 @@ test("index.json repo: timeline valid (izin records dikenal, records.calendar + 
   assert.deepEqual(P.validateManifest(entry, idx), { ok: true, reason: null }, "validateManifest runtime nyata menerima entri");
   assert.ok(P.KNOWN_PERMISSIONS.includes("records") && !P.RESERVED_PERMISSIONS.includes("records"), "D1: records dikenal");
   assert.deepEqual(entry.permissions, ["storage", "task.ext", "records"]);
-  assert.deepEqual(entry.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 } }, "D2: records tersalin ke index.json (1c-1 R6: + project)");
+  assert.deepEqual(entry.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 } }, "D2: records tersalin ke index.json (1c-1 R6: + project; 1c-2 K41: + baseline)");
   assert.deepEqual(entry.records, manifest.records, "sama dengan manifest.json");
-  assert.deepEqual(entry.taskExt, { keys: ["start", "duration", "deps", "mode", "constraint"] });
+  assert.deepEqual(entry.taskExt, { keys: ["start", "duration", "deps", "mode", "constraint", "actual"] });
   assert.equal(entry.defaultEnabled, false);
   assert.equal(P.recordsError(entry), null);
   assert.equal(build.validateRecords(entry), null, "compile.js dan runtime sepakat");
@@ -402,8 +402,8 @@ test("api.taskExt nyata (rute lokal): set {start} lalu baca task lewat api.data.
   const after = await api.data.tasks.list();
   assert.deepEqual(api.taskExt.read(after.find((t) => t.id === a.id)), {});
   assert.equal("timeline.deps" in after.find((t) => t.id === b.id).ext, false);
-  // kunci di luar manifest.taskExt.keys ditolak runtime (`mode` sah sejak 1.1.0; `actual` baru di 1c-2)
-  await assert.rejects(api.taskExt.set(a.id, { actual: "2026-11-05" }), (e) => e instanceof PluginStorageError);
+  // kunci di luar manifest.taskExt.keys ditolak runtime (`mode` sah sejak 1.1.0; `actual` sah sejak 1.2.0)
+  await assert.rejects(api.taskExt.set(a.id, { aktual: "2026-11-05" }), (e) => e instanceof PluginStorageError);
   assert.equal(P.failures("timeline").length, 0);
 });
 
@@ -547,14 +547,16 @@ async function recordEvents(fn) {
   try { return { value: await fn(), seen }; } finally { globalThis.dispatchEvent = prev; }
 }
 
-test("index.json repo: timeline 1.1.0, records.project tersalin, taskExt.keys lima", () => {
-  assert.equal(entry.version, "1.1.0");
-  assert.equal(manifest.version, "1.1.0");
+test("index.json repo: timeline 1.2.0, records.project + records.baseline tersalin, taskExt.keys enam", () => {
+  assert.equal(entry.version, "1.2.0");
+  assert.equal(manifest.version, "1.2.0");
   assert.equal(entry.minApi, 1);
   assert.deepEqual(entry.records.project, { conflict: "lww", maxBytes: 1024 });
   assert.deepEqual(entry.records.project, manifest.records.project);
-  assert.deepEqual(entry.taskExt.keys, ["start", "duration", "deps", "mode", "constraint"]);
-  assert.equal(entry.taskExt.keys.length, 5);
+  assert.deepEqual(entry.records.baseline, { conflict: "lww", maxBytes: 65536 });
+  assert.deepEqual(entry.records.baseline, manifest.records.baseline);
+  assert.deepEqual(entry.taskExt.keys, ["start", "duration", "deps", "mode", "constraint", "actual"]);
+  assert.equal(entry.taskExt.keys.length, 6);
   assert.deepEqual(entry.taskExt, manifest.taskExt);
   assert.deepEqual(P.validateManifest(entry, idx), { ok: true, reason: null });
   assert.equal(P.recordsError(entry), null);

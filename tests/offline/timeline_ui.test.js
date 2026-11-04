@@ -19,7 +19,7 @@ test("manifest persis", () => {
     id: "timeline",
     name: "Timeline",
     description: "Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.",
-    version: "1.1.0",
+    version: "1.2.0",
     minApi: 1,
     defaultEnabled: false,
     slots: ["taskList.views", "taskDetail.sections"],
@@ -28,18 +28,19 @@ test("manifest persis", () => {
       "taskList.views": [{ id: "gantt", label: "Timeline", icon: { path: "M2 4h7M5 8h8M3 12h5" }, pages: ["project", "workspace"] }],
       "taskDetail.sections": [{ id: "schedule", label: "Jadwal", order: 10 }],
     },
-    records: { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 } },
-    taskExt: { keys: ["start", "duration", "deps", "mode", "constraint"] },
+    records: { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 } },
+    taskExt: { keys: ["start", "duration", "deps", "mode", "constraint", "actual"] },
     parts: ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "layout.js", "drag.js"],
   });
 });
 
 // Bentuk api.records (README §5): put mengembalikan record publik, get → record atau null, onChange → off,
-// list(entity, {scope, limit = 200, after}) → {items, next} urut id (1c-1 Task 6: entitas `project` per scope).
+// list(entity, {scope, limit = 200, after}) → {items, next} urut id (1c-1 Task 6: entitas `project` per scope;
+// 1c-2 Task 4: entitas `baseline` per scope yang sama), remove(entity, id) → tombstone (record hilang dari get/list).
 function fakeRecords() {
   const store = new Map();
   const listeners = new Set();
-  const calls = { get: [], put: [], list: [], onChange: 0 };
+  const calls = { get: [], put: [], list: [], remove: [], onChange: 0 };
   let ver = 0;
   return {
     calls,
@@ -67,6 +68,11 @@ function fakeRecords() {
         const rec = { entity, id, scope: opts.scope, data: JSON.parse(JSON.stringify(data)), updated_at: "2026-11-01T00:00:00Z", version: ++ver, pending: true };
         store.set(entity + "/" + id, rec);
         return Promise.resolve(JSON.parse(JSON.stringify(rec)));
+      },
+      remove(entity, id) {
+        calls.remove.push([entity, id]);
+        store.delete(entity + "/" + id);
+        return Promise.resolve();
       },
       onChange(fn) {
         calls.onChange += 1;
@@ -147,7 +153,7 @@ test("calendarStore: calIdFor/scopeFor — task workspace → cal@list:<id>, tan
   assert.deepEqual(T.calTarget(0), { id: "cal@user", scope: "user" });
 });
 
-test("calendarStore dan projectStore satu-satunya yang menyentuh api.records; entitas project hanya di projectStore (R5, R6)", () => {
+test("calendarStore, projectStore, dan baselineStore satu-satunya yang menyentuh api.records; tiap entitas hanya di adaptornya (R5, R6, 1c-2 K41)", () => {
   const hits = jsx.match(/\.records\b/g) || [];
   assert.ok(hits.length > 0);
   const body = (name) => {
@@ -158,8 +164,9 @@ test("calendarStore dan projectStore satu-satunya yang menyentuh api.records; en
   };
   const [cs, ce] = body("calendarStore");
   const [ps, pe] = body("projectStore");
+  const [bs, be] = body("baselineStore");
   const strip = (s) => s.replace(/\/\/[^\n]*/g, "");
-  const cuts = [[cs, ce], [ps, pe]].sort((a, b) => a[0] - b[0]);
+  const cuts = [[cs, ce], [ps, pe], [bs, be]].sort((a, b) => a[0] - b[0]);
   let outside = "";
   let at = 0;
   for (const [s0, e0] of cuts) { outside += jsx.slice(at, s0); at = e0; }
@@ -169,6 +176,11 @@ test("calendarStore dan projectStore satu-satunya yang menyentuh api.records; en
   assert.doesNotMatch(strip(jsx.slice(cs, ce)), /PRJ_ENTITY|"project"/);
   assert.doesNotMatch(strip(jsx.slice(ps, pe)), /CAL_ENTITY|"calendar"/);
   assert.match(jsx, /const PRJ_ENTITY = "project";/);
+  // baselineStore hanya entitas baseline (BL_ENTITY); adaptor lain tidak menyentuhnya
+  assert.doesNotMatch(strip(jsx.slice(bs, be)), /CAL_ENTITY|PRJ_ENTITY|"calendar"|"project"/);
+  assert.match(strip(jsx.slice(bs, be)), /BL_ENTITY/);
+  assert.doesNotMatch(strip(jsx.slice(cs, ce)) + strip(jsx.slice(ps, pe)), /BL_ENTITY|"baseline"/);
+  assert.match(jsx, /const BL_ENTITY = "baseline";/);
 });
 
 test("registrasi: view gantt (taskList.views) dan seksi schedule order 10 (taskDetail.sections), komponen fungsi, sesuai contributes", () => {
@@ -2609,6 +2621,270 @@ test("useUnits: peristiwa record project beruntun → satu muat ulang 300 ms (ko
   assert.equal(fr.calls.list.length, 2, "timer tertunda dibatalkan saat dilepas");
 }));
 
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1c-2 — Task 4: baselineStore (K41) — muat per unit, simpan/hapus terpagar, kunci workspace, CAS snap
+// ════════════════════════════════════════════════════════════════════════════
+// Record `baseline` sah untuk slot n unit (lid null = pribadi). Id ditulis tangan DI TES (bentuk yang diharapkan
+// `bl<n>` + ekor recId unitOf); kode plugin hanya membangunnya dari keluaran TLSched.unitOf.
+const BL_T = [[{ $task: 1 }, "2026-11-02", "2026-11-04", 3, 2], [{ $task: 2 }, "2026-11-05", "2026-11-05", 1, 0]];
+function blUnit(lid, name) {
+  return T.TLSched.unitOf(lid ? { pageKind: "workspace", listId: lid, projectName: name } : { pageKind: "project", listId: null, projectName: name });
+}
+function blRec(lid, name, n, data, extra) {
+  const u = blUnit(lid, name);
+  return Object.assign({
+    entity: "baseline", id: "bl" + n + u.recId.slice(3), scope: u.scope,
+    data: Object.assign({ v: 1, n, name: "Baseline " + n, savedAt: "2026-11-04T03:00:00Z", by: 7, t: BL_T }, data || {}),
+    updated_at: "2026-11-04T03:00:00Z", version: 2, pending: false,
+  }, extra || {});
+}
+const BL_DATA = { v: 1, n: 1, name: "dari encode", savedAt: "2026-11-05T01:00:00Z", by: 7, t: BL_T };
+const blCode = (code) => (e) => e && e.code === code;
+
+test("baselineStore.loadAll dua halaman next; v2 diabaikan; hanya slot unit ini (scope, n data = n id), tanpa tulis", async () => {
+  const fr = fakeRecords();
+  // 1003 baseline unit lain di scope list:12 → dua halaman (limit 1000)
+  for (let i = 0; i < 1003; i++) putRec(fr, blRec(12, "Proyek " + i, 1));
+  const a1 = blRec(12, "Alpha", 1, { name: "Rencana awal" }, { pending: true });
+  const a2 = blRec(12, "Alpha", 2, { v: 2 }); // versi asing → diabaikan
+  const a3 = blRec(12, "Alpha", 3, { name: "Sesudah revisi", by: null });
+  const beta3 = blRec(12, "Beta", 3, { n: 1 }); // n data ≠ n id → asing
+  const alphaOther = blRec(13, "Alpha", 1); // workspace lain
+  const alphaMine = blRec(null, "Alpha", 1); // pribadi
+  for (const r of [a1, a2, a3, beta3, alphaOther, alphaMine]) putRec(fr, r);
+  putRec(fr, unitRec(12, "Alpha")); // entitas project di scope sama tidak ikut
+  assert.match(a1.id, /^bl1@list:12:[0-9a-f]{8}$/);
+  assert.match(alphaMine.id, /^bl1@user:[0-9a-f]{8}$/);
+  const store = T.baselineStore({ records: fr.api });
+  const map = await store.loadAll(blUnit(12, "Alpha"));
+  const ids12 = [...fr.store.values()].filter((r) => r.entity === "baseline" && r.scope === "list:12").map((r) => r.id).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+  assert.equal(fr.calls.list.length, 2, "dua halaman");
+  assert.deepEqual(fr.calls.list[0], ["baseline", { scope: "list:12", limit: 1000 }]);
+  assert.deepEqual(fr.calls.list[1], ["baseline", { scope: "list:12", limit: 1000, after: ids12[999] }]);
+  assert.ok(ids12.indexOf(a3.id) >= 1000, "slot 3 Alpha ada di halaman kedua");
+  assert.ok(map instanceof Map);
+  assert.deepEqual([...map.keys()].sort(), [1, 3], "v2 di slot 2 diabaikan");
+  const e1 = map.get(1);
+  assert.equal(e1.n, 1);
+  assert.equal(e1.name, "Rencana awal");
+  assert.equal(e1.savedAt, "2026-11-04T03:00:00Z");
+  assert.equal(e1.by, 7);
+  assert.deepEqual([...e1.rows.keys()], ["1", "2"], "baris lewat TLPlan.baselineDecode");
+  assert.deepEqual(e1.snap, { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: 7 });
+  assert.equal(e1.pending, true);
+  assert.deepEqual(map.get(3).snap, { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: null });
+  assert.equal(fr.calls.get.length, 0);
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "memuat tidak pernah menulis");
+  // Beta: slot 3 berdata n 1 → asing; halaman project pribadi → scope user (satu halaman)
+  assert.equal((await store.loadAll(blUnit(12, "Beta"))).size, 0);
+  const mine = await store.loadAll(blUnit(null, "Alpha"));
+  assert.deepEqual([...mine.keys()], [1]);
+  assert.deepEqual(fr.calls.list[fr.calls.list.length - 1], ["baseline", { scope: "user", limit: 1000 }]);
+  assert.equal((await store.loadAll(blUnit(null, "Belum Ada"))).size, 0);
+  // unit tidak sah → ditolak (bukan list scope sembarang)
+  await assert.rejects(store.loadAll({ recId: "bl1@user:x", scope: "user" }), blCode("INVALID"));
+  await assert.rejects(store.loadAll(null), blCode("INVALID"));
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0);
+});
+
+test("baselineStore: save menulis {v:1,n,name,savedAt,by,t} scope unit (id dari unitOf), CAS baca dulu; remove = records.remove; slot/unit tidak sah ditolak tanpa tulis", async () => {
+  const fr = fakeRecords();
+  const store = T.baselineStore({ records: fr.api });
+  const u = blUnit(12, "Alpha");
+  const id2 = "bl2" + u.recId.slice(3);
+  const rec = await store.save(u, 2, "Rencana awal", BL_DATA, T.BL_NO_SNAP);
+  assert.deepEqual(fr.calls.get, [["baseline", id2]], "CAS: baca record slot saat simpan");
+  assert.deepEqual(fr.calls.put, [["baseline", id2, { v: 1, n: 2, name: "Rencana awal", savedAt: "2026-11-05T01:00:00Z", by: 7, t: BL_T }, { scope: "list:12" }]]);
+  assert.equal(rec.id, id2);
+  assert.equal(rec.pending, true);
+  assert.equal(T.blRecId(u, 2), id2);
+  // bulat-pergi: loadAll melihat record yang baru ditulis
+  const map = await store.loadAll(u);
+  assert.equal(map.get(2).name, "Rencana awal");
+  assert.deepEqual(map.get(2).snap, { exists: true, updatedAt: "2026-11-01T00:00:00Z", by: 7 });
+  // pribadi: scope user, id bl1@user:<h>; savedAt/by bukan string/bilangan bulat → null
+  const p = blUnit(null, "Rumah");
+  await store.save(p, 1, "Baseline 1", Object.assign({}, BL_DATA, { savedAt: 5, by: "7" }), T.BL_NO_SNAP);
+  assert.deepEqual(fr.calls.put[1], ["baseline", "bl1" + p.recId.slice(3), { v: 1, n: 1, name: "Baseline 1", savedAt: null, by: null, t: BL_T }, { scope: "user" }]);
+  assert.match(fr.calls.put[1][1], /^bl1@user:[0-9a-f]{8}$/);
+  // remove (fungsi tulis yang sama): satu records.remove, tanpa put
+  await store.remove(u, 2);
+  assert.deepEqual(fr.calls.remove, [["baseline", id2]]);
+  assert.equal(fr.calls.put.length, 2);
+  assert.equal((await store.loadAll(u)).has(2), false);
+  // slot / unit / data tidak sah → INVALID, tanpa baca maupun tulis
+  const gets = fr.calls.get.length;
+  for (const n of [0, 4, "1", 1.5, null]) {
+    await assert.rejects(store.save(u, n, "x", BL_DATA, T.BL_NO_SNAP), blCode("INVALID"), "slot " + n);
+    await assert.rejects(store.remove(u, n), blCode("INVALID"), "hapus slot " + n);
+  }
+  const forged = [null, {}, { recId: "bl1@user:abc", scope: "user" }, { recId: u.recId, scope: "user" }, { recId: u.recId, scope: "list:13" }, { recId: "prj@user:abc" }];
+  for (const bad of forged) {
+    await assert.rejects(store.save(bad, 1, "x", BL_DATA, T.BL_NO_SNAP), blCode("INVALID"), JSON.stringify(bad));
+    await assert.rejects(store.remove(bad, 1), blCode("INVALID"), "hapus " + JSON.stringify(bad));
+  }
+  for (const d of [null, "x", { v: 1, t: "bukan larik" }]) await assert.rejects(store.save(u, 1, "x", d, T.BL_NO_SNAP), blCode("INVALID"));
+  await assert.rejects(store.save(u, 1, 5, BL_DATA, T.BL_NO_SNAP), blCode("INVALID"), "nama bukan string");
+  assert.equal(fr.calls.get.length, gets);
+  assert.equal(fr.calls.put.length, 2);
+  assert.equal(fr.calls.remove.length, 1);
+  // TOO_LARGE dari host (pemeriksaan maxBytes pluginsync) → galat yang sama dengan penolakan klien
+  fr.api.put = () => Promise.reject(Object.assign(new Error("TOO_LARGE: data > 65536 byte"), { code: "TOO_LARGE", detail: "size" }));
+  await assert.rejects(store.save(u, 3, "x", BL_DATA, T.BL_NO_SNAP), (e) => e.code === "TOO_LARGE" && e.message === T.MSG_BL_TOO_LARGE);
+  // galat lain diteruskan apa adanya
+  fr.api.put = () => Promise.reject(Object.assign(new Error("SCOPE_IMMUTABLE"), { code: "SCOPE_IMMUTABLE" }));
+  await assert.rejects(store.save(u, 3, "x", BL_DATA, T.BL_NO_SNAP), blCode("SCOPE_IMMUTABLE"));
+});
+
+test("baselineStore: batas BL_MAX eksak — 65536 byte boleh, 65537 ditolak 'Baseline terlalu besar' sebelum baca/tulis", async () => {
+  assert.equal(T.TLPlan.BL_MAX, 65536);
+  assert.equal(T.MSG_BL_TOO_LARGE, "Baseline terlalu besar");
+  const fr = fakeRecords();
+  const store = T.baselineStore({ records: fr.api });
+  const u = blUnit(12, "Alpha");
+  const base = T.TLPlan.baselineByteSize({ v: 1, n: 1, name: "", savedAt: BL_DATA.savedAt, by: 7, t: BL_T });
+  const fit = "x".repeat(T.TLPlan.BL_MAX - base);
+  assert.equal(T.TLPlan.baselineByteSize({ v: 1, n: 1, name: fit, savedAt: BL_DATA.savedAt, by: 7, t: BL_T }), 65536);
+  // tepat 65536 (ukuran data YANG DITULIS, termasuk nama dari argumen) → boleh
+  await store.save(u, 1, fit, BL_DATA, T.BL_NO_SNAP);
+  assert.equal(fr.calls.put.length, 1);
+  assert.equal(T.TLPlan.baselineByteSize(fr.calls.put[0][2]), 65536);
+  // 65537 → ditolak sebelum get/put
+  const gets = fr.calls.get.length;
+  await assert.rejects(store.save(u, 2, fit + "x", BL_DATA, T.BL_NO_SNAP), (e) => e.code === "TOO_LARGE" && e.message === "Baseline terlalu besar");
+  // multibyte: 2 byte UTF-8 per "é" — ukuran byte, bukan panjang string
+  const k = Math.floor((T.TLPlan.BL_MAX - base) / 2);
+  const mb = "é".repeat(k) + "x".repeat(T.TLPlan.BL_MAX - base - 2 * k + 1);
+  assert.equal(T.TLPlan.baselineByteSize({ v: 1, n: 1, name: mb, savedAt: BL_DATA.savedAt, by: 7, t: BL_T }), 65537);
+  await assert.rejects(store.save(u, 2, mb, BL_DATA, T.BL_NO_SNAP), blCode("TOO_LARGE"));
+  assert.equal(fr.calls.get.length, gets);
+  assert.equal(fr.calls.put.length, 1);
+});
+
+test("baselineStore: snap beda → tolak STALE tanpa put (anggota lain menimpa / slot terisi sejak dialog dibuka); snap sama → satu put; snap rusak → INVALID", async () => {
+  const fr = fakeRecords();
+  const store = T.baselineStore({ records: fr.api });
+  const u = blUnit(12, "Alpha");
+  putRec(fr, blRec(12, "Alpha", 1));
+  const snap1 = (await store.loadAll(u)).get(1).snap; // potret saat dialog dibuka
+  assert.deepEqual(snap1, { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: 7 });
+  // anggota lain menimpa slot 1 (updated_at baru, by lain) sebelum Simpan ditekan
+  putRec(fr, blRec(12, "Alpha", 1, { by: 9 }, { updated_at: "2026-11-05T02:00:00Z" }));
+  await assert.rejects(store.save(u, 1, "Timpa", BL_DATA, snap1), (e) => e.code === "STALE");
+  // hanya updated_at berubah (by sama) → tetap beda
+  putRec(fr, blRec(12, "Alpha", 1, {}, { updated_at: "2026-11-05T03:00:00Z" }));
+  await assert.rejects(store.save(u, 1, "Timpa", BL_DATA, snap1), blCode("STALE"));
+  // slot kosong saat dialog dibuka, terisi sebelum simpan → STALE (tidak menimpa diam-diam)
+  putRec(fr, blRec(12, "Alpha", 2));
+  await assert.rejects(store.save(u, 2, "Baru", BL_DATA, T.BL_NO_SNAP), blCode("STALE"));
+  // slot terisi saat dialog dibuka, dihapus anggota lain → STALE
+  await assert.rejects(store.save(u, 3, "Baru", BL_DATA, snap1), blCode("STALE"));
+  assert.equal(fr.calls.put.length, 0, "tidak ada put pada penolakan");
+  // potret terbaru (muat ulang) → satu put
+  const fresh = (await store.loadAll(u)).get(1).snap;
+  await store.save(u, 1, "Timpa", BL_DATA, fresh);
+  assert.equal(fr.calls.put.length, 1);
+  assert.equal(fr.calls.put[0][2].name, "Timpa");
+  // record slot asing (v 2) = diabaikan di mana-mana → setara kosong untuk CAS (tidak terkunci selamanya)
+  putRec(fr, blRec(12, "Alpha", 3, { v: 2 }));
+  await store.save(u, 3, "Baru", BL_DATA, T.BL_NO_SNAP);
+  assert.equal(fr.calls.put.length, 2);
+  // snap wajib: tidak ada / bukan objek → INVALID tanpa put
+  for (const s of [undefined, null, "x"]) await assert.rejects(store.save(u, 2, "x", BL_DATA, s), blCode("INVALID"));
+  assert.equal(fr.calls.put.length, 2);
+  assert.deepEqual(T.BL_NO_SNAP, { exists: false, updatedAt: null, by: null });
+  assert.ok(Object.isFrozen(T.BL_NO_SNAP));
+});
+
+test("useBaselines kunci workspace: belum loaded/pulled → terkunci + teks 'Menunggu data baseline workspace…'; record lokal ada → slot itu terbuka; pulled → semua terbuka; project pribadi tidak", () => withEngineClock(async (clock) => {
+  assert.equal(T.MSG_BL_WAIT, "Menunggu data baseline workspace…");
+  const fr = fakeRecords();
+  putRec(fr, blRec(12, "Alpha", 1));
+  const { api } = fakeApi({ records: fr });
+  const m = mount((p) => T.useBaselines(p.api, p.unit));
+  const unit = blUnit(12, "Alpha");
+  let r = m.render({ api, unit });
+  // memuat: semua slot terkunci TANPA teks tunggu (pola P3 a)
+  assert.equal(r.loaded, false);
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), true); assert.equal(r.waitingOf(n), false); }
+  assert.equal(r.waiting, false);
+  m.flush();
+  await settle();
+  assert.equal(fr.calls.list.length, 1, "muat pertama saat pasang tanpa debounce");
+  r = m.render({ api, unit });
+  assert.equal(r.loaded, true);
+  assert.equal(r.pulled, false);
+  assert.deepEqual([...r.bases.keys()], [1]);
+  assert.equal(r.lockedOf(1), false, "record lokal ada → base_version terkirim, boleh timpa (dengan konfirmasi T5)");
+  assert.deepEqual(r.snapOf(1), { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: 7 });
+  for (const n of [2, 3]) { assert.equal(r.lockedOf(n), true); assert.equal(r.waitingOf(n), true); assert.deepEqual(r.snapOf(n), T.BL_NO_SNAP); }
+  assert.equal(r.waiting, true);
+  // record tiba lewat sinkron biasa (bukan pulled) → muat ulang setelah 300 ms; slot 2 terbuka karena kini ada
+  putRec(fr, blRec(12, "Alpha", 2));
+  fr.emit({ entity: "baseline", ids: [blRec(12, "Alpha", 2).id], source: "sync" });
+  clock.tick(299);
+  await settle();
+  assert.equal(fr.calls.list.length, 1);
+  clock.tick(1);
+  await settle();
+  r = m.render({ api, unit });
+  assert.equal(fr.calls.list.length, 2);
+  assert.equal(r.lockedOf(2), false);
+  assert.equal(r.lockedOf(3), true, "sync biasa bukan tanda tarik sukses");
+  assert.equal(r.pulled, false);
+  // entitas lain tidak memuat ulang baseline
+  fr.emit({ entity: "project", ids: ["prj@list:12:-"], source: "sync" });
+  clock.tick(300);
+  await settle();
+  assert.equal(fr.calls.list.length, 2);
+  // tarik sukses → muat ulang SEGERA, lalu latch menyala → semua slot terbuka, teks hilang
+  fr.emit(PULLED);
+  await settle();
+  r = m.render({ api, unit });
+  assert.equal(fr.calls.list.length, 3);
+  assert.equal(r.pulled, true);
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false); assert.equal(r.waitingOf(n), false); }
+  assert.equal(r.waiting, false);
+  m.unmount();
+  assert.equal(fr.listenerCount(), 0);
+
+  // halaman project pribadi: setelah muat tidak pernah terkunci, meski tanpa record dan tanpa pulled
+  const m2 = mount((p) => T.useBaselines(p.api, p.unit));
+  const pu = blUnit(null, "Rumah");
+  m2.render({ api, unit: pu });
+  m2.flush();
+  await settle();
+  r = m2.render({ api, unit: pu });
+  assert.equal(r.loaded, true);
+  assert.equal(r.pulled, false);
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false); assert.equal(r.waitingOf(n), false); }
+  m2.unmount();
+
+  // muat gagal tidak mengunci selamanya (failed, pola useUnits); unit null (mesin belum siap) → terkunci
+  const fr3 = fakeRecords();
+  fr3.api.list = () => Promise.reject(new Error("idb"));
+  const h3 = fakeApi({ records: fr3 });
+  const m3 = mount((p) => T.useBaselines(p.api, p.unit));
+  m3.render({ api: h3.api, unit });
+  m3.flush();
+  await settle();
+  r = m3.render({ api: h3.api, unit });
+  assert.equal(r.failed, true);
+  assert.equal(r.loaded, false);
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false); assert.equal(r.waitingOf(n), false); }
+  assert.equal(h3.calls.warn.length, 1);
+  m3.unmount();
+  const m4 = mount((p) => T.useBaselines(p.api, p.unit));
+  r = m4.render({ api, unit: null });
+  m4.flush();
+  await settle();
+  r = m4.render({ api, unit: null });
+  for (const n of [1, 2, 3]) assert.equal(r.lockedOf(n), true);
+  assert.equal(r.bases.size, 0);
+  m4.unmount();
+  assert.equal(fr.calls.put.length + fr.calls.remove.length + fr3.calls.put.length, 0, "hook tidak pernah menulis");
+}));
+
 test("useEngine: render pertama status loading tanpa memanggil TLCpm.run (spy); setelah raf + setTimeout palsu → ready; scopeTasks identitas sama → tidak muat ulang; berubah / sync.done → satu muat ulang setelah 300 ms (dua kejadian beruntun = satu)", () => withEngineClock(async (clock) => {
   const a = mk(1, "A", { start: "2026-11-02", duration: 2 });
   const b = mk(2, "B", { duration: 1, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }] });
@@ -2869,10 +3145,16 @@ test("task pindah ke project lain / project diganti nama → unitOf baru tanpa r
   }
 }));
 
-test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 500 task dengan drift > 0, sync.done, onChange project dari sync, pulled, env.today berubah + rerender, kalender berubah, scopeTasks baru", () => withEngineClock(async (clock) => {
+test("spy taskExt.set/setMany + records.put/remove = 0 (view + useBaselines terpasang, record baseline ada) setelah: mount view workspace 500 task dengan drift > 0, sync.done, onChange project dari sync, onChange baseline, pulled, env.today berubah + rerender, kalender berubah, scopeTasks baru", () => withEngineClock(async (clock) => {
   const tasks = bigTasks(500, 400).map((t) => Object.assign({}, t, { list_id: 12 }));
   const fr = fakeRecords();
   for (let i = 0; i < 5; i++) putRec(fr, unitRec(12, "P" + i)); // semua project otomatis
+  // 1c-2 Task 4: baseline unit P0 ada (slot 1, 2) + baselineStore terpasang (useBaselines) bersama view
+  putRec(fr, blRec(12, "P0", 1));
+  putRec(fr, blRec(12, "P0", 2, { name: "Revisi" }));
+  const blU = blUnit(12, "P0");
+  let blState = null;
+  const ViewBl = (p) => { blState = T.useBaselines(p.api, blU); return T.TimelineViewBody(p); };
   const { api, calls } = fakeApi({ records: fr });
   let listCalls = 0;
   api.data = { tasks: { list: () => { listCalls += 1; return Promise.resolve(tasks); } } };
@@ -2881,7 +3163,7 @@ test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 50
   try {
     const base = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null }).ctx;
     let props = { context: base, api };
-    const m = mount(T.TimelineViewBody);
+    const m = mount(ViewBl);
     const tree0 = m.render(props);
     assert.equal(spy.runs.length, 0, "render awal view tidak menunggu mesin");
     assert.ok(nodes(tree0, (n) => n.props.role === "grid").length === 1);
@@ -2893,7 +3175,9 @@ test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 50
     const ok = (step) => {
       assert.deepEqual(writes, [], step + ": taskExt");
       assert.equal(fr.calls.put.length, 0, step + ": records.put");
+      assert.equal(fr.calls.remove.length, 0, step + ": records.remove");
     };
+    assert.deepEqual([...blState.bases.keys()].sort(), [1, 2], "baseline termuat");
     ok("mount");
     // sinkron selesai
     for (const f of calls.handlers["sync.done"] || []) f({ initial: false });
@@ -2907,8 +3191,17 @@ test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 50
     await settleView(m, () => props, clock);
     assert.equal(spy.runs.length, before + 1, "unit berubah → mesin jalan ulang");
     ok("onChange project");
+    // baseline berubah dari sinkron (anggota lain menimpa slot 2, menghapus slot 1)
+    putRec(fr, blRec(12, "P0", 2, { name: "Revisi 2", by: 9 }, { updated_at: "2026-11-05T02:00:00Z" }));
+    fr.store.delete("baseline/" + blRec(12, "P0", 1).id);
+    fr.emit({ entity: "baseline", ids: [blRec(12, "P0", 1).id, blRec(12, "P0", 2).id], source: "sync", lost: [blRec(12, "P0", 2).id] });
+    await settleView(m, () => props, clock);
+    assert.deepEqual([...blState.bases.keys()], [2]);
+    assert.equal(blState.bases.get(2).name, "Revisi 2");
+    ok("onChange baseline");
     fr.emit(PULLED);
     await settleView(m, () => props, clock);
+    assert.equal(blState.pulled, true);
     ok("pulled");
     // env.today berubah + rerender (plugin tidak berlangganan app.dayChanged: hari dibaca dari api.env.today tiap render)
     api.env.today = () => "2026-11-05";
@@ -2938,10 +3231,11 @@ test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 50
   }
 }));
 
-// Pagar sumber R25: AST plugin.js (build) — setiap akses taskExt.set / taskExt.setMany / records.put berada di dalam
-// badan fungsi bernama issue|issueMany|write|writeMany|setAuto|save; tanpa alias (`const te = api.taskExt`), akses
+// Pagar sumber R25: AST plugin.js (build) — setiap akses taskExt.set / taskExt.setMany / records.put / records.remove
+// berada di dalam badan fungsi bernama issue|issueMany|write|writeMany|setAuto|save|saveBaseline (1c-2 Task 4: +saveBaseline,
+// dan records.remove ikut dipagari sejak ada pemanggilnya); tanpa alias (`const te = api.taskExt`), akses
 // terhitung (`api["taskExt"]`), atau destrukturisasi yang bisa melewati pagar.
-const FENCE_ALLOW = new Set(["issue", "issueMany", "write", "writeMany", "setAuto", "save"]);
+const FENCE_ALLOW = new Set(["issue", "issueMany", "write", "writeMany", "setAuto", "save", "saveBaseline"]);
 function fenceScan(code) {
   const parser = require("@babel/parser");
   const ast = parser.parse(code, { sourceType: "script" });
@@ -2973,7 +3267,7 @@ function fenceScan(code) {
       const obj = node.object;
       const owner = obj.type === "MemberExpression" && !obj.computed ? keyName(obj.property) : obj.type === "Identifier" ? obj.name : null;
       if (GUARDED.has(owner) && node.computed) bad.push("akses terhitung pada " + owner + " baris " + line(node));
-      if (!node.computed && ((owner === "taskExt" && (prop === "set" || prop === "setMany")) || (owner === "records" && prop === "put"))) {
+      if (!node.computed && ((owner === "taskExt" && (prop === "set" || prop === "setMany")) || (owner === "records" && (prop === "put" || prop === "remove")))) {
         const fn = names.filter((n) => FENCE_ALLOW.has(n));
         hits.push({ call: owner + "." + prop, fn: fn.length ? fn[fn.length - 1] : null, line: line(node) });
         if (!fn.length) bad.push(owner + "." + prop + " di luar daftar-izin (" + names.join(" > ") + ") baris " + line(node));
@@ -2992,7 +3286,7 @@ function fenceScan(code) {
   return { hits, bad };
 }
 
-test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.put(' berada di dalam fungsi issue|issueMany|write|writeMany|setAuto|save", () => {
+test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.put(' / 'records.remove(' berada di dalam fungsi issue|issueMany|write|writeMany|setAuto|save|saveBaseline", () => {
   // pagar memeriksa dirinya sendiri: pelanggaran sintetis harus tertangkap, pola sah tidak
   const caught = (src) => fenceScan(src).bad.length > 0;
   assert.ok(caught("function useX(api) { api.records.put('project', 'x', {}, {}); }"), "fungsi lain");
@@ -3002,12 +3296,16 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
   assert.ok(caught("function f(api) { api['taskExt'].set(1, {}); }"), "terhitung");
   assert.ok(caught("function f(api) { const { records } = api; records.put('a'); }"), "destrukturisasi");
   assert.ok(caught("function f(api) { api.records['put']('a'); }"), "metode terhitung");
+  assert.ok(caught("const s = { remove(api) { return api.records.remove('baseline', 'b'); } };"), "records.remove di luar daftar-izin");
+  assert.ok(caught("function useBaselines(api) { React.useEffect(() => { api.records.remove('baseline', 'b'); }); }"), "records.remove di efek");
   const okSrc = "function issue(api) { const send = () => api.taskExt.setMany([]); return send() || api.taskExt.set(1, {}); }" +
     "const o = { save(api) { return api.records.put('calendar', 'c', {}, {}); }, setAuto(api) { return api.records.put('project', 'p', {}, {}); } };" +
-    "function S(api) { const write = (p) => api.taskExt.set(1, p); return write; }";
+    "function S(api) { const write = (p) => api.taskExt.set(1, p); return write; }" +
+    "function B(api) { function saveBaseline(op) { return op ? api.records.remove('baseline', 'b') : Promise.resolve().then(() => api.records.put('baseline', 'b', {}, {})); } return { save: () => saveBaseline(0) }; }";
   const okScan = fenceScan(okSrc);
   assert.deepEqual(okScan.bad, []);
-  assert.equal(okScan.hits.length, 5);
+  assert.equal(okScan.hits.length, 7);
+  assert.deepEqual(okScan.hits.slice(5).map((h) => h.fn + ":" + h.call), ["saveBaseline:records.remove", "saveBaseline:records.put"]);
 
   const code = fs.readFileSync(path.join(dir, "plugin.js"), "utf8");
   const { hits, bad } = fenceScan(code);
@@ -3019,9 +3317,10 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
     "issue:taskExt.setMany": 1, "issue:taskExt.set": 1, "write:taskExt.set": 1, "issueMany:taskExt.setMany": 1,
     "writeMany:taskExt.setMany": 1, // 1c-1 Task 11: tulis massal seksi Jadwal (Mode, Perbarui, Urungkan)
     "save:records.put": 1, "setAuto:records.put": 1,
+    "saveBaseline:records.put": 1, "saveBaseline:records.remove": 1, // 1c-2 Task 4: simpan/hapus baseline (K41)
   });
   // regex mentah tetap cocok dengan jumlah hit AST (tidak ada pemanggilan yang luput dari parser)
-  const raw = (code.match(/taskExt\.set\(|taskExt\.setMany\(|records\.put\(/g) || []).length;
+  const raw = (code.match(/taskExt\.set\(|taskExt\.setMany\(|records\.put\(|records\.remove\(/g) || []).length;
   assert.equal(raw, hits.length);
 });
 

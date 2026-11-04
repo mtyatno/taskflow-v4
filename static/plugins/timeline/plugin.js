@@ -1,7 +1,7 @@
 // generated from plugin.jsx — jangan edit
 (function () {
 "use strict";
-const manifest = Object.freeze({"id":"timeline","name":"Timeline","description":"Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.","version":"1.1.0","minApi":1,"slots":["taskList.views","taskDetail.sections"],"permissions":["storage","task.ext","records"],"defaultEnabled":false,"contributes":{"taskList.views":[{"id":"gantt","label":"Timeline","icon":{"path":"M2 4h7M5 8h8M3 12h5"},"pages":["project","workspace"]}],"taskDetail.sections":[{"id":"schedule","label":"Jadwal","order":10}]},"taskExt":{"keys":["start","duration","deps","mode","constraint"]},"records":{"calendar":{"conflict":"lww","maxBytes":16384},"project":{"conflict":"lww","maxBytes":1024}},"builtin":true});
+const manifest = Object.freeze({"id":"timeline","name":"Timeline","description":"Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.","version":"1.2.0","minApi":1,"slots":["taskList.views","taskDetail.sections"],"permissions":["storage","task.ext","records"],"defaultEnabled":false,"contributes":{"taskList.views":[{"id":"gantt","label":"Timeline","icon":{"path":"M2 4h7M5 8h8M3 12h5"},"pages":["project","workspace"]}],"taskDetail.sections":[{"id":"schedule","label":"Jadwal","order":10}]},"taskExt":{"keys":["start","duration","deps","mode","constraint","actual"]},"records":{"calendar":{"conflict":"lww","maxBytes":16384},"project":{"conflict":"lww","maxBytes":1024},"baseline":{"conflict":"lww","maxBytes":65536}},"builtin":true});
 // part: holidays-id.js
 // Plugin Timeline — TLHolidays: libur nasional + cuti bersama Indonesia 2025–2027 (spec §8.4, rencana R2/R25).
 // Murni data + pembantu kecil; tanpa Date lokal, tanpa global. Ditranskripsi dari SKB 3 Menteri (Menag, Menaker,
@@ -3155,11 +3155,12 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
 //
 // Susunan modul (Task 6 = kerangka; komponen diisi Task 7–10):
 //   1. Konstanta + pesan UI persis (kalender, preferensi).
-//   2. calendarStore(api) dan projectStore(api) (1c-1 R6) — SATU-SATUNYA kode yang menyentuh api.records (R5), masing-
-//      masing hanya entitasnya sendiri. calTarget (= TLSched.calTarget) / TLSched.unitOf memilih id/scope.
-//      Tulisan hanya di calendarStore.save dan projectStore.setAuto (R25: mesin dan pemuat tidak pernah menulis).
+//   2. calendarStore(api), projectStore(api) (1c-1 R6), dan baselineStore(api) (1c-2 K41) — SATU-SATUNYA kode yang
+//      menyentuh api.records (R5), masing-masing hanya entitasnya sendiri. calTarget (= TLSched.calTarget) /
+//      TLSched.unitOf memilih id/scope. Tulisan hanya di calendarStore.save, projectStore.setAuto, dan
+//      baselineStore → saveBaseline (put + remove) (R25: mesin dan pemuat tidak pernah menulis).
 //   3. Preferensi per perangkat lewat api.storage: prefKey / cleanPref / PREF_DEFAULTS (R19).
-//   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar/useUnits/useEngine), fungsi render
+//   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar/useUnits/useBaselines/useEngine), fungsi render
 //      (toolbar/head/tabel/grafik/panah/legenda), TimelineViewBody (Task 7; interaksi Task 8 lewat `ix`; popover
 //      kalender + Daftar HP Task 9), ScheduleSection (Task 10); pembungkus React.memo malas (R24).
 //   5. `pure` + module.exports untuk tes Node; registrasi hanya bila host plugin (TF.plugins) ada.
@@ -3352,6 +3353,147 @@ function projectStore(api) {
     subscribe(fn) {
       return api.records.onChange(ev => {
         const e = recordEvent(ev, PRJ_ENTITY);
+        if (e) fn(e);
+      });
+    }
+  };
+}
+
+// ── 2c. Baseline per unit jadwal: record `baseline` (1c-2 K41) ──────────────
+// Tiga slot per unit: id `bl<n>@user:<h>` / `bl<n>@list:<lid>:<h>` = "bl" + n + ekor recId TLSched.unitOf (satu-satunya
+// pembuat id; tanpa hash tulisan tangan). Data {v: 1, n, name, savedAt, by, t} (kodek TLPlan.baselineEncode/Decode).
+// Penjaga fold TIDAK perlu: slot dipilih eksplisit di unit halaman, tidak pernah dicari dari task.
+const BL_ENTITY = "baseline";
+const BL_SLOTS = Object.freeze([1, 2, 3]);
+const BL_PAGE = 1000; // batas atas limit api.records.list
+const MSG_BL_TOO_LARGE = "Baseline terlalu besar";
+const MSG_BL_WAIT = "Menunggu data baseline workspace…";
+// Potret CAS slot (Review Focus 4): {exists, updatedAt, by} record slot; slot kosong / record asing = BL_NO_SNAP.
+const BL_NO_SNAP = Object.freeze({
+  exists: false,
+  updatedAt: null,
+  by: null
+});
+const EMPTY_BASES = new Map();
+function blError(code, msg) {
+  const e = new Error(msg);
+  e.code = code;
+  return e;
+}
+
+// Id record slot n unit. unit = keluaran TLSched.unitOf: recId harus "prj@" + scope + ":" (scope tersandi di id, README
+// §5) — selain itu INVALID (unit palsu / scope tidak cocok tidak pernah menjadi id record).
+function blRecId(unit, n) {
+  const u = unit && typeof unit === "object" ? unit : null;
+  if (!u || typeof u.recId !== "string" || typeof u.scope !== "string" || u.recId.indexOf("prj@" + u.scope + ":") !== 0) {
+    throw blError("INVALID", "unit jadwal tidak sah");
+  }
+  if (BL_SLOTS.indexOf(n) < 0) throw blError("INVALID", "slot baseline tidak sah");
+  return "bl" + n + u.recId.slice(3);
+}
+
+// Record → entri slot n {n, name, savedAt, by, rows, snap, pending}, atau null bila tidak ada / asing (v ≠ 1, bentuk
+// rusak, n data ≠ n id) — record asing diabaikan di mana-mana, termasuk CAS (setara slot kosong).
+function blEntry(r, n) {
+  if (!r || typeof r !== "object") return null;
+  const dec = TLPlan.baselineDecode(r.data);
+  if (!dec || dec.n !== n) return null;
+  const snap = {
+    exists: true,
+    updatedAt: typeof r.updated_at === "string" ? r.updated_at : null,
+    by: Number.isInteger(dec.by) ? dec.by : null
+  };
+  return Object.assign({}, dec, {
+    snap,
+    pending: !!r.pending
+  });
+}
+function blSameSnap(a, b) {
+  return a.exists === b.exists && a.updatedAt === b.updatedAt && a.by === b.by;
+}
+
+// Adaptor tunggal api.records untuk entitas `baseline` (pola projectStore).
+//   loadAll(unit) → Promise<Map<n, entri>>: list scope unit (ikuti `next`), hanya id slot unit ini yang lolos
+//     baselineDecode dengan n sama. Tidak pernah menulis.
+//   save(unit, n, name, data, snap) → Promise<record>: tulis {v: 1, n, name, savedAt, by, t} (n/nama dari argumen,
+//     savedAt/by/t dari data encode). Galat ber-`code`: INVALID (unit/slot/data/nama/snap), TOO_LARGE (> BL_MAX byte,
+//     pesan "Baseline terlalu besar", diperiksa SEBELUM baca/tulis; = BL_MAX boleh, sama dengan host), STALE (potret
+//     record slot sekarang ≠ snap saat dialog dibuka). Konfirmasi timpa = urusan UI; store hanya menegakkan snap.
+//   remove(unit, n) → Promise: hapus slot (tombstone host).
+//   subscribe(fn) → off: perubahan entitas baseline + peristiwa tarik sukses (recordEvent).
+// SATU-SATUNYA tulisan record baseline: saveBaseline (pagar R25 + pin AST).
+function baselineStore(api) {
+  function saveBaseline(op, unit, n, name, data, snap) {
+    return Promise.resolve().then(() => {
+      const id = blRecId(unit, n);
+      if (op === "remove") return api.records.remove(BL_ENTITY, id);
+      const d = data && typeof data === "object" && !Array.isArray(data) ? data : null;
+      if (!d || !Array.isArray(d.t)) throw blError("INVALID", "data baseline tidak sah");
+      if (typeof name !== "string") throw blError("INVALID", "nama baseline tidak sah");
+      if (!snap || typeof snap !== "object") throw blError("INVALID", "potret baseline tidak ada");
+      const want = {
+        exists: snap.exists === true,
+        updatedAt: typeof snap.updatedAt === "string" ? snap.updatedAt : null,
+        by: Number.isInteger(snap.by) ? snap.by : null
+      };
+      const out = {
+        v: 1,
+        n,
+        name,
+        savedAt: typeof d.savedAt === "string" ? d.savedAt : null,
+        by: Number.isInteger(d.by) ? d.by : null,
+        t: d.t
+      };
+      if (TLPlan.baselineByteSize(out) > TLPlan.BL_MAX) throw blError("TOO_LARGE", MSG_BL_TOO_LARGE);
+      return Promise.resolve(api.records.get(BL_ENTITY, id)).then(cur => {
+        const e = blEntry(cur, n);
+        if (!blSameSnap(want, e ? e.snap : BL_NO_SNAP)) throw blError("STALE", "baseline berubah sejak dialog dibuka");
+        return api.records.put(BL_ENTITY, id, out, {
+          scope: unit.scope
+        }).then(r => r, err => {
+          throw err && err.code === "TOO_LARGE" ? blError("TOO_LARGE", MSG_BL_TOO_LARGE) : err;
+        });
+      });
+    });
+  }
+  return {
+    loadAll(unit) {
+      return Promise.resolve().then(() => {
+        const ids = new Map(BL_SLOTS.map(n => [blRecId(unit, n), n]));
+        const scope = unit.scope;
+        const out = new Map();
+        const page1 = after => {
+          const q = after === null ? {
+            scope,
+            limit: BL_PAGE
+          } : {
+            scope,
+            limit: BL_PAGE,
+            after
+          };
+          return Promise.resolve(api.records.list(BL_ENTITY, q)).then(res => {
+            const items = res && Array.isArray(res.items) ? res.items : [];
+            for (const r of items) {
+              const n = r && typeof r.id === "string" ? ids.get(r.id) : undefined;
+              const e = n === undefined ? null : blEntry(r, n);
+              if (e) out.set(n, e);
+            }
+            const next = res && typeof res.next === "string" && res.next ? res.next : null;
+            return next !== null && next !== after ? page1(next) : out;
+          });
+        };
+        return page1(null);
+      });
+    },
+    save(unit, n, name, data, snap) {
+      return saveBaseline("put", unit, n, name, data, snap);
+    },
+    remove(unit, n) {
+      return saveBaseline("remove", unit, n);
+    },
+    subscribe(fn) {
+      return api.records.onChange(ev => {
+        const e = recordEvent(ev, BL_ENTITY);
         if (e) fn(e);
       });
     }
@@ -4204,6 +4346,104 @@ function useUnits(api, page) {
     failed: mine && st.failed,
     pulled,
     store
+  };
+}
+
+// Baseline unit (1c-2 K41; pola useUnits): muat lewat baselineStore.loadAll (pertama segera saat pasang), muat ulang pada
+// perubahan entitas baseline (debounce RELOAD_TIMING) dan segera pada peristiwa tarik sukses; `pulled` = latch yang
+// sama dengan useUnits (dinyalakan SETELAH muat ulang sesudah peristiwa `pulled` selesai). Hook ini tidak pernah menulis.
+// unit = keluaran TLSched.unitOf, atau null (unit belum diketahui → semua slot terkunci).
+// Kunci simpan K41 (pola P3 (a)), per slot:
+//   waitingOf(n) = sudah termuat, unit workspace (scope ≠ "user"), slot tanpa record lokal, dan `pulled` belum menyala
+//     → UI menampilkan MSG_BL_WAIT ("Menunggu data baseline workspace…"); `waiting` = ada slot yang menunggu.
+//   lockedOf(n) = unit null, ATAU sedang memuat (belum loaded dan belum failed; tanpa teks), ATAU waitingOf(n).
+//   Project pribadi tidak pernah menunggu; muat gagal (`failed`) tidak mengunci selamanya (CAS saveBaseline tetap jaga).
+// snapOf(n) = potret CAS slot untuk dialog simpan (BL_NO_SNAP bila kosong).
+function useBaselines(api, unit) {
+  const u = unit && typeof unit === "object" && typeof unit.recId === "string" && typeof unit.scope === "string" ? unit : null;
+  const key = u ? u.recId : "";
+  const store = React.useMemo(() => baselineStore(api), [api]);
+  const [st, setSt] = React.useState(() => ({
+    key,
+    bases: EMPTY_BASES,
+    loaded: false,
+    failed: false
+  }));
+  const [pulled, setPulled] = React.useState(false);
+  const argRef = React.useRef(null);
+  argRef.current = u;
+  React.useEffect(() => {
+    let alive = true;
+    let seq = 0;
+    let timer = null;
+    const arg = argRef.current;
+    const load = () => {
+      if (!arg) return Promise.resolve(true);
+      const my = ++seq;
+      return store.loadAll(arg).then(bases => {
+        if (alive && my === seq) setSt({
+          key,
+          bases,
+          loaded: true,
+          failed: false
+        });
+        return true;
+      }, e => {
+        logWarn(api, "baseline gagal dimuat:", e);
+        if (alive && my === seq) setSt(p => p.key === key ? Object.assign({}, p, {
+          failed: true
+        }) : {
+          key,
+          bases: EMPTY_BASES,
+          loaded: false,
+          failed: true
+        });
+        return false;
+      });
+    };
+    load();
+    let off = null;
+    try {
+      off = store.subscribe(ev => {
+        if (ev.pulled) {
+          load().then(ok => {
+            if (ok && alive) setPulled(true);
+          });
+          return;
+        }
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          if (alive) load();
+        }, RELOAD_TIMING.debounceMs);
+      });
+    } catch (e) {
+      logWarn(api, "pendengar baseline gagal:", e);
+    }
+    return () => {
+      alive = false;
+      if (timer !== null) clearTimeout(timer);
+      if (typeof off === "function") off();
+    };
+  }, [store, key]);
+  const mine = u !== null && st.key === key;
+  const bases = mine ? st.bases : EMPTY_BASES;
+  const loaded = mine && st.loaded;
+  const failed = mine && st.failed;
+  const shared = u !== null && u.scope !== "user";
+  const waitingOf = n => loaded && shared && !bases.has(n) && !pulled;
+  const lockedOf = n => u === null || !loaded && !failed || waitingOf(n);
+  const snapOf = n => bases.has(n) ? bases.get(n).snap : BL_NO_SNAP;
+  return {
+    bases,
+    loaded,
+    failed,
+    pulled,
+    store,
+    waitingOf,
+    lockedOf,
+    snapOf,
+    waiting: BL_SLOTS.some(waitingOf)
   };
 }
 
@@ -9337,6 +9577,13 @@ const pure = {
   NO_UNIT,
   useUnits,
   useEngine,
+  baselineStore,
+  useBaselines,
+  blRecId,
+  BL_ENTITY,
+  BL_NO_SNAP,
+  MSG_BL_TOO_LARGE,
+  MSG_BL_WAIT,
   RELOAD_TIMING,
   engineKeyOf,
   prefKey,
