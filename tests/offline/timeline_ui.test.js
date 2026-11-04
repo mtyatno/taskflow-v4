@@ -2641,14 +2641,14 @@ function blRec(lid, name, n, data, extra) {
 const BL_DATA = { v: 1, n: 1, name: "dari encode", savedAt: "2026-11-05T01:00:00Z", by: 7, t: BL_T };
 const blCode = (code) => (e) => e && e.code === code;
 
-test("baselineStore.loadAll dua halaman next; v2 diabaikan; hanya slot unit ini (scope, n data = n id), tanpa tulis", async () => {
+test("baselineStore.loadAll dua halaman next; v2 / n asing = slot TERISI foreign (bukan kosong); hanya slot unit ini, tanpa tulis", async () => {
   const fr = fakeRecords();
   // 1003 baseline unit lain di scope list:12 → dua halaman (limit 1000)
   for (let i = 0; i < 1003; i++) putRec(fr, blRec(12, "Proyek " + i, 1));
   const a1 = blRec(12, "Alpha", 1, { name: "Rencana awal" }, { pending: true });
-  const a2 = blRec(12, "Alpha", 2, { v: 2 }); // versi asing → diabaikan
+  const a2 = blRec(12, "Alpha", 2, { v: 2 }, { updated_at: "2026-11-04T05:00:00Z" }); // versi lebih baru → terisi, asing
   const a3 = blRec(12, "Alpha", 3, { name: "Sesudah revisi", by: null });
-  const beta3 = blRec(12, "Beta", 3, { n: 1 }); // n data ≠ n id → asing
+  const beta3 = blRec(12, "Beta", 3, { n: 1 }, { pending: true }); // n data ≠ n id → asing (tetap terisi)
   const alphaOther = blRec(13, "Alpha", 1); // workspace lain
   const alphaMine = blRec(null, "Alpha", 1); // pribadi
   for (const r of [a1, a2, a3, beta3, alphaOther, alphaMine]) putRec(fr, r);
@@ -2663,8 +2663,18 @@ test("baselineStore.loadAll dua halaman next; v2 diabaikan; hanya slot unit ini 
   assert.deepEqual(fr.calls.list[1], ["baseline", { scope: "list:12", limit: 1000, after: ids12[999] }]);
   assert.ok(ids12.indexOf(a3.id) >= 1000, "slot 3 Alpha ada di halaman kedua");
   assert.ok(map instanceof Map);
-  assert.deepEqual([...map.keys()].sort(), [1, 3], "v2 di slot 2 diabaikan");
+  assert.deepEqual([...map.keys()].sort(), [1, 2, 3], "v2 di slot 2 tetap mengisi slot");
+  const e2 = map.get(2);
+  assert.equal(e2.foreign, true);
+  assert.equal(e2.n, 2);
+  assert.equal(e2.name, null);
+  assert.equal(e2.savedAt, null);
+  assert.equal(e2.by, null);
+  assert.ok(e2.rows instanceof Map && e2.rows.size === 0, "isi asing tidak dibaca");
+  assert.deepEqual(e2.snap, { exists: true, updatedAt: "2026-11-04T05:00:00Z", by: null }, "by data asing tidak dipercaya");
+  assert.equal(e2.pending, false);
   const e1 = map.get(1);
+  assert.equal(e1.foreign, false);
   assert.equal(e1.n, 1);
   assert.equal(e1.name, "Rencana awal");
   assert.equal(e1.savedAt, "2026-11-04T03:00:00Z");
@@ -2675,8 +2685,11 @@ test("baselineStore.loadAll dua halaman next; v2 diabaikan; hanya slot unit ini 
   assert.deepEqual(map.get(3).snap, { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: null });
   assert.equal(fr.calls.get.length, 0);
   assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "memuat tidak pernah menulis");
-  // Beta: slot 3 berdata n 1 → asing; halaman project pribadi → scope user (satu halaman)
-  assert.equal((await store.loadAll(blUnit(12, "Beta"))).size, 0);
+  // Beta: slot 3 berdata n 1 → asing tetapi terisi; halaman project pribadi → scope user (satu halaman)
+  const beta = await store.loadAll(blUnit(12, "Beta"));
+  assert.deepEqual([...beta.keys()], [3]);
+  assert.equal(beta.get(3).foreign, true);
+  assert.equal(beta.get(3).pending, true);
   const mine = await store.loadAll(blUnit(null, "Alpha"));
   assert.deepEqual([...mine.keys()], [1]);
   assert.deepEqual(fr.calls.list[fr.calls.list.length - 1], ["baseline", { scope: "user", limit: 1000 }]);
@@ -2785,10 +2798,16 @@ test("baselineStore: snap beda → tolak STALE tanpa put (anggota lain menimpa /
   await store.save(u, 1, "Timpa", BL_DATA, fresh);
   assert.equal(fr.calls.put.length, 1);
   assert.equal(fr.calls.put[0][2].name, "Timpa");
-  // record slot asing (v 2) = diabaikan di mana-mana → setara kosong untuk CAS (tidak terkunci selamanya)
-  putRec(fr, blRec(12, "Alpha", 3, { v: 2 }));
-  await store.save(u, 3, "Baru", BL_DATA, T.BL_NO_SNAP);
+  // record slot asing (v 2, klien lebih baru) = slot TERISI (fix review T4): potret kosong → STALE (tidak pernah
+  // ditimpa diam-diam); potret dari loadAll (dialog menampilkannya terisi + konfirmasi Timpa) → boleh
+  putRec(fr, blRec(12, "Alpha", 3, { v: 2 }, { updated_at: "2026-11-04T06:00:00Z" }));
+  await assert.rejects(store.save(u, 3, "Baru", BL_DATA, T.BL_NO_SNAP), blCode("STALE"));
+  assert.equal(fr.calls.put.length, 1);
+  const foreignSnap = (await store.loadAll(u)).get(3).snap;
+  assert.deepEqual(foreignSnap, { exists: true, updatedAt: "2026-11-04T06:00:00Z", by: null });
+  await store.save(u, 3, "Baru", BL_DATA, foreignSnap);
   assert.equal(fr.calls.put.length, 2);
+  assert.equal(fr.calls.put[1][2].v, 1);
   // snap wajib: tidak ada / bukan objek → INVALID tanpa put
   for (const s of [undefined, null, "x"]) await assert.rejects(store.save(u, 2, "x", BL_DATA, s), blCode("INVALID"));
   assert.equal(fr.calls.put.length, 2);
@@ -2796,10 +2815,49 @@ test("baselineStore: snap beda → tolak STALE tanpa put (anggota lain menimpa /
   assert.ok(Object.isFrozen(T.BL_NO_SNAP));
 });
 
+test("baselineStore.remove(unit, n, snap): snap beda → STALE tanpa remove; snap sama (termasuk slot asing) → satu remove; tanpa snap → langsung; snap rusak → INVALID", async () => {
+  const fr = fakeRecords();
+  const store = T.baselineStore({ records: fr.api });
+  const u = blUnit(12, "Alpha");
+  putRec(fr, blRec(12, "Alpha", 1));
+  putRec(fr, blRec(12, "Alpha", 2, { v: 2 }));
+  const map = await store.loadAll(u);
+  const snap1 = map.get(1).snap;
+  // anggota lain menimpa slot 1 sejak dialog dibuka → STALE, record tetap
+  putRec(fr, blRec(12, "Alpha", 1, { by: 9 }, { updated_at: "2026-11-05T02:00:00Z" }));
+  const gets = fr.calls.get.length;
+  await assert.rejects(store.remove(u, 1, snap1), blCode("STALE"));
+  assert.equal(fr.calls.get.length, gets + 1, "CAS membaca record slot");
+  assert.equal(fr.calls.remove.length, 0);
+  assert.ok(fr.store.has("baseline/" + blRec(12, "Alpha", 1).id));
+  // slot sudah kosong saat dialog dibuka tetapi kini terisi → STALE
+  putRec(fr, blRec(12, "Alpha", 3));
+  await assert.rejects(store.remove(u, 3, T.BL_NO_SNAP), blCode("STALE"));
+  assert.equal(fr.calls.remove.length, 0);
+  // potret terbaru → satu remove
+  const fresh = (await store.loadAll(u)).get(1).snap;
+  await store.remove(u, 1, fresh);
+  assert.deepEqual(fr.calls.remove, [["baseline", blRec(12, "Alpha", 1).id]]);
+  // slot asing: potret loadAll → boleh dihapus
+  await store.remove(u, 2, map.get(2).snap);
+  assert.equal(fr.calls.remove.length, 2);
+  // snap tidak diberikan → hapus langsung (tanpa baca)
+  const g2 = fr.calls.get.length;
+  await store.remove(u, 3);
+  assert.equal(fr.calls.remove.length, 3);
+  assert.equal(fr.calls.get.length, g2);
+  // snap rusak → INVALID tanpa baca/hapus
+  for (const s of [null, "x", 5]) await assert.rejects(store.remove(u, 1, s), blCode("INVALID"));
+  assert.equal(fr.calls.get.length, g2);
+  assert.equal(fr.calls.remove.length, 3);
+  assert.equal(fr.calls.put.length, 0);
+});
+
 test("useBaselines kunci workspace: belum loaded/pulled → terkunci + teks 'Menunggu data baseline workspace…'; record lokal ada → slot itu terbuka; pulled → semua terbuka; project pribadi tidak", () => withEngineClock(async (clock) => {
   assert.equal(T.MSG_BL_WAIT, "Menunggu data baseline workspace…");
   const fr = fakeRecords();
   putRec(fr, blRec(12, "Alpha", 1));
+  putRec(fr, blRec(12, "Alpha", 3, { v: 2 })); // record asing = ada secara lokal → slot 3 tidak menunggu
   const { api } = fakeApi({ records: fr });
   const m = mount((p) => T.useBaselines(p.api, p.unit));
   const unit = blUnit(12, "Alpha");
@@ -2814,10 +2872,13 @@ test("useBaselines kunci workspace: belum loaded/pulled → terkunci + teks 'Men
   r = m.render({ api, unit });
   assert.equal(r.loaded, true);
   assert.equal(r.pulled, false);
-  assert.deepEqual([...r.bases.keys()], [1]);
+  assert.deepEqual([...r.bases.keys()].sort(), [1, 3]);
   assert.equal(r.lockedOf(1), false, "record lokal ada → base_version terkirim, boleh timpa (dengan konfirmasi T5)");
   assert.deepEqual(r.snapOf(1), { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: 7 });
-  for (const n of [2, 3]) { assert.equal(r.lockedOf(n), true); assert.equal(r.waitingOf(n), true); assert.deepEqual(r.snapOf(n), T.BL_NO_SNAP); }
+  assert.equal(r.lockedOf(3), false, "record asing lokal = terisi");
+  assert.equal(r.bases.get(3).foreign, true);
+  assert.deepEqual(r.snapOf(3), { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: null });
+  for (const n of [2]) { assert.equal(r.lockedOf(n), true); assert.equal(r.waitingOf(n), true); assert.deepEqual(r.snapOf(n), T.BL_NO_SNAP); }
   assert.equal(r.waiting, true);
   // record tiba lewat sinkron biasa (bukan pulled) → muat ulang setelah 300 ms; slot 2 terbuka karena kini ada
   putRec(fr, blRec(12, "Alpha", 2));
@@ -2830,18 +2891,26 @@ test("useBaselines kunci workspace: belum loaded/pulled → terkunci + teks 'Men
   r = m.render({ api, unit });
   assert.equal(fr.calls.list.length, 2);
   assert.equal(r.lockedOf(2), false);
-  assert.equal(r.lockedOf(3), true, "sync biasa bukan tanda tarik sukses");
-  assert.equal(r.pulled, false);
+  assert.equal(r.waiting, false, "semua slot kini ada secara lokal");
+  assert.equal(r.pulled, false, "sync biasa bukan tanda tarik sukses");
+  // slot 2 dihapus anggota lain (sync) → kembali menunggu
+  fr.store.delete("baseline/" + blRec(12, "Alpha", 2).id);
+  fr.emit({ entity: "baseline", ids: [blRec(12, "Alpha", 2).id], source: "sync" });
+  clock.tick(300);
+  await settle();
+  r = m.render({ api, unit });
+  assert.equal(r.lockedOf(2), true);
+  assert.equal(r.waitingOf(2), true);
   // entitas lain tidak memuat ulang baseline
   fr.emit({ entity: "project", ids: ["prj@list:12:-"], source: "sync" });
   clock.tick(300);
   await settle();
-  assert.equal(fr.calls.list.length, 2);
+  assert.equal(fr.calls.list.length, 3);
   // tarik sukses → muat ulang SEGERA, lalu latch menyala → semua slot terbuka, teks hilang
   fr.emit(PULLED);
   await settle();
   r = m.render({ api, unit });
-  assert.equal(fr.calls.list.length, 3);
+  assert.equal(fr.calls.list.length, 4);
   assert.equal(r.pulled, true);
   for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false); assert.equal(r.waitingOf(n), false); }
   assert.equal(r.waiting, false);
@@ -2860,7 +2929,8 @@ test("useBaselines kunci workspace: belum loaded/pulled → terkunci + teks 'Men
   for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false); assert.equal(r.waitingOf(n), false); }
   m2.unmount();
 
-  // muat gagal tidak mengunci selamanya (failed, pola useUnits); unit null (mesin belum siap) → terkunci
+  // muat gagal (ruling review T4): workspace sebelum pulled → TETAP terkunci + teks tunggu; pulled lalu muat ulang
+  // gagal lagi → latch tetap menyala → terbuka (tidak terkunci selamanya); pribadi gagal → terbuka.
   const fr3 = fakeRecords();
   fr3.api.list = () => Promise.reject(new Error("idb"));
   const h3 = fakeApi({ records: fr3 });
@@ -2871,9 +2941,29 @@ test("useBaselines kunci workspace: belum loaded/pulled → terkunci + teks 'Men
   r = m3.render({ api: h3.api, unit });
   assert.equal(r.failed, true);
   assert.equal(r.loaded, false);
-  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false); assert.equal(r.waitingOf(n), false); }
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), true, "workspace gagal sebelum pulled"); assert.equal(r.waitingOf(n), true); }
+  assert.equal(r.waiting, true);
   assert.equal(h3.calls.warn.length, 1);
+  fr3.emit(PULLED);
+  await settle();
+  r = m3.render({ api: h3.api, unit });
+  assert.equal(h3.calls.warn.length, 2, "muat ulang sesudah pulled juga gagal");
+  assert.equal(r.failed, true);
+  assert.equal(r.pulled, true, "latch menyala walau muat ulang gagal");
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false); assert.equal(r.waitingOf(n), false); }
   m3.unmount();
+  const fr5 = fakeRecords();
+  fr5.api.list = () => Promise.reject(new Error("idb"));
+  const h5 = fakeApi({ records: fr5 });
+  const m5 = mount((p) => T.useBaselines(p.api, p.unit));
+  m5.render({ api: h5.api, unit: pu });
+  m5.flush();
+  await settle();
+  r = m5.render({ api: h5.api, unit: pu });
+  assert.equal(r.failed, true);
+  assert.equal(r.pulled, false);
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false, "pribadi gagal → terbuka"); assert.equal(r.waitingOf(n), false); }
+  m5.unmount();
   const m4 = mount((p) => T.useBaselines(p.api, p.unit));
   r = m4.render({ api, unit: null });
   m4.flush();
@@ -2882,7 +2972,7 @@ test("useBaselines kunci workspace: belum loaded/pulled → terkunci + teks 'Men
   for (const n of [1, 2, 3]) assert.equal(r.lockedOf(n), true);
   assert.equal(r.bases.size, 0);
   m4.unmount();
-  assert.equal(fr.calls.put.length + fr.calls.remove.length + fr3.calls.put.length, 0, "hook tidak pernah menulis");
+  assert.equal(fr.calls.put.length + fr.calls.remove.length + fr3.calls.put.length + fr3.calls.remove.length + fr5.calls.put.length, 0, "hook tidak pernah menulis");
 }));
 
 test("useEngine: render pertama status loading tanpa memanggil TLCpm.run (spy); setelah raf + setTimeout palsu → ready; scopeTasks identitas sama → tidak muat ulang; berubah / sync.done → satu muat ulang setelah 300 ms (dua kejadian beruntun = satu)", () => withEngineClock(async (clock) => {

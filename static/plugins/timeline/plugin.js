@@ -3392,18 +3392,37 @@ function blRecId(unit, n) {
   return "bl" + n + u.recId.slice(3);
 }
 
-// Record → entri slot n {n, name, savedAt, by, rows, snap, pending}, atau null bila tidak ada / asing (v ≠ 1, bentuk
-// rusak, n data ≠ n id) — record asing diabaikan di mana-mana, termasuk CAS (setara slot kosong).
+// Record hidup → entri slot n {n, foreign, name, savedAt, by, rows, snap, pending}; tidak ada record → null.
+// Record ASING (v ≠ 1, bentuk rusak, n data ≠ n id — mis. baseline klien versi lebih baru) tetap MENGISI slot (fix review
+// T4): entri {foreign: true, name/savedAt/by null, rows kosong}, snap {exists: true, updatedAt, by: null} — dipakai sama
+// oleh loadAll dan CAS, jadi menimpanya butuh potret record itu (konfirmasi Timpa T5), tidak pernah diam-diam.
 function blEntry(r, n) {
   if (!r || typeof r !== "object") return null;
+  const updatedAt = typeof r.updated_at === "string" ? r.updated_at : null;
   const dec = TLPlan.baselineDecode(r.data);
-  if (!dec || dec.n !== n) return null;
+  if (!dec || dec.n !== n) {
+    return {
+      n,
+      foreign: true,
+      name: null,
+      savedAt: null,
+      by: null,
+      rows: new Map(),
+      snap: {
+        exists: true,
+        updatedAt,
+        by: null
+      },
+      pending: !!r.pending
+    };
+  }
   const snap = {
     exists: true,
-    updatedAt: typeof r.updated_at === "string" ? r.updated_at : null,
+    updatedAt,
     by: Number.isInteger(dec.by) ? dec.by : null
   };
   return Object.assign({}, dec, {
+    foreign: false,
     snap,
     pending: !!r.pending
   });
@@ -3413,29 +3432,43 @@ function blSameSnap(a, b) {
 }
 
 // Adaptor tunggal api.records untuk entitas `baseline` (pola projectStore).
-//   loadAll(unit) → Promise<Map<n, entri>>: list scope unit (ikuti `next`), hanya id slot unit ini yang lolos
-//     baselineDecode dengan n sama. Tidak pernah menulis.
+//   loadAll(unit) → Promise<Map<n, entri>>: list scope unit (ikuti `next`), hanya id slot unit ini. Record yang lolos
+//     baselineDecode dengan n sama → entri biasa (foreign false); record asing → entri terisi foreign true (blEntry).
+//     Tidak pernah menulis. Catatan T5: satu unit per halaman → boleh diganti 3 get; beberapa unit di halaman
+//     workspace → SATU pemuat se-scope dibagi semua unit (jangan list scope per unit — unit × ukuran scope, R24).
 //   save(unit, n, name, data, snap) → Promise<record>: tulis {v: 1, n, name, savedAt, by, t} (n/nama dari argumen,
 //     savedAt/by/t dari data encode). Galat ber-`code`: INVALID (unit/slot/data/nama/snap), TOO_LARGE (> BL_MAX byte,
 //     pesan "Baseline terlalu besar", diperiksa SEBELUM baca/tulis; = BL_MAX boleh, sama dengan host), STALE (potret
 //     record slot sekarang ≠ snap saat dialog dibuka). Konfirmasi timpa = urusan UI; store hanya menegakkan snap.
-//   remove(unit, n) → Promise: hapus slot (tombstone host).
+//   remove(unit, n, snap?) → Promise: hapus slot (tombstone host); snap ada → CAS seperti save (STALE / INVALID).
 //   subscribe(fn) → off: perubahan entitas baseline + peristiwa tarik sukses (recordEvent).
 // SATU-SATUNYA tulisan record baseline: saveBaseline (pagar R25 + pin AST).
 function baselineStore(api) {
+  const snapOk = s => !!s && typeof s === "object";
+  const normSnap = s => ({
+    exists: s.exists === true,
+    updatedAt: typeof s.updatedAt === "string" ? s.updatedAt : null,
+    by: Number.isInteger(s.by) ? s.by : null
+  });
+  // CAS: potret record slot sekarang (get) harus sama dengan potret saat dialog dibuka.
+  const casSlot = (id, n, want) => Promise.resolve(api.records.get(BL_ENTITY, id)).then(cur => {
+    const e = blEntry(cur, n);
+    if (!blSameSnap(want, e ? e.snap : BL_NO_SNAP)) throw blError("STALE", "baseline berubah sejak dialog dibuka");
+  });
   function saveBaseline(op, unit, n, name, data, snap) {
     return Promise.resolve().then(() => {
       const id = blRecId(unit, n);
-      if (op === "remove") return api.records.remove(BL_ENTITY, id);
+      if (op === "remove") {
+        // snap opsional (ruling review T4): ada → CAS sama dengan simpan; tidak ada → hapus langsung.
+        if (snap !== undefined && !snapOk(snap)) throw blError("INVALID", "potret baseline tidak sah");
+        const gate = snap === undefined ? Promise.resolve() : casSlot(id, n, normSnap(snap));
+        return gate.then(() => api.records.remove(BL_ENTITY, id));
+      }
       const d = data && typeof data === "object" && !Array.isArray(data) ? data : null;
       if (!d || !Array.isArray(d.t)) throw blError("INVALID", "data baseline tidak sah");
       if (typeof name !== "string") throw blError("INVALID", "nama baseline tidak sah");
-      if (!snap || typeof snap !== "object") throw blError("INVALID", "potret baseline tidak ada");
-      const want = {
-        exists: snap.exists === true,
-        updatedAt: typeof snap.updatedAt === "string" ? snap.updatedAt : null,
-        by: Number.isInteger(snap.by) ? snap.by : null
-      };
+      if (!snapOk(snap)) throw blError("INVALID", "potret baseline tidak ada");
+      const want = normSnap(snap);
       const out = {
         v: 1,
         n,
@@ -3445,9 +3478,7 @@ function baselineStore(api) {
         t: d.t
       };
       if (TLPlan.baselineByteSize(out) > TLPlan.BL_MAX) throw blError("TOO_LARGE", MSG_BL_TOO_LARGE);
-      return Promise.resolve(api.records.get(BL_ENTITY, id)).then(cur => {
-        const e = blEntry(cur, n);
-        if (!blSameSnap(want, e ? e.snap : BL_NO_SNAP)) throw blError("STALE", "baseline berubah sejak dialog dibuka");
+      return casSlot(id, n, want).then(() => {
         return api.records.put(BL_ENTITY, id, out, {
           scope: unit.scope
         }).then(r => r, err => {
@@ -3488,8 +3519,8 @@ function baselineStore(api) {
     save(unit, n, name, data, snap) {
       return saveBaseline("put", unit, n, name, data, snap);
     },
-    remove(unit, n) {
-      return saveBaseline("remove", unit, n);
+    remove(unit, n, snap) {
+      return saveBaseline("remove", unit, n, null, null, snap);
     },
     subscribe(fn) {
       return api.records.onChange(ev => {
@@ -4354,10 +4385,12 @@ function useUnits(api, page) {
 // sama dengan useUnits (dinyalakan SETELAH muat ulang sesudah peristiwa `pulled` selesai). Hook ini tidak pernah menulis.
 // unit = keluaran TLSched.unitOf, atau null (unit belum diketahui → semua slot terkunci).
 // Kunci simpan K41 (pola P3 (a)), per slot:
-//   waitingOf(n) = sudah termuat, unit workspace (scope ≠ "user"), slot tanpa record lokal, dan `pulled` belum menyala
-//     → UI menampilkan MSG_BL_WAIT ("Menunggu data baseline workspace…"); `waiting` = ada slot yang menunggu.
+//   waitingOf(n) = unit workspace (scope ≠ "user"), `pulled` belum menyala, dan (sudah termuat dan slot tanpa record
+//     lokal — record asing terhitung ADA — ATAU muat gagal sebelum pernah termuat) → UI menampilkan MSG_BL_WAIT
+//     ("Menunggu data baseline workspace…"); `waiting` = ada slot yang menunggu.
 //   lockedOf(n) = unit null, ATAU sedang memuat (belum loaded dan belum failed; tanpa teks), ATAU waitingOf(n).
-//   Project pribadi tidak pernah menunggu; muat gagal (`failed`) tidak mengunci selamanya (CAS saveBaseline tetap jaga).
+//   Project pribadi tidak pernah menunggu (muat gagal → terbuka); workspace gagal-muat terbuka setelah `pulled`
+//   (latch menyala walau muat ulangnya gagal) — tidak terkunci selamanya, CAS saveBaseline tetap menjaga.
 // snapOf(n) = potret CAS slot untuk dialog simpan (BL_NO_SNAP bila kosong).
 function useBaselines(api, unit) {
   const u = unit && typeof unit === "object" && typeof unit.recId === "string" && typeof unit.scope === "string" ? unit : null;
@@ -4406,8 +4439,10 @@ function useBaselines(api, unit) {
     try {
       off = store.subscribe(ev => {
         if (ev.pulled) {
-          load().then(ok => {
-            if (ok && alive) setPulled(true);
+          // latch menyala SETELAH muat ulang selesai — juga bila muat itu gagal (ruling review T4: tarik sukses tetap
+          // terjadi; kunci gagal-muat workspace dibuka hanya oleh latch ini).
+          load().then(() => {
+            if (alive) setPulled(true);
           });
           return;
         }
@@ -4431,7 +4466,8 @@ function useBaselines(api, unit) {
   const loaded = mine && st.loaded;
   const failed = mine && st.failed;
   const shared = u !== null && u.scope !== "user";
-  const waitingOf = n => loaded && shared && !bases.has(n) && !pulled;
+  // Muat gagal sebelum pernah termuat: pribadi terbuka; workspace tetap menunggu sampai `pulled` (ruling review T4).
+  const waitingOf = n => shared && !pulled && (loaded ? !bases.has(n) : failed);
   const lockedOf = n => u === null || !loaded && !failed || waitingOf(n);
   const snapOf = n => bases.has(n) ? bases.get(n).snap : BL_NO_SNAP;
   return {
