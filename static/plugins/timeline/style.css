@@ -455,6 +455,23 @@
   border-left-color: var(--plg-timeline-danger);
 }
 
+/* 1c-2 Task 6 (§7.4): bar baseline 4 px di bawah bar + garis aktual 2 px di atas bar; tidak menangkap pointer */
+.plg-timeline-blbar {
+  position: absolute;
+  height: 4px;
+  z-index: 1;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text-secondary) 45%, transparent);
+}
+
+.plg-timeline-actual {
+  position: absolute;
+  height: 2px;
+  z-index: 2;
+  background: var(--text-primary);
+  pointer-events: none;
+}
+
 /* panah dependensi: satu svg overlay jendela tampak */
 .plg-timeline-arrows {
   position: absolute;
@@ -634,6 +651,16 @@
   height: 12px;
   background: color-mix(in srgb, var(--plg-timeline-danger) 8%, transparent);
   border: 1px solid var(--border);
+}
+
+.plg-timeline-swatch.is-baseline {
+  height: 4px;
+  background: color-mix(in srgb, var(--text-secondary) 45%, transparent);
+}
+
+.plg-timeline-swatch.is-actual {
+  height: 2px;
+  background: var(--text-primary);
 }
 
 .plg-timeline-swatch.is-critical {

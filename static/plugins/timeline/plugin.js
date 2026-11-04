@@ -3370,6 +3370,7 @@ const BL_SLOTS = Object.freeze([1, 2, 3]);
 const BL_PAGE = 1000; // batas atas limit api.records.list
 const MSG_BL_TOO_LARGE = "Baseline terlalu besar";
 const MSG_BL_WAIT = "Menunggu data baseline workspace…";
+const MSG_ACTUAL = "Aktual"; // 1c-2 §7.6: legenda garis aktual (Task 6)
 // Potret CAS slot (Review Focus 4): {exists, updatedAt, by} record slot; slot kosong / record asing = BL_NO_SNAP.
 const BL_NO_SNAP = Object.freeze({
   exists: false,
@@ -4110,6 +4111,71 @@ function engineOverlay(lay, result, ctx) {
     critEdge,
     conflictEdge,
     manual
+  };
+}
+
+// 1c-2 Task 6 (§7.4, K41): overlay baseline — murni, TIDAK mengubah `lay`; memo terpisah [blDec, engResult] sehingga
+// memilih baseline (pref) tidak menghitung ulang tata letak. Keluaran: null (Tidak ada / mesin belum siap) atau
+// Map<rowKey, {s, f, df}>: s/f = dn baseline, df = selisih SELESAI sekarang vs baseline (compareBaseline.perTask.df, hk,
+// positif = tergelincir). Baris baseline yang tidak terpecahkan ke simpul mesin (terhapus, di luar scope, tanpa Mulai)
+// dilewati; dua ref ke task yang sama → yang pertama dalam urutan cmpKey (aturan compareBaseline). rows.size 0 → Map kosong.
+function baselineOverlay(dec, result, ctx) {
+  if (!dec || !(dec.rows instanceof Map) || !result || !(result.nodes instanceof Map) || !ctx) return null;
+  const out = new Map();
+  if (dec.rows.size === 0) return out;
+  const cmp = TLPlan.compareBaseline(result, dec, ctx);
+  const idx = TLSched.buildIndex(Array.isArray(ctx.tasks) ? ctx.tasks : []);
+  for (const rk of [...dec.rows.keys()].sort(TLCpm.cmpKey)) {
+    const t = idx.get(rk);
+    const key = t ? String(t.id) : rk;
+    const d = cmp.perTask.get(key);
+    if (!d || out.has(key)) continue;
+    const b = dec.rows.get(rk);
+    out.set(key, {
+      s: b.s,
+      f: b.f,
+      df: d.df
+    });
+  }
+  return out;
+}
+
+// 1c-2 Task 6 (§7.4, K42, Review Focus 5): garis aktual per baris task — Map<rowKey, {s, f}> (dn). Aktual dibaca HANYA
+// lewat TLSched.actualOf. s = mulai aktual; f = selesai aktual (tersimpan, atau turunan jkt(completed_at)); tanpa itu:
+// belum selesai → HARI INI (todayDn; ikut env.today tanpa tulisan), selesai tanpa completed_at → akhir rentang baris.
+// Tanpa actual.start → tanpa garis. Ringkasan tidak mendapat garis.
+function actualOverlay(lay, readExt, todayDn) {
+  const out = new Map();
+  if (!lay) return out;
+  for (const r of lay.rows) {
+    if (r.kind !== "task" || !r.task) continue;
+    const a = TLSched.actualOf(r.task, readExt(r.task));
+    if (a.start === null) continue;
+    let f = a.finish;
+    if (f === null) {
+      if (r.done) f = r.span ? r.span.f : a.start;else if (todayDn !== null) f = todayDn;else continue;
+    }
+    out.set(r.key, {
+      s: a.start,
+      f: Math.max(a.start, f)
+    });
+  }
+  return out;
+}
+
+// Teks bar baseline (§7.4): "Baseline: {fmtShort(s)} → {fmtShort(f)} ({±df} hk)".
+function baselineTip(b) {
+  return "Baseline: " + TLCal.fmtShort(b.s) + " → " + TLCal.fmtShort(b.f) + " (" + signedHk(b.df) + ")";
+}
+
+// Rentang hari inklusif [s, f] → {x, w} px, dipangkas ke rentang tata letak; seluruhnya di luar → null.
+function spanGeom(s, f, range, px) {
+  const a = Math.max(s, range.from);
+  const b = Math.min(f, range.to);
+  if (b < a) return null;
+  return {
+    x: TLLayout.xOf(a, range, px),
+    w: (b - a + 1) * px
   };
 }
 
@@ -5217,6 +5283,43 @@ function renderChart(v) {
       }, MSG_SCHEDULE_HINT)));
     }
     if (box) out.push(renderBar(r, box, y, v));
+    if (r.kind === "task") {
+      // 1c-2 Task 6: bar baseline 4 px tepat di bawah bar (16 px, tengah baris) + garis aktual 2 px di atas bar;
+      // satu div per baris TAMPAK (loop jendela rw yang sama dengan bar).
+      const b = v.blOv ? v.blOv.get(r.key) : undefined;
+      const bg = b ? spanGeom(b.s, b.f, R, px) : null;
+      if (bg) {
+        const tip = baselineTip(b);
+        out.push(/*#__PURE__*/React.createElement("div", {
+          key: "bl:" + r.key,
+          className: "plg-timeline-blbar",
+          "data-key": r.key,
+          role: "img",
+          "aria-label": tip,
+          title: tip,
+          style: {
+            left: bg.x,
+            width: bg.w,
+            top: y + (rowH + BAR_H) / 2 + 1
+          }
+        }));
+      }
+      const a = v.actOv ? v.actOv.get(r.key) : undefined;
+      const ag = a ? spanGeom(a.s, a.f, R, px) : null;
+      if (ag) {
+        out.push(/*#__PURE__*/React.createElement("div", {
+          key: "ac:" + r.key,
+          className: "plg-timeline-actual",
+          "data-key": r.key,
+          "aria-hidden": "true",
+          style: {
+            left: ag.x,
+            width: ag.w,
+            top: y + (rowH - BAR_H) / 2 - 4
+          }
+        }));
+      }
+    }
     if (r.deadlineDn !== null && r.deadlineDn >= R.from && r.deadlineDn <= R.to) {
       const tip = "Tenggat " + TLCal.fmtShort(r.deadlineDn);
       out.push(/*#__PURE__*/React.createElement("div", {
@@ -5349,8 +5452,13 @@ function renderArrows(v, winX, winW) {
     transform: "translate(" + -winX + " " + -oy + ")"
   }, paths));
 }
-function renderLegend(lay, ref, crit) {
-  const items = crit ? LEGEND.concat([["critical", LBL.crit]]) : LEGEND; // 1c-1 R18
+
+// extra (1c-2 Task 6): {bl: baseline aktif dengan baris, act: ada garis aktual di halaman}.
+function renderLegend(lay, ref, crit, extra) {
+  const x = extra || {};
+  let items = crit ? LEGEND.concat([["critical", LBL.crit]]) : LEGEND; // 1c-1 R18
+  if (x.bl) items = items.concat([["baseline", LBL.bl]]);
+  if (x.act) items = items.concat([["actual", MSG_ACTUAL]]);
   return /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-foot",
     ref: ref
@@ -7380,6 +7488,14 @@ function TimelineViewBody(props) {
   // eng.ctx berasal dari keluaran run yang sama dengan eng.result, jadi kunci [lay, engResult] cukup.
   const ov = React.useMemo(() => engineOverlay(lay, engResult, eng.ctx), [lay, engResult]);
   const crit = critPref === true && ov.ready;
+  // 1c-2 Task 6: overlay baseline + aktual, masing-masing memo TERPISAH dari `lay` (pola R18/R19): pref baseline / data
+  // baseline hanya menghitung ulang blOv; actOv mengikuti lay (task scope + ext) dan hari ini (garis berjalan, tanpa tulisan).
+  const blOv = React.useMemo(() => baselineOverlay(blDec, engResult, eng.ctx), [blDec, engResult]);
+  const actOv = React.useMemo(() => actualOverlay(lay, t => readExtSafe(api, t), todayDn), [lay, api, todayDn]);
+  const legendX = {
+    bl: blOv !== null && blDec !== null && blDec.rows.size > 0,
+    act: actOv.size > 0
+  };
   const compact = narrow || !!context.liveEdit;
   const colDefs = !compact || cols ? COLS_FULL : COLS_COMPACT;
   let tableW = 0;
@@ -8169,7 +8285,9 @@ function TimelineViewBody(props) {
     isSel,
     ov,
     crit,
-    bl: blDec
+    bl: blDec,
+    blOv,
+    actOv
   };
   return /*#__PURE__*/React.createElement("div", {
     className: cx("plg-timeline", compact && "is-compact")
@@ -8194,7 +8312,7 @@ function TimelineViewBody(props) {
       width: tableW,
       height: bodyH
     }
-  }, renderTableRows(v)), renderChart(v))), renderLegend(lay, footRef, crit), dialog);
+  }, renderTableRows(v)), renderChart(v))), renderLegend(lay, footRef, crit, legendX), dialog);
 }
 
 // 4g. Seksi "Jadwal" di detail task (Task 10; spec §8.8, Q5; R7, R8, R10, R15, R16, R17). Slot taskDetail.sections,
@@ -10184,6 +10302,10 @@ const pure = {
   slackText,
   engineOverlay,
   NO_OVERLAY,
+  baselineOverlay,
+  actualOverlay,
+  baselineTip,
+  MSG_ACTUAL,
   pomoText,
   missingYearsNote,
   barGeom,
