@@ -1833,3 +1833,20 @@
   font-size: 13px;
   color: var(--text-primary);
 }
+
+/* Fix review T5: baris slot = pilihan slot + tombol Hapus (slot terisi terbaca). */
+.plg-timeline-bl-slot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plg-timeline-bl-slot .plg-timeline-bl-opt {
+  flex: 1;
+  min-width: 0;
+}
+
+.plg-timeline-bl-del {
+  flex: none;
+  color: var(--plg-timeline-danger);
+}

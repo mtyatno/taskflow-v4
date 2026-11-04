@@ -401,8 +401,14 @@ const MSG_NO_NAME = "(tanpa nama)";
 const MSG_UNSCHEDULED = "Belum dijadwalkan";
 const MSG_LATE = "Lewat tenggat";
 const MSG_MANUAL = "Manual"; // 1c-1 R19: pin task Manual di unit otomatis
-// 1c-2 Task 5 (§7.6): pemilih Baseline + dialog Simpan baseline. Toast STALE baseline = MSG_STALE 1c-1 apa adanya
-// (§contract T4 tidak menamai teks sendiri). "Project"/"Nama"/"Timpa"/"{nama} disimpan" bukan string §7.6 (dicatat).
+// 1c-2 Task 5 (§7.6): pemilih Baseline + dialog Simpan baseline. "Project"/"Nama"/"Timpa"/"{nama} disimpan" bukan string
+// §7.6 (dicatat). Fix review T5 (ruling koordinator): teks STALE + gagal-simpan baseline sendiri, dan hapus baseline
+// ("Hapus", "Hapus {nama} (disimpan {tanggal})?", "{nama} dihapus") — dicatat untuk ADR T11/R28.
+const MSG_BL_STALE = "Data berubah sejak dialog dibuka — muat ulang";
+const MSG_BL_SAVE_FAIL = "Baseline gagal disimpan";
+const BL_DELETE = "Hapus";
+const blDeleteText = (name, date) => "Hapus " + name + (date ? " (disimpan " + date + ")" : "") + "?";
+const blRemovedText = (name) => name + " dihapus";
 const BL_NONE = "Tidak ada";
 const BL_NAME_MAX = 40; // spec §4: name ≤ 40
 const MSG_BL_FOREIGN = "(versi lebih baru)"; // slot berisi record asing (klien lebih baru) — ruling T4
@@ -2156,9 +2162,11 @@ function BaselinePicker(props) {
 // Dialog "Simpan baseline" (K41; pola PreviewDialog: role dialog + aria-modal, fokus terjebak, Esc = Batal).
 // props: units [{key: recId, label}] (> 1 = halaman workspace → pilih project dulu), bases = Map<recId, Map<n, entri>>
 // POTRET saat dialog dibuka (label + konfirmasi + snap CAS memakai potret yang sama), lockedOf(n, recId) /
-// waitingOf(n, recId) (langsung dari useBaselines), busy, rev (naik saat potret disegarkan setelah STALE → kembali ke
-// form), onSave(recId, n, nama), onCancel. Slot terisi (termasuk asing) → langkah konfirmasi "Timpa {nama} (disimpan
-// {tanggal})?" sebelum onSave. Komponen ini tidak menulis apa pun; nama dinormalkan blNameOf.
+// waitingOf(n, recId) (langsung dari useBaselines), busy, rev (naik saat potret disegarkan — setelah STALE atau saat
+// kunci/muat berubah di langkah form — → kembali ke form), onSave(recId, n, nama), onRemove(recId, n), onStep(langkah),
+// onCancel. Slot terisi (termasuk asing) → langkah konfirmasi "Timpa {nama} (disimpan {tanggal})?" sebelum onSave.
+// Slot terisi yang terbaca (bukan asing) punya tombol "Hapus" (nonaktif bila lockedOf) → "Hapus {nama} (disimpan
+// {tanggal})?" → onRemove. Komponen ini tidak menulis apa pun; nama dinormalkan blNameOf.
 function SaveBaselineDialog(props) {
   const units = Array.isArray(props.units) ? props.units : [];
   const bases = props.bases instanceof Map ? props.bases : EMPTY_BY_UNIT;
@@ -2170,13 +2178,20 @@ function SaveBaselineDialog(props) {
     return free === undefined ? BL_SLOTS[0] : free;
   });
   const [name, setName] = React.useState(null); // null = belum diubah → bawaan "Baseline {slot}"
-  const [st, setSt] = React.useState({ rev: props.rev, step: "form" });
-  const step = st.rev === props.rev ? st.step : "form";
-  const setStep = (v) => setSt({ rev: props.rev, step: v });
+  // Langkah: form | confirm (Timpa slot) | delete (Hapus slot `del`). rev baru (potret disegarkan) → kembali ke form.
+  const [st, setSt] = React.useState({ rev: props.rev, step: "form", del: null });
+  const fresh = st.rev === props.rev;
+  const step = fresh ? st.step : "form";
+  const delN = fresh ? st.del : null;
+  const setStep = (v, del) => {
+    setSt({ rev: props.rev, step: v, del: del === undefined ? null : del });
+    if (typeof props.onStep === "function") props.onStep(v); // view: segarkan potret hanya di form
+  };
   const rootRef = React.useRef(null);
   const cancel = useModal(rootRef, props.onCancel);
   const slotsOf = bases.get(unitKey) instanceof Map ? bases.get(unitKey) : EMPTY_BASES;
   const entry = slotsOf.get(slot) || null;
+  const delEntry = delN === null ? null : slotsOf.get(delN) || null;
   const shownName = name === null ? blSlotName(slot) : name;
   const locked = lockedOf(slot, unitKey);
   const waiting = BL_SLOTS.some((n) => waitingOf(n, unitKey));
@@ -2189,6 +2204,10 @@ function SaveBaselineDialog(props) {
     if (entry) setStep("confirm");
     else save();
   };
+  const remove = () => {
+    if (props.busy || delN === null || lockedOf(delN, unitKey) || typeof props.onRemove !== "function") return;
+    props.onRemove(unitKey, delN);
+  };
   const slotLabel = (n) => {
     const e = slotsOf.get(n);
     if (!e) return [<span key="n" className="plg-timeline-bl-slot-name">{blSlotName(n)}</span>];
@@ -2198,42 +2217,71 @@ function SaveBaselineDialog(props) {
       d ? <span key="d" className="plg-timeline-bl-slot-date">{" · disimpan " + d}</span> : null,
     ];
   };
+  let body;
+  if (step === "delete" && delEntry) {
+    body = (
+      <div className="plg-timeline-bl-confirm" role="alert">
+        <p className="plg-timeline-bl-confirm-text">{blDeleteText(blShownName(delEntry, delN), blDateOf(delEntry))}</p>
+      </div>
+    );
+  } else if (step === "confirm" && entry) {
+    body = (
+      <div className="plg-timeline-bl-confirm" role="alert">
+        <p className="plg-timeline-bl-confirm-text">{blConfirmText(blShownName(entry, slot), blDateOf(entry))}</p>
+      </div>
+    );
+  } else {
+    body = (
+      <div className="plg-timeline-bl-form">
+        {units.length > 1 ? (
+          <div className="plg-timeline-bl-units" role="radiogroup" aria-label={BL_UNIT_LABEL}>
+            {units.map((u) => (
+              <button key={u.key} type="button" role="radio" aria-checked={u.key === unitKey}
+                className={cx("plg-timeline-bl-opt", u.key === unitKey && "is-active")} onClick={() => setUnitKey(u.key)}>{u.label}</button>
+            ))}
+          </div>
+        ) : null}
+        {waiting ? <p className="plg-timeline-pop-note plg-timeline-bl-wait" role="status">{MSG_BL_WAIT}</p> : null}
+        <div className="plg-timeline-bl-slots" role="radiogroup" aria-label={LBL.bl}>
+          {BL_SLOTS.map((n) => {
+            const e = slotsOf.get(n);
+            // Hapus: hanya slot terisi yang TERBACA (record asing klien lebih baru tidak dihapus dari sini), kunci = lockedOf.
+            const canDel = !!e && !e.foreign;
+            return (
+              <div key={n} className="plg-timeline-bl-slot">
+                <button type="button" role="radio" aria-checked={n === slot} disabled={lockedOf(n, unitKey)}
+                  className={cx("plg-timeline-bl-opt", n === slot && "is-active")} onClick={() => setSlot(n)}>{slotLabel(n)}</button>
+                {canDel ? (
+                  <button type="button" className="plg-timeline-btn plg-timeline-bl-del" aria-label={BL_DELETE + " " + blShownName(e, n)}
+                    disabled={lockedOf(n, unitKey) || !!props.busy} onClick={() => setStep("delete", n)}>{BL_DELETE}</button>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+        <input type="text" className="plg-timeline-pop-input plg-timeline-bl-name" aria-label={BL_NAME_LABEL} maxLength={BL_NAME_MAX}
+          value={shownName} onChange={(e) => setName(e && e.target ? String(e.target.value) : "")} />
+      </div>
+    );
+  }
+  let primary;
+  if (step === "delete" && delEntry) {
+    primary = <button type="button" className="plg-timeline-btn plg-timeline-pv-apply" disabled={!!props.busy || lockedOf(delN, unitKey)} onClick={remove}>{BL_DELETE}</button>;
+  } else if (step === "confirm" && entry) {
+    primary = <button type="button" className="plg-timeline-btn plg-timeline-pv-apply" disabled={!!props.busy} onClick={save}>{BL_OVERWRITE}</button>;
+  } else {
+    primary = <button type="button" className="plg-timeline-btn plg-timeline-pv-apply" disabled={locked || !!props.busy} onClick={submit}>{LBL.blSave}</button>;
+  }
   return (
     <div className="plg-timeline-pv-backdrop">
       <div className="plg-timeline-pv plg-timeline-bl-dlg" role="dialog" aria-modal="true" aria-label={LBL.blSave} tabIndex={-1} ref={rootRef}>
         <div className="plg-timeline-pop-head">
           <h3 className="plg-timeline-pop-title">{LBL.blSave}</h3>
         </div>
-        {step === "confirm" && entry ? (
-          <div className="plg-timeline-bl-confirm" role="alert">
-            <p className="plg-timeline-bl-confirm-text">{blConfirmText(blShownName(entry, slot), blDateOf(entry))}</p>
-          </div>
-        ) : (
-          <div className="plg-timeline-bl-form">
-            {units.length > 1 ? (
-              <div className="plg-timeline-bl-units" role="radiogroup" aria-label={BL_UNIT_LABEL}>
-                {units.map((u) => (
-                  <button key={u.key} type="button" role="radio" aria-checked={u.key === unitKey}
-                    className={cx("plg-timeline-bl-opt", u.key === unitKey && "is-active")} onClick={() => setUnitKey(u.key)}>{u.label}</button>
-                ))}
-              </div>
-            ) : null}
-            {waiting ? <p className="plg-timeline-pop-note plg-timeline-bl-wait" role="status">{MSG_BL_WAIT}</p> : null}
-            <div className="plg-timeline-bl-slots" role="radiogroup" aria-label={LBL.bl}>
-              {BL_SLOTS.map((n) => (
-                <button key={n} type="button" role="radio" aria-checked={n === slot} disabled={lockedOf(n, unitKey)}
-                  className={cx("plg-timeline-bl-opt", n === slot && "is-active")} onClick={() => setSlot(n)}>{slotLabel(n)}</button>
-              ))}
-            </div>
-            <input type="text" className="plg-timeline-pop-input plg-timeline-bl-name" aria-label={BL_NAME_LABEL} maxLength={BL_NAME_MAX}
-              value={shownName} onChange={(e) => setName(e && e.target ? String(e.target.value) : "")} />
-          </div>
-        )}
+        {body}
         <div className="plg-timeline-pv-actions">
           <button type="button" className="plg-timeline-btn" onClick={cancel}>{PV_CANCEL}</button>
-          {step === "confirm" && entry
-            ? <button type="button" className="plg-timeline-btn plg-timeline-pv-apply" disabled={!!props.busy} onClick={save}>{BL_OVERWRITE}</button>
-            : <button type="button" className="plg-timeline-btn plg-timeline-pv-apply" disabled={locked || !!props.busy} onClick={submit}>{LBL.blSave}</button>}
+          {primary}
         </div>
       </div>
     </div>
@@ -3278,6 +3326,7 @@ function TimelineViewBody(props) {
   const blDlgRef = React.useRef(null);
   blDlgRef.current = blDlg;
   const blBtnRef = React.useRef(null);
+  const blStepRef = React.useRef("form"); // langkah dialog simpan (onStep): potret hanya disegarkan di form
   const [pv, setPv] = React.useState(null); // {id, title, items, model, busy, unit?: {unit, rep, snap} | Array<{rep, snap, auto}>, broken?, todayLabel?, onDone, rebuild}
   const [, setNet] = React.useState(0);
   const autoBtnRef = React.useRef(null);
@@ -3520,10 +3569,8 @@ function TimelineViewBody(props) {
     : { kind: "popover", expanded: unitOpen, onClick: () => { setCalOpen(false); setBlOpen(false); setUnitOpen(!unitOpen); } };
 
   // ── 1c-2 Task 5: Baseline (pemilih = pref saja) + Simpan baseline (dialog → SATU baselineStore.save) ──
-  // Simpan: encode dari hasil useEngine AKTIF (engRef) dengan g = recId unit terpilih (T3); snap = potret saat dialog
-  // dibuka (bentuk loadAll; slot asing ikut). Galat: TOO_LARGE → "Baseline terlalu besar"; STALE → toast MSG_STALE 1c-1,
-  // potret dimuat ulang (satu loadScope), dialog tetap terbuka kembali ke form (konfirmasi Timpa ditanya lagi bila terisi);
-  // lainnya → "Jadwal gagal disimpan". Hapus baseline TIDAK ditawarkan di 1c-2 Task 5 (di luar brief).
+  // Simpan: encode dari hasil useEngine AKTIF (engRef) dengan g = recId unit terpilih (T3); snap = potret dialog (bentuk
+  // loadAll; slot asing ikut). Hapus (fix review T5): slot terisi terbaca, snap potret, lockedOf. Galat lewat blFail.
   const openSaveBl = () => {
     const e = engRef.current;
     if (pvRef.current || blDlgRef.current || e.status !== "ready" || !blPage.length) return;
@@ -3531,6 +3578,7 @@ function TimelineViewBody(props) {
     setCalOpen(false);
     setBlOpen(false);
     const next = { id: ++pvSeq.current, bases: bls.byUnit, rev: 0, busy: false };
+    blStepRef.current = "form";
     blDlgRef.current = next;
     setBlDlg(next);
   };
@@ -3539,6 +3587,38 @@ function TimelineViewBody(props) {
     setBlDlg(next);
   };
   const cancelBl = () => setDlg(null);
+  // Hasil gagal simpan/hapus: TOO_LARGE → "Baseline terlalu besar"; STALE → MSG_BL_STALE + potret dimuat ulang (satu
+  // loadScope), dialog kembali ke form; lainnya → "Baseline gagal disimpan". Dialog tetap terbuka.
+  const blFail = (cur, live, err) => {
+    const code = err && err.code;
+    if (code === "TOO_LARGE") toastSafe(api, MSG_BL_TOO_LARGE, "error");
+    else if (code === "STALE") toastSafe(api, MSG_BL_STALE, "error");
+    else {
+      logWarn(api, "baseline gagal disimpan:", err);
+      toastSafe(api, MSG_BL_SAVE_FAIL, "error");
+    }
+    if (!live()) return undefined;
+    if (code !== "STALE") {
+      setDlg(Object.assign({}, cur, { busy: false }));
+      return undefined;
+    }
+    return bls.store.loadScope(blPage.map((x) => x.unit)).then((fresh) => {
+      blStepRef.current = "form";
+      if (live()) setDlg(Object.assign({}, cur, { bases: fresh, rev: cur.rev + 1, busy: false }));
+    }, (err2) => {
+      logWarn(api, "baseline gagal dimuat:", err2);
+      if (live()) setDlg(Object.assign({}, cur, { busy: false }));
+    });
+  };
+  // Satu aksi tulis dialog (simpan / hapus) lewat baselineStore; busy seketika (klik ganda = satu tulis).
+  const blRun = (cur, act, okText) => {
+    setDlg(Object.assign({}, cur, { busy: true }));
+    const live = () => blDlgRef.current !== null && blDlgRef.current.id === cur.id;
+    Promise.resolve().then(act).then(() => {
+      if (live()) setDlg(null);
+      toastSafe(api, okText, "success");
+    }, (err) => blFail(cur, live, err));
+  };
   const saveBl = (recId, n, name) => {
     const cur = blDlgRef.current;
     const e = engRef.current;
@@ -3548,34 +3628,26 @@ function TimelineViewBody(props) {
     const ent = slots instanceof Map ? slots.get(n) : null;
     const uid = api.env ? api.env.userId : null;
     const enc = TLPlan.baselineEncode(e.result, e.ctx, { n, name, savedAt: today, by: Number.isInteger(uid) ? uid : null }, recId);
-    setDlg(Object.assign({}, cur, { busy: true })); // seketika: klik ganda sebelum render berikutnya = satu put
-    const live = () => blDlgRef.current !== null && blDlgRef.current.id === cur.id;
-    Promise.resolve()
-      .then(() => bls.store.save(pu.unit, n, name, enc.data, ent ? ent.snap : BL_NO_SNAP))
-      .then(() => {
-        if (live()) setDlg(null);
-        toastSafe(api, blSavedText(name), "success");
-      }, (err) => {
-        const code = err && err.code;
-        if (code === "TOO_LARGE") toastSafe(api, MSG_BL_TOO_LARGE, "error");
-        else if (code === "STALE") toastSafe(api, MSG_STALE, "error");
-        else {
-          logWarn(api, "baseline gagal disimpan:", err);
-          toastSafe(api, MSG_SAVE_FAIL, "error");
-        }
-        if (!live()) return undefined;
-        if (code !== "STALE") {
-          setDlg(Object.assign({}, cur, { busy: false }));
-          return undefined;
-        }
-        return bls.store.loadScope(blPage.map((x) => x.unit)).then((fresh) => {
-          if (live()) setDlg(Object.assign({}, cur, { bases: fresh, rev: cur.rev + 1, busy: false }));
-        }, (err2) => {
-          logWarn(api, "baseline gagal dimuat:", err2);
-          if (live()) setDlg(Object.assign({}, cur, { busy: false }));
-        });
-      });
+    blRun(cur, () => bls.store.save(pu.unit, n, name, enc.data, ent ? ent.snap : BL_NO_SNAP), blSavedText(name));
   };
+  // Hapus (ruling review T5): snap dari potret dialog (CAS remove T4), kunci lockedOf. Pref bl:<page> TIDAK diubah —
+  // pilihan yang menunjuk slot terhapus menjadi pembanding kosong (semantik pemilih sama).
+  const removeBl = (recId, n) => {
+    const cur = blDlgRef.current;
+    const pu = blPage.find((x) => x.unit.recId === recId);
+    const slots = cur ? cur.bases.get(recId) : null;
+    const ent = slots instanceof Map ? slots.get(n) : null;
+    if (!cur || cur.busy || !pu || !ent || ent.foreign || bls.lockedOf(n, recId)) return;
+    blRun(cur, () => bls.store.remove(pu.unit, n, ent.snap), blRemovedText(blShownName(ent, n)));
+  };
+  // Fix review T5 #3: kunci/muat berubah (mis. slot tiba bersama `pulled`) saat dialog di langkah FORM dan tidak sibuk →
+  // potret diambil ulang dari useBaselines (rev naik), sehingga slot yang baru tiba meminta konfirmasi Timpa, bukan
+  // STALE. Di langkah konfirmasi/hapus potret TIDAK diganti (yang dikonfirmasi = yang dilihat; CAS tetap menjaga).
+  React.useEffect(() => {
+    const cur = blDlgRef.current;
+    if (!cur || cur.busy || blStepRef.current !== "form" || cur.bases === bls.byUnit) return;
+    setDlg(Object.assign({}, cur, { bases: bls.byUnit, rev: cur.rev + 1 }));
+  }, [bls.pulled, bls.loaded]);
   const blPickItems = [{ n: 0, label: BL_NONE }].concat(BL_SLOTS.map((n) => {
     // halaman project: nama slot (bila ada dan terbaca); workspace (banyak unit) / kosong / asing → "Baseline {n}"
     const e = blPage.length === 1 ? bls.bases.get(n) : null;
@@ -3621,7 +3693,7 @@ function TimelineViewBody(props) {
   const top = <div className="plg-timeline-top">{toolbar}{popover}{unitPop}{blPop}</div>;
   const blDialog = blDlg
     ? <SaveBaselineDialog key={"bl" + blDlg.id} units={blPage.map((x) => ({ key: x.unit.recId, label: x.label }))} bases={blDlg.bases} rev={blDlg.rev} busy={blDlg.busy}
-      lockedOf={bls.lockedOf} waitingOf={bls.waitingOf} onSave={saveBl} onCancel={cancelBl} />
+      lockedOf={bls.lockedOf} waitingOf={bls.waitingOf} onSave={saveBl} onRemove={removeBl} onStep={(x) => { blStepRef.current = x; }} onCancel={cancelBl} />
     : null;
   const dialog = pv && pv.model
     ? <PreviewDialog key={pv.id} title={pv.title} model={pv.model} offline={offline} todayLabel={pv.todayLabel} broken={pv.broken} busy={pv.busy} whyOf={pv.whyOf} onApply={applyPv} onCancel={cancelPv} />
