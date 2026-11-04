@@ -856,12 +856,12 @@ test("jkt pindah ke TLSched (TLCpm.jkt = alias identik); schedule.js tidak berga
 test("doneFinish = maks(mulai, jkt(completed_at) ?? fin(mulai, d))", () => {
   const c = std();
   const s = D("2026-11-02"); // Sen
-  assert.equal(I(S.doneFinish(c, { completed_at: "2026-11-03T03:00:00Z" }, s, 5)), "2026-11-03", "selesai lebih awal");
-  assert.equal(I(S.doneFinish(c, { completed_at: "2026-11-12T03:00:00Z" }, s, 2)), "2026-11-12", "selesai terlambat");
-  assert.equal(I(S.doneFinish(c, { completed_at: "2026-10-20T03:00:00Z" }, s, 3)), "2026-11-02", "sebelum Mulai → mulai");
-  assert.equal(I(S.doneFinish(c, { completed_at: null, gtd_status: "done" }, s, 3)), "2026-11-04", "tanpa completed_at → fin");
-  assert.equal(I(S.doneFinish(c, {}, s, 0)), "2026-11-02");
-  assert.equal(S.doneFinish(c, {}, NaN, 2), undefined);
+  assert.equal(I(S.doneFinish(c, { completed_at: "2026-11-03T03:00:00Z" }, null, s, 5)), "2026-11-03", "selesai lebih awal");
+  assert.equal(I(S.doneFinish(c, { completed_at: "2026-11-12T03:00:00Z" }, null, s, 2)), "2026-11-12", "selesai terlambat");
+  assert.equal(I(S.doneFinish(c, { completed_at: "2026-10-20T03:00:00Z" }, null, s, 3)), "2026-11-02", "sebelum Mulai → mulai");
+  assert.equal(I(S.doneFinish(c, { completed_at: null, gtd_status: "done" }, null, s, 3)), "2026-11-04", "tanpa completed_at → fin");
+  assert.equal(I(S.doneFinish(c, {}, null, s, 0)), "2026-11-02");
+  assert.equal(S.doneFinish(c, {}, null, NaN, 2), undefined);
 });
 
 test("sanitizePatch actual: null sah; {start} sah; {finish} sah; finish < start ditolak; tanggal tak sah ditolak; kunci lain di dalam actual ditolak", () => {
@@ -915,7 +915,7 @@ test("actualOf: completed_at '2026-11-04 23:30:00' (UTC) → finish = dn(2026-11
   assert.deepEqual(S.actualOf(t, { actual: { start: "2026-11-05", finish: "2026-11-04" } }), { start: null, finish: D("2026-11-05"), finishDerived: true }, "actual rusak diabaikan seluruhnya");
 });
 
-test("doneFinish(c, task, ext, s, d): actual.finish menang; tanpa itu completed_at; tanpa keduanya fin; tetap maks(mulai, …); arity lama (c, task, s, d) berperilaku sama", () => {
+test("doneFinish(c, task, ext, s, d): actual.finish menang; tanpa itu completed_at; tanpa keduanya fin; tetap maks(mulai, …)", () => {
   const c = std();
   const s = D("2026-11-02");
   const T = { completed_at: "2026-11-04 23:30:00" };
@@ -925,6 +925,4 @@ test("doneFinish(c, task, ext, s, d): actual.finish menang; tanpa itu completed_
   assert.equal(I(S.doneFinish(c, { completed_at: null }, { actual: null }, s, 3)), "2026-11-04", "fin");
   assert.equal(I(S.doneFinish(c, {}, { actual: { finish: "2026-10-20" } }, s, 3)), "2026-11-02", "sebelum mulai → mulai");
   assert.equal(S.doneFinish(c, {}, null, NaN, 2), undefined);
-  assert.equal(I(S.doneFinish(c, T, s, 5)), "2026-11-05", "arity lama (deprecated)");
-  assert.equal(I(S.doneFinish(c, {}, s, 3)), "2026-11-04", "arity lama tanpa completed_at");
 });

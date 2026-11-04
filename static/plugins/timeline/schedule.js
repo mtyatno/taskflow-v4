@@ -471,14 +471,7 @@ const TLSched = (function (CAL) {
 
   // Selesai pendahulu DONE — SATU aturan untuk jangkar "done" mesin (TLCpm) dan violations (layout langkah 7):
   // maks(mulai, actualOf(task, ext).finish ?? fin(mulai, d)). Mulai tak sah / kalender buntu → undefined.
-  // Shim DEPRECATED: arity lama (c, task, s, d) — argumen ke-3 bilangan — berperilaku seperti 1c-1 (tanpa aktual:
-  // jkt(completed_at) ?? fin). Dihapus setelah pemanggil cpm.js/layout.js bermigrasi (1c-2 T2).
   function doneFinish(c, task, ext, s, d) {
-    if (typeof ext === "number") {
-      d = s;
-      s = ext;
-      ext = null;
-    }
     if (!isDn(s)) return undefined;
     let f = actualOf(task, ext).finish;
     if (f === null) f = fin(c, s, d);

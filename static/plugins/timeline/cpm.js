@@ -32,6 +32,7 @@ const TLCpm = (function (CAL, SCHED, HOL) {
   // Tenggat task → bilangan hari (10 karakter pertama, R3); tak ada/tak sah → NaN. Satu sumber untuk run() dan explain().
   const deadlineDn = (t) => (t.deadline === null || t.deadline === undefined ? NaN : CAL.dn(String(t.deadline).slice(0, 10)));
   const isDone = (t) => t.gtd_status === "done" || !!t.completed_at;
+  // Sudah mulai dari task saja; K30 juga menghitung actual.start (diperiksa di forward pass lewat TLSched.actualOf).
   const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
   const parentOf = (t) => (t.parent_id !== undefined && t.parent_id !== null ? t.parent_id : t.parent_cid);
 
@@ -282,11 +283,14 @@ const TLCpm = (function (CAL, SCHED, HOL) {
       const t = it.task;
       const d = it.d;
       const cst = it.sched.constraint;
+      // Aktual (1c-2, K30) dari bacaan ext yang SAMA (it.sched = readSched(readExt(t))) — tidak ada sumber kedua.
+      const act = SCHED.actualOf(t, it.sched);
+      const s0 = act.start !== null ? act.start : it.s; // mulai jangkar selesai/berjalan = actual.start ?? Mulai
       let fixed = null;
       if (isDone(t)) fixed = "done";
       else if (inCycle.has(k)) fixed = "cycle";
       else if (it.mode === "manual") fixed = "manual";
-      else if (isStarted(t) && it.s !== null) fixed = "started";
+      else if ((isStarted(t) || act.start !== null) && s0 !== null) fixed = "started";
       else if (cst && cst.type === "MFO") fixed = "mfo";
 
       const n = { key: k, task: t, es: null, ef: null, ls: null, lf: null, slack: null, critical: false, mode: it.mode };
@@ -306,11 +310,15 @@ const TLCpm = (function (CAL, SCHED, HOL) {
           const md = CAL.dn(cst.date);
           ef = d >= 1 ? safe(() => CAL.prevWork(c, md)) : md;
           es = isDn(ef) ? SCHED.sff(c, ef, d) : undefined;
+        } else if (fixed === "done" || fixed === "started") {
+          // selesai: ef = maks(es, actual.finish ?? jkt(completed_at) ?? fin(es, d)); berjalan: ef = fin(es, d)
+          if (s0 !== null) {
+            es = s0;
+            ef = fixed === "done" ? SCHED.doneFinish(c, t, it.sched, es, d) : SCHED.fin(c, es, d);
+          }
         } else if (it.s !== null) {
-          es = it.s;
-          if (fixed === "done") {
-            ef = SCHED.doneFinish(c, t, es, d);
-          } else ef = SCHED.fin(c, es, d);
+          es = it.s; // manual / lingkaran: tanggal tersimpan
+          ef = SCHED.fin(c, es, d);
         }
         if (isDn(es) && isDn(ef)) {
           for (const p of preds) {

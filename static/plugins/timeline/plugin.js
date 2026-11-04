@@ -894,14 +894,7 @@ const TLSched = (function (CAL) {
 
   // Selesai pendahulu DONE — SATU aturan untuk jangkar "done" mesin (TLCpm) dan violations (layout langkah 7):
   // maks(mulai, actualOf(task, ext).finish ?? fin(mulai, d)). Mulai tak sah / kalender buntu → undefined.
-  // Shim DEPRECATED: arity lama (c, task, s, d) — argumen ke-3 bilangan — berperilaku seperti 1c-1 (tanpa aktual:
-  // jkt(completed_at) ?? fin). Dihapus setelah pemanggil cpm.js/layout.js bermigrasi (1c-2 T2).
   function doneFinish(c, task, ext, s, d) {
-    if (typeof ext === "number") {
-      d = s;
-      s = ext;
-      ext = null;
-    }
     if (!isDn(s)) return undefined;
     let f = actualOf(task, ext).finish;
     if (f === null) f = fin(c, s, d);
@@ -1114,6 +1107,7 @@ const TLCpm = (function (CAL, SCHED, HOL) {
   // Tenggat task → bilangan hari (10 karakter pertama, R3); tak ada/tak sah → NaN. Satu sumber untuk run() dan explain().
   const deadlineDn = (t) => (t.deadline === null || t.deadline === undefined ? NaN : CAL.dn(String(t.deadline).slice(0, 10)));
   const isDone = (t) => t.gtd_status === "done" || !!t.completed_at;
+  // Sudah mulai dari task saja; K30 juga menghitung actual.start (diperiksa di forward pass lewat TLSched.actualOf).
   const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
   const parentOf = (t) => (t.parent_id !== undefined && t.parent_id !== null ? t.parent_id : t.parent_cid);
 
@@ -1364,11 +1358,14 @@ const TLCpm = (function (CAL, SCHED, HOL) {
       const t = it.task;
       const d = it.d;
       const cst = it.sched.constraint;
+      // Aktual (1c-2, K30) dari bacaan ext yang SAMA (it.sched = readSched(readExt(t))) — tidak ada sumber kedua.
+      const act = SCHED.actualOf(t, it.sched);
+      const s0 = act.start !== null ? act.start : it.s; // mulai jangkar selesai/berjalan = actual.start ?? Mulai
       let fixed = null;
       if (isDone(t)) fixed = "done";
       else if (inCycle.has(k)) fixed = "cycle";
       else if (it.mode === "manual") fixed = "manual";
-      else if (isStarted(t) && it.s !== null) fixed = "started";
+      else if ((isStarted(t) || act.start !== null) && s0 !== null) fixed = "started";
       else if (cst && cst.type === "MFO") fixed = "mfo";
 
       const n = { key: k, task: t, es: null, ef: null, ls: null, lf: null, slack: null, critical: false, mode: it.mode };
@@ -1388,11 +1385,15 @@ const TLCpm = (function (CAL, SCHED, HOL) {
           const md = CAL.dn(cst.date);
           ef = d >= 1 ? safe(() => CAL.prevWork(c, md)) : md;
           es = isDn(ef) ? SCHED.sff(c, ef, d) : undefined;
+        } else if (fixed === "done" || fixed === "started") {
+          // selesai: ef = maks(es, actual.finish ?? jkt(completed_at) ?? fin(es, d)); berjalan: ef = fin(es, d)
+          if (s0 !== null) {
+            es = s0;
+            ef = fixed === "done" ? SCHED.doneFinish(c, t, it.sched, es, d) : SCHED.fin(c, es, d);
+          }
         } else if (it.s !== null) {
-          es = it.s;
-          if (fixed === "done") {
-            ef = SCHED.doneFinish(c, t, es, d);
-          } else ef = SCHED.fin(c, es, d);
+          es = it.s; // manual / lingkaran: tanggal tersimpan
+          ef = SCHED.fin(c, es, d);
         }
         if (isDn(es) && isDn(ef)) {
           for (const p of preds) {
@@ -2538,7 +2539,8 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     }
 
     // 7. dependensi (R8, R16): kunci kanonik String(id); spans memuat rentang ringkasan.
-    // Task DONE (bukan ringkasan): selesai pelanggaran = TLSched.doneFinish (aturan yang SAMA dengan jangkar "done" mesin —
+    // Task DONE (bukan ringkasan): mulai/selesai pelanggaran = actual.start ?? Mulai dan TLSched.doneFinish (aturan yang SAMA
+    // dengan jangkar "done" mesin, termasuk tanggal aktual 1c-2 —
     // selesai lebih awal tidak menandai ⚠ pada tanggal yang baru ditulis mesin); durasi d dibawa agar penerus done tetap
     // memakai durasi tersimpannya. Rentang bar (row.span) tidak berubah.
     const spans = new Map();
@@ -2547,8 +2549,11 @@ const TLLayout = (function (CAL, SCHED, HOL) {
       const t = it.task;
       if (it.children.length === 0 && (t.gtd_status === "done" || !!t.completed_at)) {
         const d = it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
-        const f = SCHED.doneFinish(c, t, it.span.s, d);
-        spans.set(it.key, isInt(f) ? { s: it.span.s, f, d } : it.span);
+        // mulai = actual.start ?? rentang (sama dengan es jangkar mesin); aktual dari it.sched (bacaan ext yang sama).
+        const a0 = SCHED.actualOf(t, it.sched).start;
+        const s = a0 !== null ? a0 : it.span.s;
+        const f = SCHED.doneFinish(c, t, it.sched, s, d);
+        spans.set(it.key, isInt(f) ? { s, f, d } : it.span);
       } else spans.set(it.key, it.span);
     }
     const edges = SCHED.resolveDeps(items.map((it) => ({ key: it.key, sched: it.sched })), index);

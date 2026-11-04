@@ -876,6 +876,44 @@ test("α1: pendahulu selesai lebih awal → penerus di tanggal tulisan mesin TID
   assert.deepEqual(r.rows.find((x) => x.key === "1").span, { s: D("2026-11-02"), f: D("2026-11-06") }, "bar = rentang tersimpan");
 });
 
+// 1c-2 (K30): perluasan α1 — selesai/mulai pendahulu done memakai aktual yang SAMA dengan jangkar mesin.
+test("violations (layout langkah 7) memakai finish aktual yang sama — selesai lebih awal via actual.finish tidak menandai ⚠ penerus di tanggal mesin", () => {
+  const M = require(path.join(dir, "cpm.js"));
+  const readExt = (t) => {
+    const o = {};
+    for (const k of Object.keys(t.ext || {})) if (k.indexOf("timeline.") === 0) o[k.slice(9)] = t.ext[k];
+    return o;
+  };
+  const viaEngine = (predExt, depType, expectEs) => {
+    // completed_at Kam 5 (turunan), tetapi actual.finish/start pengguna lebih awal → mesin memakai aktual
+    const pred = mk(1, { list_id: 7, project: "Alpha", gtd_status: "done", completed_at: "2026-11-05T03:00:00Z" }, predExt);
+    const dep = [{ t: { $task: 1 }, type: depType, lag: 0 }];
+    const succ0 = mk(2, { list_id: 7, project: "Alpha", gtd_status: "next" }, sch("2026-11-16", 1, dep));
+    const units = new Map([[S.unitOf(succ0).recId, { auto: true }]]);
+    const r0 = M.run({ tasks: [pred, succ0], cal: std(), units, readExt });
+    const es = I(r0.nodes.get("2").es);
+    assert.equal(es, expectEs, "mesin " + depType);
+    const succ = mk(2, { list_id: 7, project: "Alpha", gtd_status: "next" }, sch(es, 1, dep));
+    const r = lay([pred, succ]);
+    assert.equal(r.edges.find((x) => x.from === "1" && x.to === "2").violation, false, "tanpa panah merah " + depType);
+    assert.equal(r.rows.find((x) => x.key === "2").violation, false, "tanpa ⚠ " + depType);
+    assert.equal(r.stats.violations, 0);
+    return r;
+  };
+  // FS: actual.finish Sel 3 (completed_at Kam 5) → penerus Rab 4
+  const r1 = viaEngine({ ...sch("2026-11-02", 5), "timeline.actual": { finish: "2026-11-03" } }, "FS", "2026-11-04");
+  assert.deepEqual(r1.rows.find((x) => x.key === "1").span, { s: D("2026-11-02"), f: D("2026-11-06") }, "bar = rentang tersimpan");
+  // SS: actual.start Sen 2 lebih awal dari Mulai tersimpan Rab 4 → penerus Sen 2 (mesin dan violations memakai mulai aktual)
+  viaEngine({ ...sch("2026-11-04", 1), "timeline.actual": { start: "2026-11-02", finish: "2026-11-02" } }, "SS", "2026-11-02");
+  // penerus yang benar-benar lebih awal dari selesai aktual tetap ⚠
+  const dep = [{ t: { $task: 1 }, type: "FS", lag: 0 }];
+  const early = lay([
+    mk(1, { gtd_status: "done", completed_at: "2026-11-02T03:00:00Z" }, { ...sch("2026-11-02", 5), "timeline.actual": { finish: "2026-11-04" } }),
+    mk(2, {}, sch("2026-11-04", 1, dep)), // Rab 4 < Kam 5 (setelah selesai aktual Rab 4)
+  ]);
+  assert.equal(early.rows.find((x) => x.key === "2").violation, true, "actual.finish menang atas completed_at Sen 2");
+});
+
 test("α1: penerus yang benar-benar lebih awal dari hari completed_at tetap ⚠ (selesai lebih awal maupun terlambat)", () => {
   const dep = [{ t: { $task: 1 }, type: "FS", lag: 0 }];
   const early = lay([

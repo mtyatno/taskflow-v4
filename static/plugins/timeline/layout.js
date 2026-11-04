@@ -500,7 +500,8 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     }
 
     // 7. dependensi (R8, R16): kunci kanonik String(id); spans memuat rentang ringkasan.
-    // Task DONE (bukan ringkasan): selesai pelanggaran = TLSched.doneFinish (aturan yang SAMA dengan jangkar "done" mesin —
+    // Task DONE (bukan ringkasan): mulai/selesai pelanggaran = actual.start ?? Mulai dan TLSched.doneFinish (aturan yang SAMA
+    // dengan jangkar "done" mesin, termasuk tanggal aktual 1c-2 —
     // selesai lebih awal tidak menandai ⚠ pada tanggal yang baru ditulis mesin); durasi d dibawa agar penerus done tetap
     // memakai durasi tersimpannya. Rentang bar (row.span) tidak berubah.
     const spans = new Map();
@@ -509,8 +510,11 @@ const TLLayout = (function (CAL, SCHED, HOL) {
       const t = it.task;
       if (it.children.length === 0 && (t.gtd_status === "done" || !!t.completed_at)) {
         const d = it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
-        const f = SCHED.doneFinish(c, t, it.span.s, d);
-        spans.set(it.key, isInt(f) ? { s: it.span.s, f, d } : it.span);
+        // mulai = actual.start ?? rentang (sama dengan es jangkar mesin); aktual dari it.sched (bacaan ext yang sama).
+        const a0 = SCHED.actualOf(t, it.sched).start;
+        const s = a0 !== null ? a0 : it.span.s;
+        const f = SCHED.doneFinish(c, t, it.sched, s, d);
+        spans.set(it.key, isInt(f) ? { s, f, d } : it.span);
       } else spans.set(it.key, it.span);
     }
     const edges = SCHED.resolveDeps(items.map((it) => ({ key: it.key, sched: it.sched })), index);
