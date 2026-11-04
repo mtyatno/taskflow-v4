@@ -13,7 +13,10 @@ const TLCpm = (function (CAL, SCHED) {
   const isInt = (n) => typeof n === "number" && Number.isInteger(n);
   const isDn = (n) => Number.isInteger(n);
   const isObj = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
-  const cmp = (a, b) => a.localeCompare(b);
+  // Pembanding kunci = unit kode UTF-16 (bukan localeCompare: urutan lokal berbeda antar perangkat, mis. "aa" di Denmark).
+  // Dipakai untuk semua urutan keluaran (order, ignored, cycles, summaries, succ) → deterministik lintas perangkat.
+  const cmpKey = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+  const cmp = cmpKey;
 
   function safe(fn) {
     try {
@@ -24,10 +27,12 @@ const TLCpm = (function (CAL, SCHED) {
     }
   }
 
-  // completed_at → bilangan hari Jakarta: floor((Date.parse(iso) + 7 jam) / 1 hari). Hanya bentuk ISO bertanggal-jam
-  // (tanpa zona = UTC, termasuk "YYYY-MM-DD HH:MM:SS" SQLite); tanggal saja → hari itu. Selain itu → null.
+  // completed_at → bilangan hari Jakarta (Asia/Jakarta, UTC+7 tanpa DST). Hanya bentuk ISO bertanggal-jam; tanpa zona = UTC
+  // (termasuk "YYYY-MM-DD HH:MM:SS[.ffffff]" SQLite/server); tanggal saja → hari itu; selain itu → null. Epoch dirakit dari
+  // bilangan hari TLCal.dn (= Date.UTC) + grup regex (tanpa Date.parse → bebas mesin JS). Pecahan detik dipotong ke milidetik: hasil dibulatkan ke
+  // hari, jadi presisi mikrodetik hanya berpengaruh di batas 23:59:59.999xxx Jakarta (dipotong = masih hari itu, benar).
   const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-  const ISO_TS = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?)(Z|[+-]\d{2}:?\d{2})?$/;
+  const ISO_TS = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?(?:(Z)|([+-])(\d{2}):?(\d{2}))?$/;
   function jkt(v) {
     if (typeof v !== "string") return null;
     const s = v.trim();
@@ -36,9 +41,22 @@ const TLCpm = (function (CAL, SCHED) {
       return isDn(n) ? n : null;
     }
     const m = ISO_TS.exec(s);
-    if (!m || !CAL.isIso(m[1])) return null;
-    const t = Date.parse(m[1] + "T" + m[2] + (m[3] || "Z"));
-    return Number.isFinite(t) ? Math.floor((t + JKT_OFFSET) / MS_DAY) : null;
+    if (!m) return null;
+    const day = CAL.dn(m[1]);
+    const h = +m[2];
+    const mi = +m[3];
+    const sec = m[4] === undefined ? 0 : +m[4];
+    if (!isDn(day) || h > 23 || mi > 59 || sec > 59) return null;
+    const ms = m[5] === undefined ? 0 : +(m[5] + "00").slice(0, 3);
+    let off = 0; // menit, positif = di depan UTC
+    if (m[7]) {
+      const oh = +m[8];
+      const om = +m[9];
+      if (oh > 23 || om > 59) return null;
+      off = (m[7] === "-" ? -1 : 1) * (oh * 60 + om);
+    }
+    const t = day * MS_DAY + ((h * 60 + mi - off) * 60 + sec) * 1000 + ms;
+    return Math.floor((t + JKT_OFFSET) / MS_DAY);
   }
 
   const isDone = (t) => t.gtd_status === "done" || !!t.completed_at;
@@ -435,6 +453,6 @@ const TLCpm = (function (CAL, SCHED) {
     };
   }
 
-  return Object.freeze({ run, jkt });
+  return Object.freeze({ run, jkt, cmpKey });
 })(typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"), typeof TLSched !== "undefined" ? TLSched : require("./schedule.js"));
 if (typeof module !== "undefined" && module.exports) module.exports = TLCpm;

@@ -177,6 +177,59 @@ test("driver seri: urutan deps tersimpan, lalu SNET, lalu jangkar akar", () => {
   assert.deepEqual(node(r, 6).driver, { kind: "snet" });
 });
 
+test("urutan bebas lokal: pembanding unit kode (bukan localeCompare); id ['aa1','b3'] → urutan sama walau localeCompare dibalik", () => {
+  assert.equal(typeof M.cmpKey, "function");
+  assert.equal(M.cmpKey("aa1", "b3"), -1);
+  assert.equal(M.cmpKey("b3", "aa1"), 1);
+  assert.equal(M.cmpKey("x", "x"), 0);
+  assert.equal(M.cmpKey("Z", "a"), -1, "unit kode: huruf besar sebelum kecil");
+  assert.equal(M.cmpKey("10", "9"), -1);
+  const tasks = () => [
+    mk({ id: "b3", start: "2026-11-02", d: 1 }),
+    mk({ id: "aa1", start: "2026-11-02", d: 1 }),
+    mk({ id: "c9", start: "2026-11-02", d: 1, deps: [["zz"], ["b3", "FS"], ["aa1", "FS"]], parent: undefined }),
+    mk({ id: "ab", start: "2026-11-03", d: 1, deps: [["ab"]] }),
+    mk({ id: "a", start: "2026-11-03", d: 1, deps: [["a2"]] }),
+    mk({ id: "a2", start: "2026-11-03", d: 1, deps: [["a"]] }),
+  ];
+  const base = ser(run(tasks()));
+  assert.deepEqual(run(tasks()).order.slice(0, 2), ["a", "a2"]);
+  const orig = String.prototype.localeCompare;
+  try {
+    // simulasi lokal Denmark ("aa" sesudah "z"): balik semua localeCompare
+    String.prototype.localeCompare = function (o) {
+      return -orig.call(this, o);
+    };
+    assert.equal(ser(run(tasks())), base);
+  } finally {
+    String.prototype.localeCompare = orig;
+  }
+});
+
+test("jkt: completed_at server dengan pecahan 6 digit dan offset → hari Jakarta tanpa Date.parse pecahan", () => {
+  assert.equal(I(M.jkt("2026-11-05T16:59:59.999999Z")), "2026-11-05");
+  assert.equal(I(M.jkt("2026-11-05T17:00:00.000001Z")), "2026-11-06");
+  assert.equal(I(M.jkt("2026-11-05 17:30:00.123456")), "2026-11-06", "tanpa zona = UTC");
+  assert.equal(I(M.jkt("2026-11-06T00:30:00+07:00")), "2026-11-06");
+  assert.equal(I(M.jkt("2026-11-05T23:30:00-05:00")), "2026-11-06");
+  assert.equal(I(M.jkt("2026-11-05T17:30Z")), "2026-11-06");
+  assert.equal(I(M.jkt("2026-11-05")), "2026-11-05");
+  for (const bad of ["2026-02-30T10:00:00Z", "2026-11-05T25:00:00Z", "2026-11-05T10:60:00Z", "Nov 5 2026", "", null, 5])
+    assert.equal(M.jkt(bad), null, String(bad));
+  const orig = Date.parse;
+  try {
+    Date.parse = () => {
+      throw new Error("Date.parse dipanggil");
+    };
+    assert.equal(I(M.jkt("2026-11-05T17:30:00.5Z")), "2026-11-06");
+  } finally {
+    Date.parse = orig;
+  }
+  // ef dari pecahan 6 digit di mesin
+  const r = run([mk({ id: 1, start: "2026-11-02", d: 5, done: true, completed_at: "2026-11-05T17:00:00.000001Z" })]);
+  assert.equal(I(node(r, 1).ef), "2026-11-06");
+});
+
 test("task tanpa Mulai dan tanpa pendahulu → bukan simpul", () => {
   const r = run([mk({ id: 1, d: 2 }), mk({ id: 2, start: "2026-11-02", d: 1 })]);
   assert.ok(!r.nodes.has("1"));
