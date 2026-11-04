@@ -1251,6 +1251,75 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* 1c-1 R20: kontrol Mode dan kartu otomatis (tingkat 2) seksi Jadwal */
+.plg-timeline-chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.plg-timeline-chip.is-late,
+.plg-timeline-chip.is-critical {
+  color: var(--plg-timeline-danger);
+  background: color-mix(in srgb, var(--plg-timeline-danger) 10%, transparent);
+}
+
+.plg-timeline-sec-links {
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.plg-timeline-sec-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.plg-timeline-sec-drift {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-sec-drift-text {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.plg-timeline-sec-mode {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+
+.plg-timeline-sec-mode .plg-timeline-seg-btn {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.plg-timeline-seg-note {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-sec-shiftnote {
+  flex-basis: 100%;
+  font-size: 12px;
+}
+
 .plg-timeline-picker {
   display: flex;
   flex-direction: column;

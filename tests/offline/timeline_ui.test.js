@@ -2954,6 +2954,7 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
   for (const h of hits) per[h.fn + ":" + h.call] = (per[h.fn + ":" + h.call] || 0) + 1;
   assert.deepEqual(per, {
     "issue:taskExt.setMany": 1, "issue:taskExt.set": 1, "write:taskExt.set": 1, "issueMany:taskExt.setMany": 1,
+    "writeMany:taskExt.setMany": 1, // 1c-1 Task 11: tulis massal seksi Jadwal (Mode, Perbarui, Urungkan)
     "save:records.put": 1, "setAuto:records.put": 1,
   });
   // regex mentah tetap cocok dengan jumlah hit AST (tidak ada pemanggilan yang luput dari parser)
