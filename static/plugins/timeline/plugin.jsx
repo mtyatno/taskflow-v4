@@ -164,10 +164,10 @@ function projectStore(api) {
 }
 
 // ── 3. Preferensi per perangkat (R19) ───────────────────────────────────────
-const PREF_DEFAULTS = Object.freeze({ zoom: "week", sort: "wbs", cols: false, mode: "gantt", section: false });
+const PREF_DEFAULTS = Object.freeze({ zoom: "week", sort: "wbs", cols: false, mode: "gantt", section: false, crit: false });
 const PREF_CHOICES = Object.freeze({ zoom: ["day", "week", "month"], sort: ["wbs", "start"], mode: ["gantt", "list"] });
 
-// "zoom:<page>", "sort:<page>", "cols:<page>", "mode:<page>"; seksi Jadwal global: "section:open".
+// "zoom:<page>", "sort:<page>", "cols:<page>", "mode:<page>", "crit:<page>" (1c-1 R18); seksi Jadwal global: "section:open".
 function prefKey(kind, page) {
   return kind === "section" ? "section:open" : kind + ":" + page;
 }
@@ -195,7 +195,7 @@ const MQ_COARSE = "(pointer: coarse)";
 const ZOOMS = [["day", "Hari"], ["week", "Minggu"], ["month", "Bulan"]];
 const LBL = {
   today: "Hari ini", calendar: "Kalender kerja", sort: "Urutkan menurut Mulai", cols: "Kolom",
-  gantt: "Gantt", list: "Daftar", zoom: "Skala waktu", mode: "Tampilan",
+  gantt: "Gantt", list: "Daftar", zoom: "Skala waktu", mode: "Tampilan", crit: "Jalur kritis",
 };
 const MSG_EMPTY = "Belum ada task di halaman ini";
 // Kalender kerja (R18) dan Daftar HP (R20): teks persis.
@@ -210,6 +210,7 @@ const MSG_LIST_FULL = "Daftar sudah penuh (366 tanggal)";
 const MSG_NO_NAME = "(tanpa nama)";
 const MSG_UNSCHEDULED = "Belum dijadwalkan";
 const MSG_LATE = "Lewat tenggat";
+const MSG_MANUAL = "Manual"; // 1c-1 R19: pin task Manual di unit otomatis
 const CAL_MAX_NAME = 60; // sama dengan TLCal.normalize
 const CAL_MAX_ENTRIES = 366;
 const DAYS = [["Sen", "Senin"], ["Sel", "Selasa"], ["Rab", "Rabu"], ["Kam", "Kamis"], ["Jum", "Jumat"], ["Sab", "Sabtu"], ["Min", "Minggu"]];
@@ -238,6 +239,7 @@ const LEGEND = [
 const COLS_FULL = [
   { id: "wbs", label: "WBS", w: 56 }, { id: "name", label: "Nama", w: 220 }, { id: "start", label: "Mulai", w: 92 },
   { id: "dur", label: "Dur", w: 56 }, { id: "pomo", label: "🍅", w: 52 }, { id: "pct", label: "%", w: 56 },
+  { id: "slack", label: "Slack", w: 56 }, // 1c-1 R18: hanya di COLS_FULL (ringkas: lewat "Kolom")
 ];
 const COLS_COMPACT = [{ id: "wbs", label: "WBS", w: 48 }, { id: "name", label: "Nama", w: 160 }];
 
@@ -277,9 +279,17 @@ function pomoText(t) {
   return done || est ? done + "/" + est : "—";
 }
 
-// Isi sel tabel satu baris: {wbs, name, start, dur, pomo, pct}.
-function rowCells(row, groupName) {
-  if (row.kind === "group") return { wbs: row.wbs, name: groupName || "", start: "", dur: "", pomo: "", pct: "" };
+// Teks Slack (1c-1 R18): 0 → "0" (juga −0), n > 0 → "{n} hk", n < 0 → "−{|n|} hk" (minus U+2212); selesai / tak terhitung /
+// bukan simpul / mesin belum siap (null, undefined, bukan angka hingga) → "—".
+function slackText(n) {
+  if (typeof n !== "number" || !Number.isFinite(n)) return "—";
+  if (n === 0) return "0";
+  return n > 0 ? n + " hk" : "\u2212" + -n + " hk";
+}
+
+// Isi sel tabel satu baris: {wbs, name, start, dur, pomo, pct, slack}. slack = nilai overlay mesin (undefined = "—").
+function rowCells(row, groupName, slack) {
+  if (row.kind === "group") return { wbs: row.wbs, name: groupName || "", start: "", dur: "", pomo: "", pct: "", slack: "" };
   const t = row.task;
   const title = t.title !== undefined && t.title !== null && String(t.title).trim() ? String(t.title).trim() : "Tanpa judul";
   return {
@@ -289,7 +299,66 @@ function rowCells(row, groupName) {
     dur: row.duration === null || row.duration === undefined ? "—" : row.duration + " hk",
     pomo: pomoText(t),
     pct: Math.round(row.progress) + "%",
+    slack: slackText(slack),
   };
+}
+
+// Overlay mesin di atas tata letak (1c-1 R18, R19) — murni, TIDAK mengubah `lay`. Dihitung dalam memo terpisah
+// [lay, result] sehingga mesin selesai / sakelar Jalur kritis tidak menghitung ulang tata letak (R24).
+//   slack: Map<rowKey, number|null> — task = node.slack; ringkasan = min slack anak (baris halaman, rekursif); lainnya null
+//   crit: Set<rowKey> — node.critical (slack ≤ 0 ∧ bukan selesai); critEdge: Set<"from>to"> — kedua ujung kritis
+//   conflictEdge: Set<"from>to"> — sisi terpakai ke jangkar ber-`conflict` yang depReq-nya dilanggar (merah putus-putus)
+//   manual: Set<rowKey> — fixed "manual" di unit otomatis (pin "Manual")
+// result null (mesin belum siap / gagal) → NO_OVERLAY: semua "—", tanpa kritis/pin/konflik (tampilan 1b).
+const NO_OVERLAY = Object.freeze({ ready: false, slack: new Map(), crit: new Set(), critEdge: new Set(), conflictEdge: new Set(), manual: new Set() });
+
+function engineOverlay(lay, result, ctx) {
+  if (!lay || !result || !(result.nodes instanceof Map)) return NO_OVERLAY;
+  const nodes = result.nodes;
+  const slack = new Map();
+  const crit = new Set();
+  const manual = new Set();
+  const minOf = new Map(); // kunci ringkasan → min slack anak
+  const units = ctx && ctx.units instanceof Map ? ctx.units : null;
+  // pra-urut (induk sebelum turunan) dibalik → anak selalu selesai sebelum induknya
+  for (let i = lay.rows.length - 1; i >= 0; i--) {
+    const r = lay.rows[i];
+    if (r.kind === "group") continue;
+    let v = null;
+    if (r.kind === "summary") v = minOf.has(r.key) ? minOf.get(r.key) : null;
+    else {
+      const n = nodes.get(r.key);
+      if (n) {
+        v = typeof n.slack === "number" && Number.isFinite(n.slack) ? n.slack : null;
+        if (n.critical === true) crit.add(r.key);
+        if (n.fixed === "manual" && units) {
+          const u = TLSched.unitFor(units, r.task);
+          if (u && u.auto === true) manual.add(r.key);
+        }
+      }
+    }
+    slack.set(r.key, v);
+    if (v !== null && r.parentKey !== null) {
+      const cur = minOf.get(r.parentKey);
+      if (cur === undefined || v < cur) minOf.set(r.parentKey, v);
+    }
+  }
+  const critEdge = new Set();
+  const conflictEdge = new Set();
+  const cal = ctx ? ctx.cal : null;
+  const preds = result.pred instanceof Map ? result.pred : null;
+  for (const e of lay.edges) {
+    const id = e.from + ">" + e.to;
+    if (crit.has(e.from) && crit.has(e.to)) critEdge.add(id);
+    const sn = nodes.get(e.to);
+    const pn = nodes.get(e.from);
+    if (!cal || !preds || !sn || !sn.conflict || !pn || pn.es === null || sn.es === null) continue;
+    const used = (preds.get(e.to) || []).find((p) => p.key === e.from); // hanya sisi yang dipakai mesin
+    if (!used) continue;
+    const req = TLSched.depReq(cal, used.type, pn.es, pn.ef, used.lag, sn.d);
+    if (TLSched.isEarly(cal, sn.es, req)) conflictEdge.add(id);
+  }
+  return { ready: true, slack, crit, critEdge, conflictEdge, manual };
 }
 
 // Kotak bar baris (px, relatif awal rentang) atau null: baris outOfRange tidak pernah mendapat bar (Task 4).
@@ -722,6 +791,7 @@ function renderToolbar(v) {
     <div className="plg-timeline-toolbar">
       {gantt ? seg(ZOOMS, v.zoom, v.pickZoom, LBL.zoom) : null}
       {gantt ? <button type="button" className="plg-timeline-btn" onClick={v.goToday}>{LBL.today}</button> : null}
+      {gantt && v.engReady ? <button type="button" className={cx("plg-timeline-btn", v.crit && "is-active")} aria-pressed={v.crit} onClick={() => v.setCrit(!v.crit)}>{LBL.crit}</button> : null}
       <button type="button" ref={v.calBtnRef} className={cx("plg-timeline-btn", "plg-timeline-calbtn", v.calOpen && "is-active")} aria-expanded={v.calOpen} aria-haspopup="dialog" onClick={v.toggleCal}>{LBL.calendar}</button>
       {gantt ? <button type="button" className={cx("plg-timeline-btn", v.sort === "start" && "is-active")} aria-pressed={v.sort === "start"} onClick={() => v.setSort(v.sort === "start" ? "wbs" : "start")}>{LBL.sort}</button> : null}
       {gantt && v.compact ? <button type="button" className={cx("plg-timeline-btn", v.cols && "is-active")} aria-pressed={v.cols} onClick={() => v.setCols(!v.cols)}>{LBL.cols}</button> : null}
@@ -752,11 +822,11 @@ function renderHead(v) {
 }
 
 function renderTableRows(v) {
-  const { lay, rw, rowH, colDefs, groupNames, ix, isSel } = v;
+  const { lay, rw, rowH, colDefs, groupNames, ix, isSel, ov } = v;
   const out = [];
   for (let i = rw.first; i <= rw.last; i++) {
     const r = lay.rows[i];
-    const c = rowCells(r, groupNames.get(r.group));
+    const c = rowCells(r, groupNames.get(r.group), ov.slack.get(r.key));
     const sel = !!r.task && isSel(r.task);
     out.push(
       <div key={r.key} role="row" aria-rowindex={r.index + 2} aria-selected={r.task ? sel : undefined} data-key={r.key} tabIndex={r.task ? -1 : undefined}
@@ -768,6 +838,7 @@ function renderTableRows(v) {
             return (
               <div key="name" role="gridcell" className="plg-timeline-cell plg-timeline-col-name" style={{ width: col.w, paddingLeft: 8 + r.depth * 14 }}>
                 <span className="plg-timeline-name">{c.name}</span>
+                {ov.manual.has(r.key) ? renderPin() : null}
                 {r.violation ? <span className="plg-timeline-warn" role="img" aria-label={MSG_VIOLATION} title={MSG_VIOLATION}>⚠</span> : null}
               </div>
             );
@@ -780,6 +851,16 @@ function renderTableRows(v) {
   return out;
 }
 
+// Ikon pin 10 px (1c-1 R19): task Manual di unit otomatis; dua lapis (duotone) dengan warna dari CSS.
+function renderPin() {
+  return (
+    <svg className="plg-timeline-pin" role="img" aria-label={MSG_MANUAL} viewBox="0 0 10 10" width="10" height="10">
+      <path className="plg-timeline-pin-head" d="M3 0.5H7V1.7L6.2 2.5V4.5L8 5.8V6.8H2V5.8L3.8 4.5V2.5L3 1.7Z" />
+      <path d="M4.6 6.8H5.4V9.8H4.6Z" />
+    </svg>
+  );
+}
+
 // Bar / ringkasan / milestone satu baris (R11, R12, R23). Label nama di kanan bar (anak, aria-hidden).
 // Task 8: bar task/milestone menerima pointerdown (ix.barDown: zona badan/tepi/titik dari TLDrag.hitZone) + pegangan tepi
 // kanan (bukan milestone) dan titik dependensi di kanan ujung (desktop; CSS menyembunyikannya di layar sentuh).
@@ -788,6 +869,7 @@ function renderBar(r, box, y, v) {
   const { rowH, isSel } = v;
   const t = r.task;
   const sel = isSel(t);
+  const crit = v.crit && v.ov.crit.has(r.key); // 1c-1 R18: garis tepi merah, bukan isi
   const title = rowCells(r).name;
   const aria = TLLayout.ariaBar(t, r.kind === "summary" ? { duration: r.duration } : r.sched, r.span, r.progress, r.kind);
   const g = barGeom(r, box, rowH);
@@ -800,7 +882,7 @@ function renderBar(r, box, y, v) {
   const dot = <span className="plg-timeline-dot" aria-hidden="true" />;
   if (box.milestone) {
     return (
-      <div {...common} className={cx("plg-timeline-milestone", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected")}
+      <div {...common} className={cx("plg-timeline-milestone", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical")}
         style={{ transform: translate(g.x, g.top), width: g.w, height: g.h }}>{label}{dot}</div>
     );
   }
@@ -812,7 +894,7 @@ function renderBar(r, box, y, v) {
   }
   const pct = r.done ? 100 : Math.round(r.progress);
   return (
-    <div {...common} className={cx("plg-timeline-bar", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected")}
+    <div {...common} className={cx("plg-timeline-bar", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical")}
       style={{ transform: translate(g.x, g.top), width: g.w, height: g.h }}>
       <div className="plg-timeline-fill" style={{ width: pct + "%" }} />
       {label}
@@ -885,7 +967,7 @@ function renderChart(v) {
 // Path memakai koordinat grafik absolut di dalam <g transform> (Task 13): saat jendela bergeser hanya transform <g> dan
 // posisi svg berubah, `d` panah yang tetap tampak tidak ditulis ulang (tiap `d` baru = rekalkulasi gaya per path).
 function renderArrows(v, winX, winW) {
-  const { lay, rw, rowH } = v;
+  const { lay, rw, rowH, ov } = v;
   const oy = rw.first * rowH;
   const rect = (idx) => {
     const r = lay.rows[idx];
@@ -903,9 +985,13 @@ function renderArrows(v, winX, winW) {
     const a = rect(e.fromRow);
     const b = rect(e.toRow);
     if (!a || !b) continue;
+    // 1c-1: panah per tipe (R19); konflik jangkar mesin = pelanggaran 1b (merah putus-putus); antar kritis (R18) tebal.
+    const id = e.from + ">" + e.to;
+    const bad = e.violation || ov.conflictEdge.has(id);
+    const crit = v.crit && ov.critEdge.has(id);
     paths.push(
-      <path key={e.from + ">" + e.to} className={cx("plg-timeline-arrow", e.violation && "is-violation")} d={TLLayout.arrowPath(a, b)}
-        markerEnd={e.violation ? "url(#plg-timeline-ah-v)" : "url(#plg-timeline-ah)"} />
+      <path key={id} className={cx("plg-timeline-arrow", bad && "is-violation", crit && "is-critical")} d={TLLayout.arrowPath(a, b, e.type)}
+        markerEnd={bad || crit ? "url(#plg-timeline-ah-v)" : "url(#plg-timeline-ah)"} />
     );
   }
   return (
@@ -924,11 +1010,12 @@ function renderArrows(v, winX, winW) {
   );
 }
 
-function renderLegend(lay, ref) {
+function renderLegend(lay, ref, crit) {
+  const items = crit ? LEGEND.concat([["critical", LBL.crit]]) : LEGEND; // 1c-1 R18
   return (
     <div className="plg-timeline-foot" ref={ref}>
       <div className="plg-timeline-legend">
-        {LEGEND.map(([id, text]) => (
+        {items.map(([id, text]) => (
           <span key={id} className="plg-timeline-legend-item">
             <span className={cx("plg-timeline-swatch", "is-" + id)} aria-hidden="true" />{text}
           </span>
@@ -1788,6 +1875,7 @@ function TimelineViewBody(props) {
   const [sort, setSort] = usePref(api, "sort", page);
   const [cols, setCols] = usePref(api, "cols", page);
   const [mode, setMode] = usePref(api, "mode", page);
+  const [critPref, setCrit] = usePref(api, "crit", page);
   const [calOpen, setCalOpen] = React.useState(false);
   const calBtnRef = React.useRef(null);
   const pageKind = context.pageKind === "workspace" ? "workspace" : "project";
@@ -1814,6 +1902,11 @@ function TimelineViewBody(props) {
     },
   }), [context.scopeTasks, calKey, zoom, sort, today, pageKind, api]);
   const groupNames = React.useMemo(() => new Map(lay.groups.map((g) => [g.key, g.name])), [lay]);
+  // 1c-1 (R18, R19): overlay mesin dalam memo TERPISAH — `lay` tidak bergantung pada mesin. Belum siap → NO_OVERLAY.
+  // eng.ctx berasal dari keluaran run yang sama dengan eng.result, jadi kunci [lay, engResult] cukup.
+  const engResult = eng.status === "ready" ? eng.result : null;
+  const ov = React.useMemo(() => engineOverlay(lay, engResult, eng.ctx), [lay, engResult]);
+  const crit = critPref === true && ov.ready;
 
   const compact = narrow || !!context.liveEdit;
   const colDefs = !compact || cols ? COLS_FULL : COLS_COMPACT;
@@ -1966,7 +2059,7 @@ function TimelineViewBody(props) {
 
   const toolbar = renderToolbar({
     zoom, pickZoom, goToday, sort, setSort, compact, cols, setCols, narrow, mode, setMode, listMode,
-    calOpen, toggleCal: () => setCalOpen(!calOpen), calBtnRef,
+    engReady: ov.ready, crit, setCrit, calOpen, toggleCal: () => setCalOpen(!calOpen), calBtnRef,
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
@@ -1996,7 +2089,7 @@ function TimelineViewBody(props) {
       </div>
     );
   }
-  const v = { lay, rw, dw, rowH, colDefs, tableW, chartW, bodyH, todayDn, groupNames, ix, isSel };
+  const v = { lay, rw, dw, rowH, colDefs, tableW, chartW, bodyH, todayDn, groupNames, ix, isSel, ov, crit };
   return (
     <div className={cx("plg-timeline", compact && "is-compact")}>
       {top}
@@ -2010,7 +2103,7 @@ function TimelineViewBody(props) {
           {renderChart(v)}
         </div>
       </div>
-      {renderLegend(lay, footRef)}
+      {renderLegend(lay, footRef, crit)}
     </div>
   );
 }
@@ -2789,7 +2882,7 @@ const pure = {
   calendarStore, calTarget, projectStore, recordEvent, PRJ_ENTITY, NO_UNIT, useUnits, useEngine, RELOAD_TIMING, engineKeyOf, prefKey, cleanPref, PREF_DEFAULTS, PREF_CHOICES,
   CAL_ENTITY, CAL_MAX_BYTES, MSG_CAL_TOO_LARGE, MSG_CAL_LOST, SEC_TIMING,
   MSG_EMPTY, MSG_VIOLATION, MSG_SCHEDULE_HINT, LEGEND, ZOOMS, COLS_FULL, COLS_COMPACT,
-  engine, LOST_TIMING, rowCells, pomoText, missingYearsNote, barGeom, createInteractions, checkLink, isSummaryIn,
+  engine, LOST_TIMING, rowCells, slackText, engineOverlay, NO_OVERLAY, pomoText, missingYearsNote, barGeom, createInteractions, checkLink, isSummaryIn,
   MSG_CHANGED, MSG_UNDO, MSG_SAVE_FAIL, MSG_CYCLE, MSG_MAX_DEPS, MSG_SUMMARY_DEP, MSG_DUP_DEP, MSG_SUMMARY_SCHED,
   TimelineViewBody, ScheduleSection, ScheduleBody, CalendarPopover, ListFallback,
 };

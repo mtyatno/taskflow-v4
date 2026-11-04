@@ -208,7 +208,8 @@
 .plg-timeline-col-wbs,
 .plg-timeline-col-dur,
 .plg-timeline-col-pomo,
-.plg-timeline-col-pct {
+.plg-timeline-col-pct,
+.plg-timeline-col-slack {
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -233,6 +234,18 @@
 .plg-timeline-warn {
   flex: none;
   color: var(--plg-timeline-danger);
+}
+
+/* 1c-1 R19: pin "Manual" (task Manual di project otomatis), 10 px, dua lapis */
+.plg-timeline-pin {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  fill: var(--text-secondary);
+}
+
+.plg-timeline-pin-head {
+  opacity: 0.55;
 }
 
 /* ── grafik ──────────────────────────────────────────────────────────────── */
@@ -468,6 +481,17 @@
   fill: var(--plg-timeline-danger);
 }
 
+/* 1c-1 R18 Jalur kritis: bar bergaris tepi 2 px merah (isi tetap), panah antar simpul kritis tebal 2 px */
+.plg-timeline-bar.is-critical,
+.plg-timeline-milestone.is-critical::before {
+  box-shadow: 0 0 0 2px var(--plg-timeline-danger);
+}
+
+.plg-timeline-arrow.is-critical {
+  stroke: var(--plg-timeline-danger);
+  stroke-width: 2;
+}
+
 /* ── interaksi (Task 8): pegangan durasi, titik dependensi, seret, tooltip, garis karet ── */
 .plg-timeline-edge {
   position: absolute;
@@ -609,6 +633,11 @@
   height: 12px;
   background: color-mix(in srgb, var(--plg-timeline-danger) 8%, transparent);
   border: 1px solid var(--border);
+}
+
+.plg-timeline-swatch.is-critical {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--plg-timeline-danger);
 }
 
 .plg-timeline-swatch.is-dep {

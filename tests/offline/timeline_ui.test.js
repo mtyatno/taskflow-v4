@@ -418,7 +418,7 @@ test("render 3 task (satu milestone, satu ringkasan + anak, satu tanpa jadwal): 
   const wbs = (k) => txt(cellsOf(rowOf(tree, k))[0]).trim();
   assert.deepEqual(["1", "2", "3", "4"].map(wbs), ["1", "2", "2.1", "3"]);
   const cells3 = cellsOf(rowOf(tree, "3")).map((c) => txt(c).trim());
-  assert.deepEqual(cells3, ["2.1", "Wireframe", "Sen 2 Nov", "3 hk", "2/4", "40%"]);
+  assert.deepEqual(cells3, ["2.1", "Wireframe", "Sen 2 Nov", "3 hk", "2/4", "40%", "—"]); // Slack "—" sampai mesin siap (1c-1 R18)
   assert.equal(txt(cellsOf(rowOf(tree, "4"))[2]).trim(), "—");
   assert.equal(txt(cellsOf(rowOf(tree, "1"))[2]).trim(), "Jum 6 Nov");
   assert.equal(rowOf(tree, "3").props["aria-rowindex"], 4);
@@ -573,7 +573,7 @@ test("≤ 640 px / liveEdit: hanya WBS + Nama + tombol Kolom", async () => {
   {
     const { api } = fakeApi();
     const tree = mount(T.TimelineViewBody).render({ context: ctxOf(tasks).ctx, api });
-    assert.deepEqual(headerCells(tree), ["WBS", "Nama", "Mulai", "Dur", "🍅", "%"]);
+    assert.deepEqual(headerCells(tree), ["WBS", "Nama", "Mulai", "Dur", "🍅", "%", "Slack"]);
     assert.equal(buttonByText(tree, "Kolom"), undefined);
     assert.equal(buttonByText(tree, "Gantt"), undefined);
   }
@@ -591,7 +591,7 @@ test("≤ 640 px / liveEdit: hanya WBS + Nama + tombol Kolom", async () => {
     assert.equal(buttonByText(tree, "Gantt"), undefined, "Gantt|Daftar hanya ≤ 640 px");
     kol.props.onClick({});
     tree = m.render({ context: ctx, api });
-    assert.deepEqual(headerCells(tree), ["WBS", "Nama", "Mulai", "Dur", "🍅", "%"]);
+    assert.deepEqual(headerCells(tree), ["WBS", "Nama", "Mulai", "Dur", "🍅", "%", "Slack"]);
     await tick();
     assert.deepEqual(calls.storageSet, [["cols:proj_Alpha", true]]);
   }
@@ -741,7 +741,7 @@ test("sumber: tanpa hex/rgb/hsl di plugin.jsx dan style.css; kelas hanya .plg-ti
 
 // ── Fix round 1: jalur gulir dengan elemen palsu (ref) + rAF sinkron (requestAnimationFrame tidak ada di Node → raf
 // menjalankan callback langsung). window palsu agar useLayoutEffect mengukur wadah.
-const TABLE_W_FULL = 56 + 220 + 92 + 56 + 52 + 56; // COLS_FULL
+const TABLE_W_FULL = 56 + 220 + 92 + 56 + 52 + 56 + 56; // COLS_FULL (+ Slack 1c-1)
 
 function fakeEl() {
   return { scrollTop: 0, scrollLeft: 0, clientWidth: TABLE_W_FULL + 1000, offsetHeight: 0, getBoundingClientRect: () => ({ top: 100 }) };
@@ -3017,4 +3017,220 @@ test("cutName: potong 120 unit UTF-16 simetris (tulis = baca); tidak memisah pas
   const units = await store.loadUnits({ pageKind: "workspace", listId: 12 });
   assert.equal(S.modeOf({}, units, lt), "auto");
   assert.equal(S.modeOf({}, units, { id: 3, list_id: 12, project: long + " lain" }), "manual");
+});
+
+// ── 1c-1 Task 7 (R18, R19): kolom Slack, Jalur kritis, panah per tipe, pin Manual, konflik jangkar ─────────────────
+// Project "Alpha" (halaman project pribadi, unit otomatis):
+//   A 1  Sen 2 Nov, 2 hk                       → kritis (tenggat B menarik ke belakang), slack −1
+//   S 10 ringkasan anak C dan B                → min anak = −1
+//   C 3  Sen 2 Nov, 6 hk (selesai Sen 9)       → slack 6 (akhir project Sel 17)
+//   B 2  FS A, 10 hk, tenggat Sen 16 Nov        → selesai Sel 17, slack −1
+//   D 4  selesai                                → "—"
+//   E 5  Sel 10 Nov, 6 hk (selesai Sel 17)      → slack 0
+//   F 6  tanpa jadwal                           → "—"
+//   P 7  FS A, 1 hk, Mulai tersimpan Sen 2 (basi; hasil hitung Rab 4)
+//   H 8  Manual (mode tersimpan) Sel 3 Nov, FS P → 1b: tidak melanggar (P tersimpan Sen 2); mesin: konflik jangkar
+const critTasks = () => {
+  const al = { project: "Alpha" };
+  return [
+    mk(1, "A", { start: "2026-11-02", duration: 2 }, al),
+    mk(10, "S", {}, al),
+    mk(3, "C", { start: "2026-11-02", duration: 6 }, Object.assign({ parent_id: 10 }, al)),
+    mk(2, "B", { start: "2026-11-04", duration: 10, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }] }, Object.assign({ parent_id: 10, deadline: "2026-11-16" }, al)),
+    mk(4, "D", { start: "2026-11-02", duration: 1 }, Object.assign({ gtd_status: "done", completed_at: "2026-11-02T03:00:00Z" }, al)),
+    mk(5, "E", { start: "2026-11-10", duration: 6 }, al),
+    mk(6, "F", {}, al),
+    mk(7, "P", { start: "2026-11-02", duration: 1, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }] }, al),
+    mk(8, "H", { start: "2026-11-03", duration: 1, mode: "manual", deps: [{ t: { $task: 7 }, type: "FS", lag: 0 }] }, al),
+  ];
+};
+const slackOf = (tree, key) => {
+  const head = headerCells(tree);
+  const i = head.indexOf("Slack");
+  return i < 0 ? undefined : txt(cellsOf(rowOf(tree, key))[i]).trim();
+};
+const barOf = (tree, key) => nodes(tree, (n) => n.props["data-key"] === key && (hasCls(n, "plg-timeline-bar") || hasCls(n, "plg-timeline-milestone") || hasCls(n, "plg-timeline-summary")))[0];
+const arrowOf = (tree, from, to) => nodes(tree, (n) => n.type === "path" && hasCls(n, "plg-timeline-arrow") && n.props.key === from + ">" + to)[0];
+const legendTexts = (tree) => byCls(tree, "plg-timeline-legend-item").map((n) => txt(n).trim());
+
+// View halaman project "Alpha" dengan unit otomatis (record project pribadi) + mesin siap; storageGet opsional.
+async function critView(clock, o) {
+  const opt = o || {};
+  const tasks = opt.tasks || critTasks();
+  const fr = fakeRecords();
+  if (opt.auto !== false) putRec(fr, unitRec(null, "Alpha"));
+  const { api, calls } = fakeApi({ records: fr, storageGet: opt.storageGet });
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const { ctx } = ctxOf(tasks);
+  const props = { context: ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const tree = await settleView(m, () => props, clock);
+  return { m, tree, props, api, calls, writes, fr };
+}
+
+test("kolom Slack setelah %, teks 0 / '6 hk' / '−1 hk' / '—'; ringkasan min anak; tidak ada di COLS_COMPACT", () => withEngineClock(async (clock) => {
+  // teks murni (R18): minus U+2212, −0 = "0"
+  assert.equal(T.slackText(0), "0");
+  assert.equal(T.slackText(-0), "0");
+  assert.equal(T.slackText(6), "6 hk");
+  assert.equal(T.slackText(-1), "−1 hk");
+  assert.equal(T.slackText(-12), "−12 hk");
+  for (const v of [null, undefined, NaN, Infinity, "3"]) assert.equal(T.slackText(v), "—", String(v));
+  // kolom
+  const ids = T.COLS_FULL.map((c) => c.id);
+  assert.deepEqual(ids.slice(ids.indexOf("pct")), ["pct", "slack"]);
+  assert.deepEqual(T.COLS_FULL.find((c) => c.id === "slack"), { id: "slack", label: "Slack", w: 56 });
+  assert.equal(T.COLS_COMPACT.some((c) => c.id === "slack"), false);
+  // view dengan mesin siap
+  const { m, tree } = await critView(clock);
+  assert.deepEqual(headerCells(tree), ["WBS", "Nama", "Mulai", "Dur", "🍅", "%", "Slack"]);
+  const got = Object.fromEntries(["1", "10", "3", "2", "4", "5", "6"].map((k) => [k, slackOf(tree, k)]));
+  assert.deepEqual(got, { 1: "−1 hk", 10: "−1 hk", 3: "6 hk", 2: "−1 hk", 4: "—", 5: "0", 6: "—" });
+  m.unmount();
+  // Live Edit (ringkas): tanpa kolom Slack
+  const { api } = fakeApi();
+  const le = mount(T.TimelineViewBody).render({ context: ctxOf(critTasks(), { liveEdit: true }).ctx, api });
+  assert.deepEqual(headerCells(le), ["WBS", "Nama"]);
+}));
+
+test("sebelum mesin siap: sel Slack '—' dan tanpa is-critical", () => withEngineClock(async (clock) => {
+  const tasks = critTasks();
+  const fr = fakeRecords();
+  putRec(fr, unitRec(null, "Alpha"));
+  // pref Jalur kritis sudah ON dari storage — tetap tidak ada is-critical sebelum mesin siap
+  const { api } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "crit:proj_Alpha" ? true : null) });
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const spy = spyRun();
+  try {
+    const m = mount(T.TimelineViewBody);
+    const props = { context: ctxOf(tasks).ctx, api };
+    m.render(props);
+    m.flush();
+    await settle();
+    const tree = m.render(props); // pref terbaca, daftar termuat, mesin belum jalan (raf/setTimeout belum)
+    assert.equal(spy.runs.length, 0);
+    assert.equal(headerCells(tree).indexOf("Slack"), 6, "kolom tetap ada (tanpa geser tata letak)");
+    for (const k of ["1", "10", "3", "2", "4", "5", "6", "7", "8"]) assert.equal(slackOf(tree, k), "—", k);
+    assert.equal(nodes(tree, (n) => hasCls(n, "is-critical")).length, 0);
+    assert.equal(buttonByText(tree, "Jalur kritis"), undefined, "sakelar disembunyikan sampai mesin siap (R7)");
+    assert.equal(legendTexts(tree).indexOf("Jalur kritis"), -1);
+    assert.equal(nodes(tree, (n) => n.props["aria-label"] === "Manual").length, 0, "pin Manual menunggu mesin");
+    assert.equal(hasCls(arrowOf(tree, "7", "8"), "is-violation"), false, "konflik jangkar menunggu mesin");
+    m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
+test("Jalur kritis OFF bawaan; ON → bar slack ≤ 0 is-critical, panah antar kritis is-critical, legenda + 'Jalur kritis'; pref crit:<page> ditulis lewat storage", () => withEngineClock(async (clock) => {
+  assert.equal(T.PREF_DEFAULTS.crit, false);
+  assert.equal(T.prefKey("crit", "proj_Alpha"), "crit:proj_Alpha");
+  assert.equal(T.cleanPref("crit", true), true);
+  assert.equal(T.cleanPref("crit", "ya"), false);
+  const orig = T.engine.layout;
+  let nLay = 0;
+  T.engine.layout = (a) => { nLay++; return orig(a); };
+  try {
+    const { m, tree, props, calls, writes } = await critView(clock);
+    assert.equal(nLay, 1, "mesin siap tidak menghitung ulang tata letak (overlay terpisah)");
+    const btn = buttonByText(tree, "Jalur kritis");
+    assert.ok(btn, "sakelar tampil setelah mesin siap");
+    assert.equal(btn.props["aria-pressed"], false);
+    assert.equal(nodes(tree, (n) => hasCls(n, "is-critical")).length, 0, "OFF bawaan");
+    assert.equal(legendTexts(tree).indexOf("Jalur kritis"), -1);
+    btn.props.onClick({});
+    await settle(); // setTimeout dipalsukan withEngineClock
+    assert.deepEqual(calls.storageSet, [["crit:proj_Alpha", true]]);
+    const on = m.render(props);
+    assert.equal(nLay, 1, "sakelar tidak menghitung ulang tata letak");
+    assert.equal(buttonByText(on, "Jalur kritis").props["aria-pressed"], true);
+    const crit = nodes(on, (n) => hasCls(n, "is-critical") && n.props["data-key"] !== undefined).map((n) => n.props["data-key"]).sort();
+    assert.deepEqual(crit, ["1", "2", "5"], "A, B (slack −1), E (0); C (6), D selesai, ringkasan bukan");
+    assert.ok(hasCls(barOf(on, "1"), "is-critical"));
+    assert.equal(hasCls(barOf(on, "3"), "is-critical"), false);
+    assert.ok(hasCls(arrowOf(on, "1", "2"), "is-critical"), "A→B antar kritis");
+    assert.equal(hasCls(arrowOf(on, "1", "7"), "is-critical"), false, "P tidak kritis");
+    assert.deepEqual(legendTexts(on), ["Task", "Selesai", "Lewat tenggat", "Ringkasan", "Milestone", "Tenggat", "Libur", "Dependensi", "Jalur kritis"]);
+    // OFF lagi
+    buttonByText(on, "Jalur kritis").props.onClick({});
+    await settle(); // setTimeout dipalsukan withEngineClock
+    const off = m.render(props);
+    assert.deepEqual(calls.storageSet, [["crit:proj_Alpha", true], ["crit:proj_Alpha", false]]);
+    assert.equal(nodes(off, (n) => hasCls(n, "is-critical")).length, 0);
+    assert.deepEqual(writes, [], "pref bukan tulisan task/record (R25)");
+    m.unmount();
+    // pulang-pergi: pref tersimpan true → ON saat dipasang lagi
+    const again = await critView(clock, { storageGet: (k) => Promise.resolve(k === "crit:proj_Alpha" ? true : null) });
+    assert.ok(again.calls.storageGet.indexOf("crit:proj_Alpha") >= 0);
+    assert.equal(buttonByText(again.tree, "Jalur kritis").props["aria-pressed"], true);
+    assert.ok(hasCls(barOf(again.tree, "2"), "is-critical"));
+    again.m.unmount();
+  } finally {
+    T.engine.layout = orig;
+  }
+  // CSS: garis tepi 2 px merah (bukan isi), panah tebal 2 px; token saja
+  assert.match(css, /\.plg-timeline-bar\.is-critical[^{]*\{[^}]*2px[^}]*var\(--plg-timeline-danger\)/);
+  assert.match(css, /\.plg-timeline-arrow\.is-critical\s*\{[^}]*stroke-width:\s*2;/);
+  assert.match(css, /\.plg-timeline-swatch\.is-critical/);
+}));
+
+test("task Manual di unit otomatis → pin aria-label 'Manual'", () => withEngineClock(async (clock) => {
+  const { m, tree } = await critView(clock);
+  const pins = nodes(tree, (n) => n.props["aria-label"] === "Manual");
+  assert.equal(pins.length, 1);
+  assert.equal(pins[0].props.role, "img");
+  assert.ok(hasCls(pins[0], "plg-timeline-pin"));
+  assert.equal(nodes(rowOf(tree, "8"), (n) => n.props["aria-label"] === "Manual").length, 1, "di sel Nama baris H");
+  m.unmount();
+  // unit Manual (tanpa record): semua task Manual → tanpa pin
+  const man = await critView(clock, { auto: false });
+  assert.equal(nodes(man.tree, (n) => n.props["aria-label"] === "Manual").length, 0);
+  man.m.unmount();
+  assert.match(css, /\.plg-timeline-pin\s*\{[^}]*width:\s*10px/);
+}));
+
+test("konflik jangkar → panah merah putus-putus", () => withEngineClock(async (clock) => {
+  const { m, tree } = await critView(clock);
+  // 1b (rentang tersimpan) tidak melanggar: P tersimpan Sen 2 → H Sel 3 sah; mesin: P Rab 4 → H (Manual) konflik
+  const pv = arrowOf(tree, "7", "8");
+  assert.ok(pv);
+  assert.ok(hasCls(pv, "is-violation"));
+  assert.equal(pv.props.markerEnd, "url(#plg-timeline-ah-v)");
+  assert.equal(hasCls(arrowOf(tree, "1", "2"), "is-violation"), false);
+  // overlay murni: hanya sisi P→H yang konflik jangkar (A→P merah karena pelanggaran 1b atas Mulai P tersimpan, bukan mesin)
+  const tasks = critTasks();
+  const api = fakeApi().api;
+  const lay = T.TLLayout.layout({ tasks, pageKind: "project", cal: T.TLCal.DEFAULT_CAL, today: TODAY, readSchedOf: (t) => T.TLSched.readSched(api.taskExt.read(t)) });
+  const units = new Map([[T.TLSched.unitOf(tasks[0]).recId, { auto: true }]]);
+  const ctx = { tasks, cal: T.TLCal.compile(T.TLCal.DEFAULT_CAL), units, readExt: (t) => api.taskExt.read(t) };
+  const ov = T.engineOverlay(lay, T.TLCpm.run(ctx), ctx);
+  assert.deepEqual([...ov.conflictEdge], ["7>8"]);
+  assert.deepEqual([...ov.manual], ["8"]);
+  assert.equal(T.engineOverlay(lay, null, null), T.NO_OVERLAY);
+  assert.equal(T.NO_OVERLAY.ready, false);
+  m.unmount();
+}));
+
+test("panah view memakai tipe dependensi (SS/FF/SF) lewat TLLayout.arrowPath", () => {
+  const tasks = [
+    mk(1, "A", { start: "2026-11-02", duration: 3 }),
+    mk(2, "B", { start: "2026-11-03", duration: 2, deps: [{ t: { $task: 1 }, type: "SS", lag: 1 }] }),
+    mk(3, "C", { start: "2026-11-04", duration: 2, deps: [{ t: { $task: 1 }, type: "FF", lag: 0 }] }),
+    mk(4, "D", { start: "2026-11-02", duration: 1, deps: [{ t: { $task: 1 }, type: "SF", lag: 0 }] }),
+  ];
+  const { api } = fakeApi();
+  const tree = mount(T.TimelineViewBody).render({ context: ctxOf(tasks).ctx, api });
+  const lay = layOf(tasks, "week", api);
+  const R = T.TLLayout;
+  for (const [to, type] of [["2", "SS"], ["3", "FF"], ["4", "SF"]]) {
+    const d = arrowOf(tree, "1", to).props.d;
+    const e = lay.edges.find((x) => x.to === to);
+    assert.equal(e.type, type);
+    // titik awal: SS/SF dari awal bar A (x), FF dari ujung
+    const x0 = +/^M(-?[\d.]+)/.exec(d)[1];
+    const a = lay.rows.find((r) => r.key === "1");
+    const box = R.barBox(a.span, a.sched, lay.range, lay.px, a.kind);
+    assert.equal(x0, type === "FF" ? box.x + box.w : box.x, type);
+  }
 });
