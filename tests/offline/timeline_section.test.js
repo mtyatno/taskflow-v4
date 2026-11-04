@@ -1405,6 +1405,15 @@ test("Batasan: pilih 'Mulai tidak lebih awal dari' + 2026-11-12 → patch constr
   c.render();
   assert.deepEqual(c.calls.set, [[20, { constraint: null, start: "2026-11-05" }]]);
   assert.equal(c.calls.setMany.length, 0);
+  // SNET tersimpan → pilih SNET lagi = tanpa tulis (penjaga jenis sama); → MFO = tanggal bawaan Selesai hasil hitung (Kam 12)
+  const e = await ui(self, { tasks: m.tasks.map((t) => (t.id === 20 ? self : t)), records: m.records, storage: { "section:open": true } });
+  byLabel(part(e.tree, "constraint"), "Jenis batasan").props.onChange(ev("SNET"));
+  e.render();
+  assert.equal(e.calls.set.length + e.calls.setMany.length, 0);
+  byLabel(part(e.tree, "constraint"), "Jenis batasan").props.onChange(ev("MFO"));
+  e.render();
+  assert.deepEqual(e.calls.set, [[20, { constraint: { type: "MFO", date: "2026-11-12" } }]]);
+  assert.equal(e.calls.setMany.length, 0);
 });
 
 test("Menunggu: pilihan tipe berlabel 'Selesai → Mulai (FS)'…'Mulai → Selesai (SF)'; ubah ke SS → deps ditulis ulang utuh (dependensi lain apa adanya); lag 1 → '+1 hk'; Diikuti oleh = penerus dari daftar lengkap, tanpa input", async () => {
@@ -1483,8 +1492,11 @@ test("Ubah (Mulai otomatis) → input; tanggal sebelum syarat → toast 'Tidak b
 
 test("whyText contoh mockup persis (R21) — 'Kenapa' terlipat bawaan; explain dipanggil hanya saat dibuka (spy), dengan kalender run dan readExt", async () => {
   const orig = T.engine.explain;
+  const origRun = T.engine.run;
   const seen = [];
+  let lastRun = null;
   T.engine.explain = (...a) => { seen.push(a); return orig(...a); };
+  T.engine.run = (ctx) => { lastRun = ctx; return origRun(ctx); };
   try {
     const { s } = await open3({ deadline: "2026-11-09" });
     const box = part(s.tree, "why");
@@ -1494,14 +1506,15 @@ test("whyText contoh mockup persis (R21) — 'Kenapa' terlipat bawaan; explain d
     s.render();
     await s.settle();
     assert.equal(seen.length, 0, "terlipat → explain tidak dipanggil");
+    const runCtx = lastRun; // ctx run mesin seksi yang menghasilkan secEngine
     btn.props.onClick();
     s.render();
     assert.ok(seen.length > 0);
     const [result, key, cal, readExt] = seen[0];
     assert.ok(result.nodes instanceof Map);
     assert.equal(key, "20");
-    assert.ok(cal && typeof cal === "object");
-    assert.equal(typeof readExt, "function");
+    assert.strictEqual(cal, runCtx.cal, "kalender = kalender terkompilasi yang sama dengan run");
+    assert.strictEqual(readExt, runCtx.readExt, "readExt = readExt run yang sama");
     const p = byCls(s.tree, "plg-timeline-sec-why")[0];
     assert.equal(txt(p), MOCKUP_WHY);
     assert.deepEqual(nodes(p, (n) => n.type === "strong").map((n) => txt(n)), ["Kam 5 Nov", "1.2 Palet Sakura + Lavender", "Sel 10 Nov"]);
@@ -1512,6 +1525,7 @@ test("whyText contoh mockup persis (R21) — 'Kenapa' terlipat bawaan; explain d
     assert.equal(s.calls.set.length + s.calls.setMany.length, 0);
   } finally {
     T.engine.explain = orig;
+    T.engine.run = origRun;
   }
 });
 
@@ -1552,6 +1566,8 @@ test("whyText murni: varian root/snet/mfo/manual/done/started/cycle/unscheduled 
     "Task ini sudah mulai: tanggal mulainya dikunci. Durasi 2 hari kerja, jadi selesai Sel 3 Nov, 2 hari kerja setelah tenggat Jum 30 Okt.");
   assert.equal(W({ kind: "cycle", cycleWith: ["7", "8"] }), "Dependensinya melingkar dengan Riset, Desain; tidak dihitung.");
   assert.equal(W({ kind: "unscheduled" }), "Belum dijadwalkan.");
+  // lingkaran diri (cycleWith kosong; hanya data rusak) → cadangan defensif "dirinya sendiri" (di luar R28, dicatat T14)
+  assert.equal(W({ kind: "cycle", cycleWith: [] }), "Dependensinya melingkar dengan dirinya sendiri; tidak dihitung.");
   // milestone (ctx.d = 0): tanpa kalimat durasi; task 1 hari pada tanggal sama tetap berkalimat durasi
   const W0 = (ex, d) => whyStr(T.whyText(Object.assign({ base: null, lagDays: [], start: null, skipped: [], finish: null, durSkipped: [], late: 0, deadline: null }, ex), Object.assign({}, ctx, { d })));
   assert.equal(W0({ kind: "root", base: D("2026-11-07"), start: D("2026-11-07"), finish: D("2026-11-07") }, 0), "Mulai di tanggal yang kamu tentukan.");
@@ -1632,6 +1648,7 @@ test("aliran dari seksi > 20 → PreviewCard 5 baris + 'dan {n} lainnya' (Mode d
   buttonByText(card2, "Terapkan").props.onClick();
   await s2.settle();
   assert.equal(s2.calls.setMany.length, 1);
+  assert.equal(s2.calls.setMany[0].length, 22, "B + 21 penerus dalam satu setMany");
   assert.deepEqual(s2.calls.setMany[0].slice(0, 2), [{ taskId: 801, patch: { start: "2026-11-05" } }, { taskId: 810, patch: { start: "2026-11-09" } }]);
   // Terapkan saat data berubah (CAS) → toast hitung ulang, 0 tulis, kartu tetap
   const z = autoWithSucc(21, "2026-11-16");
@@ -1645,11 +1662,15 @@ test("aliran dari seksi > 20 → PreviewCard 5 baris + 'dan {n} lainnya' (Mode d
   const s3 = await ui(z.B, { listImpl });
   buttonByText(s3.tree, "Perbarui").props.onClick();
   s3.render();
+  const row810 = (tree) => txt(nodes(byCls(tree, "plg-timeline-pvcard")[0], (n) => n.props["data-key"] === "810")[0]);
+  assert.ok(row810(s3.tree).includes("Sen 16 Nov → Sen 9 Nov"), row810(s3.tree));
   buttonByText(byCls(s3.tree, "plg-timeline-pvcard")[0], "Terapkan").props.onClick();
   await s3.settle();
   assert.equal(s3.calls.setMany.length, 0);
   assert.equal(lastToast(s3)[0], "Data berubah sejak pratinjau dibuka — hitung ulang");
   assert.ok(byCls(s3.tree, "plg-timeline-pvcard")[0], "kartu dihitung ulang");
+  assert.ok(row810(s3.tree).includes("Sel 17 Nov → Sen 9 Nov"), "baris memakai data terbaru: " + row810(s3.tree));
+  assert.equal(buttonByText(byCls(s3.tree, "plg-timeline-pvcard")[0], "Terapkan").props.disabled, false, "busy selesai");
 });
 
 test("PreviewCard: durasi hilang → 'durasi belum diisi, dianggap 1 hari kerja'; Terapkan nonaktif tanpa baris", () => {

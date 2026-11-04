@@ -410,6 +410,38 @@ function dialogModel(pm, result, wbsOf) {
   });
 }
 
+// "Kenapa dijadwalkan di sini?" per baris PreviewDialog (R14 + R21; Task 12 fix): whyOf(key) atas hasil mesin yang SAMA
+// dengan baris dialog (hasil sesudah rencana) dan kalender ctx yang dipakai run-nya. readExt = ext ctx + patch item rencana
+// (acuan root/SNET explain = nilai sesudah Terapkan). explain hanya dipanggil saat baris dibuka (pemanggil: PreviewDialog).
+function planWhy(result, ctx, items, wbsOf) {
+  const patches = new Map((Array.isArray(items) ? items : []).map((it) => [it.key, it.patch]));
+  const readExt = (t) => {
+    let raw = {};
+    try {
+      raw = typeof ctx.readExt === "function" ? ctx.readExt(t) : {};
+    } catch (e) {
+      raw = {};
+    }
+    const r = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    const p = t && t.id !== undefined && t.id !== null ? patches.get(String(t.id)) : undefined;
+    return p ? applyRaw(r, p) : r;
+  };
+  return (key) => {
+    const k = String(key);
+    const n = result && result.nodes instanceof Map ? result.nodes.get(k) : null;
+    const titleOf = (x) => {
+      const m = result && result.nodes instanceof Map ? result.nodes.get(String(x)) : null;
+      return taskTitle(m ? m.task : null);
+    };
+    const label = (x) => {
+      const w = wbsOf(String(x));
+      return (w ? w + " " : "") + titleOf(x);
+    };
+    const ex = engine.explain(result, k, ctx.cal, readExt);
+    return whyText(ex, { label, title: titleOf, d: n ? n.d : undefined });
+  };
+}
+
 // Banner R16 (murni): drift = kunci result.drift yang ada di scopeTasks halaman (task tersaring panel tidak dihitung
 // walau ikut scope mesin); first = anggota lingkaran pertama di halaman (cadangan cycle[0]); cycle = anggota lingkaran yang menyentuh halaman (seluruh anggota lingkaran itu, urutan
 // result.cycles). Teks lingkaran: ≤ 3 judul + " dan {n} lainnya".
@@ -2777,7 +2809,8 @@ function TimelineViewBody(props) {
     const seed = new Set();
     for (const [k, n] of t.result.nodes) if (n.g === recId) seed.add(k);
     const pm = TLPlan.preview(t.items, t.result, ctx, before, seed);
-    return { items: t.items, model: pm ? dialogModel(pm, t.result, wbsOfPage()) : null };
+    const wbs = wbsOfPage();
+    return { items: t.items, model: pm ? dialogModel(pm, t.result, wbs) : null, whyOf: planWhy(t.result, ctx, t.items, wbs) };
   };
   const setAutoNow = (entry, on) => {
     toggling.current = true;
@@ -2809,7 +2842,7 @@ function TimelineViewBody(props) {
     setPv({
       id: ++pvSeq.current,
       title: MSG_PV_ON + entry.label,
-      items: b.items, model: b.model, busy: false,
+      items: b.items, model: b.model, busy: false, whyOf: b.whyOf,
       unit: { unit: entry.unit, rep: entry.rep, snap: entry.snap },
       onDone: () => un.store.setAuto(entry.unit, true, uid), // setMany dulu; setAuto hanya setelah sukses
       rebuild: (ctx2, before, units) => Object.assign(buildToggle(ctx2, before, recId), { unit: { unit: entry.unit, rep: entry.rep, snap: unitSnap(TLSched.unitFor(units, entry.rep)) } }),
@@ -2822,7 +2855,8 @@ function TimelineViewBody(props) {
     const c = pre || TLPlan.cascade(ctx, gestures, before);
     const items = pre ? pre.items : flowItems(c.items);
     const pm = items.length ? TLPlan.preview(items, c.result, ctx, before) : null;
-    return { items, model: pm ? dialogModel(pm, c.result, wbsOfPage()) : null };
+    const wbs = wbsOfPage();
+    return { items, model: pm ? dialogModel(pm, c.result, wbs) : null, whyOf: planWhy(c.result, ctx, items, wbs) };
   };
   const openFlowPv = (p) => {
     if (pvRef.current) return; // satu dialog pada satu waktu
@@ -2831,7 +2865,7 @@ function TimelineViewBody(props) {
     setUnitOpen(false);
     setCalOpen(false); // satu Esc = dialog saja
     const next = {
-      id: ++pvSeq.current, title: PV_FLOW, items: b.items, model: b.model, busy: false,
+      id: ++pvSeq.current, title: PV_FLOW, items: b.items, model: b.model, busy: false, whyOf: b.whyOf,
       rebuild: (ctx2, before2) => buildFlow(ctx2, before2, p.gestures),
     };
     pvRef.current = next;
@@ -2860,14 +2894,15 @@ function TimelineViewBody(props) {
     const keys = new Set(bannerInfo(result, context.scopeTasks).drift);
     const items = flowItems(TLPlan.diff(result, ctx, keys));
     const pm = TLPlan.preview(items, result, ctx, result);
-    return { items, model: pm ? dialogModel(pm, result, wbsOfPage()) : EMPTY_PV_MODEL };
+    const wbs = wbsOfPage();
+    return { items, model: pm ? dialogModel(pm, result, wbs) : EMPTY_PV_MODEL, whyOf: planWhy(result, ctx, items, wbs) };
   };
   const openReview = () => {
     const e = engRef.current;
     if (e.status !== "ready" || !e.ctx || !e.result) return;
     const b = buildReview(e.ctx, e.result);
     openPv({
-      title: PV_FLOW, items: b.items, model: b.model, unit: pageSnaps(e.ctx.units, un.units),
+      title: PV_FLOW, items: b.items, model: b.model, whyOf: b.whyOf, unit: pageSnaps(e.ctx.units, un.units),
       rebuild: (ctx2, before2, units) => Object.assign(buildReview(ctx2, engine.run(ctx2)), { unit: freshSnaps(ctx2, units) }),
     });
   };
@@ -2878,7 +2913,8 @@ function TimelineViewBody(props) {
     const r = TLPlan.reschedule(ctx, before, T, unitKeys);
     const items = flowItems(r.items);
     const pm = r.result ? TLPlan.preview(items, r.result, ctx, before) : null;
-    return { items, broken: r.broken, model: pm ? dialogModel(pm, r.result, wbsOfPage()) : EMPTY_PV_MODEL };
+    const wbs = wbsOfPage();
+    return { items, broken: r.broken, model: pm ? dialogModel(pm, r.result, wbs) : EMPTY_PV_MODEL, whyOf: r.result ? planWhy(r.result, ctx, items, wbs) : undefined };
   };
   const openResched = () => {
     const e = engRef.current;
@@ -2894,7 +2930,7 @@ function TimelineViewBody(props) {
     const unitKeys = new Set(pageUnits(lay, pageKind, context.projectName, groupNames).map((x) => x.unit.recId));
     const b = buildResched(e.ctx, e.result, T, unitKeys);
     openPv({
-      title: PV_RESCHED, items: b.items, model: b.model, broken: b.broken, todayLabel: TLCal.fmtShort(td),
+      title: PV_RESCHED, items: b.items, model: b.model, broken: b.broken, whyOf: b.whyOf, todayLabel: TLCal.fmtShort(td),
       unit: pageSnaps(e.ctx.units, un.units),
       rebuild: (ctx2, before2, units) => Object.assign(buildResched(ctx2, engine.run(ctx2), T, unitKeys), { unit: freshSnaps(ctx2, units) }),
     });
@@ -3250,6 +3286,8 @@ function whyText(ex, ctx) {
   const kind = e.kind;
   if (kind === "cycle") {
     const w = Array.isArray(e.cycleWith) ? e.cycleWith.map(title) : [];
+    // "dirinya sendiri": cadangan defensif untuk lingkaran diri (cycleWith kosong) — hanya data rusak (canLink menolak
+    // dependensi ke diri sendiri); teks di luar R28 (dicatat controller untuk T14).
     say("Dependensinya melingkar dengan " + (w.length ? w.join(", ") : "dirinya sendiri") + "; tidak dihitung.");
     return out;
   }
@@ -3668,7 +3706,7 @@ function ScheduleBody(props) {
       return (w ? w + " " : "") + title(k);
     };
     return whyText(ex, { label, title, d: autoNode.d });
-  }, [whyOpen, tid, secEngine, autoNode]);
+  }, [whyOpen, tid, secEngine, autoNode, view.idx]);
 
   // ---- tulis ----
   const setDraft = (name, value) => setLoc((p) => (p.id === tid ? Object.assign({}, p, { d: Object.assign({}, p.d, { [name]: value }) }) : p));

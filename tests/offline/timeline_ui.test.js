@@ -4519,3 +4519,86 @@ test("fix T10 #3: workspace — unitKeys = unit halaman; task unit lain (tersari
   assert.deepEqual(keys.slice().sort(), ["1", "3", "4"], "Beta (task 2) di luar unit halaman");
   h.m.unmount();
 }));
+
+// ── Fix review Task 12: "Kenapa dijadwalkan di sini?" per baris PreviewDialog (R14 + R21) ─────────────────────────
+// Spy pintu explain; buka baris pertama dialog lewat mount PreviewDialog (props dialog view apa adanya).
+function spyExplain() {
+  const orig = T.engine.explain;
+  const spy = { calls: [], restore() { T.engine.explain = orig; } };
+  T.engine.explain = (...a) => { spy.calls.push(a); return orig(...a); };
+  return spy;
+}
+function whyOfRow(dlg, key) {
+  const pm = mount(T.PreviewDialog);
+  let t = pm.render(dlg.props);
+  const row = nodes(t, (n) => hasCls(n, "plg-timeline-pv-row") && n.props["data-key"] === key)[0];
+  const b = byCls(row, "plg-timeline-pv-why")[0];
+  assert.equal(b.props["aria-expanded"], false);
+  b.props.onClick();
+  t = pm.render(dlg.props);
+  const r2 = nodes(t, (n) => hasCls(n, "plg-timeline-pv-row") && n.props["data-key"] === key)[0];
+  const p = byCls(r2, "plg-timeline-pv-whytext")[0];
+  pm.unmount();
+  return p ? txt(p) : null;
+}
+
+test("fix T12 #1: dialog pratinjau (sakelar ON, Tinjau, Jadwalkan ulang, gestur > 20) — baris dibuka → teks 'Kenapa' R21 atas hasil sesudah rencana; explain hanya saat dibuka", () => withEngineClock(async (clock) => {
+  const spy = spyExplain();
+  try {
+    // sakelar ON: B pindah ke Rab 4 setelah A (selesai Sel 3)
+    const h = await swView(clock);
+    switchOf(h.tree).props.onClick({});
+    await settle();
+    const dlg = dialogOf(h.render());
+    assert.equal(typeof dlg.props.whyOf, "function");
+    assert.equal(spy.calls.length, 0, "dialog terbuka → explain belum dipanggil");
+    assert.equal(whyOfRow(dlg, "2"), "Mulai Rab 4 Nov karena menunggu 1 A selesai Sel 3 Nov. Durasi 1 hari kerja, jadi selesai Rab 4 Nov.");
+    assert.equal(spy.calls.length, 1, "explain hanya untuk baris yang dibuka");
+    assert.equal(spy.calls[0][1], "2");
+    assert.ok(spy.calls[0][0].nodes instanceof Map && spy.calls[0][0].nodes.get("2").es === T.TLCal.dn("2026-11-04"), "hasil SESUDAH rencana (baris dialog)");
+    assert.equal(typeof spy.calls[0][3], "function", "readExt selalu diberikan");
+    h.m.unmount();
+    // Tinjau (drift): hasil mesin halaman
+    const v = await swView(clock, { records: autoRecs(), tasks: driftTasks() });
+    bannerBtn(bannersOf(v.tree)[0], "Tinjau").props.onClick({});
+    await settle();
+    const n0 = spy.calls.length;
+    const d2 = dialogOf(v.render());
+    assert.equal(spy.calls.length, n0);
+    assert.equal(whyOfRow(d2, "3"), "Mulai Kam 5 Nov karena menunggu 2 B selesai Rab 4 Nov. Durasi 1 hari kerja, jadi selesai Kam 5 Nov.");
+    assert.equal(spy.calls.length, n0 + 1);
+    v.m.unmount();
+    // Jadwalkan ulang: SNET T dari patch rencana (readExt = ext + patch item) → acuan batasan Sen 9 Nov
+    const autoT = [mk(1, "A", { start: "2026-11-06", duration: 2 }, AL), mk(2, "B", { start: "2026-11-10", duration: 1, deps: fsDep(1) }, AL)];
+    const r = await swView(clock, { records: autoRecs(), tasks: autoT, today: SAT });
+    reschedBtn(r.tree).props.onClick({});
+    await settle();
+    const d3 = dialogOf(r.render());
+    assert.equal(whyOfRow(d3, "1"), "Mulai Sen 9 Nov karena batasan: mulai tidak lebih awal dari Sen 9 Nov. Durasi 2 hari kerja, jadi selesai Sel 10 Nov.");
+    assert.equal(whyOfRow(d3, "2"), "Mulai Rab 11 Nov karena menunggu 1 A selesai Sel 10 Nov. Durasi 1 hari kerja, jadi selesai Rab 11 Nov.");
+    r.m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
+test("fix T12 #1: pratinjau gestur > 20 turunan — baris dibuka → teks 'Kenapa' R21; explain hanya saat dibuka", () => withAuto(async (clock, w) => {
+  const spy = spyExplain();
+  try {
+    const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, AL)];
+    for (let i = 0; i < 21; i++) tasks.push(mk(100 + i, "S" + i, { start: "2026-11-04", duration: 1, deps: fsDep(1) }, AL));
+    const h = await autoIx(clock, tasks);
+    dragBy(h, w, clock, "1", 2);
+    await settle2();
+    const dlg = dialogOf(h.rerender());
+    assert.ok(dlg && typeof dlg.props.whyOf === "function");
+    assert.equal(spy.calls.length, 0);
+    assert.equal(dlg.props.model.rows[0].key, "1");
+    assert.equal(whyOfRow(dlg, "100"), "Mulai Jum 6 Nov karena menunggu " + dlg.props.model.rows[0].wbs + " A selesai Kam 5 Nov. Durasi 1 hari kerja, jadi selesai Jum 6 Nov.");
+    assert.equal(spy.calls.length, 1);
+    assert.deepEqual(h.calls.setMany, [], "membuka Kenapa tidak menulis");
+    h.m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
