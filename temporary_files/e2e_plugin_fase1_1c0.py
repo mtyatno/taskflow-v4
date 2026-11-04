@@ -8,7 +8,8 @@ Server uvicorn lokal (`webapp:app` apa adanya, Timeline produksi) + DB sementara
 `browser.new_context` (`service_workers="block"`, IndexedDB terpisah). Skenario 9 memakai server kedua dari
 `temporary_files/e2e_app_demo_records.py` (indeks tmp, pola E2E 1a-2). "Data basi" = tarik task diblokir
 (`ctx.route(/api/tasks?include_done=true → abort)`, push tetap jalan) atau `set_offline`. Kontrol kepekaan = modul
-klien dari `git show origin/main:<path>` lewat `route` (kode sebelum PR).
+klien dari `git show f1569191^:<path>` lewat `route` (kode sebelum PR #123 = 1c-0; dipatok karena origin/main
+sudah memuat 1c-0 sejak merge — kontrol `origin/main` tidak lagi menyajikan kode lama).
 
 U1 "sx1" (perangkat A, pemilik workspace W "Ruang Rilis"), U2 "sx2" (anggota W; perangkat B, B', Q/P, H, M).
 Timeline ON untuk keduanya lewat `PUT /api/plugins/state/timeline`. T1–T4 di W project "Rilis", jadwal lewat
@@ -19,12 +20,12 @@ Timeline ON untuk keduanya lewat `PUT /api/plugins/state/timeline`. T1–T4 di W
      setelah unroute + sinkron baris daftar B judul A.
    2 sinkron pull→push: B offline seret T2 −1 hari; A ubah judul + selesai + progress 40 → B online → server inti A +
      ext B, B menampilkan judul A + selesai, satu PUT B `{ext_patch}`.
-   3 kontrol: B' dengan syncpush.js origin/main → ulangi 1 pada T3 → judul tertimpa (bug lama terreproduksi).
+   3 kontrol: B' dengan syncpush.js pra-#123 → ulangi 1 pada T3 → judul tertimpa (bug lama terreproduksi).
    4 regresi edit inti: judul (detail), selesai lagi (checkbox), progress (detail) → PUT penuh FULL_KEYS.
    5 inti + ext sebelum push (offline): ext→inti (T1), inti→ext (T2) → satu PUT penuh berisi ext_patch per task.
    6 hapus tag: T3 "#rapat" → offline seret + hapus chip → PUT penuh, tag server hilang.
-   7 tab lama (taskrepo+syncpush origin/main) + tab baru, IndexedDB sama → PUT penuh dengan judul tab lama.
-   8 setMany 200 item (K24): jumlah commit React (hook DevTools palsu), waktu; kontrol plugin-runtime origin/main;
+   7 tab lama (taskrepo+syncpush pra-#123) + tab baru, IndexedDB sama → PUT penuh dengan judul tab lama.
+   8 setMany 200 item (K24): jumlah commit React (hook DevTools palsu), waktu; kontrol plugin-runtime pra-#123;
      item ke-5 tak ada → applied 4, daftar konsisten; Urungkan Timeline (setMany 1 item) mengembalikan nilai.
    9 K26: entitas record baru di indeks → POST diterima tanpa restart (jendela ≤ 10 s); `nope` → INVALID entity.
   10 375 px: skenario 1 lewat Daftar HP + seksi Jadwal → PUT `{ext_patch}`; konsol tanpa error tak terduga.
@@ -63,8 +64,11 @@ FULL_OPT = {"context_id", "project_id", "ext_patch"}
 ONLY = set(x.strip() for x in os.environ.get("E2E_ONLY", "").split(",") if x.strip())
 
 
-def old_src(path):
-    return subprocess.run(["git", "show", "origin/main:" + path], cwd=ROOT, check=True, capture_output=True).stdout
+PRE_1C0 = "f1569191^"  # main tepat sebelum merge PR #123 (1c-0); kontrol kepekaan memakai kode ini
+
+
+def old_src(path, ref=PRE_1C0):
+    return subprocess.run(["git", "show", ref + ":" + path], cwd=ROOT, check=True, capture_output=True).stdout
 
 
 OLD = {k: old_src(k) for k in ("static/offline/syncpush.js", "static/offline/taskrepo.js", "static/plugin-runtime.js")}
@@ -210,7 +214,7 @@ def watch(p, label):
 
 
 def serve_old(ctx_or_page, path, served=None):
-    """Sajikan `path` (relatif repo, mis. static/offline/syncpush.js) dari origin/main untuk konteks/halaman ini."""
+    """Sajikan `path` (relatif repo, mis. static/offline/syncpush.js) dari PRE_1C0 (atau ref lain yang dimuat ke OLD) untuk konteks/halaman ini."""
     body = OLD[path]
 
     def handler(route):
@@ -509,7 +513,7 @@ def run_members(browser, base, users, ids, mon):
                   repr((loc, done_row)))
             shot(b, "2-B-done-judul-A.png")
 
-        # ── 3 kontrol kepekaan: syncpush.js origin/main ──
+        # ── 3 kontrol kepekaan: syncpush.js pra-#123 ──
         if want(3):
             title3 = "Uji versi A"
             served = []
@@ -529,13 +533,13 @@ def run_members(browser, base, users, ids, mon):
             body = wait_puts("B'", t3, s0, settle=2.5)
             srv_title = server_task(base, u1, t3)["title"]
             shot(c, "3-Bp-kontrol-origin-main.png")
-            info("3 isi PUT B' (kode origin/main)", [{k: (b_ or {}).get(k) for k in ("title", "ext_patch")} for b_ in body])
+            info("3 isi PUT B' (kode pra-#123)", [{k: (b_ or {}).get(k) for k in ("title", "ext_patch")} for b_ in body])
             reproduced = srv_title == stale and any(is_full(b_) and b_.get("title") == stale for b_ in body)
-            check("3a KONTROL syncpush.js origin/main (%d kali disajikan): B' basi seret T3 → PUT penuh membawa judul basi "
+            check("3a KONTROL syncpush.js pra-#123 (%d kali disajikan): B' basi seret T3 → PUT penuh membawa judul basi "
                   "'%s' → judul A '%s' TERTIMPA (bug lama terreproduksi)" % (len(served), stale, title3),
                   served and reproduced, "server=%r body=%r" % (srv_title, body))
             if reproduced:
-                print("INFO 3: bug lama terreproduksi — kode origin/main menimpa judul A dengan salinan basi B'", flush=True)
+                print("INFO 3: bug lama terreproduksi — kode pra-#123 menimpa judul A dengan salinan basi B'", flush=True)
             hd.api(base, u1, "PUT", "/api/tasks/%d" % t3, json={"title": title3})
             check("3b judul T3 dikembalikan lewat API", server_task(base, u1, t3)["title"] == title3)
             cc.close()
@@ -681,7 +685,7 @@ def run_members(browser, base, users, ids, mon):
             mq = idb_task(q, t1)
             r = dispatch(pp, "PUT", "/api/tasks/%d" % t1, {"title": "Judul tab lama"})
             mp = idb_task(q, t1)
-            check("7a Q (kode PR) offline seret T1 → penanda sah; P (taskrepo+syncpush origin/main, %d modul) ubah judul → "
+            check("7a Q (kode PR) offline seret T1 → penanda sah; P (taskrepo+syncpush pra-#123, %d modul) ubah judul → "
                   "penanda batal (rev naik)" % len(served),
                   len(served) == 2 and mq and mq["extOnly"] and r == "ok" and mp and not mp["extOnly"]
                   and mp["title"] == "Judul tab lama", repr((mq, r, mp)))
@@ -887,7 +891,7 @@ def run_setmany(browser, base, u2):
               "n=%d task=%d sebelum=%d" % (len(hp), per_task, n_before))
         ch.close()
         ctxs.remove(ch)
-        # kontrol: plugin-runtime.js origin/main
+        # kontrol: plugin-runtime.js pra-#123
         served = []
         cr = new_context(browser, base, hook=True)
         ctxs.append(cr)
@@ -897,9 +901,9 @@ def run_setmany(browser, base, u2):
         rp.evaluate(INSTR_JS)
         go_offline(cr, rp)
         rc = measure_setmany(cr, rp)
-        info("8 KONTROL plugin-runtime origin/main (CPU 4×): ms, commit total / di luar refreshTasks / batch",
+        info("8 KONTROL plugin-runtime pra-#123 (CPU 4×): ms, commit total / di luar refreshTasks / batch",
              [rc["ms"], rc["commits"], rc["commits"] - rc["refreshCommits"], rc["batchCalls"]])
-        check("8g KONTROL plugin-runtime.js origin/main (%d kali disajikan): commit per item (≥ 150 di luar refreshTasks, "
+        check("8g KONTROL plugin-runtime.js pra-#123 (%d kali disajikan): commit per item (≥ 150 di luar refreshTasks, "
               "tanpa batch) — tes peka" % len(served), served and rc["rows"] == 200 and rc["batchCalls"] == 0
               and rc["commits"] - rc["refreshCommits"] >= 150, repr(rc["commits"]))
         cr.close()

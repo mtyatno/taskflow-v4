@@ -937,6 +937,14 @@ def run(browser, base, users, ids, dates):
 
         def scroll_pos():
             return e.evaluate("() => { const s = document.querySelector('.plg-timeline-scroll'); return [s.scrollLeft, s.scrollTop, window.scrollY]; }")
+        # Posisi bar bergantung tanggal (gulir awal mengikuti hari ini, T_A di Senin depan = 1–7 hari lagi): bar bisa jatuh
+        # di tepi kanan (lepas +36 px di luar grafik = batal, sejak 2026-11-04) atau di bawah kolom WBS+Nama yang menempel.
+        # Gulir dulu agar tepi kiri bar 12 px di kanan kolom menempel.
+        e.evaluate("""(id) => { const s = document.querySelector('.plg-timeline-scroll');
+            const b = document.querySelector(".plg-timeline-bar[data-key='" + id + "']");
+            const tr = document.querySelector('.plg-timeline-table').getBoundingClientRect();
+            s.scrollLeft += b.getBoundingClientRect().left - (tr.right + 12); s.dispatchEvent(new Event('scroll')); }""", ids["ta"])
+        e.wait_for_timeout(400)
         bb = bar(e, ids["ta"]).bounding_box()
         tx, ty = bb["x"] + 8, bb["y"] + bb["height"] / 2
         t0, s0, sp0 = now_ms(e), time.time(), scroll_pos()
