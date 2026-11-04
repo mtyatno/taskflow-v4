@@ -3170,8 +3170,32 @@ const LBL = {
   list: "Daftar",
   zoom: "Skala waktu",
   mode: "Tampilan",
-  crit: "Jalur kritis"
+  crit: "Jalur kritis",
+  auto: "Jadwal otomatis",
+  reschedule: "Jadwalkan ulang",
+  more: "Lainnya" // 1c-1 R23
 };
+// 1c-1 R14, R15, R28: sakelar Jadwal otomatis dan dialog pratinjau (teks persis).
+const MSG_AUTO_ON0 = "Jadwal otomatis menyala — tidak ada task yang bergeser";
+const MSG_AUTO_OFF = "Jadwal otomatis dimatikan — tanggal tetap seperti sekarang";
+const MSG_PV_ON = "Nyalakan jadwal otomatis — "; // + nama project
+const MSG_STALE = "Data berubah sejak pratinjau dibuka — hitung ulang";
+const MSG_UNITS_WAIT = "Menunggu data jadwal workspace…";
+const MSG_OFFLINE = "Kamu sedang offline — jadwal dihitung dari data di perangkat ini";
+const MSG_BY = "Dinyalakan oleh ";
+const MSG_BY_OTHER = "Dinyalakan oleh anggota lain";
+const MSG_NO_PROJECT = "(Tanpa project)";
+const PV_APPLY = "Terapkan";
+const PV_CANCEL = "Batal";
+const PV_SHOW_ALL = "Tampilkan semua";
+const PV_NOT_MOVED = "Tidak dipindah";
+const PV_NEW = "baru dijadwalkan";
+const PV_DUR = "durasi berubah";
+const PV_DUR_GUESS = "durasi belum diisi, dianggap 1 hari kerja";
+const PV_WHY = "Kenapa dijadwalkan di sini?";
+const PV_ROWS_MAX = 50; // R14: ≤ 50 baris sebelum "Tampilkan semua"
+const appliedText = n => "Jadwal diterapkan · " + n + " task";
+const partialText = (k, n) => "Sebagian jadwal gagal disimpan (" + k + " dari " + n + ")"; // k = item yang gagal
 const MSG_EMPTY = "Belum ada task di halaman ini";
 // Kalender kerja (R18) dan Daftar HP (R20): teks persis.
 const MSG_CAL_NOTE = "Dipakai semua anggota workspace";
@@ -3298,6 +3322,123 @@ function slackText(n) {
 }
 
 // Isi sel tabel satu baris: {wbs, name, start, dur, pomo, pct, slack}. slack = nilai overlay mesin (undefined = "—").
+// Selisih hari kerja bertanda: "+2 hk", "−1 hk" (minus U+2212), "0 hk".
+function signedHk(n) {
+  if (!Number.isFinite(n) || n === 0) return "0 hk";
+  return (n > 0 ? "+" : "−") + Math.abs(n) + " hk";
+}
+
+// ISO "YYYY-MM-DD" (atau bilangan hari) → "Kam 5 Nov"; tidak sah → "—".
+function dayText(v) {
+  const d = typeof v === "number" ? v : typeof v === "string" ? TLCal.dn(v) : NaN;
+  return Number.isInteger(d) ? TLCal.fmtShort(d) : "—";
+}
+
+// Ringkasan kanan toolbar (R23): Selesai = maks groupEnd unit halaman; lewat tenggat = simpul halaman yang belum
+// selesai dengan late > 0. Murni; null bila mesin belum siap.
+function toolbarSummary(lay, result) {
+  if (!result || !(result.nodes instanceof Map) || !(result.groupEnd instanceof Map)) return null;
+  const gs = new Set();
+  let late = 0;
+  for (const r of lay.rows) {
+    if (!r.task) continue;
+    const n = result.nodes.get(r.key);
+    gs.add(n ? n.g : TLSched.unitOf(r.task).recId);
+    if (n && n.late > 0 && n.fixed !== "done") late++;
+  }
+  let end = null;
+  for (const g of gs) {
+    const e = result.groupEnd.get(g);
+    if (Number.isInteger(e) && (end === null || e > end)) end = e;
+  }
+  return {
+    end,
+    late
+  };
+}
+
+// Unit jadwal halaman (R15): halaman project = satu unit (nama project halaman); workspace = satu per kelompok project
+// di layout (urutan kelompok; "(Tanpa project)" = unit "-"). rep = task wakil untuk TLSched.unitFor (pagar fold).
+function pageUnits(lay, pageKind, projectName, groupNames) {
+  if (pageKind !== "workspace") {
+    const rep = {
+      list_id: null,
+      project: projectName === undefined || projectName === null ? "" : String(projectName)
+    };
+    return [{
+      unit: TLSched.unitOf(rep),
+      rep,
+      label: rep.project.trim() || MSG_NO_PROJECT
+    }];
+  }
+  const out = [];
+  const seen = new Set();
+  for (const r of lay.rows) {
+    if (!r.task) continue;
+    const unit = TLSched.unitOf(r.task);
+    if (seen.has(unit.recId)) continue;
+    seen.add(unit.recId);
+    out.push({
+      unit,
+      rep: r.task,
+      label: groupNames.get(r.group) || unit.name.trim() || MSG_NO_PROJECT
+    });
+  }
+  return out;
+}
+
+// "Dinyalakan oleh {nama} · {tgl Jakarta}" (R15): by = pengguna aktif → currentUser; selain itu collaborators;
+// tidak ditemukan → "Dinyalakan oleh anggota lain". Tanggal = updated_at record di zona Asia/Jakarta (TLCpm.jkt).
+function unitCaption(u, context, userId) {
+  if (!u || u.auto !== true) return null;
+  const nameOf = x => x && typeof x === "object" ? String(x.display_name || x.username || "").trim() : "";
+  let name = "";
+  if (u.by !== null && u.by !== undefined) {
+    const id = String(u.by);
+    const users = [];
+    if (userId !== undefined && userId !== null && String(userId) === id) users.push(context.currentUser);
+    for (const c of Array.isArray(context.collaborators) ? context.collaborators : []) users.push(c);
+    const hit = users.find(x => x && typeof x === "object" && x.id !== undefined && x.id !== null && String(x.id) === id);
+    name = nameOf(hit);
+  }
+  const head = name ? MSG_BY + name : MSG_BY_OTHER;
+  const d = typeof u.updatedAt === "string" ? TLCpm.jkt(u.updatedAt) : null;
+  return Number.isInteger(d) ? head + " · " + TLCal.fmtShort(d) : head;
+}
+
+// Model dialog = TLPlan.preview + WBS/judul untuk tampilan (rows: wbs; notMoved: task + wbs). Murni.
+function dialogModel(pm, result, wbsOf) {
+  const nodes = result && result.nodes instanceof Map ? result.nodes : new Map();
+  return Object.assign({}, pm, {
+    rows: pm.rows.map(r => Object.assign({}, r, {
+      wbs: wbsOf(r.key)
+    })),
+    notMoved: pm.notMoved.map(x => {
+      const n = nodes.get(x.key);
+      return Object.assign({}, x, {
+        task: n ? n.task : null,
+        wbs: wbsOf(x.key)
+      });
+    })
+  });
+}
+
+// Daftar lengkap → task di scope dependensi halaman (saringan sama dengan useEngine).
+function scopeFilter(list, scopeTasks) {
+  const keys = new Set((Array.isArray(scopeTasks) ? scopeTasks : []).map(TLSched.scopeKeyOf));
+  return (Array.isArray(list) ? list : []).filter(t => !!t && typeof t === "object" && keys.has(TLSched.scopeKeyOf(t)));
+}
+
+// Potret CAS unit (R14): updatedAt/by record dari useUnits().units (BUKAN eng.ctx.units — memo mesin hanya berkunci auto+fold).
+function unitSnap(u) {
+  return {
+    updatedAt: u && typeof u.updatedAt === "string" ? u.updatedAt : null,
+    by: u && u.by !== undefined ? u.by : null
+  };
+}
+function sameSnap(a, b) {
+  return a.updatedAt === b.updatedAt && a.by === b.by;
+}
 function rowCells(row, groupName, slack) {
   if (row.kind === "group") return {
     wbs: row.wbs,
@@ -3898,18 +4039,88 @@ function renderToolbar(v) {
   }, text)));
   // Daftar (HP): zoom, "Hari ini", urut, dan kolom hanya berarti untuk Gantt → disembunyikan.
   const gantt = !v.listMode;
+  // 1c-1 R23: Jadwal otomatis · Jalur kritis · Jadwalkan ulang — hanya saat mesin siap; ≤ 640 px / Live Edit → "Lainnya".
+  // Jalur kritis tidak di Daftar. "Jadwalkan ulang" nonaktif sampai v.onReschedule tersedia (Task 10).
+  const ac = v.engReady ? v.auto : null;
+  const extras = [];
+  if (ac) {
+    extras.push(ac.kind === "switch" ? {
+      id: "auto",
+      text: LBL.auto,
+      role: "menuitemcheckbox",
+      checked: ac.on,
+      disabled: ac.disabled,
+      onSelect: ac.onClick
+    } : {
+      id: "auto",
+      text: LBL.auto,
+      role: "menuitem",
+      haspopup: "dialog",
+      onSelect: ac.onClick
+    });
+  }
+  if (gantt && v.engReady) extras.push({
+    id: "crit",
+    text: LBL.crit,
+    role: "menuitemcheckbox",
+    checked: v.crit,
+    onSelect: () => v.setCrit(!v.crit)
+  });
+  if (v.engReady) extras.push({
+    id: "resched",
+    text: LBL.reschedule,
+    role: "menuitem",
+    disabled: typeof v.onReschedule !== "function",
+    onSelect: v.onReschedule
+  });
+  const extraBtn = it => {
+    if (it.id === "auto" && ac.kind === "switch") {
+      return /*#__PURE__*/React.createElement("button", {
+        key: "auto",
+        type: "button",
+        role: "switch",
+        "aria-checked": ac.on,
+        disabled: ac.disabled,
+        className: cx("plg-timeline-btn", "plg-timeline-switch", ac.on && "is-on"),
+        onClick: ac.onClick
+      }, LBL.auto);
+    }
+    if (it.id === "auto") {
+      return /*#__PURE__*/React.createElement("button", {
+        key: "auto",
+        type: "button",
+        ref: v.autoBtnRef,
+        "aria-haspopup": "dialog",
+        "aria-expanded": ac.expanded,
+        className: cx("plg-timeline-btn", "plg-timeline-autobtn", ac.expanded && "is-active"),
+        onClick: ac.onClick
+      }, LBL.auto);
+    }
+    if (it.id === "crit") return /*#__PURE__*/React.createElement("button", {
+      key: "crit",
+      type: "button",
+      className: cx("plg-timeline-btn", v.crit && "is-active"),
+      "aria-pressed": v.crit,
+      onClick: it.onSelect
+    }, LBL.crit);
+    return /*#__PURE__*/React.createElement("button", {
+      key: it.id,
+      type: "button",
+      className: "plg-timeline-btn",
+      disabled: it.disabled,
+      onClick: it.onSelect
+    }, it.text);
+  };
+  const sum = v.summary;
   return /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-toolbar"
   }, gantt ? seg(ZOOMS, v.zoom, v.pickZoom, LBL.zoom) : null, gantt ? /*#__PURE__*/React.createElement("button", {
     type: "button",
     className: "plg-timeline-btn",
     onClick: v.goToday
-  }, LBL.today) : null, gantt && v.engReady ? /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: cx("plg-timeline-btn", v.crit && "is-active"),
-    "aria-pressed": v.crit,
-    onClick: () => v.setCrit(!v.crit)
-  }, LBL.crit) : null, /*#__PURE__*/React.createElement("button", {
+  }, LBL.today) : null, extras.length && v.collapse ? /*#__PURE__*/React.createElement(MoreMenu, {
+    items: extras
+  }) : extras.map(extraBtn), /*#__PURE__*/React.createElement("button", {
     type: "button",
     ref: v.calBtnRef,
     className: cx("plg-timeline-btn", "plg-timeline-calbtn", v.calOpen && "is-active"),
@@ -3926,7 +4137,13 @@ function renderToolbar(v) {
     className: cx("plg-timeline-btn", v.cols && "is-active"),
     "aria-pressed": v.cols,
     onClick: () => v.setCols(!v.cols)
-  }, LBL.cols) : null, v.narrow ? seg([["gantt", LBL.gantt], ["list", LBL.list]], v.mode, v.setMode, LBL.mode) : null);
+  }, LBL.cols) : null, v.narrow ? seg([["gantt", LBL.gantt], ["list", LBL.list]], v.mode, v.setMode, LBL.mode) : null, sum && sum.end !== null ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-toolbar-end"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-finish"
+  }, "Selesai " + TLCal.fmtShort(sum.end)), sum.late > 0 ? /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-latechip"
+  }, sum.late + " lewat tenggat") : null) : null);
 }
 function renderHead(v) {
   const {
@@ -4697,6 +4914,295 @@ function CalendarPopover(props) {
   }, err) : null);
 }
 
+// ── 1c-1 Task 8: menu "Lainnya" (R23), popover unit workspace (R15), dialog pratinjau (R14) ─────────────────────────
+// Pendengar Esc (fase tangkap, propagasi dihentikan agar modal/Live Edit host di belakang tidak ikut tertutup) dan
+// tekan di luar `root` (kecuali target yang cocok `skipSel`). Dipakai MoreMenu/UnitPopover/PreviewDialog.
+function useDismiss(active, rootRef, onDismiss, skipSel) {
+  const fnRef = React.useRef(onDismiss);
+  fnRef.current = onDismiss;
+  React.useEffect(() => {
+    if (!active || !hasWindow() || typeof window.addEventListener !== "function") return undefined;
+    const onKey = e => {
+      if (!e || e.key !== "Escape") return;
+      if (typeof e.preventDefault === "function") e.preventDefault();
+      if (typeof e.stopPropagation === "function") e.stopPropagation();
+      fnRef.current("key");
+    };
+    const onDown = e => {
+      const root = rootRef.current;
+      const t = e && e.target;
+      if (!root || !t) return;
+      if (typeof root.contains === "function" && root.contains(t)) return;
+      if (skipSel && typeof t.closest === "function" && t.closest(skipSel)) return;
+      fnRef.current("outside");
+    };
+    window.addEventListener("keydown", onKey, true);
+    if (skipSel !== false) window.addEventListener("pointerdown", onDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      if (skipSel !== false) window.removeEventListener("pointerdown", onDown, true);
+    };
+  }, [active]);
+}
+
+// Menu "Lainnya" (HP ≤ 640 px / Live Edit): items = [{id, text, role: "menuitem"|"menuitemcheckbox", checked, disabled,
+// haspopup, onSelect}]. Memilih item menutup menu lalu menjalankan onSelect.
+function MoreMenu(props) {
+  const items = Array.isArray(props.items) ? props.items : [];
+  const [open, setOpen] = React.useState(false);
+  const rootRef = React.useRef(null);
+  useDismiss(open, rootRef, () => setOpen(false), null);
+  const pick = it => {
+    setOpen(false);
+    if (!it.disabled && typeof it.onSelect === "function") it.onSelect();
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-more",
+    ref: rootRef
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: cx("plg-timeline-btn", open && "is-active"),
+    "aria-haspopup": "menu",
+    "aria-expanded": open,
+    onClick: () => setOpen(!open)
+  }, LBL.more), open ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-more-menu",
+    role: "menu",
+    "aria-label": LBL.more
+  }, items.map(it => /*#__PURE__*/React.createElement("button", {
+    key: it.id,
+    type: "button",
+    role: it.role,
+    className: cx("plg-timeline-more-item", it.checked && "is-on"),
+    "aria-checked": it.role === "menuitemcheckbox" ? !!it.checked : undefined,
+    "aria-haspopup": it.haspopup,
+    disabled: !!it.disabled,
+    onClick: () => pick(it)
+  }, it.text))) : null);
+}
+
+// Popover workspace (R15, Q4 a): satu sakelar per kelompok project halaman. entries = [{key, label, on, locked, caption,
+// onToggle}]; waiting (P3 a) → catatan "Menunggu data jadwal workspace…" (sakelar terkunci = disabled).
+function UnitPopover(props) {
+  const entries = Array.isArray(props.entries) ? props.entries : [];
+  const rootRef = React.useRef(null);
+  const closeRef = React.useRef(props.onClose);
+  closeRef.current = props.onClose;
+  const close = restoreFocus => {
+    if (typeof closeRef.current === "function") closeRef.current({
+      restoreFocus
+    });
+  };
+  React.useEffect(() => {
+    const el = rootRef.current;
+    if (el && typeof el.focus === "function") el.focus();
+  }, []);
+  useDismiss(true, rootRef, how => close(how === "key"), ".plg-timeline-autobtn");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop plg-timeline-units",
+    role: "dialog",
+    "aria-label": LBL.auto,
+    tabIndex: -1,
+    ref: rootRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop-head"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-pop-title"
+  }, LBL.auto), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-pop-close",
+    "aria-label": "Tutup",
+    onClick: () => close(true)
+  }, "\xD7")), props.waiting ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-pop-wait",
+    role: "status"
+  }, MSG_UNITS_WAIT) : null, /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-units-list"
+  }, entries.map(e => /*#__PURE__*/React.createElement("li", {
+    key: e.key,
+    className: "plg-timeline-units-item"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-units-text"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-units-name"
+  }, e.label), e.caption ? /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-units-by"
+  }, e.caption) : null), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    role: "switch",
+    "aria-checked": e.on,
+    "aria-label": e.label,
+    disabled: e.locked,
+    className: cx("plg-timeline-switch", e.on && "is-on"),
+    onClick: e.onToggle
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-switch-knob",
+    "aria-hidden": "true"
+  }))))));
+}
+
+// Elemen yang bisa difokus di dalam dialog (fokus terjebak).
+const FOCUSABLE = "button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])";
+function focusables(root) {
+  if (!root || typeof root.querySelectorAll !== "function") return [];
+  return Array.from(root.querySelectorAll(FOCUSABLE)).filter(el => el && !el.disabled && typeof el.focus === "function");
+}
+
+// Dialog pratinjau (R14, K34; pola CalendarPopover di dalam wadah view): role dialog + aria-modal, fokus ke elemen
+// pertama saat dibuka dan terjebak di dalam (Tab/Shift+Tab berputar), Esc = Batal. model = dialogModel(TLPlan.preview…).
+// Baris "WBS · Task · Mulai lama → baru · Δ hk" (+ "baru dijadwalkan", "durasi berubah", catatan durGuess); ringkasan;
+// "Tidak dipindah"; ≤ 50 baris + "Tampilkan semua". whyOf(key) → Array<string|{b}> (opsional, Task 12) membuka "Kenapa".
+// Terapkan nonaktif bila 0 item atau `busy` (pemeriksaan CAS berjalan). Komponen ini tidak menulis apa pun.
+function PreviewDialog(props) {
+  const model = props.model || {
+    rows: [],
+    moved: 0,
+    endBefore: null,
+    endAfter: null,
+    endDelta: null,
+    late: 0,
+    notMoved: []
+  };
+  const [all, setAll] = React.useState(false);
+  const [why, setWhy] = React.useState(null);
+  const rootRef = React.useRef(null);
+  const cancelRef = React.useRef(props.onCancel);
+  cancelRef.current = props.onCancel;
+  const cancel = () => {
+    if (typeof cancelRef.current === "function") cancelRef.current();
+  };
+  React.useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return undefined;
+    const doc = root.ownerDocument || null;
+    const prev = doc ? doc.activeElement : null;
+    const first = focusables(root)[0];
+    if (first) first.focus();else if (typeof root.focus === "function") root.focus();
+    return () => {
+      if (prev && typeof prev.focus === "function") prev.focus(); // kembali ke pemicu
+    };
+  }, []);
+  useDismiss(true, rootRef, cancel, false); // Esc saja; tekan di luar dialog modal tidak menutup
+  const onKeyDown = e => {
+    if (!e || e.key !== "Tab") return;
+    const root = rootRef.current;
+    const list = focusables(root);
+    const stop = () => {
+      if (typeof e.preventDefault === "function") e.preventDefault();
+    };
+    if (!list.length) return stop();
+    const doc = root && root.ownerDocument ? root.ownerDocument : null;
+    const active = doc ? doc.activeElement : null;
+    const first = list[0];
+    const last = list[list.length - 1];
+    const inside = !!active && typeof root.contains === "function" && root.contains(active);
+    if (!inside) {
+      stop();
+      (e.shiftKey ? last : first).focus();
+    } else if (e.shiftKey && active === first) {
+      stop();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      stop();
+      first.focus();
+    }
+  };
+  const rows = model.rows || [];
+  const shown = all ? rows : rows.slice(0, PV_ROWS_MAX);
+  const parts = [model.moved + " task bergeser"];
+  if (Number.isInteger(model.endBefore) && Number.isInteger(model.endAfter)) {
+    parts.push("Selesai project " + dayText(model.endBefore) + " → " + dayText(model.endAfter) + " (" + signedHk(model.endDelta) + ")");
+  }
+  if (model.late > 0) parts.push(model.late + " lewat tenggat");
+  const label = r => [r.wbs, taskTitle(r.task)].filter(x => x !== undefined && x !== null && x !== "").join(" · ");
+  const whyLines = key => {
+    const out = typeof props.whyOf === "function" ? props.whyOf(key) : null;
+    const arr = Array.isArray(out) ? out : out ? [out] : [];
+    return arr.map((p, i) => p && typeof p === "object" ? /*#__PURE__*/React.createElement("strong", {
+      key: i
+    }, p.b) : /*#__PURE__*/React.createElement("span", {
+      key: i
+    }, String(p)));
+  };
+  const canWhy = typeof props.whyOf === "function";
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv-backdrop"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": props.title,
+    tabIndex: -1,
+    ref: rootRef,
+    onKeyDown: onKeyDown
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop-head"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-pop-title"
+  }, props.title)), props.todayLabel ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-pv-today"
+  }, "Hari ini: " + props.todayLabel) : null, props.offline ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-pv-offline",
+    role: "note"
+  }, MSG_OFFLINE) : null, /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pv-summary"
+  }, parts.join(" · ")), /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-pv-list"
+  }, shown.map(r => {
+    const main = [label(r), (r.from ? dayText(r.from) : "—") + " → " + (r.to ? dayText(r.to) : "—")];
+    if (r.deltaHk !== null && r.deltaHk !== undefined) main.push(signedHk(r.deltaHk));
+    return /*#__PURE__*/React.createElement("li", {
+      key: r.key,
+      className: "plg-timeline-pv-row",
+      "data-key": r.key
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-pv-main"
+    }, main.join(" · ")), r.isNew ? /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-pv-tag"
+    }, PV_NEW) : null, r.durChanged ? /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-pv-tag"
+    }, PV_DUR) : null, r.durGuess ? /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-pv-note"
+    }, PV_DUR_GUESS) : null, canWhy ? /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-pv-why",
+      "aria-expanded": why === r.key,
+      onClick: () => setWhy(why === r.key ? null : r.key)
+    }, PV_WHY) : null, canWhy && why === r.key ? /*#__PURE__*/React.createElement("p", {
+      className: "plg-timeline-pv-whytext"
+    }, whyLines(r.key)) : null);
+  })), !all && rows.length > PV_ROWS_MAX ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-pv-all",
+    onClick: () => setAll(true)
+  }, PV_SHOW_ALL) : null, model.notMoved && model.notMoved.length ? /*#__PURE__*/React.createElement("section", {
+    className: "plg-timeline-pv-notmoved",
+    "aria-label": PV_NOT_MOVED
+  }, /*#__PURE__*/React.createElement("h4", {
+    className: "plg-timeline-pop-sub"
+  }, PV_NOT_MOVED), /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-pv-list"
+  }, model.notMoved.map(x => /*#__PURE__*/React.createElement("li", {
+    key: x.key,
+    className: "plg-timeline-pv-row plg-timeline-pv-nm",
+    "data-key": x.key,
+    "data-why": x.why
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-pv-nmtext"
+  }, label(x)))))) : null, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn",
+    onClick: cancel
+  }, PV_CANCEL), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-pv-apply",
+    disabled: !rows.length || !!props.busy,
+    onClick: props.onApply
+  }, PV_APPLY))));
+}
+
 // Tampilan Daftar (HP, U3): task terjadwal urut Mulai dikelompokkan per minggu ISO, lalu "Belum dijadwalkan".
 // Baris = tombol → onTaskClick(task). `cal` disediakan untuk kelengkapan antarmuka (tanggal sudah dihitung layout).
 function weekText(mon, showYear) {
@@ -5000,6 +5506,98 @@ function createInteractions() {
   function failed(api, err) {
     logWarn(api, "jadwal gagal disimpan:", err);
     toastSafe(api, MSG_SAVE_FAIL, "error");
+  }
+
+  // 1c-1 R13: banyak task dalam SATU api.taskExt.setMany. items = [{task, patch}]; semua kunci masuk busy/after
+  // SEKETIKA (seret/tombol berikutnya tidak menulis dari props basi). Penolakan (err.applied) diteruskan ke pemanggil.
+  function issueMany(items) {
+    const api = X.cur.api;
+    const list = (Array.isArray(items) ? items : []).filter(it => it && it.task && it.patch);
+    const keys = [];
+    for (const it of list) {
+      const k = keyOf(it.task);
+      const rr = rawOf(it.task);
+      keys.push(k);
+      X.busy.add(k);
+      X.after.set(k, {
+        stale: rr.pj,
+        eff: Object.assign({}, rr.eff, it.patch)
+      });
+    }
+    let p;
+    try {
+      p = api.taskExt.setMany(list.map(it => ({
+        taskId: it.task.id,
+        patch: it.patch
+      })));
+    } catch (e) {
+      p = Promise.reject(e);
+    }
+    const done = Promise.resolve(p).then(r => {
+      for (const k of keys) X.busy.delete(k);
+      return r;
+    }, err => {
+      for (const k of keys) {
+        X.busy.delete(k);
+        X.after.delete(k);
+      }
+      throw err;
+    });
+    const settled = done.then(() => undefined, () => undefined);
+    for (const k of keys) X.inflight.set(k, settled);
+    settled.then(() => {
+      for (const k of keys) if (X.inflight.get(k) === settled) X.inflight.delete(k);
+    });
+    return done;
+  }
+
+  // Urungkan (R13): setMany(TLPlan.undoItems(items)) persis — kunci yang dulu tidak ada ditulis null.
+  function undoAction(api, items) {
+    return {
+      label: MSG_UNDO,
+      onClick: () => {
+        const u = TLPlan.undoItems(items);
+        issueMany(u.map((x, i) => ({
+          task: items[i].task,
+          patch: x.patch
+        }))).catch(err => failed(api, err));
+      }
+    };
+  }
+
+  // applyPlan (R14/R15; pintu tunggal Terapkan untuk Task 8–10): satu setMany semua item → onDone (mis. setAuto sakelar,
+  // HANYA setelah setMany sukses) → toast "Jadwal diterapkan · {n} task" + Urungkan. setMany ditolak dengan err.applied
+  // (sebagian tersimpan) → onDone TIDAK dipanggil, toast "Sebagian jadwal gagal disimpan ({k} dari {n})" (k = gagal)
+  // + Urungkan hanya untuk item yang tersimpan; tanpa applied / 0 tersimpan → "Jadwal gagal disimpan".
+  // → Promise<boolean> (true = semua tersimpan dan onDone sukses); tidak pernah reject.
+  function applyPlan(items, opts) {
+    const api = X.cur.api;
+    const o = opts || {};
+    const list = (Array.isArray(items) ? items : []).filter(it => it && it.task && it.patch);
+    const n = list.length;
+    const after = () => typeof o.onDone === "function" ? Promise.resolve().then(o.onDone) : Promise.resolve();
+    if (!n) return after().then(() => true, err => {
+      failed(api, err);
+      return false;
+    });
+    return issueMany(list).then(() => after().then(() => {
+      toastSafe(api, appliedText(n), "success", undoAction(api, list));
+      return true;
+    }, err => {
+      logWarn(api, "jadwal tersimpan, langkah lanjutan gagal:", err);
+      toastSafe(api, MSG_SAVE_FAIL, "error", undoAction(api, list));
+      return false;
+    }), err => {
+      const ids = err && Array.isArray(err.applied) ? new Set(err.applied.map(String)) : null;
+      const saved = ids ? list.filter(it => ids.has(String(it.task.id))) : [];
+      if (!saved.length) {
+        failed(api, err);
+        return false;
+      }
+      logWarn(api, "jadwal tersimpan sebagian:", err);
+      toastSafe(api, partialText(n - saved.length, n), "error", undoAction(api, saved));
+      return false;
+    });
   }
 
   // set → toast "Jadwal diubah" + Urungkan (setMany nilai lama persis). Resolve true/false (tidak pernah reject).
@@ -5440,6 +6038,8 @@ function createInteractions() {
     lineRef: X.lineRef
   };
   X.dispose = dispose;
+  X.issueMany = issueMany;
+  X.applyPlan = applyPlan;
   return X;
 }
 
@@ -5670,6 +6270,192 @@ function TimelineViewBody(props) {
   };
   React.useEffect(() => () => ctl.dispose(), [ctl]);
   const ix = ctl.ix;
+
+  // ── 1c-1 Task 8: sakelar Jadwal otomatis (R15), pratinjau + CAS (R14) ──
+  const [unitOpen, setUnitOpen] = React.useState(false);
+  const [pv, setPv] = React.useState(null); // {id, title, items, model, busy, unit?: {unit, rep, snap}, onDone, rebuild}
+  const [, setNet] = React.useState(0);
+  const autoBtnRef = React.useRef(null);
+  const pvRef = React.useRef(null);
+  pvRef.current = pv;
+  const engRef = React.useRef(eng);
+  engRef.current = eng;
+  const toggling = React.useRef(false);
+  const pvSeq = React.useRef(0);
+  const unitPage = {
+    pageKind,
+    listId: pageKind === "workspace" ? context.listId : null,
+    projectName: pageKind === "workspace" ? null : context.projectName
+  };
+  const summary = React.useMemo(() => toolbarSummary(lay, engResult), [lay, engResult]);
+  const offline = !!(api.env && api.env.online === false);
+  // Catatan offline di dialog mengikuti event host app.online/app.offline selama dialog terbuka.
+  React.useEffect(() => {
+    if (!pv) return undefined;
+    const offs = [];
+    try {
+      for (const ev of ["app.online", "app.offline"]) offs.push(api.events.on(ev, () => setNet(x => x + 1)));
+    } catch (e) {
+      logWarn(api, "pendengar online gagal:", e);
+    }
+    return () => {
+      for (const off of offs) if (typeof off === "function") off();
+    };
+  }, [!pv]);
+  const userId = () => api.env ? api.env.userId : null;
+  const wbsOfPage = () => {
+    const m = new Map(lay.rows.map(r => [r.key, r.wbs]));
+    return key => m.has(key) ? m.get(key) : null;
+  };
+  // Pratinjau sakelar ON atas ctx: item TLPlan.toggleUnit; "sebelum" = hasil useEngine (tanpa run tambahan);
+  // seedKeys = simpul unit agar lingkaran/jangkar bertabrakan unit tercantum di "Tidak dipindah" (K34).
+  const buildToggle = (ctx, before, recId) => {
+    const t = TLPlan.toggleUnit(ctx, recId, true);
+    if (!t.items.length || !t.result) return {
+      items: [],
+      model: null
+    };
+    const seed = new Set();
+    for (const [k, n] of t.result.nodes) if (n.g === recId) seed.add(k);
+    const pm = TLPlan.preview(t.items, t.result, ctx, before, seed);
+    return {
+      items: t.items,
+      model: pm ? dialogModel(pm, t.result, wbsOfPage()) : null
+    };
+  };
+  const setAutoNow = (entry, on) => {
+    toggling.current = true;
+    return Promise.resolve().then(() => un.store.setAuto(entry.unit, on, userId())).then(() => toastSafe(api, on ? MSG_AUTO_ON0 : MSG_AUTO_OFF, "success"), err => {
+      logWarn(api, "unit jadwal gagal disimpan:", err);
+      toastSafe(api, MSG_SAVE_FAIL, "error");
+    }).then(() => {
+      toggling.current = false;
+    });
+  };
+  const toggleEntry = entry => {
+    const e = engRef.current;
+    if (entry.locked || toggling.current || pvRef.current || e.status !== "ready" || !e.ctx || !e.result) return;
+    if (entry.on) {
+      setAutoNow(entry, false); // OFF: tanpa tulis task (tanggal tetap)
+      return;
+    }
+    const recId = entry.unit.recId;
+    const b = buildToggle(e.ctx, e.result, recId);
+    if (!b.items.length) {
+      setAutoNow(entry, true);
+      return;
+    }
+    if (!b.model) return; // preview tanpa "sebelum" sah → tidak ada dialog kosong
+    const uid = userId();
+    setUnitOpen(false);
+    setPv({
+      id: ++pvSeq.current,
+      title: MSG_PV_ON + entry.label,
+      items: b.items,
+      model: b.model,
+      busy: false,
+      unit: {
+        unit: entry.unit,
+        rep: entry.rep,
+        snap: entry.snap
+      },
+      onDone: () => un.store.setAuto(entry.unit, true, uid),
+      // setMany dulu; setAuto hanya setelah sukses
+      rebuild: (ctx2, before, units) => Object.assign(buildToggle(ctx2, before, recId), {
+        unit: {
+          unit: entry.unit,
+          rep: entry.rep,
+          snap: unitSnap(TLSched.unitFor(units, entry.rep))
+        }
+      })
+    });
+  };
+  const cancelPv = () => setPv(null);
+  // Terapkan (R14): muat ulang daftar lengkap (+ unit) → TLPlan.revalidate (nilai mentah) dan, untuk sakelar, potret
+  // updatedAt/by unit. Berbeda → toast + hitung ulang dari data terbaru (Terapkan perlu ditekan lagi), 0 tulis.
+  const applyPv = () => {
+    const cur = pvRef.current;
+    if (!cur || cur.busy) return;
+    const live = () => pvRef.current && pvRef.current.id === cur.id;
+    setPv(Object.assign({}, cur, {
+      busy: true
+    }));
+    const listP = Promise.resolve().then(() => api.data.tasks.list({
+      includeDone: true
+    }));
+    const unitsP = cur.unit ? Promise.resolve().then(() => un.store.loadUnits(unitPage)) : Promise.resolve(null);
+    Promise.all([listP, unitsP]).then(([l, units]) => {
+      if (!live()) return;
+      const list = Array.isArray(l) ? l : [];
+      const rawNow = new Map();
+      for (const t of list) if (t && t.id !== undefined && t.id !== null) rawNow.set(String(t.id), readExtSafe(api, t));
+      const cas = TLPlan.revalidate(cur.items, rawNow);
+      const unitOk = !cur.unit || sameSnap(cur.unit.snap, unitSnap(TLSched.unitFor(units, cur.unit.rep)));
+      if (!cas.ok || !unitOk) {
+        toastSafe(api, MSG_STALE, "error");
+        const e = engRef.current;
+        const base = e.ctx || {};
+        const ctx2 = {
+          tasks: scopeFilter(list, context.scopeTasks),
+          cal: base.cal,
+          units: units instanceof Map ? units : base.units,
+          readExt: base.readExt || (t => readExtSafe(api, t))
+        };
+        const next = cur.rebuild(ctx2, e.result, units);
+        setPv(Object.assign({}, cur, next, {
+          busy: false,
+          model: next.model || Object.assign({}, cur.model, {
+            rows: [],
+            moved: 0,
+            notMoved: []
+          })
+        }));
+        return;
+      }
+      setPv(null);
+      ctl.applyPlan(cur.items, {
+        onDone: cur.onDone
+      });
+    }).catch(err => {
+      logWarn(api, "pratinjau gagal diperiksa:", err);
+      toastSafe(api, MSG_SAVE_FAIL, "error");
+      if (live()) setPv(Object.assign({}, cur, {
+        busy: false
+      }));
+    });
+  };
+
+  // Entri unit halaman (urutan kelompok) dengan keadaan sakelar, kunci P3 (a), dan keterangan "Dinyalakan oleh …".
+  const unitsEntries = pageUnits(lay, pageKind, context.projectName, groupNames).map(x => {
+    const u = TLSched.unitFor(un.units, x.rep);
+    const locked = !un.loaded || pageKind === "workspace" && !(u && u.exists) && !un.pulled;
+    const entry = {
+      key: x.unit.recId,
+      label: x.label,
+      unit: x.unit,
+      rep: x.rep,
+      on: !!(u && u.auto === true),
+      locked,
+      snap: unitSnap(u),
+      caption: unitCaption(u, context, userId())
+    };
+    entry.onToggle = () => toggleEntry(entry);
+    return entry;
+  });
+  const pageEntry = pageKind === "workspace" ? null : unitsEntries[0];
+  const auto = pageEntry ? {
+    kind: "switch",
+    on: pageEntry.on,
+    disabled: pageEntry.locked,
+    onClick: pageEntry.onToggle
+  } : {
+    kind: "popover",
+    expanded: unitOpen,
+    onClick: () => {
+      setCalOpen(false);
+      setUnitOpen(!unitOpen);
+    }
+  };
   const toolbar = renderToolbar({
     zoom,
     pickZoom,
@@ -5687,8 +6473,15 @@ function TimelineViewBody(props) {
     crit,
     setCrit,
     calOpen,
-    toggleCal: () => setCalOpen(!calOpen),
-    calBtnRef
+    toggleCal: () => {
+      setUnitOpen(false);
+      setCalOpen(!calOpen);
+    },
+    calBtnRef,
+    auto,
+    autoBtnRef,
+    collapse: compact,
+    summary
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
@@ -5706,15 +6499,37 @@ function TimelineViewBody(props) {
     pulled: cal.pulled,
     onClose: closeCal
   }) : null;
+  // Popover unit workspace (R15): Esc / tombol tutup mengembalikan fokus ke "Jadwal otomatis"; klik luar tidak.
+  const closeUnits = how => {
+    setUnitOpen(false);
+    const b = autoBtnRef.current;
+    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+  };
+  const unitPop = unitOpen && pageKind === "workspace" && ov.ready ? /*#__PURE__*/React.createElement(UnitPopover, {
+    entries: unitsEntries,
+    waiting: unitsEntries.some(e => e.locked),
+    onClose: closeUnits
+  }) : null;
   const top = /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-top"
-  }, toolbar, popover);
+  }, toolbar, popover, unitPop);
+  const dialog = pv && pv.model ? /*#__PURE__*/React.createElement(PreviewDialog, {
+    key: pv.id,
+    title: pv.title,
+    model: pv.model,
+    offline: offline,
+    todayLabel: pv.todayLabel,
+    busy: pv.busy,
+    whyOf: pv.whyOf,
+    onApply: applyPv,
+    onCancel: cancelPv
+  }) : null;
   if (!hasRows) {
     return /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline"
     }, top, /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline-empty"
-    }, MSG_EMPTY));
+    }, MSG_EMPTY), dialog);
   }
   if (listMode) {
     return /*#__PURE__*/React.createElement("div", {
@@ -5723,7 +6538,7 @@ function TimelineViewBody(props) {
       rows: lay.rows,
       cal: lay.cal,
       onTaskClick: context.onTaskClick
-    }));
+    }), dialog);
   }
   const v = {
     lay,
@@ -5764,7 +6579,7 @@ function TimelineViewBody(props) {
       width: tableW,
       height: bodyH
     }
-  }, renderTableRows(v)), renderChart(v))), renderLegend(lay, footRef, crit));
+  }, renderTableRows(v)), renderChart(v))), renderLegend(lay, footRef, crit), dialog);
 }
 
 // 4g. Seksi "Jadwal" di detail task (Task 10; spec §8.8, Q5; R7, R8, R10, R15, R16, R17). Slot taskDetail.sections,
@@ -6750,7 +7565,16 @@ const pure = {
   ScheduleSection,
   ScheduleBody,
   CalendarPopover,
-  ListFallback
+  ListFallback,
+  MoreMenu,
+  UnitPopover,
+  PreviewDialog,
+  dialogModel,
+  toolbarSummary,
+  pageUnits,
+  unitCaption,
+  signedHk,
+  scopeFilter
 };
 if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, {
   TLHolidays,

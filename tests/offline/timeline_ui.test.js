@@ -2939,7 +2939,7 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
   const per = {};
   for (const h of hits) per[h.fn + ":" + h.call] = (per[h.fn + ":" + h.call] || 0) + 1;
   assert.deepEqual(per, {
-    "issue:taskExt.setMany": 1, "issue:taskExt.set": 1, "write:taskExt.set": 1,
+    "issue:taskExt.setMany": 1, "issue:taskExt.set": 1, "write:taskExt.set": 1, "issueMany:taskExt.setMany": 1,
     "save:records.put": 1, "setAuto:records.put": 1,
   });
   // regex mentah tetap cocok dengan jumlah hit AST (tidak ada pemanggilan yang luput dari parser)
@@ -3234,3 +3234,527 @@ test("panah view memakai tipe dependensi (SS/FF/SF) lewat TLLayout.arrowPath", (
     assert.equal(x0, type === "FF" ? box.x + box.w : box.x, type);
   }
 });
+
+// ── 1c-1 Task 8 (R14, R15, R23): toolbar, sakelar Jadwal otomatis, dialog pratinjau, applyPlan ─────────────────────
+// Project pribadi "Alpha" tanpa record (Manual): A akar Sen 2 Nov 2 hk; B FS A, C FS B, D FS C (1 hk, tersimpan Sen 2).
+// Menyalakan otomatis → B Rab 4, C Kam 5, D Jum 6 (3 item; A akar tetap).
+const MSG_ON0 = "Jadwal otomatis menyala — tidak ada task yang bergeser";
+const MSG_OFF = "Jadwal otomatis dimatikan — tanggal tetap seperti sekarang";
+const MSG_STALE = "Data berubah sejak pratinjau dibuka — hitung ulang";
+const MSG_WAIT_UNITS = "Menunggu data jadwal workspace…";
+const MSG_OFFLINE = "Kamu sedang offline — jadwal dihitung dari data di perangkat ini";
+const chainTasks = (extra) => {
+  const al = Object.assign({ project: "Alpha" }, extra || {});
+  const dep = (id) => [{ t: { $task: id }, type: "FS", lag: 0 }];
+  return [
+    mk(1, "A", { start: "2026-11-02", duration: 2 }, al),
+    mk(2, "B", { start: "2026-11-02", duration: 1, deps: dep(1) }, al),
+    mk(3, "C", { start: "2026-11-02", duration: 1, deps: dep(2) }, al),
+    mk(4, "D", { start: "2026-11-02", duration: 1, deps: dep(3) }, al),
+  ];
+};
+const toolbarTexts = (tree) => {
+  const bar = byCls(tree, "plg-timeline-toolbar")[0];
+  return nodes(bar, (n) => n.type === "button" || n.type === T.MoreMenu).map((n) => (n.type === T.MoreMenu ? "[Lainnya]" : txt(n).trim()));
+};
+const switchOf = (tree) => nodes(tree, (n) => n.type === "button" && n.props.role === "switch" && txt(n).trim() === "Jadwal otomatis")[0];
+const dialogOf = (tree) => nodes(tree, (n) => n.type === T.PreviewDialog)[0];
+const unitPopOf = (tree) => nodes(tree, (n) => n.type === T.UnitPopover)[0];
+const moreOf = (tree) => nodes(tree, (n) => n.type === T.MoreMenu)[0];
+const child = (node) => mount(node.type).render(node.props); // satu tingkat komponen anak (props apa adanya)
+
+// View dengan mesin siap; log tulis berurutan (setMany + put) untuk memeriksa urutan.
+async function swView(clock, o) {
+  const opt = o || {};
+  const fr = opt.records || fakeRecords();
+  let list = opt.tasks || chainTasks();
+  const { api, calls } = fakeApi({ records: fr });
+  api.env.userId = 7;
+  api.data = { tasks: { list: () => Promise.resolve(opt.listOf ? opt.listOf() : list) } };
+  const log = [];
+  api.taskExt.setMany = (items) => { log.push(["setMany", JSON.parse(JSON.stringify(items))]); return opt.setMany ? opt.setMany(items) : Promise.resolve([]); };
+  api.taskExt.set = (...a) => { log.push(["set", a]); return Promise.resolve(); };
+  const put0 = fr.api.put;
+  fr.api.put = (...a) => { log.push(["put", a[1], JSON.parse(JSON.stringify(a[2])), a[3]]); return put0(...a); };
+  const ctx = ctxOf(list, opt.ctx).ctx;
+  const props = { context: ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const tree = await settleView(m, () => props, clock);
+  const h = {
+    m, fr, api, calls, log, props,
+    tree,
+    setList(l) { list = l; },
+    async again() { h.tree = await settleView(m, () => props, clock); return h.tree; },
+    render() { h.tree = m.render(props); return h.tree; },
+    writes: () => log.filter((l) => l[0] === "setMany" || l[0] === "set" || l[0] === "put"),
+  };
+  return h;
+}
+
+test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya'; mesin belum siap → tombol Jadwal otomatis/Jalur kritis/Jadwalkan ulang tidak tampil", () => withEngineClock(async (clock) => {
+  // mesin belum siap: tidak ada tiga tombol baru (juga tidak ada 'Lainnya' di Live Edit)
+  {
+    const { api } = fakeApi();
+    api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
+    const m = mount(T.TimelineViewBody);
+    const props = { context: ctxOf(chainTasks()).ctx, api };
+    m.render(props);
+    m.flush();
+    await settle();
+    const tree = m.render(props);
+    assert.deepEqual(toolbarTexts(tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Kalender kerja", "Urutkan menurut Mulai"]);
+    const le = mount(T.TimelineViewBody).render({ context: ctxOf(chainTasks(), { liveEdit: true }).ctx, api });
+    assert.equal(moreOf(le), undefined, "Lainnya tanpa isi tidak tampil");
+    m.unmount();
+  }
+  // lebar, mesin siap: urutan R23
+  const h = await swView(clock);
+  assert.deepEqual(toolbarTexts(h.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Jadwal otomatis", "Jalur kritis", "Jadwalkan ulang", "Kalender kerja", "Urutkan menurut Mulai"]);
+  assert.equal(moreOf(h.tree), undefined);
+  h.m.unmount();
+  // Live Edit: tiga tombol pindah ke 'Lainnya' (posisi sama di urutan), Kolom tetap di toolbar
+  const le = await swView(clock, { ctx: { liveEdit: true } });
+  assert.deepEqual(toolbarTexts(le.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "[Lainnya]", "Kalender kerja", "Urutkan menurut Mulai", "Kolom"]);
+  const mm = moreOf(le.tree);
+  assert.deepEqual(mm.props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Jadwalkan ulang"]);
+  // MoreMenu: tombol 'Lainnya' aria-haspopup="menu"; dibuka → role menu dengan item menuitemcheckbox/menuitem
+  const mt = mount(T.MoreMenu);
+  let t = mt.render(mm.props);
+  const btn = buttonByText(t, "Lainnya");
+  assert.equal(btn.props["aria-haspopup"], "menu");
+  assert.equal(btn.props["aria-expanded"], false);
+  btn.props.onClick({});
+  t = mt.render(mm.props);
+  const menu = nodes(t, (n) => n.props.role === "menu")[0];
+  assert.ok(menu);
+  const its = nodes(menu, (n) => n.type === "button");
+  assert.deepEqual(its.map((n) => [txt(n).trim(), n.props.role, n.props["aria-checked"]]), [
+    ["Jadwal otomatis", "menuitemcheckbox", false], ["Jalur kritis", "menuitemcheckbox", false], ["Jadwalkan ulang", "menuitem", undefined],
+  ]);
+  // pilih Jalur kritis → pref crit ditulis, menu tertutup
+  its[1].props.onClick({});
+  t = mt.render(mm.props);
+  assert.equal(nodes(t, (n) => n.props.role === "menu").length, 0);
+  await settle();
+  assert.deepEqual(le.calls.storageSet.filter((s) => s[0].indexOf("crit:") === 0), [["crit:proj_Alpha", true]]);
+  mt.unmount();
+  le.m.unmount();
+  // ≤ 640 px: sama; mode Daftar → 'Lainnya' tanpa Jalur kritis (Slack/kritis tidak di Daftar)
+  const prevWin = global.window;
+  global.window = { matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }), innerHeight: 800, addEventListener() {}, removeEventListener() {} };
+  try {
+    const n = await swView(clock);
+    assert.deepEqual(moreOf(n.tree).props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Jadwalkan ulang"]);
+    assert.equal(switchOf(n.tree), undefined, "sakelar tidak di toolbar HP");
+    buttonByText(n.tree, "Daftar").props.onClick({});
+    const lt = n.render();
+    assert.deepEqual(moreOf(lt).props.items.map((it) => it.text), ["Jadwal otomatis", "Jadwalkan ulang"]);
+    n.m.unmount();
+  } finally {
+    global.window = prevWin;
+  }
+}));
+
+test("kanan toolbar 'Selesai {tgl}' + chip '{n} lewat tenggat'", () => withEngineClock(async (clock) => {
+  const { m, tree } = await critView(clock);
+  const end = byCls(tree, "plg-timeline-toolbar-end")[0];
+  assert.ok(end, "ringkasan kanan toolbar");
+  assert.equal(txt(byCls(end, "plg-timeline-finish")[0]).trim(), "Selesai Sel 17 Nov");
+  assert.equal(txt(byCls(end, "plg-timeline-latechip")[0]).trim(), "1 lewat tenggat");
+  m.unmount();
+  // tanpa task lewat tenggat → tanpa chip
+  const h = await swView(clock);
+  const e2 = byCls(h.tree, "plg-timeline-toolbar-end")[0];
+  assert.equal(txt(byCls(e2, "plg-timeline-finish")[0]).trim(), "Selesai Sel 3 Nov");
+  assert.equal(byCls(e2, "plg-timeline-latechip").length, 0);
+  h.m.unmount();
+}));
+
+test("halaman project: sakelar ON, 0 item → records.put auto true + toast 'Jadwal otomatis menyala — tidak ada task yang bergeser', tanpa setMany", () => withEngineClock(async (clock) => {
+  const h = await swView(clock, { tasks: [mk(1, "A", { start: "2026-11-02", duration: 2 }, { project: "Alpha" })] });
+  const sw = switchOf(h.tree);
+  assert.ok(sw);
+  assert.equal(sw.props["aria-checked"], false);
+  assert.equal(sw.props.disabled, false, "halaman project pribadi tidak pernah terkunci (P3)");
+  sw.props.onClick({});
+  await settle();
+  assert.deepEqual(h.writes(), [["put", "prj@user:" + T.TLSched.fnv1a32("alpha"), { v: 1, auto: true, name: "Alpha", by: 7 }, { scope: "user" }]]);
+  assert.deepEqual(h.calls.toast, [[MSG_ON0, "success"]]);
+  assert.equal(dialogOf(h.render()), undefined, "tanpa dialog");
+  h.fr.emit({ entity: "project", ids: [], source: "local" });
+  await h.again();
+  assert.equal(switchOf(h.tree).props["aria-checked"], true);
+  h.m.unmount();
+}));
+
+test("ON dengan 3 item → dialog 'Nyalakan jadwal otomatis — {project}', Batal/Esc → 0 tulis; Terapkan → satu setMany lalu satu put; setMany reject → put tidak dipanggil, toast 'Sebagian jadwal gagal disimpan (k dari n)'", () => withEngineClock(async (clock) => {
+  const h = await swView(clock);
+  switchOf(h.tree).props.onClick({});
+  await settle();
+  let dlg = dialogOf(h.render());
+  assert.ok(dlg, "pratinjau terbuka");
+  assert.equal(dlg.props.title, "Nyalakan jadwal otomatis — Alpha");
+  assert.deepEqual(dlg.props.model.rows.map((r) => r.key), ["2", "3", "4"]);
+  const dt = child(dlg);
+  assert.deepEqual(byCls(dt, "plg-timeline-pv-main").map((n) => txt(n).trim()), [
+    "2 · B · Sen 2 Nov → Rab 4 Nov · +2 hk", "3 · C · Sen 2 Nov → Kam 5 Nov · +3 hk", "4 · D · Sen 2 Nov → Jum 6 Nov · +4 hk",
+  ]);
+  assert.equal(txt(byCls(dt, "plg-timeline-pv-summary")[0]).trim(), "3 task bergeser · Selesai project Sel 3 Nov → Jum 6 Nov (+3 hk)");
+  assert.equal(dlg.props.offline, false);
+  assert.deepEqual(h.writes(), [], "0 tulis saat dibuka");
+  // Batal (Esc di dialog memanggil onCancel yang sama) → tertutup, 0 tulis
+  dlg.props.onCancel();
+  assert.equal(dialogOf(h.render()), undefined);
+  assert.deepEqual(h.writes(), []);
+  // buka lagi → Terapkan: satu setMany (3 item, nilai hasil hitung) LALU satu put
+  switchOf(h.tree).props.onClick({});
+  await settle();
+  dlg = dialogOf(h.render());
+  dlg.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes().map((w) => w[0]), ["setMany", "put"]);
+  assert.deepEqual(h.log[0][1], [
+    { taskId: 2, patch: { start: "2026-11-04" } }, { taskId: 3, patch: { start: "2026-11-05" } }, { taskId: 4, patch: { start: "2026-11-06" } },
+  ]);
+  assert.deepEqual(h.writes()[1].slice(2), [{ v: 1, auto: true, name: "Alpha", by: 7 }, { scope: "user" }]);
+  assert.equal(dialogOf(h.render()), undefined, "dialog ditutup setelah Terapkan");
+  const ok = h.calls.toast.find((t) => t[0] === "Jadwal diterapkan · 3 task");
+  assert.ok(ok, "toast sukses persis");
+  assert.equal(ok[1], "success");
+  assert.equal(ok[2].label, "Urungkan");
+  h.m.unmount();
+  // setMany ditolak dengan err.applied [2] → put tidak dipanggil; toast gagal sebagian (2 dari 3) + Urungkan hanya applied
+  const f = await swView(clock, { setMany: () => { const e = new Error("Task not found"); e.applied = [2]; return Promise.reject(e); } });
+  switchOf(f.tree).props.onClick({});
+  await settle();
+  dialogOf(f.render()).props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(f.writes().map((w) => w[0]), ["setMany"], "put tidak dipanggil");
+  const part = f.calls.toast.find((t) => t[0] === "Sebagian jadwal gagal disimpan (2 dari 3)");
+  assert.ok(part, JSON.stringify(f.calls.toast));
+  assert.equal(part[1], "error");
+  part[2].onClick();
+  await settle();
+  assert.deepEqual(f.log[1], ["setMany", [{ taskId: 2, patch: { start: "2026-11-02", duration: 1, constraint: null, mode: null } }]]);
+  f.m.unmount();
+}));
+
+test("OFF → put auto false + toast 'dimatikan — tanggal tetap…', 0 setMany", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, unitRec(null, "Alpha"));
+  const h = await swView(clock, { records: fr });
+  const sw = switchOf(h.tree);
+  assert.equal(sw.props["aria-checked"], true);
+  sw.props.onClick({});
+  await settle();
+  assert.deepEqual(h.writes(), [["put", unitRec(null, "Alpha").id, { v: 1, auto: false, name: "Alpha", by: 7 }, { scope: "user" }]]);
+  assert.deepEqual(h.calls.toast, [[MSG_OFF, "success"]]);
+  assert.equal(dialogOf(h.render()), undefined);
+  h.m.unmount();
+}));
+
+// Workspace 12: Alpha (Sari, 9), Beta (by tak dikenal), Gamma (saya, 7), tanpa project (tanpa record).
+function wsSetup(o) {
+  const opt = o || {};
+  const fr = fakeRecords();
+  const late = { updated_at: "2026-11-04T18:00:00Z" }; // 01.00 WIB Kam 5 Nov (Jakarta, bukan UTC)
+  if (opt.alpha !== false) putRec(fr, unitRec(12, "Alpha", { by: 9 }, late));
+  if (opt.all !== false) {
+    putRec(fr, unitRec(12, "Beta", { by: 99 }, late));
+    putRec(fr, unitRec(12, "Gamma", { by: 7 }, late));
+  }
+  const w = { list_id: 12 };
+  const tasks = [
+    mk(1, "A1", { start: "2026-11-02", duration: 1 }, Object.assign({ project: "Alpha" }, w)),
+    mk(2, "B1", { start: "2026-11-02", duration: 1 }, Object.assign({ project: "Beta" }, w)),
+    mk(3, "G1", { start: "2026-11-02", duration: 1 }, Object.assign({ project: "Gamma" }, w)),
+    mk(4, "N1", { start: "2026-11-02", duration: 1 }, w),
+  ];
+  const ctx = {
+    page: "slist_12", pageKind: "workspace", listId: 12, projectName: null,
+    collaborators: [{ id: 9, display_name: "Sari" }, { id: 11, username: "budi" }],
+    currentUser: { id: 7, display_name: "Saya", username: "saya" },
+  };
+  return { fr, tasks, ctx };
+}
+
+test("halaman workspace: popover per kelompok project + '(Tanpa project)'; 'Dinyalakan oleh Sari · Kam 5 Nov' dari collaborators; by tak dikenal → 'Dinyalakan oleh anggota lain'", () => withEngineClock(async (clock) => {
+  const { fr, tasks, ctx } = wsSetup();
+  const h = await swView(clock, { records: fr, tasks, ctx });
+  fr.emit(PULLED);
+  await h.again();
+  assert.equal(switchOf(h.tree), undefined, "workspace: tombol pembuka popover, bukan sakelar");
+  const open = buttonByText(h.tree, "Jadwal otomatis");
+  assert.equal(open.props["aria-haspopup"], "dialog");
+  assert.equal(open.props["aria-expanded"], false);
+  open.props.onClick({});
+  const pop = unitPopOf(h.render());
+  assert.ok(pop);
+  assert.deepEqual(pop.props.entries.map((e) => [e.label, e.on, e.locked, e.caption]), [
+    ["Alpha", true, false, "Dinyalakan oleh Sari · Kam 5 Nov"],
+    ["Beta", true, false, "Dinyalakan oleh anggota lain · Kam 5 Nov"],
+    ["Gamma", true, false, "Dinyalakan oleh Saya · Kam 5 Nov"],
+    ["(Tanpa project)", false, false, null],
+  ]);
+  assert.equal(pop.props.waiting, false);
+  // render popover: dialog berlabel, satu sakelar per kelompok, keterangan
+  const pt = child(pop);
+  const dlg = nodes(pt, (n) => n.props.role === "dialog")[0];
+  assert.equal(dlg.props["aria-label"], "Jadwal otomatis");
+  const sws = nodes(pt, (n) => n.props.role === "switch");
+  assert.deepEqual(sws.map((n) => [n.props["aria-label"], n.props["aria-checked"], n.props.disabled]), [
+    ["Alpha", true, false], ["Beta", true, false], ["Gamma", true, false], ["(Tanpa project)", false, false],
+  ]);
+  assert.ok(txt(pt).indexOf("Dinyalakan oleh Sari · Kam 5 Nov") >= 0);
+  // nyalakan "(Tanpa project)" (satu akar → 0 item) → put unit "-" scope list:12
+  pop.props.entries[3].onToggle();
+  await settle();
+  assert.deepEqual(h.writes(), [["put", "prj@list:12:-", { v: 1, auto: true, name: "", by: 7 }, { scope: "list:12" }]]);
+  assert.deepEqual(h.calls.toast, [[MSG_ON0, "success"]]);
+  h.m.unmount();
+}));
+
+test("P3 (a): workspace, record unit tidak ada lokal dan belum ada peristiwa pulled sejak pasang → sakelar disabled + 'Menunggu data jadwal workspace…'; setelah pulled + muat ulang selesai → aktif; halaman project pribadi tidak pernah terkunci", () => withEngineClock(async (clock) => {
+  const { fr, tasks, ctx } = wsSetup({ all: false });
+  const h = await swView(clock, { records: fr, tasks, ctx });
+  buttonByText(h.tree, "Jadwal otomatis").props.onClick({});
+  let pop = unitPopOf(h.render());
+  assert.deepEqual(pop.props.entries.map((e) => [e.label, e.locked]), [["Alpha", false], ["Beta", true], ["Gamma", true], ["(Tanpa project)", true]]);
+  assert.equal(pop.props.waiting, true);
+  const pt = child(pop);
+  assert.ok(nodes(pt, (n) => n.props.role === "status" && txt(n).trim() === MSG_WAIT_UNITS).length === 1, "catatan persis");
+  assert.deepEqual(nodes(pt, (n) => n.props.role === "switch").map((n) => n.props.disabled), [false, true, true, true]);
+  // sakelar terkunci tidak menulis walau dipanggil
+  pop.props.entries[1].onToggle();
+  await settle();
+  assert.deepEqual(h.writes(), []);
+  // sync.done / onChange sync bukan tanda tarik sukses
+  for (const fn of h.calls.handlers["sync.done"] || []) fn({ initial: true });
+  h.fr.emit({ entity: "project", ids: [], source: "sync" });
+  await h.again();
+  assert.equal(unitPopOf(h.render()).props.waiting, true);
+  // tarik sukses → muat ulang → aktif
+  h.fr.emit(PULLED);
+  await h.again();
+  pop = unitPopOf(h.tree);
+  assert.equal(pop.props.waiting, false);
+  assert.deepEqual(pop.props.entries.map((e) => e.locked), [false, false, false, false]);
+  assert.equal(nodes(child(pop), (n) => n.props.role === "status" && txt(n).trim() === MSG_WAIT_UNITS).length, 0);
+  h.m.unmount();
+  // halaman project pribadi tanpa record, tanpa pulled → tidak terkunci
+  const p = await swView(clock);
+  assert.equal(switchOf(p.tree).props.disabled, false);
+  p.m.unmount();
+}));
+
+// Model dialog sintetis (bentuk TLPlan.preview + wbs/judul dari view).
+function pvModel(n, o) {
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    rows.push({ key: String(i + 10), task: { id: i + 10, title: "Task " + i }, wbs: "1." + (i + 1), kind: "move", from: "2026-11-02", to: "2026-11-04", deltaHk: 2, durFrom: 1, durTo: 1, isNew: false, durChanged: false, durGuess: false, late: 0 });
+  }
+  return Object.assign({ rows, moved: n, endBefore: T.TLCal.dn("2026-11-09"), endAfter: T.TLCal.dn("2026-11-11"), endDelta: 2, late: 1, notMoved: [], brokenDeps: 0 }, o || {});
+}
+function dlgSetup(model, extra) {
+  const ev = { apply: 0, cancel: 0 };
+  const props = Object.assign({ title: "Tinjau jadwal otomatis", model, offline: false, onApply: () => { ev.apply++; }, onCancel: () => { ev.cancel++; } }, extra || {});
+  const m = mount(T.PreviewDialog);
+  let tree = m.render(props);
+  return { m, ev, props, get tree() { return tree; }, rerender() { tree = m.render(props); return tree; } };
+}
+
+test("dialog: baris 'WBS · Task · Mulai lama → baru · Δ hk', 'baru dijadwalkan', 'durasi berubah', ringkasan '{n} task bergeser · Selesai project … ({±k} hk) · {m} lewat tenggat', 'Tidak dipindah'; 60 item → 50 baris + 'Tampilkan semua'; fokus terjebak, Esc", () => withPop(async (w) => {
+  const model = pvModel(3);
+  model.rows[1] = Object.assign({}, model.rows[1], { kind: "new", from: null, to: "2026-11-05", deltaHk: null, isNew: true, durFrom: null, durTo: 1 });
+  model.rows[2] = Object.assign({}, model.rows[2], { kind: "duration", to: "2026-11-02", deltaHk: -1, durFrom: 3, durTo: 5, durChanged: true });
+  model.notMoved = [{ key: "99", why: "cycle", task: { id: 99, title: "Siklus" }, wbs: "2" }];
+  const d = dlgSetup(model);
+  const tree = d.tree;
+  const dlg = nodes(tree, (n) => n.props.role === "dialog")[0];
+  assert.equal(dlg.props["aria-modal"], "true");
+  assert.equal(dlg.props["aria-label"], "Tinjau jadwal otomatis");
+  const rowTexts = byCls(tree, "plg-timeline-pv-main").map((n) => txt(n).trim());
+  assert.deepEqual(rowTexts, ["1.1 · Task 0 · Sen 2 Nov → Rab 4 Nov · +2 hk", "1.2 · Task 1 · — → Kam 5 Nov", "1.3 · Task 2 · Sen 2 Nov → Sen 2 Nov · −1 hk"]);
+  const chips = byCls(tree, "plg-timeline-pv-tag").map((n) => txt(n).trim());
+  assert.deepEqual(chips, ["baru dijadwalkan", "durasi berubah"]);
+  assert.equal(txt(byCls(tree, "plg-timeline-pv-summary")[0]).trim(), "3 task bergeser · Selesai project Sen 9 Nov → Rab 11 Nov (+2 hk) · 1 lewat tenggat");
+  const nm = byCls(tree, "plg-timeline-pv-notmoved")[0];
+  assert.ok(nm);
+  assert.ok(txt(nm).indexOf("Tidak dipindah") >= 0);
+  assert.ok(txt(nm).indexOf("2 · Siklus") >= 0);
+  assert.equal(byCls(tree, "plg-timeline-pv-offline").length, 0);
+  assert.equal(buttonByText(tree, "Terapkan").props.disabled, false);
+  buttonByText(tree, "Batal").props.onClick({});
+  assert.equal(d.ev.cancel, 1);
+  buttonByText(tree, "Terapkan").props.onClick({});
+  assert.equal(d.ev.apply, 1);
+  // tanpa ringkasan lewat tenggat / Selesai project tidak diketahui
+  const d0 = dlgSetup(pvModel(2, { late: 0, endBefore: null, endAfter: null, endDelta: null }));
+  assert.equal(txt(byCls(d0.tree, "plg-timeline-pv-summary")[0]).trim(), "2 task bergeser");
+  // 0 item → Terapkan nonaktif
+  assert.equal(buttonByText(dlgSetup(pvModel(0)).tree, "Terapkan").props.disabled, true);
+  // 60 item → 50 baris + "Tampilkan semua" → 60
+  const big = dlgSetup(pvModel(60));
+  assert.equal(byCls(big.tree, "plg-timeline-pv-main").length, 50);
+  const all = buttonByText(big.tree, "Tampilkan semua");
+  assert.ok(all);
+  all.props.onClick({});
+  assert.equal(byCls(big.rerender(), "plg-timeline-pv-main").length, 60);
+  assert.equal(buttonByText(big.tree, "Tampilkan semua"), undefined);
+  // fokus: elemen fokus pertama saat dibuka; Tab di ujung kembali ke awal, Shift+Tab di awal ke akhir; Esc = Batal
+  const doc = { activeElement: null };
+  const mkf = (name) => ({ name, focus() { doc.activeElement = this; } });
+  const f1 = mkf("pertama");
+  const f2 = mkf("tengah");
+  const f3 = mkf("terakhir");
+  const root = { ownerDocument: doc, focus() { doc.activeElement = this; }, contains: (t) => [f1, f2, f3].indexOf(t) >= 0, querySelectorAll: () => [f1, f2, f3] };
+  const t = dlgSetup(pvModel(2));
+  nodes(t.tree, (n) => n.props.role === "dialog")[0].props.ref.current = root;
+  t.m.flush();
+  assert.equal(doc.activeElement, f1, "fokus ke elemen pertama saat dibuka");
+  const keyDlg = nodes(t.tree, (n) => n.props.role === "dialog")[0].props.onKeyDown;
+  let prevented = 0;
+  doc.activeElement = f3;
+  keyDlg({ key: "Tab", shiftKey: false, preventDefault() { prevented++; } });
+  assert.equal(doc.activeElement, f1, "Tab dari akhir → awal");
+  keyDlg({ key: "Tab", shiftKey: true, preventDefault() { prevented++; } });
+  assert.equal(doc.activeElement, f3, "Shift+Tab dari awal → akhir");
+  doc.activeElement = f2;
+  keyDlg({ key: "Tab", shiftKey: false, preventDefault() { prevented++; } });
+  assert.equal(doc.activeElement, f2, "di tengah: peramban yang memindah");
+  assert.equal(prevented, 2);
+  doc.activeElement = { name: "luar" };
+  keyDlg({ key: "Tab", shiftKey: false, preventDefault() { prevented++; } });
+  assert.equal(doc.activeElement, f1, "fokus di luar dialog → ditarik kembali");
+  let stopped = 0;
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped++; } });
+  assert.equal(t.ev.cancel, 1, "Esc = Batal");
+  assert.equal(stopped, 1, "Esc tidak menutup modal host di belakangnya");
+  assert.equal(t.ev.apply, 0);
+  t.m.unmount();
+  assert.equal(w.ls.filter((l) => l.type === "keydown").length, 0, "pendengar Esc dilepas");
+}));
+
+test("item durGuess → catatan 'durasi belum diisi, dianggap 1 hari kerja'", () => {
+  const model = pvModel(2);
+  model.rows[1] = Object.assign({}, model.rows[1], { kind: "new", from: null, isNew: true, durGuess: true });
+  const d = dlgSetup(model);
+  const notes = byCls(d.tree, "plg-timeline-pv-note").map((n) => txt(n).trim());
+  assert.deepEqual(notes, ["durasi belum diisi, dianggap 1 hari kerja"]);
+  // catatan berada di baris item itu
+  const rows = byCls(d.tree, "plg-timeline-pv-row");
+  assert.equal(byCls(rows[0], "plg-timeline-pv-note").length, 0);
+  assert.equal(byCls(rows[1], "plg-timeline-pv-note").length, 1);
+});
+
+test("offline → catatan offline", () => withEngineClock(async (clock) => {
+  const d = dlgSetup(pvModel(1), { offline: true, todayLabel: "Sab 7 Nov" });
+  assert.equal(txt(byCls(d.tree, "plg-timeline-pv-offline")[0]).trim(), MSG_OFFLINE);
+  assert.equal(txt(byCls(d.tree, "plg-timeline-pv-today")[0]).trim(), "Hari ini: Sab 7 Nov");
+  // view: api.env.online === false → dialog sakelar membawa offline true
+  const h = await swView(clock);
+  h.api.env.online = false;
+  switchOf(h.render()).props.onClick({});
+  await settle();
+  assert.equal(dialogOf(h.render()).props.offline, true);
+  h.m.unmount();
+}));
+
+test("CAS: daftar lengkap berubah (start item 2) sebelum Terapkan → toast 'Data berubah sejak pratinjau dibuka — hitung ulang', 0 setMany, dialog menghitung ulang", () => withEngineClock(async (clock) => {
+  const h = await swView(clock);
+  switchOf(h.tree).props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  assert.equal(dlg.props.model.rows[1].from, "2026-11-02");
+  // sinkron menimpa Mulai C (item ke-2) saat dialog terbuka
+  const changed = chainTasks();
+  changed[2] = mk(3, "C", { start: "2026-11-03", duration: 1, deps: [{ t: { $task: 2 }, type: "FS", lag: 0 }] }, { project: "Alpha" });
+  h.setList(changed);
+  dlg.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), [], "0 tulis");
+  assert.deepEqual(h.calls.toast.map((t) => t.slice(0, 2)), [[MSG_STALE, "error"]]);
+  const again = dialogOf(h.render());
+  assert.ok(again, "dialog tetap terbuka");
+  assert.equal(again.props.model.rows[1].from, "2026-11-03", "dihitung ulang dari data terbaru");
+  // Terapkan lagi (data tidak berubah) → satu setMany lalu put
+  again.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes().map((w) => w[0]), ["setMany", "put"]);
+  h.m.unmount();
+}));
+
+test("anggota lain mematikan unit (onChange project, updatedAt baru) saat pratinjau ON terbuka → Terapkan ditolak dengan toast yang sama, 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await swView(clock);
+  switchOf(h.tree).props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  const rec = unitRec(null, "Alpha", { auto: false, by: 9 }, { updated_at: "2026-11-04T05:00:00Z" });
+  putRec(h.fr, rec);
+  h.fr.emit({ entity: "project", ids: [rec.id], source: "sync" });
+  dlg.props.onApply();
+  await settle();
+  await settle();
+  assert.deepEqual(h.writes(), []);
+  assert.deepEqual(h.calls.toast.map((t) => t.slice(0, 2)), [[MSG_STALE, "error"]]);
+  assert.ok(dialogOf(h.render()), "dialog menghitung ulang (tetap terbuka)");
+  h.m.unmount();
+}));
+
+test("Urungkan → setMany undoItems persis (constraint null)", () => withEngineClock(async (clock) => {
+  const tasks = chainTasks();
+  // C punya constraint tersimpan rusak (tipe tak dikenal) → Urungkan menulis null (undoItems), bukan nilai rusak
+  tasks[2] = mk(3, "C", { start: "2026-11-02", duration: 1, deps: [{ t: { $task: 2 }, type: "FS", lag: 0 }], constraint: { type: "XX" } }, { project: "Alpha" });
+  const h = await swView(clock, { tasks });
+  switchOf(h.tree).props.onClick({});
+  await settle();
+  const dlg = dialogOf(h.render());
+  dlg.props.onApply();
+  await settle();
+  await settle();
+  const toast = h.calls.toast.find((t) => t[0] === "Jadwal diterapkan · 3 task");
+  toast[2].onClick();
+  await settle();
+  const undo = h.log.filter((l) => l[0] === "setMany")[1][1];
+  assert.deepEqual(undo, [
+    { taskId: 2, patch: { start: "2026-11-02", duration: 1, constraint: null, mode: null } },
+    { taskId: 3, patch: { start: "2026-11-02", duration: 1, constraint: null, mode: null } },
+    { taskId: 4, patch: { start: "2026-11-02", duration: 1, constraint: null, mode: null } },
+  ]);
+  assert.equal(h.log.filter((l) => l[0] === "put").length, 1, "Urungkan tidak menulis record project");
+  h.m.unmount();
+}));
+
+test("sumber Task 8: teks persis (R14, R15, R23, R28) dan applyPlan satu pintu setMany", () => {
+  for (const s of ["Nyalakan jadwal otomatis — ", "Jadwal diterapkan · ", "Sebagian jadwal gagal disimpan (", MSG_ON0, MSG_OFF, MSG_STALE, MSG_WAIT_UNITS, MSG_OFFLINE,
+    "Tampilkan semua", "Lainnya", "Dinyalakan oleh anggota lain", "Tidak dipindah", "baru dijadwalkan", "durasi berubah", "durasi belum diisi, dianggap 1 hari kerja", "Jadwalkan ulang"]) {
+    assert.ok(jsx.indexOf(s) >= 0, s);
+  }
+  assert.match(css, /\.plg-timeline-pv\b/);
+  assert.match(css, /\.plg-timeline-more-menu\b/);
+});
+
+test("pratinjau sakelar memberi seedKeys unit: lingkaran Y↔Z di luar hilir item tercantum di 'Tidak dipindah' (K34); 'sebelum' = hasil useEngine tanpa run tambahan", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const tasks = chainTasks().concat([
+    mk(8, "Y", { start: "2026-11-02", duration: 1, deps: [{ t: { $task: 9 }, type: "FS", lag: 0 }] }, al),
+    mk(9, "Z", { start: "2026-11-02", duration: 1, deps: [{ t: { $task: 8 }, type: "FS", lag: 0 }] }, al),
+  ]);
+  const spy = spyRun();
+  try {
+    const h = await swView(clock, { tasks });
+    const before = spy.runs.length;
+    switchOf(h.tree).props.onClick({});
+    await settle();
+    const dlg = dialogOf(h.render());
+    assert.deepEqual(dlg.props.model.notMoved.map((x) => [x.key, x.why, x.wbs]), [["8", "cycle", "5"], ["9", "cycle", "6"]]);
+    assert.equal(spy.runs.length - before, 0, "view tidak menjalankan mesin tambahan (engine.run); 'sebelum' pratinjau = hasil useEngine");
+    h.m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
