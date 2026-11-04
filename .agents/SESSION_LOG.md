@@ -4366,3 +4366,9 @@
 - **Changes:** server: kolom `tasks.ext_core_at`/`ext_only_at` (`migrate_db`), pembekuan SQL pada PUT ext murni, `core_updated_at` di respons; klien: aturan tarik K48 di `syncpull.js`; SW v497 silent; README, ADR-044, catatan implementasi spec 1c, tes server + Node, E2E 1c-0b 26/26 (kontrol dipatok `390e151d`). Review per tugas + review akhir dengan perbaikan dokumen/tes.
 - **Files Touch:** task_ext.py, webapp.py, static/offline/syncpull.js, static/index.html (2 baris versi), static/sw.js, static/whatsnew.json, tests/** (baru + versi), docs/plugins/README.md, docs/superpowers/{specs,plans}/*, .agents/*, temporary_files/e2e_plugin_fase1_1c0b*
 - **Status:** Needs Review (branch `claude/plugin-core-time`, belum di-push, PR belum dibuka; tunggu "merge dan deploy"). pytest 1470/1 skip; npm 4165/4166 (pra-ada `draw_local_reactive`). Deploy butuh restart manual `taskflow-web`; 1c-1 menunggu deploy + restart + verifikasi. Bug pra-ada `recurrence_type` 500 perlu perbaikan terpisah.
+
+## [2026-11-04] - Claude
+- **Task:** Perbaiki PUT task berulang 500 (`sqlite3.Row` tidak punya `.get`) di `update_task`.
+- **Changes:** `existing.get("recurrence_end_date")` -> `existing["recurrence_end_date"]`; tes regresi baru `tests/test_task_recurrence_put.py` (TDD, merah lalu hijau).
+- **Files Touch:** webapp.py, tests/test_task_recurrence_put.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (branch `claude/fix-recurrence-put-500`, belum di-push; tunggu "merge dan deploy"). pytest 1438/1 skip. Deploy: restart `taskflow-web` saja; tanpa SW bump.

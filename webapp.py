@@ -2670,7 +2670,7 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
                     updates["recurrence_days"] = json.dumps([day_of_month])
                 else:
                     updates["recurrence_days"] = None
-                if not existing.get("recurrence_end_date"):
+                if not existing["recurrence_end_date"]:
                     updates["recurrence_end_date"] = (date.today() + timedelta(days=90)).isoformat()
             else:
                 updates["recurrence_type"] = None
