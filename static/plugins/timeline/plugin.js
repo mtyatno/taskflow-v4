@@ -856,9 +856,18 @@ const TLSched = (function (CAL) {
     return Math.min(DUR_MAX, CAL.workdays(c, s0, sp.f));
   }
 
+  // "Terlalu awal" — SATU aturan untuk violations (Manual) dan conflict jangkar di mesin (TLCpm): hari kerja pertama
+  // ≥ mulai < req, untuk semua durasi termasuk milestone (mulai di akhir pekan/libur tidak dihitung terlalu awal).
+  // Masukan tak sah / kalender buntu → false.
+  function isEarly(c, startDn, req) {
+    if (!isDn(startDn) || !isDn(req)) return false;
+    const eff = safe(() => CAL.nextWork(c, startDn));
+    return isDn(eff) && eff < req;
+  }
+
   // Set kunci penerus yang mulai sebelum depReq (per tipe, edge tanpa type = FS); .detail = [{succ, pred, earliest, type}].
-  // Dilanggar bila nw(mulai) < depReq — juga untuk milestone (perilaku 1b "milestone Sabtu setelah selesai Jumat aman"
-  // dipertahankan; R4 menulis "milestone: mulai < depReq", lihat laporan Task 1). Dependensi tidak memindahkan task (Manual).
+  // Dilanggar bila isEarly (nw(mulai) < depReq) — juga untuk milestone (perilaku 1b "milestone Sabtu setelah selesai Jumat
+  // aman" dipertahankan; lihat laporan Task 1). Dependensi tidak memindahkan task (Manual).
   // Tanpa jadwal / tak terpecahkan / tipe tak dikenal / kalender buntu → diabaikan.
   function violations(c, spans, edges) {
     const out = new Set();
@@ -874,10 +883,7 @@ const TLSched = (function (CAL) {
       if (d === undefined) continue;
       const earliest = depReq(c, type, p.s, p.f, e.lag, d);
       if (!isDn(earliest)) continue;
-      // mulai efektif = hari kerja pertama ≥ mulai tersimpan (mulai di akhir pekan/libur tidak dihitung terlalu awal)
-      const eff = safe(() => CAL.nextWork(c, s.s));
-      if (!isDn(eff)) continue;
-      if (eff < earliest) {
+      if (isEarly(c, s.s, earliest)) {
         out.add(e.to);
         detail.push({ succ: e.to, pred: e.from, earliest, type });
       }
@@ -944,6 +950,7 @@ const TLSched = (function (CAL) {
     wouldCycle,
     canLink,
     violations,
+    isEarly,
     shiftAfterDeps,
     deadlineLate,
     fin,
