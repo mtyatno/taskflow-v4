@@ -811,12 +811,11 @@ function baselineTip(b) {
   return "Baseline: " + TLCal.fmtShort(b.s) + " → " + TLCal.fmtShort(b.f) + " (" + signedHk(b.df) + ")";
 }
 
-// Rentang hari inklusif [s, f] → {x, w} px, dipangkas ke rentang tata letak; seluruhnya di luar → null.
+// Rentang hari inklusif [s, f] → {x, w} px, dipangkas ke rentang tata letak; seluruhnya di luar → null. Memakai
+// TLLayout.barBox (sched null + kind "task" → selalu bar, bukan milestone) agar geometri sama persis dengan bar.
 function spanGeom(s, f, range, px) {
-  const a = Math.max(s, range.from);
-  const b = Math.min(f, range.to);
-  if (b < a) return null;
-  return { x: TLLayout.xOf(a, range, px), w: (b - a + 1) * px };
+  const box = TLLayout.barBox({ s, f }, null, range, px, "task");
+  return box ? { x: box.x, w: box.w } : null;
 }
 
 // Kotak bar baris (px, relatif awal rentang) atau null: baris outOfRange tidak pernah mendapat bar (Task 4).

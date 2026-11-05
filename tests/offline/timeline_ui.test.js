@@ -6101,3 +6101,24 @@ test("DOM 500 task/400 dep + Jalur kritis + baseline aktif + garis aktual → �
     spy.restore();
   }
 }));
+
+test("fix T6: task selesai TANPA completed_at dan tanpa selesai tersimpan → garis aktual berakhir di r.span.f (rentang selesai sepakat doneFinish), lebar ≥ 1 hari", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const tasks = [mk(8, "H", { start: "2026-10-26", duration: 3, actual: { start: "2026-10-26" } }, Object.assign({ gtd_status: "done" }, al))];
+  const h = await t6View(clock, { tasks });
+  try {
+    const row = h.lay.rows.find((r) => r.key === "8");
+    assert.ok(row.done && row.span, "baris selesai dengan rentang");
+    assert.equal(row.task.completed_at, undefined);
+    const line = keyed(actLines(h.tree), "8");
+    assert.ok(line, "garis aktual ada");
+    const exp = spanPx(h.lay, "2026-10-26", T.TLCal.iso(row.span.f));
+    assert.deepEqual({ left: line.props.style.left, width: line.props.style.width }, exp, "berakhir di r.span.f, bukan hari ini");
+    assert.ok(line.props.style.width >= h.lay.px, "lebar ≥ 1 hari");
+    assert.ok(row.span.f < dnOf(TODAY), "bukan HARI INI");
+    assert.deepEqual(h.writes, []);
+    h.m.unmount();
+  } finally {
+    h.restore();
+  }
+}));
