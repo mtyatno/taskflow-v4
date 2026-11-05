@@ -764,8 +764,8 @@ function engineOverlay(lay, result, ctx) {
 
 // 1c-2 Task 6 (§7.4, K41): overlay baseline — murni, TIDAK mengubah `lay`; memo terpisah [blDec, engResult] sehingga
 // memilih baseline (pref) tidak menghitung ulang tata letak. Keluaran: null (Tidak ada / mesin belum siap) atau
-// Map<rowKey, {s, f, df}>: s/f = dn baseline, df = selisih SELESAI sekarang vs baseline (compareBaseline.perTask.df, hk,
-// positif = tergelincir). Baris baseline yang tidak terpecahkan ke simpul mesin (terhapus, di luar scope, tanpa Mulai)
+// Map<rowKey, {s, f, d, ds, df, dd}>: s/f = dn baseline, d = durasi baseline (hk); ds/df/dd = compareBaseline.perTask
+// (df = selisih SELESAI sekarang vs baseline, hk, positif = tergelincir — bar/tooltip T6; tabel seksi T7 memakai ketiganya). Baris baseline yang tidak terpecahkan ke simpul mesin (terhapus, di luar scope, tanpa Mulai)
 // dilewati; dua ref ke task yang sama → yang pertama dalam urutan cmpKey (aturan compareBaseline). rows.size 0 → Map kosong.
 function baselineOverlay(dec, result, ctx) {
   if (!dec || !(dec.rows instanceof Map) || !result || !(result.nodes instanceof Map) || !ctx) return null;
@@ -779,7 +779,7 @@ function baselineOverlay(dec, result, ctx) {
     const d = cmp.perTask.get(key);
     if (!d || out.has(key)) continue;
     const b = dec.rows.get(rk);
-    out.set(key, { s: b.s, f: b.f, df: d.df });
+    out.set(key, { s: b.s, f: b.f, d: b.d, ds: d.ds, df: d.df, dd: d.dd });
   }
   return out;
 }
@@ -3953,6 +3953,24 @@ const SEC_TYPES = [["FS", "Selesai → Mulai (FS)"], ["SS", "Mulai → Mulai (SS
 const SEC_WHY = "Kenapa dijadwalkan di sini?";
 const SEC_TO_MANUAL = "Ubah ke Manual";
 
+// 1c-2 Task 7 tingkat 3 (§7.6 persis): tanggal aktual (K42) dan tabel "Baseline vs sekarang" (K41).
+const SEC_ACT_START = "Mulai aktual";
+const SEC_ACT_FINISH = "Selesai aktual";
+const SEC_ACT_TODAY = "Catat hari ini";
+const SEC_ACT_NONE = "Belum dicatat";
+const SEC_BL_VS = "Baseline vs sekarang";
+const SEC_BL_NOW = "Sekarang";
+const SEC_BL_DIFF = "Selisih";
+
+// Kunci halaman pref `bl:<page>` (1c-2 P2 a) untuk seksi: konteks taskDetail.sections tidak membawa page, maka diturunkan
+// dari task persis seperti id halaman host (pageScopePred): task workspace → "slist_<list_id>", task pribadi ber-project →
+// "proj_<project>"; pribadi tanpa project → null (tidak punya halaman, tidak ada baseline aktif).
+function secPageOf(task, ws) {
+  if (ws) return "slist_" + task.list_id;
+  const p = typeof task.project === "string" ? task.project : "";
+  return p ? "proj_" + p : null;
+}
+
 // ── "Kenapa dijadwalkan di sini?" (R21) ──
 // whyText(ex, ctx) → Array<string | {b: string}> (murni). ex = hasil explain mesin; ctx = {label(key) → "{WBS} {judul}",
 // title(key) → judul, d?: durasi simpul (hari kerja)}. Kalimat Mulai per jenis, lalu (bila ada tanggal dan durasi ≥ 1)
@@ -4410,6 +4428,17 @@ function ScheduleBody(props) {
   const unitMode = unitU && unitU.auto === true ? "auto" : "manual";
   // Task 12: simpul otomatis terhitung = tingkat 2/3 (Mulai otomatis = teks + "Ubah" → R12).
   const autoNode = effMode === "auto" && secEngine && secEngine.node && secEngine.node.es !== null && secEngine.node.ef !== null ? secEngine.node : null;
+  // 1c-2 Task 7: baseline aktif = pref bl:<page> (halaman diturunkan dari task, secPageOf) + useBaselines atas SATU unit
+  // task (TLSched.unitOf; satu list se-scope) — dimuat hanya bila slot 1–3 dipilih. Baris task = baselineOverlay (resolusi
+  // ref yang sama dengan bar Gantt T6) atas hasil mesin seksi. Hanya baca (R25).
+  const blPageKey = secPageOf(selfLive, wsTask);
+  const [blPref] = usePref(api, "bl", blPageKey || "");
+  const blN = blPageKey !== null ? blPref : 0;
+  const blUnit = TLSched.unitOf(selfLive);
+  const bls = useBaselines(api, blN > 0 ? [blUnit] : []);
+  const blDec = React.useMemo(() => activeBaseline(bls.byUnit, [blUnit.recId], blN), [bls.byUnit, blUnit.recId, blN]);
+  const blOv = React.useMemo(() => (secEngine ? baselineOverlay(blDec, secEngine.result, secEngine.ctx) : null), [blDec, secEngine]);
+  const blRow = autoNode && blOv ? blOv.get(autoNode.key) || null : null;
   // Mesin seksi atas daftar segar (hitung ulang PreviewCard setelah CAS gagal): semua ext dari daftar terbaru.
   const runSec = (list) => {
     const me = TLSched.buildIndex(list).get(String(selfLive.id)) || selfLive;
@@ -4895,6 +4924,91 @@ function ScheduleBody(props) {
     if (commitDate(v)) commitCst(v);
   };
 
+  // 1c-2 Task 7 tanggal aktual (K42, Review Focus 2). Dibaca HANYA lewat TLSched.actualOf (ext lokal optimistis):
+  // selesai tanpa nilai tersimpan = turunan jkt(completed_at) (finishDerived). Yang TERSIMPAN = actualOf tanpa turunan.
+  // Tulis = `write` seksi (SATU set {actual}, aturan sibuk, gagal → ext sebelumnya utuh lewat revertRaw): aktual adalah
+  // JANGKAR (K30) — tidak mengalir; penerus yang jadi berbeda tampil sebagai drift (banner), tidak ditulis.
+  // Kosongkan tersimpan → kunci itu dihapus (selesai kembali ke turunan); kosongkan turunan / nilai sama → 0 tulis;
+  // selesai < mulai → ditolak sanitizePatch, 0 tulis.
+  const act = TLSched.actualOf(selfLive, raw);
+  const commitAct = (which, v) => {
+    const name = "act:" + which;
+    const stored = {};
+    if (act.start !== null) stored.start = TLCal.iso(act.start);
+    if (act.finish !== null && !act.finishDerived) stored.finish = TLCal.iso(act.finish);
+    const shown = act[which] === null ? null : TLCal.iso(act[which]);
+    const next = Object.assign({}, stored);
+    if (v === null) {
+      if (!(which in stored)) {
+        clearDraft(name);
+        return;
+      }
+      delete next[which];
+    } else {
+      if (!commitDate(v) || v === shown) {
+        clearDraft(name);
+        return;
+      }
+      next[which] = v;
+    }
+    const san = TLSched.sanitizePatch({ actual: Object.keys(next).length ? next : null });
+    if (!san.ok) {
+      clearDraft(name);
+      return;
+    }
+    write(san.patch, name);
+  };
+  // "Catat hari ini" (jalur cadangan K42, aksi pengguna — juga untuk selesai): tanggal = api.env.today().
+  const recordToday = (which) => {
+    const t = safeToday(api);
+    if (t !== null) commitAct(which, t);
+  };
+  // Input tanggal aktual: pola Batasan (change = draf + jeda; blur / Enter = langsung; jeda tertunda saat dilepas disimpan).
+  const actTimers = React.useRef({});
+  const cancelActTimer = (which) => {
+    const t = actTimers.current[which];
+    delete actTimers.current[which];
+    if (t) clearTimeout(t.id);
+  };
+  React.useEffect(() => () => {
+    const pend = actTimers.current;
+    actTimers.current = {};
+    for (const w of Object.keys(pend)) {
+      clearTimeout(pend[w].id);
+      pend[w].run();
+    }
+  }, [tid]);
+  const onActChange = (which) => (e) => {
+    const v = e && e.target ? String(e.target.value || "") : "";
+    cancelActTimer(which);
+    setDraft("act:" + which, v);
+    if (!commitDate(v)) return;
+    const run = () => commitAct(which, v);
+    const id = setTimeout(() => {
+      const t = actTimers.current[which];
+      if (t && t.id === id) {
+        delete actTimers.current[which];
+        run();
+      }
+    }, SEC_TIMING.startDebounceMs);
+    actTimers.current[which] = { id, run };
+  };
+  const onActBlur = (which) => (e) => {
+    cancelActTimer(which);
+    const t = e && e.target ? e.target : {};
+    const v = String(t.value || "");
+    if (commitDate(v)) commitAct(which, v);
+    else if (v === "" && !(t.validity && t.validity.badInput)) commitAct(which, null);
+    else clearDraft("act:" + which);
+  };
+  const onActKey = (which) => (e) => {
+    if (!e || e.key !== "Enter") return;
+    if (typeof e.preventDefault === "function") e.preventDefault();
+    cancelActTimer(which);
+    const v = e.target ? String(e.target.value || "") : "";
+    if (commitDate(v)) commitAct(which, v);
+  };
+
   // ---- pemilih dependensi (R15, R17) ----
   const openPicker = () => {
     setForceOpen(true);
@@ -5107,6 +5221,61 @@ function ScheduleBody(props) {
   // "Selengkapnya" → tingkat 3 (R20, urutan tetap): Mode · Mulai (teks + "Ubah") · Durasi · Selesai · Milestone · % selesai
   // · Batasan · Dependensi (Menunggu / Diikuti oleh) · Tambah dependensi · Kenapa dijadwalkan di sini? · Ubah ke Manual.
   const node = autoNode;
+  // 1c-2 Task 7 tingkat 3: baris tanggal aktual (nilai fmtShort; selesai turunan diberi penanda "Aktual"; kosong →
+  // "Belum dicatat" + "Catat hari ini") — keduanya bisa diubah lewat input tanggal.
+  const actRowOf = (which) => {
+    const label = which === "start" ? SEC_ACT_START : SEC_ACT_FINISH;
+    const val = act[which];
+    const dn = "act:" + which;
+    return (
+      <div className="plg-timeline-field plg-timeline-sec-actual" role="group" aria-label={label} data-part={"actual-" + which}>
+        <span className="plg-timeline-field-label">{label}</span>
+        <span className="plg-timeline-sec-actval">
+          {val !== null ? <span className="plg-timeline-sec-val">{TLCal.fmtShort(val)}</span> : <span className="plg-timeline-sec-muted">{SEC_ACT_NONE}</span>}
+          {val !== null && which === "finish" && act.finishDerived ? <span className="plg-timeline-act-mark">{MSG_ACTUAL}</span> : null}
+          {val === null ? <button type="button" className="plg-timeline-btn" onClick={() => recordToday(which)}>{SEC_ACT_TODAY}</button> : null}
+          <input type="date" className="plg-timeline-input" aria-label={label} value={dn in d ? d[dn] : val === null ? "" : TLCal.iso(val)}
+            onChange={onActChange(which)} onBlur={onActBlur(which)} onKeyDown={onActKey(which)} />
+        </span>
+      </div>
+    );
+  };
+  // Tabel "Baseline vs sekarang" (3×3): Mulai/Selesai/Durasi × Baseline/Sekarang/Selisih (ds/df/dd bertanda, hk) dari baris
+  // task di baseline aktif; tanpa baseline aktif / task tidak ada di dalamnya → satu baris "Tidak ada".
+  const blCells = blRow && node ? [
+    [SEC_START, TLCal.fmtShort(blRow.s), TLCal.fmtShort(node.es), signedHk(blRow.ds)],
+    [SEC_FINISH, TLCal.fmtShort(blRow.f), TLCal.fmtShort(node.ef), signedHk(blRow.df)],
+    [SEC_DUR, blRow.d + " hk", node.d + " hk", signedHk(blRow.dd)],
+  ] : null;
+  const blElOf = () => (
+    <div className="plg-timeline-sec-blbox" data-part="baseline">
+      <span className="plg-timeline-field-label">{SEC_BL_VS}</span>
+      <table className="plg-timeline-sec-bltable" aria-label={SEC_BL_VS}>
+        <thead>
+          <tr>
+            <th scope="col"></th>
+            <th scope="col">{LBL.bl}</th>
+            <th scope="col">{SEC_BL_NOW}</th>
+            <th scope="col">{SEC_BL_DIFF}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {blCells ? blCells.map((r) => (
+            <tr key={r[0]}>
+              <th scope="row">{r[0]}</th>
+              <td>{r[1]}</td>
+              <td>{r[2]}</td>
+              <td className="plg-timeline-sec-bldiff">{r[3]}</td>
+            </tr>
+          )) : (
+            <tr>
+              <td colSpan={4} className="plg-timeline-sec-muted">{BL_NONE}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  );
   if (node) {
     const drift = secEngine.result.drift.has(node.key);
     let body = null;
@@ -5219,6 +5388,9 @@ function ScheduleBody(props) {
             {badEl}
           </div>
           {addEl("add")}
+          {actRowOf("start")}
+          {actRowOf("finish")}
+          {blElOf()}
           <div className="plg-timeline-sec-whybox" data-part="why">
             <button type="button" className={cx("plg-timeline-sec-more", whyParts && "is-open")} aria-expanded={!!whyParts}
               onClick={() => setWhyOpen(whyOpen === tid ? null : tid)}>
@@ -5242,7 +5414,7 @@ function ScheduleBody(props) {
           <span key="auto" className="plg-timeline-chip">{SEC_MODE_AUTO}</span>,
           node.late > 0 ? <span key="late" className="plg-timeline-chip is-late">{secLateChip(node.late)}</span> : null,
         ])}
-        <div className="plg-timeline-sec-range">{TLCal.fmtShort(node.es) + " → " + TLCal.fmtShort(node.ef) + " · " + node.d + " " + SEC_HK}</div>
+        <div className="plg-timeline-sec-range">{TLCal.fmtShort(node.es) + " → " + TLCal.fmtShort(node.ef) + " · " + node.d + " " + SEC_HK + (blRow ? " · baseline " + signedHk(blRow.df) : "")}</div>
         <div className="plg-timeline-sec-links">{secLinksText(secEngine)}</div>
         {node.critical ? (
           <div className="plg-timeline-sec-flags">

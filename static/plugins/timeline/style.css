@@ -1413,6 +1413,62 @@
   color: var(--text-primary);
 }
 
+/* 1c-2 Task 7 tingkat 3: Mulai aktual / Selesai aktual, tabel "Baseline vs sekarang" */
+.plg-timeline-sec-actval {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.plg-timeline-sec-actual .plg-timeline-input {
+  max-width: 160px;
+}
+
+.plg-timeline-act-mark {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-sec-blbox {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.plg-timeline-sec-bltable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.plg-timeline-sec-bltable th,
+.plg-timeline-sec-bltable td {
+  padding: 3px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.plg-timeline-sec-bltable thead th {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-sec-bltable tbody th {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-sec-bldiff {
+  font-weight: 600;
+}
+
 .plg-timeline-pvcard {
   display: flex;
   flex-direction: column;
