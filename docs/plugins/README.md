@@ -1,4 +1,4 @@
-# Menulis plugin Alurik (Fase 0a–1c-1)
+# Menulis plugin Alurik (Fase 0a–1c-2)
 
 Plugin = fitur opsional yang dinyalakan/dimatikan pengguna di **Pengaturan › Plugin**. Kodenya hidup di
 `static/plugins/<id>/`, bukan di `index.html`, dan baru dieksekusi saat plugin ON dan slot-nya dirender.
@@ -6,7 +6,7 @@ Spec: `docs/superpowers/specs/2026-10-29-plugin-fase0a-design.md` (klien) dan
 `docs/superpowers/specs/2026-10-31-plugin-fase0b-design.md` (status per akun, server, `api.fetch`; ADR-039),
 `docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md` (Fase 1: `tasks.ext`, slot view/detail,
 `api.taskExt`; ADR-040), `docs/superpowers/specs/2026-11-01-plugin-fase1-1c-otomatis-design.md` (Fase 1c: jadwal
-otomatis Timeline 1.1, `setMany` satu transaksi; ADR-043–045).
+otomatis Timeline 1.1, `setMany` satu transaksi; Timeline 1.2 baseline + aktual; ADR-043–046).
 Runtime: `static/plugin-runtime.js`. Modul server opsional: `plugins/<id>.py` (§11).
 Contoh nyata: `static/plugins/habit-heatmap/` (plugin #0) dan `static/plugins/timeline/` (Fase 1b: `parts` +
 `records` + `task.ext` + dua slot task; Gantt, kalender hari kerja, seksi Jadwal). Contoh `task.ext` + dua slot task
@@ -306,6 +306,31 @@ data `{v: 1, auto, name, by}`. Tidak ada record = Manual.
   `onChange`, `pulled`, dan `sync.done` hanya memicu baca ulang. Dua anggota menyalakan unit yang sama = LWW per
   record, hasil sama (idempoten).
 
+**Contoh ketiga: baseline Timeline 1.2** (`manifest.records.baseline = {"conflict": "lww", "maxBytes": 65536}`).
+Sampai tiga potret jadwal per unit jadwal, data `{v: 1, n, name, savedAt, by, t: [[ref, s, f, d, w], …]}`: satu larik
+ringkas per task (±55 B/task), `ref` = `{"$task": <id>}`, `s`/`f` tanggal ISO, `d` durasi hari kerja,
+`w` = `estimated_pomodoros`.
+
+- **Id slot dari id unit.** `bl<n>@user:<h>` / `bl<n>@list:<lid>:<h>` dengan `n` ∈ 1–3 = id record `project` unit
+  (`prj@…`, di atas) dengan awalan `prj` diganti `bl<n>`; dibuat hanya oleh `blRecId(unit, n)` di atas
+  `TLSched.unitOf`. Ganti nama project = unit baru, jadi baseline lama tersembunyi (tetap tersimpan).
+- **Rujukan task.** `$task` = id task mentah, sama dengan `api.taskExt.ref`: bilangan bulat id server, atau cid untuk
+  task yang dibuat offline (host menahan record lalu menulis ulang rujukan ke id server; server menolak `$task` string
+  angka). Rujukan yang tak terpecahkan (`null` dari host, task dihapus/diarsip/di luar scope) dilewati saat dibaca,
+  bukan membuang seluruh baseline.
+- **Batas ukuran dua sisi.** `TLPlan.BL_MAX = 65536` = `maxBytes`: plugin menghitung byte UTF-8 JSON ringkas
+  (`TLPlan.baselineByteSize`) sebelum menulis dan menolak dengan "Baseline terlalu besar"; server menolak hal yang
+  sama (65.536 diterima, 65.537 ditolak — teruji di `tests/test_plugin_timeline_records.py`).
+- **Kunci simpan (K41).** Slot workspace baru boleh ditulis bila record lokalnya ada **atau** peristiwa `pulled`
+  sudah menyala sejak view dipasang; sebelum itu "Menunggu data baseline workspace…" (aturan §8 butir 2). Menimpa
+  slot terisi butuh konfirmasi "Timpa {nama} (disimpan {tanggal})?" dan CAS: potret slot `{exists, updatedAt, by}`
+  saat dialog dibuka harus sama dengan saat tulis, kalau tidak "Data berubah sejak dialog dibuka — muat ulang".
+  Record yang tidak dipahami (mis. `v: 2` dari klien lebih baru) tetap dihitung **terisi** ("(versi lebih baru)"),
+  tidak pernah ditimpa diam-diam.
+- **Satu adaptor.** `baselineStore`: `loadScope`/`loadAll` hanya membaca (satu `list` se-scope dibagi semua unit
+  halaman workspace), `save`/`remove` lewat satu fungsi penulis `saveBaseline`, dipanggil hanya dari dialog Simpan
+  baseline. Baseline yang **ditampilkan** = preferensi per perangkat `bl:<page>` (`api.storage`), bukan record.
+
 Semua `data.*` membaca IndexedDB, jadi bekerja offline. Tidak ada di v1: `api.settings` (kolom `settings` server sudah disimpan dan disinkron tetapi belum diekspos), penulisan data host
 selain `api.taskExt`. Fungsi hanya ditambah di v1; perubahan tak kompatibel = `apiVersion: 2`.
 
@@ -452,6 +477,12 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
    `sync.done`, `pulled`, `onChange`, atau `app.dayChanged`. Data yang berbeda dari hasil hitung ditampilkan sebagai
    drift (banner/seksi + "Tinjau"); dua perangkat yang menulis hasil hitung masing-masing di latar akan saling
    menimpa. Timeline menjaganya dengan tes sumber (panggilan tulis hanya di fungsi daftar-izin) + tes perilaku (spy 0).
+10. **Aktual dicatat dari gestur perangkat itu (pomodoro selesai, task selesai), isi bila kosong — tidak pernah dari
+   sync** (K42 setelah amandemen). Timeline mencatat `timeline.actual.start` hanya pada event `pomodoro.ended` dan
+   `task.completed` (keduanya hanya dari gestur lokal), memakai tanggal Asia/Jakarta dari `endedAt`/`completedAt`
+   (atau hari ini), dan hanya bila kunci itu kosong. Pemicu dari kenaikan `progress` dibatalkan: perbedaan data tidak
+   membedakan edit lokal dari hasil tarik. `actual.finish` tidak disimpan otomatis (turunan `completed_at`); yang
+   terlewat diisi lewat tombol "Catat hari ini".
 
 **Batas diketahui — ini bukan sandbox.** Pagar di atas menangkap kesalahan tak sengaja, bukan niat jahat:
 
