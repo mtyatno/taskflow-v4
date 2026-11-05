@@ -380,6 +380,9 @@
   - `task.completed` TIDAK terpancar dari `handleDoneAll`/`handleDoneParentOnly` (dialog subtask), `handleReviewComplete`, dan cabang offline-error `handleDone`; fallback tombol "Catat hari ini" menutupinya.
   - Jendela draft-terbuka: edit finish di seksi saat tracker menulis start bisa menimpanya selama waktu ketik; tombol memulihkan (event `timeline.actualRecorded` membuat seksi terbuka membaca ulang).
   - Dua tab / cid-vs-id dapat menulis ganda nilai identik (benign).
+  - Jendela aktivasi malas: listener aktual terpasang saat kode plugin termuat di sesi (render pertama Timeline/seksi). Pomodoro/centang sebelum itu dan replay sesi basi saat mount tidak tercatat; fallback "Catat hari ini". (Teks whatsnew menjanjikan "otomatis" — batasan ini didokumentasikan di README §8 butir 10.)
+  - Perangkat basi (belum menarik) bisa menulis `actual.start` padahal perangkat lain sudah mengisi `actual` lain — LWW per kunci menimpanya. Pemicu tetap gestur lokal; jendelanya kecil.
+  - Bar task tetap menampilkan rencana tersimpan, bukan tanggal aktual (by design): setelah Tinjau, bar ber-jangkar aktual bisa tumpang-tindih visual dengan bar rencana; violations memakai rentang berjangkar sehingga tanpa ⚠ palsu.
   - Task pindah unit → Gantt menampilkan bar baseline, seksi menampilkan "Tidak ada" (seksi hanya memuat unit task sendiri).
   - Task Manual tanpa baris aktual (baris aktual hanya di tingkat 3 otomatis) — pertanyaan spec terbuka untuk pemilik.
   - `blEnd` mengabaikan baris baseline yang terhapus/tak terpecahkan — bukan "selesai project baseline" utuh.

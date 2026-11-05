@@ -424,7 +424,7 @@ membatalkan aksi host, dan sebaiknya ringan (debounce kerja berat, mis. 300 ms s
 
 | Event host | Kapan | Payload |
 |---|---|---|
-| `task.completed` | `handleDone` di `App` setelah sukses lokal (centang dari subtask/Kanban belum memancarkan) | `{taskId, completedAt}` |
+| `task.completed` | `handleDone` di `App` setelah sukses lokal — termasuk drop Kanban ke Selesai (`runKanbanAction` → `onDone` → `handleDone`); yang BELUM memancarkan: dialog subtask (`handleDoneAll`/`handleDoneParentOnly`), tinjauan mingguan, dan cabang offline-error `handleDone` (ADR-046) | `{taskId, completedAt}` |
 | `habit.changed` | setiap check-in/uncheck habit (jembatan `window` `habitSaved`) — baca ulang data | `{}` |
 | `pomodoro.ended` | sesi/overtime Pomodoro tercatat | `{taskId, kind: "session"∣"overtime", pomodoros, focusSeconds, endedAt}` |
 | `app.online` / `app.offline` | event `online`/`offline` browser | `{}` |
@@ -480,7 +480,7 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
 10. **Aktual dicatat dari gestur perangkat itu (pomodoro selesai, task selesai), isi bila kosong — tidak pernah dari
    sync** (K42 setelah amandemen). Timeline mencatat `timeline.actual.start` hanya pada event `pomodoro.ended` dan
    `task.completed` (keduanya hanya dari gestur lokal), memakai tanggal Asia/Jakarta dari `endedAt`/`completedAt`
-   (atau hari ini), dan hanya bila kunci itu kosong. Pemicu dari kenaikan `progress` dibatalkan: perbedaan data tidak
+   (atau hari ini), dan hanya bila kunci itu kosong. Listener terpasang saat kode plugin termuat di sesi (render pertama Timeline/seksi); pomodoro atau centang SEBELUM itu — termasuk replay sesi basi saat mount — tidak tercatat; fallback-nya tombol "Catat hari ini". Pemicu dari kenaikan `progress` dibatalkan: perbedaan data tidak
    membedakan edit lokal dari hasil tarik. `actual.finish` tidak disimpan otomatis (turunan `completed_at`); yang
    terlewat diisi lewat tombol "Catat hari ini".
 
