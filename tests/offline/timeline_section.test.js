@@ -1953,13 +1953,13 @@ test("T7 'Tidak ada': tanpa pref / pref 0 (tanpa memuat baseline), slot kosong, 
   const empty = await open7(m, { records: recs, storage: { "bl:slist_7": 3 } });
   assert.deepEqual(blRows(empty.tree), [["Tidak ada"]]);
   // pref halaman lain (project) tidak berlaku untuk task workspace
-  const other = await open7(m, { records: recs, storage: { "bl:proj_Fondasi": 1 } });
+  const other = await open7(m, { records: recs, storage: { "bl:proj_fondasi": 1 } });
   assert.deepEqual(blRows(other.tree), [["Tidak ada"]]);
-  // task pribadi project "Alpha": pref bl:proj_Alpha, scope user
+  // task pribadi project "Alpha": pref bl:proj_alpha (dilipat, fix T7), scope user
   const P = mk(60, "Pribadi", { start: "2026-11-05", duration: 2 }, { project: "Alpha" });
   const pr = Object.assign(autoRecs(P), blRec(P, 1, [[{ $task: 60 }, "2026-11-05", "2026-11-05", 1, 0]]));
-  const sp = await ui(P, { tasks: [P], records: pr, storage: { "section:open": true, "bl:proj_Alpha": 1 } });
-  assert.ok(sp.calls.storageGet.includes("bl:proj_Alpha"));
+  const sp = await ui(P, { tasks: [P], records: pr, storage: { "section:open": true, "bl:proj_alpha": 1 } });
+  assert.ok(sp.calls.storageGet.includes("bl:proj_alpha"));
   assert.ok(sp.calls.recList.some((x) => x[0] === "baseline" && x[1].scope === "user"));
   assert.deepEqual(blRows(sp.tree), [
     ["Mulai", "Kam 5 Nov", "Kam 5 Nov", "0 hk"],
@@ -2062,4 +2062,36 @@ test("T7 variant panel dan modal sama (tingkat 3 dengan aktual + tabel baseline 
   const rec = Object.assign({}, m.self, { recurrence_type: "daily" });
   assert.equal(guard({ context: { task: rec, variant: "panel", collaborators: [], onOpenTask() {}, showToast() {} }, api }), null);
   for (const x of [a, b]) assert.equal(writes(x), 0);
+});
+
+test("fix T7: halaman project 'Alpha' + task berproject 'alpha'/'ALPHA' → baseline SAMA dengan view (satu kunci bl:proj_alpha)", async () => {
+  const rowsOf = async (name) => {
+    const P = mk(60, "Pribadi", { start: "2026-11-05", duration: 2 }, { project: name });
+    const pr = Object.assign(autoRecs(P), blRec(P, 1, [[{ $task: 60 }, "2026-11-05", "2026-11-05", 1, 0]]));
+    const sp = await ui(P, { tasks: [P], records: pr, storage: { "section:open": true, [T.prefKey("bl", "proj_Alpha")]: 1 } });
+    assert.ok(sp.calls.storageGet.includes("bl:proj_alpha"), name);
+    assert.equal(writes(sp), 0);
+    return blRows(sp.tree);
+  };
+  const want = [
+    ["Mulai", "Kam 5 Nov", "Kam 5 Nov", "0 hk"],
+    ["Selesai", "Kam 5 Nov", "Jum 6 Nov", "+1 hk"],
+    ["Durasi", "1 hk", "2 hk", "+1 hk"],
+  ];
+  for (const name of ["Alpha", "alpha", "ALPHA"]) assert.deepEqual(await rowsOf(name), want, name);
+});
+
+test("fix T7: simpanan tertunda membaca actual TERKINI — ubah selesai selama jeda mulai → keduanya bertahan", async () => {
+  const s = await open7(mock7({ actual: { start: "2026-11-02" } }));
+  actInput(s.tree, "start").props.onChange(ev("2026-11-03"));
+  s.render();
+  actInput(s.tree, "finish").props.onKeyDown({ key: "Enter", preventDefault() {}, target: { value: "2026-11-06" } });
+  s.render();
+  assert.deepEqual(s.calls.set, [[20, { actual: { start: "2026-11-02", finish: "2026-11-06" } }]]);
+  await sleep(DEBOUNCE + 20);
+  s.render();
+  assert.deepEqual(s.calls.set[1], [20, { actual: { start: "2026-11-03", finish: "2026-11-06" } }], "selesai tidak hilang");
+  assert.equal(actVal(s.tree, "start"), "Sel 3 Nov");
+  assert.equal(actVal(s.tree, "finish"), "Jum 6 Nov");
+  assert.equal(s.calls.setMany.length, 0);
 });

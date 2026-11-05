@@ -3569,8 +3569,12 @@ const PREF_CHOICES = Object.freeze({
 // "zoom:<page>", "sort:<page>", "cols:<page>", "mode:<page>", "crit:<page>" (1c-1 R18); seksi Jadwal global: "section:open".
 // 1c-2 P2 (a): "bl:<page>" = baseline aktif yang DITAMPILKAN (0 = "Tidak ada", 1–3 = slot) per perangkat per halaman —
 // pilihan tampilan, tidak pernah ditulis ke record.
+// bl:<page> dilipat A–Z → a–z (ASCII saja, sama dengan NOCASE SQLite host: halaman proj_<nama kanonik> dan
+// task.project yang beda kapital = satu kunci) — satu tempat untuk view DAN seksi (fix T7 1c-2). Jenis lain apa adanya.
 function prefKey(kind, page) {
-  return kind === "section" ? "section:open" : kind + ":" + page;
+  if (kind === "section") return "section:open";
+  if (kind === "bl") return "bl:" + String(page).replace(/[A-Z]/g, c => c.toLowerCase());
+  return kind + ":" + page;
 }
 
 // Nilai dari api.storage → nilai sah, atau bawaan bila rusak/tidak ada.
@@ -8464,7 +8468,9 @@ const SEC_BL_DIFF = "Selisih";
 
 // Kunci halaman pref `bl:<page>` (1c-2 P2 a) untuk seksi: konteks taskDetail.sections tidak membawa page, maka diturunkan
 // dari task persis seperti id halaman host (pageScopePred): task workspace → "slist_<list_id>", task pribadi ber-project →
-// "proj_<project>"; pribadi tanpa project → null (tidak punya halaman, tidak ada baseline aktif).
+// "proj_<project>"; pribadi tanpa project → null (tidak punya halaman, tidak ada baseline aktif). Beda kapital nama project
+// diselesaikan prefKey (bl dilipat A–Z). Pref dibaca saat pasang / ganti halaman saja: api.storage tidak punya peristiwa
+// perubahan, jadi pilihan baseline baru di view tampil di seksi setelah seksi dipasang ulang (buka task lagi).
 function secPageOf(task, ws) {
   if (ws) return "slist_" + task.list_id;
   const p = typeof task.project === "string" ? task.project : "";
@@ -9674,6 +9680,14 @@ function ScheduleBody(props) {
     }
     write(san.patch, name);
   };
+  // Simpanan tertunda (jeda input) memanggil commitAct TERBARU selama task sama: actual tersimpan dibaca ulang dari raw
+  // terkini (bukan `act` saat ketik) — mis. selesai diubah selama jeda mulai tetap bertahan (fix T7). Task berganti →
+  // closure task lama (raw miliknya) dipakai.
+  const actLatest = React.useRef(null);
+  actLatest.current = {
+    tid,
+    commit: commitAct
+  };
   // "Catat hari ini" (jalur cadangan K42, aksi pengguna — juga untuk selesai): tanggal = api.env.today().
   const recordToday = which => {
     const t = safeToday(api);
@@ -9699,7 +9713,11 @@ function ScheduleBody(props) {
     cancelActTimer(which);
     setDraft("act:" + which, v);
     if (!commitDate(v)) return;
-    const run = () => commitAct(which, v);
+    const own = commitAct;
+    const run = () => {
+      const L = actLatest.current;
+      (L && L.tid === tid ? L.commit : own)(which, v);
+    };
     const id = setTimeout(() => {
       const t = actTimers.current[which];
       if (t && t.id === id) {

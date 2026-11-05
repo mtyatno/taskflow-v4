@@ -5401,14 +5401,14 @@ test("1c-2 T5: pemilih Baseline — 'Tidak ada' + 'Baseline {n}' (nama slot bila
   await settle();
   h.render();
   assert.equal(blPickOf(h.tree), undefined, "memilih menutup pemilih");
-  assert.deepEqual(h.calls.storageSet.filter((s) => s[0].indexOf("bl:") === 0), [["bl:proj_Alpha", 2]]);
+  assert.deepEqual(h.calls.storageSet.filter((s) => s[0].indexOf("bl:") === 0), [["bl:proj_alpha", 2]]);
   assert.ok(nodes(h.tree, (n) => n.type === "button" && txt(n).trim() === "Baseline" && hasCls(n, "is-active")).length === 1, "pilihan ≠ Tidak ada → tombol aktif");
   assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "pilihan baseline tidak pernah menulis record (P2 a)");
   // pref round-trip: dibaca dari api.storage saat pasang
   h.m.unmount();
   for (const [stored, want] of [[1, 1], [3, 3], ["2", 0], [7, 0], [null, 0]]) {
     const fr2 = fakeRecords();
-    const { api } = fakeApi({ records: fr2, storageGet: (k) => Promise.resolve(k === "bl:proj_Alpha" ? stored : null) });
+    const { api } = fakeApi({ records: fr2, storageGet: (k) => Promise.resolve(k === "bl:proj_alpha" ? stored : null) });
     api.env.userId = 7;
     api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
     const m = mount(T.TimelineViewBody);
@@ -5871,13 +5871,13 @@ const actLines = (tree) => byCls(tree, "plg-timeline-actual");
 const keyed = (list, key) => list.find((n) => n.props["data-key"] === key);
 const dnOf = (iso) => T.TLCal.dn(iso);
 
-// View halaman project Alpha; pref bl:proj_Alpha dari opt.bl; record opsional; tata letak terakhir ditangkap (spy layout).
+// View halaman project Alpha; pref bl:proj_alpha (kunci bl dilipat A–Z, fix T7) dari opt.bl; record opsional; tata letak terakhir ditangkap (spy layout).
 async function t6View(clock, o) {
   const opt = o || {};
   const tasks = opt.tasks || t6Tasks();
   const fr = fakeRecords();
   for (const r of opt.recs || []) putRec(fr, r);
-  const { api, calls } = fakeApi({ records: fr, today: opt.today, storageGet: (k) => Promise.resolve(k === "bl:proj_Alpha" && opt.bl !== undefined ? opt.bl : null) });
+  const { api, calls } = fakeApi({ records: fr, today: opt.today, storageGet: (k) => Promise.resolve(k === "bl:proj_alpha" && opt.bl !== undefined ? opt.bl : null) });
   api.data = { tasks: { list: () => Promise.resolve(tasks) } };
   const writes = spyWrites(api);
   const props = { context: ctxOf(tasks).ctx, api };
@@ -6041,7 +6041,7 @@ test("1c-2 T6: memilih baseline (pref) tidak menghitung ulang tata letak — ove
     await pick(0);
     assert.equal(blBars(h.tree).length, 0, "Tidak ada → bar hilang");
     assert.equal(h.nLay, n0);
-    assert.deepEqual(h.calls.storageSet.filter((s) => s[0] === "bl:proj_Alpha"), [["bl:proj_Alpha", 1], ["bl:proj_Alpha", 0]]);
+    assert.deepEqual(h.calls.storageSet.filter((s) => s[0] === "bl:proj_alpha"), [["bl:proj_alpha", 1], ["bl:proj_alpha", 0]]);
     assert.deepEqual(h.writes, []);
     assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
     h.m.unmount();
@@ -6117,6 +6117,25 @@ test("fix T6: task selesai TANPA completed_at dan tanpa selesai tersimpan → ga
     assert.ok(line.props.style.width >= h.lay.px, "lebar ≥ 1 hari");
     assert.ok(row.span.f < dnOf(TODAY), "bukan HARI INI");
     assert.deepEqual(h.writes, []);
+    h.m.unmount();
+  } finally {
+    h.restore();
+  }
+}));
+
+test("fix T7: kunci pref bl dilipat huruf kecil A–Z saja (NOCASE host); jenis lain & slist_ tidak berubah; view proj_Alpha membaca bl:proj_alpha", () => withEngineClock(async (clock) => {
+  assert.equal(T.prefKey("bl", "proj_Alpha"), "bl:proj_alpha");
+  assert.equal(T.prefKey("bl", "proj_ALPHA"), T.prefKey("bl", "proj_alpha"));
+  assert.equal(T.prefKey("bl", "proj_Ärger Á"), "bl:proj_Ärger Á", "hanya ASCII A–Z (SQLite NOCASE)");
+  assert.equal(T.prefKey("bl", "slist_7"), "bl:slist_7");
+  assert.equal(T.prefKey("zoom", "proj_Alpha"), "zoom:proj_Alpha", "jenis lain tidak dilipat");
+  assert.equal(T.prefKey("crit", "proj_Alpha"), "crit:proj_Alpha");
+  const recs = [blRec(null, "Alpha", 1, { name: "Rencana awal", t: T6_BL })];
+  const h = await t6View(clock, { recs, bl: 1 });
+  try {
+    assert.ok(h.calls.storageGet.includes("bl:proj_alpha"));
+    assert.ok(!h.calls.storageGet.includes("bl:proj_Alpha"));
+    assert.ok(blBars(h.tree).length > 0, "baseline aktif dari kunci terlipat");
     h.m.unmount();
   } finally {
     h.restore();
