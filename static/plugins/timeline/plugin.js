@@ -4051,7 +4051,7 @@ function rowCells(row, groupName, slack) {
 // Overlay mesin di atas tata letak (1c-1 R18, R19) — murni, TIDAK mengubah `lay`. Dihitung dalam memo terpisah
 // [lay, result] sehingga mesin selesai / sakelar Jalur kritis tidak menghitung ulang tata letak (R24).
 //   slack: Map<rowKey, number|null> — task = node.slack; ringkasan = min slack anak (baris halaman, rekursif); lainnya null
-//   crit: Set<rowKey> — node.critical (slack ≤ 0 ∧ bukan selesai); critEdge: Set<"from>to"> — kedua ujung kritis
+//   crit: Set<rowKey> — node.critical (slack ≤ 0 ∧ bukan selesai); critEdge: Set<"from>to"> — kedua ujung kritis DAN from = driver.from simpul tujuan (sisi pengarah)
 //   conflictEdge: Set<"from>to"> — sisi terpakai ke jangkar ber-`conflict` yang depReq-nya dilanggar (merah putus-putus)
 //   manual: Set<rowKey> — fixed "manual" di unit otomatis (pin "Manual")
 // result null (mesin belum siap / gagal) → NO_OVERLAY: semua "—", tanpa kritis/pin/konflik (tampilan 1b).
@@ -4099,8 +4099,9 @@ function engineOverlay(lay, result, ctx) {
   const preds = result.pred instanceof Map ? result.pred : null;
   for (const e of lay.edges) {
     const id = e.from + ">" + e.to;
-    if (crit.has(e.from) && crit.has(e.to)) critEdge.add(id);
     const sn = nodes.get(e.to);
+    // 1c-2 T9 (penajaman R18): hanya sisi PENGARAH (driver.from simpul tujuan) antara dua simpul kritis.
+    if (crit.has(e.from) && crit.has(e.to) && sn && sn.driver && sn.driver.kind === "pred" && sn.driver.from === e.from) critEdge.add(id);
     const pn = nodes.get(e.from);
     if (!cal || !preds || !sn || !sn.conflict || !pn || pn.es === null || sn.es === null) continue;
     const used = (preds.get(e.to) || []).find(p => p.key === e.from); // hanya sisi yang dipakai mesin
@@ -4662,6 +4663,12 @@ function unitsKeyOf(units) {
   for (const [k, u] of units) out.push(k + "=" + (u && u.auto === true ? 1 : 0) + ":" + (u && typeof u.fold === "string" ? u.fold : ""));
   return out.sort().join(",");
 }
+
+// Satu commit React untuk beberapa setState (host: ReactDOM.render lama). Tanpa ReactDOM (Node/tes) → langsung berurutan.
+function commitOnce(f) {
+  const rd = typeof ReactDOM !== "undefined" ? ReactDOM : null;
+  if (rd && typeof rd.unstable_batchedUpdates === "function") rd.unstable_batchedUpdates(f);else f();
+}
 function useEngine(api, opts) {
   const o = opts && typeof opts === "object" ? opts : {};
   const scopeTasks = Array.isArray(o.scopeTasks) ? o.scopeTasks : NO_TASKS;
@@ -4692,13 +4699,14 @@ function useEngine(api, opts) {
       p = Promise.reject(e);
     }
     return p.then(l => {
-      if (R.alive && seq === R.seq) {
+      // 1c-2 T9: ReactDOM.render lama tanpa batching otomatis → setList + setFailed digabung jadi SATU commit.
+      if (R.alive && seq === R.seq) commitOnce(() => {
         setList(Array.isArray(l) ? l : []);
         setFailed(false);
-      }
+      });
     }, e => {
       logWarn(a, "daftar task gagal dimuat (mesin jadwal):", e);
-      if (R.alive && seq === R.seq) setFailed(true);
+      if (R.alive && seq === R.seq) commitOnce(() => setFailed(true));
     });
   };
   const loadSoon = () => {

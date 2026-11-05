@@ -3173,6 +3173,58 @@ test("useEngine: daftar gagal dimuat sebelum ada hasil → status error, tanpa m
   }
 }));
 
+test("muat list: satu commit (spy pola 8c) — setList + setFailed dalam SATU unstable_batchedUpdates; gagal muat juga satu batch", () => withEngineClock(async (clock) => {
+  const prev = Object.prototype.hasOwnProperty.call(globalThis, "ReactDOM") ? globalThis.ReactDOM : undefined;
+  const had = Object.prototype.hasOwnProperty.call(globalThis, "ReactDOM");
+  const log = [];
+  let depth = 0;
+  globalThis.ReactDOM = { unstable_batchedUpdates: (f) => { log.push("mulai"); depth++; try { f(); } finally { depth--; log.push("selesai"); } } };
+  try {
+    for (const gagal of [false, true]) {
+      log.length = 0;
+      const { api } = fakeApi();
+      api.data = { tasks: { list: () => (gagal ? Promise.reject(new Error("offline")) : Promise.resolve([mk(1, "A", { start: "2026-11-02", duration: 1 })])) } };
+      const m = mount((p) => T.useEngine(p.api, p.opts));
+      const opts = { scopeTasks: [mk(1, "A", { start: "2026-11-02", duration: 1 })], calData: T.TLCal.normalize(T.TLCal.DEFAULT_CAL), units: new Map() };
+      m.render({ api, opts });
+      const n0 = m.setCalls.length;
+      let dalamBatch = 0;
+      const base = m.setCalls;
+      // setState selama muat harus terjadi di dalam batch: periksa lewat kedalaman saat setCalls bertambah
+      const push = base.push.bind(base);
+      base.push = (k) => { if (depth > 0) dalamBatch++; return push(k); };
+      m.flush();
+      await settle();
+      assert.deepEqual(log, ["mulai", "selesai"], (gagal ? "gagal" : "sukses") + ": tepat satu batch");
+      assert.ok(m.setCalls.length > n0 && dalamBatch === m.setCalls.length - n0, "semua setState muat berada di dalam batch");
+      m.unmount();
+    }
+  } finally {
+    if (had) globalThis.ReactDOM = prev; else delete globalThis.ReactDOM;
+  }
+}));
+
+// 1c-2 T9: panah kritis hanya sisi PENGARAH. P dan Q sama-sama mendahului B (tenggat menjadikan semuanya slack 0);
+// urutan deps [P, Q] → driver B = P (seri → urutan deps tersimpan). Panah Q→B antar dua kritis tetapi non-pengarah.
+test("panah antara dua kritis non-pengarah → tanpa is-critical; pengarah → is-critical", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const tasks = [
+    mk(1, "P", { start: "2026-11-02", duration: 2 }, al),
+    mk(2, "Q", { start: "2026-11-02", duration: 2 }, al),
+    mk(3, "B", { start: "2026-11-04", duration: 2, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }, { t: { $task: 2 }, type: "FS", lag: 0 }] }, Object.assign({ deadline: "2026-11-05" }, al)),
+  ];
+  const { m, tree } = await critView(clock, { tasks, storageGet: (k) => Promise.resolve(k === "crit:proj_Alpha" ? true : null) });
+  try {
+    for (const k of ["1", "2", "3"]) assert.ok(hasCls(barOf(tree, k), "is-critical"), "simpul " + k + " kritis");
+    assert.ok(arrowOf(tree, "1", "3"), "panah P→B ada");
+    assert.ok(arrowOf(tree, "2", "3"), "panah Q→B ada");
+    assert.ok(hasCls(arrowOf(tree, "1", "3"), "is-critical"), "pengarah (P→B) is-critical");
+    assert.equal(hasCls(arrowOf(tree, "2", "3"), "is-critical"), false, "non-pengarah (Q→B) antar dua kritis → tanpa is-critical");
+  } finally {
+    m.unmount();
+  }
+}));
+
 // Satu putaran penuh view: render → efek → janji → raf → timer (debounce 300 ms + setTimeout 0), beberapa kali.
 async function settleView(m, getProps, clock) {
   for (let i = 0; i < 4; i++) {
