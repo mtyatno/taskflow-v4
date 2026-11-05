@@ -500,18 +500,39 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     }
 
     // 7. dependensi (R8, R16): kunci kanonik String(id); spans memuat rentang ringkasan.
-    // Task DONE (bukan ringkasan): selesai pelanggaran = TLSched.doneFinish (aturan yang SAMA dengan jangkar "done" mesin —
-    // selesai lebih awal tidak menandai ⚠ pada tanggal yang baru ditulis mesin); durasi d dibawa agar penerus done tetap
-    // memakai durasi tersimpannya. Rentang bar (row.span) tidak berubah.
+    // Rentang pelanggaran daun = jangkar mesin (aturan α1 1c-1, diperluas aktual 1c-2) — SATU aturan "terlalu awal":
+    //  - DONE: mulai = actual.start ?? Mulai, selesai = TLSched.doneFinish (prioritas done tertinggi → tanpa resolver);
+    //  - BERJALAN via actual.start: hanya bila resolver `a.anchorInfo` ada DAN modeOf(task) = "auto" DAN bukan anggota
+    //    lingkaran (manual/cycle > started di mesin → tetap rentang tersimpan); mulai = actual.start, selesai = fin(mulai, d).
+    //  Tanpa Mulai (rentang null): dibangun dari actual.start HANYA bila resolver ada dan anchorInfo.inEngine(key) (task itu
+    //  simpul mesin — selain itu mesin melewatinya, layout juga); durasi = anchorInfo.durOf(key) (durasi simpul mesin)
+    //  ?? durasi readSched ?? 1. Resolver absen / tanpa inEngine → dilewati (perilaku 1c-1).
+    // Aktual dari it.sched (bacaan ext yang sama dengan bar). d dibawa agar penerus tetap memakai durasi tersimpannya.
+    // Rentang bar (row.span) tidak berubah. Tanpa resolver → perilaku 1c-1 untuk task yang belum selesai.
+    const ai = a.anchorInfo && typeof a.anchorInfo.modeOf === "function" && typeof a.anchorInfo.inCycle === "function" ? a.anchorInfo : null;
+    const inEngine = (k) => !!ai && typeof ai.inEngine === "function" && ai.inEngine(k) === true;
+    const durOf = (it) => {
+      const v = ai && typeof ai.durOf === "function" ? ai.durOf(it.key) : undefined;
+      if (isInt(v) && v >= 0) return v;
+      return it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+    };
     const spans = new Map();
     for (const it of all) {
-      if (!it.span) continue;
       const t = it.task;
-      if (it.children.length === 0 && (t.gtd_status === "done" || !!t.completed_at)) {
-        const d = it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
-        const f = SCHED.doneFinish(c, t, it.span.s, d);
-        spans.set(it.key, isInt(f) ? { s: it.span.s, f, d } : it.span);
-      } else spans.set(it.key, it.span);
+      const leaf = it.children.length === 0;
+      const a0 = leaf ? SCHED.actualOf(t, it.sched).start : null;
+      const built = !it.span && a0 !== null && inEngine(it.key); // rentang null → hanya simpul mesin
+      const d = built ? durOf(it) : it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+      let sp = it.span;
+      if (leaf && (t.gtd_status === "done" || !!t.completed_at)) {
+        const s = it.span ? (a0 !== null ? a0 : it.span.s) : built ? a0 : null;
+        const f = s === null ? undefined : SCHED.doneFinish(c, t, it.sched, s, d);
+        if (isInt(f)) sp = { s, f, d };
+      } else if (a0 !== null && (it.span || built) && ai && ai.modeOf(t) === "auto" && !ai.inCycle(it.key)) {
+        const f = SCHED.fin(c, a0, d);
+        if (isInt(f)) sp = { s: a0, f, d };
+      }
+      if (sp) spans.set(it.key, sp);
     }
     const edges = SCHED.resolveDeps(items.map((it) => ({ key: it.key, sched: it.sched })), index);
     const viol = SCHED.violations(c, spans, edges);

@@ -1,5 +1,10 @@
 {
   "entries": [
+    {"version": "taskflow-v499-baseline-aktual", "date": "2026-11-05", "title": "Timeline: baseline dan tanggal aktual",
+     "new": ["Simpan baseline project (sampai 3) dan lihat bedanya dengan jadwal sekarang — bar tipis di bawah setiap task.",
+             "Tanggal mulai dan selesai sungguhan tercatat otomatis saat kamu mulai fokus atau menyelesaikan task — bisa diubah kapan saja.",
+             "Garis aktual di Gantt menunjukkan sejauh mana pekerjaan berjalan dibanding rencana.",
+             "Detail task kini punya tabel Baseline vs sekarang dan tanggal aktual dengan tombol Catat hari ini."]},
     {"version": "taskflow-v498-jadwal-otomatis", "date": "2026-11-04", "title": "Timeline: jadwal otomatis dan jalur kritis",
      "new": ["Nyalakan Jadwal otomatis per project: task mengikuti dependensinya, selalu lewat pratinjau sebelum ada tanggal yang berubah.",
              "Di project otomatis, menggeser satu task ikut menggeser task sesudahnya. Salah geser? Tekan Urungkan.",

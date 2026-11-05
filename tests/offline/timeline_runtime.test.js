@@ -201,9 +201,9 @@ test("index.json repo: timeline valid (izin records dikenal, records.calendar + 
   assert.deepEqual(P.validateManifest(entry, idx), { ok: true, reason: null }, "validateManifest runtime nyata menerima entri");
   assert.ok(P.KNOWN_PERMISSIONS.includes("records") && !P.RESERVED_PERMISSIONS.includes("records"), "D1: records dikenal");
   assert.deepEqual(entry.permissions, ["storage", "task.ext", "records"]);
-  assert.deepEqual(entry.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 } }, "D2: records tersalin ke index.json (1c-1 R6: + project)");
+  assert.deepEqual(entry.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 } }, "D2: records tersalin ke index.json (1c-1 R6: + project; 1c-2 K41: + baseline)");
   assert.deepEqual(entry.records, manifest.records, "sama dengan manifest.json");
-  assert.deepEqual(entry.taskExt, { keys: ["start", "duration", "deps", "mode", "constraint"] });
+  assert.deepEqual(entry.taskExt, { keys: ["start", "duration", "deps", "mode", "constraint", "actual"] });
   assert.equal(entry.defaultEnabled, false);
   assert.equal(P.recordsError(entry), null);
   assert.equal(build.validateRecords(entry), null, "compile.js dan runtime sepakat");
@@ -402,8 +402,8 @@ test("api.taskExt nyata (rute lokal): set {start} lalu baca task lewat api.data.
   const after = await api.data.tasks.list();
   assert.deepEqual(api.taskExt.read(after.find((t) => t.id === a.id)), {});
   assert.equal("timeline.deps" in after.find((t) => t.id === b.id).ext, false);
-  // kunci di luar manifest.taskExt.keys ditolak runtime (`mode` sah sejak 1.1.0; `actual` baru di 1c-2)
-  await assert.rejects(api.taskExt.set(a.id, { actual: "2026-11-05" }), (e) => e instanceof PluginStorageError);
+  // kunci di luar manifest.taskExt.keys ditolak runtime (`mode` sah sejak 1.1.0; `actual` sah sejak 1.2.0)
+  await assert.rejects(api.taskExt.set(a.id, { aktual: "2026-11-05" }), (e) => e instanceof PluginStorageError);
   assert.equal(P.failures("timeline").length, 0);
 });
 
@@ -467,8 +467,9 @@ test("view nyata: lost untuk kalender aktif → toast persis lewat api.ui.toast 
   const m = mount(T.TimelineViewBody);
   let tree = m.render({ context, api });
   m.flush();
-  // dua pendengar onChange: useCalendar (entitas calendar) + useUnits (entitas project, 1c-1 R6)
-  await until(() => PS._internals.listeners.size === base + 2, "view berlangganan onChange");
+  // tiga pendengar onChange: useCalendar (entitas calendar) + useUnits (entitas project, 1c-1 R6) + useBaselines
+  // (entitas baseline, 1c-2 Task 5: satu pemuat se-scope untuk semua unit halaman)
+  await until(() => PS._internals.listeners.size === base + 3, "view berlangganan onChange");
   const bg = () => byCls(m.render({ context, api }), "plg-timeline-chart")[0].props.style.backgroundImage;
   const bgDefault = bg();
   // kalender workspace di-IndexedDB (Sabtu kerja): view memuat dari api.records nyata ketika ada perubahan lokal
@@ -547,17 +548,25 @@ async function recordEvents(fn) {
   try { return { value: await fn(), seen }; } finally { globalThis.dispatchEvent = prev; }
 }
 
-test("index.json repo: timeline 1.1.0, records.project tersalin, taskExt.keys lima", () => {
-  assert.equal(entry.version, "1.1.0");
-  assert.equal(manifest.version, "1.1.0");
+// 1c-2 T10: diperluas di tempat (nama tes brief "index.json: 1.2.0, records.baseline tersalin, enam kunci") — batas
+// deklarasi = BL_MAX plugin, validasi compile.js = runtime.
+test("index.json: 1.2.0, records.baseline tersalin, enam kunci (repo; + records.project tetap)", () => {
+  assert.equal(entry.version, "1.2.0");
+  assert.equal(manifest.version, "1.2.0");
   assert.equal(entry.minApi, 1);
   assert.deepEqual(entry.records.project, { conflict: "lww", maxBytes: 1024 });
   assert.deepEqual(entry.records.project, manifest.records.project);
-  assert.deepEqual(entry.taskExt.keys, ["start", "duration", "deps", "mode", "constraint"]);
-  assert.equal(entry.taskExt.keys.length, 5);
+  assert.deepEqual(entry.records.baseline, { conflict: "lww", maxBytes: 65536 });
+  assert.deepEqual(entry.records.baseline, manifest.records.baseline);
+  assert.deepEqual(entry.taskExt.keys, ["start", "duration", "deps", "mode", "constraint", "actual"]);
+  assert.equal(entry.taskExt.keys.length, 6);
   assert.deepEqual(entry.taskExt, manifest.taskExt);
   assert.deepEqual(P.validateManifest(entry, idx), { ok: true, reason: null });
   assert.equal(P.recordsError(entry), null);
+  // 1c-2 T10: batas deklarasi record baseline = konstanta klien K41 (adaptor menolak di batas yang sama dengan host)
+  assert.equal(entry.records.baseline.maxBytes, require(path.join(dir, "plan.js")).BL_MAX);
+  assert.deepEqual(Object.keys(entry.records), ["calendar", "project", "baseline"], "urutan kunci records");
+  assert.equal(build.validateRecords(entry), null, "compile.js dan runtime sepakat");
 });
 
 test("api.records nyata: put project prj@list:12:<h> scope list:12 → pending + op outbox plugin; id cocok pola server", async () => {
@@ -716,3 +725,170 @@ test("api.taskExt.set mode/constraint lolos validasi host (ukuran)", async () =>
 function T13iso(i) {
   return new Date(Date.UTC(2026, 10, 2) + (i % 60) * 864e5).toISOString().slice(0, 10);
 }
+
+// ── 1c-2 Task 8 (K42 diamandemen): event host NYATA → recordActual lewat api.taskExt nyata ─────────────────────────
+test("T8 runtime nyata: TF.events pomodoro.ended (pendengar terpasang di factory) → actual.start = hari Jakarta endedAt; ulang → 0 tulis; task.completed ber-start → 0; sync.done → 0; plugin OFF → pendengar lepas", async () => {
+  await enableAndLoad();
+  const api = RT.api.for("timeline");
+  const ra = await repo.createTask({ title: "A" }, { today: "2026-11-01" });
+  const rb = await repo.createTask({ title: "B" }, { today: "2026-11-01" });
+  const a = idOf(ra);
+  const b = idOf(rb);
+  const extOf = async (id) => api.taskExt.read((await api.data.tasks.list({ includeDone: true })).find((t) => t.id === id));
+  RT.events.emit("pomodoro.ended", { taskId: a, kind: "session", pomodoros: 1, focusSeconds: 1500, endedAt: "2026-11-04T18:30:00.000Z" });
+  await until(async () => "actual" in (await extOf(a)), "actual A tertulis");
+  assert.deepEqual(J(await extOf(a)), { actual: { start: "2026-11-05" } });
+  const rev = (await repo.getRaw(ra.cid)).rev;
+  assert.deepEqual((await repo.getRaw(ra.cid)).ext_dirty, ["timeline.actual"]);
+  // ulang (replay) + task.completed task ber-start + sync.done → 0 tulis (rev tetap)
+  RT.events.emit("pomodoro.ended", { taskId: a, kind: "session", pomodoros: 1, focusSeconds: 1500, endedAt: "2026-11-06T03:00:00.000Z" });
+  RT.events.emit("task.completed", { taskId: a, completedAt: "2026-11-06T03:00:00.000Z" });
+  RT.events.emit("sync.done", { initial: false });
+  for (let i = 0; i < 20; i++) await tick();
+  assert.equal((await repo.getRaw(ra.cid)).rev, rev, "0 tulis");
+  assert.deepEqual(J(await extOf(a)), { actual: { start: "2026-11-05" } });
+  // task.completed task tanpa start, tanpa completedAt → api.env.today()
+  RT.events.emit("task.completed", { taskId: b });
+  await until(async () => "actual" in (await extOf(b)), "actual B tertulis");
+  assert.deepEqual(J(await extOf(b)), { actual: { start: api.env.today() } });
+  assert.equal(P.failures("timeline").length, 0);
+  // OFF → pendengar dilepas (offAll): event berikutnya tidak menulis
+  const rc = await repo.createTask({ title: "C" }, { today: "2026-11-01" });
+  await P.setEnabled("timeline", false);
+  RT.events.emit("pomodoro.ended", { taskId: idOf(rc), kind: "session", pomodoros: 1, focusSeconds: 1500, endedAt: "2026-11-05T03:00:00.000Z" });
+  for (let i = 0; i < 20; i++) await tick();
+  assert.ok(!((await repo.getRaw(rc.cid)).ext || {})["timeline.actual"], "OFF → 0 tulis");
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1c-2 — Task 10: integrasi runtime nyata 1.2 (record baseline, actual, anggaran ukuran)
+// ════════════════════════════════════════════════════════════════════════════
+// Catatan: tes "index.json: 1.2.0, records.baseline tersalin, enam kunci" sudah ada di atas (diperbarui T4) —
+// diperluas di tempat (tes "index.json: 1.2.0 …" di bagian 1c-1 Task 13), tidak diduplikasi.
+
+const rawBl = async () => (await rawAll("plugin_records")).filter((r) => r.plugin_id === "timeline" && r.entity === "baseline");
+// Hitung panggilan api.records (delegasi ke runtime nyata) — bukti "0 put" di sisi pemanggil, selain IndexedDB.
+function countRecords(api) {
+  const calls = { get: 0, put: 0, list: 0, remove: 0 };
+  const records = {};
+  for (const k of Object.keys(calls)) records[k] = (...a) => { calls[k] += 1; return api.records[k](...a); };
+  return { api: Object.assign({}, api, { records: Object.assign({}, api.records, records) }), calls };
+}
+
+test("api.records nyata: put bl1@list:12:<h> → pending + op outbox; ukuran 65 KB ditolak sisi klien sebelum put", async () => {
+  const { T } = await enableAndLoad();
+  const api = RT.api.for("timeline");
+  // workspace 12: Alpha 3 task terjadwal (ber-server_id), Beta 1500 task (baseline realistis > 65 KB)
+  const BETA = 1500;
+  await seedSynced(3 + BETA, (i) => ({
+    list_id: 12, project: i < 3 ? "Alpha" : "Beta", estimated_pomodoros: i < 3 ? i + 1 : 1,
+    ext: { "timeline.start": i < 3 ? "2026-11-0" + (2 + i) : "2026-11-02", "timeline.duration": i < 3 ? 2 : 3 },
+  }));
+  const tasks = await api.data.tasks.list();
+  assert.equal(tasks.length, 3 + BETA);
+  const uA = T.TLSched.unitOf({ pageKind: "workspace", listId: 12, projectName: "Alpha" });
+  const uB = T.TLSched.unitOf({ pageKind: "workspace", listId: 12, projectName: "Beta" });
+  assert.equal(T.TLSched.unitOf(tasks.find((t) => t.id === SYNC_BASE)).recId, uA.recId, "unit halaman = unit task (pembuat id tunggal)");
+  // hasil mesin NYATA (TLCpm.run lewat pintu engine) atas task api.data nyata → kodek baselineEncode (jalur saveBl T5)
+  const ctx = { tasks, cal: T.TLCal.compile(T.TLCal.DEFAULT_CAL), units: new Map([[uA.recId, { auto: true }], [uB.recId, { auto: true }]]), readExt: (t) => api.taskExt.read(t) };
+  const result = T.engine.run(ctx);
+  const meta = { n: 1, name: "Rencana awal", savedAt: "2026-11-05", by: 7 };
+  const encA = T.TLPlan.baselineEncode(result, ctx, meta, uA.recId);
+  assert.equal(encA.count, 3);
+  assert.ok(encA.bytes <= T.TLPlan.BL_MAX);
+  const id = T.blRecId(uA, 1);
+  assert.match(id, /^bl1@list:12:[0-9a-f]{8}$/, "bentuk bl<n>@list:<lid>:<h>");
+  assert.equal(id, "bl1" + uA.recId.slice(3), "<h> dari TLSched.unitOf");
+  assert.match(id, pyRe("ID_RE"), "id cocok ID_RE server");
+  // tulisan lewat adaptor nyata (satu-satunya penulis record baseline) di atas api.records nyata
+  const cA = countRecords(api);
+  const { value: rec, seen } = await recordEvents(() => T.baselineStore(cA.api).save(uA, 1, "Rencana awal", encA.data, T.BL_NO_SNAP));
+  assert.deepEqual([cA.calls.get, cA.calls.put], [1, 1], "CAS get lalu satu put");
+  assert.equal(rec.entity, "baseline");
+  assert.equal(rec.id, id);
+  assert.equal(rec.scope, "list:12");
+  assert.equal(rec.pending, true);
+  const expT = [
+    [{ $task: SYNC_BASE }, "2026-11-02", "2026-11-03", 2, 1],
+    [{ $task: SYNC_BASE + 1 }, "2026-11-03", "2026-11-04", 2, 2],
+    [{ $task: SYNC_BASE + 2 }, "2026-11-04", "2026-11-05", 2, 3],
+  ];
+  assert.deepEqual(J(rec.data), { v: 1, n: 1, name: "Rencana awal", savedAt: "2026-11-05", by: 7, t: expT });
+  assert.ok(seen.includes("tf:outbox-queued"), "host diberi tahu ada op baru");
+  const raw = await rawBl();
+  assert.equal(raw.length, 1);
+  assert.deepEqual([raw[0].id, raw[0].scope, raw[0].dirty, raw[0].deleted], [id, "list:12", 1, 0], "IndexedDB: record dirty");
+  const ops = await pluginOps();
+  assert.equal(ops.length, 1, "satu op outbox plugin");
+  assert.equal(ops[0].op, "upsert");
+  assert.deepEqual([ops[0].payload.plugin_id, ops[0].payload.entity, ops[0].payload.id, ops[0].payload.scope], ["timeline", "baseline", id, "list:12"]);
+  assert.deepEqual(J(ops[0].payload.data.t), expT, "ref {$task} utuh di op");
+  // dibaca kembali lewat baselineStore nyata: baris berkunci id task, entri pending
+  const bases = (await T.baselineStore(api).loadAll(uA));
+  const e1 = bases.get(1);
+  assert.ok(e1 && !e1.foreign && e1.pending, "entri slot 1 pending");
+  assert.deepEqual([...e1.rows.keys()], [String(SYNC_BASE), String(SYNC_BASE + 1), String(SYNC_BASE + 2)]);
+  // ── > BL_MAX: baseline realistis Beta (1500 task) ditolak SISI KLIEN — 0 get, 0 put, IndexedDB/outbox tetap ──
+  const encB = T.TLPlan.baselineEncode(result, ctx, meta, uB.recId);
+  assert.equal(encB.count, BETA);
+  assert.ok(encB.bytes > T.TLPlan.BL_MAX, "baseline uji memang > 65.536 byte: " + encB.bytes);
+  const cB = countRecords(api);
+  const err = await T.baselineStore(cB.api).save(uB, 1, "Besar", encB.data, T.BL_NO_SNAP).catch((e) => e);
+  assert.equal(err.code, "TOO_LARGE");
+  assert.equal(err.message, "Baseline terlalu besar");
+  assert.deepEqual(cB.calls, { get: 0, put: 0, list: 0, remove: 0 }, "ditolak sebelum baca/tulis apa pun");
+  assert.equal((await rawBl()).length, 1, "tidak ada tulis IndexedDB");
+  assert.equal((await pluginOps()).length, 1, "tidak ada op baru");
+  // pengaman kedua: runtime nyata menolak sendiri dari deklarasi maxBytes 65536 (TOO_LARGE, sebelum menulis)
+  const big = await api.records.put("baseline", T.blRecId(uB, 1), encB.data, { scope: "list:12" }).catch((e) => e);
+  assert.ok(big instanceof PluginStorageError);
+  assert.equal(big.code, "TOO_LARGE");
+  assert.equal((await rawBl()).length, 1);
+  assert.equal((await pluginOps()).length, 1);
+  // kirim: payload POST membawa entity baseline, id, scope, ref task
+  const srv = pushServer();
+  assert.equal((await drain(srv)).failed, 0);
+  const sent = srv.calls.filter((c) => c.path === PATH).flatMap((c) => c.body.items);
+  assert.deepEqual(sent.map((it) => [it.entity, it.id, it.scope]), [["baseline", id, "list:12"]]);
+  assert.deepEqual(sent[0].data.t, expT);
+  assert.equal((await pluginOps()).length, 0);
+  assert.equal(P.failures("timeline").length, 0);
+});
+
+test("api.taskExt.set {actual} nyata lolos validasi host", async () => {
+  const { T } = await enableAndLoad();
+  const api = RT.api.for("timeline");
+  await seedSynced(2, (i) => ({ ext: { "lain-plug.z": "tetap", "timeline.start": "2026-11-02", "timeline.duration": 3 } }));
+  // patch lewat sanitizePatch plugin (bentuk K28 §4) → checkPatch host (null) → api.taskExt.set nyata
+  const san = J(T.TLSched.sanitizePatch({ actual: { start: "2026-11-03" } }));
+  assert.equal(san.ok, true, JSON.stringify(san));
+  assert.deepEqual(san.patch, { actual: { start: "2026-11-03" } });
+  assert.equal(X.checkPatch({ "timeline.actual": san.patch.actual }), null, "checkPatch host menerima");
+  // (set tunggal lewat rute task lokal biasa: op outbox task di bawah; tf:outbox-queued hanya milik jalur cepat setMany)
+  await api.taskExt.set(SYNC_BASE, san.patch);
+  const r = await repo.getRaw("cid-t13-000");
+  assert.deepEqual(J(r.ext["timeline.actual"]), { start: "2026-11-03" }, "IndexedDB ext");
+  assert.equal(r.ext["timeline.start"], "2026-11-02", "kunci jadwal utuh");
+  assert.equal(r.ext["lain-plug.z"], "tetap", "namespace lain utuh");
+  assert.deepEqual(r.ext_dirty, ["timeline.actual"], "hanya kunci actual kotor (ext_patch per kunci)");
+  assert.equal(r.dirty, 1);
+  assert.equal(r[X.EXT_ONLY_KEY], r.rev, "ext saja");
+  const ops = await taskOps();
+  assert.equal(ops.length, 1);
+  assert.deepEqual(J(ops[0].payload.ext["timeline.actual"]), { start: "2026-11-03" });
+  // terbaca kembali lewat api.data nyata + TLSched (readSched / actualOf)
+  const t0 = (await api.data.tasks.list()).find((t) => t.id === SYNC_BASE);
+  const ext0 = api.taskExt.read(t0);
+  assert.deepEqual(J(T.TLSched.readSched(ext0).actual), { start: "2026-11-03" });
+  const act = T.TLSched.actualOf(t0, ext0);
+  assert.equal(act.start, T.TLCal.dn("2026-11-03"));
+  assert.equal(act.finish, null, "belum selesai → tanpa finish");
+  // start + finish (gestur seksi) lolos; null menghapus
+  const both = J(T.TLSched.sanitizePatch({ actual: { start: "2026-11-03", finish: "2026-11-06" } }));
+  assert.equal(both.ok, true);
+  await api.taskExt.set(SYNC_BASE + 1, both.patch);
+  assert.deepEqual(J((await repo.getRaw("cid-t13-001")).ext["timeline.actual"]), { start: "2026-11-03", finish: "2026-11-06" });
+  await api.taskExt.set(SYNC_BASE + 1, { actual: null });
+  assert.equal("timeline.actual" in (await repo.getRaw("cid-t13-001")).ext, false, "null menghapus");
+  assert.equal(P.failures("timeline").length, 0);
+});

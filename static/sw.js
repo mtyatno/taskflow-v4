@@ -1,4 +1,4 @@
-const CACHE = "taskflow-v498-jadwal-otomatis";
+const CACHE = "taskflow-v499-baseline-aktual";
 // Cache suara latar terpisah: TIDAK ikut dihapus saat versi SW naik (file besar, tidak pernah berubah per nama-versi).
 const AMBIENT_CACHE = "alurik-ambient-v1";
 // Shell: semua file yang WAJIB ada agar index.html tampil & jalan offline. Install atomik (lihat handler install):
@@ -16,8 +16,8 @@ const STATIC = [
   "/static/plugins/index.json",
   "/static/plugins/habit-heatmap/plugin.js?v=aff4ba9b",
   "/static/plugins/habit-heatmap/style.css?v=aff4ba9b",
-  "/static/plugins/timeline/plugin.js?v=43e2284b",
-  "/static/plugins/timeline/style.css?v=43e2284b",
+  "/static/plugins/timeline/plugin.js?v=9ee0a80c",
+  "/static/plugins/timeline/style.css?v=9ee0a80c",
   // plugins:end
   "/static/offline/ids.js",
   "/static/offline/db.js",

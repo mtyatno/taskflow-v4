@@ -19,7 +19,7 @@ test("manifest persis", () => {
     id: "timeline",
     name: "Timeline",
     description: "Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.",
-    version: "1.1.0",
+    version: "1.2.0",
     minApi: 1,
     defaultEnabled: false,
     slots: ["taskList.views", "taskDetail.sections"],
@@ -28,18 +28,19 @@ test("manifest persis", () => {
       "taskList.views": [{ id: "gantt", label: "Timeline", icon: { path: "M2 4h7M5 8h8M3 12h5" }, pages: ["project", "workspace"] }],
       "taskDetail.sections": [{ id: "schedule", label: "Jadwal", order: 10 }],
     },
-    records: { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 } },
-    taskExt: { keys: ["start", "duration", "deps", "mode", "constraint"] },
+    records: { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 } },
+    taskExt: { keys: ["start", "duration", "deps", "mode", "constraint", "actual"] },
     parts: ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "layout.js", "drag.js"],
   });
 });
 
 // Bentuk api.records (README §5): put mengembalikan record publik, get → record atau null, onChange → off,
-// list(entity, {scope, limit = 200, after}) → {items, next} urut id (1c-1 Task 6: entitas `project` per scope).
+// list(entity, {scope, limit = 200, after}) → {items, next} urut id (1c-1 Task 6: entitas `project` per scope;
+// 1c-2 Task 4: entitas `baseline` per scope yang sama), remove(entity, id) → tombstone (record hilang dari get/list).
 function fakeRecords() {
   const store = new Map();
   const listeners = new Set();
-  const calls = { get: [], put: [], list: [], onChange: 0 };
+  const calls = { get: [], put: [], list: [], remove: [], onChange: 0 };
   let ver = 0;
   return {
     calls,
@@ -67,6 +68,11 @@ function fakeRecords() {
         const rec = { entity, id, scope: opts.scope, data: JSON.parse(JSON.stringify(data)), updated_at: "2026-11-01T00:00:00Z", version: ++ver, pending: true };
         store.set(entity + "/" + id, rec);
         return Promise.resolve(JSON.parse(JSON.stringify(rec)));
+      },
+      remove(entity, id) {
+        calls.remove.push([entity, id]);
+        store.delete(entity + "/" + id);
+        return Promise.resolve();
       },
       onChange(fn) {
         calls.onChange += 1;
@@ -147,7 +153,7 @@ test("calendarStore: calIdFor/scopeFor — task workspace → cal@list:<id>, tan
   assert.deepEqual(T.calTarget(0), { id: "cal@user", scope: "user" });
 });
 
-test("calendarStore dan projectStore satu-satunya yang menyentuh api.records; entitas project hanya di projectStore (R5, R6)", () => {
+test("calendarStore, projectStore, dan baselineStore satu-satunya yang menyentuh api.records; tiap entitas hanya di adaptornya (R5, R6, 1c-2 K41)", () => {
   const hits = jsx.match(/\.records\b/g) || [];
   assert.ok(hits.length > 0);
   const body = (name) => {
@@ -158,8 +164,9 @@ test("calendarStore dan projectStore satu-satunya yang menyentuh api.records; en
   };
   const [cs, ce] = body("calendarStore");
   const [ps, pe] = body("projectStore");
+  const [bs, be] = body("baselineStore");
   const strip = (s) => s.replace(/\/\/[^\n]*/g, "");
-  const cuts = [[cs, ce], [ps, pe]].sort((a, b) => a[0] - b[0]);
+  const cuts = [[cs, ce], [ps, pe], [bs, be]].sort((a, b) => a[0] - b[0]);
   let outside = "";
   let at = 0;
   for (const [s0, e0] of cuts) { outside += jsx.slice(at, s0); at = e0; }
@@ -169,6 +176,11 @@ test("calendarStore dan projectStore satu-satunya yang menyentuh api.records; en
   assert.doesNotMatch(strip(jsx.slice(cs, ce)), /PRJ_ENTITY|"project"/);
   assert.doesNotMatch(strip(jsx.slice(ps, pe)), /CAL_ENTITY|"calendar"/);
   assert.match(jsx, /const PRJ_ENTITY = "project";/);
+  // baselineStore hanya entitas baseline (BL_ENTITY); adaptor lain tidak menyentuhnya
+  assert.doesNotMatch(strip(jsx.slice(bs, be)), /CAL_ENTITY|PRJ_ENTITY|"calendar"|"project"/);
+  assert.match(strip(jsx.slice(bs, be)), /BL_ENTITY/);
+  assert.doesNotMatch(strip(jsx.slice(cs, ce)) + strip(jsx.slice(ps, pe)), /BL_ENTITY|"baseline"/);
+  assert.match(jsx, /const BL_ENTITY = "baseline";/);
 });
 
 test("registrasi: view gantt (taskList.views) dan seksi schedule order 10 (taskDetail.sections), komponen fungsi, sesuai contributes", () => {
@@ -563,6 +575,26 @@ test("context baru dengan scopeTasks identik → layout tidak dihitung ulang (R2
     T.engine.layout = orig;
   }
   assert.match(jsx, /React\.memo\(TimelineViewBody\)/);
+});
+
+test("1c-2: layout menerima resolver jangkar (anchorInfo) dari sumber mesin — modeOf lewat TLSched.modeOf + useUnits, inCycle false sebelum mesin siap", () => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 3, actual: { start: "2026-10-30" } })];
+  const { api } = fakeApi();
+  const { ctx } = ctxOf(tasks);
+  const orig = T.engine.layout;
+  const seen = [];
+  T.engine.layout = (a) => { seen.push(a); return orig(a); };
+  try {
+    mount(T.TimelineViewBody).render({ context: ctx, api });
+  } finally {
+    T.engine.layout = orig;
+  }
+  const ai = seen[0].anchorInfo;
+  assert.equal(typeof ai.modeOf, "function");
+  assert.equal(ai.modeOf(tasks[0]), "manual", "unit belum dimuat/tanpa record → manual (sama dengan mesin)");
+  assert.equal(ai.inCycle("1"), false, "mesin belum siap → bukan anggota lingkaran");
+  assert.match(jsx, /modeOf: \(t\) => TLSched\.modeOf\(readSchedOf\(t\), units, t\)/);
+  assert.match(jsx, /const units = un\.units;/);
 });
 
 const headerCells = (tree) => nodes(tree, (n) => n.props.role === "columnheader").map((n) => txt(n).trim());
@@ -2589,6 +2621,360 @@ test("useUnits: peristiwa record project beruntun → satu muat ulang 300 ms (ko
   assert.equal(fr.calls.list.length, 2, "timer tertunda dibatalkan saat dilepas");
 }));
 
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1c-2 — Task 4: baselineStore (K41) — muat per unit, simpan/hapus terpagar, kunci workspace, CAS snap
+// ════════════════════════════════════════════════════════════════════════════
+// Record `baseline` sah untuk slot n unit (lid null = pribadi). Id ditulis tangan DI TES (bentuk yang diharapkan
+// `bl<n>` + ekor recId unitOf); kode plugin hanya membangunnya dari keluaran TLSched.unitOf.
+const BL_T = [[{ $task: 1 }, "2026-11-02", "2026-11-04", 3, 2], [{ $task: 2 }, "2026-11-05", "2026-11-05", 1, 0]];
+function blUnit(lid, name) {
+  return T.TLSched.unitOf(lid ? { pageKind: "workspace", listId: lid, projectName: name } : { pageKind: "project", listId: null, projectName: name });
+}
+function blRec(lid, name, n, data, extra) {
+  const u = blUnit(lid, name);
+  return Object.assign({
+    entity: "baseline", id: "bl" + n + u.recId.slice(3), scope: u.scope,
+    data: Object.assign({ v: 1, n, name: "Baseline " + n, savedAt: "2026-11-04T03:00:00Z", by: 7, t: BL_T }, data || {}),
+    updated_at: "2026-11-04T03:00:00Z", version: 2, pending: false,
+  }, extra || {});
+}
+const BL_DATA = { v: 1, n: 1, name: "dari encode", savedAt: "2026-11-05T01:00:00Z", by: 7, t: BL_T };
+const blCode = (code) => (e) => e && e.code === code;
+
+test("baselineStore.loadAll dua halaman next; v2 / n asing = slot TERISI foreign (bukan kosong); hanya slot unit ini, tanpa tulis", async () => {
+  const fr = fakeRecords();
+  // 1003 baseline unit lain di scope list:12 → dua halaman (limit 1000)
+  for (let i = 0; i < 1003; i++) putRec(fr, blRec(12, "Proyek " + i, 1));
+  const a1 = blRec(12, "Alpha", 1, { name: "Rencana awal" }, { pending: true });
+  const a2 = blRec(12, "Alpha", 2, { v: 2 }, { updated_at: "2026-11-04T05:00:00Z" }); // versi lebih baru → terisi, asing
+  const a3 = blRec(12, "Alpha", 3, { name: "Sesudah revisi", by: null });
+  const beta3 = blRec(12, "Beta", 3, { n: 1 }, { pending: true }); // n data ≠ n id → asing (tetap terisi)
+  const alphaOther = blRec(13, "Alpha", 1); // workspace lain
+  const alphaMine = blRec(null, "Alpha", 1); // pribadi
+  for (const r of [a1, a2, a3, beta3, alphaOther, alphaMine]) putRec(fr, r);
+  putRec(fr, unitRec(12, "Alpha")); // entitas project di scope sama tidak ikut
+  assert.match(a1.id, /^bl1@list:12:[0-9a-f]{8}$/);
+  assert.match(alphaMine.id, /^bl1@user:[0-9a-f]{8}$/);
+  const store = T.baselineStore({ records: fr.api });
+  const map = await store.loadAll(blUnit(12, "Alpha"));
+  const ids12 = [...fr.store.values()].filter((r) => r.entity === "baseline" && r.scope === "list:12").map((r) => r.id).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+  assert.equal(fr.calls.list.length, 2, "dua halaman");
+  assert.deepEqual(fr.calls.list[0], ["baseline", { scope: "list:12", limit: 1000 }]);
+  assert.deepEqual(fr.calls.list[1], ["baseline", { scope: "list:12", limit: 1000, after: ids12[999] }]);
+  assert.ok(ids12.indexOf(a3.id) >= 1000, "slot 3 Alpha ada di halaman kedua");
+  assert.ok(map instanceof Map);
+  assert.deepEqual([...map.keys()].sort(), [1, 2, 3], "v2 di slot 2 tetap mengisi slot");
+  const e2 = map.get(2);
+  assert.equal(e2.foreign, true);
+  assert.equal(e2.n, 2);
+  assert.equal(e2.name, null);
+  assert.equal(e2.savedAt, null);
+  assert.equal(e2.by, null);
+  assert.ok(e2.rows instanceof Map && e2.rows.size === 0, "isi asing tidak dibaca");
+  assert.deepEqual(e2.snap, { exists: true, updatedAt: "2026-11-04T05:00:00Z", by: null }, "by data asing tidak dipercaya");
+  assert.equal(e2.pending, false);
+  const e1 = map.get(1);
+  assert.equal(e1.foreign, false);
+  assert.equal(e1.n, 1);
+  assert.equal(e1.name, "Rencana awal");
+  assert.equal(e1.savedAt, "2026-11-04T03:00:00Z");
+  assert.equal(e1.by, 7);
+  assert.deepEqual([...e1.rows.keys()], ["1", "2"], "baris lewat TLPlan.baselineDecode");
+  assert.deepEqual(e1.snap, { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: 7 });
+  assert.equal(e1.pending, true);
+  assert.deepEqual(map.get(3).snap, { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: null });
+  assert.equal(fr.calls.get.length, 0);
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "memuat tidak pernah menulis");
+  // Beta: slot 3 berdata n 1 → asing tetapi terisi; halaman project pribadi → scope user (satu halaman)
+  const beta = await store.loadAll(blUnit(12, "Beta"));
+  assert.deepEqual([...beta.keys()], [3]);
+  assert.equal(beta.get(3).foreign, true);
+  assert.equal(beta.get(3).pending, true);
+  const mine = await store.loadAll(blUnit(null, "Alpha"));
+  assert.deepEqual([...mine.keys()], [1]);
+  assert.deepEqual(fr.calls.list[fr.calls.list.length - 1], ["baseline", { scope: "user", limit: 1000 }]);
+  assert.equal((await store.loadAll(blUnit(null, "Belum Ada"))).size, 0);
+  // unit tidak sah → ditolak (bukan list scope sembarang)
+  await assert.rejects(store.loadAll({ recId: "bl1@user:x", scope: "user" }), blCode("INVALID"));
+  await assert.rejects(store.loadAll(null), blCode("INVALID"));
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0);
+});
+
+test("baselineStore: save menulis {v:1,n,name,savedAt,by,t} scope unit (id dari unitOf), CAS baca dulu; remove = records.remove; slot/unit tidak sah ditolak tanpa tulis", async () => {
+  const fr = fakeRecords();
+  const store = T.baselineStore({ records: fr.api });
+  const u = blUnit(12, "Alpha");
+  const id2 = "bl2" + u.recId.slice(3);
+  const rec = await store.save(u, 2, "Rencana awal", BL_DATA, T.BL_NO_SNAP);
+  assert.deepEqual(fr.calls.get, [["baseline", id2]], "CAS: baca record slot saat simpan");
+  assert.deepEqual(fr.calls.put, [["baseline", id2, { v: 1, n: 2, name: "Rencana awal", savedAt: "2026-11-05T01:00:00Z", by: 7, t: BL_T }, { scope: "list:12" }]]);
+  assert.equal(rec.id, id2);
+  assert.equal(rec.pending, true);
+  assert.equal(T.blRecId(u, 2), id2);
+  // bulat-pergi: loadAll melihat record yang baru ditulis
+  const map = await store.loadAll(u);
+  assert.equal(map.get(2).name, "Rencana awal");
+  assert.deepEqual(map.get(2).snap, { exists: true, updatedAt: "2026-11-01T00:00:00Z", by: 7 });
+  // pribadi: scope user, id bl1@user:<h>; savedAt/by bukan string/bilangan bulat → null
+  const p = blUnit(null, "Rumah");
+  await store.save(p, 1, "Baseline 1", Object.assign({}, BL_DATA, { savedAt: 5, by: "7" }), T.BL_NO_SNAP);
+  assert.deepEqual(fr.calls.put[1], ["baseline", "bl1" + p.recId.slice(3), { v: 1, n: 1, name: "Baseline 1", savedAt: null, by: null, t: BL_T }, { scope: "user" }]);
+  assert.match(fr.calls.put[1][1], /^bl1@user:[0-9a-f]{8}$/);
+  // remove (fungsi tulis yang sama): satu records.remove, tanpa put
+  await store.remove(u, 2);
+  assert.deepEqual(fr.calls.remove, [["baseline", id2]]);
+  assert.equal(fr.calls.put.length, 2);
+  assert.equal((await store.loadAll(u)).has(2), false);
+  // slot / unit / data tidak sah → INVALID, tanpa baca maupun tulis
+  const gets = fr.calls.get.length;
+  for (const n of [0, 4, "1", 1.5, null]) {
+    await assert.rejects(store.save(u, n, "x", BL_DATA, T.BL_NO_SNAP), blCode("INVALID"), "slot " + n);
+    await assert.rejects(store.remove(u, n), blCode("INVALID"), "hapus slot " + n);
+  }
+  const forged = [null, {}, { recId: "bl1@user:abc", scope: "user" }, { recId: u.recId, scope: "user" }, { recId: u.recId, scope: "list:13" }, { recId: "prj@user:abc" }];
+  for (const bad of forged) {
+    await assert.rejects(store.save(bad, 1, "x", BL_DATA, T.BL_NO_SNAP), blCode("INVALID"), JSON.stringify(bad));
+    await assert.rejects(store.remove(bad, 1), blCode("INVALID"), "hapus " + JSON.stringify(bad));
+  }
+  for (const d of [null, "x", { v: 1, t: "bukan larik" }]) await assert.rejects(store.save(u, 1, "x", d, T.BL_NO_SNAP), blCode("INVALID"));
+  await assert.rejects(store.save(u, 1, 5, BL_DATA, T.BL_NO_SNAP), blCode("INVALID"), "nama bukan string");
+  assert.equal(fr.calls.get.length, gets);
+  assert.equal(fr.calls.put.length, 2);
+  assert.equal(fr.calls.remove.length, 1);
+  // TOO_LARGE dari host (pemeriksaan maxBytes pluginsync) → galat yang sama dengan penolakan klien
+  fr.api.put = () => Promise.reject(Object.assign(new Error("TOO_LARGE: data > 65536 byte"), { code: "TOO_LARGE", detail: "size" }));
+  await assert.rejects(store.save(u, 3, "x", BL_DATA, T.BL_NO_SNAP), (e) => e.code === "TOO_LARGE" && e.message === T.MSG_BL_TOO_LARGE);
+  // galat lain diteruskan apa adanya
+  fr.api.put = () => Promise.reject(Object.assign(new Error("SCOPE_IMMUTABLE"), { code: "SCOPE_IMMUTABLE" }));
+  await assert.rejects(store.save(u, 3, "x", BL_DATA, T.BL_NO_SNAP), blCode("SCOPE_IMMUTABLE"));
+});
+
+test("baselineStore: batas BL_MAX eksak — 65536 byte boleh, 65537 ditolak 'Baseline terlalu besar' sebelum baca/tulis", async () => {
+  assert.equal(T.TLPlan.BL_MAX, 65536);
+  assert.equal(T.MSG_BL_TOO_LARGE, "Baseline terlalu besar");
+  const fr = fakeRecords();
+  const store = T.baselineStore({ records: fr.api });
+  const u = blUnit(12, "Alpha");
+  const base = T.TLPlan.baselineByteSize({ v: 1, n: 1, name: "", savedAt: BL_DATA.savedAt, by: 7, t: BL_T });
+  const fit = "x".repeat(T.TLPlan.BL_MAX - base);
+  assert.equal(T.TLPlan.baselineByteSize({ v: 1, n: 1, name: fit, savedAt: BL_DATA.savedAt, by: 7, t: BL_T }), 65536);
+  // tepat 65536 (ukuran data YANG DITULIS, termasuk nama dari argumen) → boleh
+  await store.save(u, 1, fit, BL_DATA, T.BL_NO_SNAP);
+  assert.equal(fr.calls.put.length, 1);
+  assert.equal(T.TLPlan.baselineByteSize(fr.calls.put[0][2]), 65536);
+  // 65537 → ditolak sebelum get/put
+  const gets = fr.calls.get.length;
+  await assert.rejects(store.save(u, 2, fit + "x", BL_DATA, T.BL_NO_SNAP), (e) => e.code === "TOO_LARGE" && e.message === "Baseline terlalu besar");
+  // multibyte: 2 byte UTF-8 per "é" — ukuran byte, bukan panjang string
+  const k = Math.floor((T.TLPlan.BL_MAX - base) / 2);
+  const mb = "é".repeat(k) + "x".repeat(T.TLPlan.BL_MAX - base - 2 * k + 1);
+  assert.equal(T.TLPlan.baselineByteSize({ v: 1, n: 1, name: mb, savedAt: BL_DATA.savedAt, by: 7, t: BL_T }), 65537);
+  await assert.rejects(store.save(u, 2, mb, BL_DATA, T.BL_NO_SNAP), blCode("TOO_LARGE"));
+  assert.equal(fr.calls.get.length, gets);
+  assert.equal(fr.calls.put.length, 1);
+});
+
+test("baselineStore: snap beda → tolak STALE tanpa put (anggota lain menimpa / slot terisi sejak dialog dibuka); snap sama → satu put; snap rusak → INVALID", async () => {
+  const fr = fakeRecords();
+  const store = T.baselineStore({ records: fr.api });
+  const u = blUnit(12, "Alpha");
+  putRec(fr, blRec(12, "Alpha", 1));
+  const snap1 = (await store.loadAll(u)).get(1).snap; // potret saat dialog dibuka
+  assert.deepEqual(snap1, { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: 7 });
+  // anggota lain menimpa slot 1 (updated_at baru, by lain) sebelum Simpan ditekan
+  putRec(fr, blRec(12, "Alpha", 1, { by: 9 }, { updated_at: "2026-11-05T02:00:00Z" }));
+  await assert.rejects(store.save(u, 1, "Timpa", BL_DATA, snap1), (e) => e.code === "STALE");
+  // hanya updated_at berubah (by sama) → tetap beda
+  putRec(fr, blRec(12, "Alpha", 1, {}, { updated_at: "2026-11-05T03:00:00Z" }));
+  await assert.rejects(store.save(u, 1, "Timpa", BL_DATA, snap1), blCode("STALE"));
+  // slot kosong saat dialog dibuka, terisi sebelum simpan → STALE (tidak menimpa diam-diam)
+  putRec(fr, blRec(12, "Alpha", 2));
+  await assert.rejects(store.save(u, 2, "Baru", BL_DATA, T.BL_NO_SNAP), blCode("STALE"));
+  // slot terisi saat dialog dibuka, dihapus anggota lain → STALE
+  await assert.rejects(store.save(u, 3, "Baru", BL_DATA, snap1), blCode("STALE"));
+  assert.equal(fr.calls.put.length, 0, "tidak ada put pada penolakan");
+  // potret terbaru (muat ulang) → satu put
+  const fresh = (await store.loadAll(u)).get(1).snap;
+  await store.save(u, 1, "Timpa", BL_DATA, fresh);
+  assert.equal(fr.calls.put.length, 1);
+  assert.equal(fr.calls.put[0][2].name, "Timpa");
+  // record slot asing (v 2, klien lebih baru) = slot TERISI (fix review T4): potret kosong → STALE (tidak pernah
+  // ditimpa diam-diam); potret dari loadAll (dialog menampilkannya terisi + konfirmasi Timpa) → boleh
+  putRec(fr, blRec(12, "Alpha", 3, { v: 2 }, { updated_at: "2026-11-04T06:00:00Z" }));
+  await assert.rejects(store.save(u, 3, "Baru", BL_DATA, T.BL_NO_SNAP), blCode("STALE"));
+  assert.equal(fr.calls.put.length, 1);
+  const foreignSnap = (await store.loadAll(u)).get(3).snap;
+  assert.deepEqual(foreignSnap, { exists: true, updatedAt: "2026-11-04T06:00:00Z", by: null });
+  await store.save(u, 3, "Baru", BL_DATA, foreignSnap);
+  assert.equal(fr.calls.put.length, 2);
+  assert.equal(fr.calls.put[1][2].v, 1);
+  // snap wajib: tidak ada / bukan objek → INVALID tanpa put
+  for (const s of [undefined, null, "x"]) await assert.rejects(store.save(u, 2, "x", BL_DATA, s), blCode("INVALID"));
+  assert.equal(fr.calls.put.length, 2);
+  assert.deepEqual(T.BL_NO_SNAP, { exists: false, updatedAt: null, by: null });
+  assert.ok(Object.isFrozen(T.BL_NO_SNAP));
+});
+
+test("baselineStore.remove(unit, n, snap): snap beda → STALE tanpa remove; snap sama (termasuk slot asing) → satu remove; tanpa snap → langsung; snap rusak → INVALID", async () => {
+  const fr = fakeRecords();
+  const store = T.baselineStore({ records: fr.api });
+  const u = blUnit(12, "Alpha");
+  putRec(fr, blRec(12, "Alpha", 1));
+  putRec(fr, blRec(12, "Alpha", 2, { v: 2 }));
+  const map = await store.loadAll(u);
+  const snap1 = map.get(1).snap;
+  // anggota lain menimpa slot 1 sejak dialog dibuka → STALE, record tetap
+  putRec(fr, blRec(12, "Alpha", 1, { by: 9 }, { updated_at: "2026-11-05T02:00:00Z" }));
+  const gets = fr.calls.get.length;
+  await assert.rejects(store.remove(u, 1, snap1), blCode("STALE"));
+  assert.equal(fr.calls.get.length, gets + 1, "CAS membaca record slot");
+  assert.equal(fr.calls.remove.length, 0);
+  assert.ok(fr.store.has("baseline/" + blRec(12, "Alpha", 1).id));
+  // slot sudah kosong saat dialog dibuka tetapi kini terisi → STALE
+  putRec(fr, blRec(12, "Alpha", 3));
+  await assert.rejects(store.remove(u, 3, T.BL_NO_SNAP), blCode("STALE"));
+  assert.equal(fr.calls.remove.length, 0);
+  // potret terbaru → satu remove
+  const fresh = (await store.loadAll(u)).get(1).snap;
+  await store.remove(u, 1, fresh);
+  assert.deepEqual(fr.calls.remove, [["baseline", blRec(12, "Alpha", 1).id]]);
+  // slot asing: potret loadAll → boleh dihapus
+  await store.remove(u, 2, map.get(2).snap);
+  assert.equal(fr.calls.remove.length, 2);
+  // snap tidak diberikan → hapus langsung (tanpa baca)
+  const g2 = fr.calls.get.length;
+  await store.remove(u, 3);
+  assert.equal(fr.calls.remove.length, 3);
+  assert.equal(fr.calls.get.length, g2);
+  // snap rusak → INVALID tanpa baca/hapus
+  for (const s of [null, "x", 5]) await assert.rejects(store.remove(u, 1, s), blCode("INVALID"));
+  assert.equal(fr.calls.get.length, g2);
+  assert.equal(fr.calls.remove.length, 3);
+  assert.equal(fr.calls.put.length, 0);
+});
+
+test("useBaselines kunci workspace: belum loaded/pulled → terkunci + teks 'Menunggu data baseline workspace…'; record lokal ada → slot itu terbuka; pulled → semua terbuka; project pribadi tidak", () => withEngineClock(async (clock) => {
+  assert.equal(T.MSG_BL_WAIT, "Menunggu data baseline workspace…");
+  const fr = fakeRecords();
+  putRec(fr, blRec(12, "Alpha", 1));
+  putRec(fr, blRec(12, "Alpha", 3, { v: 2 })); // record asing = ada secara lokal → slot 3 tidak menunggu
+  const { api } = fakeApi({ records: fr });
+  const m = mount((p) => T.useBaselines(p.api, p.unit));
+  const unit = blUnit(12, "Alpha");
+  let r = m.render({ api, unit });
+  // memuat: semua slot terkunci TANPA teks tunggu (pola P3 a)
+  assert.equal(r.loaded, false);
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), true); assert.equal(r.waitingOf(n), false); }
+  assert.equal(r.waiting, false);
+  m.flush();
+  await settle();
+  assert.equal(fr.calls.list.length, 1, "muat pertama saat pasang tanpa debounce");
+  r = m.render({ api, unit });
+  assert.equal(r.loaded, true);
+  assert.equal(r.pulled, false);
+  assert.deepEqual([...r.bases.keys()].sort(), [1, 3]);
+  assert.equal(r.lockedOf(1), false, "record lokal ada → base_version terkirim, boleh timpa (dengan konfirmasi T5)");
+  assert.deepEqual(r.snapOf(1), { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: 7 });
+  assert.equal(r.lockedOf(3), false, "record asing lokal = terisi");
+  assert.equal(r.bases.get(3).foreign, true);
+  assert.deepEqual(r.snapOf(3), { exists: true, updatedAt: "2026-11-04T03:00:00Z", by: null });
+  for (const n of [2]) { assert.equal(r.lockedOf(n), true); assert.equal(r.waitingOf(n), true); assert.deepEqual(r.snapOf(n), T.BL_NO_SNAP); }
+  assert.equal(r.waiting, true);
+  // record tiba lewat sinkron biasa (bukan pulled) → muat ulang setelah 300 ms; slot 2 terbuka karena kini ada
+  putRec(fr, blRec(12, "Alpha", 2));
+  fr.emit({ entity: "baseline", ids: [blRec(12, "Alpha", 2).id], source: "sync" });
+  clock.tick(299);
+  await settle();
+  assert.equal(fr.calls.list.length, 1);
+  clock.tick(1);
+  await settle();
+  r = m.render({ api, unit });
+  assert.equal(fr.calls.list.length, 2);
+  assert.equal(r.lockedOf(2), false);
+  assert.equal(r.waiting, false, "semua slot kini ada secara lokal");
+  assert.equal(r.pulled, false, "sync biasa bukan tanda tarik sukses");
+  // slot 2 dihapus anggota lain (sync) → kembali menunggu
+  fr.store.delete("baseline/" + blRec(12, "Alpha", 2).id);
+  fr.emit({ entity: "baseline", ids: [blRec(12, "Alpha", 2).id], source: "sync" });
+  clock.tick(300);
+  await settle();
+  r = m.render({ api, unit });
+  assert.equal(r.lockedOf(2), true);
+  assert.equal(r.waitingOf(2), true);
+  // entitas lain tidak memuat ulang baseline
+  fr.emit({ entity: "project", ids: ["prj@list:12:-"], source: "sync" });
+  clock.tick(300);
+  await settle();
+  assert.equal(fr.calls.list.length, 3);
+  // tarik sukses → muat ulang SEGERA, lalu latch menyala → semua slot terbuka, teks hilang
+  fr.emit(PULLED);
+  await settle();
+  r = m.render({ api, unit });
+  assert.equal(fr.calls.list.length, 4);
+  assert.equal(r.pulled, true);
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false); assert.equal(r.waitingOf(n), false); }
+  assert.equal(r.waiting, false);
+  m.unmount();
+  assert.equal(fr.listenerCount(), 0);
+
+  // halaman project pribadi: setelah muat tidak pernah terkunci, meski tanpa record dan tanpa pulled
+  const m2 = mount((p) => T.useBaselines(p.api, p.unit));
+  const pu = blUnit(null, "Rumah");
+  m2.render({ api, unit: pu });
+  m2.flush();
+  await settle();
+  r = m2.render({ api, unit: pu });
+  assert.equal(r.loaded, true);
+  assert.equal(r.pulled, false);
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false); assert.equal(r.waitingOf(n), false); }
+  m2.unmount();
+
+  // muat gagal (ruling review T4): workspace sebelum pulled → TETAP terkunci + teks tunggu; pulled lalu muat ulang
+  // gagal lagi → latch tetap menyala → terbuka (tidak terkunci selamanya); pribadi gagal → terbuka.
+  const fr3 = fakeRecords();
+  fr3.api.list = () => Promise.reject(new Error("idb"));
+  const h3 = fakeApi({ records: fr3 });
+  const m3 = mount((p) => T.useBaselines(p.api, p.unit));
+  m3.render({ api: h3.api, unit });
+  m3.flush();
+  await settle();
+  r = m3.render({ api: h3.api, unit });
+  assert.equal(r.failed, true);
+  assert.equal(r.loaded, false);
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), true, "workspace gagal sebelum pulled"); assert.equal(r.waitingOf(n), true); }
+  assert.equal(r.waiting, true);
+  assert.equal(h3.calls.warn.length, 1);
+  fr3.emit(PULLED);
+  await settle();
+  r = m3.render({ api: h3.api, unit });
+  assert.equal(h3.calls.warn.length, 2, "muat ulang sesudah pulled juga gagal");
+  assert.equal(r.failed, true);
+  assert.equal(r.pulled, true, "latch menyala walau muat ulang gagal");
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false); assert.equal(r.waitingOf(n), false); }
+  m3.unmount();
+  const fr5 = fakeRecords();
+  fr5.api.list = () => Promise.reject(new Error("idb"));
+  const h5 = fakeApi({ records: fr5 });
+  const m5 = mount((p) => T.useBaselines(p.api, p.unit));
+  m5.render({ api: h5.api, unit: pu });
+  m5.flush();
+  await settle();
+  r = m5.render({ api: h5.api, unit: pu });
+  assert.equal(r.failed, true);
+  assert.equal(r.pulled, false);
+  for (const n of [1, 2, 3]) { assert.equal(r.lockedOf(n), false, "pribadi gagal → terbuka"); assert.equal(r.waitingOf(n), false); }
+  m5.unmount();
+  const m4 = mount((p) => T.useBaselines(p.api, p.unit));
+  r = m4.render({ api, unit: null });
+  m4.flush();
+  await settle();
+  r = m4.render({ api, unit: null });
+  for (const n of [1, 2, 3]) assert.equal(r.lockedOf(n), true);
+  assert.equal(r.bases.size, 0);
+  m4.unmount();
+  assert.equal(fr.calls.put.length + fr.calls.remove.length + fr3.calls.put.length + fr3.calls.remove.length + fr5.calls.put.length, 0, "hook tidak pernah menulis");
+}));
+
 test("useEngine: render pertama status loading tanpa memanggil TLCpm.run (spy); setelah raf + setTimeout palsu → ready; scopeTasks identitas sama → tidak muat ulang; berubah / sync.done → satu muat ulang setelah 300 ms (dua kejadian beruntun = satu)", () => withEngineClock(async (clock) => {
   const a = mk(1, "A", { start: "2026-11-02", duration: 2 });
   const b = mk(2, "B", { duration: 1, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }] });
@@ -2717,6 +3103,49 @@ test("useEngine: render pertama status loading tanpa memanggil TLCpm.run (spy); 
   }
 }));
 
+test("1c-2: useEngine — suntingan HANYA actual ({actual:{start}}) → engineKey berubah, mesin jalan ulang sekali (debounce)", () => withEngineClock(async (clock) => {
+  const a = mk(1, "A", { start: "2026-11-09", duration: 2 });
+  const b = mk(2, "B", { duration: 1, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }] });
+  const rd = (t) => { const o = {}; for (const k of Object.keys(t.ext)) o[k.slice(9)] = t.ext[k]; return o; };
+  const a2 = mk(1, "A", { start: "2026-11-09", duration: 2, actual: { start: "2026-11-02" } });
+  assert.notEqual(T.engineKeyOf([a2, b], rd), T.engineKeyOf([a, b], rd), "kunci memuat actual");
+  let list = [a, b];
+  const { api, calls } = fakeApi();
+  api.data = { tasks: { list: () => Promise.resolve(list) } };
+  const units = new Map([[T.TLSched.unitOf(a).recId, { auto: true, by: 7, updatedAt: null, pending: false, exists: true }]]);
+  const opts = { scopeTasks: [a, b], calData: T.TLCal.normalize(T.TLCal.DEFAULT_CAL), units };
+  const spy = spyRun();
+  try {
+    const m = mount((p) => T.useEngine(p.api, p.opts));
+    m.render({ api, opts });
+    m.flush();
+    await settle();
+    m.render({ api, opts });
+    m.flush();
+    clock.frames();
+    clock.tick(0);
+    let r = m.render({ api, opts });
+    assert.equal(r.status, "ready");
+    assert.equal(spy.runs.length, 1);
+    assert.equal(T.TLCal.iso(r.result.nodes.get("2").es), "2026-11-11");
+    list = [a2, b];
+    for (const f of calls.handlers["sync.done"] || []) f({ initial: false });
+    clock.tick(300);
+    await settle();
+    m.render({ api, opts });
+    m.flush();
+    clock.frames();
+    clock.tick(0);
+    r = m.render({ api, opts });
+    assert.equal(spy.runs.length, 2, "satu kali jalan ulang");
+    assert.equal(r.result.nodes.get("1").fixed, "started");
+    assert.equal(T.TLCal.iso(r.result.nodes.get("2").es), "2026-11-04", "penerus mengikuti jangkar actual.start");
+    m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
 test("useEngine: daftar gagal dimuat sebelum ada hasil → status error, tanpa mesin dan tanpa tulis", () => withEngineClock(async (clock) => {
   const { api, calls } = fakeApi();
   api.data = { tasks: { list: () => Promise.reject(new Error("offline")) } };
@@ -2741,6 +3170,58 @@ test("useEngine: daftar gagal dimuat sebelum ada hasil → status error, tanpa m
     m.unmount();
   } finally {
     spy.restore();
+  }
+}));
+
+test("muat list: satu commit (spy pola 8c) — setList + setFailed dalam SATU unstable_batchedUpdates; gagal muat juga satu batch", () => withEngineClock(async (clock) => {
+  const prev = Object.prototype.hasOwnProperty.call(globalThis, "ReactDOM") ? globalThis.ReactDOM : undefined;
+  const had = Object.prototype.hasOwnProperty.call(globalThis, "ReactDOM");
+  const log = [];
+  let depth = 0;
+  globalThis.ReactDOM = { unstable_batchedUpdates: (f) => { log.push("mulai"); depth++; try { f(); } finally { depth--; log.push("selesai"); } } };
+  try {
+    for (const gagal of [false, true]) {
+      log.length = 0;
+      const { api } = fakeApi();
+      api.data = { tasks: { list: () => (gagal ? Promise.reject(new Error("offline")) : Promise.resolve([mk(1, "A", { start: "2026-11-02", duration: 1 })])) } };
+      const m = mount((p) => T.useEngine(p.api, p.opts));
+      const opts = { scopeTasks: [mk(1, "A", { start: "2026-11-02", duration: 1 })], calData: T.TLCal.normalize(T.TLCal.DEFAULT_CAL), units: new Map() };
+      m.render({ api, opts });
+      const n0 = m.setCalls.length;
+      let dalamBatch = 0;
+      const base = m.setCalls;
+      // setState selama muat harus terjadi di dalam batch: periksa lewat kedalaman saat setCalls bertambah
+      const push = base.push.bind(base);
+      base.push = (k) => { if (depth > 0) dalamBatch++; return push(k); };
+      m.flush();
+      await settle();
+      assert.deepEqual(log, ["mulai", "selesai"], (gagal ? "gagal" : "sukses") + ": tepat satu batch");
+      assert.ok(m.setCalls.length > n0 && dalamBatch === m.setCalls.length - n0, "semua setState muat berada di dalam batch");
+      m.unmount();
+    }
+  } finally {
+    if (had) globalThis.ReactDOM = prev; else delete globalThis.ReactDOM;
+  }
+}));
+
+// 1c-2 T9: panah kritis hanya sisi PENGARAH. P dan Q sama-sama mendahului B (tenggat menjadikan semuanya slack 0);
+// urutan deps [P, Q] → driver B = P (seri → urutan deps tersimpan). Panah Q→B antar dua kritis tetapi non-pengarah.
+test("panah antara dua kritis non-pengarah → tanpa is-critical; pengarah → is-critical", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const tasks = [
+    mk(1, "P", { start: "2026-11-02", duration: 2 }, al),
+    mk(2, "Q", { start: "2026-11-02", duration: 2 }, al),
+    mk(3, "B", { start: "2026-11-04", duration: 2, deps: [{ t: { $task: 1 }, type: "FS", lag: 0 }, { t: { $task: 2 }, type: "FS", lag: 0 }] }, Object.assign({ deadline: "2026-11-05" }, al)),
+  ];
+  const { m, tree } = await critView(clock, { tasks, storageGet: (k) => Promise.resolve(k === "crit:proj_Alpha" ? true : null) });
+  try {
+    for (const k of ["1", "2", "3"]) assert.ok(hasCls(barOf(tree, k), "is-critical"), "simpul " + k + " kritis");
+    assert.ok(arrowOf(tree, "1", "3"), "panah P→B ada");
+    assert.ok(arrowOf(tree, "2", "3"), "panah Q→B ada");
+    assert.ok(hasCls(arrowOf(tree, "1", "3"), "is-critical"), "pengarah (P→B) is-critical");
+    assert.equal(hasCls(arrowOf(tree, "2", "3"), "is-critical"), false, "non-pengarah (Q→B) antar dua kritis → tanpa is-critical");
+  } finally {
+    m.unmount();
   }
 }));
 
@@ -2806,10 +3287,16 @@ test("task pindah ke project lain / project diganti nama → unitOf baru tanpa r
   }
 }));
 
-test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 500 task dengan drift > 0, sync.done, onChange project dari sync, pulled, env.today berubah + rerender, kalender berubah, scopeTasks baru", () => withEngineClock(async (clock) => {
+test("spy taskExt.set/setMany + records.put/remove = 0 (view + useBaselines terpasang, record baseline ada) setelah: mount view workspace 500 task dengan drift > 0, sync.done, onChange project dari sync, onChange baseline, pulled, env.today berubah + rerender, kalender berubah, scopeTasks baru", () => withEngineClock(async (clock) => {
   const tasks = bigTasks(500, 400).map((t) => Object.assign({}, t, { list_id: 12 }));
   const fr = fakeRecords();
   for (let i = 0; i < 5; i++) putRec(fr, unitRec(12, "P" + i)); // semua project otomatis
+  // 1c-2 Task 4: baseline unit P0 ada (slot 1, 2) + baselineStore terpasang (useBaselines) bersama view
+  putRec(fr, blRec(12, "P0", 1));
+  putRec(fr, blRec(12, "P0", 2, { name: "Revisi" }));
+  const blU = blUnit(12, "P0");
+  let blState = null;
+  const ViewBl = (p) => { blState = T.useBaselines(p.api, blU); return T.TimelineViewBody(p); };
   const { api, calls } = fakeApi({ records: fr });
   let listCalls = 0;
   api.data = { tasks: { list: () => { listCalls += 1; return Promise.resolve(tasks); } } };
@@ -2818,7 +3305,7 @@ test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 50
   try {
     const base = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null }).ctx;
     let props = { context: base, api };
-    const m = mount(T.TimelineViewBody);
+    const m = mount(ViewBl);
     const tree0 = m.render(props);
     assert.equal(spy.runs.length, 0, "render awal view tidak menunggu mesin");
     assert.ok(nodes(tree0, (n) => n.props.role === "grid").length === 1);
@@ -2830,7 +3317,9 @@ test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 50
     const ok = (step) => {
       assert.deepEqual(writes, [], step + ": taskExt");
       assert.equal(fr.calls.put.length, 0, step + ": records.put");
+      assert.equal(fr.calls.remove.length, 0, step + ": records.remove");
     };
+    assert.deepEqual([...blState.bases.keys()].sort(), [1, 2], "baseline termuat");
     ok("mount");
     // sinkron selesai
     for (const f of calls.handlers["sync.done"] || []) f({ initial: false });
@@ -2844,8 +3333,17 @@ test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 50
     await settleView(m, () => props, clock);
     assert.equal(spy.runs.length, before + 1, "unit berubah → mesin jalan ulang");
     ok("onChange project");
+    // baseline berubah dari sinkron (anggota lain menimpa slot 2, menghapus slot 1)
+    putRec(fr, blRec(12, "P0", 2, { name: "Revisi 2", by: 9 }, { updated_at: "2026-11-05T02:00:00Z" }));
+    fr.store.delete("baseline/" + blRec(12, "P0", 1).id);
+    fr.emit({ entity: "baseline", ids: [blRec(12, "P0", 1).id, blRec(12, "P0", 2).id], source: "sync", lost: [blRec(12, "P0", 2).id] });
+    await settleView(m, () => props, clock);
+    assert.deepEqual([...blState.bases.keys()], [2]);
+    assert.equal(blState.bases.get(2).name, "Revisi 2");
+    ok("onChange baseline");
     fr.emit(PULLED);
     await settleView(m, () => props, clock);
+    assert.equal(blState.pulled, true);
     ok("pulled");
     // env.today berubah + rerender (plugin tidak berlangganan app.dayChanged: hari dibaca dari api.env.today tiap render)
     api.env.today = () => "2026-11-05";
@@ -2875,10 +3373,13 @@ test("spy taskExt.set/setMany + records.put = 0 setelah: mount view workspace 50
   }
 }));
 
-// Pagar sumber R25: AST plugin.js (build) — setiap akses taskExt.set / taskExt.setMany / records.put berada di dalam
-// badan fungsi bernama issue|issueMany|write|writeMany|setAuto|save; tanpa alias (`const te = api.taskExt`), akses
+// Pagar sumber R25: AST plugin.js (build) — setiap akses taskExt.set / taskExt.setMany / records.put / records.remove
+// berada di dalam badan fungsi bernama issue|issueMany|write|writeMany|setAuto|save|saveBaseline (1c-2 Task 4: +saveBaseline,
+// dan records.remove ikut dipagari sejak ada pemanggilnya); tanpa alias (`const te = api.taskExt`), akses
 // terhitung (`api["taskExt"]`), atau destrukturisasi yang bisa melewati pagar.
-const FENCE_ALLOW = new Set(["issue", "issueMany", "write", "writeMany", "setAuto", "save"]);
+// 1c-2 Task 8: +recordActual — satu-satunya penulis OTOMATIS (dipicu event host gestur lokal pomodoro.ended/task.completed,
+// "isi bila kosong" {actual:{start}}); spy perilaku memastikan sync.done/pulled/onChange/refresh tetap 0 tulis.
+const FENCE_ALLOW = new Set(["issue", "issueMany", "write", "writeMany", "setAuto", "save", "saveBaseline", "recordActual"]);
 function fenceScan(code) {
   const parser = require("@babel/parser");
   const ast = parser.parse(code, { sourceType: "script" });
@@ -2910,7 +3411,7 @@ function fenceScan(code) {
       const obj = node.object;
       const owner = obj.type === "MemberExpression" && !obj.computed ? keyName(obj.property) : obj.type === "Identifier" ? obj.name : null;
       if (GUARDED.has(owner) && node.computed) bad.push("akses terhitung pada " + owner + " baris " + line(node));
-      if (!node.computed && ((owner === "taskExt" && (prop === "set" || prop === "setMany")) || (owner === "records" && prop === "put"))) {
+      if (!node.computed && ((owner === "taskExt" && (prop === "set" || prop === "setMany")) || (owner === "records" && (prop === "put" || prop === "remove")))) {
         const fn = names.filter((n) => FENCE_ALLOW.has(n));
         hits.push({ call: owner + "." + prop, fn: fn.length ? fn[fn.length - 1] : null, line: line(node) });
         if (!fn.length) bad.push(owner + "." + prop + " di luar daftar-izin (" + names.join(" > ") + ") baris " + line(node));
@@ -2929,7 +3430,7 @@ function fenceScan(code) {
   return { hits, bad };
 }
 
-test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.put(' berada di dalam fungsi issue|issueMany|write|writeMany|setAuto|save", () => {
+test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.put(' / 'records.remove(' berada di dalam fungsi issue|issueMany|write|writeMany|setAuto|save|saveBaseline|recordActual", () => {
   // pagar memeriksa dirinya sendiri: pelanggaran sintetis harus tertangkap, pola sah tidak
   const caught = (src) => fenceScan(src).bad.length > 0;
   assert.ok(caught("function useX(api) { api.records.put('project', 'x', {}, {}); }"), "fungsi lain");
@@ -2939,12 +3440,18 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
   assert.ok(caught("function f(api) { api['taskExt'].set(1, {}); }"), "terhitung");
   assert.ok(caught("function f(api) { const { records } = api; records.put('a'); }"), "destrukturisasi");
   assert.ok(caught("function f(api) { api.records['put']('a'); }"), "metode terhitung");
+  assert.ok(caught("const s = { remove(api) { return api.records.remove('baseline', 'b'); } };"), "records.remove di luar daftar-izin");
+  assert.ok(caught("function useBaselines(api) { React.useEffect(() => { api.records.remove('baseline', 'b'); }); }"), "records.remove di efek");
+  assert.ok(caught("function install(api) { api.events.on('sync.done', () => api.taskExt.set(1, {actual: {}})); }"), "pendengar event di luar recordActual");
+  assert.ok(caught("function recordActuals(api) { api.taskExt.set(1, {}); }"), "nama mirip bukan daftar-izin");
   const okSrc = "function issue(api) { const send = () => api.taskExt.setMany([]); return send() || api.taskExt.set(1, {}); }" +
     "const o = { save(api) { return api.records.put('calendar', 'c', {}, {}); }, setAuto(api) { return api.records.put('project', 'p', {}, {}); } };" +
-    "function S(api) { const write = (p) => api.taskExt.set(1, p); return write; }";
+    "function S(api) { const write = (p) => api.taskExt.set(1, p); return write; }" +
+    "function B(api) { function saveBaseline(op) { return op ? api.records.remove('baseline', 'b') : Promise.resolve().then(() => api.records.put('baseline', 'b', {}, {})); } return { save: () => saveBaseline(0) }; }";
   const okScan = fenceScan(okSrc);
   assert.deepEqual(okScan.bad, []);
-  assert.equal(okScan.hits.length, 5);
+  assert.equal(okScan.hits.length, 7);
+  assert.deepEqual(okScan.hits.slice(5).map((h) => h.fn + ":" + h.call), ["saveBaseline:records.remove", "saveBaseline:records.put"]);
 
   const code = fs.readFileSync(path.join(dir, "plugin.js"), "utf8");
   const { hits, bad } = fenceScan(code);
@@ -2956,9 +3463,11 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
     "issue:taskExt.setMany": 1, "issue:taskExt.set": 1, "write:taskExt.set": 1, "issueMany:taskExt.setMany": 1,
     "writeMany:taskExt.setMany": 1, // 1c-1 Task 11: tulis massal seksi Jadwal (Mode, Perbarui, Urungkan)
     "save:records.put": 1, "setAuto:records.put": 1,
+    "saveBaseline:records.put": 1, "saveBaseline:records.remove": 1, // 1c-2 Task 4: simpan/hapus baseline (K41)
+    "recordActual:taskExt.set": 1, // 1c-2 Task 8: catat mulai aktual dari pomodoro.ended/task.completed (K42 diamandemen)
   });
   // regex mentah tetap cocok dengan jumlah hit AST (tidak ada pemanggilan yang luput dari parser)
-  const raw = (code.match(/taskExt\.set\(|taskExt\.setMany\(|records\.put\(/g) || []).length;
+  const raw = (code.match(/taskExt\.set\(|taskExt\.setMany\(|records\.put\(|records\.remove\(/g) || []).length;
   assert.equal(raw, hits.length);
 });
 
@@ -3135,6 +3644,51 @@ test("sebelum mesin siap: sel Slack '—' dan tanpa is-critical", () => withEngi
     m.unmount();
   } finally {
     spy.restore();
+  }
+}));
+
+test("1c-2: task berjalan via actual.start di unit Otomatis → ⚠ view setuju dengan mesin (tata letak ulang setelah unit dimuat)", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const dep = [{ t: { $task: 1 }, type: "FS", lag: 0 }];
+  const tasks = [
+    mk(1, "X", { start: "2026-11-11", duration: 2, actual: { start: "2026-11-04" } }, al), // mesin: Rab 4–Kam 5
+    mk(2, "Y", { start: "2026-11-06", duration: 1, mode: "manual", deps: dep }, al), // Jum 6 = setelah jangkar aktual
+  ];
+  const orig = T.engine.layout;
+  let last = null;
+  T.engine.layout = (a) => (last = orig(a));
+  try {
+    const { m } = await critView(clock, { tasks });
+    assert.equal(last.rows.find((r) => r.key === "2").violation, false, "tanpa ⚠ palsu (rentang tersimpan Rab 11 tidak dipakai)");
+    m.unmount();
+    const manual = await critView(clock, { tasks, auto: false });
+    assert.equal(last.rows.find((r) => r.key === "2").violation, true, "unit Manual → mesin berjangkar di tersimpan → ⚠");
+    manual.m.unmount();
+  } finally {
+    T.engine.layout = orig;
+  }
+}));
+
+test("1c-2: task berjalan TANPA Mulai (simpul mesin) → rentang pelanggaran dari actual.start + durasi mesin setelah mesin siap", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const fs9 = [{ t: { $task: 9 }, type: "FS", lag: 0 }];
+  const fs1 = [{ t: { $task: 1 }, type: "FS", lag: 0 }];
+  const mkT = (y) => [
+    mk(9, "P", { start: "2026-10-26", duration: 1 }, al),
+    mk(1, "X", { duration: 3, deps: fs9, actual: { start: "2026-11-02" } }, al), // mesin: Sen 2–Rab 4
+    mk(2, "Y", { start: y, duration: 1, mode: "manual", deps: fs1 }, al),
+  ];
+  const orig = T.engine.layout;
+  let last = null;
+  T.engine.layout = (a) => (last = orig(a));
+  try {
+    for (const [y, v] of [["2026-11-04", true], ["2026-11-05", false]]) {
+      const { m } = await critView(clock, { tasks: mkT(y) });
+      assert.equal(last.rows.find((r) => r.key === "2").violation, v, "Y " + y);
+      m.unmount();
+    }
+  } finally {
+    T.engine.layout = orig;
   }
 }));
 
@@ -3324,14 +3878,14 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   }
   // lebar, mesin siap: urutan R23
   const h = await swView(clock);
-  assert.deepEqual(toolbarTexts(h.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Jadwal otomatis", "Jalur kritis", "Jadwalkan ulang", "Kalender kerja", "Urutkan menurut Mulai"]);
+  assert.deepEqual(toolbarTexts(h.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang", "Kalender kerja", "Urutkan menurut Mulai"]); // 1c-2 T5: §7.1
   assert.equal(moreOf(h.tree), undefined);
   h.m.unmount();
   // Live Edit: tiga tombol pindah ke 'Lainnya' (posisi sama di urutan), Kolom tetap di toolbar
   const le = await swView(clock, { ctx: { liveEdit: true } });
   assert.deepEqual(toolbarTexts(le.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "[Lainnya]", "Kalender kerja", "Urutkan menurut Mulai", "Kolom"]);
   const mm = moreOf(le.tree);
-  assert.deepEqual(mm.props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Jadwalkan ulang"]);
+  assert.deepEqual(mm.props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
   // MoreMenu: tombol 'Lainnya' aria-haspopup="menu"; dibuka → role menu dengan item menuitemcheckbox/menuitem
   const mt = mount(T.MoreMenu);
   let t = mt.render(mm.props);
@@ -3344,7 +3898,8 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   assert.ok(menu);
   const its = nodes(menu, (n) => n.type === "button");
   assert.deepEqual(its.map((n) => [txt(n).trim(), n.props.role, n.props["aria-checked"]]), [
-    ["Jadwal otomatis", "menuitemcheckbox", false], ["Jalur kritis", "menuitemcheckbox", false], ["Jadwalkan ulang", "menuitem", undefined],
+    ["Jadwal otomatis", "menuitemcheckbox", false], ["Jalur kritis", "menuitemcheckbox", false],
+    ["Baseline", "menuitem", undefined], ["Simpan baseline", "menuitem", undefined], ["Jadwalkan ulang", "menuitem", undefined],
   ]);
   // pilih Jalur kritis → pref crit ditulis, menu tertutup
   its[1].props.onClick({});
@@ -3359,11 +3914,12 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   global.window = { matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }), innerHeight: 800, addEventListener() {}, removeEventListener() {} };
   try {
     const n = await swView(clock);
-    assert.deepEqual(moreOf(n.tree).props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Jadwalkan ulang"]);
+    assert.deepEqual(moreOf(n.tree).props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
     assert.equal(switchOf(n.tree), undefined, "sakelar tidak di toolbar HP");
     buttonByText(n.tree, "Daftar").props.onClick({});
     const lt = n.render();
-    assert.deepEqual(moreOf(lt).props.items.map((it) => it.text), ["Jadwal otomatis", "Jadwalkan ulang"]);
+    // 1c-2 T5: pilihan Baseline hanya untuk Gantt (seperti Jalur kritis); Simpan baseline tetap (aksi data)
+    assert.deepEqual(moreOf(lt).props.items.map((it) => it.text), ["Jadwal otomatis", "Simpan baseline", "Jadwalkan ulang"]);
     n.m.unmount();
   } finally {
     global.window = prevWin;
@@ -4775,6 +5331,72 @@ test("render awal tidak menjalankan TLCpm.run (spy) — mesin setelah raf+setTim
   }
 }));
 
+// 1c-2 T10 ("render awal tetap tanpa TLCpm.run"): tes di atas memakai perfSetup tanpa baseline/aktual, jadi tidak gagal bila
+// overlay baru memanggil mesin saat render pertama. Ulang dengan view LENGKAP 1c-2: pref baseline slot 1 + record baseline
+// lima unit + actual.start (blPerfSetup).
+test("render awal tetap tanpa TLCpm.run — dengan baseline aktif + garis aktual (overlay 1c-2 terpasang)", () => withEngineClock(async (clock) => {
+  const s = blPerfSetup();
+  const spy = spyRun();
+  try {
+    const m = mount(T.TimelineViewBody);
+    let tree = m.render(s.props);
+    assert.equal(spy.runs.length, 0, "render pertama tanpa mesin");
+    assert.ok(domCount(tree) > 0, "tabel/grafik langsung tergambar");
+    m.flush();
+    await settle();
+    tree = m.render(s.props); // pref (crit + bl:slist_12 = 1), daftar, unit, baseline termuat; mesin dijadwalkan
+    m.flush();
+    await settle();
+    tree = m.render(s.props);
+    assert.equal(spy.runs.length, 0, "pref baseline + record baseline termuat tetap tanpa mesin sebelum gambar pertama");
+    assert.ok(s.fr.calls.list.some((c) => c[0] === "baseline"), "record baseline sudah dimuat");
+    assert.equal(blBars(tree).length, 0, "bar baseline menunggu mesin (tanpa hitung sinkron)");
+    assert.ok(actLines(tree).length > 0, "garis aktual dari tata letak saja (tanpa mesin)");
+    assert.ok(slackCells(tree).length > 0 && slackCells(tree).every((v) => v === "—"), "tanpa nilai Slack sebelum mesin");
+    assert.equal(bannersOf(tree).length, 0);
+    assert.ok(clock.frames() >= 1, "raf terjadwal");
+    assert.equal(spy.runs.length, 0, "raf hanya menjadwalkan setTimeout 0");
+    clock.tick(0);
+    assert.equal(spy.runs.length, 1, "tepat satu run setelah raf + setTimeout");
+    tree = m.render(s.props);
+    m.flush();
+    await settle();
+    tree = m.render(s.props);
+    assert.ok(blBars(tree).length > 0, "bar baseline setelah mesin");
+    assert.ok(legendTexts(tree).indexOf("Baseline") >= 0 && legendTexts(tree).indexOf("Aktual") >= 0);
+    assert.equal(spy.runs.length, 1, "overlay baseline/aktual tidak memicu run tambahan");
+    assert.deepEqual(s.writes, [], "0 tulisan");
+    assert.equal(s.fr.calls.put.length + s.fr.calls.remove.length, 0);
+    m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
+// Investigasi regresi render 1c-2 (task-12 concern 1): render pertama membaca ext tiap task scope TIGA kali (tata letak,
+// anchorTasks, actualOverlay) — api.taskExt.read runtime menyalin dalam (JSON) tiap kunci. Satu bacaan per task per
+// scopeTasks dibagi ketiganya; garis aktual + jangkar tetap sama (tes T6 / 1c-2 jangkar di atas).
+test("regresi render 1c-2: render pertama membaca taskExt tiap task scope TEPAT sekali (tata letak, jangkar aktual, garis aktual berbagi bacaan)", () => withEngineClock(async () => {
+  const s = blPerfSetup();
+  const read0 = s.api.taskExt.read;
+  const reads = new Map();
+  s.api.taskExt.read = (t) => {
+    reads.set(t.id, (reads.get(t.id) || 0) + 1);
+    return read0(t);
+  };
+  const m = mount(T.TimelineViewBody);
+  const tree = m.render(s.props);
+  assert.ok(actLines(tree).length > 0, "garis aktual tetap tergambar di render pertama");
+  assert.equal(reads.size, s.tasks.length, "setiap task scope dibaca");
+  const multi = [...reads.values()].filter((n) => n > 1).length;
+  assert.equal(multi, 0, "tidak ada task yang dibaca lebih dari sekali (sebelumnya 3×)");
+  // render ulang dengan scopeTasks sama (setVp/pref) → memo tetap, tanpa bacaan baru
+  reads.clear();
+  m.render(s.props);
+  assert.equal(reads.size, 0, "render ulang tanpa bacaan ext");
+  m.unmount();
+}));
+
 // ── Fix 2 review Task 8: menu "Lainnya" tidak meluap di HP 375 px (E2E 12a) ───────────────────────────────────────
 test("fix T8 r2: menu 'Lainnya' rata kanan tombol bila rata kiri meluap viewport (375 px, tombol x≈262); tombol di kiri (Daftar) tetap rata kiri", () => {
   assert.equal(T.menuAlign({ left: 262, right: 330 }, 375, 180), "end", "262 + 180 > 367 → rata kanan");
@@ -4801,4 +5423,1090 @@ test("fix T8 r2: menu 'Lainnya' rata kanan tombol bila rata kiri meluap viewport
   }
   assert.match(css, /\.plg-timeline-more-menu\.is-end\s*\{[^}]*right:\s*0;[^}]*left:\s*auto;/);
   assert.match(css, /\.plg-timeline-more-menu\s*\{[^}]*max-width:\s*calc\(100vw - 16px\)/);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1c-2 — Task 5: toolbar "Baseline" (pilihan = pref bl:<page>) + "Simpan baseline" (dialog slot 1–3)
+// ════════════════════════════════════════════════════════════════════════════
+const blPickOf = (tree) => nodes(tree, (n) => n.type === T.BaselinePicker)[0];
+const blDlgOf = (tree) => nodes(tree, (n) => n.type === T.SaveBaselineDialog)[0];
+const radios = (tree, label) => {
+  const g = nodes(tree, (n) => n.props.role === "radiogroup" && n.props["aria-label"] === label)[0];
+  return g ? nodes(g, (n) => n.props.role === "radio") : [];
+};
+const radioTexts = (tree, label) => radios(tree, label).map((n) => txt(n).trim());
+const blPuts = (fr) => fr.calls.put.filter((p) => p[0] === "baseline");
+const blLists = (fr) => fr.calls.list.filter((l) => l[0] === "baseline");
+const settleN = async (k) => { for (let i = 0; i < (k || 4); i++) await settle(); };
+const MSG_BL_STALE = "Data berubah sejak dialog dibuka — muat ulang";
+const MSG_BL_SAVE_FAIL = "Baseline gagal disimpan";
+
+// Dialog simpan dipasang sebagai komponen anak tetap (state slot/nama/langkah miliknya); props selalu dari view terbaru.
+function blDialog(h) {
+  const dm = mount(T.SaveBaselineDialog);
+  const d = {
+    dm,
+    tree: null,
+    sync() {
+      h.render();
+      const nd = blDlgOf(h.tree);
+      d.tree = nd ? dm.render(nd.props) : null;
+      return nd;
+    },
+    btn: (t) => buttonByText(d.tree, t),
+    click(t) { d.btn(t).props.onClick({}); d.sync(); },
+    slot(n) { radios(d.tree, "Baseline")[n - 1].props.onClick({}); d.sync(); },
+    unit(i) { radios(d.tree, "Project")[i].props.onClick({}); d.sync(); },
+    name(v) { input(d.tree, "Nama").props.onChange({ target: { value: v } }); d.sync(); },
+  };
+  d.sync();
+  return d;
+}
+function openBlDialog(h) {
+  buttonByText(h.tree, "Simpan baseline").props.onClick({});
+  h.render();
+  assert.ok(blDlgOf(h.tree), "dialog Simpan baseline terbuka");
+  return blDialog(h);
+}
+
+test("1c-2 T5: Baseline · Simpan baseline di antara Jalur kritis dan Jadwalkan ulang; Lainnya (≤ 640 px / Live Edit) memuat keduanya; mesin belum siap → keduanya tidak tampil", () => withEngineClock(async (clock) => {
+  const { api } = fakeApi();
+  api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
+  const m0 = mount(T.TimelineViewBody);
+  const props0 = { context: ctxOf(chainTasks()).ctx, api };
+  m0.render(props0);
+  const t0 = m0.render(props0);
+  assert.equal(buttonByText(t0, "Baseline"), undefined, "mesin belum siap");
+  assert.equal(buttonByText(t0, "Simpan baseline"), undefined);
+  m0.unmount();
+  const h = await swView(clock);
+  const tt = toolbarTexts(h.tree);
+  assert.deepEqual(tt.slice(tt.indexOf("Jalur kritis"), tt.indexOf("Jadwalkan ulang") + 1), ["Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+  const b = buttonByText(h.tree, "Baseline");
+  assert.equal(b.props["aria-haspopup"], "menu");
+  assert.equal(b.props["aria-expanded"], false);
+  assert.equal(buttonByText(h.tree, "Simpan baseline").props["aria-haspopup"], "dialog");
+  h.m.unmount();
+  const le = await swView(clock, { ctx: { liveEdit: true } });
+  const items = moreOf(le.tree).props.items;
+  const blIt = items.find((it) => it.text === "Baseline");
+  assert.equal(blIt.haspopup, "menu");
+  assert.equal(items.find((it) => it.text === "Simpan baseline").haspopup, "dialog");
+  // dari Lainnya: Baseline membuka pemilih, Simpan baseline membuka dialog
+  blIt.onSelect();
+  le.render();
+  assert.ok(blPickOf(le.tree));
+  items.find((it) => it.text === "Simpan baseline").onSelect();
+  le.render();
+  assert.ok(blDlgOf(le.tree));
+  assert.equal(blPickOf(le.tree), undefined, "satu lapisan: dialog menutup pemilih");
+  le.m.unmount();
+}));
+
+test("1c-2 T5: pemilih Baseline — 'Tidak ada' + 'Baseline {n}' (nama slot bila ada); pilih = HANYA pref bl:<page> (0 tulis record); pref terbaca lagi; nilai rusak → Tidak ada", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Rencana awal" }));
+  putRec(fr, blRec(null, "Alpha", 3, { v: 2 })); // asing: terdaftar, tanpa nama
+  const h = await swView(clock, { records: fr });
+  buttonByText(h.tree, "Baseline").props.onClick({});
+  h.render();
+  assert.equal(buttonByText(h.tree, "Baseline").props["aria-expanded"], true);
+  const node = blPickOf(h.tree);
+  const pm = mount(T.BaselinePicker);
+  let pt = pm.render(node.props);
+  const menu = nodes(pt, (n) => n.props.role === "menu")[0];
+  assert.equal(menu.props["aria-label"], "Baseline");
+  const its = nodes(menu, (n) => n.type === "button");
+  assert.deepEqual(its.map((n) => [txt(n).trim(), n.props.role, n.props["aria-checked"]]), [
+    ["Tidak ada", "menuitemradio", true], ["Rencana awal", "menuitemradio", false], ["Baseline 2", "menuitemradio", false], ["Baseline 3", "menuitemradio", false],
+  ]);
+  its[2].props.onClick({});
+  await settle();
+  h.render();
+  assert.equal(blPickOf(h.tree), undefined, "memilih menutup pemilih");
+  assert.deepEqual(h.calls.storageSet.filter((s) => s[0].indexOf("bl:") === 0), [["bl:proj_alpha", 2]]);
+  assert.ok(nodes(h.tree, (n) => n.type === "button" && txt(n).trim() === "Baseline" && hasCls(n, "is-active")).length === 1, "pilihan ≠ Tidak ada → tombol aktif");
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "pilihan baseline tidak pernah menulis record (P2 a)");
+  // pref round-trip: dibaca dari api.storage saat pasang
+  h.m.unmount();
+  for (const [stored, want] of [[1, 1], [3, 3], ["2", 0], [7, 0], [null, 0]]) {
+    const fr2 = fakeRecords();
+    const { api } = fakeApi({ records: fr2, storageGet: (k) => Promise.resolve(k === "bl:proj_alpha" ? stored : null) });
+    api.env.userId = 7;
+    api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
+    const m = mount(T.TimelineViewBody);
+    const props = { context: ctxOf(chainTasks()).ctx, api };
+    let tree = await settleView(m, () => props, clock);
+    buttonByText(tree, "Baseline").props.onClick({});
+    tree = m.render(props);
+    assert.equal(blPickOf(tree).props.value, want, "tersimpan " + JSON.stringify(stored));
+    m.unmount();
+  }
+}));
+
+test("1c-2 T5: activeBaseline — slot pref dari semua unit halaman digabung (urutan unit); asing / kosong → baris kosong; 0 → null", () => {
+  const a = blUnit(12, "Alpha");
+  const b = blUnit(12, "Beta");
+  const dec = (rows) => ({ n: 1, foreign: false, name: "x", rows: new Map(rows) });
+  const byUnit = new Map([
+    [a.recId, new Map([[1, dec([["1", { s: 1, f: 2, d: 2 }], ["9", { s: 5, f: 5, d: 1 }]])], [2, { n: 2, foreign: true, rows: new Map() }]])],
+    [b.recId, new Map([[1, dec([["2", { s: 3, f: 3, d: 1 }], ["9", { s: 7, f: 7, d: 1 }]])]])],
+  ]);
+  assert.equal(T.activeBaseline(byUnit, [a.recId, b.recId], 0), null);
+  const one = T.activeBaseline(byUnit, [a.recId, b.recId], 1);
+  assert.equal(one.n, 1);
+  assert.deepEqual([...one.rows.keys()], ["1", "9", "2"]);
+  assert.deepEqual(one.rows.get("9"), { s: 5, f: 5, d: 1 }, "kunci ganda lintas unit → unit pertama menang");
+  assert.equal(T.activeBaseline(byUnit, [a.recId, b.recId], 2).rows.size, 0, "slot asing → pembanding kosong");
+  assert.equal(T.activeBaseline(byUnit, [a.recId, b.recId], 3).rows.size, 0, "slot kosong → pembanding kosong");
+  assert.equal(T.activeBaseline(new Map(), [], 1).rows.size, 0);
+});
+
+test("1c-2 T5: Simpan baseline — slot 1–3 (nama + 'disimpan {tanggal}'), nama bawaan 'Baseline {n}'; slot kosong tanpa konfirmasi → SATU records.put dari hasil useEngine (g = unit); terisi → 'Timpa {nama} (disimpan {tanggal})?'; Batal → 0 tulis", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Rencana awal" }));
+  const spy = spyRun();
+  try {
+    const h = await swView(clock, { records: fr });
+    const unit = blUnit(null, "Alpha");
+    let d = openBlDialog(h);
+    const dlg = nodes(d.tree, (n) => n.props.role === "dialog")[0];
+    assert.equal(dlg.props["aria-modal"], "true");
+    assert.equal(dlg.props["aria-label"], "Simpan baseline");
+    assert.deepEqual(radios(d.tree, "Project"), [], "halaman project: unit = halaman, tanpa pemilih");
+    assert.deepEqual(radioTexts(d.tree, "Baseline"), ["Rencana awal · disimpan Rab 4 Nov", "Baseline 2", "Baseline 3"]);
+    assert.equal(radios(d.tree, "Baseline")[0].props["aria-checked"], true, "bawaan slot 1");
+    assert.equal(input(d.tree, "Nama").props.value, "Baseline 1");
+    assert.equal(input(d.tree, "Nama").props.maxLength, 40);
+    // Batal → 0 tulis
+    d.click("Batal");
+    assert.equal(blDlgOf(h.tree), undefined);
+    // slot kosong 2 → tanpa konfirmasi, satu put
+    d = openBlDialog(h);
+    d.slot(2);
+    assert.equal(input(d.tree, "Nama").props.value, "Baseline 2", "nama bawaan ikut slot selama belum diubah");
+    const gets0 = fr.calls.get.length;
+    d.click("Simpan baseline");
+    await settleN();
+    h.render();
+    const run = spy.runs[spy.runs.length - 1];
+    const want = T.TLPlan.baselineEncode(run.result, run.ctx, { n: 2, name: "Baseline 2", savedAt: TODAY, by: 7 }, unit.recId).data;
+    assert.deepEqual(blPuts(fr), [["baseline", "bl2" + unit.recId.slice(3), want, { scope: "user" }]]);
+    assert.equal(want.t.length, 4);
+    assert.equal(fr.calls.get.length, gets0 + 1, "CAS baca slot dulu");
+    assert.equal(blDlgOf(h.tree), undefined, "sukses → dialog tertutup");
+    assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], ["Baseline 2 disimpan", "success"]);
+    // slot terisi → konfirmasi; Batal di konfirmasi → 0 tulis
+    d = openBlDialog(h);
+    d.name("  Rencana revisi  ");
+    d.click("Simpan baseline");
+    assert.equal(txt(byCls(d.tree, "plg-timeline-bl-confirm-text")[0]).trim(), "Timpa Rencana awal (disimpan Rab 4 Nov)?");
+    assert.equal(blPuts(fr).length, 1);
+    d.click("Batal");
+    assert.equal(blDlgOf(h.tree), undefined);
+    assert.equal(blPuts(fr).length, 1, "Batal konfirmasi → 0 tulis");
+    // terisi → Timpa → satu put (nama dipangkas); klik ganda saat busy = satu put
+    d = openBlDialog(h);
+    d.name("  Rencana revisi  ");
+    d.click("Simpan baseline");
+    const timpa = d.btn("Timpa");
+    timpa.props.onClick({});
+    timpa.props.onClick({});
+    await settleN();
+    h.render();
+    assert.equal(blPuts(fr).length, 2);
+    assert.equal(blPuts(fr)[1][1], "bl1" + unit.recId.slice(3));
+    assert.equal(blPuts(fr)[1][2].name, "Rencana revisi");
+    assert.equal(fr.calls.remove.length, 0);
+    h.m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
+test("1c-2 T5: Esc = Batal (0 tulis, propagasi dihentikan); fokus ke kontrol pertama; nama > 40 dipotong, kosong → 'Baseline {n}'", () => withEngineClock((clock) => withPop(async (w) => {
+  const fr = fakeRecords();
+  const h = await swView(clock, { records: fr });
+  let d = openBlDialog(h);
+  const doc = { activeElement: null };
+  const f1 = { focus() { doc.activeElement = this; } };
+  const f2 = { focus() { doc.activeElement = this; } };
+  nodes(d.tree, (n) => n.props.role === "dialog")[0].props.ref.current = { ownerDocument: doc, focus() {}, contains: (t) => t === f1 || t === f2, querySelectorAll: () => [f1, f2] };
+  d.dm.flush();
+  assert.equal(doc.activeElement, f1);
+  let stopped = 0;
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped++; } });
+  assert.equal(stopped, 1);
+  d.sync();
+  assert.equal(blDlgOf(h.tree), undefined, "Esc menutup");
+  d.dm.unmount();
+  assert.equal(w.ls.filter((l) => l.type === "keydown").length, 0, "pendengar dilepas");
+  // nama panjang / kosong
+  d = openBlDialog(h);
+  d.name("x".repeat(39) + "🌸🌸");
+  d.click("Simpan baseline");
+  await settleN();
+  assert.equal(blPuts(fr)[0][2].name, "x".repeat(39), "potong 40 unit tanpa memisah pasangan surrogate");
+  d = openBlDialog(h);
+  d.slot(2);
+  d.name("   ");
+  d.click("Simpan baseline");
+  await settleN();
+  assert.equal(blPuts(fr)[1][2].name, "Baseline 2");
+  assert.equal(fr.calls.put.length, 2);
+  h.m.unmount();
+})));
+
+test("1c-2 T5: slot asing (record klien lebih baru) tampil TERISI '(versi lebih baru)'; konfirmasi 'Timpa (versi lebih baru) (disimpan {tanggal})?'; Timpa memakai snap loadAll → satu put", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, blRec(null, "Alpha", 3, { v: 2 }, { updated_at: "2026-11-03T18:00:00Z" })); // 01.00 WIB Rab 4 Nov
+  const h = await swView(clock, { records: fr });
+  const d = openBlDialog(h);
+  assert.deepEqual(radioTexts(d.tree, "Baseline"), ["Baseline 1", "Baseline 2", "(versi lebih baru) · disimpan Rab 4 Nov"]);
+  d.slot(3);
+  d.click("Simpan baseline");
+  assert.equal(txt(byCls(d.tree, "plg-timeline-bl-confirm-text")[0]).trim(), "Timpa (versi lebih baru) (disimpan Rab 4 Nov)?");
+  d.click("Timpa");
+  await settleN();
+  assert.equal(blPuts(fr).length, 1);
+  assert.equal(blPuts(fr)[0][2].v, 1);
+  assert.equal(h.calls.toast.filter((t) => t[1] === "error").length, 0, "bukan STALE");
+  h.m.unmount();
+}));
+
+test("1c-2 T5: STALE — slot diisi anggota lain sejak dialog dibuka → toast 'Data berubah sejak pratinjau dibuka — hitung ulang', 0 put, dialog memuat potret baru → konfirmasi Timpa → satu put", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  const h = await swView(clock, { records: fr });
+  const d = openBlDialog(h);
+  assert.equal(radioTexts(d.tree, "Baseline")[0], "Baseline 1");
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Punya Sari", by: 9 }, { updated_at: "2026-11-04T05:00:00Z" })); // tanpa peristiwa
+  d.click("Simpan baseline");
+  await settleN();
+  d.sync();
+  assert.equal(blPuts(fr).length, 0);
+  assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], [MSG_BL_STALE, "error"]);
+  assert.ok(blDlgOf(h.tree), "dialog tetap terbuka");
+  assert.equal(radioTexts(d.tree, "Baseline")[0], "Punya Sari · disimpan Rab 4 Nov", "potret segar");
+  d.click("Simpan baseline");
+  assert.equal(txt(byCls(d.tree, "plg-timeline-bl-confirm-text")[0]).trim(), "Timpa Punya Sari (disimpan Rab 4 Nov)?");
+  d.click("Timpa");
+  await settleN();
+  assert.equal(blPuts(fr).length, 1);
+  h.m.unmount();
+}));
+
+// Fixture ukuran eksak: task Manual Alpha Mulai Sen 2 Nov durasi 1, id 5 digit (10000+i) atau 6 digit (100000+i) —
+// tiap id 6 digit menambah tepat 1 byte, jadi jumlah baris + digit menyetel ukuran data ke byte yang diinginkan.
+function blBigTasks(k, six) {
+  const out = [];
+  for (let i = 0; i < k; i++) out.push(mk(i < six ? 100000 + i : 10000 + i, "T", { start: "2026-11-02", duration: 1 }, { project: "Alpha" }));
+  return out;
+}
+const blSizeOf = (tasks, name) => T.TLPlan.baselineByteSize({ v: 1, n: 1, name, savedAt: TODAY, by: 7, t: tasks.map((t) => [{ $task: t.id }, "2026-11-02", "2026-11-02", 1, 0]) });
+
+test("1c-2 T5: batas BL_MAX di UI — data tepat 65536 byte → satu put; 65537 → toast 'Baseline terlalu besar', 0 put (dan 0 baca)", () => withEngineClock(async (clock) => {
+  let k = Math.floor((65536 - blSizeOf([], "B")) / (blSizeOf(blBigTasks(2, 0), "B") - blSizeOf(blBigTasks(1, 0), "B")));
+  while (blSizeOf(blBigTasks(k, 0), "B") > 65536) k--;
+  const six = 65536 - blSizeOf(blBigTasks(k, 0), "B");
+  assert.ok(six >= 0 && six < k);
+  const tasks = blBigTasks(k, six);
+  assert.equal(blSizeOf(tasks, "B"), 65536);
+  const fr = fakeRecords();
+  const h = await swView(clock, { records: fr, tasks });
+  let d = openBlDialog(h);
+  d.name("B");
+  d.click("Simpan baseline");
+  await settleN();
+  assert.equal(blPuts(fr).length, 1);
+  assert.equal(T.TLPlan.baselineByteSize(blPuts(fr)[0][2]), 65536, "fixture = byte yang benar-benar ditulis");
+  assert.equal(blPuts(fr)[0][2].t.length, k);
+  d = openBlDialog(h);
+  d.slot(2);
+  d.name("BB");
+  const gets = fr.calls.get.length;
+  d.click("Simpan baseline");
+  await settleN();
+  assert.equal(blPuts(fr).length, 1, "65537 → 0 put");
+  assert.equal(fr.calls.get.length, gets, "ditolak sebelum baca");
+  assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], ["Baseline terlalu besar", "error"]);
+  h.m.unmount();
+}));
+
+test("1c-2 T5: workspace — SATU list baseline se-scope untuk semua unit; dialog memilih project dulu; kunci 'Menunggu data baseline workspace…' + Simpan nonaktif sampai pulled; simpan Beta → put bl1@list:12:<hBeta> berisi task Beta saja", () => withEngineClock(async (clock) => {
+  const ws = wsSetup();
+  putRec(ws.fr, blRec(12, "Alpha", 1, { name: "Awal Alpha" }));
+  const spy = spyRun();
+  try {
+    const h = await swView(clock, { records: ws.fr, tasks: ws.tasks, ctx: ws.ctx });
+    const loads = blLists(ws.fr).length;
+    assert.ok(loads >= 1);
+    assert.ok(blLists(ws.fr).every((l) => l[1].scope === "list:12"));
+    assert.equal(new Set(blLists(ws.fr).map((l) => JSON.stringify(l[1]))).size, 1, "tidak ada list per unit");
+    const d = openBlDialog(h);
+    assert.deepEqual(radioTexts(d.tree, "Project"), ["Alpha", "Beta", "Gamma", "(Tanpa project)"]);
+    assert.equal(radios(d.tree, "Project")[0].props["aria-checked"], true);
+    // Alpha: slot 1 ada lokal (terbuka), slot 2/3 menunggu
+    assert.deepEqual(radios(d.tree, "Baseline").map((r) => !!r.props.disabled), [false, true, true]);
+    assert.equal(txt(nodes(d.tree, (n) => hasCls(n, "plg-timeline-bl-wait"))[0]).trim(), "Menunggu data baseline workspace…");
+    d.unit(1); // Beta: semua slot menunggu
+    assert.deepEqual(radios(d.tree, "Baseline").map((r) => !!r.props.disabled), [true, true, true]);
+    assert.equal(d.btn("Simpan baseline").props.disabled, true);
+    d.click("Simpan baseline");
+    await settleN();
+    assert.equal(blPuts(ws.fr).length, 0);
+    // tarik sukses → terbuka
+    ws.fr.emit(PULLED);
+    await settleN();
+    d.sync();
+    assert.equal(nodes(d.tree, (n) => hasCls(n, "plg-timeline-bl-wait")).length, 0);
+    assert.equal(d.btn("Simpan baseline").props.disabled, false);
+    assert.equal(blLists(ws.fr).length, loads + 1, "muat ulang sesudah pulled = satu list se-scope");
+    d.slot(1);
+    d.click("Simpan baseline");
+    await settleN();
+    const beta = blUnit(12, "Beta");
+    assert.equal(blPuts(ws.fr).length, 1);
+    const p = blPuts(ws.fr)[0];
+    assert.equal(p[1], "bl1" + beta.recId.slice(3));
+    assert.deepEqual(p[3], { scope: "list:12" });
+    assert.deepEqual(p[2].t.map((r) => r[0]), [{ $task: 2 }], "g = recId unit terpilih");
+    h.m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
+test("sumber Task 5 (1c-2): teks persis §7.6; simpan hanya lewat baselineStore (pagar R25), pilihan lewat usePref 'bl'", () => {
+  for (const t of ['"Baseline"', '"Simpan baseline"', '"Tidak ada"', '"Baseline terlalu besar"', '"Menunggu data baseline workspace…"', '"Timpa "', '" (disimpan "', '"(versi lebih baru)"',
+    '"Baseline gagal disimpan"', '"Baseline gagal dihapus"', '"Data berubah sejak dialog dibuka — muat ulang"', '"Hapus "', '" dihapus"']) {
+    assert.ok(jsx.includes(t), t);
+  }
+  assert.match(jsx, /usePref\(api, "bl", page\)/);
+  assert.equal((jsx.match(/records\.put\(/g) || []).length, 3, "tidak ada situs records.put baru (calendar, project, baseline)");
+});
+
+// ── Fix review Task 5 (1c-2): teks toast baseline, potret dialog ikut pulled, hapus baseline ────────────────────────
+const delBtns = (tree) => nodes(tree, (n) => n.type === "button" && hasCls(n, "plg-timeline-bl-del"));
+const confirmText = (tree) => txt(byCls(tree, "plg-timeline-bl-confirm-text")[0]).trim();
+
+test("fix T5 #1: put ditolak (galat lain) → toast 'Baseline gagal disimpan', dialog tetap terbuka (tidak sibuk)", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  const h = await swView(clock, { records: fr });
+  fr.api.put = () => Promise.reject(Object.assign(new Error("idb"), { code: "IDB" }));
+  const d = openBlDialog(h);
+  d.click("Simpan baseline");
+  await settleN();
+  d.sync();
+  assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], [MSG_BL_SAVE_FAIL, "error"]);
+  assert.ok(blDlgOf(h.tree));
+  assert.equal(d.btn("Simpan baseline").props.disabled, false);
+  h.m.unmount();
+}));
+
+test("fix T5 #3: workspace — slot tiba bersama pulled saat dialog terbuka (form) → potret disegarkan: Simpan memberi KONFIRMASI Timpa, bukan STALE", () => withEngineClock(async (clock) => {
+  const ws = wsSetup();
+  const h = await swView(clock, { records: ws.fr, tasks: ws.tasks, ctx: ws.ctx });
+  const d = openBlDialog(h);
+  d.unit(1); // Beta: menunggu
+  assert.equal(d.btn("Simpan baseline").props.disabled, true);
+  putRec(ws.fr, blRec(12, "Beta", 1, { name: "Awal Beta" }));
+  ws.fr.emit(PULLED);
+  await settleN();
+  h.render();
+  h.m.flush();
+  d.sync();
+  assert.equal(radioTexts(d.tree, "Baseline")[0], "Awal Beta · disimpan Rab 4 Nov", "potret ikut data tarik");
+  d.slot(1);
+  d.click("Simpan baseline");
+  assert.equal(confirmText(d.tree), "Timpa Awal Beta (disimpan Rab 4 Nov)?");
+  d.click("Timpa");
+  await settleN();
+  assert.equal(blPuts(ws.fr).length, 1);
+  assert.equal(h.calls.toast.filter((t) => t[0] === MSG_BL_STALE).length, 0, "tanpa STALE");
+  h.m.unmount();
+}));
+
+test("fix T5 #3: potret TIDAK disegarkan saat langkah konfirmasi (yang dikonfirmasi = yang dilihat)", () => withEngineClock(async (clock) => {
+  const ws = wsSetup();
+  putRec(ws.fr, blRec(12, "Alpha", 1, { name: "Awal Alpha" }));
+  const h = await swView(clock, { records: ws.fr, tasks: ws.tasks, ctx: ws.ctx });
+  const d = openBlDialog(h);
+  d.click("Simpan baseline");
+  assert.equal(confirmText(d.tree), "Timpa Awal Alpha (disimpan Rab 4 Nov)?");
+  putRec(ws.fr, blRec(12, "Alpha", 1, { name: "Ganti Sari" }, { updated_at: "2026-11-04T09:00:00Z" }));
+  ws.fr.emit(PULLED);
+  await settleN();
+  h.render();
+  h.m.flush();
+  d.sync();
+  assert.equal(confirmText(d.tree), "Timpa Awal Alpha (disimpan Rab 4 Nov)?", "konfirmasi tetap");
+  d.click("Timpa");
+  await settleN();
+  assert.equal(blPuts(ws.fr).length, 0, "potret lama → STALE (CAS tetap menjaga)");
+  assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], [MSG_BL_STALE, "error"]);
+  h.m.unmount();
+}));
+
+test("fix T5 #4: Hapus baseline — slot terisi (bukan asing) bertombol 'Hapus'; konfirmasi 'Hapus {nama} (disimpan {tanggal})?'; Batal → 0 tulis; Hapus → satu records.remove dengan snap + toast '{nama} dihapus'; pref aktif tidak diubah", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Rencana awal" }));
+  putRec(fr, blRec(null, "Alpha", 3, { v: 2 })); // asing → tanpa Hapus
+  const h = await swView(clock, { records: fr, });
+  const unit = blUnit(null, "Alpha");
+  let d = openBlDialog(h);
+  assert.equal(delBtns(d.tree).length, 1, "hanya slot 1 (terisi, terbaca)");
+  assert.equal(txt(delBtns(d.tree)[0]).trim(), "Hapus");
+  assert.equal(delBtns(d.tree)[0].props["aria-label"], "Hapus Rencana awal");
+  delBtns(d.tree)[0].props.onClick({});
+  d.sync();
+  assert.equal(confirmText(d.tree), "Hapus Rencana awal (disimpan Rab 4 Nov)?");
+  d.click("Batal");
+  assert.equal(blDlgOf(h.tree), undefined);
+  assert.equal(fr.calls.remove.length + fr.calls.put.length, 0, "Batal → 0 tulis");
+  d = openBlDialog(h);
+  delBtns(d.tree)[0].props.onClick({});
+  d.sync();
+  const del = d.btn("Hapus");
+  del.props.onClick({});
+  del.props.onClick({});
+  await settleN();
+  h.render();
+  assert.deepEqual(fr.calls.remove, [["baseline", "bl1" + unit.recId.slice(3)]], "klik ganda = satu remove");
+  assert.ok(fr.calls.get.length >= 1, "CAS snap dibaca dulu");
+  assert.equal(fr.calls.put.length, 0);
+  assert.equal(blDlgOf(h.tree), undefined);
+  assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], ["Rencana awal dihapus", "success"]);
+  assert.equal(h.calls.storageSet.filter((x) => x[0].indexOf("bl:") === 0).length, 0, "pref tidak disentuh");
+  h.m.unmount();
+}));
+
+test("fix T5 #4: Hapus STALE (slot ditimpa anggota lain) → toast 'Data berubah sejak dialog dibuka — muat ulang', 0 remove, potret segar; slot terkunci → Hapus nonaktif", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Rencana awal" }));
+  const h = await swView(clock, { records: fr });
+  const d = openBlDialog(h);
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Punya Sari", by: 9 }, { updated_at: "2026-11-04T05:00:00Z" }));
+  delBtns(d.tree)[0].props.onClick({});
+  d.sync();
+  d.click("Hapus");
+  await settleN();
+  d.sync();
+  assert.equal(fr.calls.remove.length, 0);
+  assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], [MSG_BL_STALE, "error"]);
+  assert.ok(blDlgOf(h.tree));
+  assert.equal(radioTexts(d.tree, "Baseline")[0], "Punya Sari · disimpan Rab 4 Nov");
+  h.m.unmount();
+  // terkunci (lockedOf true) → tombol Hapus nonaktif
+  const props = {
+    units: [{ key: "u", label: "U" }], rev: 0, busy: false,
+    bases: new Map([["u", new Map([[1, { n: 1, foreign: false, name: "X", savedAt: "2026-11-04", snap: { exists: true, updatedAt: null, by: null }, rows: new Map() }]])]]),
+    lockedOf: () => true, waitingOf: () => false, onSave() {}, onRemove() { throw new Error("tidak boleh"); }, onCancel() {},
+  };
+  const t = mount(T.SaveBaselineDialog).render(props);
+  assert.equal(delBtns(t)[0].props.disabled, true);
+}));
+
+test("fix T5 #5: Esc di langkah konfirmasi (Timpa / Hapus) → 0 tulis; workspace ganti project lalu Batal/Esc → 0 put", () => withEngineClock((clock) => withPop(async (w) => {
+  const fr = fakeRecords();
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Rencana awal" }));
+  const h = await swView(clock, { records: fr });
+  const esc = () => w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() {} });
+  let d = openBlDialog(h);
+  d.dm.flush();
+  d.click("Simpan baseline");
+  assert.equal(confirmText(d.tree), "Timpa Rencana awal (disimpan Rab 4 Nov)?");
+  esc();
+  await settleN();
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "Esc di konfirmasi Timpa");
+  d.sync();
+  assert.equal(blDlgOf(h.tree), undefined);
+  d.dm.unmount();
+  d = openBlDialog(h);
+  d.dm.flush();
+  delBtns(d.tree)[0].props.onClick({});
+  d.sync();
+  esc();
+  await settleN();
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "Esc di konfirmasi Hapus");
+  d.dm.unmount();
+  h.m.unmount();
+  const ws = wsSetup();
+  const hw = await swView(clock, { records: ws.fr, tasks: ws.tasks, ctx: ws.ctx });
+  ws.fr.emit(PULLED);
+  await settleN();
+  hw.render();
+  let dw = openBlDialog(hw);
+  dw.unit(2);
+  dw.click("Batal");
+  assert.equal(blDlgOf(hw.tree), undefined);
+  dw = openBlDialog(hw);
+  dw.dm.flush();
+  dw.unit(1);
+  esc();
+  await settleN();
+  dw.sync();
+  assert.equal(blDlgOf(hw.tree), undefined);
+  assert.equal(ws.fr.calls.put.filter((p) => p[0] === "baseline").length + ws.fr.calls.remove.length, 0);
+  dw.dm.unmount();
+  hw.m.unmount();
+})));
+
+test("fix T5 r2: remove ditolak (galat lain) → toast 'Baseline gagal dihapus' (bukan teks simpan), dialog tetap terbuka", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, blRec(null, "Alpha", 1, { name: "Rencana awal" }));
+  const h = await swView(clock, { records: fr });
+  fr.api.remove = () => Promise.reject(Object.assign(new Error("idb"), { code: "IDB" }));
+  const d = openBlDialog(h);
+  delBtns(d.tree)[0].props.onClick({});
+  d.sync();
+  d.click("Hapus");
+  await settleN();
+  d.sync();
+  assert.deepEqual(h.calls.toast[h.calls.toast.length - 1], ["Baseline gagal dihapus", "error"]);
+  assert.equal(h.calls.toast.filter((t) => t[0] === MSG_BL_SAVE_FAIL).length, 0);
+  assert.ok(blDlgOf(h.tree));
+  h.m.unmount();
+}));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1c-2 — Task 6: grafik — bar baseline (4 px di bawah bar) + garis aktual (2 px) + legenda
+// ════════════════════════════════════════════════════════════════════════════
+// Unit Manual (tanpa record project) → mesin berjangkar di tanggal tersimpan → es/ef dapat diramal.
+//   A Sen 2–Rab 4 (baseline Sen 2 → Sel 3: selesai +1 hk); B Sen 9 (baseline Sel 10 → Rab 11: −2 hk); C tanpa entri baseline;
+//   D berjalan (actual.start Sen 2, belum selesai) → garis sampai HARI INI; E selesai, finish turunan completed_at 23:30 UTC
+//   (= Kam 29 Okt Jakarta); F selesai dengan finish tersimpan Sel 27 Okt; G belum selesai dengan finish tersimpan Sel 3 Nov.
+const t6Tasks = () => {
+  const al = { project: "Alpha" };
+  return [
+    mk(1, "A", { start: "2026-11-02", duration: 3 }, al),
+    mk(2, "B", { start: "2026-11-09", duration: 1 }, al),
+    mk(3, "C", { start: "2026-11-05", duration: 1 }, al),
+    mk(4, "D", { start: "2026-11-02", duration: 5, actual: { start: "2026-11-02" } }, al),
+    mk(5, "E", { start: "2026-10-26", duration: 2, actual: { start: "2026-10-26" } }, Object.assign({ gtd_status: "done", completed_at: "2026-10-28T23:30:00Z" }, al)),
+    mk(6, "F", { start: "2026-10-26", duration: 2, actual: { start: "2026-10-26", finish: "2026-10-27" } }, Object.assign({ gtd_status: "done", completed_at: "2026-10-30T03:00:00Z" }, al)),
+    mk(7, "G", { start: "2026-11-02", duration: 1, actual: { start: "2026-11-02", finish: "2026-11-03" } }, al),
+  ];
+};
+// baris baseline: A, B, dan task 99 yang sudah dihapus (dilewati tanpa crash)
+const T6_BL = [[{ $task: 1 }, "2026-11-02", "2026-11-03", 2, 0], [{ $task: 2 }, "2026-11-10", "2026-11-11", 2, 0], [{ $task: 99 }, "2026-11-02", "2026-11-02", 1, 0]];
+const blBars = (tree) => byCls(tree, "plg-timeline-blbar");
+const actLines = (tree) => byCls(tree, "plg-timeline-actual");
+const keyed = (list, key) => list.find((n) => n.props["data-key"] === key);
+const dnOf = (iso) => T.TLCal.dn(iso);
+
+// View halaman project Alpha; pref bl:proj_alpha (kunci bl dilipat A–Z, fix T7) dari opt.bl; record opsional; tata letak terakhir ditangkap (spy layout).
+async function t6View(clock, o) {
+  const opt = o || {};
+  const tasks = opt.tasks || t6Tasks();
+  const fr = fakeRecords();
+  for (const r of opt.recs || []) putRec(fr, r);
+  const { api, calls } = fakeApi({ records: fr, today: opt.today, storageGet: (k) => Promise.resolve(k === "bl:proj_alpha" && opt.bl !== undefined ? opt.bl : null) });
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const props = { context: ctxOf(tasks).ctx, api };
+  const orig = T.engine.layout;
+  const h = { nLay: 0, lay: null };
+  T.engine.layout = (a) => { h.nLay++; return (h.lay = orig(a)); };
+  h.restore = () => { T.engine.layout = orig; };
+  try {
+    const m = mount(T.TimelineViewBody);
+    const tree = await settleView(m, () => props, clock);
+    return Object.assign(h, { m, tree, props, api, calls, writes, fr, render() { h.tree = m.render(props); return h.tree; } });
+  } catch (e) {
+    h.restore();
+    throw e;
+  }
+}
+const spanPx = (lay, s, f) => ({ left: T.TLLayout.xOf(dnOf(s), lay.range, lay.px), width: (dnOf(f) - dnOf(s) + 1) * lay.px });
+
+test("1c-2 T6: bar baseline hanya saat pref aktif; rentang Mulai→Selesai baseline, 4 px di bawah bar; aria/tooltip 'Baseline: {s} → {f} ({±df} hk)'; task tanpa entri / terhapus → tanpa bar; 0 tulis", () => withEngineClock(async (clock) => {
+  const recs = [blRec(null, "Alpha", 1, { name: "Rencana awal", t: T6_BL })];
+  const off = await t6View(clock, { recs });
+  try {
+    assert.equal(blBars(off.tree).length, 0, "pref Tidak ada → tanpa bar baseline");
+    off.m.unmount();
+  } finally {
+    off.restore();
+  }
+  const h = await t6View(clock, { recs, bl: 1 });
+  try {
+    const bars = blBars(h.tree);
+    assert.deepEqual(bars.map((n) => n.props["data-key"]).sort(), ["1", "2"], "hanya task dengan entri baseline (C tanpa entri, 99 terhapus)");
+    const a = keyed(bars, "1");
+    const b = keyed(bars, "2");
+    // selisih = pergeseran SELESAI (df compareBaseline): A Sel 3 → Rab 4 = +1; B Rab 11 → Sen 9 = −2 (minus U+2212)
+    assert.equal(a.props["aria-label"], "Baseline: Sen 2 Nov → Sel 3 Nov (+1 hk)");
+    assert.equal(a.props.title, a.props["aria-label"]);
+    assert.equal(a.props.role, "img");
+    assert.equal(b.props["aria-label"], "Baseline: Sel 10 Nov → Rab 11 Nov (−2 hk)");
+    const exp = spanPx(h.lay, "2026-11-02", "2026-11-03");
+    assert.equal(a.props.style.left, exp.left);
+    assert.equal(a.props.style.width, exp.width);
+    const rowA = h.lay.rows.find((r) => r.key === "1");
+    assert.equal(a.props.style.top, rowA.index * T.TLLayout.ROW_H + (T.TLLayout.ROW_H + 16) / 2 + 1, "tepat di bawah bar 16 px");
+    assert.ok(a.props.style.top + 4 <= (rowA.index + 1) * T.TLLayout.ROW_H, "tetap di dalam baris");
+    assert.deepEqual(spanPx(h.lay, "2026-11-10", "2026-11-11"), { left: b.props.style.left, width: b.props.style.width });
+    assert.deepEqual(h.writes, [], "0 tulisan task");
+    assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0, "0 tulisan record");
+    h.m.unmount();
+  } finally {
+    h.restore();
+  }
+  // CSS: 4 px, warna color-mix token (tanpa hex)
+  assert.match(css, /\.plg-timeline-blbar\s*\{[^}]*height:\s*4px;[^}]*\}/);
+  assert.match(css, /\.plg-timeline-blbar\s*\{[^}]*background:\s*color-mix\(in srgb, var\(--text-secondary\) 45%, transparent\);[^}]*\}/);
+  assert.match(css, /\.plg-timeline-actual\s*\{[^}]*height:\s*2px;[^}]*background:\s*var\(--text-primary\);[^}]*\}/);
+}));
+
+test("1c-2 T6: slot aktif tanpa baris (kosong / asing v2) → tidak ada bar dan tanpa legenda 'Baseline', tanpa crash", () => withEngineClock(async (clock) => {
+  for (const [bl, recs] of [[2, [blRec(null, "Alpha", 1, { t: T6_BL })]], [1, [blRec(null, "Alpha", 1, { v: 2, t: T6_BL })]], [3, []]]) {
+    const h = await t6View(clock, { recs, bl });
+    try {
+      assert.equal(buttonByText(h.tree, "Baseline").props["aria-expanded"], false, "view tergambar (slot " + bl + ")");
+      assert.equal(blBars(h.tree).length, 0, "rows.size 0 → tanpa bar (slot " + bl + ")");
+      assert.equal(legendTexts(h.tree).indexOf("Baseline"), -1, "tanpa legenda Baseline (slot " + bl + ")");
+      h.m.unmount();
+    } finally {
+      h.restore();
+    }
+  }
+}));
+
+test("1c-2 T6: garis aktual — berjalan sampai HARI INI dan ikut env.today TANPA tulisan (Review Focus 5); selesai → finish turunan (completed_at 23:30 UTC = besok Jakarta) / tersimpan; tanpa actual.start → tanpa garis", () => withEngineClock(async (clock) => {
+  const h = await t6View(clock);
+  try {
+    const lines = actLines(h.tree);
+    assert.deepEqual(lines.map((n) => n.props["data-key"]).sort(), ["4", "5", "6", "7"], "hanya task ber-actual.start");
+    for (const n of lines) assert.equal(n.props["aria-hidden"], "true");
+    const pos = (tree, key) => { const n = keyed(actLines(tree), key); return { left: n.props.style.left, width: n.props.style.width }; };
+    assert.deepEqual(pos(h.tree, "4"), spanPx(h.lay, "2026-11-02", TODAY), "berjalan → berhenti di hari ini (Rab 4), bukan EF");
+    assert.deepEqual(pos(h.tree, "5"), spanPx(h.lay, "2026-10-26", "2026-10-29"), "selesai → finish turunan Kam 29 Okt (Jakarta)");
+    assert.deepEqual(pos(h.tree, "6"), spanPx(h.lay, "2026-10-26", "2026-10-27"), "finish tersimpan menang atas completed_at");
+    assert.deepEqual(pos(h.tree, "7"), spanPx(h.lay, "2026-11-02", "2026-11-03"), "finish tersimpan pada task belum selesai");
+    const rowD = h.lay.rows.find((r) => r.key === "4");
+    const top = keyed(lines, "4").props.style.top;
+    assert.ok(top >= rowD.index * T.TLLayout.ROW_H && top + 2 <= rowD.index * T.TLLayout.ROW_H + (T.TLLayout.ROW_H - 16) / 2, "di atas bar, di dalam baris");
+    // hari berganti (tanpa tulisan, tanpa event) → garis berjalan memanjang ke hari ini yang baru; garis selesai tetap
+    h.api.env.today = () => "2026-11-06";
+    h.render();
+    h.m.flush();
+    await settle();
+    h.render();
+    assert.deepEqual(pos(h.tree, "4"), spanPx(h.lay, "2026-11-02", "2026-11-06"), "ikut env.today (Jum 6)");
+    assert.deepEqual(pos(h.tree, "5"), spanPx(h.lay, "2026-10-26", "2026-10-29"));
+    assert.deepEqual(pos(h.tree, "7"), spanPx(h.lay, "2026-11-02", "2026-11-03"));
+    assert.deepEqual(h.writes, [], "0 tulisan (R25)");
+    assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+    h.m.unmount();
+  } finally {
+    h.restore();
+  }
+}));
+
+test("1c-2 T6: legenda + 'Baseline' (pref aktif dan slot berisi) + 'Aktual' (ada garis aktual di halaman); urutan setelah Jalur kritis", () => withEngineClock(async (clock) => {
+  const base = ["Task", "Selesai", "Lewat tenggat", "Ringkasan", "Milestone", "Tenggat", "Libur", "Dependensi"];
+  const recs = [blRec(null, "Alpha", 1, { t: T6_BL })];
+  const plain = await t6View(clock, { tasks: chainTasks(), recs });
+  try {
+    assert.deepEqual(legendTexts(plain.tree), base, "tanpa baseline aktif, tanpa aktual");
+    plain.m.unmount();
+  } finally {
+    plain.restore();
+  }
+  const act = await t6View(clock, { recs });
+  try {
+    assert.deepEqual(legendTexts(act.tree), base.concat(["Aktual"]));
+    act.m.unmount();
+  } finally {
+    act.restore();
+  }
+  const both = await t6View(clock, { recs, bl: 1 });
+  try {
+    assert.deepEqual(legendTexts(both.tree), base.concat(["Baseline", "Aktual"]));
+    assert.ok(byCls(both.tree, "plg-timeline-swatch").some((n) => hasCls(n, "is-baseline")));
+    assert.ok(byCls(both.tree, "plg-timeline-swatch").some((n) => hasCls(n, "is-actual")));
+    both.m.unmount();
+  } finally {
+    both.restore();
+  }
+  const blOnly = await t6View(clock, { tasks: chainTasks(), recs, bl: 1 });
+  try {
+    assert.deepEqual(legendTexts(blOnly.tree), base.concat(["Baseline"]));
+    blOnly.m.unmount();
+  } finally {
+    blOnly.restore();
+  }
+  assert.match(css, /\.plg-timeline-swatch\.is-baseline\s*\{[^}]*color-mix\(in srgb, var\(--text-secondary\) 45%, transparent\)/);
+  assert.match(css, /\.plg-timeline-swatch\.is-actual\s*\{[^}]*var\(--text-primary\)/);
+}));
+
+test("1c-2 T6: memilih baseline (pref) tidak menghitung ulang tata letak — overlay memo terpisah (spy pola T7 1c-1); bar muncul / hilang, 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await t6View(clock, { recs: [blRec(null, "Alpha", 1, { t: T6_BL })] });
+  try {
+    const n0 = h.nLay;
+    const lay0 = h.lay;
+    assert.equal(blBars(h.tree).length, 0);
+    const pick = async (i) => {
+      buttonByText(h.tree, "Baseline").props.onClick({});
+      h.render();
+      const pt = mount(T.BaselinePicker).render(blPickOf(h.tree).props);
+      nodes(nodes(pt, (n) => n.props.role === "menu")[0], (n) => n.type === "button")[i].props.onClick({});
+      await settle();
+      h.render();
+      h.m.flush();
+      await settle();
+      h.render();
+    };
+    await pick(1);
+    assert.deepEqual(blBars(h.tree).map((n) => n.props["data-key"]).sort(), ["1", "2"], "bar muncul");
+    assert.equal(h.nLay, n0, "pref baseline tidak menghitung ulang lay");
+    assert.equal(h.lay, lay0);
+    await pick(0);
+    assert.equal(blBars(h.tree).length, 0, "Tidak ada → bar hilang");
+    assert.equal(h.nLay, n0);
+    assert.deepEqual(h.calls.storageSet.filter((s) => s[0] === "bl:proj_alpha"), [["bl:proj_alpha", 1], ["bl:proj_alpha", 0]]);
+    assert.deepEqual(h.writes, []);
+    assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+    h.m.unmount();
+  } finally {
+    h.restore();
+  }
+}));
+
+// Perluasan anggaran T13 1c-1: + baseline aktif (slot 1 tiap unit P0–P4 memuat semua task terjadwalnya) + garis aktual
+// (actual.start pada tiap task ketiga yang terjadwal). Dipakai juga oleh tes "render awal tetap tanpa TLCpm.run" (T10).
+function blPerfSetup() {
+  const tasks = bigTasks(500, 400).map((t) => Object.assign(t, { list_id: 12 }));
+  const perUnit = new Map();
+  tasks.forEach((t, i) => {
+    const s = t.ext["timeline.start"];
+    if (!s) return;
+    if (i % 3 === 0) t.ext["timeline.actual"] = { start: s };
+    const d = t.ext["timeline.duration"];
+    const row = [{ $task: t.id }, s, T.TLCal.iso(T.TLCal.dn(s) + d), d, 0];
+    if (!perUnit.has(t.project)) perUnit.set(t.project, []);
+    perUnit.get(t.project).push(row);
+  });
+  const fr = fakeRecords();
+  for (let k = 0; k < 5; k++) {
+    putRec(fr, unitRec(12, "P" + k));
+    putRec(fr, blRec(12, "P" + k, 1, { t: perUnit.get("P" + k) }));
+  }
+  const { api } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "crit:slist_12" ? true : k === "bl:slist_12" ? 1 : null) });
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const { ctx } = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
+  return { tasks, fr, api, writes, props: { context: ctx, api } };
+}
+
+// 1c-2 T10 (nama brief "DOM 500/400 + crit + baseline + garis aktual ≤ 1.500"): tes T6 diperluas di tempat ke cakupan
+// penuh T13 1c-1 (kolom Slack terisi + banner drift) — seksi Jadwal tidak dibuka: ia hidup di detail task (mount lain),
+// bukan di view; anggaran T13 1c-1 pun hanya view.
+test("DOM 500/400 + crit + baseline + garis aktual ≤ 1.500 (Slack, banner drift; bar/garis hanya di baris tampak)", () => withEngineClock(async (clock) => {
+  const { fr, writes, props } = blPerfSetup();
+  const spy = spyRun();
+  try {
+    const m = mount(T.TimelineViewBody);
+    const tree = await settleView(m, () => props, clock);
+    assert.ok(spy.runs.length >= 1, "mesin sudah jalan");
+    assert.equal(buttonByText(tree, "Jalur kritis").props["aria-pressed"], true);
+    assert.ok(nodes(tree, (n) => hasCls(n, "is-critical")).length > 0);
+    assert.ok(headerCells(tree).indexOf("Slack") >= 0, "kolom Slack");
+    assert.ok(slackCells(tree).some((v) => /hk$|^0$/.test(v)), "nilai Slack terisi");
+    const bs = bannersOf(tree);
+    assert.ok(bs.length >= 1, "banner drift tampil");
+    assert.match(bannerText(bs[0]), /^Jadwal otomatis belum mutakhir: \d+ task berbeda dari hasil hitung\.$/);
+    assert.ok(byCls(tree, "plg-timeline-arrow").length > 0, "ada panah");
+    const rows = nodes(tree, (n) => n.props.role === "row" && n.props["aria-rowindex"] > 1);
+    assert.ok(rows.length > 20 && rows.length <= 60, "baris tervirtualisasi: " + rows.length);
+    const shown = new Set(nodes(tree, (n) => n.props.role === "row" && n.props["data-key"] !== undefined).map((n) => n.props["data-key"]));
+    const bl = blBars(tree);
+    const al = actLines(tree);
+    assert.ok(bl.length > 5, "ada bar baseline: " + bl.length);
+    assert.ok(al.length > 2, "ada garis aktual: " + al.length);
+    assert.ok(bl.length <= rows.length && al.length <= rows.length, "≤ satu per baris tampak");
+    for (const n of bl.concat(al)) assert.ok(shown.has(n.props["data-key"]), "hanya baris tampak: " + n.props["data-key"]);
+    assert.ok(legendTexts(tree).indexOf("Baseline") >= 0 && legendTexts(tree).indexOf("Aktual") >= 0);
+    const n = domCount(tree);
+    assert.ok(n <= 1500, "elemen: " + n);
+    console.log("# DOM elemen 500 task/400 dep + Jalur kritis + Slack + banner + baseline + aktual: " + n);
+    assert.deepEqual(writes, [], "0 tulisan latar");
+    assert.equal(fr.calls.put.length + fr.calls.remove.length, 0);
+    m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
+test("fix T6: task selesai TANPA completed_at dan tanpa selesai tersimpan → garis aktual berakhir di r.span.f (rentang selesai sepakat doneFinish), lebar ≥ 1 hari", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const tasks = [mk(8, "H", { start: "2026-10-26", duration: 3, actual: { start: "2026-10-26" } }, Object.assign({ gtd_status: "done" }, al))];
+  const h = await t6View(clock, { tasks });
+  try {
+    const row = h.lay.rows.find((r) => r.key === "8");
+    assert.ok(row.done && row.span, "baris selesai dengan rentang");
+    assert.equal(row.task.completed_at, undefined);
+    const line = keyed(actLines(h.tree), "8");
+    assert.ok(line, "garis aktual ada");
+    const exp = spanPx(h.lay, "2026-10-26", T.TLCal.iso(row.span.f));
+    assert.deepEqual({ left: line.props.style.left, width: line.props.style.width }, exp, "berakhir di r.span.f, bukan hari ini");
+    assert.ok(line.props.style.width >= h.lay.px, "lebar ≥ 1 hari");
+    assert.ok(row.span.f < dnOf(TODAY), "bukan HARI INI");
+    assert.deepEqual(h.writes, []);
+    h.m.unmount();
+  } finally {
+    h.restore();
+  }
+}));
+
+test("fix T7: kunci pref bl dilipat huruf kecil A–Z saja (NOCASE host); jenis lain & slist_ tidak berubah; view proj_Alpha membaca bl:proj_alpha", () => withEngineClock(async (clock) => {
+  assert.equal(T.prefKey("bl", "proj_Alpha"), "bl:proj_alpha");
+  assert.equal(T.prefKey("bl", "proj_ALPHA"), T.prefKey("bl", "proj_alpha"));
+  assert.equal(T.prefKey("bl", "proj_Ärger Á"), "bl:proj_Ärger Á", "hanya ASCII A–Z (SQLite NOCASE)");
+  assert.equal(T.prefKey("bl", "slist_7"), "bl:slist_7");
+  assert.equal(T.prefKey("zoom", "proj_Alpha"), "zoom:proj_Alpha", "jenis lain tidak dilipat");
+  assert.equal(T.prefKey("crit", "proj_Alpha"), "crit:proj_Alpha");
+  const recs = [blRec(null, "Alpha", 1, { name: "Rencana awal", t: T6_BL })];
+  const h = await t6View(clock, { recs, bl: 1 });
+  try {
+    assert.ok(h.calls.storageGet.includes("bl:proj_alpha"));
+    assert.ok(!h.calls.storageGet.includes("bl:proj_Alpha"));
+    assert.ok(blBars(h.tree).length > 0, "baseline aktif dari kunci terlipat");
+    h.m.unmount();
+  } finally {
+    h.restore();
+  }
+}));
+
+// ── 1c-2 Task 8 (K42 + amandemen koordinator): pencatatan mulai aktual otomatis HANYA dari event host gestur lokal
+// `pomodoro.ended` dan `task.completed` (pemicu "progress naik dari 0" DIBUANG — diff data tidak bisa membedakan lokal
+// dari sinkron; R25 menang). recordActual = SATU-SATUNYA penulis otomatis, "isi bila kosong", tidak pernah menulis finish.
+function trackApi(tasks, o) {
+  const opts = o || {};
+  const live = tasks; // daftar "IndexedDB": set memperbarui ext di tempat (pembacaan berikutnya melihat tulisan)
+  const writes = [];
+  const emitted = [];
+  const warn = [];
+  const toast = [];
+  const handlers = {};
+  let lists = 0;
+  const api = {
+    id: "timeline",
+    events: {
+      on(name, fn) { (handlers[name] = handlers[name] || []).push(fn); return () => { handlers[name] = handlers[name].filter((f) => f !== fn); }; },
+      emit(name, p) { emitted.push([name, p]); for (const f of (handlers[name] || []).slice()) f(Object.freeze(Object.assign({}, p))); },
+    },
+    taskExt: {
+      read(t) {
+        const out = {};
+        for (const k of Object.keys((t && t.ext) || {})) if (k.indexOf("timeline.") === 0) out[k.slice(9)] = JSON.parse(JSON.stringify(t.ext[k]));
+        return out;
+      },
+      set(id, patch) {
+        writes.push(["set", id, JSON.parse(JSON.stringify(patch))]);
+        if (opts.setFail) return Promise.reject(new Error("gagal"));
+        const t = live.find((x) => String(x.id) === String(id));
+        if (t) {
+          t.ext = Object.assign({}, t.ext);
+          for (const k of Object.keys(patch)) { if (patch[k] === null) delete t.ext["timeline." + k]; else t.ext["timeline." + k] = patch[k]; }
+        }
+        return Promise.resolve(t);
+      },
+      setMany(items) { writes.push(["setMany", items]); return Promise.resolve([]); },
+      ref: (t) => ({ $task: t.id }),
+    },
+    data: { tasks: { list: (q) => { lists += 1; assert.deepEqual(q, { includeDone: true }); return opts.listFail ? Promise.reject(new Error("x")) : Promise.resolve(JSON.parse(JSON.stringify(live))); } } },
+    env: { today: () => opts.today || "2026-11-05", online: true },
+    ui: { toast: (...a) => toast.push(a) },
+    log: { info() {}, warn: (...a) => warn.push(a), error: (...a) => warn.push(a) },
+  };
+  const fire = (name, p) => { for (const f of (handlers[name] || []).slice()) f(Object.freeze(Object.assign({}, p))); };
+  return { api, writes, emitted, warn, toast, handlers, fire, lists: () => lists };
+}
+const settleTrack = async () => { for (let k = 0; k < 8; k++) await new Promise((r) => setImmediate(r)); }; // setImmediate: tidak dipalsukan mock.timers
+const POMO = (taskId, endedAt) => ({ taskId, kind: "session", pomodoros: 1, focusSeconds: 1500, endedAt });
+
+test("T8 pomodoro.ended task tanpa actual.start → satu set {actual:{start: hari Jakarta endedAt}}; dengan actual.start → 0 tulis", async () => {
+  const tasks = [mk(1, "A", {}), mk(2, "B", { actual: { start: "2026-11-02" } }), mk(3, "C", { start: "2026-11-02", duration: 3 })];
+  const h = trackApi(tasks);
+  const off = T.installActualTracking(h.api);
+  assert.equal(typeof off, "function");
+  assert.equal(h.handlers["pomodoro.ended"].length, 1);
+  assert.equal(h.handlers["task.completed"].length, 1);
+  assert.deepEqual(Object.keys(h.handlers).sort(), ["pomodoro.ended", "task.completed"], "tidak ada pendengar sync.done/app.dayChanged");
+  h.fire("pomodoro.ended", POMO(1, "2026-11-05T03:00:00.000Z"));
+  await settleTrack();
+  assert.deepEqual(h.writes, [["set", 1, { actual: { start: "2026-11-05" } }]]);
+  assert.deepEqual(h.emitted, [["timeline.actualRecorded", { taskId: 1 }]], "seksi terpasang diberi tahu (muat ulang baca-saja)");
+  h.writes.length = 0;
+  h.fire("pomodoro.ended", POMO(2, "2026-11-05T03:00:00.000Z"));
+  await settleTrack();
+  assert.deepEqual(h.writes, [], "sudah ada actual.start → 0 tulis");
+  // task berjadwal tanpa actual: kunci jadwal lain tidak disentuh (patch hanya `actual`)
+  h.fire("pomodoro.ended", POMO(3, "2026-11-05T03:00:00.000Z"));
+  await settleTrack();
+  assert.deepEqual(h.writes, [["set", 3, { actual: { start: "2026-11-05" } }]]);
+  assert.deepEqual(h.toast, []);
+  off();
+  assert.deepEqual(Object.values(h.handlers).flat(), [], "off melepas kedua pendengar");
+});
+
+test("T8 tanggal: endedAt lintas tengah malam (18:30Z = 01:30 WIB besok) → hari Jakarta; replay sesi basi → tanggal sesi itu (jujur + idempoten); tanpa/rusak → api.env.today", async () => {
+  const tasks = [mk(1, "A", {}), mk(2, "B", {}), mk(3, "C", {}), mk(4, "D", {})];
+  const h = trackApi(tasks, { today: "2026-11-07" });
+  T.installActualTracking(h.api);
+  h.fire("pomodoro.ended", POMO(1, "2026-11-04T18:30:00.000Z"));
+  h.fire("pomodoro.ended", POMO(2, "2026-11-03T09:00:00Z")); // sesi hari sebelumnya dilaporkan saat mount (index.html :11459)
+  h.fire("pomodoro.ended", POMO(3, undefined));
+  h.fire("pomodoro.ended", POMO(4, "kemarin sore"));
+  await settleTrack();
+  const by = Object.fromEntries(h.writes.map((w) => [w[1], w[2].actual.start]));
+  assert.deepEqual(by, { 1: "2026-11-05", 2: "2026-11-03", 3: "2026-11-07", 4: "2026-11-07" });
+  // replay sesi basi yang sama (mount berikutnya) → 0 tulis
+  h.writes.length = 0;
+  h.fire("pomodoro.ended", POMO(2, "2026-11-03T09:00:00Z"));
+  await settleTrack();
+  assert.deepEqual(h.writes, []);
+});
+
+test("T8 task.completed: tanpa actual.start → satu set start = hari Jakarta completedAt (?? hari ini); task ber-actual.start → 0; finish TIDAK PERNAH ditulis", async () => {
+  const tasks = [
+    mk(1, "A", {}, { gtd_status: "done", completed_at: "2026-11-04T23:30:00Z" }),
+    mk(2, "B", { actual: { start: "2026-11-01" } }, { gtd_status: "done", completed_at: "2026-11-05T02:00:00Z" }),
+    mk(3, "C", {}),
+  ];
+  const h = trackApi(tasks);
+  T.installActualTracking(h.api);
+  h.fire("task.completed", { taskId: 1, completedAt: "2026-11-04T23:30:00.000Z" });
+  h.fire("task.completed", { taskId: 2, completedAt: "2026-11-05T02:00:00.000Z" });
+  h.fire("task.completed", { taskId: 3 });
+  await settleTrack();
+  assert.deepEqual(h.writes, [
+    ["set", 1, { actual: { start: "2026-11-05" } }],
+    ["set", 3, { actual: { start: "2026-11-05" } }],
+  ]);
+  for (const w of h.writes) assert.ok(!("finish" in w[2].actual), "finish tidak ditulis otomatis (turunan completed_at)");
+});
+
+test("T8 gabung: finish TERSIMPAN dibawa; start > finish tersimpan → ditolak sanitizePatch, 0 tulis; actual rusak/asing (bukan kosong) → 0 tulis", async () => {
+  const tasks = [
+    mk(1, "A", { actual: { finish: "2026-11-06" } }),
+    mk(2, "B", { actual: { finish: "2026-11-02" } }),
+    mk(3, "C", { actual: { start: "2026-11-01", catatan: "versi lebih baru" } }),
+    mk(4, "D", { actual: "2026-11-01" }),
+    mk(5, "E", { actual: null }),
+  ];
+  const h = trackApi(tasks);
+  T.installActualTracking(h.api);
+  for (const id of [1, 2, 3, 4, 5]) h.fire("pomodoro.ended", POMO(id, "2026-11-05T03:00:00Z"));
+  await settleTrack();
+  assert.deepEqual(h.writes, [
+    ["set", 1, { actual: { start: "2026-11-05", finish: "2026-11-06" } }],
+    ["set", 5, { actual: { start: "2026-11-05" } }],
+  ]);
+});
+
+test("T8 baca segar: ext dibaca ulang dari api.data.tasks.list tiap event (bukan cache) — dua event beruntun task sama → satu set; id cid/teks, task tak dikenal, berulang, payload rusak → 0", async () => {
+  const tasks = [mk(1, "A", {}), mk("c-77", "Lokal", {}, { cid: "c-77" }), mk(9, "Harian", {}, { recurrence_type: "daily" }), mk(12, "Server", {}, { cid: "c-12" })];
+  const h = trackApi(tasks);
+  T.installActualTracking(h.api);
+  h.fire("pomodoro.ended", POMO(1, "2026-11-05T03:00:00Z"));
+  h.fire("task.completed", { taskId: 1, completedAt: "2026-11-05T04:00:00Z" });
+  await settleTrack();
+  assert.equal(h.writes.length, 1, "event kedua membaca tulisan pertama (berurutan per task) → 0 tulis");
+  assert.ok(h.lists() >= 2, "setiap event membaca daftar segar");
+  h.writes.length = 0;
+  h.fire("pomodoro.ended", POMO("c-77", "2026-11-05T03:00:00Z"));
+  h.fire("pomodoro.ended", POMO("c-12", "2026-11-05T03:00:00Z")); // cid lama setelah task mendapat id server → id terkini
+  h.fire("pomodoro.ended", POMO(404, "2026-11-05T03:00:00Z"));
+  h.fire("pomodoro.ended", POMO(9, "2026-11-05T03:00:00Z"));
+  for (const bad of [{}, { taskId: null }, { taskId: "" }, { taskId: { id: 1 } }, null]) h.fire("pomodoro.ended", bad);
+  await settleTrack();
+  assert.deepEqual(h.writes.map((w) => w[1]), ["c-77", 12]);
+});
+
+test("T8 gagal diam: set ditolak / daftar gagal → tanpa toast, tanpa lempar ke bus (tidak dihitung error plugin), dicatat api.log.warn", async () => {
+  const h = trackApi([mk(1, "A", {})], { setFail: true });
+  T.installActualTracking(h.api);
+  assert.doesNotThrow(() => h.fire("pomodoro.ended", POMO(1, "2026-11-05T03:00:00Z")));
+  await settleTrack();
+  assert.equal(h.writes.length, 1);
+  assert.deepEqual(h.toast, []);
+  assert.equal(h.warn.length, 1);
+  assert.deepEqual(h.emitted, [], "gagal → seksi tidak diberi tahu");
+  const g = trackApi([mk(1, "A", {})], { listFail: true });
+  T.installActualTracking(g.api);
+  assert.doesNotThrow(() => g.fire("task.completed", { taskId: 1 }));
+  await settleTrack();
+  assert.deepEqual(g.writes, []);
+  assert.deepEqual(g.toast, []);
+  assert.equal(g.warn.length, 1);
+});
+
+test("T8 R25 spy: pelacak terpasang + view terpasang — sync.done, pulled, onChange, app.dayChanged, scopeTasks dengan progress 0→20 dan status selesai (tiba lewat refresh/sinkron) → 0 tulis; lalu pomodoro.ended task tanpa start → tepat satu set", () => withEngineClock(async (clock) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 3 }, { progress: 0 }), mk(2, "B", { start: "2026-11-03", duration: 2, actual: { start: "2026-11-03" } }, { progress: 0 })];
+  const h = trackApi(tasks);
+  const fr = fakeRecords();
+  const v = fakeApi({ records: fr });
+  // satu bus: pelacak dan view berbagi pendengar
+  v.api.events = h.api.events;
+  v.api.data = h.api.data;
+  v.api.taskExt = h.api.taskExt;
+  const off = T.installActualTracking(h.api);
+  try {
+    const base = ctxOf(tasks).ctx;
+    let props = { context: base, api: v.api };
+    const m = mount(T.TimelineViewBody);
+    m.render(props);
+    await settleView(m, () => props, clock);
+    const zero = (step) => {
+      assert.deepEqual(h.writes, [], step);
+      assert.equal(fr.calls.put.length, 0, step + ": records.put");
+    };
+    zero("mount");
+    h.fire("sync.done", { initial: false });
+    await settleView(m, () => props, clock);
+    zero("sync.done");
+    fr.emit(PULLED);
+    fr.emit({ entity: "project", ids: [], source: "sync" });
+    fr.emit({ entity: "baseline", ids: [], source: "local" });
+    await settleView(m, () => props, clock);
+    zero("pulled/onChange");
+    h.fire("app.dayChanged", { date: "2026-11-06" });
+    await settleView(m, () => props, clock);
+    zero("app.dayChanged");
+    // progress naik dari 0 dan status selesai TIBA lewat sinkron/refresh (data diff) → BUKAN pemicu (amandemen K42)
+    const synced = tasks.map((t) => Object.assign({}, t, { progress: 20 }));
+    synced[0] = Object.assign({}, synced[0], { gtd_status: "done", completed_at: "2026-11-05T01:00:00Z", progress: 100 });
+    props = { context: Object.assign({}, base, { tasks: synced, scopeTasks: synced }), api: v.api };
+    await settleView(m, () => props, clock);
+    h.fire("sync.done", { initial: false });
+    await settleView(m, () => props, clock);
+    zero("progress/status via refresh");
+    await settleTrack();
+    zero("settle");
+    // event host gestur lokal: task ber-actual.start → 0; tanpa → tepat satu set
+    h.fire("pomodoro.ended", POMO(2, "2026-11-05T03:00:00Z"));
+    h.fire("task.completed", { taskId: 2, completedAt: "2026-11-05T03:00:00Z" });
+    await settleTrack();
+    zero("ber-actual.start");
+    h.fire("pomodoro.ended", POMO(1, "2026-11-05T03:00:00Z"));
+    await settleTrack();
+    assert.deepEqual(h.writes, [["set", 1, { actual: { start: "2026-11-05" } }]]);
+    m.unmount();
+  } finally {
+    off();
+  }
+}));
+
+test("T8 sumber: factory memasang installActualTracking; recordActual satu-satunya penulis otomatis, tanpa Date/finish; tanpa pendengar progres", () => {
+  const fac = jsx.slice(jsx.indexOf("register(manifest, function factory(api)"));
+  assert.match(fac, /installActualTracking\(api\)/);
+  const start = jsx.indexOf("function recordActual(");
+  assert.ok(start > 0);
+  const end = jsx.indexOf("\n}\n", start);
+  const body = jsx.slice(start, end);
+  assert.equal((body.match(/taskExt\.set\(/g) || []).length, 1);
+  assert.doesNotMatch(body, /\bDate\b|finish:\s/);
+  assert.doesNotMatch(jsx, /"task\.progress|"task\.updated|taskUpdated/, "tidak ada pemicu progres");
 });

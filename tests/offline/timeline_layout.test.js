@@ -876,6 +876,158 @@ test("α1: pendahulu selesai lebih awal → penerus di tanggal tulisan mesin TID
   assert.deepEqual(r.rows.find((x) => x.key === "1").span, { s: D("2026-11-02"), f: D("2026-11-06") }, "bar = rentang tersimpan");
 });
 
+// 1c-2 (K30): perluasan α1 — selesai/mulai pendahulu done memakai aktual yang SAMA dengan jangkar mesin.
+test("violations (layout langkah 7) memakai finish aktual yang sama — selesai lebih awal via actual.finish tidak menandai ⚠ penerus di tanggal mesin", () => {
+  const M = require(path.join(dir, "cpm.js"));
+  const readExt = (t) => {
+    const o = {};
+    for (const k of Object.keys(t.ext || {})) if (k.indexOf("timeline.") === 0) o[k.slice(9)] = t.ext[k];
+    return o;
+  };
+  const viaEngine = (predExt, depType, expectEs) => {
+    // completed_at Kam 5 (turunan), tetapi actual.finish/start pengguna lebih awal → mesin memakai aktual
+    const pred = mk(1, { list_id: 7, project: "Alpha", gtd_status: "done", completed_at: "2026-11-05T03:00:00Z" }, predExt);
+    const dep = [{ t: { $task: 1 }, type: depType, lag: 0 }];
+    const succ0 = mk(2, { list_id: 7, project: "Alpha", gtd_status: "next" }, sch("2026-11-16", 1, dep));
+    const units = new Map([[S.unitOf(succ0).recId, { auto: true }]]);
+    const r0 = M.run({ tasks: [pred, succ0], cal: std(), units, readExt });
+    const es = I(r0.nodes.get("2").es);
+    assert.equal(es, expectEs, "mesin " + depType);
+    const succ = mk(2, { list_id: 7, project: "Alpha", gtd_status: "next" }, sch(es, 1, dep));
+    const r = lay([pred, succ]);
+    assert.equal(r.edges.find((x) => x.from === "1" && x.to === "2").violation, false, "tanpa panah merah " + depType);
+    assert.equal(r.rows.find((x) => x.key === "2").violation, false, "tanpa ⚠ " + depType);
+    assert.equal(r.stats.violations, 0);
+    return r;
+  };
+  // FS: actual.finish Sel 3 (completed_at Kam 5) → penerus Rab 4
+  const r1 = viaEngine({ ...sch("2026-11-02", 5), "timeline.actual": { finish: "2026-11-03" } }, "FS", "2026-11-04");
+  assert.deepEqual(r1.rows.find((x) => x.key === "1").span, { s: D("2026-11-02"), f: D("2026-11-06") }, "bar = rentang tersimpan");
+  // SS: actual.start Sen 2 lebih awal dari Mulai tersimpan Rab 4 → penerus Sen 2 (mesin dan violations memakai mulai aktual)
+  viaEngine({ ...sch("2026-11-04", 1), "timeline.actual": { start: "2026-11-02", finish: "2026-11-02" } }, "SS", "2026-11-02");
+  // penerus yang benar-benar lebih awal dari selesai aktual tetap ⚠
+  const dep = [{ t: { $task: 1 }, type: "FS", lag: 0 }];
+  const early = lay([
+    mk(1, { gtd_status: "done", completed_at: "2026-11-02T03:00:00Z" }, { ...sch("2026-11-02", 5), "timeline.actual": { finish: "2026-11-04" } }),
+    mk(2, {}, sch("2026-11-04", 1, dep)), // Rab 4 < Kam 5 (setelah selesai aktual Rab 4)
+  ]);
+  assert.equal(early.rows.find((x) => x.key === "2").violation, true, "actual.finish menang atas completed_at Sen 2");
+});
+
+// 1c-2 fix 1: rentang pelanggaran task BERJALAN ikut jangkar aktual mesin — sadar mode/lingkaran lewat resolver
+// opsional `anchorInfo` = {modeOf(task) → "auto"|"manual", inCycle(key) → boolean}. Tanpa resolver → perilaku lama.
+const AK = { list_id: 7, project: "Alpha", gtd_status: "next" };
+const extOf = (t) => {
+  const o = {};
+  for (const k of Object.keys(t.ext || {})) if (k.indexOf("timeline.") === 0) o[k.slice(9)] = t.ext[k];
+  return o;
+};
+const autoU = () => new Map([[S.unitOf(AK).recId, { auto: true }]]);
+// Mesin + layout dari SUMBER yang sama: modeOf = TLSched.modeOf(readSched, units, task); inCycle = result.cycles.
+function engAndLay(tasks, units) {
+  const M = require(path.join(dir, "cpm.js"));
+  const r = M.run({ tasks, cal: std(), units, readExt: extOf });
+  const ring = new Set([].concat(...r.cycles));
+  const anchorInfo = {
+    modeOf: (t) => S.modeOf(readSchedOf(t), units, t),
+    inCycle: (k) => ring.has(String(k)),
+    inEngine: (k) => r.nodes.has(String(k)),
+    durOf: (k) => (r.nodes.has(String(k)) ? r.nodes.get(String(k)).d : undefined),
+  };
+  return { r, l: lay(tasks, { anchorInfo }), plain: lay(tasks) };
+}
+const viol = (l, id) => l.rows.find((x) => x.key === String(id)).violation;
+const dep1 = (type) => [{ t: { $task: 1 }, type: type || "FS", lag: 0 }];
+const withAct = (ext, act) => ({ ...ext, "timeline.actual": act });
+const manualY = (start) => ({ ...sch(start, 1, dep1()), "timeline.mode": "manual" });
+
+test("berjalan via actual.start di unit otomatis → conflict mesin ⇔ ⚠ layout di tanggal mesin (dua arah)", () => {
+  // X tersimpan Rab 11–Kam 12, actual.start Rab 4 → mesin: X Rab 4–Kam 5; penerus FS manual
+  const X = mk(1, AK, withAct(sch("2026-11-11", 2), { start: "2026-11-04" }));
+  const ok = engAndLay([X, mk(2, AK, manualY("2026-11-06"))], autoU()); // Jum 6 = tanggal mesin
+  assert.equal(ok.r.nodes.get("1").fixed, "started");
+  assert.equal(ok.r.nodes.get("2").conflict, undefined);
+  assert.equal(viol(ok.l, 2), false, "tanpa ⚠ palsu di tanggal mesin");
+  assert.equal(viol(ok.plain, 2), true, "tanpa resolver → perilaku lama (rentang tersimpan)");
+  const bad = engAndLay([X, mk(2, AK, manualY("2026-11-05"))], autoU()); // Kam 5 < Jum 6
+  assert.equal(bad.r.nodes.get("2").conflict, true);
+  assert.equal(viol(bad.l, 2), true, "⚠ nyata tetap");
+  // actual.start LEBIH LAMBAT dari Mulai: tersimpan Sen 2–Sel 3, actual Sen 9 → mesin Sen 9–Sel 10
+  const Xl = mk(1, AK, withAct(sch("2026-11-02", 2), { start: "2026-11-09" }));
+  const late = engAndLay([Xl, mk(2, AK, manualY("2026-11-04"))], autoU());
+  assert.equal(late.r.nodes.get("2").conflict, true);
+  assert.equal(viol(late.l, 2), true, "⚠ nyata tidak terlewat");
+  assert.equal(viol(late.plain, 2), false);
+  // bar (row.span) tetap rentang tersimpan
+  assert.deepEqual(late.l.rows.find((x) => x.key === "1").span, { s: D("2026-11-02"), f: D("2026-11-03") });
+});
+
+test("manual eksplisit DAN manual bawaan unit dengan actual.start → rentang tersimpan (setuju dengan mesin di tersimpan)", () => {
+  const Xm = mk(1, AK, withAct({ ...sch("2026-11-11", 2), "timeline.mode": "manual" }, { start: "2026-11-04" }));
+  const a = engAndLay([Xm, mk(2, AK, manualY("2026-11-06"))], autoU());
+  assert.equal(a.r.nodes.get("1").fixed, "manual");
+  assert.equal(a.r.nodes.get("2").conflict, true);
+  assert.equal(viol(a.l, 2), true);
+  const Xu = mk(1, AK, withAct(sch("2026-11-11", 2), { start: "2026-11-04" }));
+  const b = engAndLay([Xu, mk(2, AK, manualY("2026-11-06"))], new Map()); // unit tanpa record → manual
+  assert.equal(b.r.nodes.get("1").fixed, "manual");
+  assert.equal(b.r.nodes.get("2").conflict, true);
+  assert.equal(viol(b.l, 2), true);
+});
+
+test("anggota lingkaran dengan actual.start → rentang tersimpan (prioritas cycle > started)", () => {
+  const X = mk(1, AK, withAct({ ...sch("2026-11-11", 2), "timeline.deps": [{ t: { $task: 3 }, type: "FS", lag: 0 }] }, { start: "2026-11-04" }));
+  const Z = mk(3, AK, sch("2026-11-13", 1, dep1()));
+  const a = engAndLay([X, mk(2, AK, manualY("2026-11-06")), Z], autoU());
+  assert.equal(a.r.nodes.get("1").fixed, "cycle");
+  assert.equal(a.r.nodes.get("2").conflict, true);
+  assert.equal(viol(a.l, 2), true);
+});
+
+// Fix 2: rentang dari actual.start untuk task TANPA Mulai hanya bila task itu simpul mesin (anchorInfo.inEngine) —
+// layout melewatinya persis seperti mesin; durasi = durasi mesin (anchorInfo.durOf) agar tidak 1-vs-tersimpan.
+test("rentang null (tanpa Mulai) + aktual: (iv-a) simpul mesin → dibangun dari actual.start, penerus diperiksa", () => {
+  // X tanpa Mulai, otomatis, belum selesai, berpendahulu simpul P → simpul mesin, jangkar started di actual.start
+  const P = mk(9, AK, sch("2026-10-26", 1));
+  const X = mk(1, AK, withAct({ "timeline.duration": 2, "timeline.deps": [{ t: { $task: 9 }, type: "FS", lag: 0 }] }, { start: "2026-11-04" }));
+  const ok = engAndLay([P, X, mk(2, AK, manualY("2026-11-06"))], autoU()); // mesin: X Rab 4–Kam 5 → Y Jum 6 sah
+  assert.equal(ok.r.nodes.get("1").fixed, "started");
+  assert.equal(I(ok.r.nodes.get("1").ef), "2026-11-05");
+  assert.equal(ok.r.nodes.get("2").conflict, undefined);
+  assert.equal(viol(ok.l, 2), false);
+  const bad = engAndLay([P, X, mk(2, AK, manualY("2026-11-05"))], autoU()); // Kam 5 ≤ selesai X → ⚠
+  assert.equal(bad.r.nodes.get("2").conflict, true);
+  assert.equal(viol(bad.l, 2), true, "penerus diperiksa");
+  assert.equal(viol(bad.plain, 2), false, "tanpa resolver → dilewati (perilaku lama)");
+  assert.equal(bad.l.rows.find((x) => x.key === "1").span, null, "bar tetap tanpa rentang");
+});
+
+test("rentang null (tanpa Mulai) + aktual: (iv-b) bukan simpul mesin → dilewati seperti mesin, tanpa ⚠", () => {
+  // X tanpa Mulai, tanpa pendahulu, otomatis, belum selesai → bukan simpul (sisi X→Y "notNode" di mesin)
+  const X = mk(1, AK, withAct({ "timeline.duration": 2 }, { start: "2026-11-04" }));
+  const a = engAndLay([X, mk(2, AK, manualY("2026-11-04"))], autoU());
+  assert.equal(a.r.nodes.has("1"), false);
+  assert.equal(a.r.nodes.get("2").conflict, undefined);
+  assert.equal(viol(a.l, 2), false);
+  // done tanpa Mulai tidak pernah simpul mesin (BFS melewati task selesai) → juga dilewati
+  const D0 = mk(1, { ...AK, gtd_status: "done", completed_at: "2026-11-05T03:00:00Z" }, withAct({ "timeline.duration": 2 }, { start: "2026-11-04", finish: "2026-11-05" }));
+  const b = engAndLay([D0, mk(2, AK, manualY("2026-11-05"))], autoU());
+  assert.equal(b.r.nodes.has("1"), false);
+  assert.equal(viol(b.l, 2), false);
+});
+
+test("rentang null (tanpa Mulai) + aktual: (iv-c) durasi = durasi mesin (bukan d 1 dari readSched tanpa Mulai)", () => {
+  const P = mk(9, AK, sch("2026-10-26", 1));
+  const X = mk(1, AK, withAct({ "timeline.duration": 3, "timeline.deps": [{ t: { $task: 9 }, type: "FS", lag: 0 }] }, { start: "2026-11-02" }));
+  // mesin: X Sen 2–Rab 4 (d 3) → Y Kam 5 sah, Y Rab 4 ⚠ (dengan d 1 layout akan keliru: Sen 2 → Y Rab 4 sah)
+  for (const [y, v] of [["2026-11-05", false], ["2026-11-04", true]]) {
+    const r = engAndLay([P, X, mk(2, AK, manualY(y))], autoU());
+    assert.equal(I(r.r.nodes.get("1").ef), "2026-11-04");
+    assert.equal(!!r.r.nodes.get("2").conflict, v, "mesin " + y);
+    assert.equal(viol(r.l, 2), v, "layout " + y);
+  }
+});
+
 test("α1: penerus yang benar-benar lebih awal dari hari completed_at tetap ⚠ (selesai lebih awal maupun terlambat)", () => {
   const dep = [{ t: { $task: 1 }, type: "FS", lag: 0 }];
   const early = lay([

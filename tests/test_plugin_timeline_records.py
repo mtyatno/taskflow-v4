@@ -76,7 +76,7 @@ def real_index(client):
 
 
 def test_records_decl_from_repo_index(real_index):
-    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}, "project": {"conflict": "lww", "maxBytes": 1024}}
+    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}, "project": {"conflict": "lww", "maxBytes": 1024}, "baseline": {"conflict": "lww", "maxBytes": 65536}}
     assert "timeline" in plugin_loader.load_known()
     assert plugin_loader.default_enabled("timeline") is False
 
@@ -142,4 +142,47 @@ def test_deploy_window_reads_index_again_before_404(real_index, monkeypatch, tmp
     r = a.get(URL)
     assert r.status_code == 200, r.text
     assert a.send(cal_item())[0]["applied"] is True
-    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}, "project": {"conflict": "lww", "maxBytes": 1024}}
+    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}, "project": {"conflict": "lww", "maxBytes": 1024}, "baseline": {"conflict": "lww", "maxBytes": 65536}}
+
+
+# ── 1c-2 Task 4: record `baseline` (K41) terhadap server nyata dengan index.json repo ────────────────────────────
+BL_T = [[{"$task": 101}, "2026-11-02", "2026-11-04", 3, 2], [{"$task": 102}, "2026-11-05", "2026-11-05", 1, 0]]
+
+
+def bl_item(bl_id, scope, data=None, **kw):
+    base = {"entity": "baseline", "id": bl_id, "scope": scope,
+            "data": data if data is not None else {"v": 1, "n": 1, "name": "Baseline 1", "savedAt": "2026-11-05T01:00:00Z", "by": 7, "t": BL_T},
+            "deleted": False, "updated_at": plugin_states.iso(datetime.now(timezone.utc)), "base_version": None}
+    base.update(kw)
+    return base
+
+
+def _bl_sized(nbytes):
+    """Data baseline yang ukuran JSON ringkas UTF-8-nya tepat `nbytes` (nama diisi)."""
+    d = {"v": 1, "n": 1, "name": "", "savedAt": "2026-11-05T01:00:00Z", "by": 7, "t": BL_T}
+    d["name"] = "x" * (nbytes - len(json.dumps(d, separators=(",", ":"), ensure_ascii=False).encode("utf-8")))
+    return d
+
+
+def test_baseline_shared_in_workspace_with_task_refs_and_exact_size_limit(real_index):
+    owner, member, outsider = User(real_index), User(real_index), User(real_index)
+    lid = _mk_workspace(owner, member)
+    bid, scope = f"bl1@list:{lid}:0123abcd", f"list:{lid}"
+    # pemilik menyimpan baseline workspace ($task integer sah), anggota membacanya
+    r = owner.send(bl_item(bid, scope))[0]
+    assert r["applied"] is True and r["record"]["scope"] == scope, r
+    items = member.get(URL, params={"cursor": ""}).json()["items"]
+    assert [(i["entity"], i["id"]) for i in items] == [("baseline", bid)]
+    assert items[0]["data"]["t"] == BL_T
+    assert [i for i in outsider.get(URL, params={"cursor": ""}).json()["items"] if i["id"] == bid] == []
+    # batas maxBytes 65536 eksak (sama dengan BL_MAX klien: > ditolak, = boleh)
+    assert owner.send(bl_item(f"bl2@list:{lid}:0123abcd", scope, data=_bl_sized(65536)))[0]["applied"] is True
+    res = owner.send(bl_item(f"bl3@list:{lid}:0123abcd", scope, data=_bl_sized(65537)))[0]
+    assert (res.get("error"), res.get("detail")) == ("INVALID", "size"), res
+    # $task string (bukan id server) ditolak — kodek T3 menyimpan id task mentah (integer)
+    bad = {"v": 1, "n": 3, "name": "x", "savedAt": None, "by": None, "t": [[{"$task": "101"}, "2026-11-02", "2026-11-02", 1, 0]]}
+    res = owner.send(bl_item(f"bl3@user:0123abcd", "user", data=bad))[0]
+    assert (res.get("error"), res.get("detail")) == ("INVALID", "task_ref"), res
+    # pribadi: bl1@user:<h> hanya terlihat pemiliknya
+    assert member.send(bl_item("bl1@user:0123abcd", "user"))[0]["applied"] is True
+    assert [i["id"] for i in owner.get(URL, params={"cursor": ""}).json()["items"] if i["scope"] == "user"] == []

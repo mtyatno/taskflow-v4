@@ -751,10 +751,14 @@ def run_members(browser, base, users, ids, mon):
 # karena host memasang ulang window.__refreshTasks lewat efek).
 INSTR_JS = """() => {
   if (window.__m) return;
-  const m = window.__m = { batchCalls: 0, batchCommits: 0, refreshCalls: 0, refreshCommits: 0, pending: [] };
+  const m = window.__m = { batchCalls: 0, batchCommits: 0, engCalls: 0, engCommits: 0, otherCalls: 0, refreshCalls: 0, refreshCommits: 0, pending: [] };
   const rd = window.ReactDOM, ob = rd.unstable_batchedUpdates;
-  rd.unstable_batchedUpdates = function (f, a) { m.batchCalls++; const c0 = window.__commits;
-    try { return ob.call(this, f, a); } finally { m.batchCommits += window.__commits - c0; } };
+  // Atribusi lewat stack: batch* = HANYA batch milik setMany runtime (patchAll); eng* = commitOnce useEngine (1c-2 T9)
+  // adalah batch kedua yang sah; other* = pemanggil lain (harus 0).
+  rd.unstable_batchedUpdates = function (f, a) { const st = String(new Error().stack || '');
+    const k = /setMany|patchAll/.test(st) ? 'batch' : (/commitOnce/.test(st) ? 'eng' : 'other');
+    m[k + 'Calls']++; const c0 = window.__commits;
+    try { return ob.call(this, f, a); } finally { if (k !== 'other') m[k + 'Commits'] += window.__commits - c0; } };
   let inner = window.__refreshTasks;
   const wrap = function () { m.refreshCalls++; const c0 = window.__commits; const r = inner && inner.apply(this, arguments);
     m.pending.push(Promise.resolve(r).catch(() => null).then(() => { m.refreshCommits += window.__commits - c0; })); return r; };
@@ -770,7 +774,7 @@ SETMANY_JS = """async ([proj, bad]) => {
   for (const t of all) { if (items.length === bad) items.push({ taskId: 987654321, patch: { start: '2030-01-01' } });
     if (items.length >= 200) break; items.push({ taskId: t.id, patch: { start: iso(t.ext['timeline.start'], 1) } }); }
   const before = Object.fromEntries(all.map(t => [t.id, t.ext['timeline.start']]));
-  const m = window.__m; m.batchCalls = m.batchCommits = m.refreshCalls = m.refreshCommits = 0; m.pending = [];
+  const m = window.__m; m.batchCalls = m.batchCommits = m.engCalls = m.engCommits = m.otherCalls = m.refreshCalls = m.refreshCommits = 0; m.pending = [];
   window.__commits = 0;
   const t0 = performance.now(); let res = null, err = null;
   try { res = await api.taskExt.setMany(items); } catch (e) { err = e; }
@@ -780,7 +784,8 @@ SETMANY_JS = """async ([proj, bad]) => {
   await Promise.all(m.pending);
   await new Promise(r => setTimeout(r, 400));
   return { n: items.length, ms: Math.round(ms), commitsAtResolve: atResolve, commits: window.__commits,
-    batchCalls: m.batchCalls, batchCommits: m.batchCommits, refreshCalls: m.refreshCalls, refreshCommits: m.refreshCommits,
+    batchCalls: m.batchCalls, batchCommits: m.batchCommits, engCalls: m.engCalls, engCommits: m.engCommits, otherCalls: m.otherCalls,
+    refreshCalls: m.refreshCalls, refreshCommits: m.refreshCommits,
     rows: res ? res.length : null, err: err ? String(err.message || err) : null,
     applied: err && Array.isArray(err.applied) ? err.applied : null,
     items: items.map(it => [it.taskId, it.patch.start]), before };
@@ -826,14 +831,16 @@ def run_setmany(browser, base, u2):
         drag_bar(h, tid, 2)
         wait_puts("H", tid, s0, settle=1.0)
         moved = start_of(base, u2, tid)
-        h.evaluate("() => { const m = window.__m; m.batchCalls = m.batchCommits = 0; }")
+        h.evaluate("() => { const m = window.__m; m.batchCalls = m.batchCommits = m.engCalls = m.engCommits = m.otherCalls = 0; }")
         s1 = time.time()
         h.get_by_role("button", name="Urungkan").first.click()
         undo_put = wait_puts("H", tid, s1, settle=1.5)
-        mu = h.evaluate("() => ({ batchCalls: window.__m.batchCalls, batchCommits: window.__m.batchCommits })")
+        mu = h.evaluate("() => ({ batchCalls: window.__m.batchCalls, batchCommits: window.__m.batchCommits, otherCalls: window.__m.otherCalls })")
+        info("8 Urungkan: batch commitOnce useEngine (panggilan, commit) — sah, tidak dihitung di batch setMany",
+             h.evaluate("() => [window.__m.engCalls, window.__m.engCommits]"))
         info("8 Urungkan: batch unstable_batchedUpdates (panggilan, commit)", mu)
         check("8b Urungkan Timeline (setMany 1 item): optimistis satu batch satu commit, 1 PUT {ext_patch}, server kembali %s"
-              % st0, moved == shift(st0, 2) and mu == {"batchCalls": 1, "batchCommits": 1} and len(undo_put) == 1
+              % st0, moved == shift(st0, 2) and mu == {"batchCalls": 1, "batchCommits": 1, "otherCalls": 0} and len(undo_put) == 1
               and set(undo_put[0]) == {"ext_patch"} and wait_until(lambda: start_of(base, u2, tid) == st0, 10)
               and h.evaluate("(id) => document.querySelector(\".plg-timeline-bar[data-key='\" + id + \"']\") !== null", tid),
               repr((moved, mu, undo_put, start_of(base, u2, tid))))
@@ -847,13 +854,16 @@ def run_setmany(browser, base, u2):
         local1 = h.evaluate(LOCAL_JS, MASS)
         exp = {i: s for i, s in r["items"]}
         info("8 setMany 200 (PR, CPU 4×): ms sampai resolve", r["ms"])
-        info("8 setMany 200 (PR): commit total / saat resolve / di batch (panggilan) / di refreshTasks (panggilan)",
+        info("8 setMany 200 (PR): commit total / saat resolve / di batch setMany (panggilan) / di refreshTasks (panggilan)",
              [r["commits"], r["commitsAtResolve"], r["batchCommits"], r["batchCalls"], r["refreshCommits"], r["refreshCalls"]])
+        info("8 setMany 200 (PR): batch commitOnce useEngine (panggilan, commit) / batch pemanggil lain", [r["engCalls"], r["engCommits"], r["otherCalls"]])
         outside = r["commits"] - r["refreshCommits"]
         # ≤ 4: mesin Timeline 1.1 menghitung ulang setelah tulis (O(1), bukan per item) — setList/setFailed/setOut useEngine.
+        # batchCalls = batch milik setMany saja (atribusi stack): commitOnce useEngine (1c-2 T9) adalah batch kedua yang sah.
         check("8c setMany 200 item: resolve 200 baris; optimistis SATU unstable_batchedUpdates = 1 commit; satu refreshTasks; "
               "commit di luar refreshTasks ≤ 4 (batch + mesin Timeline 1.1)",
-              r["rows"] == 200 and r["batchCalls"] == 1 and r["batchCommits"] == 1 and r["refreshCalls"] == 1 and outside <= 4,
+              r["rows"] == 200 and r["batchCalls"] == 1 and r["batchCommits"] == 1 and r["otherCalls"] == 0
+              and r["refreshCalls"] == 1 and outside <= 4,
               "commit total %d (refresh %d)" % (r["commits"], r["refreshCommits"]))
         check("8d setMany: IndexedDB dan state React memuat 200 nilai baru",
               all(local1.get(str(k), local1.get(k)) == v for k, v in exp.items())
@@ -902,10 +912,10 @@ def run_setmany(browser, base, u2):
         rp.evaluate(INSTR_JS)
         go_offline(cr, rp)
         rc = measure_setmany(cr, rp)
-        info("8 KONTROL plugin-runtime pra-#123 (CPU 4×): ms, commit total / di luar refreshTasks / batch",
-             [rc["ms"], rc["commits"], rc["commits"] - rc["refreshCommits"], rc["batchCalls"]])
+        info("8 KONTROL plugin-runtime pra-#123 (CPU 4×): ms, commit total / di luar refreshTasks / batch setMany / batch commitOnce",
+             [rc["ms"], rc["commits"], rc["commits"] - rc["refreshCommits"], rc["batchCalls"], rc["engCalls"]])
         check("8g KONTROL plugin-runtime.js pra-#123 (%d kali disajikan): commit per item (≥ 150 di luar refreshTasks, "
-              "tanpa batch) — tes peka" % len(served), served and rc["rows"] == 200 and rc["batchCalls"] == 0
+              "tanpa batch) — tes peka" % len(served), served and rc["rows"] == 200 and rc["batchCalls"] == 0 and rc["otherCalls"] == 0
               and rc["commits"] - rc["refreshCommits"] >= 150, repr(rc["commits"]))
         cr.close()
         ctxs.remove(cr)

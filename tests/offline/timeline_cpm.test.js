@@ -32,6 +32,7 @@ function mk(o) {
   if (o.deps) ext["timeline.deps"] = o.deps.map(([id, type, lag]) => Object.assign({ t: { $task: id }, lag: lag || 0 }, type ? { type } : {}));
   if (o.mode !== undefined) ext["timeline.mode"] = o.mode;
   if (o.constraint !== undefined) ext["timeline.constraint"] = o.constraint;
+  if (o.actual !== undefined) ext["timeline.actual"] = o.actual;
   return {
     id: o.id,
     title: "T" + o.id,
@@ -297,6 +298,117 @@ test("jangkar: manual, selesai (ef dari completed_at '2026-11-05T17:30:00Z' → 
   chk(11, "done", "2026-11-04", "2026-11-06", undefined);
   assert.equal(node(r, 3).slack, null);
   assert.equal(node(r, 3).critical, false);
+});
+
+// 1c-2 (K30 §5.1): jangkar selesai/berjalan memakai tanggal aktual dari bacaan ext yang SAMA (readSched → actualOf).
+test("done: actual {start,finish} menang; actual start saja → ef dari completed_at; ef<es dijepit", () => {
+  const P = mk({ id: 1, start: "2026-11-02", d: 5 }); // syarat FS penerus = Sen 9 Nov
+  const cA = "2026-11-05T17:30:00Z"; // hari Jakarta Jum 6 Nov
+  const r = run([
+    P,
+    mk({ id: 2, start: "2026-11-04", d: 3, done: true, completed_at: cA, actual: { start: "2026-11-02", finish: "2026-11-03" }, deps: [[1]] }),
+    mk({ id: 3, start: "2026-11-04", d: 3, done: true, completed_at: cA, actual: { start: "2026-11-03" } }),
+    mk({ id: 4, start: "2026-11-04", d: 3, done: true, completed_at: "2026-11-01T02:00:00Z", actual: { start: "2026-11-03" } }), // completed_at < actual.start → ef = es
+    mk({ id: 5, start: "2026-11-04", d: 3, done: true, completed_at: cA, actual: { finish: "2026-11-02" } }), // finish < Mulai tersimpan → ef = es
+    mk({ id: 6, start: "2026-11-04", d: 2, gtd_status: "done", completed_at: null, actual: { start: "2026-11-09" } }), // tanpa finish & completed_at → fin(es, d)
+    mk({ id: 7, start: "2026-11-04", d: 3, done: true, completed_at: "2026-11-05T23:30:00Z", actual: { start: "2026-11-04" } }), // finish dihapus → turunan: Jakarta BESOKNYA
+    mk({ id: 8, start: "2026-11-04", d: 3, done: true, completed_at: cA, actual: { finish: "2026-11-10" } }), // finish saja menang atas completed_at
+  ]);
+  const chk = (id, es, ef, conflict) => {
+    const n = node(r, id);
+    assert.equal(n.fixed, "done", "fixed " + id);
+    assert.equal(I(n.es), es, "es " + id);
+    assert.equal(I(n.ef), ef, "ef " + id);
+    assert.equal(n.conflict, conflict, "conflict " + id);
+    assert.deepEqual(n.driver, { kind: "fixed" });
+    assert.ok(!r.drift.has(String(id)), "jangkar tidak pernah drift");
+  };
+  chk(2, "2026-11-02", "2026-11-03", true); // es aktual Sen 2 < syarat Sen 9 → conflict dari es yang SAMA
+  chk(3, "2026-11-03", "2026-11-06", undefined);
+  chk(4, "2026-11-03", "2026-11-03", undefined);
+  chk(5, "2026-11-04", "2026-11-04", undefined);
+  chk(6, "2026-11-09", "2026-11-10", undefined);
+  chk(7, "2026-11-04", "2026-11-06", undefined);
+  chk(8, "2026-11-04", "2026-11-10", undefined);
+  // bentuk simpul tidak bertambah field (aktual dibaca ulang UI lewat actualOf)
+  const plain = run([mk({ id: 9, start: "2026-11-04", d: 3, done: true })]);
+  assert.deepEqual(Object.keys(node(r, 3)).sort(), Object.keys(node(plain, 9)).sort());
+});
+
+test("started karena actual.start saja (progress 0, pomodoro 0) → jangkar, es = actual.start", () => {
+  const P = mk({ id: 1, start: "2026-11-02", d: 5 }); // syarat FS penerus = Sen 9 Nov
+  const r = run([
+    P,
+    mk({ id: 2, start: "2026-11-11", d: 2, actual: { start: "2026-11-04" }, deps: [[1]] }), // tanpa aktual: penerus otomatis Sen 9
+    mk({ id: 3, start: "2026-11-11", d: 2, progress: 10, actual: { start: "2026-11-05" }, deps: [[1]] }), // progress + aktual → es aktual
+    mk({ id: 4, d: 2, actual: { start: "2026-11-12" }, deps: [[1]] }), // tanpa Mulai, berpendahulu → jangkar di actual.start
+    mk({ id: 5, start: "2026-11-11", d: 2, mode: "manual", actual: { start: "2026-11-04" }, deps: [[1]] }), // prioritas: manual > started
+    mk({ id: 6, start: "2026-11-30", d: 2, constraint: { type: "MFO", date: "2026-11-20" }, actual: { start: "2026-11-16" } }), // started > MFO
+    mk({ id: 7, start: "2026-11-11", d: 2, actual: { start: "2026-11-11", finish: "2026-11-12" }, deps: [[1]] }), // finish tak dipakai bila belum selesai
+  ]);
+  const chk = (id, fixed, es, ef, conflict) => {
+    const n = node(r, id);
+    assert.equal(n.fixed, fixed, "fixed " + id);
+    assert.equal(I(n.es), es, "es " + id);
+    assert.equal(I(n.ef), ef, "ef " + id);
+    assert.equal(n.conflict, conflict, "conflict " + id);
+    assert.deepEqual(n.driver, { kind: "fixed" });
+    assert.ok(!r.drift.has(String(id)), "jangkar tidak pernah drift");
+  };
+  chk(2, "started", "2026-11-04", "2026-11-05", true);
+  chk(3, "started", "2026-11-05", "2026-11-06", true);
+  chk(4, "started", "2026-11-12", "2026-11-13", undefined);
+  chk(5, "manual", "2026-11-11", "2026-11-12", undefined);
+  chk(6, "started", "2026-11-16", "2026-11-17", undefined);
+  chk(7, "started", "2026-11-11", "2026-11-12", undefined);
+  // explain memakai nilai simpul (tanpa data tambahan)
+  const e = M.explain(r, "2", std(), readExt);
+  assert.equal(e.kind, "started");
+  assert.equal(e.start, D("2026-11-04"));
+  assert.equal(e.finish, D("2026-11-05"));
+});
+
+test("readSched bentuk 1.1 (tanpa actual) → perilaku jangkar identik 1c-1", () => {
+  // Fixture jangkar 1c-1 tanpa kunci actual → nilai yang diketahui dari tes jangkar 1c-1 (bukan diff implementasi).
+  const P = mk({ id: 1, start: "2026-11-02", d: 5 });
+  const tasks = [
+    P,
+    mk({ id: 3, start: "2026-11-04", d: 3, done: true, completed_at: "2026-11-05T17:30:00Z", deps: [[1]] }),
+    mk({ id: 4, start: "2026-11-04", d: 2, progress: 10, deps: [[1]] }),
+    mk({ id: 5, start: "2026-11-04", d: 2, pomo: 1, deps: [[1]] }),
+    mk({ id: 9, start: "2026-11-04", d: 3, done: true, completed_at: "2026-11-01T02:00:00Z" }),
+    mk({ id: 10, start: "2026-11-04", d: 2, done: true, completed_at: null }),
+    mk({ id: 12, start: "2026-11-04", d: 2, deps: [[1]] }), // belum mulai, tanpa aktual → otomatis (bukan jangkar)
+  ];
+  for (const t of tasks) assert.ok(!("timeline.actual" in t.ext), "bentuk 1.1");
+  const r = run(tasks);
+  const got = (id) => {
+    const n = node(r, id);
+    return [n.fixed, I(n.es), I(n.ef), n.conflict];
+  };
+  assert.deepEqual(got(3), ["done", "2026-11-04", "2026-11-06", true]);
+  assert.deepEqual(got(4), ["started", "2026-11-04", "2026-11-05", true]);
+  assert.deepEqual(got(5), ["started", "2026-11-04", "2026-11-05", true]);
+  assert.deepEqual(got(9), ["done", "2026-11-04", "2026-11-04", undefined]);
+  assert.deepEqual(got(10), ["done", "2026-11-04", "2026-11-05", undefined]);
+  assert.deepEqual(got(12), [undefined, "2026-11-09", "2026-11-10", undefined]);
+  assert.ok(r.drift.has("12"));
+  // readSched 1.1-shape: actual diabaikan (null) tanpa menghapus kunci lain; patch per kunci 1.1 tidak menyentuh actual.
+  const raw11 = { start: "2026-11-04", duration: 2, deps: [{ t: { $task: 1 }, lag: 0, type: "FS" }], mode: "auto", constraint: { type: "SNET", date: "2026-11-05" } };
+  const rs = S.readSched(raw11);
+  assert.equal(rs.actual, null);
+  assert.equal(rs.start, "2026-11-04");
+  assert.equal(rs.duration, 2);
+  assert.equal(rs.deps.length, 1);
+  assert.equal(rs.mode, "auto");
+  assert.deepEqual(rs.constraint, { type: "SNET", date: "2026-11-05" });
+  const withAct = Object.assign({ actual: { start: "2026-11-03" } }, raw11);
+  const rs2 = S.readSched(withAct);
+  assert.deepEqual(rs2.actual, { start: "2026-11-03" });
+  assert.deepEqual(Object.assign({}, rs2, { actual: null }), rs, "kunci lain identik");
+  const p = S.sanitizePatch({ start: "2026-11-05", duration: 3 });
+  assert.equal(p.ok, true);
+  assert.deepEqual(Object.keys(p.patch).sort(), ["duration", "start"], "patch 1.1 per kunci tidak memuat actual");
 });
 
 test("jangkar dan violations memakai SATU aturan 'terlalu awal' (TLSched.isEarly): conflict ⇔ violations, juga milestone akhir pekan", () => {

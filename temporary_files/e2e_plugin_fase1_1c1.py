@@ -351,7 +351,7 @@ def drain(ctx, p, label, tids, timeout=300):
 INSTR_JS = c0.INSTR_JS
 
 APPLY_MEASURE_JS = """(n) => new Promise((resolve) => {
-  const m = window.__m; m.batchCalls = m.batchCommits = m.refreshCalls = m.refreshCommits = 0; m.pending = [];
+  const m = window.__m; m.batchCalls = m.batchCommits = m.engCalls = m.engCommits = m.otherCalls = m.refreshCalls = m.refreshCommits = 0; m.pending = [];
   window.__commits = 0; window.__tu = []; window.__scanOff = true;
   const btn = document.querySelector('.plg-timeline-pv .plg-timeline-pv-apply');
   const t0 = performance.now();
@@ -360,10 +360,11 @@ APPLY_MEASURE_JS = """(n) => new Promise((resolve) => {
     if (hit) return finish(hit[1]);
     if (performance.now() - t0 > 60000) return finish(null);
     setTimeout(tick, 2); };
-  const finish = (t1) => { const atDone = window.__commits, bc = m.batchCalls, bk = m.batchCommits;
+  const finish = (t1) => { const atDone = window.__commits, bc = m.batchCalls, bk = m.batchCommits, oc = m.otherCalls;
     setTimeout(() => Promise.all(m.pending).then(() => { window.__scanOff = false;
       resolve({ ms: t1 === null ? null : Math.round(t1 - t0), commitsAtDone: atDone, commits: window.__commits, batchCalls: bc,
-        batchCommits: bk, refreshCalls: m.refreshCalls, refreshCommits: m.refreshCommits, tu: window.__tu.map(x => x[0]) }); }), 1500); };
+        batchCommits: bk, otherCalls: oc, engCalls: m.engCalls, engCommits: m.engCommits, refreshCalls: m.refreshCalls, refreshCommits: m.refreshCommits,
+        tu: window.__tu.map(x => x[0]) }); }), 1500); };
   setTimeout(tick, 0);
 })"""
 
@@ -707,8 +708,11 @@ def run(browser, base, users, ids, mon):
               "= %s) → 200 nilai di IndexedDB dalam %s ms ≤ %d ms (kriteria 7)" % (bulk_a, r_new["ms"], APPLY_BUDGET),
               i3["summary"].startswith("200 task bergeser") and i3["offline"] == MSG_OFFLINE and bulk_a == "function"
               and n_saved == 200 and r_new["ms"] is not None and r_new["ms"] <= APPLY_BUDGET, repr((i3["summary"], n_saved, r_new)))
-        check("3c optimistis: tepat SATU unstable_batchedUpdates dengan SATU commit React (hook DevTools palsu); satu refreshTasks",
-              r_new["batchCalls"] == 1 and r_new["batchCommits"] == 1 and r_new["refreshCalls"] == 1, repr(r_new))
+        # batchCalls = batch milik setMany saja (atribusi stack, INSTR_JS 1c0): commitOnce useEngine (1c-2 T9) adalah batch kedua yang sah.
+        check("3c optimistis: tepat SATU unstable_batchedUpdates milik setMany dengan SATU commit React (hook DevTools palsu), "
+              "tanpa pemanggil batch lain; satu refreshTasks",
+              r_new["batchCalls"] == 1 and r_new["batchCommits"] == 1 and r_new["otherCalls"] == 0 and r_new["refreshCalls"] == 1,
+              repr(r_new))
         nap(1)
         check("3d offline: 0 PUT A sampai ke server selama Terapkan (0 respons)",
               not [x for x in resps if x[0] == "A" and x[3] >= s3], repr(puts_of("A", s3)[:2]))
@@ -1041,8 +1045,11 @@ def run_narrow_dark(browser, base, u1, ids, ctxs):
           sw: document.documentElement.scrollWidth }; }"""
     g_box = m.evaluate(box_js)
     shot(m, "12-M-375-lainnya.png")
-    check("12a 375 px: toolbar menu 'Lainnya' memuat Jadwal otomatis, Jalur kritis, Jadwalkan ulang; scrollWidth === 375",
-          more.inner_text() == "Lainnya" and items == ["Jadwal otomatis", "Jalur kritis", "Jadwalkan ulang"] and geo1[0] == 375,
+    # Kontrak 1.2 (1c-2 Task 5 §contract): ≤ 640 px "Baseline" + "Simpan baseline" ikut masuk "Lainnya" (urutan toolbar).
+    check("12a 375 px: toolbar menu 'Lainnya' memuat Jadwal otomatis, Jalur kritis, Baseline, Simpan baseline, Jadwalkan ulang; "
+          "scrollWidth === 375",
+          more.inner_text() == "Lainnya"
+          and items == ["Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"] and geo1[0] == 375,
           repr((items, geo1)))
     m.keyboard.press("Escape")
     m.wait_for_timeout(300)
@@ -1055,10 +1062,11 @@ def run_narrow_dark(browser, base, u1, ids, ctxs):
     shot(m, "12-M-375-lainnya-daftar.png")
     m.keyboard.press("Escape")
     m.wait_for_timeout(300)
+    # Daftar (1c-2 Task 5): Baseline disembunyikan (seperti Jalur kritis), Simpan baseline tetap.
     check("12a-2 menu 'Lainnya' di dalam layar pada Gantt dan Daftar: tepi kiri ≥ 0, tepi kanan ≤ 375, scrollWidth 375 "
           "(Gantt %r, Daftar %r)" % (g_box, l_box),
           all(0 <= bx["left"] and bx["right"] <= 375 and bx["sw"] == 375 for bx in (g_box, l_box))
-          and l_items == ["Jadwal otomatis", "Jadwalkan ulang"], repr((g_box, l_box, l_items)))
+          and l_items == ["Jadwal otomatis", "Simpan baseline", "Jadwalkan ulang"], repr((g_box, l_box, l_items)))
     a3 = ids["titles"][ids["alpha"][2]]
     m.locator(".plg-timeline-li", has_text=a3).first.click()
     sec = m.locator(".modal-content .plg-timeline-section:not([aria-busy='true'])")

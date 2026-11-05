@@ -154,7 +154,9 @@ function fakeApi(o) {
         calls.recList.push([entity, q]);
         if (opts.recList) return opts.recList(entity, q); // fix T11: jendela muat unit (ditahan / gagal)
         const pre = "prj@" + (q && q.scope) + ":";
-        const items = [...recs.keys()].filter((id) => id.indexOf(pre) === 0).sort()
+        // 1c-2 T7: record baseline `bl<n>@<scope>:<h>` (entitas baseline) di scope yang sama
+        const ok = entity === "baseline" ? (id) => /^bl[1-3]@/.test(id) && id.slice(4).indexOf((q && q.scope) + ":") === 0 : (id) => id.indexOf(pre) === 0;
+        const items = [...recs.keys()].filter(ok).sort()
           .map((id) => ({ entity, id, scope: q.scope, data: recs.get(id), updated_at: "2026-11-03T02:00:00Z", version: 1, pending: false }));
         return Promise.resolve({ items, next: null });
       },
@@ -162,7 +164,9 @@ function fakeApi(o) {
       onChange: (fn) => { recListeners.add(fn); return () => recListeners.delete(fn); },
     },
     events: {
-      on(name, fn) { calls.events.push(name); (calls.handlers[name] = calls.handlers[name] || []).push(fn); return () => {}; },
+      on(name, fn) { calls.events.push(name); (calls.handlers[name] = calls.handlers[name] || []).push(fn); return () => { calls.handlers[name] = calls.handlers[name].filter((f) => f !== fn); }; },
+      // 1c-2 Task 8: bus bersama (pelacak aktual memancarkan timeline.actualRecorded ke seksi)
+      emit(name, p) { for (const f of (calls.handlers[name] || []).slice()) f(Object.freeze(Object.assign({}, p))); },
     },
     env: { today: () => "2026-11-04", online: true, userId: 1 },
     storage: {
@@ -1331,7 +1335,8 @@ test("tingkat 3 urutan: Mode · Mulai (teks + 'Ubah') · Durasi · Selesai · Mi
   const b = body3(s.tree);
   assert.ok(b, "badan tingkat 3");
   const order = nodes(b, (n) => typeof n.props["data-part"] === "string").map((n) => n.props["data-part"]);
-  assert.deepEqual(order, ["mode", "start", "dur", "finish", "milestone", "pct", "constraint", "deps", "add", "why", "manual"]);
+  // 1c-2 T7: Mulai aktual / Selesai aktual / Baseline vs sekarang setelah "Tambah dependensi", sebelum "Kenapa"
+  assert.deepEqual(order, ["mode", "start", "dur", "finish", "milestone", "pct", "constraint", "deps", "add", "actual-start", "actual-finish", "baseline", "why", "manual"]);
   const st = part(s.tree, "start");
   assert.equal(txt(byCls(st, "plg-timeline-sec-val")[0]).trim(), "Kam 5 Nov");
   assert.ok(buttonByText(st, "Ubah"));
@@ -1730,4 +1735,413 @@ test("sumber Task 12: teks persis R20/R21 tingkat 3, tetap satu setMany di seksi
   assert.match(block, /engine\.explain\(/, "explain lewat pintu spy");
   assert.doesNotMatch(block, /TLCpm\.explain\(/);
   for (const c of [".plg-timeline-pvcard", ".plg-timeline-sec-why", ".plg-timeline-dep-lag"]) assert.ok(css.includes(c), c);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// 1c-2 Task 7: tingkat 3 — Mulai aktual / Selesai aktual (+ "Catat hari ini"), tabel "Baseline vs sekarang";
+// tingkat 2 " · baseline {±n} hk". Aktual dibaca lewat TLSched.actualOf; tulis = `write` seksi (satu set, jangkar —
+// tidak mengalir). Baseline aktif = pref bl:<page> (page diturunkan dari task: slist_<list_id> / proj_<project>).
+// ════════════════════════════════════════════════════════════════════════════
+const actPart = (tree, which) => part(tree, "actual-" + which);
+const actVal = (tree, which) => txt(byCls(actPart(tree, which), "plg-timeline-sec-val")[0] || "").trim();
+const actMark = (tree, which) => byCls(actPart(tree, which), "plg-timeline-act-mark").map((n) => txt(n).trim());
+const actInput = (tree, which) => nodes(actPart(tree, which), (n) => n.type === "input" && n.props["aria-label"] === (which === "start" ? "Mulai aktual" : "Selesai aktual"))[0];
+// mockup dengan task 20 diganti (ext jadwal + kolom host tambahan); daftar task ikut memuat salinan yang sama
+function mock7(sched, extra, o) {
+  const m = mockup(o);
+  const ex = Object.assign({}, m.self.ext);
+  for (const k of Object.keys(sched || {})) ex["timeline." + k] = sched[k];
+  const self = Object.assign({}, m.self, { ext: ex }, extra || {});
+  return Object.assign({}, m, { self, tasks: m.tasks.map((t) => (t.id === 20 ? self : t)) });
+}
+async function open7(m, o) {
+  const x = o || {};
+  const s = await ui(m.self, Object.assign({ tasks: m.tasks, records: Object.assign({}, m.records, x.records || {}),
+    storage: Object.assign({ "section:open": true }, x.storage || {}) }, x.ui || {}));
+  return s;
+}
+// record baseline slot n unit task (id dari blRecId atas TLSched.unitOf — satu-satunya pembuat id)
+function blRec(task, n, rows) {
+  return { [T.blRecId(S.unitOf(task), n)]: { v: 1, n, name: "Baseline " + n, savedAt: "2026-11-01", by: 1, t: rows } };
+}
+const blTable = (tree) => byCls(part(tree, "baseline"), "plg-timeline-sec-bltable")[0];
+const blRows = (tree) => nodes(nodes(blTable(tree), (n) => n.type === "tbody")[0], (n) => n.type === "tr")
+  .map((tr) => nodes(tr, (n) => n.type === "td" || n.type === "th").map((c) => txt(c).trim()));
+const writes = (s) => s.calls.set.length + s.calls.setMany.length;
+
+test("T7 aktual kosong: 'Belum dicatat' + 'Catat hari ini' → SATU set {actual: {start: today}} (tanpa setMany, tidak mengalir); lalu selesai → {start, finish}", async () => {
+  const m = mock7();
+  const s = await open7(m);
+  for (const w of ["start", "finish"]) {
+    assert.ok(txt(actPart(s.tree, w)).startsWith(w === "start" ? "Mulai aktual" : "Selesai aktual"));
+    assert.ok(txt(actPart(s.tree, w)).includes("Belum dicatat"));
+    assert.ok(buttonByText(actPart(s.tree, w), "Catat hari ini"), w);
+    assert.equal(actInput(s.tree, w).props.type, "date");
+    assert.equal(actInput(s.tree, w).props.value, "");
+  }
+  assert.equal(writes(s), 0, "pasang → 0 tulis");
+  buttonByText(actPart(s.tree, "start"), "Catat hari ini").props.onClick();
+  s.render();
+  assert.deepEqual(s.calls.set, [[20, { actual: { start: "2026-11-04" } }]]);
+  assert.equal(s.calls.setMany.length, 0, "jangkar: penerus 3.1 tidak ditulis");
+  assert.equal(actVal(s.tree, "start"), "Rab 4 Nov");
+  assert.equal(actInput(s.tree, "start").props.value, "2026-11-04");
+  assert.equal(buttonByText(actPart(s.tree, "start"), "Catat hari ini"), undefined);
+  assert.ok(!txt(actPart(s.tree, "start")).includes("Belum dicatat"));
+  buttonByText(actPart(s.tree, "finish"), "Catat hari ini").props.onClick();
+  s.render();
+  assert.deepEqual(s.calls.set[1], [20, { actual: { start: "2026-11-04", finish: "2026-11-04" } }]);
+  assert.equal(actVal(s.tree, "finish"), "Rab 4 Nov");
+  assert.deepEqual(actMark(s.tree, "finish"), [], "tersimpan → tanpa penanda turunan");
+  await s.settle();
+  assert.equal(s.calls.toast.length, 0, "set 1b tanpa toast");
+  assert.equal(s.calls.setMany.length, 0);
+});
+
+test("T7 Review Focus 2: selesai turunan completed_at 23:30 UTC → hari Jakarta BESOKNYA + 'Aktual'; ubah → disimpan; hapus → kembali turunan (patch {actual: {start}} tanpa finish)", async () => {
+  const m = mock7({ actual: { start: "2026-11-02" } }, { gtd_status: "done", completed_at: "2026-11-04T23:30:00Z", progress: 100 });
+  const s = await open7(m);
+  assert.ok(part(s.tree, "actual-finish"), "task selesai tetap tingkat 3");
+  assert.equal(actVal(s.tree, "start"), "Sen 2 Nov");
+  assert.equal(actVal(s.tree, "finish"), "Kam 5 Nov", "23:30Z Rab 4 = Kam 5 di Asia/Jakarta");
+  assert.deepEqual(actMark(s.tree, "finish"), ["Aktual"]);
+  assert.equal(actInput(s.tree, "finish").props.value, "2026-11-05");
+  assert.equal(buttonByText(actPart(s.tree, "finish"), "Catat hari ini"), undefined);
+  // blur tanpa ubah (nilai turunan) → 0 tulis; kosongkan turunan (tidak ada yang tersimpan) → 0 tulis
+  actInput(s.tree, "finish").props.onBlur(ev("2026-11-05"));
+  s.render();
+  actInput(s.tree, "finish").props.onBlur(ev(""));
+  s.render();
+  assert.equal(writes(s), 0);
+  // selesai sebelum mulai → ditolak sanitasi, 0 tulis, kembali ke turunan
+  actInput(s.tree, "finish").props.onChange(ev("2026-10-30"));
+  s.render();
+  actInput(s.tree, "finish").props.onBlur(ev("2026-10-30"));
+  s.render();
+  assert.equal(writes(s), 0);
+  assert.equal(actInput(s.tree, "finish").props.value, "2026-11-05");
+  // ubah → disimpan (mulai tersimpan ikut apa adanya)
+  actInput(s.tree, "finish").props.onChange(ev("2026-11-06"));
+  s.render();
+  assert.equal(actInput(s.tree, "finish").props.value, "2026-11-06", "draf");
+  actInput(s.tree, "finish").props.onBlur(ev("2026-11-06"));
+  s.render();
+  assert.deepEqual(s.calls.set, [[20, { actual: { start: "2026-11-02", finish: "2026-11-06" } }]]);
+  assert.equal(actVal(s.tree, "finish"), "Jum 6 Nov");
+  assert.deepEqual(actMark(s.tree, "finish"), [], "tersimpan → tanpa 'Aktual'");
+  await s.settle();
+  // hapus yang tersimpan → patch tanpa finish; tampilan kembali ke turunan Kam 5 (bukan nilai lama Jum 6)
+  actInput(s.tree, "finish").props.onBlur(ev(""));
+  s.render();
+  assert.deepEqual(s.calls.set[1], [20, { actual: { start: "2026-11-02" } }]);
+  assert.equal(actVal(s.tree, "finish"), "Kam 5 Nov");
+  assert.deepEqual(actMark(s.tree, "finish"), ["Aktual"]);
+  await s.settle();
+  // hapus mulai (satu-satunya kunci tersimpan) → {actual: null}
+  actInput(s.tree, "start").props.onBlur(ev(""));
+  s.render();
+  assert.deepEqual(s.calls.set[2], [20, { actual: null }]);
+  assert.ok(txt(actPart(s.tree, "start")).includes("Belum dicatat"));
+  assert.equal(actVal(s.tree, "finish"), "Kam 5 Nov", "turunan tetap tanpa mulai");
+  assert.equal(s.calls.setMany.length, 0);
+});
+
+test("T7 tanggal aktual: pola Batasan — change = draf + jeda (satu set), Enter langsung; tahun parsial tidak disimpan", async () => {
+  const m = mock7({ actual: { start: "2026-11-02" } });
+  const s = await open7(m);
+  actInput(s.tree, "start").props.onChange(ev("0002-11-03"));
+  s.render();
+  await sleep(DEBOUNCE + 20);
+  assert.equal(s.calls.set.length, 0);
+  actInput(s.tree, "start").props.onChange(ev("2026-11-03"));
+  s.render();
+  assert.equal(s.calls.set.length, 0, "draf sampai jeda");
+  await sleep(DEBOUNCE + 20);
+  s.render();
+  assert.deepEqual(s.calls.set, [[20, { actual: { start: "2026-11-03" } }]]);
+  assert.equal(actVal(s.tree, "start"), "Sel 3 Nov");
+  await s.settle();
+  actInput(s.tree, "finish").props.onKeyDown({ key: "Enter", preventDefault() {}, target: { value: "2026-11-06" } });
+  s.render();
+  assert.deepEqual(s.calls.set[1], [20, { actual: { start: "2026-11-03", finish: "2026-11-06" } }]);
+  assert.equal(s.calls.setMany.length, 0);
+});
+
+test("T7 tulis aktual gagal → actual sebelumnya kembali PERSIS (finish tersimpan, bukan turunan) + 'Jadwal gagal disimpan'", async () => {
+  const m = mock7({ actual: { start: "2026-11-02", finish: "2026-11-06" } }, { gtd_status: "done", completed_at: "2026-11-04T23:30:00Z", progress: 100 });
+  const s = await open7(m);
+  s.f.setSet(() => Promise.reject(new Error("offline")));
+  actInput(s.tree, "finish").props.onBlur(ev(""));
+  s.render();
+  assert.deepEqual(s.calls.set, [[20, { actual: { start: "2026-11-02" } }]]);
+  assert.equal(actVal(s.tree, "finish"), "Kam 5 Nov", "optimistis: turunan");
+  await s.settle();
+  assert.equal(lastToast(s)[0], "Jadwal gagal disimpan");
+  assert.equal(actVal(s.tree, "finish"), "Jum 6 Nov", "kembali ke tersimpan");
+  assert.deepEqual(actMark(s.tree, "finish"), []);
+  // mulai yang belum ada: Catat gagal → kunci actual dihapus lagi (Belum dicatat)
+  const m2 = mock7();
+  const s2 = await open7(m2);
+  s2.f.setSet(() => Promise.reject(new Error("offline")));
+  buttonByText(actPart(s2.tree, "start"), "Catat hari ini").props.onClick();
+  s2.render();
+  await s2.settle();
+  assert.ok(txt(actPart(s2.tree, "start")).includes("Belum dicatat"));
+});
+
+test("T7 aturan sibuk: writeMany berjalan untuk task ini → 'Catat hari ini' dan tanggal aktual diabaikan (0 set)", async () => {
+  const m = mock7(null, null, { start: "2026-11-09" }); // drift → Perbarui = writeMany
+  const s = await open7(m, { ui: { setMany: () => new Promise(() => {}) } });
+  buttonByText(s.tree, "Perbarui").props.onClick();
+  s.render();
+  assert.equal(s.calls.setMany.length, 1);
+  buttonByText(actPart(s.tree, "start"), "Catat hari ini").props.onClick();
+  s.render();
+  actInput(s.tree, "finish").props.onBlur(ev("2026-11-06"));
+  s.render();
+  assert.equal(s.calls.set.length, 0);
+  assert.equal(actInput(s.tree, "finish").props.value, "", "draf dibuang");
+});
+
+test("T7 tabel 'Baseline vs sekarang' + tingkat 2 ' · baseline ±n hk' (df) dari baseline aktif bl:<page>; nilai ± dua arah (U+2212)", async () => {
+  const m = mock7();
+  const recs = Object.assign({},
+    blRec(m.self, 1, [[{ $task: 20 }, "2026-11-04", "2026-11-09", 4, 0]]),
+    blRec(m.self, 2, [[{ $task: 20 }, "2026-11-06", "2026-11-12", 5, 3]]),
+    blRec(m.self, 3, [[{ $task: 12 }, "2026-11-02", "2026-11-03", 2, 0]]));
+  const s = await open7(m, { records: recs, storage: { "bl:slist_7": 1 } });
+  assert.ok(s.calls.storageGet.includes("bl:slist_7"), "pref dibaca dengan kunci halaman workspace");
+  assert.ok(s.calls.recList.some((x) => x[0] === "baseline" && x[1].scope === "list:7"));
+  const p = part(s.tree, "baseline");
+  assert.ok(txt(p).startsWith("Baseline vs sekarang"));
+  const head = nodes(nodes(blTable(s.tree), (n) => n.type === "thead")[0], (n) => n.type === "th").map((c) => txt(c).trim());
+  assert.deepEqual(head, ["", "Baseline", "Sekarang", "Selisih"]);
+  assert.deepEqual(blRows(s.tree), [
+    ["Mulai", "Rab 4 Nov", "Kam 5 Nov", "+1 hk"],
+    ["Selesai", "Sen 9 Nov", "Sel 10 Nov", "+1 hk"],
+    ["Durasi", "4 hk", "4 hk", "0 hk"],
+  ]);
+  assert.equal(txt(byCls(s.tree, "plg-timeline-sec-range")[0]).trim(), "Kam 5 Nov → Sel 10 Nov · 4 hari kerja · baseline +1 hk");
+  assert.ok(!/selesai project baseline/i.test(txt(s.tree)));
+  // slot 2: lebih awal → minus U+2212
+  const s2 = await open7(m, { records: recs, storage: { "bl:slist_7": 2, "section:open": false } });
+  assert.equal(txt(byCls(s2.tree, "plg-timeline-sec-range")[0]).trim(), "Kam 5 Nov → Sel 10 Nov · 4 hari kerja · baseline −2 hk");
+  buttonByText(s2.tree, "Selengkapnya").props.onClick();
+  s2.render();
+  assert.deepEqual(blRows(s2.tree), [
+    ["Mulai", "Jum 6 Nov", "Kam 5 Nov", "−1 hk"],
+    ["Selesai", "Kam 12 Nov", "Sel 10 Nov", "−2 hk"],
+    ["Durasi", "5 hk", "4 hk", "−1 hk"],
+  ]);
+  // slot 3 tidak memuat task ini → "Tidak ada", tanpa keterangan baseline di tingkat 2
+  const s3 = await open7(m, { records: recs, storage: { "bl:slist_7": 3 } });
+  assert.deepEqual(blRows(s3.tree), [["Tidak ada"]]);
+  assert.equal(txt(byCls(s3.tree, "plg-timeline-sec-range")[0]).trim(), "Kam 5 Nov → Sel 10 Nov · 4 hari kerja");
+  for (const x of [s, s2, s3]) assert.equal(writes(x), 0);
+});
+
+test("T7 'Tidak ada': tanpa pref / pref 0 (tanpa memuat baseline), slot kosong, record asing v2; halaman project = bl:proj_<project>", async () => {
+  const m = mock7();
+  const recs = Object.assign({}, blRec(m.self, 1, [[{ $task: 20 }, "2026-11-04", "2026-11-09", 4, 0]]),
+    { [T.blRecId(S.unitOf(m.self), 2)]: { v: 2, n: 2, t: "baru" } });
+  const none = await open7(m, { records: recs });
+  assert.deepEqual(blRows(none.tree), [["Tidak ada"]]);
+  assert.equal(none.calls.recList.filter((x) => x[0] === "baseline").length, 0, "tanpa baseline aktif → tidak memuat");
+  const zero = await open7(m, { records: recs, storage: { "bl:slist_7": 0 } });
+  assert.deepEqual(blRows(zero.tree), [["Tidak ada"]]);
+  const foreign = await open7(m, { records: recs, storage: { "bl:slist_7": 2 } });
+  assert.deepEqual(blRows(foreign.tree), [["Tidak ada"]]);
+  assert.equal(txt(byCls(foreign.tree, "plg-timeline-sec-range")[0]).trim(), "Kam 5 Nov → Sel 10 Nov · 4 hari kerja");
+  const empty = await open7(m, { records: recs, storage: { "bl:slist_7": 3 } });
+  assert.deepEqual(blRows(empty.tree), [["Tidak ada"]]);
+  // pref halaman lain (project) tidak berlaku untuk task workspace
+  const other = await open7(m, { records: recs, storage: { "bl:proj_fondasi": 1 } });
+  assert.deepEqual(blRows(other.tree), [["Tidak ada"]]);
+  // task pribadi project "Alpha": pref bl:proj_alpha (dilipat, fix T7), scope user
+  const P = mk(60, "Pribadi", { start: "2026-11-05", duration: 2 }, { project: "Alpha" });
+  const pr = Object.assign(autoRecs(P), blRec(P, 1, [[{ $task: 60 }, "2026-11-05", "2026-11-05", 1, 0]]));
+  const sp = await ui(P, { tasks: [P], records: pr, storage: { "section:open": true, "bl:proj_alpha": 1 } });
+  assert.ok(sp.calls.storageGet.includes("bl:proj_alpha"));
+  assert.ok(sp.calls.recList.some((x) => x[0] === "baseline" && x[1].scope === "user"));
+  assert.deepEqual(blRows(sp.tree), [
+    ["Mulai", "Kam 5 Nov", "Kam 5 Nov", "0 hk"],
+    ["Selesai", "Kam 5 Nov", "Jum 6 Nov", "+1 hk"],
+    ["Durasi", "1 hk", "2 hk", "+1 hk"],
+  ]);
+  for (const x of [none, zero, foreign, empty, other, sp]) assert.equal(writes(x), 0);
+});
+
+test("T7 R25: pasang / props berubah / sync.done / perubahan record baseline / pulled → 0 tulis (task, setMany, record)", async () => {
+  const prevMs = T.RELOAD_TIMING.debounceMs;
+  T.RELOAD_TIMING.debounceMs = 0;
+  try {
+    const m = mock7({ actual: { start: "2026-11-02" } }, { gtd_status: "done", completed_at: "2026-11-04T23:30:00Z", progress: 100 });
+    const recs = blRec(m.self, 1, [[{ $task: 20 }, "2026-11-04", "2026-11-09", 4, 0]]);
+    let puts = 0;
+    const s = await open7(m, { records: recs, storage: { "bl:slist_7": 1 } });
+    s.f.api.records.put = () => { puts++; return Promise.resolve(); };
+    s.f.api.records.remove = () => { puts++; return Promise.resolve(); };
+    const before = s.calls.recList.filter((x) => x[0] === "baseline").length;
+    s.render(Object.assign({}, m.self, { updated_at: "2026-11-05T01:00:00Z" }));
+    s.calls.handlers["sync.done"][0]();
+    s.f.emitRec({ entity: "baseline", ids: [Object.keys(recs)[0]], source: "sync" });
+    s.f.emitRec({ pulled: true });
+    await sleep(10);
+    await s.settle();
+    assert.ok(s.calls.recList.filter((x) => x[0] === "baseline").length > before, "baseline dimuat ulang (baca saja)");
+    assert.equal(actVal(s.tree, "finish"), "Kam 5 Nov");
+    assert.equal(writes(s) + puts, 0);
+    s.m.unmount();
+  } finally {
+    T.RELOAD_TIMING.debounceMs = prevMs;
+  }
+});
+
+test("sumber Task 7: teks persis §7.6, aktual hanya lewat actualOf, tetap satu set + satu setMany di seksi", () => {
+  for (const t of ["Mulai aktual", "Selesai aktual", "Catat hari ini", "Belum dicatat", "Baseline vs sekarang", "Sekarang", "Selisih", "Tidak ada"]) {
+    assert.ok(jsx.includes('"' + t + '"'), t);
+  }
+  const start = jsx.indexOf("// 4g.");
+  const block = jsx.slice(start, jsx.indexOf("// React.memo dibuat malas", start));
+  assert.equal((block.match(/taskExt\.setMany\(/g) || []).length, 1);
+  assert.equal((block.match(/taskExt\.set\(/g) || []).length, 1);
+  assert.match(block, /TLSched\.actualOf\(/);
+  assert.doesNotMatch(block, /\.actual\b/, "aktual tidak dibaca langsung dari ext");
+  assert.doesNotMatch(block, /selesai project baseline/i);
+  for (const c of [".plg-timeline-sec-actual", ".plg-timeline-act-mark", ".plg-timeline-sec-bltable"]) assert.ok(css.includes(c), c);
+});
+
+test("T7 round-trip objek actual: ubah mulai membawa selesai TERSIMPAN; selesai turunan TIDAK pernah ikut ditulis; selesai tanpa mulai → {finish}", async () => {
+  // tersimpan {start, finish}: ubah mulai → finish tersimpan ikut apa adanya
+  const a = await open7(mock7({ actual: { start: "2026-11-02", finish: "2026-11-06" } }));
+  actInput(a.tree, "start").props.onBlur(ev("2026-11-03"));
+  a.render();
+  assert.deepEqual(a.calls.set, [[20, { actual: { start: "2026-11-03", finish: "2026-11-06" } }]]);
+  await a.settle();
+  // hapus mulai → {finish} saja (selesai tersimpan tetap)
+  actInput(a.tree, "start").props.onBlur(ev(""));
+  a.render();
+  assert.deepEqual(a.calls.set[1], [20, { actual: { finish: "2026-11-06" } }]);
+  assert.ok(txt(actPart(a.tree, "start")).includes("Belum dicatat"));
+  assert.equal(actVal(a.tree, "finish"), "Jum 6 Nov");
+  // task selesai, selesai TURUNAN (23:30Z → Kam 5): ubah mulai → {start} saja, turunan tidak dibekukan
+  const b = await open7(mock7(null, { gtd_status: "done", completed_at: "2026-11-04T23:30:00Z", progress: 100 }));
+  assert.equal(actVal(b.tree, "finish"), "Kam 5 Nov");
+  actInput(b.tree, "start").props.onBlur(ev("2026-11-02"));
+  b.render();
+  assert.deepEqual(b.calls.set, [[20, { actual: { start: "2026-11-02" } }]]);
+  assert.deepEqual(actMark(b.tree, "finish"), ["Aktual"], "selesai tetap turunan");
+  // selesai tanpa mulai tersimpan → {finish}
+  const c = await open7(mock7());
+  actInput(c.tree, "finish").props.onBlur(ev("2026-11-06"));
+  c.render();
+  assert.deepEqual(c.calls.set, [[20, { actual: { finish: "2026-11-06" } }]]);
+  for (const x of [a, b, c]) assert.equal(x.calls.setMany.length, 0, "jangkar tidak mengalir");
+});
+
+test("T7 a11y (paritas Batasan): baris aktual = role group berlabel; tombol 'Catat hari ini' terbedakan lewat grupnya", async () => {
+  const s = await open7(mock7());
+  for (const [w, l] of [["start", "Mulai aktual"], ["finish", "Selesai aktual"]]) {
+    const p = actPart(s.tree, w);
+    assert.equal(p.props.role, "group", w);
+    assert.equal(p.props["aria-label"], l, w);
+  }
+  const tbl = blTable(s.tree);
+  assert.equal(tbl.props["aria-label"], "Baseline vs sekarang");
+  assert.ok(nodes(tbl, (n) => n.type === "th" && n.props.scope === "col").length === 4);
+});
+
+test("T7 variant panel dan modal sama (tingkat 3 dengan aktual + tabel baseline aktif); task berulang tetap null", async () => {
+  const m = mock7({ actual: { start: "2026-11-02" } }, { gtd_status: "done", completed_at: "2026-11-04T23:30:00Z", progress: 100 });
+  const recs = blRec(m.self, 1, [[{ $task: 20 }, "2026-11-04", "2026-11-09", 4, 0]]);
+  const strip = (n) => JSON.stringify(n, (k, v) => (typeof v === "function" ? "fn" : v));
+  const o = { records: recs, storage: { "bl:slist_7": 1 } };
+  const a = await open7(m, Object.assign({}, o, { ui: { variant: "modal" } }));
+  const b = await open7(m, Object.assign({}, o, { ui: { variant: "panel" } }));
+  assert.ok(part(a.tree, "actual-finish") && blRows(a.tree).length === 3);
+  assert.equal(strip(a.tree), strip(b.tree));
+  const api = fakeApi({ storage: { "bl:slist_7": 1 }, records: recs }).api;
+  const rec = Object.assign({}, m.self, { recurrence_type: "daily" });
+  assert.equal(guard({ context: { task: rec, variant: "panel", collaborators: [], onOpenTask() {}, showToast() {} }, api }), null);
+  for (const x of [a, b]) assert.equal(writes(x), 0);
+});
+
+test("fix T7: halaman project 'Alpha' + task berproject 'alpha'/'ALPHA' → baseline SAMA dengan view (satu kunci bl:proj_alpha)", async () => {
+  const rowsOf = async (name) => {
+    const P = mk(60, "Pribadi", { start: "2026-11-05", duration: 2 }, { project: name });
+    const pr = Object.assign(autoRecs(P), blRec(P, 1, [[{ $task: 60 }, "2026-11-05", "2026-11-05", 1, 0]]));
+    const sp = await ui(P, { tasks: [P], records: pr, storage: { "section:open": true, [T.prefKey("bl", "proj_Alpha")]: 1 } });
+    assert.ok(sp.calls.storageGet.includes("bl:proj_alpha"), name);
+    assert.equal(writes(sp), 0);
+    return blRows(sp.tree);
+  };
+  const want = [
+    ["Mulai", "Kam 5 Nov", "Kam 5 Nov", "0 hk"],
+    ["Selesai", "Kam 5 Nov", "Jum 6 Nov", "+1 hk"],
+    ["Durasi", "1 hk", "2 hk", "+1 hk"],
+  ];
+  for (const name of ["Alpha", "alpha", "ALPHA"]) assert.deepEqual(await rowsOf(name), want, name);
+});
+
+test("fix T7: simpanan tertunda membaca actual TERKINI — ubah selesai selama jeda mulai → keduanya bertahan", async () => {
+  const s = await open7(mock7({ actual: { start: "2026-11-02" } }));
+  actInput(s.tree, "start").props.onChange(ev("2026-11-03"));
+  s.render();
+  actInput(s.tree, "finish").props.onKeyDown({ key: "Enter", preventDefault() {}, target: { value: "2026-11-06" } });
+  s.render();
+  assert.deepEqual(s.calls.set, [[20, { actual: { start: "2026-11-02", finish: "2026-11-06" } }]]);
+  await sleep(DEBOUNCE + 20);
+  s.render();
+  assert.deepEqual(s.calls.set[1], [20, { actual: { start: "2026-11-03", finish: "2026-11-06" } }], "selesai tidak hilang");
+  assert.equal(actVal(s.tree, "start"), "Sel 3 Nov");
+  assert.equal(actVal(s.tree, "finish"), "Jum 6 Nov");
+  assert.equal(s.calls.setMany.length, 0);
+});
+
+// ── 1c-2 Task 8 (K42 diamandemen): pelacak aktual + seksi terpasang berbagi satu bus ───────────────────────────────
+// Progress naik dari 0 / status selesai yang TIBA lewat props/daftar (refresh, sinkron) BUKAN pemicu → 0 tulis. Event host
+// pomodoro.ended → recordActual SATU set; seksi terpasang memuat ulang daftar (baca saja) lewat timeline.actualRecorded
+// sehingga nilai tersimpannya mutakhir (mencegah ubah selesai berikutnya menimpa mulai yang baru dicatat).
+test("T8 seksi: progress 0→20 / selesai lewat props+sync.done → 0 tulis; pomodoro.ended → satu set; seksi muat ulang → 'Mulai aktual' tampil; ubah selesai membawa mulai baru", async () => {
+  const m = mock7(null, { progress: 0 });
+  const live = m.tasks.map((t) => JSON.parse(JSON.stringify(t)));
+  let n = 0;
+  const s = await open7(m, { ui: {
+    listImpl: () => Promise.resolve(JSON.parse(JSON.stringify(live))),
+    set: (id, patch) => {
+      const t = live.find((x) => String(x.id) === String(id));
+      t.ext = Object.assign({}, t.ext);
+      for (const k of Object.keys(patch)) { if (patch[k] === null) delete t.ext["timeline." + k]; else t.ext["timeline." + k] = patch[k]; }
+      t.updated_at = "2026-11-05T0" + ++n + ":00:00Z";
+      return Promise.resolve(t);
+    },
+  } });
+  const off = T.installActualTracking(s.f.api);
+  try {
+    assert.ok(txt(actPart(s.tree, "start")).includes("Belum dicatat"));
+    // progress dan status berubah TIBA dari luar (props baru + sync.done) → 0 tulis
+    s.render(Object.assign({}, m.self, { progress: 20, updated_at: "2026-11-05T00:10:00Z" }));
+    s.calls.handlers["sync.done"][0]({ initial: false });
+    await s.settle();
+    s.render(Object.assign({}, m.self, { progress: 100, gtd_status: "done", completed_at: "2026-11-05T00:20:00Z", updated_at: "2026-11-05T00:20:00Z" }));
+    await s.settle();
+    assert.equal(writes(s), 0, "diff data bukan pemicu");
+    // event host gestur lokal → satu set, lalu seksi memuat ulang
+    const lists = s.calls.list.length;
+    s.f.api.events.emit("pomodoro.ended", { taskId: 20, kind: "session", pomodoros: 1, focusSeconds: 1500, endedAt: "2026-11-05T03:00:00Z" });
+    await sleep(5);
+    await s.settle();
+    assert.deepEqual(s.calls.set, [[20, { actual: { start: "2026-11-05" } }]]);
+    assert.ok(s.calls.list.length > lists, "seksi memuat ulang daftar");
+    assert.equal(actVal(s.tree, "start"), "Kam 5 Nov");
+    // ubah selesai di seksi → membawa mulai yang baru dicatat (bukan menimpanya)
+    actInput(s.tree, "finish").props.onBlur(ev("2026-11-06"));
+    s.render();
+    assert.deepEqual(s.calls.set[1], [20, { actual: { start: "2026-11-05", finish: "2026-11-06" } }]);
+    assert.equal(s.calls.setMany.length, 0);
+    s.m.unmount();
+    assert.equal((s.calls.handlers["timeline.actualRecorded"] || []).length, 0, "pendengar seksi dilepas saat lepas");
+  } finally {
+    off();
+  }
 });

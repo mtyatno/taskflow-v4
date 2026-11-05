@@ -1,7 +1,7 @@
 // generated from plugin.jsx — jangan edit
 (function () {
 "use strict";
-const manifest = Object.freeze({"id":"timeline","name":"Timeline","description":"Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.","version":"1.1.0","minApi":1,"slots":["taskList.views","taskDetail.sections"],"permissions":["storage","task.ext","records"],"defaultEnabled":false,"contributes":{"taskList.views":[{"id":"gantt","label":"Timeline","icon":{"path":"M2 4h7M5 8h8M3 12h5"},"pages":["project","workspace"]}],"taskDetail.sections":[{"id":"schedule","label":"Jadwal","order":10}]},"taskExt":{"keys":["start","duration","deps","mode","constraint"]},"records":{"calendar":{"conflict":"lww","maxBytes":16384},"project":{"conflict":"lww","maxBytes":1024}},"builtin":true});
+const manifest = Object.freeze({"id":"timeline","name":"Timeline","description":"Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.","version":"1.2.0","minApi":1,"slots":["taskList.views","taskDetail.sections"],"permissions":["storage","task.ext","records"],"defaultEnabled":false,"contributes":{"taskList.views":[{"id":"gantt","label":"Timeline","icon":{"path":"M2 4h7M5 8h8M3 12h5"},"pages":["project","workspace"]}],"taskDetail.sections":[{"id":"schedule","label":"Jadwal","order":10}]},"taskExt":{"keys":["start","duration","deps","mode","constraint","actual"]},"records":{"calendar":{"conflict":"lww","maxBytes":16384},"project":{"conflict":"lww","maxBytes":1024},"baseline":{"conflict":"lww","maxBytes":65536}},"builtin":true});
 // part: holidays-id.js
 // Plugin Timeline — TLHolidays: libur nasional + cuti bersama Indonesia 2025–2027 (spec §8.4, rencana R2/R25).
 // Murni data + pembantu kecil; tanpa Date lokal, tanpa global. Ditranskripsi dari SKB 3 Menteri (Menag, Menaker,
@@ -487,7 +487,22 @@ const TLSched = (function (CAL) {
     return { type: v.type, date: v.date };
   }
 
-  // Masukan = hasil api.taskExt.read (kunci tanpa prefiks: start, duration, deps, mode, constraint).
+  // {start?, finish?} aktual bersih (1c-2), atau null (rusak → tak ada aktual). Pola sama dengan readConstraint:
+  // objek tanpa kunci lain, minimal satu tanggal, ISO sah 1970–2199, finish ≥ start bila keduanya ada.
+  function readActual(v) {
+    if (!isObj(v)) return null;
+    const ks = Object.keys(v);
+    if (!ks.length || ks.some((k) => k !== "start" && k !== "finish")) return null;
+    const out = {};
+    for (const k of ks) {
+      if (!isConstraintDate(v[k])) return null;
+      out[k] = v[k];
+    }
+    if (out.start !== undefined && out.finish !== undefined && CAL.dn(out.finish) < CAL.dn(out.start)) return null;
+    return out;
+  }
+
+  // Masukan = hasil api.taskExt.read (kunci tanpa prefiks: start, duration, deps, mode, constraint, actual).
   function readSched(extObj) {
     const src = isObj(extObj) ? extObj : {};
     const start = typeof src.start === "string" && CAL.isIso(src.start) ? src.start : null;
@@ -513,7 +528,8 @@ const TLSched = (function (CAL) {
     }
     const mode = MODES.indexOf(src.mode) >= 0 ? src.mode : null;
     const constraint = readConstraint(src.constraint);
-    return { start, duration, deps, invalidDeps, mode, constraint };
+    const actual = readActual(src.actual);
+    return { start, duration, deps, invalidDeps, mode, constraint, actual };
   }
 
   // ---- tulis ext: validasi + jepit (R7) ----
@@ -575,7 +591,14 @@ const TLSched = (function (CAL) {
           if (!cst) return { ok: false, reason: "constraint" };
           patch.constraint = cst;
         }
-      } else return { ok: false, reason: "key" }; // termasuk "actual" (1c-2)
+      } else if (k === "actual") {
+        if (v === null) patch.actual = null;
+        else {
+          const act = readActual(v);
+          if (!act) return { ok: false, reason: "actual" };
+          patch.actual = act;
+        }
+      } else return { ok: false, reason: "key" };
     }
     return { ok: true, patch };
   }
@@ -858,11 +881,22 @@ const TLSched = (function (CAL) {
     return Math.floor((t + JKT_OFFSET) / MS_DAY);
   }
 
+  // Aktual task (1c-2): ext = hasil readSched atau objek ext mentah (kunci `actual`); bentuk rusak diabaikan.
+  // start = actual.start; finish = actual.finish ?? jkt(completed_at) (K42: turunan tidak pernah disimpan);
+  // finishDerived true hanya bila finish berasal dari completed_at. Murni, tanpa kalender.
+  function actualOf(task, ext) {
+    const act = readActual(isObj(ext) ? ext.actual : null);
+    const start = act && act.start !== undefined ? CAL.dn(act.start) : null;
+    if (act && act.finish !== undefined) return { start, finish: CAL.dn(act.finish), finishDerived: false };
+    const f = jkt(task && typeof task === "object" ? task.completed_at : null);
+    return { start, finish: f, finishDerived: f !== null };
+  }
+
   // Selesai pendahulu DONE — SATU aturan untuk jangkar "done" mesin (TLCpm) dan violations (layout langkah 7):
-  // maks(mulai, jkt(completed_at) ?? fin(mulai, d)). Mulai tak sah / kalender buntu → undefined.
-  function doneFinish(c, task, s, d) {
+  // maks(mulai, actualOf(task, ext).finish ?? fin(mulai, d)). Mulai tak sah / kalender buntu → undefined.
+  function doneFinish(c, task, ext, s, d) {
     if (!isDn(s)) return undefined;
-    let f = jkt(task ? task.completed_at : null);
+    let f = actualOf(task, ext).finish;
     if (f === null) f = fin(c, s, d);
     if (isDn(f) && f < s) f = s;
     return f;
@@ -1026,6 +1060,7 @@ const TLSched = (function (CAL) {
     sff,
     jkt,
     doneFinish,
+    actualOf,
     depReq,
     depLimit,
     fnv1a32,
@@ -1072,6 +1107,8 @@ const TLCpm = (function (CAL, SCHED, HOL) {
   // Tenggat task → bilangan hari (10 karakter pertama, R3); tak ada/tak sah → NaN. Satu sumber untuk run() dan explain().
   const deadlineDn = (t) => (t.deadline === null || t.deadline === undefined ? NaN : CAL.dn(String(t.deadline).slice(0, 10)));
   const isDone = (t) => t.gtd_status === "done" || !!t.completed_at;
+  // Penanda kolom task SAJA (progress/pomodoro) — SENGAJA tanpa aktual: "sudah mulai karena actual.start" (K30) diperiksa
+  // di situs jangkar forward pass (TLSched.actualOf atas it.sched), satu-satunya pemanggil predikat ini.
   const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
   const parentOf = (t) => (t.parent_id !== undefined && t.parent_id !== null ? t.parent_id : t.parent_cid);
 
@@ -1322,11 +1359,14 @@ const TLCpm = (function (CAL, SCHED, HOL) {
       const t = it.task;
       const d = it.d;
       const cst = it.sched.constraint;
+      // Aktual (1c-2, K30) dari bacaan ext yang SAMA (it.sched = readSched(readExt(t))) — tidak ada sumber kedua.
+      const act = SCHED.actualOf(t, it.sched);
+      const s0 = act.start !== null ? act.start : it.s; // mulai jangkar selesai/berjalan = actual.start ?? Mulai
       let fixed = null;
       if (isDone(t)) fixed = "done";
       else if (inCycle.has(k)) fixed = "cycle";
       else if (it.mode === "manual") fixed = "manual";
-      else if (isStarted(t) && it.s !== null) fixed = "started";
+      else if ((isStarted(t) || act.start !== null) && s0 !== null) fixed = "started";
       else if (cst && cst.type === "MFO") fixed = "mfo";
 
       const n = { key: k, task: t, es: null, ef: null, ls: null, lf: null, slack: null, critical: false, mode: it.mode };
@@ -1346,11 +1386,15 @@ const TLCpm = (function (CAL, SCHED, HOL) {
           const md = CAL.dn(cst.date);
           ef = d >= 1 ? safe(() => CAL.prevWork(c, md)) : md;
           es = isDn(ef) ? SCHED.sff(c, ef, d) : undefined;
+        } else if (fixed === "done" || fixed === "started") {
+          // selesai: ef = maks(es, actual.finish ?? jkt(completed_at) ?? fin(es, d)); berjalan: ef = fin(es, d)
+          if (s0 !== null) {
+            es = s0;
+            ef = fixed === "done" ? SCHED.doneFinish(c, t, it.sched, es, d) : SCHED.fin(c, es, d);
+          }
         } else if (it.s !== null) {
-          es = it.s;
-          if (fixed === "done") {
-            ef = SCHED.doneFinish(c, t, es, d);
-          } else ef = SCHED.fin(c, es, d);
+          es = it.s; // manual / lingkaran: tanggal tersimpan
+          ef = SCHED.fin(c, es, d);
         }
         if (isDn(es) && isDn(ef)) {
           for (const p of preds) {
@@ -1571,6 +1615,7 @@ if (typeof module !== "undefined" && module.exports) module.exports = TLCpm;
 // masukan (ctx, tasks, units, patch). Tanggal dijadwalkan HANYA oleh TLCpm.run atas data + patch (aliran = mesin dijalankan
 // ulang, bukan dihitung di sini); rumus dependensi lewat TLSched (satu sumber, R4); urutan = result.order (topologis) lalu
 // TLCpm.cmpKey. ctx = {tasks, cal, units, readExt} = masukan run().
+// 1c-2 (K41): kodek baseline (encode/decode/ukuran) + pembanding rencana-vs-baseline — murni, tanpa tulisan.
 const TLPlan = (function (CAL, SCHED, CPM) {
   const CASCADE_MAX = 20; // K32: turunan berubah > 20 → pratinjau dulu
   const SPAN_MAX = 3660; // rentang hari kalender maks untuk hitung Δ hk (pola MAX_LATE_SPAN)
@@ -1585,8 +1630,10 @@ const TLPlan = (function (CAL, SCHED, CPM) {
   const keyOf = (t) => (isObj(t) && t.id !== undefined && t.id !== null ? String(t.id) : null);
   const clone = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
   const startDn = (s) => (typeof s === "string" ? CAL.dn(s) : NaN); // Mulai tersimpan sah → bilangan hari, selain itu NaN
-  // Sama dengan isStarted di cpm.js (penanda "sudah mulai" K30).
-  const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
+  // Penanda "sudah mulai" K30 (1c-2): progress/pomodoro ATAU actual.start tercatat (TLSched.actualOf atas ext mentah —
+  // satu-satunya pembaca aktual). Dipakai reschedule untuk task Manual (task otomatis: n.fixed === "started" dari mesin).
+  const hasActualStart = (ctx, t) => SCHED.actualOf(t, rawOf(ctx, t)).start !== null;
+  const isStarted = (ctx, t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0 || hasActualStart(ctx, t);
 
   function safe(fn) {
     try {
@@ -1805,11 +1852,13 @@ const TLPlan = (function (CAL, SCHED, CPM) {
 
   // reschedule (K36, R17): T = bilangan hari (atau ISO) hari kerja pertama ≥ hari ini; unitKeys = Set recId unit halaman.
   // Per simpul unit halaman (tak selesai, terhitung), urut topologis:
-  //  - sudah mulai (jangkar "started", atau Manual dengan progress/pomodoro), durasi ≥ 1, EF < T → Mulai tetap,
+  //  - sudah mulai (jangkar "started", atau Manual dengan progress/pomodoro/actual.start — K30), durasi ≥ 1, EF < T → Mulai tetap,
   //    duration = hari kerja Mulai..add(T, r − 1), r = max(1, ⌈d × (1 − progress/100)⌉), dijepit ≤ 999;
   //  - milestone (d = 0) yang sudah mulai ikut cabang belum-mulai (amandemen K36): durasi TIDAK pernah ditulis
   //    (berlian tidak boleh diam-diam menjadi bar). Otomatis → constraint SNET T + start T (start ditulis eksplisit karena
   //    jangkar "started" mesin berdiri di Mulai tersimpan; tanpa itu SNET tidak berpengaruh); Manual → start T;
+  //    1c-2: milestone OTOMATIS ber-actual.start DILEWATI seluruhnya — jangkar mesin = actual.start, jadi start/SNET
+  //    inert; Manual ber-actual.start tetap start T (jangkar Manual = tanggal tersimpan, tulisan efektif);
   //  - belum mulai dan Mulai (ES) < T → Manual: start T (milestone ikut); otomatis non-jangkar: constraint SNET T
   //    (+ start hasil mesin); lingkaran/MFO otomatis tidak disentuh.
   // Lalu aliran tanpa ambang (penerus otomatis ikut; penerus Manual tidak dipindah). broken = pelanggaran BARU dengan
@@ -1824,7 +1873,7 @@ const TLPlan = (function (CAL, SCHED, CPM) {
       const n = result.nodes.get(k);
       if (!unitKeys.has(n.g) || n.es === null || n.fixed === "done") continue;
       const task = n.task;
-      const started = n.fixed === "started" || (n.mode === "manual" && isStarted(task));
+      const started = n.fixed === "started" || (n.mode === "manual" && isStarted(ctx, task));
       if (started && n.d >= 1) {
         if (n.ef >= t) continue;
         const p = Math.min(100, Math.max(0, Number(task.progress) || 0));
@@ -1837,7 +1886,10 @@ const TLPlan = (function (CAL, SCHED, CPM) {
       }
       if (n.es >= t) continue;
       if (n.mode === "manual") patches.set(k, { task, patch: { start: tIso } });
-      else if (started) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso }, start: tIso } });
+      else if (started) {
+        if (hasActualStart(ctx, task)) continue; // jangkar aktual menang: tulisan inert (K30/K36)
+        patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso }, start: tIso } });
+      }
       else if (!n.fixed) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso } } });
     }
     const r = flow(ctx, patches, ctx.units, () => [...patches.keys()], result);
@@ -1986,7 +2038,139 @@ const TLPlan = (function (CAL, SCHED, CPM) {
     });
   }
 
-  return Object.freeze({ CASCADE_MAX, diff, cascade, toggleUnit, reschedule, gesture, modePatch, preview, revalidate, undoItems });
+  // ---- Baseline (1c-2, K41) ----
+  // Record `baseline`: {v: 1, n, name, savedAt, by, t: [[ref, s, f, d, w], …]} — larik ringkas ±48 B/task.
+  // ref = {$task: id task MENTAH} (sama dengan api.taskExt.ref: id server bilangan bulat, atau cid string untuk task yang
+  // dibuat offline — host menahan record lalu menulis ulang ref ke id server; server menolak $task string angka).
+  // Kunci baris = TLSched.refKey(ref) = String(id) = kunci simpul mesin.
+
+  // Ukuran byte UTF-8 dari string JSON (sama dengan TextEncoder host untuk string yang well-formed; JSON.stringify
+  // meng-escape surrogate tunggal, jadi yang tersisa hanya pasangan sah = 4 byte).
+  function utf8Len(str) {
+    let n = 0;
+    for (let i = 0; i < str.length; i++) {
+      const u = str.charCodeAt(i);
+      if (u < 0x80) n += 1;
+      else if (u < 0x800) n += 2;
+      else if (u >= 0xd800 && u <= 0xdbff && i + 1 < str.length) {
+        const lo = str.charCodeAt(i + 1);
+        if (lo >= 0xdc00 && lo <= 0xdfff) {
+          n += 4;
+          i++;
+        } else n += 3;
+      } else n += 3;
+    }
+    return n;
+  }
+
+  // baselineByteSize: ukuran JSON ringkas UTF-8 (yang dibandingkan dengan BL_MAX / maxBytes record).
+  function baselineByteSize(data) {
+    const s = JSON.stringify(data);
+    return typeof s === "string" ? utf8Len(s) : 0;
+  }
+
+  // Bobot w = estimated_pomodoros (earned value 1d): bilangan bulat ≥ 0; tak ada/tak sah → 0 (satu byte, setara
+  // "tanpa bobot" untuk earned value).
+  const weightOf = (t) => (Number.isInteger(t.estimated_pomodoros) && t.estimated_pomodoros >= 0 ? t.estimated_pomodoros : 0);
+
+  // baselineEncode (K41): isi = simpul mesin TERJADWAL (es/ef terhitung) non-ringkasan, termasuk selesai (jangkar
+  // aktual); g (opsional) = recId unit jadwal (n.g) — tanpa g → semua simpul hasil. Urut cmpKey kunci simpul
+  // (deterministik lintas perangkat). meta {n, name, savedAt, by} disalin apa adanya (validasi slot/nama di pemanggil).
+  // → {data, bytes, count}; bytes > BL_MAX ditolak pemanggil ("Baseline terlalu besar").
+  function baselineEncode(result, ctx, meta, g) {
+    const m = isObj(meta) ? meta : {};
+    const picked = [];
+    if (isResult(result)) {
+      const sums = result.summaries instanceof Map ? result.summaries : new Map();
+      for (const [k, n] of result.nodes) {
+        if (!isDn(n.es) || !isDn(n.ef) || sums.has(k)) continue;
+        if (g !== undefined && g !== null && n.g !== g) continue;
+        picked.push(n);
+      }
+    }
+    picked.sort((a, b) => cmpKey(a.key, b.key));
+    const t = picked.map((n) => {
+      const id = n.task.id;
+      return [{ $task: Number.isInteger(id) ? id : n.key }, CAL.iso(n.es), CAL.iso(n.ef), n.d, weightOf(n.task)];
+    });
+    const data = { v: 1, n: m.n, name: m.name, savedAt: m.savedAt, by: m.by === undefined ? null : clone(m.by), t };
+    return { data, bytes: baselineByteSize(data), count: t.length };
+  }
+
+  const isoDn = (s) => (typeof s === "string" && CAL.isIso(s) ? CAL.dn(s) : NaN);
+
+  // baselineDecode (Review Focus 3): v ≠ 1, bukan objek, t bukan larik, n bukan 1–3 → null. Entri rusak (bukan larik,
+  // < 4 elemen, ref tak terpecahkan — null dari host / bukan {$task} sah —, tanggal tak sah, f < s, durasi tak sah)
+  // DILEWATI; ref ganda → yang pertama menang. w tidak dibaca (1d). → {n, name, savedAt, by, rows: Map<key, {s, f, d}>}.
+  function baselineDecode(data) {
+    if (!isObj(data) || data.v !== 1 || !Array.isArray(data.t) || [1, 2, 3].indexOf(data.n) < 0) return null;
+    const rows = new Map();
+    for (const e of data.t) {
+      if (!Array.isArray(e) || e.length < 4) continue;
+      const key = SCHED.refKey(e[0]);
+      if (key === null || rows.has(key)) continue;
+      const s = isoDn(e[1]);
+      const f = isoDn(e[2]);
+      if (!isDn(s) || !isDn(f) || f < s || !isDur(e[3])) continue;
+      rows.set(key, { s, f, d: e[3] });
+    }
+    return {
+      n: data.n,
+      name: typeof data.name === "string" ? data.name : "",
+      savedAt: typeof data.savedAt === "string" ? data.savedAt : null,
+      by: data.by === undefined ? null : clone(data.by),
+      rows,
+    };
+  }
+
+  // compareBaseline: per baris baseline (urut cmpKey) → kunci kanonik lewat TLSched.buildIndex(ctx.tasks) (cid/id server
+  // → String(task.id)) → simpul terjadwal di result. Tak terpecahkan / bukan simpul terjadwal (dihapus, diarsip, di luar
+  // scope, tanpa Mulai) → dilewati. ds/df = selisih hari kerja bertanda baseline → sekarang dengan kalender ctx.cal
+  // (positif = mundur; aturan wdDelta sama dengan deltaHk), dd = d sekarang − d baseline. group per n.g simpul yang
+  // cocok: blEnd = maks f baseline yang cocok, nowEnd = result.groupEnd (selesai project sekarang, sama dengan preview).
+  function compareBaseline(result, dec, ctx) {
+    const perTask = new Map();
+    const group = new Map();
+    if (!isResult(result) || !isObj(dec) || !(dec.rows instanceof Map) || !isObj(ctx)) return { perTask, group };
+    const c = ctx.cal;
+    const idx = SCHED.buildIndex(Array.isArray(ctx.tasks) ? ctx.tasks : []);
+    const ends = result.groupEnd instanceof Map ? result.groupEnd : new Map();
+    for (const rk of [...dec.rows.keys()].sort(cmpKey)) {
+      const b = dec.rows.get(rk);
+      const t = idx.get(rk);
+      const key = t ? String(t.id) : rk;
+      const n = result.nodes.get(key);
+      if (!n || !isDn(n.es) || !isDn(n.ef) || perTask.has(key) || !isObj(b)) continue;
+      const ds = wdDelta(c, b.s, n.es);
+      const df = wdDelta(c, b.f, n.ef);
+      if (ds === null || df === null || !isDur(b.d)) continue;
+      perTask.set(key, { ds, df, dd: n.d - b.d });
+      const cur = group.get(n.g);
+      if (!cur) group.set(n.g, { blEnd: b.f, nowEnd: isDn(ends.get(n.g)) ? ends.get(n.g) : null });
+      else if (b.f > cur.blEnd) cur.blEnd = b.f;
+    }
+    return { perTask, group };
+  }
+
+  const BL_MAX = 65536; // K41: maxBytes record baseline
+
+  return Object.freeze({
+    CASCADE_MAX,
+    BL_MAX,
+    diff,
+    cascade,
+    toggleUnit,
+    reschedule,
+    gesture,
+    modePatch,
+    preview,
+    revalidate,
+    undoItems,
+    baselineEncode,
+    baselineByteSize,
+    baselineDecode,
+    compareBaseline,
+  });
 })(
   typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"),
   typeof TLSched !== "undefined" ? TLSched : require("./schedule.js"),
@@ -2496,18 +2680,39 @@ const TLLayout = (function (CAL, SCHED, HOL) {
     }
 
     // 7. dependensi (R8, R16): kunci kanonik String(id); spans memuat rentang ringkasan.
-    // Task DONE (bukan ringkasan): selesai pelanggaran = TLSched.doneFinish (aturan yang SAMA dengan jangkar "done" mesin —
-    // selesai lebih awal tidak menandai ⚠ pada tanggal yang baru ditulis mesin); durasi d dibawa agar penerus done tetap
-    // memakai durasi tersimpannya. Rentang bar (row.span) tidak berubah.
+    // Rentang pelanggaran daun = jangkar mesin (aturan α1 1c-1, diperluas aktual 1c-2) — SATU aturan "terlalu awal":
+    //  - DONE: mulai = actual.start ?? Mulai, selesai = TLSched.doneFinish (prioritas done tertinggi → tanpa resolver);
+    //  - BERJALAN via actual.start: hanya bila resolver `a.anchorInfo` ada DAN modeOf(task) = "auto" DAN bukan anggota
+    //    lingkaran (manual/cycle > started di mesin → tetap rentang tersimpan); mulai = actual.start, selesai = fin(mulai, d).
+    //  Tanpa Mulai (rentang null): dibangun dari actual.start HANYA bila resolver ada dan anchorInfo.inEngine(key) (task itu
+    //  simpul mesin — selain itu mesin melewatinya, layout juga); durasi = anchorInfo.durOf(key) (durasi simpul mesin)
+    //  ?? durasi readSched ?? 1. Resolver absen / tanpa inEngine → dilewati (perilaku 1c-1).
+    // Aktual dari it.sched (bacaan ext yang sama dengan bar). d dibawa agar penerus tetap memakai durasi tersimpannya.
+    // Rentang bar (row.span) tidak berubah. Tanpa resolver → perilaku 1c-1 untuk task yang belum selesai.
+    const ai = a.anchorInfo && typeof a.anchorInfo.modeOf === "function" && typeof a.anchorInfo.inCycle === "function" ? a.anchorInfo : null;
+    const inEngine = (k) => !!ai && typeof ai.inEngine === "function" && ai.inEngine(k) === true;
+    const durOf = (it) => {
+      const v = ai && typeof ai.durOf === "function" ? ai.durOf(it.key) : undefined;
+      if (isInt(v) && v >= 0) return v;
+      return it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+    };
     const spans = new Map();
     for (const it of all) {
-      if (!it.span) continue;
       const t = it.task;
-      if (it.children.length === 0 && (t.gtd_status === "done" || !!t.completed_at)) {
-        const d = it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
-        const f = SCHED.doneFinish(c, t, it.span.s, d);
-        spans.set(it.key, isInt(f) ? { s: it.span.s, f, d } : it.span);
-      } else spans.set(it.key, it.span);
+      const leaf = it.children.length === 0;
+      const a0 = leaf ? SCHED.actualOf(t, it.sched).start : null;
+      const built = !it.span && a0 !== null && inEngine(it.key); // rentang null → hanya simpul mesin
+      const d = built ? durOf(it) : it.sched.duration === null || it.sched.duration === undefined ? 1 : it.sched.duration;
+      let sp = it.span;
+      if (leaf && (t.gtd_status === "done" || !!t.completed_at)) {
+        const s = it.span ? (a0 !== null ? a0 : it.span.s) : built ? a0 : null;
+        const f = s === null ? undefined : SCHED.doneFinish(c, t, it.sched, s, d);
+        if (isInt(f)) sp = { s, f, d };
+      } else if (a0 !== null && (it.span || built) && ai && ai.modeOf(t) === "auto" && !ai.inCycle(it.key)) {
+        const f = SCHED.fin(c, a0, d);
+        if (isInt(f)) sp = { s: a0, f, d };
+      }
+      if (sp) spans.set(it.key, sp);
     }
     const edges = SCHED.resolveDeps(items.map((it) => ({ key: it.key, sched: it.sched })), index);
     const viol = SCHED.violations(c, spans, edges);
@@ -2950,13 +3155,16 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
 //
 // Susunan modul (Task 6 = kerangka; komponen diisi Task 7–10):
 //   1. Konstanta + pesan UI persis (kalender, preferensi).
-//   2. calendarStore(api) dan projectStore(api) (1c-1 R6) — SATU-SATUNYA kode yang menyentuh api.records (R5), masing-
-//      masing hanya entitasnya sendiri. calTarget (= TLSched.calTarget) / TLSched.unitOf memilih id/scope.
-//      Tulisan hanya di calendarStore.save dan projectStore.setAuto (R25: mesin dan pemuat tidak pernah menulis).
-//   3. Preferensi per perangkat lewat api.storage: prefKey / cleanPref / PREF_DEFAULTS (R19).
-//   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar/useUnits/useEngine), fungsi render
+//   2. calendarStore(api), projectStore(api) (1c-1 R6), dan baselineStore(api) (1c-2 K41) — SATU-SATUNYA kode yang
+//      menyentuh api.records (R5), masing-masing hanya entitasnya sendiri. calTarget (= TLSched.calTarget) /
+//      TLSched.unitOf memilih id/scope. Tulisan hanya di calendarStore.save, projectStore.setAuto, dan
+//      baselineStore → saveBaseline (put + remove) (R25: mesin dan pemuat tidak pernah menulis).
+//   3. Preferensi per perangkat lewat api.storage: prefKey / cleanPref / PREF_DEFAULTS (R19); 1c-2: bl:<page> = baseline
+//      aktif yang ditampilkan (P2 a, tanpa record).
+//   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar/useUnits/useBaselines/useEngine), fungsi render
 //      (toolbar/head/tabel/grafik/panah/legenda), TimelineViewBody (Task 7; interaksi Task 8 lewat `ix`; popover
-//      kalender + Daftar HP Task 9), ScheduleSection (Task 10); pembungkus React.memo malas (R24).
+//      kalender + Daftar HP Task 9; 1c-2 T5: BaselinePicker + SaveBaselineDialog), ScheduleSection (Task 10);
+//      pembungkus React.memo malas (R24).
 //   5. `pure` + module.exports untuk tes Node; registrasi hanya bila host plugin (TF.plugins) ada.
 
 // ── 1. Konstanta ────────────────────────────────────────────────────────────
@@ -3153,6 +3361,194 @@ function projectStore(api) {
   };
 }
 
+// ── 2c. Baseline per unit jadwal: record `baseline` (1c-2 K41) ──────────────
+// Tiga slot per unit: id `bl<n>@user:<h>` / `bl<n>@list:<lid>:<h>` = "bl" + n + ekor recId TLSched.unitOf (satu-satunya
+// pembuat id; tanpa hash tulisan tangan). Data {v: 1, n, name, savedAt, by, t} (kodek TLPlan.baselineEncode/Decode).
+// Penjaga fold TIDAK perlu: slot dipilih eksplisit di unit halaman, tidak pernah dicari dari task.
+const BL_ENTITY = "baseline";
+const BL_SLOTS = Object.freeze([1, 2, 3]);
+const BL_PAGE = 1000; // batas atas limit api.records.list
+const MSG_BL_TOO_LARGE = "Baseline terlalu besar";
+const MSG_BL_WAIT = "Menunggu data baseline workspace…";
+const MSG_ACTUAL = "Aktual"; // 1c-2 §7.6: legenda garis aktual (Task 6)
+// Potret CAS slot (Review Focus 4): {exists, updatedAt, by} record slot; slot kosong / record asing = BL_NO_SNAP.
+const BL_NO_SNAP = Object.freeze({
+  exists: false,
+  updatedAt: null,
+  by: null
+});
+const EMPTY_BASES = new Map();
+const EMPTY_BY_UNIT = new Map();
+function blError(code, msg) {
+  const e = new Error(msg);
+  e.code = code;
+  return e;
+}
+
+// Id record slot n unit. unit = keluaran TLSched.unitOf: recId harus "prj@" + scope + ":" (scope tersandi di id, README
+// §5) — selain itu INVALID (unit palsu / scope tidak cocok tidak pernah menjadi id record).
+function blRecId(unit, n) {
+  const u = unit && typeof unit === "object" ? unit : null;
+  if (!u || typeof u.recId !== "string" || typeof u.scope !== "string" || u.recId.indexOf("prj@" + u.scope + ":") !== 0) {
+    throw blError("INVALID", "unit jadwal tidak sah");
+  }
+  if (BL_SLOTS.indexOf(n) < 0) throw blError("INVALID", "slot baseline tidak sah");
+  return "bl" + n + u.recId.slice(3);
+}
+
+// Record hidup → entri slot n {n, foreign, name, savedAt, by, rows, snap, pending}; tidak ada record → null.
+// Record ASING (v ≠ 1, bentuk rusak, n data ≠ n id — mis. baseline klien versi lebih baru) tetap MENGISI slot (fix review
+// T4): entri {foreign: true, name/savedAt/by null, rows kosong}, snap {exists: true, updatedAt, by: null} — dipakai sama
+// oleh loadAll dan CAS, jadi menimpanya butuh potret record itu (konfirmasi Timpa T5), tidak pernah diam-diam.
+function blEntry(r, n) {
+  if (!r || typeof r !== "object") return null;
+  const updatedAt = typeof r.updated_at === "string" ? r.updated_at : null;
+  const dec = TLPlan.baselineDecode(r.data);
+  if (!dec || dec.n !== n) {
+    return {
+      n,
+      foreign: true,
+      name: null,
+      savedAt: null,
+      by: null,
+      rows: new Map(),
+      snap: {
+        exists: true,
+        updatedAt,
+        by: null
+      },
+      pending: !!r.pending
+    };
+  }
+  const snap = {
+    exists: true,
+    updatedAt,
+    by: Number.isInteger(dec.by) ? dec.by : null
+  };
+  return Object.assign({}, dec, {
+    foreign: false,
+    snap,
+    pending: !!r.pending
+  });
+}
+function blSameSnap(a, b) {
+  return a.exists === b.exists && a.updatedAt === b.updatedAt && a.by === b.by;
+}
+
+// Adaptor tunggal api.records untuk entitas `baseline` (pola projectStore).
+//   loadAll(unit) → Promise<Map<n, entri>>: list scope unit (ikuti `next`), hanya id slot unit ini. Record yang lolos
+//     baselineDecode dengan n sama → entri biasa (foreign false); record asing → entri terisi foreign true (blEntry).
+//     Tidak pernah menulis. Catatan T5: satu unit per halaman → boleh diganti 3 get; beberapa unit di halaman
+//     workspace → SATU pemuat se-scope dibagi semua unit (jangan list scope per unit — unit × ukuran scope, R24).
+//   loadScope(units) → Promise<Map<recId, Map<n, entri>>>: pemuat se-scope itu (1c-2 T5) — satu list untuk semua unit
+//     (satu scope; beda scope / kosong → INVALID). loadAll(unit) = loadScope([unit]).
+//   save(unit, n, name, data, snap) → Promise<record>: tulis {v: 1, n, name, savedAt, by, t} (n/nama dari argumen,
+//     savedAt/by/t dari data encode). Galat ber-`code`: INVALID (unit/slot/data/nama/snap), TOO_LARGE (> BL_MAX byte,
+//     pesan "Baseline terlalu besar", diperiksa SEBELUM baca/tulis; = BL_MAX boleh, sama dengan host), STALE (potret
+//     record slot sekarang ≠ snap saat dialog dibuka). Konfirmasi timpa = urusan UI; store hanya menegakkan snap.
+//   remove(unit, n, snap?) → Promise: hapus slot (tombstone host); snap ada → CAS seperti save (STALE / INVALID).
+//   subscribe(fn) → off: perubahan entitas baseline + peristiwa tarik sukses (recordEvent).
+// SATU-SATUNYA tulisan record baseline: saveBaseline (pagar R25 + pin AST).
+function baselineStore(api) {
+  const snapOk = s => !!s && typeof s === "object";
+  const normSnap = s => ({
+    exists: s.exists === true,
+    updatedAt: typeof s.updatedAt === "string" ? s.updatedAt : null,
+    by: Number.isInteger(s.by) ? s.by : null
+  });
+  // CAS: potret record slot sekarang (get) harus sama dengan potret saat dialog dibuka.
+  const casSlot = (id, n, want) => Promise.resolve(api.records.get(BL_ENTITY, id)).then(cur => {
+    const e = blEntry(cur, n);
+    if (!blSameSnap(want, e ? e.snap : BL_NO_SNAP)) throw blError("STALE", "baseline berubah sejak dialog dibuka");
+  });
+  function saveBaseline(op, unit, n, name, data, snap) {
+    return Promise.resolve().then(() => {
+      const id = blRecId(unit, n);
+      if (op === "remove") {
+        // snap opsional (ruling review T4): ada → CAS sama dengan simpan; tidak ada → hapus langsung.
+        if (snap !== undefined && !snapOk(snap)) throw blError("INVALID", "potret baseline tidak sah");
+        const gate = snap === undefined ? Promise.resolve() : casSlot(id, n, normSnap(snap));
+        return gate.then(() => api.records.remove(BL_ENTITY, id));
+      }
+      const d = data && typeof data === "object" && !Array.isArray(data) ? data : null;
+      if (!d || !Array.isArray(d.t)) throw blError("INVALID", "data baseline tidak sah");
+      if (typeof name !== "string") throw blError("INVALID", "nama baseline tidak sah");
+      if (!snapOk(snap)) throw blError("INVALID", "potret baseline tidak ada");
+      const want = normSnap(snap);
+      const out = {
+        v: 1,
+        n,
+        name,
+        savedAt: typeof d.savedAt === "string" ? d.savedAt : null,
+        by: Number.isInteger(d.by) ? d.by : null,
+        t: d.t
+      };
+      if (TLPlan.baselineByteSize(out) > TLPlan.BL_MAX) throw blError("TOO_LARGE", MSG_BL_TOO_LARGE);
+      return casSlot(id, n, want).then(() => {
+        return api.records.put(BL_ENTITY, id, out, {
+          scope: unit.scope
+        }).then(r => r, err => {
+          throw err && err.code === "TOO_LARGE" ? blError("TOO_LARGE", MSG_BL_TOO_LARGE) : err;
+        });
+      });
+    });
+  }
+  // Pemuat se-scope (catatan T4 → T5): SATU list scope (ikuti `next`) dibagi semua unit; unit harus satu scope.
+  function loadScope(units) {
+    return Promise.resolve().then(() => {
+      const us = Array.isArray(units) ? units : [];
+      if (!us.length) throw blError("INVALID", "unit jadwal tidak sah");
+      const scope = us[0] && typeof us[0] === "object" ? us[0].scope : null;
+      const ids = new Map(); // id slot → [recId, n]
+      const out = new Map();
+      for (const u of us) {
+        if (!u || u.scope !== scope) throw blError("INVALID", "unit jadwal beda scope");
+        for (const n of BL_SLOTS) ids.set(blRecId(u, n), [u.recId, n]);
+        out.set(u.recId, new Map());
+      }
+      const page1 = after => {
+        const q = after === null ? {
+          scope,
+          limit: BL_PAGE
+        } : {
+          scope,
+          limit: BL_PAGE,
+          after
+        };
+        return Promise.resolve(api.records.list(BL_ENTITY, q)).then(res => {
+          const items = res && Array.isArray(res.items) ? res.items : [];
+          for (const r of items) {
+            const hit = r && typeof r.id === "string" ? ids.get(r.id) : undefined;
+            const e = hit === undefined ? null : blEntry(r, hit[1]);
+            if (e) out.get(hit[0]).set(hit[1], e);
+          }
+          const next = res && typeof res.next === "string" && res.next ? res.next : null;
+          return next !== null && next !== after ? page1(next) : out;
+        });
+      };
+      return page1(null);
+    });
+  }
+  return {
+    loadAll(unit) {
+      return loadScope([unit]).then(m => m.get(unit.recId));
+    },
+    loadScope,
+    save(unit, n, name, data, snap) {
+      return saveBaseline("put", unit, n, name, data, snap);
+    },
+    remove(unit, n, snap) {
+      return saveBaseline("remove", unit, n, null, null, snap);
+    },
+    subscribe(fn) {
+      return api.records.onChange(ev => {
+        const e = recordEvent(ev, BL_ENTITY);
+        if (e) fn(e);
+      });
+    }
+  };
+}
+
 // ── 3. Preferensi per perangkat (R19) ───────────────────────────────────────
 const PREF_DEFAULTS = Object.freeze({
   zoom: "week",
@@ -3160,17 +3556,25 @@ const PREF_DEFAULTS = Object.freeze({
   cols: false,
   mode: "gantt",
   section: false,
-  crit: false
+  crit: false,
+  bl: 0
 });
 const PREF_CHOICES = Object.freeze({
   zoom: ["day", "week", "month"],
   sort: ["wbs", "start"],
-  mode: ["gantt", "list"]
+  mode: ["gantt", "list"],
+  bl: [0, 1, 2, 3]
 });
 
 // "zoom:<page>", "sort:<page>", "cols:<page>", "mode:<page>", "crit:<page>" (1c-1 R18); seksi Jadwal global: "section:open".
+// 1c-2 P2 (a): "bl:<page>" = baseline aktif yang DITAMPILKAN (0 = "Tidak ada", 1–3 = slot) per perangkat per halaman —
+// pilihan tampilan, tidak pernah ditulis ke record.
+// bl:<page> dilipat A–Z → a–z (ASCII saja, sama dengan NOCASE SQLite host: halaman proj_<nama kanonik> dan
+// task.project yang beda kapital = satu kunci) — satu tempat untuk view DAN seksi (fix T7 1c-2). Jenis lain apa adanya.
 function prefKey(kind, page) {
-  return kind === "section" ? "section:open" : kind + ":" + page;
+  if (kind === "section") return "section:open";
+  if (kind === "bl") return "bl:" + String(page).replace(/[A-Z]/g, c => c.toLowerCase());
+  return kind + ":" + page;
 }
 
 // Nilai dari api.storage → nilai sah, atau bawaan bila rusak/tidak ada.
@@ -3205,7 +3609,10 @@ const LBL = {
   crit: "Jalur kritis",
   auto: "Jadwal otomatis",
   reschedule: "Jadwalkan ulang",
-  more: "Lainnya" // 1c-1 R23
+  more: "Lainnya",
+  // 1c-1 R23
+  bl: "Baseline",
+  blSave: "Simpan baseline" // 1c-2 §7.1
 };
 // 1c-1 R14, R15, R28: sakelar Jadwal otomatis dan dialog pratinjau (teks persis).
 const MSG_AUTO_ON0 = "Jadwal otomatis menyala — tidak ada task yang bergeser";
@@ -3264,6 +3671,24 @@ const MSG_NO_NAME = "(tanpa nama)";
 const MSG_UNSCHEDULED = "Belum dijadwalkan";
 const MSG_LATE = "Lewat tenggat";
 const MSG_MANUAL = "Manual"; // 1c-1 R19: pin task Manual di unit otomatis
+// 1c-2 Task 5 (§7.6): pemilih Baseline + dialog Simpan baseline. "Project"/"Nama"/"Timpa"/"{nama} disimpan" bukan string
+// §7.6 (dicatat). Fix review T5 (ruling koordinator): teks STALE + gagal-simpan baseline sendiri, dan hapus baseline
+// ("Hapus", "Hapus {nama} (disimpan {tanggal})?", "{nama} dihapus") — dicatat untuk ADR T11/R28.
+const MSG_BL_STALE = "Data berubah sejak dialog dibuka — muat ulang";
+const MSG_BL_SAVE_FAIL = "Baseline gagal disimpan";
+const MSG_BL_DEL_FAIL = "Baseline gagal dihapus";
+const BL_DELETE = "Hapus";
+const blDeleteText = (name, date) => "Hapus " + name + (date ? " (disimpan " + date + ")" : "") + "?";
+const blRemovedText = name => name + " dihapus";
+const BL_NONE = "Tidak ada";
+const BL_NAME_MAX = 40; // spec §4: name ≤ 40
+const MSG_BL_FOREIGN = "(versi lebih baru)"; // slot berisi record asing (klien lebih baru) — ruling T4
+const BL_OVERWRITE = "Timpa";
+const BL_UNIT_LABEL = "Project";
+const BL_NAME_LABEL = "Nama";
+const blSlotName = n => "Baseline " + n;
+const blConfirmText = (name, date) => "Timpa " + name + (date ? " (disimpan " + date + ")" : "") + "?";
+const blSavedText = name => name + " disimpan";
 const CAL_MAX_NAME = 60; // sama dengan TLCal.normalize
 const CAL_MAX_ENTRIES = 366;
 const DAYS = [["Sen", "Senin"], ["Sel", "Selasa"], ["Rab", "Rabu"], ["Kam", "Kamis"], ["Jum", "Jumat"], ["Sab", "Sabtu"], ["Min", "Minggu"]];
@@ -3626,7 +4051,7 @@ function rowCells(row, groupName, slack) {
 // Overlay mesin di atas tata letak (1c-1 R18, R19) — murni, TIDAK mengubah `lay`. Dihitung dalam memo terpisah
 // [lay, result] sehingga mesin selesai / sakelar Jalur kritis tidak menghitung ulang tata letak (R24).
 //   slack: Map<rowKey, number|null> — task = node.slack; ringkasan = min slack anak (baris halaman, rekursif); lainnya null
-//   crit: Set<rowKey> — node.critical (slack ≤ 0 ∧ bukan selesai); critEdge: Set<"from>to"> — kedua ujung kritis
+//   crit: Set<rowKey> — node.critical (slack ≤ 0 ∧ bukan selesai); critEdge: Set<"from>to"> — kedua ujung kritis DAN from = driver.from simpul tujuan (sisi pengarah)
 //   conflictEdge: Set<"from>to"> — sisi terpakai ke jangkar ber-`conflict` yang depReq-nya dilanggar (merah putus-putus)
 //   manual: Set<rowKey> — fixed "manual" di unit otomatis (pin "Manual")
 // result null (mesin belum siap / gagal) → NO_OVERLAY: semua "—", tanpa kritis/pin/konflik (tampilan 1b).
@@ -3674,8 +4099,9 @@ function engineOverlay(lay, result, ctx) {
   const preds = result.pred instanceof Map ? result.pred : null;
   for (const e of lay.edges) {
     const id = e.from + ">" + e.to;
-    if (crit.has(e.from) && crit.has(e.to)) critEdge.add(id);
     const sn = nodes.get(e.to);
+    // 1c-2 T9 (penajaman R18): hanya sisi PENGARAH (driver.from simpul tujuan) antara dua simpul kritis.
+    if (crit.has(e.from) && crit.has(e.to) && sn && sn.driver && sn.driver.kind === "pred" && sn.driver.from === e.from) critEdge.add(id);
     const pn = nodes.get(e.from);
     if (!cal || !preds || !sn || !sn.conflict || !pn || pn.es === null || sn.es === null) continue;
     const used = (preds.get(e.to) || []).find(p => p.key === e.from); // hanya sisi yang dipakai mesin
@@ -3691,6 +4117,76 @@ function engineOverlay(lay, result, ctx) {
     conflictEdge,
     manual
   };
+}
+
+// 1c-2 Task 6 (§7.4, K41): overlay baseline — murni, TIDAK mengubah `lay`; memo terpisah [blDec, engResult] sehingga
+// memilih baseline (pref) tidak menghitung ulang tata letak. Keluaran: null (Tidak ada / mesin belum siap) atau
+// Map<rowKey, {s, f, d, ds, df, dd}>: s/f = dn baseline, d = durasi baseline (hk); ds/df/dd = compareBaseline.perTask
+// (df = selisih SELESAI sekarang vs baseline, hk, positif = tergelincir — bar/tooltip T6; tabel seksi T7 memakai ketiganya). Baris baseline yang tidak terpecahkan ke simpul mesin (terhapus, di luar scope, tanpa Mulai)
+// dilewati; dua ref ke task yang sama → yang pertama dalam urutan cmpKey (aturan compareBaseline). rows.size 0 → Map kosong.
+function baselineOverlay(dec, result, ctx) {
+  if (!dec || !(dec.rows instanceof Map) || !result || !(result.nodes instanceof Map) || !ctx) return null;
+  const out = new Map();
+  if (dec.rows.size === 0) return out;
+  const cmp = TLPlan.compareBaseline(result, dec, ctx);
+  const idx = TLSched.buildIndex(Array.isArray(ctx.tasks) ? ctx.tasks : []);
+  for (const rk of [...dec.rows.keys()].sort(TLCpm.cmpKey)) {
+    const t = idx.get(rk);
+    const key = t ? String(t.id) : rk;
+    const d = cmp.perTask.get(key);
+    if (!d || out.has(key)) continue;
+    const b = dec.rows.get(rk);
+    out.set(key, {
+      s: b.s,
+      f: b.f,
+      d: b.d,
+      ds: d.ds,
+      df: d.df,
+      dd: d.dd
+    });
+  }
+  return out;
+}
+
+// 1c-2 Task 6 (§7.4, K42, Review Focus 5): garis aktual per baris task — Map<rowKey, {s, f}> (dn). Aktual dibaca HANYA
+// lewat TLSched.actualOf. s = mulai aktual; f = selesai aktual (tersimpan, atau turunan jkt(completed_at)); tanpa itu:
+// belum selesai → HARI INI (todayDn; ikut env.today tanpa tulisan), selesai tanpa completed_at → akhir rentang baris.
+// Tanpa actual.start → tanpa garis. Ringkasan tidak mendapat garis.
+function actualOverlay(lay, readExt, todayDn) {
+  const out = new Map();
+  if (!lay) return out;
+  for (const r of lay.rows) {
+    if (r.kind !== "task" || !r.task) continue;
+    const a = TLSched.actualOf(r.task, readExt(r.task));
+    if (a.start === null) continue;
+    let f = a.finish;
+    if (f === null) {
+      if (r.done) f = r.span ? r.span.f : a.start;else if (todayDn !== null) f = todayDn;else continue;
+    }
+    out.set(r.key, {
+      s: a.start,
+      f: Math.max(a.start, f)
+    });
+  }
+  return out;
+}
+
+// Teks bar baseline (§7.4): "Baseline: {fmtShort(s)} → {fmtShort(f)} ({±df} hk)".
+function baselineTip(b) {
+  return "Baseline: " + TLCal.fmtShort(b.s) + " → " + TLCal.fmtShort(b.f) + " (" + signedHk(b.df) + ")";
+}
+
+// Rentang hari inklusif [s, f] → {x, w} px, dipangkas ke rentang tata letak; seluruhnya di luar → null. Memakai
+// TLLayout.barBox (sched null + kind "task" → selalu bar, bukan milestone) agar geometri sama persis dengan bar.
+function spanGeom(s, f, range, px) {
+  const box = TLLayout.barBox({
+    s,
+    f
+  }, null, range, px, "task");
+  return box ? {
+    x: box.x,
+    w: box.w
+  } : null;
 }
 
 // Kotak bar baris (px, relatif awal rentang) atau null: baris outOfRange tidak pernah mendapat bar (Task 4).
@@ -4002,6 +4498,138 @@ function useUnits(api, page) {
   };
 }
 
+// Baseline unit (1c-2 K41; pola useUnits): muat lewat baselineStore.loadAll (pertama segera saat pasang), muat ulang pada
+// perubahan entitas baseline (debounce RELOAD_TIMING) dan segera pada peristiwa tarik sukses; `pulled` = latch yang
+// sama dengan useUnits (dinyalakan SETELAH muat ulang sesudah peristiwa `pulled` selesai). Hook ini tidak pernah menulis.
+// unit = keluaran TLSched.unitOf, atau null (unit belum diketahui → semua slot terkunci).
+// Kunci simpan K41 (pola P3 (a)), per slot:
+//   waitingOf(n) = unit workspace (scope ≠ "user"), `pulled` belum menyala, dan (sudah termuat dan slot tanpa record
+//     lokal — record asing terhitung ADA — ATAU muat gagal sebelum pernah termuat) → UI menampilkan MSG_BL_WAIT
+//     ("Menunggu data baseline workspace…"); `waiting` = ada slot yang menunggu.
+//   lockedOf(n) = unit null, ATAU sedang memuat (belum loaded dan belum failed; tanpa teks), ATAU waitingOf(n).
+//   Project pribadi tidak pernah menunggu (muat gagal → terbuka); workspace gagal-muat terbuka setelah `pulled`
+//   (latch menyala walau muat ulangnya gagal) — tidak terkunci selamanya, CAS saveBaseline tetap menjaga.
+// snapOf(n) = potret CAS slot untuk dialog simpan (BL_NO_SNAP bila kosong).
+// 1c-2 T5 — banyak unit: unit boleh berupa LARIK unit satu scope (unit halaman workspace) → SATU pemuat se-scope
+// (baselineStore.loadScope) dibagi semua unit, tidak pernah list per unit. byUnit = Map<recId, Map<n, entri>>;
+// bases/waitingOf/lockedOf/snapOf tanpa argumen kedua = unit PERTAMA (bentuk satu unit T4); argumen kedua recId memilih
+// unit lain. `waiting` = ada slot unit mana pun yang menunggu. Kunci muat = recId terurut (urutan unit tidak memuat ulang).
+const blUnitOk = u => !!u && typeof u === "object" && typeof u.recId === "string" && typeof u.scope === "string";
+function useBaselines(api, unit) {
+  const list0 = (Array.isArray(unit) ? unit : [unit]).filter(blUnitOk);
+  const us = list0.length && list0.every(x => x.scope === list0[0].scope) ? list0 : [];
+  const u = us.length ? us[0] : null;
+  const key = us.map(x => x.recId).sort().join("\u0000");
+  const store = React.useMemo(() => baselineStore(api), [api]);
+  const [st, setSt] = React.useState(() => ({
+    key,
+    byUnit: EMPTY_BY_UNIT,
+    loaded: false,
+    failed: false
+  }));
+  const [pulled, setPulled] = React.useState(false);
+  const argRef = React.useRef(null);
+  argRef.current = us;
+  React.useEffect(() => {
+    let alive = true;
+    let seq = 0;
+    let timer = null;
+    const arg = argRef.current;
+    const load = () => {
+      if (!arg.length) return Promise.resolve(true);
+      const my = ++seq;
+      return store.loadScope(arg).then(byUnit => {
+        if (alive && my === seq) setSt({
+          key,
+          byUnit,
+          loaded: true,
+          failed: false
+        });
+        return true;
+      }, e => {
+        logWarn(api, "baseline gagal dimuat:", e);
+        if (alive && my === seq) setSt(p => p.key === key ? Object.assign({}, p, {
+          failed: true
+        }) : {
+          key,
+          byUnit: EMPTY_BY_UNIT,
+          loaded: false,
+          failed: true
+        });
+        return false;
+      });
+    };
+    load();
+    let off = null;
+    try {
+      off = store.subscribe(ev => {
+        if (ev.pulled) {
+          // latch menyala SETELAH muat ulang selesai — juga bila muat itu gagal (ruling review T4: tarik sukses tetap
+          // terjadi; kunci gagal-muat workspace dibuka hanya oleh latch ini).
+          load().then(() => {
+            if (alive) setPulled(true);
+          });
+          return;
+        }
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          if (alive) load();
+        }, RELOAD_TIMING.debounceMs);
+      });
+    } catch (e) {
+      logWarn(api, "pendengar baseline gagal:", e);
+    }
+    return () => {
+      alive = false;
+      if (timer !== null) clearTimeout(timer);
+      if (typeof off === "function") off();
+    };
+  }, [store, key]);
+  const mine = u !== null && st.key === key;
+  const byUnit = mine ? st.byUnit : EMPTY_BY_UNIT;
+  const loaded = mine && st.loaded;
+  const failed = mine && st.failed;
+  const shared = u !== null && u.scope !== "user";
+  const basesOf = recId => byUnit.get(recId === undefined ? u ? u.recId : "" : recId) || EMPTY_BASES;
+  const known = recId => recId === undefined || us.some(x => x.recId === recId);
+  // Muat gagal sebelum pernah termuat: pribadi terbuka; workspace tetap menunggu sampai `pulled` (ruling review T4).
+  const waitingOf = (n, recId) => shared && known(recId) && !pulled && (loaded ? !basesOf(recId).has(n) : failed);
+  const lockedOf = (n, recId) => u === null || !known(recId) || !loaded && !failed || waitingOf(n, recId);
+  const snapOf = (n, recId) => basesOf(recId).has(n) ? basesOf(recId).get(n).snap : BL_NO_SNAP;
+  const waiting = us.some(x => BL_SLOTS.some(n => waitingOf(n, x.recId)));
+  return {
+    bases: basesOf(),
+    byUnit,
+    loaded,
+    failed,
+    pulled,
+    store,
+    waitingOf,
+    lockedOf,
+    snapOf,
+    waiting
+  };
+}
+
+// Baseline aktif yang DITAMPILKAN (1c-2 T5, P2 a): pref `bl:<page>` = n (0 = "Tidak ada" → null). Halaman workspace
+// menggabungkan slot n SEMUA unit halaman (recIds, urutan kelompok; kunci task ganda → unit pertama menang) menjadi satu
+// dec {n, rows} untuk TLPlan.compareBaseline (T6 bar, T7 tabel). Slot kosong / asing (rows kosong) → rows kosong
+// (pembanding kosong, bukan galat). Murni.
+function activeBaseline(byUnit, recIds, n) {
+  if (BL_SLOTS.indexOf(n) < 0) return null;
+  const rows = new Map();
+  for (const id of Array.isArray(recIds) ? recIds : []) {
+    const e = byUnit instanceof Map && byUnit.get(id) instanceof Map ? byUnit.get(id).get(n) : null;
+    if (!e || !(e.rows instanceof Map)) continue;
+    for (const [k, r] of e.rows) if (!rows.has(k)) rows.set(k, r);
+  }
+  return {
+    n,
+    rows
+  };
+}
+
 // Mesin jadwal di view (1c-1 R7, K31, K43): useEngine(api, {scopeTasks, calData, units}). Memuat daftar task LENGKAP (api.data.tasks.list({includeDone: true});
 // scopeTasks host sudah difilter panel) saat pasang, lalu — debounce RELOAD_TIMING.debounceMs, hanya jawaban terbaru —
 // saat identitas scopeTasks berubah dan saat sync.done. Saringan scope = TLSched.scopeKeyOf halaman. TLCpm.run
@@ -4017,7 +4645,7 @@ const ENGINE_IDLE = Object.freeze({
 });
 const NO_TASKS = Object.freeze([]);
 const ENGINE_TASK_FIELDS = ["id", "cid", "server_id", "parent_id", "parent_cid", "list_id", "project", "gtd_status", "progress", "pomodoros_done", "completed_at", "deadline", "recurrence_type", "archived", "deleted"];
-const ENGINE_EXT_KEYS = ["start", "duration", "deps", "mode", "constraint"];
+const ENGINE_EXT_KEYS = ["start", "duration", "deps", "mode", "constraint", "actual"]; // actual: jangkar K30 (1c-2)
 
 // Kunci memo mesin: JSON ringkas per task (kolom yang dibaca mesin + ext jadwal), urutan daftar dipertahankan.
 function engineKeyOf(tasks, readExt) {
@@ -4034,6 +4662,12 @@ function unitsKeyOf(units) {
   // (Task 8) membaca keduanya dari useUnits().units, BUKAN eng.ctx.units (hasil memo bisa membawa Map lama).
   for (const [k, u] of units) out.push(k + "=" + (u && u.auto === true ? 1 : 0) + ":" + (u && typeof u.fold === "string" ? u.fold : ""));
   return out.sort().join(",");
+}
+
+// Satu commit React untuk beberapa setState (host: ReactDOM.render lama). Tanpa ReactDOM (Node/tes) → langsung berurutan.
+function commitOnce(f) {
+  const rd = typeof ReactDOM !== "undefined" ? ReactDOM : null;
+  if (rd && typeof rd.unstable_batchedUpdates === "function") rd.unstable_batchedUpdates(f);else f();
 }
 function useEngine(api, opts) {
   const o = opts && typeof opts === "object" ? opts : {};
@@ -4065,13 +4699,14 @@ function useEngine(api, opts) {
       p = Promise.reject(e);
     }
     return p.then(l => {
-      if (R.alive && seq === R.seq) {
+      // 1c-2 T9: ReactDOM.render lama tanpa batching otomatis → setList + setFailed digabung jadi SATU commit.
+      if (R.alive && seq === R.seq) commitOnce(() => {
         setList(Array.isArray(l) ? l : []);
         setFailed(false);
-      }
+      });
     }, e => {
       logWarn(a, "daftar task gagal dimuat (mesin jadwal):", e);
-      if (R.alive && seq === R.seq) setFailed(true);
+      if (R.alive && seq === R.seq) commitOnce(() => setFailed(true));
     });
   };
   const loadSoon = () => {
@@ -4212,7 +4847,8 @@ function renderToolbar(v) {
   }, text)));
   // Daftar (HP): zoom, "Hari ini", urut, dan kolom hanya berarti untuk Gantt → disembunyikan.
   const gantt = !v.listMode;
-  // 1c-1 R23: Jadwal otomatis · Jalur kritis · Jadwalkan ulang — hanya saat mesin siap; ≤ 640 px / Live Edit → "Lainnya".
+  // 1c-1 R23 + 1c-2 §7.1: Jadwal otomatis · Jalur kritis · Baseline · Simpan baseline · Jadwalkan ulang — hanya saat mesin
+  // siap; ≤ 640 px / Live Edit → "Lainnya".
   // Jalur kritis tidak di Daftar. "Jadwalkan ulang" → v.onReschedule (Task 10; nonaktif bila tidak diberikan).
   const ac = v.engReady ? v.auto : null;
   const extras = [];
@@ -4238,6 +4874,22 @@ function renderToolbar(v) {
     role: "menuitemcheckbox",
     checked: v.crit,
     onSelect: () => v.setCrit(!v.crit)
+  });
+  // 1c-2 §7.1: Baseline (pemilih; hanya Gantt, seperti Jalur kritis) · Simpan baseline (aksi data; juga di Daftar).
+  const bl = v.engReady ? v.bl : null;
+  if (gantt && bl) extras.push({
+    id: "bl",
+    text: LBL.bl,
+    role: "menuitem",
+    haspopup: "menu",
+    onSelect: bl.onPick
+  });
+  if (bl) extras.push({
+    id: "blsave",
+    text: LBL.blSave,
+    role: "menuitem",
+    haspopup: "dialog",
+    onSelect: bl.onSave
   });
   if (v.engReady) extras.push({
     id: "resched",
@@ -4276,6 +4928,24 @@ function renderToolbar(v) {
       "aria-pressed": v.crit,
       onClick: it.onSelect
     }, LBL.crit);
+    if (it.id === "bl") {
+      return /*#__PURE__*/React.createElement("button", {
+        key: "bl",
+        type: "button",
+        ref: bl.btnRef,
+        "aria-haspopup": "menu",
+        "aria-expanded": bl.open,
+        className: cx("plg-timeline-btn", "plg-timeline-blbtn", (bl.open || bl.value > 0) && "is-active"),
+        onClick: it.onSelect
+      }, LBL.bl);
+    }
+    if (it.id === "blsave") return /*#__PURE__*/React.createElement("button", {
+      key: "blsave",
+      type: "button",
+      className: "plg-timeline-btn",
+      "aria-haspopup": "dialog",
+      onClick: it.onSelect
+    }, LBL.blSave);
     return /*#__PURE__*/React.createElement("button", {
       key: it.id,
       type: "button",
@@ -4630,6 +5300,43 @@ function renderChart(v) {
       }, MSG_SCHEDULE_HINT)));
     }
     if (box) out.push(renderBar(r, box, y, v));
+    if (r.kind === "task") {
+      // 1c-2 Task 6: bar baseline 4 px tepat di bawah bar (16 px, tengah baris) + garis aktual 2 px di atas bar;
+      // satu div per baris TAMPAK (loop jendela rw yang sama dengan bar).
+      const b = v.blOv ? v.blOv.get(r.key) : undefined;
+      const bg = b ? spanGeom(b.s, b.f, R, px) : null;
+      if (bg) {
+        const tip = baselineTip(b);
+        out.push(/*#__PURE__*/React.createElement("div", {
+          key: "bl:" + r.key,
+          className: "plg-timeline-blbar",
+          "data-key": r.key,
+          role: "img",
+          "aria-label": tip,
+          title: tip,
+          style: {
+            left: bg.x,
+            width: bg.w,
+            top: y + (rowH + BAR_H) / 2 + 1
+          }
+        }));
+      }
+      const a = v.actOv ? v.actOv.get(r.key) : undefined;
+      const ag = a ? spanGeom(a.s, a.f, R, px) : null;
+      if (ag) {
+        out.push(/*#__PURE__*/React.createElement("div", {
+          key: "ac:" + r.key,
+          className: "plg-timeline-actual",
+          "data-key": r.key,
+          "aria-hidden": "true",
+          style: {
+            left: ag.x,
+            width: ag.w,
+            top: y + (rowH - BAR_H) / 2 - 4
+          }
+        }));
+      }
+    }
     if (r.deadlineDn !== null && r.deadlineDn >= R.from && r.deadlineDn <= R.to) {
       const tip = "Tenggat " + TLCal.fmtShort(r.deadlineDn);
       out.push(/*#__PURE__*/React.createElement("div", {
@@ -4762,8 +5469,13 @@ function renderArrows(v, winX, winW) {
     transform: "translate(" + -winX + " " + -oy + ")"
   }, paths));
 }
-function renderLegend(lay, ref, crit) {
-  const items = crit ? LEGEND.concat([["critical", LBL.crit]]) : LEGEND; // 1c-1 R18
+
+// extra (1c-2 Task 6): {bl: baseline aktif dengan baris, act: ada garis aktual di halaman}.
+function renderLegend(lay, ref, crit, extra) {
+  const x = extra || {};
+  let items = crit ? LEGEND.concat([["critical", LBL.crit]]) : LEGEND; // 1c-1 R18
+  if (x.bl) items = items.concat([["baseline", LBL.bl]]);
+  if (x.act) items = items.concat([["actual", MSG_ACTUAL]]);
   return /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-foot",
     ref: ref
@@ -5287,18 +5999,12 @@ function pvRowText(r) {
   return main.join(" · ");
 }
 
-// Dialog pratinjau (R14, K34; pola CalendarPopover di dalam wadah view): role dialog + aria-modal, fokus ke elemen
-// pertama saat dibuka dan terjebak di dalam (Tab/Shift+Tab berputar), Esc = Batal. model = dialogModel(TLPlan.preview…).
-// Baris "WBS · Task · Mulai lama → baru · Δ hk" (+ "baru dijadwalkan", "durasi berubah", catatan durGuess); ringkasan;
-// "Tidak dipindah"; ≤ 50 baris + "Tampilkan semua". whyOf(key) → Array<string|{b}> (opsional, Task 12) membuka "Kenapa".
-// Terapkan nonaktif bila 0 item atau `busy` (pemeriksaan CAS berjalan). Komponen ini tidak menulis apa pun.
-function PreviewDialog(props) {
-  const model = props.model || EMPTY_PV_MODEL;
-  const [all, setAll] = React.useState(false);
-  const [why, setWhy] = React.useState(null);
-  const rootRef = React.useRef(null);
-  const cancelRef = React.useRef(props.onCancel);
-  cancelRef.current = props.onCancel;
+// Perilaku modal bersama PreviewDialog dan SaveBaselineDialog (1c-2 T5: diekstrak tanpa ubah perilaku): fokus ke elemen
+// pertama saat dibuka (kembali ke pemicu saat ditutup), Esc = onCancel (propagasi dihentikan), Tab/Shift+Tab berputar di
+// dalam dialog dan menarik fokus kembali bila sedang di luar. Klik di luar dialog modal tidak menutupnya.
+function useModal(rootRef, onCancel) {
+  const cancelRef = React.useRef(onCancel);
+  cancelRef.current = onCancel;
   const cancel = () => {
     if (typeof cancelRef.current === "function") cancelRef.current();
   };
@@ -5352,6 +6058,20 @@ function PreviewDialog(props) {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, []);
+  return cancel;
+}
+
+// Dialog pratinjau (R14, K34; pola CalendarPopover di dalam wadah view): role dialog + aria-modal, fokus ke elemen
+// pertama saat dibuka dan terjebak di dalam (Tab/Shift+Tab berputar), Esc = Batal. model = dialogModel(TLPlan.preview…).
+// Baris "WBS · Task · Mulai lama → baru · Δ hk" (+ "baru dijadwalkan", "durasi berubah", catatan durGuess); ringkasan;
+// "Tidak dipindah"; ≤ 50 baris + "Tampilkan semua". whyOf(key) → Array<string|{b}> (opsional, Task 12) membuka "Kenapa".
+// Terapkan nonaktif bila 0 item atau `busy` (pemeriksaan CAS berjalan). Komponen ini tidak menulis apa pun.
+function PreviewDialog(props) {
+  const model = props.model || EMPTY_PV_MODEL;
+  const [all, setAll] = React.useState(false);
+  const [why, setWhy] = React.useState(null);
+  const rootRef = React.useRef(null);
+  const cancel = useModal(rootRef, props.onCancel);
   const rows = model.rows || [];
   const shown = all ? rows : rows.slice(0, PV_ROWS_MAX);
   const label = pvLabel;
@@ -5444,6 +6164,256 @@ function PreviewDialog(props) {
     disabled: !rows.length || !!props.busy,
     onClick: props.onApply
   }, PV_APPLY))));
+}
+
+// ── 1c-2 Task 5: pemilih Baseline (P2 a) dan dialog Simpan baseline (K41) ──────────────────────────────────────────
+// Nama baseline (spec §4): dipangkas, ≤ 40 unit UTF-16 tanpa memisah pasangan surrogate; kosong → "Baseline {n}". Murni.
+function blNameOf(raw, n) {
+  const s = (raw === undefined || raw === null ? "" : String(raw)).trim();
+  let out = s;
+  if (out.length > BL_NAME_MAX) {
+    const hi = out.charCodeAt(BL_NAME_MAX - 1);
+    out = out.slice(0, hi >= 0xd800 && hi <= 0xdbff ? BL_NAME_MAX - 1 : BL_NAME_MAX).trim();
+  }
+  return out || blSlotName(n);
+}
+
+// Tanggal simpan slot (fmtShort, zona Jakarta): savedAt (tanggal ISO atau stempel waktu) → updated_at record; null bila
+// keduanya tak terbaca (record asing tidak punya savedAt terbaca → updated_at).
+function blDateOf(e) {
+  if (!e) return null;
+  let d = typeof e.savedAt === "string" ? TLCpm.jkt(e.savedAt) : null;
+  if (!Number.isInteger(d) && e.snap && typeof e.snap.updatedAt === "string") d = TLCpm.jkt(e.snap.updatedAt);
+  return Number.isInteger(d) ? TLCal.fmtShort(d) : null;
+}
+// Nama tampil slot terisi: asing → "(versi lebih baru)"; tanpa nama → "Baseline {n}".
+const blShownName = (e, n) => e.foreign ? MSG_BL_FOREIGN : e.name || blSlotName(n);
+
+// Pemilih "Baseline" (pola UnitPopover/MoreMenu): role menu, item menuitemradio "Tidak ada" + slot 1–3; fokus ke item
+// terpilih saat dibuka; Esc / pilih → tutup + fokus kembali ke tombol "Baseline"; klik luar → tutup. items = [{n, label}],
+// value = pref aktif, onPick(n) — pemanggil HANYA menulis pref bl:<page> (tanpa record). Komponen ini tidak menulis.
+function BaselinePicker(props) {
+  const items = Array.isArray(props.items) ? props.items : [];
+  const rootRef = React.useRef(null);
+  const closeRef = React.useRef(props.onClose);
+  closeRef.current = props.onClose;
+  const close = restoreFocus => {
+    if (typeof closeRef.current === "function") closeRef.current({
+      restoreFocus
+    });
+  };
+  React.useEffect(() => {
+    const el = rootRef.current;
+    let on = null;
+    try {
+      on = el && typeof el.querySelector === "function" ? el.querySelector("[aria-checked='true']") : null;
+    } catch (e) {
+      on = null;
+    }
+    const f = on || el;
+    if (f && typeof f.focus === "function") f.focus();
+  }, []);
+  useDismiss(true, rootRef, how => close(how === "key"), ".plg-timeline-blbtn");
+  const pick = n => {
+    if (typeof props.onPick === "function") props.onPick(n);
+    close(true);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop plg-timeline-blpick",
+    role: "menu",
+    "aria-label": LBL.bl,
+    tabIndex: -1,
+    ref: rootRef
+  }, items.map(it => /*#__PURE__*/React.createElement("button", {
+    key: it.n,
+    type: "button",
+    role: "menuitemradio",
+    "aria-checked": props.value === it.n,
+    className: cx("plg-timeline-more-item", props.value === it.n && "is-on"),
+    onClick: () => pick(it.n)
+  }, it.label)));
+}
+
+// Dialog "Simpan baseline" (K41; pola PreviewDialog: role dialog + aria-modal, fokus terjebak, Esc = Batal).
+// props: units [{key: recId, label}] (> 1 = halaman workspace → pilih project dulu), bases = Map<recId, Map<n, entri>>
+// POTRET saat dialog dibuka (label + konfirmasi + snap CAS memakai potret yang sama), lockedOf(n, recId) /
+// waitingOf(n, recId) (langsung dari useBaselines), busy, rev (naik saat potret disegarkan — setelah STALE atau saat
+// kunci/muat berubah di langkah form — → kembali ke form), onSave(recId, n, nama), onRemove(recId, n), onStep(langkah),
+// onCancel. Slot terisi (termasuk asing) → langkah konfirmasi "Timpa {nama} (disimpan {tanggal})?" sebelum onSave.
+// Slot terisi yang terbaca (bukan asing) punya tombol "Hapus" (nonaktif bila lockedOf) → "Hapus {nama} (disimpan
+// {tanggal})?" → onRemove. Komponen ini tidak menulis apa pun; nama dinormalkan blNameOf.
+function SaveBaselineDialog(props) {
+  const units = Array.isArray(props.units) ? props.units : [];
+  const bases = props.bases instanceof Map ? props.bases : EMPTY_BY_UNIT;
+  const lockedOf = typeof props.lockedOf === "function" ? props.lockedOf : () => true;
+  const waitingOf = typeof props.waitingOf === "function" ? props.waitingOf : () => false;
+  const [unitKey, setUnitKey] = React.useState(() => units.length ? units[0].key : "");
+  const [slot, setSlot] = React.useState(() => {
+    const free = BL_SLOTS.find(n => !lockedOf(n, units.length ? units[0].key : ""));
+    return free === undefined ? BL_SLOTS[0] : free;
+  });
+  const [name, setName] = React.useState(null); // null = belum diubah → bawaan "Baseline {slot}"
+  // Langkah: form | confirm (Timpa slot) | delete (Hapus slot `del`). rev baru (potret disegarkan) → kembali ke form.
+  const [st, setSt] = React.useState({
+    rev: props.rev,
+    step: "form",
+    del: null
+  });
+  const fresh = st.rev === props.rev;
+  const step = fresh ? st.step : "form";
+  const delN = fresh ? st.del : null;
+  const setStep = (v, del) => {
+    setSt({
+      rev: props.rev,
+      step: v,
+      del: del === undefined ? null : del
+    });
+    if (typeof props.onStep === "function") props.onStep(v); // view: segarkan potret hanya di form
+  };
+  const rootRef = React.useRef(null);
+  const cancel = useModal(rootRef, props.onCancel);
+  const slotsOf = bases.get(unitKey) instanceof Map ? bases.get(unitKey) : EMPTY_BASES;
+  const entry = slotsOf.get(slot) || null;
+  const delEntry = delN === null ? null : slotsOf.get(delN) || null;
+  const shownName = name === null ? blSlotName(slot) : name;
+  const locked = lockedOf(slot, unitKey);
+  const waiting = BL_SLOTS.some(n => waitingOf(n, unitKey));
+  const save = () => {
+    if (props.busy || lockedOf(slot, unitKey) || typeof props.onSave !== "function") return;
+    props.onSave(unitKey, slot, blNameOf(shownName, slot));
+  };
+  const submit = () => {
+    if (props.busy || locked) return;
+    if (entry) setStep("confirm");else save();
+  };
+  const remove = () => {
+    if (props.busy || delN === null || lockedOf(delN, unitKey) || typeof props.onRemove !== "function") return;
+    props.onRemove(unitKey, delN);
+  };
+  const slotLabel = n => {
+    const e = slotsOf.get(n);
+    if (!e) return [/*#__PURE__*/React.createElement("span", {
+      key: "n",
+      className: "plg-timeline-bl-slot-name"
+    }, blSlotName(n))];
+    const d = blDateOf(e);
+    return [/*#__PURE__*/React.createElement("span", {
+      key: "n",
+      className: "plg-timeline-bl-slot-name"
+    }, blShownName(e, n)), d ? /*#__PURE__*/React.createElement("span", {
+      key: "d",
+      className: "plg-timeline-bl-slot-date"
+    }, " · disimpan " + d) : null];
+  };
+  let body;
+  if (step === "delete" && delEntry) {
+    body = /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-bl-confirm",
+      role: "alert"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "plg-timeline-bl-confirm-text"
+    }, blDeleteText(blShownName(delEntry, delN), blDateOf(delEntry))));
+  } else if (step === "confirm" && entry) {
+    body = /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-bl-confirm",
+      role: "alert"
+    }, /*#__PURE__*/React.createElement("p", {
+      className: "plg-timeline-bl-confirm-text"
+    }, blConfirmText(blShownName(entry, slot), blDateOf(entry))));
+  } else {
+    body = /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-bl-form"
+    }, units.length > 1 ? /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-bl-units",
+      role: "radiogroup",
+      "aria-label": BL_UNIT_LABEL
+    }, units.map(u => /*#__PURE__*/React.createElement("button", {
+      key: u.key,
+      type: "button",
+      role: "radio",
+      "aria-checked": u.key === unitKey,
+      className: cx("plg-timeline-bl-opt", u.key === unitKey && "is-active"),
+      onClick: () => setUnitKey(u.key)
+    }, u.label))) : null, waiting ? /*#__PURE__*/React.createElement("p", {
+      className: "plg-timeline-pop-note plg-timeline-bl-wait",
+      role: "status"
+    }, MSG_BL_WAIT) : null, /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-bl-slots",
+      role: "radiogroup",
+      "aria-label": LBL.bl
+    }, BL_SLOTS.map(n => {
+      const e = slotsOf.get(n);
+      // Hapus: hanya slot terisi yang TERBACA (record asing klien lebih baru tidak dihapus dari sini), kunci = lockedOf.
+      const canDel = !!e && !e.foreign;
+      return /*#__PURE__*/React.createElement("div", {
+        key: n,
+        className: "plg-timeline-bl-slot"
+      }, /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        role: "radio",
+        "aria-checked": n === slot,
+        disabled: lockedOf(n, unitKey),
+        className: cx("plg-timeline-bl-opt", n === slot && "is-active"),
+        onClick: () => setSlot(n)
+      }, slotLabel(n)), canDel ? /*#__PURE__*/React.createElement("button", {
+        type: "button",
+        className: "plg-timeline-btn plg-timeline-bl-del",
+        "aria-label": BL_DELETE + " " + blShownName(e, n),
+        disabled: lockedOf(n, unitKey) || !!props.busy,
+        onClick: () => setStep("delete", n)
+      }, BL_DELETE) : null);
+    })), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      className: "plg-timeline-pop-input plg-timeline-bl-name",
+      "aria-label": BL_NAME_LABEL,
+      maxLength: BL_NAME_MAX,
+      value: shownName,
+      onChange: e => setName(e && e.target ? String(e.target.value) : "")
+    }));
+  }
+  let primary;
+  if (step === "delete" && delEntry) {
+    primary = /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-btn plg-timeline-pv-apply",
+      disabled: !!props.busy || lockedOf(delN, unitKey),
+      onClick: remove
+    }, BL_DELETE);
+  } else if (step === "confirm" && entry) {
+    primary = /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-btn plg-timeline-pv-apply",
+      disabled: !!props.busy,
+      onClick: save
+    }, BL_OVERWRITE);
+  } else {
+    primary = /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-btn plg-timeline-pv-apply",
+      disabled: locked || !!props.busy,
+      onClick: submit
+    }, LBL.blSave);
+  }
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv-backdrop"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv plg-timeline-bl-dlg",
+    role: "dialog",
+    "aria-modal": "true",
+    "aria-label": LBL.blSave,
+    tabIndex: -1,
+    ref: rootRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop-head"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-pop-title"
+  }, LBL.blSave)), body, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pv-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn",
+    onClick: cancel
+  }, PV_CANCEL), primary)));
 }
 
 // Kartu pratinjau ringkas di seksi Jadwal (R14, R20 "Aliran dari seksi > 20"): ringkasan + 5 baris pertama + "dan {n}
@@ -6444,6 +7414,7 @@ function TimelineViewBody(props) {
   const [cols, setCols] = usePref(api, "cols", page);
   const [mode, setMode] = usePref(api, "mode", page);
   const [critPref, setCrit] = usePref(api, "crit", page);
+  const [blPref, setBl] = usePref(api, "bl", page); // 1c-2 P2 (a): baseline aktif = pref per perangkat per halaman
   const [calOpen, setCalOpen] = React.useState(false);
   const calBtnRef = React.useRef(null);
   const pageKind = context.pageKind === "workspace" ? "workspace" : "project";
@@ -6464,29 +7435,88 @@ function TimelineViewBody(props) {
     calData: cal.data,
     units: un.units
   });
-
-  // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari berubah (bukan tiap context baru).
-  const lay = React.useMemo(() => engine.layout({
-    tasks: Array.isArray(context.scopeTasks) ? context.scopeTasks : [],
-    pageKind,
-    sort,
-    cal: cal.data,
-    today,
-    zoom,
-    readSchedOf: t => {
-      try {
-        return TLSched.readSched(api.taskExt.read(t));
-      } catch (e) {
-        return TLSched.readSched({});
-      }
-    }
-  }), [context.scopeTasks, calKey, zoom, sort, today, pageKind, api]);
-  const groupNames = React.useMemo(() => new Map(lay.groups.map(g => [g.key, g.name])), [lay]);
-  // 1c-1 (R18, R19): overlay mesin dalam memo TERPISAH — `lay` tidak bergantung pada mesin. Belum siap → NO_OVERLAY.
-  // eng.ctx berasal dari keluaran run yang sama dengan eng.result, jadi kunci [lay, engResult] cukup.
   const engResult = eng.status === "ready" ? eng.result : null;
+  // 1c-2 (K30): resolver jangkar untuk rentang pelanggaran task berjalan via actual.start (layout langkah 7) — SUMBER yang
+  // sama dengan mesin: modeOf = TLSched.modeOf(readSched(ext), useUnits().units, task); inCycle = engResult.cycles;
+  // inEngine/durOf = engResult.nodes (simpul + durasi mesin, untuk task tanpa Mulai). Mesin belum siap → inCycle false dan
+  // inEngine false (jendela muat: task tanpa Mulai dilewati, sama seperti 1c-1). Kunci unit (auto+fold), anggota lingkaran
+  // dan simpul tanpa-Mulai ikut memicu tata letak ulang HANYA bila scope punya task belum selesai dengan actual.start
+  // (satu-satunya pemakai resolver); tanpa itu `lay` tetap tidak bergantung pada mesin/unit (perilaku 1c-1).
+  // Satu bacaan ext per task per scopeTasks (investigasi regresi render 1c-2): api.taskExt.read runtime menyalin dalam
+  // (JSON) tiap kunci; tata letak, anchorTasks, dan actualOverlay BERBAGI bacaan ini (sebelumnya 3 bacaan/task pada render
+  // pertama). Berkunci [scopeTasks, api] — sama dengan masa hidup task objek scope; bacaan gagal → {} + log (readExtSafe).
+  // Bacaan bersama hanya dibaca (readSched/actualOf membangun objek baru), tidak pernah diubah.
+  const extOf = React.useMemo(() => {
+    const memo = new Map();
+    return t => {
+      let raw = memo.get(t);
+      if (raw === undefined) {
+        raw = readExtSafe(api, t);
+        memo.set(t, raw);
+      }
+      return raw;
+    };
+  }, [context.scopeTasks, api]);
+  const anchorTasks = React.useMemo(() => {
+    const out = []; // [{key, startless}]
+    for (const t of Array.isArray(context.scopeTasks) ? context.scopeTasks : []) {
+      if (!t || t.gtd_status === "done" || t.completed_at) continue;
+      const raw = extOf(t);
+      if (TLSched.actualOf(t, raw).start === null) continue;
+      out.push({
+        key: String(t.id),
+        startless: TLSched.readSched(raw).start === null
+      });
+    }
+    return out;
+  }, [context.scopeTasks, extOf]);
+  const needsAnchor = anchorTasks.length > 0;
+  const unitsKey = needsAnchor ? unitsKeyOf(un.units) : "";
+  const cycleKey = needsAnchor && engResult && Array.isArray(engResult.cycles) ? [].concat(...engResult.cycles).map(String).sort().join("\u0000") : "";
+  const nodeKey = needsAnchor && engResult && engResult.nodes instanceof Map ? anchorTasks.filter(x => x.startless && engResult.nodes.has(x.key)).map(x => x.key + "\u0001" + engResult.nodes.get(x.key).d).join("\u0000") : "";
+
+  // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari / unit / lingkaran berubah (bukan tiap context baru).
+  const lay = React.useMemo(() => {
+    const readSchedOf = t => TLSched.readSched(extOf(t));
+    const units = un.units;
+    const ring = new Set(cycleKey ? cycleKey.split("\u0000") : []);
+    const nd = new Map(nodeKey ? nodeKey.split("\u0000").map(x => x.split("\u0001")).map(([k, d]) => [k, Number(d)]) : []);
+    return engine.layout({
+      tasks: Array.isArray(context.scopeTasks) ? context.scopeTasks : [],
+      pageKind,
+      sort,
+      cal: cal.data,
+      today,
+      zoom,
+      readSchedOf,
+      anchorInfo: {
+        modeOf: t => TLSched.modeOf(readSchedOf(t), units, t),
+        inCycle: k => ring.has(String(k)),
+        inEngine: k => nd.has(String(k)),
+        durOf: k => nd.get(String(k))
+      }
+    });
+  }, [context.scopeTasks, calKey, zoom, sort, today, pageKind, extOf, unitsKey, cycleKey, nodeKey]);
+  const groupNames = React.useMemo(() => new Map(lay.groups.map(g => [g.key, g.name])), [lay]);
+  // 1c-2 Task 5 (K41): baseline unit halaman — halaman project = satu unit, workspace = unit per kelompok (pageUnits);
+  // SATU pemuat se-scope untuk semua unit (useBaselines larik). blDec = baseline aktif tergabung (activeBaseline) — sumber
+  // pembanding T6 (bar, lewat v.bl) dan T7; hanya baca (R25).
+  const blPage = React.useMemo(() => pageUnits(lay, pageKind, context.projectName, groupNames), [lay, pageKind, context.projectName, groupNames]);
+  const bls = useBaselines(api, blPage.map(x => x.unit));
+  const blIdsKey = blPage.map(x => x.unit.recId).join("\u0000");
+  const blDec = React.useMemo(() => activeBaseline(bls.byUnit, blPage.map(x => x.unit.recId), blPref), [bls.byUnit, blIdsKey, blPref]);
+  // 1c-1 (R18, R19): overlay mesin dalam memo TERPISAH. Belum siap → NO_OVERLAY.
+  // eng.ctx berasal dari keluaran run yang sama dengan eng.result, jadi kunci [lay, engResult] cukup.
   const ov = React.useMemo(() => engineOverlay(lay, engResult, eng.ctx), [lay, engResult]);
   const crit = critPref === true && ov.ready;
+  // 1c-2 Task 6: overlay baseline + aktual, masing-masing memo TERPISAH dari `lay` (pola R18/R19): pref baseline / data
+  // baseline hanya menghitung ulang blOv; actOv mengikuti lay (task scope + ext) dan hari ini (garis berjalan, tanpa tulisan).
+  const blOv = React.useMemo(() => baselineOverlay(blDec, engResult, eng.ctx), [blDec, engResult]);
+  const actOv = React.useMemo(() => actualOverlay(lay, extOf, todayDn), [lay, extOf, todayDn]);
+  const legendX = {
+    bl: blOv !== null && blDec !== null && blDec.rows.size > 0,
+    act: actOv.size > 0
+  };
   const compact = narrow || !!context.liveEdit;
   const colDefs = !compact || cols ? COLS_FULL : COLS_COMPACT;
   let tableW = 0;
@@ -6661,6 +7691,12 @@ function TimelineViewBody(props) {
 
   // ── 1c-1 Task 8: sakelar Jadwal otomatis (R15), pratinjau + CAS (R14) ──
   const [unitOpen, setUnitOpen] = React.useState(false);
+  const [blOpen, setBlOpen] = React.useState(false); // pemilih Baseline (1c-2)
+  const [blDlg, setBlDlg] = React.useState(null); // dialog Simpan baseline: {id, bases (potret), rev, busy}
+  const blDlgRef = React.useRef(null);
+  blDlgRef.current = blDlg;
+  const blBtnRef = React.useRef(null);
+  const blStepRef = React.useRef("form"); // langkah dialog simpan (onStep): potret hanya disegarkan di form
   const [pv, setPv] = React.useState(null); // {id, title, items, model, busy, unit?: {unit, rep, snap} | Array<{rep, snap, auto}>, broken?, todayLabel?, onDone, rebuild}
   const [, setNet] = React.useState(0);
   const autoBtnRef = React.useRef(null);
@@ -6724,7 +7760,7 @@ function TimelineViewBody(props) {
   };
   const toggleEntry = entry => {
     const e = engRef.current;
-    if (entry.locked || toggling.current || pvRef.current || e.status !== "ready" || !e.ctx || !e.result) return;
+    if (entry.locked || toggling.current || pvRef.current || blDlgRef.current || e.status !== "ready" || !e.ctx || !e.result) return;
     if (entry.on) {
       setAutoNow(entry, false); // OFF: tanpa tulis task (tanggal tetap)
       return;
@@ -6739,6 +7775,7 @@ function TimelineViewBody(props) {
     const uid = userId();
     setUnitOpen(false);
     setCalOpen(false); // satu Esc = dialog saja (popover lain tidak ikut mendengar)
+    setBlOpen(false);
     setPv({
       id: ++pvSeq.current,
       title: MSG_PV_ON + entry.label,
@@ -6778,7 +7815,7 @@ function TimelineViewBody(props) {
     };
   };
   const openFlowPv = p => {
-    if (pvRef.current) return; // satu dialog pada satu waktu
+    if (pvRef.current || blDlgRef.current) return; // satu dialog pada satu waktu
     const b = buildFlow(p.ctx, p.before, p.gestures, {
       items: p.items,
       result: p.result
@@ -6786,6 +7823,7 @@ function TimelineViewBody(props) {
     if (!b.model) return;
     setUnitOpen(false);
     setCalOpen(false); // satu Esc = dialog saja
+    setBlOpen(false);
     const next = {
       id: ++pvSeq.current,
       title: PV_FLOW,
@@ -6802,9 +7840,10 @@ function TimelineViewBody(props) {
   ctl.cur.openPreview = openFlowPv;
   // Buka pratinjau milik view (Task 10) bila belum ada dialog; popover lain ditutup (satu Esc = dialog saja).
   const openPv = spec => {
-    if (pvRef.current) return;
+    if (pvRef.current || blDlgRef.current) return;
     setUnitOpen(false);
     setCalOpen(false);
+    setBlOpen(false);
     const next = Object.assign({
       id: ++pvSeq.current,
       busy: false
@@ -7005,9 +8044,135 @@ function TimelineViewBody(props) {
     expanded: unitOpen,
     onClick: () => {
       setCalOpen(false);
+      setBlOpen(false);
       setUnitOpen(!unitOpen);
     }
   };
+
+  // ── 1c-2 Task 5: Baseline (pemilih = pref saja) + Simpan baseline (dialog → SATU baselineStore.save) ──
+  // Simpan: encode dari hasil useEngine AKTIF (engRef) dengan g = recId unit terpilih (T3); snap = potret dialog (bentuk
+  // loadAll; slot asing ikut). Hapus (fix review T5): slot terisi terbaca, snap potret, lockedOf. Galat lewat blFail.
+  const openSaveBl = () => {
+    const e = engRef.current;
+    if (pvRef.current || blDlgRef.current || e.status !== "ready" || !blPage.length) return;
+    setUnitOpen(false);
+    setCalOpen(false);
+    setBlOpen(false);
+    const next = {
+      id: ++pvSeq.current,
+      bases: bls.byUnit,
+      rev: 0,
+      busy: false
+    };
+    blStepRef.current = "form";
+    blDlgRef.current = next;
+    setBlDlg(next);
+  };
+  const setDlg = next => {
+    blDlgRef.current = next;
+    setBlDlg(next);
+  };
+  const cancelBl = () => setDlg(null);
+  // Hasil gagal simpan/hapus: TOO_LARGE → "Baseline terlalu besar"; STALE → MSG_BL_STALE + potret dimuat ulang (satu
+  // loadScope), dialog kembali ke form; lainnya → "Baseline gagal disimpan" / (hapus) "Baseline gagal dihapus".
+  // Dialog tetap terbuka.
+  const blFail = (cur, live, err, del) => {
+    const code = err && err.code;
+    if (code === "TOO_LARGE") toastSafe(api, MSG_BL_TOO_LARGE, "error");else if (code === "STALE") toastSafe(api, MSG_BL_STALE, "error");else {
+      logWarn(api, del ? "baseline gagal dihapus:" : "baseline gagal disimpan:", err);
+      toastSafe(api, del ? MSG_BL_DEL_FAIL : MSG_BL_SAVE_FAIL, "error");
+    }
+    if (!live()) return undefined;
+    if (code !== "STALE") {
+      setDlg(Object.assign({}, cur, {
+        busy: false
+      }));
+      return undefined;
+    }
+    return bls.store.loadScope(blPage.map(x => x.unit)).then(fresh => {
+      blStepRef.current = "form";
+      if (live()) setDlg(Object.assign({}, cur, {
+        bases: fresh,
+        rev: cur.rev + 1,
+        busy: false
+      }));
+    }, err2 => {
+      logWarn(api, "baseline gagal dimuat:", err2);
+      if (live()) setDlg(Object.assign({}, cur, {
+        busy: false
+      }));
+    });
+  };
+  // Satu aksi tulis dialog (simpan / hapus) lewat baselineStore; busy seketika (klik ganda = satu tulis).
+  const blRun = (cur, act, okText, del) => {
+    setDlg(Object.assign({}, cur, {
+      busy: true
+    }));
+    const live = () => blDlgRef.current !== null && blDlgRef.current.id === cur.id;
+    Promise.resolve().then(act).then(() => {
+      if (live()) setDlg(null);
+      toastSafe(api, okText, "success");
+    }, err => blFail(cur, live, err, del));
+  };
+  const saveBl = (recId, n, name) => {
+    const cur = blDlgRef.current;
+    const e = engRef.current;
+    const pu = blPage.find(x => x.unit.recId === recId);
+    if (!cur || cur.busy || !pu || e.status !== "ready" || !e.result || !e.ctx) return;
+    const slots = cur.bases.get(recId);
+    const ent = slots instanceof Map ? slots.get(n) : null;
+    const uid = api.env ? api.env.userId : null;
+    const enc = TLPlan.baselineEncode(e.result, e.ctx, {
+      n,
+      name,
+      savedAt: today,
+      by: Number.isInteger(uid) ? uid : null
+    }, recId);
+    blRun(cur, () => bls.store.save(pu.unit, n, name, enc.data, ent ? ent.snap : BL_NO_SNAP), blSavedText(name));
+  };
+  // Hapus (ruling review T5): snap dari potret dialog (CAS remove T4), kunci lockedOf. Pref bl:<page> TIDAK diubah —
+  // pilihan yang menunjuk slot terhapus menjadi pembanding kosong (semantik pemilih sama).
+  const removeBl = (recId, n) => {
+    const cur = blDlgRef.current;
+    const pu = blPage.find(x => x.unit.recId === recId);
+    const slots = cur ? cur.bases.get(recId) : null;
+    const ent = slots instanceof Map ? slots.get(n) : null;
+    if (!cur || cur.busy || !pu || !ent || ent.foreign || bls.lockedOf(n, recId)) return;
+    blRun(cur, () => bls.store.remove(pu.unit, n, ent.snap), blRemovedText(blShownName(ent, n)), true);
+  };
+  // Fix review T5 #3: kunci/muat berubah (mis. slot tiba bersama `pulled`) saat dialog di langkah FORM dan tidak sibuk →
+  // potret diambil ulang dari useBaselines (rev naik), sehingga slot yang baru tiba meminta konfirmasi Timpa, bukan
+  // STALE. Di langkah konfirmasi/hapus potret TIDAK diganti (yang dikonfirmasi = yang dilihat; CAS tetap menjaga).
+  React.useEffect(() => {
+    const cur = blDlgRef.current;
+    if (!cur || cur.busy || blStepRef.current !== "form" || cur.bases === bls.byUnit) return;
+    setDlg(Object.assign({}, cur, {
+      bases: bls.byUnit,
+      rev: cur.rev + 1
+    }));
+  }, [bls.pulled, bls.loaded]);
+  const blPickItems = [{
+    n: 0,
+    label: BL_NONE
+  }].concat(BL_SLOTS.map(n => {
+    // halaman project: nama slot (bila ada dan terbaca); workspace (banyak unit) / kosong / asing → "Baseline {n}"
+    const e = blPage.length === 1 ? bls.bases.get(n) : null;
+    return {
+      n,
+      label: e && !e.foreign && e.name ? e.name : blSlotName(n)
+    };
+  }));
+  const blTool = blPage.length ? {
+    value: blPref,
+    open: blOpen,
+    btnRef: blBtnRef,
+    onPick: () => {
+      setCalOpen(false);
+      setUnitOpen(false);
+      setBlOpen(!blOpen);
+    },
+    onSave: openSaveBl
+  } : null;
   const toolbar = renderToolbar({
     zoom,
     pickZoom,
@@ -7027,6 +8192,7 @@ function TimelineViewBody(props) {
     calOpen,
     toggleCal: () => {
       setUnitOpen(false);
+      setBlOpen(false);
       setCalOpen(!calOpen);
     },
     calBtnRef,
@@ -7034,7 +8200,8 @@ function TimelineViewBody(props) {
     autoBtnRef,
     collapse: compact,
     summary,
-    onReschedule: openResched
+    onReschedule: openResched,
+    bl: blTool
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
@@ -7063,9 +8230,39 @@ function TimelineViewBody(props) {
     waiting: unitsEntries.some(e => e.waiting),
     onClose: closeUnits
   }) : null;
+  // Pemilih Baseline: Esc / pilih mengembalikan fokus ke tombol "Baseline"; klik luar tidak. Hanya Gantt, mesin siap.
+  const closeBl = how => {
+    setBlOpen(false);
+    const b = blBtnRef.current;
+    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+  };
+  const blPop = blOpen && ov.ready && !listMode && blTool ? /*#__PURE__*/React.createElement(BaselinePicker, {
+    items: blPickItems,
+    value: blPref,
+    onPick: setBl,
+    onClose: closeBl
+  }) : null;
   const top = /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-top"
-  }, toolbar, popover, unitPop);
+  }, toolbar, popover, unitPop, blPop);
+  const blDialog = blDlg ? /*#__PURE__*/React.createElement(SaveBaselineDialog, {
+    key: "bl" + blDlg.id,
+    units: blPage.map(x => ({
+      key: x.unit.recId,
+      label: x.label
+    })),
+    bases: blDlg.bases,
+    rev: blDlg.rev,
+    busy: blDlg.busy,
+    lockedOf: bls.lockedOf,
+    waitingOf: bls.waitingOf,
+    onSave: saveBl,
+    onRemove: removeBl,
+    onStep: x => {
+      blStepRef.current = x;
+    },
+    onCancel: cancelBl
+  }) : null;
   const dialog = pv && pv.model ? /*#__PURE__*/React.createElement(PreviewDialog, {
     key: pv.id,
     title: pv.title,
@@ -7077,7 +8274,7 @@ function TimelineViewBody(props) {
     whyOf: pv.whyOf,
     onApply: applyPv,
     onCancel: cancelPv
-  }) : null;
+  }) : blDialog;
   if (!hasRows) {
     return /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline"
@@ -7108,7 +8305,10 @@ function TimelineViewBody(props) {
     ix,
     isSel,
     ov,
-    crit
+    crit,
+    bl: blDec,
+    blOv,
+    actOv
   };
   return /*#__PURE__*/React.createElement("div", {
     className: cx("plg-timeline", compact && "is-compact")
@@ -7133,7 +8333,7 @@ function TimelineViewBody(props) {
       width: tableW,
       height: bodyH
     }
-  }, renderTableRows(v)), renderChart(v))), renderLegend(lay, footRef, crit), dialog);
+  }, renderTableRows(v)), renderChart(v))), renderLegend(lay, footRef, crit, legendX), dialog);
 }
 
 // 4g. Seksi "Jadwal" di detail task (Task 10; spec §8.8, Q5; R7, R8, R10, R15, R16, R17). Slot taskDetail.sections,
@@ -7268,6 +8468,26 @@ const SEC_FOLLOWS = "Diikuti oleh";
 const SEC_TYPES = [["FS", "Selesai → Mulai (FS)"], ["SS", "Mulai → Mulai (SS)"], ["FF", "Selesai → Selesai (FF)"], ["SF", "Mulai → Selesai (SF)"]];
 const SEC_WHY = "Kenapa dijadwalkan di sini?";
 const SEC_TO_MANUAL = "Ubah ke Manual";
+
+// 1c-2 Task 7 tingkat 3 (§7.6 persis): tanggal aktual (K42) dan tabel "Baseline vs sekarang" (K41).
+const SEC_ACT_START = "Mulai aktual";
+const SEC_ACT_FINISH = "Selesai aktual";
+const SEC_ACT_TODAY = "Catat hari ini";
+const SEC_ACT_NONE = "Belum dicatat";
+const SEC_BL_VS = "Baseline vs sekarang";
+const SEC_BL_NOW = "Sekarang";
+const SEC_BL_DIFF = "Selisih";
+
+// Kunci halaman pref `bl:<page>` (1c-2 P2 a) untuk seksi: konteks taskDetail.sections tidak membawa page, maka diturunkan
+// dari task persis seperti id halaman host (pageScopePred): task workspace → "slist_<list_id>", task pribadi ber-project →
+// "proj_<project>"; pribadi tanpa project → null (tidak punya halaman, tidak ada baseline aktif). Beda kapital nama project
+// diselesaikan prefKey (bl dilipat A–Z). Pref dibaca saat pasang / ganti halaman saja: api.storage tidak punya peristiwa
+// perubahan, jadi pilihan baseline baru di view tampil di seksi setelah seksi dipasang ulang (buka task lagi).
+function secPageOf(task, ws) {
+  if (ws) return "slist_" + task.list_id;
+  const p = typeof task.project === "string" ? task.project : "";
+  return p ? "proj_" + p : null;
+}
 
 // ── "Kenapa dijadwalkan di sini?" (R21) ──
 // whyText(ex, ctx) → Array<string | {b: string}> (murni). ex = hasil explain mesin; ctx = {label(key) → "{WBS} {judul}",
@@ -7698,6 +8918,11 @@ function ScheduleBody(props) {
   const srcRaw = info === task ? propRaw : readExtSafe(api, info);
   const srcKey = info === task ? propKey : stableKey(srcRaw);
   const writeId = listedSelf && listedSelf.id !== undefined && listedSelf.id !== null ? listedSelf.id : tid;
+  const actIds = React.useRef(null);
+  actIds.current = {
+    tid: String(tid),
+    wid: String(writeId)
+  };
 
   // R17 state lokal optimistis: di-seed ulang saat task.id berganti, atau saat ext sumber terbaru (props atau daftar)
   // berubah selama tidak ada tulis berjalan dan tidak ada draf input. Sumber yang sudah menyusul (sama dengan lokal)
@@ -7771,9 +8996,15 @@ function ScheduleBody(props) {
   }, [api, tid, propKey]);
   React.useEffect(() => {
     let off = null;
+    let offAct = null;
     try {
       off = api.events.on("sync.done", () => {
         loadAll();
+      });
+      // 1c-2 Task 8: pelacak aktual menulis task ini → muat ulang daftar (baca saja) agar nilai tersimpan mutakhir.
+      offAct = api.events.on(ACT_EVENT, p => {
+        const ids = actIds.current;
+        if (p && (String(p.taskId) === ids.tid || String(p.taskId) === ids.wid)) loadAll();
       });
     } catch (e) {
       logWarn(api, "pendengar sync.done gagal:", e);
@@ -7781,6 +9012,7 @@ function ScheduleBody(props) {
     return () => {
       loadRef.current.alive = false;
       if (typeof off === "function") off();
+      if (typeof offAct === "function") offAct();
     };
   }, [api]);
   const refreshSoon = () => {
@@ -7825,6 +9057,17 @@ function ScheduleBody(props) {
   const unitMode = unitU && unitU.auto === true ? "auto" : "manual";
   // Task 12: simpul otomatis terhitung = tingkat 2/3 (Mulai otomatis = teks + "Ubah" → R12).
   const autoNode = effMode === "auto" && secEngine && secEngine.node && secEngine.node.es !== null && secEngine.node.ef !== null ? secEngine.node : null;
+  // 1c-2 Task 7: baseline aktif = pref bl:<page> (halaman diturunkan dari task, secPageOf) + useBaselines atas SATU unit
+  // task (TLSched.unitOf; satu list se-scope) — dimuat hanya bila slot 1–3 dipilih. Baris task = baselineOverlay (resolusi
+  // ref yang sama dengan bar Gantt T6) atas hasil mesin seksi. Hanya baca (R25).
+  const blPageKey = secPageOf(selfLive, wsTask);
+  const [blPref] = usePref(api, "bl", blPageKey || "");
+  const blN = blPageKey !== null ? blPref : 0;
+  const blUnit = TLSched.unitOf(selfLive);
+  const bls = useBaselines(api, blN > 0 ? [blUnit] : []);
+  const blDec = React.useMemo(() => activeBaseline(bls.byUnit, [blUnit.recId], blN), [bls.byUnit, blUnit.recId, blN]);
+  const blOv = React.useMemo(() => secEngine ? baselineOverlay(blDec, secEngine.result, secEngine.ctx) : null, [blDec, secEngine]);
+  const blRow = autoNode && blOv ? blOv.get(autoNode.key) || null : null;
   // Mesin seksi atas daftar segar (hitung ulang PreviewCard setelah CAS gagal): semua ext dari daftar terbaru.
   const runSec = list => {
     const me = TLSched.buildIndex(list).get(String(selfLive.id)) || selfLive;
@@ -8425,6 +9668,106 @@ function ScheduleBody(props) {
     if (commitDate(v)) commitCst(v);
   };
 
+  // 1c-2 Task 7 tanggal aktual (K42, Review Focus 2). Dibaca HANYA lewat TLSched.actualOf (ext lokal optimistis):
+  // selesai tanpa nilai tersimpan = turunan jkt(completed_at) (finishDerived). Yang TERSIMPAN = actualOf tanpa turunan.
+  // Tulis = `write` seksi (SATU set {actual}, aturan sibuk, gagal → ext sebelumnya utuh lewat revertRaw): aktual adalah
+  // JANGKAR (K30) — tidak mengalir; penerus yang jadi berbeda tampil sebagai drift (banner), tidak ditulis.
+  // Kosongkan tersimpan → kunci itu dihapus (selesai kembali ke turunan); kosongkan turunan / nilai sama → 0 tulis;
+  // selesai < mulai → ditolak sanitizePatch, 0 tulis.
+  const act = TLSched.actualOf(selfLive, raw);
+  const commitAct = (which, v) => {
+    const name = "act:" + which;
+    const stored = {};
+    if (act.start !== null) stored.start = TLCal.iso(act.start);
+    if (act.finish !== null && !act.finishDerived) stored.finish = TLCal.iso(act.finish);
+    const shown = act[which] === null ? null : TLCal.iso(act[which]);
+    const next = Object.assign({}, stored);
+    if (v === null) {
+      if (!(which in stored)) {
+        clearDraft(name);
+        return;
+      }
+      delete next[which];
+    } else {
+      if (!commitDate(v) || v === shown) {
+        clearDraft(name);
+        return;
+      }
+      next[which] = v;
+    }
+    const san = TLSched.sanitizePatch({
+      actual: Object.keys(next).length ? next : null
+    });
+    if (!san.ok) {
+      clearDraft(name);
+      return;
+    }
+    write(san.patch, name);
+  };
+  // Simpanan tertunda (jeda input) memanggil commitAct TERBARU selama task sama: actual tersimpan dibaca ulang dari raw
+  // terkini (bukan `act` saat ketik) — mis. selesai diubah selama jeda mulai tetap bertahan (fix T7). Task berganti →
+  // closure task lama (raw miliknya) dipakai.
+  const actLatest = React.useRef(null);
+  actLatest.current = {
+    tid,
+    commit: commitAct
+  };
+  // "Catat hari ini" (jalur cadangan K42, aksi pengguna — juga untuk selesai): tanggal = api.env.today().
+  const recordToday = which => {
+    const t = safeToday(api);
+    if (t !== null) commitAct(which, t);
+  };
+  // Input tanggal aktual: pola Batasan (change = draf + jeda; blur / Enter = langsung; jeda tertunda saat dilepas disimpan).
+  const actTimers = React.useRef({});
+  const cancelActTimer = which => {
+    const t = actTimers.current[which];
+    delete actTimers.current[which];
+    if (t) clearTimeout(t.id);
+  };
+  React.useEffect(() => () => {
+    const pend = actTimers.current;
+    actTimers.current = {};
+    for (const w of Object.keys(pend)) {
+      clearTimeout(pend[w].id);
+      pend[w].run();
+    }
+  }, [tid]);
+  const onActChange = which => e => {
+    const v = e && e.target ? String(e.target.value || "") : "";
+    cancelActTimer(which);
+    setDraft("act:" + which, v);
+    if (!commitDate(v)) return;
+    const own = commitAct;
+    const run = () => {
+      const L = actLatest.current;
+      (L && L.tid === tid ? L.commit : own)(which, v);
+    };
+    const id = setTimeout(() => {
+      const t = actTimers.current[which];
+      if (t && t.id === id) {
+        delete actTimers.current[which];
+        run();
+      }
+    }, SEC_TIMING.startDebounceMs);
+    actTimers.current[which] = {
+      id,
+      run
+    };
+  };
+  const onActBlur = which => e => {
+    cancelActTimer(which);
+    const t = e && e.target ? e.target : {};
+    const v = String(t.value || "");
+    if (commitDate(v)) commitAct(which, v);else if (v === "" && !(t.validity && t.validity.badInput)) commitAct(which, null);else clearDraft("act:" + which);
+  };
+  const onActKey = which => e => {
+    if (!e || e.key !== "Enter") return;
+    if (typeof e.preventDefault === "function") e.preventDefault();
+    cancelActTimer(which);
+    const v = e.target ? String(e.target.value || "") : "";
+    if (commitDate(v)) commitAct(which, v);
+  };
+
   // ---- pemilih dependensi (R15, R17) ----
   const openPicker = () => {
     setForceOpen(true);
@@ -8704,6 +10047,70 @@ function ScheduleBody(props) {
   // "Selengkapnya" → tingkat 3 (R20, urutan tetap): Mode · Mulai (teks + "Ubah") · Durasi · Selesai · Milestone · % selesai
   // · Batasan · Dependensi (Menunggu / Diikuti oleh) · Tambah dependensi · Kenapa dijadwalkan di sini? · Ubah ke Manual.
   const node = autoNode;
+  // 1c-2 Task 7 tingkat 3: baris tanggal aktual (nilai fmtShort; selesai turunan diberi penanda "Aktual"; kosong →
+  // "Belum dicatat" + "Catat hari ini") — keduanya bisa diubah lewat input tanggal.
+  const actRowOf = which => {
+    const label = which === "start" ? SEC_ACT_START : SEC_ACT_FINISH;
+    const val = act[which];
+    const dn = "act:" + which;
+    return /*#__PURE__*/React.createElement("div", {
+      className: "plg-timeline-field plg-timeline-sec-actual",
+      role: "group",
+      "aria-label": label,
+      "data-part": "actual-" + which
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-field-label"
+    }, label), /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-sec-actval"
+    }, val !== null ? /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-sec-val"
+    }, TLCal.fmtShort(val)) : /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-sec-muted"
+    }, SEC_ACT_NONE), val !== null && which === "finish" && act.finishDerived ? /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-act-mark"
+    }, MSG_ACTUAL) : null, val === null ? /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-btn",
+      onClick: () => recordToday(which)
+    }, SEC_ACT_TODAY) : null, /*#__PURE__*/React.createElement("input", {
+      type: "date",
+      className: "plg-timeline-input",
+      "aria-label": label,
+      value: dn in d ? d[dn] : val === null ? "" : TLCal.iso(val),
+      onChange: onActChange(which),
+      onBlur: onActBlur(which),
+      onKeyDown: onActKey(which)
+    })));
+  };
+  // Tabel "Baseline vs sekarang" (3×3): Mulai/Selesai/Durasi × Baseline/Sekarang/Selisih (ds/df/dd bertanda, hk) dari baris
+  // task di baseline aktif; tanpa baseline aktif / task tidak ada di dalamnya → satu baris "Tidak ada".
+  const blCells = blRow && node ? [[SEC_START, TLCal.fmtShort(blRow.s), TLCal.fmtShort(node.es), signedHk(blRow.ds)], [SEC_FINISH, TLCal.fmtShort(blRow.f), TLCal.fmtShort(node.ef), signedHk(blRow.df)], [SEC_DUR, blRow.d + " hk", node.d + " hk", signedHk(blRow.dd)]] : null;
+  const blElOf = () => /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-sec-blbox",
+    "data-part": "baseline"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-field-label"
+  }, SEC_BL_VS), /*#__PURE__*/React.createElement("table", {
+    className: "plg-timeline-sec-bltable",
+    "aria-label": SEC_BL_VS
+  }, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+    scope: "col"
+  }), /*#__PURE__*/React.createElement("th", {
+    scope: "col"
+  }, LBL.bl), /*#__PURE__*/React.createElement("th", {
+    scope: "col"
+  }, SEC_BL_NOW), /*#__PURE__*/React.createElement("th", {
+    scope: "col"
+  }, SEC_BL_DIFF))), /*#__PURE__*/React.createElement("tbody", null, blCells ? blCells.map(r => /*#__PURE__*/React.createElement("tr", {
+    key: r[0]
+  }, /*#__PURE__*/React.createElement("th", {
+    scope: "row"
+  }, r[0]), /*#__PURE__*/React.createElement("td", null, r[1]), /*#__PURE__*/React.createElement("td", null, r[2]), /*#__PURE__*/React.createElement("td", {
+    className: "plg-timeline-sec-bldiff"
+  }, r[3]))) : /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("td", {
+    colSpan: 4,
+    className: "plg-timeline-sec-muted"
+  }, BL_NONE)))));
   if (node) {
     const drift = secEngine.result.drift.has(node.key);
     let body = null;
@@ -8868,7 +10275,7 @@ function ScheduleBody(props) {
         className: "plg-timeline-dep-type"
       }, x.type), x.lag !== 0 ? /*#__PURE__*/React.createElement("span", {
         className: "plg-timeline-dep-lag"
-      }, signedHk(x.lag)) : null)))) : null, badEl), addEl("add"), /*#__PURE__*/React.createElement("div", {
+      }, signedHk(x.lag)) : null)))) : null, badEl), addEl("add"), actRowOf("start"), actRowOf("finish"), blElOf(), /*#__PURE__*/React.createElement("div", {
         className: "plg-timeline-sec-whybox",
         "data-part": "why"
       }, /*#__PURE__*/React.createElement("button", {
@@ -8902,7 +10309,7 @@ function ScheduleBody(props) {
       className: "plg-timeline-chip is-late"
     }, secLateChip(node.late)) : null]), /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline-sec-range"
-    }, TLCal.fmtShort(node.es) + " → " + TLCal.fmtShort(node.ef) + " · " + node.d + " " + SEC_HK), /*#__PURE__*/React.createElement("div", {
+    }, TLCal.fmtShort(node.es) + " → " + TLCal.fmtShort(node.ef) + " · " + node.d + " " + SEC_HK + (blRow ? " · baseline " + signedHk(blRow.df) : "")), /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline-sec-links"
     }, secLinksText(secEngine)), node.critical ? /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline-sec-flags"
@@ -9082,6 +10489,99 @@ function TimelineView(props) {
   return React.createElement(memoView(), props);
 }
 
+// ── 4h. Pencatatan mulai aktual otomatis (1c-2 Task 8; K42 DIAMANDEMEN) ────────────────────────────────────
+// Pemicu HANYA dua event host gestur lokal di perangkat ini: `pomodoro.ended` (sesi/overtime tercatat) dan
+// `task.completed` (handleDone App). Keduanya dipasang di factory → aktif selama plugin dieksekusi di sesi (lazy-execute,
+// README §4); OFF → runtime melepas (offAll). Pemicu "progress naik dari 0" DIBUANG: host tidak memancarkan event progres,
+// dan diff data (props/daftar) tidak bisa membedakan ketukan lokal dari sinkron — R25 (tidak ada tulisan dari sinkron)
+// menang atas kata-kata K42. Jalur cadangan = tombol "Catat hari ini" (Task 7).
+// Tanggal = hari Asia/Jakarta dari endedAt / completedAt (TLSched.jkt) bila sah, selain itu api.env.today(): replay sesi
+// basi saat mount (index.html :11459) mencatat hari sesi itu (jujur, idempoten), sesi lintas tengah malam ikut WIB.
+const ACT_EVENT = "timeline.actualRecorded"; // seksi terpasang memuat ulang daftar (baca saja)
+
+function eventDay(api, v) {
+  const n = TLSched.jkt(v);
+  return n === null ? safeToday(api) : TLCal.iso(n);
+}
+function sameTaskId(t, key) {
+  return !!t && (String(t.id) === key || t.cid !== undefined && t.cid !== null && String(t.cid) === key);
+}
+
+// SATU-SATUNYA penulis otomatis (pagar R25 `recordActual:taskExt.set`). "Isi bila kosong": ext task dibaca SEGAR lewat
+// api.data.tasks.list (bukan cache view/seksi); actual.start sudah ada, atau `actual` tersimpan tapi rusak/asing (mis. klien
+// lebih baru) → 0 tulis. Selain itu satu set {actual: {start: day} + finish TERSIMPAN dibawa} (semantik gabung Task 7);
+// finish turunan (completed_at) tidak pernah dibekukan, finish tidak pernah ditulis dari sini. start > finish tersimpan →
+// sanitizePatch menolak → 0 tulis. Task tak dikenal / berulang → 0 tulis. Resolve true bila menulis; gagal → reject
+// (pemanggil mencatat diam-diam — tanpa toast, karena pengguna tidak menekan apa pun).
+function recordActual(api, taskId, day) {
+  const key = String(taskId);
+  return Promise.resolve().then(() => api.data.tasks.list({
+    includeDone: true
+  })).then(list => {
+    const arr = Array.isArray(list) ? list : [];
+    const task = arr.find(t => String(t && t.id) === key) || arr.find(t => sameTaskId(t, key));
+    if (!task || task.recurrence_type || day === null) return false;
+    const raw = readExtSafe(api, task);
+    const has = raw.actual !== undefined && raw.actual !== null;
+    const act = TLSched.actualOf(task, raw);
+    if (act.start !== null) return false;
+    const next = {
+      start: day
+    };
+    if (act.finish !== null && !act.finishDerived) next.finish = TLCal.iso(act.finish);else if (has) return false; // actual tersimpan tak terbaca (rusak/asing) = bukan kosong
+    const san = TLSched.sanitizePatch({
+      actual: next
+    });
+    if (!san.ok) return false;
+    return Promise.resolve(api.taskExt.set(task.id, san.patch)).then(() => {
+      try {
+        api.events.emit(ACT_EVENT, {
+          taskId: task.id
+        });
+      } catch (e) {
+        logWarn(api, "pemberitahuan aktual gagal:", e);
+      }
+      return true;
+    });
+  });
+}
+
+// Pasang dua pendengar host; kembalikan pelepas. Pemanggilan per task diantrekan (event beruntun task yang sama membaca
+// tulisan sebelumnya → 0 tulis kedua). Pendengar tidak pernah melempar ke bus (error dihitung runtime sebagai kegagalan
+// plugin): payload rusak diabaikan, kegagalan baca/tulis dicatat api.log.warn tanpa toast.
+function installActualTracking(api) {
+  const queue = new Map();
+  const track = (taskId, when) => {
+    if (!(typeof taskId === "number" && Number.isFinite(taskId) || typeof taskId === "string" && taskId !== "")) return;
+    const key = String(taskId);
+    const day = eventDay(api, when);
+    const prev = queue.get(key) || Promise.resolve();
+    const run = prev.then(() => recordActual(api, taskId, day)).then(null, e => logWarn(api, "mulai aktual gagal dicatat:", e));
+    queue.set(key, run);
+    run.then(() => {
+      if (queue.get(key) === run) queue.delete(key);
+    });
+  };
+  const handler = field => p => {
+    try {
+      if (p && typeof p === "object") track(p.taskId, p[field]);
+    } catch (e) {
+      logWarn(api, "pendengar aktual gagal:", e);
+    }
+  };
+  const offs = [];
+  try {
+    offs.push(api.events.on("pomodoro.ended", handler("endedAt")));
+    offs.push(api.events.on("task.completed", handler("completedAt")));
+  } catch (e) {
+    logWarn(api, "pendengar aktual gagal dipasang:", e);
+  }
+  return () => {
+    for (const off of offs) if (typeof off === "function") off();
+    offs.length = 0;
+  };
+}
+
 // ── 5. Ekspor Node + registrasi ─────────────────────────────────────────────
 const pure = {
   calendarStore,
@@ -9092,6 +10592,16 @@ const pure = {
   NO_UNIT,
   useUnits,
   useEngine,
+  installActualTracking,
+  recordActual,
+  ACT_EVENT,
+  baselineStore,
+  useBaselines,
+  blRecId,
+  BL_ENTITY,
+  BL_NO_SNAP,
+  MSG_BL_TOO_LARGE,
+  MSG_BL_WAIT,
   RELOAD_TIMING,
   engineKeyOf,
   prefKey,
@@ -9116,6 +10626,10 @@ const pure = {
   slackText,
   engineOverlay,
   NO_OVERLAY,
+  baselineOverlay,
+  actualOverlay,
+  baselineTip,
+  MSG_ACTUAL,
   pomoText,
   missingYearsNote,
   barGeom,
@@ -9135,6 +10649,10 @@ const pure = {
   ScheduleBody,
   CalendarPopover,
   ListFallback,
+  BaselinePicker,
+  SaveBaselineDialog,
+  activeBaseline,
+  blNameOf,
   MoreMenu,
   menuAlign,
   UnitPopover,
@@ -9161,6 +10679,7 @@ if (typeof module !== "undefined" && module.exports) module.exports = Object.ass
 const host = typeof window !== "undefined" ? window : null;
 if (host && host.TF && host.TF.plugins) {
   host.TF.plugins.register(manifest, function factory(api) {
+    installActualTracking(api); // dilepas runtime saat OFF (events.offAll); factory dipanggil ulang saat ON lagi
     return {
       slots: {
         "taskList.views": [{

@@ -489,8 +489,8 @@ test("timeline: parts digabung berurutan sebelum plugin.jsx, contributes + taskE
   const entry = r1.index.plugins.find((p) => p.id === "timeline");
   assert.ok(entry);
   assert.deepEqual(entry.contributes, m.contributes);
-  assert.deepEqual(entry.taskExt, { keys: ["start", "duration", "deps", "mode", "constraint"] });
-  assert.deepEqual(entry.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 } });
+  assert.deepEqual(entry.taskExt, { keys: ["start", "duration", "deps", "mode", "constraint", "actual"] });
+  assert.deepEqual(entry.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 } });
   assert.deepEqual(entry.permissions, ["storage", "task.ext", "records"]);
   assert.equal(entry.defaultEnabled, false);
   assert.equal(entry.parts, undefined, "parts tidak disalin ke index.json");
@@ -519,29 +519,37 @@ test("timeline: parts digabung berurutan sebelum plugin.jsx, contributes + taskE
 });
 
 // ── Fase 1 PR 1c-1 (rencana Task 6, R2, R6): Timeline 1.1.0 — mesin jadwal otomatis + record `project` ────────────
-test("timeline 1.1.0: parts urutan R2, records.project {lww, 1024}, taskExt.keys lima kunci, hash berubah, build dua kali stabil", (t) => {
+// 1c-2 Task 4: 1.2.0 — records.baseline {lww, 65536} (K41) + kunci taskExt `actual` (enam); bagian 1.1 dipertahankan.
+test("timeline 1.2.0: parts urutan R2, records.project {lww, 1024} + records.baseline {lww, 65536}, taskExt.keys enam kunci (+actual), hash berubah, build dua kali stabil", (t) => {
   const m = JSON.parse(fs.readFileSync(path.join(TIMELINE, "manifest.json"), "utf8"));
-  assert.equal(m.version, "1.1.0");
+  assert.equal(m.version, "1.2.0");
   assert.equal(m.minApi, 1);
   assert.equal(m.defaultEnabled, false);
   assert.deepEqual(m.parts, ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "layout.js", "drag.js"]);
   assert.ok(m.parts.indexOf("holidays-id.js") < m.parts.indexOf("cpm.js"), "TLHolidays sebelum TLCpm");
   assert.ok(m.parts.indexOf("cpm.js") < m.parts.indexOf("plan.js"), "TLCpm sebelum TLPlan");
-  assert.deepEqual(m.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 } });
-  assert.deepEqual(m.taskExt, { keys: ["start", "duration", "deps", "mode", "constraint"] });
+  assert.deepEqual(m.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 } });
+  assert.deepEqual(Object.keys(m.records), ["calendar", "project", "baseline"]);
+  assert.deepEqual(m.taskExt, { keys: ["start", "duration", "deps", "mode", "constraint", "actual"] });
   assert.deepEqual(m.permissions, ["storage", "task.ext", "records"], "izin tidak berubah");
   assert.deepEqual(m.slots, ["taskList.views", "taskDetail.sections"], "slot tidak berubah");
   const fx = copyTimeline(t);
   const r1 = build.buildPlugins(fx);
   const entry = r1.index.plugins.find((p) => p.id === "timeline");
-  assert.equal(entry.version, "1.1.0");
+  assert.equal(entry.version, "1.2.0");
   assert.deepEqual(entry.records, m.records);
   assert.deepEqual(entry.taskExt, m.taskExt);
   const js = fs.readFileSync(path.join(fx.pluginsDir, "timeline", "plugin.js"), "utf8");
   for (const p of ["cpm.js", "plan.js"]) assert.ok(js.includes("// part: " + p + "\n"), p + " ikut dibundel");
   assert.ok(js.indexOf("const TLCpm = (function") < js.indexOf("const TLPlan = (function"), "TLCpm didefinisikan sebelum TLPlan");
   assert.equal(build.lintPlugin(js, entry), null);
-  // hash berubah: build yang sama tanpa part mesin (manifest 1.0.0) menghasilkan hash lain → cache SW pasti diganti
+  // hash berubah: build yang sama dengan manifest 1.1.0 (tanpa baseline/actual) dan 1.0.0 (tanpa part mesin)
+  // menghasilkan hash lain → cache SW pasti diganti
+  const v11 = copyTimeline(t);
+  fs.writeFileSync(path.join(v11.pluginsDir, "timeline", "manifest.json"), JSON.stringify(Object.assign({}, m, {
+    version: "1.1.0", records: { calendar: m.records.calendar, project: m.records.project }, taskExt: { keys: ["start", "duration", "deps", "mode", "constraint"] },
+  })));
+  assert.notEqual(entry.hash, build.buildPlugins(v11).index.plugins.find((p) => p.id === "timeline").hash);
   const old = copyTimeline(t);
   const mf = path.join(old.pluginsDir, "timeline", "manifest.json");
   fs.writeFileSync(mf, JSON.stringify(Object.assign({}, m, {

@@ -455,6 +455,23 @@
   border-left-color: var(--plg-timeline-danger);
 }
 
+/* 1c-2 Task 6 (§7.4): bar baseline 4 px di bawah bar + garis aktual 2 px di atas bar; tidak menangkap pointer */
+.plg-timeline-blbar {
+  position: absolute;
+  height: 4px;
+  z-index: 1;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--text-secondary) 45%, transparent);
+}
+
+.plg-timeline-actual {
+  position: absolute;
+  height: 2px;
+  z-index: 2;
+  background: var(--text-primary);
+  pointer-events: none;
+}
+
 /* panah dependensi: satu svg overlay jendela tampak */
 .plg-timeline-arrows {
   position: absolute;
@@ -634,6 +651,16 @@
   height: 12px;
   background: color-mix(in srgb, var(--plg-timeline-danger) 8%, transparent);
   border: 1px solid var(--border);
+}
+
+.plg-timeline-swatch.is-baseline {
+  height: 4px;
+  background: color-mix(in srgb, var(--text-secondary) 45%, transparent);
+}
+
+.plg-timeline-swatch.is-actual {
+  height: 2px;
+  background: var(--text-primary);
 }
 
 .plg-timeline-swatch.is-critical {
@@ -1386,6 +1413,62 @@
   color: var(--text-primary);
 }
 
+/* 1c-2 Task 7 tingkat 3: Mulai aktual / Selesai aktual, tabel "Baseline vs sekarang" */
+.plg-timeline-sec-actval {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.plg-timeline-sec-actual .plg-timeline-input {
+  max-width: 160px;
+}
+
+.plg-timeline-act-mark {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-sec-blbox {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.plg-timeline-sec-bltable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.plg-timeline-sec-bltable th,
+.plg-timeline-sec-bltable td {
+  padding: 3px 6px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.plg-timeline-sec-bltable thead th {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-sec-bltable tbody th {
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-sec-bldiff {
+  font-weight: 600;
+}
+
 .plg-timeline-pvcard {
   display: flex;
   flex-direction: column;
@@ -1755,5 +1838,98 @@
 }
 
 .plg-timeline-pv-broken {
+  color: var(--plg-timeline-danger);
+}
+
+/* ── 1c-2 Task 5: pemilih Baseline + dialog Simpan baseline (K41, P2 a) ──────────────────────────────────── */
+.plg-timeline-blpick {
+  width: 220px;
+  padding: 4px;
+  gap: 0;
+}
+
+.plg-timeline-bl-dlg {
+  width: 420px;
+}
+
+.plg-timeline-bl-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.plg-timeline-bl-units,
+.plg-timeline-bl-slots {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plg-timeline-bl-opt {
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  min-height: 32px;
+  padding: 6px 10px;
+  color: var(--text-primary);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plg-timeline-bl-opt:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-bl-opt.is-active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-card));
+  font-weight: 600;
+}
+
+.plg-timeline-bl-opt:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.plg-timeline-bl-opt:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.plg-timeline-bl-slot-date {
+  font-weight: 400;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-bl-name {
+  width: 100%;
+  font-size: 13px;
+}
+
+.plg-timeline-bl-confirm-text {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+/* Fix review T5: baris slot = pilihan slot + tombol Hapus (slot terisi terbaca). */
+.plg-timeline-bl-slot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.plg-timeline-bl-slot .plg-timeline-bl-opt {
+  flex: 1;
+  min-width: 0;
+}
+
+.plg-timeline-bl-del {
+  flex: none;
   color: var(--plg-timeline-danger);
 }

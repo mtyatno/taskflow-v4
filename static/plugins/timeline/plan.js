@@ -4,6 +4,7 @@
 // masukan (ctx, tasks, units, patch). Tanggal dijadwalkan HANYA oleh TLCpm.run atas data + patch (aliran = mesin dijalankan
 // ulang, bukan dihitung di sini); rumus dependensi lewat TLSched (satu sumber, R4); urutan = result.order (topologis) lalu
 // TLCpm.cmpKey. ctx = {tasks, cal, units, readExt} = masukan run().
+// 1c-2 (K41): kodek baseline (encode/decode/ukuran) + pembanding rencana-vs-baseline — murni, tanpa tulisan.
 const TLPlan = (function (CAL, SCHED, CPM) {
   const CASCADE_MAX = 20; // K32: turunan berubah > 20 → pratinjau dulu
   const SPAN_MAX = 3660; // rentang hari kalender maks untuk hitung Δ hk (pola MAX_LATE_SPAN)
@@ -18,8 +19,10 @@ const TLPlan = (function (CAL, SCHED, CPM) {
   const keyOf = (t) => (isObj(t) && t.id !== undefined && t.id !== null ? String(t.id) : null);
   const clone = (v) => (v === undefined ? null : JSON.parse(JSON.stringify(v)));
   const startDn = (s) => (typeof s === "string" ? CAL.dn(s) : NaN); // Mulai tersimpan sah → bilangan hari, selain itu NaN
-  // Sama dengan isStarted di cpm.js (penanda "sudah mulai" K30).
-  const isStarted = (t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0;
+  // Penanda "sudah mulai" K30 (1c-2): progress/pomodoro ATAU actual.start tercatat (TLSched.actualOf atas ext mentah —
+  // satu-satunya pembaca aktual). Dipakai reschedule untuk task Manual (task otomatis: n.fixed === "started" dari mesin).
+  const hasActualStart = (ctx, t) => SCHED.actualOf(t, rawOf(ctx, t)).start !== null;
+  const isStarted = (ctx, t) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0 || hasActualStart(ctx, t);
 
   function safe(fn) {
     try {
@@ -238,11 +241,13 @@ const TLPlan = (function (CAL, SCHED, CPM) {
 
   // reschedule (K36, R17): T = bilangan hari (atau ISO) hari kerja pertama ≥ hari ini; unitKeys = Set recId unit halaman.
   // Per simpul unit halaman (tak selesai, terhitung), urut topologis:
-  //  - sudah mulai (jangkar "started", atau Manual dengan progress/pomodoro), durasi ≥ 1, EF < T → Mulai tetap,
+  //  - sudah mulai (jangkar "started", atau Manual dengan progress/pomodoro/actual.start — K30), durasi ≥ 1, EF < T → Mulai tetap,
   //    duration = hari kerja Mulai..add(T, r − 1), r = max(1, ⌈d × (1 − progress/100)⌉), dijepit ≤ 999;
   //  - milestone (d = 0) yang sudah mulai ikut cabang belum-mulai (amandemen K36): durasi TIDAK pernah ditulis
   //    (berlian tidak boleh diam-diam menjadi bar). Otomatis → constraint SNET T + start T (start ditulis eksplisit karena
   //    jangkar "started" mesin berdiri di Mulai tersimpan; tanpa itu SNET tidak berpengaruh); Manual → start T;
+  //    1c-2: milestone OTOMATIS ber-actual.start DILEWATI seluruhnya — jangkar mesin = actual.start, jadi start/SNET
+  //    inert; Manual ber-actual.start tetap start T (jangkar Manual = tanggal tersimpan, tulisan efektif);
   //  - belum mulai dan Mulai (ES) < T → Manual: start T (milestone ikut); otomatis non-jangkar: constraint SNET T
   //    (+ start hasil mesin); lingkaran/MFO otomatis tidak disentuh.
   // Lalu aliran tanpa ambang (penerus otomatis ikut; penerus Manual tidak dipindah). broken = pelanggaran BARU dengan
@@ -257,7 +262,7 @@ const TLPlan = (function (CAL, SCHED, CPM) {
       const n = result.nodes.get(k);
       if (!unitKeys.has(n.g) || n.es === null || n.fixed === "done") continue;
       const task = n.task;
-      const started = n.fixed === "started" || (n.mode === "manual" && isStarted(task));
+      const started = n.fixed === "started" || (n.mode === "manual" && isStarted(ctx, task));
       if (started && n.d >= 1) {
         if (n.ef >= t) continue;
         const p = Math.min(100, Math.max(0, Number(task.progress) || 0));
@@ -270,7 +275,10 @@ const TLPlan = (function (CAL, SCHED, CPM) {
       }
       if (n.es >= t) continue;
       if (n.mode === "manual") patches.set(k, { task, patch: { start: tIso } });
-      else if (started) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso }, start: tIso } });
+      else if (started) {
+        if (hasActualStart(ctx, task)) continue; // jangkar aktual menang: tulisan inert (K30/K36)
+        patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso }, start: tIso } });
+      }
       else if (!n.fixed) patches.set(k, { task, patch: { constraint: { type: "SNET", date: tIso } } });
     }
     const r = flow(ctx, patches, ctx.units, () => [...patches.keys()], result);
@@ -419,7 +427,139 @@ const TLPlan = (function (CAL, SCHED, CPM) {
     });
   }
 
-  return Object.freeze({ CASCADE_MAX, diff, cascade, toggleUnit, reschedule, gesture, modePatch, preview, revalidate, undoItems });
+  // ---- Baseline (1c-2, K41) ----
+  // Record `baseline`: {v: 1, n, name, savedAt, by, t: [[ref, s, f, d, w], …]} — larik ringkas ±48 B/task.
+  // ref = {$task: id task MENTAH} (sama dengan api.taskExt.ref: id server bilangan bulat, atau cid string untuk task yang
+  // dibuat offline — host menahan record lalu menulis ulang ref ke id server; server menolak $task string angka).
+  // Kunci baris = TLSched.refKey(ref) = String(id) = kunci simpul mesin.
+
+  // Ukuran byte UTF-8 dari string JSON (sama dengan TextEncoder host untuk string yang well-formed; JSON.stringify
+  // meng-escape surrogate tunggal, jadi yang tersisa hanya pasangan sah = 4 byte).
+  function utf8Len(str) {
+    let n = 0;
+    for (let i = 0; i < str.length; i++) {
+      const u = str.charCodeAt(i);
+      if (u < 0x80) n += 1;
+      else if (u < 0x800) n += 2;
+      else if (u >= 0xd800 && u <= 0xdbff && i + 1 < str.length) {
+        const lo = str.charCodeAt(i + 1);
+        if (lo >= 0xdc00 && lo <= 0xdfff) {
+          n += 4;
+          i++;
+        } else n += 3;
+      } else n += 3;
+    }
+    return n;
+  }
+
+  // baselineByteSize: ukuran JSON ringkas UTF-8 (yang dibandingkan dengan BL_MAX / maxBytes record).
+  function baselineByteSize(data) {
+    const s = JSON.stringify(data);
+    return typeof s === "string" ? utf8Len(s) : 0;
+  }
+
+  // Bobot w = estimated_pomodoros (earned value 1d): bilangan bulat ≥ 0; tak ada/tak sah → 0 (satu byte, setara
+  // "tanpa bobot" untuk earned value).
+  const weightOf = (t) => (Number.isInteger(t.estimated_pomodoros) && t.estimated_pomodoros >= 0 ? t.estimated_pomodoros : 0);
+
+  // baselineEncode (K41): isi = simpul mesin TERJADWAL (es/ef terhitung) non-ringkasan, termasuk selesai (jangkar
+  // aktual); g (opsional) = recId unit jadwal (n.g) — tanpa g → semua simpul hasil. Urut cmpKey kunci simpul
+  // (deterministik lintas perangkat). meta {n, name, savedAt, by} disalin apa adanya (validasi slot/nama di pemanggil).
+  // → {data, bytes, count}; bytes > BL_MAX ditolak pemanggil ("Baseline terlalu besar").
+  function baselineEncode(result, ctx, meta, g) {
+    const m = isObj(meta) ? meta : {};
+    const picked = [];
+    if (isResult(result)) {
+      const sums = result.summaries instanceof Map ? result.summaries : new Map();
+      for (const [k, n] of result.nodes) {
+        if (!isDn(n.es) || !isDn(n.ef) || sums.has(k)) continue;
+        if (g !== undefined && g !== null && n.g !== g) continue;
+        picked.push(n);
+      }
+    }
+    picked.sort((a, b) => cmpKey(a.key, b.key));
+    const t = picked.map((n) => {
+      const id = n.task.id;
+      return [{ $task: Number.isInteger(id) ? id : n.key }, CAL.iso(n.es), CAL.iso(n.ef), n.d, weightOf(n.task)];
+    });
+    const data = { v: 1, n: m.n, name: m.name, savedAt: m.savedAt, by: m.by === undefined ? null : clone(m.by), t };
+    return { data, bytes: baselineByteSize(data), count: t.length };
+  }
+
+  const isoDn = (s) => (typeof s === "string" && CAL.isIso(s) ? CAL.dn(s) : NaN);
+
+  // baselineDecode (Review Focus 3): v ≠ 1, bukan objek, t bukan larik, n bukan 1–3 → null. Entri rusak (bukan larik,
+  // < 4 elemen, ref tak terpecahkan — null dari host / bukan {$task} sah —, tanggal tak sah, f < s, durasi tak sah)
+  // DILEWATI; ref ganda → yang pertama menang. w tidak dibaca (1d). → {n, name, savedAt, by, rows: Map<key, {s, f, d}>}.
+  function baselineDecode(data) {
+    if (!isObj(data) || data.v !== 1 || !Array.isArray(data.t) || [1, 2, 3].indexOf(data.n) < 0) return null;
+    const rows = new Map();
+    for (const e of data.t) {
+      if (!Array.isArray(e) || e.length < 4) continue;
+      const key = SCHED.refKey(e[0]);
+      if (key === null || rows.has(key)) continue;
+      const s = isoDn(e[1]);
+      const f = isoDn(e[2]);
+      if (!isDn(s) || !isDn(f) || f < s || !isDur(e[3])) continue;
+      rows.set(key, { s, f, d: e[3] });
+    }
+    return {
+      n: data.n,
+      name: typeof data.name === "string" ? data.name : "",
+      savedAt: typeof data.savedAt === "string" ? data.savedAt : null,
+      by: data.by === undefined ? null : clone(data.by),
+      rows,
+    };
+  }
+
+  // compareBaseline: per baris baseline (urut cmpKey) → kunci kanonik lewat TLSched.buildIndex(ctx.tasks) (cid/id server
+  // → String(task.id)) → simpul terjadwal di result. Tak terpecahkan / bukan simpul terjadwal (dihapus, diarsip, di luar
+  // scope, tanpa Mulai) → dilewati. ds/df = selisih hari kerja bertanda baseline → sekarang dengan kalender ctx.cal
+  // (positif = mundur; aturan wdDelta sama dengan deltaHk), dd = d sekarang − d baseline. group per n.g simpul yang
+  // cocok: blEnd = maks f baseline yang cocok, nowEnd = result.groupEnd (selesai project sekarang, sama dengan preview).
+  function compareBaseline(result, dec, ctx) {
+    const perTask = new Map();
+    const group = new Map();
+    if (!isResult(result) || !isObj(dec) || !(dec.rows instanceof Map) || !isObj(ctx)) return { perTask, group };
+    const c = ctx.cal;
+    const idx = SCHED.buildIndex(Array.isArray(ctx.tasks) ? ctx.tasks : []);
+    const ends = result.groupEnd instanceof Map ? result.groupEnd : new Map();
+    for (const rk of [...dec.rows.keys()].sort(cmpKey)) {
+      const b = dec.rows.get(rk);
+      const t = idx.get(rk);
+      const key = t ? String(t.id) : rk;
+      const n = result.nodes.get(key);
+      if (!n || !isDn(n.es) || !isDn(n.ef) || perTask.has(key) || !isObj(b)) continue;
+      const ds = wdDelta(c, b.s, n.es);
+      const df = wdDelta(c, b.f, n.ef);
+      if (ds === null || df === null || !isDur(b.d)) continue;
+      perTask.set(key, { ds, df, dd: n.d - b.d });
+      const cur = group.get(n.g);
+      if (!cur) group.set(n.g, { blEnd: b.f, nowEnd: isDn(ends.get(n.g)) ? ends.get(n.g) : null });
+      else if (b.f > cur.blEnd) cur.blEnd = b.f;
+    }
+    return { perTask, group };
+  }
+
+  const BL_MAX = 65536; // K41: maxBytes record baseline
+
+  return Object.freeze({
+    CASCADE_MAX,
+    BL_MAX,
+    diff,
+    cascade,
+    toggleUnit,
+    reschedule,
+    gesture,
+    modePatch,
+    preview,
+    revalidate,
+    undoItems,
+    baselineEncode,
+    baselineByteSize,
+    baselineDecode,
+    compareBaseline,
+  });
 })(
   typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"),
   typeof TLSched !== "undefined" ? TLSched : require("./schedule.js"),
