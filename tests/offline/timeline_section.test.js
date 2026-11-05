@@ -164,7 +164,9 @@ function fakeApi(o) {
       onChange: (fn) => { recListeners.add(fn); return () => recListeners.delete(fn); },
     },
     events: {
-      on(name, fn) { calls.events.push(name); (calls.handlers[name] = calls.handlers[name] || []).push(fn); return () => {}; },
+      on(name, fn) { calls.events.push(name); (calls.handlers[name] = calls.handlers[name] || []).push(fn); return () => { calls.handlers[name] = calls.handlers[name].filter((f) => f !== fn); }; },
+      // 1c-2 Task 8: bus bersama (pelacak aktual memancarkan timeline.actualRecorded ke seksi)
+      emit(name, p) { for (const f of (calls.handlers[name] || []).slice()) f(Object.freeze(Object.assign({}, p))); },
     },
     env: { today: () => "2026-11-04", online: true, userId: 1 },
     storage: {
@@ -2094,4 +2096,52 @@ test("fix T7: simpanan tertunda membaca actual TERKINI — ubah selesai selama j
   assert.equal(actVal(s.tree, "start"), "Sel 3 Nov");
   assert.equal(actVal(s.tree, "finish"), "Jum 6 Nov");
   assert.equal(s.calls.setMany.length, 0);
+});
+
+// ── 1c-2 Task 8 (K42 diamandemen): pelacak aktual + seksi terpasang berbagi satu bus ───────────────────────────────
+// Progress naik dari 0 / status selesai yang TIBA lewat props/daftar (refresh, sinkron) BUKAN pemicu → 0 tulis. Event host
+// pomodoro.ended → recordActual SATU set; seksi terpasang memuat ulang daftar (baca saja) lewat timeline.actualRecorded
+// sehingga nilai tersimpannya mutakhir (mencegah ubah selesai berikutnya menimpa mulai yang baru dicatat).
+test("T8 seksi: progress 0→20 / selesai lewat props+sync.done → 0 tulis; pomodoro.ended → satu set; seksi muat ulang → 'Mulai aktual' tampil; ubah selesai membawa mulai baru", async () => {
+  const m = mock7(null, { progress: 0 });
+  const live = m.tasks.map((t) => JSON.parse(JSON.stringify(t)));
+  let n = 0;
+  const s = await open7(m, { ui: {
+    listImpl: () => Promise.resolve(JSON.parse(JSON.stringify(live))),
+    set: (id, patch) => {
+      const t = live.find((x) => String(x.id) === String(id));
+      t.ext = Object.assign({}, t.ext);
+      for (const k of Object.keys(patch)) { if (patch[k] === null) delete t.ext["timeline." + k]; else t.ext["timeline." + k] = patch[k]; }
+      t.updated_at = "2026-11-05T0" + ++n + ":00:00Z";
+      return Promise.resolve(t);
+    },
+  } });
+  const off = T.installActualTracking(s.f.api);
+  try {
+    assert.ok(txt(actPart(s.tree, "start")).includes("Belum dicatat"));
+    // progress dan status berubah TIBA dari luar (props baru + sync.done) → 0 tulis
+    s.render(Object.assign({}, m.self, { progress: 20, updated_at: "2026-11-05T00:10:00Z" }));
+    s.calls.handlers["sync.done"][0]({ initial: false });
+    await s.settle();
+    s.render(Object.assign({}, m.self, { progress: 100, gtd_status: "done", completed_at: "2026-11-05T00:20:00Z", updated_at: "2026-11-05T00:20:00Z" }));
+    await s.settle();
+    assert.equal(writes(s), 0, "diff data bukan pemicu");
+    // event host gestur lokal → satu set, lalu seksi memuat ulang
+    const lists = s.calls.list.length;
+    s.f.api.events.emit("pomodoro.ended", { taskId: 20, kind: "session", pomodoros: 1, focusSeconds: 1500, endedAt: "2026-11-05T03:00:00Z" });
+    await sleep(5);
+    await s.settle();
+    assert.deepEqual(s.calls.set, [[20, { actual: { start: "2026-11-05" } }]]);
+    assert.ok(s.calls.list.length > lists, "seksi memuat ulang daftar");
+    assert.equal(actVal(s.tree, "start"), "Kam 5 Nov");
+    // ubah selesai di seksi → membawa mulai yang baru dicatat (bukan menimpanya)
+    actInput(s.tree, "finish").props.onBlur(ev("2026-11-06"));
+    s.render();
+    assert.deepEqual(s.calls.set[1], [20, { actual: { start: "2026-11-05", finish: "2026-11-06" } }]);
+    assert.equal(s.calls.setMany.length, 0);
+    s.m.unmount();
+    assert.equal((s.calls.handlers["timeline.actualRecorded"] || []).length, 0, "pendengar seksi dilepas saat lepas");
+  } finally {
+    off();
+  }
 });

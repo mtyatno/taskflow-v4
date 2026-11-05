@@ -719,3 +719,37 @@ test("api.taskExt.set mode/constraint lolos validasi host (ukuran)", async () =>
 function T13iso(i) {
   return new Date(Date.UTC(2026, 10, 2) + (i % 60) * 864e5).toISOString().slice(0, 10);
 }
+
+// ── 1c-2 Task 8 (K42 diamandemen): event host NYATA → recordActual lewat api.taskExt nyata ─────────────────────────
+test("T8 runtime nyata: TF.events pomodoro.ended (pendengar terpasang di factory) → actual.start = hari Jakarta endedAt; ulang → 0 tulis; task.completed ber-start → 0; sync.done → 0; plugin OFF → pendengar lepas", async () => {
+  await enableAndLoad();
+  const api = RT.api.for("timeline");
+  const ra = await repo.createTask({ title: "A" }, { today: "2026-11-01" });
+  const rb = await repo.createTask({ title: "B" }, { today: "2026-11-01" });
+  const a = idOf(ra);
+  const b = idOf(rb);
+  const extOf = async (id) => api.taskExt.read((await api.data.tasks.list({ includeDone: true })).find((t) => t.id === id));
+  RT.events.emit("pomodoro.ended", { taskId: a, kind: "session", pomodoros: 1, focusSeconds: 1500, endedAt: "2026-11-04T18:30:00.000Z" });
+  await until(async () => "actual" in (await extOf(a)), "actual A tertulis");
+  assert.deepEqual(J(await extOf(a)), { actual: { start: "2026-11-05" } });
+  const rev = (await repo.getRaw(ra.cid)).rev;
+  assert.deepEqual((await repo.getRaw(ra.cid)).ext_dirty, ["timeline.actual"]);
+  // ulang (replay) + task.completed task ber-start + sync.done → 0 tulis (rev tetap)
+  RT.events.emit("pomodoro.ended", { taskId: a, kind: "session", pomodoros: 1, focusSeconds: 1500, endedAt: "2026-11-06T03:00:00.000Z" });
+  RT.events.emit("task.completed", { taskId: a, completedAt: "2026-11-06T03:00:00.000Z" });
+  RT.events.emit("sync.done", { initial: false });
+  for (let i = 0; i < 20; i++) await tick();
+  assert.equal((await repo.getRaw(ra.cid)).rev, rev, "0 tulis");
+  assert.deepEqual(J(await extOf(a)), { actual: { start: "2026-11-05" } });
+  // task.completed task tanpa start, tanpa completedAt → api.env.today()
+  RT.events.emit("task.completed", { taskId: b });
+  await until(async () => "actual" in (await extOf(b)), "actual B tertulis");
+  assert.deepEqual(J(await extOf(b)), { actual: { start: api.env.today() } });
+  assert.equal(P.failures("timeline").length, 0);
+  // OFF → pendengar dilepas (offAll): event berikutnya tidak menulis
+  const rc = await repo.createTask({ title: "C" }, { today: "2026-11-01" });
+  await P.setEnabled("timeline", false);
+  RT.events.emit("pomodoro.ended", { taskId: idOf(rc), kind: "session", pomodoros: 1, focusSeconds: 1500, endedAt: "2026-11-05T03:00:00.000Z" });
+  for (let i = 0; i < 20; i++) await tick();
+  assert.ok(!((await repo.getRaw(rc.cid)).ext || {})["timeline.actual"], "OFF → 0 tulis");
+});

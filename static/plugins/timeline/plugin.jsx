@@ -4345,6 +4345,8 @@ function ScheduleBody(props) {
   const srcRaw = info === task ? propRaw : readExtSafe(api, info);
   const srcKey = info === task ? propKey : stableKey(srcRaw);
   const writeId = listedSelf && listedSelf.id !== undefined && listedSelf.id !== null ? listedSelf.id : tid;
+  const actIds = React.useRef(null);
+  actIds.current = { tid: String(tid), wid: String(writeId) };
 
   // R17 state lokal optimistis: di-seed ulang saat task.id berganti, atau saat ext sumber terbaru (props atau daftar)
   // berubah selama tidak ada tulis berjalan dan tidak ada draf input. Sumber yang sudah menyusul (sama dengan lokal)
@@ -4392,14 +4394,21 @@ function ScheduleBody(props) {
   }, [api, tid, propKey]);
   React.useEffect(() => {
     let off = null;
+    let offAct = null;
     try {
       off = api.events.on("sync.done", () => { loadAll(); });
+      // 1c-2 Task 8: pelacak aktual menulis task ini → muat ulang daftar (baca saja) agar nilai tersimpan mutakhir.
+      offAct = api.events.on(ACT_EVENT, (p) => {
+        const ids = actIds.current;
+        if (p && (String(p.taskId) === ids.tid || String(p.taskId) === ids.wid)) loadAll();
+      });
     } catch (e) {
       logWarn(api, "pendengar sync.done gagal:", e);
     }
     return () => {
       loadRef.current.alive = false;
       if (typeof off === "function") off();
+      if (typeof offAct === "function") offAct();
     };
   }, [api]);
   const refreshSoon = () => {
@@ -5578,9 +5587,101 @@ function TimelineView(props) {
   return React.createElement(memoView(), props);
 }
 
+// ── 4h. Pencatatan mulai aktual otomatis (1c-2 Task 8; K42 DIAMANDEMEN) ────────────────────────────────────
+// Pemicu HANYA dua event host gestur lokal di perangkat ini: `pomodoro.ended` (sesi/overtime tercatat) dan
+// `task.completed` (handleDone App). Keduanya dipasang di factory → aktif selama plugin dieksekusi di sesi (lazy-execute,
+// README §4); OFF → runtime melepas (offAll). Pemicu "progress naik dari 0" DIBUANG: host tidak memancarkan event progres,
+// dan diff data (props/daftar) tidak bisa membedakan ketukan lokal dari sinkron — R25 (tidak ada tulisan dari sinkron)
+// menang atas kata-kata K42. Jalur cadangan = tombol "Catat hari ini" (Task 7).
+// Tanggal = hari Asia/Jakarta dari endedAt / completedAt (TLSched.jkt) bila sah, selain itu api.env.today(): replay sesi
+// basi saat mount (index.html :11459) mencatat hari sesi itu (jujur, idempoten), sesi lintas tengah malam ikut WIB.
+const ACT_EVENT = "timeline.actualRecorded"; // seksi terpasang memuat ulang daftar (baca saja)
+
+function eventDay(api, v) {
+  const n = TLSched.jkt(v);
+  return n === null ? safeToday(api) : TLCal.iso(n);
+}
+
+function sameTaskId(t, key) {
+  return !!t && (String(t.id) === key || (t.cid !== undefined && t.cid !== null && String(t.cid) === key));
+}
+
+// SATU-SATUNYA penulis otomatis (pagar R25 `recordActual:taskExt.set`). "Isi bila kosong": ext task dibaca SEGAR lewat
+// api.data.tasks.list (bukan cache view/seksi); actual.start sudah ada, atau `actual` tersimpan tapi rusak/asing (mis. klien
+// lebih baru) → 0 tulis. Selain itu satu set {actual: {start: day} + finish TERSIMPAN dibawa} (semantik gabung Task 7);
+// finish turunan (completed_at) tidak pernah dibekukan, finish tidak pernah ditulis dari sini. start > finish tersimpan →
+// sanitizePatch menolak → 0 tulis. Task tak dikenal / berulang → 0 tulis. Resolve true bila menulis; gagal → reject
+// (pemanggil mencatat diam-diam — tanpa toast, karena pengguna tidak menekan apa pun).
+function recordActual(api, taskId, day) {
+  const key = String(taskId);
+  return Promise.resolve()
+    .then(() => api.data.tasks.list({ includeDone: true }))
+    .then((list) => {
+      const arr = Array.isArray(list) ? list : [];
+      const task = arr.find((t) => String(t && t.id) === key) || arr.find((t) => sameTaskId(t, key));
+      if (!task || task.recurrence_type || day === null) return false;
+      const raw = readExtSafe(api, task);
+      const has = raw.actual !== undefined && raw.actual !== null;
+      const act = TLSched.actualOf(task, raw);
+      if (act.start !== null) return false;
+      const next = { start: day };
+      if (act.finish !== null && !act.finishDerived) next.finish = TLCal.iso(act.finish);
+      else if (has) return false; // actual tersimpan tak terbaca (rusak/asing) = bukan kosong
+      const san = TLSched.sanitizePatch({ actual: next });
+      if (!san.ok) return false;
+      return Promise.resolve(api.taskExt.set(task.id, san.patch)).then(() => {
+        try {
+          api.events.emit(ACT_EVENT, { taskId: task.id });
+        } catch (e) {
+          logWarn(api, "pemberitahuan aktual gagal:", e);
+        }
+        return true;
+      });
+    });
+}
+
+// Pasang dua pendengar host; kembalikan pelepas. Pemanggilan per task diantrekan (event beruntun task yang sama membaca
+// tulisan sebelumnya → 0 tulis kedua). Pendengar tidak pernah melempar ke bus (error dihitung runtime sebagai kegagalan
+// plugin): payload rusak diabaikan, kegagalan baca/tulis dicatat api.log.warn tanpa toast.
+function installActualTracking(api) {
+  const queue = new Map();
+  const track = (taskId, when) => {
+    if (!((typeof taskId === "number" && Number.isFinite(taskId)) || (typeof taskId === "string" && taskId !== ""))) return;
+    const key = String(taskId);
+    const day = eventDay(api, when);
+    const prev = queue.get(key) || Promise.resolve();
+    const run = prev
+      .then(() => recordActual(api, taskId, day))
+      .then(null, (e) => logWarn(api, "mulai aktual gagal dicatat:", e));
+    queue.set(key, run);
+    run.then(() => {
+      if (queue.get(key) === run) queue.delete(key);
+    });
+  };
+  const handler = (field) => (p) => {
+    try {
+      if (p && typeof p === "object") track(p.taskId, p[field]);
+    } catch (e) {
+      logWarn(api, "pendengar aktual gagal:", e);
+    }
+  };
+  const offs = [];
+  try {
+    offs.push(api.events.on("pomodoro.ended", handler("endedAt")));
+    offs.push(api.events.on("task.completed", handler("completedAt")));
+  } catch (e) {
+    logWarn(api, "pendengar aktual gagal dipasang:", e);
+  }
+  return () => {
+    for (const off of offs) if (typeof off === "function") off();
+    offs.length = 0;
+  };
+}
+
 // ── 5. Ekspor Node + registrasi ─────────────────────────────────────────────
 const pure = {
   calendarStore, calTarget, projectStore, recordEvent, PRJ_ENTITY, NO_UNIT, useUnits, useEngine,
+  installActualTracking, recordActual, ACT_EVENT,
   baselineStore, useBaselines, blRecId, BL_ENTITY, BL_NO_SNAP, MSG_BL_TOO_LARGE, MSG_BL_WAIT, RELOAD_TIMING, engineKeyOf, prefKey, cleanPref, PREF_DEFAULTS, PREF_CHOICES,
   CAL_ENTITY, CAL_MAX_BYTES, MSG_CAL_TOO_LARGE, MSG_CAL_LOST, SEC_TIMING,
   MSG_EMPTY, MSG_VIOLATION, MSG_SCHEDULE_HINT, LEGEND, ZOOMS, COLS_FULL, COLS_COMPACT,
@@ -5595,6 +5696,7 @@ if (typeof module !== "undefined" && module.exports) module.exports = Object.ass
 const host = typeof window !== "undefined" ? window : null;
 if (host && host.TF && host.TF.plugins) {
   host.TF.plugins.register(manifest, function factory(api) {
+    installActualTracking(api); // dilepas runtime saat OFF (events.offAll); factory dipanggil ulang saat ON lagi
     return {
       slots: {
         "taskList.views": [{ id: "gantt", component: TimelineView }],

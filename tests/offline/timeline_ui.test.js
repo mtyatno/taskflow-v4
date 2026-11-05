@@ -3325,7 +3325,9 @@ test("spy taskExt.set/setMany + records.put/remove = 0 (view + useBaselines terp
 // berada di dalam badan fungsi bernama issue|issueMany|write|writeMany|setAuto|save|saveBaseline (1c-2 Task 4: +saveBaseline,
 // dan records.remove ikut dipagari sejak ada pemanggilnya); tanpa alias (`const te = api.taskExt`), akses
 // terhitung (`api["taskExt"]`), atau destrukturisasi yang bisa melewati pagar.
-const FENCE_ALLOW = new Set(["issue", "issueMany", "write", "writeMany", "setAuto", "save", "saveBaseline"]);
+// 1c-2 Task 8: +recordActual — satu-satunya penulis OTOMATIS (dipicu event host gestur lokal pomodoro.ended/task.completed,
+// "isi bila kosong" {actual:{start}}); spy perilaku memastikan sync.done/pulled/onChange/refresh tetap 0 tulis.
+const FENCE_ALLOW = new Set(["issue", "issueMany", "write", "writeMany", "setAuto", "save", "saveBaseline", "recordActual"]);
 function fenceScan(code) {
   const parser = require("@babel/parser");
   const ast = parser.parse(code, { sourceType: "script" });
@@ -3376,7 +3378,7 @@ function fenceScan(code) {
   return { hits, bad };
 }
 
-test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.put(' / 'records.remove(' berada di dalam fungsi issue|issueMany|write|writeMany|setAuto|save|saveBaseline", () => {
+test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.put(' / 'records.remove(' berada di dalam fungsi issue|issueMany|write|writeMany|setAuto|save|saveBaseline|recordActual", () => {
   // pagar memeriksa dirinya sendiri: pelanggaran sintetis harus tertangkap, pola sah tidak
   const caught = (src) => fenceScan(src).bad.length > 0;
   assert.ok(caught("function useX(api) { api.records.put('project', 'x', {}, {}); }"), "fungsi lain");
@@ -3388,6 +3390,8 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
   assert.ok(caught("function f(api) { api.records['put']('a'); }"), "metode terhitung");
   assert.ok(caught("const s = { remove(api) { return api.records.remove('baseline', 'b'); } };"), "records.remove di luar daftar-izin");
   assert.ok(caught("function useBaselines(api) { React.useEffect(() => { api.records.remove('baseline', 'b'); }); }"), "records.remove di efek");
+  assert.ok(caught("function install(api) { api.events.on('sync.done', () => api.taskExt.set(1, {actual: {}})); }"), "pendengar event di luar recordActual");
+  assert.ok(caught("function recordActuals(api) { api.taskExt.set(1, {}); }"), "nama mirip bukan daftar-izin");
   const okSrc = "function issue(api) { const send = () => api.taskExt.setMany([]); return send() || api.taskExt.set(1, {}); }" +
     "const o = { save(api) { return api.records.put('calendar', 'c', {}, {}); }, setAuto(api) { return api.records.put('project', 'p', {}, {}); } };" +
     "function S(api) { const write = (p) => api.taskExt.set(1, p); return write; }" +
@@ -3408,6 +3412,7 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
     "writeMany:taskExt.setMany": 1, // 1c-1 Task 11: tulis massal seksi Jadwal (Mode, Perbarui, Urungkan)
     "save:records.put": 1, "setAuto:records.put": 1,
     "saveBaseline:records.put": 1, "saveBaseline:records.remove": 1, // 1c-2 Task 4: simpan/hapus baseline (K41)
+    "recordActual:taskExt.set": 1, // 1c-2 Task 8: catat mulai aktual dari pomodoro.ended/task.completed (K42 diamandemen)
   });
   // regex mentah tetap cocok dengan jumlah hit AST (tidak ada pemanggilan yang luput dari parser)
   const raw = (code.match(/taskExt\.set\(|taskExt\.setMany\(|records\.put\(|records\.remove\(/g) || []).length;
@@ -6141,3 +6146,236 @@ test("fix T7: kunci pref bl dilipat huruf kecil A–Z saja (NOCASE host); jenis 
     h.restore();
   }
 }));
+
+// ── 1c-2 Task 8 (K42 + amandemen koordinator): pencatatan mulai aktual otomatis HANYA dari event host gestur lokal
+// `pomodoro.ended` dan `task.completed` (pemicu "progress naik dari 0" DIBUANG — diff data tidak bisa membedakan lokal
+// dari sinkron; R25 menang). recordActual = SATU-SATUNYA penulis otomatis, "isi bila kosong", tidak pernah menulis finish.
+function trackApi(tasks, o) {
+  const opts = o || {};
+  const live = tasks; // daftar "IndexedDB": set memperbarui ext di tempat (pembacaan berikutnya melihat tulisan)
+  const writes = [];
+  const emitted = [];
+  const warn = [];
+  const toast = [];
+  const handlers = {};
+  let lists = 0;
+  const api = {
+    id: "timeline",
+    events: {
+      on(name, fn) { (handlers[name] = handlers[name] || []).push(fn); return () => { handlers[name] = handlers[name].filter((f) => f !== fn); }; },
+      emit(name, p) { emitted.push([name, p]); for (const f of (handlers[name] || []).slice()) f(Object.freeze(Object.assign({}, p))); },
+    },
+    taskExt: {
+      read(t) {
+        const out = {};
+        for (const k of Object.keys((t && t.ext) || {})) if (k.indexOf("timeline.") === 0) out[k.slice(9)] = JSON.parse(JSON.stringify(t.ext[k]));
+        return out;
+      },
+      set(id, patch) {
+        writes.push(["set", id, JSON.parse(JSON.stringify(patch))]);
+        if (opts.setFail) return Promise.reject(new Error("gagal"));
+        const t = live.find((x) => String(x.id) === String(id));
+        if (t) {
+          t.ext = Object.assign({}, t.ext);
+          for (const k of Object.keys(patch)) { if (patch[k] === null) delete t.ext["timeline." + k]; else t.ext["timeline." + k] = patch[k]; }
+        }
+        return Promise.resolve(t);
+      },
+      setMany(items) { writes.push(["setMany", items]); return Promise.resolve([]); },
+      ref: (t) => ({ $task: t.id }),
+    },
+    data: { tasks: { list: (q) => { lists += 1; assert.deepEqual(q, { includeDone: true }); return opts.listFail ? Promise.reject(new Error("x")) : Promise.resolve(JSON.parse(JSON.stringify(live))); } } },
+    env: { today: () => opts.today || "2026-11-05", online: true },
+    ui: { toast: (...a) => toast.push(a) },
+    log: { info() {}, warn: (...a) => warn.push(a), error: (...a) => warn.push(a) },
+  };
+  const fire = (name, p) => { for (const f of (handlers[name] || []).slice()) f(Object.freeze(Object.assign({}, p))); };
+  return { api, writes, emitted, warn, toast, handlers, fire, lists: () => lists };
+}
+const settleTrack = async () => { for (let k = 0; k < 8; k++) await new Promise((r) => setImmediate(r)); }; // setImmediate: tidak dipalsukan mock.timers
+const POMO = (taskId, endedAt) => ({ taskId, kind: "session", pomodoros: 1, focusSeconds: 1500, endedAt });
+
+test("T8 pomodoro.ended task tanpa actual.start → satu set {actual:{start: hari Jakarta endedAt}}; dengan actual.start → 0 tulis", async () => {
+  const tasks = [mk(1, "A", {}), mk(2, "B", { actual: { start: "2026-11-02" } }), mk(3, "C", { start: "2026-11-02", duration: 3 })];
+  const h = trackApi(tasks);
+  const off = T.installActualTracking(h.api);
+  assert.equal(typeof off, "function");
+  assert.equal(h.handlers["pomodoro.ended"].length, 1);
+  assert.equal(h.handlers["task.completed"].length, 1);
+  assert.deepEqual(Object.keys(h.handlers).sort(), ["pomodoro.ended", "task.completed"], "tidak ada pendengar sync.done/app.dayChanged");
+  h.fire("pomodoro.ended", POMO(1, "2026-11-05T03:00:00.000Z"));
+  await settleTrack();
+  assert.deepEqual(h.writes, [["set", 1, { actual: { start: "2026-11-05" } }]]);
+  assert.deepEqual(h.emitted, [["timeline.actualRecorded", { taskId: 1 }]], "seksi terpasang diberi tahu (muat ulang baca-saja)");
+  h.writes.length = 0;
+  h.fire("pomodoro.ended", POMO(2, "2026-11-05T03:00:00.000Z"));
+  await settleTrack();
+  assert.deepEqual(h.writes, [], "sudah ada actual.start → 0 tulis");
+  // task berjadwal tanpa actual: kunci jadwal lain tidak disentuh (patch hanya `actual`)
+  h.fire("pomodoro.ended", POMO(3, "2026-11-05T03:00:00.000Z"));
+  await settleTrack();
+  assert.deepEqual(h.writes, [["set", 3, { actual: { start: "2026-11-05" } }]]);
+  assert.deepEqual(h.toast, []);
+  off();
+  assert.deepEqual(Object.values(h.handlers).flat(), [], "off melepas kedua pendengar");
+});
+
+test("T8 tanggal: endedAt lintas tengah malam (18:30Z = 01:30 WIB besok) → hari Jakarta; replay sesi basi → tanggal sesi itu (jujur + idempoten); tanpa/rusak → api.env.today", async () => {
+  const tasks = [mk(1, "A", {}), mk(2, "B", {}), mk(3, "C", {}), mk(4, "D", {})];
+  const h = trackApi(tasks, { today: "2026-11-07" });
+  T.installActualTracking(h.api);
+  h.fire("pomodoro.ended", POMO(1, "2026-11-04T18:30:00.000Z"));
+  h.fire("pomodoro.ended", POMO(2, "2026-11-03T09:00:00Z")); // sesi hari sebelumnya dilaporkan saat mount (index.html :11459)
+  h.fire("pomodoro.ended", POMO(3, undefined));
+  h.fire("pomodoro.ended", POMO(4, "kemarin sore"));
+  await settleTrack();
+  const by = Object.fromEntries(h.writes.map((w) => [w[1], w[2].actual.start]));
+  assert.deepEqual(by, { 1: "2026-11-05", 2: "2026-11-03", 3: "2026-11-07", 4: "2026-11-07" });
+  // replay sesi basi yang sama (mount berikutnya) → 0 tulis
+  h.writes.length = 0;
+  h.fire("pomodoro.ended", POMO(2, "2026-11-03T09:00:00Z"));
+  await settleTrack();
+  assert.deepEqual(h.writes, []);
+});
+
+test("T8 task.completed: tanpa actual.start → satu set start = hari Jakarta completedAt (?? hari ini); task ber-actual.start → 0; finish TIDAK PERNAH ditulis", async () => {
+  const tasks = [
+    mk(1, "A", {}, { gtd_status: "done", completed_at: "2026-11-04T23:30:00Z" }),
+    mk(2, "B", { actual: { start: "2026-11-01" } }, { gtd_status: "done", completed_at: "2026-11-05T02:00:00Z" }),
+    mk(3, "C", {}),
+  ];
+  const h = trackApi(tasks);
+  T.installActualTracking(h.api);
+  h.fire("task.completed", { taskId: 1, completedAt: "2026-11-04T23:30:00.000Z" });
+  h.fire("task.completed", { taskId: 2, completedAt: "2026-11-05T02:00:00.000Z" });
+  h.fire("task.completed", { taskId: 3 });
+  await settleTrack();
+  assert.deepEqual(h.writes, [
+    ["set", 1, { actual: { start: "2026-11-05" } }],
+    ["set", 3, { actual: { start: "2026-11-05" } }],
+  ]);
+  for (const w of h.writes) assert.ok(!("finish" in w[2].actual), "finish tidak ditulis otomatis (turunan completed_at)");
+});
+
+test("T8 gabung: finish TERSIMPAN dibawa; start > finish tersimpan → ditolak sanitizePatch, 0 tulis; actual rusak/asing (bukan kosong) → 0 tulis", async () => {
+  const tasks = [
+    mk(1, "A", { actual: { finish: "2026-11-06" } }),
+    mk(2, "B", { actual: { finish: "2026-11-02" } }),
+    mk(3, "C", { actual: { start: "2026-11-01", catatan: "versi lebih baru" } }),
+    mk(4, "D", { actual: "2026-11-01" }),
+    mk(5, "E", { actual: null }),
+  ];
+  const h = trackApi(tasks);
+  T.installActualTracking(h.api);
+  for (const id of [1, 2, 3, 4, 5]) h.fire("pomodoro.ended", POMO(id, "2026-11-05T03:00:00Z"));
+  await settleTrack();
+  assert.deepEqual(h.writes, [
+    ["set", 1, { actual: { start: "2026-11-05", finish: "2026-11-06" } }],
+    ["set", 5, { actual: { start: "2026-11-05" } }],
+  ]);
+});
+
+test("T8 baca segar: ext dibaca ulang dari api.data.tasks.list tiap event (bukan cache) — dua event beruntun task sama → satu set; id cid/teks, task tak dikenal, berulang, payload rusak → 0", async () => {
+  const tasks = [mk(1, "A", {}), mk("c-77", "Lokal", {}, { cid: "c-77" }), mk(9, "Harian", {}, { recurrence_type: "daily" }), mk(12, "Server", {}, { cid: "c-12" })];
+  const h = trackApi(tasks);
+  T.installActualTracking(h.api);
+  h.fire("pomodoro.ended", POMO(1, "2026-11-05T03:00:00Z"));
+  h.fire("task.completed", { taskId: 1, completedAt: "2026-11-05T04:00:00Z" });
+  await settleTrack();
+  assert.equal(h.writes.length, 1, "event kedua membaca tulisan pertama (berurutan per task) → 0 tulis");
+  assert.ok(h.lists() >= 2, "setiap event membaca daftar segar");
+  h.writes.length = 0;
+  h.fire("pomodoro.ended", POMO("c-77", "2026-11-05T03:00:00Z"));
+  h.fire("pomodoro.ended", POMO("c-12", "2026-11-05T03:00:00Z")); // cid lama setelah task mendapat id server → id terkini
+  h.fire("pomodoro.ended", POMO(404, "2026-11-05T03:00:00Z"));
+  h.fire("pomodoro.ended", POMO(9, "2026-11-05T03:00:00Z"));
+  for (const bad of [{}, { taskId: null }, { taskId: "" }, { taskId: { id: 1 } }, null]) h.fire("pomodoro.ended", bad);
+  await settleTrack();
+  assert.deepEqual(h.writes.map((w) => w[1]), ["c-77", 12]);
+});
+
+test("T8 gagal diam: set ditolak / daftar gagal → tanpa toast, tanpa lempar ke bus (tidak dihitung error plugin), dicatat api.log.warn", async () => {
+  const h = trackApi([mk(1, "A", {})], { setFail: true });
+  T.installActualTracking(h.api);
+  assert.doesNotThrow(() => h.fire("pomodoro.ended", POMO(1, "2026-11-05T03:00:00Z")));
+  await settleTrack();
+  assert.equal(h.writes.length, 1);
+  assert.deepEqual(h.toast, []);
+  assert.equal(h.warn.length, 1);
+  assert.deepEqual(h.emitted, [], "gagal → seksi tidak diberi tahu");
+  const g = trackApi([mk(1, "A", {})], { listFail: true });
+  T.installActualTracking(g.api);
+  assert.doesNotThrow(() => g.fire("task.completed", { taskId: 1 }));
+  await settleTrack();
+  assert.deepEqual(g.writes, []);
+  assert.deepEqual(g.toast, []);
+  assert.equal(g.warn.length, 1);
+});
+
+test("T8 R25 spy: pelacak terpasang + view terpasang — sync.done, pulled, onChange, app.dayChanged, scopeTasks dengan progress 0→20 dan status selesai (tiba lewat refresh/sinkron) → 0 tulis; lalu pomodoro.ended task tanpa start → tepat satu set", () => withEngineClock(async (clock) => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 3 }, { progress: 0 }), mk(2, "B", { start: "2026-11-03", duration: 2, actual: { start: "2026-11-03" } }, { progress: 0 })];
+  const h = trackApi(tasks);
+  const fr = fakeRecords();
+  const v = fakeApi({ records: fr });
+  // satu bus: pelacak dan view berbagi pendengar
+  v.api.events = h.api.events;
+  v.api.data = h.api.data;
+  v.api.taskExt = h.api.taskExt;
+  const off = T.installActualTracking(h.api);
+  try {
+    const base = ctxOf(tasks).ctx;
+    let props = { context: base, api: v.api };
+    const m = mount(T.TimelineViewBody);
+    m.render(props);
+    await settleView(m, () => props, clock);
+    const zero = (step) => {
+      assert.deepEqual(h.writes, [], step);
+      assert.equal(fr.calls.put.length, 0, step + ": records.put");
+    };
+    zero("mount");
+    h.fire("sync.done", { initial: false });
+    await settleView(m, () => props, clock);
+    zero("sync.done");
+    fr.emit(PULLED);
+    fr.emit({ entity: "project", ids: [], source: "sync" });
+    fr.emit({ entity: "baseline", ids: [], source: "local" });
+    await settleView(m, () => props, clock);
+    zero("pulled/onChange");
+    h.fire("app.dayChanged", { date: "2026-11-06" });
+    await settleView(m, () => props, clock);
+    zero("app.dayChanged");
+    // progress naik dari 0 dan status selesai TIBA lewat sinkron/refresh (data diff) → BUKAN pemicu (amandemen K42)
+    const synced = tasks.map((t) => Object.assign({}, t, { progress: 20 }));
+    synced[0] = Object.assign({}, synced[0], { gtd_status: "done", completed_at: "2026-11-05T01:00:00Z", progress: 100 });
+    props = { context: Object.assign({}, base, { tasks: synced, scopeTasks: synced }), api: v.api };
+    await settleView(m, () => props, clock);
+    h.fire("sync.done", { initial: false });
+    await settleView(m, () => props, clock);
+    zero("progress/status via refresh");
+    await settleTrack();
+    zero("settle");
+    // event host gestur lokal: task ber-actual.start → 0; tanpa → tepat satu set
+    h.fire("pomodoro.ended", POMO(2, "2026-11-05T03:00:00Z"));
+    h.fire("task.completed", { taskId: 2, completedAt: "2026-11-05T03:00:00Z" });
+    await settleTrack();
+    zero("ber-actual.start");
+    h.fire("pomodoro.ended", POMO(1, "2026-11-05T03:00:00Z"));
+    await settleTrack();
+    assert.deepEqual(h.writes, [["set", 1, { actual: { start: "2026-11-05" } }]]);
+    m.unmount();
+  } finally {
+    off();
+  }
+}));
+
+test("T8 sumber: factory memasang installActualTracking; recordActual satu-satunya penulis otomatis, tanpa Date/finish; tanpa pendengar progres", () => {
+  const fac = jsx.slice(jsx.indexOf("register(manifest, function factory(api)"));
+  assert.match(fac, /installActualTracking\(api\)/);
+  const start = jsx.indexOf("function recordActual(");
+  assert.ok(start > 0);
+  const end = jsx.indexOf("\n}\n", start);
+  const body = jsx.slice(start, end);
+  assert.equal((body.match(/taskExt\.set\(/g) || []).length, 1);
+  assert.doesNotMatch(body, /\bDate\b|finish:\s/);
+  assert.doesNotMatch(jsx, /"task\.progress|"task\.updated|taskUpdated/, "tidak ada pemicu progres");
+});
