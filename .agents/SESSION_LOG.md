@@ -4382,3 +4382,9 @@
 - **Changes:** `existing.get("recurrence_end_date")` -> `existing["recurrence_end_date"]`; tes regresi baru `tests/test_task_recurrence_put.py` (TDD, merah lalu hijau).
 - **Files Touch:** webapp.py, tests/test_task_recurrence_put.py, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (branch `claude/fix-recurrence-put-500`, belum di-push; tunggu "merge dan deploy"). pytest 1438/1 skip. Deploy: restart `taskflow-web` saja; tanpa SW bump.
+
+## [2026-11-06 06:25] - Claude (Opus 5.5)
+- **Task:** Brainstorming fitur checklist bertingkat (urutan bisa diubah, sub checklist tanpa batas, sub tidak memengaruhi progress task).
+- **Changes:** Klarifikasi K1–K5 dengan pemilik, 3 pendekatan dipresentasikan; catatan serah-terima ditulis karena pemilik melanjutkan di akun lain.
+- **Files Touch:** docs/superpowers/specs/2026-11-06-checklist-bertingkat-brainstorm.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** In Progress (brainstorming; menunggu konfirmasi pendekatan 1 + asumsi A1–A4). Tanpa kode.

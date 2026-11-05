@@ -1,3 +1,9 @@
+## 🟡 Checklist bertingkat (urutan + sub checklist tanpa batas) — BRAINSTORMING, belum spec — 2026-11-06 (Claude) — dilanjutkan di akun lain
+- **Baca dulu:** `docs/superpowers/specs/2026-11-06-checklist-bertingkat-brainstorm.md` (permintaan asli, keputusan K1–K5, asumsi A1–A4, 3 pendekatan, titik sentuh repo, langkah melanjutkan).
+- **Posisi:** skill `superpowers:brainstorming`, jalur Arsitektural; pertanyaan klarifikasi selesai, **pendekatan sudah dipresentasikan (rekomendasi: kolom `parent_id` di `subtasks` + `POST /api/subtasks/{id}/move`)**, menunggu konfirmasi pemilik atas pendekatan + asumsi A1–A4. Berikutnya: desain per bagian → spec → writing-plans.
+- **Keputusan ringkas:** progress (selesai/total + persen task) hanya butir level atas; ada checklist → slider Progress terkunci otomatis; seret ⠿ + Tab/Shift+Tab + menu ⋯; dua fase (Fase 1 online, Fase 2 local-first); centang induk → turunan ikut selesai.
+- **Belum ada:** kode, branch fitur, spec. Jangan implementasi sebelum spec disetujui.
+
 ## 🟡 Plugin Fase 1 — PR 1d: Beban Tim, earned value 🍅, ekspor MSPDI — 2026-11-06 (Claude) — SPEC DRAF, MENUNGGU JAWABAN PEMILIK Q1–Q7
 - **Spec:** `docs/superpowers/specs/2026-11-06-plugin-fase1-1d-beban-tim-design.md` (salinan Project `claude/spec-plugin-fase1-1d-beban-tim-2026-11-06.md`), commit `5cd924ad` di main. Keputusan K45–K59; pertanyaan pemilik di §13.
 - **Pertanyaan terbuka (rekomendasi semua (a)):** Q1 tiga PR (1d-0 host batas target / 1d-1 Beban Tim / 1d-2 EV + ekspor); Q2 naikkan batas target 🍅 20 → 99 (PR host 1d-0, restart `taskflow-web`); Q3 panel Beban Tim di bawah Gantt (HP: daftar hari kelebihan beban); Q4 semua anggota boleh ubah kapasitas/cuti ("Diubah oleh"); Q5 tunda split task; Q6 EV bahasa sehari-hari "Jadwal 92% · Efisiensi 🍅 108%"; Q7 ekspor di aplikasi native = petunjuk ke browser (tanpa rilis ulang Tauri).
