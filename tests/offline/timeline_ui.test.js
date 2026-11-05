@@ -5331,6 +5331,48 @@ test("render awal tidak menjalankan TLCpm.run (spy) — mesin setelah raf+setTim
   }
 }));
 
+// 1c-2 T10 ("render awal tetap tanpa TLCpm.run"): tes di atas memakai perfSetup tanpa baseline/aktual, jadi tidak gagal bila
+// overlay baru memanggil mesin saat render pertama. Ulang dengan view LENGKAP 1c-2: pref baseline slot 1 + record baseline
+// lima unit + actual.start (blPerfSetup).
+test("render awal tetap tanpa TLCpm.run — dengan baseline aktif + garis aktual (overlay 1c-2 terpasang)", () => withEngineClock(async (clock) => {
+  const s = blPerfSetup();
+  const spy = spyRun();
+  try {
+    const m = mount(T.TimelineViewBody);
+    let tree = m.render(s.props);
+    assert.equal(spy.runs.length, 0, "render pertama tanpa mesin");
+    assert.ok(domCount(tree) > 0, "tabel/grafik langsung tergambar");
+    m.flush();
+    await settle();
+    tree = m.render(s.props); // pref (crit + bl:slist_12 = 1), daftar, unit, baseline termuat; mesin dijadwalkan
+    m.flush();
+    await settle();
+    tree = m.render(s.props);
+    assert.equal(spy.runs.length, 0, "pref baseline + record baseline termuat tetap tanpa mesin sebelum gambar pertama");
+    assert.ok(s.fr.calls.list.some((c) => c[0] === "baseline"), "record baseline sudah dimuat");
+    assert.equal(blBars(tree).length, 0, "bar baseline menunggu mesin (tanpa hitung sinkron)");
+    assert.ok(actLines(tree).length > 0, "garis aktual dari tata letak saja (tanpa mesin)");
+    assert.ok(slackCells(tree).length > 0 && slackCells(tree).every((v) => v === "—"), "tanpa nilai Slack sebelum mesin");
+    assert.equal(bannersOf(tree).length, 0);
+    assert.ok(clock.frames() >= 1, "raf terjadwal");
+    assert.equal(spy.runs.length, 0, "raf hanya menjadwalkan setTimeout 0");
+    clock.tick(0);
+    assert.equal(spy.runs.length, 1, "tepat satu run setelah raf + setTimeout");
+    tree = m.render(s.props);
+    m.flush();
+    await settle();
+    tree = m.render(s.props);
+    assert.ok(blBars(tree).length > 0, "bar baseline setelah mesin");
+    assert.ok(legendTexts(tree).indexOf("Baseline") >= 0 && legendTexts(tree).indexOf("Aktual") >= 0);
+    assert.equal(spy.runs.length, 1, "overlay baseline/aktual tidak memicu run tambahan");
+    assert.deepEqual(s.writes, [], "0 tulisan");
+    assert.equal(s.fr.calls.put.length + s.fr.calls.remove.length, 0);
+    m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
 // ── Fix 2 review Task 8: menu "Lainnya" tidak meluap di HP 375 px (E2E 12a) ───────────────────────────────────────
 test("fix T8 r2: menu 'Lainnya' rata kanan tombol bila rata kiri meluap viewport (375 px, tombol x≈262); tombol di kiri (Daftar) tetap rata kiri", () => {
   assert.equal(T.menuAlign({ left: 262, right: 330 }, 375, 180), "end", "262 + 180 > 367 → rata kanan");
@@ -6108,8 +6150,8 @@ test("1c-2 T6: memilih baseline (pref) tidak menghitung ulang tata letak — ove
 }));
 
 // Perluasan anggaran T13 1c-1: + baseline aktif (slot 1 tiap unit P0–P4 memuat semua task terjadwalnya) + garis aktual
-// (actual.start pada tiap task ketiga yang terjadwal).
-test("DOM 500 task/400 dep + Jalur kritis + baseline aktif + garis aktual → ≤ 1.500 elemen; bar/garis hanya di baris tampak", () => withEngineClock(async (clock) => {
+// (actual.start pada tiap task ketiga yang terjadwal). Dipakai juga oleh tes "render awal tetap tanpa TLCpm.run" (T10).
+function blPerfSetup() {
   const tasks = bigTasks(500, 400).map((t) => Object.assign(t, { list_id: 12 }));
   const perUnit = new Map();
   tasks.forEach((t, i) => {
@@ -6130,7 +6172,14 @@ test("DOM 500 task/400 dep + Jalur kritis + baseline aktif + garis aktual → �
   api.data = { tasks: { list: () => Promise.resolve(tasks) } };
   const writes = spyWrites(api);
   const { ctx } = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
-  const props = { context: ctx, api };
+  return { tasks, fr, api, writes, props: { context: ctx, api } };
+}
+
+// 1c-2 T10 (nama brief "DOM 500/400 + crit + baseline + garis aktual ≤ 1.500"): tes T6 diperluas di tempat ke cakupan
+// penuh T13 1c-1 (kolom Slack terisi + banner drift) — seksi Jadwal tidak dibuka: ia hidup di detail task (mount lain),
+// bukan di view; anggaran T13 1c-1 pun hanya view.
+test("DOM 500/400 + crit + baseline + garis aktual ≤ 1.500 (Slack, banner drift; bar/garis hanya di baris tampak)", () => withEngineClock(async (clock) => {
+  const { fr, writes, props } = blPerfSetup();
   const spy = spyRun();
   try {
     const m = mount(T.TimelineViewBody);
@@ -6138,6 +6187,12 @@ test("DOM 500 task/400 dep + Jalur kritis + baseline aktif + garis aktual → �
     assert.ok(spy.runs.length >= 1, "mesin sudah jalan");
     assert.equal(buttonByText(tree, "Jalur kritis").props["aria-pressed"], true);
     assert.ok(nodes(tree, (n) => hasCls(n, "is-critical")).length > 0);
+    assert.ok(headerCells(tree).indexOf("Slack") >= 0, "kolom Slack");
+    assert.ok(slackCells(tree).some((v) => /hk$|^0$/.test(v)), "nilai Slack terisi");
+    const bs = bannersOf(tree);
+    assert.ok(bs.length >= 1, "banner drift tampil");
+    assert.match(bannerText(bs[0]), /^Jadwal otomatis belum mutakhir: \d+ task berbeda dari hasil hitung\.$/);
+    assert.ok(byCls(tree, "plg-timeline-arrow").length > 0, "ada panah");
     const rows = nodes(tree, (n) => n.props.role === "row" && n.props["aria-rowindex"] > 1);
     assert.ok(rows.length > 20 && rows.length <= 60, "baris tervirtualisasi: " + rows.length);
     const shown = new Set(nodes(tree, (n) => n.props.role === "row" && n.props["data-key"] !== undefined).map((n) => n.props["data-key"]));
@@ -6150,7 +6205,7 @@ test("DOM 500 task/400 dep + Jalur kritis + baseline aktif + garis aktual → �
     assert.ok(legendTexts(tree).indexOf("Baseline") >= 0 && legendTexts(tree).indexOf("Aktual") >= 0);
     const n = domCount(tree);
     assert.ok(n <= 1500, "elemen: " + n);
-    console.log("# DOM elemen 500 task/400 dep + Jalur kritis + baseline + aktual: " + n);
+    console.log("# DOM elemen 500 task/400 dep + Jalur kritis + Slack + banner + baseline + aktual: " + n);
     assert.deepEqual(writes, [], "0 tulisan latar");
     assert.equal(fr.calls.put.length + fr.calls.remove.length, 0);
     m.unmount();
