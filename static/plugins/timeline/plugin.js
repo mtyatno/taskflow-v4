@@ -7442,16 +7442,26 @@ function TimelineViewBody(props) {
   // inEngine false (jendela muat: task tanpa Mulai dilewati, sama seperti 1c-1). Kunci unit (auto+fold), anggota lingkaran
   // dan simpul tanpa-Mulai ikut memicu tata letak ulang HANYA bila scope punya task belum selesai dengan actual.start
   // (satu-satunya pemakai resolver); tanpa itu `lay` tetap tidak bergantung pada mesin/unit (perilaku 1c-1).
+  // Satu bacaan ext per task per scopeTasks (investigasi regresi render 1c-2): api.taskExt.read runtime menyalin dalam
+  // (JSON) tiap kunci; tata letak, anchorTasks, dan actualOverlay BERBAGI bacaan ini (sebelumnya 3 bacaan/task pada render
+  // pertama). Berkunci [scopeTasks, api] — sama dengan masa hidup task objek scope; bacaan gagal → {} + log (readExtSafe).
+  // Bacaan bersama hanya dibaca (readSched/actualOf membangun objek baru), tidak pernah diubah.
+  const extOf = React.useMemo(() => {
+    const memo = new Map();
+    return t => {
+      let raw = memo.get(t);
+      if (raw === undefined) {
+        raw = readExtSafe(api, t);
+        memo.set(t, raw);
+      }
+      return raw;
+    };
+  }, [context.scopeTasks, api]);
   const anchorTasks = React.useMemo(() => {
     const out = []; // [{key, startless}]
     for (const t of Array.isArray(context.scopeTasks) ? context.scopeTasks : []) {
       if (!t || t.gtd_status === "done" || t.completed_at) continue;
-      let raw = null;
-      try {
-        raw = api.taskExt.read(t);
-      } catch (e) {
-        raw = null;
-      }
+      const raw = extOf(t);
       if (TLSched.actualOf(t, raw).start === null) continue;
       out.push({
         key: String(t.id),
@@ -7459,7 +7469,7 @@ function TimelineViewBody(props) {
       });
     }
     return out;
-  }, [context.scopeTasks, api]);
+  }, [context.scopeTasks, extOf]);
   const needsAnchor = anchorTasks.length > 0;
   const unitsKey = needsAnchor ? unitsKeyOf(un.units) : "";
   const cycleKey = needsAnchor && engResult && Array.isArray(engResult.cycles) ? [].concat(...engResult.cycles).map(String).sort().join("\u0000") : "";
@@ -7467,13 +7477,7 @@ function TimelineViewBody(props) {
 
   // R24: tata letak hanya bila task scope / kalender / zoom / urut / hari / unit / lingkaran berubah (bukan tiap context baru).
   const lay = React.useMemo(() => {
-    const readSchedOf = t => {
-      try {
-        return TLSched.readSched(api.taskExt.read(t));
-      } catch (e) {
-        return TLSched.readSched({});
-      }
-    };
+    const readSchedOf = t => TLSched.readSched(extOf(t));
     const units = un.units;
     const ring = new Set(cycleKey ? cycleKey.split("\u0000") : []);
     const nd = new Map(nodeKey ? nodeKey.split("\u0000").map(x => x.split("\u0001")).map(([k, d]) => [k, Number(d)]) : []);
@@ -7492,7 +7496,7 @@ function TimelineViewBody(props) {
         durOf: k => nd.get(String(k))
       }
     });
-  }, [context.scopeTasks, calKey, zoom, sort, today, pageKind, api, unitsKey, cycleKey, nodeKey]);
+  }, [context.scopeTasks, calKey, zoom, sort, today, pageKind, extOf, unitsKey, cycleKey, nodeKey]);
   const groupNames = React.useMemo(() => new Map(lay.groups.map(g => [g.key, g.name])), [lay]);
   // 1c-2 Task 5 (K41): baseline unit halaman — halaman project = satu unit, workspace = unit per kelompok (pageUnits);
   // SATU pemuat se-scope untuk semua unit (useBaselines larik). blDec = baseline aktif tergabung (activeBaseline) — sumber
@@ -7508,7 +7512,7 @@ function TimelineViewBody(props) {
   // 1c-2 Task 6: overlay baseline + aktual, masing-masing memo TERPISAH dari `lay` (pola R18/R19): pref baseline / data
   // baseline hanya menghitung ulang blOv; actOv mengikuti lay (task scope + ext) dan hari ini (garis berjalan, tanpa tulisan).
   const blOv = React.useMemo(() => baselineOverlay(blDec, engResult, eng.ctx), [blDec, engResult]);
-  const actOv = React.useMemo(() => actualOverlay(lay, t => readExtSafe(api, t), todayDn), [lay, api, todayDn]);
+  const actOv = React.useMemo(() => actualOverlay(lay, extOf, todayDn), [lay, extOf, todayDn]);
   const legendX = {
     bl: blOv !== null && blDec !== null && blDec.rows.size > 0,
     act: actOv.size > 0

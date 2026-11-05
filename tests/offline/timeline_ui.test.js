@@ -5373,6 +5373,30 @@ test("render awal tetap tanpa TLCpm.run — dengan baseline aktif + garis aktual
   }
 }));
 
+// Investigasi regresi render 1c-2 (task-12 concern 1): render pertama membaca ext tiap task scope TIGA kali (tata letak,
+// anchorTasks, actualOverlay) — api.taskExt.read runtime menyalin dalam (JSON) tiap kunci. Satu bacaan per task per
+// scopeTasks dibagi ketiganya; garis aktual + jangkar tetap sama (tes T6 / 1c-2 jangkar di atas).
+test("regresi render 1c-2: render pertama membaca taskExt tiap task scope TEPAT sekali (tata letak, jangkar aktual, garis aktual berbagi bacaan)", () => withEngineClock(async () => {
+  const s = blPerfSetup();
+  const read0 = s.api.taskExt.read;
+  const reads = new Map();
+  s.api.taskExt.read = (t) => {
+    reads.set(t.id, (reads.get(t.id) || 0) + 1);
+    return read0(t);
+  };
+  const m = mount(T.TimelineViewBody);
+  const tree = m.render(s.props);
+  assert.ok(actLines(tree).length > 0, "garis aktual tetap tergambar di render pertama");
+  assert.equal(reads.size, s.tasks.length, "setiap task scope dibaca");
+  const multi = [...reads.values()].filter((n) => n > 1).length;
+  assert.equal(multi, 0, "tidak ada task yang dibaca lebih dari sekali (sebelumnya 3×)");
+  // render ulang dengan scopeTasks sama (setVp/pref) → memo tetap, tanpa bacaan baru
+  reads.clear();
+  m.render(s.props);
+  assert.equal(reads.size, 0, "render ulang tanpa bacaan ext");
+  m.unmount();
+}));
+
 // ── Fix 2 review Task 8: menu "Lainnya" tidak meluap di HP 375 px (E2E 12a) ───────────────────────────────────────
 test("fix T8 r2: menu 'Lainnya' rata kanan tombol bila rata kiri meluap viewport (375 px, tombol x≈262); tombol di kiri (Daftar) tetap rata kiri", () => {
   assert.equal(T.menuAlign({ left: 262, right: 330 }, 375, 180), "end", "262 + 180 > 367 → rata kanan");
