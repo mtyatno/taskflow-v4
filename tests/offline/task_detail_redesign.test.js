@@ -270,6 +270,10 @@ test("NumberPicker: sebelum TextPicker, teks lokal, onChange hanya bila angka sa
     /"aria-label": "Target pomodoro \(1–99\)"/, /className: "input td-pop-input is-number"/, /useState\(String\(value\)\)/,
     /isComposing/, /onDone\(\)/, /"Simpan"/])
     assert.match(s, re);
+  // terpilih saat dibuka (mengetik "8" tidak jadi "18"); blur mengembalikan nilai form sah terakhir
+  assert.match(s, /onFocus: e => \{?[\s\S]*?\.select\(\)/);
+  assert.match(s, /onBlur: /);
+  assert.match(s, /setText\(String\(value\)\)/);
   // onChange(n) hanya di cabang n != null: teks kosong/0/tak sah tidak mengubah form
   assert.equal((s.match(/onChange\(/g) || []).length, 1);
   assert.match(s, /if \(n != null\) \{?\s*onChange\(n\);?/);

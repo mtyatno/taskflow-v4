@@ -18,7 +18,7 @@ const BASELINE_LINES = 46053;
 const MAX_ADDED_LINES = 60;
 // PR 1d-0 (host): kolom angka Fokus + baris Target 🍅 detail task menambah 132 baris index.html terhadap main (22cd9e5: 46074 → 46206);
 // anggaran historis di bawah ikut naik.
-const HOST_1D0_EXTRA = 132;
+const HOST_1D0_EXTRA = 141;
 
 function fnSource(name) {
   const s = html.indexOf(`function ${name}(`);

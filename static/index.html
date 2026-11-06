@@ -9383,6 +9383,15 @@ function NumberPicker({
     autoFocus: true,
     "aria-label": "Target pomodoro (1–99)",
     value: text,
+    onFocus: e => {
+      try {
+        e.target.select();
+      } catch (_) {}
+    },
+    onBlur: () => {
+      const n = window.TF.pomologic.parseEstimate(text);
+      if (n == null || String(n) !== text.trim()) setText(String(value));
+    },
     onKeyDown: e => {
       if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
         e.preventDefault();

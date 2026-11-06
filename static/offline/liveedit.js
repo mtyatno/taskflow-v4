@@ -192,7 +192,9 @@
       case "context":
       case "deadline":
       case "waiting_for":
-      case "estimated_pomodoros": // angka setengah jadi ("2" sebelum "24") tidak boleh terkirim
+      case "estimated_pomodoros": // angka setengah jadi ("2" sebelum "24") tidak terkirim oleh simpan non-eksplisit ("now");
+        // namun flush() (pagehide/tab disembunyikan/unmount) mengirim semua field berubah, jadi nilai sah terakhir
+        // ikut terkirim — konsisten dengan deadline.
         return "blur";
       case "description":
         return "idle";

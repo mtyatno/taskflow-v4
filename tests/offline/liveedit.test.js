@@ -157,6 +157,18 @@ function mk(task, putImpl) {
 }
 const tick = () => new Promise(r => setImmediate(r));
 
+test("Target 🍅 (blur): simpan non-eksplisit tidak membawanya; commit mengirimnya", async () => {
+  const { s, calls } = mk(T());
+  s.change("estimated_pomodoros", 2); s.change("priority", "P1"); await tick();
+  assert.deepEqual(calls, [{ priority: "P1" }], "angka setengah jadi tidak ikut pilihan 'now'");
+  s.commit("estimated_pomodoros"); await tick();
+  assert.deepEqual(calls[1], { estimated_pomodoros: 2 });
+});
+test("Target 🍅: flush (pagehide/unmount) mengirim nilai sah terakhir, seperti deadline", async () => {
+  const { s, calls } = mk(T());
+  s.change("estimated_pomodoros", 24); await s.flush();
+  assert.deepEqual(calls, [{ estimated_pomodoros: 24 }]);
+});
 test("deadline & waiting_for: tidak ikut simpan non-eksplisit; commit mengirimnya", async () => {
   const { s, calls } = mk(T());
   s.change("deadline", "0002-11-15"); s.change("deadline", "2026-11-15"); await tick();
