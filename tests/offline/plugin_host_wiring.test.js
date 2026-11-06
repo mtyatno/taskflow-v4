@@ -16,9 +16,9 @@ const sw = fs.readFileSync(path.join(root, "static/sw.js"), "utf8");
 // ikut turun 46095 → 46053 agar anggaran +60 tetap berarti (main 37c9572b = 46072 = 46053 + 19 baris 1a-1).
 const BASELINE_LINES = 46053;
 const MAX_ADDED_LINES = 60;
-// PR 1d-0 (host): kolom angka Fokus + baris Target 🍅 detail task menambah 152 baris index.html terhadap main (22cd9e5: 46074 → 46226);
+// PR 1d-0 (host): kolom angka Fokus + baris Target 🍅 detail task menambah 162 baris index.html terhadap main (22cd9e5: 46074 → 46236);
 // anggaran historis di bawah ikut naik.
-const HOST_1D0_EXTRA = 152;
+const HOST_1D0_EXTRA = 162;
 
 function fnSource(name) {
   const s = html.indexOf(`function ${name}(`);

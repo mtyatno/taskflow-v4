@@ -11102,6 +11102,7 @@ function FocusTaskItem({
   const estDirtyRef = useRef(false); // true hanya setelah pengguna mengetik sejak fokus/sinkron terakhir
   const lastSentRef = useRef(null); // nilai yang baru dikirim; prop `pomoEst` baru tiba asinkron setelah refresh
   const estGroupRef = useRef(null);
+  const estSelectOnUpRef = useRef(false); // true sampai mouseup pertama setelah fokus (lihat onMouseUp kolom target)
   useEffect(() => {
     lastSentRef.current = null;
     estDirtyRef.current = false;
@@ -11326,6 +11327,7 @@ function FocusTaskItem({
       estFocusRef.current = true;
       estDirtyRef.current = false;
       lastSentRef.current = null; // fokus ulang boleh mengulang kirim bila komit sebelumnya gagal
+      estSelectOnUpRef.current = true;
       setEstText(String(pomoEst));
       setEstFocused(true);
       // Pilih seluruh isi supaya ketikan menimpa (bukan menyambung "5" jadi "512"); mouseup setelah klik bisa
@@ -11333,10 +11335,18 @@ function FocusTaskItem({
       try { el.select(); } catch (_) {}
       requestAnimationFrame(() => { try { el.select(); } catch (_) {} });
     },
+    // Safari/WKWebView membatalkan seleksi pada mouseup setelah klik (~100 ms, lebih lambat dari rAF); tahan mouseup pertama saja.
+    onMouseUp: e => {
+      if (estSelectOnUpRef.current) {
+        estSelectOnUpRef.current = false;
+        e.preventDefault();
+      }
+    },
     // Roda mouse tidak diam-diam mengubah angka (blur = komit sesuai aturan yang ada).
     onWheel: e => e.currentTarget.blur(),
     onBlur: e => {
       estFocusRef.current = false;
+      estSelectOnUpRef.current = false;
       commitEst(e.currentTarget.value, false);
       setEstFocused(false);
     },

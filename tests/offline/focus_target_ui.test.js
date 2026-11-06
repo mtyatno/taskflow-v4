@@ -181,3 +181,17 @@ test("CSS: font 16px di layar kecil (zoom iOS) dan tanpa aturan .ftask-est-badge
   assert.match(appCss, /@media \(max-width: 768px\) \{[^@]*\.ftask-est-input \{ font-size: 16px; \}/);
   assert.ok(!appCss.includes(".ftask-est-badge"));
 });
+
+test("FocusTaskItem: kolom target menahan mouseup pertama setelah fokus (Safari/WKWebView)", () => {
+  const src = fnSource("FocusTaskItem");
+  assert.ok(/const estSelectOnUpRef = useRef\(false\)/.test(src));
+  const inp = src.indexOf('className: "ftask-est-input"');
+  const onFocus = src.indexOf("onFocus:", inp);
+  const onMouseUp = src.indexOf("onMouseUp:", inp);
+  const onBlur = src.indexOf("onBlur:", inp);
+  assert.ok(onFocus > 0 && onMouseUp > onFocus && onBlur > onMouseUp);
+  assert.ok(/estSelectOnUpRef\.current = true/.test(src.slice(onFocus, onMouseUp)));
+  const upBlk = src.slice(onMouseUp, onBlur);
+  assert.ok(/if \(estSelectOnUpRef\.current\) \{[^}]*estSelectOnUpRef\.current = false;[^}]*e\.preventDefault\(\);[^}]*\}/.test(upBlk));
+  assert.ok(/estSelectOnUpRef\.current = false/.test(src.slice(onBlur, onBlur + 200)));
+});
