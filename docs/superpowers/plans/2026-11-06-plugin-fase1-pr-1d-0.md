@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-06-plugin-fase1-1d-beban-tim-design.md` — §1 (kriteria 8: 1d-0 = perubahan host terkecil), §3 baris 1d-0, §8 (target bawaan 1), §9 butir Server, §10 (rilis/rollback 1d-0), §11 R1–R2, §13 Q2 (a). Disetujui pemilik 2026-11-06 08.51 WIB (Q1–Q7 semuanya (a)). Keputusan pemilik P1–P2 di akhir dokumen ini.
 
+**Keputusan pemilik (2026-11-06 09.22 WIB): P1 (a) — teks whatsnew v500 disetujui apa adanya (verbatim di tabel akhir, termasuk poin detail task); P2 (a) — target diisi di Fokus (kolom angka) DAN baris "Target 🍅" di detail task (Task 4 dikerjakan).**
+
 **Basis kode:** `main` @ `80f047bd` (SW `taskflow-v499-baseline-aktual`, `app.css?v=383`, IndexedDB `taskflow-offline` v7, `index.html` 46.074 baris, ADR terakhir ADR-046).
 
 ## Fakta hasil eksplorasi (titik sentuh)
