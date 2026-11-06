@@ -1219,6 +1219,10 @@ class ResetReq(BaseModel):
     token: str = Field(min_length=1)
     new_password: str = Field(min_length=4, max_length=100)
 
+# Batas target pomodoro per task; harus sama dengan EST_MIN/EST_MAX di static/offline/pomologic.js (dijaga tests/test_est_max_sync.py)
+TASK_EST_MIN = 1
+TASK_EST_MAX = 99
+
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1)
     description: str = ""
@@ -1235,7 +1239,7 @@ class TaskCreate(BaseModel):
     parent_id: Optional[int] = None
     recurrence_type: Optional[str] = None   # daily|weekly|monthly|weekdays
     recurrence_days: Optional[list] = None  # [0,2,4] untuk weekly Sen/Rab/Jum
-    estimated_pomodoros: int = Field(default=1, ge=1, le=20)
+    estimated_pomodoros: int = Field(default=1, ge=TASK_EST_MIN, le=TASK_EST_MAX)
     # Idempotensi retry sync (audit T11): (user_id, client_id) sudah ada → kembalikan baris itu, bukan insert
     client_id: Optional[str] = Field(default=None, max_length=64)
     # Field plugin (spec plugin Fase 1 K4): {"<pluginId>.<field>": nilai}; namespace asing dibuang, null diabaikan
@@ -1265,7 +1269,7 @@ class TaskUpdate(BaseModel):
     recurrence_type: Optional[str] = None
     recurrence_days: Optional[list] = None
     recurrence_renew: Optional[bool] = None  # True = perpanjang 3 bulan
-    estimated_pomodoros: Optional[int] = Field(default=None, ge=1, le=20)
+    estimated_pomodoros: Optional[int] = Field(default=None, ge=TASK_EST_MIN, le=TASK_EST_MAX)
     is_focused: Optional[bool] = None  # audit K6: status fokus ikut dikirim push offline (disimpan 0/1)
     # base_rev: updated_at yang diketahui klien; bila dikirim dan ≠ server → 409 REV_MISMATCH (prinsip 7)
     base_rev: Optional[str] = None

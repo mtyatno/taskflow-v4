@@ -79,8 +79,26 @@ def test_create_and_update_estimate(u):
     assert r.status_code == 200 and r.json()["estimated_pomodoros"] == 7
     r = u.put(f"/api/tasks/{t['id']}", json={"title": "baru"})
     assert r.json()["estimated_pomodoros"] == 7
-    for bad in (0, 21):
+    for bad in (0, 100):
         assert u.put(f"/api/tasks/{t['id']}", json={"estimated_pomodoros": bad}).status_code == 422
+
+
+def test_buat_task_target_99_diterima_100_ditolak(u):
+    t = _mk(u, estimated_pomodoros=99)
+    assert t["estimated_pomodoros"] == 99
+    assert u.get(f"/api/tasks/{t['id']}").json()["estimated_pomodoros"] == 99
+    r = u.post("/api/tasks", json={"title": "t", "estimated_pomodoros": 100})
+    assert r.status_code == 422
+
+
+def test_put_target_21_dan_99_diterima_0_dan_100_ditolak(u):
+    t = _mk(u)
+    for ok in (21, 99):
+        r = u.put(f"/api/tasks/{t['id']}", json={"estimated_pomodoros": ok})
+        assert r.status_code == 200 and r.json()["estimated_pomodoros"] == ok
+    for bad in (0, 100):
+        assert u.put(f"/api/tasks/{t['id']}", json={"estimated_pomodoros": bad}).status_code == 422
+    assert u.get(f"/api/tasks/{t['id']}").json()["estimated_pomodoros"] == 99
 
 
 def test_put_cannot_change_pomodoros_done(u):
