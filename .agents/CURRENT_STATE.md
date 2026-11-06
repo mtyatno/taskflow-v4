@@ -4,7 +4,7 @@
 - **Keputusan ringkas:** progress (selesai/total + persen task) hanya butir level atas; ada checklist → slider Progress terkunci otomatis; seret ⠿ + Tab/Shift+Tab + menu ⋯; dua fase (Fase 1 online, Fase 2 local-first); centang induk → turunan ikut selesai.
 - **Belum ada:** kode, branch fitur, spec. Jangan implementasi sebelum spec disetujui.
 
-## 🟡 Plugin Fase 1 — PR 1d-0 (host): Target 🍅 sampai 99 — `claude/target-pomodoro-99` — 2026-11-06 (Claude) — PR DRAFT, menunggu "merge dan deploy"; **setelah deploy WAJIB `sudo systemctl restart taskflow-web` SEGERA**
+## 🟡 Plugin Fase 1 — PR 1d-0 (host): Target 🍅 sampai 99 — `claude/target-pomodoro-99` — 2026-11-06 (Claude) — PR DRAFT #128, menunggu "merge dan deploy"; **setelah deploy WAJIB `sudo systemctl restart taskflow-web` SEGERA**
 - **Rencana / ADR:** `docs/superpowers/plans/2026-11-06-plugin-fase1-pr-1d-0.md` (P1 (a) teks whatsnew, P2 (a) Fokus + detail task; dijawab pemilik 2026-11-06 09.22 WIB), ADR-047, catatan implementasi di akhir spec 1d; ledger `.superpowers/sdd/2026-11-06-plugin-fase1-pr-1d-0/progress.md`.
 - **Isi:** server `TASK_EST_MIN/MAX` 1–99 (tanpa migrasi) + tes silang server↔klien; `TF.pomologic` `EST_MAX = 99`, `parseEstimate`, `estimateCommit` murni; Fokus Hari Ini: kolom angka target saat ≥ 5 ("5+" tetap +1), isi terpilih saat fokus (aman Safari); detail task: baris "Target 🍅" (ringkas "+ Target 🍅" selama target 1) lewat Live Edit (`EDITABLE_FIELDS` + `estimated_pomodoros`, trigger "blur"), `NumberPicker` baru.
 - **Rilis:** SW `taskflow-v500-target-pomodoro`, `app.css?v=384`, whatsnew **non-silent** ("Target 🍅 kini sampai 99", tanggal 2026-11-06). **Saat merge cek ulang** penomoran vs `main` (PROTOCOL §4 butir 4).
