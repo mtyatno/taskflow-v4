@@ -10,7 +10,7 @@ const indexHtml = fs.readFileSync(path.resolve(__dirname, "../../static/index.ht
 const swJs = fs.readFileSync(path.resolve(__dirname, "../../static/sw.js"), "utf8").replace(/\r\n/g, "\n");
 
 test("konstanta", () => {
-  assert.equal(pl.POMO_SECONDS, 1500); assert.equal(pl.EST_MIN, 1); assert.equal(pl.EST_MAX, 20);
+  assert.equal(pl.POMO_SECONDS, 1500); assert.equal(pl.EST_MIN, 1); assert.equal(pl.EST_MAX, 99);
 });
 test("estimateHoursLabel", () => {
   assert.equal(pl.estimateHoursLabel(32), "~13.5 jam");
@@ -25,10 +25,22 @@ test("nextEstimate", () => {
   assert.equal(pl.nextEstimate(3, 5), 5);
   assert.equal(pl.nextEstimate(5, 5), 6);
   assert.equal(pl.nextEstimate(19, 5), 20);
-  assert.equal(pl.nextEstimate(20, 5), 20);
+  assert.equal(pl.nextEstimate(20, 5), 21);
+  assert.equal(pl.nextEstimate(98, 5), 99);
+  assert.equal(pl.nextEstimate(99, 5), 99);
+});
+test("parseEstimate", () => {
+  const tabel = [
+    ["", null], ["0", null], ["-3", null], ["2.5", null], ["abc", null],
+    [null, null], [undefined, null], ["7", 7], [7, 7], [" 12 ", 12],
+    ["150", 99], ["007", 7], ["1000", null],
+  ];
+  for (const [masukan, hasil] of tabel) {
+    assert.equal(pl.parseEstimate(masukan), hasil, `parseEstimate(${JSON.stringify(masukan)})`);
+  }
 });
 test("clampEstimate", () => {
-  assert.equal(pl.clampEstimate(0), 1); assert.equal(pl.clampEstimate(25), 20);
+  assert.equal(pl.clampEstimate(0), 1); assert.equal(pl.clampEstimate(25), 25); assert.equal(pl.clampEstimate(150), 99);
   assert.equal(pl.clampEstimate("3"), 3); assert.equal(pl.clampEstimate(2.6), 3);
   assert.equal(pl.clampEstimate(null), 1); assert.equal(pl.clampEstimate("x"), 1);
 });
