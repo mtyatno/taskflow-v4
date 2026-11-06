@@ -153,6 +153,13 @@ test("FocusTaskItem: estDirtyRef diset di onChange, direset di onFocus; tampilan
   const focusBlk = src.slice(onFocus, onBlur);
   assert.ok(/estDirtyRef\.current = false/.test(focusBlk));
   assert.ok(focusBlk.includes("String(pomoEst)"));
+  // memilih isi saat fokus (klik "5" lalu ketik "12" = 12, bukan 512), juga lewat requestAnimationFrame
+  assert.ok(/onFocus: e => \{/.test(focusBlk));
+  assert.ok(/const el = e\.currentTarget;/.test(focusBlk));
+  assert.ok(/try \{ el\.select\(\); \} catch/.test(focusBlk));
+  assert.ok(/requestAnimationFrame\(\(\) => \{ try \{ el\.select\(\); \} catch/.test(focusBlk));
+  // roda mouse: blur (komit sesuai aturan yang ada), bukan perubahan nilai diam-diam
+  assert.ok(/onWheel: e => e\.currentTarget\.blur\(\)/.test(focusBlk));
   // nilai yang ditampilkan: teks state hanya saat difokus
   assert.ok(/value: estFocused \? estText : String\(pomoEst\)/.test(src));
 });

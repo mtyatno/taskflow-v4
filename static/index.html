@@ -9362,8 +9362,9 @@ function MemberPicker({
     onClick: () => onPick(null)
   }, "Lepas") : null);
 }
-// Target 🍅 (1–99): input angka dengan teks lokal. Hanya angka sah (parseEstimate) yang diteruskan ke form; kosong/0/tak sah
-// tidak mengubah apa pun, jadi menutup popover dengan isian kosong tidak mengirim apa pun (tidak pernah 1 tanpa sengaja).
+// Target 🍅 (1–99): input angka dengan teks lokal. Angka sah (parseEstimate) diteruskan ke form; teks kosong/0/tak sah
+// mengembalikan form ke nilai saat popover dibuka (initialRef; popover di-mount saat dibuka), jadi mengetik lalu
+// menghapus tidak meninggalkan angka antara dan menutup popover tidak mengirim apa pun.
 // Enter / "Simpan" = onDone (tutup + simpan); Escape atau klik di luar juga menutup dan menyimpan angka sah terakhir.
 function NumberPicker({
   value,
@@ -9371,6 +9372,7 @@ function NumberPicker({
   onDone
 }) {
   const [text, setText] = useState(String(value));
+  const initialRef = useRef(value);
   return /*#__PURE__*/React.createElement("div", {
     className: "td-pop-row"
   }, /*#__PURE__*/React.createElement("input", {
@@ -9392,6 +9394,8 @@ function NumberPicker({
       const n = window.TF.pomologic.parseEstimate(text);
       if (n == null || String(n) !== text.trim()) setText(String(value));
     },
+    // Roda mouse tidak diam-diam mengubah angka; blur tidak menutup popover (hanya klik luar/Escape/Simpan).
+    onWheel: e => e.currentTarget.blur(),
     onKeyDown: e => {
       if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
         e.preventDefault();
@@ -9401,7 +9405,7 @@ function NumberPicker({
     onChange: e => {
       setText(e.target.value);
       const n = window.TF.pomologic.parseEstimate(e.target.value);
-      if (n != null) onChange(n);
+      onChange(n != null ? n : initialRef.current);
     }
   }), /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -11317,13 +11321,20 @@ function FocusTaskItem({
       estDirtyRef.current = true;
       setEstText(e.target.value);
     },
-    onFocus: () => {
+    onFocus: e => {
+      const el = e.currentTarget;
       estFocusRef.current = true;
       estDirtyRef.current = false;
       lastSentRef.current = null; // fokus ulang boleh mengulang kirim bila komit sebelumnya gagal
       setEstText(String(pomoEst));
       setEstFocused(true);
+      // Pilih seluruh isi supaya ketikan menimpa (bukan menyambung "5" jadi "512"); mouseup setelah klik bisa
+      // membatalkan seleksi di Safari/Chrome, jadi ulangi pada frame berikutnya.
+      try { el.select(); } catch (_) {}
+      requestAnimationFrame(() => { try { el.select(); } catch (_) {} });
     },
+    // Roda mouse tidak diam-diam mengubah angka (blur = komit sesuai aturan yang ada).
+    onWheel: e => e.currentTarget.blur(),
     onBlur: e => {
       estFocusRef.current = false;
       commitEst(e.currentTarget.value, false);

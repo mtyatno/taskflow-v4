@@ -3,11 +3,11 @@
 Skenario (rencana docs/superpowers/plans/2026-11-06-plugin-fase1-pr-1d-0.md, Task 6; keputusan R2/R4/R5/R7):
  1 Fokus: "5+" -> 5, kolom angka muncul ("5"); ketik 37 + Enter -> tepat 1 PUT jaringan (estimated_pomodoros 37, tanpa
    PUT kedua dari blur) -> server 37 -> muat ulang tetap 37; fokus+blur tanpa ubah, Escape setelah mengetik, kosong, "0"
-   -> 0 PUT dan nilai kembali; 150 -> 99; "5+" pada 98 -> 99, sekali lagi tetap 99; 3 + Enter -> tombol 1-3 terisi,
+   -> 0 PUT dan nilai kembali; 150 -> 99; klik biasa lalu ketik 12 + Enter pada kolom 99 -> 1 PUT 12 (1g2); "5+" pada 98 -> 99, sekali lagi tetap 99; 3 + Enter -> tombol 1-3 terisi,
    kolom hilang, document.activeElement = tomat ke-3.
  2 Detail: workspace dua anggota (A pemilik, B anggota); task milik B bertenggat minggu depan (tidak ada di Fokus A);
    A: "+ Target" -> 24 -> Simpan -> server 24; B menarik -> detail B "24"; ketik "2" lalu "24" cepat + Enter -> hanya
-   PUT 24; Escape pada popover yang dikosongkan -> 0 PUT; isian terpilih saat dibuka ("8" pada target 1 -> 8, bukan 18).
+   PUT 24; Escape pada popover yang dikosongkan -> 0 PUT; "1" + Backspace + klik luar pada target 8 -> 0 PUT (2i); isian terpilih saat dibuka ("8" pada target 1 -> 8, bukan 18).
  3 Offline: ubah target ke 40 saat offline -> online -> sinkron -> server 40.
  4 Server langsung: POST/PUT 99 -> 200; 100 dan 0 -> 422.
  5 Jendela deploy (R2): server LAMA (git worktree 22cd9e5 + static/ branch ini ditimpakan, port + DB tetap) ->
@@ -288,6 +288,20 @@ def s1_fokus(browser, base, user):
           v == "99" and [b.get("estimated_pomodoros") for b in dev.of(ida, k)] == [99] and est(base, user, ida) == 99,
           repr((v, dev.of(ida, k), est(base, user, ida))))
 
+    # 1g2 (I2): klik biasa (tanpa Ctrl+A) memilih isi kolom -> ketik "12" menimpa 99 (bukan 9912 -> 99)
+    k = dev.mark()
+    inp.click()
+    p.wait_for_timeout(200)
+    inp.press_sequentially("12")
+    inp.press("Enter")
+    p.wait_for_timeout(400)
+    v = inp.input_value()
+    blur_all(p)
+    settle(p)
+    check("1g2 klik biasa pada kolom 99 (tanpa Ctrl+A) lalu ketik 12 + Enter -> tepat 1 PUT bernilai 12, server 12",
+          v == "12" and [b.get("estimated_pomodoros") for b in dev.of(ida, k)] == [12] and est(base, user, ida) == 12,
+          repr((v, dev.of(ida, k), est(base, user, ida))))
+
     # tb: batas 98 -> 99 -> tetap 99, lalu turun ke 3
     r = ft.open_panel(p, tb)
     btns = r.locator(".ftask-est-btn")
@@ -501,6 +515,25 @@ def s2_detail(browser, base, tmp, ua, ub):
     check("2h popover 24 dikosongkan + Escape -> 0 PUT, server tetap 24 (tampilan tetap '24 🍅')",
           not a.of(ids[w1], k) and est(base, ua, ids[w1]) == 24 and (txt2 is None or "24 🍅" in txt2),
           repr((a.of(ids[w1], k), est(base, ua, ids[w1]), txt2)))
+
+    # w3 (8): ketik "1" lalu Backspace (kolom kosong) + klik di luar popover -> 0 PUT, tetap 8 (I1)
+    m = open_detail(p, w3)
+    target_btn(m).click()
+    pop = p.locator(".td-pop-input.is-number")
+    pop.wait_for(timeout=3000)
+    k = a.mark()
+    pop.press_sequentially("1")
+    pop.press("Backspace")
+    kosong = pop.input_value()
+    m.locator("input[aria-label='Judul task']").click()  # klik di luar popover -> popover menutup + komit
+    p.wait_for_timeout(500)
+    tutup = p.locator(".td-pop-input.is-number").count()
+    txt3 = target_btn(p.locator(".modal-content").first).inner_text()
+    close_modal(p)
+    settle(p)
+    check("2i target 8: ketik '1' + Backspace (kosong) + klik luar -> popover tertutup, 0 PUT, server 8, baris '8 🍅'",
+          kosong == "" and tutup == 0 and not a.of(ids[w3], k) and est(base, ua, ids[w3]) == 8 and "8 🍅" in txt3,
+          repr((kosong, tutup, a.of(ids[w3], k), est(base, ua, ids[w3]), txt3)))
     a.ctx.close()
 
 

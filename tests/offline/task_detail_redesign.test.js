@@ -274,9 +274,12 @@ test("NumberPicker: sebelum TextPicker, teks lokal, onChange hanya bila angka sa
   assert.match(s, /onFocus: e => \{?[\s\S]*?\.select\(\)/);
   assert.match(s, /onBlur: /);
   assert.match(s, /setText\(String\(value\)\)/);
-  // onChange(n) hanya di cabang n != null: teks kosong/0/tak sah tidak mengubah form
+  // teks kosong/0/tak sah mengembalikan form ke nilai saat popover dibuka (tak ada angka antara yang terkirim saat menutup)
+  assert.match(s, /const initialRef = useRef\(value\);/);
   assert.equal((s.match(/onChange\(/g) || []).length, 1);
-  assert.match(s, /if \(n != null\) \{?\s*onChange\(n\);?/);
+  assert.match(s, /onChange\(n != null \? n : initialRef\.current\);/);
+  // roda mouse tidak mengubah angka diam-diam; blur tidak menutup popover (penutupan hanya klik luar/Escape/Simpan)
+  assert.match(s, /onWheel: e => e\.currentTarget\.blur\(\)/);
 });
 test("TaskDetailBody: entri optionalProps Target 🍅 paling depan; baris setelah Deadline sebelum Assign ke", () => {
   const s = fnSource("TaskDetailBody");
