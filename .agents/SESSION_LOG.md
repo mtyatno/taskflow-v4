@@ -4400,3 +4400,9 @@
 - **Changes:** server `TASK_EST_MIN/MAX` 1–99 + tes silang; `pomologic` `EST_MAX = 99`, `parseEstimate`, `estimateCommit`; kolom angka target di Fokus Hari Ini; baris "Target 🍅" di detail task (Live Edit + `NumberPicker`); SW v500 + `app.css?v=384` + whatsnew non-silent + ADR-047; E2E `e2e_plugin_fase1_1d0.py` 50/50; catatan implementasi spec. Subagent implementer per tugas + reviewer terpisah, review akhir + re-review (4 temuan wajib diperbaiki).
 - **Files Touch:** webapp.py, static/offline/{pomologic,liveedit}.js, static/index.html, static/app.css, static/sw.js, static/whatsnew.json, tests/** (baru + versi), temporary_files/e2e_plugin_fase1_1d0*, temporary_files/e2e_{focus_target,detail_redesign}.py, docs/superpowers/{specs,plans}/*1d*, .agents/*
 - **Status:** Needs Review (PR draft; tunggu "merge dan deploy"; setelah deploy wajib restart `taskflow-web` segera). pytest 1478/1 skip; npm 4477/4478 (pra-ada `draw_local_reactive`).
+
+## [2026-11-06 21:15] - Claude (Opus 5.5)
+- **Task:** Merge PR #128 (1d-0 target 🍅 sampai 99) atas permintaan pemilik.
+- **Changes:** PR ditandai ready lalu di-merge (merge commit `ebf829c`, main sebelumnya `22cd9e5` — SW v500 tetap tanpa bentrok); CI Tests + Deploy sukses (deploy selesai 21.11 WIB). Pemilik diminta menjalankan `sudo systemctl restart taskflow-web` segera.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Done — kecuali restart `taskflow-web` + verifikasi pasca-deploy (menunggu pemilik). Berikutnya: rencana PR 1d-1 Beban Tim.
