@@ -988,10 +988,10 @@ def run_props(browser, base):
             # ── P-6: Escape menutup, fokus kembali ke nilai; tanpa select/.input-label ──
             box = reopen(PR_MAIN)
             check("%s P-6a kisi properti: Status, Prioritas, Tahap, Proyek, Deadline; Menunggu & Tag kosong diringkas "
-                  "jadi '+ Menunggu' '+ Tag' (tanpa Assign di task pribadi)"
+                  "jadi '+ Target 🍅' '+ Menunggu' '+ Tag' (tanpa Assign di task pribadi; '+ Target 🍅' baru di PR 1d-0)"
                   % tag, [x.strip() for x in box.locator(".td-props .td-prop-label").all_inner_texts()]
                   == ["Status", "Prioritas", "Tahap", "Proyek", "Deadline"]
-                  and [x.strip() for x in box.locator(".td-prop-add").all_inner_texts()] == ["+ Menunggu", "+ Tag"]
+                  and [x.strip() for x in box.locator(".td-prop-add").all_inner_texts()] == ["+ Target 🍅", "+ Menunggu", "+ Tag"]
                   and box.locator('[aria-label^="Assign ke: "]').count() == 0,
                   repr((box.locator(".td-prop-label").all_inner_texts(), box.locator(".td-prop-add").all_inner_texts())))
             check("%s P-6s bar atas: task pribadi berlabel 'Pribadi'" % tag,

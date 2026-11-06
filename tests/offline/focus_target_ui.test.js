@@ -79,3 +79,119 @@ test("CSS: is-over dan pemilih tomat", () => {
   assert.match(appCss, /\.ftask-est-btn\s*\{[^}]*26px/);
   assert.ok(appCss.includes(".ftask-est-btn:focus-visible"));
 });
+
+test("FocusTaskItem: radiogroup pindah ke .ftask-est-group, .ftask-estimate luar tanpa role", () => {
+  const src = fnSource("FocusTaskItem");
+  const outer = src.indexOf('className: "ftask-estimate"');
+  const group = src.indexOf('className: "ftask-est-group"', outer);
+  assert.ok(outer >= 0 && group > outer);
+  // div luar tanpa role: tidak ada "radiogroup" antara className luar dan grup
+  assert.ok(!src.slice(outer, group).includes("radiogroup"));
+  const groupHead = src.slice(group, group + 120);
+  assert.ok(groupHead.includes('role: "radiogroup"'));
+  assert.ok(groupHead.includes('"aria-label": "Estimasi pomodoro"'));
+  assert.equal(src.split('role: "radiogroup"').length - 1, 1);
+});
+
+test("FocusTaskItem: kolom angka hanya saat pomoEst >= 5, saudara radiogroup di dalam .ftask-estimate", () => {
+  const src = fnSource("FocusTaskItem");
+  const group = src.indexOf('className: "ftask-est-group"');
+  const lastBtn = src.indexOf('className: "ftask-est-plus"', group);
+  const input = src.indexOf('className: "ftask-est-input"', lastBtn);
+  const link = src.indexOf("ftask-detail-link", input);
+  assert.ok(group >= 0 && lastBtn > group && input > lastBtn && link > input);
+  // penutup grup (akhir .map tombol) ada sebelum kolom angka
+  const between = src.slice(lastBtn, input);
+  assert.match(between, /\)\)\)\), pomoEst >= 5 && React\.createElement\("input", \{/);
+  const blk = src.slice(input - 200, input + 700);
+  assert.ok(blk.includes('type: "number"'));
+  assert.ok(blk.includes('inputMode: "numeric"'));
+  assert.ok(blk.includes("min: 1"));
+  assert.ok(blk.includes("max: 99"));
+  assert.ok(blk.includes('"aria-label": "Target pomodoro (1–99)"'));
+  assert.ok(blk.includes('title: "Target pomodoro (1–99)"'));
+  assert.ok(src.includes("estimateCommit("));
+});
+
+test("FocusTaskItem: badge ×n diganti kolom angka (tidak dirender lagi)", () => {
+  const src = fnSource("FocusTaskItem");
+  assert.ok(!src.includes("ftask-est-badge"));
+  assert.ok(src.includes('"5+"'));
+});
+
+test("FocusTaskItem: komit lewat estimateCommit, onEstimate hanya di cabang send, Escape tanpa onEstimate", () => {
+  const src = fnSource("FocusTaskItem");
+  assert.ok(src.includes("lastSentRef"));
+  assert.ok(src.includes("estimateCommit("));
+  const fn = src.indexOf("const commitEst");
+  assert.ok(fn >= 0);
+  const call = src.indexOf("estimateCommit(", fn);
+  const send = src.indexOf(".send", call);
+  const emit = src.indexOf("onEstimate(task, ", send);
+  assert.ok(call > fn && send > call && emit > send);
+  // satu-satunya onEstimate(task, n) di jalur ketik, setelah pengecekan send
+  assert.equal(src.split("onEstimate(task, n)").length - 1, 1);
+  // Enter mengabaikan komposisi IME
+  assert.ok(src.includes("isComposing"));
+  // Escape: membatalkan tanpa onEstimate
+  const esc = src.indexOf('"Escape"', fn);
+  assert.ok(esc > fn);
+  const escBlk = src.slice(esc, esc + 450);
+  assert.ok(!escBlk.includes("onEstimate"));
+  assert.ok(escBlk.includes("stopPropagation"));
+});
+
+test("FocusTaskItem: estDirtyRef diset di onChange, direset di onFocus; tampilan non-fokus dari pomoEst", () => {
+  const src = fnSource("FocusTaskItem");
+  assert.ok(src.includes("estDirtyRef"));
+  const inp = src.indexOf('className: "ftask-est-input"');
+  const onChange = src.indexOf("onChange:", inp);
+  const onFocus = src.indexOf("onFocus:", inp);
+  const onBlur = src.indexOf("onBlur:", inp);
+  assert.ok(onChange > 0 && onFocus > onChange && onBlur > onFocus);
+  assert.ok(/estDirtyRef\.current = true/.test(src.slice(onChange, onFocus)));
+  const focusBlk = src.slice(onFocus, onBlur);
+  assert.ok(/estDirtyRef\.current = false/.test(focusBlk));
+  assert.ok(focusBlk.includes("String(pomoEst)"));
+  // memilih isi saat fokus (klik "5" lalu ketik "12" = 12, bukan 512), juga lewat requestAnimationFrame
+  assert.ok(/onFocus: e => \{/.test(focusBlk));
+  assert.ok(/const el = e\.currentTarget;/.test(focusBlk));
+  assert.ok(/try \{ el\.select\(\); \} catch/.test(focusBlk));
+  assert.ok(/requestAnimationFrame\(\(\) => \{ try \{ el\.select\(\); \} catch/.test(focusBlk));
+  // roda mouse: blur (komit sesuai aturan yang ada), bukan perubahan nilai diam-diam
+  assert.ok(/onWheel: e => e\.currentTarget\.blur\(\)/.test(focusBlk));
+  // nilai yang ditampilkan: teks state hanya saat difokus
+  assert.ok(/value: estFocused \? estText : String\(pomoEst\)/.test(src));
+});
+
+test("CSS: kolom angka target Fokus", () => {
+  assert.match(appCss, /\.ftask-est-group\s*\{[^}]*inline-flex/);
+  const m = appCss.match(/\.ftask-est-input\s*\{[^}]*\}/);
+  assert.ok(m, ".ftask-est-input harus ada");
+  assert.ok(!/#[0-9a-fA-F]{3,6}\b/.test(m[0]), "tanpa hex baru");
+  assert.ok(!/border-left/.test(m[0]));
+  assert.match(m[0], /26px/);
+  assert.ok(appCss.includes(".ftask-est-input:focus-visible"));
+  assert.ok(appCss.includes('[data-theme="dark"] .ftask-est-input:focus-visible'));
+  assert.ok(appCss.includes("::-webkit-inner-spin-button"));
+  assert.ok(appCss.includes("-moz-appearance: textfield"));
+});
+
+test("CSS: font 16px di layar kecil (zoom iOS) dan tanpa aturan .ftask-est-badge mati", () => {
+  assert.match(appCss, /@media \(max-width: 768px\) \{[^@]*\.ftask-est-input \{ font-size: 16px; \}/);
+  assert.ok(!appCss.includes(".ftask-est-badge"));
+});
+
+test("FocusTaskItem: kolom target menahan mouseup pertama setelah fokus (Safari/WKWebView)", () => {
+  const src = fnSource("FocusTaskItem");
+  assert.ok(/const estSelectOnUpRef = useRef\(false\)/.test(src));
+  const inp = src.indexOf('className: "ftask-est-input"');
+  const onFocus = src.indexOf("onFocus:", inp);
+  const onMouseUp = src.indexOf("onMouseUp:", inp);
+  const onBlur = src.indexOf("onBlur:", inp);
+  assert.ok(onFocus > 0 && onMouseUp > onFocus && onBlur > onMouseUp);
+  assert.ok(/estSelectOnUpRef\.current = true/.test(src.slice(onFocus, onMouseUp)));
+  const upBlk = src.slice(onMouseUp, onBlur);
+  assert.ok(/if \(estSelectOnUpRef\.current\) \{[^}]*estSelectOnUpRef\.current = false;[^}]*e\.preventDefault\(\);[^}]*\}/.test(upBlk));
+  assert.ok(/estSelectOnUpRef\.current = false/.test(src.slice(onBlur, onBlur + 200)));
+});

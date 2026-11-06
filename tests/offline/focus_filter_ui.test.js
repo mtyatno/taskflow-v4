@@ -103,6 +103,8 @@ function itemGlobals() {
   const stub = () => null;
   return {
     React: fakeReact,
+    // Hook palsu: render satu kali tanpa DOM (FocusTaskItem memakai state kolom angka target).
+    useState: v => [v, NOOP], useRef: v => ({ current: v }), useEffect: NOOP,
     window: { TF: { pomologic, focusfilter: ff, tasklogic: { todayLocalISO: () => TODAY } } },
     GTD_LABELS: { next: "Next", inbox: "Inbox", waiting: "Waiting", someday: "Someday" },
     GTD_ICON: {}, QUAD_ICON: {}, QUAD_LABELS: {},

@@ -1,6 +1,6 @@
 """E2E halaman Fokus Hari Ini PR B: Target 🍅 (estimasi vs realisasi). Tidak dijalankan CI.
 
-Skenario: a pemilih estimasi (3 -> reload -> server; 5+ tiga kali -> 5, 6, 7 dan badge ×7)
+Skenario: a pemilih estimasi (3 -> reload -> server; 5+ tiga kali -> 5, 6, 7 dan kolom angka target = 7)
 b header "3 tugas • 0 / 9 … hari ini (~4 jam)"  c sesi 25 menit -> bar 1 / 7, header X=1, server + log, reload
 d estimasi 1 + dua sesi -> realisasi is-over, timer tetap bisa dimulai  e dua tab, sesi sama -> satu log
 f offline: realisasi lokal +1, online -> tepat satu baris
@@ -233,7 +233,7 @@ def run_flow(ctx, p, base, user, ids, db):
           btns.count() == 5 and "5+" in btns.nth(4).inner_text(), "n=%d" % btns.count())
     check("a1b pemilih di luar tablist (div.ftask-tabbar > tablist + radiogroup)",
           r.locator(".ftask-tabbar > [role=tablist]").count() == 1
-          and r.locator(".ftask-tabbar > .ftask-estimate[role=radiogroup]").count() == 1
+          and r.locator(".ftask-tabbar > .ftask-estimate > .ftask-est-group[role=radiogroup]").count() == 1
           and r.locator("[role=tablist] .ftask-est-btn").count() == 0)
     btns.nth(2).click()
     p.wait_for_timeout(600)
@@ -252,9 +252,10 @@ def run_flow(ctx, p, base, user, ids, db):
         p.wait_for_timeout(400)
         seen.append(chip(p, t1))
     check("a5 '5+' tiga kali dari 3 -> 5, 6, 7", seen == ["0/5", "0/6", "0/7"], repr(seen))
-    badge = r.locator(".ftask-est-badge")
-    check("a6 badge ×7", badge.count() == 1 and badge.inner_text().strip() == "×7",
-          repr(badge.inner_text() if badge.count() else None))
+    inp = r.locator(".ftask-estimate > .ftask-est-input")
+    check("a6 kolom angka target = 7 (menggantikan badge ×n)",
+          inp.count() == 1 and inp.input_value() == "7" and r.locator(".ftask-est-badge").count() == 0,
+          repr(inp.input_value() if inp.count() else None))
     sync(p)
     got = wait_for(lambda: server_task(base, user, ids[t1]).get("estimated_pomodoros") == 7)
     check("a7 server estimated_pomodoros == 7", got)

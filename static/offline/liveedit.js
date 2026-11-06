@@ -20,8 +20,11 @@
 
   const EDITABLE_FIELDS = Object.freeze([
     "title", "description", "priority", "gtd_status", "project", "context",
-    "deadline", "waiting_for", "assigned_to", "progress",
+    "deadline", "waiting_for", "assigned_to", "progress", "estimated_pomodoros",
   ]);
+  // liveedit.js dimuat sebelum pomologic.js di index.html, jadi pomologic diakses lazy (pola taskrepo.js).
+  const isNode = (typeof module !== "undefined" && module.exports);
+  const TFpomo = () => (isNode ? require("./pomologic.js") : (root.TF && root.TF.pomologic));
   const EMPTY_SELECTION = Object.freeze({ ref: null, snapshot: null, cleared: false });
 
   const TITLE_REQUIRED = "Judul tidak boleh kosong";
@@ -124,6 +127,7 @@
       waiting_for: t.waiting_for || "",
       assigned_to: t.assigned_to || null,
       progress: t.progress || 0,
+      estimated_pomodoros: estimateValue(t.estimated_pomodoros),
     };
   }
 
@@ -135,11 +139,17 @@
     return Number(v) || 0;
   }
 
+  // Target 🍅: selalu bilangan bulat 1–99 (1 bila tak ada/tak sah), sama dengan yang disimpan taskrepo.
+  function estimateValue(v) {
+    return TFpomo().clampEstimate(v);
+  }
+
   function fieldChanged(field, a, b) {
     switch (field) {
       case "title": return String(a == null ? "" : a).trim() !== String(b == null ? "" : b).trim();
       case "assigned_to": return assigneeValue(a) !== assigneeValue(b);
       case "progress": return progressValue(a) !== progressValue(b);
+      case "estimated_pomodoros": return estimateValue(a) !== estimateValue(b);
       default: return String(a == null ? "" : a) !== String(b == null ? "" : b);
     }
   }
@@ -160,6 +170,7 @@
       if (k === "title") patch[k] = String(v == null ? "" : v).trim();
       else if (k === "assigned_to") patch[k] = assigneeValue(v);
       else if (k === "progress") patch[k] = progressValue(v);
+      else if (k === "estimated_pomodoros") patch[k] = estimateValue(v);
       else patch[k] = v == null ? "" : v;
     }
     return patch;
@@ -181,6 +192,9 @@
       case "context":
       case "deadline":
       case "waiting_for":
+      case "estimated_pomodoros": // angka setengah jadi ("2" sebelum "24") tidak terkirim oleh simpan non-eksplisit ("now");
+        // namun flush() (pagehide/tab disembunyikan/unmount) mengirim semua field berubah, jadi nilai sah terakhir
+        // ikut terkirim — konsisten dengan deadline.
         return "blur";
       case "description":
         return "idle";

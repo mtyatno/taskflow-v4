@@ -10,13 +10,35 @@
 
   const POMO_SECONDS = 1500;
   const EST_MIN = 1;
-  const EST_MAX = 20;
+  const EST_MAX = 99;
 
-  // Angka dibulatkan, dijepit 1-20; non-angka -> 1.
+  // Angka dibulatkan, dijepit 1-99; non-angka -> 1.
   function clampEstimate(n) {
     const v = Number(n);
     if (n == null || n === "" || !Number.isFinite(v)) return EST_MIN;
     return Math.min(EST_MAX, Math.max(EST_MIN, Math.round(v)));
+  }
+
+  // Urai teks isian target: hanya 1-3 digit (setelah trim) yang sah; 0 atau selain itu -> null
+  // (pemanggil membatalkan tanpa simpan); angka sah dijepit 1-99 ("150" -> 99, "007" -> 7).
+  function parseEstimate(text) {
+    const s = String(text ?? "").trim();
+    if (!/^\d{1,3}$/.test(s)) return null;
+    const n = Number(s);
+    if (n === 0) return null;
+    return clampEstimate(n);
+  }
+
+  // Keputusan komit kolom target (murni): { send: n } hanya bila pengguna mengetik (dirty), angkanya sah,
+  // dan berbeda dari nilai efektif (lastSent ?? saved); selain itu { revert: true } (kolom kembali ke nilai tersimpan).
+  function estimateCommit(o) {
+    const { raw, saved, lastSent, dirty } = o || {};
+    if (!dirty) return { revert: true };
+    const n = parseEstimate(raw);
+    if (n == null) return { revert: true };
+    const cur = lastSent != null ? lastSent : saved;
+    if (n === cur) return { revert: true };
+    return { send: n };
   }
 
   // Klik 1-4 menetapkan nilai; klik 5 menetapkan 5 bila kurang, selain itu +1.
@@ -152,7 +174,7 @@
     return [];
   }
 
-  return { POMO_SECONDS, EST_MIN, EST_MAX, clampEstimate, nextEstimate, estimateHoursLabel,
+  return { POMO_SECONDS, EST_MIN, EST_MAX, clampEstimate, nextEstimate, parseEstimate, estimateCommit, estimateHoursLabel,
     headerSummary, headerSummaryShort, sessionClientId, isOverEstimate,
     OVERTIME_CAP, OVERTIME_MIN_LOG, overtimeSeconds, overtimePomodoros, formatOvertime,
     overtimeProgress, overtimeClientId, breakAfter, overtimeLogEntry, staleSessionLogs, localDateISO };

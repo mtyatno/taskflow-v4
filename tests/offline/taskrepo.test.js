@@ -356,13 +356,15 @@ test("updateTask clears recurrence when type is null/invalid", async () => {
   assert.equal(u.recurrence_end_date, null);
 });
 
-test("createTask sets estimated_pomodoros (default 1, clamped 20) and pomodoros_done 0", async () => {
+test("createTask sets estimated_pomodoros (default 1, dijepit 99) and pomodoros_done 0", async () => {
   const a = await createTask({ title: "A" }, { today: TODAY });
   const ra = await getRaw(a.cid);
   assert.equal(ra.estimated_pomodoros, 1);
   assert.equal(ra.pomodoros_done, 0);
   const b = await createTask({ title: "B", estimated_pomodoros: 30 }, { today: TODAY });
-  assert.equal((await getRaw(b.cid)).estimated_pomodoros, 20);
+  assert.equal((await getRaw(b.cid)).estimated_pomodoros, 30);
+  const c = await createTask({ title: "C", estimated_pomodoros: 150 }, { today: TODAY });
+  assert.equal((await getRaw(c.cid)).estimated_pomodoros, 99);
 });
 
 test("updateTask patches estimated_pomodoros (clamped), dirty + rev up", async () => {
@@ -373,6 +375,8 @@ test("updateTask patches estimated_pomodoros (clamped), dirty + rev up", async (
   assert.equal(r1.estimated_pomodoros, 4);
   assert.equal(r1.dirty, 1);
   assert.ok(r1.rev > r0.rev);
+  await updateTask(t.cid, { estimated_pomodoros: 64 }, { today: TODAY });
+  assert.equal((await getRaw(t.cid)).estimated_pomodoros, 64);
   await updateTask(t.cid, { estimated_pomodoros: 0 }, { today: TODAY });
   assert.equal((await getRaw(t.cid)).estimated_pomodoros, 1);
 });
