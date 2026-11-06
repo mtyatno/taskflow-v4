@@ -89,6 +89,11 @@ def test_buat_task_target_99_diterima_100_ditolak(u):
     assert u.get(f"/api/tasks/{t['id']}").json()["estimated_pomodoros"] == 99
     r = u.post("/api/tasks", json={"title": "t", "estimated_pomodoros": 100})
     assert r.status_code == 422
+    for bad in (0, 100):
+        assert u.post("/api/tasks", json={"title": "t", "estimated_pomodoros": bad}).status_code == 422
+    r = u.post("/api/tasks", json={"title": "t", "estimated_pomodoros": 21})
+    assert r.status_code == 200
+    assert r.json()["estimated_pomodoros"] == 21
 
 
 def test_put_target_21_dan_99_diterima_0_dan_100_ditolak(u):

@@ -110,7 +110,7 @@ test("FocusTaskItem: kolom angka hanya saat pomoEst >= 5, saudara radiogroup di 
   assert.ok(blk.includes("max: 99"));
   assert.ok(blk.includes('"aria-label": "Target pomodoro (1–99)"'));
   assert.ok(blk.includes('title: "Target pomodoro (1–99)"'));
-  assert.ok(src.includes("parseEstimate("));
+  assert.ok(src.includes("estimateCommit("));
 });
 
 test("FocusTaskItem: badge ×n diganti kolom angka (tidak dirender lagi)", () => {
@@ -119,16 +119,17 @@ test("FocusTaskItem: badge ×n diganti kolom angka (tidak dirender lagi)", () =>
   assert.ok(src.includes('"5+"'));
 });
 
-test("FocusTaskItem: komit satu kali, dijaga nilai terkirim, Escape tanpa onEstimate", () => {
+test("FocusTaskItem: komit lewat estimateCommit, onEstimate hanya di cabang send, Escape tanpa onEstimate", () => {
   const src = fnSource("FocusTaskItem");
   assert.ok(src.includes("lastSentRef"));
+  assert.ok(src.includes("estimateCommit("));
   const fn = src.indexOf("const commitEst");
   assert.ok(fn >= 0);
-  const nullCheck = src.indexOf("n == null", fn);
-  const sameCheck = src.indexOf("lastSentRef.current", fn);
-  const call = src.indexOf("onEstimate(task, n)", fn);
-  assert.ok(nullCheck > fn && sameCheck > fn && call > nullCheck && call > sameCheck);
-  // hanya satu pemanggilan onEstimate(task, n) di jalur ketik
+  const call = src.indexOf("estimateCommit(", fn);
+  const send = src.indexOf(".send", call);
+  const emit = src.indexOf("onEstimate(task, ", send);
+  assert.ok(call > fn && send > call && emit > send);
+  // satu-satunya onEstimate(task, n) di jalur ketik, setelah pengecekan send
   assert.equal(src.split("onEstimate(task, n)").length - 1, 1);
   // Enter mengabaikan komposisi IME
   assert.ok(src.includes("isComposing"));
@@ -138,6 +139,22 @@ test("FocusTaskItem: komit satu kali, dijaga nilai terkirim, Escape tanpa onEsti
   const escBlk = src.slice(esc, esc + 450);
   assert.ok(!escBlk.includes("onEstimate"));
   assert.ok(escBlk.includes("stopPropagation"));
+});
+
+test("FocusTaskItem: estDirtyRef diset di onChange, direset di onFocus; tampilan non-fokus dari pomoEst", () => {
+  const src = fnSource("FocusTaskItem");
+  assert.ok(src.includes("estDirtyRef"));
+  const inp = src.indexOf('className: "ftask-est-input"');
+  const onChange = src.indexOf("onChange:", inp);
+  const onFocus = src.indexOf("onFocus:", inp);
+  const onBlur = src.indexOf("onBlur:", inp);
+  assert.ok(onChange > 0 && onFocus > onChange && onBlur > onFocus);
+  assert.ok(/estDirtyRef\.current = true/.test(src.slice(onChange, onFocus)));
+  const focusBlk = src.slice(onFocus, onBlur);
+  assert.ok(/estDirtyRef\.current = false/.test(focusBlk));
+  assert.ok(focusBlk.includes("String(pomoEst)"));
+  // nilai yang ditampilkan: teks state hanya saat difokus
+  assert.ok(/value: estFocused \? estText : String\(pomoEst\)/.test(src));
 });
 
 test("CSS: kolom angka target Fokus", () => {
@@ -151,4 +168,9 @@ test("CSS: kolom angka target Fokus", () => {
   assert.ok(appCss.includes('[data-theme="dark"] .ftask-est-input:focus-visible'));
   assert.ok(appCss.includes("::-webkit-inner-spin-button"));
   assert.ok(appCss.includes("-moz-appearance: textfield"));
+});
+
+test("CSS: font 16px di layar kecil (zoom iOS) dan tanpa aturan .ftask-est-badge mati", () => {
+  assert.match(appCss, /@media \(max-width: 768px\) \{[^@]*\.ftask-est-input \{ font-size: 16px; \}/);
+  assert.ok(!appCss.includes(".ftask-est-badge"));
 });

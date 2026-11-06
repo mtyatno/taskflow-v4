@@ -11082,24 +11082,36 @@ function FocusTaskItem({
   const pomoDone = task.pomodoros_done || 0;
   const pomoEst = window.TF.pomologic.clampEstimate(task.estimated_pomodoros);
   const pomoShown = Math.min(pomoEst, 5);
-  // Kolom angka target (≥ 5): teks ketikan lokal; disinkron dari prop hanya saat kolom tidak difokus.
+  // Kolom angka target (≥ 5): teks ketikan lokal hanya berlaku saat kolom difokus; di luar fokus tampil `pomoEst`.
   const [estText, setEstText] = useState(String(pomoEst));
+  const [estFocused, setEstFocused] = useState(false); // ref saja tidak memicu render
   const estFocusRef = useRef(false);
+  const estDirtyRef = useRef(false); // true hanya setelah pengguna mengetik sejak fokus/sinkron terakhir
   const lastSentRef = useRef(null); // nilai yang baru dikirim; prop `pomoEst` baru tiba asinkron setelah refresh
   const estGroupRef = useRef(null);
   useEffect(() => {
     lastSentRef.current = null;
-    if (pomoEst < 5) estFocusRef.current = false; // kolom lepas dari DOM
+    estDirtyRef.current = false;
+    if (pomoEst < 5) {
+      estFocusRef.current = false; // kolom lepas dari DOM
+      setEstFocused(false);
+    }
     if (!estFocusRef.current) setEstText(String(pomoEst));
   }, [pomoEst]);
-  // Komit sekali: kosong/0/bukan angka → kembali ke nilai tersimpan; sama dengan yang tersimpan/terkirim → tanpa PUT.
+  // Komit sekali lewat keputusan murni: hanya `send` yang memanggil onEstimate; selain itu teks kembali ke nilai tersimpan.
   const commitEst = (raw, moveFocus) => {
-    const n = window.TF.pomologic.parseEstimate(raw);
-    const cur = lastSentRef.current != null ? lastSentRef.current : pomoEst;
-    if (n == null || n === cur) {
-      setEstText(String(n == null ? cur : n));
+    const d = window.TF.pomologic.estimateCommit({
+      raw,
+      saved: pomoEst,
+      lastSent: lastSentRef.current,
+      dirty: estDirtyRef.current
+    });
+    estDirtyRef.current = false;
+    if (d.send == null) {
+      setEstText(String(lastSentRef.current != null ? lastSentRef.current : pomoEst));
       return;
     }
+    const n = d.send;
     lastSentRef.current = n;
     setEstText(String(n));
     onEstimate && onEstimate(task, n);
@@ -11291,15 +11303,22 @@ function FocusTaskItem({
     className: "ftask-est-input",
     "aria-label": "Target pomodoro (1–99)",
     title: "Target pomodoro (1–99)",
-    value: estText,
-    onChange: e => setEstText(e.target.value),
+    value: estFocused ? estText : String(pomoEst),
+    onChange: e => {
+      estDirtyRef.current = true;
+      setEstText(e.target.value);
+    },
     onFocus: () => {
       estFocusRef.current = true;
+      estDirtyRef.current = false;
       lastSentRef.current = null; // fokus ulang boleh mengulang kirim bila komit sebelumnya gagal
+      setEstText(String(pomoEst));
+      setEstFocused(true);
     },
     onBlur: e => {
       estFocusRef.current = false;
       commitEst(e.currentTarget.value, false);
+      setEstFocused(false);
     },
     onKeyDown: e => {
       if (e.key === "Enter") {
@@ -11309,6 +11328,7 @@ function FocusTaskItem({
       } else if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
+        estDirtyRef.current = false;
         // Kembalikan nilai di DOM lebih dulu supaya blur membaca nilai batal, bukan ketikan lama.
         e.currentTarget.value = String(lastSentRef.current != null ? lastSentRef.current : pomoEst);
         setEstText(e.currentTarget.value);

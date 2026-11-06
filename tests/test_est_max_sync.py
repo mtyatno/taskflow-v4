@@ -9,7 +9,7 @@ POMOLOGIC = Path(__file__).resolve().parent.parent / "static" / "offline" / "pom
 
 def _angka_klien(nama):
     src = POMOLOGIC.read_text(encoding="utf-8")
-    m = re.search(rf"const {nama} = (\d+);", src)
+    m = re.search(rf"(?m)^\s*const {nama} = (\d+);", src)
     assert m, f"pola 'const {nama} = <angka>;' tidak ditemukan di {POMOLOGIC}"
     return int(m.group(1))
 

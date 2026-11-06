@@ -1,6 +1,6 @@
 """E2E halaman Fokus Hari Ini PR B: Target 🍅 (estimasi vs realisasi). Tidak dijalankan CI.
 
-Skenario: a pemilih estimasi (3 -> reload -> server; 5+ tiga kali -> 5, 6, 7 dan badge ×7)
+Skenario: a pemilih estimasi (3 -> reload -> server; 5+ tiga kali -> 5, 6, 7 dan kolom angka target = 7)
 b header "3 tugas • 0 / 9 … hari ini (~4 jam)"  c sesi 25 menit -> bar 1 / 7, header X=1, server + log, reload
 d estimasi 1 + dua sesi -> realisasi is-over, timer tetap bisa dimulai  e dua tab, sesi sama -> satu log
 f offline: realisasi lokal +1, online -> tepat satu baris
