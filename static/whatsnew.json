@@ -1,5 +1,8 @@
 {
   "entries": [
+    {"version": "taskflow-v500-target-pomodoro", "date": "2026-11-06", "title": "Target 🍅 kini sampai 99",
+     "new": ["Ketik target pomodoro langsung di Fokus Hari Ini, sampai 99 🍅 — tidak perlu lagi klik berkali-kali.",
+             "Atur Target 🍅 dari detail task mana pun, termasuk task minggu depan atau milik anggota tim."]},
     {"version": "taskflow-v499-baseline-aktual", "date": "2026-11-05", "title": "Timeline: baseline dan tanggal aktual",
      "new": ["Simpan baseline project (sampai 3) dan lihat bedanya dengan jadwal sekarang — bar tipis di bawah setiap task.",
              "Tanggal mulai dan selesai sungguhan tercatat otomatis saat kamu mulai fokus atau menyelesaikan task — bisa diubah kapan saja.",

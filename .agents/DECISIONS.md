@@ -391,3 +391,15 @@
   - Picker menampilkan nama slot di halaman project, generik "Baseline {n}" di workspace.
   - Residual 1c-1 (ADR-045 (a)–(i)) tetap berlaku.
   - Teks baru di luar R28 1c-1: "{nama} disimpan", "Timpa", "Project", "Nama", "Baseline gagal disimpan", "Data berubah sejak dialog dibuka — muat ulang", "Hapus {nama} (disimpan {tanggal})?", "Hapus", "{nama} dihapus", "Baseline gagal dihapus".
+
+### ADR-047: Target pomodoro 1–99 (host), tanpa gerbang kemampuan server
+- **Date:** 2026-11-06
+- **Agent:** Claude (Opus 5.5)
+- **Context:** Spec 1d (Q2 (a), K45, R1) dan rencana `docs/superpowers/plans/2026-11-06-plugin-fase1-pr-1d-0.md`. Batas lama 20 pomodoro ≈ 8 jam fokus total terlalu rendah untuk task besar. Target hanya bisa diisi di Fokus Hari Ini, yang memuat task "hari ini" saja, sehingga task minggu depan atau milik anggota tim tidak bisa diatur targetnya. Jawaban pemilik P2 (a): teks whatsnew disetujui apa adanya.
+- **Decision:** (R1) Satu konstanta batas per sisi (klien dan server) dijaga tes silang `tests/test_est_max_sync.py`, tanpa gerbang kemampuan server. (R4) Kolom angka di Fokus Hari Ini dengan keputusan komit murni `TF.pomologic.estimateCommit`. (R5) Baris "Target 🍅" di detail task lewat Live Edit sebagai field "blur" (tersimpan saat popover ditutup / Simpan / Enter, bukan per digit).
+- **Consequences:**
+  - (R2) Jendela deploy → restart: klien baru + server lama = PUT > 20 ditolak 422 menjadi `sync_error` dengan tombol "Coba lagi" yang pulih setelah restart; jadi restart `taskflow-web` segera setelah deploy.
+  - (R3) Rollback = revert klien saja; server tetap menerima ≤ 99 tanpa skrip penjepit. Revert server penuh hanya bersama `UPDATE tasks SET estimated_pomodoros = 20 WHERE estimated_pomodoros > 20` + restart.
+  - (R7) Klien v499 yang masih terpasang menampilkan ×20 dan hanya menulis bila pengguna mengklik pemilih.
+  - `flush` Live Edit (pagehide/tab disembunyikan/unmount) mengirim nilai sah terakhir, seperti deadline; angka setengah jadi tidak terkirim oleh simpan non-eksplisit.
+  - Anggaran baris plugin di `tests/offline/plugin_host_wiring.test.js` memuat `HOST_1D0_EXTRA`.
