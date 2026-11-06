@@ -11028,6 +11028,30 @@ function FocusTaskItem({
   const pomoDone = task.pomodoros_done || 0;
   const pomoEst = window.TF.pomologic.clampEstimate(task.estimated_pomodoros);
   const pomoShown = Math.min(pomoEst, 5);
+  // Kolom angka target (≥ 5): teks ketikan lokal; disinkron dari prop hanya saat kolom tidak difokus.
+  const [estText, setEstText] = useState(String(pomoEst));
+  const estFocusRef = useRef(false);
+  const lastSentRef = useRef(null); // nilai yang baru dikirim; prop `pomoEst` baru tiba asinkron setelah refresh
+  const estGroupRef = useRef(null);
+  useEffect(() => {
+    lastSentRef.current = null;
+    if (pomoEst < 5) estFocusRef.current = false; // kolom lepas dari DOM
+    if (!estFocusRef.current) setEstText(String(pomoEst));
+  }, [pomoEst]);
+  // Komit sekali: kosong/0/bukan angka → kembali ke nilai tersimpan; sama dengan yang tersimpan/terkirim → tanpa PUT.
+  const commitEst = (raw, moveFocus) => {
+    const n = window.TF.pomologic.parseEstimate(raw);
+    const cur = lastSentRef.current != null ? lastSentRef.current : pomoEst;
+    if (n == null || n === cur) {
+      setEstText(String(n == null ? cur : n));
+      return;
+    }
+    lastSentRef.current = n;
+    setEstText(String(n));
+    onEstimate && onEstimate(task, n);
+    // Kolom hilang setelah refresh bila n < 5: fokus pindah ke tomat ke-n (hanya saat Enter, bukan saat blur).
+    if (moveFocus && n < 5) estGroupRef.current?.querySelectorAll(".ftask-est-btn")[n - 1]?.focus();
+  };
   const isOtherFocused = hasFocusTask && !isFocusing;
   const c = counts || {};
   const panelId = `ftask-panel-${task.id}`;
@@ -11185,9 +11209,12 @@ function FocusTaskItem({
       className: "ftask-tab-count"
     }, label));
   })), React.createElement("div", {
-    className: "ftask-estimate",
+    className: "ftask-estimate"
+  }, React.createElement("div", {
+    className: "ftask-est-group",
     role: "radiogroup",
-    "aria-label": "Estimasi pomodoro"
+    "aria-label": "Estimasi pomodoro",
+    ref: estGroupRef
   }, [1, 2, 3, 4, 5].map(i => React.createElement("button", {
     key: i,
     type: "button",
@@ -11201,9 +11228,40 @@ function FocusTaskItem({
     size: 16
   }), i === 5 && React.createElement("span", {
     className: "ftask-est-plus"
-  }, "5+"), i === 5 && pomoEst >= 5 && React.createElement("span", {
-    className: "ftask-est-badge"
-  }, "×", pomoEst)))), React.createElement("button", {
+  }, "5+")))), pomoEst >= 5 && React.createElement("input", {
+    type: "number",
+    inputMode: "numeric",
+    min: 1,
+    max: 99,
+    step: 1,
+    className: "ftask-est-input",
+    "aria-label": "Target pomodoro (1–99)",
+    title: "Target pomodoro (1–99)",
+    value: estText,
+    onChange: e => setEstText(e.target.value),
+    onFocus: () => {
+      estFocusRef.current = true;
+      lastSentRef.current = null; // fokus ulang boleh mengulang kirim bila komit sebelumnya gagal
+    },
+    onBlur: e => {
+      estFocusRef.current = false;
+      commitEst(e.currentTarget.value, false);
+    },
+    onKeyDown: e => {
+      if (e.key === "Enter") {
+        if (e.nativeEvent && e.nativeEvent.isComposing) return;
+        e.preventDefault();
+        commitEst(e.currentTarget.value, true);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        // Kembalikan nilai di DOM lebih dulu supaya blur membaca nilai batal, bukan ketikan lama.
+        e.currentTarget.value = String(lastSentRef.current != null ? lastSentRef.current : pomoEst);
+        setEstText(e.currentTarget.value);
+        e.currentTarget.blur();
+      }
+    }
+  })), React.createElement("button", {
     type: "button",
     className: "ftask-detail-link",
     onClick: () => onOpenDetail(task),
