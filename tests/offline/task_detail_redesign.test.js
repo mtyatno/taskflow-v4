@@ -259,3 +259,34 @@ test("bar atas: nama workspace atau Pribadi", () => {
   const a = appCss.indexOf("/* ── Detail task: awal ── */"), b = appCss.indexOf("/* ── Detail task: akhir ── */");
   assert.match(appCss.slice(a, b), /\.td-scope\s*\{/);
 });
+
+// ── PR 1d-0 (R5): baris "Target 🍅" di detail task ──
+test("NumberPicker: sebelum TextPicker, teks lokal, onChange hanya bila angka sah", () => {
+  const a = indexHtml.indexOf("\nfunction NumberPicker("), b = indexHtml.indexOf("\nfunction TextPicker(");
+  assert.ok(a > 0 && b > a, "NumberPicker harus ada sebelum TextPicker");
+  assert.ok(indexHtml.slice(a + 1, b).indexOf("\nfunction ") < 0, "tepat sebelum TextPicker (tak ada fungsi di antaranya)");
+  const s = fnSource("NumberPicker");
+  for (const re of [/parseEstimate\(/, /type: "number"/, /inputMode: "numeric"/, /min: 1,/, /max: 99,/, /step: 1,/, /autoFocus: true/,
+    /"aria-label": "Target pomodoro \(1–99\)"/, /className: "input td-pop-input is-number"/, /useState\(String\(value\)\)/,
+    /isComposing/, /onDone\(\)/, /"Simpan"/])
+    assert.match(s, re);
+  // onChange(n) hanya di cabang n != null: teks kosong/0/tak sah tidak mengubah form
+  assert.equal((s.match(/onChange\(/g) || []).length, 1);
+  assert.match(s, /if \(n != null\) \{?\s*onChange\(n\);?/);
+});
+test("TaskDetailBody: entri optionalProps Target 🍅 paling depan; baris setelah Deadline sebelum Assign ke", () => {
+  const s = fnSource("TaskDetailBody");
+  assert.match(s, /const est = window\.TF\.pomologic\.clampEstimate\(fv\.estimated_pomodoros\);/);
+  const i = s.indexOf("const optionalProps = [");
+  assert.ok(i > 0);
+  const first = s.slice(i, s.indexOf("}", i));
+  assert.match(first, /field: "estimated_pomodoros"/); assert.match(first, /empty: est === 1/);
+  assert.match(first, /text: "\+ Target 🍅"/); assert.match(first, /aria: "Target pomodoro: 1 \(bawaan\)"/);
+  const d = s.indexOf('label: "Deadline"'), t = s.indexOf('label: "Target 🍅"'), g = s.indexOf('label: "Assign ke"');
+  assert.ok(d > 0 && t > d && g > t, "urutan Deadline < Target 🍅 < Assign ke");
+  assert.match(s, /showProp\("estimated_pomodoros"\) &&/);
+  assert.match(s, /estimateHoursLabel\(est\)/);
+  assert.match(s, /closeProp\("estimated_pomodoros"\)/);
+  assert.match(s, /onChange: v => sf\("estimated_pomodoros", v\)/);
+  assert.doesNotMatch(s.slice(i, s.indexOf("}", i)), /list_id/, "tanpa syarat list_id");
+});

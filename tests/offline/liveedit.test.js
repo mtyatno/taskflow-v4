@@ -21,7 +21,7 @@ test("konstanta", () => {
   assert.equal(le.PANEL_RATIO, 0.5); assert.equal(le.TEXT_IDLE_MS, 1500); assert.equal(le.STORAGE_KEY, "tf_liveedit");
   assert.ok(Object.isFrozen(le.EDITABLE_FIELDS) && Object.isFrozen(le.EMPTY_SELECTION));
   assert.deepEqual([...le.EDITABLE_FIELDS], ["title", "description", "priority", "gtd_status", "project", "context",
-    "deadline", "waiting_for", "assigned_to", "progress"]);
+    "deadline", "waiting_for", "assigned_to", "progress", "estimated_pomodoros"]);
   assert.deepEqual(le.EMPTY_SELECTION, { ref: null, snapshot: null, cleared: false });
 });
 test("isAvailable / panelWidth", () => {
@@ -77,7 +77,7 @@ test("selectionReducer init: pilihan yang sama (id dan cid) mengembalikan objek 
 });
 test("formFromTask / changedFields / buildPatch", () => {
   assert.deepEqual(le.formFromTask({}), { title: "", description: "", priority: "P3", gtd_status: "inbox", project: "", context: "",
-    deadline: "", waiting_for: "", assigned_to: null, progress: 0 });
+    deadline: "", waiting_for: "", assigned_to: null, progress: 0, estimated_pomodoros: 1 });
   const f = le.formFromTask(T({ assigned_to: null, progress: 40 }));
   assert.deepEqual(le.changedFields(f, f), []);
   assert.deepEqual(le.changedFields(f, Object.assign({}, f, { title: " A " })), []);
@@ -412,4 +412,38 @@ test("error: field dikembalikan ke nilai tersimpan lewat change → idle, error 
 test("error tetap bila judul yang gagal masih belum tersimpan dan simpan non-commit tidak punya apa-apa", async () => {
   const { s } = mk(T(), () => Promise.reject(new Error("x"))); s.change("title", "Rapat"); s.commit("title"); await tick();
   s.change("priority", "P3"); await tick(); assert.equal(s.getState().saveState, "error"); assert.equal(s.getState().error, "x");
+});
+
+// ---- Target 🍅 (PR 1d-0, R5) ----
+test("target 🍅: formFromTask memakai clampEstimate (bawaan 1, jepit 1–99)", () => {
+  assert.equal(le.formFromTask({}).estimated_pomodoros, 1);
+  assert.equal(le.formFromTask({ estimated_pomodoros: 40 }).estimated_pomodoros, 40);
+  assert.equal(le.formFromTask({ estimated_pomodoros: 150 }).estimated_pomodoros, 99);
+  assert.equal(le.formFromTask({ estimated_pomodoros: "abc" }).estimated_pomodoros, 1);
+});
+test("target 🍅: changedFields membandingkan angka hasil jepit; buildPatch mengirim angka", () => {
+  assert.deepEqual(le.changedFields({ estimated_pomodoros: 3 }, { estimated_pomodoros: "3" }), []);
+  assert.deepEqual(le.changedFields({ estimated_pomodoros: 3 }, { estimated_pomodoros: 24 }), ["estimated_pomodoros"]);
+  assert.deepEqual(le.buildPatch({ estimated_pomodoros: "24" }, ["estimated_pomodoros"]), { estimated_pomodoros: 24 });
+  assert.deepEqual(le.buildPatch({ estimated_pomodoros: 500 }, ["estimated_pomodoros"]), { estimated_pomodoros: 99 });
+});
+test("target 🍅: saveTrigger = blur (angka setengah jadi tidak terkirim)", () => {
+  assert.equal(le.saveTrigger("estimated_pomodoros", 2), "blur");
+});
+test("target 🍅: mergeExternal — tidak diedit ikut server, sedang diketik dipertahankan", () => {
+  const saved = le.formFromTask(T({ estimated_pomodoros: 2 }));
+  const diam = le.mergeExternal({ form: Object.assign({}, saved), saved }, T({ estimated_pomodoros: 30 }));
+  assert.equal(diam.form.estimated_pomodoros, 30); assert.equal(diam.saved.estimated_pomodoros, 30);
+  const ketik = le.mergeExternal({ form: Object.assign({}, saved, { estimated_pomodoros: 24 }), saved }, T({ estimated_pomodoros: 30 }));
+  assert.equal(ketik.form.estimated_pomodoros, 24); assert.equal(ketik.saved.estimated_pomodoros, 30);
+});
+test("target 🍅: autosaver — dua ketikan + commit = satu put; tanpa commit / tanpa perubahan = 0 put", async () => {
+  const a = mk(T());
+  a.s.change("estimated_pomodoros", 2); a.s.change("estimated_pomodoros", 24); await tick();
+  assert.equal(a.calls.length, 0); assert.equal(a.t.q.length, 0, "tanpa timer idle");
+  a.s.commit("estimated_pomodoros"); await tick();
+  assert.deepEqual(a.calls, [{ estimated_pomodoros: 24 }]);
+  const b = mk(T());
+  b.s.commit("estimated_pomodoros"); await tick();
+  assert.equal(b.calls.length, 0);
 });
