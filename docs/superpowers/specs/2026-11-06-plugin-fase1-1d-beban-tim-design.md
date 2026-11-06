@@ -1,6 +1,6 @@
 # Spec turunan: Sistem Plugin Alurik — Fase 1, PR 1d (Timeline: Beban Tim, earned value 🍅, ekspor MSPDI)
 
-- **Status:** draf — menunggu keputusan pemilik §13 (Q1–Q7).
+- **Status:** disetujui pemilik 2026-11-06 08.51 WIB — Q1–Q7 semuanya (a) (lihat §13). Rencana per PR: 1d-0 `docs/superpowers/plans/2026-11-06-plugin-fase1-pr-1d-0.md`; 1d-1 dan 1d-2 ditulis setelah PR sebelumnya di-merge.
 - **Tanggal:** 2026-11-06
 - **Agent:** Claude (Opus 5.5)
 - **Spec induk:** `docs/superpowers/specs/2026-10-31-plugin-fase1-timeline-design.md` (salinan Project `claude/spec-plugin-fase1-timeline-2026-10-31.md`; disetujui pemilik 2026-10-31) — terutama §2 K15 (record `resource`, kunci `split`), **§9 "Garis besar 1c dan 1d"**, §13 (anggaran baris). Spec saudara: `docs/superpowers/specs/2026-11-01-plugin-fase1-1c-otomatis-design.md` (K22–K44 + catatan implementasi 1c-0…1c-2). Spec ini melanjutkan penomoran keputusan (**K45–K59**); K1–K44 tetap berlaku kecuali disebut lain.
@@ -193,6 +193,8 @@ Panel menjadi daftar **"Hari kelebihan beban"** (anggota · tanggal · beban/kap
 Split task (bila Q5 (a)); kalender per orang yang menggeser jadwal (resource-constrained scheduling); leveling otomatis; kurva S harian / hidrasi `pomodoro_log`; impor MSPDI; ekspor ke format lain (CSV/Excel); beban lintas workspace; notifikasi kelebihan beban.
 
 ## 13. Keputusan untuk pemilik
+
+**Jawaban pemilik (2026-11-06 08.51 WIB): 1a 2a 3a 4a 5a 6a 7a** — tiga PR (1d-0 / 1d-1 / 1d-2); batas target 🍅 dinaikkan ke 99 di PR host 1d-0; Beban Tim = panel di bawah Gantt; semua anggota boleh mengubah kapasitas/cuti; split task ditunda; earned value berbahasa sehari-hari; ekspor di aplikasi native = petunjuk ke browser.
 
 | # | Pertanyaan | Pilihan | Rekomendasi |
 |---|---|---|---|
