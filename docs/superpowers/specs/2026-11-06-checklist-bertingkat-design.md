@@ -2,7 +2,7 @@
 
 - **Tanggal:** 2026-11-06 (ditulis), 2026-11-09 (basis diperbarui ke `main` terbaru; nomor baris dicek ulang).
 - **Basis kode:** `main` @ `a04f0e6` (mtyatno/taskflow-v4; SW `taskflow-v500-target-pomodoro`, ADR terakhir ADR-047).
-- **Status:** **DRAF, menunggu review pemilik.** Desain disetujui per bagian dalam sesi brainstorming 2026-11-06 (Bagian 1 Data & API, Bagian 2 Tampilan & interaksi, Bagian 3 Pengujian & rilis: semuanya "Setuju"). Belum ada kode. Spec ada di branch `claude/checklist-bertingkat-spec`. Setelah spec ini disetujui: `superpowers:writing-plans` (satu rencana per PR, §12).
+- **Status:** **DISETUJUI pemilik 2026-11-09 06.00 WIB** ("Setuju, tulis rencana PR A"; dampak Timeline diterima apa adanya, K17). Desain disetujui per bagian dalam sesi brainstorming 2026-11-06 (Bagian 1 Data & API, Bagian 2 Tampilan & interaksi, Bagian 3 Pengujian & rilis). Rencana PR A: `docs/superpowers/plans/2026-11-09-checklist-bertingkat-pr-a-server.md`; rencana PR B ditulis setelah PR A di-merge. Belum ada kode.
 - **Salinan:** repo `docs/superpowers/specs/2026-11-06-checklist-bertingkat-design.md`. Salinan Project claude.ai "alurik" (`claude/spec-checklist-bertingkat-2026-11-06.md`) **belum ada**: penulisan dari sesi 2026-11-06 ditolak (403); salin manual bila perlu.
 - **Sumber:** catatan brainstorming `docs/superpowers/specs/2026-11-06-checklist-bertingkat-brainstorm.md` (K1–K5, A1–A4, tiga pendekatan, titik sentuh repo).
 - **Istilah:**
@@ -51,6 +51,7 @@ Permintaan pemilik (2026-11-06):
 | K14 | Tab / Shift+Tab mengubah tingkat **hanya saat mengetik** (kotak ubah teks atau kotak tambah butir di bawah daftar). Di luar itu Tab tetap memindah fokus. |
 | K15 | Task lama yang sudah punya checklist: Progress **dihitung ulang saat migrasi**; dicatat di "Apa yang baru". |
 | K16 | Rilis **dua PR berurutan**: PR A server, lalu PR B tampilan (§12). |
+| K17 | Dampak Timeline **diterima apa adanya** (2026-11-09): butir level atas tercentang (termasuk hasil hitung ulang migrasi) membuat task dianggap sudah mulai (`progress > 0`), sama seperti slider manual. Plugin Timeline tidak diubah. |
 
 **Keputusan desain (disetujui bersama bagiannya)**
 
@@ -138,7 +139,7 @@ Semua respons butir berbentuk `{id, task_id, parent_id, depth, title, is_done, s
 - **Kapan dihitung:** di `repository.py`, dalam transaksi yang sama, setiap tambah, centang, hapus, dan pindah (pindah bisa mengubah jumlah level atas). Ubah teks tidak mengubah angka tetapi tetap mengembalikan `task_progress`.
 - **`total` jadi 0** (K11): `checklist_total = 0`, `progress` tidak diubah; slider kembali manual mulai dari nilai itu.
 - **Tidak ada otomatisasi status:** progress 100% tidak menyelesaikan task; menyelesaikan task tidak mencentang checklist (sama seperti sekarang).
-- **Timeline:** `cpm.js` menganggap task "sudah mulai" bila `progress > 0`. Akibatnya, mencentang butir level atas pertama membuat task dianggap sudah mulai, sehingga jadwal otomatis tidak lagi memindahkannya (ADR-046). Ini sama dengan menggeser slider sekarang, tetapi juga berlaku untuk task lama yang progress-nya naik karena hitung ulang migrasi (§10).
+- **Timeline:** `cpm.js` menganggap task "sudah mulai" bila `progress > 0`. Akibatnya, mencentang butir level atas pertama membuat task dianggap sudah mulai, sehingga jadwal otomatis tidak lagi memindahkannya (ADR-046). Ini sama dengan menggeser slider sekarang, tetapi juga berlaku untuk task lama yang progress-nya naik karena hitung ulang migrasi (§10). Diterima pemilik (K17); plugin Timeline tidak diubah.
 
 ## 6. Tampilan
 
