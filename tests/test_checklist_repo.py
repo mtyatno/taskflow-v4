@@ -571,3 +571,136 @@ def test_ubah_teks_dan_pindah_memakai_satu_write_tx(repo, tid, spy_tx):
     repo.rename_subtask(987654321, "x")
     repo.move_subtask(987654321, None)
     assert spy_tx == [False, False, False, False]
+
+
+# ── Task 4: centang berantai ────────────────────────────────────────────────
+
+def _done(repo, tid):
+    return {s["id"]: s["is_done"] for s in repo.get_subtasks(tid)}
+
+
+def test_centang_bentuk_kembalian_kompatibel(repo, tid):
+    a = repo.add_subtask(tid, "a")["id"]
+    r = repo.toggle_subtask(a)
+    assert set(r) == KEYS | {"task_progress", "changed_ids"}
+    assert r["id"] == a and r["title"] == "a" and r["is_done"] is True and r["task_id"] == tid
+    assert r["changed_ids"] == [a]
+    assert r["task_progress"] == {"done": 1, "total": 1, "progress": 100}
+    r = repo.toggle_subtask(a)
+    assert r["is_done"] is False and r["changed_ids"] == [a]
+    assert r["task_progress"] == {"done": 0, "total": 1, "progress": 0}
+
+
+def test_centang_induk_anak_campuran_semua_selesai_changed_ids_tanpa_yang_sudah_selesai(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    repo.toggle_subtask(a2)
+    r = repo.toggle_subtask(a)
+    assert r["is_done"] is True
+    assert r["changed_ids"] == [a, a1, a11]  # pre-order, a2 sudah selesai → tidak ikut
+    d = _done(repo, tid)
+    assert d[a] and d[a1] and d[a11] and d[a2]
+    assert not d[b] and not d[c]
+
+
+def test_centang_tengah_hanya_turunannya(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    r = repo.toggle_subtask(a1)
+    assert r["changed_ids"] == [a1, a11]
+    d = _done(repo, tid)
+    assert d[a1] and d[a11] and not d[a] and not d[a2]
+
+
+def test_buka_induk_anak_tetap_selesai(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    repo.toggle_subtask(a)
+    r = repo.toggle_subtask(a)
+    assert r["is_done"] is False and r["changed_ids"] == [a]
+    d = _done(repo, tid)
+    assert not d[a] and d[a1] and d[a2] and d[a11]
+
+
+def test_buka_anak_induk_tetap_selesai(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    repo.toggle_subtask(a)
+    r = repo.toggle_subtask(a11)
+    assert r["is_done"] is False and r["changed_ids"] == [a11]
+    d = _done(repo, tid)
+    assert d[a] and d[a1] and d[a2] and not d[a11]
+
+
+def test_centang_sub_butir_tidak_mengubah_progress(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    _set_task(tid, progress=0)
+    r = repo.toggle_subtask(a1)
+    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0}
+    assert _task(tid)["progress"] == 0
+
+
+def test_centang_level_atas_1_dari_3_progress_33(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    r = repo.toggle_subtask(b)
+    assert r["task_progress"] == {"done": 1, "total": 3, "progress": 33}
+    assert _task(tid) == {"progress": 33, "checklist_total": 3, "updated_at": FROZEN}
+    assert repo.toggle_subtask(a)["task_progress"] == {"done": 2, "total": 3, "progress": 67}
+
+
+def test_centang_id_tidak_ada_none(repo):
+    assert repo.toggle_subtask(987654321) is None
+
+
+# ── Task 4: hapus berantai ──────────────────────────────────────────────────
+
+def test_hapus_induk_tiga_tingkat_semua_turunan_hilang_cabang_saudara_utuh(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    b1 = repo.add_subtask(tid, "b1", parent_id=b)["id"]
+    r = repo.delete_subtask(a)
+    assert r and set(r) == {"deleted_ids", "task_progress"}
+    assert r["deleted_ids"] == [a, a1, a11, a2]
+    assert _view(repo, tid) == [(b, 0), (b1, 1), (c, 0)]
+    assert r["task_progress"] == {"done": 0, "total": 2, "progress": 0}
+    assert _task(tid)["checklist_total"] == 2
+
+
+def test_hapus_sub_butir_hanya_cabangnya(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    r = repo.delete_subtask(a1)
+    assert r["deleted_ids"] == [a1, a11]
+    assert _view(repo, tid) == [(a, 0), (a2, 1), (b, 0), (c, 0)]
+    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0}
+
+
+def test_hapus_level_atas_terakhir_checklist_total_0_progress_tetap(repo, tid):
+    a = repo.add_subtask(tid, "a")["id"]
+    b = repo.add_subtask(tid, "b")["id"]
+    s = repo.add_subtask(tid, "s", parent_id=b)["id"]
+    repo.toggle_subtask(a)
+    assert repo.delete_subtask(b)["task_progress"] == {"done": 1, "total": 1, "progress": 100}
+    r = repo.delete_subtask(a)
+    assert r["deleted_ids"] == [a]
+    assert r["task_progress"] == {"done": 0, "total": 0, "progress": 100}
+    assert _task(tid) == {"progress": 100, "checklist_total": 0, "updated_at": FROZEN}
+    assert _rows(tid) == [] and repo.toggle_subtask(s) is None
+
+
+def test_hapus_id_tidak_ada_none(repo):
+    assert repo.delete_subtask(987654321) is None
+
+
+def test_centang_dan_hapus_tidak_mengubah_updated_at(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    repo.toggle_subtask(a)
+    repo.toggle_subtask(a11)
+    repo.toggle_subtask(b)
+    repo.delete_subtask(a1)
+    repo.delete_subtask(c)
+    assert _task(tid)["updated_at"] == FROZEN
+
+
+def test_centang_dan_hapus_memakai_satu_write_tx(repo, tid, spy_tx):
+    a = repo.add_subtask(tid, "a")["id"]
+    spy_tx.clear()
+    repo.toggle_subtask(a)
+    repo.delete_subtask(a)
+    repo.toggle_subtask(a)
+    repo.delete_subtask(a)
+    assert spy_tx == [False, False, False, False]

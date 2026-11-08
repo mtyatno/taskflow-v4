@@ -1693,19 +1693,41 @@ class TaskRepository:
             return {"items": _subtask_items(conn, task_id), "task_progress": tp}
 
     def toggle_subtask(self, subtask_id: int) -> Optional[dict]:
-        with self._connect() as conn:
-            row = conn.execute("SELECT * FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
-            if not row:
+        """Centang/buka butir (K5). Menjadi selesai → butir dan semua turunannya selesai; dibuka lagi →
+        hanya butir itu. Mengembalikan butir + `changed_ids` (id yang nilainya berubah, pre-order, termasuk
+        butir itu) + `task_progress`, atau None bila butir tidak ada."""
+        with self._connect() as conn, dbconn.write_tx(conn):
+            row = conn.execute("SELECT task_id, is_done FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
+            if row is None:
                 return None
-            new_val = 0 if row["is_done"] else 1
-            conn.execute("UPDATE subtasks SET is_done = ? WHERE id = ?", (new_val, subtask_id))
-            return {"id": row["id"], "task_id": row["task_id"], "title": row["title"],
-                    "is_done": bool(new_val), "sort_order": row["sort_order"]}
+            task_id = row["task_id"]
+            if row["is_done"]:
+                changed = [subtask_id]
+                conn.execute("UPDATE subtasks SET is_done = 0 WHERE id = ?", (subtask_id,))
+            else:
+                rows = conn.execute(
+                    "SELECT id, task_id, parent_id, sort_order, is_done FROM subtasks WHERE task_id = ?",
+                    (task_id,)).fetchall()
+                done = {r["id"]: r["is_done"] for r in rows}
+                ids = [subtask_id] + checklist_tree.descendant_ids(rows, subtask_id)
+                changed = [i for i in ids if not done[i]]
+                conn.executemany("UPDATE subtasks SET is_done = 1 WHERE id = ?", [(i,) for i in changed])
+            return {**_subtask_with_progress(conn, task_id, subtask_id), "changed_ids": changed}
 
-    def delete_subtask(self, subtask_id: int) -> bool:
-        with self._connect() as conn:
-            cur = conn.execute("DELETE FROM subtasks WHERE id = ?", (subtask_id,))
-            return cur.rowcount > 0
+    def delete_subtask(self, subtask_id: int) -> Optional[dict]:
+        """Hapus butir beserta semua turunannya dalam satu transaksi (K7). Saudara yang tersisa tidak
+        dinomori ulang. Mengembalikan `{"deleted_ids", "task_progress"}` (truthy), atau None bila tidak ada."""
+        with self._connect() as conn, dbconn.write_tx(conn):
+            row = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
+            if row is None:
+                return None
+            task_id = row["task_id"]
+            rows = conn.execute(
+                "SELECT id, task_id, parent_id, sort_order FROM subtasks WHERE task_id = ?",
+                (task_id,)).fetchall()
+            ids = [subtask_id] + checklist_tree.descendant_ids(rows, subtask_id)
+            conn.executemany("DELETE FROM subtasks WHERE id = ?", [(i,) for i in ids])
+            return {"deleted_ids": ids, "task_progress": _recompute_progress(conn, task_id)}
 
     def get_child_tasks(self, parent_id: int) -> list[dict]:
         """Return all tasks that are children of parent_id."""
