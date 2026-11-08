@@ -12,7 +12,7 @@ import pytest
 import dbconn
 import webapp
 from conftest import db
-from repository import ChecklistError, TaskRepository, _recompute_progress
+from repository import ChecklistError, TaskRepository, _heal_task_tree, _recompute_progress
 from test_contexts_tasks import U, _mk
 
 FROZEN = "2020-01-01T00:00:00"
@@ -704,3 +704,158 @@ def test_centang_dan_hapus_memakai_satu_write_tx(repo, tid, spy_tx):
     repo.toggle_subtask(a)
     repo.delete_subtask(a)
     assert spy_tx == [False, False, False, False]
+
+
+# ── Perbaikan review: pohon efektif = parent_id tersimpan ──────────────────
+# Data yatim/bersiklus bisa muncul di jendela deploy (proses lama menghapus tanpa berantai). Setiap operasi
+# tulis memulihkan pohon task itu lebih dulu; baca mengembalikan parent_id efektif tanpa menulis.
+
+def _raw_parent(sid):
+    conn = db()
+    try:
+        return conn.execute("SELECT parent_id FROM subtasks WHERE id = ?", (sid,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _set_parent(sid, parent_id):
+    conn = db()
+    try:
+        conn.execute("UPDATE subtasks SET parent_id = ? WHERE id = ?", (parent_id, sid))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_heal_task_tree_yatim_lintas_task_dan_siklus(u, tid):
+    lain = _mk(u, title="lain")["id"]
+    x = _ins(lain, "x")
+    _ins(tid, "a", sort_order=0)
+    o = _ins(tid, "yatim", parent_id=987654321, sort_order=1)
+    lt = _ins(tid, "lintas", parent_id=x, sort_order=2)
+    p = _ins(tid, "p", sort_order=3)
+    q = _ins(tid, "q", parent_id=p, sort_order=4)
+    _set_parent(p, q)                          # siklus p ↔ q: p (sort_order terkecil) diputus
+    anak = _ins(tid, "anak yatim", parent_id=o)  # anak butir yatim tetap anak
+    conn = dbconn.connect(webapp.DB_PATH)
+    try:
+        with dbconn.write_tx(conn):
+            assert _heal_task_tree(conn, tid) == 3
+        n = conn.total_changes
+        with dbconn.write_tx(conn):
+            assert _heal_task_tree(conn, tid) == 0
+        assert conn.total_changes == n
+    finally:
+        conn.close()
+    assert [_raw_parent(i) for i in (o, lt, p, q, anak)] == [None, None, None, p, o]
+    assert _task(tid)["updated_at"] == FROZEN
+
+
+def test_get_subtasks_parent_id_efektif_tanpa_menulis(repo, u, tid, tulis):
+    x = repo.add_subtask(_mk(u, title="lain")["id"], "x")["id"]
+    a = _ins(tid, "a", sort_order=0)
+    o = _ins(tid, "yatim", parent_id=987654321, sort_order=1)
+    lt = _ins(tid, "lintas", parent_id=x, sort_order=2)
+    anak = _ins(tid, "anak", parent_id=o)
+    tulis.clear()
+    items = repo.get_subtasks(tid)
+    assert [(s["id"], s["parent_id"], s["depth"]) for s in items] == [
+        (a, None, 0), (o, None, 0), (anak, o, 1), (lt, None, 0)]
+    assert tulis == [0]
+    assert _raw_parent(o) == 987654321 and _raw_parent(lt) == x
+
+
+def test_progress_yatim_dihitung_sesuai_pohon_tampil(repo, tid):
+    a = _ins(tid, "a", sort_order=0, is_done=1)
+    _ins(tid, "b", sort_order=1)
+    _ins(tid, "c", sort_order=2)
+    o = _ins(tid, "yatim", parent_id=987654321, sort_order=3, is_done=1)
+    assert sum(1 for _, d in _view(repo, tid) if d == 0) == 4
+    assert repo.get_subtask_progress(tid) == (2, 4)
+    r = repo.toggle_subtask(a)
+    assert r["task_progress"] == {"done": 1, "total": 4, "progress": 25}
+    assert _raw_parent(o) is None
+    assert _task(tid) == {"progress": 25, "checklist_total": 4, "updated_at": FROZEN}
+
+
+def test_tambah_index_1_dengan_yatim_mendarat_di_posisi_tampil(repo, tid):
+    a = _ins(tid, "a", sort_order=0)
+    o = _ins(tid, "yatim", parent_id=987654321, sort_order=1)
+    b = _ins(tid, "b", sort_order=2)
+    n = repo.add_subtask(tid, "baru", index=1)
+    assert [i for i, _ in _view(repo, tid)] == [a, n["id"], o, b]
+    assert _orders(repo, tid) == [0, 1, 2, 3]
+    assert n["task_progress"]["total"] == 4
+
+
+def test_pindah_butir_yatim_memakai_parent_id_dari_get_subtasks(repo, tid):
+    a = _ins(tid, "a", sort_order=0)
+    o = _ins(tid, "yatim", parent_id=987654321, sort_order=1)
+    b = _ins(tid, "b", sort_order=2)
+    induk = next(s["parent_id"] for s in repo.get_subtasks(tid) if s["id"] == o)
+    r = repo.move_subtask(o, induk, 0)
+    assert [(s["id"], s["depth"]) for s in r["items"]] == [(o, 0), (a, 0), (b, 0)]
+    r = repo.move_subtask(o, None, 99)
+    assert [s["id"] for s in r["items"]] == [a, b, o]
+    assert _orders(repo, tid) == [0, 1, 2]
+    with pytest.raises(ChecklistError) as ei:  # induk mentah memang tidak ada
+        repo.move_subtask(o, 987654321)
+    assert ei.value.code == "PARENT_NOT_FOUND"
+
+
+def test_siklus_a_b_lalu_pindah_b_ke_level_atas_a_tetap_level_atas(repo, tid):
+    a = _ins(tid, "A", sort_order=0)
+    b = _ins(tid, "B", parent_id=a, sort_order=1)
+    c = _ins(tid, "C", sort_order=2)
+    _set_parent(a, b)
+    assert _view(repo, tid) == [(a, 0), (b, 1), (c, 0)]
+    r = repo.move_subtask(b, None)
+    assert [(s["id"], s["depth"], s["parent_id"]) for s in r["items"]] == [
+        (a, 0, None), (c, 0, None), (b, 0, None)]
+    assert _raw_parent(a) is None
+    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0}
+
+
+@pytest.mark.parametrize("op", ["rename", "toggle", "delete", "move"])
+def test_setiap_operasi_tulis_memulihkan_pohon_task_lebih_dulu(repo, tid, op):
+    a = _ins(tid, "a", sort_order=0)
+    b = _ins(tid, "b", sort_order=1)
+    o = _ins(tid, "yatim", parent_id=987654321, sort_order=2)
+    if op == "rename":
+        r = repo.rename_subtask(a, "a2")
+    elif op == "toggle":
+        r = repo.toggle_subtask(a)
+    elif op == "delete":
+        r = repo.delete_subtask(b)
+    else:
+        r = repo.move_subtask(b, None, 0)
+    assert _raw_parent(o) is None
+    total = 2 if op == "delete" else 3
+    assert r["task_progress"]["total"] == total and _task(tid)["checklist_total"] == total
+    assert _task(tid)["updated_at"] == FROZEN
+
+
+def test_hapus_anggota_siklus_mengikuti_pohon_tampil(repo, tid):
+    a = _ins(tid, "A", sort_order=0)
+    b = _ins(tid, "B", parent_id=a, sort_order=1)
+    _set_parent(a, b)
+    assert repo.delete_subtask(b)["deleted_ids"] == [b]   # B tampil sebagai anak A
+    assert _view(repo, tid) == [(a, 0)]
+
+
+# ── Celah tes dari review ───────────────────────────────────────────────────
+
+def test_pindah_ke_induk_yang_sudah_punya_anak_index_kosong_jadi_anak_terakhir(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    repo.move_subtask(c, a)
+    assert _view(repo, tid) == [(a, 0), (a1, 1), (a11, 2), (a2, 1), (c, 1), (b, 0)]
+    assert _orders(repo, tid, parent_id=a) == [0, 1, 2]
+    assert _orders(repo, tid) == [0, 1]
+
+
+def test_tambah_dengan_induk_index_1_di_antara_2_anak(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    n = repo.add_subtask(tid, "n", parent_id=a, index=1)
+    assert n["depth"] == 1 and n["parent_id"] == a and n["sort_order"] == 1
+    assert _view(repo, tid) == [(a, 0), (a1, 1), (a11, 2), (n["id"], 1), (a2, 1), (b, 0), (c, 0)]
+    assert _orders(repo, tid, parent_id=a) == [0, 1, 2]

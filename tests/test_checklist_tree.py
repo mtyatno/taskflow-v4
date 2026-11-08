@@ -137,6 +137,12 @@ def test_preorder_2000_tingkat_tanpa_recursionerror():
     assert out[-1]["depth"] == n - 1
 
 
+def test_preorder_sort_order_null_dianggap_0():
+    rows = [_r(1, None, 1), _r(2, None, None), _r(3, None, 0), _r(4, 1, None), _r(5, 1, 0)]
+    out = ct.preorder(rows)
+    assert _ids(out) == [2, 3, 1, 4, 5]
+
+
 def test_preorder_kosong():
     assert ct.preorder([]) == []
 

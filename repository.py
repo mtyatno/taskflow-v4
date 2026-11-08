@@ -651,14 +651,38 @@ def _recompute_progress(conn, task_id: int) -> dict:
     return {"done": done, "total": total, "progress": progress}
 
 
+def _heal_task_tree(conn, task_id: int) -> int:
+    """Samakan `parent_id` tersimpan dengan pohon efektif `checklist_tree.preorder`: butir yang tampil di
+    level atas (induk tidak ada, di task lain, atau pemutus siklus) → `parent_id = NULL`. Dipanggil di awal
+    setiap operasi tulis checklist (dalam transaksi pemanggil) dan oleh `heal_checklists`. Tanpa `updated_at`.
+    Mengembalikan jumlah baris yang diubah."""
+    rows = conn.execute(
+        "SELECT id, task_id, parent_id, sort_order FROM subtasks WHERE task_id = ?", (task_id,)).fetchall()
+    ids = [r["id"] for r in checklist_tree.preorder(rows) if r["depth"] == 0 and r["parent_id"] is not None]
+    conn.executemany("UPDATE subtasks SET parent_id = NULL WHERE id = ?", [(i,) for i in ids])
+    return len(ids)
+
+
 def _subtask_items(conn, task_id: int) -> list[dict]:
-    """Butir satu task dalam urutan pre-order, bentuk API `{id, task_id, parent_id, depth, title, is_done, sort_order}`."""
+    """Butir satu task dalam urutan pre-order, bentuk API `{id, task_id, parent_id, depth, title, is_done, sort_order}`.
+    `parent_id` = induk EFEKTIF (None untuk butir yang tampil di level atas, termasuk yatim yang belum
+    dipulihkan), sehingga klien tidak pernah mengirim balik induk mentah yang tidak sah."""
     rows = conn.execute(
         "SELECT id, task_id, parent_id, title, is_done, sort_order FROM subtasks WHERE task_id = ?",
         (task_id,)).fetchall()
-    return [{"id": r["id"], "task_id": r["task_id"], "parent_id": r["parent_id"], "depth": r["depth"],
+    return [{"id": r["id"], "task_id": r["task_id"], "parent_id": r["parent_id"] if r["depth"] else None,
+             "depth": r["depth"],
              "title": r["title"], "is_done": bool(r["is_done"]), "sort_order": r["sort_order"]}
             for r in checklist_tree.preorder(rows)]
+
+
+def _heal_for_subtask(conn, subtask_id: int) -> Optional[int]:
+    """`task_id` butir itu setelah pohon task-nya dipulihkan (`_heal_task_tree`); None bila butir tidak ada."""
+    row = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
+    if row is None:
+        return None
+    _heal_task_tree(conn, row[0])
+    return row[0]
 
 
 def _subtask_with_progress(conn, task_id: int, subtask_id: int) -> dict:
@@ -1607,6 +1631,7 @@ class TaskRepository:
         clean = (title or "").strip()
         now = datetime.now().isoformat()
         with self._connect() as conn, dbconn.write_tx(conn):
+            _heal_task_tree(conn, task_id)
             if client_id:
                 existing = conn.execute(
                     "SELECT id, task_id FROM subtasks WHERE client_id = ?", (client_id,)
@@ -1641,9 +1666,9 @@ class TaskRepository:
         Mengembalikan butir + `task_progress`, atau None bila butir tidak ada."""
         clean = (title or "").strip()
         with self._connect() as conn, dbconn.write_tx(conn):
-            row = conn.execute("SELECT task_id, title FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
-            if row is None:
+            if _heal_for_subtask(conn, subtask_id) is None:
                 return None
+            row = conn.execute("SELECT task_id, title FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
             if not clean:
                 raise ChecklistError("EMPTY_TITLE")
             if clean != row["title"]:
@@ -1658,10 +1683,10 @@ class TaskRepository:
         Kelompok saudara lama dan baru dinomori ulang `0..n−1`; posisi sama → tanpa tulis.
         Mengembalikan `{"items": <pre-order lengkap>, "task_progress"}`, atau None bila butir tidak ada."""
         with self._connect() as conn, dbconn.write_tx(conn):
+            if _heal_for_subtask(conn, subtask_id) is None:
+                return None
             row = conn.execute(
                 "SELECT task_id, parent_id, sort_order FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
-            if row is None:
-                return None
             task_id, old_parent = row["task_id"], row["parent_id"]
             if parent_id is not None:
                 if parent_id == subtask_id:
@@ -1697,9 +1722,9 @@ class TaskRepository:
         hanya butir itu. Mengembalikan butir + `changed_ids` (id yang nilainya berubah, pre-order, termasuk
         butir itu) + `task_progress`, atau None bila butir tidak ada."""
         with self._connect() as conn, dbconn.write_tx(conn):
-            row = conn.execute("SELECT task_id, is_done FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
-            if row is None:
+            if _heal_for_subtask(conn, subtask_id) is None:
                 return None
+            row = conn.execute("SELECT task_id, is_done FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
             task_id = row["task_id"]
             if row["is_done"]:
                 changed = [subtask_id]
@@ -1718,10 +1743,9 @@ class TaskRepository:
         """Hapus butir beserta semua turunannya dalam satu transaksi (K7). Saudara yang tersisa tidak
         dinomori ulang. Mengembalikan `{"deleted_ids", "task_progress"}` (truthy), atau None bila tidak ada."""
         with self._connect() as conn, dbconn.write_tx(conn):
-            row = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
-            if row is None:
+            task_id = _heal_for_subtask(conn, subtask_id)
+            if task_id is None:
                 return None
-            task_id = row["task_id"]
             rows = conn.execute(
                 "SELECT id, task_id, parent_id, sort_order FROM subtasks WHERE task_id = ?",
                 (task_id,)).fetchall()
@@ -1739,14 +1763,11 @@ class TaskRepository:
             return [dict(r) for r in rows]
 
     def get_subtask_progress(self, task_id: int) -> tuple[int, int]:
-        """(selesai, total) butir checklist level atas saja — sub butir tidak dihitung (spec K1)."""
+        """(selesai, total) butir checklist level atas saja — sub butir tidak dihitung (spec K1). Menurut
+        pohon tampil (yatim yang belum dipulihkan ikut level atas), tanpa menulis."""
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) as total, SUM(CASE WHEN is_done THEN 1 ELSE 0 END) as done "
-                "FROM subtasks WHERE task_id = ? AND parent_id IS NULL",
-                (task_id,),
-            ).fetchone()
-            return (row["done"] or 0, row["total"] or 0)
+            top = [s for s in _subtask_items(conn, task_id) if s["depth"] == 0]
+            return (sum(1 for s in top if s["is_done"]), len(top))
 
     # ── Focus toggle ───────────────────────────────────────────────────────
 
