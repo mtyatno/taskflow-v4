@@ -2656,8 +2656,18 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
                 updates["deadline"] = d.isoformat() if d else None
         if req.assigned_to is not None:
             updates["assigned_to"] = req.assigned_to if req.assigned_to != 0 else None
+        progress_ignored = False
         if req.progress is not None:
-            updates["progress"] = max(0, min(100, req.progress))
+            # D3 (spec checklist bertingkat): selama task punya checklist, progress = field turunan server
+            # (syncpush selalu mengirim progress; salinan lama tidak boleh menimpa angka checklist). Setiap
+            # task yang punya butir pasti punya ≥ 1 butir level atas di pohon efektif (yatim/siklus → level
+            # atas), jadi cukup cek keberadaan butir.
+            has_checklist = conn.execute(
+                "SELECT 1 FROM subtasks WHERE task_id = ? LIMIT 1", (task_id,)).fetchone() is not None
+            if has_checklist:
+                progress_ignored = True
+            else:
+                updates["progress"] = max(0, min(100, req.progress))
         if req.is_focused is not None:
             updates["is_focused"] = 1 if req.is_focused else 0
         if req.estimated_pomodoros is not None:
@@ -2686,7 +2696,9 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
 
         # PR 1c-0b K46: PUT ext murni (body tanpa field inti; null = tidak dikirim) membekukan waktu inti.
         pure_ext = ext_patch is not None and not updates and not req.recurrence_renew
-        if not updates and ext_patch is None:
+        if not updates and ext_patch is None and not req.recurrence_renew:
+            if progress_ignored:  # hanya progress (diabaikan): baris sekarang, tanpa UPDATE/updated_at/notifikasi
+                return task_row_to_dict(existing, conn)
             raise HTTPException(status_code=400, detail="No fields to update")
         # K6: PUT yang hanya mengubah ext (field inti sama dengan baris lama) tidak memberi tahu anggota workspace.
         ext_only = ext_patch is not None and not _core_changed(updates, existing, req)
