@@ -21,6 +21,7 @@ def _today_jkt() -> date:
 
 from models import Task, GTDStatus, Priority, Quadrant
 from config import DB_PATH, UPLOAD_DIR
+import checklist_tree
 import dbconn
 
 _log = logging.getLogger(__name__)
@@ -615,6 +616,77 @@ def backfill_contexts(conn) -> dict:
     return {"created": created, "linked": linked, "cleared": cleared, "skipped": skipped}
 
 
+# ── Checklist bertingkat (spec 2026-11-06 §3–§5; rencana PR A R2–R6) ──────────
+# Butir = baris `subtasks`; `parent_id` NULL = level atas. Semua fungsi di bawah memakai koneksi
+# pemanggil (di dalam `dbconn.write_tx` untuk operasi tulis) dan tidak pernah menulis `tasks.updated_at`.
+
+class ChecklistError(ValueError):
+    """Aturan checklist dilanggar; `code` ∈ PARENT_NOT_FOUND | CYCLE | EMPTY_TITLE (webapp → 422)."""
+
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.code = code
+
+
+def _recompute_progress(conn, task_id: int) -> dict:
+    """Hitung ulang `tasks.progress`/`checklist_total` dari butir level atas (R3), tulis hanya bila berbeda.
+    Tanpa butir level atas → hanya `checklist_total = 0`; `progress` tetap nilai terakhir (K11).
+    Field turunan: `updated_at` tidak disentuh (D2). Mengembalikan `{"done", "total", "progress"}`."""
+    agg = conn.execute(
+        "SELECT COUNT(*), COALESCE(SUM(CASE WHEN is_done THEN 1 ELSE 0 END), 0) "
+        "FROM subtasks WHERE task_id = ? AND parent_id IS NULL", (task_id,)).fetchone()
+    total, done = agg[0], agg[1]
+    cur = conn.execute("SELECT progress, checklist_total FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    if cur is None:
+        return {"done": done, "total": total, "progress": None}
+    if total > 0:
+        progress = checklist_tree.percent(done, total)
+        if cur[0] != progress or cur[1] != total:
+            conn.execute("UPDATE tasks SET progress = ?, checklist_total = ? WHERE id = ?",
+                         (progress, total, task_id))
+    else:
+        progress = cur[0]
+        if cur[1] != 0:
+            conn.execute("UPDATE tasks SET checklist_total = 0 WHERE id = ?", (task_id,))
+    return {"done": done, "total": total, "progress": progress}
+
+
+def _subtask_items(conn, task_id: int) -> list[dict]:
+    """Butir satu task dalam urutan pre-order, bentuk API `{id, task_id, parent_id, depth, title, is_done, sort_order}`."""
+    rows = conn.execute(
+        "SELECT id, task_id, parent_id, title, is_done, sort_order FROM subtasks WHERE task_id = ?",
+        (task_id,)).fetchall()
+    return [{"id": r["id"], "task_id": r["task_id"], "parent_id": r["parent_id"], "depth": r["depth"],
+             "title": r["title"], "is_done": bool(r["is_done"]), "sort_order": r["sort_order"]}
+            for r in checklist_tree.preorder(rows)]
+
+
+def _subtask_with_progress(conn, task_id: int, subtask_id: int) -> dict:
+    """Satu butir (bentuk `_subtask_items`) + `task_progress` terkini (sesudah hitung ulang)."""
+    tp = _recompute_progress(conn, task_id)
+    item = next(s for s in _subtask_items(conn, task_id) if s["id"] == subtask_id)
+    return {**item, "task_progress": tp}
+
+
+def _sibling_rows(conn, task_id: int, parent_id: Optional[int]) -> list[tuple]:
+    """`(id, sort_order)` kelompok saudara menurut urutan tampil (`sort_order` NULL = 0, lalu `id`)."""
+    return [(r[0], r[1]) for r in conn.execute(
+        "SELECT id, sort_order FROM subtasks WHERE task_id = ? AND parent_id IS ? "
+        "ORDER BY COALESCE(sort_order, 0), id", (task_id, parent_id)).fetchall()]
+
+
+def _renumber(conn, ordered: list[tuple]) -> None:
+    """Nomori ulang kelompok saudara `0..n−1` menurut urutan `ordered`; hanya baris yang berubah ditulis (R6)."""
+    for i, (sid, so) in enumerate(ordered):
+        if so != i:
+            conn.execute("UPDATE subtasks SET sort_order = ? WHERE id = ?", (i, sid))
+
+
+def _clamp_index(index: Optional[int], n: int) -> int:
+    """Posisi di antara `n` saudara: None = paling akhir; di-clamp ke `0..n`."""
+    return n if index is None else max(0, min(int(index), n))
+
+
 class TaskRepository:
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
@@ -901,6 +973,9 @@ class TaskRepository:
                 conn.execute("ALTER TABLE tasks ADD COLUMN assigned_to INTEGER DEFAULT NULL")
             if "progress" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN progress INTEGER DEFAULT 0")
+            # Jumlah butir checklist level atas (0 = tanpa checklist); hanya server yang menulis (spec checklist §3.2).
+            if "checklist_total" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN checklist_total INTEGER DEFAULT 0")
             if "parent_id" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL")
 
@@ -947,6 +1022,11 @@ class TaskRepository:
             if "client_id" not in sub_cols:
                 conn.execute("ALTER TABLE subtasks ADD COLUMN client_id TEXT DEFAULT NULL")
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_subtasks_client_id ON subtasks(client_id) WHERE client_id IS NOT NULL")
+            # Checklist bertingkat (spec checklist §3.1): induk butir di task yang sama, NULL = level atas.
+            # Tanpa FK (D5): turunan dihapus eksplisit oleh repository.
+            if "parent_id" not in sub_cols:
+                conn.execute("ALTER TABLE subtasks ADD COLUMN parent_id INTEGER DEFAULT NULL")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_subtasks_tree ON subtasks(task_id, parent_id, sort_order)")
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_notes_client_id ON task_notes(client_id) WHERE client_id IS NOT NULL")
 
             # Scratchpad notes
@@ -1518,35 +1598,43 @@ class TaskRepository:
 
     # ── Subtask CRUD ───────────────────────────────────────────────────────
 
-    def add_subtask(self, task_id: int, title: str, client_id: Optional[str] = None) -> dict:
+    def add_subtask(self, task_id: int, title: str, client_id: Optional[str] = None,
+                    parent_id: Optional[int] = None, index: Optional[int] = None) -> dict:
+        """Tambah butir checklist (spec §4). `parent_id` None = level atas; `index` = posisi di antara
+        saudara (None = paling akhir, di-clamp). Judul di-trim; kosong → ChecklistError("EMPTY_TITLE");
+        induk tidak ada / di task lain → ChecklistError("PARENT_NOT_FOUND"). `client_id` yang sudah ada →
+        butir lama dikembalikan. Mengembalikan butir + `task_progress`."""
+        clean = (title or "").strip()
         now = datetime.now().isoformat()
-        with self._connect() as conn:
-            # Idempotency: return existing if same client_id
+        with self._connect() as conn, dbconn.write_tx(conn):
             if client_id:
                 existing = conn.execute(
-                    "SELECT * FROM subtasks WHERE client_id = ?", (client_id,)
+                    "SELECT id, task_id FROM subtasks WHERE client_id = ?", (client_id,)
                 ).fetchone()
                 if existing:
-                    return dict(existing)
-            row = conn.execute(
-                "SELECT COALESCE(MAX(sort_order), -1) + 1 as next_order FROM subtasks WHERE task_id = ?",
-                (task_id,),
-            ).fetchone()
-            order = row["next_order"]
+                    return _subtask_with_progress(conn, existing["task_id"], existing["id"])
+            if not clean:
+                raise ChecklistError("EMPTY_TITLE")
+            if parent_id is not None:
+                parent = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (parent_id,)).fetchone()
+                if parent is None or parent["task_id"] != task_id:
+                    raise ChecklistError("PARENT_NOT_FOUND")
+            siblings = _sibling_rows(conn, task_id, parent_id)
+            pos = _clamp_index(index, len(siblings))
             cur = conn.execute(
-                "INSERT INTO subtasks (task_id, title, is_done, sort_order, created_at, client_id) VALUES (?,?,0,?,?,?)",
-                (task_id, title, order, now, client_id),
+                "INSERT INTO subtasks (task_id, title, is_done, sort_order, created_at, client_id, parent_id) "
+                "VALUES (?,?,0,?,?,?,?)",
+                (task_id, clean, pos, now, client_id, parent_id),
             )
-            return {"id": cur.lastrowid, "task_id": task_id, "title": title, "is_done": False, "sort_order": order}
+            new_id = cur.lastrowid
+            siblings.insert(pos, (new_id, pos))
+            _renumber(conn, siblings)
+            return _subtask_with_progress(conn, task_id, new_id)
 
     def get_subtasks(self, task_id: int) -> list[dict]:
+        """Butir checklist pre-order (induk lalu turunannya) dengan `parent_id` dan `depth` (spec §4, D4)."""
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM subtasks WHERE task_id = ? ORDER BY sort_order",
-                (task_id,),
-            ).fetchall()
-            return [{"id": r["id"], "task_id": r["task_id"], "title": r["title"],
-                      "is_done": bool(r["is_done"]), "sort_order": r["sort_order"]} for r in rows]
+            return _subtask_items(conn, task_id)
 
     def toggle_subtask(self, subtask_id: int) -> Optional[dict]:
         with self._connect() as conn:
@@ -1573,10 +1661,11 @@ class TaskRepository:
             return [dict(r) for r in rows]
 
     def get_subtask_progress(self, task_id: int) -> tuple[int, int]:
-        """Returns (done_count, total_count)."""
+        """(selesai, total) butir checklist level atas saja — sub butir tidak dihitung (spec K1)."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT COUNT(*) as total, SUM(CASE WHEN is_done THEN 1 ELSE 0 END) as done FROM subtasks WHERE task_id = ?",
+                "SELECT COUNT(*) as total, SUM(CASE WHEN is_done THEN 1 ELSE 0 END) as done "
+                "FROM subtasks WHERE task_id = ? AND parent_id IS NULL",
                 (task_id,),
             ).fetchone()
             return (row["done"] or 0, row["total"] or 0)
