@@ -344,3 +344,230 @@ def test_recompute_progress_total_0_progress_tetap(tid):
     finally:
         conn.close()
     assert _task(tid) == {"progress": 42, "checklist_total": 0, "updated_at": FROZEN}
+
+
+# ── Task 3: alat bantu ──────────────────────────────────────────────────────
+
+@pytest.fixture
+def tulis(repo, monkeypatch):
+    """Daftar `conn.total_changes` per koneksi repo (0 = operasi tidak menulis apa pun)."""
+    catat = []
+    asli = repo._connect
+
+    @contextmanager
+    def connect():
+        with asli() as conn:
+            yield conn
+            catat.append(conn.total_changes)
+
+    monkeypatch.setattr(repo, "_connect", connect)
+    return catat
+
+
+@pytest.fixture
+def spy_tx(monkeypatch):
+    """Catat setiap pemakaian dbconn.write_tx: (transaksi sudah terbuka sebelumnya?)."""
+    asli = dbconn.write_tx
+    panggil = []
+
+    @contextmanager
+    def mata_mata(conn):
+        panggil.append(conn.in_transaction)
+        with asli(conn) as c:
+            yield c
+
+    monkeypatch.setattr(dbconn, "write_tx", mata_mata)
+    return panggil
+
+
+def _pohon(repo, tid):
+    """a(a1(a11), a2), b, c — dibuat lewat repo supaya sort_order rapi."""
+    a = repo.add_subtask(tid, "a")["id"]
+    b = repo.add_subtask(tid, "b")["id"]
+    c = repo.add_subtask(tid, "c")["id"]
+    a1 = repo.add_subtask(tid, "a1", parent_id=a)["id"]
+    a2 = repo.add_subtask(tid, "a2", parent_id=a)["id"]
+    a11 = repo.add_subtask(tid, "a11", parent_id=a1)["id"]
+    return a, b, c, a1, a2, a11
+
+
+# ── Task 3: ubah teks ───────────────────────────────────────────────────────
+
+def test_ubah_teks_di_trim_mengembalikan_butir_dan_task_progress(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    r = repo.rename_subtask(a1, "  teks baru  ")
+    assert set(r) == KEYS | {"task_progress"}
+    assert r["id"] == a1 and r["title"] == "teks baru" and r["depth"] == 1 and r["parent_id"] == a
+    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0}
+    assert [s["title"] for s in repo.get_subtasks(tid) if s["id"] == a1] == ["teks baru"]
+    assert _task(tid)["updated_at"] == FROZEN
+
+
+def test_ubah_teks_kosong_empty_title_tanpa_mengubah_baris(repo, tid):
+    a = repo.add_subtask(tid, "a")["id"]
+    for kosong in ("", "   ", "\t"):
+        with pytest.raises(ChecklistError) as ei:
+            repo.rename_subtask(a, kosong)
+        assert ei.value.code == "EMPTY_TITLE"
+    assert _rows(tid)[0]["title"] == "a"
+
+
+def test_ubah_teks_sama_tanpa_tulis(repo, tid, tulis):
+    a = repo.add_subtask(tid, "a")["id"]
+    tulis.clear()
+    r = repo.rename_subtask(a, "  a ")
+    assert r["title"] == "a" and r["task_progress"] == {"done": 0, "total": 1, "progress": 0}
+    assert tulis == [0]
+    assert _task(tid)["updated_at"] == FROZEN
+
+
+def test_ubah_teks_id_tidak_ada_none(repo):
+    assert repo.rename_subtask(987654321, "apa saja") is None
+
+
+# ── Task 3: pindah ──────────────────────────────────────────────────────────
+
+def test_pindah_di_antara_saudara_atas_ke_bawah(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    r = repo.move_subtask(a, None, 2)
+    assert set(r) == {"items", "task_progress"}
+    assert r["items"] == repo.get_subtasks(tid)
+    assert [(s["id"], s["depth"]) for s in r["items"]] == [
+        (b, 0), (c, 0), (a, 0), (a1, 1), (a11, 2), (a2, 1)]
+    assert _orders(repo, tid) == [0, 1, 2]
+
+
+def test_pindah_di_antara_saudara_bawah_ke_atas(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    repo.move_subtask(c, None, 0)
+    assert [i for i, d in _view(repo, tid) if d == 0] == [c, a, b]
+    assert _orders(repo, tid) == [0, 1, 2]
+    repo.move_subtask(a2, a, 0)
+    assert [i for i, _ in _view(repo, tid)] == [c, a, a2, a1, a11, b]
+    assert _orders(repo, tid, parent_id=a) == [0, 1]
+
+
+def test_pindah_index_lebih_dari_n_atau_kosong_ke_akhir(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    repo.move_subtask(a, None, 99)
+    assert [i for i, d in _view(repo, tid) if d == 0] == [b, c, a]
+    repo.move_subtask(b, None)
+    assert [i for i, d in _view(repo, tid) if d == 0] == [c, a, b]
+    assert _orders(repo, tid) == [0, 1, 2]
+
+
+def test_pindah_ke_induk_lain_turunan_ikut_depth_bertambah(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    r = repo.move_subtask(a1, b, 0)
+    assert [(s["id"], s["depth"]) for s in r["items"]] == [
+        (a, 0), (a2, 1), (b, 0), (a1, 1), (a11, 2), (c, 0)]
+    repo.move_subtask(b, a2)
+    assert [(i, d) for i, d in _view(repo, tid)] == [
+        (a, 0), (a2, 1), (b, 2), (a1, 3), (a11, 4), (c, 0)]
+
+
+def test_pindah_ke_level_atas(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    r = repo.move_subtask(a11, None, 1)
+    assert [(s["id"], s["depth"]) for s in r["items"]] == [
+        (a, 0), (a1, 1), (a2, 1), (a11, 0), (b, 0), (c, 0)]
+    assert _orders(repo, tid) == [0, 1, 2, 3]
+    assert _orders(repo, tid, parent_id=a1) == []
+
+
+def test_pindah_ke_diri_sendiri_cycle(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    sebelum = _rows(tid)
+    with pytest.raises(ChecklistError) as ei:
+        repo.move_subtask(a, a, 0)
+    assert ei.value.code == "CYCLE"
+    assert _rows(tid) == sebelum
+
+
+def test_pindah_ke_anak_atau_cucu_sendiri_cycle(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    sebelum = _rows(tid)
+    for tujuan in (a1, a11, a2):
+        with pytest.raises(ChecklistError) as ei:
+            repo.move_subtask(a, tujuan)
+        assert ei.value.code == "CYCLE"
+    assert _rows(tid) == sebelum
+
+
+def test_pindah_ke_butir_task_lain_atau_tidak_ada_parent_not_found(repo, u, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    lain = repo.add_subtask(_mk(u, title="lain")["id"], "x")["id"]
+    sebelum = _rows(tid)
+    for tujuan in (lain, 987654321):
+        with pytest.raises(ChecklistError) as ei:
+            repo.move_subtask(a1, tujuan)
+        assert ei.value.code == "PARENT_NOT_FOUND"
+    assert _rows(tid) == sebelum
+
+
+def test_pindah_id_tidak_ada_none(repo):
+    assert repo.move_subtask(987654321, None, 0) is None
+
+
+def test_pindah_sort_order_kelompok_lama_dan_baru_rapat(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    x = _ins(tid, "x", parent_id=b, sort_order=5)
+    y = _ins(tid, "y", parent_id=b, sort_order=5)   # data lama: kembar dan berjarak
+    repo.move_subtask(a1, b, 1)
+    assert [i for i, _ in _view(repo, tid)] == [a, a2, b, x, a1, a11, y, c]
+    assert _orders(repo, tid, parent_id=a) == [0]
+    assert _orders(repo, tid, parent_id=b) == [0, 1, 2]
+    repo.move_subtask(b, None, 0)
+    assert _orders(repo, tid) == [0, 1, 2]
+
+
+def test_pindah_sub_jadi_level_atas_menaikkan_checklist_total_dan_progress(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    conn = db()
+    conn.execute("UPDATE subtasks SET is_done = 1 WHERE id IN (?, ?)", (a, a1))
+    conn.commit()
+    conn.close()
+    r = repo.move_subtask(a1, None)
+    assert r["task_progress"] == {"done": 2, "total": 4, "progress": 50}
+    assert _task(tid) == {"progress": 50, "checklist_total": 4, "updated_at": FROZEN}
+
+
+def test_pindah_level_atas_jadi_sub_menurunkannya(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    conn = db()
+    conn.execute("UPDATE subtasks SET is_done = 1 WHERE id = ?", (a,))
+    conn.commit()
+    conn.close()
+    assert repo.move_subtask(c, a)["task_progress"] == {"done": 1, "total": 2, "progress": 50}
+    assert repo.move_subtask(b, a)["task_progress"] == {"done": 1, "total": 1, "progress": 100}
+    assert _task(tid) == {"progress": 100, "checklist_total": 1, "updated_at": FROZEN}
+
+
+def test_pindah_posisi_sama_tanpa_tulis(repo, tid, tulis):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    tulis.clear()
+    r1 = repo.move_subtask(b, None, 1)
+    r2 = repo.move_subtask(c, None)
+    r3 = repo.move_subtask(a2, a, 7)
+    assert tulis == [0, 0, 0]
+    assert r1["items"] == r2["items"] == r3["items"] == repo.get_subtasks(tid)
+    assert r1["task_progress"] == {"done": 0, "total": 3, "progress": 0}
+
+
+def test_pindah_tidak_mengubah_updated_at(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    repo.move_subtask(a1, None, 0)
+    repo.move_subtask(c, a1)
+    repo.move_subtask(a1, b, 0)
+    assert _task(tid)["updated_at"] == FROZEN
+
+
+def test_ubah_teks_dan_pindah_memakai_satu_write_tx(repo, tid, spy_tx):
+    a = repo.add_subtask(tid, "a")["id"]
+    b = repo.add_subtask(tid, "b")["id"]
+    spy_tx.clear()
+    repo.rename_subtask(a, "a2")
+    repo.move_subtask(b, a)
+    repo.rename_subtask(987654321, "x")
+    repo.move_subtask(987654321, None)
+    assert spy_tx == [False, False, False, False]

@@ -1636,6 +1636,62 @@ class TaskRepository:
         with self._connect() as conn:
             return _subtask_items(conn, task_id)
 
+    def rename_subtask(self, subtask_id: int, title: str) -> Optional[dict]:
+        """Ubah teks butir (K12). Judul di-trim; kosong → ChecklistError("EMPTY_TITLE"); sama → tanpa tulis.
+        Mengembalikan butir + `task_progress`, atau None bila butir tidak ada."""
+        clean = (title or "").strip()
+        with self._connect() as conn, dbconn.write_tx(conn):
+            row = conn.execute("SELECT task_id, title FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
+            if row is None:
+                return None
+            if not clean:
+                raise ChecklistError("EMPTY_TITLE")
+            if clean != row["title"]:
+                conn.execute("UPDATE subtasks SET title = ? WHERE id = ?", (clean, subtask_id))
+            return _subtask_with_progress(conn, row["task_id"], subtask_id)
+
+    def move_subtask(self, subtask_id: int, parent_id: Optional[int],
+                     index: Optional[int] = None) -> Optional[dict]:
+        """Pindah butir (beserta turunannya) ke induk `parent_id` (None = level atas) di posisi `index`
+        di antara saudara baru setelah butir dikeluarkan (None = paling akhir, di-clamp). Induk = butir itu
+        sendiri / turunannya → ChecklistError("CYCLE"); induk tidak ada / task lain → "PARENT_NOT_FOUND".
+        Kelompok saudara lama dan baru dinomori ulang `0..n−1`; posisi sama → tanpa tulis.
+        Mengembalikan `{"items": <pre-order lengkap>, "task_progress"}`, atau None bila butir tidak ada."""
+        with self._connect() as conn, dbconn.write_tx(conn):
+            row = conn.execute(
+                "SELECT task_id, parent_id, sort_order FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
+            if row is None:
+                return None
+            task_id, old_parent = row["task_id"], row["parent_id"]
+            if parent_id is not None:
+                if parent_id == subtask_id:
+                    raise ChecklistError("CYCLE")
+                parent = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (parent_id,)).fetchone()
+                if parent is None or parent["task_id"] != task_id:
+                    raise ChecklistError("PARENT_NOT_FOUND")
+                rows = conn.execute(
+                    "SELECT id, task_id, parent_id, sort_order FROM subtasks WHERE task_id = ?",
+                    (task_id,)).fetchall()
+                if parent_id in checklist_tree.descendant_ids(rows, subtask_id):
+                    raise ChecklistError("CYCLE")
+
+            old_group = _sibling_rows(conn, task_id, old_parent)
+            old_pos = next(i for i, (sid, _) in enumerate(old_group) if sid == subtask_id)
+            old_rest = [s for s in old_group if s[0] != subtask_id]
+            same_parent = parent_id == old_parent
+            new_rest = old_rest if same_parent else _sibling_rows(conn, task_id, parent_id)
+            pos = _clamp_index(index, len(new_rest))
+
+            if not (same_parent and pos == old_pos):
+                if not same_parent:
+                    conn.execute("UPDATE subtasks SET parent_id = ? WHERE id = ?", (parent_id, subtask_id))
+                    _renumber(conn, old_rest)
+                new_group = list(new_rest)
+                new_group.insert(pos, (subtask_id, row["sort_order"]))
+                _renumber(conn, new_group)
+            tp = _recompute_progress(conn, task_id)
+            return {"items": _subtask_items(conn, task_id), "task_progress": tp}
+
     def toggle_subtask(self, subtask_id: int) -> Optional[dict]:
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
