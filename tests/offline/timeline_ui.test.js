@@ -9825,3 +9825,56 @@ test("Review T7–T8 m: chip orang HP dibatasi 30 (urutan baris) + 'dan {n} lain
   assert.match(m[1], /color:\s*var\(--text-secondary\)/);
   assert.doesNotMatch(m[1], /#[0-9a-fA-F]{3,8}\b|rgba?\(/);
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 9: integrasi + anggaran (pola R24 1c-1 Task 13). Integrasi api.records nyata + sinkron ada di
+// timeline_runtime.test.js; DOM 500/400/10 orang ≤ 1.500 = tes "T5 DOM total …" di atas (dirujuk).
+// ════════════════════════════════════════════════════════════════════════════
+test("1d-1 T9 (R24): render awal dengan pref load ON (+ Jalur kritis) → tanpa TLCpm.run dan TLLoad.run sebelum frame pertama; panel/tombol Beban Tim baru muncul setelah mesin (raf + setTimeout 0) → tepat 1 run beban; 0 tulis", () => withEngineClock(async (clock) => {
+  const tasks = bigTasks(500, 400).map((t, i) => Object.assign(t, { list_id: 12, assigned_to: 1 + (i % 10) }));
+  const fr = fakeRecords();
+  for (let k = 0; k < 5; k++) putRec(fr, unitRec(12, "P" + k));
+  const { api, calls } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "crit:slist_12" || k === "load:slist_12" ? true : null) });
+  api.env.userId = 1;
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const { ctx } = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
+  const props = { context: ctx, api };
+  const spy = spyRun();
+  const ls = spyLoad();
+  try {
+    const m = mount(T.TimelineViewBody);
+    let tree = m.render(props);
+    assert.deepEqual([spy.runs.length, ls.runs.length], [0, 0], "render pertama tanpa mesin dan tanpa beban");
+    assert.ok(domCount(tree) > 0, "tabel/grafik langsung tergambar");
+    m.flush();
+    await settle();
+    tree = m.render(props); // pref terbaca (load ON), daftar + unit + kapasitas termuat; mesin dijadwalkan
+    m.flush();
+    await settle();
+    tree = m.render(props);
+    assert.ok(calls.storageGet.indexOf("load:slist_12") >= 0, "pref load dibaca");
+    assert.deepEqual([spy.runs.length, ls.runs.length], [0, 0], "belum ada hitung sebelum gambar pertama");
+    assert.equal(panelOf(tree), undefined, "panel belum dirender sebelum mesin siap (R2)");
+    assert.equal(loadBtnOf(tree), undefined, "tombol Beban Tim belum tampil (R10)");
+    assert.ok(clock.frames() >= 1, "raf terjadwal");
+    assert.deepEqual([spy.runs.length, ls.runs.length], [0, 0], "raf hanya menjadwalkan setTimeout 0");
+    clock.tick(0);
+    assert.equal(spy.runs.length, 1, "mesin jalan setelah raf + setTimeout");
+    assert.equal(ls.runs.length, 0, "beban dihitung saat render (useLoad), bukan di penjadwal mesin");
+    tree = m.render(props);
+    m.flush();
+    await settle();
+    tree = m.render(props);
+    assert.equal(ls.runs.length, 1, "tepat satu run beban setelah mesin siap");
+    assert.equal(ls.runs[0].input.result, spy.runs[0].result, "beban memakai hasil mesin yang sama");
+    assert.ok(panelOf(tree), "panel Beban Tim tampil");
+    assert.equal(loadBtnOf(tree).props["aria-pressed"], true);
+    assert.deepEqual(writes, [], "0 tulisan latar");
+    assert.equal(fr.calls.put.length + fr.calls.remove.length, 0);
+    m.unmount();
+  } finally {
+    ls.restore();
+    spy.restore();
+  }
+}));

@@ -49,20 +49,21 @@ afterEach(() => {
 // React di sandbox vm meneruskan ke global.React (diganti `mount` per render) agar komponen hasil build bisa dirender.
 const reactProxy = new Proxy({}, { get: (_, k) => (global.React ? global.React[k] : undefined) });
 
-function loadScript(box) {
-  const sandbox = { window: { TF: { plugins: P } }, module: { exports: {} }, React: reactProxy };
+// extra = global tambahan sandbox (1d-1 Task 9: timer nyata untuk debounce muat ulang + penjadwalan mesin view).
+function loadScript(box, extra) {
+  const sandbox = Object.assign({ window: { TF: { plugins: P } }, module: { exports: {} }, React: reactProxy }, extra || {});
   sandbox.self = sandbox.window;
   vm.runInNewContext(code, sandbox);
   box.exports = sandbox.module.exports;
 }
 
 // ON → P.load menyuntik plugin.js (di vm) + style.css; mengembalikan {T: ekspor plugin.js, urls}.
-async function enableAndLoad() {
+async function enableAndLoad(extra) {
   const box = { exports: null };
   const urls = [];
   const inject = (url, kind) => {
     urls.push(url);
-    if (kind === "script") loadScript(box);
+    if (kind === "script") loadScript(box, extra);
     return Promise.resolve();
   };
   await P.setEnabled("timeline", true);
@@ -894,4 +895,241 @@ test("api.taskExt.set {actual} nyata lolos validasi host", async () => {
   await api.taskExt.set(SYNC_BASE + 1, { actual: null });
   assert.equal("timeline.actual" in (await repo.getRaw("cid-t13-001")).ext, false, "null menghapus");
   assert.equal(P.failures("timeline").length, 0);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 9: integrasi runtime nyata 1.3 (record `resource`, panel Beban Tim). Anggaran DOM
+// 500 task/400 dep/10 orang dengan panel terbuka ≤ 1.500 sudah dikunci tes T5 di timeline_ui.test.js ("T5 DOM total
+// 500 task/400 dep + Jalur kritis + panel Beban Tim (10 orang) ≤ 1.500 elemen; 0 tulis") — dirujuk, tidak diduplikasi.
+// ════════════════════════════════════════════════════════════════════════════
+const rawRes = async () => (await rawAll("plugin_records")).filter((r) => r.plugin_id === "timeline" && r.entity === "resource");
+const TIMERS = { setTimeout, clearTimeout };
+const RES_ABSENT = { exists: false, updatedAt: null };
+const MSG_RES_TOO_LARGE = "Data kapasitas terlalu besar — kurangi cuti atau catatannya";
+
+// Host mengikat pengguna aktif sebagai STRING (id JWT) — plugin menormalkannya lewat TLLoad.uidOf (by bilangan).
+async function bindUser(uid) {
+  P.bindHost({ toast: (...a) => toasts.push(a), userId: uid });
+  await tick();
+  await tick();
+}
+
+// Pemanggilan api.records + taskExt per entitas (delegasi ke runtime nyata) — bukti "0 tulis" di sisi pemanggil.
+function spyApi(api) {
+  const calls = { get: [], put: [], list: [], remove: [], ext: [] };
+  const records = {};
+  for (const k of ["get", "put", "list", "remove"]) records[k] = (...a) => { calls[k].push(a[0]); return api.records[k](...a); };
+  const taskExt = Object.assign({}, api.taskExt, {
+    set: (...a) => { calls.ext.push(["set", a]); return api.taskExt.set(...a); },
+    setMany: (...a) => { calls.ext.push(["setMany", a]); return api.taskExt.setMany(...a); },
+  });
+  return { api: Object.assign({}, api, { records: Object.assign({}, api.records, records), taskExt }), calls };
+}
+
+// Data kapasitas ter-encode berukuran TEPAT `bytes` (catatan ASCII diisi berurutan, ≤ 60 per catatan; cuti tiap 3 hari
+// agar tidak digabung) — batas klien (TLLoad.resourceByteSize) dibandingkan dengan batas runtime (maxBytes 4096).
+function resValueOfSize(L, bytes) {
+  const base = (notes) => ({ capacity: 8, leave: notes.map((n, i) => ({ from: isoPlus("2026-01-05", 3 * i), to: isoPlus("2026-01-05", 3 * i), note: n })) });
+  const empty = Array.from({ length: 50 }, () => "");
+  let need = bytes - L.resourceByteSize(L.resourceEncode(base(empty), { by: 7 }));
+  assert.ok(need >= 0 && need <= 50 * 60, "ukuran target terjangkau: " + need);
+  const notes = empty.map(() => {
+    const k = Math.min(60, need);
+    need -= k;
+    return "n".repeat(k);
+  });
+  const v = base(notes);
+  assert.equal(L.resourceByteSize(L.resourceEncode(v, { by: 7 })), bytes);
+  return v;
+}
+const CALM = require(path.join(dir, "calendar.js"));
+const isoPlus = (iso, n) => CALM.iso(CALM.dn(iso) + n);
+
+test("1d-1 T9: index.json 1.3.0 + records.resource tersalin; plugin.js yang di-inject runtime nyata (P.load, ?v=hash) membundel part load.js — TLLoad bundel = load.js (konstanta, kunci, kodek)", async () => {
+  assert.equal(entry.version, "1.3.0");
+  assert.deepEqual(entry.records.resource, { conflict: "lww", maxBytes: 4096 });
+  assert.deepEqual(entry.records.resource, manifest.records.resource);
+  assert.equal(entry.parts, undefined, "parts tidak disalin ke index.json");
+  assert.equal(manifest.parts.indexOf("load.js"), manifest.parts.indexOf("plan.js") + 1, "load.js tepat setelah plan.js");
+  const iPlan = code.indexOf("// part: plan.js\n");
+  const iLoad = code.indexOf("// part: load.js\n");
+  const iLay = code.indexOf("// part: layout.js\n");
+  assert.ok(iPlan > 0 && iPlan < iLoad && iLoad < iLay, "part load.js dibundel di antara plan.js dan layout.js");
+  const { T, urls } = await enableAndLoad();
+  assert.ok(urls.indexOf(`/static/plugins/timeline/plugin.js?v=${entry.hash}`) >= 0, "berkas yang dimuat = hash index.json");
+  const L = require(path.join(dir, "load.js"));
+  assert.deepEqual(Object.keys(T.TLLoad), Object.keys(L), "ekspor TLLoad bundel = load.js");
+  for (const k of ["EST_MAX", "DEFAULT_CAP", "CAP_MAX", "MILLI", "LEAVE_MAX", "NOTE_MAX"]) assert.equal(T.TLLoad[k], L[k], k);
+  assert.ok(Object.isFrozen(T.TLLoad));
+  const v = { capacity: 5, leave: [{ from: "2026-11-10", to: "2026-11-12", note: "Mudik" }, { from: "2026-11-13", to: "2026-11-13", note: "" }] };
+  assert.deepEqual(J(T.TLLoad.resourceEncode(v, { by: 7 })), L.resourceEncode(v, { by: 7 }), "kodek bundel = Node");
+  assert.equal(P.failures("timeline").length, 0);
+});
+
+test("1d-1 T9: api.records nyata — saveResource res@list:12:7 → record pending + satu op outbox plugin (id/scope cocok pola server, by dari userId string); CAS potret basi → STALE 0 put; > 4.096 byte ditolak sisi klien sebelum baca/tulis, tepat 4.096 diterima (batas klien = runtime)", async () => {
+  const { T } = await enableAndLoad();
+  await bindUser("7");
+  assert.equal(P.isEnabled("timeline"), true, "plugin tetap ON setelah host mengikat pengguna");
+  const api = RT.api.for("timeline");
+  assert.equal(api.env.userId, "7", "runtime nyata: userId string");
+  const target = T.resRecId("workspace", 12, 7);
+  assert.deepEqual(J(target), { id: "res@list:12:7", scope: "list:12" });
+  assert.match(target.id, pyRe("ID_RE"), "id cocok ID_RE server");
+  assert.match(target.scope, pyRe("SCOPE_RE"), "scope cocok SCOPE_RE server");
+  // tulisan lewat adaptor nyata (satu-satunya penulis record resource: saveResource) di atas api.records nyata
+  const c1 = spyApi(api);
+  const value = { capacity: 5, leave: [{ from: "2026-11-10", to: "2026-11-12", note: "Mudik" }, { from: "2026-11-13", to: "2026-11-13", note: "" }] };
+  const { value: rec, seen } = await recordEvents(() => T.resourceStore(c1.api).save(target, value, RES_ABSENT));
+  assert.deepEqual([c1.calls.get, c1.calls.put, c1.calls.list], [["resource"], ["resource"], []], "CAS get lalu satu put");
+  assert.equal(rec.entity, "resource");
+  assert.equal(rec.id, "res@list:12:7");
+  assert.equal(rec.scope, "list:12");
+  assert.equal(rec.pending, true);
+  const want = { v: 1, capacity: 5, leave: [{ from: "2026-11-10", to: "2026-11-13", note: "Mudik" }], by: 7 };
+  assert.deepEqual(J(rec.data), want, "ter-normalisasi (cuti bersebelahan digabung), by = uidOf(\"7\") = 7");
+  assert.ok(seen.includes("tf:outbox-queued"), "host diberi tahu ada op baru");
+  const raw = await rawRes();
+  assert.equal(raw.length, 1);
+  assert.deepEqual([raw[0].id, raw[0].scope, raw[0].dirty, raw[0].deleted], ["res@list:12:7", "list:12", 1, 0], "IndexedDB: record dirty");
+  let ops = await pluginOps();
+  assert.equal(ops.length, 1, "satu op outbox plugin");
+  assert.equal(ops[0].op, "upsert");
+  assert.deepEqual([ops[0].payload.plugin_id, ops[0].payload.entity, ops[0].payload.id, ops[0].payload.scope], ["timeline", "resource", "res@list:12:7", "list:12"]);
+  assert.deepEqual(J(ops[0].payload.data), want);
+  // dibaca kembali lewat resourceStore nyata (list scope list:12)
+  const map = await T.resourceStore(api).loadScope("list:12");
+  const e7 = map.get(7);
+  assert.ok(e7, "entri uid 7");
+  assert.equal(e7.pending, true);
+  assert.deepEqual(J(e7.res), { capacity: 5, leave: [{ from: CALM.dn("2026-11-10"), to: CALM.dn("2026-11-13"), note: "Mudik" }] });
+  assert.deepEqual(J(e7.snap), { exists: true, updatedAt: rec.updated_at, by: 7 });
+  // CAS: potret basi (dibuka sebelum record ada) → STALE, 0 put; potret terkini → put (coalescing: tetap satu op)
+  const c2 = spyApi(api);
+  const st = await T.resourceStore(c2.api).save(target, { capacity: 3, leave: [] }, RES_ABSENT).catch((e) => e);
+  assert.equal(st.code, "STALE");
+  assert.equal(st.message, "Data berubah sejak dialog dibuka — muat ulang");
+  assert.deepEqual([c2.calls.get.length, c2.calls.put.length], [1, 0]);
+  const r2 = await T.resourceStore(c2.api).save(target, { capacity: 3, leave: [] }, { exists: true, updatedAt: rec.updated_at });
+  assert.deepEqual(J(r2.data), { v: 1, capacity: 3, leave: [], by: 7 });
+  assert.equal(c2.calls.put.length, 1);
+  assert.equal((await pluginOps()).length, 1, "coalescing: satu op per record");
+  // ── batas 4.096 byte: tepat 4.096 diterima klien DAN runtime; 4.097 ditolak SISI KLIEN (0 get, 0 put) ──
+  const L = T.TLLoad;
+  const at = resValueOfSize(L, 4096);
+  const over = resValueOfSize(L, 4097);
+  const t9 = T.resRecId("workspace", 12, 9);
+  const c3 = spyApi(api);
+  const big = await T.resourceStore(c3.api).save(t9, over, RES_ABSENT).catch((e) => e);
+  assert.equal(big.code, "TOO_LARGE");
+  assert.equal(big.message, MSG_RES_TOO_LARGE);
+  assert.deepEqual([c3.calls.get, c3.calls.put, c3.calls.list], [[], [], []], "ditolak sebelum baca/tulis apa pun");
+  assert.equal((await rawRes()).length, 1, "tidak ada tulis IndexedDB");
+  assert.equal((await pluginOps()).length, 1, "tidak ada op baru");
+  // pengaman kedua: runtime nyata menolak sendiri dari deklarasi maxBytes 4096 (TOO_LARGE, sebelum menulis)
+  const rt = await api.records.put("resource", t9.id, L.resourceEncode(over, { by: 7 }), { scope: t9.scope }).catch((e) => e);
+  assert.ok(rt instanceof PluginStorageError);
+  assert.equal(rt.code, "TOO_LARGE");
+  assert.equal((await rawRes()).length, 1);
+  // tepat di batas: lolos klien dan runtime
+  const ok = await T.resourceStore(c3.api).save(t9, at, RES_ABSENT);
+  assert.equal(ok.id, "res@list:12:9");
+  assert.equal(L.resourceByteSize(ok.data), 4096);
+  assert.deepEqual([c3.calls.get.length, c3.calls.put.length], [1, 1]);
+  assert.equal((await rawRes()).length, 2);
+  ops = await pluginOps();
+  assert.equal(ops.length, 2);
+  // kirim: payload POST membawa entity resource, id, scope
+  const srv = pushServer();
+  assert.equal((await drain(srv)).failed, 0);
+  const sent = srv.calls.filter((cc) => cc.path === PATH).flatMap((cc) => cc.body.items);
+  assert.deepEqual(sent.map((it) => [it.entity, it.id, it.scope]).sort(), [["resource", "res@list:12:7", "list:12"], ["resource", "res@list:12:9", "list:12"]]);
+  assert.deepEqual(sent.find((it) => it.id === "res@list:12:7").data, { v: 1, capacity: 3, leave: [], by: 7 });
+  assert.equal((await pluginOps()).length, 0);
+  assert.equal(P.failures("timeline").length, 0);
+});
+
+test("1d-1 T9: view nyata, panel Beban Tim ON — onChange resource dari SINKRON (tarik nyata + peristiwa sync tunggal, bukan lokal) → panel memuat ulang (records.list resource) dan menghitung ulang beban; 0 tulis (taskExt, records.put/remove, outbox)", async () => {
+  const { T } = await enableAndLoad(TIMERS);
+  await bindUser("7");
+  const api = RT.api.for("timeline");
+  const cal = CALM.compile(CALM.DEFAULT_CAL);
+  const T0 = CALM.nextWork(cal, CALM.dn(api.env.today()));
+  // workspace 12: satu task Budi (9) 6 🍅 / 2 hari kerja = 3 per hari (< kapasitas bawaan 8)
+  await seedSynced(1, () => ({ list_id: 12, project: "P", assigned_to: 9, estimated_pomodoros: 6, ext: { "timeline.start": CALM.iso(T0), "timeline.duration": 2 } }));
+  await api.storage.set("load:slist_12", true); // pref panel Beban Tim per perangkat (K56)
+  const tasks = await api.data.tasks.list();
+  const context = {
+    page: "slist_12", pageKind: "workspace", listId: 12, projectName: null,
+    tasks, scopeTasks: tasks, liveEdit: false, onTaskClick: () => {}, isSelected: () => false, showToast: () => {},
+    currentUser: { id: 7, username: "sari", display_name: "Sari" }, collaborators: [{ id: 9, username: "budi", display_name: "Budi" }],
+  };
+  const s = spyApi(api);
+  const runs = [];
+  const origLoad = T.engine.load;
+  T.engine.load = (input) => {
+    const out = origLoad(input);
+    runs.push({ input, out });
+    return out;
+  };
+  const prevDebounce = T.RELOAD_TIMING.debounceMs;
+  T.RELOAD_TIMING.debounceMs = 0;
+  const m = mount(T.TimelineViewBody);
+  const props = { context, api: s.api };
+  const panel = () => {
+    const tree = m.render(props);
+    m.flush();
+    return nodes(tree, (n) => n.type === T.LoadPanel)[0];
+  };
+  const budi = () => {
+    const p = panel();
+    return p ? p.props.load.rows.find((r) => r.uid === 9) : undefined;
+  };
+  try {
+    await until(() => { const b = budi(); return !!b && b.capacity === 8; }, "panel Beban Tim terbuka, Budi kapasitas bawaan 8");
+    assert.deepEqual(J(budi().overDays), [], "3 🍅/hari < 8 → tanpa hari merah");
+    assert.equal(budi().name, "Budi");
+    const lists0 = s.calls.list.filter((e) => e === "resource").length;
+    const runs0 = runs.length;
+    assert.ok(lists0 >= 1, "kapasitas dimuat karena panel terbuka");
+    assert.ok(runs0 >= 1, "beban dihitung");
+    // (1) anggota lain menyimpan kapasitas Budi = 1 di server → tarik nyata (PS.pullAll): peristiwa record source sync
+    // + peristiwa `pulled`
+    const row = { entity: "resource", id: "res@list:12:9", scope: "list:12", data: { v: 1, capacity: 1, leave: [], by: 9 }, updated_at: "2026-11-08T00:00:00Z", version: 3, deleted: false, seq: 1 };
+    const fetchPage = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ items: [row], cursor: "1.1.aaaa0000", more: false }) });
+    const pulled = await PS.pullAll(fetchPage, { userId: 7, ids: P.recordPluginIds() });
+    assert.deepEqual(pulled.errors, []);
+    await until(() => { const b = budi(); return !!b && b.capacity === 1; }, "panel memuat ulang kapasitas dari sinkron");
+    assert.deepEqual(J(budi().overDays).map(CALM.iso), [CALM.iso(T0), CALM.iso(CALM.nextWork(cal, T0 + 1))], "3 🍅/hari > 1 → dua hari merah");
+    const lists1 = s.calls.list.filter((e) => e === "resource").length;
+    assert.ok(lists1 > lists0, "records.list resource dipanggil ulang: " + lists0 + " → " + lists1);
+    assert.ok(runs.length > runs0, "beban dihitung ulang");
+    // (2) peristiwa sync TUNGGAL (tanpa pulled; mis. hasil kirim kalah LWW) atas record yang sudah ditimpa sinkron di
+    // IndexedDB → muat ulang lewat jalur debounce
+    const cur = (await rawRes())[0];
+    assert.equal(cur.dirty, 0, "record hasil tarik tidak kotor");
+    const db = await dbmod.openDB();
+    await new Promise((res, rej) => {
+      const tx = db.transaction("plugin_records", "readwrite");
+      tx.objectStore("plugin_records").put(Object.assign({}, cur, { data: { v: 1, capacity: 2, leave: [], by: 9 }, updated_at: "2026-11-08T01:00:00Z", version: 4 }));
+      tx.oncomplete = () => res();
+      tx.onerror = () => rej(tx.error);
+    });
+    const lists2 = s.calls.list.filter((e) => e === "resource").length;
+    PS._internals.emit({ pluginId: "timeline", entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+    await until(() => { const b = budi(); return !!b && b.capacity === 2; }, "peristiwa sync → muat ulang");
+    assert.ok(s.calls.list.filter((e) => e === "resource").length > lists2, "records.list resource dipanggil ulang");
+    // R25: nol tulisan latar di semua langkah
+    assert.deepEqual(s.calls.put, [], "0 records.put");
+    assert.deepEqual(s.calls.remove, [], "0 records.remove");
+    assert.deepEqual(s.calls.ext, [], "0 taskExt.set/setMany");
+    assert.equal((await pluginOps()).length, 0, "0 op outbox plugin");
+    assert.equal((await taskOps()).length, 0, "0 op outbox task");
+    assert.deepEqual((await rawRes()).map((r) => [r.id, r.dirty]), [["res@list:12:9", 0]], "record sinkron tidak ditulis ulang");
+    assert.equal(P.failures("timeline").length, 0);
+  } finally {
+    m.unmount();
+    T.engine.load = origLoad;
+    T.RELOAD_TIMING.debounceMs = prevDebounce;
+    await tick();
+  }
 });
