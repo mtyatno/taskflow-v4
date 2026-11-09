@@ -8304,8 +8304,9 @@ test("T7 validasi inline: kapasitas bukan bilangan bulat 0–40 → Simpan nonak
   }
   buttonByText(h.tree, "Tambah cuti").props.onClick({});
   h.render();
-  assert.equal(saveBtn(h.tree).props.disabled, true, "baris baru kosong");
-  assert.deepEqual(alerts(h.tree), [RES_DATE_BAD]);
+  // review T7–T8 (Important): baris baru kosong total netral — bukan galat, Simpan tetap aktif
+  assert.equal(saveBtn(h.tree).props.disabled, false, "baris baru kosong");
+  assert.deepEqual(alerts(h.tree), []);
   const dates = () => inputsOf(h.tree, "date");
   for (const [from, to, ok] of [["2026-11-10", "", false], ["2026-11-10", "2026-11-09", false], ["2026-02-30", "2026-03-01", false], ["1969-12-31", "1970-01-02", false], ["2026-11-10", "2200-01-01", false], ["2026-11-10", "2026-11-10", true], ["1970-01-01", "2199-12-31", true]]) {
     dates()[0].props.onChange(chg(from));
@@ -8338,7 +8339,7 @@ test("T7 kunci Simpan (R9, review T2–T3): workspace (a) belum termuat → terk
   const a = edSetup({ records: fr, res: { map: new Map(), loaded: false, pulled: true } });
   assert.ok(locked(a.tree), "(a) terkunci (pulled menyala sebelum muat tidak cukup)");
   assert.ok(hasText(a.tree, RES_WAIT));
-  assert.equal(buttonByText(a.tree, "Batal").props.disabled, undefined, "Batal tetap aktif");
+  assert.equal(buttonByText(a.tree, "Batal").props.disabled, false, "Batal tetap aktif (nonaktif hanya selama menyimpan — review T7–T8)");
   a.m.unmount();
   // (c)
   const c = edSetup({ records: fr, res: { map, loaded: true, pulled: false } });
@@ -9504,4 +9505,323 @@ test("Review T4–T6 M5: revealRow memfokuskan bar (role button, data-key) denga
 test("Review T4–T6 M7: tombol Beban Tim cukup bersyarat engReady (mode Daftar hanya ≤ 640 px) — perilaku tetap", () => {
   assert.match(jsx, /if \(v\.engReady\) extras\.push\(\{ id: "load"/);
   assert.doesNotMatch(jsx, /v\.engReady && \(gantt \|\| v\.narrow\)/);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — perbaikan review T7–T8: editor kapasitas (baris cuti kosong netral, fokus, busy, STALE beku,
+// aria-describedby) + chip orang HP dibatasi
+// ════════════════════════════════════════════════════════════════════════════
+const dateInvalid = (tree) => inputsOf(tree, "date").map((i) => i.props["aria-invalid"]);
+const alertNode = (tree, s) => nodes(tree, (n) => n.props.role === "alert" && txt(n).trim() === s)[0];
+
+test("Review T7–T8 I: baris cuti kosong total (dari, sampai, catatan kosong) netral — bukan galat, Simpan tetap aktif, dibuang saat simpan; terisi sebagian (satu tanggal / catatan saja) tetap 'Periksa tanggal cuti' hanya untuk baris itu", () => withPop(async () => {
+  // resFormCheck murni: kosong total (catatan spasi saja = kosong) bukan galat; sebagian = galat
+  const chk = T.resFormCheck({ cap: "8", rows: [
+    { k: 1, from: "", to: "", note: "" }, { k: 2, from: "2026-11-10", to: "", note: "" }, { k: 3, from: "", to: "", note: "Mudik" },
+    { k: 4, from: "2026-11-10", to: "2026-11-11", note: "" }, { k: 5, from: "", to: "", note: "   " }, { k: 6, from: "", to: "2026-11-10", note: "" },
+  ] });
+  assert.deepEqual([...chk.bad].sort((a, b) => a - b), [2, 3, 6]);
+  assert.equal(chk.dateBad, true);
+  const blank = T.resFormCheck({ cap: "8", rows: [{ k: 1, from: "", to: "", note: "" }, { k: 2, from: "", to: "", note: " " }] });
+  assert.deepEqual([blank.bad.size, blank.dateBad], [0, false]);
+  // editor: dua baris baru kosong → netral
+  const h = edSetup();
+  capIn(h.tree).props.onChange(chg("5"));
+  h.render();
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  assert.equal(saveBtn(h.tree).props.disabled, false, "baris kosong tidak menonaktifkan Simpan");
+  assert.deepEqual(alerts(h.tree), [], "tanpa pesan galat untuk baris kosong");
+  assert.deepEqual(dateInvalid(h.tree), [false, false, false, false]);
+  // baris kedua terisi sebagian → galat hanya baris itu
+  inputsOf(h.tree, "date")[2].props.onChange(chg("2026-11-10"));
+  h.render();
+  assert.equal(saveBtn(h.tree).props.disabled, true);
+  assert.deepEqual(alerts(h.tree), [RES_DATE_BAD]);
+  assert.deepEqual(dateInvalid(h.tree), [false, false, true, true]);
+  saveBtn(h.tree).props.onClick({});
+  // dikosongkan lagi → netral lagi
+  inputsOf(h.tree, "date")[2].props.onChange(chg(""));
+  h.render();
+  assert.deepEqual(alerts(h.tree), []);
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  // catatan saja tanpa tanggal = terisi sebagian → galat baris pertama
+  notesOf(h.tree)[0].props.onChange(chg("Mudik"));
+  h.render();
+  assert.deepEqual(alerts(h.tree), [RES_DATE_BAD]);
+  assert.deepEqual(dateInvalid(h.tree), [true, true, false, false]);
+  notesOf(h.tree)[0].props.onChange(chg(""));
+  h.render();
+  // baris kedua lengkap, baris pertama kosong total → Simpan: baris kosong dibuang dari value
+  inputsOf(h.tree, "date")[2].props.onChange(chg("2026-11-10"));
+  h.render();
+  inputsOf(h.tree, "date")[3].props.onChange(chg("2026-11-11"));
+  h.render();
+  assert.deepEqual(alerts(h.tree), []);
+  assert.equal(h.fr.calls.put.length + h.fr.calls.get.length, 0, "klik saat galat → tanpa baca/tulis");
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(h.fr), [["resource", "res@list:12:9", { v: 1, capacity: 5, leave: [{ from: "2026-11-10", to: "2026-11-11", note: "" }], by: 7 }, { scope: "list:12" }]]);
+  h.m.unmount();
+  // hanya baris kosong → leave []
+  const g = edSetup();
+  buttonByText(g.tree, "Tambah cuti").props.onClick({});
+  g.render();
+  saveBtn(g.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(g.fr).map((p) => p[2]), [{ v: 1, capacity: 8, leave: [], by: 7 }]);
+  g.m.unmount();
+}));
+
+test("Review T7–T8 m: setelah 'Muat ulang' atau galat simpan, fokus kembali ke akar dialog bila elemen yang fokus jadi nonaktif/hilang; fokus di elemen yang masih aktif tidak dicuri", () => withPop(async () => {
+  const prevDoc = global.document;
+  const body = {};
+  global.document = { body, activeElement: body };
+  try {
+    // STALE: tombol Simpan yang fokus menjadi nonaktif → akar dialog
+    const fr = fakeRecords();
+    putRec(fr, resRec(12, 9, { capacity: 6 }));
+    const h = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+    const f0 = h.rootEl.focused;
+    assert.equal(f0, 1, "fokus saat dibuka");
+    capIn(h.tree).props.onChange(chg("3"));
+    h.render();
+    h.flush();
+    assert.equal(h.rootEl.focused, f0, "mengetik tidak memindah fokus");
+    putRec(fr, resRec(12, 9, { capacity: 4 }, { updated_at: "2026-11-06T03:00:00Z" }));
+    const saveEl = { isConnected: true, disabled: false };
+    global.document.activeElement = saveEl;
+    saveBtn(h.tree).props.onClick({});
+    h.render();
+    saveEl.disabled = true; // tombol yang fokus dinonaktifkan selama menyimpan, tetap nonaktif (STALE)
+    await settle();
+    await settle();
+    h.render();
+    h.flush();
+    assert.ok(alerts(h.tree).indexOf(RES_STALE) >= 0);
+    assert.equal(saveBtn(h.tree).props.disabled, true);
+    assert.equal(h.rootEl.focused, f0 + 1, "Simpan nonaktif → fokus ke akar dialog");
+    // Muat ulang: tombolnya hilang setelah selesai (elemen terlepas) → akar dialog
+    const reloadEl = { isConnected: true, disabled: false };
+    global.document.activeElement = reloadEl;
+    buttonByText(h.tree, "Muat ulang").props.onClick({});
+    h.render();
+    h.flush();
+    assert.equal(h.rootEl.focused, f0 + 1, "selama memuat ulang belum dipindah");
+    reloadEl.isConnected = false;
+    await settle();
+    await settle();
+    h.render();
+    h.flush();
+    assert.equal(buttonByText(h.tree, "Muat ulang"), undefined);
+    assert.equal(capIn(h.tree).props.value, "4");
+    assert.equal(h.rootEl.focused, f0 + 2, "Muat ulang hilang → fokus ke akar dialog");
+    h.render();
+    h.flush();
+    assert.equal(h.rootEl.focused, f0 + 2, "sekali saja");
+    h.m.unmount();
+    // galat simpan lain: fokus jatuh ke body → akar; Simpan aktif kembali dan masih fokus → tidak dicuri
+    for (const [active, want] of [[body, 1], [{ isConnected: true, disabled: false }, 0], [null, 1]]) {
+      const g = edSetup();
+      g.set({ store: { save: () => Promise.reject(Object.assign(new Error("x"), { code: "IDB" })), get: () => Promise.resolve(null) } });
+      const before = g.rootEl.focused;
+      global.document.activeElement = active;
+      saveBtn(g.tree).props.onClick({});
+      await settle();
+      await settle();
+      g.render();
+      g.flush();
+      assert.deepEqual(g.calls.toast, [["Gagal menyimpan kapasitas", "error"]]);
+      assert.equal(g.rootEl.focused - before, want, "aktif = " + JSON.stringify(active));
+      g.m.unmount();
+    }
+    // galat inline TOO_LARGE dengan fokus di Simpan yang aktif lagi → tidak dicuri
+    const t = edSetup();
+    t.set({ store: { save: () => Promise.reject(Object.assign(new Error("x"), { code: "TOO_LARGE" })), get: () => Promise.resolve(null) } });
+    const b0 = t.rootEl.focused;
+    global.document.activeElement = { isConnected: true, disabled: false };
+    saveBtn(t.tree).props.onClick({});
+    await settle();
+    await settle();
+    t.render();
+    t.flush();
+    assert.deepEqual(alerts(t.tree), [T.MSG_RES_TOO_LARGE]);
+    assert.equal(t.rootEl.focused, b0);
+    t.m.unmount();
+  } finally {
+    if (prevDoc === undefined) delete global.document; else global.document = prevDoc;
+  }
+}));
+
+test("Review T7–T8 m: selama menyimpan (put berjalan) Batal dan × nonaktif dan Esc diabaikan (tanpa onClose, propagasi tetap dihentikan); selesai gagal → aktif lagi dan Esc menutup", () => withPop(async (w) => {
+  const h = edSetup();
+  let rej = null;
+  h.set({ store: { save: () => new Promise((_, r) => { rej = r; }), get: () => Promise.resolve(null) } });
+  assert.equal(buttonByText(h.tree, "Batal").props.disabled, false);
+  assert.equal(btnsByLabel(h.tree, "Tutup")[0].props.disabled, false);
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  h.render();
+  assert.ok(typeof rej === "function", "put berjalan");
+  assert.equal(buttonByText(h.tree, "Batal").props.disabled, true, "Batal nonaktif");
+  assert.equal(btnsByLabel(h.tree, "Tutup")[0].props.disabled, true, "× nonaktif");
+  let stopped = 0;
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped++; } });
+  // pemanggilan langsung (mis. klik yang lolos sebelum render) juga diabaikan
+  buttonByText(h.tree, "Batal").props.onClick({});
+  btnsByLabel(h.tree, "Tutup")[0].props.onClick({});
+  assert.deepEqual(h.closes, [], "tidak ditutup selama menyimpan");
+  assert.equal(stopped, 1, "Esc tidak diteruskan ke modal/Live Edit host");
+  rej(Object.assign(new Error("x"), { code: "IDB" }));
+  await settle();
+  await settle();
+  h.render();
+  assert.equal(buttonByText(h.tree, "Batal").props.disabled, false);
+  assert.equal(btnsByLabel(h.tree, "Tutup")[0].props.disabled, false);
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() {} });
+  assert.deepEqual(h.closes, [{ restoreFocus: true }]);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+  // selama "Muat ulang" (baca) juga sibuk: Batal nonaktif
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 6 }));
+  const g = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+  putRec(fr, resRec(12, 9, { capacity: 4 }, { updated_at: "2026-11-06T03:00:00Z" }));
+  saveBtn(g.tree).props.onClick({});
+  await settle();
+  await settle();
+  g.render();
+  buttonByText(g.tree, "Muat ulang").props.onClick({});
+  g.render();
+  assert.equal(buttonByText(g.tree, "Batal").props.disabled, true);
+  await settle();
+  await settle();
+  g.render();
+  assert.equal(buttonByText(g.tree, "Batal").props.disabled, false);
+  g.m.unmount();
+}));
+
+test("Review T7–T8 m: STALE → isian dibekukan (kapasitas, tanggal, catatan, Hapus cuti, Tambah cuti nonaktif; perubahan diabaikan) sampai 'Muat ulang'; Muat ulang dan Batal tetap aktif; aria-busy hanya saat memuat/menyimpan", () => withPop(async () => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 6, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }] }));
+  const h = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+  const frozen = (t) => [capIn(t).props.disabled, ...inputsOf(t, "date").map((i) => i.props.disabled), ...notesOf(t).map((i) => i.props.disabled),
+    ...btnsByLabel(t, "Hapus cuti").map((b) => b.props.disabled), buttonByText(t, "Tambah cuti").props.disabled];
+  assert.ok(frozen(h.tree).every((d) => d === false), "awal: aktif");
+  assert.equal(dlgNode(h.tree).props["aria-busy"], false);
+  capIn(h.tree).props.onChange(chg("3"));
+  h.render();
+  putRec(fr, resRec(12, 9, { capacity: 4, leave: [] }, { updated_at: "2026-11-06T03:00:00Z" }));
+  saveBtn(h.tree).props.onClick({});
+  h.render();
+  assert.equal(dlgNode(h.tree).props["aria-busy"], true, "menyimpan");
+  await settle();
+  await settle();
+  h.render();
+  assert.ok(alerts(h.tree).indexOf(RES_STALE) >= 0);
+  assert.ok(frozen(h.tree).every((d) => d === true), "STALE: semua isian beku");
+  assert.equal(dlgNode(h.tree).props["aria-busy"], false, "STALE bukan sedang memuat");
+  assert.equal(buttonByText(h.tree, "Muat ulang").props.disabled, false);
+  assert.equal(buttonByText(h.tree, "Batal").props.disabled, false);
+  // perubahan diabaikan selama beku
+  capIn(h.tree).props.onChange(chg("9"));
+  notesOf(h.tree)[0].props.onChange(chg("X"));
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  btnsByLabel(h.tree, "Hapus cuti")[0].props.onClick({});
+  h.render();
+  assert.equal(capIn(h.tree).props.value, "3");
+  assert.deepEqual(notesOf(h.tree).map((i) => i.props.value), ["Cuti"]);
+  assert.deepEqual(dateVals(h.tree), ["2026-11-09", "2026-11-10"]);
+  assert.ok(alerts(h.tree).indexOf(RES_STALE) >= 0, "pesan STALE tetap");
+  // Muat ulang → cair, nilai terbaru
+  buttonByText(h.tree, "Muat ulang").props.onClick({});
+  await settle();
+  await settle();
+  h.render();
+  assert.ok(frozen(h.tree).every((d) => d === false), "setelah Muat ulang: aktif");
+  assert.equal(capIn(h.tree).props.value, "4");
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("Review T7–T8 m: input kapasitas/tanggal yang aria-invalid → aria-describedby = id paragraf galatnya (unik per editor); sah atau baris kosong → tanpa aria-describedby", () => withPop(async () => {
+  const h = edSetup();
+  assert.equal(capIn(h.tree).props["aria-describedby"], undefined);
+  capIn(h.tree).props.onChange(chg("41"));
+  h.render();
+  const capErr = alertNode(h.tree, RES_CAP_BAD);
+  assert.ok(capErr && typeof capErr.props.id === "string" && /^plg-timeline-/.test(capErr.props.id), "paragraf galat kapasitas ber-id");
+  assert.equal(capIn(h.tree).props["aria-invalid"], true);
+  assert.equal(capIn(h.tree).props["aria-describedby"], capErr.props.id);
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  inputsOf(h.tree, "date")[0].props.onChange(chg("2026-11-10"));
+  h.render();
+  const dateErr = alertNode(h.tree, RES_DATE_BAD);
+  assert.ok(dateErr && typeof dateErr.props.id === "string" && /^plg-timeline-/.test(dateErr.props.id));
+  assert.notEqual(dateErr.props.id, capErr.props.id);
+  assert.deepEqual(inputsOf(h.tree, "date").map((i) => i.props["aria-describedby"]), [dateErr.props.id, dateErr.props.id, undefined, undefined], "baris kosong tanpa rujukan galat");
+  assert.equal(notesOf(h.tree)[0].props["aria-describedby"], undefined);
+  // diperbaiki → rujukan hilang bersama galatnya
+  capIn(h.tree).props.onChange(chg("6"));
+  h.render();
+  inputsOf(h.tree, "date")[1].props.onChange(chg("2026-11-12"));
+  h.render();
+  assert.deepEqual(alerts(h.tree), []);
+  assert.equal(capIn(h.tree).props["aria-describedby"], undefined);
+  assert.deepEqual(inputsOf(h.tree, "date").map((i) => i.props["aria-describedby"]), [undefined, undefined, undefined, undefined]);
+  // editor kedua → id lain (dua editor bisa ada di dokumen yang sama: panel desktop + daftar HP)
+  const g = edSetup();
+  capIn(g.tree).props.onChange(chg(""));
+  g.render();
+  const capErr2 = alertNode(g.tree, RES_CAP_BAD);
+  assert.notEqual(capErr2.props.id, capErr.props.id);
+  assert.equal(capIn(g.tree).props["aria-describedby"], capErr2.props.id);
+  h.m.unmount();
+  g.m.unmount();
+}));
+
+test("Review T7–T8 m: chip orang HP dibatasi 30 (urutan baris) + 'dan {n} lainnya' (pola daftar item); ≤ 30 → tanpa teks lainnya; DOM tetap kecil", () => {
+  assert.equal(T.LOAD_M_PEOPLE_MAX, 30);
+  const cal = T.TLCal.compile(T.TLCal.DEFAULT_CAL);
+  const ctx = { tasks: [], cal, units: new Map(), readExt: () => ({}) };
+  const result = T.TLCpm.run(ctx);
+  const mkLoad = (n) => T.TLLoad.run({
+    tasks: [], cal, readExt: ctx.readExt, result, units: ctx.units, byAssignee: true, ownerUid: 1, D: dnOfIso(TODAY),
+    people: Array.from({ length: n }, (_, i) => ({ uid: i + 1, name: "Orang " + String(i + 1).padStart(2, "0"), res: null })),
+  });
+  const render = (load) => {
+    const lm = mount(T.LoadList);
+    const lt = lm.render({ load, cal, result, ctx, pageKind: "workspace", boxRef: { current: null }, editUid: null, onEditPerson() {}, res: null, onReveal() {} });
+    lm.flush();
+    return { lm, lt };
+  };
+  const a = render(mkLoad(35));
+  const chips = mChips(a.lt);
+  assert.equal(chips.length, 30);
+  assert.deepEqual(chips.map((b) => txt(b).trim()), Array.from({ length: 30 }, (_, i) => "Orang " + String(i + 1).padStart(2, "0") + " · 8 🍅/hari"));
+  const more = byCls(a.lt, "plg-timeline-load-m-pmore");
+  assert.equal(more.length, 1);
+  assert.equal(txt(more[0]).trim(), "dan 5 lainnya");
+  const box = byCls(a.lt, "plg-timeline-load-m-people")[0];
+  assert.ok(nodes(box, (n) => n === more[0]).length === 1, "teks lainnya di baris chip");
+  assert.equal(byCls(a.lt, "plg-timeline-load-m-more").length, 0, "bukan teks lainnya daftar hari");
+  assert.ok(domCount(a.lt) <= 40, "DOM daftar HP 35 orang: " + domCount(a.lt));
+  a.lm.unmount();
+  const b = render(mkLoad(30));
+  assert.equal(mChips(b.lt).length, 30);
+  assert.equal(byCls(b.lt, "plg-timeline-load-m-pmore").length, 0);
+  b.lm.unmount();
+  // CSS teks lainnya di baris chip: token saja
+  const m = css.match(/\.plg-timeline-load-m-pmore\s*\{([^}]*)\}/);
+  assert.ok(m, "aturan .plg-timeline-load-m-pmore");
+  assert.match(m[1], /color:\s*var\(--text-secondary\)/);
+  assert.doesNotMatch(m[1], /#[0-9a-fA-F]{3,8}\b|rgba?\(/);
 });

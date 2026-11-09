@@ -2537,16 +2537,34 @@ function resDateOk(s) {
   const y = Number(s.slice(0, 4));
   return y >= RES_YEAR_MIN && y <= RES_YEAR_MAX;
 }
-// Validasi inline form {cap, rows: [{k, from, to, note}]} → {cap: bilangan|null, capBad, bad: Set<k baris>, dateBad}. Murni.
+// Baris cuti kosong total (review T7–T8): dari, sampai, dan catatan (dipangkas) semuanya kosong → netral: bukan galat,
+// tidak menonaktifkan Simpan, dan dibuang saat menyusun value. Baris yang berisi sesuatu tetap divalidasi penuh.
+const resStr = (v) => (typeof v === "string" ? v : "");
+function resRowBlank(x) {
+  return !!x && resStr(x.from) === "" && resStr(x.to) === "" && resStr(x.note).trim() === "";
+}
+// Validasi inline form {cap, rows: [{k, from, to, note}]} → {cap: bilangan|null, capBad, bad: Set<k baris>, dateBad}.
+// Baris kosong total dilewati (bukan galat). Murni.
 function resFormCheck(form) {
   const f = form && typeof form === "object" ? form : {};
   const cap = resCapOf(f.cap);
   const bad = new Set();
   for (const x of Array.isArray(f.rows) ? f.rows : []) {
+    if (resRowBlank(x)) continue;
     if (!resDateOk(x.from) || !resDateOk(x.to) || TLCal.dn(x.from) > TLCal.dn(x.to)) bad.add(x.k);
   }
   return { cap, capBad: cap === null, bad, dateBad: bad.size > 0 };
 }
+// Fokus jatuh (review T7–T8): tanpa document (Node) dianggap jatuh; elemen aktif kosong / body / terlepas / nonaktif
+// (tombol yang difokus dinonaktifkan selama menyimpan atau hilang setelah "Muat ulang"). Fokus di elemen aktif lain
+// tidak dicuri.
+function resFocusLost() {
+  const doc = typeof document !== "undefined" ? document : null;
+  if (!doc) return true;
+  const a = doc.activeElement;
+  return !a || a === doc.body || a.isConnected === false || a.disabled === true;
+}
+let resSeq = 0; // id paragraf galat editor (aria-describedby), unik per editor
 // res terdekode (TLLoad.resourceDecode) → isian: kapasitas string, cuti ISO urut (dari, sampai). Absen → 8 tanpa cuti.
 function resFormOf(res, nextKey) {
   const r = res && typeof res === "object" ? res : null;
@@ -2574,8 +2592,12 @@ function resCaption(entry, res) {
 //     terbuka tetap nonaktif sampai potret final terpasang, jadi Simpan tidak pernah memakai potret dari keadaan belum
 //     termuat. Sesudah final, perubahan data dari luar TIDAK mengganti potret (CAS → STALE).
 //   - Simpan nonaktif selama menyimpan (ref + state: klik ganda = satu put), saat isian tidak sah, dan setelah STALE
-//     (sampai "Muat ulang" mengisi nilai + potret dari res.store.get — peta panel bisa tertinggal debounce).
-//   - Batal / Tutup / Esc → onClose({restoreFocus: true}); klik luar → {restoreFocus: false}; tanpa tulis.
+//     (sampai "Muat ulang" mengisi nilai + potret dari res.store.get — peta panel bisa tertinggal debounce). Setelah STALE
+//     SEMUA isian beku juga (review T7–T8) sampai "Muat ulang": ketikan tidak bisa ditambah ke data yang sudah basi.
+//   - Batal / Tutup / Esc → onClose({restoreFocus: true}); klik luar → {restoreFocus: false}; tanpa tulis. Selama sibuk
+//     (put / "Muat ulang" berjalan) Batal dan × nonaktif dan Esc diabaikan (review T7–T8).
+//   - Baris cuti kosong total netral dan dibuang dari value (resRowBlank). Input tidak sah → aria-describedby ke paragraf
+//     galatnya. Setelah "Muat ulang" atau galat simpan, fokus yang jatuh (resFocusLost) dipindah ke akar dialog.
 function ResourceEditor(props) {
   const r = props.res && typeof props.res === "object" ? props.res : {};
   const uid = props.uid;
@@ -2596,12 +2618,21 @@ function ResourceEditor(props) {
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState(null); // null | RES_ERR_STALE | pesan inline
   const busyRef = React.useRef(false);
+  const refocusRef = React.useRef(false); // fokus diperiksa sesudah render berikutnya ("Muat ulang" / galat simpan)
   const alive = React.useRef(true);
   const rootRef = React.useRef(null);
+  const idRef = React.useRef(null);
+  if (idRef.current === null) idRef.current = "plg-timeline-res-" + ++resSeq;
+  const capErrId = idRef.current + "-cap";
+  const dateErrId = idRef.current + "-date";
   const closeRef = React.useRef(props.onClose);
   closeRef.current = props.onClose;
   const close = (restoreFocus) => {
     if (typeof closeRef.current === "function") closeRef.current({ restoreFocus });
+  };
+  // Batal / × / Esc: diabaikan selama sibuk (klik luar tetap menutup; hasil simpan diberitahukan lewat toast).
+  const cancel = () => {
+    if (!busyRef.current) close(true);
   };
   React.useEffect(() => {
     alive.current = true;
@@ -2611,17 +2642,26 @@ function ResourceEditor(props) {
       alive.current = false;
     };
   }, []);
-  useDismiss(true, rootRef, (how) => close(how === "key"), RES_SKIP);
+  useDismiss(true, rootRef, (how) => (how === "key" ? cancel() : close(false)), RES_SKIP);
   // Potret sementara → ikut data terbaru; kunci terbuka → potret final (sekali).
   React.useLayoutEffect(() => {
     if (st.final || (st.entry === entry && locked)) return;
     setSt(seedOf(entry, !locked));
   }, [entry, locked, st.final]);
+  // Sesudah "Muat ulang" / galat simpan dirender: tombol yang difokus bisa nonaktif (Simpan setelah STALE) atau hilang
+  // ("Muat ulang") → fokus ke akar dialog agar Tab/Esc tetap di dalam dialog.
+  React.useEffect(() => {
+    if (!refocusRef.current || busy) return;
+    refocusRef.current = false;
+    const el = rootRef.current;
+    if (resFocusLost() && el && typeof el.focus === "function") el.focus();
+  });
 
   const chk = resFormCheck(st.form);
-  const frozen = locked || !st.final || busy;
   const stale = err === RES_ERR_STALE;
-  const canSave = !frozen && !chk.capBad && !chk.dateBad && !stale;
+  const wait = locked || !st.final || busy; // memuat / menyimpan (aria-busy)
+  const frozen = wait || stale;
+  const canSave = !frozen && !chk.capBad && !chk.dateBad;
   const live = React.useRef(null);
   live.current = { st, canSave, map };
   const edit = (fn) => {
@@ -2646,7 +2686,7 @@ function ResourceEditor(props) {
       toastSafe(r.api, MSG_RES_SAVE_FAIL, "error");
       return;
     }
-    const value = { capacity: resCapOf(L.st.form.cap), leave: L.st.form.rows.map((x) => ({ from: x.from, to: x.to, note: x.note })) };
+    const value = { capacity: resCapOf(L.st.form.cap), leave: L.st.form.rows.filter((x) => !resRowBlank(x)).map((x) => ({ from: x.from, to: x.to, note: x.note })) };
     busyRef.current = true;
     setBusy(true);
     setErr(null);
@@ -2664,6 +2704,7 @@ function ResourceEditor(props) {
         toastSafe(r.api, code === "STALE" ? MSG_RES_STALE : code === "TOO_LARGE" ? MSG_RES_TOO_LARGE : MSG_RES_SAVE_FAIL, "error");
         return;
       }
+      refocusRef.current = true;
       setBusy(false);
       if (code === "STALE") setErr(RES_ERR_STALE);
       else if (code === "TOO_LARGE") setErr(MSG_RES_TOO_LARGE);
@@ -2686,6 +2727,7 @@ function ResourceEditor(props) {
       .then((e) => {
         busyRef.current = false;
         if (!alive.current) return;
+        refocusRef.current = true;
         setBusy(false);
         setErr(null);
         setSt(seedOf(e, true));
@@ -2695,17 +2737,17 @@ function ResourceEditor(props) {
   const f = st.form;
   const caption = resCaption(st.entry, r);
   return (
-    <div className="plg-timeline-pop plg-timeline-res-pop" role="dialog" aria-label={resTitle(name)} aria-busy={frozen} tabIndex={-1} ref={rootRef}>
+    <div className="plg-timeline-pop plg-timeline-res-pop" role="dialog" aria-label={resTitle(name)} aria-busy={wait} tabIndex={-1} ref={rootRef}>
       <div className="plg-timeline-pop-head">
         <h3 className="plg-timeline-pop-title">{resTitle(name)}</h3>
-        <button type="button" className="plg-timeline-pop-close" aria-label="Tutup" onClick={() => close(true)}>×</button>
+        <button type="button" className="plg-timeline-pop-close" aria-label="Tutup" disabled={busy} onClick={cancel}>×</button>
       </div>
       {caption ? <p className="plg-timeline-pop-note plg-timeline-res-by">{caption}</p> : null}
       {ws && locked ? <p className="plg-timeline-pop-note plg-timeline-pop-wait" role="status">{MSG_RES_WAIT}</p> : null}
       <label className="plg-timeline-res-cap">
         <span className="plg-timeline-res-cap-label">{RES_CAP}</span>
         <input type="number" className="plg-timeline-pop-input plg-timeline-res-cap-input" min={0} max={TLLoad.CAP_MAX} step={1} inputMode="numeric"
-          value={f.cap} disabled={frozen} aria-invalid={chk.capBad} onChange={(e) => setCap(e.target.value)} />
+          value={f.cap} disabled={frozen} aria-invalid={chk.capBad} aria-describedby={chk.capBad ? capErrId : undefined} onChange={(e) => setCap(e.target.value)} />
         <span className="plg-timeline-res-unit">{RES_UNIT}</span>
       </label>
       <p className="plg-timeline-pop-note">{RES_HINT}</p>
@@ -2715,13 +2757,14 @@ function ResourceEditor(props) {
           <ul className="plg-timeline-res-leave">
             {f.rows.map((x) => {
               const bad = chk.bad.has(x.k);
+              const desc = bad ? dateErrId : undefined;
               return (
                 <li key={x.k} className="plg-timeline-res-row">
                   <input type="date" className="plg-timeline-pop-input plg-timeline-res-from" aria-label={RES_FROM} value={x.from} disabled={frozen} aria-invalid={bad}
-                    onChange={(e) => setRow(x.k, "from", e.target.value)} />
+                    aria-describedby={desc} onChange={(e) => setRow(x.k, "from", e.target.value)} />
                   <span className="plg-timeline-res-dash" aria-hidden="true">–</span>
                   <input type="date" className="plg-timeline-pop-input plg-timeline-res-to" aria-label={RES_TO} value={x.to} disabled={frozen} aria-invalid={bad}
-                    onChange={(e) => setRow(x.k, "to", e.target.value)} />
+                    aria-describedby={desc} onChange={(e) => setRow(x.k, "to", e.target.value)} />
                   <input type="text" className="plg-timeline-pop-input plg-timeline-res-note" aria-label={RES_NOTE} placeholder={RES_NOTE_PH} maxLength={TLLoad.NOTE_MAX}
                     value={x.note} disabled={frozen} onChange={(e) => setRow(x.k, "note", e.target.value)} />
                   <button type="button" className="plg-timeline-pop-del plg-timeline-res-del" aria-label={RES_DEL} disabled={frozen} onClick={() => delRow(x.k)}>×</button>
@@ -2732,8 +2775,8 @@ function ResourceEditor(props) {
         ) : null}
         <button type="button" className="plg-timeline-btn plg-timeline-res-add" disabled={frozen || f.rows.length >= TLLoad.LEAVE_MAX} onClick={addRow}>{RES_ADD}</button>
       </section>
-      {chk.capBad ? <p className="plg-timeline-pop-err" role="alert">{MSG_RES_CAP_BAD}</p> : null}
-      {chk.dateBad ? <p className="plg-timeline-pop-err" role="alert">{MSG_RES_DATE_BAD}</p> : null}
+      {chk.capBad ? <p className="plg-timeline-pop-err" role="alert" id={capErrId}>{MSG_RES_CAP_BAD}</p> : null}
+      {chk.dateBad ? <p className="plg-timeline-pop-err" role="alert" id={dateErrId}>{MSG_RES_DATE_BAD}</p> : null}
       {stale ? (
         <div className="plg-timeline-res-stale">
           <p className="plg-timeline-pop-err" role="alert">{MSG_RES_STALE}</p>
@@ -2741,7 +2784,7 @@ function ResourceEditor(props) {
         </div>
       ) : err ? <p className="plg-timeline-pop-err" role="alert">{err}</p> : null}
       <div className="plg-timeline-res-actions">
-        <button type="button" className="plg-timeline-btn" onClick={() => close(true)}>{PV_CANCEL}</button>
+        <button type="button" className="plg-timeline-btn" disabled={busy} onClick={cancel}>{PV_CANCEL}</button>
         <button type="button" className="plg-timeline-btn plg-timeline-res-save" disabled={!canSave} onClick={save}>{RES_SAVE}</button>
       </div>
     </div>
@@ -2755,6 +2798,7 @@ function ResourceEditor(props) {
 // saran T6, di bawah item). Tanpa SVG dan tanpa lebar tetap (muat 375 px). Anggaran DOM: ≤ LOAD_M_MAX item (terdekat —
 // daftar urut tanggal naik dari T) + "dan {n} lainnya". Hanya baca: tulisan satu-satunya tetap Simpan di editor.
 const LOAD_M_MAX = 100;
+const LOAD_M_PEOPLE_MAX = 30; // review T7–T8: chip orang HP dibatasi (urutan baris) + "dan {n} lainnya"
 const MSG_LOAD_DAYS = "Hari kelebihan beban";
 const loadMoreText = (n) => "dan " + n + " lainnya"; // pola "dan {n} lainnya" (banner lingkaran, kartu pratinjau)
 
@@ -2856,6 +2900,9 @@ function LoadList(props) {
     if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
   };
   const persons = load.rows.filter((r) => r.uid !== null);
+  // Anggaran DOM (review T7–T8): ≤ LOAD_M_PEOPLE_MAX chip pertama (urutan baris) + "dan {n} lainnya". Editor yang sudah
+  // terbuka (mis. dari panel desktop sebelum layar menyempit) tetap dicari di semua baris.
+  const chips = persons.length > LOAD_M_PEOPLE_MAX ? persons.slice(0, LOAD_M_PEOPLE_MAX) : persons;
   const edRow = p.res && hasEdit ? persons.find((r) => r.uid === p.editUid) : undefined;
   return (
     <section className="plg-timeline-load-m" aria-label={LBL.load} ref={p.boxRef}>
@@ -2863,10 +2910,11 @@ function LoadList(props) {
       {p.pageKind !== "workspace" ? <p className="plg-timeline-load-note">{MSG_LOAD_PARTIAL}</p> : null}
       {persons.length ? (
         <div className="plg-timeline-load-m-people">
-          {persons.map((r) => (
+          {chips.map((r) => (
             <button key={"u" + r.uid} type="button" className="plg-timeline-load-m-person" aria-haspopup="dialog" aria-expanded={p.editUid === r.uid}
               onClick={(e) => openEdit(r.uid, e)}>{loadNameText(r)}</button>
           ))}
+          {persons.length > chips.length ? <span className="plg-timeline-load-m-pmore">{loadMoreText(persons.length - chips.length)}</span> : null}
           {edRow ? <ResourceEditor key={"res" + edRow.uid} uid={edRow.uid} name={edRow.name} res={p.res} onClose={closeEdit} /> : null}
         </div>
       ) : null}
@@ -7059,7 +7107,7 @@ const pure = {
   usePref, peopleOf, useLoad, // 1d-1 Task 3
   LoadPanel, loadHeadText, loadTipText, LOAD_HIT_MAX, loadScaleOf, // 1d-1 Task 5 (+ review T4–T6 I4)
   SuggestPopover, // 1d-1 Task 6
-  LoadList, loadDayItems, LOAD_M_MAX, // 1d-1 Task 8
+  LoadList, loadDayItems, LOAD_M_MAX, LOAD_M_PEOPLE_MAX, // 1d-1 Task 8 (+ review T7–T8: batas chip orang)
   CAL_ENTITY, CAL_MAX_BYTES, MSG_CAL_TOO_LARGE, MSG_CAL_LOST, SEC_TIMING,
   MSG_EMPTY, MSG_VIOLATION, MSG_SCHEDULE_HINT, LEGEND, ZOOMS, COLS_FULL, COLS_COMPACT,
   engine, LOST_TIMING, rowCells, slackText, engineOverlay, NO_OVERLAY, baselineOverlay, actualOverlay, baselineTip, MSG_ACTUAL, pomoText, missingYearsNote, barGeom, createInteractions, checkLink, isSummaryIn,
