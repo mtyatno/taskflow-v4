@@ -116,7 +116,7 @@ test("modul: pola part (UMD/IIFE seperti plan.js, require fallback, ekspor beku,
   assert.equal(LD.MILLI, 1000);
   assert.equal(LD.LEAVE_MAX, 50);
   assert.equal(LD.NOTE_MAX, 60);
-  for (const f of ["resourceDecode", "resourceEncode", "resourceByteSize", "capAt", "run", "suggest", "fmtPomo", "hoursLabel"]) {
+  for (const f of ["resourceDecode", "resourceEncode", "resourceByteSize", "capAt", "run", "suggest", "fmtPomo", "hoursLabel", "uidOf", "isLive", "isDone"]) {
     assert.equal(typeof LD[f], "function", f);
   }
 });
@@ -124,6 +124,105 @@ test("modul: pola part (UMD/IIFE seperti plan.js, require fallback, ekspor beku,
 test("sumber load.js tanpa Date(, Date.parse, localeCompare, Math.random (termasuk komentar)", () => {
   const src = fs.readFileSync(path.join(dir, "load.js"), "utf8");
   for (const bad of ["Date(", "Date.parse", "localeCompare", "Math.random"]) assert.ok(src.indexOf(bad) < 0, "load.js memuat " + bad);
+});
+
+test("lint sumber load.js (review T1): tanpa kata Date utuh (/\\bDate\\b/), localeCompare, Math.random — termasuk komentar", () => {
+  const src = fs.readFileSync(path.join(dir, "load.js"), "utf8");
+  assert.doesNotMatch(src, /\bDate\b/);
+  assert.doesNotMatch(src, /localeCompare/);
+  assert.doesNotMatch(src, /Math\.random/);
+});
+
+test("uidOf (review T1): bilangan bulat aman > 0 ATAU string /^\\d+$/ yang menjadi bilangan bulat aman > 0; selain itu null", () => {
+  for (const [v, want] of [[3, 3], ["3", 3], ["07", 7], [Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER], [String(Number.MAX_SAFE_INTEGER), Number.MAX_SAFE_INTEGER]]) {
+    assert.equal(LD.uidOf(v), want, JSON.stringify(v));
+  }
+  for (const v of [0, "0", "00", -1, "-1", 2.5, "2.5", "3.0", " 3", "3 ", "", "abc", "1e3", "0x10", null, undefined, true, NaN, Infinity, [3], { id: 3 }, Number.MAX_SAFE_INTEGER + 1, "9007199254740993", 1e21]) {
+    assert.equal(LD.uidOf(v), null, JSON.stringify(v) + " / " + String(v));
+  }
+});
+
+test("uid string angka (review T1): assigned_to \"5\", people uid \"5\", ownerUid \"3\" → baris uid bilangan (bukan string, bukan Belum ditugaskan)", () => {
+  const people = [{ uid: "5", name: "Budi", res: LD.resourceDecode({ v: 1, capacity: 1, leave: [] }) }, { uid: "x", name: "Rusak", res: null }];
+  const ld = load([mk({ id: 1, start: "2026-11-02", d: 1, est: 2, to: "5" }), mk({ id: 2, start: "2026-11-02", d: 1, est: 1, to: 5 })], { people });
+  assert.deepEqual(ld.rows.map((r) => [r.uid, r.name, r.capacity, r.total]), [[5, "Budi", 1, 3000]]);
+  assert.deepEqual(rowOf(ld, 5).overDays.map(I), ["2026-11-02"]);
+  const own = load([mk({ id: 1, start: "2026-11-02", d: 1, est: 2 })], { byAssignee: false, ownerUid: "3", people: [{ uid: 3, name: "Sari", res: null }] });
+  assert.deepEqual(own.rows.map((r) => [r.uid, r.name, r.total]), [[3, "Sari", 2000]], "ownerUid string angka → pemilik, bukan Belum ditugaskan");
+});
+
+test("uid ganda di people (review T1): 50 permutasi → hasil identik (nama cmpKey terkecil, lalu isi res)", () => {
+  const tasks = [mk({ id: 1, start: "2026-11-02", d: 2, est: 6, to: 3 }), mk({ id: 2, start: "2026-11-02", d: 1, est: 1, to: 5 })];
+  const people = [
+    { uid: 3, name: "Sari", res: LD.resourceDecode({ v: 1, capacity: 2, leave: [] }) },
+    { uid: 3, name: "Sari", res: LD.resourceDecode({ v: 1, capacity: 5, leave: [] }) },
+    { uid: "3", name: "Sari B", res: null },
+    { uid: 3, name: "", res: null }, // nama kosong → "Anggota #3" (terkecil menurut unit kode)
+    { uid: 5, name: "Budi", res: null },
+    { uid: 5, name: "Budi", res: LD.resourceDecode({ v: 1, capacity: 0, leave: [{ from: "2026-11-02", to: "2026-11-02" }] }) },
+  ];
+  const s = (ld) => JSON.stringify(Object.assign({}, ld, { rows: ld.rows.map((r) => Object.assign({}, r, { days: [...r.days] })) }));
+  const go = (ps) => s(load(tasks, { people: ps }));
+  const ref = go(people);
+  const base = load(tasks, { people });
+  assert.equal(rowOf(base, 3).name, "Anggota #3");
+  assert.equal(rowOf(base, 5).name, "Budi");
+  const rnd = lcg(4321);
+  for (let p = 0; p < 50; p++) assert.equal(go(shuffle(people, rnd)), ref, "permutasi " + p);
+});
+
+test("kunci task ganda (review T1): yang PERTAMA menang, sama dengan TLCpm.run (simpul mesin = entri pertama)", () => {
+  const first = mk({ id: 1, start: "2026-11-02", d: 2, est: 4, to: 3 });
+  const second = mk({ id: 1, start: "2026-11-09", d: 1, est: 9, to: 5 });
+  const tasks = [first, second, mk({ id: 2, start: "2026-11-03", d: 1, est: 1, to: 3 })];
+  const result = M.run({ tasks, cal: std(), units: autoUnits("Alpha"), readExt });
+  assert.equal(result.nodes.get("1").task, first, "TLCpm.run: entri pertama");
+  const ld = load(tasks, { result });
+  assert.deepEqual(sharesOf(ld, 1), { "2026-11-02": 2000, "2026-11-03": 2000 }, "beban mengikuti entri pertama");
+  assert.equal(rowOf(ld, 5), undefined, "entri kedua (uid 5) tidak menambah baris");
+  assert.equal(ld.counted, 2);
+  // urutan dibalik → entri pertama yang baru menang (di kedua mesin)
+  const rev = [second, first];
+  const r2 = M.run({ tasks: rev, cal: std(), units: autoUnits("Alpha"), readExt });
+  assert.equal(r2.nodes.get("1").task, second);
+  assert.deepEqual(sharesOf(load(rev, { result: r2 }), 1), { "2026-11-09": 9000 });
+  // entri berulang tidak menempati kunci (TLCpm.run membuang berulang sebelum dedup) → entri non-berulang berikutnya dipakai
+  const recFirst = [mk({ id: 1, start: "2026-11-02", d: 1, est: 3, to: 3, recurrence_type: "daily" }), first];
+  const r3 = M.run({ tasks: recFirst, cal: std(), units: autoUnits("Alpha"), readExt });
+  assert.equal(r3.nodes.get("1").task, first);
+  assert.deepEqual(sharesOf(load(recFirst, { result: r3 }), 1), { "2026-11-02": 2000, "2026-11-03": 2000 });
+});
+
+test("hitungan recurring setelah dedup kunci (review T1): task berulang berkunci ganda dihitung sekali", () => {
+  const ld = load([
+    mk({ id: 1, start: "2026-11-02", d: 1, est: 2, to: 3, recurrence_type: "daily" }),
+    mk({ id: 1, start: "2026-11-02", d: 1, est: 2, to: 3, recurrence_type: "daily" }),
+    mk({ id: 2, start: "2026-11-02", d: 1, est: 2, to: 3, recurrence_type: "weekly" }),
+    mk({ id: 3, start: "2026-11-02", d: 1, est: 2, to: 3, recurrence_type: "weekly", deleted: true }),
+  ]);
+  assert.equal(ld.recurring, 2);
+  assert.equal(ld.counted, 0);
+});
+
+test("capAt/run (review T1): entri cuti yang from/to bukan bilangan bulat (bukan keluaran resourceDecode) dilewati, tidak membuat kapasitas 0", () => {
+  const cal = std();
+  const dn = D("2026-11-03");
+  const bad = {
+    capacity: 4,
+    leave: [
+      { from: "2026-11-02", to: "2026-11-06" }, // ISO mentah: belum terdekode
+      { from: dn - 0.5, to: dn + 0.5 },
+      { from: null, to: dn },
+      { from: dn, to: undefined },
+      null,
+      "x",
+    ],
+  };
+  assert.equal(LD.capAt(bad, cal, dn), 4);
+  const ok = { capacity: 4, leave: [{ from: dn, to: dn, note: "" }] };
+  assert.equal(LD.capAt(ok, cal, dn), 0);
+  const ld = load([mk({ id: 1, start: "2026-11-03", d: 1, est: 3, to: 3 })], { people: [{ uid: 3, name: "Sari", res: bad }] });
+  assert.deepEqual(rowOf(ld, 3).overDays, [], "3 ≤ 4: entri cuti rusak tidak dihitung");
 });
 
 test("distribusi rata R8: 10 🍅 / 4 hari kerja = 2500 per hari; 10 🍅 / 3 hari = 3334, 3333, 3333 (Σ tepat, sisa bagi ke hari paling awal)", () => {
@@ -330,8 +429,9 @@ test("baris: urut nama cmpKey lalu uid; Belum ditugaskan terakhir tanpa kapasita
       mk({ id: 1, start: "2026-11-02", d: 1, est: 20, to: 3 }),
       mk({ id: 2, start: "2026-11-02", d: 1, est: 30 }),
       mk({ id: 3, start: "2026-11-02", d: 1, est: 1, to: 7 }),
-      mk({ id: 4, start: "2026-11-02", d: 1, est: 2, to: "3" }), // bukan bilangan bulat → belum ditugaskan
+      mk({ id: 4, start: "2026-11-02", d: 1, est: 2, to: "3" }), // string angka (bentuk lama/JSON host) → uid 3 (review T1)
       mk({ id: 5, start: "2026-11-02", d: 1, est: 2, to: 0 }),
+      mk({ id: 6, start: "2026-11-02", d: 1, est: 2, to: "3.0" }), // bukan /^\d+$/ → belum ditugaskan
     ],
     { people },
   );
@@ -349,9 +449,11 @@ test("baris: urut nama cmpKey lalu uid; Belum ditugaskan terakhir tanpa kapasita
   const un = rowOf(ld, null);
   assert.equal(un.capacity, null);
   assert.equal(un.res, null);
-  assert.equal(un.total, 34000);
+  assert.equal(un.total, 34000, "task 2 (30) + task 5 (2) + task 6 (2)");
   assert.deepEqual(un.overDays, [], "baris Belum ditugaskan tidak pernah merah");
   assert.deepEqual(rowOf(ld, 3).overDays.map(I), ["2026-11-02"]);
+  assert.equal(rowOf(ld, 3).total, 22000, "task 1 (20) + task 4 ber-assigned_to \"3\" (2)");
+  assert.deepEqual(rowOf(ld, 3).days.get(D("2026-11-02")).parts.map((p) => p.key), ["1", "4"]);
   assert.equal(rowOf(ld, 7).capacity, 8);
   assert.deepEqual(rowOf(ld, 7).res, { capacity: 8, leave: [] });
   assert.equal(rowOf(ld, 5).capacity, 6);
@@ -770,4 +872,25 @@ test("fmtPomo: bulat ke 0,5 terdekat dengan titik desimal (2500 → 2.5, 3000 �
   assert.equal(LD.fmtPomo(3249), "3");
   assert.equal(LD.fmtPomo(3250), "3.5");
   assert.equal(LD.fmtPomo(99000), "99");
+});
+
+test("fmtPomo (review T1): beban > 0 tidak pernah tampil \"0\" (minimal 0.5); up = true → dibulatkan KE ATAS ke 0,5 (hari merah tidak tampil \"8 dari 8\")", () => {
+  assert.equal(LD.fmtPomo(100), "0.5");
+  assert.equal(LD.fmtPomo(1), "0.5");
+  assert.equal(LD.fmtPomo(249), "0.5");
+  assert.equal(LD.fmtPomo(2500), "2.5");
+  assert.equal(LD.fmtPomo(0), "0");
+  assert.equal(LD.fmtPomo(NaN), "0");
+  assert.equal(LD.fmtPomo(8100), "8");
+  assert.equal(LD.fmtPomo(8100, true), "8.5");
+  assert.equal(LD.fmtPomo(8001, true), "8.5");
+  assert.equal(LD.fmtPomo(8000, true), "8");
+  assert.equal(LD.fmtPomo(1, true), "0.5");
+  assert.equal(LD.fmtPomo(0, true), "0");
+  assert.equal(LD.fmtPomo(2500, true), "2.5");
+  assert.equal(LD.fmtPomo(8100, 1), "8", "hanya true persis");
+  // setiap beban > kapasitas × 1000 (hari merah) tampil > kapasitas bila up = true
+  for (let cap = 0; cap <= 40; cap++) for (const extra of [1, 250, 499, 500, 501]) {
+    assert.ok(Number(LD.fmtPomo(cap * 1000 + extra, true)) > cap, cap + " + " + extra);
+  }
 });

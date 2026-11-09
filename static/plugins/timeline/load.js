@@ -19,8 +19,14 @@ const TLLoad = (function (CAL, SCHED, CPM) {
 
   const isObj = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
   const isDn = (n) => Number.isInteger(n);
-  const isUid = (u) => Number.isInteger(u) && u > 0;
   const isCap = (c) => Number.isInteger(c) && c >= 0 && c <= CAP_MAX;
+  // uidOf (review T1): id pengguna = bilangan bulat aman > 0, ATAU string digit saja (/^\d+$/; mis. assigned_to dari
+  // JSON host lama) yang menjadi bilangan bulat aman > 0 → bilangan; selain itu null. Satu pintu untuk assigned_to,
+  // people[].uid, dan ownerUid — baris yang sama tidak pernah terbelah antara 5 dan "5".
+  function uidOf(v) {
+    const n = typeof v === "string" && /^\d+$/.test(v) ? Number(v) : v;
+    return typeof n === "number" && Number.isSafeInteger(n) && n > 0 ? n : null;
+  }
   const keyOf = (t) => String(t.id); // kunci kanonik sama dengan cpm.js/plan.js (String(task.id))
   // Predikat mesin (cpm.js:34–37, :136; layout.js:344, :471): hidup / selesai / sudah mulai (K30 + actual.start).
   const isLive = (t) => !(t.gtd_status === "archived" || t.archived || t.deleted);
@@ -170,11 +176,13 @@ const TLLoad = (function (CAL, SCHED, CPM) {
     return typeof s === "string" ? utf8Len(s) : 0;
   }
 
-  // Bentuk res terdekode yang sah, selain itu bawaan (people[].res null / rusak → 8 tanpa cuti).
+  // Kontrak res (people[].res, argumen capAt) = keluaran resourceDecode: {capacity: bulat 0–40, leave: [{from, to: bilangan
+  // hari bulat, note}]}. Bentuk lain → bawaan (8 tanpa cuti); entri cuti yang from/to bukan bilangan bulat (mis. ISO
+  // mentah belum didekode) dilewati di onLeave — tidak pernah membuat kapasitas 0 karena perbandingan string/NaN.
   const resOf = (r) => (isObj(r) && isCap(r.capacity) && Array.isArray(r.leave) ? r : defaultRes());
 
   function onLeave(res, dn) {
-    for (const l of res.leave) if (l && dn >= l.from && dn <= l.to) return true;
+    for (const l of res.leave) if (isObj(l) && isDn(l.from) && isDn(l.to) && dn >= l.from && dn <= l.to) return true;
     return false;
   }
 
@@ -191,17 +199,18 @@ const TLLoad = (function (CAL, SCHED, CPM) {
   const targetOf = (t) => (Number.isInteger(t.estimated_pomodoros) && t.estimated_pomodoros >= 1 ? Math.min(EST_MAX, t.estimated_pomodoros) : 1);
   const doneOf = (t) => (Number.isInteger(t.pomodoros_done) && t.pomodoros_done >= 0 ? t.pomodoros_done : 0);
 
-  // Satu entri people per uid; uid ganda → pilihan deterministik (nama cmpKey terkecil, lalu isi res) agar hasil tidak
-  // bergantung pada urutan masukan.
+  // Satu entri people per uid (uidOf); uid ganda → pilihan deterministik (nama cmpKey terkecil, lalu isi res) agar hasil
+  // tidak bergantung pada urutan masukan.
   function peopleMap(people) {
     const out = new Map();
     for (const p of Array.isArray(people) ? people : []) {
-      if (!isObj(p) || !isUid(p.uid)) continue;
-      const name = typeof p.name === "string" && p.name !== "" ? p.name : "Anggota #" + p.uid;
+      const uid = isObj(p) ? uidOf(p.uid) : null;
+      if (uid === null) continue;
+      const name = typeof p.name === "string" && p.name !== "" ? p.name : "Anggota #" + uid;
       const res = resOf(p.res);
       const cand = { name, res, sig: JSON.stringify(res) };
-      const cur = out.get(p.uid);
-      if (!cur || cmpKey(name, cur.name) < 0 || (name === cur.name && cmpKey(cand.sig, cur.sig) < 0)) out.set(p.uid, cand);
+      const cur = out.get(uid);
+      if (!cur || cmpKey(name, cur.name) < 0 || (name === cur.name && cmpKey(cand.sig, cur.sig) < 0)) out.set(uid, cand);
     }
     return out;
   }
@@ -209,14 +218,14 @@ const TLLoad = (function (CAL, SCHED, CPM) {
   // run(input) → {T, rows, unscheduled, recurring, defaultTarget, counted, lateCount}.
   // input = {tasks, cal, readExt, result, units, people, byAssignee, ownerUid, D}: tasks = eng.ctx.tasks (daftar lengkap
   // halaman, R2), cal = kalender halaman, result = TLCpm.run (ringkasan dilewati), people = [{uid, name, res}],
-  // byAssignee true → assigned_to (workspace), false → ownerUid (pribadi), D = bilangan hari hari ini. units tidak
+  // byAssignee true → uidOf(assigned_to) (workspace), false → uidOf(ownerUid) (pribadi), D = bilangan hari hari ini. units tidak
   // dipakai di sini (R1: tanggal = bar) — hanya oleh suggest.
   // Baris: {uid|null, name, capacity|null, res|null, days: Map<dn naik, {load, parts: [{key, share, late}]}>, overDays, total}.
   function run(input) {
     const a = isObj(input) ? input : {};
     const c = calOf(a.cal);
     const sums = isObj(a.result) && a.result.summaries instanceof Map ? a.result.summaries : new Map();
-    const owner = isUid(a.ownerUid) ? a.ownerUid : null;
+    const owner = uidOf(a.ownerUid);
     const T0 = isDn(a.D) ? safe(() => CAL.nextWork(c, a.D)) : undefined;
     const T = isDn(T0) ? T0 : null; // kalender buntu / D tak sah → tanpa distribusi (semua berbeban = unscheduled)
     let unscheduled = 0;
@@ -227,13 +236,19 @@ const TLLoad = (function (CAL, SCHED, CPM) {
 
     const acc = new Map(); // uid|null → Map<dn, {load, parts}>
     const seen = new Set();
+    const seenRec = new Set();
     for (const t of Array.isArray(a.tasks) ? a.tasks : []) {
       if (!isObj(t) || t.id === undefined || t.id === null || !isLive(t)) continue;
+      const key = keyOf(t);
       if (t.recurrence_type) {
-        recurring++; // R8 / K46: berulang dikecualikan dan dihitung terpisah (predikat cpm.js:136)
+        // R8 / K46: berulang dikecualikan (predikat cpm.js:136, dibuang SEBELUM dedup seperti TLCpm.run → tidak menempati
+        // kunci) dan dihitung terpisah — sekali per kunci (review T1: kunci ganda tidak menggandakan hitungan).
+        if (!seenRec.has(key)) {
+          seenRec.add(key);
+          recurring++;
+        }
         continue;
       }
-      const key = keyOf(t);
       if (seen.has(key)) continue; // kunci ganda → yang pertama (pola TLCpm.run / TLLayout.layout)
       seen.add(key);
       if (sums.has(key) || isDone(t)) continue; // R2: induk ringkasan; K46: selesai = nol beban
@@ -257,7 +272,7 @@ const TLLoad = (function (CAL, SCHED, CPM) {
       counted++;
       if (!(Number.isInteger(t.estimated_pomodoros) && t.estimated_pomodoros >= 2)) defaultTarget++;
       if (late) lateCount++;
-      const uid = a.byAssignee === true ? (isUid(t.assigned_to) ? t.assigned_to : null) : owner;
+      const uid = a.byAssignee === true ? uidOf(t.assigned_to) : owner;
       let m = acc.get(uid);
       if (!m) acc.set(uid, (m = new Map()));
       // R8: porsi bilangan bulat; sisa bagi +1 ke hari-hari paling awal → Σ = sisa × 1000 tepat.
@@ -350,11 +365,14 @@ const TLLoad = (function (CAL, SCHED, CPM) {
   }
 
   // ---- format ----
-  // fmtPomo (R8): milli → 🍅 dibulatkan ke 0,5 terdekat, titik desimal seperti host ("2.5", "3").
-  function fmtPomo(milli) {
+  // fmtPomo(milli, up) (R8): milli → 🍅 kelipatan 0,5 dengan titik desimal seperti host ("2.5", "3").
+  //   up === true → dibulatkan KE ATAS (dipakai hari merah: beban > kapasitas × 1000 selalu tampil > kapasitas, tidak
+  //   pernah "8 dari 8"); selain itu ke 0,5 terdekat, tetapi beban > 0 minimal "0.5" (tidak pernah tampil "0").
+  function fmtPomo(milli, up) {
     const v = Number(milli);
     if (!Number.isFinite(v)) return "0";
-    const h = Math.round(v / 500) / 2;
+    let h = up === true ? Math.ceil(v / 500) / 2 : Math.round(v / 500) / 2;
+    if (v > 0 && h < 0.5) h = 0.5;
     return String(h === 0 ? 0 : h);
   }
 
@@ -380,6 +398,9 @@ const TLLoad = (function (CAL, SCHED, CPM) {
     suggest,
     fmtPomo,
     hoursLabel,
+    uidOf,
+    isLive,
+    isDone,
   });
 })(
   typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"),
