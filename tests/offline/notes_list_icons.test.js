@@ -51,8 +51,8 @@ test("NotesPage memakai glyph yang ditentukan", () => {
 });
 
 test("versi SW di-bump", () => {
-  assert.match(sw, /taskflow-v500-target-pomodoro/);
-  assert.match(indexHtml, /taskflow-v500-target-pomodoro/);
+  assert.match(sw, /taskflow-v501-beban-tim/);
+  assert.match(indexHtml, /taskflow-v501-beban-tim/);
   assert.ok(!/taskflow-v44[0-3]-/.test(indexHtml));
 });
 
