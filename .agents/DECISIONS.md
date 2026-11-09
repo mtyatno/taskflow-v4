@@ -404,3 +404,19 @@
   - `flush` Live Edit (pagehide/tab disembunyikan/unmount) mengirim nilai sah terakhir, seperti deadline; angka setengah jadi tidak terkirim oleh simpan non-eksplisit.
   - Isian detail yang dikosongkan atau tak sah mengembalikan nilai saat popover dibuka (tidak ada angka antara yang terkirim); kedua kolom (Fokus dan detail) memilih isinya saat difokus.
   - Anggaran baris plugin di `tests/offline/plugin_host_wiring.test.js` memuat `HOST_1D0_EXTRA`.
+
+### ADR-048: Checklist bertingkat — progress dan `checklist_total` sebagai field turunan server
+- **Date:** 2026-11-09
+- **Agent:** Claude (Opus 5.5)
+- **Context:** Spec `docs/superpowers/specs/2026-11-06-checklist-bertingkat-design.md` (K1 hanya level atas yang dihitung, K2 slider terkunci, K5/K7 centang dan hapus berantai, K15 hitung ulang task lama, K17 dampak Timeline diterima; D1–D3) dan rencana `docs/superpowers/plans/2026-11-09-checklist-bertingkat-pr-a-server.md`. Checklist bisa diubah oleh anggota workspace lain kapan saja. Bila setiap centang menaikkan `tasks.updated_at`, anggota yang sedang mengedit task itu offline akan terkena konflik sinkron. Di sisi lain, `syncpush.js` selalu mengirim `progress` di setiap PUT task, sehingga salinan lama bisa menimpa angka dari checklist.
+- **Decision:**
+  - `subtasks.parent_id` (NULL = level atas, tanpa FK) menyimpan pohon; logika pohon murni di `checklist_tree.py` (pre-order iteratif, siklus diputus pada anggota `(sort_order, id)` terkecil). Semua aturan tulis (penomoran ulang saudara, centang/hapus berantai, hitung progress) ada di `TaskRepository`, satu `dbconn.write_tx` per operasi, sehingga web dan bot sama.
+  - Setiap operasi tulis checklist memulihkan dulu pohon task itu (`_heal_task_tree`: butir yatim/lintas task/siklus → level atas sesuai pohon tampil); baca mengembalikan `parent_id` efektif.
+  - `tasks.progress` dan kolom baru `tasks.checklist_total` adalah **field turunan server**: ditulis bersama operasi checklist dan oleh `heal_checklists()` di setiap `migrate_db()`/start, **tanpa** menaikkan `updated_at`, hanya bila nilainya berubah. Persen = `(done*200 + total) // (2*total)` (setengah ke atas; vektor bersama `tests/fixtures/checklist_percent_vectors.json` untuk klien).
+  - `PUT /api/tasks/{id}` mengabaikan `progress` selama task punya butir checklist; PUT yang hanya membawa `progress` terabaikan → 200 tanpa UPDATE (tanpa `updated_at`, tanpa notifikasi).
+- **Consequences:**
+  - Klien PR B wajib mengambil `progress`/`checklist_total` lewat `TASK_DERIVED` (`syncpull.js`), karena perubahannya tidak menaikkan `updated_at`.
+  - Jendela PR A → PR B (klien SW v500 + server baru): slider Progress yang digeser pada task bercheklist tampak tersimpan tetapi angkanya **tertinggal di perangkat itu** (respons PUT dan pull tidak mengadopsi `progress` karena `base_rev` maju) sampai PR B atau ada edit lain pada task itu; server dan perangkat lain tetap memakai angka checklist. Payload penuh yang hanya berbeda di `progress` tetap menaikkan `updated_at` dan bisa memicu satu notifikasi "memperbarui task" (dibatasi R20). Klien lama juga tidak melihat angka hasil hitung ulang migrasi sampai PR B.
+  - K17: butir level atas tercentang (termasuk hasil hitung ulang migrasi) membuat Timeline menganggap task sudah mulai (`progress > 0`).
+  - Rollback: revert PR A sebagai rilis baru; kolom `parent_id`/`checklist_total` dibiarkan (kode lama mengabaikannya), daftar tampil datar urut `sort_order` per kelompok saudara. Deploy wajib mencadangkan `taskflow.db` dulu karena migrasi mengubah `progress` task lama bercheklist.
+  - Residual: id di path > 2⁶³ masih 500 (pra-ada di seluruh API); idempotensi `client_id` di `add_subtask` tidak dibatasi per task (pra-ada); pengecekan "punya checklist" di PUT berjalan sebelum transaksi tulis (jendela milidetik, dipulihkan operasi checklist berikutnya / start).

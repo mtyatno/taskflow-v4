@@ -112,7 +112,7 @@ Semua respons butir berbentuk `{id, task_id, parent_id, depth, title, is_done, s
 | Endpoint | Body | Respons | Galat |
 |---|---|---|---|
 | `GET /api/tasks/{id}/subtasks` | – | daftar butir pre-order dengan `depth` | sama seperti sekarang |
-| `POST /api/tasks/{id}/subtasks` | `{title, client_id?, parent_id?, index?}` | butir baru + `task_progress` | 422 "Induk checklist tidak ditemukan" (induk tidak ada / task lain) |
+| `POST /api/tasks/{id}/subtasks` | `{title, client_id?, parent_id?, index?}` | butir baru + `task_progress` | 422 "Induk checklist tidak ditemukan" (induk tidak ada / task lain / id di luar rentang INTEGER); 422 "Teks butir tidak boleh kosong" (judul kosong setelah trim) |
 | **baru** `PATCH /api/subtasks/{id}` | `{title}` | butir + `task_progress` | 404; 422 "Teks butir tidak boleh kosong" |
 | **baru** `POST /api/subtasks/{id}/move` | `{parent_id, index?}` | `{items: [daftar lengkap pre-order], task_progress}` | 404; 422 "Induk checklist tidak ditemukan"; 422 "Butir tidak bisa dipindah ke dalam dirinya sendiri" |
 | `POST /api/subtasks/{id}/toggle` | – | butir + `changed_ids` + `task_progress` | sama seperti sekarang |
@@ -257,7 +257,7 @@ Urutan elemen: pegangan ⠿ · tombol lipat ▸/▾ (hanya bila punya anak; sela
 
 ## 8. Bot Telegram, ekspor, `merge_db.py`
 
-- **Bot** (`bot.py`): perilaku centang dan hapus mengikuti repository (D1). `/sub` tetap menambah butir level atas. `/view` menampilkan butir pre-order dengan indentasi dua spasi tak-putus per tingkat + "↳ " untuk sub butir; judul bagian checklist memakai hitungan level atas. Tombol centang per butir diberi awalan "↳ " untuk sub butir. Pada mode hapus, tombol butir yang punya turunan diberi akhiran " (+N sub)".
+- **Bot** (`bot.py`): perilaku centang dan hapus mengikuti repository (D1). `/sub` tetap menambah butir level atas. `/view` menampilkan butir pre-order dengan indentasi dua spasi per tingkat (berhenti di tingkat 6, D8) + "↳ " untuk sub butir; judul bagian checklist memakai hitungan level atas. Tombol centang per butir diberi awalan "↳ " untuk sub butir. Pada mode hapus, tombol butir yang punya turunan diberi akhiran " (+N sub)".
 - **Ekspor:** §4.
 - **`merge_db.py`** (±111): menyalin `parent_id` dengan memetakan id lama → id baru (induk dimasukkan sebelum anak, pre-order); induk yang tidak ikut tersalin → level atas.
 
@@ -271,7 +271,7 @@ Urutan elemen: pegangan ⠿ · tombol lipat ▸/▾ (hanya bila punya anak; sela
 
 ## 10. Kasus tepi dan risiko
 
-- **Jendela PR A → PR B dengan klien lama:** centang induk di klien lama hanya memperbarui baris induk sampai daftar dimuat ulang; hapus induk meninggalkan baris anak di layar sampai dimuat ulang (centang pada baris itu → 404 di konsol); slider lama pada task bercheklist tampak tersimpan lalu kembali ke angka checklist saat sinkron berikutnya. Karena itu PR B di-deploy segera setelah PR A.
+- **Jendela PR A → PR B dengan klien lama:** centang induk di klien lama hanya memperbarui baris induk sampai daftar dimuat ulang; hapus induk meninggalkan baris anak di layar sampai dimuat ulang (centang pada baris itu → 404 di konsol); slider lama pada task bercheklist tampak tersimpan, tetapi angkanya **tertinggal di perangkat itu** sampai PR B di-deploy atau ada edit lain pada task itu (respons PUT dan pull tidak mengadopsi `progress` karena `base_rev` maju; dibuktikan review PR A); server dan perangkat lain tetap memakai angka checklist. Klien lama juga baru melihat angka hasil hitung ulang migrasi (K15) dan perubahan akibat centang setelah PR B. Karena itu PR B di-deploy segera setelah PR A.
 - **Dua anggota memindah bersamaan:** transaksi tulis menjaga invarian (§3.3); yang terakhir menang. Daftar yang sedang terbuka di perangkat lain baru berubah saat dimuat ulang (detail: saat task dibuka lagi; Fokus: 15 detik).
 - **Hitung ulang migrasi menaikkan progress task lama** → di Timeline task itu dianggap sudah mulai (§5). `taskflow.db` dicadangkan sebelum deploy PR A.
 - **Daftar sangat dalam:** traversal iteratif di Python dan JS; tampilan berhenti menjorok di tingkat 6.
@@ -348,3 +348,15 @@ Panel 1280 px tema terang; modal dan Fokus 375 px tema gelap.
 - Enter di kotak ubah teks membuat butir baru di bawahnya (gaya outliner).
 - Tenggat, penanggung jawab, atau catatan per butir.
 - Perintah bot untuk membuat sub butir atau memindah butir.
+
+## Catatan implementasi PR A (server) — 2026-11-09
+
+Branch `claude/checklist-bertingkat-server`; rencana `docs/superpowers/plans/2026-11-09-checklist-bertingkat-pr-a-server.md`; ADR-048. Dikerjakan subagent implementer per tugas dengan review terpisah per kelompok tugas (T1–T4, perbaikan + T5–T7, T8–T9).
+
+- **Pohon efektif = `parent_id` tersimpan (tambahan atas review).** Setiap operasi tulis checklist memanggil `_heal_task_tree` di awal transaksinya (butir yatim, lintas task, atau bersiklus → level atas sesuai `checklist_tree.preorder`), dan `GET …/subtasks` mengembalikan `parent_id` efektif. Alasannya: tanpa itu tampilan dan perhitungan (`parent_id IS NULL`) tidak sepakat pada data rusak (mis. dibuat bot lama di jendela deploy). Aturan pemutus siklus: anggota dengan `(sort_order NULL→0, id)` terkecil naik ke level atas — **PR B harus menirunya di `TF.checklist`**.
+- **§4:** `POST …/subtasks` dengan judul kosong setelah trim → 422 "Teks butir tidak boleh kosong" (sebelumnya akan 500). `parent_id` di luar rentang INTEGER SQLite → 422 "Induk checklist tidak ditemukan". DELETE yang kalah balapan (butir hilang antara cek akses dan hapus) → 404.
+- **D3 / R7:** pengecekan "punya checklist" di PUT = ada butir apa pun (setara dengan ≥ 1 level atas di pohon efektif). Payload penuh yang hanya berbeda di `progress` tetap menaikkan `updated_at` (perilaku D3, dicatat di ADR-048).
+- **§8 bot:** indentasi memakai spasi biasa (praktik yang sudah ada di bot), berhenti di tingkat 6 supaya pesan `/view` tetap di bawah 4.096 karakter; `ChecklistError` ditangkap di `/sub` dan input teks. Judul bagian tetap "📝 Subtasks".
+- **§10:** klaim "slider lama kembali ke angka checklist saat sinkron" dikoreksi (lihat §10).
+- **Residual (pra-ada, di luar cakupan):** id di path > 2⁶³ → 500 di seluruh API; idempotensi `client_id` di `add_subtask` tidak dibatasi per task; `merge_db.py` menggabung checklist cadangan ke task duplikat (menjalankan dua kali menggandakan butir).
+- **Angka:** pytest 1633 passed / 3 skipped (basis 1476 / 3). E2E dan verifikasi akhir: lihat handover PR A.

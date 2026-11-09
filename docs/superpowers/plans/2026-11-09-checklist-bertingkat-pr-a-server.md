@@ -199,7 +199,7 @@
 **Skenario minimum:**
 1. **Detail task (UI sekarang):** tambah 3 butir di tab Checklist → "Checklist (3)", bar `0/3`; centang satu → pill Progress task menjadi 33% setelah sinkron/muat ulang daftar.
 2. **Sub butir dari API** (`POST … {parent_id}`) → UI sekarang menampilkan butir anak tepat di bawah induk (tanpa indentasi), tanpa galat konsol.
-3. **Slider lama pada task bercheklist:** geser ke 80 → setelah siklus sinkron kembali ke angka checklist; tidak ada bilah "gagal disinkronkan".
+3. **Slider lama pada task bercheklist** (dikoreksi setelah review T5–T7): geser ke 80 → tidak ada bilah "gagal disinkronkan"; server tetap angka checklist; perangkat itu tetap menampilkan 80 (residual jendela PR A → PR B, ADR-048); perangkat lain (atau muat ulang dari server bersih) menampilkan angka checklist.
 4. **Slider pada task tanpa checklist:** 40 tersimpan seperti biasa.
 5. **Halaman Fokus:** badge menghitung level atas saja.
 6. **Regresi:** `e2e_detail_redesign.py` (kelompok `tabs`, B-3), `e2e_live_edit.py`, `e2e_task_detail_body.py`, `e2e_focus_page.py` — kegagalan pra-ada dicatat dengan bukti di `main` bersih.
