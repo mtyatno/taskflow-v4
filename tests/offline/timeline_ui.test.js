@@ -7012,7 +7012,7 @@ test("peopleOf pribadi (byAssignee false): satu baris pengguna aktif dengan res 
   assert.deepEqual(T.peopleOf({ byAssignee: false, ctxTasks: [], resources: new Map(), currentUser: null, collaborators: [], userId: null }), [], "tanpa pengguna aktif → tanpa baris");
 });
 
-test("useLoad: null bila panel tertutup / mesin belum siap / hari tak sah (0 run); siap → satu run engine.load dengan masukan eng.ctx + result; memo per peopleKey (larik baru berisi sama → 0 run); lempar → null + satu peringatan", () => {
+test("useLoad: null bila panel tertutup / mesin belum siap / hari tak sah / kapasitas belum termuat atau gagal (ready bukan true) (0 run); siap → satu run engine.load dengan masukan eng.ctx + result; memo per peopleKey (larik baru berisi sama → 0 run); lempar → null + satu peringatan", () => {
   const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, { assigned_to: 7, estimated_pomodoros: 4 })];
   const cal = T.TLCal.compile(T.TLCal.DEFAULT_CAL);
   const readExt = (t) => fakeApi().api.taskExt.read(t);
@@ -7025,11 +7025,14 @@ test("useLoad: null bila panel tertutup / mesin belum siap / hari tak sah (0 run
   const spy = spyLoad();
   try {
     const m = mount((p) => T.useLoad(p));
-    const base = { open: false, eng: ready, people, todayDn: D, byAssignee: true, ownerUid: 7, api };
+    const base = { open: false, ready: true, eng: ready, people, todayDn: D, byAssignee: true, ownerUid: 7, api };
     assert.equal(m.render(base), null, "tertutup");
     assert.equal(m.render(Object.assign({}, base, { open: true, eng: { status: "loading", result: null, ctx: null } })), null, "mesin belum siap");
     assert.equal(m.render(Object.assign({}, base, { open: true, eng: { status: "error", result: null, ctx: null } })), null, "mesin galat");
     assert.equal(m.render(Object.assign({}, base, { open: true, todayDn: null })), null, "hari tak sah");
+    // review akhir: kapasitas/cuti belum termuat (ready false / tidak diberikan) → 0 run (tanpa kilatan kapasitas bawaan)
+    assert.equal(m.render(Object.assign({}, base, { open: true, ready: false })), null, "kapasitas belum termuat");
+    assert.equal(m.render(Object.assign({}, base, { open: true, ready: undefined })), null, "ready tidak diberikan");
     assert.equal(spy.runs.length, 0);
     const on = Object.assign({}, base, { open: true });
     const out = m.render(on);
@@ -7089,6 +7092,17 @@ async function loadView(clock, o) {
   const fr = fakeRecords();
   putRec(fr, unitRec(12, "P0"));
   putRec(fr, resRec(12, 9, { capacity: 1, leave: [] }));
+  // review akhir: holdRes → records.list resource PERTAMA ditahan sampai releaseRes() (muat kapasitas lambat)
+  const held = { release: null };
+  if (opt.holdRes) {
+    const list0 = fr.api.list;
+    fr.api.list = (entity, q) => {
+      if (entity !== "resource" || held.used) return list0(entity, q);
+      held.used = true;
+      const out = list0(entity, q); // panggilan tercatat seketika; jawabannya ditahan
+      return new Promise((resolve) => { held.release = () => resolve(out); });
+    };
+  }
   const { api, calls } = fakeApi({ records: fr, storageGet: opt.storageGet });
   api.env.userId = 7;
   api.data = { tasks: { list: () => Promise.resolve(tasks) } };
@@ -7102,7 +7116,7 @@ async function loadView(clock, o) {
   const m = mount(T.TimelineViewBody);
   const settleNow = () => settleView(m, () => props, clock);
   const tree = await settleNow();
-  return { m, tree, api, calls, fr, writes, settleNow, getProps: () => props, setProps: (p) => { props = p; } };
+  return { m, tree, api, calls, fr, writes, settleNow, held, releaseRes: () => held.release(), getProps: () => props, setProps: (p) => { props = p; } };
 }
 
 test("view: panel Beban Tim tertutup (pref bawaan false) → 0 run TLLoad meski mesin siap, 0 records.list resource", () => withEngineClock(async (clock) => {
@@ -7130,12 +7144,18 @@ test("view: panel Beban Tim tertutup (pref bawaan false) → 0 run TLLoad meski 
   }
 }));
 
-test("view: pref load:slist_12 true → tepat 1 run TLLoad setelah mesin siap (masukan = ctx mesin, orang P2 (a), hari ini); render ulang tanpa perubahan → 0 run; ganti hari → 1 run; record resource berubah → 1 run; 0 tulis di semua langkah", () => withEngineClock(async (clock) => {
+test("view: pref load:slist_12 true → tepat 1 run TLLoad setelah mesin siap DAN kapasitas termuat (review akhir: mesin siap lebih dulu → 0 run sampai records.list selesai; masukan = ctx mesin, orang P2 (a) dengan res record, hari ini); render ulang tanpa perubahan → 0 run; ganti hari → 1 run; record resource berubah → 1 run; 0 tulis di semua langkah", () => withEngineClock(async (clock) => {
   const spy = spyRun();
   const ls = spyLoad();
   try {
-    const h = await loadView(clock, { storageGet: loadPrefGet("slist_12", true) });
-    assert.equal(ls.runs.length, 1, "tepat satu run setelah mesin siap");
+    const h = await loadView(clock, { storageGet: loadPrefGet("slist_12", true), holdRes: true });
+    assert.ok(spy.runs.length >= 1, "mesin siap");
+    assert.equal(resLists(h.fr).length, 1, "kapasitas sedang dimuat");
+    assert.equal(ls.runs.length, 0, "kapasitas belum termuat → 0 run (tanpa kilatan kapasitas bawaan)");
+    assert.equal(panelOf(h.m.render(h.getProps())), undefined, "panel belum tampil");
+    h.releaseRes();
+    await h.settleNow();
+    assert.equal(ls.runs.length, 1, "tepat satu run setelah mesin siap dan kapasitas termuat");
     const eng = spy.runs[spy.runs.length - 1];
     const inp = ls.runs[0].input;
     assert.equal(inp.tasks, eng.ctx.tasks, "daftar lengkap halaman = ctx mesin");
@@ -7733,6 +7753,9 @@ test("T5 tinggi: baris 28 px, maks 10 baris terlihat (body maxHeight 280, overfl
     assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16, "panel tertutup");
     loadBtnOf(tree).props.onClick({});
     tree = v.m.render(v.props);
+    v.m.flush(); // review akhir: panel menunggu kapasitas termuat (records.list) — tanpa kilatan kapasitas bawaan
+    await settle();
+    tree = v.m.render(v.props);
     panelOf(tree).props.boxRef.current = { offsetHeight: 300 };
     tree = attach(v.m, v.props, tree, el);
     assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16 - 300, "panel terbuka: tingginya dikurangkan");
@@ -8141,9 +8164,11 @@ function edSetup(o) {
     userId: 7, api,
   }, opt.res || {});
   const m = mount(T.ResourceEditor);
-  const rootEl = { focused: 0, focus() { this.focused++; }, contains: (t) => t === rootEl };
+  // rootH (review akhir): tinggi editor terukur (offsetHeight) untuk logika buka ke bawah; anchorRef = akar panel desktop
+  const rootEl = { focused: 0, offsetHeight: opt.rootH || 0, focus() { this.focused++; }, contains: (t) => t === rootEl };
   const h = { m, fr, api, calls, store, closes, rootEl };
   h.props = { uid: opt.uid || 9, name: opt.name || "Budi", res, onClose: (a) => closes.push(a === undefined ? null : a) };
+  if (opt.anchorRef) h.props.anchorRef = opt.anchorRef;
   h.render = () => {
     h.tree = m.render(h.props);
     const d = dlgNode(h.tree);
@@ -9001,6 +9026,9 @@ test("T8 tinggi: daftar HP diukur seperti panel desktop — saat daftar muncul t
   assert.equal(listOf(tree), undefined);
   assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16, "Beban Tim mati");
   loadBtnMenu(tree).onSelect();
+  tree = v.m.render(v.props);
+  v.m.flush(); // review akhir: daftar menunggu kapasitas termuat (records.list) — tanpa kilatan kapasitas bawaan
+  await settle();
   tree = v.m.render(v.props);
   const node = listOf(tree);
   assert.ok(node, "daftar HP muncul");
@@ -9876,5 +9904,380 @@ test("1d-1 T9 (R24): render awal dengan pref load ON (+ Jalur kritis) → tanpa 
   } finally {
     ls.restore();
     spy.restore();
+  }
+}));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — perbaikan review akhir: Beban Tim tampil saat dinyalakan lewat gestur (I1, terutama HP), tanpa kilatan
+// kapasitas bawaan (useLoad menunggu data kapasitas), showDay membaca lebar view langsung, fokus cadangan daftar HP, editor
+// kapasitas desktop membuka ke bawah bila ruang di atas panel kurang.
+// ════════════════════════════════════════════════════════════════════════════
+// Akar panel/daftar palsu: mencatat scrollIntoView (opsi apa adanya). React memasang ref akar saat panel ada di pohon dan
+// mengosongkannya saat panel dilepas — disimulasikan revealStep (komponen panel tidak dirender oleh view palsu).
+const revealBox = () => ({ calls: [], offsetHeight: 0, scrollIntoView(o) { this.calls.push(o); } });
+async function revealStep(h, clock, box, nodeOf) {
+  h.render();
+  const n = nodeOf(h.tree);
+  if (n) {
+    h.boxRef = n.props.boxRef;
+    n.props.boxRef.current = box;
+  } else if (h.boxRef) h.boxRef.current = null;
+  h.m.flush();
+  await settle();
+  clock.frames();
+  clock.tick(300);
+  await settle();
+}
+const revealSteps = async (h, clock, box, nodeOf, k) => { for (let i = 0; i < (k || 4); i++) await revealStep(h, clock, box, nodeOf); };
+const loadMoreItem = (tree) => moreOf(tree).props.items.find((x) => x.text === "Beban Tim");
+
+test("Review akhir I1: menyalakan Beban Tim lewat tombol toolbar → setelah panel desktop terpasang akarnya digulir ke layar TEPAT 1× (scrollIntoView {block: 'nearest'}, sesudah frame); sebelum terpasang (kapasitas dimuat) 0; render ulang / sinkron / frame berikut 0; mematikan 0; menyalakan lagi +1; 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { loadOff: true });
+  assert.equal(panelOf(h.tree), undefined, "pref OFF");
+  const box = revealBox();
+  // efek pasif render terakhir panelView (loadOn false) masih tertunda dan baru berjalan SESUDAH klik — seperti React yang
+  // menjalankan efek commit sebelumnya sebelum render berikut; penanda tidak boleh dilepas olehnya
+  loadBtnOf(h.tree).props.onClick({});
+  h.render();
+  assert.equal(panelOf(h.tree), undefined, "kapasitas belum termuat → panel belum terpasang");
+  h.m.flush();
+  clock.frames();
+  assert.equal(box.calls.length, 0, "belum terpasang → tanpa gulir");
+  await revealSteps(h, clock, box, panelOf);
+  assert.ok(panelOf(h.tree), "panel terpasang");
+  assert.deepEqual(box.calls, [{ block: "nearest" }], "tepat satu gulir setelah terpasang");
+  // render ulang + sinkron (tarik) + perubahan record kapasitas → tanpa gulir lagi
+  for (const f of h.calls.handlers["sync.done"] || []) f({ initial: false });
+  h.fr.emit(PULLED);
+  h.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+  await revealSteps(h, clock, box, panelOf);
+  assert.equal(box.calls.length, 1, "render ulang/sinkron tidak menggulir");
+  // mematikan → tanpa gulir
+  loadBtnOf(h.tree).props.onClick({});
+  await revealSteps(h, clock, box, panelOf, 3);
+  assert.equal(panelOf(h.tree), undefined);
+  assert.equal(box.calls.length, 1, "mematikan tidak menggulir");
+  // menyalakan lagi → +1
+  loadBtnOf(h.tree).props.onClick({});
+  await revealSteps(h, clock, box, panelOf);
+  assert.ok(panelOf(h.tree));
+  assert.equal(box.calls.length, 2);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+  h.m.unmount();
+}));
+
+test("Review akhir I1: HP (≤ 640 px) — menyalakan Beban Tim lewat item 'Lainnya' → daftar HP digulir ke layar tepat 1× (Gantt), juga di mode Daftar (+1); mematikan dan render ulang biasa tidak menggulir", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock, { loadOff: true });
+  const box = revealBox();
+  assert.equal(loadBtnOf(h.tree), undefined, "HP: Beban Tim di Lainnya");
+  loadMoreItem(h.render()).onSelect();
+  await revealSteps(h, clock, box, listOf);
+  assert.ok(gridOf(h.tree), "Gantt HP");
+  assert.ok(listOf(h.tree), "daftar HP terpasang");
+  assert.deepEqual(box.calls, [{ block: "nearest" }]);
+  // matikan lewat Lainnya, pindah ke mode Daftar, nyalakan lagi lewat Lainnya → +1
+  loadMoreItem(h.render()).onSelect();
+  await revealSteps(h, clock, box, listOf, 3);
+  assert.equal(listOf(h.tree), undefined);
+  buttonByText(h.tree, "Daftar").props.onClick({});
+  await revealSteps(h, clock, box, listOf, 2);
+  assert.equal(gridOf(h.tree), undefined, "mode Daftar");
+  assert.equal(box.calls.length, 1);
+  loadMoreItem(h.render()).onSelect();
+  await revealSteps(h, clock, box, listOf);
+  assert.ok(listOf(h.tree), "daftar HP di mode Daftar");
+  assert.equal(box.calls.length, 2, "mode Daftar: tepat satu gulir lagi");
+  await revealSteps(h, clock, box, listOf, 2);
+  assert.equal(box.calls.length, 2, "render ulang biasa tidak menggulir");
+  assert.deepEqual(h.writes, []);
+  h.m.unmount();
+}));
+
+test("Review akhir I1: pref load:<page> ON saat view dipasang → panel desktop / daftar HP terpasang TANPA gulir (0 scrollIntoView), juga setelah render ulang, sinkron, dan ganti zoom", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const box = revealBox();
+  await revealSteps(h, clock, box, panelOf);
+  assert.ok(panelOf(h.tree));
+  for (const f of h.calls.handlers["sync.done"] || []) f({ initial: false });
+  h.fr.emit(PULLED);
+  buttonByText(h.tree, "Hari").props.onClick({});
+  await revealSteps(h, clock, box, panelOf);
+  assert.equal(box.calls.length, 0);
+  h.m.unmount();
+  const prev = global.window;
+  global.window = narrowGlobal();
+  try {
+    const n = await panelView(clock);
+    const nb = revealBox();
+    await revealSteps(n, clock, nb, listOf);
+    assert.ok(listOf(n.tree), "daftar HP");
+    assert.equal(nb.calls.length, 0, "HP: pref tersimpan tidak menggulir");
+    n.m.unmount();
+  } finally {
+    global.window = prev;
+  }
+}));
+
+test("Review akhir I1: pengaman scrollIntoView — akar tanpa scrollIntoView (peramban lama) atau yang melempar → tidak melempar, penanda dilepas (tidak mencoba lagi di render berikut)", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { loadOff: true });
+  const bare = { offsetHeight: 0 };
+  loadBtnOf(h.tree).props.onClick({});
+  await revealSteps(h, clock, bare, panelOf);
+  assert.ok(panelOf(h.tree));
+  loadBtnOf(h.tree).props.onClick({});
+  await revealSteps(h, clock, bare, panelOf, 3);
+  let n = 0;
+  const bad = { offsetHeight: 0, scrollIntoView() { n++; throw new Error("tidak didukung"); } };
+  loadBtnOf(h.tree).props.onClick({});
+  await revealSteps(h, clock, bad, panelOf);
+  assert.equal(n, 1, "dicoba sekali, galat ditelan");
+  await revealSteps(h, clock, bad, panelOf, 2);
+  assert.equal(n, 1);
+  h.m.unmount();
+}));
+
+test("Review akhir (kilatan kapasitas): menyalakan Beban Tim setelah mesin siap → 0 run TLLoad dan tanpa panel selama records.list resource berjalan, lalu tepat 1 run dengan kapasitas tersimpan (Budi 1 🍅/hari) tanpa tanda gagal; 0 tulis", () => withEngineClock(async (clock) => {
+  const spy = spyRun();
+  const ls = spyLoad();
+  try {
+    const h = await loadView(clock, { holdRes: true });
+    assert.ok(spy.runs.length >= 1, "mesin siap");
+    assert.equal(ls.runs.length, 0);
+    loadBtnOf(h.m.render(h.getProps())).props.onClick({});
+    await h.settleNow();
+    assert.equal(resLists(h.fr).length, 1, "records.list resource berjalan");
+    assert.equal(ls.runs.length, 0, "0 run sebelum kapasitas termuat");
+    let tree = h.m.render(h.getProps());
+    assert.equal(panelOf(tree), undefined, "tanpa panel (tanpa kilatan 8 🍅/hari)");
+    assert.equal(loadBtnOf(tree).props["aria-pressed"], true, "tombol sudah menyala");
+    h.releaseRes();
+    await h.settleNow();
+    assert.equal(ls.runs.length, 1, "tepat satu run setelah termuat");
+    assert.deepEqual(ls.runs[0].input.people.find((p) => p.uid === 9).res, { capacity: 1, leave: [] });
+    tree = h.m.render(h.getProps());
+    assert.ok(panelOf(tree));
+    assert.equal(panelOf(tree).props.capMissing, false);
+    assert.deepEqual(h.writes, []);
+    assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+    h.m.unmount();
+  } finally {
+    ls.restore();
+    spy.restore();
+  }
+}));
+
+test("Review akhir (kilatan kapasitas): loadHeadText(load, true) menambah tanda persis ' · kapasitas belum termuat' di akhir judul; false/absen → tanpa tanda", () => {
+  const rows = [{ uid: 1, overDays: [10, 11] }, { uid: null, overDays: [] }];
+  const L = { rows, unscheduled: 2, counted: 4, defaultTarget: 0 };
+  assert.equal(T.loadHeadText(L, true), "Beban Tim · 2 hari kelebihan beban · 2 task belum dijadwalkan · kapasitas belum termuat");
+  assert.equal(T.loadHeadText(L, false), "Beban Tim · 2 hari kelebihan beban · 2 task belum dijadwalkan");
+  assert.equal(T.loadHeadText(L), "Beban Tim · 2 hari kelebihan beban · 2 task belum dijadwalkan");
+});
+
+test("Review akhir (kilatan kapasitas): records.list resource gagal sebelum pernah termuat → panel tetap tampil (1 run, kapasitas bawaan) dengan judul bertanda ' · kapasitas belum termuat' (panel desktop + daftar HP); muat ulang sukses → tanda hilang; gagal lagi setelah pernah termuat → tanpa tanda (data terakhir tetap data)", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, unitRec(12, "P0"));
+  putRec(fr, resRec(12, 9, { capacity: 2, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }] }));
+  const fail = { on: true };
+  const list0 = fr.api.list;
+  fr.api.list = (entity, q) => (entity === "resource" && fail.on ? Promise.reject(new Error("jaringan")) : list0(entity, q));
+  const ls = spyLoad();
+  try {
+    const h = await panelView(clock, { records: fr });
+    let node = panelOf(h.tree);
+    assert.ok(node, "panel tetap tampil saat kapasitas gagal dimuat");
+    assert.equal(node.props.capMissing, true);
+    assert.equal(ls.runs.length, 1);
+    assert.deepEqual(ls.runs[0].input.people.map((p) => [p.uid, p.res]), [[7, null], [9, null], [11, null]], "kapasitas bawaan");
+    const pm = mount(T.LoadPanel);
+    const head = panelHead(pm.render(node.props));
+    assert.equal(head, T.loadHeadText(node.props.load) + " · kapasitas belum termuat");
+    assert.ok(head.endsWith(" · kapasitas belum termuat"));
+    pm.unmount();
+    const lm = mount(T.LoadList);
+    const lt = lm.render({ load: node.props.load, cal: node.props.cal, result: node.props.result, ctx: node.props.ctx, pageKind: "workspace", boxRef: { current: null }, editUid: null, onEditPerson() {}, res: null, onReveal() {}, capMissing: true });
+    assert.equal(txt(byCls(lt, "plg-timeline-load-head")[0]).trim(), head, "daftar HP: tanda yang sama");
+    lm.unmount();
+    // muat ulang sukses (perubahan record) → tanda hilang
+    fail.on = false;
+    h.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+    await h.again();
+    node = panelOf(h.tree);
+    assert.equal(node.props.capMissing, false);
+    assert.ok(!panelHead(mount(T.LoadPanel).render(node.props)).includes("kapasitas belum termuat"));
+    // gagal lagi setelah pernah termuat → tetap tanpa tanda (peta terakhir dipakai)
+    fail.on = true;
+    h.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+    await h.again();
+    assert.equal(panelOf(h.tree).props.capMissing, false);
+    assert.equal(h.fr.calls.put.length, 0);
+    h.m.unmount();
+  } finally {
+    ls.restore();
+  }
+}));
+
+test("Review akhir: showDay panel membaca lebar view LANGSUNG lewat getViewW() (clientWidth wadah Gantt − tableW), bukan viewW props yang bisa basi — tombol tampak di lebar sebenarnya tidak menggulir, terpotong di lebar sebenarnya → onShowDay; tanpa getViewW / nilai tak sah → viewW props", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const p = panelOf(h.tree).props;
+  assert.equal(typeof p.getViewW, "function", "view menyediakan getViewW");
+  const x = (iso) => (dnOfIso(iso) - p.rangeFrom) * p.px;
+  const shown = [];
+  let left = 0;
+  let vw = 1000;
+  const q = Object.assign({}, p, { viewW: 300, getLeft: () => left, getViewW: () => vw, onShowDay: (dn) => shown.push(T.TLCal.iso(dn)) });
+  const pm = mount(T.LoadPanel);
+  let pt = pm.render(q);
+  pm.flush();
+  const focusHit = (label) => hitOf(pt, label).props.onFocus({ currentTarget: fakeFocus() });
+  left = x("2026-11-04") + p.px - 1000; // tepat muat di lebar sebenarnya 1000 (viewW basi 300 → seolah di luar)
+  focusHit("Budi · Rab 4 Nov");
+  assert.deepEqual(shown, [], "lebar sebenarnya: tombol tampak → tanpa gulir");
+  vw = 600; // lebar sebenarnya menyempit tanpa render ulang
+  focusHit("Budi · Rab 4 Nov");
+  assert.deepEqual(shown, ["2026-11-04"], "terpotong di lebar sebenarnya → gulir");
+  // tanpa getViewW / nilai tak sah (wadah belum terpasang) → viewW props
+  pt = pm.render(Object.assign({}, q, { getViewW: undefined, viewW: 1000 }));
+  focusHit("Budi · Rab 4 Nov");
+  pt = pm.render(Object.assign({}, q, { getViewW: () => NaN, viewW: 1000 }));
+  focusHit("Budi · Rab 4 Nov");
+  assert.equal(shown.length, 1, "viewW 1000 → muat");
+  pt = pm.render(Object.assign({}, q, { getViewW: () => 0, viewW: 300 }));
+  focusHit("Budi · Rab 4 Nov");
+  assert.equal(shown.length, 2, "0 (tersembunyi) → viewW props 300 → terpotong");
+  pm.unmount();
+  // view: getViewW stabil, membaca wadah Gantt terkini (clientWidth − tableW) tanpa render ulang; tanpa wadah → NaN
+  assert.ok(Number.isNaN(p.getViewW()), "tanpa wadah → NaN");
+  const el = fakeEl();
+  h.tree = attach(h.m, h.props, h.tree, el);
+  const g = panelOf(h.tree).props.getViewW;
+  assert.equal(g, p.getViewW, "stabil (prop memo)");
+  assert.equal(g(), 1000);
+  el.clientWidth = TABLE_W_FULL + 640;
+  assert.equal(g(), 640, "dibaca langsung");
+  h.m.unmount();
+}));
+
+test("Review akhir: LoadList — Esc/Tutup popover saran dengan tombol pemicu sudah terlepas → fokus cadangan ke subjudul 'Hari kelebihan beban' (tabIndex −1); fokus di elemen lain (bukan body) tidak dicuri; pemicu terpasang → kembali ke pemicu; popover menutup sendiri → subjudul, hari merah terakhir hilang → judul (tabIndex −1)", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock);
+  const x = mList(h);
+  const sub = byCls(x.tree, "plg-timeline-load-m-sub")[0];
+  const head = byCls(x.tree, "plg-timeline-load-head")[0];
+  assert.equal(sub.props.tabIndex, -1);
+  assert.equal(head.props.tabIndex, -1);
+  const subEl = fakeFocus();
+  const headEl = fakeFocus();
+  sub.props.ref.current = subEl;
+  head.props.ref.current = headEl;
+  const open = (i, btn) => {
+    mDays(x.tree)[i].props.onClick({ currentTarget: btn });
+    x.render();
+    return sugOf(x.tree);
+  };
+  // (1) pemicu terlepas → Esc → subjudul
+  const gone = fakeFocus({ isConnected: false });
+  open(0, gone).props.onClose({ restoreFocus: true });
+  x.render();
+  assert.equal(sugOf(x.tree), undefined);
+  assert.deepEqual([gone.focused, subEl.focused, headEl.focused], [0, 1, 0]);
+  // (2) pemicu terpasang → pemicu
+  const b = fakeFocus();
+  open(0, b).props.onClose({ restoreFocus: true });
+  x.render();
+  assert.deepEqual([b.focused, subEl.focused], [1, 1]);
+  // (3) klik luar (tanpa restoreFocus) → fokus tidak dipindah
+  open(0, fakeFocus({ isConnected: false })).props.onClose({ restoreFocus: false });
+  x.render();
+  assert.equal(subEl.focused, 1);
+  // (4) fokus sudah di elemen lain → tidak dicuri; jatuh ke body → dipindah
+  const prevDoc = global.document;
+  global.document = { body: {}, activeElement: { isConnected: true } };
+  try {
+    open(0, fakeFocus({ isConnected: false })).props.onClose({ restoreFocus: true });
+    x.render();
+    assert.equal(subEl.focused, 1, "fokus di elemen lain → tetap");
+    global.document.activeElement = global.document.body;
+    open(0, fakeFocus({ isConnected: false })).props.onClose({ restoreFocus: true });
+    x.render();
+    assert.equal(subEl.focused, 2, "fokus di body → subjudul");
+  } finally {
+    if (prevDoc === undefined) delete global.document; else global.document = prevDoc;
+  }
+  // (5) popover menutup sendiri (hari tak lagi merah) → subjudul; hari merah terakhir hilang → judul
+  const base = x.props;
+  const without = (pred) => Object.assign({}, base, { load: Object.assign({}, base.load, { rows: base.load.rows.map((r) => Object.assign({}, r, { overDays: r.overDays.filter((d) => !pred(r, d)) })) }) });
+  const dn4 = dnOfIso("2026-11-04");
+  open(0, fakeFocus());
+  x.props = without((r, d) => r.uid === 9 && d === dn4);
+  x.render();
+  x.lm.flush();
+  x.render();
+  assert.equal(sugOf(x.tree), undefined);
+  assert.deepEqual([subEl.focused, headEl.focused], [3, 0]);
+  x.props = base;
+  x.render();
+  open(0, fakeFocus());
+  x.props = without(() => true);
+  x.render();
+  x.lm.flush();
+  x.render();
+  assert.equal(byCls(x.tree, "plg-timeline-load-m-sub").length, 0, "tanpa hari merah → tanpa subjudul");
+  assert.deepEqual([subEl.focused, headEl.focused], [3, 1]);
+  x.lm.unmount();
+  h.m.unmount();
+}));
+
+test("Review akhir: editor kapasitas desktop memakai logika SuggestPopover — ruang di atas wadah panel (anchorRef.getBoundingClientRect().top) < tinggi editor + 4 → membuka ke bawah (is-down; CSS top 100%, bottom auto); cukup → ke atas; diukur sekali saat dibuka; HP (tanpa anchorRef) tidak pernah is-down", () => withPop(async () => {
+  assert.match(css, /\.plg-timeline-res-pop\.is-down\s*\{[^}]*top:\s*100%[^}]*bottom:\s*auto/);
+  const rule = css.match(/\.plg-timeline-res-pop\s*\{([^}]*)\}/)[1];
+  assert.match(rule, /bottom:\s*100%/, "bawaan tetap ke atas");
+  let top = 200;
+  const anchorRef = { current: { getBoundingClientRect: () => ({ top }) } };
+  const dlg = (h) => dlgNode(h.tree);
+  const down = edSetup({ anchorRef, rootH: 300 });
+  assert.ok(hasCls(dlg(down), "is-down"), "200 < 300 + 4");
+  top = 500;
+  down.render();
+  down.flush();
+  assert.ok(hasCls(dlg(down), "is-down"), "diukur sekali saat dibuka (tidak melompat saat menyunting)");
+  down.m.unmount();
+  const up = edSetup({ anchorRef, rootH: 300 });
+  assert.ok(!hasCls(dlg(up), "is-down"), "500 ≥ 304 → ke atas");
+  up.m.unmount();
+  top = 303;
+  const edge = edSetup({ anchorRef, rootH: 300 });
+  assert.ok(hasCls(dlg(edge), "is-down"), "303 < 304");
+  edge.m.unmount();
+  top = 100;
+  const hp = edSetup({ rootH: 300 });
+  assert.ok(!hasCls(dlg(hp), "is-down"), "tanpa anchorRef (daftar HP) → CSS HP yang menentukan");
+  hp.m.unmount();
+  const zero = edSetup({ anchorRef, rootH: 0 });
+  assert.ok(!hasCls(dlg(zero), "is-down"), "tinggi tak terukur → bawaan");
+  zero.m.unmount();
+}));
+
+test("Review akhir: LoadPanel meneruskan anchorRef = boxRef (akar panel) ke ResourceEditor; LoadList tidak (HP membuka ke bawah lewat CSS)", () => withEngineClock(async (clock) => {
+  const x = await edView(clock);
+  x.open("Budi");
+  assert.ok(x.ed, "editor terbuka");
+  assert.equal(x.ed.props.anchorRef, x.node.props.boxRef);
+  x.unmount();
+  const prev = global.window;
+  global.window = narrowGlobal();
+  try {
+    const h = await panelView(clock);
+    const lx = mList(h);
+    mChips(lx.tree)[0].props.onClick({ currentTarget: fakeFocus() });
+    lx.props = listOf(h.render()).props;
+    lx.render();
+    const e = edOf(lx.tree);
+    assert.ok(e, "editor HP terbuka");
+    assert.equal(e.props.anchorRef, undefined);
+    lx.lm.unmount();
+    h.m.unmount();
+  } finally {
+    global.window = prev;
   }
 }));

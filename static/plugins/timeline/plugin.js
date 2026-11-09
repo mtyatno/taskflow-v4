@@ -5565,17 +5565,20 @@ function useEngine(api, opts) {
   }, [out, list === null, failed, readExt]);
 }
 
-// Beban Tim (1d-1 R1, R2, R10, K56): useLoad({open, eng, people, todayDn, byAssignee, ownerUid, api}) → keluaran
-// TLLoad.run atau null. Dihitung (engine.load = satu pintu TLLoad.run, di-spy tes) HANYA bila panel terbuka DAN mesin siap
-// (eng.status "ready" + result + ctx) DAN todayDn bilangan hari — panel tertutup = 0 run. Masukan = eng.ctx (daftar
-// lengkap halaman, kalender halaman, unit, readExt) + eng.result: sumber yang sama dengan Gantt/mesin (R1, R2).
-// Memo [open, eng.result, eng.ctx, peopleKey, todayDn, byAssignee, ownerUid]; peopleKey = JSON uid + nama + res, jadi
-// render ulang tanpa perubahan data (larik people baru berisi sama) tidak menghitung ulang. Lempar tak terduga → null +
-// satu peringatan (logWarn ke api.log.warn; pola useEngine). Hook ini tidak pernah menulis (K27/R25).
+// Beban Tim (1d-1 R1, R2, R10, K56): useLoad({open, ready, eng, people, todayDn, byAssignee, ownerUid, api}) → keluaran
+// TLLoad.run atau null. Dihitung (engine.load = satu pintu TLLoad.run, di-spy tes) HANYA bila panel terbuka DAN data
+// kapasitas/cuti sudah termuat atau gagal dimuat (ready === true; review akhir: tanpa ini panel sempat tampil dengan
+// kapasitas bawaan 8 🍅/hari lalu dihitung ulang — kilatan + satu run terbuang) DAN mesin siap (eng.status "ready" +
+// result + ctx) DAN todayDn bilangan hari — panel tertutup = 0 run. Masukan = eng.ctx (daftar lengkap halaman, kalender
+// halaman, unit, readExt) + eng.result: sumber yang sama dengan Gantt/mesin (R1, R2).
+// Memo [open, ready, eng.result, eng.ctx, peopleKey, todayDn, byAssignee, ownerUid]; peopleKey = JSON uid + nama + res,
+// jadi render ulang tanpa perubahan data (larik people baru berisi sama) tidak menghitung ulang. Lempar tak terduga → null
+// + satu peringatan (logWarn ke api.log.warn; pola useEngine). Hook ini tidak pernah menulis (K27/R25).
 function useLoad(opts) {
   const o = opts && typeof opts === "object" ? opts : {};
   const eng = o.eng && typeof o.eng === "object" ? o.eng : ENGINE_IDLE;
   const open = o.open === true;
+  const ready = o.ready === true;
   const people = Array.isArray(o.people) ? o.people : NO_PEOPLE;
   const byAssignee = o.byAssignee === true;
   // kunci isi (bukan identitas): dihitung ulang hanya bila larik people berganti (view memo-kan larik itu)
@@ -5584,7 +5587,7 @@ function useLoad(opts) {
   const apiRef = React.useRef(o.api);
   apiRef.current = o.api;
   return React.useMemo(() => {
-    if (!open || eng.status !== "ready" || !eng.result || !eng.ctx || !Number.isInteger(o.todayDn)) return null;
+    if (!open || !ready || eng.status !== "ready" || !eng.result || !eng.ctx || !Number.isInteger(o.todayDn)) return null;
     try {
       const ctx = eng.ctx;
       return engine.load({
@@ -5605,7 +5608,7 @@ function useLoad(opts) {
       }
       return null;
     }
-  }, [open, eng.result, eng.ctx, peopleKey, o.todayDn, byAssignee, o.ownerUid]);
+  }, [open, ready, eng.result, eng.ctx, peopleKey, o.todayDn, byAssignee, o.ownerUid]);
 }
 
 // 4d. Render (fungsi biasa dipanggil langsung → pohon utuh untuk tes anggaran DOM; tanpa hooks di dalamnya).
@@ -6355,13 +6358,17 @@ function loadOverCount(load) {
   return n;
 }
 
+// Review akhir: kapasitas/cuti gagal dimuat dan belum pernah termuat → panel tetap tampil dengan kapasitas bawaan, ditandai
+// di akhir judul agar angka bawaan tidak tampak sebagai data tersimpan.
+const MSG_LOAD_CAP_MISSING = "kapasitas belum termuat";
 // Judul panel (§7.2, §8): n = loadOverCount; "· {m} task belum dijadwalkan" bila ada; "· {k} task bertarget bawaan 1 🍅"
-// bila k > 25 % task berbeban (counted). Murni.
-function loadHeadText(load) {
+// bila k > 25 % task berbeban (counted); "· kapasitas belum termuat" bila capMissing === true. Murni.
+function loadHeadText(load, capMissing) {
   const L = load && typeof load === "object" ? load : {};
   let s = LBL.load + " · " + loadOverCount(L) + " hari kelebihan beban";
   if (L.unscheduled > 0) s += " · " + L.unscheduled + " task belum dijadwalkan";
   if (L.counted > 0 && L.defaultTarget * 4 > L.counted) s += " · " + L.defaultTarget + " task bertarget bawaan 1 🍅";
+  if (capMissing === true) s += " · " + MSG_LOAD_CAP_MISSING;
   return s;
 }
 const loadNameText = row => row.name + " · " + row.capacity + " 🍅/hari";
@@ -6549,12 +6556,26 @@ function loadFocusLost() {
   return !a || a === doc.body || a.isConnected === false;
 }
 
+// Review akhir I1: gulir akar panel/daftar Beban Tim ke layar (jarak terdekat; tidak bila sudah tampak). Peramban tanpa
+// scrollIntoView / yang melempar → tanpa gulir.
+function revealLoadBox(el) {
+  if (!el || typeof el.scrollIntoView !== "function") return;
+  try {
+    el.scrollIntoView({
+      block: "nearest"
+    });
+  } catch (e) {
+    /* tanpa gulir */
+  }
+}
+
 // props: {load, cal (eng.ctx.cal), result, ctx (eng.ctx), rangeFrom, px, fromDn, toDn (dw), tableW, viewW, pageKind,
 // trackRef (isi grafik, translateX), boxRef (akar, diukur view), getLeft() (scrollLeft wadah Gantt), onEditPerson(uid|null),
 // onReveal(key, task) (Task 6: revealRow view), editUid (Task 7: orang yang editornya terbuka), res (Task 7: bundel
 // kapasitas view untuk ResourceEditor; tanpa res → tanpa editor), onShowDay(dn) (review T4–T6 I2: view menggulir wadah
 // Gantt ke hari itu), daysOpen + onDaysOpen(bool) (I1b: daftar "Hari kelebihan beban" desktop; statusnya milik view agar
-// tinggi wadah Gantt diukur ulang saat dibuka/ditutup)}.
+// tinggi wadah Gantt diukur ulang saat dibuka/ditutup), getViewW() (review akhir: lebar area grafik wadah Gantt SAAT INI —
+// clientWidth − tableW, dibaca langsung; NaN/≤ 0 → viewW), capMissing (review akhir: kapasitas belum termuat → tanda judul)}.
 function LoadPanel(props) {
   const p = props;
   const load = p.load;
@@ -6643,9 +6664,11 @@ function LoadPanel(props) {
         down
       });
     },
-    // I2: fokus keyboard tombol hari merah yang (sebagian) di luar layar [getLeft(), getLeft() + viewW] → view menggulir
+    // I2: fokus keyboard tombol hari merah yang (sebagian) di luar layar [getLeft(), getLeft() + lebar] → view menggulir
     // wadah Gantt ke hari itu (panel ikut lewat onScroll) — wadah grafik panel sendiri tidak pernah digulir. Fokus karena
     // klik mouse/sentuh (bukan :focus-visible) tidak menggulir: tombol tidak boleh bergeser dari bawah pointer di tengah klik.
+    // Review akhir: lebar = getViewW() (dibaca langsung dari wadah) — viewW props bisa basi (wadah host beranimasi saat
+    // Timeline dipasang) sehingga Tab menggulir Gantt padahal tombolnya terlihat; tanpa nilai sah → viewW props.
     showDay(dn, el) {
       const L = live.current.p;
       if (typeof L.onShowDay !== "function") return;
@@ -6657,8 +6680,10 @@ function LoadPanel(props) {
         }
       }
       const left = Number(L.getLeft()) || 0;
+      const vw = typeof L.getViewW === "function" ? Number(L.getViewW()) : NaN;
+      const w = Number.isFinite(vw) && vw > 0 ? vw : Number(L.viewW) || 0;
       const x = (dn - L.rangeFrom) * L.px;
-      if (x >= left && x + L.px <= left + L.viewW) return;
+      if (x >= left && x + L.px <= left + w) return;
       L.onShowDay(dn);
     }
   };
@@ -6834,7 +6859,7 @@ function LoadPanel(props) {
     className: "plg-timeline-load-head",
     tabIndex: -1,
     ref: headRef
-  }, loadHeadText(load)), nDays > 0 ? /*#__PURE__*/React.createElement("button", {
+  }, loadHeadText(load, p.capMissing === true)), nDays > 0 ? /*#__PURE__*/React.createElement("button", {
     type: "button",
     ref: daysBtnRef,
     className: cx("plg-timeline-btn", "plg-timeline-load-daysbtn", daysOpen && "is-active"),
@@ -6902,7 +6927,8 @@ function LoadPanel(props) {
     uid: edRow.uid,
     name: edRow.name,
     res: p.res,
-    onClose: closeEdit
+    onClose: closeEdit,
+    anchorRef: p.boxRef
   }) : null);
 }
 
@@ -7079,6 +7105,10 @@ function resCaption(entry, res) {
 //     (put / "Muat ulang" berjalan) Batal dan × nonaktif dan Esc diabaikan (review T7–T8).
 //   - Baris cuti kosong total netral dan dibuang dari value (resRowBlank). Input tidak sah → aria-describedby ke paragraf
 //     galatnya. Setelah "Muat ulang" atau galat simpan, fokus yang jatuh (resFocusLost) dipindah ke akar dialog.
+//   - anchorRef (review akhir; panel desktop = akar panel): logika `down` SuggestPopover — ruang di atas wadah panel
+//     (getBoundingClientRect().top) kurang dari tinggi editor + LOAD_POP_GAP → membuka ke bawah panel (is-down). Tinggi
+//     editor diukur (offsetHeight; CSS membatasinya min(70vh, 560px)) SEKALI saat dibuka, sebelum dilukis — arah tidak
+//     melompat saat baris cuti ditambah. Tanpa anchorRef (daftar HP) CSS HP membuka ke bawah pemicunya.
 function ResourceEditor(props) {
   const r = props.res && typeof props.res === "object" ? props.res : {};
   const uid = props.uid;
@@ -7129,6 +7159,17 @@ function ResourceEditor(props) {
     };
   }, []);
   useDismiss(true, rootRef, how => how === "key" ? cancel() : close(false), RES_SKIP);
+  // Arah buka (review akhir): diukur sekali saat dipasang (tata letak, sebelum lukis).
+  const [down, setDown] = React.useState(false);
+  const anchorRef = props.anchorRef;
+  React.useLayoutEffect(() => {
+    const a = anchorRef ? anchorRef.current : null;
+    const el = rootRef.current;
+    if (!a || !el || typeof a.getBoundingClientRect !== "function") return;
+    const top = Number(a.getBoundingClientRect().top);
+    const h = Number(el.offsetHeight) || 0;
+    if (h > 0 && Number.isFinite(top) && top < h + LOAD_POP_GAP) setDown(true);
+  }, []);
   // Potret sementara → ikut data terbaru; kunci terbuka → potret final (sekali).
   React.useLayoutEffect(() => {
     if (st.final || st.entry === entry && locked) return;
@@ -7242,7 +7283,7 @@ function ResourceEditor(props) {
   const f = st.form;
   const caption = resCaption(st.entry, r);
   return /*#__PURE__*/React.createElement("div", {
-    className: "plg-timeline-pop plg-timeline-res-pop",
+    className: cx("plg-timeline-pop", "plg-timeline-res-pop", down && "is-down"),
     role: "dialog",
     "aria-label": resTitle(name),
     "aria-busy": wait,
@@ -7451,7 +7492,7 @@ function loadListMemo() {
 }
 
 // props: {load, cal (eng.ctx.cal), result, ctx (eng.ctx), pageKind, boxRef (akar, diukur view seperti panel desktop),
-// editUid, onEditPerson(uid|null), res (bundel kapasitas T7), onReveal(key, task)}.
+// editUid, onEditPerson(uid|null), res (bundel kapasitas T7), onReveal(key, task), capMissing (review akhir: tanda judul)}.
 function LoadList(props) {
   const p = props;
   const load = p.load;
@@ -7459,9 +7500,22 @@ function LoadList(props) {
   const [pop, setPop] = React.useState(null); // hari merah terpilih {uid, dn}
   const popBtnRef = React.useRef(null);
   const edBtnRef = React.useRef(null);
+  const headRef = React.useRef(null); // judul (tabIndex −1)
+  const subRef = React.useRef(null); // subjudul "Hari kelebihan beban" (tabIndex −1), hanya bila ada item
+  const nItems = React.useRef(0);
+  nItems.current = items.length;
+  // Review akhir (pola focusHome desktop M3): fokus "rumah" daftar = subjudul "Hari kelebihan beban" bila ada item, selain
+  // itu judul. Dipakai HANYA bila fokus memang hilang (loadFocusLost: body / elemen terlepas).
+  const focusHome = () => {
+    const t = (nItems.current > 0 ? subRef.current : null) || headRef.current;
+    if (t && typeof t.focus === "function") t.focus();
+  };
   const sug = React.useMemo(() => loadSug(load, pop, p.result, p.ctx), [pop, load, p.result, p.ctx]);
+  // Orang hilang / hari tidak lagi merah → popover (dan item pemicunya) dilepas; fokus yang jatuh bersamanya → rumah.
   React.useEffect(() => {
-    if (pop && !sug) setPop(null);
+    if (!pop || sug) return;
+    setPop(null);
+    if (loadFocusLost()) focusHome();
   }, [pop, sug]);
   const hasEdit = p.editUid !== null && p.editUid !== undefined;
   // Ketuk item: popover saran (item sama = tutup; lain = ganti); satu popover pada satu waktu (editor ditutup).
@@ -7477,10 +7531,13 @@ function LoadList(props) {
       dn: it.dn
     });
   };
+  // Esc / Tutup → fokus kembali ke pemicu; pemicu sudah terlepas → rumah daftar, hanya bila fokus memang hilang (review
+  // akhir). Klik luar tidak memindah fokus (sudah pindah ke target klik).
   const closeSug = how => {
     setPop(null);
+    if (!how || !how.restoreFocus) return;
     const b = popBtnRef.current;
-    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+    if (b && b.isConnected !== false && typeof b.focus === "function") b.focus();else if (loadFocusLost()) focusHome();
   };
   // Baris saran → view: Gantt HP menggulir + berkedip; Daftar (tanpa Gantt) → detail task (revealRow R7).
   const pickSug = it => {
@@ -7511,8 +7568,10 @@ function LoadList(props) {
     "aria-label": LBL.load,
     ref: p.boxRef
   }, /*#__PURE__*/React.createElement("h3", {
-    className: "plg-timeline-load-head"
-  }, loadHeadText(load)), p.pageKind !== "workspace" ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-load-head",
+    tabIndex: -1,
+    ref: headRef
+  }, loadHeadText(load, p.capMissing === true)), p.pageKind !== "workspace" ? /*#__PURE__*/React.createElement("p", {
     className: "plg-timeline-load-note"
   }, MSG_LOAD_PARTIAL) : null, persons.length ? /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-load-m-people"
@@ -7532,7 +7591,9 @@ function LoadList(props) {
     res: p.res,
     onClose: closeEdit
   }) : null) : null, items.length ? /*#__PURE__*/React.createElement("h4", {
-    className: "plg-timeline-load-m-sub"
+    className: "plg-timeline-load-m-sub",
+    tabIndex: -1,
+    ref: subRef
   }, MSG_LOAD_DAYS) : null, items.length ? renderLoadDays({
     items,
     pop,
@@ -9502,8 +9563,14 @@ function TimelineViewBody(props) {
     collaborators: context.collaborators,
     userId: meUid
   }) : NO_PEOPLE, [loadOn, pageKind, engTasks, resources.map, context.currentUser, context.collaborators, meUid]);
+  // Review akhir: beban dihitung setelah kapasitas/cuti termuat atau gagal dimuat (tanpa kilatan kapasitas bawaan).
+  // Workspace tanpa listId sah tidak pernah memuat (scope null) → langsung siap dengan kapasitas bawaan, bertanda.
+  const resNoScope = resScopeOf(pageKind, context.listId) === null;
+  const resReady = resources.loaded || resources.failed || resNoScope;
+  const capMissing = loadOn && !resources.loaded && (resources.failed || resNoScope);
   const load = useLoad({
     open: loadOn,
+    ready: resReady,
     eng,
     people,
     todayDn,
@@ -9637,6 +9704,14 @@ function TimelineViewBody(props) {
   const loadTrackRef = React.useRef(null);
   const loadBoxRef = React.useRef(null);
   const getLeft = React.useRef(() => scrollRef.current ? Number(scrollRef.current.scrollLeft) || 0 : 0).current;
+  // Review akhir: lebar area grafik SAAT INI (clientWidth wadah − tableW), dibaca langsung — vp.w bisa basi bila wadah host
+  // beranimasi saat Timeline dipasang (pra-ada 1c). Tanpa wadah → NaN (panel memakai viewW). Stabil (prop memo).
+  const tableWRef = React.useRef(tableW);
+  tableWRef.current = tableW;
+  const getViewW = React.useRef(() => {
+    const el = scrollRef.current;
+    return el ? (Number(el.clientWidth) || 0) - tableWRef.current : NaN;
+  }).current;
   const syncLoadLeft = left => {
     const t = loadTrackRef.current;
     if (t && t.style) t.style.transform = loadShift(left);
@@ -9649,7 +9724,35 @@ function TimelineViewBody(props) {
   // Review T4–T6 I1b/M2: daftar "Hari kelebihan beban" panel desktop terbuka — statusnya di sini agar tinggi wadah diukur
   // ulang saat dibuka/ditutup; teks judul panel juga memicu ukur ulang (bisa membungkus jadi lebih tinggi/rendah).
   const [loadDaysOpen, setLoadDaysOpen] = React.useState(false);
-  const loadHead = loadShown || loadMShown ? loadHeadText(load) : "";
+  const loadHead = loadShown || loadMShown ? loadHeadText(load, capMissing) : "";
+  // Review akhir I1: menyalakan Beban Tim lewat GESTUR (tombol toolbar / item "Lainnya" — keduanya lewat toggleLoad)
+  // menandai wantRevealRef; setelah panel desktop / daftar HP terpasang (loadBoxRef ada, efek sesudah render) akarnya
+  // digulir ke layar SEKALI (scrollIntoView {block: "nearest"}) pada frame berikut — sesudah ukur ulang tinggi wadah Gantt
+  // (setState di efek tata letak) agar posisi akhir yang dipakai. Di HP daftar berada di bawah seluruh Gantt/Daftar dan
+  // tanpa ini hanya judulnya (atau tidak sama sekali) yang tampak. Pref tersimpan saat dipasang, mematikan, dan render
+  // ulang biasa (sinkron) tidak menggulir. Mematikan sebelum terpasang → batal (toggleLoad(false)); hasil ada tetapi
+  // halaman tanpa baris (panel tidak dirender) → batal. Penanda TIDAK dilepas karena loadOn false di efek: efek pasif
+  // commit sebelum klik bisa baru berjalan sesudah klik (React menjalankannya sebelum render berikut) dengan nilai lama.
+  const wantRevealRef = React.useRef(false);
+  const revealRafRef = React.useRef(0);
+  const toggleLoad = on => {
+    wantRevealRef.current = on === true;
+    setLoadOn(on);
+  };
+  React.useEffect(() => {
+    if (!wantRevealRef.current) return;
+    if (!loadBoxRef.current) {
+      if (load !== null && !hasRows) wantRevealRef.current = false;
+      return;
+    }
+    wantRevealRef.current = false;
+    caf(revealRafRef.current);
+    revealRafRef.current = raf(() => {
+      revealRafRef.current = 0;
+      revealLoadBox(loadBoxRef.current);
+    });
+  });
+  React.useEffect(() => () => caf(revealRafRef.current), []);
   const sl = vp.left === null ? TLLayout.initialScrollLeft(lay.range, lay.px, today, vp.w) : vp.left;
   const rw = TLLayout.windowRows(lay.rows.length, vp.top, vp.h + ROW_STEP * rowH, rowH);
   const dw = TLLayout.windowDays(lay.range, lay.px, sl, vp.w);
@@ -10412,7 +10515,7 @@ function TimelineViewBody(props) {
     onReschedule: openResched,
     bl: blTool,
     loadOn,
-    setLoadOn // 1d-1 T4 (R10)
+    setLoadOn: toggleLoad // 1d-1 T4 (R10); review akhir I1: gestur → gulir ke panel
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
@@ -10497,7 +10600,8 @@ function TimelineViewBody(props) {
     editUid,
     onEditPerson: setEditUid,
     res: resEd,
-    onReveal
+    onReveal,
+    capMissing
   }) : null;
   if (!hasRows) {
     return /*#__PURE__*/React.createElement("div", {
@@ -10558,7 +10662,10 @@ function TimelineViewBody(props) {
     // Task 7
     onShowDay,
     daysOpen: loadDaysOpen,
-    onDaysOpen: setLoadDaysOpen // review T4–T6 I2, I1b
+    onDaysOpen: setLoadDaysOpen,
+    // review T4–T6 I2, I1b
+    getViewW,
+    capMissing // review akhir: lebar view langsung (showDay), tanda kapasitas belum termuat
   }) : null;
   return /*#__PURE__*/React.createElement("div", {
     className: cx("plg-timeline", compact && "is-compact")

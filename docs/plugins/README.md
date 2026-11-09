@@ -350,7 +350,7 @@ Satu record per orang per halaman untuk panel Beban Tim (§6.2), data `{v: 1, ca
   tombol Simpan editor kapasitas, dengan CAS potret `{exists, updatedAt}` yang diambil saat editor dibuka (berbeda →
   "Data berubah sejak dialog dibuka — muat ulang", 0 tulis). Workspace: Simpan terkunci "Menunggu data workspace…"
   sampai data termuat **dan** record lokal orang itu ada **atau** peristiwa `pulled` sudah menyala sejak view dipasang
-  (aturan §8 butir 2). Halaman pribadi tidak terkunci.
+  (aturan §8 butir 2). Halaman pribadi terkunci hanya sampai data termuat (tanpa teks).
 
 Semua `data.*` membaca IndexedDB, jadi bekerja offline. Tidak ada di v1: `api.settings` (kolom `settings` server sudah disimpan dan disinkron tetapi belum diekspos), penulisan data host
 selain `api.taskExt`. Fungsi hanya ditambah di v1; perubahan tak kompatibel = `apiVersion: 2`.
@@ -431,16 +431,18 @@ mengetahui siapa anggota workspace halaman ini. Pakai `collaborators` hanya untu
 **Timeline 1.3 (Beban Tim, Fase 1d-1).** Panel "Beban Tim" di bawah Gantt (tombol toolbar, preferensi per perangkat
 `load:<page>`, bawaan tertutup) menampilkan beban 🍅 terjadwal tiap orang per hari dibanding kapasitasnya; hari yang
 melebihi kapasitas merah. Klik hari merah membuka saran "Bisa digeser" (pilih + gulir ke bar, tanpa menulis). Mesin murni
-`load.js` (`TLLoad`) hanya berjalan saat panel terbuka dan setelah mesin 1c siap, di atas konteks mesin yang sama: daftar
-lengkap halaman (termasuk task yang disembunyikan filter panel) dan satu kalender halaman.
+`load.js` (`TLLoad`) hanya berjalan saat panel terbuka, setelah mesin 1c siap dan data kapasitas termuat (gagal dimuat →
+kapasitas bawaan, judul bertanda "kapasitas belum termuat"), di atas konteks mesin yang sama: daftar lengkap halaman
+(termasuk task yang disembunyikan filter panel) dan satu kalender halaman.
 
 - **Tanggal = bar tersimpan.** Beban dibagi rata ke hari kerja dalam rentang yang **digambar** bar Gantt (tanggal
   tersimpan, `TLSched.spanOf` = `row.span`), juga untuk task otomatis yang drift; ES/EF mesin hanya dipakai untuk slack dan
   status kritis saran.
-- **Baris** = pengguna aktif + penanggung jawab (`assigned_to`) setiap task hidup di lingkup + pemilik record `resource`
-  di halaman itu. Nama dari `currentUser`/`collaborators`, selain itu "Anggota #{id}"; tanpa penanda "(bukan anggota)"
-  (tidak bisa dipastikan, lihat koreksi di atas). "Belum ditugaskan" terakhir, hanya bila ada bebannya. Halaman project
-  pribadi: satu baris pengguna aktif + catatan "Hanya beban dari project ini".
+- **Baris** = pengguna aktif + penanggung jawab (`assigned_to`) setiap task hidup yang belum selesai dan tidak berulang
+  di lingkup + pemilik record `resource` di halaman itu. Nama dari `currentUser`/`collaborators`, selain itu
+  "Anggota #{id}"; tanpa penanda "(bukan anggota)" (tidak bisa dipastikan, lihat koreksi di atas). "Belum ditugaskan"
+  terakhir, hanya bila ada bebannya. Halaman project pribadi: satu baris pengguna aktif + catatan "Hanya beban dari
+  project ini".
 - **Render.** Satu `<svg>` per baris orang (tanpa sel per hari), ≤ 150 tombol hari merah; ≤ 640 px diganti daftar
   "Hari kelebihan beban". Kapasitas/cuti diatur dari nama orang (record `resource`, §5).
 

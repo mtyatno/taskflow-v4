@@ -1988,11 +1988,14 @@
   min-width: 0;
 }
 
-.plg-timeline-load-head:focus {
+/* judul panel/daftar dan subjudul daftar HP = rumah fokus (tabIndex −1; review akhir: subjudul HP juga) */
+.plg-timeline-load-head:focus,
+.plg-timeline-load-m-sub:focus {
   outline: none;
 }
 
-.plg-timeline-load-head:focus-visible {
+.plg-timeline-load-head:focus-visible,
+.plg-timeline-load-m-sub:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
@@ -2270,11 +2273,20 @@
 }
 
 /* ── 1d-1 Task 7: editor kapasitas/cuti (spec K55, §7.3; rencana R9) ─────────────────────────────────────────────
-   Pola .plg-timeline-pop; di panel desktop membuka KE ATAS panel (seperti popover saran), rata kolom nama. */
+   Pola .plg-timeline-pop; di panel desktop membuka KE ATAS panel (seperti popover saran; ke bawah bila ruang di atas
+   kurang — is-down), rata kolom nama. */
 .plg-timeline-res-pop {
   top: auto;
   bottom: 100%;
   margin-bottom: 4px;
+}
+
+/* Review akhir (logika SuggestPopover): ruang di atas panel kurang dari tinggi editor → JS memberi is-down (membuka ke
+   bawah panel). HP: aturan .plg-timeline-load-m .plg-timeline-pop di bawah selalu membuka ke bawah pemicu. */
+.plg-timeline-res-pop.is-down {
+  top: 100%;
+  bottom: auto;
+  margin: 4px 0 0;
 }
 
 .plg-timeline-res-cap {

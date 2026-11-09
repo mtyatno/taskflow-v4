@@ -48,7 +48,8 @@ Seed W (T = hari kerja pertama ≥ hari ini; w(n) = hari kerja ke-n dari T):
    8 klien 1.2 (OLD, U2; index.html, whatsnew.json, plugins/index.json, plugins/timeline/plugin.js + style.css dari ebf829c)
      + record resource di server → Timeline 1.2.0 tanpa galat, 0 tulis, record resource server utuh.
    9 tampilan: 1280 px terang (A) zoom Hari/Minggu/Bulan (tangkapan, DOM), sejajar Gantt setelah gulir horizontal dan Tab
-     ke tombol hari merah di luar layar; 375 px Sakura gelap (M) daftar + chip, tanpa gulir horizontal, editor muat.
+     ke tombol hari merah di luar layar; 375 px Sakura gelap (M) daftar + chip, tanpa gulir horizontal, editor muat;
+     review akhir I1: menyalakan Beban Tim lewat "Lainnya" (Gantt 9h, Daftar 9i) → judul daftar di dalam viewport.
   10 kinerja (P10, U1, WP 500/400/10 orang, CPU 4×): TLLoad.run (engine.load dibungkus lewat window.__tlPure) ≤ 20 ms,
      panel tertutup = 0 run, DOM .plg-timeline * ≤ 1.500 dengan panel terbuka di tiga zoom.
   11 konsol tanpa galat aplikasi.
@@ -307,6 +308,21 @@ PANEL_JS = """() => { const s = document.querySelector('.plg-timeline-load, .plg
 
 def panel(p):
     return p.evaluate(PANEL_JS)
+
+
+# Review akhir I1: kotak judul panel/daftar Beban Tim terhadap viewport + posisi "alami" (top + jumlah scrollTop semua
+# leluhur = posisi bila halaman di paling atas; > innerHeight berarti tanpa gulir otomatis judul berada di bawah lipatan).
+HEAD_VIEW_JS = """() => { const s = document.querySelector('.plg-timeline-load, .plg-timeline-load-m'); if (!s) return null;
+  const h = s.querySelector('.plg-timeline-load-head'); const r = h.getBoundingClientRect(); let off = 0;
+  for (let e = s.parentElement; e; e = e.parentElement) off += e.scrollTop || 0;
+  return { top: Math.round(r.top), bottom: Math.round(r.bottom), ih: window.innerHeight, off: Math.round(off),
+    natural: Math.round(r.top + off), inside: r.top >= 0 && r.bottom <= window.innerHeight }; }"""
+SCROLL_TOP_JS = """() => { for (const e of [document.scrollingElement].concat(Array.from(document.querySelectorAll('*'))))
+  if (e && e.scrollTop) e.scrollTop = 0; }"""
+
+
+def head_view(p):
+    return p.evaluate(HEAD_VIEW_JS)
 
 
 def names(p):
@@ -1065,8 +1081,10 @@ def run_mobile(browser, base, ua, ids):
         c1.wait_engine(m, slack=False)
         menu, items = more_menu_items(m)
         m.keyboard.press("Escape")
-        panel_on(m)
+        m.evaluate(SCROLL_TOP_JS)
+        panel_on(m)  # lewat "Lainnya" (375 px)
         ok = wait_until(lambda: len(panel(m)["days"]) == 8, 15, 0.3)
+        hv = head_view(m)
         st = panel(m)
         pal = m.evaluate("() => [document.documentElement.getAttribute('data-palette'), document.documentElement.getAttribute('data-theme')]")
         shot(m, "9-M-375-sakura-gelap-daftar.png")
@@ -1076,6 +1094,10 @@ def run_mobile(browser, base, ua, ids):
               ok and pal == ["sakura", "dark"] and items == ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]
               and st["m"] and st["svgs"] == 0 and st["names"] == ["Dewi · 0 🍅/hari", "Rani · 8 🍅/hari", "Sari · 6 🍅/hari", "Tono · 8 🍅/hari"]
               and st["days"] == exp_days and st["sw"] <= 375 and st["head"] == "Beban Tim · 8 hari kelebihan beban", repr(st))
+        check("9h (review akhir I1) mode Gantt 375 px: menyalakan Beban Tim lewat 'Lainnya' → judul daftar di dalam viewport "
+              "(atas %s, bawah %s, innerHeight %s; posisi alami %s, digulir %s)" % (hv and hv["top"], hv and hv["bottom"],
+                                                                                  hv and hv["ih"], hv and hv["natural"], hv and hv["off"]),
+              bool(hv) and hv["inside"], repr(hv))
         m.locator(".plg-timeline-load-m-day").first.click()
         m.locator(".plg-timeline-load-pop").wait_for(state="visible", timeout=8000)
         ps = pop_state(m)
@@ -1109,12 +1131,24 @@ def run_mobile(browser, base, ua, ids):
         _, items_l = more_menu_items(m)
         m.keyboard.press("Escape")
         shot(m, "9-M-375-mode-daftar.png")
+        # 9i (review akhir I1): mode Daftar — matikan lewat "Lainnya", gulir ke paling atas, nyalakan lagi lewat "Lainnya" →
+        # judul daftar Beban Tim (di bawah seluruh daftar task) di dalam viewport
+        panel_on(m, False)
+        m.evaluate(SCROLL_TOP_JS)
+        m.wait_for_timeout(200)
+        panel_on(m, True)
+        hv_l = head_view(m)
+        shot(m, "9-M-375-daftar-dinyalakan.png")
         m.get_by_role("radio", name="Gantt").click()
         m.wait_for_timeout(500)
         check("9g mode Daftar HP: daftar Beban Tim tetap (%d item), 'Lainnya' %r memuat Beban Tim; scrollWidth %d; 0 tulis M"
               % (len(st_l["days"]) if st_l else -1, items_l, st_l["sw"] if st_l else -1),
               st_l and st_l["m"] and len(st_l["days"]) == 8 and "Beban Tim" in items_l and st_l["sw"] <= 375 and not writes(("M",), s9),
               repr((st_l, items_l, writes(("M",), s9))))
+        check("9i (review akhir I1) mode Daftar 375 px: matikan, gulir ke atas, nyalakan lewat 'Lainnya' → judul daftar di dalam "
+              "viewport (atas %s, bawah %s, innerHeight %s; posisi alami %s, digulir %s); 0 tulis M"
+              % (hv_l and hv_l["top"], hv_l and hv_l["bottom"], hv_l and hv_l["ih"], hv_l and hv_l["natural"], hv_l and hv_l["off"]),
+              bool(hv_l) and hv_l["inside"] and not writes(("M",), s9), repr((hv_l, writes(("M",), s9))))
     finally:
         cm.close()
 
