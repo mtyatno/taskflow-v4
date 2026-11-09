@@ -13,6 +13,9 @@ stdlib dan tidak meng-import `webapp`/`repository`/`config`, sehingga bisa dipak
   `parent_id`-nya dikosongkan). Traversal iteratif — tanpa rekursi, aman untuk kedalaman berapa pun.
 - `descendant_ids(rows, root_id)` — id semua turunan `root_id` dalam urutan pre-order (tanpa akar),
   menurut pohon efektif yang sama dengan `preorder` (tahan siklus).
+- `recompute_all(conn)` — satu-satunya fungsi SQL: hitung ulang `tasks.progress`/`checklist_total` semua task
+  dari butir level atas (`parent_id IS NULL`) memakai koneksi pemanggil (tanpa commit); dipakai
+  `TaskRepository.heal_checklists` (setiap start) dan `merge_db.py`.
 """
 from __future__ import annotations
 
@@ -95,3 +98,30 @@ def descendant_ids(rows: Iterable[Mapping], root_id: int) -> list[int]:
                 out.append(s["id"])
             return out
     return []
+
+
+def recompute_all(conn) -> int:
+    """Hitung ulang field turunan checklist semua task (spec §3.4, K15) di koneksi pemanggil, tanpa commit.
+    Task dengan butir level atas → `progress = percent(done, total)`, `checklist_total = total`; task tanpa
+    butir level atas tetapi `checklist_total` ≠ 0 (atau NULL) → `checklist_total = 0`, `progress` tetap (K11).
+    Hanya baris yang nilainya berbeda yang ditulis; `updated_at` tidak disentuh (D2). Bekerja dengan
+    `row_factory` apa pun. Mengembalikan jumlah baris `tasks` yang ditulis."""
+    rows = conn.execute(
+        "SELECT t.id, t.progress, t.checklist_total, a.total, a.done FROM tasks t "
+        "LEFT JOIN (SELECT task_id, COUNT(*) AS total, "
+        "                  COALESCE(SUM(CASE WHEN is_done THEN 1 ELSE 0 END), 0) AS done "
+        "           FROM subtasks WHERE parent_id IS NULL GROUP BY task_id) a ON a.task_id = t.id "
+        "WHERE a.total IS NOT NULL OR t.checklist_total IS NOT 0"
+    ).fetchall()
+    written = 0
+    for task_id, progress, checklist_total, total, done in rows:
+        if total:
+            p = percent(done, total)
+            if progress != p or checklist_total != total:
+                conn.execute("UPDATE tasks SET progress = ?, checklist_total = ? WHERE id = ?",
+                             (p, total, task_id))
+                written += 1
+        elif checklist_total != 0:
+            conn.execute("UPDATE tasks SET checklist_total = 0 WHERE id = ?", (task_id,))
+            written += 1
+    return written

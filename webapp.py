@@ -348,7 +348,10 @@ def _upsert_tags_for_entity(conn, entity_id: int, user_id: int, entity_type: str
 def migrate_db():
     """Ensure all tables exist via repository init."""
     from repository import TaskRepository
-    TaskRepository(DB_PATH).heal_orphan_workspace_items()
+    repo = TaskRepository(DB_PATH)
+    repo.heal_orphan_workspace_items()
+    # Checklist bertingkat (spec §3.3–§3.4): induk yatim → level atas, hitung ulang progress setiap start.
+    repo.heal_checklists()
 
     # Ensure telegram_link_tokens table exists
     conn = dbconn.connect(DB_PATH, foreign_keys=False)

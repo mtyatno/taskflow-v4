@@ -1260,6 +1260,21 @@ class TaskRepository:
                 pass  # tabel/kolom mindmaps belum dimigrasi
             return n
 
+    def heal_checklists(self) -> dict:
+        """Pembersihan checklist setiap start (spec §3.3–§3.4, rencana PR A R8), dalam satu transaksi tulis:
+        (1) butir yang tampil di level atas tetapi `parent_id`-nya terisi (induk tidak ada, di task lain, atau
+        pemutus siklus) → `parent_id = NULL` (`_heal_task_tree`); (2) hitung ulang `progress`/`checklist_total`
+        semua task yang nilainya berbeda (`checklist_tree.recompute_all`). Idempoten; tanpa `updated_at`.
+        Dipanggil dari webapp.migrate_db. Mengembalikan `{"orphans": n, "recomputed": m}`."""
+        with self._connect() as conn, dbconn.write_tx(conn):
+            task_ids = [r[0] for r in conn.execute(
+                "SELECT DISTINCT task_id FROM subtasks WHERE parent_id IS NOT NULL").fetchall()]
+            orphans = sum(_heal_task_tree(conn, t) for t in task_ids)
+            recomputed = checklist_tree.recompute_all(conn)
+        if orphans or recomputed:
+            _log.info("heal_checklists: %d induk yatim dipulihkan, %d task dihitung ulang", orphans, recomputed)
+        return {"orphans": orphans, "recomputed": recomputed}
+
     # ── Row to Task mapping ────────────────────────────────────────────────
 
     @staticmethod
