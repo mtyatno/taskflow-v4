@@ -7560,16 +7560,17 @@ test("T5 LoadPanel grafik (R5): satu <svg> per baris di xOf(dw.fromDn) selebar j
   assert.deepEqual(pathCls(svgs[1]), ["plg-timeline-load-off", "plg-timeline-load-cap"], "Citra: tanpa beban di jendela");
   assert.deepEqual(pathCls(svgs[2]), ["plg-timeline-load-off", "plg-timeline-load-cap", "plg-timeline-load-bar"], "Sari: tanpa merah/cuti");
   assert.deepEqual(pathCls(svgs[3]), ["plg-timeline-load-off", "plg-timeline-load-bar"], "Belum ditugaskan: tanpa kapasitas/merah/cuti");
-  // geometri Budi Rab 4 Nov: skala baris = maks(kapasitas 2, beban 4) = 4 🍅 → 25 px (28 − 3); kapasitas 2 → 12.5 px;
-  // batang = bagian ≤ kapasitas (12.5), kelebihan = 2 🍅 di atasnya (y 3..15.5); zoom Minggu 12 px, inset 1 → lebar 10.
+  // geometri Budi Rab 4 Nov: skala baris (review T4–T6 I4: seluruh hasil, bukan jendela) = maks(kapasitas 2, beban maks
+  // 5 🍅 Rilis jauh Agu 2027) = 5 🍅 → 25 px (28 − 3); kapasitas 2 → 10 px; batang = bagian ≤ kapasitas (10), kelebihan =
+  // 2 🍅 di atasnya (y 8..18); zoom Minggu 12 px, inset 1 → lebar 10.
   const xd = (iso) => (dnOfIso(iso) - p.fromDn) * p.px;
-  assert.ok(pathD(svgs[0], "plg-timeline-load-bar").includes("M" + (xd("2026-11-04") + 1) + " 15.5h10v12.5h-10Z"), "batang Rab 4");
-  assert.ok(pathD(svgs[0], "plg-timeline-load-over").includes("M" + (xd("2026-11-04") + 1) + " 3h10v12.5h-10Z"), "kelebihan Rab 4");
-  // cuti Sen 9 (kapasitas 0): beban 1 seluruhnya merah, tanpa batang biasa; skala 4 → 6.25 → 6.3 px
-  assert.ok(pathD(svgs[0], "plg-timeline-load-over").includes("M" + (xd("2026-11-09") + 1) + " 21.8h10v6.3h-10Z"), "kelebihan Sen 9 (cuti)");
+  assert.ok(pathD(svgs[0], "plg-timeline-load-bar").includes("M" + (xd("2026-11-04") + 1) + " 18h10v10h-10Z"), "batang Rab 4");
+  assert.ok(pathD(svgs[0], "plg-timeline-load-over").includes("M" + (xd("2026-11-04") + 1) + " 8h10v10h-10Z"), "kelebihan Rab 4");
+  // cuti Sen 9 (kapasitas 0): beban 1 seluruhnya merah, tanpa batang biasa; skala 5 → 5 px
+  assert.ok(pathD(svgs[0], "plg-timeline-load-over").includes("M" + (xd("2026-11-09") + 1) + " 23h10v5h-10Z"), "kelebihan Sen 9 (cuti)");
   assert.ok(!pathD(svgs[0], "plg-timeline-load-bar").includes("M" + (xd("2026-11-09") + 1) + " "), "tanpa batang biasa di hari cuti");
-  // kapasitas Budi: area 12.5 px digabung per rentang hari kerja berkapasitas sama (Sen 2–Jum 6 satu persegi)
-  assert.ok(pathD(svgs[0], "plg-timeline-load-cap").includes("M" + xd("2026-11-02") + " 15.5h60v12.5h-60Z"), "kapasitas Sen 2–Jum 6");
+  // kapasitas Budi: area 10 px digabung per rentang hari kerja berkapasitas sama (Sen 2–Jum 6 satu persegi)
+  assert.ok(pathD(svgs[0], "plg-timeline-load-cap").includes("M" + xd("2026-11-02") + " 18h60v10h-60Z"), "kapasitas Sen 2–Jum 6");
   // hari non-kerja: Sab 7–Min 8 satu persegi setinggi baris
   assert.ok(pathD(svgs[0], "plg-timeline-load-off").includes("M" + xd("2026-11-07") + " 0h24v28h-24Z"), "Sab–Min");
   // arsir cuti hanya di Sen 9–Sel 10 (x dalam [Sen 9, Rab 11))
@@ -7720,7 +7721,7 @@ test("T5 tinggi: baris 28 px, maks 10 baris terlihat (body maxHeight 280, overfl
   assert.equal(byCls(pt, "plg-timeline-load-view")[0].props.style.height, rowsN * 28);
   assert.equal(byCls(pt, "plg-timeline-load-names")[0].props.style.width, TABLE_W_FULL);
   assert.match(css, /\.plg-timeline-load-body\s*\{[^}]*overflow-y:\s*auto/);
-  assert.match(css, /\.plg-timeline-load-view\s*\{[^}]*overflow:\s*hidden/);
+  assert.match(css, /\.plg-timeline-load-view\s*\{[^}]*overflow:\s*hidden;\s*overflow:\s*clip;/, "review T4–T6 I2: clip (bukan wadah gulir), hidden cadangan");
   h.m.unmount();
   // ukur: boxH = maks(360, innerHeight − top − 16 − legenda − panel)
   const prevWin = global.window;
@@ -7832,7 +7833,7 @@ test("T5 DOM total 500 task/400 dep + Jalur kritis + panel Beban Tim (10 orang) 
   m.unmount();
 }));
 
-test("T5 CSS panel: kelas .plg-timeline-load-* hanya token tema (kapasitas --bg-subtle, beban --accent, kelebihan --plg-timeline-danger, cuti --text-secondary + opacity, non-kerja pola libur Gantt), tanpa border-left aksen, :focus-visible untuk nama/tombol merah", () => {
+test("T5 CSS panel: kelas .plg-timeline-load-* hanya token tema (kapasitas --bg-subtle, beban --accent, kelebihan --plg-timeline-danger, cuti --text-secondary + opacity, non-kerja abu --text-secondary 12 % — review T4–T6 I3), tanpa border-left aksen, :focus-visible untuk nama/tombol merah", () => {
   const rule = (sel) => {
     const m = css.match(new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([^}]*)\\}"));
     assert.ok(m, "aturan " + sel);
@@ -7844,7 +7845,8 @@ test("T5 CSS panel: kelas .plg-timeline-load-* hanya token tema (kapasitas --bg-
   const lv = rule(".plg-timeline-load-leave");
   assert.match(lv, /stroke:\s*var\(--text-secondary\)/);
   assert.match(lv, /(stroke-)?opacity:\s*0?\.\d+/);
-  assert.match(rule(".plg-timeline-load-off"), /fill:\s*color-mix\(in srgb, var\(--plg-timeline-danger\) 8%, transparent\)/);
+  assert.match(rule(".plg-timeline-load-off"), /fill:\s*color-mix\(in srgb, var\(--text-secondary\) 12%, transparent\)/);
+  assert.doesNotMatch(rule(".plg-timeline-load-off"), /danger/, "hari non-kerja tidak ditint merah");
   assert.match(css, /\.plg-timeline-load-name:focus-visible[^{]*\{[^}]*outline:\s*2px solid var\(--accent\)/);
   assert.match(css, /\.plg-timeline-load-hit:focus-visible[^{]*\{[^}]*outline:\s*2px solid var\(--accent\)/);
   const block = css.slice(css.indexOf("1d-1: Beban Tim"));
@@ -9037,3 +9039,469 @@ test("T8 375 px tanpa gulir horizontal (pendekatan: pohon tanpa lebar inline + C
     for (const c of n.props.className.split(/\s+/).filter(Boolean)) assert.match(c, /^(plg-timeline(-[\w-]+)?|is-[\w-]+)$/, c);
   }
 }));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — perbaikan review T4–T6: hari merah selalu terjangkau (I1), panel tetap sejajar dengan Gantt (I2), hari
+// non-kerja abu (I3), skala vertikal stabil (I4); minor M1–M5, M7
+// ════════════════════════════════════════════════════════════════════════════
+const fakeFocus = (o) => Object.assign({ focused: 0, opts: [], focus(x) { this.focused++; this.opts.push(x); } }, o || {});
+const daysBtnOf = (pt) => byCls(pt, "plg-timeline-load-daysbtn")[0];
+const headOf = (pt) => byCls(pt, "plg-timeline-load-head")[0];
+
+test("Review T4–T6 I4: skala vertikal per baris = maks(kapasitas, beban maks) atas SELURUH row.days (sekali per hasil beban) — jendela dw berganti tidak mengubah tinggi kapasitas/batang; Belum ditugaskan = beban maks; minimal 1 🍅", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const p = panelOf(h.tree).props;
+  const M = T.TLLoad.MILLI;
+  // Budi: kapasitas 2, beban maks 5 🍅 (Rilis jauh Sen 2 Agu 2027, DI LUAR jendela); Citra/Sari: kapasitas 8; Belum
+  // ditugaskan: beban maks 1 🍅 (Rapat)
+  assert.deepEqual(p.load.rows.map((r) => [r.name, T.loadScaleOf(r)]), [["Budi", 5 * M], ["Citra", 8 * M], ["Sari", 8 * M], ["Belum ditugaskan", M]]);
+  assert.equal(T.loadScaleOf({ uid: 3, capacity: 0, days: new Map() }), M, "minimal 1 🍅");
+  assert.equal(T.loadScaleOf({ uid: null, capacity: null, days: new Map([[1, { load: 250, parts: [] }]]) }), M);
+  assert.equal(T.loadScaleOf({ uid: null, capacity: null, days: new Map([[1, { load: 2500, parts: [] }], [2, { load: 1200, parts: [] }]]) }), 2500);
+  const pm = mount(T.LoadPanel);
+  const capD = (pt, i) => pathD(panelSvgs(pt)[i], "plg-timeline-load-cap");
+  const barD = (pt, i) => pathD(panelSvgs(pt)[i], "plg-timeline-load-bar");
+  let pt = pm.render(p);
+  pm.flush();
+  // jendela bawaan: kapasitas Budi 2 dari skala 5 → 10 px (dulu 12.5 dari maks jendela 4)
+  assert.ok(capD(pt, 0).includes("M" + (dnOfIso("2026-11-02") - p.fromDn) * p.px + " 18h60v10h-60Z"), capD(pt, 0));
+  // jendela tanpa beban Budi (Sen 2–Sel 3 Nov): dulu skala = kapasitas 2 → 25 px (melompat); kini tetap 10 px
+  pt = pm.render(Object.assign({}, p, { fromDn: dnOfIso("2026-11-02"), toDn: dnOfIso("2026-11-03") }));
+  assert.equal(capD(pt, 0), "M0 18h24v10h-24Z");
+  // jendela Kam 5 Nov saja: batang Sari 2 🍅 dari skala 8 tetap 6.3 px
+  pt = pm.render(Object.assign({}, p, { fromDn: dnOfIso("2026-11-05"), toDn: dnOfIso("2026-11-05") }));
+  assert.equal(barD(pt, 2), "M1 21.8h10v6.3h-10Z");
+  pm.unmount();
+  assert.match(jsx, /React\.useMemo\(\(\) => [^\n]*loadScaleOf[^\n]*\[load\]\)/, "skala dihitung sekali per hasil beban (useMemo atas load)");
+  h.m.unmount();
+}));
+
+test("Review T4–T6 I3: hari non-kerja abu (--text-secondary 12 %), berbeda dari area kapasitas (--bg-subtle + garis --border) dan bukan tint merah", () => {
+  const off = css.match(/\.plg-timeline-load-off\s*\{([^}]*)\}/)[1];
+  assert.match(off, /fill:\s*color-mix\(in srgb, var\(--text-secondary\) 12%, transparent\)/);
+  assert.doesNotMatch(off, /danger|bg-subtle|stroke/);
+  const cap = css.match(/\.plg-timeline-load-cap\s*\{([^}]*)\}/)[1];
+  assert.match(cap, /fill:\s*var\(--bg-subtle\)/);
+  assert.match(cap, /stroke:\s*var\(--border\)/);
+});
+
+test("Review T4–T6 I2: wadah grafik panel 'overflow: hidden; overflow: clip;' (clip tidak membuat wadah gulir; hidden cadangan); pengaman onScroll view panel → scrollLeft/scrollTop kembali 0", () => withEngineClock(async (clock) => {
+  assert.match(css, /\.plg-timeline-load-view\s*\{[^}]*overflow:\s*hidden;\s*overflow:\s*clip;/);
+  const h = await panelView(clock);
+  const pm = mount(T.LoadPanel);
+  const pt = pm.render(panelOf(h.tree).props);
+  pm.flush();
+  const view = byCls(pt, "plg-timeline-load-view")[0];
+  assert.equal(typeof view.props.onScroll, "function");
+  const ve = { scrollLeft: 37, scrollTop: 5 };
+  view.props.ref.current = ve;
+  view.props.onScroll({ currentTarget: ve });
+  assert.deepEqual([ve.scrollLeft, ve.scrollTop], [0, 0], "gulir tak sengaja (fokus) direset");
+  pm.unmount();
+  h.m.unmount();
+}));
+
+test("Review T4–T6 I2: fokus (Tab) tombol hari merah — di luar [getLeft(), getLeft() + viewW] (kiri/kanan) → onShowDay(dn); di dalam layar → tidak; tombol tanpa onShowDay tidak melempar", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const p = panelOf(h.tree).props;
+  assert.equal(typeof p.onShowDay, "function", "view menyediakan onShowDay (stabil)");
+  const x = (iso) => (dnOfIso(iso) - p.rangeFrom) * p.px;
+  const shown = [];
+  let left = 0;
+  const q = Object.assign({}, p, { getLeft: () => left, onShowDay: (dn) => shown.push(T.TLCal.iso(dn)) });
+  const pm = mount(T.LoadPanel);
+  const pt = pm.render(q);
+  pm.flush();
+  const focusHit = (label) => hitOf(pt, label).props.onFocus({ currentTarget: fakeFocus() });
+  left = x("2026-11-10") + 1; // Sel 10 sedikit terpotong di kiri
+  focusHit("Budi · Sel 10 Nov");
+  left = x("2026-11-04") + p.px - 1000 - 1; // tepi kanan Rab 4 melewati layar 1 px
+  focusHit("Budi · Rab 4 Nov");
+  left = x("2026-11-04") + p.px - 1000; // tepat muat
+  focusHit("Budi · Rab 4 Nov");
+  left = x("2026-11-04") - 300;
+  focusHit("Budi · Sen 9 Nov");
+  assert.deepEqual(shown, ["2026-11-10", "2026-11-04"]);
+  // fokus karena klik mouse/sentuh (bukan :focus-visible) → tanpa gulir (tombol tidak bergeser dari bawah pointer);
+  // fokus keyboard (:focus-visible) → gulir; peramban tanpa :focus-visible (matches melempar) → anggap keyboard
+  left = x("2026-11-10") + 1;
+  const viaMatches = (fn) => hitOf(pt, "Budi · Sel 10 Nov").props.onFocus({ currentTarget: fakeFocus({ matches: fn }) });
+  viaMatches((s) => (s === ":focus-visible" ? false : null));
+  assert.equal(shown.length, 2, "fokus pointer → tanpa gulir");
+  viaMatches((s) => s === ":focus-visible");
+  viaMatches(() => { throw new Error("SyntaxError"); });
+  assert.deepEqual(shown.slice(2), ["2026-11-10", "2026-11-10"]);
+  pm.unmount();
+  const pm2 = mount(T.LoadPanel);
+  const pt2 = pm2.render(Object.assign({}, q, { onShowDay: undefined }));
+  left = x("2026-11-10") + 50;
+  hitOf(pt2, "Budi · Sel 10 Nov").props.onFocus({});
+  pm2.unmount();
+  h.m.unmount();
+}));
+
+test("Review T4–T6 I2: view onShowDay(dn) → wadah Gantt digulir lewat jalur applyLeft (hari di sepertiga kiri, translateX panel seketika, getLeft baru) sehingga panel ikut; event scroll susulan menjaga translateX; 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const el = fakeEl();
+  h.tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  h.render();
+  const node = panelOf(h.tree);
+  const p = node.props;
+  const track = { style: {} };
+  p.trackRef.current = track;
+  const pm = mount(T.LoadPanel);
+  const pt = pm.render(p);
+  pm.flush();
+  const x = (iso) => (dnOfIso(iso) - p.rangeFrom) * p.px;
+  // pengguna menggulir sehingga Sel 10 Nov di kiri layar (jendela dw belum berganti → tombolnya masih ada)
+  el.scrollLeft = x("2026-11-10") + 50;
+  hitOf(pt, "Budi · Sel 10 Nov").props.onFocus({ currentTarget: fakeFocus() });
+  const want = Math.round(x("2026-11-10") - 1000 / 3);
+  assert.equal(el.scrollLeft, want, "hari itu di sepertiga kiri wadah Gantt");
+  assert.equal(track.style.transform, "translateX(-" + want + "px)", "panel ikut seketika");
+  h.render();
+  assert.equal(panelOf(h.tree).props.getLeft(), want);
+  // event scroll asli menyusul (onScroll wadah Gantt) → translateX panel tetap sejajar
+  gridOf(h.tree).props.onScroll();
+  assert.equal(track.style.transform, "translateX(-" + want + "px)");
+  pm.unmount();
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("Review T4–T6 I1a: klik/ketuk di grafik → (baris, hari) dipetakan seperti readout; hari merah TANPA tombol (di luar LOAD_HIT_MAX) → popover saran hari itu; klik hari sama → tutup; hari biasa → tidak membuka (yang terbuka ditutup); klik bertarget tombol hari merah diabaikan; Esc → fokus ke tombol 'Hari kelebihan beban'", () => {
+  const x = heavyLoad("week");
+  const pm = mount(T.LoadPanel);
+  let pt = pm.render(x.props);
+  pm.flush();
+  const view = byCls(pt, "plg-timeline-load-view")[0];
+  assert.equal(typeof view.props.onClick, "function");
+  view.props.ref.current = { getBoundingClientRect: () => ({ left: 100, top: 50, width: 1000, height: 280 }) };
+  const home = fakeFocus();
+  daysBtnOf(pt).props.ref.current = home;
+  const sl = x.props.getLeft();
+  const px = x.props.px;
+  const rf = x.props.rangeFrom;
+  const none = { closest: () => null };
+  const at = (i, dn, target) => ({ clientX: 100 + (dn - rf) * px - sl + 2, clientY: 50 + i * 28 + 5, target: target || none });
+  const got = new Set(panelHits(pt).map((b) => b.props.style.top / 28 + ":" + (b.props.style.left / px + rf)));
+  const vis = (d) => (d - rf) * px >= sl && (d - rf + 1) * px <= sl + 1000;
+  const row = x.load.rows[0];
+  const d = row.overDays.find((dd) => vis(dd) && !got.has("0:" + dd));
+  assert.ok(d !== undefined, "ada hari merah tampak tanpa tombol");
+  const click = (ev) => {
+    view.props.onClick(ev);
+    pt = pm.render(x.props);
+    return sugOf(pt);
+  };
+  let sp = click(at(0, d));
+  assert.ok(sp, "popover saran untuk hari merah tanpa tombol");
+  assert.equal(sp.props.title, "Bisa digeser — " + row.name + ", " + T.TLCal.fmtShort(d));
+  const want = T.TLLoad.suggest(x.load, row.uid, d, { result: x.result, units: x.ctx.units, readExt: x.ctx.readExt, tasks: x.ctx.tasks });
+  assert.deepEqual(sp.props.items.map((s) => s.key), want.map((s) => s.key));
+  assert.match(sp.props.skipSel, /\.plg-timeline-load-view/, "pointerdown di grafik tidak menutup (ditangani klik grafik)");
+  // Esc → fokus ke tombol daftar (hari ini tanpa tombol)
+  sp.props.onClose({ restoreFocus: true });
+  pt = pm.render(x.props);
+  assert.equal(sugOf(pt), undefined);
+  assert.equal(home.focused, 1);
+  // klik hari sama dua kali → buka lalu tutup
+  assert.ok(click(at(0, d)));
+  assert.equal(click(at(0, d)), undefined, "hari sama → tutup");
+  // hari biasa (Sabtu tampak) → tidak membuka; popover terbuka → ditutup
+  const sat = (() => { for (let k = x.dw.fromDn; k <= x.dw.toDn; k++) if (vis(k) && !T.TLCal.isWork(x.ctx.cal, k)) return k; return null; })();
+  assert.ok(sat !== null && row.overDays.indexOf(sat) < 0);
+  assert.equal(click(at(0, sat)), undefined, "hari biasa → tanpa popover");
+  assert.ok(click(at(0, d)));
+  assert.equal(click(at(0, sat)), undefined, "klik hari biasa menutup popover yang terbuka");
+  // klik yang targetnya tombol hari merah: ditangani tombolnya (tidak membuka/menutup dua kali)
+  const hitTarget = { closest: (s) => (s.split(",").some((t) => t.trim() === ".plg-timeline-load-hit") ? {} : null) };
+  assert.equal(click(at(0, d, hitTarget)), undefined);
+  assert.ok(click(at(0, d)));
+  assert.ok(click(at(0, d, hitTarget)), "tetap terbuka");
+  // di luar baris / jendela → abaikan
+  assert.ok(click({ clientX: at(0, d).clientX, clientY: 50 + 10 * 28 + 5, target: none }), "di bawah baris terakhir: tanpa perubahan");
+  pm.unmount();
+});
+
+test("Review T4–T6 I1b: judul panel desktop + tombol teks persis 'Hari kelebihan beban' (aria-expanded, aria-controls) → daftar yang SAMA dengan HP (teks item persis, ketuk → popover saran di item, Esc → fokus ke item, pilih → onReveal); dirender hanya saat terbuka; status di view; 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  let node = panelOf(h.tree);
+  assert.equal(node.props.daysOpen, false);
+  assert.equal(typeof node.props.onDaysOpen, "function");
+  const reveals = [];
+  const props = () => Object.assign({}, node.props, { onReveal: (k, t) => reveals.push([k, t.id]) });
+  const pm = mount(T.LoadPanel);
+  let pt = pm.render(props());
+  pm.flush();
+  const btn = daysBtnOf(pt);
+  assert.ok(btn, "tombol daftar");
+  assert.deepEqual([btn.type, btn.props.type, txt(btn).trim(), btn.props["aria-expanded"]], ["button", "button", "Hari kelebihan beban", false]);
+  const ctl = btn.props["aria-controls"];
+  assert.match(ctl, /^plg-timeline-load-days-\d+$/);
+  assert.equal(panelHead(pt), "Beban Tim · 6 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅", "teks judul tetap (tombol di luar <h3>)");
+  assert.equal(byCls(pt, "plg-timeline-load-days").length, 0, "tertutup → daftar tidak dirender");
+  assert.equal(byCls(pt, "plg-timeline-load-m-day").length + nodes(pt, (n) => n.type === "li").length, 0);
+  const nClosed = domCount(pt);
+  // buka → status di view (props), daftar setelah judul sebelum grafik
+  daysBtnOf(pt).props.onClick({});
+  h.render();
+  node = panelOf(h.tree);
+  assert.equal(node.props.daysOpen, true);
+  pt = pm.render(props());
+  assert.equal(daysBtnOf(pt).props["aria-expanded"], true);
+  const box = byCls(pt, "plg-timeline-load-days")[0];
+  assert.equal(box.props.id, ctl);
+  const sec = nodes(pt, (n) => n.type === "section")[0];
+  const kids = sec.children.filter((c) => c && typeof c === "object");
+  assert.ok(kids.indexOf(box) > kids.findIndex((c) => hasCls(c, "plg-timeline-load-top")) && kids.indexOf(box) < kids.findIndex((c) => hasCls(c, "plg-timeline-load-body")), "judul · daftar · grafik");
+  const days = () => byCls(pt, "plg-timeline-load-m-day");
+  assert.deepEqual(days().map((b) => txt(b).trim()), PANEL_DAYS, "teks item = daftar HP");
+  assert.ok(days().every((b) => b.type === "button" && b.props["aria-haspopup"] === "dialog" && b.props["aria-expanded"] === false));
+  assert.ok(hasCls(nodes(box, (n) => n.type === "ul")[0], "plg-timeline-load-m-list"), "render daftar HP dipakai ulang");
+  // ketuk item (Enter = klik tombol) → popover saran di dalam <li> item, bukan di tingkat panel
+  const it = fakeFocus();
+  days()[0].props.onClick({ currentTarget: it });
+  pt = pm.render(props());
+  const li0 = nodes(pt, (n) => n.type === "li")[0];
+  const sp = nodes(li0, (n) => n.type === T.SuggestPopover)[0];
+  assert.ok(sp, "popover di item");
+  assert.equal(nodes(pt, (n) => n.type === T.SuggestPopover).length, 1, "satu popover");
+  assert.equal(sp.props.title, "Bisa digeser — Budi, Rab 4 Nov");
+  assert.equal(sp.props.left, undefined);
+  assert.equal(days()[0].props["aria-expanded"], true);
+  assert.equal(panelHits(pt)[0].props["aria-expanded"], false, "tombol grafik hari yang sama tidak ikut terbuka");
+  sp.props.onClose({ restoreFocus: true });
+  pt = pm.render(props());
+  assert.equal(nodes(pt, (n) => n.type === T.SuggestPopover).length, 0);
+  assert.equal(it.focused, 1, "Esc → fokus kembali ke item");
+  // item → pilih baris saran → onReveal (pilih + gulir R7)
+  days()[0].props.onClick({ currentTarget: it });
+  pt = pm.render(props());
+  const sp2 = sugOf(pt);
+  sp2.props.onPick(sp2.props.items[0]);
+  pt = pm.render(props());
+  assert.deepEqual(reveals, [[sp2.props.items[0].key, sp2.props.items[0].task.id]]);
+  assert.equal(sugOf(pt), undefined);
+  // tutup daftar (popover item ikut tertutup) → kembali ke anggaran DOM semula
+  days()[1].props.onClick({ currentTarget: it });
+  pt = pm.render(props());
+  assert.ok(sugOf(pt));
+  daysBtnOf(pt).props.onClick({});
+  h.render();
+  node = panelOf(h.tree);
+  assert.equal(node.props.daysOpen, false);
+  pt = pm.render(props());
+  assert.equal(byCls(pt, "plg-timeline-load-days").length, 0);
+  assert.equal(sugOf(pt), undefined, "popover item tertutup bersama daftar");
+  assert.equal(domCount(pt), nClosed);
+  pm.unmount();
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("Review T4–T6 I1b: daftar desktop ≤ 100 item terdekat + 'dan {n} lainnya' (pola HP); tertutup → DOM panel tetap ≤ 300; n = 0 → tanpa tombol 'Hari kelebihan beban'", () => withEngineClock(async (clock) => {
+  const x = heavyLoad("week");
+  const pm = mount(T.LoadPanel);
+  let pt = pm.render(x.props);
+  pm.flush();
+  assert.ok(daysBtnOf(pt));
+  assert.ok(domCount(pt) <= 300, "tertutup: " + domCount(pt));
+  pt = pm.render(Object.assign({}, x.props, { daysOpen: true }));
+  const total = x.load.rows.reduce((s, r) => s + r.overDays.length, 0);
+  const all = T.loadDayItems(x.load, x.ctx.cal);
+  assert.deepEqual(byCls(pt, "plg-timeline-load-m-day").map((b) => txt(b).trim()), all.slice(0, 100).map((it) => it.text));
+  assert.equal(txt(byCls(pt, "plg-timeline-load-m-more")[0]).trim(), "dan " + (total - 100) + " lainnya");
+  console.log("# DOM panel Beban Tim 10 orang + daftar desktop terbuka: " + domCount(pt) + " elemen");
+  pm.unmount();
+  // n = 0
+  const L = PANEL_L;
+  const h = await panelView(clock, { tasks: [mk(1, "Ringan", { start: "2026-11-04", duration: 2 }, Object.assign({ assigned_to: 7, estimated_pomodoros: 2 }, L))] });
+  const pm2 = mount(T.LoadPanel);
+  const pt2 = pm2.render(Object.assign({}, panelOf(h.tree).props, { daysOpen: true }));
+  assert.equal(panelHead(pt2), "Beban Tim · 0 hari kelebihan beban");
+  assert.equal(daysBtnOf(pt2), undefined, "n = 0 → tanpa tombol");
+  assert.equal(byCls(pt2, "plg-timeline-load-days").length, 0, "tanpa daftar");
+  pm2.unmount();
+  h.m.unmount();
+}));
+
+test("Review T4–T6 M1: popover saran max-height min(50vh, 320px) + gulir dalam; ruang di atas panel (getBoundingClientRect().top) < tinggi maks popover → membuka ke bawah (is-down), cukup → ke atas", () => withEngineClock(async (clock) => {
+  const rule = css.match(/\.plg-timeline-load-pop\s*\{([^}]*)\}/)[1];
+  assert.match(rule, /max-height:\s*min\(50vh, 320px\)/);
+  assert.match(rule, /overflow-y:\s*auto/);
+  assert.match(rule, /bottom:\s*100%/);
+  assert.match(css, /\.plg-timeline-load-pop\.is-down\s*\{[^}]*top:\s*100%[^}]*bottom:\s*auto/);
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const prev = global.window;
+  global.window = { innerHeight: 900, addEventListener() {}, removeEventListener() {} };
+  try {
+    const ph = sugPanel(h);
+    const dlg = () => nodes(child(sugOf(ph.tree)), (n) => n.props.role === "dialog")[0];
+    ph.props.boxRef.current = { clientWidth: TABLE_W_FULL + 1000, getBoundingClientRect: () => ({ top: 200 }) };
+    ph.open("Budi · Rab 4 Nov");
+    assert.equal(sugOf(ph.tree).props.down, true, "200 < min(450, 320)");
+    assert.ok(hasCls(dlg(), "is-down"));
+    ph.open("Budi · Rab 4 Nov");
+    ph.props.boxRef.current = { clientWidth: TABLE_W_FULL + 1000, getBoundingClientRect: () => ({ top: 400 }) };
+    ph.open("Budi · Rab 4 Nov");
+    assert.equal(sugOf(ph.tree).props.down, false);
+    assert.ok(!hasCls(dlg(), "is-down"));
+    ph.open("Budi · Rab 4 Nov");
+    global.window.innerHeight = 500; // layar pendek: maks 250
+    ph.props.boxRef.current = { clientWidth: TABLE_W_FULL + 1000, getBoundingClientRect: () => ({ top: 300 }) };
+    ph.open("Citra · Rab 4 Nov");
+    assert.equal(sugOf(ph.tree).props.down, false);
+    ph.pm.unmount();
+  } finally {
+    global.window = prev;
+  }
+  h.m.unmount();
+}));
+
+test("Review T4–T6 M2: tinggi wadah Gantt diukur ulang saat daftar desktop 'Hari kelebihan beban' dibuka/ditutup dan saat teks judul panel berubah (jumlah baris tetap)", () => withEngineClock(async (clock) => {
+  const prevWin = global.window;
+  global.window = { innerHeight: 1200, addEventListener() {}, removeEventListener() {} };
+  try {
+    const v = await panelView(clock);
+    const el = fakeEl();
+    let tree = attach(v.m, v.props, v.tree, el);
+    const box = panelOf(tree).props.boxRef;
+    box.current = { offsetHeight: 200 };
+    panelOf(tree).props.onDaysOpen(true);
+    box.current = { offsetHeight: 520 };
+    tree = attach(v.m, v.props, v.m.render(v.props), el);
+    assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16 - 520, "daftar dibuka");
+    panelOf(tree).props.onDaysOpen(false);
+    box.current = { offsetHeight: 200 };
+    tree = attach(v.m, v.props, v.m.render(v.props), el);
+    assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16 - 200, "daftar ditutup");
+    // judul berubah (kapasitas Budi 8 dari perangkat lain → 2 hari kelebihan beban), baris tetap 4
+    box.current = { offsetHeight: 180 };
+    putRec(v.fr, resRec(12, 9, { capacity: 8 }));
+    v.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+    tree = await v.again();
+    tree = attach(v.m, v.props, tree, el);
+    assert.equal(panelOf(tree).props.load.rows.length, 4);
+    assert.equal(T.loadHeadText(panelOf(tree).props.load), "Beban Tim · 2 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅");
+    assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16 - 180, "judul berubah → ukur ulang");
+    assert.deepEqual(v.writes, []);
+    v.m.unmount();
+  } finally {
+    global.window = prevWin;
+  }
+}));
+
+test("Review T4–T6 M3: popover saran menutup sendiri (hari tak lagi merah) → fokus ke tombol 'Hari kelebihan beban'; tanpa tombol (n = 0) → judul panel (tabIndex −1); pemicu terlepas → Esc ke tombol daftar; fokus di tempat lain (document.activeElement bukan body) tidak dicuri", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const ph = sugPanel(h);
+  assert.equal(headOf(ph.tree).props.tabIndex, -1);
+  const home = fakeFocus();
+  const headEl = fakeFocus();
+  daysBtnOf(ph.tree).props.ref.current = home;
+  headOf(ph.tree).props.ref.current = headEl;
+  const base = ph.props;
+  const dn4 = dnOfIso("2026-11-04");
+  const without = (pred) => Object.assign({}, base, { load: Object.assign({}, base.load, { rows: base.load.rows.map((r) => Object.assign({}, r, { overDays: r.overDays.filter((d) => !pred(r, d)) })) }) });
+  // (1) pemicu terlepas (dipasang ulang/jendela berganti) → Esc → tombol daftar
+  const gone = fakeFocus({ isConnected: false });
+  hitOf(ph.tree, "Budi · Rab 4 Nov").props.onClick({ currentTarget: gone });
+  ph.render();
+  sugOf(ph.tree).props.onClose({ restoreFocus: true });
+  ph.render();
+  assert.deepEqual([gone.focused, home.focused], [0, 1]);
+  // (2) menutup sendiri: Rab 4 Budi tidak lagi merah → tombol daftar
+  const b2 = ph.open("Budi · Rab 4 Nov");
+  ph.props = without((r, d) => r.uid === 9 && d === dn4);
+  ph.render();
+  ph.pm.flush();
+  ph.render();
+  assert.equal(sugOf(ph.tree), undefined);
+  assert.deepEqual([b2.focused, home.focused, headEl.focused], [0, 2, 0]);
+  // (3) fokus sudah di tempat lain → tidak dicuri
+  ph.props = base;
+  ph.render();
+  ph.open("Budi · Rab 4 Nov");
+  const prevDoc = global.document;
+  global.document = { body: {}, activeElement: { isConnected: true } };
+  try {
+    ph.props = without((r, d) => r.uid === 9 && d === dn4);
+    ph.render();
+    ph.pm.flush();
+    ph.render();
+    assert.equal(sugOf(ph.tree), undefined);
+    assert.equal(home.focused, 2, "fokus di elemen lain → tetap");
+    // fokus jatuh ke body (popover dilepas) → dipindah
+    ph.props = base;
+    ph.render();
+    ph.open("Budi · Rab 4 Nov");
+    global.document.activeElement = global.document.body;
+    ph.props = without((r, d) => r.uid === 9 && d === dn4);
+    ph.render();
+    ph.pm.flush();
+    ph.render();
+    assert.equal(home.focused, 3);
+  } finally {
+    if (prevDoc === undefined) delete global.document; else global.document = prevDoc;
+  }
+  // (4) hari merah terakhir hilang (n = 0 → tombol daftar tidak dirender) → judul panel
+  ph.props = base;
+  ph.render();
+  ph.open("Budi · Rab 4 Nov");
+  ph.props = without(() => true);
+  ph.render();
+  ph.pm.flush();
+  ph.render();
+  assert.equal(daysBtnOf(ph.tree), undefined);
+  assert.deepEqual([home.focused, headEl.focused], [3, 1]);
+  ph.pm.unmount();
+  h.m.unmount();
+}));
+
+test("Review T4–T6 M4: tombol hari merah aria-haspopup='dialog' + aria-expanded true hanya saat popover-nya terbuka", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const ph = sugPanel(h);
+  const ex = () => panelHits(ph.tree).map((b) => [b.props["aria-haspopup"], b.props["aria-expanded"]]);
+  assert.deepEqual(ex(), [["dialog", false], ["dialog", false]]);
+  ph.open("Budi · Rab 4 Nov");
+  assert.deepEqual(ex(), [["dialog", true], ["dialog", false]]);
+  ph.open("Citra · Rab 4 Nov");
+  assert.deepEqual(ex(), [["dialog", false], ["dialog", true]]);
+  ph.open("Citra · Rab 4 Nov");
+  assert.deepEqual(ex(), [["dialog", false], ["dialog", false]]);
+  ph.pm.unmount();
+  h.m.unmount();
+}));
+
+test("Review T4–T6 M5: revealRow memfokuskan bar (role button, data-key) dengan preventScroll; baris tanpa bar (span null) → baris tabel (role row, tabIndex −1) dengan preventScroll", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const el = fakeEl();
+  const focused = [];
+  const fake = (key, role) => ({ getAttribute: (a) => (a === "data-key" ? key : a === "role" ? role : null), focus: (o) => focused.push([key, role, o]) });
+  el.querySelectorAll = (sel) => (sel === "[data-key]" ? [fake("2", "row"), fake("2", "button"), fake("8", "row")] : []);
+  h.tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  h.render();
+  const p = panelOf(h.tree).props;
+  p.onReveal("2", h.tasks.find((t) => t.id === 2));
+  clock.frames();
+  assert.deepEqual(focused, [["2", "button", { preventScroll: true }]], "bar diutamakan");
+  p.onReveal("8", h.tasks.find((t) => t.id === 8));
+  clock.frames();
+  assert.deepEqual(focused[1], ["8", "row", { preventScroll: true }], "tanpa bar → baris tabel");
+  h.render();
+  assert.equal(rowOf(h.tree, "8").props.tabIndex, -1, "baris task dapat difokus skrip");
+  assert.equal(focused.length, 2);
+  assert.deepEqual(h.writes, []);
+  h.m.unmount();
+}));
+
+test("Review T4–T6 M7: tombol Beban Tim cukup bersyarat engReady (mode Daftar hanya ≤ 640 px) — perilaku tetap", () => {
+  assert.match(jsx, /if \(v\.engReady\) extras\.push\(\{ id: "load"/);
+  assert.doesNotMatch(jsx, /v\.engReady && \(gantt \|\| v\.narrow\)/);
+});

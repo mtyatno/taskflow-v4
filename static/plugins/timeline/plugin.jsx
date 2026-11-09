@@ -1662,9 +1662,9 @@ function renderToolbar(v) {
       : { id: "auto", text: LBL.auto, role: "menuitem", haspopup: "dialog", onSelect: ac.onClick });
   }
   if (gantt && v.engReady) extras.push({ id: "crit", text: LBL.crit, role: "menuitemcheckbox", checked: v.crit, onSelect: () => v.setCrit(!v.crit) });
-  // 1d-1 R10 (§7.1): Beban Tim setelah Jalur kritis — mesin siap; Gantt (histogram di bawah grafik) ATAU layar sempit (daftar
-  // "Hari kelebihan beban", juga di Daftar). Daftar hanya ada ≤ 640 px, jadi praktis selalu salah satunya. Pref load:<page>.
-  if (v.engReady && (gantt || v.narrow)) extras.push({ id: "load", text: LBL.load, role: "menuitemcheckbox", checked: v.loadOn, onSelect: () => v.setLoadOn(!v.loadOn) });
+  // 1d-1 R10 (§7.1): Beban Tim setelah Jalur kritis — cukup mesin siap: Gantt menampilkan histogram di bawah grafik, mode
+  // Daftar (hanya ada ≤ 640 px) menampilkan daftar "Hari kelebihan beban". Pref load:<page>.
+  if (v.engReady) extras.push({ id: "load", text: LBL.load, role: "menuitemcheckbox", checked: v.loadOn, onSelect: () => v.setLoadOn(!v.loadOn) });
   // 1c-2 §7.1: Baseline (pemilih; hanya Gantt, seperti Jalur kritis) · Simpan baseline (aksi data; juga di Daftar).
   const bl = v.engReady ? v.bl : null;
   if (gantt && bl) extras.push({ id: "bl", text: LBL.bl, role: "menuitem", haspopup: "menu", onSelect: bl.onPick });
@@ -1992,13 +1992,24 @@ const LOAD_ROW_H = 28; // tinggi baris panel (R5)
 const LOAD_ROWS_MAX = 10; // baris terlihat; sisanya gulir vertikal (kolom kiri + grafik bersama)
 const LOAD_PAD = 3; // px kosong di atas batang tertinggi baris
 const LOAD_HATCH = 6; // jarak garis arsir cuti (px, diagonal 45°)
-// Tombol hari merah per panel. Anggaran DOM panel ≤ 300 (§1 butir 6): akar + judul + catatan + body + kolom nama + wadah
-// grafik + isi = 7, per baris 1 nama + 1 svg + ≤ 5 path (11 baris = 77), + 1 readout = 85; + 150 tombol = 235. Kasus terburuk
+// Tombol hari merah per panel. Anggaran DOM panel ≤ 300 (§1 butir 6): akar + baris judul (wadah + judul + tombol "Hari
+// kelebihan beban") + catatan + body + kolom nama + wadah grafik + isi = 9, per baris 1 nama + 1 svg + ≤ 5 path (11 baris =
+// 77), + 1 readout = 87; + 150 tombol = 237 (daftar hari merah desktop hanya dirender saat dibuka). Kasus terburuk
 // (hampir semua hari kerja 10 orang merah di zoom Bulan, jendela ±750 hari) memotong ke hari merah TERDEKAT tengah jendela
 // (= tengah layar saat jendela dihitung); sisanya tetap tampak merah dan muncul sebagai tombol saat digulir mendekat.
+// Review T4–T6 I1: hari merah tanpa tombol tetap terjangkau — klik/ketuk di grafik (mouse/sentuh) dan daftar "Hari
+// kelebihan beban" dari tombol di judul panel (keyboard/pembaca layar; dirender hanya saat dibuka).
 const LOAD_HIT_MAX = 150;
 const MSG_LOAD_PARTIAL = "Hanya beban dari project ini"; // P3 (a): halaman project pribadi
 const LOAD_POP_W = 340; // = width .plg-timeline-pop (perataan popover saran)
+// Review T4–T6 M1: tinggi maks popover saran = min(50vh, LOAD_POP_MAX_H) (= max-height .plg-timeline-load-pop, gulir di
+// dalam) + jarak LOAD_POP_GAP; ruang di atas panel kurang dari itu → membuka ke bawah (is-down).
+const LOAD_POP_MAX_H = 320;
+const LOAD_POP_GAP = 4;
+// Popover saran grafik: penekanan di grafik (tombol hari merah ATAU klik hari merah tanpa tombol, I1a) ditangani grafik
+// (hari sama = tutup, hari merah lain = ganti, hari biasa = tutup) — bukan "klik di luar".
+const LOAD_SUG_SKIP = ".plg-timeline-load-hit, .plg-timeline-load-view";
+let loadDaysSeq = 0; // id daftar "Hari kelebihan beban" desktop (aria-controls), unik per panel
 const LOAD_FLASH_MS = 1500; // R7: kedip baris/bar hasil "Bisa digeser"
 // Popover saran (§7.4, K50, R6): label jenis selain free; teks kosong bila tidak ada task free.
 const MSG_SUG_EMPTY = "Tidak ada task yang bisa digeser tanpa menggeser jalur kritis";
@@ -2011,13 +2022,18 @@ function sugText(it) {
   return it.kind === "free" ? head + " · slack " + Math.round(it.slack) + " hk" : head;
 }
 
-// Judul panel (§7.2, §8): n = Σ pasangan orang×hari merah (semua baris, seluruh rentang); "· {m} task belum dijadwalkan"
-// bila ada; "· {k} task bertarget bawaan 1 🍅" bila k > 25 % task berbeban (counted). Murni.
+// Σ pasangan orang×hari merah (semua baris, seluruh rentang; baris tanpa penanggung jawab tidak pernah merah). Murni.
+function loadOverCount(load) {
+  let n = 0;
+  for (const r of load && Array.isArray(load.rows) ? load.rows : []) n += r && Array.isArray(r.overDays) ? r.overDays.length : 0;
+  return n;
+}
+
+// Judul panel (§7.2, §8): n = loadOverCount; "· {m} task belum dijadwalkan" bila ada; "· {k} task bertarget bawaan 1 🍅"
+// bila k > 25 % task berbeban (counted). Murni.
 function loadHeadText(load) {
   const L = load && typeof load === "object" ? load : {};
-  let n = 0;
-  for (const r of Array.isArray(L.rows) ? L.rows : []) n += r && Array.isArray(r.overDays) ? r.overDays.length : 0;
-  let s = LBL.load + " · " + n + " hari kelebihan beban";
+  let s = LBL.load + " · " + loadOverCount(L) + " hari kelebihan beban";
   if (L.unscheduled > 0) s += " · " + L.unscheduled + " task belum dijadwalkan";
   if (L.counted > 0 && L.defaultTarget * 4 > L.counted) s += " · " + L.defaultTarget + " task bertarget bawaan 1 🍅";
   return s;
@@ -2077,11 +2093,23 @@ function loadRuns(vals) {
   return out;
 }
 
-// Geometri satu baris dalam koordinat lokal svg (x = (dn − fromDn) × px). Skala vertikal per baris = maks(kapasitas maks,
-// beban maks) di jendela, ≥ 1 🍅, setinggi LOAD_ROW_H − LOAD_PAD. Kapasitas per hari = TLLoad.capAt(res, cal, dn) (0 di hari
-// non-kerja / cuti); baris uid null tanpa kapasitas, merah, maupun cuti. Hari merah: batang = bagian ≤ kapasitas, kelebihan =
-// sisanya (di atas). Path kosong → "" (tidak dirender). Murni.
-function loadRowModel(row, cal, fromDn, toDn, px) {
+// Skala vertikal satu baris (review T4–T6 I4): maks(kapasitas maks, beban maks) atas SELURUH row.days — bukan per jendela
+// dw, sehingga tinggi batang tidak melompat saat jendela berganti (gulir/zoom). Kapasitas maks = row.capacity (capAt tidak
+// pernah melebihinya); baris tanpa penanggung jawab (capacity null): beban maks saja. Minimal 1 🍅. Milipomodoro. Murni.
+function loadScaleOf(row) {
+  const M = TLLoad.MILLI;
+  let top = M;
+  if (!row) return top;
+  if (row.uid !== null && Number.isFinite(row.capacity)) top = Math.max(top, row.capacity * M);
+  if (row.days instanceof Map) for (const d of row.days.values()) if (d && d.load > top) top = d.load;
+  return top;
+}
+
+// Geometri satu baris dalam koordinat lokal svg (x = (dn − fromDn) × px). Skala vertikal = scale (loadScaleOf, dihitung
+// sekali per hasil beban; tanpa scale → dihitung di sini), setinggi LOAD_ROW_H − LOAD_PAD. Kapasitas per hari =
+// TLLoad.capAt(res, cal, dn) (0 di hari non-kerja / cuti); baris uid null tanpa kapasitas, merah, maupun cuti. Hari merah:
+// batang = bagian ≤ kapasitas, kelebihan = sisanya (di atas). Path kosong → "" (tidak dirender). Murni.
+function loadRowModel(row, cal, fromDn, toDn, px, scale) {
   const H = LOAD_ROW_H;
   const M = TLLoad.MILLI;
   const person = row.uid !== null;
@@ -2090,14 +2118,12 @@ function loadRowModel(row, cal, fromDn, toDn, px) {
   const work = new Array(n);
   const caps = new Array(n);
   const leave = new Array(n);
-  let top = M;
+  const top = scale > 0 ? scale : loadScaleOf(row);
   for (let k = 0; k < n; k++) {
     const dn = fromDn + k;
     work[k] = TLCal.isWork(cal, dn);
     caps[k] = person ? TLLoad.capAt(row.res, cal, dn) : 0;
     leave[k] = person && work[k] && loadOnLeave(row.res, dn) ? 1 : null;
-    const d = row.days.get(dn);
-    top = Math.max(top, caps[k] * M, d ? d.load : 0);
   }
   const hOf = (milli) => (milli / top) * (H - LOAD_PAD);
   const d = { off: "", cap: "", bar: "", over: "", leave: "" };
@@ -2120,10 +2146,11 @@ function loadRowModel(row, cal, fromDn, toDn, px) {
   return { w: n * px, d };
 }
 
-// Model panel: baris (geometri) + tombol hari merah di jendela [fromDn, toDn] (≤ LOAD_HIT_MAX, terdekat tengah jendela,
-// urut baris lalu hari = urutan Tab). x tombol dalam koordinat grafik Gantt (xOf). Murni.
-function loadModel(load, cal, fromDn, toDn, rangeFrom, px) {
-  const rows = load.rows.map((row, i) => Object.assign({ row, i, key: row.uid === null ? "u-" : "u" + row.uid }, loadRowModel(row, cal, fromDn, toDn, px)));
+// Model panel: baris (geometri; scales[i] = loadScaleOf baris i) + tombol hari merah di jendela [fromDn, toDn]
+// (≤ LOAD_HIT_MAX, terdekat tengah jendela, urut baris lalu hari = urutan Tab). x tombol dalam koordinat grafik Gantt
+// (xOf). Murni.
+function loadModel(load, cal, fromDn, toDn, rangeFrom, px, scales) {
+  const rows = load.rows.map((row, i) => Object.assign({ row, i, key: row.uid === null ? "u-" : "u" + row.uid }, loadRowModel(row, cal, fromDn, toDn, px, scales ? scales[i] : 0)));
   let hits = [];
   for (const r of rows) {
     for (const dn of r.row.overDays) {
@@ -2158,28 +2185,62 @@ function loadPanelMemo() {
   return MemoLoad;
 }
 
+// Fokus hilang (review T4–T6 M3): tanpa document (Node), elemen aktif kosong / body / terlepas. Popover yang dilepas saat
+// fokus di dalamnya menjatuhkan fokus ke body — hanya saat itu fokus dipindah; fokus di elemen lain tidak dicuri.
+function loadFocusLost() {
+  const doc = typeof document !== "undefined" ? document : null;
+  if (!doc) return true;
+  const a = doc.activeElement;
+  return !a || a === doc.body || a.isConnected === false;
+}
+
 // props: {load, cal (eng.ctx.cal), result, ctx (eng.ctx), rangeFrom, px, fromDn, toDn (dw), tableW, viewW, pageKind,
 // trackRef (isi grafik, translateX), boxRef (akar, diukur view), getLeft() (scrollLeft wadah Gantt), onEditPerson(uid|null),
 // onReveal(key, task) (Task 6: revealRow view), editUid (Task 7: orang yang editornya terbuka), res (Task 7: bundel
-// kapasitas view untuk ResourceEditor; tanpa res → tanpa editor)}.
+// kapasitas view untuk ResourceEditor; tanpa res → tanpa editor), onShowDay(dn) (review T4–T6 I2: view menggulir wadah
+// Gantt ke hari itu), daysOpen + onDaysOpen(bool) (I1b: daftar "Hari kelebihan beban" desktop; statusnya milik view agar
+// tinggi wadah Gantt diukur ulang saat dibuka/ditutup)}.
 function LoadPanel(props) {
   const p = props;
   const load = p.load;
-  const model = React.useMemo(() => loadModel(load, p.cal, p.fromDn, p.toDn, p.rangeFrom, p.px), [load, p.cal, p.fromDn, p.toDn, p.rangeFrom, p.px]);
+  // I4: skala vertikal per baris dihitung sekali per hasil beban — jendela dw berganti tidak mengubahnya
+  const scales = React.useMemo(() => load.rows.map(loadScaleOf), [load]);
+  const model = React.useMemo(() => loadModel(load, p.cal, p.fromDn, p.toDn, p.rangeFrom, p.px, scales), [load, p.cal, p.fromDn, p.toDn, p.rangeFrom, p.px, scales]);
   const [tip, setTip] = React.useState(null); // readout hover {i, dn, flip}
   const tipRef = React.useRef(null);
   tipRef.current = tip;
-  const [pop, setPop] = React.useState(null); // hari merah terpilih {uid, dn, left} — popover saran (Task 6)
-  const popBtnRef = React.useRef(null); // tombol pemicu (fokus kembali)
+  // hari merah terpilih — popover saran (Task 6): {uid, dn, src: "chart" (tombol/klik grafik, popover di tingkat panel:
+  // left + down) | "list" (item daftar desktop I1b, popover di dalam item)}
+  const [pop, setPop] = React.useState(null);
+  const popBtnRef = React.useRef(null); // pemicu (fokus kembali); null = klik grafik tanpa tombol
   const viewRef = React.useRef(null);
+  const headRef = React.useRef(null); // judul (tabIndex −1): fokus terakhir bila tombol daftar tidak ada (M3)
+  const daysBtnRef = React.useRef(null);
+  const daysIdRef = React.useRef(null);
+  if (daysIdRef.current === null) daysIdRef.current = "plg-timeline-load-days-" + ++loadDaysSeq;
+  const nDays = loadOverCount(load);
+  const daysOpen = p.daysOpen === true && nDays > 0;
   const live = React.useRef(null);
-  live.current = { p, model, pop };
+  live.current = { p, model, pop, nDays };
   // Task 6 (§7.4, R6): kontributor hari merah lewat TLLoad.suggest (murni) atas keluaran beban + hasil/ctx mesin yang sama.
-  // Orang hilang / hari tidak lagi merah (data berubah saat terbuka) → popover ditutup.
   const sug = React.useMemo(() => loadSug(load, pop, p.result, p.ctx), [pop, load, p.result, p.ctx]);
+  // M3: fokus "rumah" panel = tombol "Hari kelebihan beban" bila dirender (n > 0), selain itu judul panel.
+  const focusHome = () => {
+    const b = live.current.nDays > 0 ? daysBtnRef.current : null;
+    const t = b || headRef.current;
+    if (t && typeof t.focus === "function") t.focus();
+  };
+  // Orang hilang / hari tidak lagi merah (data berubah saat terbuka) → popover ditutup; fokus yang jatuh bersama popover
+  // dipindah ke rumah panel (M3).
   React.useEffect(() => {
-    if (pop && !sug) setPop(null);
+    if (!pop || sug) return;
+    setPop(null);
+    if (loadFocusLost()) focusHome();
   }, [pop, sug]);
+  // Daftar desktop ditutup (atau n = 0) → popover item ikut tertutup.
+  React.useEffect(() => {
+    if (pop && pop.src === "list" && !daysOpen) setPop(null);
+  }, [pop, daysOpen]);
   // R5: posisi isi grafik = −scrollLeft wadah Gantt saat panel dirender (jendela/zoom berubah); selebihnya disetel handler
   // gulir view langsung lewat trackRef.
   React.useLayoutEffect(() => {
@@ -2188,34 +2249,71 @@ function LoadPanel(props) {
   });
   const act = React.useRef(null);
   act.current = {
-    // Klik tombol hari merah: buka popover (rata kiri di hari itu, dijepit ke lebar panel); pemicu yang sama → tutup.
-    openSug(uid, dn, e) {
+    // Buka popover saran hari merah (uid, dn); pemicu yang sama (hari + sumber) → tutup. Grafik: rata kiri di hari itu
+    // (dijepit ke lebar panel), ke atas panel — atau ke bawah bila ruang di atas panel < tinggi maks popover (M1).
+    openSug(uid, dn, trigger, src) {
       const L = live.current.p;
       const cur = live.current.pop;
-      if (cur && cur.uid === uid && cur.dn === dn) {
+      if (cur && cur.uid === uid && cur.dn === dn && cur.src === src) {
         setPop(null);
         return;
       }
-      popBtnRef.current = e && e.currentTarget ? e.currentTarget : null;
+      popBtnRef.current = trigger || null;
       // Task 7: satu popover panel pada satu waktu (pemicu keyboard tidak menekan "di luar" editor)
       if (L.editUid !== null && L.editUid !== undefined && typeof L.onEditPerson === "function") L.onEditPerson(null);
+      if (src === "list") {
+        setPop({ uid, dn, src });
+        return;
+      }
       const box = L.boxRef ? L.boxRef.current : null;
       const W = box && box.clientWidth > 0 ? box.clientWidth : L.tableW + L.viewW;
       const x = L.tableW + (dn - L.rangeFrom) * L.px - L.getLeft();
-      setPop({ uid, dn, left: Math.max(8, Math.min(Math.round(x), W - LOAD_POP_W - 8)) });
+      const top = box && typeof box.getBoundingClientRect === "function" ? Number(box.getBoundingClientRect().top) : NaN;
+      const winH = hasWindow() ? Number(window.innerHeight) || 0 : 0;
+      const down = winH > 0 && Number.isFinite(top) && top < Math.min(winH / 2, LOAD_POP_MAX_H) + LOAD_POP_GAP;
+      setPop({ uid, dn, src, left: Math.max(8, Math.min(Math.round(x), W - LOAD_POP_W - 8)), down });
+    },
+    // I2: fokus keyboard tombol hari merah yang (sebagian) di luar layar [getLeft(), getLeft() + viewW] → view menggulir
+    // wadah Gantt ke hari itu (panel ikut lewat onScroll) — wadah grafik panel sendiri tidak pernah digulir. Fokus karena
+    // klik mouse/sentuh (bukan :focus-visible) tidak menggulir: tombol tidak boleh bergeser dari bawah pointer di tengah klik.
+    showDay(dn, el) {
+      const L = live.current.p;
+      if (typeof L.onShowDay !== "function") return;
+      if (el && typeof el.matches === "function") {
+        try {
+          if (!el.matches(":focus-visible")) return;
+        } catch (err) {
+          /* peramban tanpa :focus-visible → perlakukan sebagai fokus keyboard */
+        }
+      }
+      const left = Number(L.getLeft()) || 0;
+      const x = (dn - L.rangeFrom) * L.px;
+      if (x >= left && x + L.px <= left + L.viewW) return;
+      L.onShowDay(dn);
     },
   };
-  const onHit = React.useRef((e, uid, dn) => act.current.openSug(uid, dn, e)).current;
-  // Esc / Tutup → fokus kembali ke tombol hari pemicu; klik luar tidak (fokus sudah pindah ke target klik).
+  const onHit = React.useRef((e, uid, dn) => act.current.openSug(uid, dn, e && e.currentTarget ? e.currentTarget : null, "chart")).current;
+  const onHitFocus = React.useRef((e, dn) => act.current.showDay(dn, e && e.currentTarget ? e.currentTarget : null)).current;
+  // Esc / Tutup → fokus kembali ke pemicu; pemicu tidak ada (klik grafik) atau terlepas (jendela berganti) → rumah panel
+  // (M3). Klik luar tidak memindah fokus (sudah pindah ke target klik).
   const closeSug = (how) => {
     setPop(null);
+    if (!how || !how.restoreFocus) return;
     const b = popBtnRef.current;
-    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+    if (b && b.isConnected !== false && typeof b.focus === "function") b.focus();
+    else focusHome();
   };
   // Klik baris saran → popover ditutup lalu view memilih + menggulir ke bar (R7). Tanpa tulisan.
   const pickSug = (it) => {
     setPop(null);
     if (typeof p.onReveal === "function") p.onReveal(it.key, it.task);
+  };
+  // I1b: item daftar desktop → popover saran di dalam item (pola daftar HP).
+  const openDay = (it, e) => act.current.openSug(it.uid, it.dn, e && e.currentTarget ? e.currentTarget : null, "list");
+  const toggleDays = () => {
+    const next = p.daysOpen !== true;
+    if (!next && pop && pop.src === "list") setPop(null);
+    if (typeof p.onDaysOpen === "function") p.onDaysOpen(next);
   };
   // Task 7: tombol nama → editor kapasitas/cuti (state editUid milik view). Nama yang sama → tutup; lain → ganti. Tutup
   // lewat Esc/Batal/Tutup/Simpan → fokus kembali ke tombol nama pemicu.
@@ -2235,26 +2333,34 @@ function LoadPanel(props) {
     if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
   };
   const edRow = p.res && p.editUid !== null && p.editUid !== undefined ? load.rows.find((r) => r.uid !== null && r.uid === p.editUid) : undefined;
-  // Readout hover: baris dari y lokal (clientY − atas wadah grafik), hari dari TLLayout.dnAt(x lokal + scrollLeft); setState
-  // HANYA bila (baris, hari) berubah (tipRef diperbarui seketika agar gerak beruntun sebelum render tidak menyetel ulang).
-  const onMove = (e) => {
+  // Sel (baris, hari) di bawah pointer: baris dari y lokal (clientY − atas wadah grafik), hari dari TLLayout.dnAt(x lokal +
+  // scrollLeft). Dipakai readout hover dan klik grafik (I1a). null = tanpa wadah/event; ok false = di luar baris/jendela.
+  const cellAt = (e) => {
     const v = viewRef.current;
-    if (!v || typeof v.getBoundingClientRect !== "function" || !e) return;
+    if (!v || typeof v.getBoundingClientRect !== "function" || !e) return null;
     const r = v.getBoundingClientRect();
     const L = live.current;
     const lx = e.clientX - r.left;
     const i = Math.floor((e.clientY - r.top) / LOAD_ROW_H);
     const dn = TLLayout.dnAt(lx + L.p.getLeft(), { from: L.p.rangeFrom }, L.p.px);
+    const ok = i >= 0 && i < L.model.rows.length && dn >= L.p.fromDn && dn <= L.p.toDn;
+    return { ok, i, dn, flip: lx > (Number(r.width) || 0) / 2 };
+  };
+  // Readout hover: setState HANYA bila (baris, hari) berubah (tipRef diperbarui seketika agar gerak beruntun sebelum render
+  // tidak menyetel ulang).
+  const onMove = (e) => {
+    const c = cellAt(e);
+    if (!c) return;
     const cur = tipRef.current;
-    if (!(i >= 0 && i < L.model.rows.length && dn >= L.p.fromDn && dn <= L.p.toDn)) {
+    if (!c.ok) {
       if (cur !== null) {
         tipRef.current = null;
         setTip(null);
       }
       return;
     }
-    if (cur && cur.i === i && cur.dn === dn) return;
-    const next = { i, dn, flip: lx > (Number(r.width) || 0) / 2 };
+    if (cur && cur.i === c.i && cur.dn === c.dn) return;
+    const next = { i: c.i, dn: c.dn, flip: c.flip };
     tipRef.current = next;
     setTip(next);
   };
@@ -2263,24 +2369,46 @@ function LoadPanel(props) {
     tipRef.current = null;
     setTip(null);
   };
-  // Isi grafik (svg + tombol merah) dimemo per model: render ulang karena readout/popover tidak membangunnya lagi.
-  const chart = React.useMemo(() => {
-    const out = [];
-    for (const r of model.rows) {
-      const paths = [];
-      for (const c of ["off", "cap", "bar", "over", "leave"]) if (r.d[c]) paths.push(<path key={c} className={"plg-timeline-load-" + c} d={r.d[c]} />);
-      out.push(
-        <svg key={"s" + r.key} className="plg-timeline-load-svg" aria-hidden="true" width={r.w} height={LOAD_ROW_H} style={{ left: model.x, top: r.i * LOAD_ROW_H }}>{paths}</svg>
-      );
+  // I1a: klik/ketuk di grafik (hari merah di luar LOAD_HIT_MAX tidak punya tombol) → hari merah → popover saran hari itu
+  // (pemicu fokus-kembali: rumah panel); hari biasa → popover grafik yang terbuka ditutup. Klik pada tombol hari merah
+  // ditangani tombolnya.
+  const onChartClick = (e) => {
+    const t = e && e.target;
+    if (t && typeof t.closest === "function" && t.closest(".plg-timeline-load-hit")) return;
+    const c = cellAt(e);
+    if (!c || !c.ok) return;
+    const row = live.current.model.rows[c.i].row;
+    if (row.uid !== null && row.overDays.indexOf(c.dn) >= 0) {
+      act.current.openSug(row.uid, c.dn, null, "chart");
+      return;
     }
-    for (const h of model.hits) {
-      out.push(
-        <button key={"h" + h.i + ":" + h.dn} type="button" className="plg-timeline-load-hit" aria-label={h.label} aria-haspopup="dialog"
-          style={{ left: h.x, top: h.i * LOAD_ROW_H, width: model.px }} onClick={(e) => onHit(e, h.uid, h.dn)} />
-      );
-    }
-    return out;
-  }, [model]);
+    const cur = live.current.pop;
+    if (cur && cur.src === "chart") setPop(null);
+  };
+  // I2 (pengaman): wadah grafik tidak pernah digulir (overflow: clip; peramban lama dengan hidden bisa menggulirnya saat
+  // fokus) — gulir tak sengaja dikembalikan ke 0 agar grafik tetap sejajar dengan Gantt.
+  const onViewScroll = (e) => {
+    const v = viewRef.current || (e && e.currentTarget);
+    if (!v) return;
+    if (v.scrollLeft) v.scrollLeft = 0;
+    if (v.scrollTop) v.scrollTop = 0;
+  };
+  // Isi grafik dimemo per model: render ulang karena readout/popover tidak membangun svg lagi; tombol hari merah dibangun
+  // ulang hanya bila hari terbuka (aria-expanded, M4) berganti.
+  const svgs = React.useMemo(() => model.rows.map((r) => {
+    const paths = [];
+    for (const c of ["off", "cap", "bar", "over", "leave"]) if (r.d[c]) paths.push(<path key={c} className={"plg-timeline-load-" + c} d={r.d[c]} />);
+    return <svg key={"s" + r.key} className="plg-timeline-load-svg" aria-hidden="true" width={r.w} height={LOAD_ROW_H} style={{ left: model.x, top: r.i * LOAD_ROW_H }}>{paths}</svg>;
+  }), [model]);
+  const popKey = pop && pop.src === "chart" ? pop.uid + ":" + pop.dn : "";
+  const hitEls = React.useMemo(() => model.hits.map((h) => (
+    <button key={"h" + h.i + ":" + h.dn} type="button" className="plg-timeline-load-hit" aria-label={h.label} aria-haspopup="dialog"
+      aria-expanded={popKey === h.uid + ":" + h.dn} style={{ left: h.x, top: h.i * LOAD_ROW_H, width: model.px }}
+      onClick={(e) => onHit(e, h.uid, h.dn)} onFocus={(e) => onHitFocus(e, h.dn)} />
+  )), [model, popKey]);
+  // I1b: daftar dibangun hanya saat terbuka (anggaran DOM panel tertutup tetap).
+  const items = React.useMemo(() => (daysOpen ? loadDayItems(load, p.cal) : null), [daysOpen, load, p.cal]);
+  const listPop = pop && pop.src === "list" ? pop : null;
   const rowsH = model.rows.length * LOAD_ROW_H;
   const tipRow = tip ? model.rows[tip.i] : null;
   const tipX = tip ? (tip.dn - p.rangeFrom) * p.px : 0;
@@ -2290,8 +2418,19 @@ function LoadPanel(props) {
   ) : null;
   return (
     <section className="plg-timeline-load" aria-label={LBL.load} ref={p.boxRef}>
-      <h3 className="plg-timeline-load-head">{loadHeadText(load)}</h3>
+      <div className="plg-timeline-load-top">
+        <h3 className="plg-timeline-load-head" tabIndex={-1} ref={headRef}>{loadHeadText(load)}</h3>
+        {nDays > 0 ? (
+          <button type="button" ref={daysBtnRef} className={cx("plg-timeline-btn", "plg-timeline-load-daysbtn", daysOpen && "is-active")}
+            aria-expanded={daysOpen} aria-controls={daysIdRef.current} onClick={toggleDays}>{MSG_LOAD_DAYS}</button>
+        ) : null}
+      </div>
       {p.pageKind !== "workspace" ? <p className="plg-timeline-load-note">{MSG_LOAD_PARTIAL}</p> : null}
+      {daysOpen ? (
+        <div className="plg-timeline-load-days" id={daysIdRef.current}>
+          {renderLoadDays({ items, pop: listPop, sug: listPop ? sug : null, onOpen: openDay, onPick: pickSug, onClose: closeSug, label: MSG_LOAD_DAYS })}
+        </div>
+      ) : null}
       <div className="plg-timeline-load-body" style={{ maxHeight: LOAD_ROWS_MAX * LOAD_ROW_H }}>
         <div className="plg-timeline-load-names" style={{ width: p.tableW, height: rowsH }}>
           {model.rows.map((r) => (r.row.uid === null
@@ -2299,14 +2438,19 @@ function LoadPanel(props) {
             : <button key={r.key} type="button" className="plg-timeline-load-name" aria-haspopup="dialog" aria-expanded={p.editUid === r.row.uid}
               onClick={(e) => openEdit(r.row.uid, e)}>{loadNameText(r.row)}</button>))}
         </div>
-        <div className="plg-timeline-load-view" ref={viewRef} style={{ height: rowsH }} onPointerMove={onMove} onPointerLeave={onLeave}>
+        <div className="plg-timeline-load-view" ref={viewRef} style={{ height: rowsH }} onPointerMove={onMove} onPointerLeave={onLeave}
+          onClick={onChartClick} onScroll={onViewScroll}>
           <div className="plg-timeline-load-track" ref={p.trackRef}>
-            {chart}
+            {svgs}
+            {hitEls}
             {tipEl}
           </div>
         </div>
       </div>
-      {pop && sug ? <SuggestPopover key={pop.uid + ":" + pop.dn} title={sugTitle(sug.name, pop.dn)} items={sug.items} left={pop.left} onPick={pickSug} onClose={closeSug} /> : null}
+      {pop && sug && pop.src !== "list"
+        ? <SuggestPopover key={pop.uid + ":" + pop.dn} title={sugTitle(sug.name, pop.dn)} items={sug.items} left={pop.left} down={pop.down === true}
+          skipSel={LOAD_SUG_SKIP} onPick={pickSug} onClose={closeSug} />
+        : null}
       {edRow ? <ResourceEditor key={"res" + edRow.uid} uid={edRow.uid} name={edRow.name} res={p.res} onClose={closeEdit} /> : null}
     </section>
   );
@@ -2315,7 +2459,7 @@ function LoadPanel(props) {
 // Popover "Bisa digeser" (Task 6; spec §7.4, K50). items = TLLoad.suggest (urutan R6 apa adanya): free → "{judul} · {n} 🍅
 // hari ini · slack {s} hk"; lainnya → "{judul} · {n} 🍅 hari ini" + label jenis. Tanpa free → pesan di atas daftar. Pola
 // UnitPopover: fokus ke dialog saat dibuka, useDismiss (Esc → fokus kembali; klik luar; tombol hari merah lain ditangani
-// tombolnya sendiri). Klik baris → onPick(item). Hanya baca.
+// tombolnya sendiri). Klik baris → onPick(item). Hanya baca. Tinggi maks min(50vh, 320px) dengan gulir di dalam (M1).
 function SuggestPopover(props) {
   const items = Array.isArray(props.items) ? props.items : [];
   const rootRef = React.useRef(null);
@@ -2331,8 +2475,9 @@ function SuggestPopover(props) {
   // skipSel (Task 8): pemicu daftar HP = ".plg-timeline-load-m-day"; bawaan tombol hari merah panel desktop.
   useDismiss(true, rootRef, (how) => close(how === "key"), typeof props.skipSel === "string" ? props.skipSel : ".plg-timeline-load-hit");
   const free = items.some((it) => it.kind === "free");
+  // down (review T4–T6 M1): ruang di atas panel tidak cukup → membuka ke bawah (is-down)
   return (
-    <div className="plg-timeline-pop plg-timeline-load-pop" role="dialog" aria-label={props.title} tabIndex={-1} ref={rootRef} style={{ left: props.left }}>
+    <div className={cx("plg-timeline-pop", "plg-timeline-load-pop", props.down === true && "is-down")} role="dialog" aria-label={props.title} tabIndex={-1} ref={rootRef} style={{ left: props.left }}>
       <div className="plg-timeline-pop-head">
         <h3 className="plg-timeline-pop-title">{props.title}</h3>
         <button type="button" className="plg-timeline-pop-close" aria-label="Tutup" onClick={() => close(true)}>×</button>
@@ -2630,6 +2775,32 @@ function loadDayItems(load, cal) {
   return out;
 }
 
+// Daftar "Hari kelebihan beban" (Task 8 HP; dipakai ulang panel desktop — review T4–T6 I1b): ≤ LOAD_M_MAX tombol item
+// (teks loadDayItems; ketuk/Enter → popover saran DI DALAM item, skipSel item) + "dan {n} lainnya". o = {items, pop
+// ({uid, dn} item terbuka | null), sug (loadSug untuk pop), onOpen(it, e), onPick(it), onClose(how), label (aria-label
+// daftar, opsional)}. Fungsi render biasa tanpa hooks → [ul, more].
+function renderLoadDays(o) {
+  const items = o.items;
+  const shown = items.length > LOAD_M_MAX ? items.slice(0, LOAD_M_MAX) : items;
+  const list = (
+    <ul key="days" className="plg-timeline-load-m-list" aria-label={o.label}>
+      {shown.map((it) => {
+        const on = !!o.pop && o.pop.uid === it.uid && o.pop.dn === it.dn;
+        return (
+          <li key={it.uid + ":" + it.dn} className="plg-timeline-load-m-item">
+            <button type="button" className="plg-timeline-load-m-day" aria-haspopup="dialog" aria-expanded={on} onClick={(e) => o.onOpen(it, e)}>{it.text}</button>
+            {on && o.sug ? (
+              <SuggestPopover key={it.uid + ":" + it.dn} title={sugTitle(o.sug.name, it.dn)} items={o.sug.items} skipSel=".plg-timeline-load-m-day" onPick={o.onPick} onClose={o.onClose} />
+            ) : null}
+          </li>
+        );
+      })}
+    </ul>
+  );
+  const more = items.length > shown.length ? <p key="more" className="plg-timeline-load-m-more">{loadMoreText(items.length - shown.length)}</p> : null;
+  return [list, more];
+}
+
 let MemoLoadList = null;
 function loadListMemo() {
   if (!MemoLoadList) MemoLoadList = React.memo ? React.memo(LoadList) : LoadList;
@@ -2686,7 +2857,6 @@ function LoadList(props) {
   };
   const persons = load.rows.filter((r) => r.uid !== null);
   const edRow = p.res && hasEdit ? persons.find((r) => r.uid === p.editUid) : undefined;
-  const shown = items.length > LOAD_M_MAX ? items.slice(0, LOAD_M_MAX) : items;
   return (
     <section className="plg-timeline-load-m" aria-label={LBL.load} ref={p.boxRef}>
       <h3 className="plg-timeline-load-head">{loadHeadText(load)}</h3>
@@ -2701,22 +2871,7 @@ function LoadList(props) {
         </div>
       ) : null}
       {items.length ? <h4 className="plg-timeline-load-m-sub">{MSG_LOAD_DAYS}</h4> : null}
-      {items.length ? (
-        <ul className="plg-timeline-load-m-list">
-          {shown.map((it) => {
-            const on = !!pop && pop.uid === it.uid && pop.dn === it.dn;
-            return (
-              <li key={it.uid + ":" + it.dn} className="plg-timeline-load-m-item">
-                <button type="button" className="plg-timeline-load-m-day" aria-haspopup="dialog" aria-expanded={on} onClick={(e) => openSug(it, e)}>{it.text}</button>
-                {on && sug ? (
-                  <SuggestPopover key={it.uid + ":" + it.dn} title={sugTitle(sug.name, it.dn)} items={sug.items} skipSel=".plg-timeline-load-m-day" onPick={pickSug} onClose={closeSug} />
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
-      ) : null}
-      {items.length > shown.length ? <p className="plg-timeline-load-m-more">{loadMoreText(items.length - shown.length)}</p> : null}
+      {items.length ? renderLoadDays({ items, pop, sug, onOpen: openSug, onPick: pickSug, onClose: closeSug }) : null}
     </section>
   );
 }
@@ -4373,6 +4528,10 @@ function TimelineViewBody(props) {
   // 1d-1 Task 8: daftar HP (Gantt maupun Daftar) — akarnya memakai loadBoxRef yang sama (diukur seperti panel desktop).
   const loadMShown = loadOn && load !== null && narrow;
   const loadMKey = loadMShown ? load.rows.length + ":" + load.rows.reduce((s, r) => s + r.overDays.length, 0) : "";
+  // Review T4–T6 I1b/M2: daftar "Hari kelebihan beban" panel desktop terbuka — statusnya di sini agar tinggi wadah diukur
+  // ulang saat dibuka/ditutup; teks judul panel juga memicu ukur ulang (bisa membungkus jadi lebih tinggi/rendah).
+  const [loadDaysOpen, setLoadDaysOpen] = React.useState(false);
+  const loadHead = loadShown || loadMShown ? loadHeadText(load) : "";
 
   const sl = vp.left === null ? TLLayout.initialScrollLeft(lay.range, lay.px, today, vp.w) : vp.left;
   const rw = TLLayout.windowRows(lay.rows.length, vp.top, vp.h + ROW_STEP * rowH, rowH);
@@ -4439,7 +4598,7 @@ function TimelineViewBody(props) {
       window.removeEventListener("resize", onResize);
       caf(id);
     };
-  }, [tableW, hasRows, listMode, loadShown, loadRowsN, loadMKey]);
+  }, [tableW, hasRows, listMode, loadShown, loadRowsN, loadMKey, loadHead, loadDaysOpen]);
 
   // Posisi gulir horizontal (R22): pertama kali / belum digulir pengguna → hari ini di 1/3; zoom atau rentang bergeser →
   // tanggal di tengah layar dipertahankan.
@@ -4515,6 +4674,10 @@ function TimelineViewBody(props) {
   React.useEffect(() => {
     if (editUid !== null && (!loadOn || (load && !load.rows.some((r) => r.uid === editUid)))) setEditUid(null);
   }, [editUid, loadOn, load]);
+  // Review T4–T6 I1b: panel ditutup → daftar desktop ikut tertutup (tidak terbuka lagi saat panel dibuka kembali).
+  React.useEffect(() => {
+    if (!loadOn && loadDaysOpen) setLoadDaysOpen(false);
+  }, [loadOn, loadDaysOpen]);
   // 1d-1 Task 6 (R7): "pilih + gulir" dari popover saran, TANPA tulisan. Baris ada di lay.rows (kunci String(task.id)) →
   // scrollTop = indeks × rowH − tinggi viewport/3 (≥ 0), scrollLeft = xOf(awal bar) − lebar viewport/3 (≥ 0; tanpa rentang
   // hanya scrollTop), jendela vp diperbarui seketika (tanpa menunggu event scroll), panel Beban Tim ikut, lalu baris + bar
@@ -4556,25 +4719,47 @@ function TimelineViewBody(props) {
     }, LOAD_FLASH_MS);
     raf(() => focusBar(k));
   };
-  // Fokus ke bar baris yang dipilih (role button, data-key) tanpa menggulir lagi; hanya bila ada di DOM.
+  // Fokus ke bar baris yang dipilih (role button, data-key) tanpa menggulir lagi; baris tanpa bar (tanpa rentang / bar di
+  // luar DOM) → baris tabel (role row, tabIndex −1; review T4–T6 M5). Hanya bila ada di DOM.
   const focusBar = (k) => {
     const root = scrollRef.current;
     if (!root || typeof root.querySelectorAll !== "function") return;
-    const list = root.querySelectorAll("[data-key]");
-    for (let n = 0; n < list.length; n++) {
-      const node = list[n];
-      if (node.getAttribute("data-key") !== k || node.getAttribute("role") !== "button") continue;
+    const quiet = (node) => {
       try {
         node.focus({ preventScroll: true });
       } catch (err) {
         /* elemen tidak bisa difokus */
       }
-      return;
+    };
+    const list = root.querySelectorAll("[data-key]");
+    let row = null;
+    for (let n = 0; n < list.length; n++) {
+      const node = list[n];
+      if (node.getAttribute("data-key") !== k) continue;
+      const role = node.getAttribute("role");
+      if (role === "button") {
+        quiet(node);
+        return;
+      }
+      if (role === "row" && row === null) row = node;
     }
+    if (row !== null) quiet(row);
   };
   const revealRef = React.useRef(null);
   revealRef.current = revealRow;
   const onReveal = React.useRef((k, t) => revealRef.current(k, t)).current; // stabil (prop memo LoadPanel)
+  // Review T4–T6 I2: Tab ke tombol hari merah di luar layar → wadah Gantt digulir lewat jalur applyLeft (setLeftRef,
+  // translateX panel seketika, jendela vp) sehingga hari itu di sepertiga kiri; panel ikut (wadah grafiknya tidak pernah
+  // digulir). Gulir oleh gestur pengguna: tata letak berubah sesudahnya tidak melompat kembali ke "hari ini". Tanpa tulisan.
+  const showDay = (dn) => {
+    const el = scrollRef.current;
+    if (!el || !Number.isFinite(dn)) return;
+    userScrolledRef.current = true;
+    applyLeft(el, TLLayout.xOf(dn, lay.range, lay.px) - vp.w / 3);
+  };
+  const showDayRef = React.useRef(null);
+  showDayRef.current = showDay;
+  const onShowDay = React.useRef((dn) => showDayRef.current(dn)).current; // stabil (prop memo LoadPanel)
   const [blOpen, setBlOpen] = React.useState(false); // pemilih Baseline (1c-2)
   const [blDlg, setBlDlg] = React.useState(null); // dialog Simpan baseline: {id, bases (potret), rev, busy}
   const blDlgRef = React.useRef(null);
@@ -4989,6 +5174,7 @@ function TimelineViewBody(props) {
       load, cal: eng.ctx.cal, result: eng.result, ctx: eng.ctx, rangeFrom: lay.range.from, px: lay.px, fromDn: dw.fromDn, toDn: dw.toDn,
       tableW, viewW: vp.w, pageKind, trackRef: loadTrackRef, boxRef: loadBoxRef, getLeft, onEditPerson: setEditUid, onReveal,
       editUid, res: resEd, // Task 7
+      onShowDay, daysOpen: loadDaysOpen, onDaysOpen: setLoadDaysOpen, // review T4–T6 I2, I1b
     })
     : null;
   return (
@@ -6871,7 +7057,7 @@ const pure = {
   resRecId, resourceStore, useResources, RES_ENTITY, MSG_RES_STALE, MSG_RES_WAIT, MSG_RES_TOO_LARGE, // 1d-1 Task 2
   ResourceEditor, resFormCheck, resCaption, MSG_RES_SAVE_FAIL, MSG_RES_CAP_BAD, MSG_RES_DATE_BAD, // 1d-1 Task 7
   usePref, peopleOf, useLoad, // 1d-1 Task 3
-  LoadPanel, loadHeadText, loadTipText, LOAD_HIT_MAX, // 1d-1 Task 5
+  LoadPanel, loadHeadText, loadTipText, LOAD_HIT_MAX, loadScaleOf, // 1d-1 Task 5 (+ review T4–T6 I4)
   SuggestPopover, // 1d-1 Task 6
   LoadList, loadDayItems, LOAD_M_MAX, // 1d-1 Task 8
   CAL_ENTITY, CAL_MAX_BYTES, MSG_CAL_TOO_LARGE, MSG_CAL_LOST, SEC_TIMING,
