@@ -4107,7 +4107,8 @@ const PREF_DEFAULTS = Object.freeze({
   mode: "gantt",
   section: false,
   crit: false,
-  bl: 0
+  bl: 0,
+  load: false
 });
 const PREF_CHOICES = Object.freeze({
   zoom: ["day", "week", "month"],
@@ -4117,6 +4118,7 @@ const PREF_CHOICES = Object.freeze({
 });
 
 // "zoom:<page>", "sort:<page>", "cols:<page>", "mode:<page>", "crit:<page>" (1c-1 R18); seksi Jadwal global: "section:open".
+// 1d-1 (K56, R10): "load:<page>" = panel Beban Tim terbuka (boolean, bawaan false — disimpan/divalidasi seperti crit).
 // 1c-2 P2 (a): "bl:<page>" = baseline aktif yang DITAMPILKAN (0 = "Tidak ada", 1–3 = slot) per perangkat per halaman —
 // pilihan tampilan, tidak pernah ditulis ke record.
 // bl:<page> dilipat A–Z → a–z (ASCII saja, sama dengan NOCASE SQLite host: halaman proj_<nama kanonik> dan
@@ -4312,10 +4314,12 @@ function missingYearsNote(years) {
 // Tata letak lewat objek yang bisa diganti tes (TLLayout beku; tes R24 memata-matai jumlah panggilan).
 // Satu pintu ke mesin murni (spy di tes): tata letak (R24) dan CPM (1c-1 R7; dipanggil hanya dari useEngine).
 // explain (1c-1 R21, Task 12): hanya saat "Kenapa dijadwalkan di sini?" dibuka — kalender + readExt = masukan run.
+// load (1d-1 R10): TLLoad.run, dipanggil hanya dari useLoad (panel Beban Tim terbuka + mesin siap).
 const engine = {
   layout: args => TLLayout.layout(args),
   run: ctx => TLCpm.run(ctx),
-  explain: (result, key, cal, readExt) => TLCpm.explain(result, key, cal, readExt)
+  explain: (result, key, cal, readExt) => TLCpm.explain(result, key, cal, readExt),
+  load: input => TLLoad.run(input)
 };
 const DEFAULT_CAL_DATA = TLCal.normalize(TLCal.DEFAULT_CAL);
 
@@ -4435,6 +4439,54 @@ function unitCaption(u, context, userId) {
   const head = name ? MSG_BY + name : MSG_BY_OTHER;
   const d = typeof u.updatedAt === "string" ? TLCpm.jkt(u.updatedAt) : null;
   return Number.isInteger(d) ? head + " · " + TLCal.fmtShort(d) : head;
+}
+
+// Baris orang panel Beban Tim (1d-1 R4, P2 (a); tanpa perubahan host — plugin tidak bisa membaca anggota workspace, F5):
+// peopleOf({byAssignee, ctxTasks, resources, currentUser, collaborators, userId}) → [{uid, name, res}], urut uid naik
+// (deterministik; TLLoad.run sendiri mengurutkan baris menurut nama). uid lewat TLLoad.uidOf (userId host bisa string
+// JWT `sub`).
+//   byAssignee (halaman workspace): pengguna aktif ∪ penanggung jawab task di ctxTasks (= eng.ctx.tasks, daftar lengkap
+//   halaman) yang hidup, belum selesai, dan tidak berulang (predikat TLLoad.isLive/isDone = cpm.js) ∪ uid pemilik record
+//   `resource` halaman (kunci `resources` = useResources().map). Pribadi: satu baris pengguna aktif.
+//   Nama (pola unitCaption): pengguna aktif → currentUser (id cocok), lainnya → collaborators; display_name || username;
+//   tidak ditemukan / kosong → "Anggota #{uid}". res = resources.get(uid).res (terdekode), selain itu null (bawaan).
+const NO_PEOPLE = Object.freeze([]);
+const memberName = uid => "Anggota #" + uid;
+function peopleOf(o) {
+  const x = o && typeof o === "object" ? o : {};
+  const me = TLLoad.uidOf(x.userId);
+  const resources = x.resources instanceof Map ? x.resources : EMPTY_RES;
+  const uids = new Set();
+  if (me !== null) uids.add(me);
+  if (x.byAssignee === true) {
+    for (const t of Array.isArray(x.ctxTasks) ? x.ctxTasks : []) {
+      if (!t || typeof t !== "object" || !TLLoad.isLive(t) || TLLoad.isDone(t) || t.recurrence_type) continue;
+      const u = TLLoad.uidOf(t.assigned_to);
+      if (u !== null) uids.add(u);
+    }
+    for (const k of resources.keys()) {
+      const u = TLLoad.uidOf(k);
+      if (u !== null) uids.add(u);
+    }
+  }
+  const nameOf = v => v && typeof v === "object" ? String(v.display_name || v.username || "").trim() : "";
+  const names = new Map();
+  for (const c of Array.isArray(x.collaborators) ? x.collaborators : []) {
+    const u = c && typeof c === "object" ? TLLoad.uidOf(c.id) : null;
+    if (u !== null && !names.has(u)) names.set(u, nameOf(c));
+  }
+  const cu = x.currentUser && typeof x.currentUser === "object" ? x.currentUser : null;
+  if (me !== null && cu && TLLoad.uidOf(cu.id) === me) names.set(me, nameOf(cu));
+  const out = [];
+  for (const uid of [...uids].sort((a, b) => a - b)) {
+    const ent = resources.get(uid);
+    out.push({
+      uid,
+      name: names.get(uid) || memberName(uid),
+      res: ent && ent.res ? ent.res : null
+    });
+  }
+  return out;
 }
 
 // Model dialog = TLPlan.preview + WBS/judul untuk tampilan (rows: wbs; notMoved: task + wbs). Murni.
@@ -5486,6 +5538,49 @@ function useEngine(api, opts) {
       rerun
     };
   }, [out, list === null, failed, readExt]);
+}
+
+// Beban Tim (1d-1 R1, R2, R10, K56): useLoad({open, eng, people, todayDn, byAssignee, ownerUid, api}) → keluaran
+// TLLoad.run atau null. Dihitung (engine.load = satu pintu TLLoad.run, di-spy tes) HANYA bila panel terbuka DAN mesin siap
+// (eng.status "ready" + result + ctx) DAN todayDn bilangan hari — panel tertutup = 0 run. Masukan = eng.ctx (daftar
+// lengkap halaman, kalender halaman, unit, readExt) + eng.result: sumber yang sama dengan Gantt/mesin (R1, R2).
+// Memo [open, eng.result, eng.ctx, peopleKey, todayDn, byAssignee, ownerUid]; peopleKey = JSON uid + nama + res, jadi
+// render ulang tanpa perubahan data (larik people baru berisi sama) tidak menghitung ulang. Lempar tak terduga → null +
+// satu peringatan (logWarn ke api.log.warn; pola useEngine). Hook ini tidak pernah menulis (K27/R25).
+function useLoad(opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const eng = o.eng && typeof o.eng === "object" ? o.eng : ENGINE_IDLE;
+  const open = o.open === true;
+  const people = Array.isArray(o.people) ? o.people : NO_PEOPLE;
+  const byAssignee = o.byAssignee === true;
+  // kunci isi (bukan identitas): dihitung ulang hanya bila larik people berganti (view memo-kan larik itu)
+  const peopleKey = React.useMemo(() => open ? JSON.stringify(people.map(p => p && typeof p === "object" ? [p.uid, p.name, p.res === undefined ? null : p.res] : null)) : "", [open, people]);
+  const warned = React.useRef(false);
+  const apiRef = React.useRef(o.api);
+  apiRef.current = o.api;
+  return React.useMemo(() => {
+    if (!open || eng.status !== "ready" || !eng.result || !eng.ctx || !Number.isInteger(o.todayDn)) return null;
+    try {
+      const ctx = eng.ctx;
+      return engine.load({
+        tasks: ctx.tasks,
+        cal: ctx.cal,
+        readExt: ctx.readExt,
+        result: eng.result,
+        units: ctx.units,
+        people,
+        byAssignee,
+        ownerUid: o.ownerUid,
+        D: o.todayDn
+      });
+    } catch (e) {
+      if (!warned.current) {
+        warned.current = true;
+        logWarn(apiRef.current, "beban tim gagal dihitung:", e);
+      }
+      return null;
+    }
+  }, [open, eng.result, eng.ctx, peopleKey, o.todayDn, byAssignee, o.ownerUid]);
 }
 
 // 4d. Render (fungsi biasa dipanggil langsung → pohon utuh untuk tes anggaran DOM; tanpa hooks di dalamnya).
@@ -8072,6 +8167,7 @@ function TimelineViewBody(props) {
   const [mode, setMode] = usePref(api, "mode", page);
   const [critPref, setCrit] = usePref(api, "crit", page);
   const [blPref, setBl] = usePref(api, "bl", page); // 1c-2 P2 (a): baseline aktif = pref per perangkat per halaman
+  const [loadPref, setLoadOn] = usePref(api, "load", page); // 1d-1 (K56, R10): panel Beban Tim, bawaan OFF
   const [calOpen, setCalOpen] = React.useState(false);
   const calBtnRef = React.useRef(null);
   const pageKind = context.pageKind === "workspace" ? "workspace" : "project";
@@ -8091,6 +8187,30 @@ function TimelineViewBody(props) {
     scopeTasks: context.scopeTasks,
     calData: cal.data,
     units: un.units
+  });
+  // 1d-1 Task 3 (R4, R10, K56): panel Beban Tim — kapasitas/cuti dimuat (useResources) dan beban dihitung (useLoad) HANYA
+  // saat pref load:<page> menyala; baris orang dari data yang ada (peopleOf, P2 (a)). Hanya baca (R25). Dipakai toolbar
+  // (setLoadOn, T4), panel (load, T5–T6), dan editor kapasitas (resources: map/pulled/store, T7).
+  const loadOn = loadPref === true;
+  const resources = useResources(api, pageKind, context.listId, loadOn);
+  const meUid = TLLoad.uidOf(api.env ? api.env.userId : null);
+  const engTasks = eng.ctx ? eng.ctx.tasks : NO_TASKS;
+  const people = React.useMemo(() => loadOn ? peopleOf({
+    byAssignee: pageKind === "workspace",
+    ctxTasks: engTasks,
+    resources: resources.map,
+    currentUser: context.currentUser,
+    collaborators: context.collaborators,
+    userId: meUid
+  }) : NO_PEOPLE, [loadOn, pageKind, engTasks, resources.map, context.currentUser, context.collaborators, meUid]);
+  const load = useLoad({
+    open: loadOn,
+    eng,
+    people,
+    todayDn,
+    byAssignee: pageKind === "workspace",
+    ownerUid: meUid,
+    api
   });
   const engResult = eng.status === "ready" ? eng.result : null;
   // 1c-2 (K30): resolver jangkar untuk rentang pelanggaran task berjalan via actual.start (layout langkah 7) — SUMBER yang
@@ -11273,6 +11393,10 @@ const pure = {
   MSG_RES_WAIT,
   MSG_RES_TOO_LARGE,
   // 1d-1 Task 2
+  usePref,
+  peopleOf,
+  useLoad,
+  // 1d-1 Task 3
   CAL_ENTITY,
   CAL_MAX_BYTES,
   MSG_CAL_TOO_LARGE,
