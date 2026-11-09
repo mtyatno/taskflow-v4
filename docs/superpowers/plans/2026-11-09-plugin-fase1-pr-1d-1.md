@@ -15,6 +15,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-11-06-plugin-fase1-1d-beban-tim-design.md` — K45–K50, K55–K56, K58–K59, §4, §5.1–§5.2, §5.5, §6, §7.1–§7.4, §7.6–§7.7, §8, §9, §10, §11 R3–R4. Jawaban pemilik: Q3 (a), Q4 (a), Q5 (a). Koreksi spec dicatat di "Keputusan rencana" R1–R4. Keputusan pemilik P1–P3 ada di akhir dokumen ini.
 
+**Keputusan pemilik (2026-11-09 07.42 WIB): P1 (a) — teks whatsnew v501 disetujui apa adanya; P2 (a) — baris = pengguna aktif + penanggung jawab task + pemilik record kapasitas, tanpa perubahan host, "(bukan anggota)" dihapus; P3 (a) — halaman project pribadi "Hanya beban dari project ini", workspace tanpa catatan.**
+
 **Basis kode:** `main` @ `a04f0e6` (setelah #128 1d-0).
 - SW `taskflow-v500-target-pomodoro`, `app.css?v=384`, IndexedDB v7, `index.html` 46.236 baris, ADR terakhir ADR-047.
 - Timeline 1.2.0: `plugin.jsx` 5.717, `schedule.js` 651, `cpm.js` 535, `plan.js` 568, `layout.js` 643, `calendar.js` 250, `style.css` 1.935 baris.

@@ -1,4 +1,4 @@
-# Menulis plugin Alurik (Fase 0a–1c-2)
+# Menulis plugin Alurik (Fase 0a–1d-1)
 
 Plugin = fitur opsional yang dinyalakan/dimatikan pengguna di **Pengaturan › Plugin**. Kodenya hidup di
 `static/plugins/<id>/`, bukan di `index.html`, dan baru dieksekusi saat plugin ON dan slot-nya dirender.
@@ -331,6 +331,27 @@ ringkas per task (±55 B/task), `ref` = `{"$task": <id>}`, `s`/`f` tanggal ISO, 
   halaman workspace), `save`/`remove` lewat satu fungsi penulis `saveBaseline`, dipanggil hanya dari dialog Simpan
   baseline. Baseline yang **ditampilkan** = preferensi per perangkat `bl:<page>` (`api.storage`), bukan record.
 
+**Contoh keempat: kapasitas dan cuti Timeline 1.3** (`manifest.records.resource = {"conflict": "lww", "maxBytes": 4096}`).
+Satu record per orang per halaman untuk panel Beban Tim (§6.2), data `{v: 1, capacity, leave: [{from, to, note}], by}`.
+
+- **Id per orang, scope tersandi.** `res@list:<lid>:<uid>` (scope `list:<lid>`, workspace; semua anggota boleh mengedit
+  kapasitas siapa pun) atau `res@user:<uid>` (scope `user`, halaman project pribadi). `uid` = id pengguna bilangan bulat
+  tanpa nol di depan; id hanya dibuat oleh `resRecId`. Dua anggota yang mengedit orang berbeda tidak saling menimpa.
+- **Normalisasi saat simpan.** `capacity` bilangan bulat 0–40 🍅/hari; `leave` ≤ 50 rentang ISO 1970–2199 dengan
+  `from ≤ to`, rentang yang tumpang tindih atau bersebelahan digabung; `note` ≤ 60 code point (pasangan surrogate tidak
+  dibelah); `by` = `api.env.userId` yang dinormalkan ke bilangan (host bisa memberi string). Waktu simpan = `updated_at`
+  record (tidak ada `updatedAt` di `data`). Record absen = 8 🍅/hari tanpa cuti dan **tidak pernah dibuat otomatis**;
+  data rusak/asing dibaca sebagai bawaan dan tidak ditulis ulang.
+- **Batas ukuran dua sisi.** 4.096 byte UTF-8 JSON ringkas: plugin menolak sebelum baca/tulis apa pun ("Data kapasitas
+  terlalu besar — kurangi cuti atau catatannya"), runtime menolak hal yang sama (`TOO_LARGE`). 4.096 diterima, 4.097
+  ditolak (teruji di `tests/offline/timeline_runtime.test.js`; sisi server di `tests/test_plugin_timeline_records.py`).
+- **Satu penulis, atas Simpan.** Adaptor `resourceStore`: `loadScope` (satu `list` se-scope berhalaman, hanya selama
+  panel Beban Tim terbuka) dan `get` hanya membaca. `saveResource` satu-satunya `records.put`, dipanggil hanya dari
+  tombol Simpan editor kapasitas, dengan CAS potret `{exists, updatedAt}` yang diambil saat editor dibuka (berbeda →
+  "Data berubah sejak dialog dibuka — muat ulang", 0 tulis). Workspace: Simpan terkunci "Menunggu data workspace…"
+  sampai data termuat **dan** record lokal orang itu ada **atau** peristiwa `pulled` sudah menyala sejak view dipasang
+  (aturan §8 butir 2). Halaman pribadi terkunci hanya sampai data termuat (tanpa teks).
+
 Semua `data.*` membaca IndexedDB, jadi bekerja offline. Tidak ada di v1: `api.settings` (kolom `settings` server sudah disimpan dan disinkron tetapi belum diekspos), penulisan data host
 selain `api.taskExt`. Fungsi hanya ditambah di v1; perubahan tak kompatibel = `apiVersion: 2`.
 
@@ -379,7 +400,7 @@ View ke-4 di halaman daftar task, setelah Normal/Compact/Kanban.
 | `listId`, `projectName` | workspace (`slist_<id>`) atau nama project (`proj_<nama>`) |
 | `tasks` | task aktif hasil filter panel (sama dengan daftar Normal) |
 | `scopeTasks` | semua task halaman itu selain `archived` (termasuk selesai), filter panel diterapkan |
-| `collaborators`, `currentUser` | anggota workspace, pengguna aktif |
+| `collaborators`, `currentUser` | `collaborators` = **semua rekan dari semua workspace pengguna** (dari `/api/collaborators`, tanpa diri sendiri), **bukan** anggota workspace halaman ini; `currentUser` = pengguna aktif |
 | `onTaskClick(task)`, `isSelected(task)` | buka detail (sadar Live Edit: membuka panel samping bila Live Edit ON), status terpilih |
 | `liveEdit` | `true` bila panel Live Edit aktif |
 | `showToast(message, type)` | toast host |
@@ -402,6 +423,28 @@ jawaban terbaru dipakai). Mesin dijalankan **setelah gambar pertama** (`requestA
 lalu nilai itu menyusul; selama mesin belum siap atau gagal, kontrol otomatis disembunyikan. Hasil hitung hanya untuk
 tampilan (§8 butir 9). Gestur pada task otomatis menulis task itu dan turunannya dengan **satu** `setMany` (> 20
 turunan → pratinjau dulu); Urungkan = `setMany` atas nilai mentah sebelumnya (`null` untuk kunci yang dulu tidak ada).
+
+Koreksi (1d-1): versi README sebelumnya menyebut `collaborators` sebagai "anggota workspace". Daftar itu berisi rekan
+dari **semua** workspace pengguna, dan daftar anggota per workspace tidak tersimpan lokal, sehingga plugin tidak bisa
+mengetahui siapa anggota workspace halaman ini. Pakai `collaborators` hanya untuk nama.
+
+**Timeline 1.3 (Beban Tim, Fase 1d-1).** Panel "Beban Tim" di bawah Gantt (tombol toolbar, preferensi per perangkat
+`load:<page>`, bawaan tertutup) menampilkan beban 🍅 terjadwal tiap orang per hari dibanding kapasitasnya; hari yang
+melebihi kapasitas merah. Klik hari merah membuka saran "Bisa digeser" (pilih + gulir ke bar, tanpa menulis). Mesin murni
+`load.js` (`TLLoad`) hanya berjalan saat panel terbuka, setelah mesin 1c siap dan data kapasitas termuat (gagal dimuat →
+kapasitas bawaan, judul bertanda "kapasitas belum termuat"), di atas konteks mesin yang sama: daftar lengkap halaman
+(termasuk task yang disembunyikan filter panel) dan satu kalender halaman.
+
+- **Tanggal = bar tersimpan.** Beban dibagi rata ke hari kerja dalam rentang yang **digambar** bar Gantt (tanggal
+  tersimpan, `TLSched.spanOf` = `row.span`), juga untuk task otomatis yang drift; ES/EF mesin hanya dipakai untuk slack dan
+  status kritis saran.
+- **Baris** = pengguna aktif + penanggung jawab (`assigned_to`) setiap task hidup yang belum selesai dan tidak berulang
+  di lingkup + pemilik record `resource` di halaman itu. Nama dari `currentUser`/`collaborators`, selain itu
+  "Anggota #{id}"; tanpa penanda "(bukan anggota)" (tidak bisa dipastikan, lihat koreksi di atas). "Belum ditugaskan"
+  terakhir, hanya bila ada bebannya. Halaman project pribadi: satu baris pengguna aktif + catatan "Hanya beban dari
+  project ini".
+- **Render.** Satu `<svg>` per baris orang (tanpa sel per hari), ≤ 150 tombol hari merah; ≤ 640 px diganti daftar
+  "Hari kelebihan beban". Kapasitas/cuti diatur dari nama orang (record `resource`, §5).
 
 ### 6.3 `taskDetail.sections` (Fase 1)
 
@@ -477,6 +520,9 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
    `sync.done`, `pulled`, `onChange`, atau `app.dayChanged`. Data yang berbeda dari hasil hitung ditampilkan sebagai
    drift (banner/seksi + "Tinjau"); dua perangkat yang menulis hasil hitung masing-masing di latar akan saling
    menimpa. Timeline menjaganya dengan tes sumber (panggilan tulis hanya di fungsi daftar-izin) + tes perilaku (spy 0).
+   Beban Tim (Timeline 1.3) hanya menghitung: membuka/menutup panel, menghitung beban dan saran, `sync.done`, `pulled`,
+   `onChange` record `resource`, dan `app.dayChanged` tidak pernah menulis. Satu-satunya tulisan barunya adalah
+   `saveResource` atas tombol Simpan editor kapasitas; record `resource` yang belum ada tidak pernah dibuat otomatis.
 10. **Aktual dicatat dari gestur perangkat itu (pomodoro selesai, task selesai), isi bila kosong — tidak pernah dari
    sync** (K42 setelah amandemen). Timeline mencatat `timeline.actual.start` hanya pada event `pomodoro.ended` dan
    `task.completed` (keduanya hanya dari gestur lokal), memakai tanggal Asia/Jakarta dari `endedAt`/`completedAt`

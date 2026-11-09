@@ -19,7 +19,7 @@ test("manifest persis", () => {
     id: "timeline",
     name: "Timeline",
     description: "Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.",
-    version: "1.2.0",
+    version: "1.3.0",
     minApi: 1,
     defaultEnabled: false,
     slots: ["taskList.views", "taskDetail.sections"],
@@ -28,9 +28,9 @@ test("manifest persis", () => {
       "taskList.views": [{ id: "gantt", label: "Timeline", icon: { path: "M2 4h7M5 8h8M3 12h5" }, pages: ["project", "workspace"] }],
       "taskDetail.sections": [{ id: "schedule", label: "Jadwal", order: 10 }],
     },
-    records: { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 } },
+    records: { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 }, resource: { conflict: "lww", maxBytes: 4096 } },
     taskExt: { keys: ["start", "duration", "deps", "mode", "constraint", "actual"] },
-    parts: ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "layout.js", "drag.js"],
+    parts: ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "load.js", "layout.js", "drag.js"],
   });
 });
 
@@ -153,7 +153,7 @@ test("calendarStore: calIdFor/scopeFor — task workspace → cal@list:<id>, tan
   assert.deepEqual(T.calTarget(0), { id: "cal@user", scope: "user" });
 });
 
-test("calendarStore, projectStore, dan baselineStore satu-satunya yang menyentuh api.records; tiap entitas hanya di adaptornya (R5, R6, 1c-2 K41)", () => {
+test("calendarStore, projectStore, baselineStore, dan resourceStore satu-satunya yang menyentuh api.records; tiap entitas hanya di adaptornya (R5, R6, 1c-2 K41, 1d-1 K48)", () => {
   const hits = jsx.match(/\.records\b/g) || [];
   assert.ok(hits.length > 0);
   const body = (name) => {
@@ -165,8 +165,9 @@ test("calendarStore, projectStore, dan baselineStore satu-satunya yang menyentuh
   const [cs, ce] = body("calendarStore");
   const [ps, pe] = body("projectStore");
   const [bs, be] = body("baselineStore");
+  const [rs, re] = body("resourceStore");
   const strip = (s) => s.replace(/\/\/[^\n]*/g, "");
-  const cuts = [[cs, ce], [ps, pe], [bs, be]].sort((a, b) => a[0] - b[0]);
+  const cuts = [[cs, ce], [ps, pe], [bs, be], [rs, re]].sort((a, b) => a[0] - b[0]);
   let outside = "";
   let at = 0;
   for (const [s0, e0] of cuts) { outside += jsx.slice(at, s0); at = e0; }
@@ -181,6 +182,11 @@ test("calendarStore, projectStore, dan baselineStore satu-satunya yang menyentuh
   assert.match(strip(jsx.slice(bs, be)), /BL_ENTITY/);
   assert.doesNotMatch(strip(jsx.slice(cs, ce)) + strip(jsx.slice(ps, pe)), /BL_ENTITY|"baseline"/);
   assert.match(jsx, /const BL_ENTITY = "baseline";/);
+  // 1d-1 Task 2: resourceStore hanya entitas resource (RES_ENTITY); adaptor lain tidak menyentuhnya
+  assert.doesNotMatch(strip(jsx.slice(rs, re)), /CAL_ENTITY|PRJ_ENTITY|BL_ENTITY|"calendar"|"project"|"baseline"/);
+  assert.match(strip(jsx.slice(rs, re)), /RES_ENTITY/);
+  assert.doesNotMatch(strip(jsx.slice(cs, ce)) + strip(jsx.slice(ps, pe)) + strip(jsx.slice(bs, be)), /RES_ENTITY|"resource"/);
+  assert.match(jsx, /const RES_ENTITY = "resource";/);
 });
 
 test("registrasi: view gantt (taskList.views) dan seksi schedule order 10 (taskDetail.sections), komponen fungsi, sesuai contributes", () => {
@@ -3379,7 +3385,9 @@ test("spy taskExt.set/setMany + records.put/remove = 0 (view + useBaselines terp
 // terhitung (`api["taskExt"]`), atau destrukturisasi yang bisa melewati pagar.
 // 1c-2 Task 8: +recordActual — satu-satunya penulis OTOMATIS (dipicu event host gestur lokal pomodoro.ended/task.completed,
 // "isi bila kosong" {actual:{start}}); spy perilaku memastikan sync.done/pulled/onChange/refresh tetap 0 tulis.
-const FENCE_ALLOW = new Set(["issue", "issueMany", "write", "writeMany", "setAuto", "save", "saveBaseline", "recordActual"]);
+// 1d-1 Task 2: +saveResource — satu-satunya records.put record `resource` (tombol Simpan editor kapasitas/cuti, K27/R25);
+// spy perilaku Beban Tim (panel terbuka, sync.done/pulled/onChange resource/app.dayChanged) tetap 0 tulis.
+const FENCE_ALLOW = new Set(["issue", "issueMany", "write", "writeMany", "setAuto", "save", "saveBaseline", "recordActual", "saveResource"]);
 function fenceScan(code) {
   const parser = require("@babel/parser");
   const ast = parser.parse(code, { sourceType: "script" });
@@ -3430,7 +3438,7 @@ function fenceScan(code) {
   return { hits, bad };
 }
 
-test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.put(' / 'records.remove(' berada di dalam fungsi issue|issueMany|write|writeMany|setAuto|save|saveBaseline|recordActual", () => {
+test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.put(' / 'records.remove(' berada di dalam fungsi issue|issueMany|write|writeMany|setAuto|save|saveBaseline|recordActual|saveResource", () => {
   // pagar memeriksa dirinya sendiri: pelanggaran sintetis harus tertangkap, pola sah tidak
   const caught = (src) => fenceScan(src).bad.length > 0;
   assert.ok(caught("function useX(api) { api.records.put('project', 'x', {}, {}); }"), "fungsi lain");
@@ -3444,6 +3452,11 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
   assert.ok(caught("function useBaselines(api) { React.useEffect(() => { api.records.remove('baseline', 'b'); }); }"), "records.remove di efek");
   assert.ok(caught("function install(api) { api.events.on('sync.done', () => api.taskExt.set(1, {actual: {}})); }"), "pendengar event di luar recordActual");
   assert.ok(caught("function recordActuals(api) { api.taskExt.set(1, {}); }"), "nama mirip bukan daftar-izin");
+  // 1d-1 Task 2: tulis record resource dari efek hook pemuat → tertangkap; nama mirip saveResource juga
+  assert.ok(caught("function useResources(api) { React.useEffect(() => { api.records.put('resource', 'r', {}, {}); }); }"), "records.put resource di efek useResources");
+  assert.ok(caught("function saveResources(api) { return api.records.put('resource', 'r', {}, {}); }"), "nama mirip saveResource bukan daftar-izin");
+  assert.equal(fenceScan("function saveResource(api) { return api.records.put('resource','r',{}, {}); }").bad.length, 0, "pola sah saveResource");
+  assert.deepEqual(fenceScan("function saveResource(api) { return api.records.put('resource','r',{}, {}); }").hits.map((h) => h.fn + ":" + h.call), ["saveResource:records.put"]);
   const okSrc = "function issue(api) { const send = () => api.taskExt.setMany([]); return send() || api.taskExt.set(1, {}); }" +
     "const o = { save(api) { return api.records.put('calendar', 'c', {}, {}); }, setAuto(api) { return api.records.put('project', 'p', {}, {}); } };" +
     "function S(api) { const write = (p) => api.taskExt.set(1, p); return write; }" +
@@ -3465,6 +3478,7 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
     "save:records.put": 1, "setAuto:records.put": 1,
     "saveBaseline:records.put": 1, "saveBaseline:records.remove": 1, // 1c-2 Task 4: simpan/hapus baseline (K41)
     "recordActual:taskExt.set": 1, // 1c-2 Task 8: catat mulai aktual dari pomodoro.ended/task.completed (K42 diamandemen)
+    "saveResource:records.put": 1, // 1d-1 Task 2: simpan kapasitas/cuti (record resource, tombol Simpan)
   });
   // regex mentah tetap cocok dengan jumlah hit AST (tidak ada pemanggilan yang luput dari parser)
   const raw = (code.match(/taskExt\.set\(|taskExt\.setMany\(|records\.put\(|records\.remove\(/g) || []).length;
@@ -3878,14 +3892,14 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   }
   // lebar, mesin siap: urutan R23
   const h = await swView(clock);
-  assert.deepEqual(toolbarTexts(h.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang", "Kalender kerja", "Urutkan menurut Mulai"]); // 1c-2 T5: §7.1
+  assert.deepEqual(toolbarTexts(h.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang", "Kalender kerja", "Urutkan menurut Mulai"]); // 1c-2 T5: §7.1; 1d-1 T4: Beban Tim
   assert.equal(moreOf(h.tree), undefined);
   h.m.unmount();
   // Live Edit: tiga tombol pindah ke 'Lainnya' (posisi sama di urutan), Kolom tetap di toolbar
   const le = await swView(clock, { ctx: { liveEdit: true } });
   assert.deepEqual(toolbarTexts(le.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "[Lainnya]", "Kalender kerja", "Urutkan menurut Mulai", "Kolom"]);
   const mm = moreOf(le.tree);
-  assert.deepEqual(mm.props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+  assert.deepEqual(mm.props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
   // MoreMenu: tombol 'Lainnya' aria-haspopup="menu"; dibuka → role menu dengan item menuitemcheckbox/menuitem
   const mt = mount(T.MoreMenu);
   let t = mt.render(mm.props);
@@ -3898,7 +3912,7 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   assert.ok(menu);
   const its = nodes(menu, (n) => n.type === "button");
   assert.deepEqual(its.map((n) => [txt(n).trim(), n.props.role, n.props["aria-checked"]]), [
-    ["Jadwal otomatis", "menuitemcheckbox", false], ["Jalur kritis", "menuitemcheckbox", false],
+    ["Jadwal otomatis", "menuitemcheckbox", false], ["Jalur kritis", "menuitemcheckbox", false], ["Beban Tim", "menuitemcheckbox", false],
     ["Baseline", "menuitem", undefined], ["Simpan baseline", "menuitem", undefined], ["Jadwalkan ulang", "menuitem", undefined],
   ]);
   // pilih Jalur kritis → pref crit ditulis, menu tertutup
@@ -3914,12 +3928,13 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   global.window = { matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }), innerHeight: 800, addEventListener() {}, removeEventListener() {} };
   try {
     const n = await swView(clock);
-    assert.deepEqual(moreOf(n.tree).props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+    assert.deepEqual(moreOf(n.tree).props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
     assert.equal(switchOf(n.tree), undefined, "sakelar tidak di toolbar HP");
     buttonByText(n.tree, "Daftar").props.onClick({});
     const lt = n.render();
-    // 1c-2 T5: pilihan Baseline hanya untuk Gantt (seperti Jalur kritis); Simpan baseline tetap (aksi data)
-    assert.deepEqual(moreOf(lt).props.items.map((it) => it.text), ["Jadwal otomatis", "Simpan baseline", "Jadwalkan ulang"]);
+    // 1c-2 T5: pilihan Baseline hanya untuk Gantt (seperti Jalur kritis); Simpan baseline tetap (aksi data). 1d-1 T4: Beban
+    // Tim tetap di Daftar HP (R10: daftar "Hari kelebihan beban" menggantikan histogram ≤ 640 px).
+    assert.deepEqual(moreOf(lt).props.items.map((it) => it.text), ["Jadwal otomatis", "Beban Tim", "Simpan baseline", "Jadwalkan ulang"]);
     n.m.unmount();
   } finally {
     global.window = prevWin;
@@ -5481,7 +5496,7 @@ test("1c-2 T5: Baseline · Simpan baseline di antara Jalur kritis dan Jadwalkan 
   m0.unmount();
   const h = await swView(clock);
   const tt = toolbarTexts(h.tree);
-  assert.deepEqual(tt.slice(tt.indexOf("Jalur kritis"), tt.indexOf("Jadwalkan ulang") + 1), ["Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+  assert.deepEqual(tt.slice(tt.indexOf("Jalur kritis"), tt.indexOf("Jadwalkan ulang") + 1), ["Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]); // 1d-1 T4
   const b = buttonByText(h.tree, "Baseline");
   assert.equal(b.props["aria-haspopup"], "menu");
   assert.equal(b.props["aria-expanded"], false);
@@ -5782,7 +5797,7 @@ test("sumber Task 5 (1c-2): teks persis §7.6; simpan hanya lewat baselineStore 
     assert.ok(jsx.includes(t), t);
   }
   assert.match(jsx, /usePref\(api, "bl", page\)/);
-  assert.equal((jsx.match(/records\.put\(/g) || []).length, 3, "tidak ada situs records.put baru (calendar, project, baseline)");
+  assert.equal((jsx.match(/records\.put\(/g) || []).length, 4, "tidak ada situs records.put baru (calendar, project, baseline; 1d-1 Task 2: + resource lewat saveResource)");
 });
 
 // ── Fix review Task 5 (1c-2): teks toast baseline, potret dialog ikut pulled, hapus baseline ────────────────────────
@@ -6510,3 +6525,3759 @@ test("T8 sumber: factory memasang installActualTracking; recordActual satu-satun
   assert.doesNotMatch(body, /\bDate\b|finish:\s/);
   assert.doesNotMatch(jsx, /"task\.progress|"task\.updated|taskUpdated/, "tidak ada pemicu progres");
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 2: record `resource` (K48, R9) — resRecId, resourceStore ber-CAS (saveResource), useResources
+// (muat hanya saat panel terbuka, latch pulled), nol tulisan latar (R25)
+// ════════════════════════════════════════════════════════════════════════════
+// Record `resource` sah (lid null = pribadi). Id ditulis tangan DI TES (bentuk yang diharapkan); plugin membangunnya
+// hanya lewat resRecId.
+function resRec(lid, uid, data, extra) {
+  return Object.assign({
+    entity: "resource", id: lid ? "res@list:" + lid + ":" + uid : "res@user:" + uid, scope: lid ? "list:" + lid : "user",
+    data: Object.assign({ v: 1, capacity: 6, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }], by: 9 }, data || {}),
+    updated_at: "2026-11-05T02:00:00Z", version: 2, pending: false,
+  }, extra || {});
+}
+const resPuts = (fr) => fr.calls.put.filter((p) => p[0] === "resource");
+const resLists = (fr) => fr.calls.list.filter((l) => l[0] === "resource");
+const RES_ABSENT = { exists: false, updatedAt: null };
+
+test("resRecId: workspace → res@list:<lid>:<uid> scope list:<lid>; project → res@user:<uid> scope user; uid/listId/pageKind tak sah → INVALID; id/scope cocok pola server", () => {
+  assert.deepEqual(T.resRecId("workspace", 12, 7), { id: "res@list:12:7", scope: "list:12" });
+  assert.deepEqual(T.resRecId("project", null, 7), { id: "res@user:7", scope: "user" });
+  assert.deepEqual(T.resRecId("project", 12, 7), { id: "res@user:7", scope: "user" }, "halaman project pribadi: listId diabaikan");
+  const bad = [
+    ["workspace", 12, 0], ["workspace", 12, -3], ["workspace", 12, "7"], ["workspace", 12, 1.5], ["workspace", 12, null], ["project", null, undefined],
+    ["workspace", null, 7], ["workspace", "12", 7], ["workspace", 0, 7], ["workspace", NaN, 7], ["workspace", 1.5, 7], ["lain", 12, 7], [undefined, 12, 7],
+  ];
+  for (const [k, lid, uid] of bad) assert.throws(() => T.resRecId(k, lid, uid), blCode("INVALID"), JSON.stringify([k, lid, uid]));
+  const src = fs.readFileSync(path.join(__dirname, "../../plugin_records.py"), "utf8");
+  const re = (n) => new RegExp(src.match(new RegExp("^" + n + ' = re\\.compile\\(r"([^"]+)"\\)', "m"))[1]);
+  for (const t of [T.resRecId("workspace", 12, 7), T.resRecId("workspace", 987654321, 123456789), T.resRecId("project", null, 123456789)]) {
+    assert.match(t.id, re("ID_RE"), t.id);
+    assert.match(t.scope, re("SCOPE_RE"), t.scope);
+  }
+});
+
+test("resourceStore.loadScope: dua halaman next (limit 1000) → Map<uid, {res, snap, pending}> lewat TLLoad.resourceDecode; id asing/rusak/scope lain dilewati; tanpa tulis", async () => {
+  const fr = fakeRecords();
+  for (let i = 0; i < 1003; i++) putRec(fr, resRec(12, 1000 + i, { capacity: i % 41 }));
+  const a = resRec(12, 7, {}, { pending: true });
+  const asing = resRec(12, 9, { v: 2, capacity: 3 }); // versi lain → bawaan lewat decode, tetap ada (exists, potret CAS)
+  const byStr = resRec(12, 11, { by: "9" });
+  for (const r of [a, asing, byStr]) putRec(fr, r);
+  // id yang tidak cocok pola scope ini (ditanam langsung di scope list:12) → dilewati
+  for (const id of ["res@list:13:5", "res@list:12:abc", "res@list:12:0", "res@list:12:007", "res@list:12:7:x", "res@user:5", "xres@list:12:5", "res@list:12:"]) {
+    putRec(fr, Object.assign(resRec(12, 1), { id }));
+  }
+  putRec(fr, resRec(13, 7)); // workspace lain
+  putRec(fr, resRec(null, 7, { capacity: 2 })); // pribadi
+  putRec(fr, unitRec(12, "Alpha")); // entitas lain di scope sama
+  const store = T.resourceStore({ records: fr.api, env: { userId: 7 } });
+  const map = await store.loadScope("list:12");
+  const ids12 = [...fr.store.values()].filter((r) => r.entity === "resource" && r.scope === "list:12").map((r) => r.id).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+  assert.deepEqual(resLists(fr), [["resource", { scope: "list:12", limit: 1000 }], ["resource", { scope: "list:12", limit: 1000, after: ids12[999] }]]);
+  assert.ok(map instanceof Map);
+  assert.equal(map.size, 1003 + 3);
+  const dn = T.TLCal.dn;
+  assert.deepEqual(map.get(7), { res: { capacity: 6, leave: [{ from: dn("2026-11-09"), to: dn("2026-11-10"), note: "Cuti" }] }, snap: { exists: true, updatedAt: "2026-11-05T02:00:00Z", by: 9 }, pending: true });
+  assert.deepEqual(map.get(9), { res: { capacity: 8, leave: [] }, snap: { exists: true, updatedAt: "2026-11-05T02:00:00Z", by: null }, pending: false }, "data asing: bawaan, by tidak dipercaya");
+  assert.equal(map.get(11).snap.by, null, "by bukan bilangan bulat → null");
+  assert.equal(map.get(1000 + 1002).res.capacity, 1002 % 41, "halaman kedua ikut");
+  for (const k of map.keys()) assert.ok(Number.isInteger(k) && k > 0, "kunci uid bilangan: " + k);
+  assert.equal(map.has(5), false);
+  assert.equal(map.has(1), false);
+  // pribadi: scope user, satu halaman
+  const mine = await store.loadScope("user");
+  assert.deepEqual(resLists(fr)[2], ["resource", { scope: "user", limit: 1000 }]);
+  assert.deepEqual([...mine.keys()], [7]);
+  assert.equal(mine.get(7).res.capacity, 2);
+  // scope tidak sah → INVALID tanpa list
+  for (const s of [null, undefined, "", "list:", "list:x", "list:0", "list:012", "workspace", 12]) await assert.rejects(store.loadScope(s), blCode("INVALID"), String(s));
+  assert.equal(resLists(fr).length, 3);
+  assert.equal(fr.calls.get.length, 0);
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "memuat tidak pernah menulis");
+});
+
+test("resourceStore.save → saveResource: CAS potret {exists, updatedAt} lewat records.get; beda → STALE (pesan persis) 0 put; record absen + potret {exists:false} → put ter-encode (by = env.userId, cuti tergabung) + {scope}", async () => {
+  assert.equal(T.MSG_RES_STALE, "Data berubah sejak dialog dibuka — muat ulang");
+  assert.equal(T.MSG_RES_WAIT, "Menunggu data workspace…");
+  assert.equal(T.RES_ENTITY, "resource");
+  const fr = fakeRecords();
+  const store = T.resourceStore({ records: fr.api, env: { userId: 7 } });
+  const tgt = T.resRecId("workspace", 12, 9);
+  const value = { capacity: 5, leave: [{ from: "2026-11-10", to: "2026-11-12", note: "" }, { from: "2026-11-09", to: "2026-11-09", note: "Mudik" }] };
+  // record absen + potret absen → satu get (CAS) lalu satu put
+  const rec = await store.save(tgt, value, RES_ABSENT);
+  assert.deepEqual(fr.calls.get, [["resource", "res@list:12:9"]]);
+  assert.deepEqual(resPuts(fr), [["resource", "res@list:12:9", { v: 1, capacity: 5, leave: [{ from: "2026-11-09", to: "2026-11-12", note: "Mudik" }], by: 7 }, { scope: "list:12" }]]);
+  assert.equal(rec.id, "res@list:12:9");
+  assert.equal(rec.pending, true);
+  // potret lama (absen) padahal record kini ada → STALE, 0 put
+  await assert.rejects(store.save(tgt, value, RES_ABSENT), (e) => e instanceof Error && e.code === "STALE" && e.message === T.MSG_RES_STALE);
+  assert.equal(resPuts(fr).length, 1);
+  // potret dari loadScope → cocok → put
+  const snap = (await store.loadScope("list:12")).get(9).snap;
+  assert.deepEqual(snap, { exists: true, updatedAt: "2026-11-01T00:00:00Z", by: 7 });
+  await store.save(tgt, { capacity: 4, leave: [] }, snap);
+  assert.equal(resPuts(fr).length, 2);
+  assert.deepEqual(resPuts(fr)[1][2], { v: 1, capacity: 4, leave: [], by: 7 });
+  // anggota lain menimpa (updated_at baru) → potret lama STALE; record dihapus (absen) dengan potret exists → STALE
+  const cur = fr.store.get("resource/res@list:12:9");
+  fr.store.set("resource/res@list:12:9", Object.assign({}, cur, { updated_at: "2026-11-06T00:00:00Z" }));
+  await assert.rejects(store.save(tgt, { capacity: 3, leave: [] }, snap), blCode("STALE"));
+  fr.store.delete("resource/res@list:12:9");
+  await assert.rejects(store.save(tgt, { capacity: 3, leave: [] }, snap), blCode("STALE"));
+  await assert.rejects(store.save(tgt, { capacity: 3, leave: [] }, { exists: true, updatedAt: null }), blCode("STALE"));
+  assert.equal(resPuts(fr).length, 2);
+  // hanya exists + updatedAt yang dibandingkan (by potret tidak berpengaruh)
+  await store.save(tgt, { capacity: 3, leave: [] }, { exists: false, updatedAt: null, by: 99 });
+  assert.equal(resPuts(fr).length, 3);
+  // pribadi: res@user:<uid> scope user; env.userId string angka → by bilangan (uidOf); env tanpa userId → by null
+  await T.resourceStore({ records: fr.api, env: { userId: "7" } }).save(T.resRecId("project", null, 7), { capacity: 8, leave: [] }, RES_ABSENT);
+  assert.deepEqual(resPuts(fr)[3], ["resource", "res@user:7", { v: 1, capacity: 8, leave: [], by: 7 }, { scope: "user" }]);
+  await T.resourceStore({ records: fr.api }).save(T.resRecId("project", null, 8), { capacity: 0 }, RES_ABSENT);
+  assert.deepEqual(resPuts(fr)[4], ["resource", "res@user:8", { v: 1, capacity: 0, leave: [], by: null }, { scope: "user" }]);
+  assert.equal(fr.calls.remove.length, 0);
+});
+
+test("saveResource: > 4096 byte → TOO_LARGE (MSG_RES_TOO_LARGE) sebelum baca/tulis; = 4096 boleh; nilai/target/potret tak sah → INVALID 0 put; TOO_LARGE host dipetakan, galat lain diteruskan", async () => {
+  assert.equal(typeof T.MSG_RES_TOO_LARGE, "string");
+  assert.ok(T.MSG_RES_TOO_LARGE.length > 0);
+  const fr = fakeRecords();
+  const store = T.resourceStore({ records: fr.api, env: { userId: 7 } });
+  const tgt = T.resRecId("workspace", 12, 9);
+  // 45 rentang cuti terpisah (selang 3 hari, tidak bergabung) → ukuran diatur lewat panjang catatan
+  const leaveOf = (lens) => lens.map((n, i) => ({ from: T.TLCal.iso(T.TLCal.dn("2026-01-05") + i * 3), to: T.TLCal.iso(T.TLCal.dn("2026-01-05") + i * 3), note: "x".repeat(n) }));
+  const sizeOf = (lens) => T.TLLoad.resourceByteSize(T.TLLoad.resourceEncode({ capacity: 8, leave: leaveOf(lens) }, { by: 7 }));
+  const base = sizeOf(new Array(45).fill(0));
+  let need = 4096 - base;
+  assert.ok(need > 0 && need <= 45 * 60, "rentang bisa mencapai 4096: " + base);
+  const lens = new Array(45).fill(0).map(() => { const n = Math.min(60, need); need -= n; return n; });
+  assert.equal(sizeOf(lens), 4096);
+  await store.save(tgt, { capacity: 8, leave: leaveOf(lens) }, RES_ABSENT);
+  assert.equal(resPuts(fr).length, 1, "= 4096 boleh");
+  const over = lens.slice();
+  over[over.findIndex((n) => n < 60)] += 1;
+  assert.equal(sizeOf(over), 4097);
+  const gets = fr.calls.get.length;
+  await assert.rejects(store.save(tgt, { capacity: 8, leave: leaveOf(over) }, RES_ABSENT), (e) => e.code === "TOO_LARGE" && e.message === T.MSG_RES_TOO_LARGE);
+  assert.equal(fr.calls.get.length, gets, "ditolak sebelum baca CAS");
+  assert.equal(resPuts(fr).length, 1);
+  // nilai tak sah (kode INVALID dari TLLoad.resourceEncode), target palsu, potret tak sah → INVALID tanpa baca/tulis
+  for (const v of [null, { capacity: 41 }, { capacity: 2.5 }, { capacity: 8, leave: [{ from: "2026-11-05", to: "2026-11-04" }] }, { capacity: 8, leave: "x" }]) {
+    await assert.rejects(store.save(tgt, v, RES_ABSENT), blCode("INVALID"), JSON.stringify(v));
+  }
+  for (const t of [null, {}, { id: "res@list:12:9", scope: "list:13" }, { id: "res@list:12:9", scope: "user" }, { id: "res@user:9", scope: "list:12" }, { id: "res@list:12:0", scope: "list:12" }, { id: "prj@list:12:-", scope: "list:12" }, { id: "res@list:12:9" }]) {
+    await assert.rejects(store.save(t, { capacity: 8, leave: [] }, RES_ABSENT), blCode("INVALID"), JSON.stringify(t));
+  }
+  for (const s of [undefined, null, "x", 5]) await assert.rejects(store.save(tgt, { capacity: 8, leave: [] }, s), blCode("INVALID"), String(s));
+  assert.equal(fr.calls.get.length, gets);
+  assert.equal(resPuts(fr).length, 1);
+  // TOO_LARGE dari host → galat sama dengan penolakan klien; galat lain apa adanya
+  fr.api.put = () => Promise.reject(Object.assign(new Error("TOO_LARGE: data > 4096 byte"), { code: "TOO_LARGE", detail: "size" }));
+  await assert.rejects(store.save(T.resRecId("workspace", 12, 3), { capacity: 8, leave: [] }, RES_ABSENT), (e) => e.code === "TOO_LARGE" && e.message === T.MSG_RES_TOO_LARGE);
+  fr.api.put = () => Promise.reject(Object.assign(new Error("SCOPE_IMMUTABLE"), { code: "SCOPE_IMMUTABLE" }));
+  await assert.rejects(store.save(T.resRecId("workspace", 12, 4), { capacity: 8, leave: [] }, RES_ABSENT), blCode("SCOPE_IMMUTABLE"));
+});
+
+test("resourceStore.subscribe: entitas resource + peristiwa pulled diteruskan (recordEvent); entitas lain diabaikan; off berhenti", () => {
+  const fr = fakeRecords();
+  const store = T.resourceStore({ records: fr.api, env: { userId: 7 } });
+  const got = [];
+  const off = store.subscribe((ev) => got.push(ev));
+  fr.emit({ entity: "resource", ids: ["res@list:12:7"], source: "sync", lost: ["res@list:12:7"] });
+  fr.emit({ entity: "baseline", ids: ["x"], source: "sync" });
+  fr.emit(PULLED);
+  fr.emit({ entity: "resource", ids: ["res@user:7"], source: "local" });
+  assert.deepEqual(got, [
+    { ids: ["res@list:12:7"], source: "sync", lost: ["res@list:12:7"] },
+    { ids: [], source: "sync", lost: [], pulled: true },
+    { ids: ["res@user:7"], source: "local", lost: [] },
+  ]);
+  off();
+  assert.equal(fr.listenerCount(), 0);
+});
+
+test("useResources: tertutup → 0 records.list (juga setelah onChange resource); terbuka → muat scope list:<lid>, muat ulang onChange resource (debounce 300 ms) dan SEGERA saat pulled lalu latch; ditutup → data dilepas, tidak memuat; lepas → 0 pendengar", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 7));
+  const { api } = fakeApi({ records: fr });
+  const m = mount((p) => T.useResources(p.api, p.pageKind, p.listId, p.open));
+  let props = { api, pageKind: "workspace", listId: 12, open: false };
+  m.render(props);
+  m.flush();
+  await settle();
+  let r = m.render(props);
+  assert.equal(resLists(fr).length, 0, "tertutup: tidak memuat");
+  assert.equal(r.loaded, false);
+  assert.equal(r.map.size, 0);
+  assert.equal(r.pulled, false);
+  fr.emit({ entity: "resource", ids: ["res@list:12:7"], source: "sync" });
+  clock.tick(300);
+  await settle();
+  assert.equal(resLists(fr).length, 0, "tertutup: onChange tidak memuat");
+  // buka → muat pertama segera (tanpa debounce)
+  props = Object.assign({}, props, { open: true });
+  m.render(props);
+  m.flush();
+  await settle();
+  r = m.render(props);
+  assert.deepEqual(resLists(fr), [["resource", { scope: "list:12", limit: 1000 }]]);
+  assert.equal(r.loaded, true);
+  assert.deepEqual([...r.map.keys()], [7]);
+  assert.equal(r.map.get(7).res.capacity, 6);
+  assert.equal(r.pulled, false);
+  // record tiba lewat sinkron biasa → muat ulang setelah 300 ms (beruntun = satu)
+  putRec(fr, resRec(12, 9, { capacity: 2 }));
+  fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+  fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+  clock.tick(299);
+  await settle();
+  assert.equal(resLists(fr).length, 1);
+  clock.tick(1);
+  await settle();
+  r = m.render(props);
+  assert.equal(resLists(fr).length, 2);
+  assert.deepEqual([...r.map.keys()].sort((a, b) => a - b), [7, 9]);
+  assert.equal(r.pulled, false, "sinkron biasa bukan tanda tarik sukses");
+  // entitas lain tidak memuat ulang
+  fr.emit({ entity: "baseline", ids: ["x"], source: "sync" });
+  clock.tick(300);
+  await settle();
+  assert.equal(resLists(fr).length, 2);
+  // tarik sukses → muat ulang SEGERA, lalu latch
+  fr.emit(PULLED);
+  await settle();
+  r = m.render(props);
+  assert.equal(resLists(fr).length, 3);
+  assert.equal(r.pulled, true);
+  // ditutup → data dilepas; event tidak memuat
+  props = Object.assign({}, props, { open: false });
+  r = m.render(props);
+  assert.equal(r.loaded, false);
+  assert.equal(r.map.size, 0);
+  m.flush();
+  await settle();
+  fr.emit({ entity: "resource", ids: ["res@list:12:7"], source: "sync" });
+  fr.emit(PULLED);
+  clock.tick(300);
+  await settle();
+  r = m.render(props);
+  assert.equal(resLists(fr).length, 3);
+  assert.equal(r.pulled, true, "latch bertahan selama terpasang");
+  assert.equal(r.loaded, false);
+  // dibuka lagi → mulai dari memuat (bukan data lama), lalu termuat
+  props = Object.assign({}, props, { open: true });
+  r = m.render(props);
+  assert.equal(r.loaded, false);
+  m.flush();
+  await settle();
+  r = m.render(props);
+  assert.equal(resLists(fr).length, 4);
+  assert.equal(r.loaded, true);
+  m.unmount();
+  assert.equal(fr.listenerCount(), 0);
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "hook tidak pernah menulis");
+}));
+
+test("useResources: latch pulled menyala juga saat panel tertutup (tanpa muat) — dibuka sesudahnya → muat sekali; pribadi pulled true, scope user; listId tak sah → tanpa muat; muat gagal → failed + latch tetap menyala", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 7));
+  putRec(fr, resRec(null, 7, { capacity: 3 }));
+  const { api } = fakeApi({ records: fr });
+  const hook = () => mount((p) => T.useResources(p.api, p.pageKind, p.listId, p.open));
+  const m = hook();
+  let props = { api, pageKind: "workspace", listId: 12, open: false };
+  m.render(props);
+  m.flush();
+  fr.emit(PULLED);
+  await settle();
+  let r = m.render(props);
+  assert.equal(r.pulled, true, "tarik sukses saat tertutup → latch menyala tanpa memuat");
+  assert.equal(resLists(fr).length, 0);
+  props = Object.assign({}, props, { open: true });
+  m.render(props);
+  m.flush();
+  await settle();
+  r = m.render(props);
+  assert.equal(resLists(fr).length, 1);
+  assert.equal(r.loaded, true);
+  assert.equal(r.pulled, true);
+  m.unmount();
+  // pribadi: tidak butuh latch (pulled true), scope user
+  const p = hook();
+  const pp = { api, pageKind: "project", listId: null, open: true };
+  r = p.render(pp);
+  assert.equal(r.pulled, true);
+  p.flush();
+  await settle();
+  r = p.render(pp);
+  assert.deepEqual(resLists(fr)[1], ["resource", { scope: "user", limit: 1000 }]);
+  assert.deepEqual([...r.map.keys()], [7]);
+  assert.equal(r.map.get(7).res.capacity, 3);
+  p.unmount();
+  // workspace dengan listId tak sah → tanpa muat, tidak termuat
+  const w = hook();
+  const wp = { api, pageKind: "workspace", listId: NaN, open: true };
+  w.render(wp);
+  w.flush();
+  await settle();
+  r = w.render(wp);
+  assert.equal(resLists(fr).length, 2);
+  assert.equal(r.loaded, false);
+  w.unmount();
+  // muat gagal → failed + warn; pulled → muat ulang (gagal lagi) tetapi latch tetap menyala (pola useBaselines)
+  const fr3 = fakeRecords();
+  fr3.api.list = () => Promise.reject(new Error("idb"));
+  const h3 = fakeApi({ records: fr3 });
+  const f = hook();
+  const fp = { api: h3.api, pageKind: "workspace", listId: 12, open: true };
+  f.render(fp);
+  f.flush();
+  await settle();
+  r = f.render(fp);
+  assert.equal(r.failed, true);
+  assert.equal(r.loaded, false);
+  assert.equal(h3.calls.warn.length, 1);
+  fr3.emit(PULLED);
+  await settle();
+  r = f.render(fp);
+  assert.equal(h3.calls.warn.length, 2);
+  assert.equal(r.pulled, true);
+  f.unmount();
+  assert.equal(fr.calls.put.length + fr3.calls.put.length + fr.calls.remove.length, 0);
+}));
+
+test("spy R25 Beban Tim: taskExt.set/setMany + records.put/remove = 0 dengan view + useResources TERBUKA (record resource ada) setelah: mount, sync.done, pulled, onChange resource dari sinkron (anggota lain), app.dayChanged + env.today berubah, lepas; record resource yang belum ada tidak pernah dibuat", () => withEngineClock(async (clock) => {
+  const tasks = bigTasks(60, 40).map((t, i) => Object.assign({}, t, { list_id: 12, assigned_to: [7, 9, 11, null][i % 4], estimated_pomodoros: 1 + (i % 6) }));
+  const fr = fakeRecords();
+  for (let i = 0; i < 5; i++) putRec(fr, unitRec(12, "P" + i));
+  putRec(fr, resRec(12, 7, { capacity: 1 }));
+  let resState = null;
+  const ViewRes = (p) => { resState = T.useResources(p.api, "workspace", 12, true); return T.TimelineViewBody(p); };
+  const { api, calls } = fakeApi({ records: fr });
+  api.env.userId = 7;
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const spy = spyRun();
+  try {
+    const base = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null }).ctx;
+    const props = { context: base, api };
+    const m = mount(ViewRes);
+    await settleView(m, () => props, clock);
+    const ok = (step) => {
+      assert.deepEqual(writes, [], step + ": taskExt");
+      assert.equal(fr.calls.put.length, 0, step + ": records.put");
+      assert.equal(fr.calls.remove.length, 0, step + ": records.remove");
+    };
+    assert.equal(resState.loaded, true);
+    assert.deepEqual([...resState.map.keys()], [7]);
+    ok("mount");
+    for (const f of calls.handlers["sync.done"] || []) f({ initial: false });
+    await settleView(m, () => props, clock);
+    ok("sync.done");
+    fr.emit(PULLED);
+    await settleView(m, () => props, clock);
+    assert.equal(resState.pulled, true);
+    ok("pulled");
+    // anggota lain mengubah kapasitas uid 7 dan menambah uid 9 (sinkron)
+    putRec(fr, resRec(12, 7, { capacity: 4 }, { updated_at: "2026-11-06T00:00:00Z" }));
+    putRec(fr, resRec(12, 9, { capacity: 2 }));
+    const lists = resLists(fr).length;
+    fr.emit({ entity: "resource", ids: ["res@list:12:7", "res@list:12:9"], source: "sync", lost: ["res@list:12:7"] });
+    await settleView(m, () => props, clock);
+    assert.ok(resLists(fr).length > lists, "onChange resource → muat ulang");
+    assert.equal(resState.map.get(7).res.capacity, 4);
+    assert.deepEqual([...resState.map.keys()].sort((a, b) => a - b), [7, 9]);
+    ok("onChange resource");
+    // ganti hari: app.dayChanged (bila ada pendengar) + env.today baru
+    api.env.today = () => "2026-11-05";
+    for (const f of calls.handlers["app.dayChanged"] || []) f({ today: "2026-11-05" });
+    await settleView(m, () => props, clock);
+    ok("app.dayChanged");
+    assert.equal(fr.store.has("resource/res@list:12:11"), false, "record uid 11 (tanpa record) tidak dibuat otomatis");
+    m.unmount();
+    clock.tick(5000);
+    await settle();
+    ok("lepas");
+    assert.equal(fr.listenerCount(), 0);
+  } finally {
+    spy.restore();
+  }
+}));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 3: useLoad + daftar orang (R4, P2 (a)) + pref panel `load:<page>` (K56, R10)
+// ════════════════════════════════════════════════════════════════════════════
+// Spy beban: T.engine.load = satu-satunya pintu TLLoad.run di plugin (TLLoad beku, tidak bisa di-spy langsung; pola spyRun).
+function spyLoad() {
+  const orig = T.engine.load;
+  const runs = [];
+  T.engine.load = (input) => {
+    const out = orig(input);
+    runs.push({ input, out });
+    return out;
+  };
+  return { runs, restore: () => { T.engine.load = orig; } };
+}
+const loadPrefGet = (page, v) => (k) => Promise.resolve(k === "load:" + page ? v : null);
+
+test("pref load:<page>: bawaan false (K56), kunci per halaman, nilai rusak → false; usePref round-trip lewat api.storage", async () => {
+  assert.equal(T.PREF_DEFAULTS.load, false);
+  assert.equal(T.prefKey("load", "slist_12"), "load:slist_12");
+  assert.equal(T.prefKey("load", "proj_Alpha"), "load:proj_Alpha");
+  assert.equal(T.cleanPref("load", true), true);
+  for (const v of [false, "ya", 1, null, undefined]) assert.equal(T.cleanPref("load", v), false, String(v));
+  assert.match(jsx, /usePref\(api, "load", page\)/);
+  // tulis: set(true) → storage.set("load:<page>", true); baca: nilai tersimpan → true
+  const stored = new Map();
+  const { api, calls } = fakeApi({ storageGet: (k) => Promise.resolve(stored.has(k) ? stored.get(k) : null) });
+  api.storage.set = (k, v) => { calls.storageSet.push([k, v]); stored.set(k, v); return Promise.resolve(); };
+  const m = mount((p) => T.usePref(p.api, "load", p.page));
+  let [val, set] = m.render({ api, page: "slist_12" });
+  assert.equal(val, false);
+  m.flush();
+  await settle();
+  [val, set] = m.render({ api, page: "slist_12" });
+  assert.equal(val, false, "belum tersimpan → bawaan");
+  set(true);
+  await settle();
+  assert.deepEqual(calls.storageSet, [["load:slist_12", true]]);
+  m.unmount();
+  const m2 = mount((p) => T.usePref(p.api, "load", p.page));
+  m2.render({ api, page: "slist_12" });
+  m2.flush();
+  await settle();
+  assert.equal(m2.render({ api, page: "slist_12" })[0], true, "pulang-pergi");
+  m2.render({ api, page: "slist_13" });
+  m2.flush();
+  await settle();
+  assert.equal(m2.render({ api, page: "slist_13" })[0], false, "halaman lain: kunci sendiri");
+  assert.ok(calls.storageGet.indexOf("load:slist_13") >= 0);
+  m2.unmount();
+});
+
+test("peopleOf workspace (P2 (a)): pengguna aktif ∪ penanggung jawab task hidup belum selesai tidak berulang ∪ pemilik record; nama dari currentUser/collaborators, tak dikenal → 'Anggota #id'; res dari record; urut uid", () => {
+  const dn = T.TLCal.dn;
+  const tasks = [
+    mk(1, "A", {}, { assigned_to: 9 }),
+    mk(2, "B", {}, { assigned_to: "11" }), // string angka → 11
+    mk(3, "C", {}, { assigned_to: 13, gtd_status: "done" }), // selesai → tidak menambah
+    mk(4, "D", {}, { assigned_to: 15, completed_at: "2026-11-03T02:00:00Z" }), // selesai (completed_at)
+    mk(5, "E", {}, { assigned_to: 17, recurrence_type: "daily" }), // berulang
+    mk(6, "F", {}, { assigned_to: 19, archived: true }), // diarsip
+    mk(7, "G", {}, { assigned_to: 21, gtd_status: "archived" }),
+    mk(8, "H", {}, { assigned_to: 23, deleted: true }),
+    mk(9, "I", {}, { assigned_to: null }),
+    mk(10, "J", {}, { assigned_to: 0 }),
+    mk(11, "K", {}, { assigned_to: 9 }), // ganda
+    null,
+  ];
+  const resources = new Map([
+    [31, { res: { capacity: 4, leave: [{ from: dn("2026-11-09"), to: dn("2026-11-09"), note: "" }] }, snap: { exists: true, updatedAt: "x", by: 7 }, pending: false }],
+    [9, { res: { capacity: 2, leave: [] }, snap: { exists: true, updatedAt: "x", by: 7 }, pending: true }],
+  ]);
+  const collaborators = [
+    { id: 9, username: "budi", display_name: "Budi Santoso" },
+    { id: "11", username: "citra", display_name: "" },
+    { id: 31, username: "  ", display_name: "   " }, // nama kosong → Anggota #31
+    { id: 13, username: "dina", display_name: "Dina" },
+  ];
+  const out = T.peopleOf({ byAssignee: true, ctxTasks: tasks, resources, currentUser: { id: 7, username: "sari", display_name: "Sari" }, collaborators, userId: 7 });
+  assert.deepEqual(out, [
+    { uid: 7, name: "Sari", res: null },
+    { uid: 9, name: "Budi Santoso", res: { capacity: 2, leave: [] } },
+    { uid: 11, name: "citra", res: null },
+    { uid: 31, name: "Anggota #31", res: { capacity: 4, leave: [{ from: dn("2026-11-09"), to: dn("2026-11-09"), note: "" }] } },
+  ]);
+  // deterministik: urutan masukan tidak berpengaruh
+  const out2 = T.peopleOf({ byAssignee: true, ctxTasks: tasks.slice().reverse(), resources: new Map([...resources].reverse()), currentUser: { id: 7, username: "sari", display_name: "Sari" }, collaborators: collaborators.slice().reverse(), userId: 7 });
+  assert.deepEqual(out2, out);
+  // userId string angka (JWT sub) + currentUser.id string → tetap satu baris uid bilangan
+  const s = T.peopleOf({ byAssignee: true, ctxTasks: [mk(1, "A", {}, { assigned_to: 7 })], resources: new Map(), currentUser: { id: "7", username: "sari" }, collaborators: [], userId: "7" });
+  assert.deepEqual(s, [{ uid: 7, name: "sari", res: null }]);
+  // pengguna aktif tanpa currentUser cocok → "Anggota #id"; tanpa userId → hanya penanggung jawab/pemilik record
+  assert.deepEqual(T.peopleOf({ byAssignee: true, ctxTasks: [], resources: new Map(), currentUser: null, collaborators: [], userId: 7 }), [{ uid: 7, name: "Anggota #7", res: null }]);
+  assert.deepEqual(T.peopleOf({ byAssignee: true, ctxTasks: [mk(1, "A", {}, { assigned_to: 5 })], resources: undefined, currentUser: undefined, collaborators: undefined, userId: null }), [{ uid: 5, name: "Anggota #5", res: null }]);
+  assert.deepEqual(T.peopleOf(null), []);
+});
+
+test("peopleOf pribadi (byAssignee false): satu baris pengguna aktif dengan res record pribadi; penanggung jawab/record lain diabaikan", () => {
+  const resources = new Map([[7, { res: { capacity: 3, leave: [] }, snap: {}, pending: false }], [9, { res: { capacity: 1, leave: [] }, snap: {}, pending: false }]]);
+  const out = T.peopleOf({ byAssignee: false, ctxTasks: [mk(1, "A", {}, { assigned_to: 9 })], resources, currentUser: { id: 7, username: "sari", display_name: "Sari" }, collaborators: [{ id: 9, username: "budi" }], userId: 7 });
+  assert.deepEqual(out, [{ uid: 7, name: "Sari", res: { capacity: 3, leave: [] } }]);
+  assert.deepEqual(T.peopleOf({ byAssignee: false, ctxTasks: [], resources: new Map(), currentUser: { id: 7, username: "sari" }, collaborators: [], userId: 7 }), [{ uid: 7, name: "sari", res: null }]);
+  assert.deepEqual(T.peopleOf({ byAssignee: false, ctxTasks: [], resources: new Map(), currentUser: null, collaborators: [], userId: null }), [], "tanpa pengguna aktif → tanpa baris");
+});
+
+test("useLoad: null bila panel tertutup / mesin belum siap / hari tak sah / kapasitas belum termuat atau gagal (ready bukan true) (0 run); siap → satu run engine.load dengan masukan eng.ctx + result; memo per peopleKey (larik baru berisi sama → 0 run); lempar → null + satu peringatan", () => {
+  const tasks = [mk(1, "A", { start: "2026-11-02", duration: 2 }, { assigned_to: 7, estimated_pomodoros: 4 })];
+  const cal = T.TLCal.compile(T.TLCal.DEFAULT_CAL);
+  const readExt = (t) => fakeApi().api.taskExt.read(t);
+  const ctx = { tasks, cal, units: new Map(), readExt };
+  const result = T.TLCpm.run(ctx);
+  const ready = { status: "ready", result, ctx };
+  const people = [{ uid: 7, name: "Sari", res: null }];
+  const D = T.TLCal.dn(TODAY);
+  const { api, calls } = fakeApi();
+  const spy = spyLoad();
+  try {
+    const m = mount((p) => T.useLoad(p));
+    const base = { open: false, ready: true, eng: ready, people, todayDn: D, byAssignee: true, ownerUid: 7, api };
+    assert.equal(m.render(base), null, "tertutup");
+    assert.equal(m.render(Object.assign({}, base, { open: true, eng: { status: "loading", result: null, ctx: null } })), null, "mesin belum siap");
+    assert.equal(m.render(Object.assign({}, base, { open: true, eng: { status: "error", result: null, ctx: null } })), null, "mesin galat");
+    assert.equal(m.render(Object.assign({}, base, { open: true, todayDn: null })), null, "hari tak sah");
+    // review akhir: kapasitas/cuti belum termuat (ready false / tidak diberikan) → 0 run (tanpa kilatan kapasitas bawaan)
+    assert.equal(m.render(Object.assign({}, base, { open: true, ready: false })), null, "kapasitas belum termuat");
+    assert.equal(m.render(Object.assign({}, base, { open: true, ready: undefined })), null, "ready tidak diberikan");
+    assert.equal(spy.runs.length, 0);
+    const on = Object.assign({}, base, { open: true });
+    const out = m.render(on);
+    assert.equal(spy.runs.length, 1);
+    const inp = spy.runs[0].input;
+    assert.equal(inp.tasks, tasks);
+    assert.equal(inp.cal, cal);
+    assert.equal(inp.readExt, readExt);
+    assert.equal(inp.units, ctx.units);
+    assert.equal(inp.result, result);
+    assert.deepEqual(inp.people, people);
+    assert.deepEqual([inp.byAssignee, inp.ownerUid, inp.D], [true, 7, D]);
+    assert.ok(out && Array.isArray(out.rows));
+    assert.deepEqual(out.rows.map((r) => [r.uid, r.name, r.total]), [[7, "Sari", 4000]]);
+    // render ulang: objek props baru, larik people baru berisi sama → 0 run
+    m.render(Object.assign({}, on, { people: people.map((p) => Object.assign({}, p)) }));
+    m.render(on);
+    assert.equal(spy.runs.length, 1);
+    // perubahan nyata: hari, isi people (res), byAssignee, ownerUid, hasil mesin → masing-masing satu run
+    m.render(Object.assign({}, on, { todayDn: D + 1 }));
+    assert.equal(spy.runs.length, 2);
+    const p2 = [{ uid: 7, name: "Sari", res: { capacity: 1, leave: [] } }];
+    m.render(Object.assign({}, on, { todayDn: D + 1, people: p2 }));
+    assert.equal(spy.runs.length, 3);
+    m.render(Object.assign({}, on, { todayDn: D + 1, people: p2, byAssignee: false }));
+    assert.equal(spy.runs.length, 4);
+    m.render(Object.assign({}, on, { todayDn: D + 1, people: p2, byAssignee: false, ownerUid: 9 }));
+    assert.equal(spy.runs.length, 5);
+    // tutup lalu buka lagi tanpa perubahan data → satu run saat dibuka (tertutup = 0)
+    m.render(Object.assign({}, on, { open: false }));
+    assert.equal(spy.runs.length, 5);
+    m.render(on);
+    assert.equal(spy.runs.length, 6);
+    // lempar tak terduga → null + satu peringatan saja
+    T.engine.load = () => { throw new Error("rusak"); };
+    assert.equal(m.render(Object.assign({}, on, { todayDn: D + 2 })), null);
+    assert.equal(m.render(Object.assign({}, on, { todayDn: D + 3 })), null);
+    assert.equal(calls.warn.length, 1);
+  } finally {
+    spy.restore();
+  }
+});
+
+// View workspace 12: anggota 7 (pengguna aktif), 9, 11; record resource uid 9 kapasitas 1; pref load opsional.
+function loadTasks() {
+  const L = { list_id: 12, project: "P0" };
+  return [
+    mk(1, "A", { start: "2026-11-04", duration: 2 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 6 }, L)),
+    mk(2, "B", { start: "2026-11-04", duration: 1 }, Object.assign({ assigned_to: 7, estimated_pomodoros: 2 }, L)),
+    mk(3, "C", { start: "2026-11-05", duration: 1 }, Object.assign({ assigned_to: 11, estimated_pomodoros: 3, gtd_status: "done" }, L)),
+    mk(4, "D", { start: "2026-11-05", duration: 1 }, Object.assign({ estimated_pomodoros: 1 }, L)),
+  ];
+}
+async function loadView(clock, o) {
+  const opt = o || {};
+  const tasks = opt.tasks || loadTasks();
+  const fr = fakeRecords();
+  putRec(fr, unitRec(12, "P0"));
+  putRec(fr, resRec(12, 9, { capacity: 1, leave: [] }));
+  // review akhir: holdRes → records.list resource PERTAMA ditahan sampai releaseRes() (muat kapasitas lambat)
+  const held = { release: null };
+  if (opt.holdRes) {
+    const list0 = fr.api.list;
+    fr.api.list = (entity, q) => {
+      if (entity !== "resource" || held.used) return list0(entity, q);
+      held.used = true;
+      const out = list0(entity, q); // panggilan tercatat seketika; jawabannya ditahan
+      return new Promise((resolve) => { held.release = () => resolve(out); });
+    };
+  }
+  const { api, calls } = fakeApi({ records: fr, storageGet: opt.storageGet });
+  api.env.userId = 7;
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const ctx = ctxOf(tasks, {
+    page: "slist_12", pageKind: "workspace", listId: 12, projectName: null,
+    currentUser: { id: 7, username: "sari", display_name: "Sari" },
+    collaborators: [{ id: 9, username: "budi", display_name: "Budi" }, { id: 11, username: "citra" }],
+  }).ctx;
+  let props = { context: ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const settleNow = () => settleView(m, () => props, clock);
+  const tree = await settleNow();
+  return { m, tree, api, calls, fr, writes, settleNow, held, releaseRes: () => held.release(), getProps: () => props, setProps: (p) => { props = p; } };
+}
+
+test("view: panel Beban Tim tertutup (pref bawaan false) → 0 run TLLoad meski mesin siap, 0 records.list resource", () => withEngineClock(async (clock) => {
+  const spy = spyRun();
+  const ls = spyLoad();
+  try {
+    const h = await loadView(clock);
+    assert.ok(spy.runs.length >= 1, "mesin siap");
+    assert.ok(h.calls.storageGet.indexOf("load:slist_12") >= 0, "pref load dibaca");
+    assert.equal(ls.runs.length, 0, "panel tertutup → TLLoad.run tidak dipanggil");
+    assert.equal(resLists(h.fr).length, 0, "kapasitas tidak dimuat");
+    // render ulang + event → tetap 0
+    for (const f of h.calls.handlers["sync.done"] || []) f({ initial: false });
+    h.fr.emit(PULLED);
+    h.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+    await h.settleNow();
+    assert.equal(ls.runs.length, 0);
+    assert.equal(resLists(h.fr).length, 0);
+    assert.deepEqual(h.writes, []);
+    assert.equal(h.fr.calls.put.length, 0);
+    h.m.unmount();
+  } finally {
+    ls.restore();
+    spy.restore();
+  }
+}));
+
+test("view: pref load:slist_12 true → tepat 1 run TLLoad setelah mesin siap DAN kapasitas termuat (review akhir: mesin siap lebih dulu → 0 run sampai records.list selesai; masukan = ctx mesin, orang P2 (a) dengan res record, hari ini); render ulang tanpa perubahan → 0 run; ganti hari → 1 run; record resource berubah → 1 run; 0 tulis di semua langkah", () => withEngineClock(async (clock) => {
+  const spy = spyRun();
+  const ls = spyLoad();
+  try {
+    const h = await loadView(clock, { storageGet: loadPrefGet("slist_12", true), holdRes: true });
+    assert.ok(spy.runs.length >= 1, "mesin siap");
+    assert.equal(resLists(h.fr).length, 1, "kapasitas sedang dimuat");
+    assert.equal(ls.runs.length, 0, "kapasitas belum termuat → 0 run (tanpa kilatan kapasitas bawaan)");
+    assert.equal(panelOf(h.m.render(h.getProps())), undefined, "panel belum tampil");
+    h.releaseRes();
+    await h.settleNow();
+    assert.equal(ls.runs.length, 1, "tepat satu run setelah mesin siap dan kapasitas termuat");
+    const eng = spy.runs[spy.runs.length - 1];
+    const inp = ls.runs[0].input;
+    assert.equal(inp.tasks, eng.ctx.tasks, "daftar lengkap halaman = ctx mesin");
+    assert.equal(inp.cal, eng.ctx.cal);
+    assert.equal(inp.result, eng.result);
+    assert.equal(inp.units, eng.ctx.units);
+    assert.equal(inp.readExt, eng.ctx.readExt);
+    assert.equal(inp.byAssignee, true);
+    assert.equal(inp.ownerUid, 7);
+    assert.equal(inp.D, T.TLCal.dn(TODAY));
+    assert.deepEqual(inp.people, [
+      { uid: 7, name: "Sari", res: null },
+      { uid: 9, name: "Budi", res: { capacity: 1, leave: [] } },
+    ], "11 hanya punya task selesai → bukan baris");
+    const out = ls.runs[0].out;
+    assert.deepEqual(out.rows.map((r) => [r.uid, r.name]), [[9, "Budi"], [7, "Sari"], [null, "Belum ditugaskan"]]);
+    assert.deepEqual(out.rows[0].overDays.map(T.TLCal.iso), ["2026-11-04", "2026-11-05"], "6 🍅 / 2 hari > kapasitas 1");
+    assert.equal(resLists(h.fr).length, 1, "kapasitas dimuat karena panel terbuka");
+    // render ulang tanpa perubahan data (props baru, context baru dengan isi sama) → 0 run
+    h.m.render(h.getProps());
+    h.setProps(Object.assign({}, h.getProps(), { context: Object.assign({}, h.getProps().context, { collaborators: h.getProps().context.collaborators.map((c) => Object.assign({}, c)) }) }));
+    await h.settleNow();
+    assert.equal(ls.runs.length, 1, "render ulang tanpa perubahan data");
+    // ganti hari → 1 run
+    h.api.env.today = () => "2026-11-05";
+    for (const f of h.calls.handlers["app.dayChanged"] || []) f({ today: "2026-11-05" });
+    await h.settleNow();
+    assert.equal(ls.runs.length, 2);
+    assert.equal(ls.runs[1].input.D, T.TLCal.dn("2026-11-05"));
+    // anggota lain mengubah kapasitas uid 9 (sinkron) → muat ulang → 1 run
+    putRec(h.fr, resRec(12, 9, { capacity: 6, leave: [] }, { updated_at: "2026-11-06T00:00:00Z" }));
+    h.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+    await h.settleNow();
+    assert.equal(ls.runs.length, 3);
+    assert.deepEqual(ls.runs[2].input.people.find((p) => p.uid === 9).res, { capacity: 6, leave: [] });
+    // sync.done tanpa perubahan data + pulled → muat ulang, tetapi 0 run tambahan
+    for (const f of h.calls.handlers["sync.done"] || []) f({ initial: false });
+    h.fr.emit(PULLED);
+    await h.settleNow();
+    assert.equal(ls.runs.length, 3, "data sama → tanpa hitung ulang");
+    assert.deepEqual(h.writes, [], "R25: taskExt");
+    assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0, "R25: records");
+    h.m.unmount();
+    assert.equal(h.fr.listenerCount(), 0);
+  } finally {
+    ls.restore();
+    spy.restore();
+  }
+}));
+
+test("view project pribadi: pref load:proj_Alpha true → satu baris pengguna aktif (byAssignee false, ownerUid), record res@user dimuat dari scope user", () => withEngineClock(async (clock) => {
+  const tasks = [mk(1, "A", { start: "2026-11-04", duration: 2 }, { project: "Alpha", assigned_to: 9, estimated_pomodoros: 4 })];
+  const fr = fakeRecords();
+  putRec(fr, resRec(null, 7, { capacity: 1, leave: [] }));
+  const { api } = fakeApi({ records: fr, storageGet: loadPrefGet("proj_Alpha", true) });
+  api.env.userId = 7;
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const ls = spyLoad();
+  try {
+    const ctx = ctxOf(tasks, { currentUser: { id: 7, username: "sari", display_name: "Sari" }, collaborators: [{ id: 9, username: "budi" }] }).ctx;
+    const m = mount(T.TimelineViewBody);
+    await settleView(m, () => ({ context: ctx, api }), clock);
+    assert.deepEqual(resLists(fr), [["resource", { scope: "user", limit: 1000 }]]);
+    assert.equal(ls.runs.length, 1);
+    const inp = ls.runs[0].input;
+    assert.equal(inp.byAssignee, false);
+    assert.equal(inp.ownerUid, 7);
+    assert.deepEqual(inp.people, [{ uid: 7, name: "Sari", res: { capacity: 1, leave: [] } }]);
+    assert.deepEqual(ls.runs[0].out.rows.map((r) => [r.uid, r.name, r.total, r.overDays.length]), [[7, "Sari", 4000, 2]]);
+    assert.deepEqual(writes, []);
+    assert.equal(fr.calls.put.length, 0);
+    m.unmount();
+  } finally {
+    ls.restore();
+  }
+}));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 4: tombol "Beban Tim" di toolbar (spec §7.1, R10, K56)
+// ════════════════════════════════════════════════════════════════════════════
+const loadBtnOf = (tree) => buttonByText(tree, "Beban Tim");
+
+test("T4 Beban Tim: urutan … Jalur kritis · Beban Tim · Baseline · Simpan baseline · Jadwalkan ulang; ikon histogram SVG berkelas tanpa warna; aria-pressed false bawaan; klik → pref load:<page> true + aria-pressed true + is-active; klik lagi → false", () => withEngineClock(async (clock) => {
+  const h = await swView(clock);
+  const tt = toolbarTexts(h.tree);
+  assert.deepEqual(tt.slice(tt.indexOf("Jadwal otomatis"), tt.indexOf("Jadwalkan ulang") + 1), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+  let b = loadBtnOf(h.tree);
+  assert.equal(b.props.type, "button");
+  assert.equal(b.props["aria-pressed"], false, "K56: bawaan tertutup");
+  assert.ok(!hasCls(b, "is-active"));
+  // ikon: satu <svg> kecil berkelas plg-timeline-btn-icon, aria-hidden, warna dari CSS (currentColor) — tanpa fill/stroke inline
+  const svgs = nodes(b, (n) => n.type === "svg");
+  assert.equal(svgs.length, 1);
+  assert.ok(hasCls(svgs[0], "plg-timeline-btn-icon"));
+  assert.equal(svgs[0].props["aria-hidden"], "true");
+  for (const n of nodes(svgs[0], () => true)) {
+    assert.equal(n.props.fill, undefined);
+    assert.equal(n.props.stroke, undefined);
+    assert.equal(n.props.style, undefined);
+  }
+  assert.match(css, /\.plg-timeline-btn-icon\s*\{[^}]*fill:\s*currentColor/);
+  b.props.onClick({});
+  await settle();
+  assert.deepEqual(h.calls.storageSet.filter((s) => s[0].indexOf("load:") === 0), [["load:proj_Alpha", true]]);
+  b = loadBtnOf(h.render());
+  assert.equal(b.props["aria-pressed"], true);
+  assert.ok(hasCls(b, "is-active"));
+  b.props.onClick({});
+  await settle();
+  assert.deepEqual(h.calls.storageSet.filter((s) => s[0].indexOf("load:") === 0), [["load:proj_Alpha", true], ["load:proj_Alpha", false]]);
+  assert.equal(loadBtnOf(h.render()).props["aria-pressed"], false);
+  assert.deepEqual(h.writes(), [], "pref saja: 0 tulis task/record");
+  h.m.unmount();
+}));
+
+test("T4 Beban Tim: aria-pressed mengikuti pref load:<page> tersimpan (true); mesin belum siap → tombol tidak tampil (juga tidak di Lainnya)", () => withEngineClock(async (clock) => {
+  {
+    const { api } = fakeApi({ storageGet: loadPrefGet("proj_Alpha", true) });
+    api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
+    for (const liveEdit of [false, true]) {
+      const m = mount(T.TimelineViewBody);
+      const props = { context: ctxOf(chainTasks(), { liveEdit }).ctx, api };
+      m.render(props);
+      m.flush();
+      await settle();
+      const tree = m.render(props); // pref terbaca, mesin belum jalan (raf/setTimeout belum)
+      assert.equal(loadBtnOf(tree), undefined, "mesin belum siap (liveEdit " + liveEdit + ")");
+      const mm = moreOf(tree);
+      assert.ok(!mm || mm.props.items.every((it) => it.id !== "load"));
+      m.unmount();
+    }
+  }
+  const { m, tree } = await critView(clock, { storageGet: loadPrefGet("proj_Alpha", true) });
+  const b = loadBtnOf(tree);
+  assert.ok(b, "tampil setelah mesin siap");
+  assert.equal(b.props["aria-pressed"], true, "pref tersimpan ON");
+  assert.ok(hasCls(b, "is-active"));
+  m.unmount();
+}));
+
+test("T4 Beban Tim: Live Edit → item menuitemcheckbox 'Beban Tim' di Lainnya setelah Jalur kritis (aria-checked = pref); pilih → pref load:<page> ditulis, menu tertutup", () => withEngineClock(async (clock) => {
+  const le = await swView(clock, { ctx: { liveEdit: true } });
+  assert.equal(loadBtnOf(le.tree), undefined, "tidak di toolbar saat collapse");
+  const mm = moreOf(le.tree);
+  const it = mm.props.items.find((x) => x.text === "Beban Tim");
+  assert.ok(it);
+  assert.equal(it.role, "menuitemcheckbox");
+  assert.equal(it.checked, false);
+  const texts = mm.props.items.map((x) => x.text);
+  assert.equal(texts.indexOf("Beban Tim"), texts.indexOf("Jalur kritis") + 1);
+  const mt = mount(T.MoreMenu);
+  let t = mt.render(mm.props);
+  buttonByText(t, "Lainnya").props.onClick({});
+  t = mt.render(mm.props);
+  const btn = nodes(t, (n) => n.type === "button" && n.props.role === "menuitemcheckbox" && txt(n).trim() === "Beban Tim")[0];
+  assert.ok(btn);
+  assert.equal(btn.props["aria-checked"], false);
+  btn.props.onClick({});
+  t = mt.render(mm.props);
+  assert.equal(nodes(t, (n) => n.props.role === "menu").length, 0, "menu tertutup");
+  await settle();
+  assert.deepEqual(le.calls.storageSet.filter((s) => s[0].indexOf("load:") === 0), [["load:proj_Alpha", true]]);
+  const it2 = moreOf(le.render()).props.items.find((x) => x.text === "Beban Tim");
+  assert.equal(it2.checked, true, "aria-checked mengikuti pref");
+  const t2 = mount(T.MoreMenu);
+  let tt = t2.render(moreOf(le.tree).props);
+  buttonByText(tt, "Lainnya").props.onClick({});
+  tt = t2.render(moreOf(le.tree).props);
+  assert.equal(nodes(tt, (n) => n.props.role === "menuitemcheckbox" && txt(n).trim() === "Beban Tim")[0].props["aria-checked"], true);
+  mt.unmount();
+  t2.unmount();
+  assert.deepEqual(le.writes(), []);
+  le.m.unmount();
+}));
+
+test("T4 Beban Tim: ≤ 640 px → di Lainnya, baik Gantt maupun Daftar (daftar HP R10); Daftar hanya ada ≤ 640 px — pref mode:list di layar lebar tetap Gantt dengan tombol di toolbar", () => withEngineClock(async (clock) => {
+  const prevWin = global.window;
+  global.window = { matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }), innerHeight: 800, addEventListener() {}, removeEventListener() {} };
+  try {
+    const n = await swView(clock);
+    assert.equal(loadBtnOf(n.tree), undefined);
+    const items = () => moreOf(n.tree).props.items;
+    assert.deepEqual(items().map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+    buttonByText(n.tree, "Daftar").props.onClick({});
+    n.render();
+    assert.deepEqual(items().map((it) => it.text), ["Jadwal otomatis", "Beban Tim", "Simpan baseline", "Jadwalkan ulang"]);
+    const it = items().find((x) => x.text === "Beban Tim");
+    assert.equal(it.role, "menuitemcheckbox");
+    it.onSelect();
+    await settle();
+    assert.deepEqual(n.calls.storageSet.filter((s) => s[0].indexOf("load:") === 0), [["load:proj_Alpha", true]]);
+    n.render();
+    assert.equal(items().find((x) => x.text === "Beban Tim").checked, true);
+    n.m.unmount();
+  } finally {
+    global.window = prevWin;
+  }
+  // layar lebar: mode:list tersimpan diabaikan (Gantt penuh) → tombol Beban Tim di toolbar
+  const fr = fakeRecords();
+  putRec(fr, unitRec(null, "Alpha"));
+  const { api } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "mode:proj_Alpha" ? "list" : null) });
+  api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
+  const m = mount(T.TimelineViewBody);
+  const props = { context: ctxOf(chainTasks()).ctx, api };
+  const tree = await settleView(m, () => props, clock);
+  assert.ok(gridOf(tree), "Gantt");
+  assert.ok(loadBtnOf(tree));
+  m.unmount();
+}));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 5: panel histogram desktop `LoadPanel` (spec §7.2, §1 butir 6; rencana R5, P3 (a))
+// ════════════════════════════════════════════════════════════════════════════
+// Workspace 12, hari ini Rab 4 Nov 2026. Orang: 7 Sari (pengguna aktif, kapasitas bawaan 8), 9 Budi (record: 2 🍅/hari,
+// cuti Sen 9–Sel 10 Nov), 11 Citra (bawaan 8; hanya task tanpa jadwal).
+//   1 Desain API  Budi  Rab 4–Jum 6, 12 🍅 → 4/hari > 2 → merah Rab 4, Kam 5, Jum 6
+//   2 Uji beban   Budi  Sen 9–Sel 10, 2 🍅 → 1/hari, cuti (kapasitas 0) → merah Sen 9, Sel 10
+//   3 Dokumen     Sari  Kam 5–Jum 6, 4 🍅 → 2/hari
+//   4 Riset       Citra tanpa jadwal → "belum dijadwalkan"
+//   5 Rapat       —     Jum 6, target bawaan 1 → baris "Belum ditugaskan"
+//   6 Laporan     Sari  Sen 26–Sel 27 Okt (terlambat), target bawaan 1 → 1 🍅 di T = Rab 4
+//   7 Rilis jauh  Budi  Sen 2 Agu 2027, 5 🍅 → merah DI LUAR jendela dw (zoom Minggu)
+// counted 5 (1, 2, 3, 5, 6), bertarget bawaan 2 (5, 6) → 2 × 4 > 5 → catatan tampil; belum dijadwalkan 1 (4).
+const PANEL_L = { list_id: 12, project: "P0" };
+function panelTasks() {
+  const L = PANEL_L;
+  return [
+    mk(1, "Desain API", { start: "2026-11-04", duration: 3 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 12 }, L)),
+    mk(2, "Uji beban", { start: "2026-11-09", duration: 2 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 2 }, L)),
+    mk(3, "Dokumen", { start: "2026-11-05", duration: 2 }, Object.assign({ assigned_to: 7, estimated_pomodoros: 4 }, L)),
+    mk(4, "Riset", {}, Object.assign({ assigned_to: 11, estimated_pomodoros: 3 }, L)),
+    mk(5, "Rapat", { start: "2026-11-06", duration: 1 }, L),
+    mk(6, "Laporan", { start: "2026-10-26", duration: 2 }, Object.assign({ assigned_to: 7 }, L)),
+    mk(7, "Rilis jauh", { start: "2027-08-02", duration: 1 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 5 }, L)),
+  ];
+}
+const PANEL_PEOPLE = {
+  currentUser: { id: 7, username: "sari", display_name: "Sari" },
+  collaborators: [{ id: 9, username: "budi", display_name: "Budi" }, { id: 11, username: "citra", display_name: "Citra" }],
+};
+// View panel: pref load:<page> ON (kecuali loadOff), pref lain lewat opt.pref(k); records bawaan: unit P0 otomatis + record Budi.
+async function panelView(clock, o) {
+  const opt = o || {};
+  const tasks = opt.tasks || panelTasks();
+  const fr = opt.records || fakeRecords();
+  if (!opt.records) {
+    putRec(fr, unitRec(12, "P0"));
+    putRec(fr, resRec(12, 9, { capacity: 2, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }] }));
+  }
+  const ctxExtra = Object.assign({ page: "slist_12", pageKind: "workspace", listId: 12, projectName: null }, PANEL_PEOPLE, opt.ctx || {});
+  const page = ctxExtra.page;
+  const storageGet = (k) => Promise.resolve(k === "load:" + page ? !opt.loadOff : opt.pref ? opt.pref(k) : null);
+  const { api, calls } = fakeApi({ records: fr, storageGet });
+  api.env.userId = "userId" in opt ? opt.userId : 7; // 1d-1 T7: tanpa pengguna aktif (empty state)
+  api.data = { tasks: { list: () => Promise.resolve(opt.listOf ? opt.listOf() : tasks) } };
+  const writes = spyWrites(api);
+  const { ctx, clicked } = ctxOf(tasks, ctxExtra);
+  const props = { context: ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const h = { m, fr, api, calls, writes, props, clicked, tasks };
+  h.tree = await settleView(m, () => props, clock);
+  h.render = () => (h.tree = m.render(props));
+  h.again = async () => (h.tree = await settleView(m, () => props, clock));
+  return h;
+}
+const panelOf = (tree) => nodes(tree, (n) => n.type === T.LoadPanel)[0];
+const panelHead = (pt) => txt(byCls(pt, "plg-timeline-load-head")[0]).trim();
+const panelNames = (pt) => byCls(pt, "plg-timeline-load-name").map((n) => [n.type, txt(n).trim()]);
+const panelSvgs = (pt) => nodes(pt, (n) => n.type === "svg" && hasCls(n, "plg-timeline-load-svg"));
+const panelHits = (pt) => byCls(pt, "plg-timeline-load-hit");
+const pathCls = (svg) => nodes(svg, (n) => n.type === "path").map((p) => p.props.className);
+const pathD = (svg, c) => (nodes(svg, (n) => n.type === "path" && hasCls(n, c))[0] || { props: {} }).props.d;
+const dnOfIso = (s) => T.TLCal.dn(s);
+
+test("T5 loadHeadText: 'Beban Tim · {n} hari kelebihan beban' (n = Σ pasangan orang×hari) + '· {m} task belum dijadwalkan' bila ada + '· {k} task bertarget bawaan 1 🍅' bila k > 25 % counted", () => {
+  const rows = [{ uid: 1, overDays: [10, 11] }, { uid: 2, overDays: [10] }, { uid: null, overDays: [] }];
+  const L = (o) => Object.assign({ rows, unscheduled: 0, counted: 4, defaultTarget: 1 }, o);
+  assert.equal(T.loadHeadText(L()), "Beban Tim · 3 hari kelebihan beban", "1 × 4 = 4 tidak > 4 (tepat 25 %)");
+  assert.equal(T.loadHeadText(L({ unscheduled: 2 })), "Beban Tim · 3 hari kelebihan beban · 2 task belum dijadwalkan");
+  assert.equal(T.loadHeadText(L({ defaultTarget: 2 })), "Beban Tim · 3 hari kelebihan beban · 2 task bertarget bawaan 1 🍅");
+  assert.equal(T.loadHeadText(L({ unscheduled: 1, defaultTarget: 3 })), "Beban Tim · 3 hari kelebihan beban · 1 task belum dijadwalkan · 3 task bertarget bawaan 1 🍅");
+  assert.equal(T.loadHeadText(L({ counted: 0, defaultTarget: 0 })), "Beban Tim · 3 hari kelebihan beban");
+  assert.equal(T.loadHeadText({ rows: [], unscheduled: 0, counted: 0, defaultTarget: 0 }), "Beban Tim · 0 hari kelebihan beban");
+});
+
+test("T5 view: pref load ON + mesin siap → LoadPanel di bawah .plg-timeline-scroll, sebelum legenda; props primitif jendela dw/zoom (sama dengan Gantt) + ref + callback; pref OFF / mesin belum siap → tidak ada", () => withEngineClock(async (clock) => {
+  // mesin belum siap: pref ON terbaca, load null → tanpa panel
+  {
+    const fr = fakeRecords();
+    const { api } = fakeApi({ records: fr, storageGet: loadPrefGet("slist_12", true) });
+    api.env.userId = 7;
+    api.data = { tasks: { list: () => Promise.resolve(panelTasks()) } };
+    const m = mount(T.TimelineViewBody);
+    const props = { context: ctxOf(panelTasks(), Object.assign({ page: "slist_12", pageKind: "workspace", listId: 12, projectName: null }, PANEL_PEOPLE)).ctx, api };
+    m.render(props);
+    m.flush();
+    await settle();
+    assert.equal(panelOf(m.render(props)), undefined, "sebelum mesin siap");
+    m.unmount();
+  }
+  const off = await panelView(clock, { loadOff: true });
+  assert.equal(panelOf(off.tree), undefined, "pref OFF");
+  off.m.unmount();
+  const h = await panelView(clock);
+  const root = h.tree;
+  assert.ok(hasCls(root, "plg-timeline"));
+  const kids = root.children.filter((c) => c && typeof c === "object");
+  const iGrid = kids.findIndex((c) => hasCls(c, "plg-timeline-scroll"));
+  const iPanel = kids.findIndex((c) => c.type === T.LoadPanel);
+  const iFoot = kids.findIndex((c) => hasCls(c, "plg-timeline-foot"));
+  assert.ok(iGrid >= 0 && iPanel === iGrid + 1 && iFoot === iPanel + 1, "urutan: grafik · panel · legenda (" + [iGrid, iPanel, iFoot] + ")");
+  const p = panelOf(root).props;
+  const lay = T.TLLayout.layout({ tasks: h.tasks, pageKind: "workspace", cal: T.TLCal.DEFAULT_CAL, today: TODAY, zoom: "week", readSchedOf: (t) => T.TLSched.readSched(h.api.taskExt.read(t)) });
+  const dw = T.TLLayout.windowDays(lay.range, lay.px, T.TLLayout.initialScrollLeft(lay.range, lay.px, TODAY, 1000), 1000);
+  assert.deepEqual([p.rangeFrom, p.px, p.fromDn, p.toDn, p.tableW, p.viewW, p.pageKind], [lay.range.from, lay.px, dw.fromDn, dw.toDn, TABLE_W_FULL, 1000, "workspace"]);
+  assert.ok(p.load && Array.isArray(p.load.rows));
+  assert.equal(p.cal && typeof p.cal.mask.has, "function", "kalender terkompilasi mesin (eng.ctx.cal)");
+  for (const k of ["trackRef", "boxRef"]) assert.ok(p[k] && "current" in p[k], k);
+  for (const k of ["getLeft", "onEditPerson"]) assert.equal(typeof p[k], "function", k);
+  assert.equal(p.getLeft(), 0, "tanpa wadah terpasang → 0");
+  // memo: render ulang view tanpa perubahan → props LoadPanel identik (React.memo melewati render panel)
+  const p2 = panelOf(h.render()).props;
+  for (const k of Object.keys(p)) assert.ok(Object.is(p[k], p2[k]), "prop stabil: " + k);
+  assert.match(jsx, /React\.memo\(LoadPanel\)/);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("T5 view: ≤ 640 px (Gantt dan Daftar) → panel desktop tidak dirender (daftar HP = T8); Live Edit lebar → dirender", () => withEngineClock(async (clock) => {
+  const prevWin = global.window;
+  global.window = { matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }), innerHeight: 800, addEventListener() {}, removeEventListener() {} };
+  try {
+    const h = await panelView(clock);
+    assert.ok(gridOf(h.tree), "Gantt HP");
+    assert.equal(panelOf(h.tree), undefined, "Gantt ≤ 640 px");
+    buttonByText(h.tree, "Daftar").props.onClick({});
+    assert.equal(panelOf(h.render()), undefined, "Daftar");
+    h.m.unmount();
+  } finally {
+    global.window = prevWin;
+  }
+  const le = await panelView(clock, { ctx: { liveEdit: true } });
+  assert.ok(panelOf(le.tree), "Live Edit lebar: Gantt + panel");
+  assert.equal(panelOf(le.tree).props.tableW, 48 + 160, "kolom kiri = lebar tabel ringkas");
+  le.m.unmount();
+}));
+
+test("T5 LoadPanel: judul persis (+ belum dijadwalkan + bertarget bawaan), kolom kiri '{nama} · {cap} 🍅/hari' (tombol → onEditPerson(uid)), 'Belum ditugaskan' bukan tombol; tanpa catatan P3 di workspace", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const node = panelOf(h.tree);
+  const edits = [];
+  const props = Object.assign({}, node.props, { onEditPerson: (u) => edits.push(u) });
+  const pm = mount(T.LoadPanel);
+  const pt = pm.render(props);
+  const sec = nodes(pt, (n) => n.type === "section")[0];
+  assert.ok(sec && hasCls(sec, "plg-timeline-load"), "akar section.plg-timeline-load");
+  assert.equal(sec.props["aria-label"], "Beban Tim");
+  assert.equal(sec.props.ref, node.props.boxRef, "ref akar = boxRef view (ukur tinggi)");
+  const head = byCls(pt, "plg-timeline-load-head")[0];
+  assert.equal(head.type, "h3");
+  assert.equal(panelHead(pt), "Beban Tim · 6 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅");
+  assert.equal(byCls(pt, "plg-timeline-load-note").length, 0, "workspace tanpa catatan (P3 a)");
+  assert.deepEqual(panelNames(pt), [["button", "Budi · 2 🍅/hari"], ["button", "Citra · 8 🍅/hari"], ["button", "Sari · 8 🍅/hari"], ["div", "Belum ditugaskan"]]);
+  const names = byCls(pt, "plg-timeline-load-name");
+  names[0].props.onClick({});
+  names[2].props.onClick({});
+  assert.deepEqual(edits, [9, 7]);
+  assert.equal(names[3].props.onClick, undefined);
+  // halaman view: onEditPerson = penyetel state (T7) — memanggilnya merender ulang view tanpa tulis
+  const n0 = h.m.setCalls.length;
+  node.props.onEditPerson(9);
+  assert.equal(h.m.setCalls.length, n0 + 1);
+  pm.unmount();
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("T5 LoadPanel project pribadi: satu baris pengguna aktif + catatan persis 'Hanya beban dari project ini' (P3 a)", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const tasks = [
+    mk(1, "A", { start: "2026-11-04", duration: 2 }, Object.assign({ estimated_pomodoros: 20 }, al)),
+    mk(2, "B", {}, al),
+  ];
+  const fr = fakeRecords();
+  putRec(fr, resRec(null, 7, { capacity: 6, leave: [] }));
+  const h = await panelView(clock, { tasks, records: fr, ctx: { page: "proj_Alpha", pageKind: "project", listId: null, projectName: "Alpha" } });
+  const pt = child(panelOf(h.tree));
+  assert.equal(panelOf(h.tree).props.pageKind, "project");
+  assert.equal(panelHead(pt), "Beban Tim · 2 hari kelebihan beban · 1 task belum dijadwalkan", "A 20 🍅 / 2 hari > 6; B tanpa jadwal (tidak berbeban → bukan bertarget bawaan)");
+  const note = byCls(pt, "plg-timeline-load-note");
+  assert.equal(note.length, 1);
+  assert.equal(txt(note[0]).trim(), "Hanya beban dari project ini");
+  assert.deepEqual(panelNames(pt), [["button", "Sari · 6 🍅/hari"]]);
+  h.m.unmount();
+}));
+
+test("T5 LoadPanel grafik (R5): satu <svg> per baris di xOf(dw.fromDn) selebar jendela, tinggi 28; path berkelas tanpa warna inline (satu per kelas); geometri batang/kelebihan/kapasitas; baris Belum ditugaskan tanpa kapasitas/merah/cuti", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const p = panelOf(h.tree).props;
+  const pt = child(panelOf(h.tree));
+  const svgs = panelSvgs(pt);
+  assert.equal(svgs.length, 4, "satu svg per baris");
+  const W = (p.toDn - p.fromDn + 1) * p.px;
+  svgs.forEach((s, i) => {
+    assert.equal(s.props.width, W);
+    assert.equal(s.props.height, 28);
+    assert.equal(s.props["aria-hidden"], "true");
+    assert.deepEqual(s.props.style, { left: (p.fromDn - p.rangeFrom) * p.px, top: i * 28 });
+    for (const n of nodes(s, (x) => x.type === "path")) {
+      assert.equal(n.props.fill, undefined);
+      assert.equal(n.props.stroke, undefined);
+      assert.equal(n.props.style, undefined);
+      assert.ok(typeof n.props.d === "string" && n.props.d.length > 0, "path tanpa d kosong");
+    }
+    const cls = pathCls(s);
+    assert.equal(new Set(cls).size, cls.length, "satu path per kelas");
+  });
+  assert.deepEqual(pathCls(svgs[0]), ["plg-timeline-load-off", "plg-timeline-load-cap", "plg-timeline-load-bar", "plg-timeline-load-over", "plg-timeline-load-leave"], "Budi: semua lapis");
+  assert.deepEqual(pathCls(svgs[1]), ["plg-timeline-load-off", "plg-timeline-load-cap"], "Citra: tanpa beban di jendela");
+  assert.deepEqual(pathCls(svgs[2]), ["plg-timeline-load-off", "plg-timeline-load-cap", "plg-timeline-load-bar"], "Sari: tanpa merah/cuti");
+  assert.deepEqual(pathCls(svgs[3]), ["plg-timeline-load-off", "plg-timeline-load-bar"], "Belum ditugaskan: tanpa kapasitas/merah/cuti");
+  // geometri Budi Rab 4 Nov: skala baris (review T4–T6 I4: seluruh hasil, bukan jendela) = maks(kapasitas 2, beban maks
+  // 5 🍅 Rilis jauh Agu 2027) = 5 🍅 → 25 px (28 − 3); kapasitas 2 → 10 px; batang = bagian ≤ kapasitas (10), kelebihan =
+  // 2 🍅 di atasnya (y 8..18); zoom Minggu 12 px, inset 1 → lebar 10.
+  const xd = (iso) => (dnOfIso(iso) - p.fromDn) * p.px;
+  assert.ok(pathD(svgs[0], "plg-timeline-load-bar").includes("M" + (xd("2026-11-04") + 1) + " 18h10v10h-10Z"), "batang Rab 4");
+  assert.ok(pathD(svgs[0], "plg-timeline-load-over").includes("M" + (xd("2026-11-04") + 1) + " 8h10v10h-10Z"), "kelebihan Rab 4");
+  // cuti Sen 9 (kapasitas 0): beban 1 seluruhnya merah, tanpa batang biasa; skala 5 → 5 px
+  assert.ok(pathD(svgs[0], "plg-timeline-load-over").includes("M" + (xd("2026-11-09") + 1) + " 23h10v5h-10Z"), "kelebihan Sen 9 (cuti)");
+  assert.ok(!pathD(svgs[0], "plg-timeline-load-bar").includes("M" + (xd("2026-11-09") + 1) + " "), "tanpa batang biasa di hari cuti");
+  // kapasitas Budi: area 10 px digabung per rentang hari kerja berkapasitas sama (Sen 2–Jum 6 satu persegi)
+  assert.ok(pathD(svgs[0], "plg-timeline-load-cap").includes("M" + xd("2026-11-02") + " 18h60v10h-60Z"), "kapasitas Sen 2–Jum 6");
+  // hari non-kerja: Sab 7–Min 8 satu persegi setinggi baris
+  assert.ok(pathD(svgs[0], "plg-timeline-load-off").includes("M" + xd("2026-11-07") + " 0h24v28h-24Z"), "Sab–Min");
+  // arsir cuti hanya di Sen 9–Sel 10 (x dalam [Sen 9, Rab 11))
+  const xs = pathD(svgs[0], "plg-timeline-load-leave").match(/[ML](-?[\d.]+) /g).map((s) => Number(s.slice(1)));
+  assert.ok(xs.length >= 4 && xs.every((x) => x >= xd("2026-11-09") - 1e-9 && x <= xd("2026-11-11") + 1e-9), "arsir dalam rentang cuti");
+  // Sari: skala 8 (kapasitas) → beban 2 🍅 = 6.25 → 6.3 px pada Kam 5
+  assert.ok(pathD(svgs[2], "plg-timeline-load-bar").includes("M" + (xd("2026-11-05") + 1) + " 21.8h10v6.3h-10Z"), "Sari Kam 5");
+  h.m.unmount();
+}));
+
+test("T5 LoadPanel tombol hari merah: hanya overDays di jendela dw (Rilis jauh Agu 2027 di luar → tanpa tombol), di atas hari itu, aria-label = teks tooltip persis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const p = panelOf(h.tree).props;
+  const budi = p.load.rows.find((r) => r.uid === 9);
+  assert.deepEqual(budi.overDays.map(T.TLCal.iso), ["2026-11-04", "2026-11-05", "2026-11-06", "2026-11-09", "2026-11-10", "2027-08-02"]);
+  assert.ok(dnOfIso("2027-08-02") > p.toDn, "di luar jendela");
+  const pt = child(panelOf(h.tree));
+  const hits = panelHits(pt);
+  assert.deepEqual(hits.map((b) => b.props["aria-label"]), [
+    "Budi · Rab 4 Nov: 4 dari 2 🍅 (~1.5 jam)",
+    "Budi · Kam 5 Nov: 4 dari 2 🍅 (~1.5 jam)",
+    "Budi · Jum 6 Nov: 4 dari 2 🍅 (~1.5 jam)",
+    "Budi · Sen 9 Nov: 1 dari 0 🍅 (~0.5 jam)",
+    "Budi · Sel 10 Nov: 1 dari 0 🍅 (~0.5 jam)",
+  ]);
+  hits.forEach((b, k) => {
+    assert.equal(b.type, "button");
+    assert.equal(b.props.type, "button");
+    assert.equal(b.props["aria-haspopup"], "dialog");
+    const dn = budi.overDays[k];
+    assert.deepEqual(b.props.style, { left: (dn - p.rangeFrom) * p.px, top: 0, width: p.px });
+    assert.equal(typeof b.props.onClick, "function");
+  });
+  h.m.unmount();
+}));
+
+test("T5 LoadPanel readout: satu elemen .plg-timeline-load-tip aria-hidden saat pointer di atas grafik; teks persis (hari biasa/merah/libur/Belum ditugaskan, '(~x jam)' sekali); setState hanya bila (baris, hari) berubah; pointerleave → hilang", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const node = panelOf(h.tree);
+  const p = node.props;
+  const pm = mount(T.LoadPanel);
+  let pt = pm.render(p);
+  pm.flush();
+  const view = byCls(pt, "plg-timeline-load-view")[0];
+  assert.ok(view, "wadah grafik");
+  assert.equal(byCls(pt, "plg-timeline-load-tip").length, 0, "tanpa readout sebelum hover");
+  view.props.ref.current = { getBoundingClientRect: () => ({ left: 100, top: 50, width: 1000, height: 112 }) };
+  const at = (iso, i, dx) => ({ clientX: 100 + (dnOfIso(iso) - p.rangeFrom) * p.px + (dx || 1) - p.getLeft(), clientY: 50 + i * 28 + 5 });
+  const tipText = () => {
+    pt = pm.render(p);
+    const tips = byCls(pt, "plg-timeline-load-tip");
+    assert.ok(tips.length <= 1, "satu elemen readout per panel");
+    if (!tips.length) return null;
+    assert.equal(tips[0].props["aria-hidden"], "true");
+    return txt(tips[0]).trim();
+  };
+  const cases = [
+    ["2026-11-04", 0, "Budi · Rab 4 Nov: 4 dari 2 🍅 (~1.5 jam)"],
+    ["2026-11-09", 0, "Budi · Sen 9 Nov: 1 dari 0 🍅 (~0.5 jam)"],
+    ["2026-11-04", 2, "Sari · Rab 4 Nov: 1 dari 8 🍅 (~0.5 jam)"],
+    ["2026-11-05", 2, "Sari · Kam 5 Nov: 2 dari 8 🍅 (~1 jam)"],
+    ["2026-11-07", 2, "Sari · Sab 7 Nov: 0 dari 0 🍅 (~0 jam)"],
+    ["2026-11-05", 1, "Citra · Kam 5 Nov: 0 dari 8 🍅 (~0 jam)"],
+    ["2026-11-06", 3, "Belum ditugaskan · Jum 6 Nov: 1 🍅 (~0.5 jam)"],
+  ];
+  for (const [iso, i, want] of cases) {
+    view.props.onPointerMove(at(iso, i));
+    const got = tipText();
+    assert.equal(got, want);
+    assert.equal((got.match(/~/g) || []).length, 1, "satu '~'");
+    assert.equal((got.match(/jam/g) || []).length, 1, "satu 'jam'");
+  }
+  // gerak di dalam sel yang sama → tanpa setState; sel lain → tepat satu
+  const n0 = pm.setCalls.length;
+  view.props.onPointerMove(at("2026-11-06", 3, 2));
+  view.props.onPointerMove(at("2026-11-06", 3, 5));
+  assert.equal(pm.setCalls.length, n0, "sel sama → 0 setState");
+  view.props.onPointerMove(at("2026-11-05", 3));
+  assert.equal(pm.setCalls.length, n0 + 1);
+  assert.equal(tipText(), "Belum ditugaskan · Kam 5 Nov: 0 🍅 (~0 jam)");
+  // di bawah baris terakhir → hilang; pointerleave → hilang
+  view.props.onPointerMove({ clientX: at("2026-11-05", 0).clientX, clientY: 50 + 4 * 28 + 3 });
+  assert.equal(tipText(), null);
+  view.props.onPointerMove(at("2026-11-05", 0));
+  assert.ok(tipText());
+  view.props.onPointerLeave({});
+  assert.equal(tipText(), null);
+  pm.unmount();
+  assert.deepEqual(h.writes, [], "hover: 0 tulis");
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("T5 gulir (R5): onScroll wadah Gantt menyetel translateX isi grafik panel LANGSUNG lewat ref — tanpa setState view dalam kuantum yang sama, props LoadPanel tetap identik (memo); render panel menyetel transform dari getLeft (useLayoutEffect); kuantum baru → jendela dw baru", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const el = fakeEl();
+  let tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  tree = h.m.render(h.props);
+  const node = panelOf(tree);
+  const track = { style: {} };
+  node.props.trackRef.current = track;
+  assert.equal(node.props.getLeft(), el.scrollLeft);
+  const n0 = h.m.setCalls.length;
+  const q = 500; // quantLeft: ½ lebar grafik tampak (1000)
+  const base = Math.floor(el.scrollLeft / q) * q;
+  const nextLeft = base + (el.scrollLeft - base === 7 ? 9 : 7);
+  el.scrollLeft = nextLeft;
+  gridOf(tree).props.onScroll();
+  assert.equal(track.style.transform, "translateX(-" + nextLeft + "px)", "disetel di handler gulir, sebelum frame");
+  clock.frames();
+  assert.equal(h.m.setCalls.length, n0, "kuantum sama → view tidak dirender ulang");
+  const p2 = panelOf(h.m.render(h.props)).props;
+  for (const k of Object.keys(node.props)) assert.ok(Object.is(node.props[k], p2[k]), "prop stabil: " + k);
+  // panel dirender (dw/zoom berubah) → transform dari getLeft() saat itu
+  const pm = mount(T.LoadPanel);
+  const track2 = { style: {} };
+  const pt = pm.render(p2);
+  nodes(pt, (n) => hasCls(n, "plg-timeline-load-track"))[0].props.ref.current = track2;
+  pm.flush();
+  assert.equal(track2.style.transform, "translateX(-" + nextLeft + "px)");
+  pm.unmount();
+  node.props.trackRef.current = track; // elemen isi grafik view kembali
+  // kuantum berikutnya → setVp → jendela dw baru (fromDn berubah) → panel menerima jendela baru
+  el.scrollLeft = base + 3 * q + 1;
+  gridOf(tree).props.onScroll();
+  assert.equal(track.style.transform, "translateX(-" + (base + 3 * q + 1) + "px)");
+  clock.frames();
+  assert.equal(h.m.setCalls.length, n0 + 1);
+  const p3 = panelOf(h.m.render(h.props)).props;
+  assert.notEqual(p3.fromDn, p2.fromDn);
+  assert.deepEqual(h.writes, []);
+  h.m.unmount();
+}));
+
+test("T5 tinggi: baris 28 px, maks 10 baris terlihat (body maxHeight 280, overflow-y di CSS), kolom kiri dan grafik setinggi semua baris dalam satu wadah gulir; tinggi panel dikurangkan dari wadah Gantt (legenda + panel tetap terlihat)", () => withEngineClock(async (clock) => {
+  const L = PANEL_L;
+  const tasks = [];
+  for (let u = 1; u <= 12; u++) tasks.push(mk(u, "T" + u, { start: "2026-11-04", duration: 1 }, Object.assign({ assigned_to: 100 + u, estimated_pomodoros: 2 }, L)));
+  const h = await panelView(clock, { tasks });
+  const pt = child(panelOf(h.tree));
+  const body = byCls(pt, "plg-timeline-load-body")[0];
+  assert.equal(body.props.style.maxHeight, 280);
+  const rowsN = panelOf(h.tree).props.load.rows.length;
+  assert.equal(rowsN, 14, "12 penanggung jawab + pengguna aktif + pemilik record (Budi)");
+  assert.equal(byCls(pt, "plg-timeline-load-names")[0].props.style.height, rowsN * 28);
+  assert.equal(byCls(pt, "plg-timeline-load-view")[0].props.style.height, rowsN * 28);
+  assert.equal(byCls(pt, "plg-timeline-load-names")[0].props.style.width, TABLE_W_FULL);
+  assert.match(css, /\.plg-timeline-load-body\s*\{[^}]*overflow-y:\s*auto/);
+  assert.match(css, /\.plg-timeline-load-view\s*\{[^}]*overflow:\s*hidden;\s*overflow:\s*clip;/, "review T4–T6 I2: clip (bukan wadah gulir), hidden cadangan");
+  h.m.unmount();
+  // ukur: boxH = maks(360, innerHeight − top − 16 − legenda − panel)
+  const prevWin = global.window;
+  global.window = { innerHeight: 1200, addEventListener() {}, removeEventListener() {} };
+  try {
+    const v = await panelView(clock, { loadOff: true });
+    const el = fakeEl();
+    let tree = attach(v.m, v.props, v.tree, el);
+    assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16, "panel tertutup");
+    loadBtnOf(tree).props.onClick({});
+    tree = v.m.render(v.props);
+    v.m.flush(); // review akhir: panel menunggu kapasitas termuat (records.list) — tanpa kilatan kapasitas bawaan
+    await settle();
+    tree = v.m.render(v.props);
+    panelOf(tree).props.boxRef.current = { offsetHeight: 300 };
+    tree = attach(v.m, v.props, tree, el);
+    assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16 - 300, "panel terbuka: tingginya dikurangkan");
+    v.m.unmount();
+  } finally {
+    global.window = prevWin;
+  }
+}));
+
+// 10 orang dengan hampir semua hari kerja merah (40 task 99 🍅 per orang) — kasus terburuk tombol hari merah.
+function heavyLoad(zoom) {
+  const tasks = [];
+  const people = [];
+  let id = 1;
+  for (let u = 1; u <= 10; u++) {
+    people.push({ uid: u, name: "Orang " + u, res: u % 3 === 0 ? { capacity: 4, leave: [{ from: dnOfIso("2026-11-09"), to: dnOfIso("2026-11-20"), note: "" }] } : null });
+    for (let w = 0; w < 40; w++) {
+      tasks.push(mk(id++, "Berat " + u + "." + w, { start: T.TLCal.iso(dnOfIso("2026-08-03") + 7 * w), duration: 5 }, { assigned_to: u, estimated_pomodoros: 99, list_id: 12, project: "P0" }));
+    }
+  }
+  const api = fakeApi().api;
+  const cal = T.TLCal.compile(T.TLCal.DEFAULT_CAL);
+  const ctx = { tasks, cal, units: new Map(), readExt: (t) => api.taskExt.read(t) };
+  const result = T.TLCpm.run(ctx);
+  const load = T.TLLoad.run({ tasks, cal, readExt: ctx.readExt, result, units: ctx.units, people, byAssignee: true, ownerUid: 1, D: dnOfIso(TODAY) });
+  const lay = T.TLLayout.layout({ tasks, pageKind: "workspace", cal: T.TLCal.DEFAULT_CAL, today: TODAY, zoom, readSchedOf: (t) => T.TLSched.readSched(api.taskExt.read(t)) });
+  const sl = T.TLLayout.initialScrollLeft(lay.range, lay.px, TODAY, 1000);
+  const dw = T.TLLayout.windowDays(lay.range, lay.px, sl, 1000);
+  return {
+    load, ctx, result, lay, dw,
+    props: {
+      load, cal, result, ctx, rangeFrom: lay.range.from, px: lay.px, fromDn: dw.fromDn, toDn: dw.toDn, tableW: TABLE_W_FULL, viewW: 1000,
+      pageKind: "workspace", trackRef: { current: null }, boxRef: { current: null }, getLeft: () => sl, onEditPerson() {}, onReveal() {},
+    },
+  };
+}
+
+test("T5 anggaran DOM: 10 orang × zoom Hari/Minggu/Bulan → elemen panel ≤ 300; tombol merah dibatasi LOAD_HIT_MAX (prioritas dekat tengah jendela, urut baris lalu hari)", () => {
+  assert.equal(T.LOAD_HIT_MAX, 150);
+  for (const zoom of ["day", "week", "month"]) {
+    const x = heavyLoad(zoom);
+    const pm = mount(T.LoadPanel);
+    const pt = pm.render(x.props);
+    pm.flush();
+    const n = domCount(pt);
+    const inWin = x.load.rows.reduce((s, r) => s + r.overDays.filter((d) => d >= x.dw.fromDn && d <= x.dw.toDn).length, 0);
+    const hits = panelHits(pt);
+    assert.ok(inWin > T.LOAD_HIT_MAX, zoom + ": kasus terburuk (" + inWin + " hari merah di jendela)");
+    assert.equal(hits.length, T.LOAD_HIT_MAX);
+    assert.ok(n <= 300, zoom + ": " + n + " elemen");
+    assert.equal(panelSvgs(pt).length, 10);
+    // prioritas: jarak ke tengah jendela tidak melebihi hari merah mana pun yang tidak mendapat tombol
+    const mid = (x.dw.fromDn + x.dw.toDn) / 2;
+    const got = new Set(hits.map((b) => b.props.style.top / 28 + ":" + (b.props.style.left / x.lay.px + x.lay.range.from)));
+    const far = Math.max(...hits.map((b) => Math.abs(b.props.style.left / x.lay.px + x.lay.range.from - mid)));
+    for (const [i, r] of x.load.rows.entries()) {
+      for (const d of r.overDays) if (d >= x.dw.fromDn && d <= x.dw.toDn && !got.has(i + ":" + d)) assert.ok(Math.abs(d - mid) >= far, "tanpa tombol hanya yang lebih jauh dari tengah");
+    }
+    const order = hits.map((b) => [b.props.style.top, b.props.style.left]);
+    const sorted = order.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    assert.deepEqual(order, sorted, "urutan DOM (tab) = baris lalu hari");
+    console.log("# DOM panel Beban Tim 10 orang (" + zoom + "): " + n + " elemen, " + hits.length + "/" + inWin + " tombol merah");
+    pm.unmount();
+  }
+});
+
+test("T5 DOM total 500 task/400 dep + Jalur kritis + panel Beban Tim (10 orang) ≤ 1.500 elemen; 0 tulis", () => withEngineClock(async (clock) => {
+  const tasks = bigTasks(500, 400).map((t, i) => Object.assign(t, { list_id: 12, assigned_to: 1 + (i % 10) }));
+  const fr = fakeRecords();
+  for (let k = 0; k < 5; k++) putRec(fr, unitRec(12, "P" + k));
+  const { api } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "crit:slist_12" || k === "load:slist_12" ? true : null) });
+  api.env.userId = 1;
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const { ctx } = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
+  const props = { context: ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const tree = await settleView(m, () => props, clock);
+  assert.equal(buttonByText(tree, "Jalur kritis").props["aria-pressed"], true);
+  assert.equal(loadBtnOf(tree).props["aria-pressed"], true);
+  const node = panelOf(tree);
+  assert.ok(node, "panel terbuka");
+  assert.equal(node.props.load.rows.filter((r) => r.uid !== null).length, 10);
+  const pm = mount(T.LoadPanel);
+  const pt = pm.render(node.props);
+  pm.flush();
+  const nView = domCount(tree);
+  const nPanel = domCount(pt);
+  assert.ok(nPanel <= 300, "panel: " + nPanel);
+  assert.ok(nView + nPanel <= 1500, "total: " + (nView + nPanel));
+  console.log("# DOM elemen 500 task/400 dep + Jalur kritis + Beban Tim: view " + nView + " + panel " + nPanel + " = " + (nView + nPanel));
+  for (const n of nodes(pt, (x) => typeof x.props.className === "string")) {
+    for (const c of n.props.className.split(/\s+/).filter(Boolean)) assert.match(c, /^(plg-timeline(-[\w-]+)?|is-[\w-]+)$/, c);
+  }
+  pm.unmount();
+  assert.deepEqual(writes, []);
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0);
+  m.unmount();
+}));
+
+test("T5 CSS panel: kelas .plg-timeline-load-* hanya token tema (kapasitas --bg-subtle, beban --accent, kelebihan --plg-timeline-danger, cuti --text-secondary + opacity, non-kerja abu --text-secondary 12 % — review T4–T6 I3), tanpa border-left aksen, :focus-visible untuk nama/tombol merah", () => {
+  const rule = (sel) => {
+    const m = css.match(new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([^}]*)\\}"));
+    assert.ok(m, "aturan " + sel);
+    return m[1];
+  };
+  assert.match(rule(".plg-timeline-load-cap"), /fill:\s*var\(--bg-subtle\)/);
+  assert.match(rule(".plg-timeline-load-bar"), /fill:\s*var\(--accent\)/);
+  assert.match(rule(".plg-timeline-load-over"), /fill:\s*var\(--plg-timeline-danger\)/);
+  const lv = rule(".plg-timeline-load-leave");
+  assert.match(lv, /stroke:\s*var\(--text-secondary\)/);
+  assert.match(lv, /(stroke-)?opacity:\s*0?\.\d+/);
+  assert.match(rule(".plg-timeline-load-off"), /fill:\s*color-mix\(in srgb, var\(--text-secondary\) 12%, transparent\)/);
+  assert.doesNotMatch(rule(".plg-timeline-load-off"), /danger/, "hari non-kerja tidak ditint merah");
+  assert.match(css, /\.plg-timeline-load-name:focus-visible[^{]*\{[^}]*outline:\s*2px solid var\(--accent\)/);
+  assert.match(css, /\.plg-timeline-load-hit:focus-visible[^{]*\{[^}]*outline:\s*2px solid var\(--accent\)/);
+  const block = css.slice(css.indexOf("1d-1: Beban Tim"));
+  assert.ok(block.length > 100);
+  assert.doesNotMatch(block, /border-left\s*:/, "tanpa border-left aksen");
+  assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 6: popover saran (spec §7.4, K50, R6) + revealRow (R7)
+// ════════════════════════════════════════════════════════════════════════════
+// Workspace 12, unit P0 dan P1 Otomatis. Budi (9) kapasitas 2; Rab 4 Nov = 12 🍅 → merah, kontributor semua jenis R6:
+//   Ikon 3 🍅 slack 9 (free) · Warna 1 🍅 slack 8 (free) · Fondasi 1 🍅 (kritis, jalur terpanjang P0) · Pin 1 🍅 (mode
+//   manual eksplisit di unit Otomatis) · Berjalan 2 🍅 (progress 30) · Tunggakan 4 🍅 (selesai Sen 26 Okt → terlambat, di T).
+// Citra (11) Rab 4 Nov: Besar 20 🍅 sendirian di P1 → kritis saja (tanpa free).
+// Sepuluh task isi selesai (dibuat lebih dulu) mendorong baris task P0 ke indeks 11–16 agar scrollTop > 0; Tanpa jadwal
+// (id 8) = baris tanpa rentang.
+function sugTasks() {
+  const L0 = { list_id: 12, project: "P0" };
+  const L1 = { list_id: 12, project: "P1" };
+  const fill = [];
+  for (let k = 0; k < 10; k++) {
+    fill.push(mk(60 + k, "Isi " + k, { start: "2026-10-01", duration: 1 }, Object.assign({ gtd_status: "done", completed_at: "2026-10-01T03:00:00Z", created_at: "2026-09-01T00:00:0" + k + "Z" }, L0)));
+  }
+  return fill.concat([
+    mk(1, "Fondasi", { start: "2026-11-04", duration: 10 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 10 }, L0)),
+    mk(2, "Ikon", { start: "2026-11-04", duration: 1 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 3 }, L0)),
+    mk(3, "Warna", { start: "2026-11-04", duration: 2 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 2 }, L0)),
+    mk(4, "Pin", { start: "2026-11-04", duration: 1, mode: "manual" }, Object.assign({ assigned_to: 9, estimated_pomodoros: 1 }, L0)),
+    mk(5, "Berjalan", { start: "2026-11-04", duration: 1 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 2, progress: 30 }, L0)),
+    mk(6, "Tunggakan", { start: "2026-10-26", duration: 1 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 4 }, L0)),
+    mk(7, "Besar", { start: "2026-11-04", duration: 1 }, Object.assign({ assigned_to: 11, estimated_pomodoros: 20 }, L1)),
+    mk(8, "Tanpa jadwal", {}, Object.assign({ assigned_to: 9 }, L0)),
+  ]);
+}
+function sugRecords() {
+  const fr = fakeRecords();
+  putRec(fr, unitRec(12, "P0"));
+  putRec(fr, unitRec(12, "P1"));
+  putRec(fr, resRec(12, 9, { capacity: 2, leave: [] }));
+  return fr;
+}
+const sugOf = (pt) => nodes(pt, (n) => n.type === T.SuggestPopover)[0];
+const sugRows = (spt) => byCls(spt, "plg-timeline-load-sug-btn").map((b) => {
+  const k = byCls(b, "plg-timeline-load-sug-kind")[0];
+  return [txt(byCls(b, "plg-timeline-load-sug-text")[0]).trim(), k ? txt(k).trim() : null];
+});
+const hitOf = (pt, label) => panelHits(pt).find((b) => b.props["aria-label"].indexOf(label) === 0);
+// Panel view (props asli dari view, termasuk onReveal) dipasang sendiri; tombol pemicu palsu mencatat fokus.
+function sugPanel(h) {
+  const node = panelOf(h.tree);
+  const pm = mount(T.LoadPanel);
+  const ph = { node, pm, props: node.props, tree: pm.render(node.props) };
+  ph.render = () => (ph.tree = pm.render(ph.props));
+  ph.open = (label) => {
+    const btn = { focused: 0, focus() { this.focused++; } };
+    hitOf(ph.tree, label).props.onClick({ currentTarget: btn });
+    ph.render();
+    return btn;
+  };
+  return ph;
+}
+
+test("T6 popover saran: klik tombol hari merah → dialog 'Bisa digeser — {nama}, {tgl}'; baris persis free '{judul} · {n} 🍅 hari ini · slack {s} hk', lainnya + label 'Kritis'/'Manual'/'Sudah mulai'/'terlambat'; urutan = TLLoad.suggest; 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const ph = sugPanel(h);
+  assert.equal(sugOf(ph.tree), undefined, "tertutup bawaan");
+  assert.deepEqual(panelHits(ph.tree).map((b) => b.props["aria-label"]), [
+    "Budi · Rab 4 Nov: 12 dari 2 🍅 (~5 jam)",
+    "Citra · Rab 4 Nov: 20 dari 8 🍅 (~8.5 jam)",
+  ]);
+  ph.open("Budi · Rab 4 Nov");
+  const sp = sugOf(ph.tree);
+  assert.ok(sp, "popover terbuka");
+  assert.equal(sp.props.title, "Bisa digeser — Budi, Rab 4 Nov");
+  const p = ph.props;
+  const want = T.TLLoad.suggest(p.load, 9, dnOfIso("2026-11-04"), { result: p.result, units: p.ctx.units, readExt: p.ctx.readExt, tasks: p.ctx.tasks });
+  assert.deepEqual(sp.props.items.map((s) => [s.key, s.kind]), want.map((s) => [s.key, s.kind]), "urutan = suggest");
+  assert.deepEqual(want.map((s) => s.kind), ["free", "free", "critical", "manual", "started", "late"]);
+  const spt = child(sp);
+  const dlg = nodes(spt, (n) => n.props.role === "dialog")[0];
+  assert.ok(dlg && hasCls(dlg, "plg-timeline-pop") && hasCls(dlg, "plg-timeline-load-pop"));
+  assert.equal(dlg.props["aria-label"], "Bisa digeser — Budi, Rab 4 Nov");
+  assert.equal(dlg.props.tabIndex, -1);
+  assert.equal(txt(nodes(spt, (n) => n.type === "h3")[0]).trim(), "Bisa digeser — Budi, Rab 4 Nov");
+  assert.deepEqual(sugRows(spt), [
+    ["Ikon · 3 🍅 hari ini · slack 9 hk", null],
+    ["Warna · 1 🍅 hari ini · slack 8 hk", null],
+    ["Fondasi · 1 🍅 hari ini", "Kritis"],
+    ["Pin · 1 🍅 hari ini", "Manual"],
+    ["Berjalan · 2 🍅 hari ini", "Sudah mulai"],
+    ["Tunggakan · 4 🍅 hari ini", "terlambat"],
+  ]);
+  for (const b of byCls(spt, "plg-timeline-load-sug-btn")) assert.equal(b.props.type, "button");
+  assert.equal(byCls(spt, "plg-timeline-pop-note").length, 0, "ada free → tanpa pesan kosong");
+  assert.equal(typeof dlg.props.style.left, "number");
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+  ph.pm.unmount();
+  h.m.unmount();
+}));
+
+test("T6 popover tanpa free → paragraf persis 'Tidak ada task yang bisa digeser tanpa menggeser jalur kritis' di atas daftar sisanya", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const ph = sugPanel(h);
+  ph.open("Citra · Rab 4 Nov");
+  const sp = sugOf(ph.tree);
+  assert.equal(sp.props.title, "Bisa digeser — Citra, Rab 4 Nov");
+  const spt = child(sp);
+  const dlg = nodes(spt, (n) => n.props.role === "dialog")[0];
+  const note = byCls(spt, "plg-timeline-pop-note");
+  assert.equal(note.length, 1);
+  assert.equal(txt(note[0]).trim(), "Tidak ada task yang bisa digeser tanpa menggeser jalur kritis");
+  assert.deepEqual(sugRows(spt), [["Besar · 20 🍅 hari ini", "Kritis"]]);
+  const kids = dlg.children.filter((c) => c && typeof c === "object");
+  assert.ok(kids.indexOf(note[0]) < kids.findIndex((c) => hasCls(c, "plg-timeline-load-sug")), "pesan di atas daftar");
+  ph.pm.unmount();
+  h.m.unmount();
+}));
+
+test("T6 SuggestPopover: fokus ke dialog saat dibuka; Esc (fase tangkap, propagasi dihentikan) → tutup + fokus kembali; klik luar → tutup tanpa fokus; tombol hari merah lain tidak menutup; Tutup → fokus kembali; pendengar dilepas", () => withPop(async (w) => {
+  const closes = [];
+  const props = { title: "Bisa digeser — Budi, Rab 4 Nov", items: [], left: 40, onPick() {}, onClose: (a) => closes.push(a) };
+  const m = mount(T.SuggestPopover);
+  const tree = m.render(props);
+  const rootEl = { focused: 0, focus() { this.focused++; }, contains: (t) => t === rootEl };
+  nodes(tree, (n) => n.props.role === "dialog")[0].props.ref.current = rootEl;
+  m.flush();
+  assert.equal(rootEl.focused, 1);
+  assert.equal(txt(byCls(tree, "plg-timeline-pop-note")[0]).trim(), "Tidak ada task yang bisa digeser tanpa menggeser jalur kritis", "daftar kosong");
+  let stopped = 0;
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped++; } });
+  assert.deepEqual(closes, [{ restoreFocus: true }]);
+  assert.equal(stopped, 1);
+  w.fire("pointerdown", { target: { closest: (sel) => (sel === ".plg-timeline-load-hit" ? {} : null) } });
+  assert.equal(closes.length, 1, "tombol hari merah lain ditangani tombolnya (ganti hari)");
+  w.fire("pointerdown", { target: rootEl });
+  assert.equal(closes.length, 1, "klik di dalam");
+  w.fire("pointerdown", { target: { closest: () => null } });
+  assert.deepEqual(closes[1], { restoreFocus: false });
+  nodes(tree, (n) => n.type === "button" && n.props["aria-label"] === "Tutup")[0].props.onClick({});
+  assert.deepEqual(closes[2], { restoreFocus: true });
+  m.unmount();
+  assert.equal(w.ls.filter((l) => l.type === "keydown" || l.type === "pointerdown").length, 0);
+}));
+
+test("T6 LoadPanel: onClose restoreFocus → popover tertutup + fokus kembali ke tombol hari merah pemicu; klik luar tanpa fokus; klik pemicu yang sama lagi → tertutup (toggle); tombol hari lain → ganti hari", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const ph = sugPanel(h);
+  const btn = ph.open("Budi · Rab 4 Nov");
+  sugOf(ph.tree).props.onClose({ restoreFocus: true });
+  ph.render();
+  assert.equal(sugOf(ph.tree), undefined);
+  assert.equal(btn.focused, 1, "fokus kembali ke pemicu");
+  const b2 = ph.open("Budi · Rab 4 Nov");
+  sugOf(ph.tree).props.onClose({ restoreFocus: false });
+  ph.render();
+  assert.equal(sugOf(ph.tree), undefined);
+  assert.equal(b2.focused, 0);
+  ph.open("Budi · Rab 4 Nov");
+  ph.open("Budi · Rab 4 Nov");
+  assert.equal(sugOf(ph.tree), undefined, "pemicu sama → tutup");
+  ph.open("Budi · Rab 4 Nov");
+  ph.open("Citra · Rab 4 Nov");
+  assert.equal(sugOf(ph.tree).props.title, "Bisa digeser — Citra, Rab 4 Nov", "hari lain → ganti isi");
+  ph.pm.unmount();
+  assert.deepEqual(h.writes, []);
+  h.m.unmount();
+}));
+
+test("T6 revealRow (R7): klik baris saran → popover tertutup; scrollTop = indeks × rowH − tinggi viewport/3, scrollLeft = xOf(Mulai bar) − lebar viewport/3; bar + baris is-flash 1,5 dtk (jam palsu); panel ikut bergeser; tanpa rentang → hanya scrollTop; unmount membersihkan timer; 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const el = fakeEl();
+  h.tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  h.render();
+  const ph = sugPanel(h);
+  const track = { style: {} };
+  ph.props.trackRef.current = track;
+  assert.equal(typeof ph.props.onReveal, "function");
+  ph.open("Budi · Rab 4 Nov");
+  const ikon = sugOf(ph.tree).props.items.find((s) => s.key === "2");
+  sugOf(ph.tree).props.onPick(ikon);
+  ph.render();
+  assert.equal(sugOf(ph.tree), undefined, "popover ditutup");
+  h.render();
+  const i = rowOf(h.tree, "2").props["aria-rowindex"] - 2;
+  assert.equal(i, 12, "baris Ikon setelah kelompok + 10 isi + Fondasi");
+  assert.equal(el.scrollTop, Math.round(i * 32 - 600 / 3), "baris di sepertiga atas");
+  const wantLeft = Math.round((dnOfIso("2026-11-04") - ph.props.rangeFrom) * ph.props.px - 1000 / 3);
+  assert.equal(el.scrollLeft, Math.max(0, wantLeft), "awal bar di sepertiga kiri");
+  assert.equal(track.style.transform, "translateX(-" + el.scrollLeft + "px)", "panel mengikuti");
+  const flashed = () => nodes(h.tree, (n) => hasCls(n, "is-flash")).map((n) => [n.props.role, n.props["data-key"]]);
+  assert.deepEqual(flashed(), [["row", "2"], ["button", "2"]], "baris tabel + bar");
+  assert.ok(hasCls(barOf(h.tree, "2"), "plg-timeline-bar"));
+  clock.tick(1499);
+  h.render();
+  assert.equal(flashed().length, 2, "masih berkedip sebelum 1,5 dtk");
+  clock.tick(1);
+  h.render();
+  assert.deepEqual(flashed(), [], "hilang setelah 1,5 dtk");
+  // tanpa rentang: hanya scrollTop
+  const left0 = el.scrollLeft;
+  const t8 = h.tasks.find((t) => t.id === 8);
+  ph.props.onReveal("8", t8);
+  h.render();
+  const i8 = rowOf(h.tree, "8").props["aria-rowindex"] - 2;
+  assert.equal(el.scrollTop, Math.max(0, Math.round(i8 * 32 - 200)));
+  assert.equal(el.scrollLeft, left0, "tanpa rentang → scrollLeft tetap");
+  assert.deepEqual(flashed(), [["row", "8"]], "baris tanpa bar tetap berkedip");
+  // unmount sebelum 1,5 dtk → timer dibersihkan (tanpa setState sesudahnya)
+  const n0 = h.m.setCalls.length;
+  h.m.unmount();
+  clock.tick(5000);
+  assert.equal(h.m.setCalls.length, n0, "timer dibersihkan saat unmount");
+  assert.deepEqual(h.clicked, [], "baris ada di Gantt → tidak membuka detail");
+  assert.deepEqual(h.writes, [], "revealRow tanpa tulisan");
+  assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+  ph.pm.unmount();
+}));
+
+test("T6 revealRow: task tersaring filter panel (ada di daftar lengkap, tidak di lay.rows) → context.onTaskClick(task) membuka detail, tanpa gulir/kedip; 0 tulis", () => withEngineClock(async (clock) => {
+  const all = sugTasks();
+  const shown = all.filter((t) => t.id !== 2); // filter panel menyembunyikan Ikon
+  const h = await panelView(clock, { tasks: shown, listOf: () => all, records: sugRecords() });
+  const el = fakeEl();
+  h.tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  h.render();
+  assert.equal(rowOf(h.tree, "2"), undefined, "Ikon tidak di Gantt");
+  const ph = sugPanel(h);
+  ph.open("Budi · Rab 4 Nov");
+  const sp = sugOf(ph.tree);
+  assert.ok(sp.props.items.some((s) => s.key === "2"), "beban task tersaring tetap terhitung (R2)");
+  const top0 = el.scrollTop;
+  const left0 = el.scrollLeft;
+  sp.props.onPick(sp.props.items.find((s) => s.key === "2"));
+  ph.render();
+  assert.equal(sugOf(ph.tree), undefined);
+  assert.deepEqual(h.clicked.map((t) => [t.id, t.title]), [[2, "Ikon"]]);
+  assert.deepEqual([el.scrollTop, el.scrollLeft], [top0, left0]);
+  h.render();
+  assert.equal(nodes(h.tree, (n) => hasCls(n, "is-flash")).length, 0);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+  ph.pm.unmount();
+  h.m.unmount();
+}));
+
+test("T6 CSS: kedip is-flash memakai var(--accent) (animasi singkat), prefers-reduced-motion tanpa animasi; popover saran membuka ke atas panel", () => {
+  assert.match(css, /@keyframes plg-timeline-flash[^{]*\{[^@]*var\(--accent\)/);
+  assert.match(css, /\.plg-timeline-row\.is-flash[^{]*\{[^}]*animation:\s*plg-timeline-flash/);
+  assert.match(css, /\.plg-timeline-bar\.is-flash/);
+  const rm = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
+  assert.ok(rm.length > 0 && /is-flash[^{]*\{[^}]*animation:\s*none/.test(rm), "reduced motion");
+  assert.match(css, /\.plg-timeline-load-pop\s*\{[^}]*bottom:\s*100%/);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 7: editor kapasitas/cuti (spec K55, §7.3, Q4 (a); rencana R9) + perbaikan minor review T2–T3
+// ════════════════════════════════════════════════════════════════════════════
+const edOf = (tree) => nodes(tree, (n) => n.type === T.ResourceEditor)[0];
+const dlgNode = (tree) => nodes(tree, (n) => n.props.role === "dialog")[0];
+const inputsOf = (tree, type) => nodes(tree, (n) => n.type === "input" && n.props.type === type);
+const notesOf = (tree) => nodes(tree, (n) => n.type === "input" && n.props["aria-label"] === "Catatan cuti");
+const btnsByLabel = (tree, label) => nodes(tree, (n) => n.type === "button" && n.props["aria-label"] === label);
+const hasText = (tree, s) => nodes(tree, (n) => typeof n.type === "string" && txt(n).trim() === s).length > 0;
+const chg = (value) => ({ target: { value } });
+const RES_WAIT = "Menunggu data workspace…";
+const RES_CAP_BAD = "Kapasitas 0–40 🍅/hari";
+const RES_DATE_BAD = "Periksa tanggal cuti";
+const RES_STALE = "Data berubah sejak dialog dibuka — muat ulang";
+const capIn = (tree) => inputsOf(tree, "number")[0];
+const saveBtn = (tree) => buttonByText(tree, "Simpan");
+const dateVals = (tree) => inputsOf(tree, "date").map((i) => i.props.value);
+const mapOf = (fr, scope) => T.resourceStore({ records: fr.api, env: { userId: 7 } }).loadScope(scope || "list:12");
+
+// Editor dipasang sendiri. res = bundel view {map, loaded, pulled, store, pageKind, listId, currentUser, collaborators,
+// userId, api}; bawaan: workspace 12, termuat + pulled, peta kosong (record absen), pengguna aktif Sari (7).
+function edSetup(o) {
+  const opt = o || {};
+  const fr = opt.records || fakeRecords();
+  const { api, calls } = fakeApi({ records: fr });
+  api.env.userId = 7;
+  const store = T.resourceStore(api);
+  const closes = [];
+  const res = Object.assign({
+    map: new Map(), loaded: true, pulled: true, store, pageKind: "workspace", listId: 12,
+    currentUser: { id: 7, username: "sari", display_name: "Sari" }, collaborators: [{ id: 9, username: "budi", display_name: "Budi" }],
+    userId: 7, api,
+  }, opt.res || {});
+  const m = mount(T.ResourceEditor);
+  // rootH (review akhir): tinggi editor terukur (offsetHeight) untuk logika buka ke bawah; anchorRef = akar panel desktop
+  const rootEl = { focused: 0, offsetHeight: opt.rootH || 0, focus() { this.focused++; }, contains: (t) => t === rootEl };
+  const h = { m, fr, api, calls, store, closes, rootEl };
+  h.props = { uid: opt.uid || 9, name: opt.name || "Budi", res, onClose: (a) => closes.push(a === undefined ? null : a) };
+  if (opt.anchorRef) h.props.anchorRef = opt.anchorRef;
+  h.render = () => {
+    h.tree = m.render(h.props);
+    const d = dlgNode(h.tree);
+    if (d && d.props.ref) d.props.ref.current = rootEl;
+    return h.tree;
+  };
+  h.flush = () => { m.flush(); return h.render(); };
+  h.set = (patch) => { h.props = Object.assign({}, h.props, { res: Object.assign({}, h.props.res, patch) }); return h.render(); };
+  h.render();
+  h.flush();
+  return h;
+}
+
+test("T7 minor review T2–T3: resRecId menolak uid/listId bukan bilangan bulat aman (1e21, 2^53) — uid lewat TLLoad.uidOf, listId Number.isSafeInteger; batas aman tetap sah", () => {
+  for (const [k, lid, uid] of [["workspace", 12, 1e21], ["workspace", 1e21, 7], ["project", null, 1e21], ["workspace", 2 ** 53, 7], ["workspace", 12, 2 ** 53], ["project", null, "7"]]) {
+    assert.throws(() => T.resRecId(k, lid, uid), blCode("INVALID"), JSON.stringify([k, lid, uid]));
+  }
+  const big = 2 ** 53 - 1;
+  assert.deepEqual(T.resRecId("workspace", big, big), { id: "res@list:" + big + ":" + big, scope: "list:" + big });
+  assert.match(jsx, /TLLoad\.uidOf\(uid\) !== uid/);
+  assert.match(jsx, /Number\.isSafeInteger\(listId\) && listId > 0/);
+});
+
+test("T7 minor review T2–T3: halaman pribadi tanpa pengguna aktif (ownerUid null, people kosong) → panel judul tanpa baris, tanpa lempar, 0 tulis", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const tasks = [mk(1, "A", { start: "2026-11-04", duration: 2 }, Object.assign({ estimated_pomodoros: 20 }, al)), mk(2, "B", {}, al)];
+  const h = await panelView(clock, { tasks, records: fakeRecords(), userId: undefined, ctx: { page: "proj_Alpha", pageKind: "project", listId: null, projectName: "Alpha", currentUser: null } });
+  const node = panelOf(h.tree);
+  assert.ok(node, "panel tetap tampil");
+  assert.deepEqual(node.props.load.rows, [], "tanpa baris (bukan 'Belum ditugaskan')");
+  const pt = child(node);
+  assert.equal(panelHead(pt), "Beban Tim · 0 hari kelebihan beban · 1 task belum dijadwalkan");
+  assert.deepEqual(panelNames(pt), []);
+  assert.equal(panelSvgs(pt).length, 0);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("T7 ResourceEditor isi (§7.3): dialog 'Kapasitas Budi' (kelas pop + res-pop, fokus saat dibuka); 'Kapasitas' + input number 0–40 step 1 numeric + '🍅/hari' + petunjuk persis; 'Cuti' + baris record (ISO, dua tanggal, catatan, '×' 'Hapus cuti'); 'Tambah cuti' menambah baris kosong, nonaktif di 50; hapus baris; Simpan/Batal; record absen → 8 tanpa cuti", () => withPop(async () => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 2, leave: [{ from: "2026-12-24", to: "2026-12-24", note: "" }, { from: "2026-11-09", to: "2026-11-10", note: "Cuti" }] }));
+  const h = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+  const d = dlgNode(h.tree);
+  assert.ok(hasCls(d, "plg-timeline-pop") && hasCls(d, "plg-timeline-res-pop"));
+  assert.equal(d.props["aria-label"], "Kapasitas Budi");
+  assert.equal(d.props.tabIndex, -1);
+  assert.equal(h.rootEl.focused, 1, "fokus ke dialog saat dibuka");
+  assert.equal(txt(nodes(h.tree, (n) => n.type === "h3")[0]).trim(), "Kapasitas Budi");
+  const cap = capIn(h.tree);
+  assert.deepEqual([cap.props.type, cap.props.min, cap.props.max, cap.props.step, cap.props.inputMode, cap.props.value, cap.props.disabled], ["number", 0, 40, 1, "numeric", "2", false]);
+  const lab = nodes(h.tree, (n) => n.type === "label" && nodes(n, (x) => x === cap).length > 0)[0];
+  assert.ok(lab, "input kapasitas di dalam <label>");
+  assert.ok(hasText(lab, "Kapasitas") && hasText(lab, "🍅/hari"), "label 'Kapasitas' + sufiks '🍅/hari'");
+  assert.ok(hasText(h.tree, "8 🍅 ≈ 3 jam 20 menit fokus"));
+  const sec = nodes(h.tree, (n) => n.type === "section" && n.props["aria-label"] === "Cuti")[0];
+  assert.ok(sec && hasText(sec, "Cuti"));
+  assert.deepEqual(dateVals(h.tree), ["2026-11-09", "2026-11-10", "2026-12-24", "2026-12-24"], "cuti sebagai ISO, urut");
+  assert.deepEqual(notesOf(h.tree).map((i) => i.props.value), ["Cuti", ""]);
+  assert.deepEqual(inputsOf(h.tree, "date").map((i) => i.props["aria-label"]), ["Dari tanggal", "Sampai tanggal", "Dari tanggal", "Sampai tanggal"]);
+  const dels = btnsByLabel(h.tree, "Hapus cuti");
+  assert.equal(dels.length, 2);
+  assert.ok(dels.every((b) => txt(b).trim() === "×" && b.props.type === "button"));
+  assert.ok(saveBtn(h.tree) && buttonByText(h.tree, "Batal"));
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  // tambah → baris kosong di akhir; hapus baris pertama
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  assert.deepEqual(dateVals(h.tree), ["2026-11-09", "2026-11-10", "2026-12-24", "2026-12-24", "", ""]);
+  btnsByLabel(h.tree, "Hapus cuti")[0].props.onClick({});
+  h.render();
+  assert.deepEqual(dateVals(h.tree), ["2026-12-24", "2026-12-24", "", ""]);
+  // 50 baris → Tambah cuti nonaktif
+  for (let i = 0; i < 60; i++) {
+    const add = buttonByText(h.tree, "Tambah cuti");
+    if (!add.props.disabled) add.props.onClick({});
+    h.render();
+  }
+  assert.equal(btnsByLabel(h.tree, "Hapus cuti").length, 50);
+  assert.equal(buttonByText(h.tree, "Tambah cuti").props.disabled, true);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+  // record absen → kapasitas bawaan 8 tanpa cuti, tanpa keterangan "Diubah oleh"
+  const a = edSetup();
+  assert.equal(capIn(a.tree).props.value, "8");
+  assert.equal(inputsOf(a.tree, "date").length, 0);
+  assert.equal(nodes(a.tree, (n) => typeof n.type === "string" && /^Diubah oleh/.test(txt(n).trim())).length, 0);
+  a.m.unmount();
+}));
+
+test("T7 Batal / Esc / klik luar / Tutup → onClose tanpa tulis (0 records.get/put); klik di dalam atau tombol nama/chip pemicu tidak menutup; pendengar dilepas", () => withPop(async (w) => {
+  const h = edSetup();
+  capIn(h.tree).props.onChange(chg("5"));
+  h.render();
+  buttonByText(h.tree, "Batal").props.onClick({});
+  let stopped = 0;
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped++; } });
+  w.fire("pointerdown", { target: h.rootEl });
+  w.fire("pointerdown", { target: { closest: (sel) => (sel.indexOf(".plg-timeline-load-name") >= 0 ? {} : null) } });
+  w.fire("pointerdown", { target: { closest: (sel) => (sel.indexOf(".plg-timeline-load-m-person") >= 0 ? {} : null) } });
+  w.fire("pointerdown", { target: { closest: () => null } });
+  btnsByLabel(h.tree, "Tutup")[0].props.onClick({});
+  assert.deepEqual(h.closes, [{ restoreFocus: true }, { restoreFocus: true }, { restoreFocus: false }, { restoreFocus: true }]);
+  assert.equal(stopped, 1, "Esc: propagasi dihentikan (modal/Live Edit host tidak ikut tertutup)");
+  assert.equal(h.fr.calls.put.length + h.fr.calls.get.length + h.fr.calls.remove.length, 0);
+  h.m.unmount();
+  assert.equal(w.ls.filter((l) => l.type === "keydown" || l.type === "pointerdown").length, 0);
+}));
+
+test("T7 Simpan → tepat 1 records.put ter-normalisasi (cuti digabung, by = userId) + {scope}; toast persis 'Kapasitas Budi disimpan'; ditutup (fokus kembali); klik Simpan dua kali cepat → 1 put; pribadi → res@user scope user", () => withPop(async () => {
+  const h = edSetup();
+  capIn(h.tree).props.onChange(chg("5"));
+  h.render();
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  const set = (i, which, v) => { inputsOf(h.tree, "date")[i * 2 + which].props.onChange(chg(v)); h.render(); };
+  set(0, 0, "2026-11-10");
+  set(0, 1, "2026-11-12");
+  set(1, 0, "2026-11-09");
+  set(1, 1, "2026-11-09");
+  notesOf(h.tree)[1].props.onChange(chg("Mudik"));
+  h.render();
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  saveBtn(h.tree).props.onClick({});
+  h.render();
+  assert.equal(saveBtn(h.tree).props.disabled, true, "nonaktif selama menyimpan");
+  saveBtn(h.tree).props.onClick({}); // klik ganda
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(h.fr), [["resource", "res@list:12:9", { v: 1, capacity: 5, leave: [{ from: "2026-11-09", to: "2026-11-12", note: "Mudik" }], by: 7 }, { scope: "list:12" }]]);
+  assert.equal(h.fr.calls.get.length, 1, "satu baca CAS");
+  assert.deepEqual(h.calls.toast, [["Kapasitas Budi disimpan", "success"]]);
+  assert.deepEqual(h.closes, [{ restoreFocus: true }]);
+  h.m.unmount();
+  // halaman project pribadi: res@user:<uid> scope user (Q4 a: tanpa batas siapa yang mengedit — di sini diri sendiri)
+  const p = edSetup({ uid: 7, name: "Sari", res: { pageKind: "project", listId: null, pulled: true } });
+  capIn(p.tree).props.onChange(chg("0"));
+  p.render();
+  saveBtn(p.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(p.fr), [["resource", "res@user:7", { v: 1, capacity: 0, leave: [], by: 7 }, { scope: "user" }]]);
+  assert.deepEqual(p.calls.toast, [["Kapasitas Sari disimpan", "success"]]);
+  p.m.unmount();
+}));
+
+test("T7 validasi inline: kapasitas bukan bilangan bulat 0–40 → Simpan nonaktif + 'Kapasitas 0–40 🍅/hari' (aria-invalid); tanggal cuti kosong/tidak sah/di luar 1970–2199 atau dari > sampai → 'Periksa tanggal cuti'; diperbaiki → aktif; klik saat tidak sah → 0 put", () => withPop(async () => {
+  const h = edSetup();
+  for (const [v, ok] of [["", false], ["41", false], ["2.5", false], ["-1", false], ["1e1", false], ["abc", false], ["0", true], ["40", true], ["08", true], ["7", true]]) {
+    capIn(h.tree).props.onChange(chg(v));
+    h.render();
+    assert.equal(saveBtn(h.tree).props.disabled, !ok, "Simpan: " + JSON.stringify(v));
+    assert.deepEqual(alerts(h.tree), ok ? [] : [RES_CAP_BAD], "pesan: " + JSON.stringify(v));
+    assert.equal(capIn(h.tree).props["aria-invalid"], !ok);
+    if (!ok) saveBtn(h.tree).props.onClick({});
+  }
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  // review T7–T8 (Important): baris baru kosong total netral — bukan galat, Simpan tetap aktif
+  assert.equal(saveBtn(h.tree).props.disabled, false, "baris baru kosong");
+  assert.deepEqual(alerts(h.tree), []);
+  const dates = () => inputsOf(h.tree, "date");
+  for (const [from, to, ok] of [["2026-11-10", "", false], ["2026-11-10", "2026-11-09", false], ["2026-02-30", "2026-03-01", false], ["1969-12-31", "1970-01-02", false], ["2026-11-10", "2200-01-01", false], ["2026-11-10", "2026-11-10", true], ["1970-01-01", "2199-12-31", true]]) {
+    dates()[0].props.onChange(chg(from));
+    h.render();
+    dates()[1].props.onChange(chg(to));
+    h.render();
+    assert.equal(saveBtn(h.tree).props.disabled, !ok, from + ".." + to);
+    assert.deepEqual(alerts(h.tree), ok ? [] : [RES_DATE_BAD], from + ".." + to);
+    assert.equal(dates()[0].props["aria-invalid"], !ok);
+    if (!ok) saveBtn(h.tree).props.onClick({});
+  }
+  // keduanya tidak sah → dua pesan
+  capIn(h.tree).props.onChange(chg("99"));
+  h.render();
+  dates()[1].props.onChange(chg(""));
+  h.render();
+  assert.deepEqual(alerts(h.tree), [RES_CAP_BAD, RES_DATE_BAD]);
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  assert.equal(h.fr.calls.put.length + h.fr.calls.get.length, 0, "tidak sah → tanpa baca/tulis");
+  h.m.unmount();
+}));
+
+test("T7 kunci Simpan (R9, review T2–T3): workspace (a) belum termuat → terkunci + 'Menunggu data workspace…'; (c) termuat + record ada → terbuka tanpa pulled; pribadi: belum termuat → terkunci TANPA teks, termuat → terbuka (pulled tidak berpengaruh)", () => withPop(async () => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 3 }));
+  const map = await mapOf(fr);
+  const locked = (t) => saveBtn(t).props.disabled === true && capIn(t).props.disabled === true && buttonByText(t, "Tambah cuti").props.disabled === true;
+  // (a)
+  const a = edSetup({ records: fr, res: { map: new Map(), loaded: false, pulled: true } });
+  assert.ok(locked(a.tree), "(a) terkunci (pulled menyala sebelum muat tidak cukup)");
+  assert.ok(hasText(a.tree, RES_WAIT));
+  assert.equal(buttonByText(a.tree, "Batal").props.disabled, false, "Batal tetap aktif (nonaktif hanya selama menyimpan — review T7–T8)");
+  a.m.unmount();
+  // (c)
+  const c = edSetup({ records: fr, res: { map, loaded: true, pulled: false } });
+  assert.ok(!locked(c.tree), "(c) record lokal ada → terbuka tanpa pulled");
+  assert.equal(saveBtn(c.tree).props.disabled, false);
+  assert.ok(!hasText(c.tree, RES_WAIT));
+  c.m.unmount();
+  // pribadi
+  const p = edSetup({ uid: 7, name: "Sari", res: { pageKind: "project", listId: null, map: new Map(), loaded: false, pulled: false } });
+  assert.ok(locked(p.tree), "pribadi belum termuat → terkunci");
+  assert.ok(!hasText(p.tree, RES_WAIT), "tanpa teks");
+  p.set({ loaded: true });
+  p.flush();
+  assert.ok(!locked(p.tree), "pribadi termuat → terbuka walau pulled false");
+  assert.ok(!hasText(p.tree, RES_WAIT));
+  p.m.unmount();
+}));
+
+test("T7 kunci (b): termuat + tanpa record + belum pulled → terkunci + teks; pulled → terbuka (record tetap absen → potret absen, Simpan → 1 put)", () => withPop(async () => {
+  const h = edSetup({ res: { map: new Map(), loaded: true, pulled: false } });
+  assert.equal(saveBtn(h.tree).props.disabled, true);
+  assert.equal(capIn(h.tree).props.disabled, true);
+  assert.ok(hasText(h.tree, RES_WAIT));
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  assert.equal(h.fr.calls.put.length, 0, "terkunci → tanpa tulis");
+  h.set({ pulled: true });
+  h.flush();
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  assert.ok(!hasText(h.tree, RES_WAIT));
+  capIn(h.tree).props.onChange(chg("6"));
+  h.render();
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.equal(resPuts(h.fr).length, 1);
+  assert.equal(resPuts(h.fr)[0][2].capacity, 6);
+  h.m.unmount();
+}));
+
+test("T7 dibuka sebelum termuat → nilai + potret DIPERBARUI saat data termuat (selama belum diubah); render pertama sesudah buka kunci tetap nonaktif sampai potret baru; Simpan memakai potret record terbaru (CAS lolos, 1 put)", () => withPop(async () => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 6, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }] }));
+  const h = edSetup({ records: fr, res: { map: new Map(), loaded: false, pulled: false } });
+  assert.equal(capIn(h.tree).props.value, "8", "sebelum termuat: bawaan");
+  assert.equal(saveBtn(h.tree).props.disabled, true);
+  // data termuat: render sebelum efek → masih nonaktif (potret lama tidak pernah bisa dipakai)
+  h.set({ map: await mapOf(fr), loaded: true });
+  assert.equal(saveBtn(h.tree).props.disabled, true, "sebelum potret diperbarui");
+  h.flush();
+  assert.equal(capIn(h.tree).props.value, "6");
+  assert.deepEqual(dateVals(h.tree), ["2026-11-09", "2026-11-10"]);
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  assert.ok(hasText(h.tree, "Diubah oleh Budi · Kam 5 Nov"), "keterangan ikut record yang termuat");
+  capIn(h.tree).props.onChange(chg("3"));
+  h.render();
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.equal(resPuts(h.fr).length, 1, "CAS lolos: potret = record terbaru (bukan potret absen saat dibuka)");
+  assert.deepEqual(resPuts(h.fr)[0][2], { v: 1, capacity: 3, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }], by: 7 });
+  h.m.unmount();
+  // sudah terbuka + belum diubah: perubahan data sesudahnya TIDAK mengganti potret (potret = saat dibuka) → CAS menolak
+  const fr2 = fakeRecords();
+  putRec(fr2, resRec(12, 9, { capacity: 6 }));
+  const g = edSetup({ records: fr2, res: { map: await mapOf(fr2) } });
+  putRec(fr2, resRec(12, 9, { capacity: 4 }, { updated_at: "2026-11-06T00:00:00Z" }));
+  g.set({ map: await mapOf(fr2) });
+  g.flush();
+  assert.equal(capIn(g.tree).props.value, "6", "potret saat dibuka dipertahankan");
+  saveBtn(g.tree).props.onClick({});
+  await settle();
+  await settle();
+  g.render();
+  assert.equal(resPuts(g.fr).length, 0);
+  assert.ok(alerts(g.tree).indexOf(RES_STALE) >= 0);
+  g.m.unmount();
+}));
+
+test("T7 STALE (CAS, Review Focus 4): record berubah sejak dialog dibuka → 0 put + teks persis + 'Muat ulang' (Simpan nonaktif); Muat ulang mengisi nilai + potret terbaru dari records.get (membuang ketikan) → Simpan → 1 put", () => withPop(async () => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 6, leave: [] }));
+  const h = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+  capIn(h.tree).props.onChange(chg("3"));
+  h.render();
+  // anggota lain menyimpan (sinkron) — peta panel BELUM dimuat ulang
+  putRec(fr, resRec(12, 9, { capacity: 4, leave: [{ from: "2026-12-01", to: "2026-12-02", note: "Dinas" }], by: 9 }, { updated_at: "2026-11-06T03:00:00Z" }));
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  await settle();
+  h.render();
+  assert.equal(resPuts(fr).length, 0, "STALE → 0 put");
+  assert.ok(alerts(h.tree).indexOf(RES_STALE) >= 0, "teks persis");
+  assert.equal(saveBtn(h.tree).props.disabled, true, "Simpan nonaktif sampai dimuat ulang");
+  assert.deepEqual(h.closes, [], "dialog tetap terbuka");
+  assert.deepEqual(h.calls.toast, []);
+  const reload = buttonByText(h.tree, "Muat ulang");
+  assert.ok(reload && reload.props.type === "button");
+  reload.props.onClick({});
+  await settle();
+  await settle();
+  h.render();
+  assert.equal(capIn(h.tree).props.value, "4", "ketikan dibuang, nilai terbaru");
+  assert.deepEqual(dateVals(h.tree), ["2026-12-01", "2026-12-02"]);
+  assert.deepEqual(notesOf(h.tree).map((i) => i.props.value), ["Dinas"]);
+  assert.ok(alerts(h.tree).indexOf(RES_STALE) < 0);
+  assert.ok(hasText(h.tree, "Diubah oleh Budi · Jum 6 Nov"));
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  capIn(h.tree).props.onChange(chg("5"));
+  h.render();
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.equal(resPuts(fr).length, 1);
+  assert.equal(resPuts(fr)[0][2].capacity, 5);
+  h.m.unmount();
+}));
+
+test("T7 galat simpan: TOO_LARGE → pesan MSG_RES_TOO_LARGE inline; INVALID → 'Periksa tanggal cuti'; galat lain → toast persis 'Gagal menyimpan kapasitas'; dialog tetap terbuka, Simpan aktif lagi", () => withPop(async () => {
+  for (const [code, inline, toast] of [["TOO_LARGE", T.MSG_RES_TOO_LARGE, null], ["INVALID", RES_DATE_BAD, null], ["IDB", null, "Gagal menyimpan kapasitas"]]) {
+    const h = edSetup();
+    let n = 0;
+    h.set({ store: { save: () => { n++; return Promise.reject(Object.assign(new Error("x"), { code })); }, get: () => Promise.resolve(null) } });
+    saveBtn(h.tree).props.onClick({});
+    await settle();
+    await settle();
+    h.render();
+    assert.equal(n, 1, code);
+    assert.deepEqual(alerts(h.tree), inline ? [inline] : [], code);
+    assert.deepEqual(h.calls.toast, toast ? [[toast, "error"]] : [], code);
+    assert.deepEqual(h.closes, [], code);
+    assert.equal(saveBtn(h.tree).props.disabled, false, code + ": aktif lagi");
+    if (inline) {
+      capIn(h.tree).props.onChange(chg("7"));
+      h.render();
+      assert.deepEqual(alerts(h.tree), [], code + ": pesan hilang saat diubah");
+    }
+    h.m.unmount();
+  }
+  assert.equal(T.MSG_RES_SAVE_FAIL, "Gagal menyimpan kapasitas");
+}));
+
+test("T7 keterangan 'Diubah oleh {nama} · {tgl}' (tanggal Jakarta dari updated_at; nama dari currentUser/collaborators) dan 'Diubah oleh anggota lain · {tgl}'", () => withPop(async () => {
+  const at = { updated_at: "2026-11-04T18:30:00Z" }; // UTC Rab 4 Nov, Jakarta Kam 5 Nov 01.30
+  const cases = [
+    [{ by: 9 }, "Diubah oleh Budi · Kam 5 Nov"],
+    [{ by: 7 }, "Diubah oleh Sari · Kam 5 Nov"],
+    [{ by: 99 }, "Diubah oleh anggota lain · Kam 5 Nov"],
+    [{ by: null }, "Diubah oleh anggota lain · Kam 5 Nov"],
+    [{ v: 2, by: 9 }, "Diubah oleh anggota lain · Kam 5 Nov"], // data asing: by tidak dipercaya
+  ];
+  for (const [data, want] of cases) {
+    const fr = fakeRecords();
+    putRec(fr, resRec(12, 9, data, at));
+    const h = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+    const by = nodes(h.tree, (n) => hasCls(n, "plg-timeline-res-by"));
+    assert.equal(by.length, 1, want);
+    assert.equal(txt(by[0]).trim(), want);
+    h.m.unmount();
+  }
+  // id string (JWT) di collaborators/currentUser tetap cocok
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { by: 9 }, at));
+  const h = edSetup({ records: fr, res: { map: await mapOf(fr), collaborators: [{ id: "9", username: "budi" }] } });
+  assert.equal(txt(nodes(h.tree, (n) => hasCls(n, "plg-timeline-res-by"))[0]).trim(), "Diubah oleh budi · Kam 5 Nov");
+  h.m.unmount();
+}));
+
+// View → LoadPanel → ResourceEditor (tiga tingkat dipasang terpisah, props asli dari view).
+async function edView(clock, o) {
+  const h = await panelView(clock, o);
+  const pm = mount(T.LoadPanel);
+  let em = null;
+  let emKey = null;
+  const x = { h, pm };
+  x.panel = () => {
+    h.render();
+    x.node = panelOf(h.tree);
+    x.pt = x.node ? pm.render(x.node.props) : null;
+    return x.pt;
+  };
+  x.editor = () => {
+    x.panel();
+    const e = x.pt ? edOf(x.pt) : undefined;
+    if (!e) {
+      x.ed = null;
+      x.et = null;
+      return null;
+    }
+    if (!em || emKey !== e.key) {
+      em = mount(T.ResourceEditor);
+      emKey = e.key;
+    }
+    x.ed = e;
+    x.et = em.render(e.props);
+    em.flush();
+    x.et = em.render(e.props);
+    return x.et;
+  };
+  x.nameBtn = (prefix) => byCls(x.pt, "plg-timeline-load-name").find((n) => txt(n).trim().indexOf(prefix) === 0);
+  x.open = (prefix) => {
+    x.panel();
+    const btn = { focused: 0, focus() { this.focused++; } };
+    x.nameBtn(prefix).props.onClick({ currentTarget: btn });
+    x.editor();
+    return btn;
+  };
+  x.unmount = () => {
+    if (em) em.unmount();
+    pm.unmount();
+    h.m.unmount();
+  };
+  return x;
+}
+
+test("T7 view: nama di panel → editor (Q4 a: siapa pun) — tombol nama aria-haspopup dialog + aria-expanded; props editor = bundel kapasitas view; klik nama yang sama → tutup; nama lain → ganti; Batal → fokus kembali ke nama; 'Belum ditugaskan' tanpa editor; 0 tulis", () => withEngineClock(async (clock) => {
+  const x = await edView(clock);
+  x.panel();
+  const names = byCls(x.pt, "plg-timeline-load-name").filter((n) => n.type === "button");
+  assert.ok(names.length === 3 && names.every((n) => n.props["aria-haspopup"] === "dialog" && n.props["aria-expanded"] === false));
+  assert.equal(edOf(x.pt), undefined, "tertutup bawaan");
+  const btn = x.open("Budi");
+  assert.ok(x.ed, "editor dirender LoadPanel");
+  assert.equal(x.nameBtn("Budi").props["aria-expanded"], true);
+  assert.equal(x.nameBtn("Sari").props["aria-expanded"], false);
+  assert.deepEqual([x.ed.props.uid, x.ed.props.name], [9, "Budi"]);
+  const r = x.ed.props.res;
+  assert.ok(r.map instanceof Map && r.map.has(9));
+  assert.deepEqual([r.loaded, r.pulled, r.pageKind, r.listId, r.userId], [true, false, "workspace", 12, 7]);
+  assert.equal(typeof r.store.save, "function");
+  assert.equal(r.api, x.h.api);
+  assert.equal(r.currentUser, x.h.props.context.currentUser);
+  assert.equal(r.collaborators, x.h.props.context.collaborators);
+  assert.equal(dlgNode(x.et).props["aria-label"], "Kapasitas Budi");
+  assert.equal(capIn(x.et).props.value, "2");
+  assert.equal(saveBtn(x.et).props.disabled, false, "record lokal ada → terbuka");
+  // memo: render ulang view tanpa perubahan → props panel identik
+  const p1 = x.node.props;
+  x.panel();
+  for (const k of Object.keys(p1)) assert.ok(Object.is(p1[k], x.node.props[k]), "prop stabil: " + k);
+  // Batal → tutup + fokus kembali ke tombol nama
+  buttonByText(x.et, "Batal").props.onClick({});
+  x.editor();
+  assert.equal(x.ed, null);
+  assert.equal(btn.focused, 1);
+  assert.equal(x.nameBtn("Budi").props["aria-expanded"], false);
+  // toggle + ganti orang
+  x.open("Sari");
+  assert.equal(x.ed.props.uid, 7);
+  x.nameBtn("Sari").props.onClick({ currentTarget: btn });
+  x.editor();
+  assert.equal(x.ed, null, "nama yang sama → tutup");
+  x.open("Citra");
+  x.nameBtn("Budi").props.onClick({ currentTarget: btn });
+  x.editor();
+  assert.equal(x.ed.props.uid, 9, "nama lain → ganti");
+  assert.equal(byCls(x.pt, "plg-timeline-load-name").find((n) => txt(n).trim() === "Belum ditugaskan").type, "div");
+  // panel ditutup → editor tertutup (tidak terbuka lagi saat panel dibuka kembali)
+  loadBtnOf(x.h.tree).props.onClick({});
+  await x.h.again();
+  loadBtnOf(x.h.tree).props.onClick({});
+  await x.h.again();
+  x.editor();
+  assert.equal(x.ed, null);
+  assert.deepEqual(x.h.writes, []);
+  assert.equal(x.h.fr.calls.put.length, 0);
+  x.unmount();
+}));
+
+test("T7 view: kunci (b) perangkat baru — Sari tanpa record lokal, belum ada tarik → terkunci 'Menunggu data workspace…'; peristiwa pulled → muat ulang → terbuka; 0 tulis", () => withEngineClock(async (clock) => {
+  const x = await edView(clock);
+  x.open("Sari");
+  assert.equal(saveBtn(x.et).props.disabled, true);
+  assert.ok(hasText(x.et, RES_WAIT));
+  x.h.fr.emit(PULLED);
+  await x.h.again();
+  x.editor();
+  assert.equal(x.ed.props.res.pulled, true);
+  assert.equal(saveBtn(x.et).props.disabled, false);
+  assert.ok(!hasText(x.et, RES_WAIT));
+  assert.deepEqual(x.h.writes, []);
+  assert.equal(x.h.fr.calls.put.length, 0);
+  x.unmount();
+}));
+
+test("T7 view: Simpan kapasitas Budi 8 → 1 put (saveResource) + toast; onChange lokal → panel memuat ulang: '{nama} · 8 🍅/hari', hari merah tinggal cuti; pagar R25 (pin saveResource:records.put = 1) tetap", () => withEngineClock(async (clock) => {
+  const x = await edView(clock);
+  x.panel();
+  assert.equal(panelHead(x.pt), "Beban Tim · 6 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅");
+  x.open("Budi");
+  capIn(x.et).props.onChange(chg("8"));
+  x.editor();
+  saveBtn(x.et).props.onClick({});
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(x.h.fr).map((p) => [p[1], p[2], p[3]]), [["res@list:12:9", { v: 1, capacity: 8, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }], by: 7 }, { scope: "list:12" }]]);
+  assert.deepEqual(x.h.calls.toast, [["Kapasitas Budi disimpan", "success"]]);
+  x.editor();
+  assert.equal(x.ed, null, "ditutup setelah simpan");
+  // host: put lokal → onChange {source: "local"} → useResources memuat ulang (debounce) → beban dihitung ulang
+  x.h.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "local" });
+  await x.h.again();
+  x.panel();
+  assert.deepEqual(panelNames(x.pt)[0], ["button", "Budi · 8 🍅/hari"]);
+  assert.equal(panelHead(x.pt), "Beban Tim · 2 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅");
+  const budi = x.node.props.load.rows.find((r) => r.uid === 9);
+  assert.deepEqual(budi.overDays.map(T.TLCal.iso), ["2026-11-09", "2026-11-10"], "tinggal hari cuti");
+  assert.deepEqual(x.h.writes, [], "taskExt tidak disentuh");
+  assert.equal(resPuts(x.h.fr).length, 1, "satu-satunya tulisan = Simpan");
+  assert.match(jsx, /function saveResource\(/);
+  assert.equal((jsx.match(/records\.put\(/g) || []).length, 4, "records.put hanya di save/setAuto/saveBaseline/saveResource");
+  x.unmount();
+}));
+
+test("T7 CSS editor: .plg-timeline-res-pop membuka ke atas panel; baris cuti grid tanpa lebar tetap; input tidak sah bertepi --plg-timeline-danger; input 16 px di ≤ 640 px (cegah zoom iOS); hanya token", () => {
+  const block = css.slice(css.indexOf("1d-1 Task 7"));
+  assert.ok(block.length > 100, "blok CSS Task 7");
+  assert.match(block, /\.plg-timeline-res-pop\s*\{[^}]*bottom:\s*100%/);
+  assert.match(block, /\.plg-timeline-res-row\s*\{[^}]*display:\s*grid/);
+  assert.match(block, /\[aria-invalid="true"\][^{]*\{[^}]*var\(--plg-timeline-danger\)/);
+  assert.match(block, /@media \(max-width: 640px\)\s*\{[^@]*\.plg-timeline-res-pop \.plg-timeline-pop-input\s*\{[^}]*font-size:\s*16px/);
+  assert.doesNotMatch(block, /border-left\s*:/);
+  assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
+});
+
+test("T7 satu popover panel pada satu waktu: buka editor saat popover saran terbuka → saran tertutup; buka saran (keyboard, tanpa pointerdown) saat editor terbuka → editor tertutup; 0 tulis", () => withEngineClock(async (clock) => {
+  const x = await edView(clock, { tasks: sugTasks(), records: sugRecords() });
+  x.panel();
+  const hit = () => hitOf(x.pt, "Budi · Rab 4 Nov");
+  hit().props.onClick({ currentTarget: { focus() {} } });
+  x.panel();
+  assert.ok(sugOf(x.pt), "saran terbuka");
+  x.nameBtn("Budi").props.onClick({ currentTarget: { focus() {} } });
+  x.editor();
+  assert.equal(sugOf(x.pt), undefined, "saran ditutup saat editor dibuka");
+  assert.ok(x.ed, "editor terbuka");
+  hit().props.onClick({ currentTarget: { focus() {} } });
+  x.editor();
+  assert.equal(x.ed, null, "editor ditutup saat saran dibuka");
+  assert.ok(sugOf(x.pt));
+  assert.deepEqual(x.h.writes, []);
+  assert.equal(x.h.fr.calls.put.length, 0);
+  x.unmount();
+}));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 8: Beban Tim versi HP (≤ 640 px; spec §7.6; rencana R10) — daftar "Hari kelebihan beban"
+// ════════════════════════════════════════════════════════════════════════════
+const listOf = (tree) => nodes(tree, (n) => n.type === T.LoadList)[0];
+const mDays = (lt) => byCls(lt, "plg-timeline-load-m-day");
+const mChips = (lt) => byCls(lt, "plg-timeline-load-m-person");
+const narrowGlobal = (innerHeight) => ({
+  matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }),
+  innerHeight: innerHeight || 800, addEventListener() {}, removeEventListener() {},
+});
+function withNarrowClock(fn, innerHeight) {
+  return withEngineClock(async (clock) => {
+    const prev = global.window;
+    global.window = narrowGlobal(innerHeight);
+    try {
+      return await fn(clock);
+    } finally {
+      global.window = prev;
+    }
+  });
+}
+// Daftar HP dipasang sendiri (props asli dari view).
+function mList(h) {
+  const node = listOf(h.tree);
+  const lm = mount(T.LoadList);
+  const x = { node, lm, props: node.props };
+  x.render = () => (x.tree = lm.render(x.props));
+  x.render();
+  lm.flush();
+  x.render();
+  return x;
+}
+const PANEL_DAYS = [
+  "Budi · Rab 4 Nov · 4 dari 2 🍅",
+  "Budi · Kam 5 Nov · 4 dari 2 🍅",
+  "Budi · Jum 6 Nov · 4 dari 2 🍅",
+  "Budi · Sen 9 Nov · 1 dari 0 🍅",
+  "Budi · Sel 10 Nov · 1 dari 0 🍅",
+  "Budi · Sen 2 Agu · 5 dari 2 🍅",
+];
+
+test("T8 view ≤ 640 px + pref ON: Gantt → LoadList tepat setelah .plg-timeline-scroll, sebelum legenda; Daftar → setelah daftar ListFallback; tanpa LoadPanel; props stabil (memo); layar lebar / pref OFF → tanpa LoadList; 0 tulis", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock);
+  assert.ok(gridOf(h.tree), "Gantt HP");
+  assert.equal(panelOf(h.tree), undefined, "histogram desktop tidak dirender");
+  const kids = h.tree.children.filter((c) => c && typeof c === "object");
+  const iGrid = kids.findIndex((c) => hasCls(c, "plg-timeline-scroll"));
+  const iList = kids.findIndex((c) => c.type === T.LoadList);
+  const iFoot = kids.findIndex((c) => hasCls(c, "plg-timeline-foot"));
+  assert.ok(iGrid >= 0 && iList === iGrid + 1 && iFoot === iList + 1, "grafik · daftar HP · legenda (" + [iGrid, iList, iFoot] + ")");
+  const p = listOf(h.tree).props;
+  assert.ok(p.load && Array.isArray(p.load.rows));
+  assert.equal(p.cal && typeof p.cal.mask.has, "function");
+  assert.equal(p.pageKind, "workspace");
+  for (const k of ["onEditPerson", "onReveal"]) assert.equal(typeof p[k], "function", k);
+  assert.ok(p.boxRef && "current" in p.boxRef);
+  assert.equal(p.editUid, null);
+  assert.ok(p.res && p.res.map instanceof Map);
+  const p2 = listOf(h.render()).props;
+  for (const k of Object.keys(p)) assert.ok(Object.is(p[k], p2[k]), "prop stabil: " + k);
+  assert.match(jsx, /React\.memo\(LoadList\)/);
+  // Daftar HP
+  buttonByText(h.tree, "Daftar").props.onClick({});
+  const t2 = h.render();
+  assert.equal(gridOf(t2), undefined);
+  const k2 = t2.children.filter((c) => c && typeof c === "object");
+  const iLi = k2.findIndex((c) => hasCls(c, "plg-timeline-list"));
+  assert.ok(iLi >= 0 && k2.findIndex((c) => c.type === T.LoadList) === iLi + 1, "Daftar · daftar HP");
+  assert.equal(panelOf(t2), undefined);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+  const off = await panelView(clock, { loadOff: true });
+  assert.equal(listOf(off.tree), undefined, "pref OFF");
+  off.m.unmount();
+}));
+
+test("T8 view lebar (> 640 px) dan Live Edit lebar → tanpa LoadList (histogram desktop)", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  assert.equal(listOf(h.tree), undefined);
+  assert.ok(panelOf(h.tree));
+  h.m.unmount();
+  const le = await panelView(clock, { ctx: { liveEdit: true } });
+  assert.equal(listOf(le.tree), undefined);
+  le.m.unmount();
+}));
+
+test("T8 LoadList: section .plg-timeline-load-m (ref = boxRef) + judul persis desktop; chip '{nama} · {cap} 🍅/hari' (tanpa Belum ditugaskan); subjudul persis 'Hari kelebihan beban' + <ul> tombol teks persis '{nama} · {tgl} · {beban} dari {kapasitas} 🍅' urut tanggal; tanpa <svg>", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock);
+  const x = mList(h);
+  const sec = nodes(x.tree, (n) => n.type === "section")[0];
+  assert.ok(hasCls(sec, "plg-timeline-load-m"));
+  assert.equal(sec.props["aria-label"], "Beban Tim");
+  assert.equal(sec.props.ref, x.props.boxRef, "diukur view (tinggi wadah Gantt)");
+  assert.equal(txt(byCls(x.tree, "plg-timeline-load-head")[0]).trim(), "Beban Tim · 6 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅");
+  assert.equal(byCls(x.tree, "plg-timeline-load-note").length, 0, "workspace tanpa catatan P3");
+  assert.deepEqual(mChips(x.tree).map((b) => [b.type, txt(b).trim(), b.props["aria-haspopup"], b.props["aria-expanded"]]), [
+    ["button", "Budi · 2 🍅/hari", "dialog", false], ["button", "Citra · 8 🍅/hari", "dialog", false], ["button", "Sari · 8 🍅/hari", "dialog", false],
+  ]);
+  const sub = byCls(x.tree, "plg-timeline-load-m-sub")[0];
+  assert.equal(sub.type, "h4");
+  assert.equal(txt(sub).trim(), "Hari kelebihan beban");
+  const ul = nodes(x.tree, (n) => n.type === "ul")[0];
+  assert.ok(hasCls(ul, "plg-timeline-load-m-list"));
+  const days = mDays(x.tree);
+  assert.deepEqual(days.map((b) => txt(b).trim()), PANEL_DAYS);
+  assert.ok(days.every((b) => b.type === "button" && b.props.type === "button" && b.props["aria-haspopup"] === "dialog" && b.props["aria-expanded"] === false));
+  assert.ok(nodes(ul, (n) => n.type === "li").length === 6);
+  assert.equal(nodes(x.tree, (n) => n.type === "svg").length, 0, "tanpa SVG");
+  assert.equal(byCls(x.tree, "plg-timeline-load-m-more").length, 0);
+  x.lm.unmount();
+  h.m.unmount();
+}));
+
+test("T8 loadDayItems: urut tanggal naik lalu nama (TLCpm.cmpKey) lalu uid; teks persis (beban dibulatkan ke atas di hari merah); baris tanpa penanggung jawab dilewati", () => {
+  const dn = dnOfIso;
+  const cal = T.TLCal.compile(T.TLCal.DEFAULT_CAL);
+  const day = (load) => ({ load, parts: [] });
+  const load = {
+    rows: [
+      { uid: 3, name: "Zaki", capacity: 2, res: { capacity: 2, leave: [] }, days: new Map([[dn("2026-11-05"), day(2100)], [dn("2026-11-04"), day(4000)]]), overDays: [dn("2026-11-04"), dn("2026-11-05")], total: 6100 },
+      { uid: 1, name: "Ani", capacity: 1, res: { capacity: 1, leave: [{ from: dn("2026-11-05"), to: dn("2026-11-05"), note: "" }] }, days: new Map([[dn("2026-11-05"), day(500)]]), overDays: [dn("2026-11-05")], total: 500 },
+      { uid: 2, name: "Zaki", capacity: 8, res: null, days: new Map([[dn("2026-11-05"), day(9000)]]), overDays: [dn("2026-11-05")], total: 9000 },
+      { uid: null, name: "Belum ditugaskan", capacity: null, res: null, days: new Map([[dn("2026-11-04"), day(50000)]]), overDays: [], total: 50000 },
+    ],
+  };
+  assert.deepEqual(T.loadDayItems(load, cal).map((it) => [it.uid, it.dn, it.text]), [
+    [3, dn("2026-11-04"), "Zaki · Rab 4 Nov · 4 dari 2 🍅"],
+    [1, dn("2026-11-05"), "Ani · Kam 5 Nov · 0.5 dari 0 🍅"],
+    [2, dn("2026-11-05"), "Zaki · Kam 5 Nov · 9 dari 8 🍅"],
+    [3, dn("2026-11-05"), "Zaki · Kam 5 Nov · 2.5 dari 2 🍅"],
+  ]);
+  assert.deepEqual(T.loadDayItems({ rows: [] }, cal), []);
+  assert.match(jsx, /TLCpm\.cmpKey\(a\.name, b\.name\)/);
+});
+
+test("T8 ketuk item → popover saran T6 di dalam <li> item (judul 'Bisa digeser — {nama}, {tgl}', items = TLLoad.suggest, tanpa left — CSS HP); ketuk lagi → tutup; item lain → ganti; Esc/Tutup → fokus kembali ke item; pilih baris → onReveal (Gantt HP: gulir + kedip); 0 tulis", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const x = mList(h);
+  assert.deepEqual(mDays(x.tree).map((b) => txt(b).trim()), ["Budi · Rab 4 Nov · 12 dari 2 🍅", "Citra · Rab 4 Nov · 20 dari 8 🍅"]);
+  const item = (i) => mDays(x.tree)[i];
+  const btn = { focused: 0, focus() { this.focused++; } };
+  item(0).props.onClick({ currentTarget: btn });
+  x.render();
+  let sp = sugOf(x.tree);
+  assert.ok(sp, "popover terbuka");
+  assert.equal(sp.props.title, "Bisa digeser — Budi, Rab 4 Nov");
+  assert.equal(sp.props.left, undefined, "posisi dari CSS HP");
+  assert.equal(item(0).props["aria-expanded"], true);
+  const li0 = nodes(x.tree, (n) => n.type === "li")[0];
+  assert.ok(nodes(li0, (n) => n.type === T.SuggestPopover).length === 1, "popover di dalam item (jangkar)");
+  const p = x.props;
+  const want = T.TLLoad.suggest(p.load, 9, dnOfIso("2026-11-04"), { result: p.result, units: p.ctx.units, readExt: p.ctx.readExt, tasks: p.ctx.tasks });
+  assert.deepEqual(sp.props.items.map((s) => [s.key, s.kind]), want.map((s) => [s.key, s.kind]));
+  const spt = child(sp);
+  assert.deepEqual(sugRows(spt)[0], ["Ikon · 3 🍅 hari ini · slack 9 hk", null]);
+  // ketuk lagi → tutup (toggle); item lain → ganti
+  item(0).props.onClick({ currentTarget: btn });
+  x.render();
+  assert.equal(sugOf(x.tree), undefined);
+  item(0).props.onClick({ currentTarget: btn });
+  x.render();
+  item(1).props.onClick({ currentTarget: btn });
+  x.render();
+  sp = sugOf(x.tree);
+  assert.equal(sp.props.title, "Bisa digeser — Citra, Rab 4 Nov");
+  // Esc/Tutup → fokus kembali ke item pemicu
+  sp.props.onClose({ restoreFocus: true });
+  x.render();
+  assert.equal(sugOf(x.tree), undefined);
+  assert.equal(btn.focused, 1);
+  // pemicu lain di daftar HP tidak menutup lewat pointerdown (ditangani tombolnya)
+  item(0).props.onClick({ currentTarget: btn });
+  x.render();
+  sp = sugOf(x.tree);
+  assert.match(sp.props.skipSel, /\.plg-timeline-load-m-day/);
+  // pilih baris → onReveal view (Gantt HP: baris ada di lay.rows → gulir + kedip, bukan detail)
+  const el = fakeEl();
+  h.tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  sp.props.onPick(sp.props.items.find((s) => s.key === "2"));
+  x.render();
+  assert.equal(sugOf(x.tree), undefined);
+  h.render();
+  assert.ok(nodes(h.tree, (n) => hasCls(n, "is-flash")).length > 0, "kedip di Gantt HP");
+  assert.deepEqual(h.clicked, []);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+  x.lm.unmount();
+  h.m.unmount();
+}));
+
+test("T8 Daftar HP: pilih baris saran → detail task (context.onTaskClick, tidak ada Gantt untuk digulir); 0 tulis", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  buttonByText(h.tree, "Daftar").props.onClick({});
+  h.render();
+  const x = mList(h);
+  mDays(x.tree)[0].props.onClick({ currentTarget: { focus() {} } });
+  x.render();
+  const sp = sugOf(x.tree);
+  sp.props.onPick(sp.props.items.find((s) => s.key === "2"));
+  assert.deepEqual(h.clicked.map((t) => t.id), [2]);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  x.lm.unmount();
+  h.m.unmount();
+}));
+
+test("T8 chip → editor T7 (ResourceEditor di dalam wadah chip, aria-expanded; sama = tutup; lain = ganti) — kapasitas orang tanpa hari merah (Sari) bisa diatur di HP; Simpan → 1 put", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock);
+  let x = mList(h);
+  const btn = { focused: 0, focus() { this.focused++; } };
+  const chip = (prefix) => mChips(x.tree).find((b) => txt(b).trim().indexOf(prefix) === 0);
+  chip("Sari").props.onClick({ currentTarget: btn });
+  h.render();
+  x.props = listOf(h.tree).props;
+  x.render();
+  assert.equal(x.props.editUid, 7);
+  assert.equal(chip("Sari").props["aria-expanded"], true);
+  const people = byCls(x.tree, "plg-timeline-load-m-people")[0];
+  const ed = nodes(people, (n) => n.type === T.ResourceEditor)[0];
+  assert.ok(ed, "editor di wadah chip");
+  assert.deepEqual([ed.props.uid, ed.props.name], [7, "Sari"]);
+  assert.equal(ed.props.res, x.props.res);
+  // editor bekerja seperti di desktop (Sari tanpa record → menunggu pulled; tarik → simpan)
+  h.fr.emit(PULLED);
+  h.tree = await h.again();
+  x.props = listOf(h.tree).props;
+  x.render();
+  const em = mount(T.ResourceEditor);
+  const e1 = edOf(x.tree);
+  let et = em.render(e1.props);
+  em.flush();
+  et = em.render(e1.props);
+  capIn(et).props.onChange(chg("6"));
+  et = em.render(e1.props);
+  saveBtn(et).props.onClick({});
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(h.fr).map((p) => [p[1], p[2].capacity, p[3]]), [["res@list:12:7", 6, { scope: "list:12" }]]);
+  assert.equal(btn.focused, 1, "ditutup setelah simpan → fokus kembali ke chip");
+  em.unmount();
+  h.render();
+  x.props = listOf(h.tree).props;
+  x.render();
+  assert.equal(x.props.editUid, null);
+  // sama = tutup; lain = ganti
+  chip("Budi").props.onClick({ currentTarget: btn });
+  h.render();
+  x.props = listOf(h.tree).props;
+  x.render();
+  chip("Budi").props.onClick({ currentTarget: btn });
+  h.render();
+  assert.equal(listOf(h.tree).props.editUid, null);
+  x.props = listOf(h.tree).props;
+  x.render();
+  chip("Budi").props.onClick({ currentTarget: btn });
+  h.render();
+  x.props = listOf(h.tree).props;
+  x.render();
+  chip("Citra").props.onClick({ currentTarget: btn });
+  h.render();
+  assert.equal(listOf(h.tree).props.editUid, 11);
+  assert.equal(resPuts(h.fr).length, 1);
+  x.lm.unmount();
+  h.m.unmount();
+}));
+
+test("T8 kosong (0 hari kelebihan beban) → judul 'Beban Tim · 0 hari kelebihan beban' + chip orang, tanpa subjudul/daftar; pribadi + catatan P3", () => withNarrowClock(async (clock) => {
+  const L = PANEL_L;
+  const tasks = [mk(1, "Ringan", { start: "2026-11-04", duration: 2 }, Object.assign({ assigned_to: 7, estimated_pomodoros: 2 }, L))];
+  const h = await panelView(clock, { tasks });
+  const x = mList(h);
+  assert.equal(txt(byCls(x.tree, "plg-timeline-load-head")[0]).trim(), "Beban Tim · 0 hari kelebihan beban");
+  assert.deepEqual(mChips(x.tree).map((b) => txt(b).trim()), ["Budi · 2 🍅/hari", "Sari · 8 🍅/hari"]);
+  assert.equal(byCls(x.tree, "plg-timeline-load-m-sub").length, 0);
+  assert.equal(nodes(x.tree, (n) => n.type === "ul").length, 0);
+  assert.equal(mDays(x.tree).length, 0);
+  x.lm.unmount();
+  h.m.unmount();
+  const al = { project: "Alpha" };
+  const fr = fakeRecords();
+  const p = await panelView(clock, { tasks: [mk(1, "A", { start: "2026-11-04", duration: 1 }, al)], records: fr, ctx: { page: "proj_Alpha", pageKind: "project", listId: null, projectName: "Alpha" } });
+  const y = mList(p);
+  assert.equal(txt(byCls(y.tree, "plg-timeline-load-note")[0]).trim(), "Hanya beban dari project ini");
+  assert.deepEqual(mChips(y.tree).map((b) => txt(b).trim()), ["Sari · 8 🍅/hari"]);
+  y.lm.unmount();
+  p.m.unmount();
+}));
+
+test("T8 batas DOM: > 100 hari kelebihan beban → 100 item terdekat (urut tanggal) + 'dan {n} lainnya'; elemen daftar ≤ 300; tanpa <svg>", () => {
+  const x = heavyLoad("week");
+  const props = { load: x.load, cal: x.ctx.cal, result: x.result, ctx: x.ctx, pageKind: "workspace", boxRef: { current: null }, editUid: null, onEditPerson() {}, res: null, onReveal() {} };
+  const lm = mount(T.LoadList);
+  const lt = lm.render(props);
+  lm.flush();
+  const total = x.load.rows.reduce((s, r) => s + r.overDays.length, 0);
+  assert.ok(total > 100, "kasus terburuk: " + total);
+  const all = T.loadDayItems(x.load, x.ctx.cal);
+  assert.deepEqual(mDays(lt).map((b) => txt(b).trim()), all.slice(0, 100).map((it) => it.text));
+  assert.equal(txt(byCls(lt, "plg-timeline-load-m-more")[0]).trim(), "dan " + (total - 100) + " lainnya");
+  const n = domCount(lt);
+  assert.ok(n <= 300, "elemen daftar HP: " + n);
+  assert.equal(nodes(lt, (q) => q.type === "svg").length, 0);
+  console.log("# DOM daftar HP Beban Tim 10 orang: " + n + " elemen, 100/" + total + " item");
+  lm.unmount();
+});
+
+test("T8 tinggi: daftar HP diukur seperti panel desktop — saat daftar muncul tinggi wadah Gantt HP diukur ulang dan dikurangi tinggi daftar (legenda tetap terlihat)", () => withNarrowClock(async (clock) => {
+  const v = await panelView(clock, { loadOff: true });
+  const el = fakeEl();
+  let tree = attach(v.m, v.props, v.tree, el);
+  assert.equal(listOf(tree), undefined);
+  assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16, "Beban Tim mati");
+  loadBtnMenu(tree).onSelect();
+  tree = v.m.render(v.props);
+  v.m.flush(); // review akhir: daftar menunggu kapasitas termuat (records.list) — tanpa kilatan kapasitas bawaan
+  await settle();
+  tree = v.m.render(v.props);
+  const node = listOf(tree);
+  assert.ok(node, "daftar HP muncul");
+  node.props.boxRef.current = { offsetHeight: 250 }; // React memasang ref akar section SEBELUM efek tata letak (ukur)
+  tree = attach(v.m, v.props, tree, el);
+  assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16 - 250, "tinggi daftar dikurangkan");
+  assert.deepEqual(v.writes, []);
+  v.m.unmount();
+}, 1200));
+const loadBtnMenu = (tree) => moreOf(tree).props.items.find((it) => it.text === "Beban Tim");
+
+test("T8 375 px tanpa gulir horizontal (pendekatan: pohon tanpa lebar inline + CSS tanpa lebar tetap > 343 px, teks membungkus, popover HP ≤ 100vw − 32 px; E2E T11 skenario 9 mengukur scrollWidth)", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const x = mList(h);
+  mDays(x.tree)[0].props.onClick({ currentTarget: { focus() {} } });
+  x.render();
+  for (const n of nodes(x.tree, (q) => typeof q.type === "string")) {
+    const s = n.props.style || {};
+    for (const k of ["width", "minWidth", "left", "right"]) assert.equal(s[k], undefined, n.type + "." + k);
+  }
+  const spt = child(sugOf(x.tree));
+  assert.deepEqual(nodes(spt, (n) => n.props.role === "dialog")[0].props.style, { left: undefined });
+  x.lm.unmount();
+  h.m.unmount();
+  const block = css.slice(css.indexOf("1d-1 Task 8"));
+  assert.ok(block.length > 100, "blok CSS Task 8");
+  for (const m of block.matchAll(/(?:^|[\s;{])(min-width|width|flex-basis)\s*:\s*(\d+)px/g)) assert.ok(Number(m[2]) <= 343, m[0]);
+  assert.match(block, /\.plg-timeline-load-m-day\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  assert.match(block, /\.plg-timeline-load-m-day\s*\{[^}]*width:\s*100%/);
+  assert.match(block, /\.plg-timeline-load-m-person\s*\{[^}]*max-width:\s*100%[^}]*text-overflow:\s*ellipsis/);
+  assert.match(block, /\.plg-timeline-load-m-people\s*\{[^}]*flex-wrap:\s*wrap/);
+  assert.match(block, /\.plg-timeline-load-m \.plg-timeline-pop\s*\{[^}]*top:\s*100%[^}]*max-width:\s*min\(calc\(100% - 16px\), calc\(100vw - 32px\)\)/);
+  assert.match(block, /\.plg-timeline-load-m-item\s*\{[^}]*position:\s*relative/);
+  assert.doesNotMatch(block, /border-left\s*:/);
+  assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
+  for (const n of nodes(x.tree, (q) => typeof q.props.className === "string")) {
+    for (const c of n.props.className.split(/\s+/).filter(Boolean)) assert.match(c, /^(plg-timeline(-[\w-]+)?|is-[\w-]+)$/, c);
+  }
+}));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — perbaikan review T4–T6: hari merah selalu terjangkau (I1), panel tetap sejajar dengan Gantt (I2), hari
+// non-kerja abu (I3), skala vertikal stabil (I4); minor M1–M5, M7
+// ════════════════════════════════════════════════════════════════════════════
+const fakeFocus = (o) => Object.assign({ focused: 0, opts: [], focus(x) { this.focused++; this.opts.push(x); } }, o || {});
+const daysBtnOf = (pt) => byCls(pt, "plg-timeline-load-daysbtn")[0];
+const headOf = (pt) => byCls(pt, "plg-timeline-load-head")[0];
+
+test("Review T4–T6 I4: skala vertikal per baris = maks(kapasitas, beban maks) atas SELURUH row.days (sekali per hasil beban) — jendela dw berganti tidak mengubah tinggi kapasitas/batang; Belum ditugaskan = beban maks; minimal 1 🍅", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const p = panelOf(h.tree).props;
+  const M = T.TLLoad.MILLI;
+  // Budi: kapasitas 2, beban maks 5 🍅 (Rilis jauh Sen 2 Agu 2027, DI LUAR jendela); Citra/Sari: kapasitas 8; Belum
+  // ditugaskan: beban maks 1 🍅 (Rapat)
+  assert.deepEqual(p.load.rows.map((r) => [r.name, T.loadScaleOf(r)]), [["Budi", 5 * M], ["Citra", 8 * M], ["Sari", 8 * M], ["Belum ditugaskan", M]]);
+  assert.equal(T.loadScaleOf({ uid: 3, capacity: 0, days: new Map() }), M, "minimal 1 🍅");
+  assert.equal(T.loadScaleOf({ uid: null, capacity: null, days: new Map([[1, { load: 250, parts: [] }]]) }), M);
+  assert.equal(T.loadScaleOf({ uid: null, capacity: null, days: new Map([[1, { load: 2500, parts: [] }], [2, { load: 1200, parts: [] }]]) }), 2500);
+  const pm = mount(T.LoadPanel);
+  const capD = (pt, i) => pathD(panelSvgs(pt)[i], "plg-timeline-load-cap");
+  const barD = (pt, i) => pathD(panelSvgs(pt)[i], "plg-timeline-load-bar");
+  let pt = pm.render(p);
+  pm.flush();
+  // jendela bawaan: kapasitas Budi 2 dari skala 5 → 10 px (dulu 12.5 dari maks jendela 4)
+  assert.ok(capD(pt, 0).includes("M" + (dnOfIso("2026-11-02") - p.fromDn) * p.px + " 18h60v10h-60Z"), capD(pt, 0));
+  // jendela tanpa beban Budi (Sen 2–Sel 3 Nov): dulu skala = kapasitas 2 → 25 px (melompat); kini tetap 10 px
+  pt = pm.render(Object.assign({}, p, { fromDn: dnOfIso("2026-11-02"), toDn: dnOfIso("2026-11-03") }));
+  assert.equal(capD(pt, 0), "M0 18h24v10h-24Z");
+  // jendela Kam 5 Nov saja: batang Sari 2 🍅 dari skala 8 tetap 6.3 px
+  pt = pm.render(Object.assign({}, p, { fromDn: dnOfIso("2026-11-05"), toDn: dnOfIso("2026-11-05") }));
+  assert.equal(barD(pt, 2), "M1 21.8h10v6.3h-10Z");
+  pm.unmount();
+  assert.match(jsx, /React\.useMemo\(\(\) => [^\n]*loadScaleOf[^\n]*\[load\]\)/, "skala dihitung sekali per hasil beban (useMemo atas load)");
+  h.m.unmount();
+}));
+
+test("Review T4–T6 I3: hari non-kerja abu (--text-secondary 12 %), berbeda dari area kapasitas (--bg-subtle + garis --border) dan bukan tint merah", () => {
+  const off = css.match(/\.plg-timeline-load-off\s*\{([^}]*)\}/)[1];
+  assert.match(off, /fill:\s*color-mix\(in srgb, var\(--text-secondary\) 12%, transparent\)/);
+  assert.doesNotMatch(off, /danger|bg-subtle|stroke/);
+  const cap = css.match(/\.plg-timeline-load-cap\s*\{([^}]*)\}/)[1];
+  assert.match(cap, /fill:\s*var\(--bg-subtle\)/);
+  assert.match(cap, /stroke:\s*var\(--border\)/);
+});
+
+test("Review T4–T6 I2: wadah grafik panel 'overflow: hidden; overflow: clip;' (clip tidak membuat wadah gulir; hidden cadangan); pengaman onScroll view panel → scrollLeft/scrollTop kembali 0", () => withEngineClock(async (clock) => {
+  assert.match(css, /\.plg-timeline-load-view\s*\{[^}]*overflow:\s*hidden;\s*overflow:\s*clip;/);
+  const h = await panelView(clock);
+  const pm = mount(T.LoadPanel);
+  const pt = pm.render(panelOf(h.tree).props);
+  pm.flush();
+  const view = byCls(pt, "plg-timeline-load-view")[0];
+  assert.equal(typeof view.props.onScroll, "function");
+  const ve = { scrollLeft: 37, scrollTop: 5 };
+  view.props.ref.current = ve;
+  view.props.onScroll({ currentTarget: ve });
+  assert.deepEqual([ve.scrollLeft, ve.scrollTop], [0, 0], "gulir tak sengaja (fokus) direset");
+  pm.unmount();
+  h.m.unmount();
+}));
+
+test("Review T4–T6 I2: fokus (Tab) tombol hari merah — di luar [getLeft(), getLeft() + viewW] (kiri/kanan) → onShowDay(dn); di dalam layar → tidak; tombol tanpa onShowDay tidak melempar", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const p = panelOf(h.tree).props;
+  assert.equal(typeof p.onShowDay, "function", "view menyediakan onShowDay (stabil)");
+  const x = (iso) => (dnOfIso(iso) - p.rangeFrom) * p.px;
+  const shown = [];
+  let left = 0;
+  const q = Object.assign({}, p, { getLeft: () => left, onShowDay: (dn) => shown.push(T.TLCal.iso(dn)) });
+  const pm = mount(T.LoadPanel);
+  const pt = pm.render(q);
+  pm.flush();
+  const focusHit = (label) => hitOf(pt, label).props.onFocus({ currentTarget: fakeFocus() });
+  left = x("2026-11-10") + 1; // Sel 10 sedikit terpotong di kiri
+  focusHit("Budi · Sel 10 Nov");
+  left = x("2026-11-04") + p.px - 1000 - 1; // tepi kanan Rab 4 melewati layar 1 px
+  focusHit("Budi · Rab 4 Nov");
+  left = x("2026-11-04") + p.px - 1000; // tepat muat
+  focusHit("Budi · Rab 4 Nov");
+  left = x("2026-11-04") - 300;
+  focusHit("Budi · Sen 9 Nov");
+  assert.deepEqual(shown, ["2026-11-10", "2026-11-04"]);
+  // fokus karena klik mouse/sentuh (bukan :focus-visible) → tanpa gulir (tombol tidak bergeser dari bawah pointer);
+  // fokus keyboard (:focus-visible) → gulir; peramban tanpa :focus-visible (matches melempar) → anggap keyboard
+  left = x("2026-11-10") + 1;
+  const viaMatches = (fn) => hitOf(pt, "Budi · Sel 10 Nov").props.onFocus({ currentTarget: fakeFocus({ matches: fn }) });
+  viaMatches((s) => (s === ":focus-visible" ? false : null));
+  assert.equal(shown.length, 2, "fokus pointer → tanpa gulir");
+  viaMatches((s) => s === ":focus-visible");
+  viaMatches(() => { throw new Error("SyntaxError"); });
+  assert.deepEqual(shown.slice(2), ["2026-11-10", "2026-11-10"]);
+  pm.unmount();
+  const pm2 = mount(T.LoadPanel);
+  const pt2 = pm2.render(Object.assign({}, q, { onShowDay: undefined }));
+  left = x("2026-11-10") + 50;
+  hitOf(pt2, "Budi · Sel 10 Nov").props.onFocus({});
+  pm2.unmount();
+  h.m.unmount();
+}));
+
+test("Review T4–T6 I2: view onShowDay(dn) → wadah Gantt digulir lewat jalur applyLeft (hari di sepertiga kiri, translateX panel seketika, getLeft baru) sehingga panel ikut; event scroll susulan menjaga translateX; 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const el = fakeEl();
+  h.tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  h.render();
+  const node = panelOf(h.tree);
+  const p = node.props;
+  const track = { style: {} };
+  p.trackRef.current = track;
+  const pm = mount(T.LoadPanel);
+  const pt = pm.render(p);
+  pm.flush();
+  const x = (iso) => (dnOfIso(iso) - p.rangeFrom) * p.px;
+  // pengguna menggulir sehingga Sel 10 Nov di kiri layar (jendela dw belum berganti → tombolnya masih ada)
+  el.scrollLeft = x("2026-11-10") + 50;
+  hitOf(pt, "Budi · Sel 10 Nov").props.onFocus({ currentTarget: fakeFocus() });
+  const want = Math.round(x("2026-11-10") - 1000 / 3);
+  assert.equal(el.scrollLeft, want, "hari itu di sepertiga kiri wadah Gantt");
+  assert.equal(track.style.transform, "translateX(-" + want + "px)", "panel ikut seketika");
+  h.render();
+  assert.equal(panelOf(h.tree).props.getLeft(), want);
+  // event scroll asli menyusul (onScroll wadah Gantt) → translateX panel tetap sejajar
+  gridOf(h.tree).props.onScroll();
+  assert.equal(track.style.transform, "translateX(-" + want + "px)");
+  pm.unmount();
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("Review T4–T6 I1a: klik/ketuk di grafik → (baris, hari) dipetakan seperti readout; hari merah TANPA tombol (di luar LOAD_HIT_MAX) → popover saran hari itu; klik hari sama → tutup; hari biasa → tidak membuka (yang terbuka ditutup); klik bertarget tombol hari merah diabaikan; Esc → fokus ke tombol 'Hari kelebihan beban'", () => {
+  const x = heavyLoad("week");
+  const pm = mount(T.LoadPanel);
+  let pt = pm.render(x.props);
+  pm.flush();
+  const view = byCls(pt, "plg-timeline-load-view")[0];
+  assert.equal(typeof view.props.onClick, "function");
+  view.props.ref.current = { getBoundingClientRect: () => ({ left: 100, top: 50, width: 1000, height: 280 }) };
+  const home = fakeFocus();
+  daysBtnOf(pt).props.ref.current = home;
+  const sl = x.props.getLeft();
+  const px = x.props.px;
+  const rf = x.props.rangeFrom;
+  const none = { closest: () => null };
+  const at = (i, dn, target) => ({ clientX: 100 + (dn - rf) * px - sl + 2, clientY: 50 + i * 28 + 5, target: target || none });
+  const got = new Set(panelHits(pt).map((b) => b.props.style.top / 28 + ":" + (b.props.style.left / px + rf)));
+  const vis = (d) => (d - rf) * px >= sl && (d - rf + 1) * px <= sl + 1000;
+  const row = x.load.rows[0];
+  const d = row.overDays.find((dd) => vis(dd) && !got.has("0:" + dd));
+  assert.ok(d !== undefined, "ada hari merah tampak tanpa tombol");
+  const click = (ev) => {
+    view.props.onClick(ev);
+    pt = pm.render(x.props);
+    return sugOf(pt);
+  };
+  let sp = click(at(0, d));
+  assert.ok(sp, "popover saran untuk hari merah tanpa tombol");
+  assert.equal(sp.props.title, "Bisa digeser — " + row.name + ", " + T.TLCal.fmtShort(d));
+  const want = T.TLLoad.suggest(x.load, row.uid, d, { result: x.result, units: x.ctx.units, readExt: x.ctx.readExt, tasks: x.ctx.tasks });
+  assert.deepEqual(sp.props.items.map((s) => s.key), want.map((s) => s.key));
+  assert.match(sp.props.skipSel, /\.plg-timeline-load-view/, "pointerdown di grafik tidak menutup (ditangani klik grafik)");
+  // Esc → fokus ke tombol daftar (hari ini tanpa tombol)
+  sp.props.onClose({ restoreFocus: true });
+  pt = pm.render(x.props);
+  assert.equal(sugOf(pt), undefined);
+  assert.equal(home.focused, 1);
+  // klik hari sama dua kali → buka lalu tutup
+  assert.ok(click(at(0, d)));
+  assert.equal(click(at(0, d)), undefined, "hari sama → tutup");
+  // hari biasa (Sabtu tampak) → tidak membuka; popover terbuka → ditutup
+  const sat = (() => { for (let k = x.dw.fromDn; k <= x.dw.toDn; k++) if (vis(k) && !T.TLCal.isWork(x.ctx.cal, k)) return k; return null; })();
+  assert.ok(sat !== null && row.overDays.indexOf(sat) < 0);
+  assert.equal(click(at(0, sat)), undefined, "hari biasa → tanpa popover");
+  assert.ok(click(at(0, d)));
+  assert.equal(click(at(0, sat)), undefined, "klik hari biasa menutup popover yang terbuka");
+  // klik yang targetnya tombol hari merah: ditangani tombolnya (tidak membuka/menutup dua kali)
+  const hitTarget = { closest: (s) => (s.split(",").some((t) => t.trim() === ".plg-timeline-load-hit") ? {} : null) };
+  assert.equal(click(at(0, d, hitTarget)), undefined);
+  assert.ok(click(at(0, d)));
+  assert.ok(click(at(0, d, hitTarget)), "tetap terbuka");
+  // di luar baris / jendela → abaikan
+  assert.ok(click({ clientX: at(0, d).clientX, clientY: 50 + 10 * 28 + 5, target: none }), "di bawah baris terakhir: tanpa perubahan");
+  pm.unmount();
+});
+
+test("Review T4–T6 I1b: judul panel desktop + tombol teks persis 'Hari kelebihan beban' (aria-expanded, aria-controls) → daftar yang SAMA dengan HP (teks item persis, ketuk → popover saran di item, Esc → fokus ke item, pilih → onReveal); dirender hanya saat terbuka; status di view; 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  let node = panelOf(h.tree);
+  assert.equal(node.props.daysOpen, false);
+  assert.equal(typeof node.props.onDaysOpen, "function");
+  const reveals = [];
+  const props = () => Object.assign({}, node.props, { onReveal: (k, t) => reveals.push([k, t.id]) });
+  const pm = mount(T.LoadPanel);
+  let pt = pm.render(props());
+  pm.flush();
+  const btn = daysBtnOf(pt);
+  assert.ok(btn, "tombol daftar");
+  assert.deepEqual([btn.type, btn.props.type, txt(btn).trim(), btn.props["aria-expanded"]], ["button", "button", "Hari kelebihan beban", false]);
+  const ctl = btn.props["aria-controls"];
+  assert.match(ctl, /^plg-timeline-load-days-\d+$/);
+  assert.equal(panelHead(pt), "Beban Tim · 6 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅", "teks judul tetap (tombol di luar <h3>)");
+  assert.equal(byCls(pt, "plg-timeline-load-days").length, 0, "tertutup → daftar tidak dirender");
+  assert.equal(byCls(pt, "plg-timeline-load-m-day").length + nodes(pt, (n) => n.type === "li").length, 0);
+  const nClosed = domCount(pt);
+  // buka → status di view (props), daftar setelah judul sebelum grafik
+  daysBtnOf(pt).props.onClick({});
+  h.render();
+  node = panelOf(h.tree);
+  assert.equal(node.props.daysOpen, true);
+  pt = pm.render(props());
+  assert.equal(daysBtnOf(pt).props["aria-expanded"], true);
+  const box = byCls(pt, "plg-timeline-load-days")[0];
+  assert.equal(box.props.id, ctl);
+  const sec = nodes(pt, (n) => n.type === "section")[0];
+  const kids = sec.children.filter((c) => c && typeof c === "object");
+  assert.ok(kids.indexOf(box) > kids.findIndex((c) => hasCls(c, "plg-timeline-load-top")) && kids.indexOf(box) < kids.findIndex((c) => hasCls(c, "plg-timeline-load-body")), "judul · daftar · grafik");
+  const days = () => byCls(pt, "plg-timeline-load-m-day");
+  assert.deepEqual(days().map((b) => txt(b).trim()), PANEL_DAYS, "teks item = daftar HP");
+  assert.ok(days().every((b) => b.type === "button" && b.props["aria-haspopup"] === "dialog" && b.props["aria-expanded"] === false));
+  assert.ok(hasCls(nodes(box, (n) => n.type === "ul")[0], "plg-timeline-load-m-list"), "render daftar HP dipakai ulang");
+  // ketuk item (Enter = klik tombol) → popover saran di dalam <li> item, bukan di tingkat panel
+  const it = fakeFocus();
+  days()[0].props.onClick({ currentTarget: it });
+  pt = pm.render(props());
+  const li0 = nodes(pt, (n) => n.type === "li")[0];
+  const sp = nodes(li0, (n) => n.type === T.SuggestPopover)[0];
+  assert.ok(sp, "popover di item");
+  assert.equal(nodes(pt, (n) => n.type === T.SuggestPopover).length, 1, "satu popover");
+  assert.equal(sp.props.title, "Bisa digeser — Budi, Rab 4 Nov");
+  assert.equal(sp.props.left, undefined);
+  assert.equal(days()[0].props["aria-expanded"], true);
+  assert.equal(panelHits(pt)[0].props["aria-expanded"], false, "tombol grafik hari yang sama tidak ikut terbuka");
+  sp.props.onClose({ restoreFocus: true });
+  pt = pm.render(props());
+  assert.equal(nodes(pt, (n) => n.type === T.SuggestPopover).length, 0);
+  assert.equal(it.focused, 1, "Esc → fokus kembali ke item");
+  // item → pilih baris saran → onReveal (pilih + gulir R7)
+  days()[0].props.onClick({ currentTarget: it });
+  pt = pm.render(props());
+  const sp2 = sugOf(pt);
+  sp2.props.onPick(sp2.props.items[0]);
+  pt = pm.render(props());
+  assert.deepEqual(reveals, [[sp2.props.items[0].key, sp2.props.items[0].task.id]]);
+  assert.equal(sugOf(pt), undefined);
+  // tutup daftar (popover item ikut tertutup) → kembali ke anggaran DOM semula
+  days()[1].props.onClick({ currentTarget: it });
+  pt = pm.render(props());
+  assert.ok(sugOf(pt));
+  daysBtnOf(pt).props.onClick({});
+  h.render();
+  node = panelOf(h.tree);
+  assert.equal(node.props.daysOpen, false);
+  pt = pm.render(props());
+  assert.equal(byCls(pt, "plg-timeline-load-days").length, 0);
+  assert.equal(sugOf(pt), undefined, "popover item tertutup bersama daftar");
+  assert.equal(domCount(pt), nClosed);
+  pm.unmount();
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("Review T4–T6 I1b: daftar desktop ≤ 100 item terdekat + 'dan {n} lainnya' (pola HP); tertutup → DOM panel tetap ≤ 300; n = 0 → tanpa tombol 'Hari kelebihan beban'", () => withEngineClock(async (clock) => {
+  const x = heavyLoad("week");
+  const pm = mount(T.LoadPanel);
+  let pt = pm.render(x.props);
+  pm.flush();
+  assert.ok(daysBtnOf(pt));
+  assert.ok(domCount(pt) <= 300, "tertutup: " + domCount(pt));
+  pt = pm.render(Object.assign({}, x.props, { daysOpen: true }));
+  const total = x.load.rows.reduce((s, r) => s + r.overDays.length, 0);
+  const all = T.loadDayItems(x.load, x.ctx.cal);
+  assert.deepEqual(byCls(pt, "plg-timeline-load-m-day").map((b) => txt(b).trim()), all.slice(0, 100).map((it) => it.text));
+  assert.equal(txt(byCls(pt, "plg-timeline-load-m-more")[0]).trim(), "dan " + (total - 100) + " lainnya");
+  console.log("# DOM panel Beban Tim 10 orang + daftar desktop terbuka: " + domCount(pt) + " elemen");
+  pm.unmount();
+  // n = 0
+  const L = PANEL_L;
+  const h = await panelView(clock, { tasks: [mk(1, "Ringan", { start: "2026-11-04", duration: 2 }, Object.assign({ assigned_to: 7, estimated_pomodoros: 2 }, L))] });
+  const pm2 = mount(T.LoadPanel);
+  const pt2 = pm2.render(Object.assign({}, panelOf(h.tree).props, { daysOpen: true }));
+  assert.equal(panelHead(pt2), "Beban Tim · 0 hari kelebihan beban");
+  assert.equal(daysBtnOf(pt2), undefined, "n = 0 → tanpa tombol");
+  assert.equal(byCls(pt2, "plg-timeline-load-days").length, 0, "tanpa daftar");
+  pm2.unmount();
+  h.m.unmount();
+}));
+
+test("Review T4–T6 M1: popover saran max-height min(50vh, 320px) + gulir dalam; ruang di atas panel (getBoundingClientRect().top) < tinggi maks popover → membuka ke bawah (is-down), cukup → ke atas", () => withEngineClock(async (clock) => {
+  const rule = css.match(/\.plg-timeline-load-pop\s*\{([^}]*)\}/)[1];
+  assert.match(rule, /max-height:\s*min\(50vh, 320px\)/);
+  assert.match(rule, /overflow-y:\s*auto/);
+  assert.match(rule, /bottom:\s*100%/);
+  assert.match(css, /\.plg-timeline-load-pop\.is-down\s*\{[^}]*top:\s*100%[^}]*bottom:\s*auto/);
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const prev = global.window;
+  global.window = { innerHeight: 900, addEventListener() {}, removeEventListener() {} };
+  try {
+    const ph = sugPanel(h);
+    const dlg = () => nodes(child(sugOf(ph.tree)), (n) => n.props.role === "dialog")[0];
+    ph.props.boxRef.current = { clientWidth: TABLE_W_FULL + 1000, getBoundingClientRect: () => ({ top: 200 }) };
+    ph.open("Budi · Rab 4 Nov");
+    assert.equal(sugOf(ph.tree).props.down, true, "200 < min(450, 320)");
+    assert.ok(hasCls(dlg(), "is-down"));
+    ph.open("Budi · Rab 4 Nov");
+    ph.props.boxRef.current = { clientWidth: TABLE_W_FULL + 1000, getBoundingClientRect: () => ({ top: 400 }) };
+    ph.open("Budi · Rab 4 Nov");
+    assert.equal(sugOf(ph.tree).props.down, false);
+    assert.ok(!hasCls(dlg(), "is-down"));
+    ph.open("Budi · Rab 4 Nov");
+    global.window.innerHeight = 500; // layar pendek: maks 250
+    ph.props.boxRef.current = { clientWidth: TABLE_W_FULL + 1000, getBoundingClientRect: () => ({ top: 300 }) };
+    ph.open("Citra · Rab 4 Nov");
+    assert.equal(sugOf(ph.tree).props.down, false);
+    ph.pm.unmount();
+  } finally {
+    global.window = prev;
+  }
+  h.m.unmount();
+}));
+
+test("Review T4–T6 M2: tinggi wadah Gantt diukur ulang saat daftar desktop 'Hari kelebihan beban' dibuka/ditutup dan saat teks judul panel berubah (jumlah baris tetap)", () => withEngineClock(async (clock) => {
+  const prevWin = global.window;
+  global.window = { innerHeight: 1200, addEventListener() {}, removeEventListener() {} };
+  try {
+    const v = await panelView(clock);
+    const el = fakeEl();
+    let tree = attach(v.m, v.props, v.tree, el);
+    const box = panelOf(tree).props.boxRef;
+    box.current = { offsetHeight: 200 };
+    panelOf(tree).props.onDaysOpen(true);
+    box.current = { offsetHeight: 520 };
+    tree = attach(v.m, v.props, v.m.render(v.props), el);
+    assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16 - 520, "daftar dibuka");
+    panelOf(tree).props.onDaysOpen(false);
+    box.current = { offsetHeight: 200 };
+    tree = attach(v.m, v.props, v.m.render(v.props), el);
+    assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16 - 200, "daftar ditutup");
+    // judul berubah (kapasitas Budi 8 dari perangkat lain → 2 hari kelebihan beban), baris tetap 4
+    box.current = { offsetHeight: 180 };
+    putRec(v.fr, resRec(12, 9, { capacity: 8 }));
+    v.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+    tree = await v.again();
+    tree = attach(v.m, v.props, tree, el);
+    assert.equal(panelOf(tree).props.load.rows.length, 4);
+    assert.equal(T.loadHeadText(panelOf(tree).props.load), "Beban Tim · 2 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅");
+    assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16 - 180, "judul berubah → ukur ulang");
+    assert.deepEqual(v.writes, []);
+    v.m.unmount();
+  } finally {
+    global.window = prevWin;
+  }
+}));
+
+test("Review T4–T6 M3: popover saran menutup sendiri (hari tak lagi merah) → fokus ke tombol 'Hari kelebihan beban'; tanpa tombol (n = 0) → judul panel (tabIndex −1); pemicu terlepas → Esc ke tombol daftar; fokus di tempat lain (document.activeElement bukan body) tidak dicuri", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const ph = sugPanel(h);
+  assert.equal(headOf(ph.tree).props.tabIndex, -1);
+  const home = fakeFocus();
+  const headEl = fakeFocus();
+  daysBtnOf(ph.tree).props.ref.current = home;
+  headOf(ph.tree).props.ref.current = headEl;
+  const base = ph.props;
+  const dn4 = dnOfIso("2026-11-04");
+  const without = (pred) => Object.assign({}, base, { load: Object.assign({}, base.load, { rows: base.load.rows.map((r) => Object.assign({}, r, { overDays: r.overDays.filter((d) => !pred(r, d)) })) }) });
+  // (1) pemicu terlepas (dipasang ulang/jendela berganti) → Esc → tombol daftar
+  const gone = fakeFocus({ isConnected: false });
+  hitOf(ph.tree, "Budi · Rab 4 Nov").props.onClick({ currentTarget: gone });
+  ph.render();
+  sugOf(ph.tree).props.onClose({ restoreFocus: true });
+  ph.render();
+  assert.deepEqual([gone.focused, home.focused], [0, 1]);
+  // (2) menutup sendiri: Rab 4 Budi tidak lagi merah → tombol daftar
+  const b2 = ph.open("Budi · Rab 4 Nov");
+  ph.props = without((r, d) => r.uid === 9 && d === dn4);
+  ph.render();
+  ph.pm.flush();
+  ph.render();
+  assert.equal(sugOf(ph.tree), undefined);
+  assert.deepEqual([b2.focused, home.focused, headEl.focused], [0, 2, 0]);
+  // (3) fokus sudah di tempat lain → tidak dicuri
+  ph.props = base;
+  ph.render();
+  ph.open("Budi · Rab 4 Nov");
+  const prevDoc = global.document;
+  global.document = { body: {}, activeElement: { isConnected: true } };
+  try {
+    ph.props = without((r, d) => r.uid === 9 && d === dn4);
+    ph.render();
+    ph.pm.flush();
+    ph.render();
+    assert.equal(sugOf(ph.tree), undefined);
+    assert.equal(home.focused, 2, "fokus di elemen lain → tetap");
+    // fokus jatuh ke body (popover dilepas) → dipindah
+    ph.props = base;
+    ph.render();
+    ph.open("Budi · Rab 4 Nov");
+    global.document.activeElement = global.document.body;
+    ph.props = without((r, d) => r.uid === 9 && d === dn4);
+    ph.render();
+    ph.pm.flush();
+    ph.render();
+    assert.equal(home.focused, 3);
+  } finally {
+    if (prevDoc === undefined) delete global.document; else global.document = prevDoc;
+  }
+  // (4) hari merah terakhir hilang (n = 0 → tombol daftar tidak dirender) → judul panel
+  ph.props = base;
+  ph.render();
+  ph.open("Budi · Rab 4 Nov");
+  ph.props = without(() => true);
+  ph.render();
+  ph.pm.flush();
+  ph.render();
+  assert.equal(daysBtnOf(ph.tree), undefined);
+  assert.deepEqual([home.focused, headEl.focused], [3, 1]);
+  ph.pm.unmount();
+  h.m.unmount();
+}));
+
+test("Review T4–T6 M4: tombol hari merah aria-haspopup='dialog' + aria-expanded true hanya saat popover-nya terbuka", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const ph = sugPanel(h);
+  const ex = () => panelHits(ph.tree).map((b) => [b.props["aria-haspopup"], b.props["aria-expanded"]]);
+  assert.deepEqual(ex(), [["dialog", false], ["dialog", false]]);
+  ph.open("Budi · Rab 4 Nov");
+  assert.deepEqual(ex(), [["dialog", true], ["dialog", false]]);
+  ph.open("Citra · Rab 4 Nov");
+  assert.deepEqual(ex(), [["dialog", false], ["dialog", true]]);
+  ph.open("Citra · Rab 4 Nov");
+  assert.deepEqual(ex(), [["dialog", false], ["dialog", false]]);
+  ph.pm.unmount();
+  h.m.unmount();
+}));
+
+test("Review T4–T6 M5: revealRow memfokuskan bar (role button, data-key) dengan preventScroll; baris tanpa bar (span null) → baris tabel (role row, tabIndex −1) dengan preventScroll", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const el = fakeEl();
+  const focused = [];
+  const fake = (key, role) => ({ getAttribute: (a) => (a === "data-key" ? key : a === "role" ? role : null), focus: (o) => focused.push([key, role, o]) });
+  el.querySelectorAll = (sel) => (sel === "[data-key]" ? [fake("2", "row"), fake("2", "button"), fake("8", "row")] : []);
+  h.tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  h.render();
+  const p = panelOf(h.tree).props;
+  p.onReveal("2", h.tasks.find((t) => t.id === 2));
+  clock.frames();
+  assert.deepEqual(focused, [["2", "button", { preventScroll: true }]], "bar diutamakan");
+  p.onReveal("8", h.tasks.find((t) => t.id === 8));
+  clock.frames();
+  assert.deepEqual(focused[1], ["8", "row", { preventScroll: true }], "tanpa bar → baris tabel");
+  h.render();
+  assert.equal(rowOf(h.tree, "8").props.tabIndex, -1, "baris task dapat difokus skrip");
+  assert.equal(focused.length, 2);
+  assert.deepEqual(h.writes, []);
+  h.m.unmount();
+}));
+
+test("Review T4–T6 M7: tombol Beban Tim cukup bersyarat engReady (mode Daftar hanya ≤ 640 px) — perilaku tetap", () => {
+  assert.match(jsx, /if \(v\.engReady\) extras\.push\(\{ id: "load"/);
+  assert.doesNotMatch(jsx, /v\.engReady && \(gantt \|\| v\.narrow\)/);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — perbaikan review T7–T8: editor kapasitas (baris cuti kosong netral, fokus, busy, STALE beku,
+// aria-describedby) + chip orang HP dibatasi
+// ════════════════════════════════════════════════════════════════════════════
+const dateInvalid = (tree) => inputsOf(tree, "date").map((i) => i.props["aria-invalid"]);
+const alertNode = (tree, s) => nodes(tree, (n) => n.props.role === "alert" && txt(n).trim() === s)[0];
+
+test("Review T7–T8 I: baris cuti kosong total (dari, sampai, catatan kosong) netral — bukan galat, Simpan tetap aktif, dibuang saat simpan; terisi sebagian (satu tanggal / catatan saja) tetap 'Periksa tanggal cuti' hanya untuk baris itu", () => withPop(async () => {
+  // resFormCheck murni: kosong total (catatan spasi saja = kosong) bukan galat; sebagian = galat
+  const chk = T.resFormCheck({ cap: "8", rows: [
+    { k: 1, from: "", to: "", note: "" }, { k: 2, from: "2026-11-10", to: "", note: "" }, { k: 3, from: "", to: "", note: "Mudik" },
+    { k: 4, from: "2026-11-10", to: "2026-11-11", note: "" }, { k: 5, from: "", to: "", note: "   " }, { k: 6, from: "", to: "2026-11-10", note: "" },
+  ] });
+  assert.deepEqual([...chk.bad].sort((a, b) => a - b), [2, 3, 6]);
+  assert.equal(chk.dateBad, true);
+  const blank = T.resFormCheck({ cap: "8", rows: [{ k: 1, from: "", to: "", note: "" }, { k: 2, from: "", to: "", note: " " }] });
+  assert.deepEqual([blank.bad.size, blank.dateBad], [0, false]);
+  // editor: dua baris baru kosong → netral
+  const h = edSetup();
+  capIn(h.tree).props.onChange(chg("5"));
+  h.render();
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  assert.equal(saveBtn(h.tree).props.disabled, false, "baris kosong tidak menonaktifkan Simpan");
+  assert.deepEqual(alerts(h.tree), [], "tanpa pesan galat untuk baris kosong");
+  assert.deepEqual(dateInvalid(h.tree), [false, false, false, false]);
+  // baris kedua terisi sebagian → galat hanya baris itu
+  inputsOf(h.tree, "date")[2].props.onChange(chg("2026-11-10"));
+  h.render();
+  assert.equal(saveBtn(h.tree).props.disabled, true);
+  assert.deepEqual(alerts(h.tree), [RES_DATE_BAD]);
+  assert.deepEqual(dateInvalid(h.tree), [false, false, true, true]);
+  saveBtn(h.tree).props.onClick({});
+  // dikosongkan lagi → netral lagi
+  inputsOf(h.tree, "date")[2].props.onChange(chg(""));
+  h.render();
+  assert.deepEqual(alerts(h.tree), []);
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  // catatan saja tanpa tanggal = terisi sebagian → galat baris pertama
+  notesOf(h.tree)[0].props.onChange(chg("Mudik"));
+  h.render();
+  assert.deepEqual(alerts(h.tree), [RES_DATE_BAD]);
+  assert.deepEqual(dateInvalid(h.tree), [true, true, false, false]);
+  notesOf(h.tree)[0].props.onChange(chg(""));
+  h.render();
+  // baris kedua lengkap, baris pertama kosong total → Simpan: baris kosong dibuang dari value
+  inputsOf(h.tree, "date")[2].props.onChange(chg("2026-11-10"));
+  h.render();
+  inputsOf(h.tree, "date")[3].props.onChange(chg("2026-11-11"));
+  h.render();
+  assert.deepEqual(alerts(h.tree), []);
+  assert.equal(h.fr.calls.put.length + h.fr.calls.get.length, 0, "klik saat galat → tanpa baca/tulis");
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(h.fr), [["resource", "res@list:12:9", { v: 1, capacity: 5, leave: [{ from: "2026-11-10", to: "2026-11-11", note: "" }], by: 7 }, { scope: "list:12" }]]);
+  h.m.unmount();
+  // hanya baris kosong → leave []
+  const g = edSetup();
+  buttonByText(g.tree, "Tambah cuti").props.onClick({});
+  g.render();
+  saveBtn(g.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(g.fr).map((p) => p[2]), [{ v: 1, capacity: 8, leave: [], by: 7 }]);
+  g.m.unmount();
+}));
+
+test("Review T7–T8 m: setelah 'Muat ulang' atau galat simpan, fokus kembali ke akar dialog bila elemen yang fokus jadi nonaktif/hilang; fokus di elemen yang masih aktif tidak dicuri", () => withPop(async () => {
+  const prevDoc = global.document;
+  const body = {};
+  global.document = { body, activeElement: body };
+  try {
+    // STALE: tombol Simpan yang fokus menjadi nonaktif → akar dialog
+    const fr = fakeRecords();
+    putRec(fr, resRec(12, 9, { capacity: 6 }));
+    const h = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+    const f0 = h.rootEl.focused;
+    assert.equal(f0, 1, "fokus saat dibuka");
+    capIn(h.tree).props.onChange(chg("3"));
+    h.render();
+    h.flush();
+    assert.equal(h.rootEl.focused, f0, "mengetik tidak memindah fokus");
+    putRec(fr, resRec(12, 9, { capacity: 4 }, { updated_at: "2026-11-06T03:00:00Z" }));
+    const saveEl = { isConnected: true, disabled: false };
+    global.document.activeElement = saveEl;
+    saveBtn(h.tree).props.onClick({});
+    h.render();
+    saveEl.disabled = true; // tombol yang fokus dinonaktifkan selama menyimpan, tetap nonaktif (STALE)
+    await settle();
+    await settle();
+    h.render();
+    h.flush();
+    assert.ok(alerts(h.tree).indexOf(RES_STALE) >= 0);
+    assert.equal(saveBtn(h.tree).props.disabled, true);
+    assert.equal(h.rootEl.focused, f0 + 1, "Simpan nonaktif → fokus ke akar dialog");
+    // Muat ulang: tombolnya hilang setelah selesai (elemen terlepas) → akar dialog
+    const reloadEl = { isConnected: true, disabled: false };
+    global.document.activeElement = reloadEl;
+    buttonByText(h.tree, "Muat ulang").props.onClick({});
+    h.render();
+    h.flush();
+    assert.equal(h.rootEl.focused, f0 + 1, "selama memuat ulang belum dipindah");
+    reloadEl.isConnected = false;
+    await settle();
+    await settle();
+    h.render();
+    h.flush();
+    assert.equal(buttonByText(h.tree, "Muat ulang"), undefined);
+    assert.equal(capIn(h.tree).props.value, "4");
+    assert.equal(h.rootEl.focused, f0 + 2, "Muat ulang hilang → fokus ke akar dialog");
+    h.render();
+    h.flush();
+    assert.equal(h.rootEl.focused, f0 + 2, "sekali saja");
+    h.m.unmount();
+    // galat simpan lain: fokus jatuh ke body → akar; Simpan aktif kembali dan masih fokus → tidak dicuri
+    for (const [active, want] of [[body, 1], [{ isConnected: true, disabled: false }, 0], [null, 1]]) {
+      const g = edSetup();
+      g.set({ store: { save: () => Promise.reject(Object.assign(new Error("x"), { code: "IDB" })), get: () => Promise.resolve(null) } });
+      const before = g.rootEl.focused;
+      global.document.activeElement = active;
+      saveBtn(g.tree).props.onClick({});
+      await settle();
+      await settle();
+      g.render();
+      g.flush();
+      assert.deepEqual(g.calls.toast, [["Gagal menyimpan kapasitas", "error"]]);
+      assert.equal(g.rootEl.focused - before, want, "aktif = " + JSON.stringify(active));
+      g.m.unmount();
+    }
+    // galat inline TOO_LARGE dengan fokus di Simpan yang aktif lagi → tidak dicuri
+    const t = edSetup();
+    t.set({ store: { save: () => Promise.reject(Object.assign(new Error("x"), { code: "TOO_LARGE" })), get: () => Promise.resolve(null) } });
+    const b0 = t.rootEl.focused;
+    global.document.activeElement = { isConnected: true, disabled: false };
+    saveBtn(t.tree).props.onClick({});
+    await settle();
+    await settle();
+    t.render();
+    t.flush();
+    assert.deepEqual(alerts(t.tree), [T.MSG_RES_TOO_LARGE]);
+    assert.equal(t.rootEl.focused, b0);
+    t.m.unmount();
+  } finally {
+    if (prevDoc === undefined) delete global.document; else global.document = prevDoc;
+  }
+}));
+
+test("Review T7–T8 m: selama menyimpan (put berjalan) Batal dan × nonaktif dan Esc diabaikan (tanpa onClose, propagasi tetap dihentikan); selesai gagal → aktif lagi dan Esc menutup", () => withPop(async (w) => {
+  const h = edSetup();
+  let rej = null;
+  h.set({ store: { save: () => new Promise((_, r) => { rej = r; }), get: () => Promise.resolve(null) } });
+  assert.equal(buttonByText(h.tree, "Batal").props.disabled, false);
+  assert.equal(btnsByLabel(h.tree, "Tutup")[0].props.disabled, false);
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  h.render();
+  assert.ok(typeof rej === "function", "put berjalan");
+  assert.equal(buttonByText(h.tree, "Batal").props.disabled, true, "Batal nonaktif");
+  assert.equal(btnsByLabel(h.tree, "Tutup")[0].props.disabled, true, "× nonaktif");
+  let stopped = 0;
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped++; } });
+  // pemanggilan langsung (mis. klik yang lolos sebelum render) juga diabaikan
+  buttonByText(h.tree, "Batal").props.onClick({});
+  btnsByLabel(h.tree, "Tutup")[0].props.onClick({});
+  assert.deepEqual(h.closes, [], "tidak ditutup selama menyimpan");
+  assert.equal(stopped, 1, "Esc tidak diteruskan ke modal/Live Edit host");
+  rej(Object.assign(new Error("x"), { code: "IDB" }));
+  await settle();
+  await settle();
+  h.render();
+  assert.equal(buttonByText(h.tree, "Batal").props.disabled, false);
+  assert.equal(btnsByLabel(h.tree, "Tutup")[0].props.disabled, false);
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() {} });
+  assert.deepEqual(h.closes, [{ restoreFocus: true }]);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+  // selama "Muat ulang" (baca) juga sibuk: Batal nonaktif
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 6 }));
+  const g = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+  putRec(fr, resRec(12, 9, { capacity: 4 }, { updated_at: "2026-11-06T03:00:00Z" }));
+  saveBtn(g.tree).props.onClick({});
+  await settle();
+  await settle();
+  g.render();
+  buttonByText(g.tree, "Muat ulang").props.onClick({});
+  g.render();
+  assert.equal(buttonByText(g.tree, "Batal").props.disabled, true);
+  await settle();
+  await settle();
+  g.render();
+  assert.equal(buttonByText(g.tree, "Batal").props.disabled, false);
+  g.m.unmount();
+}));
+
+test("Review T7–T8 m: STALE → isian dibekukan (kapasitas, tanggal, catatan, Hapus cuti, Tambah cuti nonaktif; perubahan diabaikan) sampai 'Muat ulang'; Muat ulang dan Batal tetap aktif; aria-busy hanya saat memuat/menyimpan", () => withPop(async () => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 6, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }] }));
+  const h = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+  const frozen = (t) => [capIn(t).props.disabled, ...inputsOf(t, "date").map((i) => i.props.disabled), ...notesOf(t).map((i) => i.props.disabled),
+    ...btnsByLabel(t, "Hapus cuti").map((b) => b.props.disabled), buttonByText(t, "Tambah cuti").props.disabled];
+  assert.ok(frozen(h.tree).every((d) => d === false), "awal: aktif");
+  assert.equal(dlgNode(h.tree).props["aria-busy"], false);
+  capIn(h.tree).props.onChange(chg("3"));
+  h.render();
+  putRec(fr, resRec(12, 9, { capacity: 4, leave: [] }, { updated_at: "2026-11-06T03:00:00Z" }));
+  saveBtn(h.tree).props.onClick({});
+  h.render();
+  assert.equal(dlgNode(h.tree).props["aria-busy"], true, "menyimpan");
+  await settle();
+  await settle();
+  h.render();
+  assert.ok(alerts(h.tree).indexOf(RES_STALE) >= 0);
+  assert.ok(frozen(h.tree).every((d) => d === true), "STALE: semua isian beku");
+  assert.equal(dlgNode(h.tree).props["aria-busy"], false, "STALE bukan sedang memuat");
+  assert.equal(buttonByText(h.tree, "Muat ulang").props.disabled, false);
+  assert.equal(buttonByText(h.tree, "Batal").props.disabled, false);
+  // perubahan diabaikan selama beku
+  capIn(h.tree).props.onChange(chg("9"));
+  notesOf(h.tree)[0].props.onChange(chg("X"));
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  btnsByLabel(h.tree, "Hapus cuti")[0].props.onClick({});
+  h.render();
+  assert.equal(capIn(h.tree).props.value, "3");
+  assert.deepEqual(notesOf(h.tree).map((i) => i.props.value), ["Cuti"]);
+  assert.deepEqual(dateVals(h.tree), ["2026-11-09", "2026-11-10"]);
+  assert.ok(alerts(h.tree).indexOf(RES_STALE) >= 0, "pesan STALE tetap");
+  // Muat ulang → cair, nilai terbaru
+  buttonByText(h.tree, "Muat ulang").props.onClick({});
+  await settle();
+  await settle();
+  h.render();
+  assert.ok(frozen(h.tree).every((d) => d === false), "setelah Muat ulang: aktif");
+  assert.equal(capIn(h.tree).props.value, "4");
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("Review T7–T8 m: input kapasitas/tanggal yang aria-invalid → aria-describedby = id paragraf galatnya (unik per editor); sah atau baris kosong → tanpa aria-describedby", () => withPop(async () => {
+  const h = edSetup();
+  assert.equal(capIn(h.tree).props["aria-describedby"], undefined);
+  capIn(h.tree).props.onChange(chg("41"));
+  h.render();
+  const capErr = alertNode(h.tree, RES_CAP_BAD);
+  assert.ok(capErr && typeof capErr.props.id === "string" && /^plg-timeline-/.test(capErr.props.id), "paragraf galat kapasitas ber-id");
+  assert.equal(capIn(h.tree).props["aria-invalid"], true);
+  assert.equal(capIn(h.tree).props["aria-describedby"], capErr.props.id);
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  inputsOf(h.tree, "date")[0].props.onChange(chg("2026-11-10"));
+  h.render();
+  const dateErr = alertNode(h.tree, RES_DATE_BAD);
+  assert.ok(dateErr && typeof dateErr.props.id === "string" && /^plg-timeline-/.test(dateErr.props.id));
+  assert.notEqual(dateErr.props.id, capErr.props.id);
+  assert.deepEqual(inputsOf(h.tree, "date").map((i) => i.props["aria-describedby"]), [dateErr.props.id, dateErr.props.id, undefined, undefined], "baris kosong tanpa rujukan galat");
+  assert.equal(notesOf(h.tree)[0].props["aria-describedby"], undefined);
+  // diperbaiki → rujukan hilang bersama galatnya
+  capIn(h.tree).props.onChange(chg("6"));
+  h.render();
+  inputsOf(h.tree, "date")[1].props.onChange(chg("2026-11-12"));
+  h.render();
+  assert.deepEqual(alerts(h.tree), []);
+  assert.equal(capIn(h.tree).props["aria-describedby"], undefined);
+  assert.deepEqual(inputsOf(h.tree, "date").map((i) => i.props["aria-describedby"]), [undefined, undefined, undefined, undefined]);
+  // editor kedua → id lain (dua editor bisa ada di dokumen yang sama: panel desktop + daftar HP)
+  const g = edSetup();
+  capIn(g.tree).props.onChange(chg(""));
+  g.render();
+  const capErr2 = alertNode(g.tree, RES_CAP_BAD);
+  assert.notEqual(capErr2.props.id, capErr.props.id);
+  assert.equal(capIn(g.tree).props["aria-describedby"], capErr2.props.id);
+  h.m.unmount();
+  g.m.unmount();
+}));
+
+test("Review T7–T8 m: chip orang HP dibatasi 30 (urutan baris) + 'dan {n} lainnya' (pola daftar item); ≤ 30 → tanpa teks lainnya; DOM tetap kecil", () => {
+  assert.equal(T.LOAD_M_PEOPLE_MAX, 30);
+  const cal = T.TLCal.compile(T.TLCal.DEFAULT_CAL);
+  const ctx = { tasks: [], cal, units: new Map(), readExt: () => ({}) };
+  const result = T.TLCpm.run(ctx);
+  const mkLoad = (n) => T.TLLoad.run({
+    tasks: [], cal, readExt: ctx.readExt, result, units: ctx.units, byAssignee: true, ownerUid: 1, D: dnOfIso(TODAY),
+    people: Array.from({ length: n }, (_, i) => ({ uid: i + 1, name: "Orang " + String(i + 1).padStart(2, "0"), res: null })),
+  });
+  const render = (load) => {
+    const lm = mount(T.LoadList);
+    const lt = lm.render({ load, cal, result, ctx, pageKind: "workspace", boxRef: { current: null }, editUid: null, onEditPerson() {}, res: null, onReveal() {} });
+    lm.flush();
+    return { lm, lt };
+  };
+  const a = render(mkLoad(35));
+  const chips = mChips(a.lt);
+  assert.equal(chips.length, 30);
+  assert.deepEqual(chips.map((b) => txt(b).trim()), Array.from({ length: 30 }, (_, i) => "Orang " + String(i + 1).padStart(2, "0") + " · 8 🍅/hari"));
+  const more = byCls(a.lt, "plg-timeline-load-m-pmore");
+  assert.equal(more.length, 1);
+  assert.equal(txt(more[0]).trim(), "dan 5 lainnya");
+  const box = byCls(a.lt, "plg-timeline-load-m-people")[0];
+  assert.ok(nodes(box, (n) => n === more[0]).length === 1, "teks lainnya di baris chip");
+  assert.equal(byCls(a.lt, "plg-timeline-load-m-more").length, 0, "bukan teks lainnya daftar hari");
+  assert.ok(domCount(a.lt) <= 40, "DOM daftar HP 35 orang: " + domCount(a.lt));
+  a.lm.unmount();
+  const b = render(mkLoad(30));
+  assert.equal(mChips(b.lt).length, 30);
+  assert.equal(byCls(b.lt, "plg-timeline-load-m-pmore").length, 0);
+  b.lm.unmount();
+  // CSS teks lainnya di baris chip: token saja
+  const m = css.match(/\.plg-timeline-load-m-pmore\s*\{([^}]*)\}/);
+  assert.ok(m, "aturan .plg-timeline-load-m-pmore");
+  assert.match(m[1], /color:\s*var\(--text-secondary\)/);
+  assert.doesNotMatch(m[1], /#[0-9a-fA-F]{3,8}\b|rgba?\(/);
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 9: integrasi + anggaran (pola R24 1c-1 Task 13). Integrasi api.records nyata + sinkron ada di
+// timeline_runtime.test.js; DOM 500/400/10 orang ≤ 1.500 = tes "T5 DOM total …" di atas (dirujuk).
+// ════════════════════════════════════════════════════════════════════════════
+test("1d-1 T9 (R24): render awal dengan pref load ON (+ Jalur kritis) → tanpa TLCpm.run dan TLLoad.run sebelum frame pertama; panel/tombol Beban Tim baru muncul setelah mesin (raf + setTimeout 0) → tepat 1 run beban; 0 tulis", () => withEngineClock(async (clock) => {
+  const tasks = bigTasks(500, 400).map((t, i) => Object.assign(t, { list_id: 12, assigned_to: 1 + (i % 10) }));
+  const fr = fakeRecords();
+  for (let k = 0; k < 5; k++) putRec(fr, unitRec(12, "P" + k));
+  const { api, calls } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "crit:slist_12" || k === "load:slist_12" ? true : null) });
+  api.env.userId = 1;
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const { ctx } = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
+  const props = { context: ctx, api };
+  const spy = spyRun();
+  const ls = spyLoad();
+  try {
+    const m = mount(T.TimelineViewBody);
+    let tree = m.render(props);
+    assert.deepEqual([spy.runs.length, ls.runs.length], [0, 0], "render pertama tanpa mesin dan tanpa beban");
+    assert.ok(domCount(tree) > 0, "tabel/grafik langsung tergambar");
+    m.flush();
+    await settle();
+    tree = m.render(props); // pref terbaca (load ON), daftar + unit + kapasitas termuat; mesin dijadwalkan
+    m.flush();
+    await settle();
+    tree = m.render(props);
+    assert.ok(calls.storageGet.indexOf("load:slist_12") >= 0, "pref load dibaca");
+    assert.deepEqual([spy.runs.length, ls.runs.length], [0, 0], "belum ada hitung sebelum gambar pertama");
+    assert.equal(panelOf(tree), undefined, "panel belum dirender sebelum mesin siap (R2)");
+    assert.equal(loadBtnOf(tree), undefined, "tombol Beban Tim belum tampil (R10)");
+    assert.ok(clock.frames() >= 1, "raf terjadwal");
+    assert.deepEqual([spy.runs.length, ls.runs.length], [0, 0], "raf hanya menjadwalkan setTimeout 0");
+    clock.tick(0);
+    assert.equal(spy.runs.length, 1, "mesin jalan setelah raf + setTimeout");
+    assert.equal(ls.runs.length, 0, "beban dihitung saat render (useLoad), bukan di penjadwal mesin");
+    tree = m.render(props);
+    m.flush();
+    await settle();
+    tree = m.render(props);
+    assert.equal(ls.runs.length, 1, "tepat satu run beban setelah mesin siap");
+    assert.equal(ls.runs[0].input.result, spy.runs[0].result, "beban memakai hasil mesin yang sama");
+    assert.ok(panelOf(tree), "panel Beban Tim tampil");
+    assert.equal(loadBtnOf(tree).props["aria-pressed"], true);
+    assert.deepEqual(writes, [], "0 tulisan latar");
+    assert.equal(fr.calls.put.length + fr.calls.remove.length, 0);
+    m.unmount();
+  } finally {
+    ls.restore();
+    spy.restore();
+  }
+}));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — perbaikan review akhir: Beban Tim tampil saat dinyalakan lewat gestur (I1, terutama HP), tanpa kilatan
+// kapasitas bawaan (useLoad menunggu data kapasitas), showDay membaca lebar view langsung, fokus cadangan daftar HP, editor
+// kapasitas desktop membuka ke bawah bila ruang di atas panel kurang.
+// ════════════════════════════════════════════════════════════════════════════
+// Akar panel/daftar palsu: mencatat scrollIntoView (opsi apa adanya). React memasang ref akar saat panel ada di pohon dan
+// mengosongkannya saat panel dilepas — disimulasikan revealStep (komponen panel tidak dirender oleh view palsu).
+const revealBox = () => ({ calls: [], offsetHeight: 0, scrollIntoView(o) { this.calls.push(o); } });
+async function revealStep(h, clock, box, nodeOf) {
+  h.render();
+  const n = nodeOf(h.tree);
+  if (n) {
+    h.boxRef = n.props.boxRef;
+    n.props.boxRef.current = box;
+  } else if (h.boxRef) h.boxRef.current = null;
+  h.m.flush();
+  await settle();
+  clock.frames();
+  clock.tick(300);
+  await settle();
+}
+const revealSteps = async (h, clock, box, nodeOf, k) => { for (let i = 0; i < (k || 4); i++) await revealStep(h, clock, box, nodeOf); };
+const loadMoreItem = (tree) => moreOf(tree).props.items.find((x) => x.text === "Beban Tim");
+
+test("Review akhir I1: menyalakan Beban Tim lewat tombol toolbar → setelah panel desktop terpasang akarnya digulir ke layar TEPAT 1× (scrollIntoView {block: 'nearest'}, sesudah frame); sebelum terpasang (kapasitas dimuat) 0; render ulang / sinkron / frame berikut 0; mematikan 0; menyalakan lagi +1; 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { loadOff: true });
+  assert.equal(panelOf(h.tree), undefined, "pref OFF");
+  const box = revealBox();
+  // efek pasif render terakhir panelView (loadOn false) masih tertunda dan baru berjalan SESUDAH klik — seperti React yang
+  // menjalankan efek commit sebelumnya sebelum render berikut; penanda tidak boleh dilepas olehnya
+  loadBtnOf(h.tree).props.onClick({});
+  h.render();
+  assert.equal(panelOf(h.tree), undefined, "kapasitas belum termuat → panel belum terpasang");
+  h.m.flush();
+  clock.frames();
+  assert.equal(box.calls.length, 0, "belum terpasang → tanpa gulir");
+  await revealSteps(h, clock, box, panelOf);
+  assert.ok(panelOf(h.tree), "panel terpasang");
+  assert.deepEqual(box.calls, [{ block: "nearest" }], "tepat satu gulir setelah terpasang");
+  // render ulang + sinkron (tarik) + perubahan record kapasitas → tanpa gulir lagi
+  for (const f of h.calls.handlers["sync.done"] || []) f({ initial: false });
+  h.fr.emit(PULLED);
+  h.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+  await revealSteps(h, clock, box, panelOf);
+  assert.equal(box.calls.length, 1, "render ulang/sinkron tidak menggulir");
+  // mematikan → tanpa gulir
+  loadBtnOf(h.tree).props.onClick({});
+  await revealSteps(h, clock, box, panelOf, 3);
+  assert.equal(panelOf(h.tree), undefined);
+  assert.equal(box.calls.length, 1, "mematikan tidak menggulir");
+  // menyalakan lagi → +1
+  loadBtnOf(h.tree).props.onClick({});
+  await revealSteps(h, clock, box, panelOf);
+  assert.ok(panelOf(h.tree));
+  assert.equal(box.calls.length, 2);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+  h.m.unmount();
+}));
+
+test("Review akhir I1: HP (≤ 640 px) — menyalakan Beban Tim lewat item 'Lainnya' → daftar HP digulir ke layar tepat 1× (Gantt), juga di mode Daftar (+1); mematikan dan render ulang biasa tidak menggulir", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock, { loadOff: true });
+  const box = revealBox();
+  assert.equal(loadBtnOf(h.tree), undefined, "HP: Beban Tim di Lainnya");
+  loadMoreItem(h.render()).onSelect();
+  await revealSteps(h, clock, box, listOf);
+  assert.ok(gridOf(h.tree), "Gantt HP");
+  assert.ok(listOf(h.tree), "daftar HP terpasang");
+  assert.deepEqual(box.calls, [{ block: "nearest" }]);
+  // matikan lewat Lainnya, pindah ke mode Daftar, nyalakan lagi lewat Lainnya → +1
+  loadMoreItem(h.render()).onSelect();
+  await revealSteps(h, clock, box, listOf, 3);
+  assert.equal(listOf(h.tree), undefined);
+  buttonByText(h.tree, "Daftar").props.onClick({});
+  await revealSteps(h, clock, box, listOf, 2);
+  assert.equal(gridOf(h.tree), undefined, "mode Daftar");
+  assert.equal(box.calls.length, 1);
+  loadMoreItem(h.render()).onSelect();
+  await revealSteps(h, clock, box, listOf);
+  assert.ok(listOf(h.tree), "daftar HP di mode Daftar");
+  assert.equal(box.calls.length, 2, "mode Daftar: tepat satu gulir lagi");
+  await revealSteps(h, clock, box, listOf, 2);
+  assert.equal(box.calls.length, 2, "render ulang biasa tidak menggulir");
+  assert.deepEqual(h.writes, []);
+  h.m.unmount();
+}));
+
+test("Review akhir I1: pref load:<page> ON saat view dipasang → panel desktop / daftar HP terpasang TANPA gulir (0 scrollIntoView), juga setelah render ulang, sinkron, dan ganti zoom", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const box = revealBox();
+  await revealSteps(h, clock, box, panelOf);
+  assert.ok(panelOf(h.tree));
+  for (const f of h.calls.handlers["sync.done"] || []) f({ initial: false });
+  h.fr.emit(PULLED);
+  buttonByText(h.tree, "Hari").props.onClick({});
+  await revealSteps(h, clock, box, panelOf);
+  assert.equal(box.calls.length, 0);
+  h.m.unmount();
+  const prev = global.window;
+  global.window = narrowGlobal();
+  try {
+    const n = await panelView(clock);
+    const nb = revealBox();
+    await revealSteps(n, clock, nb, listOf);
+    assert.ok(listOf(n.tree), "daftar HP");
+    assert.equal(nb.calls.length, 0, "HP: pref tersimpan tidak menggulir");
+    n.m.unmount();
+  } finally {
+    global.window = prev;
+  }
+}));
+
+test("Review akhir I1: pengaman scrollIntoView — akar tanpa scrollIntoView (peramban lama) atau yang melempar → tidak melempar, penanda dilepas (tidak mencoba lagi di render berikut)", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { loadOff: true });
+  const bare = { offsetHeight: 0 };
+  loadBtnOf(h.tree).props.onClick({});
+  await revealSteps(h, clock, bare, panelOf);
+  assert.ok(panelOf(h.tree));
+  loadBtnOf(h.tree).props.onClick({});
+  await revealSteps(h, clock, bare, panelOf, 3);
+  let n = 0;
+  const bad = { offsetHeight: 0, scrollIntoView() { n++; throw new Error("tidak didukung"); } };
+  loadBtnOf(h.tree).props.onClick({});
+  await revealSteps(h, clock, bad, panelOf);
+  assert.equal(n, 1, "dicoba sekali, galat ditelan");
+  await revealSteps(h, clock, bad, panelOf, 2);
+  assert.equal(n, 1);
+  h.m.unmount();
+}));
+
+test("Review akhir (kilatan kapasitas): menyalakan Beban Tim setelah mesin siap → 0 run TLLoad dan tanpa panel selama records.list resource berjalan, lalu tepat 1 run dengan kapasitas tersimpan (Budi 1 🍅/hari) tanpa tanda gagal; 0 tulis", () => withEngineClock(async (clock) => {
+  const spy = spyRun();
+  const ls = spyLoad();
+  try {
+    const h = await loadView(clock, { holdRes: true });
+    assert.ok(spy.runs.length >= 1, "mesin siap");
+    assert.equal(ls.runs.length, 0);
+    loadBtnOf(h.m.render(h.getProps())).props.onClick({});
+    await h.settleNow();
+    assert.equal(resLists(h.fr).length, 1, "records.list resource berjalan");
+    assert.equal(ls.runs.length, 0, "0 run sebelum kapasitas termuat");
+    let tree = h.m.render(h.getProps());
+    assert.equal(panelOf(tree), undefined, "tanpa panel (tanpa kilatan 8 🍅/hari)");
+    assert.equal(loadBtnOf(tree).props["aria-pressed"], true, "tombol sudah menyala");
+    h.releaseRes();
+    await h.settleNow();
+    assert.equal(ls.runs.length, 1, "tepat satu run setelah termuat");
+    assert.deepEqual(ls.runs[0].input.people.find((p) => p.uid === 9).res, { capacity: 1, leave: [] });
+    tree = h.m.render(h.getProps());
+    assert.ok(panelOf(tree));
+    assert.equal(panelOf(tree).props.capMissing, false);
+    assert.deepEqual(h.writes, []);
+    assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+    h.m.unmount();
+  } finally {
+    ls.restore();
+    spy.restore();
+  }
+}));
+
+test("Review akhir (kilatan kapasitas): loadHeadText(load, true) menambah tanda persis ' · kapasitas belum termuat' di akhir judul; false/absen → tanpa tanda", () => {
+  const rows = [{ uid: 1, overDays: [10, 11] }, { uid: null, overDays: [] }];
+  const L = { rows, unscheduled: 2, counted: 4, defaultTarget: 0 };
+  assert.equal(T.loadHeadText(L, true), "Beban Tim · 2 hari kelebihan beban · 2 task belum dijadwalkan · kapasitas belum termuat");
+  assert.equal(T.loadHeadText(L, false), "Beban Tim · 2 hari kelebihan beban · 2 task belum dijadwalkan");
+  assert.equal(T.loadHeadText(L), "Beban Tim · 2 hari kelebihan beban · 2 task belum dijadwalkan");
+});
+
+test("Review akhir (kilatan kapasitas): records.list resource gagal sebelum pernah termuat → panel tetap tampil (1 run, kapasitas bawaan) dengan judul bertanda ' · kapasitas belum termuat' (panel desktop + daftar HP); muat ulang sukses → tanda hilang; gagal lagi setelah pernah termuat → tanpa tanda (data terakhir tetap data)", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, unitRec(12, "P0"));
+  putRec(fr, resRec(12, 9, { capacity: 2, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }] }));
+  const fail = { on: true };
+  const list0 = fr.api.list;
+  fr.api.list = (entity, q) => (entity === "resource" && fail.on ? Promise.reject(new Error("jaringan")) : list0(entity, q));
+  const ls = spyLoad();
+  try {
+    const h = await panelView(clock, { records: fr });
+    let node = panelOf(h.tree);
+    assert.ok(node, "panel tetap tampil saat kapasitas gagal dimuat");
+    assert.equal(node.props.capMissing, true);
+    assert.equal(ls.runs.length, 1);
+    assert.deepEqual(ls.runs[0].input.people.map((p) => [p.uid, p.res]), [[7, null], [9, null], [11, null]], "kapasitas bawaan");
+    const pm = mount(T.LoadPanel);
+    const head = panelHead(pm.render(node.props));
+    assert.equal(head, T.loadHeadText(node.props.load) + " · kapasitas belum termuat");
+    assert.ok(head.endsWith(" · kapasitas belum termuat"));
+    pm.unmount();
+    const lm = mount(T.LoadList);
+    const lt = lm.render({ load: node.props.load, cal: node.props.cal, result: node.props.result, ctx: node.props.ctx, pageKind: "workspace", boxRef: { current: null }, editUid: null, onEditPerson() {}, res: null, onReveal() {}, capMissing: true });
+    assert.equal(txt(byCls(lt, "plg-timeline-load-head")[0]).trim(), head, "daftar HP: tanda yang sama");
+    lm.unmount();
+    // muat ulang sukses (perubahan record) → tanda hilang
+    fail.on = false;
+    h.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+    await h.again();
+    node = panelOf(h.tree);
+    assert.equal(node.props.capMissing, false);
+    assert.ok(!panelHead(mount(T.LoadPanel).render(node.props)).includes("kapasitas belum termuat"));
+    // gagal lagi setelah pernah termuat → tetap tanpa tanda (peta terakhir dipakai)
+    fail.on = true;
+    h.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+    await h.again();
+    assert.equal(panelOf(h.tree).props.capMissing, false);
+    assert.equal(h.fr.calls.put.length, 0);
+    h.m.unmount();
+  } finally {
+    ls.restore();
+  }
+}));
+
+test("Review akhir: showDay panel membaca lebar view LANGSUNG lewat getViewW() (clientWidth wadah Gantt − tableW), bukan viewW props yang bisa basi — tombol tampak di lebar sebenarnya tidak menggulir, terpotong di lebar sebenarnya → onShowDay; tanpa getViewW / nilai tak sah → viewW props", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const p = panelOf(h.tree).props;
+  assert.equal(typeof p.getViewW, "function", "view menyediakan getViewW");
+  const x = (iso) => (dnOfIso(iso) - p.rangeFrom) * p.px;
+  const shown = [];
+  let left = 0;
+  let vw = 1000;
+  const q = Object.assign({}, p, { viewW: 300, getLeft: () => left, getViewW: () => vw, onShowDay: (dn) => shown.push(T.TLCal.iso(dn)) });
+  const pm = mount(T.LoadPanel);
+  let pt = pm.render(q);
+  pm.flush();
+  const focusHit = (label) => hitOf(pt, label).props.onFocus({ currentTarget: fakeFocus() });
+  left = x("2026-11-04") + p.px - 1000; // tepat muat di lebar sebenarnya 1000 (viewW basi 300 → seolah di luar)
+  focusHit("Budi · Rab 4 Nov");
+  assert.deepEqual(shown, [], "lebar sebenarnya: tombol tampak → tanpa gulir");
+  vw = 600; // lebar sebenarnya menyempit tanpa render ulang
+  focusHit("Budi · Rab 4 Nov");
+  assert.deepEqual(shown, ["2026-11-04"], "terpotong di lebar sebenarnya → gulir");
+  // tanpa getViewW / nilai tak sah (wadah belum terpasang) → viewW props
+  pt = pm.render(Object.assign({}, q, { getViewW: undefined, viewW: 1000 }));
+  focusHit("Budi · Rab 4 Nov");
+  pt = pm.render(Object.assign({}, q, { getViewW: () => NaN, viewW: 1000 }));
+  focusHit("Budi · Rab 4 Nov");
+  assert.equal(shown.length, 1, "viewW 1000 → muat");
+  pt = pm.render(Object.assign({}, q, { getViewW: () => 0, viewW: 300 }));
+  focusHit("Budi · Rab 4 Nov");
+  assert.equal(shown.length, 2, "0 (tersembunyi) → viewW props 300 → terpotong");
+  pm.unmount();
+  // view: getViewW stabil, membaca wadah Gantt terkini (clientWidth − tableW) tanpa render ulang; tanpa wadah → NaN
+  assert.ok(Number.isNaN(p.getViewW()), "tanpa wadah → NaN");
+  const el = fakeEl();
+  h.tree = attach(h.m, h.props, h.tree, el);
+  const g = panelOf(h.tree).props.getViewW;
+  assert.equal(g, p.getViewW, "stabil (prop memo)");
+  assert.equal(g(), 1000);
+  el.clientWidth = TABLE_W_FULL + 640;
+  assert.equal(g(), 640, "dibaca langsung");
+  h.m.unmount();
+}));
+
+test("Review akhir: LoadList — Esc/Tutup popover saran dengan tombol pemicu sudah terlepas → fokus cadangan ke subjudul 'Hari kelebihan beban' (tabIndex −1); fokus di elemen lain (bukan body) tidak dicuri; pemicu terpasang → kembali ke pemicu; popover menutup sendiri → subjudul, hari merah terakhir hilang → judul (tabIndex −1)", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock);
+  const x = mList(h);
+  const sub = byCls(x.tree, "plg-timeline-load-m-sub")[0];
+  const head = byCls(x.tree, "plg-timeline-load-head")[0];
+  assert.equal(sub.props.tabIndex, -1);
+  assert.equal(head.props.tabIndex, -1);
+  const subEl = fakeFocus();
+  const headEl = fakeFocus();
+  sub.props.ref.current = subEl;
+  head.props.ref.current = headEl;
+  const open = (i, btn) => {
+    mDays(x.tree)[i].props.onClick({ currentTarget: btn });
+    x.render();
+    return sugOf(x.tree);
+  };
+  // (1) pemicu terlepas → Esc → subjudul
+  const gone = fakeFocus({ isConnected: false });
+  open(0, gone).props.onClose({ restoreFocus: true });
+  x.render();
+  assert.equal(sugOf(x.tree), undefined);
+  assert.deepEqual([gone.focused, subEl.focused, headEl.focused], [0, 1, 0]);
+  // (2) pemicu terpasang → pemicu
+  const b = fakeFocus();
+  open(0, b).props.onClose({ restoreFocus: true });
+  x.render();
+  assert.deepEqual([b.focused, subEl.focused], [1, 1]);
+  // (3) klik luar (tanpa restoreFocus) → fokus tidak dipindah
+  open(0, fakeFocus({ isConnected: false })).props.onClose({ restoreFocus: false });
+  x.render();
+  assert.equal(subEl.focused, 1);
+  // (4) fokus sudah di elemen lain → tidak dicuri; jatuh ke body → dipindah
+  const prevDoc = global.document;
+  global.document = { body: {}, activeElement: { isConnected: true } };
+  try {
+    open(0, fakeFocus({ isConnected: false })).props.onClose({ restoreFocus: true });
+    x.render();
+    assert.equal(subEl.focused, 1, "fokus di elemen lain → tetap");
+    global.document.activeElement = global.document.body;
+    open(0, fakeFocus({ isConnected: false })).props.onClose({ restoreFocus: true });
+    x.render();
+    assert.equal(subEl.focused, 2, "fokus di body → subjudul");
+  } finally {
+    if (prevDoc === undefined) delete global.document; else global.document = prevDoc;
+  }
+  // (5) popover menutup sendiri (hari tak lagi merah) → subjudul; hari merah terakhir hilang → judul
+  const base = x.props;
+  const without = (pred) => Object.assign({}, base, { load: Object.assign({}, base.load, { rows: base.load.rows.map((r) => Object.assign({}, r, { overDays: r.overDays.filter((d) => !pred(r, d)) })) }) });
+  const dn4 = dnOfIso("2026-11-04");
+  open(0, fakeFocus());
+  x.props = without((r, d) => r.uid === 9 && d === dn4);
+  x.render();
+  x.lm.flush();
+  x.render();
+  assert.equal(sugOf(x.tree), undefined);
+  assert.deepEqual([subEl.focused, headEl.focused], [3, 0]);
+  x.props = base;
+  x.render();
+  open(0, fakeFocus());
+  x.props = without(() => true);
+  x.render();
+  x.lm.flush();
+  x.render();
+  assert.equal(byCls(x.tree, "plg-timeline-load-m-sub").length, 0, "tanpa hari merah → tanpa subjudul");
+  assert.deepEqual([subEl.focused, headEl.focused], [3, 1]);
+  x.lm.unmount();
+  h.m.unmount();
+}));
+
+test("Review akhir: editor kapasitas desktop memakai logika SuggestPopover — ruang di atas wadah panel (anchorRef.getBoundingClientRect().top) < tinggi editor + 4 → membuka ke bawah (is-down; CSS top 100%, bottom auto); cukup → ke atas; diukur sekali saat dibuka; HP (tanpa anchorRef) tidak pernah is-down", () => withPop(async () => {
+  assert.match(css, /\.plg-timeline-res-pop\.is-down\s*\{[^}]*top:\s*100%[^}]*bottom:\s*auto/);
+  const rule = css.match(/\.plg-timeline-res-pop\s*\{([^}]*)\}/)[1];
+  assert.match(rule, /bottom:\s*100%/, "bawaan tetap ke atas");
+  let top = 200;
+  const anchorRef = { current: { getBoundingClientRect: () => ({ top }) } };
+  const dlg = (h) => dlgNode(h.tree);
+  const down = edSetup({ anchorRef, rootH: 300 });
+  assert.ok(hasCls(dlg(down), "is-down"), "200 < 300 + 4");
+  top = 500;
+  down.render();
+  down.flush();
+  assert.ok(hasCls(dlg(down), "is-down"), "diukur sekali saat dibuka (tidak melompat saat menyunting)");
+  down.m.unmount();
+  const up = edSetup({ anchorRef, rootH: 300 });
+  assert.ok(!hasCls(dlg(up), "is-down"), "500 ≥ 304 → ke atas");
+  up.m.unmount();
+  top = 303;
+  const edge = edSetup({ anchorRef, rootH: 300 });
+  assert.ok(hasCls(dlg(edge), "is-down"), "303 < 304");
+  edge.m.unmount();
+  top = 100;
+  const hp = edSetup({ rootH: 300 });
+  assert.ok(!hasCls(dlg(hp), "is-down"), "tanpa anchorRef (daftar HP) → CSS HP yang menentukan");
+  hp.m.unmount();
+  const zero = edSetup({ anchorRef, rootH: 0 });
+  assert.ok(!hasCls(dlg(zero), "is-down"), "tinggi tak terukur → bawaan");
+  zero.m.unmount();
+}));
+
+test("Review akhir: LoadPanel meneruskan anchorRef = boxRef (akar panel) ke ResourceEditor; LoadList tidak (HP membuka ke bawah lewat CSS)", () => withEngineClock(async (clock) => {
+  const x = await edView(clock);
+  x.open("Budi");
+  assert.ok(x.ed, "editor terbuka");
+  assert.equal(x.ed.props.anchorRef, x.node.props.boxRef);
+  x.unmount();
+  const prev = global.window;
+  global.window = narrowGlobal();
+  try {
+    const h = await panelView(clock);
+    const lx = mList(h);
+    mChips(lx.tree)[0].props.onClick({ currentTarget: fakeFocus() });
+    lx.props = listOf(h.render()).props;
+    lx.render();
+    const e = edOf(lx.tree);
+    assert.ok(e, "editor HP terbuka");
+    assert.equal(e.props.anchorRef, undefined);
+    lx.lm.unmount();
+    h.m.unmount();
+  } finally {
+    global.window = prev;
+  }
+}));

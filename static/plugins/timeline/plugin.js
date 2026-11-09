@@ -1,7 +1,7 @@
 // generated from plugin.jsx — jangan edit
 (function () {
 "use strict";
-const manifest = Object.freeze({"id":"timeline","name":"Timeline","description":"Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.","version":"1.2.0","minApi":1,"slots":["taskList.views","taskDetail.sections"],"permissions":["storage","task.ext","records"],"defaultEnabled":false,"contributes":{"taskList.views":[{"id":"gantt","label":"Timeline","icon":{"path":"M2 4h7M5 8h8M3 12h5"},"pages":["project","workspace"]}],"taskDetail.sections":[{"id":"schedule","label":"Jadwal","order":10}]},"taskExt":{"keys":["start","duration","deps","mode","constraint","actual"]},"records":{"calendar":{"conflict":"lww","maxBytes":16384},"project":{"conflict":"lww","maxBytes":1024},"baseline":{"conflict":"lww","maxBytes":65536}},"builtin":true});
+const manifest = Object.freeze({"id":"timeline","name":"Timeline","description":"Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.","version":"1.3.0","minApi":1,"slots":["taskList.views","taskDetail.sections"],"permissions":["storage","task.ext","records"],"defaultEnabled":false,"contributes":{"taskList.views":[{"id":"gantt","label":"Timeline","icon":{"path":"M2 4h7M5 8h8M3 12h5"},"pages":["project","workspace"]}],"taskDetail.sections":[{"id":"schedule","label":"Jadwal","order":10}]},"taskExt":{"keys":["start","duration","deps","mode","constraint","actual"]},"records":{"calendar":{"conflict":"lww","maxBytes":16384},"project":{"conflict":"lww","maxBytes":1024},"baseline":{"conflict":"lww","maxBytes":65536},"resource":{"conflict":"lww","maxBytes":4096}},"builtin":true});
 // part: holidays-id.js
 // Plugin Timeline — TLHolidays: libur nasional + cuti bersama Indonesia 2025–2027 (spec §8.4, rencana R2/R25).
 // Murni data + pembantu kecil; tanpa Date lokal, tanpa global. Ditranskripsi dari SKB 3 Menteri (Menag, Menaker,
@@ -2177,6 +2177,421 @@ const TLPlan = (function (CAL, SCHED, CPM) {
   typeof TLCpm !== "undefined" ? TLCpm : require("./cpm.js"),
 );
 if (typeof module !== "undefined" && module.exports) module.exports = TLPlan;
+// part: load.js
+// Plugin Timeline — TLLoad: mesin Beban Tim murni (spec 1d §5.1–§5.2, K45–K50; rencana 1d-1 R1–R3, R6, R8, R9).
+// Membagi sisa 🍅 tiap task rata ke hari kerja jendela bar Gantt (tanggal TERSIMPAN lewat TLSched.spanOf, R1 — bukan
+// ES/EF mesin), menjumlahkannya per penanggung jawab per hari dalam milipomodoro (×1000, bilangan bulat, R8), lalu
+// membandingkannya dengan kapasitas/cuti record `resource` (K47–K48). Saran leveling (R6) memakai slack hasil TLCpm.run.
+// Murni: tanpa jam lokal, tanpa global, tanpa akses api/store, TIDAK menulis (K27) dan tidak mengubah masukan. Urutan
+// keluaran memakai TLCpm.cmpKey (unit kode UTF-16, bukan urutan lokal) → identik untuk urutan masukan apa pun.
+const TLLoad = (function (CAL, SCHED, CPM) {
+  const EST_MAX = 99; // R3: batas target 🍅 host (pomologic.EST_MAX, dikunci tes silang)
+  const DEFAULT_CAP = 8; // K47: kapasitas bawaan 🍅/hari
+  const CAP_MAX = 40; // K47: kapasitas bilangan bulat 0–40
+  const MILLI = 1000; // R8: satuan internal milipomodoro
+  const LEAVE_MAX = 50; // K55/R9: maks rentang cuti
+  const NOTE_MAX = 60; // K55/R9: maks code point catatan cuti
+  const YEAR_MIN = 1970; // R9: tanggal cuti ISO sah 1970–2199 (pola TLSched isConstraintDate)
+  const YEAR_MAX = 2199;
+  const UNASSIGNED = "Belum ditugaskan"; // K49
+  const KIND_ORDER = ["critical", "manual", "started", "late"]; // R6: urutan non-free
+  const cmpKey = CPM.cmpKey;
+
+  const isObj = (o) => o !== null && typeof o === "object" && !Array.isArray(o);
+  const isDn = (n) => Number.isInteger(n);
+  const isCap = (c) => Number.isInteger(c) && c >= 0 && c <= CAP_MAX;
+  // uidOf (review T1): id pengguna = bilangan bulat aman > 0, ATAU string digit saja (/^\d+$/; mis. assigned_to dari
+  // JSON host lama) yang menjadi bilangan bulat aman > 0 → bilangan; selain itu null. Satu pintu untuk assigned_to,
+  // people[].uid, dan ownerUid — baris yang sama tidak pernah terbelah antara 5 dan "5".
+  function uidOf(v) {
+    const n = typeof v === "string" && /^\d+$/.test(v) ? Number(v) : v;
+    return typeof n === "number" && Number.isSafeInteger(n) && n > 0 ? n : null;
+  }
+  const keyOf = (t) => String(t.id); // kunci kanonik sama dengan cpm.js/plan.js (String(task.id))
+  // Predikat mesin (cpm.js:34–37, :136; layout.js:344, :471): hidup / selesai / sudah mulai (K30 + actual.start).
+  const isLive = (t) => !(t.gtd_status === "archived" || t.archived || t.deleted);
+  const isDone = (t) => t.gtd_status === "done" || !!t.completed_at;
+  const isStarted = (t, raw) => Number(t.progress) > 0 || Number(t.pomodoros_done) > 0 || SCHED.actualOf(t, raw).start !== null;
+
+  function safe(fn) {
+    try {
+      return fn();
+    } catch (e) {
+      if (e instanceof Error && e.message === "TL_CAL_LOOP") return undefined;
+      throw e;
+    }
+  }
+
+  // Ext mentah task (tanpa prefiks) — fallback dan penanganan lempar sama dengan TLPlan rawOf / TLCpm.run.
+  function rawOf(readExt, task) {
+    let raw;
+    try {
+      raw = typeof readExt === "function" ? readExt(task) : task && isObj(task.ext) ? task.ext : {};
+    } catch (e) {
+      raw = {};
+    }
+    return isObj(raw) ? raw : {};
+  }
+
+  // Kalender terkompilasi dikenali dari bentuknya (pola TLLayout); mentah/kosong → dikompilasi (cache TLCal).
+  function calOf(c) {
+    const ok = !!c && typeof c.key === "string" && !!c.mask && typeof c.mask.has === "function" && !!c.off && typeof c.off.has === "function" && !!c.work && typeof c.work.has === "function";
+    return ok ? c : CAL.compile(c || CAL.DEFAULT_CAL);
+  }
+
+  // ---- record `resource` (K48, R9) ----
+  // Tanggal cuti: string ISO sah tahun 1970–2199 → bilangan hari; selain itu NaN.
+  function leaveDn(s) {
+    if (typeof s !== "string") return NaN;
+    const n = CAL.dn(s);
+    if (!isDn(n)) return NaN;
+    const y = +s.slice(0, 4);
+    return y >= YEAR_MIN && y <= YEAR_MAX ? n : NaN;
+  }
+
+  // Catatan: string → maks NOTE_MAX code point (iterasi per code point: pasangan surrogate tidak pernah terbelah);
+  // bukan string → "".
+  function cutNote(s) {
+    if (typeof s !== "string") return "";
+    let out = "";
+    let n = 0;
+    for (const ch of s) {
+      if (n++ >= NOTE_MAX) break;
+      out += ch;
+    }
+    return out;
+  }
+
+  const defaultRes = () => ({ capacity: DEFAULT_CAP, leave: [] });
+
+  // resourceDecode (K48, spec §4): bukan objek / v ≠ 1 → bawaan; capacity tak sah → 8; entri cuti rusak (bukan objek,
+  // from/to bukan ISO sah 1970–2199, from > to) dilewati; maks LEAVE_MAX entri sah pertama (urutan data dipertahankan).
+  function resourceDecode(data) {
+    const out = defaultRes();
+    if (!isObj(data) || data.v !== 1) return out;
+    if (isCap(data.capacity)) out.capacity = data.capacity;
+    if (!Array.isArray(data.leave)) return out;
+    for (const e of data.leave) {
+      if (out.leave.length >= LEAVE_MAX) break;
+      if (!isObj(e)) continue;
+      const from = leaveDn(e.from);
+      const to = leaveDn(e.to);
+      if (!isDn(from) || !isDn(to) || from > to) continue;
+      out.leave.push({ from, to, note: cutNote(e.note) });
+    }
+    return out;
+  }
+
+  function invalid(msg) {
+    const e = new Error(msg);
+    e.code = "INVALID";
+    return e;
+  }
+
+  // Tanggal masukan editor: string ISO atau bilangan hari, keduanya dalam 1970–2199.
+  function inDn(v) {
+    if (typeof v === "string") return leaveDn(v);
+    if (!isDn(v)) return NaN;
+    return isDn(leaveDn(CAL.iso(v))) ? v : NaN;
+  }
+
+  // resourceEncode (R9): value = {capacity, leave: [{from, to, note}]} (from/to ISO atau bilangan hari), meta = {by}.
+  // Normalisasi: capacity bulat 0–40; cuti diurut (from, to, catatan cmpKey); rentang tumpang tindih ATAU bersebelahan
+  // (to + 1 ≥ from berikutnya) digabung — catatan gabungan = catatan non-kosong PERTAMA menurut urutan itu (deterministik);
+  // catatan dipotong 60 code point. Tak sah (capacity, leave bukan larik, entri rusak, from > to, > 50 rentang setelah
+  // digabung) → lempar Error code "INVALID". Keluaran TANPA updatedAt: waktu simpan dicatat record (updated_at).
+  function resourceEncode(value, meta) {
+    if (!isObj(value)) throw invalid("resource: nilai bukan objek");
+    if (!isCap(value.capacity)) throw invalid("resource: kapasitas harus bilangan bulat 0–" + CAP_MAX);
+    const src = value.leave === undefined || value.leave === null ? [] : value.leave;
+    if (!Array.isArray(src)) throw invalid("resource: cuti harus larik");
+    const list = [];
+    for (const e of src) {
+      if (!isObj(e)) throw invalid("resource: entri cuti rusak");
+      const from = inDn(e.from);
+      const to = inDn(e.to);
+      if (!isDn(from) || !isDn(to)) throw invalid("resource: tanggal cuti tidak sah");
+      if (from > to) throw invalid("resource: tanggal mulai cuti setelah tanggal selesai");
+      list.push({ from, to, note: cutNote(e.note) });
+    }
+    list.sort((a, b) => a.from - b.from || a.to - b.to || cmpKey(a.note, b.note));
+    const merged = [];
+    for (const l of list) {
+      const cur = merged[merged.length - 1];
+      if (cur && l.from <= cur.to + 1) {
+        if (l.to > cur.to) cur.to = l.to;
+        if (cur.note === "") cur.note = l.note;
+      } else merged.push({ from: l.from, to: l.to, note: l.note });
+    }
+    if (merged.length > LEAVE_MAX) throw invalid("resource: maksimal " + LEAVE_MAX + " rentang cuti");
+    const m = isObj(meta) ? meta : {};
+    return {
+      v: 1,
+      capacity: value.capacity,
+      leave: merged.map((l) => ({ from: CAL.iso(l.from), to: CAL.iso(l.to), note: l.note })),
+      by: Number.isInteger(m.by) ? m.by : null,
+    };
+  }
+
+  function utf8Len(str) {
+    let n = 0;
+    for (let i = 0; i < str.length; i++) {
+      const u = str.charCodeAt(i);
+      if (u < 0x80) n += 1;
+      else if (u < 0x800) n += 2;
+      else if (u >= 0xd800 && u <= 0xdbff && i + 1 < str.length) {
+        const lo = str.charCodeAt(i + 1);
+        if (lo >= 0xdc00 && lo <= 0xdfff) {
+          n += 4;
+          i++;
+        } else n += 3;
+      } else n += 3;
+    }
+    return n;
+  }
+
+  // resourceByteSize: ukuran JSON ringkas UTF-8 (dibandingkan dengan maxBytes record 4096; pola TLPlan.baselineByteSize).
+  function resourceByteSize(data) {
+    const s = JSON.stringify(data);
+    return typeof s === "string" ? utf8Len(s) : 0;
+  }
+
+  // Kontrak res (people[].res, argumen capAt) = keluaran resourceDecode: {capacity: bulat 0–40, leave: [{from, to: bilangan
+  // hari bulat, note}]}. Bentuk lain → bawaan (8 tanpa cuti); entri cuti yang from/to bukan bilangan bulat (mis. ISO
+  // mentah belum didekode) dilewati di onLeave — tidak pernah membuat kapasitas 0 karena perbandingan string/NaN.
+  const resOf = (r) => (isObj(r) && isCap(r.capacity) && Array.isArray(r.leave) ? r : defaultRes());
+
+  function onLeave(res, dn) {
+    for (const l of res.leave) if (isObj(l) && isDn(l.from) && isDn(l.to) && dn >= l.from && dn <= l.to) return true;
+    return false;
+  }
+
+  // capAt (K47): 🍅 kapasitas hari dn — 0 bila bukan hari kerja kalender halaman atau cuti; selain itu capacity.
+  function capAt(res, cal, dn) {
+    const r = res === null || res === undefined ? defaultRes() : resOf(res);
+    const work = safe(() => CAL.isWork(calOf(cal), dn));
+    if (work !== true || onLeave(r, dn)) return 0;
+    return r.capacity;
+  }
+
+  // ---- distribusi beban (K46, R1–R3, R8) ----
+  // Target (R3): bilangan bulat ≥ 1, selain itu 1, dijepit EST_MAX; selesai: bilangan bulat ≥ 0, selain itu 0.
+  const targetOf = (t) => (Number.isInteger(t.estimated_pomodoros) && t.estimated_pomodoros >= 1 ? Math.min(EST_MAX, t.estimated_pomodoros) : 1);
+  const doneOf = (t) => (Number.isInteger(t.pomodoros_done) && t.pomodoros_done >= 0 ? t.pomodoros_done : 0);
+
+  // Satu entri people per uid (uidOf); uid ganda → pilihan deterministik (nama cmpKey terkecil, lalu isi res) agar hasil
+  // tidak bergantung pada urutan masukan.
+  function peopleMap(people) {
+    const out = new Map();
+    for (const p of Array.isArray(people) ? people : []) {
+      const uid = isObj(p) ? uidOf(p.uid) : null;
+      if (uid === null) continue;
+      const name = typeof p.name === "string" && p.name !== "" ? p.name : "Anggota #" + uid;
+      const res = resOf(p.res);
+      const cand = { name, res, sig: JSON.stringify(res) };
+      const cur = out.get(uid);
+      if (!cur || cmpKey(name, cur.name) < 0 || (name === cur.name && cmpKey(cand.sig, cur.sig) < 0)) out.set(uid, cand);
+    }
+    return out;
+  }
+
+  // run(input) → {T, rows, unscheduled, recurring, defaultTarget, counted, lateCount}.
+  // input = {tasks, cal, readExt, result, units, people, byAssignee, ownerUid, D}: tasks = eng.ctx.tasks (daftar lengkap
+  // halaman, R2), cal = kalender halaman, result = TLCpm.run (ringkasan dilewati), people = [{uid, name, res}],
+  // byAssignee true → uidOf(assigned_to) (workspace), false → uidOf(ownerUid) (pribadi; pemilik tak sah → beban tidak
+  // dibarisi, tanpa baris "Belum ditugaskan"), D = bilangan hari hari ini. units tidak
+  // dipakai di sini (R1: tanggal = bar) — hanya oleh suggest.
+  // Baris: {uid|null, name, capacity|null, res|null, days: Map<dn naik, {load, parts: [{key, share, late}]}>, overDays, total}.
+  function run(input) {
+    const a = isObj(input) ? input : {};
+    const c = calOf(a.cal);
+    const sums = isObj(a.result) && a.result.summaries instanceof Map ? a.result.summaries : new Map();
+    const owner = uidOf(a.ownerUid);
+    const T0 = isDn(a.D) ? safe(() => CAL.nextWork(c, a.D)) : undefined;
+    const T = isDn(T0) ? T0 : null; // kalender buntu / D tak sah → tanpa distribusi (semua berbeban = unscheduled)
+    let unscheduled = 0;
+    let recurring = 0;
+    let defaultTarget = 0;
+    let counted = 0;
+    let lateCount = 0;
+
+    const acc = new Map(); // uid|null → Map<dn, {load, parts}>
+    const seen = new Set();
+    const seenRec = new Set();
+    for (const t of Array.isArray(a.tasks) ? a.tasks : []) {
+      if (!isObj(t) || t.id === undefined || t.id === null || !isLive(t)) continue;
+      const key = keyOf(t);
+      if (t.recurrence_type) {
+        // R8 / K46: berulang dikecualikan (predikat cpm.js:136, dibuang SEBELUM dedup seperti TLCpm.run → tidak menempati
+        // kunci) dan dihitung terpisah — sekali per kunci (review T1: kunci ganda tidak menggandakan hitungan).
+        if (!seenRec.has(key)) {
+          seenRec.add(key);
+          recurring++;
+        }
+        continue;
+      }
+      if (seen.has(key)) continue; // kunci ganda → yang pertama (pola TLCpm.run / TLLayout.layout)
+      seen.add(key);
+      if (sums.has(key) || isDone(t)) continue; // R2: induk ringkasan; K46: selesai = nol beban
+      const sisa = Math.max(0, targetOf(t) - doneOf(t));
+      if (sisa === 0) continue;
+      const raw = rawOf(a.readExt, t);
+      if (raw.duration === 0) continue; // milestone (durasi 0 = it.d mesin): nol beban, juga tanpa Mulai
+      const span = SCHED.spanOf(c, SCHED.readSched(raw)); // R1: rentang bar = tanggal tersimpan
+      if (!span || T === null) {
+        unscheduled++;
+        continue;
+      }
+      const late = span.f < T;
+      const days = [];
+      if (late) days.push(T);
+      else for (let d = Math.max(T, span.s); d <= span.f; d++) if (CAL.isWork(c, d)) days.push(d);
+      if (!days.length) {
+        unscheduled++;
+        continue;
+      }
+      counted++;
+      if (!(Number.isInteger(t.estimated_pomodoros) && t.estimated_pomodoros >= 2)) defaultTarget++;
+      if (late) lateCount++;
+      const uid = a.byAssignee === true ? uidOf(t.assigned_to) : owner;
+      // Halaman pribadi tanpa pemilik sah (review T2–T3): tidak ada baris yang memikulnya — bukan "Belum ditugaskan"
+      // (baris itu hanya untuk task workspace tanpa penanggung jawab). Hitungan di atas tetap.
+      if (uid === null && a.byAssignee !== true) continue;
+      let m = acc.get(uid);
+      if (!m) acc.set(uid, (m = new Map()));
+      // R8: porsi bilangan bulat; sisa bagi +1 ke hari-hari paling awal → Σ = sisa × 1000 tepat.
+      const R = sisa * MILLI;
+      const n = days.length;
+      const base = Math.floor(R / n);
+      const rem = R - base * n;
+      for (let i = 0; i < n; i++) {
+        const share = base + (i < rem ? 1 : 0);
+        if (share <= 0) continue;
+        let day = m.get(days[i]);
+        if (!day) m.set(days[i], (day = { load: 0, parts: [] }));
+        day.load += share;
+        day.parts.push({ key, share, late });
+      }
+    }
+
+    const ppl = peopleMap(a.people);
+    const rows = [];
+    const uids = new Set(ppl.keys());
+    for (const u of acc.keys()) if (u !== null) uids.add(u);
+    const build = (uid, name, res) => {
+      const src = acc.get(uid) || new Map();
+      const days = new Map();
+      const overDays = [];
+      let total = 0;
+      for (const dn of [...src.keys()].sort((x, y) => x - y)) {
+        const d = src.get(dn);
+        d.parts.sort((x, y) => cmpKey(x.key, y.key));
+        days.set(dn, d);
+        total += d.load;
+        if (uid !== null && d.load > capAt(res, c, dn) * MILLI) overDays.push(dn); // K47: merah = beban > kapasitas
+      }
+      return { uid, name, capacity: uid === null ? null : res.capacity, res: uid === null ? null : res, days, overDays, total };
+    };
+    for (const uid of uids) {
+      const p = ppl.get(uid);
+      rows.push(build(uid, p ? p.name : "Anggota #" + uid, p ? p.res : defaultRes()));
+    }
+    rows.sort((x, y) => cmpKey(x.name, y.name) || x.uid - y.uid);
+    if (acc.has(null)) rows.push(build(null, UNASSIGNED, null)); // K49: baris tanpa kapasitas, selalu terakhir
+    return { T, rows, unscheduled, recurring, defaultTarget, counted, lateCount };
+  }
+
+  // ---- saran leveling (K50, R6) ----
+  // suggest(load, uid, dn, ctx = {result, units, readExt, tasks}) → [{key, task, share, slack, kind}] untuk kontributor
+  // (uid, dn). kind diperiksa berurutan: late → started (F4: progress/pomodoro/actual.start) → manual (mode "manual"
+  // EKSPLISIT di unit Otomatis) → critical (simpul tidak ada / slack bukan bilangan / ≤ 0) → free. Di unit Manual semua
+  // task diklasifikasi menurut slack (R6). Urut: free slack menurun lalu cmpKey; sisanya critical, manual, started, late
+  // masing-masing cmpKey. Murni, tanpa tulisan.
+  function suggest(load, uid, dn, ctx) {
+    const rows = isObj(load) && Array.isArray(load.rows) ? load.rows : [];
+    const row = rows.find((r) => r && r.uid === uid);
+    const day = row && row.days instanceof Map ? row.days.get(dn) : undefined;
+    if (!day || !Array.isArray(day.parts)) return [];
+    const x = isObj(ctx) ? ctx : {};
+    const nodes = isObj(x.result) && x.result.nodes instanceof Map ? x.result.nodes : new Map();
+    const idx = new Map();
+    for (const t of Array.isArray(x.tasks) ? x.tasks : []) {
+      if (isObj(t) && t.id !== undefined && t.id !== null && !idx.has(keyOf(t))) idx.set(keyOf(t), t);
+    }
+    const out = [];
+    for (const p of day.parts) {
+      const t = idx.get(p.key) || null;
+      const raw = t ? rawOf(x.readExt, t) : {};
+      const n = nodes.get(p.key);
+      const slack = n && typeof n.slack === "number" && Number.isFinite(n.slack) ? n.slack : null;
+      let kind;
+      if (p.late) kind = "late";
+      else if (t && isStarted(t, raw)) kind = "started";
+      else if (t && raw.mode === "manual" && isAutoUnit(x.units, t)) kind = "manual";
+      else if (slack === null || slack <= 0) kind = "critical";
+      else kind = "free";
+      out.push({ key: p.key, task: t, share: p.share, slack, kind });
+    }
+    out.sort((a, b) => {
+      if (a.kind === "free" || b.kind === "free") {
+        if (a.kind !== b.kind) return a.kind === "free" ? -1 : 1;
+        return b.slack - a.slack || cmpKey(a.key, b.key);
+      }
+      return KIND_ORDER.indexOf(a.kind) - KIND_ORDER.indexOf(b.kind) || cmpKey(a.key, b.key);
+    });
+    return out;
+  }
+
+  // Unit task Otomatis (record `project` auto: true lewat TLSched.unitFor — pola modeOf).
+  function isAutoUnit(units, task) {
+    const u = SCHED.unitFor(units, task);
+    return !!u && u.auto === true;
+  }
+
+  // ---- format ----
+  // fmtPomo(milli, up) (R8): milli → 🍅 kelipatan 0,5 dengan titik desimal seperti host ("2.5", "3").
+  //   up === true → dibulatkan KE ATAS (dipakai hari merah: beban > kapasitas × 1000 selalu tampil > kapasitas, tidak
+  //   pernah "8 dari 8"); selain itu ke 0,5 terdekat, tetapi beban > 0 minimal "0.5" (tidak pernah tampil "0").
+  function fmtPomo(milli, up) {
+    const v = Number(milli);
+    if (!Number.isFinite(v)) return "0";
+    let h = up === true ? Math.ceil(v / 500) / 2 : Math.round(v / 500) / 2;
+    if (v > 0 && h < 0.5) h = 0.5;
+    return String(h === 0 ? 0 : h);
+  }
+
+  // hoursLabel (R3, K45): rumus IDENTIK dengan pomologic.estimateHoursLabel host (25 menit per 🍅, bulat 0,5, "~x jam");
+  // disalin, bukan dipanggil (plugin tidak memakai modul host). Dikunci tes silang 1..99.
+  function hoursLabel(pomo) {
+    const h = Math.round(((Number(pomo) * 25) / 60) * 2) / 2;
+    return "~" + String(h) + " jam";
+  }
+
+  return Object.freeze({
+    EST_MAX,
+    DEFAULT_CAP,
+    CAP_MAX,
+    MILLI,
+    LEAVE_MAX,
+    NOTE_MAX,
+    resourceDecode,
+    resourceEncode,
+    resourceByteSize,
+    capAt,
+    run,
+    suggest,
+    fmtPomo,
+    hoursLabel,
+    uidOf,
+    isLive,
+    isDone,
+  });
+})(
+  typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"),
+  typeof TLSched !== "undefined" ? TLSched : require("./schedule.js"),
+  typeof TLCpm !== "undefined" ? TLCpm : require("./cpm.js"),
+);
+if (typeof module !== "undefined" && module.exports) module.exports = TLLoad;
 // part: layout.js
 // Plugin Timeline — TLLayout: tata letak Gantt murni — kelompok, WBS, ringkasan, skala & rentang, header, jendela virtual,
 // arsir akhir pekan, panah dependensi, label aksesibilitas (spec §8.5/§8.6, rencana R2, R9, R10, R11, R16, R21–R24).
@@ -3149,16 +3564,17 @@ function _extends() { return _extends = Object.assign ? Object.assign.bind() : f
 // 1.1.0 = PR 1c-1 jadwal otomatis, spec docs/superpowers/specs/2026-11-01-plugin-fase1-1c-otomatis-design.md).
 // Gantt untuk project dan workspace: view `gantt` (slot taskList.views) dan seksi `schedule` (slot
 // taskDetail.sections). Mesin murni ada di `parts` (holidays-id.js, calendar.js, schedule.js, cpm.js, plan.js,
-// layout.js, drag.js — compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLCpm/TLPlan/
-// TLLayout/TLDrag tersedia sebagai const di lingkup yang sama; tidak ada global window). `manifest` disuntik
-// compile.js dari manifest.json.
+// load.js, layout.js, drag.js — compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLCpm/
+// TLPlan/TLLoad/TLLayout/TLDrag tersedia sebagai const di lingkup yang sama; tidak ada global window). `manifest`
+// disuntik compile.js dari manifest.json. 1.3.0 = PR 1d-1 Beban Tim (TLLoad + record `resource`).
 //
 // Susunan modul (Task 6 = kerangka; komponen diisi Task 7–10):
 //   1. Konstanta + pesan UI persis (kalender, preferensi).
-//   2. calendarStore(api), projectStore(api) (1c-1 R6), dan baselineStore(api) (1c-2 K41) — SATU-SATUNYA kode yang
-//      menyentuh api.records (R5), masing-masing hanya entitasnya sendiri. calTarget (= TLSched.calTarget) /
-//      TLSched.unitOf memilih id/scope. Tulisan hanya di calendarStore.save, projectStore.setAuto, dan
-//      baselineStore → saveBaseline (put + remove) (R25: mesin dan pemuat tidak pernah menulis).
+//   2. calendarStore(api), projectStore(api) (1c-1 R6), baselineStore(api) (1c-2 K41), dan resourceStore(api) (1d-1 K48)
+//      — SATU-SATUNYA kode yang menyentuh api.records (R5), masing-masing hanya entitasnya sendiri. calTarget
+//      (= TLSched.calTarget) / TLSched.unitOf / resRecId memilih id/scope. Tulisan hanya di calendarStore.save,
+//      projectStore.setAuto, baselineStore → saveBaseline (put + remove), dan resourceStore → saveResource (put)
+//      (R25: mesin dan pemuat tidak pernah menulis).
 //   3. Preferensi per perangkat lewat api.storage: prefKey / cleanPref / PREF_DEFAULTS (R19); 1c-2: bl:<page> = baseline
 //      aktif yang ditampilkan (P2 a, tanpa record).
 //   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar/useUnits/useBaselines/useEngine), fungsi render
@@ -3549,6 +3965,154 @@ function baselineStore(api) {
   };
 }
 
+// ── 2d. Kapasitas/cuti anggota: record `resource` (1d-1 K48, R9) ─────────────
+// Satu record per orang per lingkup: workspace `res@list:<lid>:<uid>` (scope "list:<lid>", dibagi semua anggota — semua
+// anggota boleh mengedit baris siapa pun, Q4 (a)); halaman project pribadi `res@user:<uid>` (scope "user"). Data = kodek
+// TLLoad.resourceEncode/Decode {v: 1, capacity, leave: [{from, to, note}], by}. Tidak ada record → kapasitas bawaan
+// (TLLoad: 8 🍅/hari tanpa cuti); record yang belum ada TIDAK PERNAH dibuat otomatis (R25).
+const RES_ENTITY = "resource";
+const RES_PAGE = 1000; // batas atas limit api.records.list
+const RES_MAX_BYTES = 4096; // = manifest.records.resource.maxBytes
+const MSG_RES_STALE = "Data berubah sejak dialog dibuka — muat ulang";
+const MSG_RES_WAIT = "Menunggu data workspace…";
+const MSG_RES_TOO_LARGE = "Data kapasitas terlalu besar — kurangi cuti atau catatannya";
+const EMPTY_RES = new Map();
+const RES_SCOPE_RE = /^list:([1-9]\d*)$/;
+
+// Id + scope record resource satu orang (satu-satunya pembuat id). pageKind "workspace" + listId bilangan bulat AMAN > 0 →
+// {id: "res@list:<lid>:<uid>", scope: "list:<lid>"}; "project" (pribadi) → {id: "res@user:<uid>", scope: "user"}; uid
+// bukan bilangan (bukan string) bulat aman > 0 (TLLoad.uidOf, review T2–T3: 1e21 bukan uid) / halaman lain → Error code
+// INVALID (pola blError).
+function resRecId(pageKind, listId, uid) {
+  if (uid === null || TLLoad.uidOf(uid) !== uid) throw blError("INVALID", "anggota tidak sah");
+  if (pageKind === "workspace" && Number.isSafeInteger(listId) && listId > 0) return {
+    id: "res@list:" + listId + ":" + uid,
+    scope: "list:" + listId
+  };
+  if (pageKind === "project") return {
+    id: "res@user:" + uid,
+    scope: "user"
+  };
+  throw blError("INVALID", "halaman tidak sah");
+}
+
+// Pola id record milik scope (uid tanpa nol di depan → satu id per orang); scope tak sah → null.
+function resIdRe(scope) {
+  if (scope === "user") return /^res@user:([1-9]\d*)$/;
+  const m = typeof scope === "string" ? RES_SCOPE_RE.exec(scope) : null;
+  return m ? new RegExp("^res@list:" + m[1] + ":([1-9]\\d*)$") : null;
+}
+
+// Record → entri {res, snap: {exists: true, updatedAt, by}, pending}. res = TLLoad.resourceDecode (data asing/rusak →
+// bawaan); by hanya dari data v 1 yang sah (pola blEntry: data asing tidak dipercaya).
+function resEntry(r) {
+  const d = r.data && typeof r.data === "object" && !Array.isArray(r.data) ? r.data : null;
+  const by = d && d.v === 1 && Number.isInteger(d.by) && d.by > 0 ? d.by : null;
+  return {
+    res: TLLoad.resourceDecode(r.data),
+    snap: {
+      exists: true,
+      updatedAt: typeof r.updated_at === "string" ? r.updated_at : null,
+      by
+    },
+    pending: !!r.pending
+  };
+}
+
+// Adaptor tunggal api.records untuk entitas `resource` (pola baselineStore).
+//   loadScope(scope) → Promise<Map<uid, entri>>: list scope (ikuti `next`, berhenti bila next = after), hanya id yang
+//     cocok pola scope itu (resIdRe). Tidak pernah menulis. Scope tak sah → INVALID tanpa list.
+//   save(target, value, snap) → Promise<record>: lewat saveResource. target = keluaran resRecId; value = {capacity,
+//     leave} editor; snap = potret CAS saat dialog dibuka ({exists, updatedAt}; record absen = {exists: false,
+//     updatedAt: null}). Galat ber-`code`: INVALID (target/snap/nilai — dari TLLoad.resourceEncode), TOO_LARGE (> 4096
+//     byte, diperiksa SEBELUM baca/tulis seperti saveBaseline), STALE (potret sekarang ≠ snap; pesan MSG_RES_STALE).
+//   get(target) → Promise<entri|null>: SATU record terkini di perangkat ini (records.get; T7 "Muat ulang" setelah STALE —
+//     peta useResources bisa tertinggal debounce). Hanya baca. Target tak sah → INVALID.
+//   subscribe(fn) → off: perubahan entitas resource + peristiwa tarik sukses (recordEvent).
+// SATU-SATUNYA tulisan record resource: saveResource (pagar R25 + pin AST "saveResource:records.put": 1).
+function resourceStore(api) {
+  const snapOk = s => !!s && typeof s === "object" && !Array.isArray(s);
+  const sameSnap = (a, b) => a.exists === b.exists && a.updatedAt === b.updatedAt;
+  const targetOf = target => {
+    const t = target && typeof target === "object" ? target : null;
+    const re = t && typeof t.id === "string" ? resIdRe(t.scope) : null;
+    if (!re || !re.test(t.id)) throw blError("INVALID", "record kapasitas tidak sah");
+    return t;
+  };
+  function saveResource(target, value, snap) {
+    return Promise.resolve().then(() => {
+      const t = targetOf(target);
+      if (!snapOk(snap)) throw blError("INVALID", "potret kapasitas tidak ada");
+      const want = {
+        exists: snap.exists === true,
+        updatedAt: typeof snap.updatedAt === "string" ? snap.updatedAt : null
+      };
+      const data = TLLoad.resourceEncode(value, {
+        by: TLLoad.uidOf(api.env ? api.env.userId : null)
+      }); // INVALID diteruskan
+      if (TLLoad.resourceByteSize(data) > RES_MAX_BYTES) throw blError("TOO_LARGE", MSG_RES_TOO_LARGE);
+      return Promise.resolve(api.records.get(RES_ENTITY, t.id)).then(cur => {
+        const now = cur && typeof cur === "object" ? {
+          exists: true,
+          updatedAt: typeof cur.updated_at === "string" ? cur.updated_at : null
+        } : {
+          exists: false,
+          updatedAt: null
+        };
+        if (!sameSnap(want, now)) throw blError("STALE", MSG_RES_STALE);
+        return api.records.put(RES_ENTITY, t.id, data, {
+          scope: t.scope
+        }).then(r => r, err => {
+          throw err && err.code === "TOO_LARGE" ? blError("TOO_LARGE", MSG_RES_TOO_LARGE) : err;
+        });
+      });
+    });
+  }
+  function loadScope(scope) {
+    return Promise.resolve().then(() => {
+      const re = resIdRe(scope);
+      if (!re) throw blError("INVALID", "scope kapasitas tidak sah");
+      const out = new Map();
+      const page1 = after => {
+        const q = after === null ? {
+          scope,
+          limit: RES_PAGE
+        } : {
+          scope,
+          limit: RES_PAGE,
+          after
+        };
+        return Promise.resolve(api.records.list(RES_ENTITY, q)).then(res => {
+          const items = res && Array.isArray(res.items) ? res.items : [];
+          for (const r of items) {
+            const m = r && typeof r.id === "string" ? re.exec(r.id) : null;
+            const uid = m ? Number(m[1]) : NaN;
+            if (Number.isSafeInteger(uid)) out.set(uid, resEntry(r));
+          }
+          const next = res && typeof res.next === "string" && res.next ? res.next : null;
+          return next !== null && next !== after ? page1(next) : out;
+        });
+      };
+      return page1(null);
+    });
+  }
+  return {
+    loadScope,
+    get(target) {
+      return Promise.resolve().then(() => api.records.get(RES_ENTITY, targetOf(target).id)).then(r => r && typeof r === "object" ? resEntry(r) : null);
+    },
+    save(target, value, snap) {
+      return saveResource(target, value, snap);
+    },
+    subscribe(fn) {
+      return api.records.onChange(ev => {
+        const e = recordEvent(ev, RES_ENTITY);
+        if (e) fn(e);
+      });
+    }
+  };
+}
+
 // ── 3. Preferensi per perangkat (R19) ───────────────────────────────────────
 const PREF_DEFAULTS = Object.freeze({
   zoom: "week",
@@ -3557,7 +4121,8 @@ const PREF_DEFAULTS = Object.freeze({
   mode: "gantt",
   section: false,
   crit: false,
-  bl: 0
+  bl: 0,
+  load: false
 });
 const PREF_CHOICES = Object.freeze({
   zoom: ["day", "week", "month"],
@@ -3567,6 +4132,7 @@ const PREF_CHOICES = Object.freeze({
 });
 
 // "zoom:<page>", "sort:<page>", "cols:<page>", "mode:<page>", "crit:<page>" (1c-1 R18); seksi Jadwal global: "section:open".
+// 1d-1 (K56, R10): "load:<page>" = panel Beban Tim terbuka (boolean, bawaan false — disimpan/divalidasi seperti crit).
 // 1c-2 P2 (a): "bl:<page>" = baseline aktif yang DITAMPILKAN (0 = "Tidak ada", 1–3 = slot) per perangkat per halaman —
 // pilihan tampilan, tidak pernah ditulis ke record.
 // bl:<page> dilipat A–Z → a–z (ASCII saja, sama dengan NOCASE SQLite host: halaman proj_<nama kanonik> dan
@@ -3612,7 +4178,9 @@ const LBL = {
   more: "Lainnya",
   // 1c-1 R23
   bl: "Baseline",
-  blSave: "Simpan baseline" // 1c-2 §7.1
+  blSave: "Simpan baseline",
+  // 1c-2 §7.1
+  load: "Beban Tim" // 1d-1 §7.1 (R10)
 };
 // 1c-1 R14, R15, R28: sakelar Jadwal otomatis dan dialog pratinjau (teks persis).
 const MSG_AUTO_ON0 = "Jadwal otomatis menyala — tidak ada task yang bergeser";
@@ -3762,10 +4330,12 @@ function missingYearsNote(years) {
 // Tata letak lewat objek yang bisa diganti tes (TLLayout beku; tes R24 memata-matai jumlah panggilan).
 // Satu pintu ke mesin murni (spy di tes): tata letak (R24) dan CPM (1c-1 R7; dipanggil hanya dari useEngine).
 // explain (1c-1 R21, Task 12): hanya saat "Kenapa dijadwalkan di sini?" dibuka — kalender + readExt = masukan run.
+// load (1d-1 R10): TLLoad.run, dipanggil hanya dari useLoad (panel Beban Tim terbuka + mesin siap).
 const engine = {
   layout: args => TLLayout.layout(args),
   run: ctx => TLCpm.run(ctx),
-  explain: (result, key, cal, readExt) => TLCpm.explain(result, key, cal, readExt)
+  explain: (result, key, cal, readExt) => TLCpm.explain(result, key, cal, readExt),
+  load: input => TLLoad.run(input)
 };
 const DEFAULT_CAL_DATA = TLCal.normalize(TLCal.DEFAULT_CAL);
 
@@ -3872,19 +4442,76 @@ function pageUnits(lay, pageKind, projectName, groupNames) {
 // tidak ditemukan → "Dinyalakan oleh anggota lain". Tanggal = updated_at record di zona Asia/Jakarta (TLCpm.jkt).
 function unitCaption(u, context, userId) {
   if (!u || u.auto !== true) return null;
-  const nameOf = x => x && typeof x === "object" ? String(x.display_name || x.username || "").trim() : "";
-  let name = "";
-  if (u.by !== null && u.by !== undefined) {
-    const id = String(u.by);
-    const users = [];
-    if (userId !== undefined && userId !== null && String(userId) === id) users.push(context.currentUser);
-    for (const c of Array.isArray(context.collaborators) ? context.collaborators : []) users.push(c);
-    const hit = users.find(x => x && typeof x === "object" && x.id !== undefined && x.id !== null && String(x.id) === id);
-    name = nameOf(hit);
-  }
+  const name = actorName(u.by, context, userId);
   const head = name ? MSG_BY + name : MSG_BY_OTHER;
-  const d = typeof u.updatedAt === "string" ? TLCpm.jkt(u.updatedAt) : null;
-  return Number.isInteger(d) ? head + " · " + TLCal.fmtShort(d) : head;
+  return head + jktDateSuffix(u.updatedAt);
+}
+
+// Nama pelaku `by` (pola unitCaption, dipakai juga keterangan editor kapasitas T7): by = pengguna aktif → currentUser;
+// selain itu collaborators (id dibandingkan sebagai string); display_name || username, dipangkas; tidak ditemukan → "".
+function actorName(by, context, userId) {
+  if (by === null || by === undefined) return "";
+  const c = context && typeof context === "object" ? context : {};
+  const id = String(by);
+  const users = [];
+  if (userId !== undefined && userId !== null && String(userId) === id) users.push(c.currentUser);
+  for (const x of Array.isArray(c.collaborators) ? c.collaborators : []) users.push(x);
+  const hit = users.find(x => x && typeof x === "object" && x.id !== undefined && x.id !== null && String(x.id) === id);
+  return hit ? String(hit.display_name || hit.username || "").trim() : "";
+}
+
+// " · {tgl}" dari stempel waktu record (tanggal Asia/Jakarta lewat TLCpm.jkt + TLCal.fmtShort); tak terbaca → "".
+function jktDateSuffix(updatedAt) {
+  const d = typeof updatedAt === "string" ? TLCpm.jkt(updatedAt) : null;
+  return Number.isInteger(d) ? " · " + TLCal.fmtShort(d) : "";
+}
+
+// Baris orang panel Beban Tim (1d-1 R4, P2 (a); tanpa perubahan host — plugin tidak bisa membaca anggota workspace, F5):
+// peopleOf({byAssignee, ctxTasks, resources, currentUser, collaborators, userId}) → [{uid, name, res}], urut uid naik
+// (deterministik; TLLoad.run sendiri mengurutkan baris menurut nama). uid lewat TLLoad.uidOf (userId host bisa string
+// JWT `sub`).
+//   byAssignee (halaman workspace): pengguna aktif ∪ penanggung jawab task di ctxTasks (= eng.ctx.tasks, daftar lengkap
+//   halaman) yang hidup, belum selesai, dan tidak berulang (predikat TLLoad.isLive/isDone = cpm.js) ∪ uid pemilik record
+//   `resource` halaman (kunci `resources` = useResources().map). Pribadi: satu baris pengguna aktif.
+//   Nama (pola unitCaption): pengguna aktif → currentUser (id cocok), lainnya → collaborators; display_name || username;
+//   tidak ditemukan / kosong → "Anggota #{uid}". res = resources.get(uid).res (terdekode), selain itu null (bawaan).
+const NO_PEOPLE = Object.freeze([]);
+const memberName = uid => "Anggota #" + uid;
+function peopleOf(o) {
+  const x = o && typeof o === "object" ? o : {};
+  const me = TLLoad.uidOf(x.userId);
+  const resources = x.resources instanceof Map ? x.resources : EMPTY_RES;
+  const uids = new Set();
+  if (me !== null) uids.add(me);
+  if (x.byAssignee === true) {
+    for (const t of Array.isArray(x.ctxTasks) ? x.ctxTasks : []) {
+      if (!t || typeof t !== "object" || !TLLoad.isLive(t) || TLLoad.isDone(t) || t.recurrence_type) continue;
+      const u = TLLoad.uidOf(t.assigned_to);
+      if (u !== null) uids.add(u);
+    }
+    for (const k of resources.keys()) {
+      const u = TLLoad.uidOf(k);
+      if (u !== null) uids.add(u);
+    }
+  }
+  const nameOf = v => v && typeof v === "object" ? String(v.display_name || v.username || "").trim() : "";
+  const names = new Map();
+  for (const c of Array.isArray(x.collaborators) ? x.collaborators : []) {
+    const u = c && typeof c === "object" ? TLLoad.uidOf(c.id) : null;
+    if (u !== null && !names.has(u)) names.set(u, nameOf(c));
+  }
+  const cu = x.currentUser && typeof x.currentUser === "object" ? x.currentUser : null;
+  if (me !== null && cu && TLLoad.uidOf(cu.id) === me) names.set(me, nameOf(cu));
+  const out = [];
+  for (const uid of [...uids].sort((a, b) => a - b)) {
+    const ent = resources.get(uid);
+    out.push({
+      uid,
+      name: names.get(uid) || memberName(uid),
+      res: ent && ent.res ? ent.res : null
+    });
+  }
+  return out;
 }
 
 // Model dialog = TLPlan.preview + WBS/judul untuk tampilan (rows: wbs; notMoved: task + wbs). Murni.
@@ -4612,6 +5239,113 @@ function useBaselines(api, unit) {
   };
 }
 
+// Kapasitas/cuti halaman (1d-1 K48, R9, R10; pola useBaselines): useResources(api, pageKind, listId, open) →
+// {map: Map<uid, {res, snap, pending}>, pulled, loaded, failed, store}. Scope = "list:<lid>" (workspace) / "user"
+// (project pribadi); workspace dengan listId tak sah → tidak memuat.
+//   - Memuat HANYA saat `open` (panel Beban Tim terbuka; K56/R10): tertutup → 0 records.list. Buka → muat pertama segera;
+//     selama terbuka muat ulang pada perubahan entitas resource (debounce RELOAD_TIMING) dan SEGERA pada peristiwa tarik
+//     sukses. Ditutup → data dilepas (dibuka lagi = muat baru, bukan data lama).
+//   - `pulled` = latch "tarik record plugin SUKSES sejak pemasangan ini", dideteksi PERSIS seperti useCalendar/useUnits/
+//     useBaselines: peristiwa recordEvent `pulled` dari store.subscribe (bukan sync.done, bukan onChange "sync" biasa).
+//     Terbuka → dinyalakan SETELAH muat ulang sesudah peristiwa itu selesai — juga bila muat gagal (ruling review T4
+//     baseline: kunci tidak boleh selamanya; CAS saveResource tetap menjaga). Tertutup → langsung dinyalakan tanpa muat
+//     (tidak ada data yang ditampilkan; pembukaan berikutnya memuat sesudah tarik itu). Pendengar dipasang selama hook
+//     terpasang agar tarik saat panel tertutup tidak terlewat.
+//   - Project pribadi tidak butuh latch (record scope user hanya milik pengguna ini; pola baseline) → pulled true.
+// Kunci simpan R9 (T7): workspace terkunci MSG_RES_WAIT sampai record lokal orang itu ada (map) ATAU pulled. Hook ini
+// tidak pernah menulis.
+function resScopeOf(pageKind, listId) {
+  if (pageKind === "workspace") return Number.isSafeInteger(listId) && listId > 0 ? "list:" + listId : null;
+  return "user";
+}
+function useResources(api, pageKind, listId, open) {
+  const kind = pageKind === "workspace" ? "workspace" : "project";
+  const scope = resScopeOf(kind, listId);
+  const on = open === true && scope !== null;
+  const store = React.useMemo(() => resourceStore(api), [api]);
+  const [st, setSt] = React.useState(() => ({
+    scope,
+    map: EMPTY_RES,
+    loaded: false,
+    failed: false
+  }));
+  const [pulled, setPulled] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    let seq = 0;
+    let timer = null;
+    if (!on) {
+      // tertutup: lepas data (bail-out bila sudah kosong) — pembukaan berikutnya mulai dari "memuat"
+      setSt(p => p.scope === scope && !p.loaded && !p.failed && p.map === EMPTY_RES ? p : {
+        scope,
+        map: EMPTY_RES,
+        loaded: false,
+        failed: false
+      });
+    }
+    const load = () => {
+      const my = ++seq;
+      return store.loadScope(scope).then(map => {
+        if (alive && my === seq) setSt({
+          scope,
+          map,
+          loaded: true,
+          failed: false
+        });
+        return true;
+      }, e => {
+        logWarn(api, "kapasitas gagal dimuat:", e);
+        if (alive && my === seq) setSt(p => p.scope === scope ? Object.assign({}, p, {
+          failed: true
+        }) : {
+          scope,
+          map: EMPTY_RES,
+          loaded: false,
+          failed: true
+        });
+        return false;
+      });
+    };
+    if (on) load();
+    let off = null;
+    try {
+      off = store.subscribe(ev => {
+        if (ev.pulled) {
+          if (!on) {
+            if (alive) setPulled(true);
+            return;
+          }
+          load().then(() => {
+            if (alive) setPulled(true);
+          });
+          return;
+        }
+        if (!on) return;
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          if (alive) load();
+        }, RELOAD_TIMING.debounceMs);
+      });
+    } catch (e) {
+      logWarn(api, "pendengar kapasitas gagal:", e);
+    }
+    return () => {
+      alive = false;
+      if (timer !== null) clearTimeout(timer);
+      if (typeof off === "function") off();
+    };
+  }, [store, scope, on]);
+  const mine = on && st.scope === scope;
+  return {
+    map: mine ? st.map : EMPTY_RES,
+    loaded: mine && st.loaded,
+    failed: mine && st.failed,
+    pulled: kind === "project" ? true : pulled,
+    store
+  };
+}
+
 // Baseline aktif yang DITAMPILKAN (1c-2 T5, P2 a): pref `bl:<page>` = n (0 = "Tidak ada" → null). Halaman workspace
 // menggabungkan slot n SEMUA unit halaman (recIds, urutan kelompok; kunci task ganda → unit pertama menang) menjadi satu
 // dec {n, rows} untuk TLPlan.compareBaseline (T6 bar, T7 tabel). Slot kosong / asing (rows kosong) → rows kosong
@@ -4831,6 +5565,52 @@ function useEngine(api, opts) {
   }, [out, list === null, failed, readExt]);
 }
 
+// Beban Tim (1d-1 R1, R2, R10, K56): useLoad({open, ready, eng, people, todayDn, byAssignee, ownerUid, api}) → keluaran
+// TLLoad.run atau null. Dihitung (engine.load = satu pintu TLLoad.run, di-spy tes) HANYA bila panel terbuka DAN data
+// kapasitas/cuti sudah termuat atau gagal dimuat (ready === true; review akhir: tanpa ini panel sempat tampil dengan
+// kapasitas bawaan 8 🍅/hari lalu dihitung ulang — kilatan + satu run terbuang) DAN mesin siap (eng.status "ready" +
+// result + ctx) DAN todayDn bilangan hari — panel tertutup = 0 run. Masukan = eng.ctx (daftar lengkap halaman, kalender
+// halaman, unit, readExt) + eng.result: sumber yang sama dengan Gantt/mesin (R1, R2).
+// Memo [open, ready, eng.result, eng.ctx, peopleKey, todayDn, byAssignee, ownerUid]; peopleKey = JSON uid + nama + res,
+// jadi render ulang tanpa perubahan data (larik people baru berisi sama) tidak menghitung ulang. Lempar tak terduga → null
+// + satu peringatan (logWarn ke api.log.warn; pola useEngine). Hook ini tidak pernah menulis (K27/R25).
+function useLoad(opts) {
+  const o = opts && typeof opts === "object" ? opts : {};
+  const eng = o.eng && typeof o.eng === "object" ? o.eng : ENGINE_IDLE;
+  const open = o.open === true;
+  const ready = o.ready === true;
+  const people = Array.isArray(o.people) ? o.people : NO_PEOPLE;
+  const byAssignee = o.byAssignee === true;
+  // kunci isi (bukan identitas): dihitung ulang hanya bila larik people berganti (view memo-kan larik itu)
+  const peopleKey = React.useMemo(() => open ? JSON.stringify(people.map(p => p && typeof p === "object" ? [p.uid, p.name, p.res === undefined ? null : p.res] : null)) : "", [open, people]);
+  const warned = React.useRef(false);
+  const apiRef = React.useRef(o.api);
+  apiRef.current = o.api;
+  return React.useMemo(() => {
+    if (!open || !ready || eng.status !== "ready" || !eng.result || !eng.ctx || !Number.isInteger(o.todayDn)) return null;
+    try {
+      const ctx = eng.ctx;
+      return engine.load({
+        tasks: ctx.tasks,
+        cal: ctx.cal,
+        readExt: ctx.readExt,
+        result: eng.result,
+        units: ctx.units,
+        people,
+        byAssignee,
+        ownerUid: o.ownerUid,
+        D: o.todayDn
+      });
+    } catch (e) {
+      if (!warned.current) {
+        warned.current = true;
+        logWarn(apiRef.current, "beban tim gagal dihitung:", e);
+      }
+      return null;
+    }
+  }, [open, ready, eng.result, eng.ctx, peopleKey, o.todayDn, byAssignee, o.ownerUid]);
+}
+
 // 4d. Render (fungsi biasa dipanggil langsung → pohon utuh untuk tes anggaran DOM; tanpa hooks di dalamnya).
 function renderToolbar(v) {
   const seg = (items, cur, pick, label) => /*#__PURE__*/React.createElement("div", {
@@ -4874,6 +5654,15 @@ function renderToolbar(v) {
     role: "menuitemcheckbox",
     checked: v.crit,
     onSelect: () => v.setCrit(!v.crit)
+  });
+  // 1d-1 R10 (§7.1): Beban Tim setelah Jalur kritis — cukup mesin siap: Gantt menampilkan histogram di bawah grafik, mode
+  // Daftar (hanya ada ≤ 640 px) menampilkan daftar "Hari kelebihan beban". Pref load:<page>.
+  if (v.engReady) extras.push({
+    id: "load",
+    text: LBL.load,
+    role: "menuitemcheckbox",
+    checked: v.loadOn,
+    onSelect: () => v.setLoadOn(!v.loadOn)
   });
   // 1c-2 §7.1: Baseline (pemilih; hanya Gantt, seperti Jalur kritis) · Simpan baseline (aksi data; juga di Daftar).
   const bl = v.engReady ? v.bl : null;
@@ -4928,6 +5717,15 @@ function renderToolbar(v) {
       "aria-pressed": v.crit,
       onClick: it.onSelect
     }, LBL.crit);
+    if (it.id === "load") {
+      return /*#__PURE__*/React.createElement("button", {
+        key: "load",
+        type: "button",
+        className: cx("plg-timeline-btn", "plg-timeline-loadbtn", v.loadOn && "is-active"),
+        "aria-pressed": v.loadOn,
+        onClick: it.onSelect
+      }, renderLoadIcon(), LBL.load);
+    }
     if (it.id === "bl") {
       return /*#__PURE__*/React.createElement("button", {
         key: "bl",
@@ -4987,6 +5785,20 @@ function renderToolbar(v) {
   }, "Selesai " + TLCal.fmtShort(sum.end)), sum.late > 0 ? /*#__PURE__*/React.createElement("span", {
     className: "plg-timeline-latechip"
   }, sum.late + " lewat tenggat") : null) : null);
+}
+
+// Ikon histogram 12 px tombol "Beban Tim" (1d-1 §7.1): tiga batang dalam satu path; warna = currentColor dari CSS (tanpa
+// warna inline), dekoratif (aria-hidden) — teks tombol tetap nama aksesibelnya.
+function renderLoadIcon() {
+  return /*#__PURE__*/React.createElement("svg", {
+    className: "plg-timeline-btn-icon",
+    "aria-hidden": "true",
+    viewBox: "0 0 12 12",
+    width: "12",
+    height: "12"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M1 7H3.5V11H1ZM4.75 2H7.25V11H4.75ZM8.5 5H11V11H8.5Z"
+  }));
 }
 
 // Banner R16 (K35, §7.3): satu baris `.plg-timeline-banner` per jenis di atas grafik (di luar header sticky):
@@ -5079,7 +5891,7 @@ function renderTableRows(v) {
       "aria-selected": r.task ? sel : undefined,
       "data-key": r.key,
       tabIndex: r.task ? -1 : undefined,
-      className: cx("plg-timeline-row", r.kind === "group" && "is-group", r.kind === "summary" && "is-summary", sel && "is-selected"),
+      className: cx("plg-timeline-row", r.kind === "group" && "is-group", r.kind === "summary" && "is-summary", sel && "is-selected", v.flash === r.key && "is-flash"),
       style: {
         top: r.index * rowH,
         height: rowH
@@ -5147,6 +5959,7 @@ function renderBar(r, box, y, v) {
   const t = r.task;
   const sel = isSel(t);
   const crit = v.crit && v.ov.crit.has(r.key); // 1c-1 R18: garis tepi merah, bukan isi
+  const flash = v.flash === r.key; // 1d-1 R7: kedip setelah "Bisa digeser"
   const title = rowCells(r).name;
   const aria = TLLayout.ariaBar(t, r.kind === "summary" ? {
     duration: r.duration
@@ -5172,7 +5985,7 @@ function renderBar(r, box, y, v) {
   });
   if (box.milestone) {
     return /*#__PURE__*/React.createElement("div", _extends({}, common, {
-      className: cx("plg-timeline-milestone", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical"),
+      className: cx("plg-timeline-milestone", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical", flash && "is-flash"),
       style: {
         transform: translate(g.x, g.top),
         width: g.w,
@@ -5182,7 +5995,7 @@ function renderBar(r, box, y, v) {
   }
   if (r.kind === "summary") {
     return /*#__PURE__*/React.createElement("div", _extends({}, common, {
-      className: cx("plg-timeline-summary", r.late > 0 && "is-late", sel && "is-selected"),
+      className: cx("plg-timeline-summary", r.late > 0 && "is-late", sel && "is-selected", flash && "is-flash"),
       style: {
         transform: translate(g.x, g.top),
         width: g.w,
@@ -5192,7 +6005,7 @@ function renderBar(r, box, y, v) {
   }
   const pct = r.done ? 100 : Math.round(r.progress);
   return /*#__PURE__*/React.createElement("div", _extends({}, common, {
-    className: cx("plg-timeline-bar", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical"),
+    className: cx("plg-timeline-bar", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical", flash && "is-flash"),
     style: {
       transform: translate(g.x, g.top),
       width: g.w,
@@ -5490,6 +6303,1305 @@ function renderLegend(lay, ref, crit, extra) {
   }), text))), lay.missingYears.length ? /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-note"
   }, missingYearsNote(lay.missingYears)) : null);
+}
+
+// 4e. Panel Beban Tim desktop (1d-1 Task 5; spec §7.2, §1 butir 6; rencana R5, P3 (a)). Menumpang viewport Gantt: jendela
+// hari dw, kolom tabel tableW, sumbu x xOf(dn) — tanpa sel per hari. Per baris orang SATU <svg> selebar jendela berisi
+// paling banyak lima path (satu per kelas): hari non-kerja, area kapasitas, batang beban, kelebihan di atas kapasitas pada
+// hari merah, arsir cuti. Tombol fokus hanya untuk hari merah di jendela (aria-label = teks tooltip); satu readout hover per
+// panel. Isi grafik digeser translateX(−scrollLeft) yang disetel LANGSUNG oleh handler gulir view lewat ref (tanpa render
+// ulang per piksel); panel dirender ulang hanya bila data / jendela dw / zoom berubah (React.memo + props primitif). Hanya
+// baca: tidak ada tulisan (R25).
+const LOAD_ROW_H = 28; // tinggi baris panel (R5)
+const LOAD_ROWS_MAX = 10; // baris terlihat; sisanya gulir vertikal (kolom kiri + grafik bersama)
+const LOAD_PAD = 3; // px kosong di atas batang tertinggi baris
+const LOAD_HATCH = 6; // jarak garis arsir cuti (px, diagonal 45°)
+// Tombol hari merah per panel. Anggaran DOM panel ≤ 300 (§1 butir 6): akar + baris judul (wadah + judul + tombol "Hari
+// kelebihan beban") + catatan + body + kolom nama + wadah grafik + isi = 9, per baris 1 nama + 1 svg + ≤ 5 path (11 baris =
+// 77), + 1 readout = 87; + 150 tombol = 237 (daftar hari merah desktop hanya dirender saat dibuka). Kasus terburuk
+// (hampir semua hari kerja 10 orang merah di zoom Bulan, jendela ±750 hari) memotong ke hari merah TERDEKAT tengah jendela
+// (= tengah layar saat jendela dihitung); sisanya tetap tampak merah dan muncul sebagai tombol saat digulir mendekat.
+// Review T4–T6 I1: hari merah tanpa tombol tetap terjangkau — klik/ketuk di grafik (mouse/sentuh) dan daftar "Hari
+// kelebihan beban" dari tombol di judul panel (keyboard/pembaca layar; dirender hanya saat dibuka).
+const LOAD_HIT_MAX = 150;
+const MSG_LOAD_PARTIAL = "Hanya beban dari project ini"; // P3 (a): halaman project pribadi
+const LOAD_POP_W = 340; // = width .plg-timeline-pop (perataan popover saran)
+// Review T4–T6 M1: tinggi maks popover saran = min(50vh, LOAD_POP_MAX_H) (= max-height .plg-timeline-load-pop, gulir di
+// dalam) + jarak LOAD_POP_GAP; ruang di atas panel kurang dari itu → membuka ke bawah (is-down).
+const LOAD_POP_MAX_H = 320;
+const LOAD_POP_GAP = 4;
+// Popover saran grafik: penekanan di grafik (tombol hari merah ATAU klik hari merah tanpa tombol, I1a) ditangani grafik
+// (hari sama = tutup, hari merah lain = ganti, hari biasa = tutup) — bukan "klik di luar".
+const LOAD_SUG_SKIP = ".plg-timeline-load-hit, .plg-timeline-load-view";
+let loadDaysSeq = 0; // id daftar "Hari kelebihan beban" desktop (aria-controls), unik per panel
+const LOAD_FLASH_MS = 1500; // R7: kedip baris/bar hasil "Bisa digeser"
+// Popover saran (§7.4, K50, R6): label jenis selain free; teks kosong bila tidak ada task free.
+const MSG_SUG_EMPTY = "Tidak ada task yang bisa digeser tanpa menggeser jalur kritis";
+const SUG_KIND = Object.freeze({
+  critical: "Kritis",
+  manual: "Manual",
+  started: "Sudah mulai",
+  late: "terlambat"
+});
+const sugTitle = (name, dn) => "Bisa digeser — " + name + ", " + TLCal.fmtShort(dn);
+// "{judul} · {n} 🍅 hari ini" (+ " · slack {s} hk" untuk free). Judul = taskTitle (sama dengan baris Gantt: dipangkas,
+// kosong → "Tanpa judul"; CSS memotong dengan elipsis); n = TLLoad.fmtPomo(porsi hari itu).
+function sugText(it) {
+  const head = taskTitle(it.task) + " · " + TLLoad.fmtPomo(it.share) + " 🍅 hari ini";
+  return it.kind === "free" ? head + " · slack " + Math.round(it.slack) + " hk" : head;
+}
+
+// Σ pasangan orang×hari merah (semua baris, seluruh rentang; baris tanpa penanggung jawab tidak pernah merah). Murni.
+function loadOverCount(load) {
+  let n = 0;
+  for (const r of load && Array.isArray(load.rows) ? load.rows : []) n += r && Array.isArray(r.overDays) ? r.overDays.length : 0;
+  return n;
+}
+
+// Review akhir: kapasitas/cuti gagal dimuat dan belum pernah termuat → panel tetap tampil dengan kapasitas bawaan, ditandai
+// di akhir judul agar angka bawaan tidak tampak sebagai data tersimpan.
+const MSG_LOAD_CAP_MISSING = "kapasitas belum termuat";
+// Judul panel (§7.2, §8): n = loadOverCount; "· {m} task belum dijadwalkan" bila ada; "· {k} task bertarget bawaan 1 🍅"
+// bila k > 25 % task berbeban (counted); "· kapasitas belum termuat" bila capMissing === true. Murni.
+function loadHeadText(load, capMissing) {
+  const L = load && typeof load === "object" ? load : {};
+  let s = LBL.load + " · " + loadOverCount(L) + " hari kelebihan beban";
+  if (L.unscheduled > 0) s += " · " + L.unscheduled + " task belum dijadwalkan";
+  if (L.counted > 0 && L.defaultTarget * 4 > L.counted) s += " · " + L.defaultTarget + " task bertarget bawaan 1 🍅";
+  if (capMissing === true) s += " · " + MSG_LOAD_CAP_MISSING;
+  return s;
+}
+const loadNameText = row => row.name + " · " + row.capacity + " 🍅/hari";
+
+// Teks tooltip / aria-label hari (§7.2): "{nama} · {tgl}: {beban} dari {kapasitas} 🍅 ({jam})"; baris tanpa penanggung jawab
+// "Belum ditugaskan · {tgl}: {beban} 🍅 ({jam})". beban = TLLoad.fmtPomo (hari merah dibulatkan ke atas: tidak pernah
+// "8 dari 8"); kapasitas = TLLoad.capAt hari itu; jam = TLLoad.hoursLabel atas angka 🍅 yang DITAMPILKAN → "~1.5 jam"
+// (sudah memuat "~" dan "jam": hasil akhir "(~1.5 jam)"). over = hari merah (bila tidak diberikan dihitung dari overDays).
+function loadTipText(row, dn, cal, over) {
+  const d = row.days instanceof Map ? row.days.get(dn) : undefined;
+  const milli = d ? d.load : 0;
+  const tgl = TLCal.fmtShort(dn);
+  if (row.uid === null) {
+    const b = TLLoad.fmtPomo(milli);
+    return row.name + " · " + tgl + ": " + b + " 🍅 (" + TLLoad.hoursLabel(Number(b)) + ")";
+  }
+  const red = over === undefined ? row.overDays.indexOf(dn) >= 0 : over === true;
+  const b = TLLoad.fmtPomo(milli, red);
+  return row.name + " · " + tgl + ": " + b + " dari " + TLLoad.capAt(row.res, cal, dn) + " 🍅 (" + TLLoad.hoursLabel(Number(b)) + ")";
+}
+
+// Cuti pada hari dn (kontrak res = keluaran TLLoad.resourceDecode; entri rusak dilewati seperti TLLoad.capAt).
+function loadOnLeave(res, dn) {
+  const list = res && Array.isArray(res.leave) ? res.leave : [];
+  for (const l of list) if (l && Number.isInteger(l.from) && Number.isInteger(l.to) && dn >= l.from && dn <= l.to) return true;
+  return false;
+}
+const r1 = v => Math.round(v * 10) / 10;
+function loadRect(x, y, w, h) {
+  return "M" + r1(x) + " " + r1(y) + "h" + r1(w) + "v" + r1(h) + "h" + r1(-w) + "Z";
+}
+// Garis diagonal 45° (kiri bawah → kanan atas) berjarak LOAD_HATCH, dipotong ke [x1, x2] × [0, H]; kisi global (garis
+// bersambung antar rentang).
+function loadHatch(x1, x2, H) {
+  let d = "";
+  for (let a = Math.floor((x1 - H) / LOAD_HATCH) * LOAD_HATCH; a < x2; a += LOAD_HATCH) {
+    const t0 = Math.max(0, x1 - a);
+    const t1 = Math.min(H, x2 - a);
+    if (t1 <= t0) continue;
+    d += "M" + r1(a + t0) + " " + r1(H - t0) + "L" + r1(a + t1) + " " + r1(H - t1);
+  }
+  return d;
+}
+// Rentang maksimal indeks [k0, k1) bernilai sama (bukan null) dari vals.
+function loadRuns(vals) {
+  const out = [];
+  let k0 = 0;
+  for (let k = 1; k <= vals.length; k++) {
+    if (k < vals.length && vals[k] === vals[k0]) continue;
+    if (vals[k0] !== null) out.push([k0, k, vals[k0]]);
+    k0 = k;
+  }
+  return out;
+}
+
+// Skala vertikal satu baris (review T4–T6 I4): maks(kapasitas maks, beban maks) atas SELURUH row.days — bukan per jendela
+// dw, sehingga tinggi batang tidak melompat saat jendela berganti (gulir/zoom). Kapasitas maks = row.capacity (capAt tidak
+// pernah melebihinya); baris tanpa penanggung jawab (capacity null): beban maks saja. Minimal 1 🍅. Milipomodoro. Murni.
+function loadScaleOf(row) {
+  const M = TLLoad.MILLI;
+  let top = M;
+  if (!row) return top;
+  if (row.uid !== null && Number.isFinite(row.capacity)) top = Math.max(top, row.capacity * M);
+  if (row.days instanceof Map) for (const d of row.days.values()) if (d && d.load > top) top = d.load;
+  return top;
+}
+
+// Geometri satu baris dalam koordinat lokal svg (x = (dn − fromDn) × px). Skala vertikal = scale (loadScaleOf, dihitung
+// sekali per hasil beban; tanpa scale → dihitung di sini), setinggi LOAD_ROW_H − LOAD_PAD. Kapasitas per hari =
+// TLLoad.capAt(res, cal, dn) (0 di hari non-kerja / cuti); baris uid null tanpa kapasitas, merah, maupun cuti. Hari merah:
+// batang = bagian ≤ kapasitas, kelebihan = sisanya (di atas). Path kosong → "" (tidak dirender). Murni.
+function loadRowModel(row, cal, fromDn, toDn, px, scale) {
+  const H = LOAD_ROW_H;
+  const M = TLLoad.MILLI;
+  const person = row.uid !== null;
+  const n = Math.max(0, toDn - fromDn + 1);
+  const over = new Set(row.overDays);
+  const work = new Array(n);
+  const caps = new Array(n);
+  const leave = new Array(n);
+  const top = scale > 0 ? scale : loadScaleOf(row);
+  for (let k = 0; k < n; k++) {
+    const dn = fromDn + k;
+    work[k] = TLCal.isWork(cal, dn);
+    caps[k] = person ? TLLoad.capAt(row.res, cal, dn) : 0;
+    leave[k] = person && work[k] && loadOnLeave(row.res, dn) ? 1 : null;
+  }
+  const hOf = milli => milli / top * (H - LOAD_PAD);
+  const d = {
+    off: "",
+    cap: "",
+    bar: "",
+    over: "",
+    leave: ""
+  };
+  for (const [a, b] of loadRuns(work.map(w => w ? null : 1))) d.off += loadRect(a * px, 0, (b - a) * px, H);
+  for (const [a, b, c] of loadRuns(caps.map(c => c > 0 ? c : null))) d.cap += loadRect(a * px, H - hOf(c * M), (b - a) * px, hOf(c * M));
+  for (const [a, b] of loadRuns(leave)) d.leave += loadHatch(a * px, b * px, H);
+  const inset = px >= 20 ? 3 : px >= 10 ? 1 : 0;
+  for (let k = 0; k < n; k++) {
+    const day = row.days.get(fromDn + k);
+    if (!day || !(day.load > 0)) continue;
+    const x = k * px + inset;
+    const w = px - 2 * inset;
+    const hl = hOf(day.load);
+    if (person && over.has(fromDn + k)) {
+      const hb = hOf(Math.min(day.load, caps[k] * M));
+      if (hb > 0) d.bar += loadRect(x, H - hb, w, hb);
+      d.over += loadRect(x, H - hl, w, hl - hb);
+    } else d.bar += loadRect(x, H - hl, w, hl);
+  }
+  return {
+    w: n * px,
+    d
+  };
+}
+
+// Model panel: baris (geometri; scales[i] = loadScaleOf baris i) + tombol hari merah di jendela [fromDn, toDn]
+// (≤ LOAD_HIT_MAX, terdekat tengah jendela, urut baris lalu hari = urutan Tab). x tombol dalam koordinat grafik Gantt
+// (xOf). Murni.
+function loadModel(load, cal, fromDn, toDn, rangeFrom, px, scales) {
+  const rows = load.rows.map((row, i) => Object.assign({
+    row,
+    i,
+    key: row.uid === null ? "u-" : "u" + row.uid
+  }, loadRowModel(row, cal, fromDn, toDn, px, scales ? scales[i] : 0)));
+  let hits = [];
+  for (const r of rows) {
+    for (const dn of r.row.overDays) {
+      if (dn >= fromDn && dn <= toDn) hits.push({
+        i: r.i,
+        uid: r.row.uid,
+        dn,
+        x: (dn - rangeFrom) * px,
+        label: loadTipText(r.row, dn, cal, true)
+      });
+    }
+  }
+  if (hits.length > LOAD_HIT_MAX) {
+    const mid = (fromDn + toDn) / 2;
+    hits = hits.sort((a, b) => Math.abs(a.dn - mid) - Math.abs(b.dn - mid) || a.i - b.i || a.dn - b.dn).slice(0, LOAD_HIT_MAX);
+    hits.sort((a, b) => a.i - b.i || a.dn - b.dn);
+  }
+  return {
+    rows,
+    hits,
+    x: (fromDn - rangeFrom) * px,
+    px
+  };
+}
+const loadShift = left => "translateX(" + -(Number(left) || 0) + "px)";
+
+// Isi popover saran untuk hari merah terpilih pop = {uid, dn} (Task 6; dipakai panel desktop dan daftar HP Task 8):
+// {name, items: TLLoad.suggest(...)} atau null bila tidak ada pilihan / orang hilang / hari tidak lagi merah. Murni.
+function loadSug(load, pop, result, ctx) {
+  if (!pop || !load || !Array.isArray(load.rows)) return null;
+  const row = load.rows.find(r => r.uid === pop.uid);
+  if (!row || row.overDays.indexOf(pop.dn) < 0) return null;
+  const c = ctx || {};
+  return {
+    name: row.name,
+    items: TLLoad.suggest(load, pop.uid, pop.dn, {
+      result,
+      units: c.units,
+      readExt: c.readExt,
+      tasks: c.tasks
+    })
+  };
+}
+
+// React.memo dibuat malas (pola memoView): panel tidak dirender ulang selama props (data, jendela, ref, callback stabil)
+// sama — gulir di dalam kuantum yang sama dan render ulang view karena hal lain tidak menyentuhnya.
+let MemoLoad = null;
+function loadPanelMemo() {
+  if (!MemoLoad) MemoLoad = React.memo ? React.memo(LoadPanel) : LoadPanel;
+  return MemoLoad;
+}
+
+// Fokus hilang (review T4–T6 M3): tanpa document (Node), elemen aktif kosong / body / terlepas. Popover yang dilepas saat
+// fokus di dalamnya menjatuhkan fokus ke body — hanya saat itu fokus dipindah; fokus di elemen lain tidak dicuri.
+function loadFocusLost() {
+  const doc = typeof document !== "undefined" ? document : null;
+  if (!doc) return true;
+  const a = doc.activeElement;
+  return !a || a === doc.body || a.isConnected === false;
+}
+
+// Review akhir I1: gulir akar panel/daftar Beban Tim ke layar (jarak terdekat; tidak bila sudah tampak). Peramban tanpa
+// scrollIntoView / yang melempar → tanpa gulir.
+function revealLoadBox(el) {
+  if (!el || typeof el.scrollIntoView !== "function") return;
+  try {
+    el.scrollIntoView({
+      block: "nearest"
+    });
+  } catch (e) {
+    /* tanpa gulir */
+  }
+}
+
+// props: {load, cal (eng.ctx.cal), result, ctx (eng.ctx), rangeFrom, px, fromDn, toDn (dw), tableW, viewW, pageKind,
+// trackRef (isi grafik, translateX), boxRef (akar, diukur view), getLeft() (scrollLeft wadah Gantt), onEditPerson(uid|null),
+// onReveal(key, task) (Task 6: revealRow view), editUid (Task 7: orang yang editornya terbuka), res (Task 7: bundel
+// kapasitas view untuk ResourceEditor; tanpa res → tanpa editor), onShowDay(dn) (review T4–T6 I2: view menggulir wadah
+// Gantt ke hari itu), daysOpen + onDaysOpen(bool) (I1b: daftar "Hari kelebihan beban" desktop; statusnya milik view agar
+// tinggi wadah Gantt diukur ulang saat dibuka/ditutup), getViewW() (review akhir: lebar area grafik wadah Gantt SAAT INI —
+// clientWidth − tableW, dibaca langsung; NaN/≤ 0 → viewW), capMissing (review akhir: kapasitas belum termuat → tanda judul)}.
+function LoadPanel(props) {
+  const p = props;
+  const load = p.load;
+  // I4: skala vertikal per baris dihitung sekali per hasil beban — jendela dw berganti tidak mengubahnya
+  const scales = React.useMemo(() => load.rows.map(loadScaleOf), [load]);
+  const model = React.useMemo(() => loadModel(load, p.cal, p.fromDn, p.toDn, p.rangeFrom, p.px, scales), [load, p.cal, p.fromDn, p.toDn, p.rangeFrom, p.px, scales]);
+  const [tip, setTip] = React.useState(null); // readout hover {i, dn, flip}
+  const tipRef = React.useRef(null);
+  tipRef.current = tip;
+  // hari merah terpilih — popover saran (Task 6): {uid, dn, src: "chart" (tombol/klik grafik, popover di tingkat panel:
+  // left + down) | "list" (item daftar desktop I1b, popover di dalam item)}
+  const [pop, setPop] = React.useState(null);
+  const popBtnRef = React.useRef(null); // pemicu (fokus kembali); null = klik grafik tanpa tombol
+  const viewRef = React.useRef(null);
+  const headRef = React.useRef(null); // judul (tabIndex −1): fokus terakhir bila tombol daftar tidak ada (M3)
+  const daysBtnRef = React.useRef(null);
+  const daysIdRef = React.useRef(null);
+  if (daysIdRef.current === null) daysIdRef.current = "plg-timeline-load-days-" + ++loadDaysSeq;
+  const nDays = loadOverCount(load);
+  const daysOpen = p.daysOpen === true && nDays > 0;
+  const live = React.useRef(null);
+  live.current = {
+    p,
+    model,
+    pop,
+    nDays
+  };
+  // Task 6 (§7.4, R6): kontributor hari merah lewat TLLoad.suggest (murni) atas keluaran beban + hasil/ctx mesin yang sama.
+  const sug = React.useMemo(() => loadSug(load, pop, p.result, p.ctx), [pop, load, p.result, p.ctx]);
+  // M3: fokus "rumah" panel = tombol "Hari kelebihan beban" bila dirender (n > 0), selain itu judul panel.
+  const focusHome = () => {
+    const b = live.current.nDays > 0 ? daysBtnRef.current : null;
+    const t = b || headRef.current;
+    if (t && typeof t.focus === "function") t.focus();
+  };
+  // Orang hilang / hari tidak lagi merah (data berubah saat terbuka) → popover ditutup; fokus yang jatuh bersama popover
+  // dipindah ke rumah panel (M3).
+  React.useEffect(() => {
+    if (!pop || sug) return;
+    setPop(null);
+    if (loadFocusLost()) focusHome();
+  }, [pop, sug]);
+  // Daftar desktop ditutup (atau n = 0) → popover item ikut tertutup.
+  React.useEffect(() => {
+    if (pop && pop.src === "list" && !daysOpen) setPop(null);
+  }, [pop, daysOpen]);
+  // R5: posisi isi grafik = −scrollLeft wadah Gantt saat panel dirender (jendela/zoom berubah); selebihnya disetel handler
+  // gulir view langsung lewat trackRef.
+  React.useLayoutEffect(() => {
+    const t = p.trackRef ? p.trackRef.current : null;
+    if (t && t.style) t.style.transform = loadShift(p.getLeft());
+  });
+  const act = React.useRef(null);
+  act.current = {
+    // Buka popover saran hari merah (uid, dn); pemicu yang sama (hari + sumber) → tutup. Grafik: rata kiri di hari itu
+    // (dijepit ke lebar panel), ke atas panel — atau ke bawah bila ruang di atas panel < tinggi maks popover (M1).
+    openSug(uid, dn, trigger, src) {
+      const L = live.current.p;
+      const cur = live.current.pop;
+      if (cur && cur.uid === uid && cur.dn === dn && cur.src === src) {
+        setPop(null);
+        return;
+      }
+      popBtnRef.current = trigger || null;
+      // Task 7: satu popover panel pada satu waktu (pemicu keyboard tidak menekan "di luar" editor)
+      if (L.editUid !== null && L.editUid !== undefined && typeof L.onEditPerson === "function") L.onEditPerson(null);
+      if (src === "list") {
+        setPop({
+          uid,
+          dn,
+          src
+        });
+        return;
+      }
+      const box = L.boxRef ? L.boxRef.current : null;
+      const W = box && box.clientWidth > 0 ? box.clientWidth : L.tableW + L.viewW;
+      const x = L.tableW + (dn - L.rangeFrom) * L.px - L.getLeft();
+      const top = box && typeof box.getBoundingClientRect === "function" ? Number(box.getBoundingClientRect().top) : NaN;
+      const winH = hasWindow() ? Number(window.innerHeight) || 0 : 0;
+      const down = winH > 0 && Number.isFinite(top) && top < Math.min(winH / 2, LOAD_POP_MAX_H) + LOAD_POP_GAP;
+      setPop({
+        uid,
+        dn,
+        src,
+        left: Math.max(8, Math.min(Math.round(x), W - LOAD_POP_W - 8)),
+        down
+      });
+    },
+    // I2: fokus keyboard tombol hari merah yang (sebagian) di luar layar [getLeft(), getLeft() + lebar] → view menggulir
+    // wadah Gantt ke hari itu (panel ikut lewat onScroll) — wadah grafik panel sendiri tidak pernah digulir. Fokus karena
+    // klik mouse/sentuh (bukan :focus-visible) tidak menggulir: tombol tidak boleh bergeser dari bawah pointer di tengah klik.
+    // Review akhir: lebar = getViewW() (dibaca langsung dari wadah) — viewW props bisa basi (wadah host beranimasi saat
+    // Timeline dipasang) sehingga Tab menggulir Gantt padahal tombolnya terlihat; tanpa nilai sah → viewW props.
+    showDay(dn, el) {
+      const L = live.current.p;
+      if (typeof L.onShowDay !== "function") return;
+      if (el && typeof el.matches === "function") {
+        try {
+          if (!el.matches(":focus-visible")) return;
+        } catch (err) {
+          /* peramban tanpa :focus-visible → perlakukan sebagai fokus keyboard */
+        }
+      }
+      const left = Number(L.getLeft()) || 0;
+      const vw = typeof L.getViewW === "function" ? Number(L.getViewW()) : NaN;
+      const w = Number.isFinite(vw) && vw > 0 ? vw : Number(L.viewW) || 0;
+      const x = (dn - L.rangeFrom) * L.px;
+      if (x >= left && x + L.px <= left + w) return;
+      L.onShowDay(dn);
+    }
+  };
+  const onHit = React.useRef((e, uid, dn) => act.current.openSug(uid, dn, e && e.currentTarget ? e.currentTarget : null, "chart")).current;
+  const onHitFocus = React.useRef((e, dn) => act.current.showDay(dn, e && e.currentTarget ? e.currentTarget : null)).current;
+  // Esc / Tutup → fokus kembali ke pemicu; pemicu tidak ada (klik grafik) atau terlepas (jendela berganti) → rumah panel
+  // (M3). Klik luar tidak memindah fokus (sudah pindah ke target klik).
+  const closeSug = how => {
+    setPop(null);
+    if (!how || !how.restoreFocus) return;
+    const b = popBtnRef.current;
+    if (b && b.isConnected !== false && typeof b.focus === "function") b.focus();else focusHome();
+  };
+  // Klik baris saran → popover ditutup lalu view memilih + menggulir ke bar (R7). Tanpa tulisan.
+  const pickSug = it => {
+    setPop(null);
+    if (typeof p.onReveal === "function") p.onReveal(it.key, it.task);
+  };
+  // I1b: item daftar desktop → popover saran di dalam item (pola daftar HP).
+  const openDay = (it, e) => act.current.openSug(it.uid, it.dn, e && e.currentTarget ? e.currentTarget : null, "list");
+  const toggleDays = () => {
+    const next = p.daysOpen !== true;
+    if (!next && pop && pop.src === "list") setPop(null);
+    if (typeof p.onDaysOpen === "function") p.onDaysOpen(next);
+  };
+  // Task 7: tombol nama → editor kapasitas/cuti (state editUid milik view). Nama yang sama → tutup; lain → ganti. Tutup
+  // lewat Esc/Batal/Tutup/Simpan → fokus kembali ke tombol nama pemicu.
+  const edBtnRef = React.useRef(null);
+  const openEdit = (uid, e) => {
+    if (p.editUid === uid) {
+      p.onEditPerson(null);
+      return;
+    }
+    edBtnRef.current = e && e.currentTarget ? e.currentTarget : null;
+    setPop(null); // satu popover panel pada satu waktu (pemicu keyboard tidak menekan "di luar" popover saran)
+    p.onEditPerson(uid);
+  };
+  const closeEdit = how => {
+    p.onEditPerson(null);
+    const b = edBtnRef.current;
+    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+  };
+  const edRow = p.res && p.editUid !== null && p.editUid !== undefined ? load.rows.find(r => r.uid !== null && r.uid === p.editUid) : undefined;
+  // Sel (baris, hari) di bawah pointer: baris dari y lokal (clientY − atas wadah grafik), hari dari TLLayout.dnAt(x lokal +
+  // scrollLeft). Dipakai readout hover dan klik grafik (I1a). null = tanpa wadah/event; ok false = di luar baris/jendela.
+  const cellAt = e => {
+    const v = viewRef.current;
+    if (!v || typeof v.getBoundingClientRect !== "function" || !e) return null;
+    const r = v.getBoundingClientRect();
+    const L = live.current;
+    const lx = e.clientX - r.left;
+    const i = Math.floor((e.clientY - r.top) / LOAD_ROW_H);
+    const dn = TLLayout.dnAt(lx + L.p.getLeft(), {
+      from: L.p.rangeFrom
+    }, L.p.px);
+    const ok = i >= 0 && i < L.model.rows.length && dn >= L.p.fromDn && dn <= L.p.toDn;
+    return {
+      ok,
+      i,
+      dn,
+      flip: lx > (Number(r.width) || 0) / 2
+    };
+  };
+  // Readout hover: setState HANYA bila (baris, hari) berubah (tipRef diperbarui seketika agar gerak beruntun sebelum render
+  // tidak menyetel ulang).
+  const onMove = e => {
+    const c = cellAt(e);
+    if (!c) return;
+    const cur = tipRef.current;
+    if (!c.ok) {
+      if (cur !== null) {
+        tipRef.current = null;
+        setTip(null);
+      }
+      return;
+    }
+    if (cur && cur.i === c.i && cur.dn === c.dn) return;
+    const next = {
+      i: c.i,
+      dn: c.dn,
+      flip: c.flip
+    };
+    tipRef.current = next;
+    setTip(next);
+  };
+  const onLeave = () => {
+    if (tipRef.current === null) return;
+    tipRef.current = null;
+    setTip(null);
+  };
+  // I1a: klik/ketuk di grafik (hari merah di luar LOAD_HIT_MAX tidak punya tombol) → hari merah → popover saran hari itu
+  // (pemicu fokus-kembali: rumah panel); hari biasa → popover grafik yang terbuka ditutup. Klik pada tombol hari merah
+  // ditangani tombolnya.
+  const onChartClick = e => {
+    const t = e && e.target;
+    if (t && typeof t.closest === "function" && t.closest(".plg-timeline-load-hit")) return;
+    const c = cellAt(e);
+    if (!c || !c.ok) return;
+    const row = live.current.model.rows[c.i].row;
+    if (row.uid !== null && row.overDays.indexOf(c.dn) >= 0) {
+      act.current.openSug(row.uid, c.dn, null, "chart");
+      return;
+    }
+    const cur = live.current.pop;
+    if (cur && cur.src === "chart") setPop(null);
+  };
+  // I2 (pengaman): wadah grafik tidak pernah digulir (overflow: clip; peramban lama dengan hidden bisa menggulirnya saat
+  // fokus) — gulir tak sengaja dikembalikan ke 0 agar grafik tetap sejajar dengan Gantt.
+  const onViewScroll = e => {
+    const v = viewRef.current || e && e.currentTarget;
+    if (!v) return;
+    if (v.scrollLeft) v.scrollLeft = 0;
+    if (v.scrollTop) v.scrollTop = 0;
+  };
+  // Isi grafik dimemo per model: render ulang karena readout/popover tidak membangun svg lagi; tombol hari merah dibangun
+  // ulang hanya bila hari terbuka (aria-expanded, M4) berganti.
+  const svgs = React.useMemo(() => model.rows.map(r => {
+    const paths = [];
+    for (const c of ["off", "cap", "bar", "over", "leave"]) if (r.d[c]) paths.push(/*#__PURE__*/React.createElement("path", {
+      key: c,
+      className: "plg-timeline-load-" + c,
+      d: r.d[c]
+    }));
+    return /*#__PURE__*/React.createElement("svg", {
+      key: "s" + r.key,
+      className: "plg-timeline-load-svg",
+      "aria-hidden": "true",
+      width: r.w,
+      height: LOAD_ROW_H,
+      style: {
+        left: model.x,
+        top: r.i * LOAD_ROW_H
+      }
+    }, paths);
+  }), [model]);
+  const popKey = pop && pop.src === "chart" ? pop.uid + ":" + pop.dn : "";
+  const hitEls = React.useMemo(() => model.hits.map(h => /*#__PURE__*/React.createElement("button", {
+    key: "h" + h.i + ":" + h.dn,
+    type: "button",
+    className: "plg-timeline-load-hit",
+    "aria-label": h.label,
+    "aria-haspopup": "dialog",
+    "aria-expanded": popKey === h.uid + ":" + h.dn,
+    style: {
+      left: h.x,
+      top: h.i * LOAD_ROW_H,
+      width: model.px
+    },
+    onClick: e => onHit(e, h.uid, h.dn),
+    onFocus: e => onHitFocus(e, h.dn)
+  })), [model, popKey]);
+  // I1b: daftar dibangun hanya saat terbuka (anggaran DOM panel tertutup tetap).
+  const items = React.useMemo(() => daysOpen ? loadDayItems(load, p.cal) : null, [daysOpen, load, p.cal]);
+  const listPop = pop && pop.src === "list" ? pop : null;
+  const rowsH = model.rows.length * LOAD_ROW_H;
+  const tipRow = tip ? model.rows[tip.i] : null;
+  const tipX = tip ? (tip.dn - p.rangeFrom) * p.px : 0;
+  const tipEl = tipRow ? /*#__PURE__*/React.createElement("div", {
+    className: cx("plg-timeline-load-tip", tip.flip && "is-flip"),
+    "aria-hidden": "true",
+    style: {
+      left: tip.flip ? tipX - 4 : tipX + p.px + 4,
+      top: tip.i * LOAD_ROW_H + 4
+    }
+  }, loadTipText(tipRow.row, tip.dn, p.cal)) : null;
+  return /*#__PURE__*/React.createElement("section", {
+    className: "plg-timeline-load",
+    "aria-label": LBL.load,
+    ref: p.boxRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-load-top"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-load-head",
+    tabIndex: -1,
+    ref: headRef
+  }, loadHeadText(load, p.capMissing === true)), nDays > 0 ? /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    ref: daysBtnRef,
+    className: cx("plg-timeline-btn", "plg-timeline-load-daysbtn", daysOpen && "is-active"),
+    "aria-expanded": daysOpen,
+    "aria-controls": daysIdRef.current,
+    onClick: toggleDays
+  }, MSG_LOAD_DAYS) : null), p.pageKind !== "workspace" ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-load-note"
+  }, MSG_LOAD_PARTIAL) : null, daysOpen ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-load-days",
+    id: daysIdRef.current
+  }, renderLoadDays({
+    items,
+    pop: listPop,
+    sug: listPop ? sug : null,
+    onOpen: openDay,
+    onPick: pickSug,
+    onClose: closeSug,
+    label: MSG_LOAD_DAYS
+  })) : null, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-load-body",
+    style: {
+      maxHeight: LOAD_ROWS_MAX * LOAD_ROW_H
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-load-names",
+    style: {
+      width: p.tableW,
+      height: rowsH
+    }
+  }, model.rows.map(r => r.row.uid === null ? /*#__PURE__*/React.createElement("div", {
+    key: r.key,
+    className: "plg-timeline-load-name is-none"
+  }, r.row.name) : /*#__PURE__*/React.createElement("button", {
+    key: r.key,
+    type: "button",
+    className: "plg-timeline-load-name",
+    "aria-haspopup": "dialog",
+    "aria-expanded": p.editUid === r.row.uid,
+    onClick: e => openEdit(r.row.uid, e)
+  }, loadNameText(r.row)))), /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-load-view",
+    ref: viewRef,
+    style: {
+      height: rowsH
+    },
+    onPointerMove: onMove,
+    onPointerLeave: onLeave,
+    onClick: onChartClick,
+    onScroll: onViewScroll
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-load-track",
+    ref: p.trackRef
+  }, svgs, hitEls, tipEl))), pop && sug && pop.src !== "list" ? /*#__PURE__*/React.createElement(SuggestPopover, {
+    key: pop.uid + ":" + pop.dn,
+    title: sugTitle(sug.name, pop.dn),
+    items: sug.items,
+    left: pop.left,
+    down: pop.down === true,
+    skipSel: LOAD_SUG_SKIP,
+    onPick: pickSug,
+    onClose: closeSug
+  }) : null, edRow ? /*#__PURE__*/React.createElement(ResourceEditor, {
+    key: "res" + edRow.uid,
+    uid: edRow.uid,
+    name: edRow.name,
+    res: p.res,
+    onClose: closeEdit,
+    anchorRef: p.boxRef
+  }) : null);
+}
+
+// Popover "Bisa digeser" (Task 6; spec §7.4, K50). items = TLLoad.suggest (urutan R6 apa adanya): free → "{judul} · {n} 🍅
+// hari ini · slack {s} hk"; lainnya → "{judul} · {n} 🍅 hari ini" + label jenis. Tanpa free → pesan di atas daftar. Pola
+// UnitPopover: fokus ke dialog saat dibuka, useDismiss (Esc → fokus kembali; klik luar; tombol hari merah lain ditangani
+// tombolnya sendiri). Klik baris → onPick(item). Hanya baca. Tinggi maks min(50vh, 320px) dengan gulir di dalam (M1).
+function SuggestPopover(props) {
+  const items = Array.isArray(props.items) ? props.items : [];
+  const rootRef = React.useRef(null);
+  const closeRef = React.useRef(props.onClose);
+  closeRef.current = props.onClose;
+  const close = restoreFocus => {
+    if (typeof closeRef.current === "function") closeRef.current({
+      restoreFocus
+    });
+  };
+  React.useEffect(() => {
+    const el = rootRef.current;
+    if (el && typeof el.focus === "function") el.focus();
+  }, []);
+  // skipSel (Task 8): pemicu daftar HP = ".plg-timeline-load-m-day"; bawaan tombol hari merah panel desktop.
+  useDismiss(true, rootRef, how => close(how === "key"), typeof props.skipSel === "string" ? props.skipSel : ".plg-timeline-load-hit");
+  const free = items.some(it => it.kind === "free");
+  // down (review T4–T6 M1): ruang di atas panel tidak cukup → membuka ke bawah (is-down)
+  return /*#__PURE__*/React.createElement("div", {
+    className: cx("plg-timeline-pop", "plg-timeline-load-pop", props.down === true && "is-down"),
+    role: "dialog",
+    "aria-label": props.title,
+    tabIndex: -1,
+    ref: rootRef,
+    style: {
+      left: props.left
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop-head"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-pop-title"
+  }, props.title), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-pop-close",
+    "aria-label": "Tutup",
+    onClick: () => close(true)
+  }, "\xD7")), free ? null : /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note"
+  }, MSG_SUG_EMPTY), items.length ? /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-load-sug"
+  }, items.map(it => /*#__PURE__*/React.createElement("li", {
+    key: it.key,
+    className: "plg-timeline-load-sug-item"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-load-sug-btn",
+    onClick: () => props.onPick(it)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-load-sug-text"
+  }, sugText(it)), it.kind === "free" ? null : /*#__PURE__*/React.createElement("span", {
+    className: cx("plg-timeline-load-sug-kind", "is-" + it.kind)
+  }, SUG_KIND[it.kind]))))) : null);
+}
+
+// ── 1d-1 Task 7: editor kapasitas/cuti (spec K55, §7.3, Q4 (a); rencana R9) ─────────────────────────────────────────
+// Popover dari tombol nama orang (panel desktop / chip HP). Semua anggota boleh mengedit baris siapa pun (Q4 a); baris
+// "Belum ditugaskan" tidak punya editor. Satu-satunya tulisan = tombol Simpan → res.store.save → saveResource (R25).
+const RES_CAP = "Kapasitas";
+const RES_UNIT = "🍅/hari";
+const RES_HINT = "8 🍅 ≈ 3 jam 20 menit fokus";
+const RES_LEAVE = "Cuti";
+const RES_ADD = "Tambah cuti";
+const RES_DEL = "Hapus cuti";
+const RES_FROM = "Dari tanggal";
+const RES_TO = "Sampai tanggal";
+const RES_NOTE = "Catatan cuti";
+const RES_NOTE_PH = "Catatan";
+const RES_SAVE = "Simpan";
+const RES_RELOAD = "Muat ulang";
+const MSG_RES_CAP_BAD = "Kapasitas 0–40 🍅/hari";
+const MSG_RES_DATE_BAD = "Periksa tanggal cuti";
+const MSG_RES_SAVE_FAIL = "Gagal menyimpan kapasitas";
+const RES_YEAR_MIN = 1970; // = TLLoad (R9): tanggal cuti ISO sah 1970–2199 — tahun parsial saat mengetik (0002-…) tidak sah
+const RES_YEAR_MAX = 2199;
+const RES_ERR_STALE = "stale";
+const RES_SNAP_ABSENT = Object.freeze({
+  exists: false,
+  updatedAt: null
+});
+// Pemicu editor (tombol nama panel desktop, chip HP): penekanan di sana ditangani tombolnya (sama = tutup, lain = ganti).
+const RES_SKIP = ".plg-timeline-load-name, .plg-timeline-load-m-person";
+const resTitle = name => RES_CAP + " " + name;
+const resSavedText = name => "Kapasitas " + name + " disimpan";
+
+// Kapasitas dari isian (string input number) → bilangan bulat 0–40, selain itu null ("", "2.5", "-1", "1e1", "41").
+function resCapOf(s) {
+  const v = typeof s === "string" ? s.trim() : "";
+  return /^\d+$/.test(v) && Number(v) <= TLLoad.CAP_MAX ? Number(v) : null;
+}
+// Tanggal cuti isian: ISO sah (TLCal.dn bilangan bulat) dalam 1970–2199.
+function resDateOk(s) {
+  if (typeof s !== "string" || !Number.isInteger(TLCal.dn(s))) return false;
+  const y = Number(s.slice(0, 4));
+  return y >= RES_YEAR_MIN && y <= RES_YEAR_MAX;
+}
+// Baris cuti kosong total (review T7–T8): dari, sampai, dan catatan (dipangkas) semuanya kosong → netral: bukan galat,
+// tidak menonaktifkan Simpan, dan dibuang saat menyusun value. Baris yang berisi sesuatu tetap divalidasi penuh.
+const resStr = v => typeof v === "string" ? v : "";
+function resRowBlank(x) {
+  return !!x && resStr(x.from) === "" && resStr(x.to) === "" && resStr(x.note).trim() === "";
+}
+// Validasi inline form {cap, rows: [{k, from, to, note}]} → {cap: bilangan|null, capBad, bad: Set<k baris>, dateBad}.
+// Baris kosong total dilewati (bukan galat). Murni.
+function resFormCheck(form) {
+  const f = form && typeof form === "object" ? form : {};
+  const cap = resCapOf(f.cap);
+  const bad = new Set();
+  for (const x of Array.isArray(f.rows) ? f.rows : []) {
+    if (resRowBlank(x)) continue;
+    if (!resDateOk(x.from) || !resDateOk(x.to) || TLCal.dn(x.from) > TLCal.dn(x.to)) bad.add(x.k);
+  }
+  return {
+    cap,
+    capBad: cap === null,
+    bad,
+    dateBad: bad.size > 0
+  };
+}
+// Fokus jatuh (review T7–T8): tanpa document (Node) dianggap jatuh; elemen aktif kosong / body / terlepas / nonaktif
+// (tombol yang difokus dinonaktifkan selama menyimpan atau hilang setelah "Muat ulang"). Fokus di elemen aktif lain
+// tidak dicuri.
+function resFocusLost() {
+  const doc = typeof document !== "undefined" ? document : null;
+  if (!doc) return true;
+  const a = doc.activeElement;
+  return !a || a === doc.body || a.isConnected === false || a.disabled === true;
+}
+let resSeq = 0; // id paragraf galat editor (aria-describedby), unik per editor
+// res terdekode (TLLoad.resourceDecode) → isian: kapasitas string, cuti ISO urut (dari, sampai). Absen → 8 tanpa cuti.
+function resFormOf(res, nextKey) {
+  const r = res && typeof res === "object" ? res : null;
+  const cap = r && Number.isInteger(r.capacity) ? r.capacity : TLLoad.DEFAULT_CAP;
+  const list = (r && Array.isArray(r.leave) ? r.leave : []).filter(l => l && Number.isInteger(l.from) && Number.isInteger(l.to));
+  list.sort((a, b) => a.from - b.from || a.to - b.to);
+  return {
+    cap: String(cap),
+    rows: list.map(l => ({
+      k: nextKey(),
+      from: TLCal.iso(l.from),
+      to: TLCal.iso(l.to),
+      note: typeof l.note === "string" ? l.note : ""
+    }))
+  };
+}
+// "Diubah oleh {nama} · {tgl}" / "Diubah oleh anggota lain · {tgl}" (pola unitCaption: actorName + tanggal Jakarta
+// updated_at). Record absen → null.
+function resCaption(entry, res) {
+  const s = entry && entry.snap ? entry.snap : null;
+  if (!s || s.exists !== true) return null;
+  const name = actorName(s.by, res, res ? res.userId : null);
+  return (name ? "Diubah oleh " + name : "Diubah oleh anggota lain") + jktDateSuffix(s.updatedAt);
+}
+
+// props: {uid, name, res, onClose({restoreFocus})}. res = bundel kapasitas view {map (useResources), loaded, pulled, store,
+// pageKind, listId, currentUser, collaborators, userId, api}.
+//   - Nilai awal + potret CAS dari res.map.get(uid) SAAT DIBUKA (entri → {exists: true, updatedAt}; absen → {exists: false,
+//     updatedAt: null}).
+//   - Kunci Simpan (R9, review T2–T3): workspace → !loaded || (!map.has(uid) && !pulled) + "Menunggu data workspace…";
+//     pribadi → !loaded (tanpa teks). Selama terkunci SEMUA isian nonaktif (pola CalendarPopover), dan potret masih
+//     "sementara": ikut data terbaru (efek tata letak) sampai kunci terbuka → potret final. Render pertama sesudah kunci
+//     terbuka tetap nonaktif sampai potret final terpasang, jadi Simpan tidak pernah memakai potret dari keadaan belum
+//     termuat. Sesudah final, perubahan data dari luar TIDAK mengganti potret (CAS → STALE).
+//   - Simpan nonaktif selama menyimpan (ref + state: klik ganda = satu put), saat isian tidak sah, dan setelah STALE
+//     (sampai "Muat ulang" mengisi nilai + potret dari res.store.get — peta panel bisa tertinggal debounce). Setelah STALE
+//     SEMUA isian beku juga (review T7–T8) sampai "Muat ulang": ketikan tidak bisa ditambah ke data yang sudah basi.
+//   - Batal / Tutup / Esc → onClose({restoreFocus: true}); klik luar → {restoreFocus: false}; tanpa tulis. Selama sibuk
+//     (put / "Muat ulang" berjalan) Batal dan × nonaktif dan Esc diabaikan (review T7–T8).
+//   - Baris cuti kosong total netral dan dibuang dari value (resRowBlank). Input tidak sah → aria-describedby ke paragraf
+//     galatnya. Setelah "Muat ulang" atau galat simpan, fokus yang jatuh (resFocusLost) dipindah ke akar dialog.
+//   - anchorRef (review akhir; panel desktop = akar panel): logika `down` SuggestPopover — ruang di atas wadah panel
+//     (getBoundingClientRect().top) kurang dari tinggi editor + LOAD_POP_GAP → membuka ke bawah panel (is-down). Tinggi
+//     editor diukur (offsetHeight; CSS membatasinya min(70vh, 560px)) SEKALI saat dibuka, sebelum dilukis — arah tidak
+//     melompat saat baris cuti ditambah. Tanpa anchorRef (daftar HP) CSS HP membuka ke bawah pemicunya.
+function ResourceEditor(props) {
+  const r = props.res && typeof props.res === "object" ? props.res : {};
+  const uid = props.uid;
+  const name = typeof props.name === "string" ? props.name : "";
+  const ws = r.pageKind === "workspace";
+  const map = r.map instanceof Map ? r.map : EMPTY_RES;
+  const entry = map.get(uid);
+  const locked = ws ? !r.loaded || !map.has(uid) && !r.pulled : !r.loaded;
+  const keyRef = React.useRef(0);
+  const nextKey = () => ++keyRef.current;
+  const seedOf = (e, final) => ({
+    entry: e,
+    snap: e && e.snap ? {
+      exists: true,
+      updatedAt: typeof e.snap.updatedAt === "string" ? e.snap.updatedAt : null
+    } : RES_SNAP_ABSENT,
+    form: resFormOf(e ? e.res : null, nextKey),
+    final
+  });
+  const [st, setSt] = React.useState(() => seedOf(entry, !locked));
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState(null); // null | RES_ERR_STALE | pesan inline
+  const busyRef = React.useRef(false);
+  const refocusRef = React.useRef(false); // fokus diperiksa sesudah render berikutnya ("Muat ulang" / galat simpan)
+  const alive = React.useRef(true);
+  const rootRef = React.useRef(null);
+  const idRef = React.useRef(null);
+  if (idRef.current === null) idRef.current = "plg-timeline-res-" + ++resSeq;
+  const capErrId = idRef.current + "-cap";
+  const dateErrId = idRef.current + "-date";
+  const closeRef = React.useRef(props.onClose);
+  closeRef.current = props.onClose;
+  const close = restoreFocus => {
+    if (typeof closeRef.current === "function") closeRef.current({
+      restoreFocus
+    });
+  };
+  // Batal / × / Esc: diabaikan selama sibuk (klik luar tetap menutup; hasil simpan diberitahukan lewat toast).
+  const cancel = () => {
+    if (!busyRef.current) close(true);
+  };
+  React.useEffect(() => {
+    alive.current = true;
+    const el = rootRef.current;
+    if (el && typeof el.focus === "function") el.focus();
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  useDismiss(true, rootRef, how => how === "key" ? cancel() : close(false), RES_SKIP);
+  // Arah buka (review akhir): diukur sekali saat dipasang (tata letak, sebelum lukis).
+  const [down, setDown] = React.useState(false);
+  const anchorRef = props.anchorRef;
+  React.useLayoutEffect(() => {
+    const a = anchorRef ? anchorRef.current : null;
+    const el = rootRef.current;
+    if (!a || !el || typeof a.getBoundingClientRect !== "function") return;
+    const top = Number(a.getBoundingClientRect().top);
+    const h = Number(el.offsetHeight) || 0;
+    if (h > 0 && Number.isFinite(top) && top < h + LOAD_POP_GAP) setDown(true);
+  }, []);
+  // Potret sementara → ikut data terbaru; kunci terbuka → potret final (sekali).
+  React.useLayoutEffect(() => {
+    if (st.final || st.entry === entry && locked) return;
+    setSt(seedOf(entry, !locked));
+  }, [entry, locked, st.final]);
+  // Sesudah "Muat ulang" / galat simpan dirender: tombol yang difokus bisa nonaktif (Simpan setelah STALE) atau hilang
+  // ("Muat ulang") → fokus ke akar dialog agar Tab/Esc tetap di dalam dialog.
+  React.useEffect(() => {
+    if (!refocusRef.current || busy) return;
+    refocusRef.current = false;
+    const el = rootRef.current;
+    if (resFocusLost() && el && typeof el.focus === "function") el.focus();
+  });
+  const chk = resFormCheck(st.form);
+  const stale = err === RES_ERR_STALE;
+  const wait = locked || !st.final || busy; // memuat / menyimpan (aria-busy)
+  const frozen = wait || stale;
+  const canSave = !frozen && !chk.capBad && !chk.dateBad;
+  const live = React.useRef(null);
+  live.current = {
+    st,
+    canSave,
+    map
+  };
+  const edit = fn => {
+    if (frozen) return;
+    setSt(s => Object.assign({}, s, {
+      form: fn(s.form)
+    }));
+    setErr(e => e === RES_ERR_STALE ? e : null);
+  };
+  const setCap = v => edit(f => Object.assign({}, f, {
+    cap: v
+  }));
+  const setRow = (k, field, v) => edit(f => Object.assign({}, f, {
+    rows: f.rows.map(x => x.k === k ? Object.assign({}, x, {
+      [field]: v
+    }) : x)
+  }));
+  const addRow = () => edit(f => f.rows.length >= TLLoad.LEAVE_MAX ? f : Object.assign({}, f, {
+    rows: f.rows.concat([{
+      k: nextKey(),
+      from: "",
+      to: "",
+      note: ""
+    }])
+  }));
+  const delRow = k => edit(f => Object.assign({}, f, {
+    rows: f.rows.filter(x => x.k !== k)
+  }));
+  const targetOf = () => resRecId(ws ? "workspace" : "project", r.listId, uid);
+  const save = () => {
+    const L = live.current;
+    if (busyRef.current || !L.canSave) return;
+    let target;
+    try {
+      target = targetOf();
+    } catch (e) {
+      logWarn(r.api, "kapasitas gagal disimpan:", e);
+      toastSafe(r.api, MSG_RES_SAVE_FAIL, "error");
+      return;
+    }
+    const value = {
+      capacity: resCapOf(L.st.form.cap),
+      leave: L.st.form.rows.filter(x => !resRowBlank(x)).map(x => ({
+        from: x.from,
+        to: x.to,
+        note: x.note
+      }))
+    };
+    busyRef.current = true;
+    setBusy(true);
+    setErr(null);
+    Promise.resolve().then(() => r.store.save(target, value, L.st.snap)).then(() => {
+      busyRef.current = false;
+      toastSafe(r.api, resSavedText(name), "success");
+      if (alive.current) close(true);
+    }, e => {
+      busyRef.current = false;
+      const code = e && e.code;
+      const known = code === "STALE" || code === "TOO_LARGE" || code === "INVALID";
+      if (!known) logWarn(r.api, "kapasitas gagal disimpan:", e);
+      if (!alive.current) {
+        // dialog sudah ditutup selama menyimpan: galat tetap diberitahukan
+        toastSafe(r.api, code === "STALE" ? MSG_RES_STALE : code === "TOO_LARGE" ? MSG_RES_TOO_LARGE : MSG_RES_SAVE_FAIL, "error");
+        return;
+      }
+      refocusRef.current = true;
+      setBusy(false);
+      if (code === "STALE") setErr(RES_ERR_STALE);else if (code === "TOO_LARGE") setErr(MSG_RES_TOO_LARGE);else if (code === "INVALID") setErr(MSG_RES_DATE_BAD);else toastSafe(r.api, MSG_RES_SAVE_FAIL, "error");
+    });
+  };
+  // "Muat ulang" (setelah STALE): nilai + potret dari record terkini (store.get; gagal → peta panel), ketikan dibuang.
+  const reload = () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    const fromMap = () => live.current.map.get(uid);
+    Promise.resolve().then(() => r.store && typeof r.store.get === "function" ? r.store.get(targetOf()) : fromMap()).then(e => e || undefined, e => {
+      logWarn(r.api, "kapasitas gagal dimuat ulang:", e);
+      return fromMap();
+    }).then(e => {
+      busyRef.current = false;
+      if (!alive.current) return;
+      refocusRef.current = true;
+      setBusy(false);
+      setErr(null);
+      setSt(seedOf(e, true));
+    });
+  };
+  const f = st.form;
+  const caption = resCaption(st.entry, r);
+  return /*#__PURE__*/React.createElement("div", {
+    className: cx("plg-timeline-pop", "plg-timeline-res-pop", down && "is-down"),
+    role: "dialog",
+    "aria-label": resTitle(name),
+    "aria-busy": wait,
+    tabIndex: -1,
+    ref: rootRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop-head"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-pop-title"
+  }, resTitle(name)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-pop-close",
+    "aria-label": "Tutup",
+    disabled: busy,
+    onClick: cancel
+  }, "\xD7")), caption ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-res-by"
+  }, caption) : null, ws && locked ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-pop-wait",
+    role: "status"
+  }, MSG_RES_WAIT) : null, /*#__PURE__*/React.createElement("label", {
+    className: "plg-timeline-res-cap"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-res-cap-label"
+  }, RES_CAP), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: "plg-timeline-pop-input plg-timeline-res-cap-input",
+    min: 0,
+    max: TLLoad.CAP_MAX,
+    step: 1,
+    inputMode: "numeric",
+    value: f.cap,
+    disabled: frozen,
+    "aria-invalid": chk.capBad,
+    "aria-describedby": chk.capBad ? capErrId : undefined,
+    onChange: e => setCap(e.target.value)
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-res-unit"
+  }, RES_UNIT)), /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note"
+  }, RES_HINT), /*#__PURE__*/React.createElement("section", {
+    className: "plg-timeline-pop-sec",
+    "aria-label": RES_LEAVE
+  }, /*#__PURE__*/React.createElement("h4", {
+    className: "plg-timeline-pop-sub"
+  }, RES_LEAVE), f.rows.length ? /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-res-leave"
+  }, f.rows.map(x => {
+    const bad = chk.bad.has(x.k);
+    const desc = bad ? dateErrId : undefined;
+    return /*#__PURE__*/React.createElement("li", {
+      key: x.k,
+      className: "plg-timeline-res-row"
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "date",
+      className: "plg-timeline-pop-input plg-timeline-res-from",
+      "aria-label": RES_FROM,
+      value: x.from,
+      disabled: frozen,
+      "aria-invalid": bad,
+      "aria-describedby": desc,
+      onChange: e => setRow(x.k, "from", e.target.value)
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-res-dash",
+      "aria-hidden": "true"
+    }, "\u2013"), /*#__PURE__*/React.createElement("input", {
+      type: "date",
+      className: "plg-timeline-pop-input plg-timeline-res-to",
+      "aria-label": RES_TO,
+      value: x.to,
+      disabled: frozen,
+      "aria-invalid": bad,
+      "aria-describedby": desc,
+      onChange: e => setRow(x.k, "to", e.target.value)
+    }), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      className: "plg-timeline-pop-input plg-timeline-res-note",
+      "aria-label": RES_NOTE,
+      placeholder: RES_NOTE_PH,
+      maxLength: TLLoad.NOTE_MAX,
+      value: x.note,
+      disabled: frozen,
+      onChange: e => setRow(x.k, "note", e.target.value)
+    }), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-pop-del plg-timeline-res-del",
+      "aria-label": RES_DEL,
+      disabled: frozen,
+      onClick: () => delRow(x.k)
+    }, "\xD7"));
+  })) : null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-res-add",
+    disabled: frozen || f.rows.length >= TLLoad.LEAVE_MAX,
+    onClick: addRow
+  }, RES_ADD)), chk.capBad ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-err",
+    role: "alert",
+    id: capErrId
+  }, MSG_RES_CAP_BAD) : null, chk.dateBad ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-err",
+    role: "alert",
+    id: dateErrId
+  }, MSG_RES_DATE_BAD) : null, stale ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-res-stale"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-err",
+    role: "alert"
+  }, MSG_RES_STALE), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn",
+    disabled: busy,
+    onClick: reload
+  }, RES_RELOAD)) : err ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-err",
+    role: "alert"
+  }, err) : null, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-res-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn",
+    disabled: busy,
+    onClick: cancel
+  }, PV_CANCEL), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-res-save",
+    disabled: !canSave,
+    onClick: save
+  }, RES_SAVE)));
+}
+
+// ── 1d-1 Task 8: Beban Tim versi HP (≤ 640 px; spec §7.6; rencana R10) ───────────────────────────────────────────────
+// Di layar sempit (Gantt maupun Daftar) histogram diganti daftar "Hari kelebihan beban": judul sama dengan desktop, chip
+// orang "{nama} · {cap} 🍅/hari" (→ editor T7; agar kapasitas orang tanpa hari merah tetap bisa diatur), lalu satu tombol
+// per pasangan orang × hari merah "{nama} · {tgl} · {beban} dari {kapasitas} 🍅" urut tanggal lalu nama (ketuk → popover
+// saran T6, di bawah item). Tanpa SVG dan tanpa lebar tetap (muat 375 px). Anggaran DOM: ≤ LOAD_M_MAX item (terdekat —
+// daftar urut tanggal naik dari T) + "dan {n} lainnya". Hanya baca: tulisan satu-satunya tetap Simpan di editor.
+const LOAD_M_MAX = 100;
+const LOAD_M_PEOPLE_MAX = 30; // review T7–T8: chip orang HP dibatasi (urutan baris) + "dan {n} lainnya"
+const MSG_LOAD_DAYS = "Hari kelebihan beban";
+const loadMoreText = n => "dan " + n + " lainnya"; // pola "dan {n} lainnya" (banner lingkaran, kartu pratinjau)
+
+// Item daftar HP: [{uid, name, dn, text}] dari overDays semua baris berpenanggung jawab; beban = TLLoad.fmtPomo(milli, true)
+// (hari merah dibulatkan ke atas, sama dengan tooltip desktop), kapasitas = TLLoad.capAt hari itu. Urut dn naik, nama
+// (TLCpm.cmpKey), uid. Murni.
+function loadDayItems(load, cal) {
+  const out = [];
+  for (const row of load && Array.isArray(load.rows) ? load.rows : []) {
+    if (!row || row.uid === null || !Array.isArray(row.overDays)) continue;
+    for (const dn of row.overDays) {
+      const d = row.days instanceof Map ? row.days.get(dn) : undefined;
+      const text = row.name + " · " + TLCal.fmtShort(dn) + " · " + TLLoad.fmtPomo(d ? d.load : 0, true) + " dari " + TLLoad.capAt(row.res, cal, dn) + " 🍅";
+      out.push({
+        uid: row.uid,
+        name: row.name,
+        dn,
+        text
+      });
+    }
+  }
+  out.sort((a, b) => a.dn - b.dn || TLCpm.cmpKey(a.name, b.name) || a.uid - b.uid);
+  return out;
+}
+
+// Daftar "Hari kelebihan beban" (Task 8 HP; dipakai ulang panel desktop — review T4–T6 I1b): ≤ LOAD_M_MAX tombol item
+// (teks loadDayItems; ketuk/Enter → popover saran DI DALAM item, skipSel item) + "dan {n} lainnya". o = {items, pop
+// ({uid, dn} item terbuka | null), sug (loadSug untuk pop), onOpen(it, e), onPick(it), onClose(how), label (aria-label
+// daftar, opsional)}. Fungsi render biasa tanpa hooks → [ul, more].
+function renderLoadDays(o) {
+  const items = o.items;
+  const shown = items.length > LOAD_M_MAX ? items.slice(0, LOAD_M_MAX) : items;
+  const list = /*#__PURE__*/React.createElement("ul", {
+    key: "days",
+    className: "plg-timeline-load-m-list",
+    "aria-label": o.label
+  }, shown.map(it => {
+    const on = !!o.pop && o.pop.uid === it.uid && o.pop.dn === it.dn;
+    return /*#__PURE__*/React.createElement("li", {
+      key: it.uid + ":" + it.dn,
+      className: "plg-timeline-load-m-item"
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-load-m-day",
+      "aria-haspopup": "dialog",
+      "aria-expanded": on,
+      onClick: e => o.onOpen(it, e)
+    }, it.text), on && o.sug ? /*#__PURE__*/React.createElement(SuggestPopover, {
+      key: it.uid + ":" + it.dn,
+      title: sugTitle(o.sug.name, it.dn),
+      items: o.sug.items,
+      skipSel: ".plg-timeline-load-m-day",
+      onPick: o.onPick,
+      onClose: o.onClose
+    }) : null);
+  }));
+  const more = items.length > shown.length ? /*#__PURE__*/React.createElement("p", {
+    key: "more",
+    className: "plg-timeline-load-m-more"
+  }, loadMoreText(items.length - shown.length)) : null;
+  return [list, more];
+}
+let MemoLoadList = null;
+function loadListMemo() {
+  if (!MemoLoadList) MemoLoadList = React.memo ? React.memo(LoadList) : LoadList;
+  return MemoLoadList;
+}
+
+// props: {load, cal (eng.ctx.cal), result, ctx (eng.ctx), pageKind, boxRef (akar, diukur view seperti panel desktop),
+// editUid, onEditPerson(uid|null), res (bundel kapasitas T7), onReveal(key, task), capMissing (review akhir: tanda judul)}.
+function LoadList(props) {
+  const p = props;
+  const load = p.load;
+  const items = React.useMemo(() => loadDayItems(load, p.cal), [load, p.cal]);
+  const [pop, setPop] = React.useState(null); // hari merah terpilih {uid, dn}
+  const popBtnRef = React.useRef(null);
+  const edBtnRef = React.useRef(null);
+  const headRef = React.useRef(null); // judul (tabIndex −1)
+  const subRef = React.useRef(null); // subjudul "Hari kelebihan beban" (tabIndex −1), hanya bila ada item
+  const nItems = React.useRef(0);
+  nItems.current = items.length;
+  // Review akhir (pola focusHome desktop M3): fokus "rumah" daftar = subjudul "Hari kelebihan beban" bila ada item, selain
+  // itu judul. Dipakai HANYA bila fokus memang hilang (loadFocusLost: body / elemen terlepas).
+  const focusHome = () => {
+    const t = (nItems.current > 0 ? subRef.current : null) || headRef.current;
+    if (t && typeof t.focus === "function") t.focus();
+  };
+  const sug = React.useMemo(() => loadSug(load, pop, p.result, p.ctx), [pop, load, p.result, p.ctx]);
+  // Orang hilang / hari tidak lagi merah → popover (dan item pemicunya) dilepas; fokus yang jatuh bersamanya → rumah.
+  React.useEffect(() => {
+    if (!pop || sug) return;
+    setPop(null);
+    if (loadFocusLost()) focusHome();
+  }, [pop, sug]);
+  const hasEdit = p.editUid !== null && p.editUid !== undefined;
+  // Ketuk item: popover saran (item sama = tutup; lain = ganti); satu popover pada satu waktu (editor ditutup).
+  const openSug = (it, e) => {
+    if (pop && pop.uid === it.uid && pop.dn === it.dn) {
+      setPop(null);
+      return;
+    }
+    popBtnRef.current = e && e.currentTarget ? e.currentTarget : null;
+    if (hasEdit && typeof p.onEditPerson === "function") p.onEditPerson(null);
+    setPop({
+      uid: it.uid,
+      dn: it.dn
+    });
+  };
+  // Esc / Tutup → fokus kembali ke pemicu; pemicu sudah terlepas → rumah daftar, hanya bila fokus memang hilang (review
+  // akhir). Klik luar tidak memindah fokus (sudah pindah ke target klik).
+  const closeSug = how => {
+    setPop(null);
+    if (!how || !how.restoreFocus) return;
+    const b = popBtnRef.current;
+    if (b && b.isConnected !== false && typeof b.focus === "function") b.focus();else if (loadFocusLost()) focusHome();
+  };
+  // Baris saran → view: Gantt HP menggulir + berkedip; Daftar (tanpa Gantt) → detail task (revealRow R7).
+  const pickSug = it => {
+    setPop(null);
+    if (typeof p.onReveal === "function") p.onReveal(it.key, it.task);
+  };
+  const openEdit = (uid, e) => {
+    if (p.editUid === uid) {
+      p.onEditPerson(null);
+      return;
+    }
+    edBtnRef.current = e && e.currentTarget ? e.currentTarget : null;
+    setPop(null);
+    p.onEditPerson(uid);
+  };
+  const closeEdit = how => {
+    p.onEditPerson(null);
+    const b = edBtnRef.current;
+    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+  };
+  const persons = load.rows.filter(r => r.uid !== null);
+  // Anggaran DOM (review T7–T8): ≤ LOAD_M_PEOPLE_MAX chip pertama (urutan baris) + "dan {n} lainnya". Editor yang sudah
+  // terbuka (mis. dari panel desktop sebelum layar menyempit) tetap dicari di semua baris.
+  const chips = persons.length > LOAD_M_PEOPLE_MAX ? persons.slice(0, LOAD_M_PEOPLE_MAX) : persons;
+  const edRow = p.res && hasEdit ? persons.find(r => r.uid === p.editUid) : undefined;
+  return /*#__PURE__*/React.createElement("section", {
+    className: "plg-timeline-load-m",
+    "aria-label": LBL.load,
+    ref: p.boxRef
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-load-head",
+    tabIndex: -1,
+    ref: headRef
+  }, loadHeadText(load, p.capMissing === true)), p.pageKind !== "workspace" ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-load-note"
+  }, MSG_LOAD_PARTIAL) : null, persons.length ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-load-m-people"
+  }, chips.map(r => /*#__PURE__*/React.createElement("button", {
+    key: "u" + r.uid,
+    type: "button",
+    className: "plg-timeline-load-m-person",
+    "aria-haspopup": "dialog",
+    "aria-expanded": p.editUid === r.uid,
+    onClick: e => openEdit(r.uid, e)
+  }, loadNameText(r))), persons.length > chips.length ? /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-load-m-pmore"
+  }, loadMoreText(persons.length - chips.length)) : null, edRow ? /*#__PURE__*/React.createElement(ResourceEditor, {
+    key: "res" + edRow.uid,
+    uid: edRow.uid,
+    name: edRow.name,
+    res: p.res,
+    onClose: closeEdit
+  }) : null) : null, items.length ? /*#__PURE__*/React.createElement("h4", {
+    className: "plg-timeline-load-m-sub",
+    tabIndex: -1,
+    ref: subRef
+  }, MSG_LOAD_DAYS) : null, items.length ? renderLoadDays({
+    items,
+    pop,
+    sug,
+    onOpen: openSug,
+    onPick: pickSug,
+    onClose: closeSug
+  }) : null);
 }
 
 // 4f. Kalender kerja (Task 9; R18, keputusan pemilik U1) dan Daftar HP (R20, U3).
@@ -7415,6 +9527,7 @@ function TimelineViewBody(props) {
   const [mode, setMode] = usePref(api, "mode", page);
   const [critPref, setCrit] = usePref(api, "crit", page);
   const [blPref, setBl] = usePref(api, "bl", page); // 1c-2 P2 (a): baseline aktif = pref per perangkat per halaman
+  const [loadPref, setLoadOn] = usePref(api, "load", page); // 1d-1 (K56, R10): panel Beban Tim, bawaan OFF
   const [calOpen, setCalOpen] = React.useState(false);
   const calBtnRef = React.useRef(null);
   const pageKind = context.pageKind === "workspace" ? "workspace" : "project";
@@ -7435,6 +9548,49 @@ function TimelineViewBody(props) {
     calData: cal.data,
     units: un.units
   });
+  // 1d-1 Task 3 (R4, R10, K56): panel Beban Tim — kapasitas/cuti dimuat (useResources) dan beban dihitung (useLoad) HANYA
+  // saat pref load:<page> menyala; baris orang dari data yang ada (peopleOf, P2 (a)). Hanya baca (R25). Dipakai toolbar
+  // (setLoadOn, T4), panel (load, T5–T6), dan editor kapasitas (resources: map/pulled/store, T7).
+  const loadOn = loadPref === true;
+  const resources = useResources(api, pageKind, context.listId, loadOn);
+  const meUid = TLLoad.uidOf(api.env ? api.env.userId : null);
+  const engTasks = eng.ctx ? eng.ctx.tasks : NO_TASKS;
+  const people = React.useMemo(() => loadOn ? peopleOf({
+    byAssignee: pageKind === "workspace",
+    ctxTasks: engTasks,
+    resources: resources.map,
+    currentUser: context.currentUser,
+    collaborators: context.collaborators,
+    userId: meUid
+  }) : NO_PEOPLE, [loadOn, pageKind, engTasks, resources.map, context.currentUser, context.collaborators, meUid]);
+  // Review akhir: beban dihitung setelah kapasitas/cuti termuat atau gagal dimuat (tanpa kilatan kapasitas bawaan).
+  // Workspace tanpa listId sah tidak pernah memuat (scope null) → langsung siap dengan kapasitas bawaan, bertanda.
+  const resNoScope = resScopeOf(pageKind, context.listId) === null;
+  const resReady = resources.loaded || resources.failed || resNoScope;
+  const capMissing = loadOn && !resources.loaded && (resources.failed || resNoScope);
+  const load = useLoad({
+    open: loadOn,
+    ready: resReady,
+    eng,
+    people,
+    todayDn,
+    byAssignee: pageKind === "workspace",
+    ownerUid: meUid,
+    api
+  });
+  // 1d-1 Task 7: bundel kapasitas untuk ResourceEditor (panel desktop / daftar HP) — memo agar prop memo panel stabil.
+  const resEd = React.useMemo(() => loadOn ? {
+    map: resources.map,
+    loaded: resources.loaded,
+    pulled: resources.pulled,
+    store: resources.store,
+    pageKind,
+    listId: context.listId,
+    currentUser: context.currentUser,
+    collaborators: context.collaborators,
+    userId: meUid,
+    api
+  } : null, [loadOn, resources.map, resources.loaded, resources.pulled, resources.store, pageKind, context.listId, context.currentUser, context.collaborators, meUid, api]);
   const engResult = eng.status === "ready" ? eng.result : null;
   // 1c-2 (K30): resolver jangkar untuk rentang pelanggaran task berjalan via actual.start (layout langkah 7) — SUMBER yang
   // sama dengan mesin: modeOf = TLSched.modeOf(readSched(ext), useUnits().units, task); inCycle = engResult.cycles;
@@ -7543,6 +9699,60 @@ function TimelineViewBody(props) {
   const lastElRef = React.useRef(null); // elemen wadah terakhir yang dikenal (deteksi pasang ulang)
   const rowHRef = React.useRef(rowH);
   rowHRef.current = rowH;
+  // 1d-1 Task 5 (R5): panel Beban Tim — isi grafiknya (trackRef) digeser translateX(−scrollLeft) LANGSUNG dari handler
+  // gulir di bawah (tanpa setState per piksel); akarnya (loadBoxRef) diukur seperti legenda. getLeft stabil (prop memo).
+  const loadTrackRef = React.useRef(null);
+  const loadBoxRef = React.useRef(null);
+  const getLeft = React.useRef(() => scrollRef.current ? Number(scrollRef.current.scrollLeft) || 0 : 0).current;
+  // Review akhir: lebar area grafik SAAT INI (clientWidth wadah − tableW), dibaca langsung — vp.w bisa basi bila wadah host
+  // beranimasi saat Timeline dipasang (pra-ada 1c). Tanpa wadah → NaN (panel memakai viewW). Stabil (prop memo).
+  const tableWRef = React.useRef(tableW);
+  tableWRef.current = tableW;
+  const getViewW = React.useRef(() => {
+    const el = scrollRef.current;
+    return el ? (Number(el.clientWidth) || 0) - tableWRef.current : NaN;
+  }).current;
+  const syncLoadLeft = left => {
+    const t = loadTrackRef.current;
+    if (t && t.style) t.style.transform = loadShift(left);
+  };
+  const loadShown = loadOn && load !== null && !narrow; // ≤ 640 px: daftar HP (Task 8) menggantikan histogram
+  const loadRowsN = loadShown ? load.rows.length : 0;
+  // 1d-1 Task 8: daftar HP (Gantt maupun Daftar) — akarnya memakai loadBoxRef yang sama (diukur seperti panel desktop).
+  const loadMShown = loadOn && load !== null && narrow;
+  const loadMKey = loadMShown ? load.rows.length + ":" + load.rows.reduce((s, r) => s + r.overDays.length, 0) : "";
+  // Review T4–T6 I1b/M2: daftar "Hari kelebihan beban" panel desktop terbuka — statusnya di sini agar tinggi wadah diukur
+  // ulang saat dibuka/ditutup; teks judul panel juga memicu ukur ulang (bisa membungkus jadi lebih tinggi/rendah).
+  const [loadDaysOpen, setLoadDaysOpen] = React.useState(false);
+  const loadHead = loadShown || loadMShown ? loadHeadText(load, capMissing) : "";
+  // Review akhir I1: menyalakan Beban Tim lewat GESTUR (tombol toolbar / item "Lainnya" — keduanya lewat toggleLoad)
+  // menandai wantRevealRef; setelah panel desktop / daftar HP terpasang (loadBoxRef ada, efek sesudah render) akarnya
+  // digulir ke layar SEKALI (scrollIntoView {block: "nearest"}) pada frame berikut — sesudah ukur ulang tinggi wadah Gantt
+  // (setState di efek tata letak) agar posisi akhir yang dipakai. Di HP daftar berada di bawah seluruh Gantt/Daftar dan
+  // tanpa ini hanya judulnya (atau tidak sama sekali) yang tampak. Pref tersimpan saat dipasang, mematikan, dan render
+  // ulang biasa (sinkron) tidak menggulir. Mematikan sebelum terpasang → batal (toggleLoad(false)); hasil ada tetapi
+  // halaman tanpa baris (panel tidak dirender) → batal. Penanda TIDAK dilepas karena loadOn false di efek: efek pasif
+  // commit sebelum klik bisa baru berjalan sesudah klik (React menjalankannya sebelum render berikut) dengan nilai lama.
+  const wantRevealRef = React.useRef(false);
+  const revealRafRef = React.useRef(0);
+  const toggleLoad = on => {
+    wantRevealRef.current = on === true;
+    setLoadOn(on);
+  };
+  React.useEffect(() => {
+    if (!wantRevealRef.current) return;
+    if (!loadBoxRef.current) {
+      if (load !== null && !hasRows) wantRevealRef.current = false;
+      return;
+    }
+    wantRevealRef.current = false;
+    caf(revealRafRef.current);
+    revealRafRef.current = raf(() => {
+      revealRafRef.current = 0;
+      revealLoadBox(loadBoxRef.current);
+    });
+  });
+  React.useEffect(() => () => caf(revealRafRef.current), []);
   const sl = vp.left === null ? TLLayout.initialScrollLeft(lay.range, lay.px, today, vp.w) : vp.left;
   const rw = TLLayout.windowRows(lay.rows.length, vp.top, vp.h + ROW_STEP * rowH, rowH);
   const dw = TLLayout.windowDays(lay.range, lay.px, sl, vp.w);
@@ -7553,20 +9763,23 @@ function TimelineViewBody(props) {
   const applyLeft = (el, x) => {
     el.scrollLeft = Math.max(0, Math.round(x));
     setLeftRef.current = el.scrollLeft;
+    syncLoadLeft(el.scrollLeft);
     const left = el.scrollLeft;
     setVp(p => p.left === quantLeft(left, p.w) ? p : Object.assign({}, p, {
       left: quantLeft(left, p.w)
     }));
   };
 
-  // Ukur tinggi wadah (R11: max(360, innerHeight − rect.top − 16), dikurangi tinggi legenda di bawahnya agar legenda
-  // tetap terlihat) dan lebar grafik tampak. Selalu membaca elemen terkini (bukan yang ditangkap saat efek dipasang).
+  // Ukur tinggi wadah (R11: max(360, innerHeight − rect.top − 16), dikurangi tinggi legenda — dan panel Beban Tim bila
+  // terbuka (1d-1) — di bawahnya agar keduanya tetap terlihat) dan lebar grafik tampak. Selalu membaca elemen terkini
+  // (bukan yang ditangkap saat efek dipasang).
   const measure = () => {
     const el = scrollRef.current;
     if (!el || !hasWindow()) return;
     const rect = el.getBoundingClientRect();
     const footH = footRef.current ? footRef.current.offsetHeight || 0 : 0;
-    const boxH = Math.max(MIN_BOX_H, Math.floor((window.innerHeight || 0) - rect.top - BOX_GAP - footH));
+    const loadH = loadBoxRef.current ? loadBoxRef.current.offsetHeight || 0 : 0;
+    const boxH = Math.max(MIN_BOX_H, Math.floor((window.innerHeight || 0) - rect.top - BOX_GAP - footH - loadH));
     const w = Math.max(0, el.clientWidth - tableW);
     setVp(p => p.boxH === boxH && p.w === w ? p : Object.assign({}, p, {
       boxH,
@@ -7589,6 +9802,7 @@ function TimelineViewBody(props) {
     measure();
     el.scrollLeft = Math.max(0, Math.round(TLLayout.initialScrollLeft(lay.range, lay.px, today, vp.w)));
     setLeftRef.current = el.scrollLeft;
+    syncLoadLeft(el.scrollLeft);
     const top = quantTop(el.scrollTop || 0, rowH);
     const left = el.scrollLeft;
     setVp(p => {
@@ -7615,7 +9829,7 @@ function TimelineViewBody(props) {
       window.removeEventListener("resize", onResize);
       caf(id);
     };
-  }, [tableW, hasRows, listMode]);
+  }, [tableW, hasRows, listMode, loadShown, loadRowsN, loadMKey, loadHead, loadDaysOpen]);
 
   // Posisi gulir horizontal (R22): pertama kali / belum digulir pengguna → hari ini di 1/3; zoom atau rentang bergeser →
   // tanggal di tengah layar dipertahankan.
@@ -7635,6 +9849,7 @@ function TimelineViewBody(props) {
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
+    syncLoadLeft(el.scrollLeft); // R5: panel Beban Tim mengikuti gulir horizontal di event yang sama (tanpa setState)
     if (setLeftRef.current === null || Math.abs(el.scrollLeft - setLeftRef.current) > 1) userScrolledRef.current = true;
     if (rafRef.current) return;
     rafRef.current = raf(() => {
@@ -7691,6 +9906,103 @@ function TimelineViewBody(props) {
 
   // ── 1c-1 Task 8: sakelar Jadwal otomatis (R15), pratinjau + CAS (R14) ──
   const [unitOpen, setUnitOpen] = React.useState(false);
+  // 1d-1 Task 5: nama orang di panel Beban Tim → editor kapasitas/cuti (Task 7 membaca editUid). Penyetel state = stabil.
+  const [editUid, setEditUid] = React.useState(null);
+  // Task 7: panel ditutup / orang tidak lagi menjadi baris → editor tertutup (tidak muncul lagi saat panel dibuka kembali).
+  React.useEffect(() => {
+    if (editUid !== null && (!loadOn || load && !load.rows.some(r => r.uid === editUid))) setEditUid(null);
+  }, [editUid, loadOn, load]);
+  // Review T4–T6 I1b: panel ditutup → daftar desktop ikut tertutup (tidak terbuka lagi saat panel dibuka kembali).
+  React.useEffect(() => {
+    if (!loadOn && loadDaysOpen) setLoadDaysOpen(false);
+  }, [loadOn, loadDaysOpen]);
+  // 1d-1 Task 6 (R7): "pilih + gulir" dari popover saran, TANPA tulisan. Baris ada di lay.rows (kunci String(task.id)) →
+  // scrollTop = indeks × rowH − tinggi viewport/3 (≥ 0), scrollLeft = xOf(awal bar) − lebar viewport/3 (≥ 0; tanpa rentang
+  // hanya scrollTop), jendela vp diperbarui seketika (tanpa menunggu event scroll), panel Beban Tim ikut, lalu baris + bar
+  // berkelas is-flash LOAD_FLASH_MS (timer dibersihkan saat unmount) dan fokus pindah ke bar (popover sudah tertutup).
+  // Tidak ada di lay.rows (disembunyikan filter panel) → context.onTaskClick(task) membuka detail.
+  const [flash, setFlash] = React.useState(null);
+  const flashTimer = React.useRef(null);
+  React.useEffect(() => () => {
+    if (flashTimer.current !== null) clearTimeout(flashTimer.current);
+    flashTimer.current = null;
+  }, []);
+  const revealRow = (key, task) => {
+    const k = String(key);
+    const i = lay.rows.findIndex(r => !!r.task && r.key === k);
+    const el = scrollRef.current;
+    if (i < 0 || !el) {
+      if (task && typeof context.onTaskClick === "function") context.onTaskClick(task);
+      return;
+    }
+    const r = lay.rows[i];
+    userScrolledRef.current = true; // tata letak berubah sesudahnya tidak melompat kembali ke "hari ini"
+    el.scrollTop = Math.max(0, Math.round(i * rowH - vp.h / 3));
+    if (r.span) {
+      el.scrollLeft = Math.max(0, Math.round(TLLayout.xOf(r.span.s, lay.range, lay.px) - vp.w / 3));
+      setLeftRef.current = el.scrollLeft;
+    }
+    syncLoadLeft(el.scrollLeft);
+    const top = quantTop(el.scrollTop, rowH);
+    const left = el.scrollLeft;
+    setVp(p => {
+      const ql = quantLeft(left, p.w);
+      return p.top === top && p.left === ql ? p : Object.assign({}, p, {
+        top,
+        left: ql
+      });
+    });
+    if (flashTimer.current !== null) clearTimeout(flashTimer.current);
+    setFlash(k);
+    flashTimer.current = setTimeout(() => {
+      flashTimer.current = null;
+      setFlash(null);
+    }, LOAD_FLASH_MS);
+    raf(() => focusBar(k));
+  };
+  // Fokus ke bar baris yang dipilih (role button, data-key) tanpa menggulir lagi; baris tanpa bar (tanpa rentang / bar di
+  // luar DOM) → baris tabel (role row, tabIndex −1; review T4–T6 M5). Hanya bila ada di DOM.
+  const focusBar = k => {
+    const root = scrollRef.current;
+    if (!root || typeof root.querySelectorAll !== "function") return;
+    const quiet = node => {
+      try {
+        node.focus({
+          preventScroll: true
+        });
+      } catch (err) {
+        /* elemen tidak bisa difokus */
+      }
+    };
+    const list = root.querySelectorAll("[data-key]");
+    let row = null;
+    for (let n = 0; n < list.length; n++) {
+      const node = list[n];
+      if (node.getAttribute("data-key") !== k) continue;
+      const role = node.getAttribute("role");
+      if (role === "button") {
+        quiet(node);
+        return;
+      }
+      if (role === "row" && row === null) row = node;
+    }
+    if (row !== null) quiet(row);
+  };
+  const revealRef = React.useRef(null);
+  revealRef.current = revealRow;
+  const onReveal = React.useRef((k, t) => revealRef.current(k, t)).current; // stabil (prop memo LoadPanel)
+  // Review T4–T6 I2: Tab ke tombol hari merah di luar layar → wadah Gantt digulir lewat jalur applyLeft (setLeftRef,
+  // translateX panel seketika, jendela vp) sehingga hari itu di sepertiga kiri; panel ikut (wadah grafiknya tidak pernah
+  // digulir). Gulir oleh gestur pengguna: tata letak berubah sesudahnya tidak melompat kembali ke "hari ini". Tanpa tulisan.
+  const showDay = dn => {
+    const el = scrollRef.current;
+    if (!el || !Number.isFinite(dn)) return;
+    userScrolledRef.current = true;
+    applyLeft(el, TLLayout.xOf(dn, lay.range, lay.px) - vp.w / 3);
+  };
+  const showDayRef = React.useRef(null);
+  showDayRef.current = showDay;
+  const onShowDay = React.useRef(dn => showDayRef.current(dn)).current; // stabil (prop memo LoadPanel)
   const [blOpen, setBlOpen] = React.useState(false); // pemilih Baseline (1c-2)
   const [blDlg, setBlDlg] = React.useState(null); // dialog Simpan baseline: {id, bases (potret), rev, busy}
   const blDlgRef = React.useRef(null);
@@ -8201,7 +10513,9 @@ function TimelineViewBody(props) {
     collapse: compact,
     summary,
     onReschedule: openResched,
-    bl: blTool
+    bl: blTool,
+    loadOn,
+    setLoadOn: toggleLoad // 1d-1 T4 (R10); review akhir I1: gestur → gulir ke panel
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
@@ -8275,6 +10589,20 @@ function TimelineViewBody(props) {
     onApply: applyPv,
     onCancel: cancelPv
   }) : blDialog;
+  // 1d-1 Task 8: daftar "Hari kelebihan beban" (≤ 640 px) di bawah isi view (Gantt: sebelum legenda; Daftar: setelahnya).
+  const loadList = loadMShown && hasRows ? React.createElement(loadListMemo(), {
+    load,
+    cal: eng.ctx.cal,
+    result: eng.result,
+    ctx: eng.ctx,
+    pageKind,
+    boxRef: loadBoxRef,
+    editUid,
+    onEditPerson: setEditUid,
+    res: resEd,
+    onReveal,
+    capMissing
+  }) : null;
   if (!hasRows) {
     return /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline"
@@ -8289,7 +10617,7 @@ function TimelineViewBody(props) {
       rows: lay.rows,
       cal: lay.cal,
       onTaskClick: context.onTaskClick
-    }), dialog);
+    }), loadList, dialog);
   }
   const v = {
     lay,
@@ -8308,8 +10636,37 @@ function TimelineViewBody(props) {
     crit,
     bl: blDec,
     blOv,
-    actOv
+    actOv,
+    flash
   };
+  // 1d-1 Task 5: panel Beban Tim di bawah grafik, sebelum legenda — props primitif/stabil agar memo menahan render ulang.
+  const loadPanel = loadShown ? React.createElement(loadPanelMemo(), {
+    load,
+    cal: eng.ctx.cal,
+    result: eng.result,
+    ctx: eng.ctx,
+    rangeFrom: lay.range.from,
+    px: lay.px,
+    fromDn: dw.fromDn,
+    toDn: dw.toDn,
+    tableW,
+    viewW: vp.w,
+    pageKind,
+    trackRef: loadTrackRef,
+    boxRef: loadBoxRef,
+    getLeft,
+    onEditPerson: setEditUid,
+    onReveal,
+    editUid,
+    res: resEd,
+    // Task 7
+    onShowDay,
+    daysOpen: loadDaysOpen,
+    onDaysOpen: setLoadDaysOpen,
+    // review T4–T6 I2, I1b
+    getViewW,
+    capMissing // review akhir: lebar view langsung (showDay), tanda kapasitas belum termuat
+  }) : null;
   return /*#__PURE__*/React.createElement("div", {
     className: cx("plg-timeline", compact && "is-compact")
   }, top, bannerEl, /*#__PURE__*/React.createElement("div", {
@@ -8333,7 +10690,7 @@ function TimelineViewBody(props) {
       width: tableW,
       height: bodyH
     }
-  }, renderTableRows(v)), renderChart(v))), renderLegend(lay, footRef, crit, legendX), dialog);
+  }, renderTableRows(v)), renderChart(v))), loadPanel, loadList, renderLegend(lay, footRef, crit, legendX), dialog);
 }
 
 // 4g. Seksi "Jadwal" di detail task (Task 10; spec §8.8, Q5; R7, R8, R10, R15, R16, R17). Slot taskDetail.sections,
@@ -10608,6 +12965,38 @@ const pure = {
   cleanPref,
   PREF_DEFAULTS,
   PREF_CHOICES,
+  resRecId,
+  resourceStore,
+  useResources,
+  RES_ENTITY,
+  MSG_RES_STALE,
+  MSG_RES_WAIT,
+  MSG_RES_TOO_LARGE,
+  // 1d-1 Task 2
+  ResourceEditor,
+  resFormCheck,
+  resCaption,
+  MSG_RES_SAVE_FAIL,
+  MSG_RES_CAP_BAD,
+  MSG_RES_DATE_BAD,
+  // 1d-1 Task 7
+  usePref,
+  peopleOf,
+  useLoad,
+  // 1d-1 Task 3
+  LoadPanel,
+  loadHeadText,
+  loadTipText,
+  LOAD_HIT_MAX,
+  loadScaleOf,
+  // 1d-1 Task 5 (+ review T4–T6 I4)
+  SuggestPopover,
+  // 1d-1 Task 6
+  LoadList,
+  loadDayItems,
+  LOAD_M_MAX,
+  LOAD_M_PEOPLE_MAX,
+  // 1d-1 Task 8 (+ review T7–T8: batas chip orang)
   CAL_ENTITY,
   CAL_MAX_BYTES,
   MSG_CAL_TOO_LARGE,
@@ -10673,6 +13062,7 @@ if (typeof module !== "undefined" && module.exports) module.exports = Object.ass
   TLSched,
   TLCpm,
   TLPlan,
+  TLLoad,
   TLLayout,
   TLDrag
 }, pure);
