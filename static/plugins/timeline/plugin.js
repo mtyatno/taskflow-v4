@@ -5865,7 +5865,7 @@ function renderTableRows(v) {
       "aria-selected": r.task ? sel : undefined,
       "data-key": r.key,
       tabIndex: r.task ? -1 : undefined,
-      className: cx("plg-timeline-row", r.kind === "group" && "is-group", r.kind === "summary" && "is-summary", sel && "is-selected"),
+      className: cx("plg-timeline-row", r.kind === "group" && "is-group", r.kind === "summary" && "is-summary", sel && "is-selected", v.flash === r.key && "is-flash"),
       style: {
         top: r.index * rowH,
         height: rowH
@@ -5933,6 +5933,7 @@ function renderBar(r, box, y, v) {
   const t = r.task;
   const sel = isSel(t);
   const crit = v.crit && v.ov.crit.has(r.key); // 1c-1 R18: garis tepi merah, bukan isi
+  const flash = v.flash === r.key; // 1d-1 R7: kedip setelah "Bisa digeser"
   const title = rowCells(r).name;
   const aria = TLLayout.ariaBar(t, r.kind === "summary" ? {
     duration: r.duration
@@ -5958,7 +5959,7 @@ function renderBar(r, box, y, v) {
   });
   if (box.milestone) {
     return /*#__PURE__*/React.createElement("div", _extends({}, common, {
-      className: cx("plg-timeline-milestone", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical"),
+      className: cx("plg-timeline-milestone", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical", flash && "is-flash"),
       style: {
         transform: translate(g.x, g.top),
         width: g.w,
@@ -5968,7 +5969,7 @@ function renderBar(r, box, y, v) {
   }
   if (r.kind === "summary") {
     return /*#__PURE__*/React.createElement("div", _extends({}, common, {
-      className: cx("plg-timeline-summary", r.late > 0 && "is-late", sel && "is-selected"),
+      className: cx("plg-timeline-summary", r.late > 0 && "is-late", sel && "is-selected", flash && "is-flash"),
       style: {
         transform: translate(g.x, g.top),
         width: g.w,
@@ -5978,7 +5979,7 @@ function renderBar(r, box, y, v) {
   }
   const pct = r.done ? 100 : Math.round(r.progress);
   return /*#__PURE__*/React.createElement("div", _extends({}, common, {
-    className: cx("plg-timeline-bar", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical"),
+    className: cx("plg-timeline-bar", r.done && "is-done", r.late > 0 && "is-late", sel && "is-selected", crit && "is-critical", flash && "is-flash"),
     style: {
       transform: translate(g.x, g.top),
       width: g.w,
@@ -6296,6 +6297,22 @@ const LOAD_HATCH = 6; // jarak garis arsir cuti (px, diagonal 45°)
 const LOAD_HIT_MAX = 150;
 const MSG_LOAD_PARTIAL = "Hanya beban dari project ini"; // P3 (a): halaman project pribadi
 const LOAD_POP_W = 340; // = width .plg-timeline-pop (perataan popover saran)
+const LOAD_FLASH_MS = 1500; // R7: kedip baris/bar hasil "Bisa digeser"
+// Popover saran (§7.4, K50, R6): label jenis selain free; teks kosong bila tidak ada task free.
+const MSG_SUG_EMPTY = "Tidak ada task yang bisa digeser tanpa menggeser jalur kritis";
+const SUG_KIND = Object.freeze({
+  critical: "Kritis",
+  manual: "Manual",
+  started: "Sudah mulai",
+  late: "terlambat"
+});
+const sugTitle = (name, dn) => "Bisa digeser — " + name + ", " + TLCal.fmtShort(dn);
+// "{judul} · {n} 🍅 hari ini" (+ " · slack {s} hk" untuk free). Judul = taskTitle (sama dengan baris Gantt: dipangkas,
+// kosong → "Tanpa judul"; CSS memotong dengan elipsis); n = TLLoad.fmtPomo(porsi hari itu).
+function sugText(it) {
+  const head = taskTitle(it.task) + " · " + TLLoad.fmtPomo(it.share) + " 🍅 hari ini";
+  return it.kind === "free" ? head + " · slack " + Math.round(it.slack) + " hk" : head;
+}
 
 // Judul panel (§7.2, §8): n = Σ pasangan orang×hari merah (semua baris, seluruh rentang); "· {m} task belum dijadwalkan"
 // bila ada; "· {k} task bertarget bawaan 1 🍅" bila k > 25 % task berbeban (counted). Murni.
@@ -6456,7 +6473,8 @@ function loadPanelMemo() {
 }
 
 // props: {load, cal (eng.ctx.cal), result, ctx (eng.ctx), rangeFrom, px, fromDn, toDn (dw), tableW, viewW, pageKind,
-// trackRef (isi grafik, translateX), boxRef (akar, diukur view), getLeft() (scrollLeft wadah Gantt), onEditPerson(uid)}.
+// trackRef (isi grafik, translateX), boxRef (akar, diukur view), getLeft() (scrollLeft wadah Gantt), onEditPerson(uid),
+// onReveal(key, task) (Task 6: revealRow view)}.
 function LoadPanel(props) {
   const p = props;
   const load = p.load;
@@ -6464,14 +6482,35 @@ function LoadPanel(props) {
   const [tip, setTip] = React.useState(null); // readout hover {i, dn, flip}
   const tipRef = React.useRef(null);
   tipRef.current = tip;
-  const [, setPop] = React.useState(null); // hari merah terpilih {uid, dn, left} — popover saran (Task 6)
+  const [pop, setPop] = React.useState(null); // hari merah terpilih {uid, dn, left} — popover saran (Task 6)
   const popBtnRef = React.useRef(null); // tombol pemicu (fokus kembali)
   const viewRef = React.useRef(null);
   const live = React.useRef(null);
   live.current = {
     p,
-    model
+    model,
+    pop
   };
+  // Task 6 (§7.4, R6): kontributor hari merah lewat TLLoad.suggest (murni) atas keluaran beban + hasil/ctx mesin yang sama.
+  // Orang hilang / hari tidak lagi merah (data berubah saat terbuka) → popover ditutup.
+  const sug = React.useMemo(() => {
+    if (!pop) return null;
+    const row = load.rows.find(r => r.uid === pop.uid);
+    if (!row || row.overDays.indexOf(pop.dn) < 0) return null;
+    const c = p.ctx || {};
+    return {
+      name: row.name,
+      items: TLLoad.suggest(load, pop.uid, pop.dn, {
+        result: p.result,
+        units: c.units,
+        readExt: c.readExt,
+        tasks: c.tasks
+      })
+    };
+  }, [pop, load, p.result, p.ctx]);
+  React.useEffect(() => {
+    if (pop && !sug) setPop(null);
+  }, [pop, sug]);
   // R5: posisi isi grafik = −scrollLeft wadah Gantt saat panel dirender (jendela/zoom berubah); selebihnya disetel handler
   // gulir view langsung lewat trackRef.
   React.useLayoutEffect(() => {
@@ -6480,8 +6519,14 @@ function LoadPanel(props) {
   });
   const act = React.useRef(null);
   act.current = {
+    // Klik tombol hari merah: buka popover (rata kiri di hari itu, dijepit ke lebar panel); pemicu yang sama → tutup.
     openSug(uid, dn, e) {
       const L = live.current.p;
+      const cur = live.current.pop;
+      if (cur && cur.uid === uid && cur.dn === dn) {
+        setPop(null);
+        return;
+      }
       popBtnRef.current = e && e.currentTarget ? e.currentTarget : null;
       const box = L.boxRef ? L.boxRef.current : null;
       const W = box && box.clientWidth > 0 ? box.clientWidth : L.tableW + L.viewW;
@@ -6494,6 +6539,17 @@ function LoadPanel(props) {
     }
   };
   const onHit = React.useRef((e, uid, dn) => act.current.openSug(uid, dn, e)).current;
+  // Esc / Tutup → fokus kembali ke tombol hari pemicu; klik luar tidak (fokus sudah pindah ke target klik).
+  const closeSug = how => {
+    setPop(null);
+    const b = popBtnRef.current;
+    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+  };
+  // Klik baris saran → popover ditutup lalu view memilih + menggulir ke bar (R7). Tanpa tulisan.
+  const pickSug = it => {
+    setPop(null);
+    if (typeof p.onReveal === "function") p.onReveal(it.key, it.task);
+  };
   // Readout hover: baris dari y lokal (clientY − atas wadah grafik), hari dari TLLayout.dnAt(x lokal + scrollLeft); setState
   // HANYA bila (baris, hari) berubah (tipRef diperbarui seketika agar gerak beruntun sebelum render tidak menyetel ulang).
   const onMove = e => {
@@ -6616,7 +6672,70 @@ function LoadPanel(props) {
   }, /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-load-track",
     ref: p.trackRef
-  }, chart, tipEl))));
+  }, chart, tipEl))), pop && sug ? /*#__PURE__*/React.createElement(SuggestPopover, {
+    key: pop.uid + ":" + pop.dn,
+    title: sugTitle(sug.name, pop.dn),
+    items: sug.items,
+    left: pop.left,
+    onPick: pickSug,
+    onClose: closeSug
+  }) : null);
+}
+
+// Popover "Bisa digeser" (Task 6; spec §7.4, K50). items = TLLoad.suggest (urutan R6 apa adanya): free → "{judul} · {n} 🍅
+// hari ini · slack {s} hk"; lainnya → "{judul} · {n} 🍅 hari ini" + label jenis. Tanpa free → pesan di atas daftar. Pola
+// UnitPopover: fokus ke dialog saat dibuka, useDismiss (Esc → fokus kembali; klik luar; tombol hari merah lain ditangani
+// tombolnya sendiri). Klik baris → onPick(item). Hanya baca.
+function SuggestPopover(props) {
+  const items = Array.isArray(props.items) ? props.items : [];
+  const rootRef = React.useRef(null);
+  const closeRef = React.useRef(props.onClose);
+  closeRef.current = props.onClose;
+  const close = restoreFocus => {
+    if (typeof closeRef.current === "function") closeRef.current({
+      restoreFocus
+    });
+  };
+  React.useEffect(() => {
+    const el = rootRef.current;
+    if (el && typeof el.focus === "function") el.focus();
+  }, []);
+  useDismiss(true, rootRef, how => close(how === "key"), ".plg-timeline-load-hit");
+  const free = items.some(it => it.kind === "free");
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop plg-timeline-load-pop",
+    role: "dialog",
+    "aria-label": props.title,
+    tabIndex: -1,
+    ref: rootRef,
+    style: {
+      left: props.left
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop-head"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-pop-title"
+  }, props.title), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-pop-close",
+    "aria-label": "Tutup",
+    onClick: () => close(true)
+  }, "\xD7")), free ? null : /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note"
+  }, MSG_SUG_EMPTY), items.length ? /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-load-sug"
+  }, items.map(it => /*#__PURE__*/React.createElement("li", {
+    key: it.key,
+    className: "plg-timeline-load-sug-item"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-load-sug-btn",
+    onClick: () => props.onPick(it)
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-load-sug-text"
+  }, sugText(it)), it.kind === "free" ? null : /*#__PURE__*/React.createElement("span", {
+    className: cx("plg-timeline-load-sug-kind", "is-" + it.kind)
+  }, SUG_KIND[it.kind]))))) : null);
 }
 
 // 4f. Kalender kerja (Task 9; R18, keputusan pemilik U1) dan Daftar HP (R20, U3).
@@ -8861,6 +8980,71 @@ function TimelineViewBody(props) {
   const [unitOpen, setUnitOpen] = React.useState(false);
   // 1d-1 Task 5: nama orang di panel Beban Tim → editor kapasitas/cuti (Task 7 membaca editUid). Penyetel state = stabil.
   const [editUid, setEditUid] = React.useState(null);
+  // 1d-1 Task 6 (R7): "pilih + gulir" dari popover saran, TANPA tulisan. Baris ada di lay.rows (kunci String(task.id)) →
+  // scrollTop = indeks × rowH − tinggi viewport/3 (≥ 0), scrollLeft = xOf(awal bar) − lebar viewport/3 (≥ 0; tanpa rentang
+  // hanya scrollTop), jendela vp diperbarui seketika (tanpa menunggu event scroll), panel Beban Tim ikut, lalu baris + bar
+  // berkelas is-flash LOAD_FLASH_MS (timer dibersihkan saat unmount) dan fokus pindah ke bar (popover sudah tertutup).
+  // Tidak ada di lay.rows (disembunyikan filter panel) → context.onTaskClick(task) membuka detail.
+  const [flash, setFlash] = React.useState(null);
+  const flashTimer = React.useRef(null);
+  React.useEffect(() => () => {
+    if (flashTimer.current !== null) clearTimeout(flashTimer.current);
+    flashTimer.current = null;
+  }, []);
+  const revealRow = (key, task) => {
+    const k = String(key);
+    const i = lay.rows.findIndex(r => !!r.task && r.key === k);
+    const el = scrollRef.current;
+    if (i < 0 || !el) {
+      if (task && typeof context.onTaskClick === "function") context.onTaskClick(task);
+      return;
+    }
+    const r = lay.rows[i];
+    userScrolledRef.current = true; // tata letak berubah sesudahnya tidak melompat kembali ke "hari ini"
+    el.scrollTop = Math.max(0, Math.round(i * rowH - vp.h / 3));
+    if (r.span) {
+      el.scrollLeft = Math.max(0, Math.round(TLLayout.xOf(r.span.s, lay.range, lay.px) - vp.w / 3));
+      setLeftRef.current = el.scrollLeft;
+    }
+    syncLoadLeft(el.scrollLeft);
+    const top = quantTop(el.scrollTop, rowH);
+    const left = el.scrollLeft;
+    setVp(p => {
+      const ql = quantLeft(left, p.w);
+      return p.top === top && p.left === ql ? p : Object.assign({}, p, {
+        top,
+        left: ql
+      });
+    });
+    if (flashTimer.current !== null) clearTimeout(flashTimer.current);
+    setFlash(k);
+    flashTimer.current = setTimeout(() => {
+      flashTimer.current = null;
+      setFlash(null);
+    }, LOAD_FLASH_MS);
+    raf(() => focusBar(k));
+  };
+  // Fokus ke bar baris yang dipilih (role button, data-key) tanpa menggulir lagi; hanya bila ada di DOM.
+  const focusBar = k => {
+    const root = scrollRef.current;
+    if (!root || typeof root.querySelectorAll !== "function") return;
+    const list = root.querySelectorAll("[data-key]");
+    for (let n = 0; n < list.length; n++) {
+      const node = list[n];
+      if (node.getAttribute("data-key") !== k || node.getAttribute("role") !== "button") continue;
+      try {
+        node.focus({
+          preventScroll: true
+        });
+      } catch (err) {
+        /* elemen tidak bisa difokus */
+      }
+      return;
+    }
+  };
+  const revealRef = React.useRef(null);
+  revealRef.current = revealRow;
+  const onReveal = React.useRef((k, t) => revealRef.current(k, t)).current; // stabil (prop memo LoadPanel)
   const [blOpen, setBlOpen] = React.useState(false); // pemilih Baseline (1c-2)
   const [blDlg, setBlDlg] = React.useState(null); // dialog Simpan baseline: {id, bases (potret), rev, busy}
   const blDlgRef = React.useRef(null);
@@ -9480,7 +9664,8 @@ function TimelineViewBody(props) {
     crit,
     bl: blDec,
     blOv,
-    actOv
+    actOv,
+    flash
   };
   // 1d-1 Task 5: panel Beban Tim di bawah grafik, sebelum legenda — props primitif/stabil agar memo menahan render ulang.
   const loadPanel = loadShown ? React.createElement(loadPanelMemo(), {
@@ -9498,7 +9683,8 @@ function TimelineViewBody(props) {
     trackRef: loadTrackRef,
     boxRef: loadBoxRef,
     getLeft,
-    onEditPerson: setEditUid
+    onEditPerson: setEditUid,
+    onReveal
   }) : null;
   return /*#__PURE__*/React.createElement("div", {
     className: cx("plg-timeline", compact && "is-compact")
@@ -11815,6 +12001,8 @@ const pure = {
   loadTipText,
   LOAD_HIT_MAX,
   // 1d-1 Task 5
+  SuggestPopover,
+  // 1d-1 Task 6
   CAL_ENTITY,
   CAL_MAX_BYTES,
   MSG_CAL_TOO_LARGE,

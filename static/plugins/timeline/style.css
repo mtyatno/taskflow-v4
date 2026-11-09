@@ -2114,3 +2114,104 @@
 .plg-timeline-load-tip.is-flip {
   transform: translateX(-100%);
 }
+
+/* Popover "Bisa digeser" (Task 6, §7.4): pola .plg-timeline-pop, membuka KE ATAS panel (panel berada di bawah Gantt, sering
+   di tepi bawah layar); left disetel JS di hari yang diklik. */
+.plg-timeline-load-pop {
+  top: auto;
+  bottom: 100%;
+  margin-bottom: 4px;
+}
+
+.plg-timeline-load-sug {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plg-timeline-load-sug-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.plg-timeline-load-sug-btn:hover {
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-load-sug-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.plg-timeline-load-sug-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.plg-timeline-load-sug-kind {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+
+.plg-timeline-load-sug-kind.is-late {
+  color: var(--plg-timeline-danger);
+}
+
+/* revealRow (R7): kedip singkat baris tabel + bar setelah memilih saran */
+@keyframes plg-timeline-flash {
+  from {
+    box-shadow: 0 0 0 3px var(--accent);
+  }
+  to {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+@keyframes plg-timeline-flash-row {
+  from {
+    background: color-mix(in srgb, var(--accent) 28%, var(--bg-card));
+  }
+}
+
+.plg-timeline-bar.is-flash,
+.plg-timeline-summary.is-flash,
+.plg-timeline-milestone.is-flash {
+  animation: plg-timeline-flash 1.5s ease-out 1;
+}
+
+.plg-timeline-row.is-flash {
+  animation: plg-timeline-flash-row 1.5s ease-out 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plg-timeline-bar.is-flash,
+  .plg-timeline-summary.is-flash,
+  .plg-timeline-milestone.is-flash,
+  .plg-timeline-row.is-flash {
+    animation: none;
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+}

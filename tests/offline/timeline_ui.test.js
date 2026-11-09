@@ -7852,3 +7852,255 @@ test("T5 CSS panel: kelas .plg-timeline-load-* hanya token tema (kapasitas --bg-
   assert.doesNotMatch(block, /border-left\s*:/, "tanpa border-left aksen");
   assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 6: popover saran (spec §7.4, K50, R6) + revealRow (R7)
+// ════════════════════════════════════════════════════════════════════════════
+// Workspace 12, unit P0 dan P1 Otomatis. Budi (9) kapasitas 2; Rab 4 Nov = 12 🍅 → merah, kontributor semua jenis R6:
+//   Ikon 3 🍅 slack 9 (free) · Warna 1 🍅 slack 8 (free) · Fondasi 1 🍅 (kritis, jalur terpanjang P0) · Pin 1 🍅 (mode
+//   manual eksplisit di unit Otomatis) · Berjalan 2 🍅 (progress 30) · Tunggakan 4 🍅 (selesai Sen 26 Okt → terlambat, di T).
+// Citra (11) Rab 4 Nov: Besar 20 🍅 sendirian di P1 → kritis saja (tanpa free).
+// Sepuluh task isi selesai (dibuat lebih dulu) mendorong baris task P0 ke indeks 11–16 agar scrollTop > 0; Tanpa jadwal
+// (id 8) = baris tanpa rentang.
+function sugTasks() {
+  const L0 = { list_id: 12, project: "P0" };
+  const L1 = { list_id: 12, project: "P1" };
+  const fill = [];
+  for (let k = 0; k < 10; k++) {
+    fill.push(mk(60 + k, "Isi " + k, { start: "2026-10-01", duration: 1 }, Object.assign({ gtd_status: "done", completed_at: "2026-10-01T03:00:00Z", created_at: "2026-09-01T00:00:0" + k + "Z" }, L0)));
+  }
+  return fill.concat([
+    mk(1, "Fondasi", { start: "2026-11-04", duration: 10 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 10 }, L0)),
+    mk(2, "Ikon", { start: "2026-11-04", duration: 1 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 3 }, L0)),
+    mk(3, "Warna", { start: "2026-11-04", duration: 2 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 2 }, L0)),
+    mk(4, "Pin", { start: "2026-11-04", duration: 1, mode: "manual" }, Object.assign({ assigned_to: 9, estimated_pomodoros: 1 }, L0)),
+    mk(5, "Berjalan", { start: "2026-11-04", duration: 1 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 2, progress: 30 }, L0)),
+    mk(6, "Tunggakan", { start: "2026-10-26", duration: 1 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 4 }, L0)),
+    mk(7, "Besar", { start: "2026-11-04", duration: 1 }, Object.assign({ assigned_to: 11, estimated_pomodoros: 20 }, L1)),
+    mk(8, "Tanpa jadwal", {}, Object.assign({ assigned_to: 9 }, L0)),
+  ]);
+}
+function sugRecords() {
+  const fr = fakeRecords();
+  putRec(fr, unitRec(12, "P0"));
+  putRec(fr, unitRec(12, "P1"));
+  putRec(fr, resRec(12, 9, { capacity: 2, leave: [] }));
+  return fr;
+}
+const sugOf = (pt) => nodes(pt, (n) => n.type === T.SuggestPopover)[0];
+const sugRows = (spt) => byCls(spt, "plg-timeline-load-sug-btn").map((b) => {
+  const k = byCls(b, "plg-timeline-load-sug-kind")[0];
+  return [txt(byCls(b, "plg-timeline-load-sug-text")[0]).trim(), k ? txt(k).trim() : null];
+});
+const hitOf = (pt, label) => panelHits(pt).find((b) => b.props["aria-label"].indexOf(label) === 0);
+// Panel view (props asli dari view, termasuk onReveal) dipasang sendiri; tombol pemicu palsu mencatat fokus.
+function sugPanel(h) {
+  const node = panelOf(h.tree);
+  const pm = mount(T.LoadPanel);
+  const ph = { node, pm, props: node.props, tree: pm.render(node.props) };
+  ph.render = () => (ph.tree = pm.render(ph.props));
+  ph.open = (label) => {
+    const btn = { focused: 0, focus() { this.focused++; } };
+    hitOf(ph.tree, label).props.onClick({ currentTarget: btn });
+    ph.render();
+    return btn;
+  };
+  return ph;
+}
+
+test("T6 popover saran: klik tombol hari merah → dialog 'Bisa digeser — {nama}, {tgl}'; baris persis free '{judul} · {n} 🍅 hari ini · slack {s} hk', lainnya + label 'Kritis'/'Manual'/'Sudah mulai'/'terlambat'; urutan = TLLoad.suggest; 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const ph = sugPanel(h);
+  assert.equal(sugOf(ph.tree), undefined, "tertutup bawaan");
+  assert.deepEqual(panelHits(ph.tree).map((b) => b.props["aria-label"]), [
+    "Budi · Rab 4 Nov: 12 dari 2 🍅 (~5 jam)",
+    "Citra · Rab 4 Nov: 20 dari 8 🍅 (~8.5 jam)",
+  ]);
+  ph.open("Budi · Rab 4 Nov");
+  const sp = sugOf(ph.tree);
+  assert.ok(sp, "popover terbuka");
+  assert.equal(sp.props.title, "Bisa digeser — Budi, Rab 4 Nov");
+  const p = ph.props;
+  const want = T.TLLoad.suggest(p.load, 9, dnOfIso("2026-11-04"), { result: p.result, units: p.ctx.units, readExt: p.ctx.readExt, tasks: p.ctx.tasks });
+  assert.deepEqual(sp.props.items.map((s) => [s.key, s.kind]), want.map((s) => [s.key, s.kind]), "urutan = suggest");
+  assert.deepEqual(want.map((s) => s.kind), ["free", "free", "critical", "manual", "started", "late"]);
+  const spt = child(sp);
+  const dlg = nodes(spt, (n) => n.props.role === "dialog")[0];
+  assert.ok(dlg && hasCls(dlg, "plg-timeline-pop") && hasCls(dlg, "plg-timeline-load-pop"));
+  assert.equal(dlg.props["aria-label"], "Bisa digeser — Budi, Rab 4 Nov");
+  assert.equal(dlg.props.tabIndex, -1);
+  assert.equal(txt(nodes(spt, (n) => n.type === "h3")[0]).trim(), "Bisa digeser — Budi, Rab 4 Nov");
+  assert.deepEqual(sugRows(spt), [
+    ["Ikon · 3 🍅 hari ini · slack 9 hk", null],
+    ["Warna · 1 🍅 hari ini · slack 8 hk", null],
+    ["Fondasi · 1 🍅 hari ini", "Kritis"],
+    ["Pin · 1 🍅 hari ini", "Manual"],
+    ["Berjalan · 2 🍅 hari ini", "Sudah mulai"],
+    ["Tunggakan · 4 🍅 hari ini", "terlambat"],
+  ]);
+  for (const b of byCls(spt, "plg-timeline-load-sug-btn")) assert.equal(b.props.type, "button");
+  assert.equal(byCls(spt, "plg-timeline-pop-note").length, 0, "ada free → tanpa pesan kosong");
+  assert.equal(typeof dlg.props.style.left, "number");
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+  ph.pm.unmount();
+  h.m.unmount();
+}));
+
+test("T6 popover tanpa free → paragraf persis 'Tidak ada task yang bisa digeser tanpa menggeser jalur kritis' di atas daftar sisanya", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const ph = sugPanel(h);
+  ph.open("Citra · Rab 4 Nov");
+  const sp = sugOf(ph.tree);
+  assert.equal(sp.props.title, "Bisa digeser — Citra, Rab 4 Nov");
+  const spt = child(sp);
+  const dlg = nodes(spt, (n) => n.props.role === "dialog")[0];
+  const note = byCls(spt, "plg-timeline-pop-note");
+  assert.equal(note.length, 1);
+  assert.equal(txt(note[0]).trim(), "Tidak ada task yang bisa digeser tanpa menggeser jalur kritis");
+  assert.deepEqual(sugRows(spt), [["Besar · 20 🍅 hari ini", "Kritis"]]);
+  const kids = dlg.children.filter((c) => c && typeof c === "object");
+  assert.ok(kids.indexOf(note[0]) < kids.findIndex((c) => hasCls(c, "plg-timeline-load-sug")), "pesan di atas daftar");
+  ph.pm.unmount();
+  h.m.unmount();
+}));
+
+test("T6 SuggestPopover: fokus ke dialog saat dibuka; Esc (fase tangkap, propagasi dihentikan) → tutup + fokus kembali; klik luar → tutup tanpa fokus; tombol hari merah lain tidak menutup; Tutup → fokus kembali; pendengar dilepas", () => withPop(async (w) => {
+  const closes = [];
+  const props = { title: "Bisa digeser — Budi, Rab 4 Nov", items: [], left: 40, onPick() {}, onClose: (a) => closes.push(a) };
+  const m = mount(T.SuggestPopover);
+  const tree = m.render(props);
+  const rootEl = { focused: 0, focus() { this.focused++; }, contains: (t) => t === rootEl };
+  nodes(tree, (n) => n.props.role === "dialog")[0].props.ref.current = rootEl;
+  m.flush();
+  assert.equal(rootEl.focused, 1);
+  assert.equal(txt(byCls(tree, "plg-timeline-pop-note")[0]).trim(), "Tidak ada task yang bisa digeser tanpa menggeser jalur kritis", "daftar kosong");
+  let stopped = 0;
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped++; } });
+  assert.deepEqual(closes, [{ restoreFocus: true }]);
+  assert.equal(stopped, 1);
+  w.fire("pointerdown", { target: { closest: (sel) => (sel === ".plg-timeline-load-hit" ? {} : null) } });
+  assert.equal(closes.length, 1, "tombol hari merah lain ditangani tombolnya (ganti hari)");
+  w.fire("pointerdown", { target: rootEl });
+  assert.equal(closes.length, 1, "klik di dalam");
+  w.fire("pointerdown", { target: { closest: () => null } });
+  assert.deepEqual(closes[1], { restoreFocus: false });
+  nodes(tree, (n) => n.type === "button" && n.props["aria-label"] === "Tutup")[0].props.onClick({});
+  assert.deepEqual(closes[2], { restoreFocus: true });
+  m.unmount();
+  assert.equal(w.ls.filter((l) => l.type === "keydown" || l.type === "pointerdown").length, 0);
+}));
+
+test("T6 LoadPanel: onClose restoreFocus → popover tertutup + fokus kembali ke tombol hari merah pemicu; klik luar tanpa fokus; klik pemicu yang sama lagi → tertutup (toggle); tombol hari lain → ganti hari", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const ph = sugPanel(h);
+  const btn = ph.open("Budi · Rab 4 Nov");
+  sugOf(ph.tree).props.onClose({ restoreFocus: true });
+  ph.render();
+  assert.equal(sugOf(ph.tree), undefined);
+  assert.equal(btn.focused, 1, "fokus kembali ke pemicu");
+  const b2 = ph.open("Budi · Rab 4 Nov");
+  sugOf(ph.tree).props.onClose({ restoreFocus: false });
+  ph.render();
+  assert.equal(sugOf(ph.tree), undefined);
+  assert.equal(b2.focused, 0);
+  ph.open("Budi · Rab 4 Nov");
+  ph.open("Budi · Rab 4 Nov");
+  assert.equal(sugOf(ph.tree), undefined, "pemicu sama → tutup");
+  ph.open("Budi · Rab 4 Nov");
+  ph.open("Citra · Rab 4 Nov");
+  assert.equal(sugOf(ph.tree).props.title, "Bisa digeser — Citra, Rab 4 Nov", "hari lain → ganti isi");
+  ph.pm.unmount();
+  assert.deepEqual(h.writes, []);
+  h.m.unmount();
+}));
+
+test("T6 revealRow (R7): klik baris saran → popover tertutup; scrollTop = indeks × rowH − tinggi viewport/3, scrollLeft = xOf(Mulai bar) − lebar viewport/3; bar + baris is-flash 1,5 dtk (jam palsu); panel ikut bergeser; tanpa rentang → hanya scrollTop; unmount membersihkan timer; 0 tulis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const el = fakeEl();
+  h.tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  h.render();
+  const ph = sugPanel(h);
+  const track = { style: {} };
+  ph.props.trackRef.current = track;
+  assert.equal(typeof ph.props.onReveal, "function");
+  ph.open("Budi · Rab 4 Nov");
+  const ikon = sugOf(ph.tree).props.items.find((s) => s.key === "2");
+  sugOf(ph.tree).props.onPick(ikon);
+  ph.render();
+  assert.equal(sugOf(ph.tree), undefined, "popover ditutup");
+  h.render();
+  const i = rowOf(h.tree, "2").props["aria-rowindex"] - 2;
+  assert.equal(i, 12, "baris Ikon setelah kelompok + 10 isi + Fondasi");
+  assert.equal(el.scrollTop, Math.round(i * 32 - 600 / 3), "baris di sepertiga atas");
+  const wantLeft = Math.round((dnOfIso("2026-11-04") - ph.props.rangeFrom) * ph.props.px - 1000 / 3);
+  assert.equal(el.scrollLeft, Math.max(0, wantLeft), "awal bar di sepertiga kiri");
+  assert.equal(track.style.transform, "translateX(-" + el.scrollLeft + "px)", "panel mengikuti");
+  const flashed = () => nodes(h.tree, (n) => hasCls(n, "is-flash")).map((n) => [n.props.role, n.props["data-key"]]);
+  assert.deepEqual(flashed(), [["row", "2"], ["button", "2"]], "baris tabel + bar");
+  assert.ok(hasCls(barOf(h.tree, "2"), "plg-timeline-bar"));
+  clock.tick(1499);
+  h.render();
+  assert.equal(flashed().length, 2, "masih berkedip sebelum 1,5 dtk");
+  clock.tick(1);
+  h.render();
+  assert.deepEqual(flashed(), [], "hilang setelah 1,5 dtk");
+  // tanpa rentang: hanya scrollTop
+  const left0 = el.scrollLeft;
+  const t8 = h.tasks.find((t) => t.id === 8);
+  ph.props.onReveal("8", t8);
+  h.render();
+  const i8 = rowOf(h.tree, "8").props["aria-rowindex"] - 2;
+  assert.equal(el.scrollTop, Math.max(0, Math.round(i8 * 32 - 200)));
+  assert.equal(el.scrollLeft, left0, "tanpa rentang → scrollLeft tetap");
+  assert.deepEqual(flashed(), [["row", "8"]], "baris tanpa bar tetap berkedip");
+  // unmount sebelum 1,5 dtk → timer dibersihkan (tanpa setState sesudahnya)
+  const n0 = h.m.setCalls.length;
+  h.m.unmount();
+  clock.tick(5000);
+  assert.equal(h.m.setCalls.length, n0, "timer dibersihkan saat unmount");
+  assert.deepEqual(h.clicked, [], "baris ada di Gantt → tidak membuka detail");
+  assert.deepEqual(h.writes, [], "revealRow tanpa tulisan");
+  assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+  ph.pm.unmount();
+}));
+
+test("T6 revealRow: task tersaring filter panel (ada di daftar lengkap, tidak di lay.rows) → context.onTaskClick(task) membuka detail, tanpa gulir/kedip; 0 tulis", () => withEngineClock(async (clock) => {
+  const all = sugTasks();
+  const shown = all.filter((t) => t.id !== 2); // filter panel menyembunyikan Ikon
+  const h = await panelView(clock, { tasks: shown, listOf: () => all, records: sugRecords() });
+  const el = fakeEl();
+  h.tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  h.render();
+  assert.equal(rowOf(h.tree, "2"), undefined, "Ikon tidak di Gantt");
+  const ph = sugPanel(h);
+  ph.open("Budi · Rab 4 Nov");
+  const sp = sugOf(ph.tree);
+  assert.ok(sp.props.items.some((s) => s.key === "2"), "beban task tersaring tetap terhitung (R2)");
+  const top0 = el.scrollTop;
+  const left0 = el.scrollLeft;
+  sp.props.onPick(sp.props.items.find((s) => s.key === "2"));
+  ph.render();
+  assert.equal(sugOf(ph.tree), undefined);
+  assert.deepEqual(h.clicked.map((t) => [t.id, t.title]), [[2, "Ikon"]]);
+  assert.deepEqual([el.scrollTop, el.scrollLeft], [top0, left0]);
+  h.render();
+  assert.equal(nodes(h.tree, (n) => hasCls(n, "is-flash")).length, 0);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+  ph.pm.unmount();
+  h.m.unmount();
+}));
+
+test("T6 CSS: kedip is-flash memakai var(--accent) (animasi singkat), prefers-reduced-motion tanpa animasi; popover saran membuka ke atas panel", () => {
+  assert.match(css, /@keyframes plg-timeline-flash[^{]*\{[^@]*var\(--accent\)/);
+  assert.match(css, /\.plg-timeline-row\.is-flash[^{]*\{[^}]*animation:\s*plg-timeline-flash/);
+  assert.match(css, /\.plg-timeline-bar\.is-flash/);
+  const rm = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
+  assert.ok(rm.length > 0 && /is-flash[^{]*\{[^}]*animation:\s*none/.test(rm), "reduced motion");
+  assert.match(css, /\.plg-timeline-load-pop\s*\{[^}]*bottom:\s*100%/);
+});
