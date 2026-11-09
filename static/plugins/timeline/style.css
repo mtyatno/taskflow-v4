@@ -2321,3 +2321,110 @@
     font-size: 16px;
   }
 }
+
+/* ── 1d-1 Task 8: Beban Tim versi HP (≤ 640 px; spec §7.6; rencana R10) ─────────────────────────────────────────────
+   Daftar "Hari kelebihan beban" menggantikan histogram: tanpa SVG dan tanpa lebar tetap (muat 375 px tanpa gulir
+   horizontal). Popover saran / editor membuka KE BAWAH pemicunya (item / baris chip), lebar maks 100vw − 32 px. */
+.plg-timeline-load-m {
+  position: relative;
+  z-index: 5;
+  min-width: 0;
+  padding-bottom: 8px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.plg-timeline-load-m-people {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 8px 8px;
+}
+
+.plg-timeline-load-m-person {
+  max-width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.plg-timeline-load-m-person[aria-expanded="true"] {
+  border-color: var(--accent);
+}
+
+.plg-timeline-load-m-sub {
+  margin: 0;
+  padding: 8px 8px 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  border-top: 1px solid var(--border);
+}
+
+.plg-timeline-load-m-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plg-timeline-load-m-item {
+  position: relative;
+  min-width: 0;
+}
+
+.plg-timeline-load-m-day {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 36px;
+  padding: 8px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--plg-timeline-danger) 8%, transparent);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.plg-timeline-load-m-day:hover,
+.plg-timeline-load-m-day[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--plg-timeline-danger) 16%, transparent);
+}
+
+.plg-timeline-load-m-person:focus-visible,
+.plg-timeline-load-m-day:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.plg-timeline-load-m-more {
+  margin: 4px 8px 0;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-load-m .plg-timeline-pop {
+  top: 100%;
+  bottom: auto;
+  margin: 4px 0 0;
+  max-width: min(calc(100% - 16px), calc(100vw - 32px));
+}

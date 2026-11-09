@@ -6487,6 +6487,24 @@ function loadModel(load, cal, fromDn, toDn, rangeFrom, px) {
 }
 const loadShift = left => "translateX(" + -(Number(left) || 0) + "px)";
 
+// Isi popover saran untuk hari merah terpilih pop = {uid, dn} (Task 6; dipakai panel desktop dan daftar HP Task 8):
+// {name, items: TLLoad.suggest(...)} atau null bila tidak ada pilihan / orang hilang / hari tidak lagi merah. Murni.
+function loadSug(load, pop, result, ctx) {
+  if (!pop || !load || !Array.isArray(load.rows)) return null;
+  const row = load.rows.find(r => r.uid === pop.uid);
+  if (!row || row.overDays.indexOf(pop.dn) < 0) return null;
+  const c = ctx || {};
+  return {
+    name: row.name,
+    items: TLLoad.suggest(load, pop.uid, pop.dn, {
+      result,
+      units: c.units,
+      readExt: c.readExt,
+      tasks: c.tasks
+    })
+  };
+}
+
 // React.memo dibuat malas (pola memoView): panel tidak dirender ulang selama props (data, jendela, ref, callback stabil)
 // sama — gulir di dalam kuantum yang sama dan render ulang view karena hal lain tidak menyentuhnya.
 let MemoLoad = null;
@@ -6517,21 +6535,7 @@ function LoadPanel(props) {
   };
   // Task 6 (§7.4, R6): kontributor hari merah lewat TLLoad.suggest (murni) atas keluaran beban + hasil/ctx mesin yang sama.
   // Orang hilang / hari tidak lagi merah (data berubah saat terbuka) → popover ditutup.
-  const sug = React.useMemo(() => {
-    if (!pop) return null;
-    const row = load.rows.find(r => r.uid === pop.uid);
-    if (!row || row.overDays.indexOf(pop.dn) < 0) return null;
-    const c = p.ctx || {};
-    return {
-      name: row.name,
-      items: TLLoad.suggest(load, pop.uid, pop.dn, {
-        result: p.result,
-        units: c.units,
-        readExt: c.readExt,
-        tasks: c.tasks
-      })
-    };
-  }, [pop, load, p.result, p.ctx]);
+  const sug = React.useMemo(() => loadSug(load, pop, p.result, p.ctx), [pop, load, p.result, p.ctx]);
   React.useEffect(() => {
     if (pop && !sug) setPop(null);
   }, [pop, sug]);
@@ -6752,7 +6756,8 @@ function SuggestPopover(props) {
     const el = rootRef.current;
     if (el && typeof el.focus === "function") el.focus();
   }, []);
-  useDismiss(true, rootRef, how => close(how === "key"), ".plg-timeline-load-hit");
+  // skipSel (Task 8): pemicu daftar HP = ".plg-timeline-load-m-day"; bawaan tombol hari merah panel desktop.
+  useDismiss(true, rootRef, how => close(how === "key"), typeof props.skipSel === "string" ? props.skipSel : ".plg-timeline-load-hit");
   const free = items.some(it => it.kind === "free");
   return /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-pop plg-timeline-load-pop",
@@ -7148,6 +7153,148 @@ function ResourceEditor(props) {
     disabled: !canSave,
     onClick: save
   }, RES_SAVE)));
+}
+
+// ── 1d-1 Task 8: Beban Tim versi HP (≤ 640 px; spec §7.6; rencana R10) ───────────────────────────────────────────────
+// Di layar sempit (Gantt maupun Daftar) histogram diganti daftar "Hari kelebihan beban": judul sama dengan desktop, chip
+// orang "{nama} · {cap} 🍅/hari" (→ editor T7; agar kapasitas orang tanpa hari merah tetap bisa diatur), lalu satu tombol
+// per pasangan orang × hari merah "{nama} · {tgl} · {beban} dari {kapasitas} 🍅" urut tanggal lalu nama (ketuk → popover
+// saran T6, di bawah item). Tanpa SVG dan tanpa lebar tetap (muat 375 px). Anggaran DOM: ≤ LOAD_M_MAX item (terdekat —
+// daftar urut tanggal naik dari T) + "dan {n} lainnya". Hanya baca: tulisan satu-satunya tetap Simpan di editor.
+const LOAD_M_MAX = 100;
+const MSG_LOAD_DAYS = "Hari kelebihan beban";
+const loadMoreText = n => "dan " + n + " lainnya"; // pola "dan {n} lainnya" (banner lingkaran, kartu pratinjau)
+
+// Item daftar HP: [{uid, name, dn, text}] dari overDays semua baris berpenanggung jawab; beban = TLLoad.fmtPomo(milli, true)
+// (hari merah dibulatkan ke atas, sama dengan tooltip desktop), kapasitas = TLLoad.capAt hari itu. Urut dn naik, nama
+// (TLCpm.cmpKey), uid. Murni.
+function loadDayItems(load, cal) {
+  const out = [];
+  for (const row of load && Array.isArray(load.rows) ? load.rows : []) {
+    if (!row || row.uid === null || !Array.isArray(row.overDays)) continue;
+    for (const dn of row.overDays) {
+      const d = row.days instanceof Map ? row.days.get(dn) : undefined;
+      const text = row.name + " · " + TLCal.fmtShort(dn) + " · " + TLLoad.fmtPomo(d ? d.load : 0, true) + " dari " + TLLoad.capAt(row.res, cal, dn) + " 🍅";
+      out.push({
+        uid: row.uid,
+        name: row.name,
+        dn,
+        text
+      });
+    }
+  }
+  out.sort((a, b) => a.dn - b.dn || TLCpm.cmpKey(a.name, b.name) || a.uid - b.uid);
+  return out;
+}
+let MemoLoadList = null;
+function loadListMemo() {
+  if (!MemoLoadList) MemoLoadList = React.memo ? React.memo(LoadList) : LoadList;
+  return MemoLoadList;
+}
+
+// props: {load, cal (eng.ctx.cal), result, ctx (eng.ctx), pageKind, boxRef (akar, diukur view seperti panel desktop),
+// editUid, onEditPerson(uid|null), res (bundel kapasitas T7), onReveal(key, task)}.
+function LoadList(props) {
+  const p = props;
+  const load = p.load;
+  const items = React.useMemo(() => loadDayItems(load, p.cal), [load, p.cal]);
+  const [pop, setPop] = React.useState(null); // hari merah terpilih {uid, dn}
+  const popBtnRef = React.useRef(null);
+  const edBtnRef = React.useRef(null);
+  const sug = React.useMemo(() => loadSug(load, pop, p.result, p.ctx), [pop, load, p.result, p.ctx]);
+  React.useEffect(() => {
+    if (pop && !sug) setPop(null);
+  }, [pop, sug]);
+  const hasEdit = p.editUid !== null && p.editUid !== undefined;
+  // Ketuk item: popover saran (item sama = tutup; lain = ganti); satu popover pada satu waktu (editor ditutup).
+  const openSug = (it, e) => {
+    if (pop && pop.uid === it.uid && pop.dn === it.dn) {
+      setPop(null);
+      return;
+    }
+    popBtnRef.current = e && e.currentTarget ? e.currentTarget : null;
+    if (hasEdit && typeof p.onEditPerson === "function") p.onEditPerson(null);
+    setPop({
+      uid: it.uid,
+      dn: it.dn
+    });
+  };
+  const closeSug = how => {
+    setPop(null);
+    const b = popBtnRef.current;
+    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+  };
+  // Baris saran → view: Gantt HP menggulir + berkedip; Daftar (tanpa Gantt) → detail task (revealRow R7).
+  const pickSug = it => {
+    setPop(null);
+    if (typeof p.onReveal === "function") p.onReveal(it.key, it.task);
+  };
+  const openEdit = (uid, e) => {
+    if (p.editUid === uid) {
+      p.onEditPerson(null);
+      return;
+    }
+    edBtnRef.current = e && e.currentTarget ? e.currentTarget : null;
+    setPop(null);
+    p.onEditPerson(uid);
+  };
+  const closeEdit = how => {
+    p.onEditPerson(null);
+    const b = edBtnRef.current;
+    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+  };
+  const persons = load.rows.filter(r => r.uid !== null);
+  const edRow = p.res && hasEdit ? persons.find(r => r.uid === p.editUid) : undefined;
+  const shown = items.length > LOAD_M_MAX ? items.slice(0, LOAD_M_MAX) : items;
+  return /*#__PURE__*/React.createElement("section", {
+    className: "plg-timeline-load-m",
+    "aria-label": LBL.load,
+    ref: p.boxRef
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-load-head"
+  }, loadHeadText(load)), p.pageKind !== "workspace" ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-load-note"
+  }, MSG_LOAD_PARTIAL) : null, persons.length ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-load-m-people"
+  }, persons.map(r => /*#__PURE__*/React.createElement("button", {
+    key: "u" + r.uid,
+    type: "button",
+    className: "plg-timeline-load-m-person",
+    "aria-haspopup": "dialog",
+    "aria-expanded": p.editUid === r.uid,
+    onClick: e => openEdit(r.uid, e)
+  }, loadNameText(r))), edRow ? /*#__PURE__*/React.createElement(ResourceEditor, {
+    key: "res" + edRow.uid,
+    uid: edRow.uid,
+    name: edRow.name,
+    res: p.res,
+    onClose: closeEdit
+  }) : null) : null, items.length ? /*#__PURE__*/React.createElement("h4", {
+    className: "plg-timeline-load-m-sub"
+  }, MSG_LOAD_DAYS) : null, items.length ? /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-load-m-list"
+  }, shown.map(it => {
+    const on = !!pop && pop.uid === it.uid && pop.dn === it.dn;
+    return /*#__PURE__*/React.createElement("li", {
+      key: it.uid + ":" + it.dn,
+      className: "plg-timeline-load-m-item"
+    }, /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-load-m-day",
+      "aria-haspopup": "dialog",
+      "aria-expanded": on,
+      onClick: e => openSug(it, e)
+    }, it.text), on && sug ? /*#__PURE__*/React.createElement(SuggestPopover, {
+      key: it.uid + ":" + it.dn,
+      title: sugTitle(sug.name, it.dn),
+      items: sug.items,
+      skipSel: ".plg-timeline-load-m-day",
+      onPick: pickSug,
+      onClose: closeSug
+    }) : null);
+  })) : null, items.length > shown.length ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-load-m-more"
+  }, loadMoreText(items.length - shown.length)) : null);
 }
 
 // 4f. Kalender kerja (Task 9; R18, keputusan pemilik U1) dan Daftar HP (R20, U3).
@@ -9250,6 +9397,9 @@ function TimelineViewBody(props) {
   };
   const loadShown = loadOn && load !== null && !narrow; // ≤ 640 px: daftar HP (Task 8) menggantikan histogram
   const loadRowsN = loadShown ? load.rows.length : 0;
+  // 1d-1 Task 8: daftar HP (Gantt maupun Daftar) — akarnya memakai loadBoxRef yang sama (diukur seperti panel desktop).
+  const loadMShown = loadOn && load !== null && narrow;
+  const loadMKey = loadMShown ? load.rows.length + ":" + load.rows.reduce((s, r) => s + r.overDays.length, 0) : "";
   const sl = vp.left === null ? TLLayout.initialScrollLeft(lay.range, lay.px, today, vp.w) : vp.left;
   const rw = TLLayout.windowRows(lay.rows.length, vp.top, vp.h + ROW_STEP * rowH, rowH);
   const dw = TLLayout.windowDays(lay.range, lay.px, sl, vp.w);
@@ -9326,7 +9476,7 @@ function TimelineViewBody(props) {
       window.removeEventListener("resize", onResize);
       caf(id);
     };
-  }, [tableW, hasRows, listMode, loadShown, loadRowsN]);
+  }, [tableW, hasRows, listMode, loadShown, loadRowsN, loadMKey]);
 
   // Posisi gulir horizontal (R22): pertama kali / belum digulir pengguna → hari ini di 1/3; zoom atau rentang bergeser →
   // tanggal di tengah layar dipertahankan.
@@ -10060,6 +10210,19 @@ function TimelineViewBody(props) {
     onApply: applyPv,
     onCancel: cancelPv
   }) : blDialog;
+  // 1d-1 Task 8: daftar "Hari kelebihan beban" (≤ 640 px) di bawah isi view (Gantt: sebelum legenda; Daftar: setelahnya).
+  const loadList = loadMShown && hasRows ? React.createElement(loadListMemo(), {
+    load,
+    cal: eng.ctx.cal,
+    result: eng.result,
+    ctx: eng.ctx,
+    pageKind,
+    boxRef: loadBoxRef,
+    editUid,
+    onEditPerson: setEditUid,
+    res: resEd,
+    onReveal
+  }) : null;
   if (!hasRows) {
     return /*#__PURE__*/React.createElement("div", {
       className: "plg-timeline"
@@ -10074,7 +10237,7 @@ function TimelineViewBody(props) {
       rows: lay.rows,
       cal: lay.cal,
       onTaskClick: context.onTaskClick
-    }), dialog);
+    }), loadList, dialog);
   }
   const v = {
     lay,
@@ -10140,7 +10303,7 @@ function TimelineViewBody(props) {
       width: tableW,
       height: bodyH
     }
-  }, renderTableRows(v)), renderChart(v))), loadPanel, renderLegend(lay, footRef, crit, legendX), dialog);
+  }, renderTableRows(v)), renderChart(v))), loadPanel, loadList, renderLegend(lay, footRef, crit, legendX), dialog);
 }
 
 // 4g. Seksi "Jadwal" di detail task (Task 10; spec §8.8, Q5; R7, R8, R10, R15, R16, R17). Slot taskDetail.sections,
@@ -12441,6 +12604,10 @@ const pure = {
   // 1d-1 Task 5
   SuggestPopover,
   // 1d-1 Task 6
+  LoadList,
+  loadDayItems,
+  LOAD_M_MAX,
+  // 1d-1 Task 8
   CAL_ENTITY,
   CAL_MAX_BYTES,
   MSG_CAL_TOO_LARGE,

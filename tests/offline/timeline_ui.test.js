@@ -8681,3 +8681,359 @@ test("T7 satu popover panel pada satu waktu: buka editor saat popover saran terb
   assert.equal(x.h.fr.calls.put.length, 0);
   x.unmount();
 }));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 8: Beban Tim versi HP (≤ 640 px; spec §7.6; rencana R10) — daftar "Hari kelebihan beban"
+// ════════════════════════════════════════════════════════════════════════════
+const listOf = (tree) => nodes(tree, (n) => n.type === T.LoadList)[0];
+const mDays = (lt) => byCls(lt, "plg-timeline-load-m-day");
+const mChips = (lt) => byCls(lt, "plg-timeline-load-m-person");
+const narrowGlobal = (innerHeight) => ({
+  matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }),
+  innerHeight: innerHeight || 800, addEventListener() {}, removeEventListener() {},
+});
+function withNarrowClock(fn, innerHeight) {
+  return withEngineClock(async (clock) => {
+    const prev = global.window;
+    global.window = narrowGlobal(innerHeight);
+    try {
+      return await fn(clock);
+    } finally {
+      global.window = prev;
+    }
+  });
+}
+// Daftar HP dipasang sendiri (props asli dari view).
+function mList(h) {
+  const node = listOf(h.tree);
+  const lm = mount(T.LoadList);
+  const x = { node, lm, props: node.props };
+  x.render = () => (x.tree = lm.render(x.props));
+  x.render();
+  lm.flush();
+  x.render();
+  return x;
+}
+const PANEL_DAYS = [
+  "Budi · Rab 4 Nov · 4 dari 2 🍅",
+  "Budi · Kam 5 Nov · 4 dari 2 🍅",
+  "Budi · Jum 6 Nov · 4 dari 2 🍅",
+  "Budi · Sen 9 Nov · 1 dari 0 🍅",
+  "Budi · Sel 10 Nov · 1 dari 0 🍅",
+  "Budi · Sen 2 Agu · 5 dari 2 🍅",
+];
+
+test("T8 view ≤ 640 px + pref ON: Gantt → LoadList tepat setelah .plg-timeline-scroll, sebelum legenda; Daftar → setelah daftar ListFallback; tanpa LoadPanel; props stabil (memo); layar lebar / pref OFF → tanpa LoadList; 0 tulis", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock);
+  assert.ok(gridOf(h.tree), "Gantt HP");
+  assert.equal(panelOf(h.tree), undefined, "histogram desktop tidak dirender");
+  const kids = h.tree.children.filter((c) => c && typeof c === "object");
+  const iGrid = kids.findIndex((c) => hasCls(c, "plg-timeline-scroll"));
+  const iList = kids.findIndex((c) => c.type === T.LoadList);
+  const iFoot = kids.findIndex((c) => hasCls(c, "plg-timeline-foot"));
+  assert.ok(iGrid >= 0 && iList === iGrid + 1 && iFoot === iList + 1, "grafik · daftar HP · legenda (" + [iGrid, iList, iFoot] + ")");
+  const p = listOf(h.tree).props;
+  assert.ok(p.load && Array.isArray(p.load.rows));
+  assert.equal(p.cal && typeof p.cal.mask.has, "function");
+  assert.equal(p.pageKind, "workspace");
+  for (const k of ["onEditPerson", "onReveal"]) assert.equal(typeof p[k], "function", k);
+  assert.ok(p.boxRef && "current" in p.boxRef);
+  assert.equal(p.editUid, null);
+  assert.ok(p.res && p.res.map instanceof Map);
+  const p2 = listOf(h.render()).props;
+  for (const k of Object.keys(p)) assert.ok(Object.is(p[k], p2[k]), "prop stabil: " + k);
+  assert.match(jsx, /React\.memo\(LoadList\)/);
+  // Daftar HP
+  buttonByText(h.tree, "Daftar").props.onClick({});
+  const t2 = h.render();
+  assert.equal(gridOf(t2), undefined);
+  const k2 = t2.children.filter((c) => c && typeof c === "object");
+  const iLi = k2.findIndex((c) => hasCls(c, "plg-timeline-list"));
+  assert.ok(iLi >= 0 && k2.findIndex((c) => c.type === T.LoadList) === iLi + 1, "Daftar · daftar HP");
+  assert.equal(panelOf(t2), undefined);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+  const off = await panelView(clock, { loadOff: true });
+  assert.equal(listOf(off.tree), undefined, "pref OFF");
+  off.m.unmount();
+}));
+
+test("T8 view lebar (> 640 px) dan Live Edit lebar → tanpa LoadList (histogram desktop)", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  assert.equal(listOf(h.tree), undefined);
+  assert.ok(panelOf(h.tree));
+  h.m.unmount();
+  const le = await panelView(clock, { ctx: { liveEdit: true } });
+  assert.equal(listOf(le.tree), undefined);
+  le.m.unmount();
+}));
+
+test("T8 LoadList: section .plg-timeline-load-m (ref = boxRef) + judul persis desktop; chip '{nama} · {cap} 🍅/hari' (tanpa Belum ditugaskan); subjudul persis 'Hari kelebihan beban' + <ul> tombol teks persis '{nama} · {tgl} · {beban} dari {kapasitas} 🍅' urut tanggal; tanpa <svg>", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock);
+  const x = mList(h);
+  const sec = nodes(x.tree, (n) => n.type === "section")[0];
+  assert.ok(hasCls(sec, "plg-timeline-load-m"));
+  assert.equal(sec.props["aria-label"], "Beban Tim");
+  assert.equal(sec.props.ref, x.props.boxRef, "diukur view (tinggi wadah Gantt)");
+  assert.equal(txt(byCls(x.tree, "plg-timeline-load-head")[0]).trim(), "Beban Tim · 6 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅");
+  assert.equal(byCls(x.tree, "plg-timeline-load-note").length, 0, "workspace tanpa catatan P3");
+  assert.deepEqual(mChips(x.tree).map((b) => [b.type, txt(b).trim(), b.props["aria-haspopup"], b.props["aria-expanded"]]), [
+    ["button", "Budi · 2 🍅/hari", "dialog", false], ["button", "Citra · 8 🍅/hari", "dialog", false], ["button", "Sari · 8 🍅/hari", "dialog", false],
+  ]);
+  const sub = byCls(x.tree, "plg-timeline-load-m-sub")[0];
+  assert.equal(sub.type, "h4");
+  assert.equal(txt(sub).trim(), "Hari kelebihan beban");
+  const ul = nodes(x.tree, (n) => n.type === "ul")[0];
+  assert.ok(hasCls(ul, "plg-timeline-load-m-list"));
+  const days = mDays(x.tree);
+  assert.deepEqual(days.map((b) => txt(b).trim()), PANEL_DAYS);
+  assert.ok(days.every((b) => b.type === "button" && b.props.type === "button" && b.props["aria-haspopup"] === "dialog" && b.props["aria-expanded"] === false));
+  assert.ok(nodes(ul, (n) => n.type === "li").length === 6);
+  assert.equal(nodes(x.tree, (n) => n.type === "svg").length, 0, "tanpa SVG");
+  assert.equal(byCls(x.tree, "plg-timeline-load-m-more").length, 0);
+  x.lm.unmount();
+  h.m.unmount();
+}));
+
+test("T8 loadDayItems: urut tanggal naik lalu nama (TLCpm.cmpKey) lalu uid; teks persis (beban dibulatkan ke atas di hari merah); baris tanpa penanggung jawab dilewati", () => {
+  const dn = dnOfIso;
+  const cal = T.TLCal.compile(T.TLCal.DEFAULT_CAL);
+  const day = (load) => ({ load, parts: [] });
+  const load = {
+    rows: [
+      { uid: 3, name: "Zaki", capacity: 2, res: { capacity: 2, leave: [] }, days: new Map([[dn("2026-11-05"), day(2100)], [dn("2026-11-04"), day(4000)]]), overDays: [dn("2026-11-04"), dn("2026-11-05")], total: 6100 },
+      { uid: 1, name: "Ani", capacity: 1, res: { capacity: 1, leave: [{ from: dn("2026-11-05"), to: dn("2026-11-05"), note: "" }] }, days: new Map([[dn("2026-11-05"), day(500)]]), overDays: [dn("2026-11-05")], total: 500 },
+      { uid: 2, name: "Zaki", capacity: 8, res: null, days: new Map([[dn("2026-11-05"), day(9000)]]), overDays: [dn("2026-11-05")], total: 9000 },
+      { uid: null, name: "Belum ditugaskan", capacity: null, res: null, days: new Map([[dn("2026-11-04"), day(50000)]]), overDays: [], total: 50000 },
+    ],
+  };
+  assert.deepEqual(T.loadDayItems(load, cal).map((it) => [it.uid, it.dn, it.text]), [
+    [3, dn("2026-11-04"), "Zaki · Rab 4 Nov · 4 dari 2 🍅"],
+    [1, dn("2026-11-05"), "Ani · Kam 5 Nov · 0.5 dari 0 🍅"],
+    [2, dn("2026-11-05"), "Zaki · Kam 5 Nov · 9 dari 8 🍅"],
+    [3, dn("2026-11-05"), "Zaki · Kam 5 Nov · 2.5 dari 2 🍅"],
+  ]);
+  assert.deepEqual(T.loadDayItems({ rows: [] }, cal), []);
+  assert.match(jsx, /TLCpm\.cmpKey\(a\.name, b\.name\)/);
+});
+
+test("T8 ketuk item → popover saran T6 di dalam <li> item (judul 'Bisa digeser — {nama}, {tgl}', items = TLLoad.suggest, tanpa left — CSS HP); ketuk lagi → tutup; item lain → ganti; Esc/Tutup → fokus kembali ke item; pilih baris → onReveal (Gantt HP: gulir + kedip); 0 tulis", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const x = mList(h);
+  assert.deepEqual(mDays(x.tree).map((b) => txt(b).trim()), ["Budi · Rab 4 Nov · 12 dari 2 🍅", "Citra · Rab 4 Nov · 20 dari 8 🍅"]);
+  const item = (i) => mDays(x.tree)[i];
+  const btn = { focused: 0, focus() { this.focused++; } };
+  item(0).props.onClick({ currentTarget: btn });
+  x.render();
+  let sp = sugOf(x.tree);
+  assert.ok(sp, "popover terbuka");
+  assert.equal(sp.props.title, "Bisa digeser — Budi, Rab 4 Nov");
+  assert.equal(sp.props.left, undefined, "posisi dari CSS HP");
+  assert.equal(item(0).props["aria-expanded"], true);
+  const li0 = nodes(x.tree, (n) => n.type === "li")[0];
+  assert.ok(nodes(li0, (n) => n.type === T.SuggestPopover).length === 1, "popover di dalam item (jangkar)");
+  const p = x.props;
+  const want = T.TLLoad.suggest(p.load, 9, dnOfIso("2026-11-04"), { result: p.result, units: p.ctx.units, readExt: p.ctx.readExt, tasks: p.ctx.tasks });
+  assert.deepEqual(sp.props.items.map((s) => [s.key, s.kind]), want.map((s) => [s.key, s.kind]));
+  const spt = child(sp);
+  assert.deepEqual(sugRows(spt)[0], ["Ikon · 3 🍅 hari ini · slack 9 hk", null]);
+  // ketuk lagi → tutup (toggle); item lain → ganti
+  item(0).props.onClick({ currentTarget: btn });
+  x.render();
+  assert.equal(sugOf(x.tree), undefined);
+  item(0).props.onClick({ currentTarget: btn });
+  x.render();
+  item(1).props.onClick({ currentTarget: btn });
+  x.render();
+  sp = sugOf(x.tree);
+  assert.equal(sp.props.title, "Bisa digeser — Citra, Rab 4 Nov");
+  // Esc/Tutup → fokus kembali ke item pemicu
+  sp.props.onClose({ restoreFocus: true });
+  x.render();
+  assert.equal(sugOf(x.tree), undefined);
+  assert.equal(btn.focused, 1);
+  // pemicu lain di daftar HP tidak menutup lewat pointerdown (ditangani tombolnya)
+  item(0).props.onClick({ currentTarget: btn });
+  x.render();
+  sp = sugOf(x.tree);
+  assert.match(sp.props.skipSel, /\.plg-timeline-load-m-day/);
+  // pilih baris → onReveal view (Gantt HP: baris ada di lay.rows → gulir + kedip, bukan detail)
+  const el = fakeEl();
+  h.tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  sp.props.onPick(sp.props.items.find((s) => s.key === "2"));
+  x.render();
+  assert.equal(sugOf(x.tree), undefined);
+  h.render();
+  assert.ok(nodes(h.tree, (n) => hasCls(n, "is-flash")).length > 0, "kedip di Gantt HP");
+  assert.deepEqual(h.clicked, []);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length + h.fr.calls.remove.length, 0);
+  x.lm.unmount();
+  h.m.unmount();
+}));
+
+test("T8 Daftar HP: pilih baris saran → detail task (context.onTaskClick, tidak ada Gantt untuk digulir); 0 tulis", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  buttonByText(h.tree, "Daftar").props.onClick({});
+  h.render();
+  const x = mList(h);
+  mDays(x.tree)[0].props.onClick({ currentTarget: { focus() {} } });
+  x.render();
+  const sp = sugOf(x.tree);
+  sp.props.onPick(sp.props.items.find((s) => s.key === "2"));
+  assert.deepEqual(h.clicked.map((t) => t.id), [2]);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  x.lm.unmount();
+  h.m.unmount();
+}));
+
+test("T8 chip → editor T7 (ResourceEditor di dalam wadah chip, aria-expanded; sama = tutup; lain = ganti) — kapasitas orang tanpa hari merah (Sari) bisa diatur di HP; Simpan → 1 put", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock);
+  let x = mList(h);
+  const btn = { focused: 0, focus() { this.focused++; } };
+  const chip = (prefix) => mChips(x.tree).find((b) => txt(b).trim().indexOf(prefix) === 0);
+  chip("Sari").props.onClick({ currentTarget: btn });
+  h.render();
+  x.props = listOf(h.tree).props;
+  x.render();
+  assert.equal(x.props.editUid, 7);
+  assert.equal(chip("Sari").props["aria-expanded"], true);
+  const people = byCls(x.tree, "plg-timeline-load-m-people")[0];
+  const ed = nodes(people, (n) => n.type === T.ResourceEditor)[0];
+  assert.ok(ed, "editor di wadah chip");
+  assert.deepEqual([ed.props.uid, ed.props.name], [7, "Sari"]);
+  assert.equal(ed.props.res, x.props.res);
+  // editor bekerja seperti di desktop (Sari tanpa record → menunggu pulled; tarik → simpan)
+  h.fr.emit(PULLED);
+  h.tree = await h.again();
+  x.props = listOf(h.tree).props;
+  x.render();
+  const em = mount(T.ResourceEditor);
+  const e1 = edOf(x.tree);
+  let et = em.render(e1.props);
+  em.flush();
+  et = em.render(e1.props);
+  capIn(et).props.onChange(chg("6"));
+  et = em.render(e1.props);
+  saveBtn(et).props.onClick({});
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(h.fr).map((p) => [p[1], p[2].capacity, p[3]]), [["res@list:12:7", 6, { scope: "list:12" }]]);
+  assert.equal(btn.focused, 1, "ditutup setelah simpan → fokus kembali ke chip");
+  em.unmount();
+  h.render();
+  x.props = listOf(h.tree).props;
+  x.render();
+  assert.equal(x.props.editUid, null);
+  // sama = tutup; lain = ganti
+  chip("Budi").props.onClick({ currentTarget: btn });
+  h.render();
+  x.props = listOf(h.tree).props;
+  x.render();
+  chip("Budi").props.onClick({ currentTarget: btn });
+  h.render();
+  assert.equal(listOf(h.tree).props.editUid, null);
+  x.props = listOf(h.tree).props;
+  x.render();
+  chip("Budi").props.onClick({ currentTarget: btn });
+  h.render();
+  x.props = listOf(h.tree).props;
+  x.render();
+  chip("Citra").props.onClick({ currentTarget: btn });
+  h.render();
+  assert.equal(listOf(h.tree).props.editUid, 11);
+  assert.equal(resPuts(h.fr).length, 1);
+  x.lm.unmount();
+  h.m.unmount();
+}));
+
+test("T8 kosong (0 hari kelebihan beban) → judul 'Beban Tim · 0 hari kelebihan beban' + chip orang, tanpa subjudul/daftar; pribadi + catatan P3", () => withNarrowClock(async (clock) => {
+  const L = PANEL_L;
+  const tasks = [mk(1, "Ringan", { start: "2026-11-04", duration: 2 }, Object.assign({ assigned_to: 7, estimated_pomodoros: 2 }, L))];
+  const h = await panelView(clock, { tasks });
+  const x = mList(h);
+  assert.equal(txt(byCls(x.tree, "plg-timeline-load-head")[0]).trim(), "Beban Tim · 0 hari kelebihan beban");
+  assert.deepEqual(mChips(x.tree).map((b) => txt(b).trim()), ["Budi · 2 🍅/hari", "Sari · 8 🍅/hari"]);
+  assert.equal(byCls(x.tree, "plg-timeline-load-m-sub").length, 0);
+  assert.equal(nodes(x.tree, (n) => n.type === "ul").length, 0);
+  assert.equal(mDays(x.tree).length, 0);
+  x.lm.unmount();
+  h.m.unmount();
+  const al = { project: "Alpha" };
+  const fr = fakeRecords();
+  const p = await panelView(clock, { tasks: [mk(1, "A", { start: "2026-11-04", duration: 1 }, al)], records: fr, ctx: { page: "proj_Alpha", pageKind: "project", listId: null, projectName: "Alpha" } });
+  const y = mList(p);
+  assert.equal(txt(byCls(y.tree, "plg-timeline-load-note")[0]).trim(), "Hanya beban dari project ini");
+  assert.deepEqual(mChips(y.tree).map((b) => txt(b).trim()), ["Sari · 8 🍅/hari"]);
+  y.lm.unmount();
+  p.m.unmount();
+}));
+
+test("T8 batas DOM: > 100 hari kelebihan beban → 100 item terdekat (urut tanggal) + 'dan {n} lainnya'; elemen daftar ≤ 300; tanpa <svg>", () => {
+  const x = heavyLoad("week");
+  const props = { load: x.load, cal: x.ctx.cal, result: x.result, ctx: x.ctx, pageKind: "workspace", boxRef: { current: null }, editUid: null, onEditPerson() {}, res: null, onReveal() {} };
+  const lm = mount(T.LoadList);
+  const lt = lm.render(props);
+  lm.flush();
+  const total = x.load.rows.reduce((s, r) => s + r.overDays.length, 0);
+  assert.ok(total > 100, "kasus terburuk: " + total);
+  const all = T.loadDayItems(x.load, x.ctx.cal);
+  assert.deepEqual(mDays(lt).map((b) => txt(b).trim()), all.slice(0, 100).map((it) => it.text));
+  assert.equal(txt(byCls(lt, "plg-timeline-load-m-more")[0]).trim(), "dan " + (total - 100) + " lainnya");
+  const n = domCount(lt);
+  assert.ok(n <= 300, "elemen daftar HP: " + n);
+  assert.equal(nodes(lt, (q) => q.type === "svg").length, 0);
+  console.log("# DOM daftar HP Beban Tim 10 orang: " + n + " elemen, 100/" + total + " item");
+  lm.unmount();
+});
+
+test("T8 tinggi: daftar HP diukur seperti panel desktop — saat daftar muncul tinggi wadah Gantt HP diukur ulang dan dikurangi tinggi daftar (legenda tetap terlihat)", () => withNarrowClock(async (clock) => {
+  const v = await panelView(clock, { loadOff: true });
+  const el = fakeEl();
+  let tree = attach(v.m, v.props, v.tree, el);
+  assert.equal(listOf(tree), undefined);
+  assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16, "Beban Tim mati");
+  loadBtnMenu(tree).onSelect();
+  tree = v.m.render(v.props);
+  const node = listOf(tree);
+  assert.ok(node, "daftar HP muncul");
+  node.props.boxRef.current = { offsetHeight: 250 }; // React memasang ref akar section SEBELUM efek tata letak (ukur)
+  tree = attach(v.m, v.props, tree, el);
+  assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16 - 250, "tinggi daftar dikurangkan");
+  assert.deepEqual(v.writes, []);
+  v.m.unmount();
+}, 1200));
+const loadBtnMenu = (tree) => moreOf(tree).props.items.find((it) => it.text === "Beban Tim");
+
+test("T8 375 px tanpa gulir horizontal (pendekatan: pohon tanpa lebar inline + CSS tanpa lebar tetap > 343 px, teks membungkus, popover HP ≤ 100vw − 32 px; E2E T11 skenario 9 mengukur scrollWidth)", () => withNarrowClock(async (clock) => {
+  const h = await panelView(clock, { tasks: sugTasks(), records: sugRecords() });
+  const x = mList(h);
+  mDays(x.tree)[0].props.onClick({ currentTarget: { focus() {} } });
+  x.render();
+  for (const n of nodes(x.tree, (q) => typeof q.type === "string")) {
+    const s = n.props.style || {};
+    for (const k of ["width", "minWidth", "left", "right"]) assert.equal(s[k], undefined, n.type + "." + k);
+  }
+  const spt = child(sugOf(x.tree));
+  assert.deepEqual(nodes(spt, (n) => n.props.role === "dialog")[0].props.style, { left: undefined });
+  x.lm.unmount();
+  h.m.unmount();
+  const block = css.slice(css.indexOf("1d-1 Task 8"));
+  assert.ok(block.length > 100, "blok CSS Task 8");
+  for (const m of block.matchAll(/(?:^|[\s;{])(min-width|width|flex-basis)\s*:\s*(\d+)px/g)) assert.ok(Number(m[2]) <= 343, m[0]);
+  assert.match(block, /\.plg-timeline-load-m-day\s*\{[^}]*overflow-wrap:\s*anywhere/);
+  assert.match(block, /\.plg-timeline-load-m-day\s*\{[^}]*width:\s*100%/);
+  assert.match(block, /\.plg-timeline-load-m-person\s*\{[^}]*max-width:\s*100%[^}]*text-overflow:\s*ellipsis/);
+  assert.match(block, /\.plg-timeline-load-m-people\s*\{[^}]*flex-wrap:\s*wrap/);
+  assert.match(block, /\.plg-timeline-load-m \.plg-timeline-pop\s*\{[^}]*top:\s*100%[^}]*max-width:\s*min\(calc\(100% - 16px\), calc\(100vw - 32px\)\)/);
+  assert.match(block, /\.plg-timeline-load-m-item\s*\{[^}]*position:\s*relative/);
+  assert.doesNotMatch(block, /border-left\s*:/);
+  assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
+  for (const n of nodes(x.tree, (q) => typeof q.props.className === "string")) {
+    for (const c of n.props.className.split(/\s+/).filter(Boolean)) assert.match(c, /^(plg-timeline(-[\w-]+)?|is-[\w-]+)$/, c);
+  }
+}));
