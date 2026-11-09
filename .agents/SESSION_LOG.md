@@ -4436,3 +4436,9 @@
 - **Changes:** PR ditandai ready lalu di-merge (`aa910a4`); CI Tests + Deploy sukses (deploy selesai 09.22 WIB, `migrate_db` tanpa galat). Pemilik diminta `sudo systemctl restart taskflow taskflow-web` + verifikasi pasca-deploy. Catatan: ADR-048 dipakai checklist → 1d-1 memakai ADR-049.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Done — kecuali restart `taskflow` + `taskflow-web` dan verifikasi pasca-deploy (menunggu pemilik). Berikutnya: rencana PR B (tampilan) checklist bertingkat, segera.
+
+## [2026-11-09 12:22] - Claude (Opus 5.5)
+- **Task:** Eksekusi PR 1d-1 Timeline 1.3 Beban Tim (pemilik menjawab P1a P2a P3a).
+- **Changes:** `load.js` (TLLoad) mesin beban murni; manifest 1.3.0 + record `resource` + `saveResource` ber-CAS (pagar R25 +1); `useResources`/`peopleOf`/`useLoad`; tombol Beban Tim; panel histogram SVG per orang + saran leveling + `revealRow`; editor kapasitas/cuti; daftar HP; SW v501 + whatsnew + README (koreksi §6.2 collaborators) + ADR-049; E2E `e2e_plugin_fase1_1d1.py` 42/42. Rebase ke main e0c2895 (#129 checklist server; ADR-048 terpakai → ADR-049). Review per tugas + review akhir; temuan wajib diperbaiki (hari merah tak terjangkau, panel tak sejajar saat Tab, kunci sebelum data termuat, daftar HP tak terlihat saat dinyalakan).
+- **Files Touch:** static/plugins/timeline/{load.js,plugin.jsx,plugin.js,style.css,manifest.json}, static/plugins/index.json, static/sw.js, static/index.html (2 string versi), static/whatsnew.json, tests/** (timeline_load baru, timeline_ui, runtime, build, records, versi), temporary_files/e2e_plugin_fase1_1d1*, e2e 1c1/1c2 (urutan Lainnya), docs/plugins/README.md, docs/superpowers/{plans,specs}/*1d*, .agents/*
+- **Status:** Needs Review (PR draft; tunggu "merge dan deploy"; statis tanpa restart). pytest 1636/1 skip; npm 4615/4616 (pra-ada `draw_local_reactive`).
