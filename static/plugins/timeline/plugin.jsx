@@ -467,6 +467,7 @@ const LBL = {
   gantt: "Gantt", list: "Daftar", zoom: "Skala waktu", mode: "Tampilan", crit: "Jalur kritis",
   auto: "Jadwal otomatis", reschedule: "Jadwalkan ulang", more: "Lainnya", // 1c-1 R23
   bl: "Baseline", blSave: "Simpan baseline", // 1c-2 §7.1
+  load: "Beban Tim", // 1d-1 §7.1 (R10)
 };
 // 1c-1 R14, R15, R28: sakelar Jadwal otomatis dan dialog pratinjau (teks persis).
 const MSG_AUTO_ON0 = "Jadwal otomatis menyala — tidak ada task yang bergeser";
@@ -1642,6 +1643,9 @@ function renderToolbar(v) {
       : { id: "auto", text: LBL.auto, role: "menuitem", haspopup: "dialog", onSelect: ac.onClick });
   }
   if (gantt && v.engReady) extras.push({ id: "crit", text: LBL.crit, role: "menuitemcheckbox", checked: v.crit, onSelect: () => v.setCrit(!v.crit) });
+  // 1d-1 R10 (§7.1): Beban Tim setelah Jalur kritis — mesin siap; Gantt (histogram di bawah grafik) ATAU layar sempit (daftar
+  // "Hari kelebihan beban", juga di Daftar). Daftar hanya ada ≤ 640 px, jadi praktis selalu salah satunya. Pref load:<page>.
+  if (v.engReady && (gantt || v.narrow)) extras.push({ id: "load", text: LBL.load, role: "menuitemcheckbox", checked: v.loadOn, onSelect: () => v.setLoadOn(!v.loadOn) });
   // 1c-2 §7.1: Baseline (pemilih; hanya Gantt, seperti Jalur kritis) · Simpan baseline (aksi data; juga di Daftar).
   const bl = v.engReady ? v.bl : null;
   if (gantt && bl) extras.push({ id: "bl", text: LBL.bl, role: "menuitem", haspopup: "menu", onSelect: bl.onPick });
@@ -1655,6 +1659,9 @@ function renderToolbar(v) {
       return <button key="auto" type="button" ref={v.autoBtnRef} aria-haspopup="dialog" aria-expanded={ac.expanded} className={cx("plg-timeline-btn", "plg-timeline-autobtn", ac.expanded && "is-active")} onClick={ac.onClick}>{LBL.auto}</button>;
     }
     if (it.id === "crit") return <button key="crit" type="button" className={cx("plg-timeline-btn", v.crit && "is-active")} aria-pressed={v.crit} onClick={it.onSelect}>{LBL.crit}</button>;
+    if (it.id === "load") {
+      return <button key="load" type="button" className={cx("plg-timeline-btn", "plg-timeline-loadbtn", v.loadOn && "is-active")} aria-pressed={v.loadOn} onClick={it.onSelect}>{renderLoadIcon()}{LBL.load}</button>;
+    }
     if (it.id === "bl") {
       return <button key="bl" type="button" ref={bl.btnRef} aria-haspopup="menu" aria-expanded={bl.open} className={cx("plg-timeline-btn", "plg-timeline-blbtn", (bl.open || bl.value > 0) && "is-active")} onClick={it.onSelect}>{LBL.bl}</button>;
     }
@@ -1678,6 +1685,16 @@ function renderToolbar(v) {
         </div>
       ) : null}
     </div>
+  );
+}
+
+// Ikon histogram 12 px tombol "Beban Tim" (1d-1 §7.1): tiga batang dalam satu path; warna = currentColor dari CSS (tanpa
+// warna inline), dekoratif (aria-hidden) — teks tombol tetap nama aksesibelnya.
+function renderLoadIcon() {
+  return (
+    <svg className="plg-timeline-btn-icon" aria-hidden="true" viewBox="0 0 12 12" width="12" height="12">
+      <path d="M1 7H3.5V11H1ZM4.75 2H7.25V11H4.75ZM8.5 5H11V11H8.5Z" />
+    </svg>
   );
 }
 
@@ -4049,6 +4066,7 @@ function TimelineViewBody(props) {
     zoom, pickZoom, goToday, sort, setSort, compact, cols, setCols, narrow, mode, setMode, listMode,
     engReady: ov.ready, crit, setCrit, calOpen, toggleCal: () => { setUnitOpen(false); setBlOpen(false); setCalOpen(!calOpen); }, calBtnRef,
     auto, autoBtnRef, collapse: compact, summary, onReschedule: openResched, bl: blTool,
+    loadOn, setLoadOn, // 1d-1 T4 (R10)
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).

@@ -4164,7 +4164,9 @@ const LBL = {
   more: "Lainnya",
   // 1c-1 R23
   bl: "Baseline",
-  blSave: "Simpan baseline" // 1c-2 §7.1
+  blSave: "Simpan baseline",
+  // 1c-2 §7.1
+  load: "Beban Tim" // 1d-1 §7.1 (R10)
 };
 // 1c-1 R14, R15, R28: sakelar Jadwal otomatis dan dialog pratinjau (teks persis).
 const MSG_AUTO_ON0 = "Jadwal otomatis menyala — tidak ada task yang bergeser";
@@ -5627,6 +5629,15 @@ function renderToolbar(v) {
     checked: v.crit,
     onSelect: () => v.setCrit(!v.crit)
   });
+  // 1d-1 R10 (§7.1): Beban Tim setelah Jalur kritis — mesin siap; Gantt (histogram di bawah grafik) ATAU layar sempit (daftar
+  // "Hari kelebihan beban", juga di Daftar). Daftar hanya ada ≤ 640 px, jadi praktis selalu salah satunya. Pref load:<page>.
+  if (v.engReady && (gantt || v.narrow)) extras.push({
+    id: "load",
+    text: LBL.load,
+    role: "menuitemcheckbox",
+    checked: v.loadOn,
+    onSelect: () => v.setLoadOn(!v.loadOn)
+  });
   // 1c-2 §7.1: Baseline (pemilih; hanya Gantt, seperti Jalur kritis) · Simpan baseline (aksi data; juga di Daftar).
   const bl = v.engReady ? v.bl : null;
   if (gantt && bl) extras.push({
@@ -5680,6 +5691,15 @@ function renderToolbar(v) {
       "aria-pressed": v.crit,
       onClick: it.onSelect
     }, LBL.crit);
+    if (it.id === "load") {
+      return /*#__PURE__*/React.createElement("button", {
+        key: "load",
+        type: "button",
+        className: cx("plg-timeline-btn", "plg-timeline-loadbtn", v.loadOn && "is-active"),
+        "aria-pressed": v.loadOn,
+        onClick: it.onSelect
+      }, renderLoadIcon(), LBL.load);
+    }
     if (it.id === "bl") {
       return /*#__PURE__*/React.createElement("button", {
         key: "bl",
@@ -5739,6 +5759,20 @@ function renderToolbar(v) {
   }, "Selesai " + TLCal.fmtShort(sum.end)), sum.late > 0 ? /*#__PURE__*/React.createElement("span", {
     className: "plg-timeline-latechip"
   }, sum.late + " lewat tenggat") : null) : null);
+}
+
+// Ikon histogram 12 px tombol "Beban Tim" (1d-1 §7.1): tiga batang dalam satu path; warna = currentColor dari CSS (tanpa
+// warna inline), dekoratif (aria-hidden) — teks tombol tetap nama aksesibelnya.
+function renderLoadIcon() {
+  return /*#__PURE__*/React.createElement("svg", {
+    className: "plg-timeline-btn-icon",
+    "aria-hidden": "true",
+    viewBox: "0 0 12 12",
+    width: "12",
+    height: "12"
+  }, /*#__PURE__*/React.createElement("path", {
+    d: "M1 7H3.5V11H1ZM4.75 2H7.25V11H4.75ZM8.5 5H11V11H8.5Z"
+  }));
 }
 
 // Banner R16 (K35, §7.3): satu baris `.plg-timeline-banner` per jenis di atas grafik (di luar header sticky):
@@ -8978,7 +9012,9 @@ function TimelineViewBody(props) {
     collapse: compact,
     summary,
     onReschedule: openResched,
-    bl: blTool
+    bl: blTool,
+    loadOn,
+    setLoadOn // 1d-1 T4 (R10)
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).

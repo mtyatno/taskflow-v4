@@ -1933,3 +1933,18 @@
   flex: none;
   color: var(--plg-timeline-danger);
 }
+
+/* ── 1d-1: Beban Tim (spec §7.1–§7.4; rencana R5–R7, R10) ─────────────────── */
+/* Tombol toolbar "Beban Tim": ikon histogram 12 px berwarna teks tombol (currentColor), tanpa warna tetap. */
+.plg-timeline-loadbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.plg-timeline-btn-icon {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+}

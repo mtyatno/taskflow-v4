@@ -3892,14 +3892,14 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   }
   // lebar, mesin siap: urutan R23
   const h = await swView(clock);
-  assert.deepEqual(toolbarTexts(h.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang", "Kalender kerja", "Urutkan menurut Mulai"]); // 1c-2 T5: §7.1
+  assert.deepEqual(toolbarTexts(h.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang", "Kalender kerja", "Urutkan menurut Mulai"]); // 1c-2 T5: §7.1; 1d-1 T4: Beban Tim
   assert.equal(moreOf(h.tree), undefined);
   h.m.unmount();
   // Live Edit: tiga tombol pindah ke 'Lainnya' (posisi sama di urutan), Kolom tetap di toolbar
   const le = await swView(clock, { ctx: { liveEdit: true } });
   assert.deepEqual(toolbarTexts(le.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "[Lainnya]", "Kalender kerja", "Urutkan menurut Mulai", "Kolom"]);
   const mm = moreOf(le.tree);
-  assert.deepEqual(mm.props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+  assert.deepEqual(mm.props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
   // MoreMenu: tombol 'Lainnya' aria-haspopup="menu"; dibuka → role menu dengan item menuitemcheckbox/menuitem
   const mt = mount(T.MoreMenu);
   let t = mt.render(mm.props);
@@ -3912,7 +3912,7 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   assert.ok(menu);
   const its = nodes(menu, (n) => n.type === "button");
   assert.deepEqual(its.map((n) => [txt(n).trim(), n.props.role, n.props["aria-checked"]]), [
-    ["Jadwal otomatis", "menuitemcheckbox", false], ["Jalur kritis", "menuitemcheckbox", false],
+    ["Jadwal otomatis", "menuitemcheckbox", false], ["Jalur kritis", "menuitemcheckbox", false], ["Beban Tim", "menuitemcheckbox", false],
     ["Baseline", "menuitem", undefined], ["Simpan baseline", "menuitem", undefined], ["Jadwalkan ulang", "menuitem", undefined],
   ]);
   // pilih Jalur kritis → pref crit ditulis, menu tertutup
@@ -3928,12 +3928,13 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   global.window = { matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }), innerHeight: 800, addEventListener() {}, removeEventListener() {} };
   try {
     const n = await swView(clock);
-    assert.deepEqual(moreOf(n.tree).props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+    assert.deepEqual(moreOf(n.tree).props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
     assert.equal(switchOf(n.tree), undefined, "sakelar tidak di toolbar HP");
     buttonByText(n.tree, "Daftar").props.onClick({});
     const lt = n.render();
-    // 1c-2 T5: pilihan Baseline hanya untuk Gantt (seperti Jalur kritis); Simpan baseline tetap (aksi data)
-    assert.deepEqual(moreOf(lt).props.items.map((it) => it.text), ["Jadwal otomatis", "Simpan baseline", "Jadwalkan ulang"]);
+    // 1c-2 T5: pilihan Baseline hanya untuk Gantt (seperti Jalur kritis); Simpan baseline tetap (aksi data). 1d-1 T4: Beban
+    // Tim tetap di Daftar HP (R10: daftar "Hari kelebihan beban" menggantikan histogram ≤ 640 px).
+    assert.deepEqual(moreOf(lt).props.items.map((it) => it.text), ["Jadwal otomatis", "Beban Tim", "Simpan baseline", "Jadwalkan ulang"]);
     n.m.unmount();
   } finally {
     global.window = prevWin;
@@ -5495,7 +5496,7 @@ test("1c-2 T5: Baseline · Simpan baseline di antara Jalur kritis dan Jadwalkan 
   m0.unmount();
   const h = await swView(clock);
   const tt = toolbarTexts(h.tree);
-  assert.deepEqual(tt.slice(tt.indexOf("Jalur kritis"), tt.indexOf("Jadwalkan ulang") + 1), ["Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+  assert.deepEqual(tt.slice(tt.indexOf("Jalur kritis"), tt.indexOf("Jadwalkan ulang") + 1), ["Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]); // 1d-1 T4
   const b = buttonByText(h.tree, "Baseline");
   assert.equal(b.props["aria-haspopup"], "menu");
   assert.equal(b.props["aria-expanded"], false);
@@ -7211,4 +7212,137 @@ test("view project pribadi: pref load:proj_Alpha true → satu baris pengguna ak
   } finally {
     ls.restore();
   }
+}));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 4: tombol "Beban Tim" di toolbar (spec §7.1, R10, K56)
+// ════════════════════════════════════════════════════════════════════════════
+const loadBtnOf = (tree) => buttonByText(tree, "Beban Tim");
+
+test("T4 Beban Tim: urutan … Jalur kritis · Beban Tim · Baseline · Simpan baseline · Jadwalkan ulang; ikon histogram SVG berkelas tanpa warna; aria-pressed false bawaan; klik → pref load:<page> true + aria-pressed true + is-active; klik lagi → false", () => withEngineClock(async (clock) => {
+  const h = await swView(clock);
+  const tt = toolbarTexts(h.tree);
+  assert.deepEqual(tt.slice(tt.indexOf("Jadwal otomatis"), tt.indexOf("Jadwalkan ulang") + 1), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+  let b = loadBtnOf(h.tree);
+  assert.equal(b.props.type, "button");
+  assert.equal(b.props["aria-pressed"], false, "K56: bawaan tertutup");
+  assert.ok(!hasCls(b, "is-active"));
+  // ikon: satu <svg> kecil berkelas plg-timeline-btn-icon, aria-hidden, warna dari CSS (currentColor) — tanpa fill/stroke inline
+  const svgs = nodes(b, (n) => n.type === "svg");
+  assert.equal(svgs.length, 1);
+  assert.ok(hasCls(svgs[0], "plg-timeline-btn-icon"));
+  assert.equal(svgs[0].props["aria-hidden"], "true");
+  for (const n of nodes(svgs[0], () => true)) {
+    assert.equal(n.props.fill, undefined);
+    assert.equal(n.props.stroke, undefined);
+    assert.equal(n.props.style, undefined);
+  }
+  assert.match(css, /\.plg-timeline-btn-icon\s*\{[^}]*fill:\s*currentColor/);
+  b.props.onClick({});
+  await settle();
+  assert.deepEqual(h.calls.storageSet.filter((s) => s[0].indexOf("load:") === 0), [["load:proj_Alpha", true]]);
+  b = loadBtnOf(h.render());
+  assert.equal(b.props["aria-pressed"], true);
+  assert.ok(hasCls(b, "is-active"));
+  b.props.onClick({});
+  await settle();
+  assert.deepEqual(h.calls.storageSet.filter((s) => s[0].indexOf("load:") === 0), [["load:proj_Alpha", true], ["load:proj_Alpha", false]]);
+  assert.equal(loadBtnOf(h.render()).props["aria-pressed"], false);
+  assert.deepEqual(h.writes(), [], "pref saja: 0 tulis task/record");
+  h.m.unmount();
+}));
+
+test("T4 Beban Tim: aria-pressed mengikuti pref load:<page> tersimpan (true); mesin belum siap → tombol tidak tampil (juga tidak di Lainnya)", () => withEngineClock(async (clock) => {
+  {
+    const { api } = fakeApi({ storageGet: loadPrefGet("proj_Alpha", true) });
+    api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
+    for (const liveEdit of [false, true]) {
+      const m = mount(T.TimelineViewBody);
+      const props = { context: ctxOf(chainTasks(), { liveEdit }).ctx, api };
+      m.render(props);
+      m.flush();
+      await settle();
+      const tree = m.render(props); // pref terbaca, mesin belum jalan (raf/setTimeout belum)
+      assert.equal(loadBtnOf(tree), undefined, "mesin belum siap (liveEdit " + liveEdit + ")");
+      const mm = moreOf(tree);
+      assert.ok(!mm || mm.props.items.every((it) => it.id !== "load"));
+      m.unmount();
+    }
+  }
+  const { m, tree } = await critView(clock, { storageGet: loadPrefGet("proj_Alpha", true) });
+  const b = loadBtnOf(tree);
+  assert.ok(b, "tampil setelah mesin siap");
+  assert.equal(b.props["aria-pressed"], true, "pref tersimpan ON");
+  assert.ok(hasCls(b, "is-active"));
+  m.unmount();
+}));
+
+test("T4 Beban Tim: Live Edit → item menuitemcheckbox 'Beban Tim' di Lainnya setelah Jalur kritis (aria-checked = pref); pilih → pref load:<page> ditulis, menu tertutup", () => withEngineClock(async (clock) => {
+  const le = await swView(clock, { ctx: { liveEdit: true } });
+  assert.equal(loadBtnOf(le.tree), undefined, "tidak di toolbar saat collapse");
+  const mm = moreOf(le.tree);
+  const it = mm.props.items.find((x) => x.text === "Beban Tim");
+  assert.ok(it);
+  assert.equal(it.role, "menuitemcheckbox");
+  assert.equal(it.checked, false);
+  const texts = mm.props.items.map((x) => x.text);
+  assert.equal(texts.indexOf("Beban Tim"), texts.indexOf("Jalur kritis") + 1);
+  const mt = mount(T.MoreMenu);
+  let t = mt.render(mm.props);
+  buttonByText(t, "Lainnya").props.onClick({});
+  t = mt.render(mm.props);
+  const btn = nodes(t, (n) => n.type === "button" && n.props.role === "menuitemcheckbox" && txt(n).trim() === "Beban Tim")[0];
+  assert.ok(btn);
+  assert.equal(btn.props["aria-checked"], false);
+  btn.props.onClick({});
+  t = mt.render(mm.props);
+  assert.equal(nodes(t, (n) => n.props.role === "menu").length, 0, "menu tertutup");
+  await settle();
+  assert.deepEqual(le.calls.storageSet.filter((s) => s[0].indexOf("load:") === 0), [["load:proj_Alpha", true]]);
+  const it2 = moreOf(le.render()).props.items.find((x) => x.text === "Beban Tim");
+  assert.equal(it2.checked, true, "aria-checked mengikuti pref");
+  const t2 = mount(T.MoreMenu);
+  let tt = t2.render(moreOf(le.tree).props);
+  buttonByText(tt, "Lainnya").props.onClick({});
+  tt = t2.render(moreOf(le.tree).props);
+  assert.equal(nodes(tt, (n) => n.props.role === "menuitemcheckbox" && txt(n).trim() === "Beban Tim")[0].props["aria-checked"], true);
+  mt.unmount();
+  t2.unmount();
+  assert.deepEqual(le.writes(), []);
+  le.m.unmount();
+}));
+
+test("T4 Beban Tim: ≤ 640 px → di Lainnya, baik Gantt maupun Daftar (daftar HP R10); Daftar hanya ada ≤ 640 px — pref mode:list di layar lebar tetap Gantt dengan tombol di toolbar", () => withEngineClock(async (clock) => {
+  const prevWin = global.window;
+  global.window = { matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }), innerHeight: 800, addEventListener() {}, removeEventListener() {} };
+  try {
+    const n = await swView(clock);
+    assert.equal(loadBtnOf(n.tree), undefined);
+    const items = () => moreOf(n.tree).props.items;
+    assert.deepEqual(items().map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+    buttonByText(n.tree, "Daftar").props.onClick({});
+    n.render();
+    assert.deepEqual(items().map((it) => it.text), ["Jadwal otomatis", "Beban Tim", "Simpan baseline", "Jadwalkan ulang"]);
+    const it = items().find((x) => x.text === "Beban Tim");
+    assert.equal(it.role, "menuitemcheckbox");
+    it.onSelect();
+    await settle();
+    assert.deepEqual(n.calls.storageSet.filter((s) => s[0].indexOf("load:") === 0), [["load:proj_Alpha", true]]);
+    n.render();
+    assert.equal(items().find((x) => x.text === "Beban Tim").checked, true);
+    n.m.unmount();
+  } finally {
+    global.window = prevWin;
+  }
+  // layar lebar: mode:list tersimpan diabaikan (Gantt penuh) → tombol Beban Tim di toolbar
+  const fr = fakeRecords();
+  putRec(fr, unitRec(null, "Alpha"));
+  const { api } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "mode:proj_Alpha" ? "list" : null) });
+  api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
+  const m = mount(T.TimelineViewBody);
+  const props = { context: ctxOf(chainTasks()).ctx, api };
+  const tree = await settleView(m, () => props, clock);
+  assert.ok(gridOf(tree), "Gantt");
+  assert.ok(loadBtnOf(tree));
+  m.unmount();
 }));
