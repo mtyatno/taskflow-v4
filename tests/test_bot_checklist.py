@@ -251,3 +251,39 @@ def test_callback_mode_hapus_memakai_tombol_hapus_dan_hapus_berantai(pengguna):
     assert rows[-1] == [("⬅️ Kembali", f"viewrefresh_{tid}")]
     _callback(f"delsub_{a}_{tid}")
     assert [s["id"] for s in bot.repo.get_subtasks(tid)] == [b]
+
+
+# ── Perbaikan review: indentasi berhenti di tingkat 6 (spec §1 butir 2, D8) ──
+
+def _rantai(n, done=False):
+    return [_s(i + 1, f"t{i}", done, i) for i in range(n)]
+
+
+def _baris(text):
+    return text.split("</code>\n", 1)[1].split("\n")[1:]
+
+
+def test_indentasi_tingkat_7_dan_60_sama_dengan_tingkat_6():
+    baris = _baris(bot._checklist_lines(_rantai(61)))
+    awalan = [b[:b.index("☐")] for b in baris]
+    assert awalan[6] == "  " + "  " * 6 + "↳ "
+    assert awalan[7] == awalan[60] == awalan[6]
+    assert awalan[5] == "  " + "  " * 5 + "↳ " and awalan[0] == "  "
+    assert baris[60] == awalan[6] + "☐ t60"
+
+
+def test_rantai_60_tingkat_judul_pendek_di_bawah_batas_telegram():
+    t = Task(id=7, title="t", priority=Priority.P2, gtd_status=GTDStatus.INBOX)
+    text = bot._build_view_message(t, _rantai(60))
+    assert len(text) < 4096
+
+
+def test_sub_galat_selain_checklisterror_tetap_naik(pengguna, monkeypatch):
+    tid = _mk(pengguna, title="bot")["id"]
+
+    def rusak(*a, **kw):
+        raise RuntimeError("db rusak")
+
+    monkeypatch.setattr(bot.repo, "add_subtask", rusak)
+    with pytest.raises(RuntimeError, match="db rusak"):
+        _cmd_sub([str(tid), "x"])

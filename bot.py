@@ -698,7 +698,8 @@ def _checklist_lines(subtasks) -> str:
         depth = s.get("depth", 0)
         icon = "☑️" if s["is_done"] else "☐"
         strike = f"<s>{h(s['title'])}</s>" if s["is_done"] else h(s["title"])
-        text += "\n  " + "  " * depth + ("↳ " if depth else "") + f"{icon} {strike}"
+        # Indentasi berhenti di tingkat 6 (D8): rantai dalam tidak membuat pesan melewati batas Telegram.
+        text += "\n  " + "  " * min(depth, 6) + ("↳ " if depth else "") + f"{icon} {strike}"
     return text
 
 
