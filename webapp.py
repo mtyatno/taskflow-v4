@@ -142,6 +142,7 @@ from eisenhower import calculate_quadrant, recalculate_all
 from datehelper import parse_date
 from repository import TaskRepository
 import repository
+import checklist_tree
 import dbconn
 import plugin_host
 import plugin_loader
@@ -347,7 +348,10 @@ def _upsert_tags_for_entity(conn, entity_id: int, user_id: int, entity_type: str
 def migrate_db():
     """Ensure all tables exist via repository init."""
     from repository import TaskRepository
-    TaskRepository(DB_PATH).heal_orphan_workspace_items()
+    repo = TaskRepository(DB_PATH)
+    repo.heal_orphan_workspace_items()
+    # Checklist bertingkat (spec §3.3–§3.4): induk yatim → level atas, hitung ulang progress setiap start.
+    repo.heal_checklists()
 
     # Ensure telegram_link_tokens table exists
     conn = dbconn.connect(DB_PATH, foreign_keys=False)
@@ -2369,9 +2373,10 @@ async def task_child_counts(ids: str = "", user=Depends(get_current_user)):
         task_ids = list(counts)
         marks = ",".join("?" * len(task_ids))
         # Tanpa filter baris terhapus — sama dengan get_subtasks / get_notes_with_author / get_attachments.
+        # Checklist: hanya butir level atas (spec checklist bertingkat K1); sub butir tidak dihitung.
         for r in conn.execute(
             f"SELECT task_id, COUNT(*) AS total, SUM(CASE WHEN is_done THEN 1 ELSE 0 END) AS done"
-            f" FROM subtasks WHERE task_id IN ({marks}) GROUP BY task_id",
+            f" FROM subtasks WHERE task_id IN ({marks}) AND parent_id IS NULL GROUP BY task_id",
             task_ids,
         ):
             counts[r["task_id"]]["sub_total"] = r["total"]
@@ -2654,8 +2659,18 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
                 updates["deadline"] = d.isoformat() if d else None
         if req.assigned_to is not None:
             updates["assigned_to"] = req.assigned_to if req.assigned_to != 0 else None
+        progress_ignored = False
         if req.progress is not None:
-            updates["progress"] = max(0, min(100, req.progress))
+            # D3 (spec checklist bertingkat): selama task punya checklist, progress = field turunan server
+            # (syncpush selalu mengirim progress; salinan lama tidak boleh menimpa angka checklist). Setiap
+            # task yang punya butir pasti punya ≥ 1 butir level atas di pohon efektif (yatim/siklus → level
+            # atas), jadi cukup cek keberadaan butir.
+            has_checklist = conn.execute(
+                "SELECT 1 FROM subtasks WHERE task_id = ? LIMIT 1", (task_id,)).fetchone() is not None
+            if has_checklist:
+                progress_ignored = True
+            else:
+                updates["progress"] = max(0, min(100, req.progress))
         if req.is_focused is not None:
             updates["is_focused"] = 1 if req.is_focused else 0
         if req.estimated_pomodoros is not None:
@@ -2684,7 +2699,9 @@ async def update_task(task_id: int, req: TaskUpdate, background_tasks: Backgroun
 
         # PR 1c-0b K46: PUT ext murni (body tanpa field inti; null = tidak dikirim) membekukan waktu inti.
         pure_ext = ext_patch is not None and not updates and not req.recurrence_renew
-        if not updates and ext_patch is None:
+        if not updates and ext_patch is None and not req.recurrence_renew:
+            if progress_ignored:  # hanya progress (diabaikan): baris sekarang, tanpa UPDATE/updated_at/notifikasi
+                return task_row_to_dict(existing, conn)
             raise HTTPException(status_code=400, detail="No fields to update")
         # K6: PUT yang hanya mengubah ext (field inti sama dengan baris lama) tidak memberi tahu anggota workspace.
         ext_only = ext_patch is not None and not _core_changed(updates, existing, req)
@@ -3482,6 +3499,39 @@ async def recalculate_eisenhower(user=Depends(get_current_user)):
 class SubtaskCreate(BaseModel):
     title: str = Field(min_length=1)
     client_id: Optional[str] = None
+    parent_id: Optional[int] = None                    # None = level atas
+    index: Optional[int] = Field(default=None, ge=0)   # posisi di antara saudara; None = paling akhir
+
+
+class SubtaskRename(BaseModel):
+    title: str
+
+
+class SubtaskMove(BaseModel):
+    parent_id: Optional[int]                           # wajib ada di body, boleh null (= level atas)
+    index: Optional[int] = Field(default=None, ge=0)
+
+
+# Teks galat checklist persis spec checklist bertingkat §4 (rencana PR A R4).
+_CHECKLIST_ERRORS = {
+    "PARENT_NOT_FOUND": "Induk checklist tidak ditemukan",
+    "CYCLE": "Butir tidak bisa dipindah ke dalam dirinya sendiri",
+    "EMPTY_TITLE": "Teks butir tidak boleh kosong",
+}
+
+
+def _checklist_422(e: "repository.ChecklistError") -> HTTPException:
+    return HTTPException(status_code=422, detail=_CHECKLIST_ERRORS.get(e.code, str(e)))
+
+
+def _subtask_task_access(subtask_id: int, uid: int, write: bool = False):
+    """Baris task pemilik butir setelah cek akses; 404 "Subtask not found" bila butir tidak ada."""
+    with get_db() as conn:
+        sub = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
+        if not sub:
+            raise HTTPException(status_code=404, detail="Subtask not found")
+        return _can_access_task(conn, sub["task_id"], uid, write=write)
+
 
 @app.get("/api/tasks/{task_id}/subtasks")
 async def get_subtasks(task_id: int, user=Depends(get_current_user)):
@@ -3496,7 +3546,11 @@ async def create_subtask(task_id: int, req: SubtaskCreate, background_tasks: Bac
     with get_db() as conn:
         row = _can_access_task(conn, task_id, uid, write=True)
     repo = TaskRepository(DB_PATH)
-    result = repo.add_subtask(task_id, req.title, client_id=req.client_id)
+    try:
+        result = repo.add_subtask(task_id, req.title, client_id=req.client_id,
+                                  parent_id=req.parent_id, index=req.index)
+    except repository.ChecklistError as e:
+        raise _checklist_422(e)
     if row["list_id"]:
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
@@ -3506,29 +3560,47 @@ async def create_subtask(task_id: int, req: SubtaskCreate, background_tasks: Bac
         )
     return result
 
+@app.patch("/api/subtasks/{subtask_id}")
+async def rename_subtask(subtask_id: int, req: SubtaskRename, user=Depends(get_current_user)):
+    """Ubah teks butir (K12): butir + `task_progress`. Tanpa notifikasi."""
+    _subtask_task_access(subtask_id, user["sub"], write=True)
+    try:
+        result = TaskRepository(DB_PATH).rename_subtask(subtask_id, req.title)
+    except repository.ChecklistError as e:
+        raise _checklist_422(e)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Subtask not found")
+    return result
+
+@app.post("/api/subtasks/{subtask_id}/move")
+async def move_subtask(subtask_id: int, req: SubtaskMove, user=Depends(get_current_user)):
+    """Pindah butir beserta turunannya: `{items: <pre-order lengkap>, task_progress}`. Tanpa notifikasi."""
+    _subtask_task_access(subtask_id, user["sub"], write=True)
+    try:
+        result = TaskRepository(DB_PATH).move_subtask(subtask_id, req.parent_id, req.index)
+    except repository.ChecklistError as e:
+        raise _checklist_422(e)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Subtask not found")
+    return result
+
 @app.post("/api/subtasks/{subtask_id}/toggle")
 async def toggle_subtask(subtask_id: int, user=Depends(get_current_user)):
-    repo = TaskRepository(DB_PATH)
-    with get_db() as conn:
-        sub = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
-        if not sub:
-            raise HTTPException(status_code=404, detail="Subtask not found")
-        _can_access_task(conn, sub["task_id"], user["sub"])
-    result = repo.toggle_subtask(subtask_id)
+    """Centang berantai (K5): butir + `changed_ids` + `task_progress`."""
+    _subtask_task_access(subtask_id, user["sub"])
+    result = TaskRepository(DB_PATH).toggle_subtask(subtask_id)
     if not result:
         raise HTTPException(status_code=404, detail="Subtask not found")
     return result
 
 @app.delete("/api/subtasks/{subtask_id}")
 async def delete_subtask(subtask_id: int, user=Depends(get_current_user)):
-    repo = TaskRepository(DB_PATH)
-    with get_db() as conn:
-        sub = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
-        if not sub:
-            raise HTTPException(status_code=404, detail="Subtask not found")
-        _can_access_task(conn, sub["task_id"], user["sub"], write=True)
-    repo.delete_subtask(subtask_id)
-    return {"ok": True}
+    """Hapus butir beserta turunannya (K7): `{ok, deleted_ids, task_progress}`."""
+    _subtask_task_access(subtask_id, user["sub"], write=True)
+    result = TaskRepository(DB_PATH).delete_subtask(subtask_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Subtask not found")
+    return {"ok": True, **result}
 
 
 # ── Task Notes API routes ──────────────────────────────────────────────────
@@ -7526,15 +7598,16 @@ async def export_user_data(user=Depends(get_current_user)):
             tasks_list = []
             for t in tasks_rows:
                 td = dict(t)
-                subs = conn.execute(
-                    "SELECT title, is_done FROM subtasks WHERE task_id=? ORDER BY sort_order",
+                subs = checklist_tree.preorder(conn.execute(
+                    "SELECT id, task_id, parent_id, sort_order, title, is_done FROM subtasks WHERE task_id=?",
                     (t["id"],)
-                ).fetchall()
+                ).fetchall())
                 notes_rows = conn.execute(
                     "SELECT content FROM task_notes WHERE task_id=? ORDER BY id",
                     (t["id"],)
                 ).fetchall()
-                td["subtasks"] = [{"title": s["title"], "done": bool(s["is_done"])} for s in subs]
+                td["subtasks"] = [{"title": s["title"], "done": bool(s["is_done"]), "depth": s["depth"]}
+                                  for s in subs]
                 td["notes"] = [n["content"] for n in notes_rows]
                 tasks_list.append(td)
 

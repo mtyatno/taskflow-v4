@@ -9,6 +9,8 @@ Usage:
 import sqlite3
 import sys
 
+import checklist_tree  # modul murni (stdlib saja): urutan pre-order + hitung ulang progress checklist
+
 DRY_RUN = "--apply" not in sys.argv
 
 if len(sys.argv) < 3:
@@ -27,6 +29,19 @@ dst.row_factory = sqlite3.Row
 
 src_cur = src.cursor()
 dst_cur = dst.cursor()
+
+
+def _cols(cur, table):
+    return {r[1] for r in cur.execute(f"PRAGMA table_info({table})").fetchall()}
+
+
+# Checklist bertingkat: DB tujuan harus sudah dimigrasi (kolom subtasks.parent_id) — cek sebelum menulis apa pun.
+if "parent_id" not in _cols(dst_cur, "subtasks"):
+    print("GALAT: tabel subtasks di DB tujuan belum punya kolom parent_id. "
+          "Jalankan migrasi dulu (python3 -c \"import webapp; webapp.migrate_db()\" dengan DB_PATH tujuan).")
+    sys.exit(1)
+# Cadangan lama (sebelum checklist bertingkat) tidak punya parent_id → semua butir level atas.
+SRC_HAS_PARENT = "parent_id" in _cols(src_cur, "subtasks")
 
 # ── 1. Merge Users ──────────────────────────────────────────────────────────
 print("=== USERS ===")
@@ -105,20 +120,36 @@ else:
     print(f"  Ditambahkan: {added} tasks, skip duplikat: {skipped}")
 
 # ── 3. Merge Subtasks ───────────────────────────────────────────────────────
+# Per task dalam urutan pre-order (induk sebelum anak), id lama → id baru; induk yang tidak tersalin
+# (yatim, task lain, pemutus siklus, atau baris di-IGNORE) → level atas. sort_order asli dipertahankan.
 if not DRY_RUN:
     print("\n=== SUBTASKS ===")
     count = 0
+    by_task = {}
     for s in src_cur.execute("SELECT * FROM subtasks").fetchall():
-        new_task_id = task_id_map.get(s["task_id"])
+        row = dict(s)
+        if not SRC_HAS_PARENT:
+            row["parent_id"] = None
+        by_task.setdefault(row["task_id"], []).append(row)
+    sub_id_map = {}  # old_id → new_id
+    for old_task_id, rows in by_task.items():
+        new_task_id = task_id_map.get(old_task_id)
         if not new_task_id or isinstance(new_task_id, str):
             continue
-        dst_cur.execute("""
-            INSERT OR IGNORE INTO subtasks (task_id, title, is_done, sort_order, created_at)
-            VALUES (?, ?, ?, ?, ?)
-        """, (new_task_id, s["title"], s["is_done"], s["sort_order"], s["created_at"]))
-        count += 1
+        for s in checklist_tree.preorder(rows):
+            new_parent = sub_id_map.get(s["parent_id"]) if s["depth"] else None
+            dst_cur.execute("""
+                INSERT OR IGNORE INTO subtasks (task_id, title, is_done, sort_order, created_at, parent_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (new_task_id, s["title"], s["is_done"], s["sort_order"], s["created_at"], new_parent))
+            if dst_cur.rowcount:
+                sub_id_map[s["id"]] = dst_cur.lastrowid
+            count += 1
+    # progress/checklist_total = field turunan dari butir level atas (tanpa menyentuh updated_at)
+    recomputed = checklist_tree.recompute_all(dst)
     dst.commit()
     print(f"  Ditambahkan: {count} subtasks")
+    print(f"  Progress checklist dihitung ulang: {recomputed} tasks")
 
 # ── 4. Merge Task Notes ─────────────────────────────────────────────────────
 if not DRY_RUN:
