@@ -7390,7 +7390,7 @@ async function panelView(clock, o) {
   const page = ctxExtra.page;
   const storageGet = (k) => Promise.resolve(k === "load:" + page ? !opt.loadOff : opt.pref ? opt.pref(k) : null);
   const { api, calls } = fakeApi({ records: fr, storageGet });
-  api.env.userId = 7;
+  api.env.userId = "userId" in opt ? opt.userId : 7; // 1d-1 T7: tanpa pengguna aktif (empty state)
   api.data = { tasks: { list: () => Promise.resolve(opt.listOf ? opt.listOf() : tasks) } };
   const writes = spyWrites(api);
   const { ctx, clicked } = ctxOf(tasks, ctxExtra);
@@ -8104,3 +8104,580 @@ test("T6 CSS: kedip is-flash memakai var(--accent) (animasi singkat), prefers-re
   assert.ok(rm.length > 0 && /is-flash[^{]*\{[^}]*animation:\s*none/.test(rm), "reduced motion");
   assert.match(css, /\.plg-timeline-load-pop\s*\{[^}]*bottom:\s*100%/);
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 7: editor kapasitas/cuti (spec K55, §7.3, Q4 (a); rencana R9) + perbaikan minor review T2–T3
+// ════════════════════════════════════════════════════════════════════════════
+const edOf = (tree) => nodes(tree, (n) => n.type === T.ResourceEditor)[0];
+const dlgNode = (tree) => nodes(tree, (n) => n.props.role === "dialog")[0];
+const inputsOf = (tree, type) => nodes(tree, (n) => n.type === "input" && n.props.type === type);
+const notesOf = (tree) => nodes(tree, (n) => n.type === "input" && n.props["aria-label"] === "Catatan cuti");
+const btnsByLabel = (tree, label) => nodes(tree, (n) => n.type === "button" && n.props["aria-label"] === label);
+const hasText = (tree, s) => nodes(tree, (n) => typeof n.type === "string" && txt(n).trim() === s).length > 0;
+const chg = (value) => ({ target: { value } });
+const RES_WAIT = "Menunggu data workspace…";
+const RES_CAP_BAD = "Kapasitas 0–40 🍅/hari";
+const RES_DATE_BAD = "Periksa tanggal cuti";
+const RES_STALE = "Data berubah sejak dialog dibuka — muat ulang";
+const capIn = (tree) => inputsOf(tree, "number")[0];
+const saveBtn = (tree) => buttonByText(tree, "Simpan");
+const dateVals = (tree) => inputsOf(tree, "date").map((i) => i.props.value);
+const mapOf = (fr, scope) => T.resourceStore({ records: fr.api, env: { userId: 7 } }).loadScope(scope || "list:12");
+
+// Editor dipasang sendiri. res = bundel view {map, loaded, pulled, store, pageKind, listId, currentUser, collaborators,
+// userId, api}; bawaan: workspace 12, termuat + pulled, peta kosong (record absen), pengguna aktif Sari (7).
+function edSetup(o) {
+  const opt = o || {};
+  const fr = opt.records || fakeRecords();
+  const { api, calls } = fakeApi({ records: fr });
+  api.env.userId = 7;
+  const store = T.resourceStore(api);
+  const closes = [];
+  const res = Object.assign({
+    map: new Map(), loaded: true, pulled: true, store, pageKind: "workspace", listId: 12,
+    currentUser: { id: 7, username: "sari", display_name: "Sari" }, collaborators: [{ id: 9, username: "budi", display_name: "Budi" }],
+    userId: 7, api,
+  }, opt.res || {});
+  const m = mount(T.ResourceEditor);
+  const rootEl = { focused: 0, focus() { this.focused++; }, contains: (t) => t === rootEl };
+  const h = { m, fr, api, calls, store, closes, rootEl };
+  h.props = { uid: opt.uid || 9, name: opt.name || "Budi", res, onClose: (a) => closes.push(a === undefined ? null : a) };
+  h.render = () => {
+    h.tree = m.render(h.props);
+    const d = dlgNode(h.tree);
+    if (d && d.props.ref) d.props.ref.current = rootEl;
+    return h.tree;
+  };
+  h.flush = () => { m.flush(); return h.render(); };
+  h.set = (patch) => { h.props = Object.assign({}, h.props, { res: Object.assign({}, h.props.res, patch) }); return h.render(); };
+  h.render();
+  h.flush();
+  return h;
+}
+
+test("T7 minor review T2–T3: resRecId menolak uid/listId bukan bilangan bulat aman (1e21, 2^53) — uid lewat TLLoad.uidOf, listId Number.isSafeInteger; batas aman tetap sah", () => {
+  for (const [k, lid, uid] of [["workspace", 12, 1e21], ["workspace", 1e21, 7], ["project", null, 1e21], ["workspace", 2 ** 53, 7], ["workspace", 12, 2 ** 53], ["project", null, "7"]]) {
+    assert.throws(() => T.resRecId(k, lid, uid), blCode("INVALID"), JSON.stringify([k, lid, uid]));
+  }
+  const big = 2 ** 53 - 1;
+  assert.deepEqual(T.resRecId("workspace", big, big), { id: "res@list:" + big + ":" + big, scope: "list:" + big });
+  assert.match(jsx, /TLLoad\.uidOf\(uid\) !== uid/);
+  assert.match(jsx, /Number\.isSafeInteger\(listId\) && listId > 0/);
+});
+
+test("T7 minor review T2–T3: halaman pribadi tanpa pengguna aktif (ownerUid null, people kosong) → panel judul tanpa baris, tanpa lempar, 0 tulis", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const tasks = [mk(1, "A", { start: "2026-11-04", duration: 2 }, Object.assign({ estimated_pomodoros: 20 }, al)), mk(2, "B", {}, al)];
+  const h = await panelView(clock, { tasks, records: fakeRecords(), userId: undefined, ctx: { page: "proj_Alpha", pageKind: "project", listId: null, projectName: "Alpha", currentUser: null } });
+  const node = panelOf(h.tree);
+  assert.ok(node, "panel tetap tampil");
+  assert.deepEqual(node.props.load.rows, [], "tanpa baris (bukan 'Belum ditugaskan')");
+  const pt = child(node);
+  assert.equal(panelHead(pt), "Beban Tim · 0 hari kelebihan beban · 1 task belum dijadwalkan");
+  assert.deepEqual(panelNames(pt), []);
+  assert.equal(panelSvgs(pt).length, 0);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("T7 ResourceEditor isi (§7.3): dialog 'Kapasitas Budi' (kelas pop + res-pop, fokus saat dibuka); 'Kapasitas' + input number 0–40 step 1 numeric + '🍅/hari' + petunjuk persis; 'Cuti' + baris record (ISO, dua tanggal, catatan, '×' 'Hapus cuti'); 'Tambah cuti' menambah baris kosong, nonaktif di 50; hapus baris; Simpan/Batal; record absen → 8 tanpa cuti", () => withPop(async () => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 2, leave: [{ from: "2026-12-24", to: "2026-12-24", note: "" }, { from: "2026-11-09", to: "2026-11-10", note: "Cuti" }] }));
+  const h = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+  const d = dlgNode(h.tree);
+  assert.ok(hasCls(d, "plg-timeline-pop") && hasCls(d, "plg-timeline-res-pop"));
+  assert.equal(d.props["aria-label"], "Kapasitas Budi");
+  assert.equal(d.props.tabIndex, -1);
+  assert.equal(h.rootEl.focused, 1, "fokus ke dialog saat dibuka");
+  assert.equal(txt(nodes(h.tree, (n) => n.type === "h3")[0]).trim(), "Kapasitas Budi");
+  const cap = capIn(h.tree);
+  assert.deepEqual([cap.props.type, cap.props.min, cap.props.max, cap.props.step, cap.props.inputMode, cap.props.value, cap.props.disabled], ["number", 0, 40, 1, "numeric", "2", false]);
+  const lab = nodes(h.tree, (n) => n.type === "label" && nodes(n, (x) => x === cap).length > 0)[0];
+  assert.ok(lab, "input kapasitas di dalam <label>");
+  assert.ok(hasText(lab, "Kapasitas") && hasText(lab, "🍅/hari"), "label 'Kapasitas' + sufiks '🍅/hari'");
+  assert.ok(hasText(h.tree, "8 🍅 ≈ 3 jam 20 menit fokus"));
+  const sec = nodes(h.tree, (n) => n.type === "section" && n.props["aria-label"] === "Cuti")[0];
+  assert.ok(sec && hasText(sec, "Cuti"));
+  assert.deepEqual(dateVals(h.tree), ["2026-11-09", "2026-11-10", "2026-12-24", "2026-12-24"], "cuti sebagai ISO, urut");
+  assert.deepEqual(notesOf(h.tree).map((i) => i.props.value), ["Cuti", ""]);
+  assert.deepEqual(inputsOf(h.tree, "date").map((i) => i.props["aria-label"]), ["Dari tanggal", "Sampai tanggal", "Dari tanggal", "Sampai tanggal"]);
+  const dels = btnsByLabel(h.tree, "Hapus cuti");
+  assert.equal(dels.length, 2);
+  assert.ok(dels.every((b) => txt(b).trim() === "×" && b.props.type === "button"));
+  assert.ok(saveBtn(h.tree) && buttonByText(h.tree, "Batal"));
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  // tambah → baris kosong di akhir; hapus baris pertama
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  assert.deepEqual(dateVals(h.tree), ["2026-11-09", "2026-11-10", "2026-12-24", "2026-12-24", "", ""]);
+  btnsByLabel(h.tree, "Hapus cuti")[0].props.onClick({});
+  h.render();
+  assert.deepEqual(dateVals(h.tree), ["2026-12-24", "2026-12-24", "", ""]);
+  // 50 baris → Tambah cuti nonaktif
+  for (let i = 0; i < 60; i++) {
+    const add = buttonByText(h.tree, "Tambah cuti");
+    if (!add.props.disabled) add.props.onClick({});
+    h.render();
+  }
+  assert.equal(btnsByLabel(h.tree, "Hapus cuti").length, 50);
+  assert.equal(buttonByText(h.tree, "Tambah cuti").props.disabled, true);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+  // record absen → kapasitas bawaan 8 tanpa cuti, tanpa keterangan "Diubah oleh"
+  const a = edSetup();
+  assert.equal(capIn(a.tree).props.value, "8");
+  assert.equal(inputsOf(a.tree, "date").length, 0);
+  assert.equal(nodes(a.tree, (n) => typeof n.type === "string" && /^Diubah oleh/.test(txt(n).trim())).length, 0);
+  a.m.unmount();
+}));
+
+test("T7 Batal / Esc / klik luar / Tutup → onClose tanpa tulis (0 records.get/put); klik di dalam atau tombol nama/chip pemicu tidak menutup; pendengar dilepas", () => withPop(async (w) => {
+  const h = edSetup();
+  capIn(h.tree).props.onChange(chg("5"));
+  h.render();
+  buttonByText(h.tree, "Batal").props.onClick({});
+  let stopped = 0;
+  w.fire("keydown", { key: "Escape", preventDefault() {}, stopPropagation() { stopped++; } });
+  w.fire("pointerdown", { target: h.rootEl });
+  w.fire("pointerdown", { target: { closest: (sel) => (sel.indexOf(".plg-timeline-load-name") >= 0 ? {} : null) } });
+  w.fire("pointerdown", { target: { closest: (sel) => (sel.indexOf(".plg-timeline-load-m-person") >= 0 ? {} : null) } });
+  w.fire("pointerdown", { target: { closest: () => null } });
+  btnsByLabel(h.tree, "Tutup")[0].props.onClick({});
+  assert.deepEqual(h.closes, [{ restoreFocus: true }, { restoreFocus: true }, { restoreFocus: false }, { restoreFocus: true }]);
+  assert.equal(stopped, 1, "Esc: propagasi dihentikan (modal/Live Edit host tidak ikut tertutup)");
+  assert.equal(h.fr.calls.put.length + h.fr.calls.get.length + h.fr.calls.remove.length, 0);
+  h.m.unmount();
+  assert.equal(w.ls.filter((l) => l.type === "keydown" || l.type === "pointerdown").length, 0);
+}));
+
+test("T7 Simpan → tepat 1 records.put ter-normalisasi (cuti digabung, by = userId) + {scope}; toast persis 'Kapasitas Budi disimpan'; ditutup (fokus kembali); klik Simpan dua kali cepat → 1 put; pribadi → res@user scope user", () => withPop(async () => {
+  const h = edSetup();
+  capIn(h.tree).props.onChange(chg("5"));
+  h.render();
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  const set = (i, which, v) => { inputsOf(h.tree, "date")[i * 2 + which].props.onChange(chg(v)); h.render(); };
+  set(0, 0, "2026-11-10");
+  set(0, 1, "2026-11-12");
+  set(1, 0, "2026-11-09");
+  set(1, 1, "2026-11-09");
+  notesOf(h.tree)[1].props.onChange(chg("Mudik"));
+  h.render();
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  saveBtn(h.tree).props.onClick({});
+  h.render();
+  assert.equal(saveBtn(h.tree).props.disabled, true, "nonaktif selama menyimpan");
+  saveBtn(h.tree).props.onClick({}); // klik ganda
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(h.fr), [["resource", "res@list:12:9", { v: 1, capacity: 5, leave: [{ from: "2026-11-09", to: "2026-11-12", note: "Mudik" }], by: 7 }, { scope: "list:12" }]]);
+  assert.equal(h.fr.calls.get.length, 1, "satu baca CAS");
+  assert.deepEqual(h.calls.toast, [["Kapasitas Budi disimpan", "success"]]);
+  assert.deepEqual(h.closes, [{ restoreFocus: true }]);
+  h.m.unmount();
+  // halaman project pribadi: res@user:<uid> scope user (Q4 a: tanpa batas siapa yang mengedit — di sini diri sendiri)
+  const p = edSetup({ uid: 7, name: "Sari", res: { pageKind: "project", listId: null, pulled: true } });
+  capIn(p.tree).props.onChange(chg("0"));
+  p.render();
+  saveBtn(p.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(p.fr), [["resource", "res@user:7", { v: 1, capacity: 0, leave: [], by: 7 }, { scope: "user" }]]);
+  assert.deepEqual(p.calls.toast, [["Kapasitas Sari disimpan", "success"]]);
+  p.m.unmount();
+}));
+
+test("T7 validasi inline: kapasitas bukan bilangan bulat 0–40 → Simpan nonaktif + 'Kapasitas 0–40 🍅/hari' (aria-invalid); tanggal cuti kosong/tidak sah/di luar 1970–2199 atau dari > sampai → 'Periksa tanggal cuti'; diperbaiki → aktif; klik saat tidak sah → 0 put", () => withPop(async () => {
+  const h = edSetup();
+  for (const [v, ok] of [["", false], ["41", false], ["2.5", false], ["-1", false], ["1e1", false], ["abc", false], ["0", true], ["40", true], ["08", true], ["7", true]]) {
+    capIn(h.tree).props.onChange(chg(v));
+    h.render();
+    assert.equal(saveBtn(h.tree).props.disabled, !ok, "Simpan: " + JSON.stringify(v));
+    assert.deepEqual(alerts(h.tree), ok ? [] : [RES_CAP_BAD], "pesan: " + JSON.stringify(v));
+    assert.equal(capIn(h.tree).props["aria-invalid"], !ok);
+    if (!ok) saveBtn(h.tree).props.onClick({});
+  }
+  buttonByText(h.tree, "Tambah cuti").props.onClick({});
+  h.render();
+  assert.equal(saveBtn(h.tree).props.disabled, true, "baris baru kosong");
+  assert.deepEqual(alerts(h.tree), [RES_DATE_BAD]);
+  const dates = () => inputsOf(h.tree, "date");
+  for (const [from, to, ok] of [["2026-11-10", "", false], ["2026-11-10", "2026-11-09", false], ["2026-02-30", "2026-03-01", false], ["1969-12-31", "1970-01-02", false], ["2026-11-10", "2200-01-01", false], ["2026-11-10", "2026-11-10", true], ["1970-01-01", "2199-12-31", true]]) {
+    dates()[0].props.onChange(chg(from));
+    h.render();
+    dates()[1].props.onChange(chg(to));
+    h.render();
+    assert.equal(saveBtn(h.tree).props.disabled, !ok, from + ".." + to);
+    assert.deepEqual(alerts(h.tree), ok ? [] : [RES_DATE_BAD], from + ".." + to);
+    assert.equal(dates()[0].props["aria-invalid"], !ok);
+    if (!ok) saveBtn(h.tree).props.onClick({});
+  }
+  // keduanya tidak sah → dua pesan
+  capIn(h.tree).props.onChange(chg("99"));
+  h.render();
+  dates()[1].props.onChange(chg(""));
+  h.render();
+  assert.deepEqual(alerts(h.tree), [RES_CAP_BAD, RES_DATE_BAD]);
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  assert.equal(h.fr.calls.put.length + h.fr.calls.get.length, 0, "tidak sah → tanpa baca/tulis");
+  h.m.unmount();
+}));
+
+test("T7 kunci Simpan (R9, review T2–T3): workspace (a) belum termuat → terkunci + 'Menunggu data workspace…'; (c) termuat + record ada → terbuka tanpa pulled; pribadi: belum termuat → terkunci TANPA teks, termuat → terbuka (pulled tidak berpengaruh)", () => withPop(async () => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 3 }));
+  const map = await mapOf(fr);
+  const locked = (t) => saveBtn(t).props.disabled === true && capIn(t).props.disabled === true && buttonByText(t, "Tambah cuti").props.disabled === true;
+  // (a)
+  const a = edSetup({ records: fr, res: { map: new Map(), loaded: false, pulled: true } });
+  assert.ok(locked(a.tree), "(a) terkunci (pulled menyala sebelum muat tidak cukup)");
+  assert.ok(hasText(a.tree, RES_WAIT));
+  assert.equal(buttonByText(a.tree, "Batal").props.disabled, undefined, "Batal tetap aktif");
+  a.m.unmount();
+  // (c)
+  const c = edSetup({ records: fr, res: { map, loaded: true, pulled: false } });
+  assert.ok(!locked(c.tree), "(c) record lokal ada → terbuka tanpa pulled");
+  assert.equal(saveBtn(c.tree).props.disabled, false);
+  assert.ok(!hasText(c.tree, RES_WAIT));
+  c.m.unmount();
+  // pribadi
+  const p = edSetup({ uid: 7, name: "Sari", res: { pageKind: "project", listId: null, map: new Map(), loaded: false, pulled: false } });
+  assert.ok(locked(p.tree), "pribadi belum termuat → terkunci");
+  assert.ok(!hasText(p.tree, RES_WAIT), "tanpa teks");
+  p.set({ loaded: true });
+  p.flush();
+  assert.ok(!locked(p.tree), "pribadi termuat → terbuka walau pulled false");
+  assert.ok(!hasText(p.tree, RES_WAIT));
+  p.m.unmount();
+}));
+
+test("T7 kunci (b): termuat + tanpa record + belum pulled → terkunci + teks; pulled → terbuka (record tetap absen → potret absen, Simpan → 1 put)", () => withPop(async () => {
+  const h = edSetup({ res: { map: new Map(), loaded: true, pulled: false } });
+  assert.equal(saveBtn(h.tree).props.disabled, true);
+  assert.equal(capIn(h.tree).props.disabled, true);
+  assert.ok(hasText(h.tree, RES_WAIT));
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  assert.equal(h.fr.calls.put.length, 0, "terkunci → tanpa tulis");
+  h.set({ pulled: true });
+  h.flush();
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  assert.ok(!hasText(h.tree, RES_WAIT));
+  capIn(h.tree).props.onChange(chg("6"));
+  h.render();
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.equal(resPuts(h.fr).length, 1);
+  assert.equal(resPuts(h.fr)[0][2].capacity, 6);
+  h.m.unmount();
+}));
+
+test("T7 dibuka sebelum termuat → nilai + potret DIPERBARUI saat data termuat (selama belum diubah); render pertama sesudah buka kunci tetap nonaktif sampai potret baru; Simpan memakai potret record terbaru (CAS lolos, 1 put)", () => withPop(async () => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 6, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }] }));
+  const h = edSetup({ records: fr, res: { map: new Map(), loaded: false, pulled: false } });
+  assert.equal(capIn(h.tree).props.value, "8", "sebelum termuat: bawaan");
+  assert.equal(saveBtn(h.tree).props.disabled, true);
+  // data termuat: render sebelum efek → masih nonaktif (potret lama tidak pernah bisa dipakai)
+  h.set({ map: await mapOf(fr), loaded: true });
+  assert.equal(saveBtn(h.tree).props.disabled, true, "sebelum potret diperbarui");
+  h.flush();
+  assert.equal(capIn(h.tree).props.value, "6");
+  assert.deepEqual(dateVals(h.tree), ["2026-11-09", "2026-11-10"]);
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  assert.ok(hasText(h.tree, "Diubah oleh Budi · Kam 5 Nov"), "keterangan ikut record yang termuat");
+  capIn(h.tree).props.onChange(chg("3"));
+  h.render();
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.equal(resPuts(h.fr).length, 1, "CAS lolos: potret = record terbaru (bukan potret absen saat dibuka)");
+  assert.deepEqual(resPuts(h.fr)[0][2], { v: 1, capacity: 3, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }], by: 7 });
+  h.m.unmount();
+  // sudah terbuka + belum diubah: perubahan data sesudahnya TIDAK mengganti potret (potret = saat dibuka) → CAS menolak
+  const fr2 = fakeRecords();
+  putRec(fr2, resRec(12, 9, { capacity: 6 }));
+  const g = edSetup({ records: fr2, res: { map: await mapOf(fr2) } });
+  putRec(fr2, resRec(12, 9, { capacity: 4 }, { updated_at: "2026-11-06T00:00:00Z" }));
+  g.set({ map: await mapOf(fr2) });
+  g.flush();
+  assert.equal(capIn(g.tree).props.value, "6", "potret saat dibuka dipertahankan");
+  saveBtn(g.tree).props.onClick({});
+  await settle();
+  await settle();
+  g.render();
+  assert.equal(resPuts(g.fr).length, 0);
+  assert.ok(alerts(g.tree).indexOf(RES_STALE) >= 0);
+  g.m.unmount();
+}));
+
+test("T7 STALE (CAS, Review Focus 4): record berubah sejak dialog dibuka → 0 put + teks persis + 'Muat ulang' (Simpan nonaktif); Muat ulang mengisi nilai + potret terbaru dari records.get (membuang ketikan) → Simpan → 1 put", () => withPop(async () => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { capacity: 6, leave: [] }));
+  const h = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+  capIn(h.tree).props.onChange(chg("3"));
+  h.render();
+  // anggota lain menyimpan (sinkron) — peta panel BELUM dimuat ulang
+  putRec(fr, resRec(12, 9, { capacity: 4, leave: [{ from: "2026-12-01", to: "2026-12-02", note: "Dinas" }], by: 9 }, { updated_at: "2026-11-06T03:00:00Z" }));
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  await settle();
+  h.render();
+  assert.equal(resPuts(fr).length, 0, "STALE → 0 put");
+  assert.ok(alerts(h.tree).indexOf(RES_STALE) >= 0, "teks persis");
+  assert.equal(saveBtn(h.tree).props.disabled, true, "Simpan nonaktif sampai dimuat ulang");
+  assert.deepEqual(h.closes, [], "dialog tetap terbuka");
+  assert.deepEqual(h.calls.toast, []);
+  const reload = buttonByText(h.tree, "Muat ulang");
+  assert.ok(reload && reload.props.type === "button");
+  reload.props.onClick({});
+  await settle();
+  await settle();
+  h.render();
+  assert.equal(capIn(h.tree).props.value, "4", "ketikan dibuang, nilai terbaru");
+  assert.deepEqual(dateVals(h.tree), ["2026-12-01", "2026-12-02"]);
+  assert.deepEqual(notesOf(h.tree).map((i) => i.props.value), ["Dinas"]);
+  assert.ok(alerts(h.tree).indexOf(RES_STALE) < 0);
+  assert.ok(hasText(h.tree, "Diubah oleh Budi · Jum 6 Nov"));
+  assert.equal(saveBtn(h.tree).props.disabled, false);
+  capIn(h.tree).props.onChange(chg("5"));
+  h.render();
+  saveBtn(h.tree).props.onClick({});
+  await settle();
+  await settle();
+  assert.equal(resPuts(fr).length, 1);
+  assert.equal(resPuts(fr)[0][2].capacity, 5);
+  h.m.unmount();
+}));
+
+test("T7 galat simpan: TOO_LARGE → pesan MSG_RES_TOO_LARGE inline; INVALID → 'Periksa tanggal cuti'; galat lain → toast persis 'Gagal menyimpan kapasitas'; dialog tetap terbuka, Simpan aktif lagi", () => withPop(async () => {
+  for (const [code, inline, toast] of [["TOO_LARGE", T.MSG_RES_TOO_LARGE, null], ["INVALID", RES_DATE_BAD, null], ["IDB", null, "Gagal menyimpan kapasitas"]]) {
+    const h = edSetup();
+    let n = 0;
+    h.set({ store: { save: () => { n++; return Promise.reject(Object.assign(new Error("x"), { code })); }, get: () => Promise.resolve(null) } });
+    saveBtn(h.tree).props.onClick({});
+    await settle();
+    await settle();
+    h.render();
+    assert.equal(n, 1, code);
+    assert.deepEqual(alerts(h.tree), inline ? [inline] : [], code);
+    assert.deepEqual(h.calls.toast, toast ? [[toast, "error"]] : [], code);
+    assert.deepEqual(h.closes, [], code);
+    assert.equal(saveBtn(h.tree).props.disabled, false, code + ": aktif lagi");
+    if (inline) {
+      capIn(h.tree).props.onChange(chg("7"));
+      h.render();
+      assert.deepEqual(alerts(h.tree), [], code + ": pesan hilang saat diubah");
+    }
+    h.m.unmount();
+  }
+  assert.equal(T.MSG_RES_SAVE_FAIL, "Gagal menyimpan kapasitas");
+}));
+
+test("T7 keterangan 'Diubah oleh {nama} · {tgl}' (tanggal Jakarta dari updated_at; nama dari currentUser/collaborators) dan 'Diubah oleh anggota lain · {tgl}'", () => withPop(async () => {
+  const at = { updated_at: "2026-11-04T18:30:00Z" }; // UTC Rab 4 Nov, Jakarta Kam 5 Nov 01.30
+  const cases = [
+    [{ by: 9 }, "Diubah oleh Budi · Kam 5 Nov"],
+    [{ by: 7 }, "Diubah oleh Sari · Kam 5 Nov"],
+    [{ by: 99 }, "Diubah oleh anggota lain · Kam 5 Nov"],
+    [{ by: null }, "Diubah oleh anggota lain · Kam 5 Nov"],
+    [{ v: 2, by: 9 }, "Diubah oleh anggota lain · Kam 5 Nov"], // data asing: by tidak dipercaya
+  ];
+  for (const [data, want] of cases) {
+    const fr = fakeRecords();
+    putRec(fr, resRec(12, 9, data, at));
+    const h = edSetup({ records: fr, res: { map: await mapOf(fr) } });
+    const by = nodes(h.tree, (n) => hasCls(n, "plg-timeline-res-by"));
+    assert.equal(by.length, 1, want);
+    assert.equal(txt(by[0]).trim(), want);
+    h.m.unmount();
+  }
+  // id string (JWT) di collaborators/currentUser tetap cocok
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 9, { by: 9 }, at));
+  const h = edSetup({ records: fr, res: { map: await mapOf(fr), collaborators: [{ id: "9", username: "budi" }] } });
+  assert.equal(txt(nodes(h.tree, (n) => hasCls(n, "plg-timeline-res-by"))[0]).trim(), "Diubah oleh budi · Kam 5 Nov");
+  h.m.unmount();
+}));
+
+// View → LoadPanel → ResourceEditor (tiga tingkat dipasang terpisah, props asli dari view).
+async function edView(clock, o) {
+  const h = await panelView(clock, o);
+  const pm = mount(T.LoadPanel);
+  let em = null;
+  let emKey = null;
+  const x = { h, pm };
+  x.panel = () => {
+    h.render();
+    x.node = panelOf(h.tree);
+    x.pt = x.node ? pm.render(x.node.props) : null;
+    return x.pt;
+  };
+  x.editor = () => {
+    x.panel();
+    const e = x.pt ? edOf(x.pt) : undefined;
+    if (!e) {
+      x.ed = null;
+      x.et = null;
+      return null;
+    }
+    if (!em || emKey !== e.key) {
+      em = mount(T.ResourceEditor);
+      emKey = e.key;
+    }
+    x.ed = e;
+    x.et = em.render(e.props);
+    em.flush();
+    x.et = em.render(e.props);
+    return x.et;
+  };
+  x.nameBtn = (prefix) => byCls(x.pt, "plg-timeline-load-name").find((n) => txt(n).trim().indexOf(prefix) === 0);
+  x.open = (prefix) => {
+    x.panel();
+    const btn = { focused: 0, focus() { this.focused++; } };
+    x.nameBtn(prefix).props.onClick({ currentTarget: btn });
+    x.editor();
+    return btn;
+  };
+  x.unmount = () => {
+    if (em) em.unmount();
+    pm.unmount();
+    h.m.unmount();
+  };
+  return x;
+}
+
+test("T7 view: nama di panel → editor (Q4 a: siapa pun) — tombol nama aria-haspopup dialog + aria-expanded; props editor = bundel kapasitas view; klik nama yang sama → tutup; nama lain → ganti; Batal → fokus kembali ke nama; 'Belum ditugaskan' tanpa editor; 0 tulis", () => withEngineClock(async (clock) => {
+  const x = await edView(clock);
+  x.panel();
+  const names = byCls(x.pt, "plg-timeline-load-name").filter((n) => n.type === "button");
+  assert.ok(names.length === 3 && names.every((n) => n.props["aria-haspopup"] === "dialog" && n.props["aria-expanded"] === false));
+  assert.equal(edOf(x.pt), undefined, "tertutup bawaan");
+  const btn = x.open("Budi");
+  assert.ok(x.ed, "editor dirender LoadPanel");
+  assert.equal(x.nameBtn("Budi").props["aria-expanded"], true);
+  assert.equal(x.nameBtn("Sari").props["aria-expanded"], false);
+  assert.deepEqual([x.ed.props.uid, x.ed.props.name], [9, "Budi"]);
+  const r = x.ed.props.res;
+  assert.ok(r.map instanceof Map && r.map.has(9));
+  assert.deepEqual([r.loaded, r.pulled, r.pageKind, r.listId, r.userId], [true, false, "workspace", 12, 7]);
+  assert.equal(typeof r.store.save, "function");
+  assert.equal(r.api, x.h.api);
+  assert.equal(r.currentUser, x.h.props.context.currentUser);
+  assert.equal(r.collaborators, x.h.props.context.collaborators);
+  assert.equal(dlgNode(x.et).props["aria-label"], "Kapasitas Budi");
+  assert.equal(capIn(x.et).props.value, "2");
+  assert.equal(saveBtn(x.et).props.disabled, false, "record lokal ada → terbuka");
+  // memo: render ulang view tanpa perubahan → props panel identik
+  const p1 = x.node.props;
+  x.panel();
+  for (const k of Object.keys(p1)) assert.ok(Object.is(p1[k], x.node.props[k]), "prop stabil: " + k);
+  // Batal → tutup + fokus kembali ke tombol nama
+  buttonByText(x.et, "Batal").props.onClick({});
+  x.editor();
+  assert.equal(x.ed, null);
+  assert.equal(btn.focused, 1);
+  assert.equal(x.nameBtn("Budi").props["aria-expanded"], false);
+  // toggle + ganti orang
+  x.open("Sari");
+  assert.equal(x.ed.props.uid, 7);
+  x.nameBtn("Sari").props.onClick({ currentTarget: btn });
+  x.editor();
+  assert.equal(x.ed, null, "nama yang sama → tutup");
+  x.open("Citra");
+  x.nameBtn("Budi").props.onClick({ currentTarget: btn });
+  x.editor();
+  assert.equal(x.ed.props.uid, 9, "nama lain → ganti");
+  assert.equal(byCls(x.pt, "plg-timeline-load-name").find((n) => txt(n).trim() === "Belum ditugaskan").type, "div");
+  // panel ditutup → editor tertutup (tidak terbuka lagi saat panel dibuka kembali)
+  loadBtnOf(x.h.tree).props.onClick({});
+  await x.h.again();
+  loadBtnOf(x.h.tree).props.onClick({});
+  await x.h.again();
+  x.editor();
+  assert.equal(x.ed, null);
+  assert.deepEqual(x.h.writes, []);
+  assert.equal(x.h.fr.calls.put.length, 0);
+  x.unmount();
+}));
+
+test("T7 view: kunci (b) perangkat baru — Sari tanpa record lokal, belum ada tarik → terkunci 'Menunggu data workspace…'; peristiwa pulled → muat ulang → terbuka; 0 tulis", () => withEngineClock(async (clock) => {
+  const x = await edView(clock);
+  x.open("Sari");
+  assert.equal(saveBtn(x.et).props.disabled, true);
+  assert.ok(hasText(x.et, RES_WAIT));
+  x.h.fr.emit(PULLED);
+  await x.h.again();
+  x.editor();
+  assert.equal(x.ed.props.res.pulled, true);
+  assert.equal(saveBtn(x.et).props.disabled, false);
+  assert.ok(!hasText(x.et, RES_WAIT));
+  assert.deepEqual(x.h.writes, []);
+  assert.equal(x.h.fr.calls.put.length, 0);
+  x.unmount();
+}));
+
+test("T7 view: Simpan kapasitas Budi 8 → 1 put (saveResource) + toast; onChange lokal → panel memuat ulang: '{nama} · 8 🍅/hari', hari merah tinggal cuti; pagar R25 (pin saveResource:records.put = 1) tetap", () => withEngineClock(async (clock) => {
+  const x = await edView(clock);
+  x.panel();
+  assert.equal(panelHead(x.pt), "Beban Tim · 6 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅");
+  x.open("Budi");
+  capIn(x.et).props.onChange(chg("8"));
+  x.editor();
+  saveBtn(x.et).props.onClick({});
+  await settle();
+  await settle();
+  assert.deepEqual(resPuts(x.h.fr).map((p) => [p[1], p[2], p[3]]), [["res@list:12:9", { v: 1, capacity: 8, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }], by: 7 }, { scope: "list:12" }]]);
+  assert.deepEqual(x.h.calls.toast, [["Kapasitas Budi disimpan", "success"]]);
+  x.editor();
+  assert.equal(x.ed, null, "ditutup setelah simpan");
+  // host: put lokal → onChange {source: "local"} → useResources memuat ulang (debounce) → beban dihitung ulang
+  x.h.fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "local" });
+  await x.h.again();
+  x.panel();
+  assert.deepEqual(panelNames(x.pt)[0], ["button", "Budi · 8 🍅/hari"]);
+  assert.equal(panelHead(x.pt), "Beban Tim · 2 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅");
+  const budi = x.node.props.load.rows.find((r) => r.uid === 9);
+  assert.deepEqual(budi.overDays.map(T.TLCal.iso), ["2026-11-09", "2026-11-10"], "tinggal hari cuti");
+  assert.deepEqual(x.h.writes, [], "taskExt tidak disentuh");
+  assert.equal(resPuts(x.h.fr).length, 1, "satu-satunya tulisan = Simpan");
+  assert.match(jsx, /function saveResource\(/);
+  assert.equal((jsx.match(/records\.put\(/g) || []).length, 4, "records.put hanya di save/setAuto/saveBaseline/saveResource");
+  x.unmount();
+}));
+
+test("T7 CSS editor: .plg-timeline-res-pop membuka ke atas panel; baris cuti grid tanpa lebar tetap; input tidak sah bertepi --plg-timeline-danger; input 16 px di ≤ 640 px (cegah zoom iOS); hanya token", () => {
+  const block = css.slice(css.indexOf("1d-1 Task 7"));
+  assert.ok(block.length > 100, "blok CSS Task 7");
+  assert.match(block, /\.plg-timeline-res-pop\s*\{[^}]*bottom:\s*100%/);
+  assert.match(block, /\.plg-timeline-res-row\s*\{[^}]*display:\s*grid/);
+  assert.match(block, /\[aria-invalid="true"\][^{]*\{[^}]*var\(--plg-timeline-danger\)/);
+  assert.match(block, /@media \(max-width: 640px\)\s*\{[^@]*\.plg-timeline-res-pop \.plg-timeline-pop-input\s*\{[^}]*font-size:\s*16px/);
+  assert.doesNotMatch(block, /border-left\s*:/);
+  assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
+});
+
+test("T7 satu popover panel pada satu waktu: buka editor saat popover saran terbuka → saran tertutup; buka saran (keyboard, tanpa pointerdown) saat editor terbuka → editor tertutup; 0 tulis", () => withEngineClock(async (clock) => {
+  const x = await edView(clock, { tasks: sugTasks(), records: sugRecords() });
+  x.panel();
+  const hit = () => hitOf(x.pt, "Budi · Rab 4 Nov");
+  hit().props.onClick({ currentTarget: { focus() {} } });
+  x.panel();
+  assert.ok(sugOf(x.pt), "saran terbuka");
+  x.nameBtn("Budi").props.onClick({ currentTarget: { focus() {} } });
+  x.editor();
+  assert.equal(sugOf(x.pt), undefined, "saran ditutup saat editor dibuka");
+  assert.ok(x.ed, "editor terbuka");
+  hit().props.onClick({ currentTarget: { focus() {} } });
+  x.editor();
+  assert.equal(x.ed, null, "editor ditutup saat saran dibuka");
+  assert.ok(sugOf(x.pt));
+  assert.deepEqual(x.h.writes, []);
+  assert.equal(x.h.fr.calls.put.length, 0);
+  x.unmount();
+}));

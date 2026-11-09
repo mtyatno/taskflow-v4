@@ -2398,7 +2398,8 @@ const TLLoad = (function (CAL, SCHED, CPM) {
   // run(input) → {T, rows, unscheduled, recurring, defaultTarget, counted, lateCount}.
   // input = {tasks, cal, readExt, result, units, people, byAssignee, ownerUid, D}: tasks = eng.ctx.tasks (daftar lengkap
   // halaman, R2), cal = kalender halaman, result = TLCpm.run (ringkasan dilewati), people = [{uid, name, res}],
-  // byAssignee true → uidOf(assigned_to) (workspace), false → uidOf(ownerUid) (pribadi), D = bilangan hari hari ini. units tidak
+  // byAssignee true → uidOf(assigned_to) (workspace), false → uidOf(ownerUid) (pribadi; pemilik tak sah → beban tidak
+  // dibarisi, tanpa baris "Belum ditugaskan"), D = bilangan hari hari ini. units tidak
   // dipakai di sini (R1: tanggal = bar) — hanya oleh suggest.
   // Baris: {uid|null, name, capacity|null, res|null, days: Map<dn naik, {load, parts: [{key, share, late}]}>, overDays, total}.
   function run(input) {
@@ -2453,6 +2454,9 @@ const TLLoad = (function (CAL, SCHED, CPM) {
       if (!(Number.isInteger(t.estimated_pomodoros) && t.estimated_pomodoros >= 2)) defaultTarget++;
       if (late) lateCount++;
       const uid = a.byAssignee === true ? uidOf(t.assigned_to) : owner;
+      // Halaman pribadi tanpa pemilik sah (review T2–T3): tidak ada baris yang memikulnya — bukan "Belum ditugaskan"
+      // (baris itu hanya untuk task workspace tanpa penanggung jawab). Hitungan di atas tetap.
+      if (uid === null && a.byAssignee !== true) continue;
       let m = acc.get(uid);
       if (!m) acc.set(uid, (m = new Map()));
       // R8: porsi bilangan bulat; sisa bagi +1 ke hari-hari paling awal → Σ = sisa × 1000 tepat.
@@ -3975,12 +3979,13 @@ const MSG_RES_TOO_LARGE = "Data kapasitas terlalu besar — kurangi cuti atau ca
 const EMPTY_RES = new Map();
 const RES_SCOPE_RE = /^list:([1-9]\d*)$/;
 
-// Id + scope record resource satu orang (satu-satunya pembuat id). pageKind "workspace" + listId bilangan bulat > 0 →
+// Id + scope record resource satu orang (satu-satunya pembuat id). pageKind "workspace" + listId bilangan bulat AMAN > 0 →
 // {id: "res@list:<lid>:<uid>", scope: "list:<lid>"}; "project" (pribadi) → {id: "res@user:<uid>", scope: "user"}; uid
-// bukan bilangan bulat > 0 / halaman lain → Error code INVALID (pola blError).
+// bukan bilangan (bukan string) bulat aman > 0 (TLLoad.uidOf, review T2–T3: 1e21 bukan uid) / halaman lain → Error code
+// INVALID (pola blError).
 function resRecId(pageKind, listId, uid) {
-  if (!(Number.isInteger(uid) && uid > 0)) throw blError("INVALID", "anggota tidak sah");
-  if (pageKind === "workspace" && Number.isInteger(listId) && listId > 0) return {
+  if (uid === null || TLLoad.uidOf(uid) !== uid) throw blError("INVALID", "anggota tidak sah");
+  if (pageKind === "workspace" && Number.isSafeInteger(listId) && listId > 0) return {
     id: "res@list:" + listId + ":" + uid,
     scope: "list:" + listId
   };
@@ -4021,16 +4026,22 @@ function resEntry(r) {
 //     leave} editor; snap = potret CAS saat dialog dibuka ({exists, updatedAt}; record absen = {exists: false,
 //     updatedAt: null}). Galat ber-`code`: INVALID (target/snap/nilai — dari TLLoad.resourceEncode), TOO_LARGE (> 4096
 //     byte, diperiksa SEBELUM baca/tulis seperti saveBaseline), STALE (potret sekarang ≠ snap; pesan MSG_RES_STALE).
+//   get(target) → Promise<entri|null>: SATU record terkini di perangkat ini (records.get; T7 "Muat ulang" setelah STALE —
+//     peta useResources bisa tertinggal debounce). Hanya baca. Target tak sah → INVALID.
 //   subscribe(fn) → off: perubahan entitas resource + peristiwa tarik sukses (recordEvent).
 // SATU-SATUNYA tulisan record resource: saveResource (pagar R25 + pin AST "saveResource:records.put": 1).
 function resourceStore(api) {
   const snapOk = s => !!s && typeof s === "object" && !Array.isArray(s);
   const sameSnap = (a, b) => a.exists === b.exists && a.updatedAt === b.updatedAt;
+  const targetOf = target => {
+    const t = target && typeof target === "object" ? target : null;
+    const re = t && typeof t.id === "string" ? resIdRe(t.scope) : null;
+    if (!re || !re.test(t.id)) throw blError("INVALID", "record kapasitas tidak sah");
+    return t;
+  };
   function saveResource(target, value, snap) {
     return Promise.resolve().then(() => {
-      const t = target && typeof target === "object" ? target : null;
-      const re = t && typeof t.id === "string" ? resIdRe(t.scope) : null;
-      if (!re || !re.test(t.id)) throw blError("INVALID", "record kapasitas tidak sah");
+      const t = targetOf(target);
       if (!snapOk(snap)) throw blError("INVALID", "potret kapasitas tidak ada");
       const want = {
         exists: snap.exists === true,
@@ -4087,6 +4098,9 @@ function resourceStore(api) {
   }
   return {
     loadScope,
+    get(target) {
+      return Promise.resolve().then(() => api.records.get(RES_ENTITY, targetOf(target).id)).then(r => r && typeof r === "object" ? resEntry(r) : null);
+    },
     save(target, value, snap) {
       return saveResource(target, value, snap);
     },
@@ -4428,19 +4442,28 @@ function pageUnits(lay, pageKind, projectName, groupNames) {
 // tidak ditemukan → "Dinyalakan oleh anggota lain". Tanggal = updated_at record di zona Asia/Jakarta (TLCpm.jkt).
 function unitCaption(u, context, userId) {
   if (!u || u.auto !== true) return null;
-  const nameOf = x => x && typeof x === "object" ? String(x.display_name || x.username || "").trim() : "";
-  let name = "";
-  if (u.by !== null && u.by !== undefined) {
-    const id = String(u.by);
-    const users = [];
-    if (userId !== undefined && userId !== null && String(userId) === id) users.push(context.currentUser);
-    for (const c of Array.isArray(context.collaborators) ? context.collaborators : []) users.push(c);
-    const hit = users.find(x => x && typeof x === "object" && x.id !== undefined && x.id !== null && String(x.id) === id);
-    name = nameOf(hit);
-  }
+  const name = actorName(u.by, context, userId);
   const head = name ? MSG_BY + name : MSG_BY_OTHER;
-  const d = typeof u.updatedAt === "string" ? TLCpm.jkt(u.updatedAt) : null;
-  return Number.isInteger(d) ? head + " · " + TLCal.fmtShort(d) : head;
+  return head + jktDateSuffix(u.updatedAt);
+}
+
+// Nama pelaku `by` (pola unitCaption, dipakai juga keterangan editor kapasitas T7): by = pengguna aktif → currentUser;
+// selain itu collaborators (id dibandingkan sebagai string); display_name || username, dipangkas; tidak ditemukan → "".
+function actorName(by, context, userId) {
+  if (by === null || by === undefined) return "";
+  const c = context && typeof context === "object" ? context : {};
+  const id = String(by);
+  const users = [];
+  if (userId !== undefined && userId !== null && String(userId) === id) users.push(c.currentUser);
+  for (const x of Array.isArray(c.collaborators) ? c.collaborators : []) users.push(x);
+  const hit = users.find(x => x && typeof x === "object" && x.id !== undefined && x.id !== null && String(x.id) === id);
+  return hit ? String(hit.display_name || hit.username || "").trim() : "";
+}
+
+// " · {tgl}" dari stempel waktu record (tanggal Asia/Jakarta lewat TLCpm.jkt + TLCal.fmtShort); tak terbaca → "".
+function jktDateSuffix(updatedAt) {
+  const d = typeof updatedAt === "string" ? TLCpm.jkt(updatedAt) : null;
+  return Number.isInteger(d) ? " · " + TLCal.fmtShort(d) : "";
 }
 
 // Baris orang panel Beban Tim (1d-1 R4, P2 (a); tanpa perubahan host — plugin tidak bisa membaca anggota workspace, F5):
@@ -5232,7 +5255,7 @@ function useBaselines(api, unit) {
 // Kunci simpan R9 (T7): workspace terkunci MSG_RES_WAIT sampai record lokal orang itu ada (map) ATAU pulled. Hook ini
 // tidak pernah menulis.
 function resScopeOf(pageKind, listId) {
-  if (pageKind === "workspace") return Number.isInteger(listId) && listId > 0 ? "list:" + listId : null;
+  if (pageKind === "workspace") return Number.isSafeInteger(listId) && listId > 0 ? "list:" + listId : null;
   return "user";
 }
 function useResources(api, pageKind, listId, open) {
@@ -6473,8 +6496,9 @@ function loadPanelMemo() {
 }
 
 // props: {load, cal (eng.ctx.cal), result, ctx (eng.ctx), rangeFrom, px, fromDn, toDn (dw), tableW, viewW, pageKind,
-// trackRef (isi grafik, translateX), boxRef (akar, diukur view), getLeft() (scrollLeft wadah Gantt), onEditPerson(uid),
-// onReveal(key, task) (Task 6: revealRow view)}.
+// trackRef (isi grafik, translateX), boxRef (akar, diukur view), getLeft() (scrollLeft wadah Gantt), onEditPerson(uid|null),
+// onReveal(key, task) (Task 6: revealRow view), editUid (Task 7: orang yang editornya terbuka), res (Task 7: bundel
+// kapasitas view untuk ResourceEditor; tanpa res → tanpa editor)}.
 function LoadPanel(props) {
   const p = props;
   const load = p.load;
@@ -6528,6 +6552,8 @@ function LoadPanel(props) {
         return;
       }
       popBtnRef.current = e && e.currentTarget ? e.currentTarget : null;
+      // Task 7: satu popover panel pada satu waktu (pemicu keyboard tidak menekan "di luar" editor)
+      if (L.editUid !== null && L.editUid !== undefined && typeof L.onEditPerson === "function") L.onEditPerson(null);
       const box = L.boxRef ? L.boxRef.current : null;
       const W = box && box.clientWidth > 0 ? box.clientWidth : L.tableW + L.viewW;
       const x = L.tableW + (dn - L.rangeFrom) * L.px - L.getLeft();
@@ -6550,6 +6576,24 @@ function LoadPanel(props) {
     setPop(null);
     if (typeof p.onReveal === "function") p.onReveal(it.key, it.task);
   };
+  // Task 7: tombol nama → editor kapasitas/cuti (state editUid milik view). Nama yang sama → tutup; lain → ganti. Tutup
+  // lewat Esc/Batal/Tutup/Simpan → fokus kembali ke tombol nama pemicu.
+  const edBtnRef = React.useRef(null);
+  const openEdit = (uid, e) => {
+    if (p.editUid === uid) {
+      p.onEditPerson(null);
+      return;
+    }
+    edBtnRef.current = e && e.currentTarget ? e.currentTarget : null;
+    setPop(null); // satu popover panel pada satu waktu (pemicu keyboard tidak menekan "di luar" popover saran)
+    p.onEditPerson(uid);
+  };
+  const closeEdit = how => {
+    p.onEditPerson(null);
+    const b = edBtnRef.current;
+    if (how && how.restoreFocus && b && typeof b.focus === "function") b.focus();
+  };
+  const edRow = p.res && p.editUid !== null && p.editUid !== undefined ? load.rows.find(r => r.uid !== null && r.uid === p.editUid) : undefined;
   // Readout hover: baris dari y lokal (clientY − atas wadah grafik), hari dari TLLayout.dnAt(x lokal + scrollLeft); setState
   // HANYA bila (baris, hari) berubah (tipRef diperbarui seketika agar gerak beruntun sebelum render tidak menyetel ulang).
   const onMove = e => {
@@ -6660,7 +6704,9 @@ function LoadPanel(props) {
     key: r.key,
     type: "button",
     className: "plg-timeline-load-name",
-    onClick: () => p.onEditPerson(r.row.uid)
+    "aria-haspopup": "dialog",
+    "aria-expanded": p.editUid === r.row.uid,
+    onClick: e => openEdit(r.row.uid, e)
   }, loadNameText(r.row)))), /*#__PURE__*/React.createElement("div", {
     className: "plg-timeline-load-view",
     ref: viewRef,
@@ -6679,6 +6725,12 @@ function LoadPanel(props) {
     left: pop.left,
     onPick: pickSug,
     onClose: closeSug
+  }) : null, edRow ? /*#__PURE__*/React.createElement(ResourceEditor, {
+    key: "res" + edRow.uid,
+    uid: edRow.uid,
+    name: edRow.name,
+    res: p.res,
+    onClose: closeEdit
   }) : null);
 }
 
@@ -6736,6 +6788,366 @@ function SuggestPopover(props) {
   }, sugText(it)), it.kind === "free" ? null : /*#__PURE__*/React.createElement("span", {
     className: cx("plg-timeline-load-sug-kind", "is-" + it.kind)
   }, SUG_KIND[it.kind]))))) : null);
+}
+
+// ── 1d-1 Task 7: editor kapasitas/cuti (spec K55, §7.3, Q4 (a); rencana R9) ─────────────────────────────────────────
+// Popover dari tombol nama orang (panel desktop / chip HP). Semua anggota boleh mengedit baris siapa pun (Q4 a); baris
+// "Belum ditugaskan" tidak punya editor. Satu-satunya tulisan = tombol Simpan → res.store.save → saveResource (R25).
+const RES_CAP = "Kapasitas";
+const RES_UNIT = "🍅/hari";
+const RES_HINT = "8 🍅 ≈ 3 jam 20 menit fokus";
+const RES_LEAVE = "Cuti";
+const RES_ADD = "Tambah cuti";
+const RES_DEL = "Hapus cuti";
+const RES_FROM = "Dari tanggal";
+const RES_TO = "Sampai tanggal";
+const RES_NOTE = "Catatan cuti";
+const RES_NOTE_PH = "Catatan";
+const RES_SAVE = "Simpan";
+const RES_RELOAD = "Muat ulang";
+const MSG_RES_CAP_BAD = "Kapasitas 0–40 🍅/hari";
+const MSG_RES_DATE_BAD = "Periksa tanggal cuti";
+const MSG_RES_SAVE_FAIL = "Gagal menyimpan kapasitas";
+const RES_YEAR_MIN = 1970; // = TLLoad (R9): tanggal cuti ISO sah 1970–2199 — tahun parsial saat mengetik (0002-…) tidak sah
+const RES_YEAR_MAX = 2199;
+const RES_ERR_STALE = "stale";
+const RES_SNAP_ABSENT = Object.freeze({
+  exists: false,
+  updatedAt: null
+});
+// Pemicu editor (tombol nama panel desktop, chip HP): penekanan di sana ditangani tombolnya (sama = tutup, lain = ganti).
+const RES_SKIP = ".plg-timeline-load-name, .plg-timeline-load-m-person";
+const resTitle = name => RES_CAP + " " + name;
+const resSavedText = name => "Kapasitas " + name + " disimpan";
+
+// Kapasitas dari isian (string input number) → bilangan bulat 0–40, selain itu null ("", "2.5", "-1", "1e1", "41").
+function resCapOf(s) {
+  const v = typeof s === "string" ? s.trim() : "";
+  return /^\d+$/.test(v) && Number(v) <= TLLoad.CAP_MAX ? Number(v) : null;
+}
+// Tanggal cuti isian: ISO sah (TLCal.dn bilangan bulat) dalam 1970–2199.
+function resDateOk(s) {
+  if (typeof s !== "string" || !Number.isInteger(TLCal.dn(s))) return false;
+  const y = Number(s.slice(0, 4));
+  return y >= RES_YEAR_MIN && y <= RES_YEAR_MAX;
+}
+// Validasi inline form {cap, rows: [{k, from, to, note}]} → {cap: bilangan|null, capBad, bad: Set<k baris>, dateBad}. Murni.
+function resFormCheck(form) {
+  const f = form && typeof form === "object" ? form : {};
+  const cap = resCapOf(f.cap);
+  const bad = new Set();
+  for (const x of Array.isArray(f.rows) ? f.rows : []) {
+    if (!resDateOk(x.from) || !resDateOk(x.to) || TLCal.dn(x.from) > TLCal.dn(x.to)) bad.add(x.k);
+  }
+  return {
+    cap,
+    capBad: cap === null,
+    bad,
+    dateBad: bad.size > 0
+  };
+}
+// res terdekode (TLLoad.resourceDecode) → isian: kapasitas string, cuti ISO urut (dari, sampai). Absen → 8 tanpa cuti.
+function resFormOf(res, nextKey) {
+  const r = res && typeof res === "object" ? res : null;
+  const cap = r && Number.isInteger(r.capacity) ? r.capacity : TLLoad.DEFAULT_CAP;
+  const list = (r && Array.isArray(r.leave) ? r.leave : []).filter(l => l && Number.isInteger(l.from) && Number.isInteger(l.to));
+  list.sort((a, b) => a.from - b.from || a.to - b.to);
+  return {
+    cap: String(cap),
+    rows: list.map(l => ({
+      k: nextKey(),
+      from: TLCal.iso(l.from),
+      to: TLCal.iso(l.to),
+      note: typeof l.note === "string" ? l.note : ""
+    }))
+  };
+}
+// "Diubah oleh {nama} · {tgl}" / "Diubah oleh anggota lain · {tgl}" (pola unitCaption: actorName + tanggal Jakarta
+// updated_at). Record absen → null.
+function resCaption(entry, res) {
+  const s = entry && entry.snap ? entry.snap : null;
+  if (!s || s.exists !== true) return null;
+  const name = actorName(s.by, res, res ? res.userId : null);
+  return (name ? "Diubah oleh " + name : "Diubah oleh anggota lain") + jktDateSuffix(s.updatedAt);
+}
+
+// props: {uid, name, res, onClose({restoreFocus})}. res = bundel kapasitas view {map (useResources), loaded, pulled, store,
+// pageKind, listId, currentUser, collaborators, userId, api}.
+//   - Nilai awal + potret CAS dari res.map.get(uid) SAAT DIBUKA (entri → {exists: true, updatedAt}; absen → {exists: false,
+//     updatedAt: null}).
+//   - Kunci Simpan (R9, review T2–T3): workspace → !loaded || (!map.has(uid) && !pulled) + "Menunggu data workspace…";
+//     pribadi → !loaded (tanpa teks). Selama terkunci SEMUA isian nonaktif (pola CalendarPopover), dan potret masih
+//     "sementara": ikut data terbaru (efek tata letak) sampai kunci terbuka → potret final. Render pertama sesudah kunci
+//     terbuka tetap nonaktif sampai potret final terpasang, jadi Simpan tidak pernah memakai potret dari keadaan belum
+//     termuat. Sesudah final, perubahan data dari luar TIDAK mengganti potret (CAS → STALE).
+//   - Simpan nonaktif selama menyimpan (ref + state: klik ganda = satu put), saat isian tidak sah, dan setelah STALE
+//     (sampai "Muat ulang" mengisi nilai + potret dari res.store.get — peta panel bisa tertinggal debounce).
+//   - Batal / Tutup / Esc → onClose({restoreFocus: true}); klik luar → {restoreFocus: false}; tanpa tulis.
+function ResourceEditor(props) {
+  const r = props.res && typeof props.res === "object" ? props.res : {};
+  const uid = props.uid;
+  const name = typeof props.name === "string" ? props.name : "";
+  const ws = r.pageKind === "workspace";
+  const map = r.map instanceof Map ? r.map : EMPTY_RES;
+  const entry = map.get(uid);
+  const locked = ws ? !r.loaded || !map.has(uid) && !r.pulled : !r.loaded;
+  const keyRef = React.useRef(0);
+  const nextKey = () => ++keyRef.current;
+  const seedOf = (e, final) => ({
+    entry: e,
+    snap: e && e.snap ? {
+      exists: true,
+      updatedAt: typeof e.snap.updatedAt === "string" ? e.snap.updatedAt : null
+    } : RES_SNAP_ABSENT,
+    form: resFormOf(e ? e.res : null, nextKey),
+    final
+  });
+  const [st, setSt] = React.useState(() => seedOf(entry, !locked));
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState(null); // null | RES_ERR_STALE | pesan inline
+  const busyRef = React.useRef(false);
+  const alive = React.useRef(true);
+  const rootRef = React.useRef(null);
+  const closeRef = React.useRef(props.onClose);
+  closeRef.current = props.onClose;
+  const close = restoreFocus => {
+    if (typeof closeRef.current === "function") closeRef.current({
+      restoreFocus
+    });
+  };
+  React.useEffect(() => {
+    alive.current = true;
+    const el = rootRef.current;
+    if (el && typeof el.focus === "function") el.focus();
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  useDismiss(true, rootRef, how => close(how === "key"), RES_SKIP);
+  // Potret sementara → ikut data terbaru; kunci terbuka → potret final (sekali).
+  React.useLayoutEffect(() => {
+    if (st.final || st.entry === entry && locked) return;
+    setSt(seedOf(entry, !locked));
+  }, [entry, locked, st.final]);
+  const chk = resFormCheck(st.form);
+  const frozen = locked || !st.final || busy;
+  const stale = err === RES_ERR_STALE;
+  const canSave = !frozen && !chk.capBad && !chk.dateBad && !stale;
+  const live = React.useRef(null);
+  live.current = {
+    st,
+    canSave,
+    map
+  };
+  const edit = fn => {
+    if (frozen) return;
+    setSt(s => Object.assign({}, s, {
+      form: fn(s.form)
+    }));
+    setErr(e => e === RES_ERR_STALE ? e : null);
+  };
+  const setCap = v => edit(f => Object.assign({}, f, {
+    cap: v
+  }));
+  const setRow = (k, field, v) => edit(f => Object.assign({}, f, {
+    rows: f.rows.map(x => x.k === k ? Object.assign({}, x, {
+      [field]: v
+    }) : x)
+  }));
+  const addRow = () => edit(f => f.rows.length >= TLLoad.LEAVE_MAX ? f : Object.assign({}, f, {
+    rows: f.rows.concat([{
+      k: nextKey(),
+      from: "",
+      to: "",
+      note: ""
+    }])
+  }));
+  const delRow = k => edit(f => Object.assign({}, f, {
+    rows: f.rows.filter(x => x.k !== k)
+  }));
+  const targetOf = () => resRecId(ws ? "workspace" : "project", r.listId, uid);
+  const save = () => {
+    const L = live.current;
+    if (busyRef.current || !L.canSave) return;
+    let target;
+    try {
+      target = targetOf();
+    } catch (e) {
+      logWarn(r.api, "kapasitas gagal disimpan:", e);
+      toastSafe(r.api, MSG_RES_SAVE_FAIL, "error");
+      return;
+    }
+    const value = {
+      capacity: resCapOf(L.st.form.cap),
+      leave: L.st.form.rows.map(x => ({
+        from: x.from,
+        to: x.to,
+        note: x.note
+      }))
+    };
+    busyRef.current = true;
+    setBusy(true);
+    setErr(null);
+    Promise.resolve().then(() => r.store.save(target, value, L.st.snap)).then(() => {
+      busyRef.current = false;
+      toastSafe(r.api, resSavedText(name), "success");
+      if (alive.current) close(true);
+    }, e => {
+      busyRef.current = false;
+      const code = e && e.code;
+      const known = code === "STALE" || code === "TOO_LARGE" || code === "INVALID";
+      if (!known) logWarn(r.api, "kapasitas gagal disimpan:", e);
+      if (!alive.current) {
+        // dialog sudah ditutup selama menyimpan: galat tetap diberitahukan
+        toastSafe(r.api, code === "STALE" ? MSG_RES_STALE : code === "TOO_LARGE" ? MSG_RES_TOO_LARGE : MSG_RES_SAVE_FAIL, "error");
+        return;
+      }
+      setBusy(false);
+      if (code === "STALE") setErr(RES_ERR_STALE);else if (code === "TOO_LARGE") setErr(MSG_RES_TOO_LARGE);else if (code === "INVALID") setErr(MSG_RES_DATE_BAD);else toastSafe(r.api, MSG_RES_SAVE_FAIL, "error");
+    });
+  };
+  // "Muat ulang" (setelah STALE): nilai + potret dari record terkini (store.get; gagal → peta panel), ketikan dibuang.
+  const reload = () => {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    setBusy(true);
+    const fromMap = () => live.current.map.get(uid);
+    Promise.resolve().then(() => r.store && typeof r.store.get === "function" ? r.store.get(targetOf()) : fromMap()).then(e => e || undefined, e => {
+      logWarn(r.api, "kapasitas gagal dimuat ulang:", e);
+      return fromMap();
+    }).then(e => {
+      busyRef.current = false;
+      if (!alive.current) return;
+      setBusy(false);
+      setErr(null);
+      setSt(seedOf(e, true));
+    });
+  };
+  const f = st.form;
+  const caption = resCaption(st.entry, r);
+  return /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop plg-timeline-res-pop",
+    role: "dialog",
+    "aria-label": resTitle(name),
+    "aria-busy": frozen,
+    tabIndex: -1,
+    ref: rootRef
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-pop-head"
+  }, /*#__PURE__*/React.createElement("h3", {
+    className: "plg-timeline-pop-title"
+  }, resTitle(name)), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-pop-close",
+    "aria-label": "Tutup",
+    onClick: () => close(true)
+  }, "\xD7")), caption ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-res-by"
+  }, caption) : null, ws && locked ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note plg-timeline-pop-wait",
+    role: "status"
+  }, MSG_RES_WAIT) : null, /*#__PURE__*/React.createElement("label", {
+    className: "plg-timeline-res-cap"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-res-cap-label"
+  }, RES_CAP), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    className: "plg-timeline-pop-input plg-timeline-res-cap-input",
+    min: 0,
+    max: TLLoad.CAP_MAX,
+    step: 1,
+    inputMode: "numeric",
+    value: f.cap,
+    disabled: frozen,
+    "aria-invalid": chk.capBad,
+    onChange: e => setCap(e.target.value)
+  }), /*#__PURE__*/React.createElement("span", {
+    className: "plg-timeline-res-unit"
+  }, RES_UNIT)), /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-note"
+  }, RES_HINT), /*#__PURE__*/React.createElement("section", {
+    className: "plg-timeline-pop-sec",
+    "aria-label": RES_LEAVE
+  }, /*#__PURE__*/React.createElement("h4", {
+    className: "plg-timeline-pop-sub"
+  }, RES_LEAVE), f.rows.length ? /*#__PURE__*/React.createElement("ul", {
+    className: "plg-timeline-res-leave"
+  }, f.rows.map(x => {
+    const bad = chk.bad.has(x.k);
+    return /*#__PURE__*/React.createElement("li", {
+      key: x.k,
+      className: "plg-timeline-res-row"
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "date",
+      className: "plg-timeline-pop-input plg-timeline-res-from",
+      "aria-label": RES_FROM,
+      value: x.from,
+      disabled: frozen,
+      "aria-invalid": bad,
+      onChange: e => setRow(x.k, "from", e.target.value)
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "plg-timeline-res-dash",
+      "aria-hidden": "true"
+    }, "\u2013"), /*#__PURE__*/React.createElement("input", {
+      type: "date",
+      className: "plg-timeline-pop-input plg-timeline-res-to",
+      "aria-label": RES_TO,
+      value: x.to,
+      disabled: frozen,
+      "aria-invalid": bad,
+      onChange: e => setRow(x.k, "to", e.target.value)
+    }), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      className: "plg-timeline-pop-input plg-timeline-res-note",
+      "aria-label": RES_NOTE,
+      placeholder: RES_NOTE_PH,
+      maxLength: TLLoad.NOTE_MAX,
+      value: x.note,
+      disabled: frozen,
+      onChange: e => setRow(x.k, "note", e.target.value)
+    }), /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "plg-timeline-pop-del plg-timeline-res-del",
+      "aria-label": RES_DEL,
+      disabled: frozen,
+      onClick: () => delRow(x.k)
+    }, "\xD7"));
+  })) : null, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-res-add",
+    disabled: frozen || f.rows.length >= TLLoad.LEAVE_MAX,
+    onClick: addRow
+  }, RES_ADD)), chk.capBad ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-err",
+    role: "alert"
+  }, MSG_RES_CAP_BAD) : null, chk.dateBad ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-err",
+    role: "alert"
+  }, MSG_RES_DATE_BAD) : null, stale ? /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-res-stale"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-err",
+    role: "alert"
+  }, MSG_RES_STALE), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn",
+    disabled: busy,
+    onClick: reload
+  }, RES_RELOAD)) : err ? /*#__PURE__*/React.createElement("p", {
+    className: "plg-timeline-pop-err",
+    role: "alert"
+  }, err) : null, /*#__PURE__*/React.createElement("div", {
+    className: "plg-timeline-res-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn",
+    onClick: () => close(true)
+  }, PV_CANCEL), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "plg-timeline-btn plg-timeline-res-save",
+    disabled: !canSave,
+    onClick: save
+  }, RES_SAVE)));
 }
 
 // 4f. Kalender kerja (Task 9; R18, keputusan pemilik U1) dan Daftar HP (R20, U3).
@@ -8706,6 +9118,19 @@ function TimelineViewBody(props) {
     ownerUid: meUid,
     api
   });
+  // 1d-1 Task 7: bundel kapasitas untuk ResourceEditor (panel desktop / daftar HP) — memo agar prop memo panel stabil.
+  const resEd = React.useMemo(() => loadOn ? {
+    map: resources.map,
+    loaded: resources.loaded,
+    pulled: resources.pulled,
+    store: resources.store,
+    pageKind,
+    listId: context.listId,
+    currentUser: context.currentUser,
+    collaborators: context.collaborators,
+    userId: meUid,
+    api
+  } : null, [loadOn, resources.map, resources.loaded, resources.pulled, resources.store, pageKind, context.listId, context.currentUser, context.collaborators, meUid, api]);
   const engResult = eng.status === "ready" ? eng.result : null;
   // 1c-2 (K30): resolver jangkar untuk rentang pelanggaran task berjalan via actual.start (layout langkah 7) — SUMBER yang
   // sama dengan mesin: modeOf = TLSched.modeOf(readSched(ext), useUnits().units, task); inCycle = engResult.cycles;
@@ -8980,6 +9405,10 @@ function TimelineViewBody(props) {
   const [unitOpen, setUnitOpen] = React.useState(false);
   // 1d-1 Task 5: nama orang di panel Beban Tim → editor kapasitas/cuti (Task 7 membaca editUid). Penyetel state = stabil.
   const [editUid, setEditUid] = React.useState(null);
+  // Task 7: panel ditutup / orang tidak lagi menjadi baris → editor tertutup (tidak muncul lagi saat panel dibuka kembali).
+  React.useEffect(() => {
+    if (editUid !== null && (!loadOn || load && !load.rows.some(r => r.uid === editUid))) setEditUid(null);
+  }, [editUid, loadOn, load]);
   // 1d-1 Task 6 (R7): "pilih + gulir" dari popover saran, TANPA tulisan. Baris ada di lay.rows (kunci String(task.id)) →
   // scrollTop = indeks × rowH − tinggi viewport/3 (≥ 0), scrollLeft = xOf(awal bar) − lebar viewport/3 (≥ 0; tanpa rentang
   // hanya scrollTop), jendela vp diperbarui seketika (tanpa menunggu event scroll), panel Beban Tim ikut, lalu baris + bar
@@ -9684,7 +10113,9 @@ function TimelineViewBody(props) {
     boxRef: loadBoxRef,
     getLeft,
     onEditPerson: setEditUid,
-    onReveal
+    onReveal,
+    editUid,
+    res: resEd // Task 7
   }) : null;
   return /*#__PURE__*/React.createElement("div", {
     className: cx("plg-timeline", compact && "is-compact")
@@ -11992,6 +12423,13 @@ const pure = {
   MSG_RES_WAIT,
   MSG_RES_TOO_LARGE,
   // 1d-1 Task 2
+  ResourceEditor,
+  resFormCheck,
+  resCaption,
+  MSG_RES_SAVE_FAIL,
+  MSG_RES_CAP_BAD,
+  MSG_RES_DATE_BAD,
+  // 1d-1 Task 7
   usePref,
   peopleOf,
   useLoad,

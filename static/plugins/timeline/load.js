@@ -218,7 +218,8 @@ const TLLoad = (function (CAL, SCHED, CPM) {
   // run(input) → {T, rows, unscheduled, recurring, defaultTarget, counted, lateCount}.
   // input = {tasks, cal, readExt, result, units, people, byAssignee, ownerUid, D}: tasks = eng.ctx.tasks (daftar lengkap
   // halaman, R2), cal = kalender halaman, result = TLCpm.run (ringkasan dilewati), people = [{uid, name, res}],
-  // byAssignee true → uidOf(assigned_to) (workspace), false → uidOf(ownerUid) (pribadi), D = bilangan hari hari ini. units tidak
+  // byAssignee true → uidOf(assigned_to) (workspace), false → uidOf(ownerUid) (pribadi; pemilik tak sah → beban tidak
+  // dibarisi, tanpa baris "Belum ditugaskan"), D = bilangan hari hari ini. units tidak
   // dipakai di sini (R1: tanggal = bar) — hanya oleh suggest.
   // Baris: {uid|null, name, capacity|null, res|null, days: Map<dn naik, {load, parts: [{key, share, late}]}>, overDays, total}.
   function run(input) {
@@ -273,6 +274,9 @@ const TLLoad = (function (CAL, SCHED, CPM) {
       if (!(Number.isInteger(t.estimated_pomodoros) && t.estimated_pomodoros >= 2)) defaultTarget++;
       if (late) lateCount++;
       const uid = a.byAssignee === true ? uidOf(t.assigned_to) : owner;
+      // Halaman pribadi tanpa pemilik sah (review T2–T3): tidak ada baris yang memikulnya — bukan "Belum ditugaskan"
+      // (baris itu hanya untuk task workspace tanpa penanggung jawab). Hitungan di atas tetap.
+      if (uid === null && a.byAssignee !== true) continue;
       let m = acc.get(uid);
       if (!m) acc.set(uid, (m = new Map()));
       // R8: porsi bilangan bulat; sisa bagi +1 ke hari-hari paling awal → Σ = sisa × 1000 tepat.

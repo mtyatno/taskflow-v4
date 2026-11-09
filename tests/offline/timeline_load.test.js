@@ -475,6 +475,23 @@ test("halaman pribadi (byAssignee false): semua beban ke ownerUid, assigned_to d
   assert.deepEqual(noPeople.rows.map((r) => [r.uid, r.name]), [[3, "Anggota #3"]]);
 });
 
+test("halaman pribadi tanpa pemilik (ownerUid null/tak sah, review T2–T3): tanpa baris — beban tidak jatuh ke 'Belum ditugaskan'; hitungan tetap; tanpa lempar", () => {
+  const tasks = [
+    mk({ id: 1, start: "2026-11-02", d: 1, est: 3, to: 9 }),
+    mk({ id: 2, start: "2026-11-02", d: 2, est: 2 }),
+    mk({ id: 3, est: 4 }), // tanpa jadwal
+    mk({ id: 4, start: "2026-10-20", d: 1, est: 2 }), // terlambat
+  ];
+  for (const owner of [null, undefined, 0, "x", 1.5]) {
+    const ld = LD.run({ tasks, cal: std(), readExt, result: M.run({ tasks, cal: std(), units: new Map(), readExt }), units: new Map(), people: [], byAssignee: false, ownerUid: owner, D: D0 });
+    assert.deepEqual(ld.rows, [], String(owner));
+    assert.deepEqual([ld.counted, ld.unscheduled, ld.lateCount], [3, 1, 1], "hitungan tetap: " + String(owner));
+  }
+  // workspace tanpa pengguna aktif: beban tak ditugaskan TETAP baris "Belum ditugaskan" (bukan kasus ini)
+  const ws = load([mk({ id: 1, start: "2026-11-02", d: 1, est: 3 })], { ownerUid: null });
+  assert.deepEqual(ws.rows.map((r) => [r.uid, r.name]), [[null, "Belum ditugaskan"]]);
+});
+
 test("R1: task Otomatis drift (ES mesin ≠ Mulai tersimpan) → beban di tanggal TERSIMPAN = row.span TLLayout.layout; setiap task berjadwal tepat di hari kerja [maks(T, s), f]", () => {
   const tasks = [
     mk({ id: 1, start: "2026-11-02", d: 3, est: 3, to: 3 }),
