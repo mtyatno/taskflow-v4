@@ -1046,10 +1046,11 @@ def run_narrow_dark(browser, base, u1, ids, ctxs):
     g_box = m.evaluate(box_js)
     shot(m, "12-M-375-lainnya.png")
     # Kontrak 1.2 (1c-2 Task 5 §contract): ≤ 640 px "Baseline" + "Simpan baseline" ikut masuk "Lainnya" (urutan toolbar).
-    check("12a 375 px: toolbar menu 'Lainnya' memuat Jadwal otomatis, Jalur kritis, Baseline, Simpan baseline, Jadwalkan ulang; "
-          "scrollWidth === 375",
+    # Kontrak 1.3 (1d-1 R10 / Task 4): "Beban Tim" setelah "Jalur kritis".
+    check("12a 375 px: toolbar menu 'Lainnya' memuat Jadwal otomatis, Jalur kritis, Beban Tim, Baseline, Simpan baseline, "
+          "Jadwalkan ulang; scrollWidth === 375",
           more.inner_text() == "Lainnya"
-          and items == ["Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"] and geo1[0] == 375,
+          and items == ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"] and geo1[0] == 375,
           repr((items, geo1)))
     m.keyboard.press("Escape")
     m.wait_for_timeout(300)
@@ -1062,11 +1063,12 @@ def run_narrow_dark(browser, base, u1, ids, ctxs):
     shot(m, "12-M-375-lainnya-daftar.png")
     m.keyboard.press("Escape")
     m.wait_for_timeout(300)
-    # Daftar (1c-2 Task 5): Baseline disembunyikan (seperti Jalur kritis), Simpan baseline tetap.
+    # Daftar (1c-2 Task 5): Baseline disembunyikan (seperti Jalur kritis), Simpan baseline tetap; 1d-1 R10: Beban Tim juga
+    # tampil di mode Daftar (daftar "Hari kelebihan beban").
     check("12a-2 menu 'Lainnya' di dalam layar pada Gantt dan Daftar: tepi kiri ≥ 0, tepi kanan ≤ 375, scrollWidth 375 "
           "(Gantt %r, Daftar %r)" % (g_box, l_box),
           all(0 <= bx["left"] and bx["right"] <= 375 and bx["sw"] == 375 for bx in (g_box, l_box))
-          and l_items == ["Jadwal otomatis", "Simpan baseline", "Jadwalkan ulang"], repr((g_box, l_box, l_items)))
+          and l_items == ["Jadwal otomatis", "Beban Tim", "Simpan baseline", "Jadwalkan ulang"], repr((g_box, l_box, l_items)))
     a3 = ids["titles"][ids["alpha"][2]]
     m.locator(".plg-timeline-li", has_text=a3).first.click()
     sec = m.locator(".modal-content .plg-timeline-section:not([aria-busy='true'])")

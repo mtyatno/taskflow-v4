@@ -899,8 +899,9 @@ def run_narrow_dark(browser, base, u1, ids, ctxs):
     cl = m.evaluate(CONTRAST_JS, [".plg-timeline-actual", "backgroundColor"])
     info("8 375 Sakura gelap: palet/tema/scrollWidth, bar baseline, garis aktual, kontras bar baseline / garis aktual", [pal, len(blb), len(act), cb, cl])
     shot(m, "8-M-375-sakura-gelap-baseline-aktual.png")
+    # 1d-1 R10 (Task 4): "Beban Tim" ikut masuk "Lainnya" setelah "Jalur kritis".
     check("8a 375 px Sakura gelap: 'Lainnya' = %r (memuat Baseline + Simpan baseline); pemilih di dalam layar %r; scrollWidth 375"
-          % (items, pbox), items == ["Jadwal otomatis", "Jalur kritis", "Baseline", "Simpan baseline", "Jadwalkan ulang"]
+          % (items, pbox), items == ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]
           and pal[:2] == ["sakura", "dark"] and pal[2] == 375 and pbox[0] >= 0 and pbox[1] <= 375, repr((items, pal, pbox)))
     check("8b bar baseline (%d, tinggi 4 px) + garis aktual (%d, tinggi 2 px) tampil; terbaca: kontras efektif bar baseline %.2f "
           "≥ 3, garis aktual %.2f ≥ 3 (non-teks WCAG 1.4.11)" % (len(blb), len(act), (cb or {}).get("ratio", 0), (cl or {}).get("ratio", 0)),
