@@ -1948,3 +1948,169 @@
   height: 12px;
   fill: currentColor;
 }
+
+/* Panel histogram desktop (R5): di bawah grafik, berbagi sumbu waktu. Kolom kiri selebar tabel Gantt (border-box +
+   border kanan = .plg-timeline-table → grafik mulai di x yang sama); isi grafik digeser translateX dari JS. z-index 5:
+   popover saran (ke atas, menutupi bawah Gantt) di atas tabel/kepala menempel Gantt (≤ 4), di bawah toolbar (6). */
+.plg-timeline-load {
+  position: relative;
+  z-index: 5;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+
+.plg-timeline-load-head {
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.plg-timeline-load-note {
+  margin: 0;
+  padding: 0 8px 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.plg-timeline-load-body {
+  display: flex;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-top: 1px solid var(--border);
+}
+
+.plg-timeline-load-names {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  background: var(--bg-card);
+  border-right: 1px solid var(--border);
+}
+
+.plg-timeline-load-name {
+  display: block;
+  width: 100%;
+  height: 28px;
+  padding: 0 8px;
+  font: inherit;
+  font-size: 12px;
+  line-height: 28px;
+  text-align: left;
+  color: var(--text-primary);
+  background: transparent;
+  border: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.plg-timeline-load-name:hover {
+  background: var(--bg-subtle);
+}
+
+.plg-timeline-load-name:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.plg-timeline-load-name.is-none {
+  color: var(--text-secondary);
+  cursor: default;
+}
+
+.plg-timeline-load-name.is-none:hover {
+  background: transparent;
+}
+
+.plg-timeline-load-view {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.plg-timeline-load-track {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 0;
+  height: 100%;
+  will-change: transform;
+}
+
+.plg-timeline-load-svg {
+  position: absolute;
+  display: block;
+}
+
+/* hari non-kerja: pola libur Gantt (.plg-timeline-holiday); area kapasitas: --bg-subtle bertepi --border agar tetap
+   terbedakan dari latar */
+.plg-timeline-load-off {
+  fill: color-mix(in srgb, var(--plg-timeline-danger) 8%, transparent);
+}
+
+.plg-timeline-load-cap {
+  fill: var(--bg-subtle);
+  stroke: var(--border);
+  stroke-width: 1;
+}
+
+.plg-timeline-load-bar {
+  fill: var(--accent);
+}
+
+.plg-timeline-load-over {
+  fill: var(--plg-timeline-danger);
+}
+
+.plg-timeline-load-leave {
+  fill: none;
+  stroke: var(--text-secondary);
+  stroke-opacity: 0.6;
+  stroke-width: 1;
+}
+
+/* tombol hari merah: transparan di atas hari itu (aria-label = teks tooltip) */
+.plg-timeline-load-hit {
+  position: absolute;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.plg-timeline-load-hit:hover {
+  background: color-mix(in srgb, var(--plg-timeline-danger) 14%, transparent);
+}
+
+.plg-timeline-load-hit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+/* readout hover (satu per panel, aria-hidden: info yang sama ada di aria-label tombol hari merah) */
+.plg-timeline-load-tip {
+  position: absolute;
+  z-index: 2;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+  background: var(--text-primary);
+  color: var(--bg-card);
+  pointer-events: none;
+}
+
+.plg-timeline-load-tip.is-flip {
+  transform: translateX(-100%);
+}

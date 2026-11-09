@@ -1961,6 +1961,268 @@ function renderLegend(lay, ref, crit, extra) {
   );
 }
 
+// 4e. Panel Beban Tim desktop (1d-1 Task 5; spec §7.2, §1 butir 6; rencana R5, P3 (a)). Menumpang viewport Gantt: jendela
+// hari dw, kolom tabel tableW, sumbu x xOf(dn) — tanpa sel per hari. Per baris orang SATU <svg> selebar jendela berisi
+// paling banyak lima path (satu per kelas): hari non-kerja, area kapasitas, batang beban, kelebihan di atas kapasitas pada
+// hari merah, arsir cuti. Tombol fokus hanya untuk hari merah di jendela (aria-label = teks tooltip); satu readout hover per
+// panel. Isi grafik digeser translateX(−scrollLeft) yang disetel LANGSUNG oleh handler gulir view lewat ref (tanpa render
+// ulang per piksel); panel dirender ulang hanya bila data / jendela dw / zoom berubah (React.memo + props primitif). Hanya
+// baca: tidak ada tulisan (R25).
+const LOAD_ROW_H = 28; // tinggi baris panel (R5)
+const LOAD_ROWS_MAX = 10; // baris terlihat; sisanya gulir vertikal (kolom kiri + grafik bersama)
+const LOAD_PAD = 3; // px kosong di atas batang tertinggi baris
+const LOAD_HATCH = 6; // jarak garis arsir cuti (px, diagonal 45°)
+// Tombol hari merah per panel. Anggaran DOM panel ≤ 300 (§1 butir 6): akar + judul + catatan + body + kolom nama + wadah
+// grafik + isi = 7, per baris 1 nama + 1 svg + ≤ 5 path (11 baris = 77), + 1 readout = 85; + 150 tombol = 235. Kasus terburuk
+// (hampir semua hari kerja 10 orang merah di zoom Bulan, jendela ±750 hari) memotong ke hari merah TERDEKAT tengah jendela
+// (= tengah layar saat jendela dihitung); sisanya tetap tampak merah dan muncul sebagai tombol saat digulir mendekat.
+const LOAD_HIT_MAX = 150;
+const MSG_LOAD_PARTIAL = "Hanya beban dari project ini"; // P3 (a): halaman project pribadi
+const LOAD_POP_W = 340; // = width .plg-timeline-pop (perataan popover saran)
+
+// Judul panel (§7.2, §8): n = Σ pasangan orang×hari merah (semua baris, seluruh rentang); "· {m} task belum dijadwalkan"
+// bila ada; "· {k} task bertarget bawaan 1 🍅" bila k > 25 % task berbeban (counted). Murni.
+function loadHeadText(load) {
+  const L = load && typeof load === "object" ? load : {};
+  let n = 0;
+  for (const r of Array.isArray(L.rows) ? L.rows : []) n += r && Array.isArray(r.overDays) ? r.overDays.length : 0;
+  let s = LBL.load + " · " + n + " hari kelebihan beban";
+  if (L.unscheduled > 0) s += " · " + L.unscheduled + " task belum dijadwalkan";
+  if (L.counted > 0 && L.defaultTarget * 4 > L.counted) s += " · " + L.defaultTarget + " task bertarget bawaan 1 🍅";
+  return s;
+}
+
+const loadNameText = (row) => row.name + " · " + row.capacity + " 🍅/hari";
+
+// Teks tooltip / aria-label hari (§7.2): "{nama} · {tgl}: {beban} dari {kapasitas} 🍅 ({jam})"; baris tanpa penanggung jawab
+// "Belum ditugaskan · {tgl}: {beban} 🍅 ({jam})". beban = TLLoad.fmtPomo (hari merah dibulatkan ke atas: tidak pernah
+// "8 dari 8"); kapasitas = TLLoad.capAt hari itu; jam = TLLoad.hoursLabel atas angka 🍅 yang DITAMPILKAN → "~1.5 jam"
+// (sudah memuat "~" dan "jam": hasil akhir "(~1.5 jam)"). over = hari merah (bila tidak diberikan dihitung dari overDays).
+function loadTipText(row, dn, cal, over) {
+  const d = row.days instanceof Map ? row.days.get(dn) : undefined;
+  const milli = d ? d.load : 0;
+  const tgl = TLCal.fmtShort(dn);
+  if (row.uid === null) {
+    const b = TLLoad.fmtPomo(milli);
+    return row.name + " · " + tgl + ": " + b + " 🍅 (" + TLLoad.hoursLabel(Number(b)) + ")";
+  }
+  const red = over === undefined ? row.overDays.indexOf(dn) >= 0 : over === true;
+  const b = TLLoad.fmtPomo(milli, red);
+  return row.name + " · " + tgl + ": " + b + " dari " + TLLoad.capAt(row.res, cal, dn) + " 🍅 (" + TLLoad.hoursLabel(Number(b)) + ")";
+}
+
+// Cuti pada hari dn (kontrak res = keluaran TLLoad.resourceDecode; entri rusak dilewati seperti TLLoad.capAt).
+function loadOnLeave(res, dn) {
+  const list = res && Array.isArray(res.leave) ? res.leave : [];
+  for (const l of list) if (l && Number.isInteger(l.from) && Number.isInteger(l.to) && dn >= l.from && dn <= l.to) return true;
+  return false;
+}
+
+const r1 = (v) => Math.round(v * 10) / 10;
+function loadRect(x, y, w, h) {
+  return "M" + r1(x) + " " + r1(y) + "h" + r1(w) + "v" + r1(h) + "h" + r1(-w) + "Z";
+}
+// Garis diagonal 45° (kiri bawah → kanan atas) berjarak LOAD_HATCH, dipotong ke [x1, x2] × [0, H]; kisi global (garis
+// bersambung antar rentang).
+function loadHatch(x1, x2, H) {
+  let d = "";
+  for (let a = Math.floor((x1 - H) / LOAD_HATCH) * LOAD_HATCH; a < x2; a += LOAD_HATCH) {
+    const t0 = Math.max(0, x1 - a);
+    const t1 = Math.min(H, x2 - a);
+    if (t1 <= t0) continue;
+    d += "M" + r1(a + t0) + " " + r1(H - t0) + "L" + r1(a + t1) + " " + r1(H - t1);
+  }
+  return d;
+}
+// Rentang maksimal indeks [k0, k1) bernilai sama (bukan null) dari vals.
+function loadRuns(vals) {
+  const out = [];
+  let k0 = 0;
+  for (let k = 1; k <= vals.length; k++) {
+    if (k < vals.length && vals[k] === vals[k0]) continue;
+    if (vals[k0] !== null) out.push([k0, k, vals[k0]]);
+    k0 = k;
+  }
+  return out;
+}
+
+// Geometri satu baris dalam koordinat lokal svg (x = (dn − fromDn) × px). Skala vertikal per baris = maks(kapasitas maks,
+// beban maks) di jendela, ≥ 1 🍅, setinggi LOAD_ROW_H − LOAD_PAD. Kapasitas per hari = TLLoad.capAt(res, cal, dn) (0 di hari
+// non-kerja / cuti); baris uid null tanpa kapasitas, merah, maupun cuti. Hari merah: batang = bagian ≤ kapasitas, kelebihan =
+// sisanya (di atas). Path kosong → "" (tidak dirender). Murni.
+function loadRowModel(row, cal, fromDn, toDn, px) {
+  const H = LOAD_ROW_H;
+  const M = TLLoad.MILLI;
+  const person = row.uid !== null;
+  const n = Math.max(0, toDn - fromDn + 1);
+  const over = new Set(row.overDays);
+  const work = new Array(n);
+  const caps = new Array(n);
+  const leave = new Array(n);
+  let top = M;
+  for (let k = 0; k < n; k++) {
+    const dn = fromDn + k;
+    work[k] = TLCal.isWork(cal, dn);
+    caps[k] = person ? TLLoad.capAt(row.res, cal, dn) : 0;
+    leave[k] = person && work[k] && loadOnLeave(row.res, dn) ? 1 : null;
+    const d = row.days.get(dn);
+    top = Math.max(top, caps[k] * M, d ? d.load : 0);
+  }
+  const hOf = (milli) => (milli / top) * (H - LOAD_PAD);
+  const d = { off: "", cap: "", bar: "", over: "", leave: "" };
+  for (const [a, b] of loadRuns(work.map((w) => (w ? null : 1)))) d.off += loadRect(a * px, 0, (b - a) * px, H);
+  for (const [a, b, c] of loadRuns(caps.map((c) => (c > 0 ? c : null)))) d.cap += loadRect(a * px, H - hOf(c * M), (b - a) * px, hOf(c * M));
+  for (const [a, b] of loadRuns(leave)) d.leave += loadHatch(a * px, b * px, H);
+  const inset = px >= 20 ? 3 : px >= 10 ? 1 : 0;
+  for (let k = 0; k < n; k++) {
+    const day = row.days.get(fromDn + k);
+    if (!day || !(day.load > 0)) continue;
+    const x = k * px + inset;
+    const w = px - 2 * inset;
+    const hl = hOf(day.load);
+    if (person && over.has(fromDn + k)) {
+      const hb = hOf(Math.min(day.load, caps[k] * M));
+      if (hb > 0) d.bar += loadRect(x, H - hb, w, hb);
+      d.over += loadRect(x, H - hl, w, hl - hb);
+    } else d.bar += loadRect(x, H - hl, w, hl);
+  }
+  return { w: n * px, d };
+}
+
+// Model panel: baris (geometri) + tombol hari merah di jendela [fromDn, toDn] (≤ LOAD_HIT_MAX, terdekat tengah jendela,
+// urut baris lalu hari = urutan Tab). x tombol dalam koordinat grafik Gantt (xOf). Murni.
+function loadModel(load, cal, fromDn, toDn, rangeFrom, px) {
+  const rows = load.rows.map((row, i) => Object.assign({ row, i, key: row.uid === null ? "u-" : "u" + row.uid }, loadRowModel(row, cal, fromDn, toDn, px)));
+  let hits = [];
+  for (const r of rows) {
+    for (const dn of r.row.overDays) {
+      if (dn >= fromDn && dn <= toDn) hits.push({ i: r.i, uid: r.row.uid, dn, x: (dn - rangeFrom) * px, label: loadTipText(r.row, dn, cal, true) });
+    }
+  }
+  if (hits.length > LOAD_HIT_MAX) {
+    const mid = (fromDn + toDn) / 2;
+    hits = hits.sort((a, b) => Math.abs(a.dn - mid) - Math.abs(b.dn - mid) || a.i - b.i || a.dn - b.dn).slice(0, LOAD_HIT_MAX);
+    hits.sort((a, b) => a.i - b.i || a.dn - b.dn);
+  }
+  return { rows, hits, x: (fromDn - rangeFrom) * px, px };
+}
+
+const loadShift = (left) => "translateX(" + -(Number(left) || 0) + "px)";
+
+// React.memo dibuat malas (pola memoView): panel tidak dirender ulang selama props (data, jendela, ref, callback stabil)
+// sama — gulir di dalam kuantum yang sama dan render ulang view karena hal lain tidak menyentuhnya.
+let MemoLoad = null;
+function loadPanelMemo() {
+  if (!MemoLoad) MemoLoad = React.memo ? React.memo(LoadPanel) : LoadPanel;
+  return MemoLoad;
+}
+
+// props: {load, cal (eng.ctx.cal), result, ctx (eng.ctx), rangeFrom, px, fromDn, toDn (dw), tableW, viewW, pageKind,
+// trackRef (isi grafik, translateX), boxRef (akar, diukur view), getLeft() (scrollLeft wadah Gantt), onEditPerson(uid)}.
+function LoadPanel(props) {
+  const p = props;
+  const load = p.load;
+  const model = React.useMemo(() => loadModel(load, p.cal, p.fromDn, p.toDn, p.rangeFrom, p.px), [load, p.cal, p.fromDn, p.toDn, p.rangeFrom, p.px]);
+  const [tip, setTip] = React.useState(null); // readout hover {i, dn, flip}
+  const tipRef = React.useRef(null);
+  tipRef.current = tip;
+  const [, setPop] = React.useState(null); // hari merah terpilih {uid, dn, left} — popover saran (Task 6)
+  const popBtnRef = React.useRef(null); // tombol pemicu (fokus kembali)
+  const viewRef = React.useRef(null);
+  const live = React.useRef(null);
+  live.current = { p, model };
+  // R5: posisi isi grafik = −scrollLeft wadah Gantt saat panel dirender (jendela/zoom berubah); selebihnya disetel handler
+  // gulir view langsung lewat trackRef.
+  React.useLayoutEffect(() => {
+    const t = p.trackRef ? p.trackRef.current : null;
+    if (t && t.style) t.style.transform = loadShift(p.getLeft());
+  });
+  const act = React.useRef(null);
+  act.current = {
+    openSug(uid, dn, e) {
+      const L = live.current.p;
+      popBtnRef.current = e && e.currentTarget ? e.currentTarget : null;
+      const box = L.boxRef ? L.boxRef.current : null;
+      const W = box && box.clientWidth > 0 ? box.clientWidth : L.tableW + L.viewW;
+      const x = L.tableW + (dn - L.rangeFrom) * L.px - L.getLeft();
+      setPop({ uid, dn, left: Math.max(8, Math.min(Math.round(x), W - LOAD_POP_W - 8)) });
+    },
+  };
+  const onHit = React.useRef((e, uid, dn) => act.current.openSug(uid, dn, e)).current;
+  // Readout hover: baris dari y lokal (clientY − atas wadah grafik), hari dari TLLayout.dnAt(x lokal + scrollLeft); setState
+  // HANYA bila (baris, hari) berubah (tipRef diperbarui seketika agar gerak beruntun sebelum render tidak menyetel ulang).
+  const onMove = (e) => {
+    const v = viewRef.current;
+    if (!v || typeof v.getBoundingClientRect !== "function" || !e) return;
+    const r = v.getBoundingClientRect();
+    const L = live.current;
+    const lx = e.clientX - r.left;
+    const i = Math.floor((e.clientY - r.top) / LOAD_ROW_H);
+    const dn = TLLayout.dnAt(lx + L.p.getLeft(), { from: L.p.rangeFrom }, L.p.px);
+    const cur = tipRef.current;
+    if (!(i >= 0 && i < L.model.rows.length && dn >= L.p.fromDn && dn <= L.p.toDn)) {
+      if (cur !== null) {
+        tipRef.current = null;
+        setTip(null);
+      }
+      return;
+    }
+    if (cur && cur.i === i && cur.dn === dn) return;
+    const next = { i, dn, flip: lx > (Number(r.width) || 0) / 2 };
+    tipRef.current = next;
+    setTip(next);
+  };
+  const onLeave = () => {
+    if (tipRef.current === null) return;
+    tipRef.current = null;
+    setTip(null);
+  };
+  // Isi grafik (svg + tombol merah) dimemo per model: render ulang karena readout/popover tidak membangunnya lagi.
+  const chart = React.useMemo(() => {
+    const out = [];
+    for (const r of model.rows) {
+      const paths = [];
+      for (const c of ["off", "cap", "bar", "over", "leave"]) if (r.d[c]) paths.push(<path key={c} className={"plg-timeline-load-" + c} d={r.d[c]} />);
+      out.push(
+        <svg key={"s" + r.key} className="plg-timeline-load-svg" aria-hidden="true" width={r.w} height={LOAD_ROW_H} style={{ left: model.x, top: r.i * LOAD_ROW_H }}>{paths}</svg>
+      );
+    }
+    for (const h of model.hits) {
+      out.push(
+        <button key={"h" + h.i + ":" + h.dn} type="button" className="plg-timeline-load-hit" aria-label={h.label} aria-haspopup="dialog"
+          style={{ left: h.x, top: h.i * LOAD_ROW_H, width: model.px }} onClick={(e) => onHit(e, h.uid, h.dn)} />
+      );
+    }
+    return out;
+  }, [model]);
+  const rowsH = model.rows.length * LOAD_ROW_H;
+  const tipRow = tip ? model.rows[tip.i] : null;
+  const tipX = tip ? (tip.dn - p.rangeFrom) * p.px : 0;
+  const tipEl = tipRow ? (
+    <div className={cx("plg-timeline-load-tip", tip.flip && "is-flip")} aria-hidden="true"
+      style={{ left: tip.flip ? tipX - 4 : tipX + p.px + 4, top: tip.i * LOAD_ROW_H + 4 }}>{loadTipText(tipRow.row, tip.dn, p.cal)}</div>
+  ) : null;
+  return (
+    <section className="plg-timeline-load" aria-label={LBL.load} ref={p.boxRef}>
+      <h3 className="plg-timeline-load-head">{loadHeadText(load)}</h3>
+      {p.pageKind !== "workspace" ? <p className="plg-timeline-load-note">{MSG_LOAD_PARTIAL}</p> : null}
+      <div className="plg-timeline-load-body" style={{ maxHeight: LOAD_ROWS_MAX * LOAD_ROW_H }}>
+        <div className="plg-timeline-load-names" style={{ width: p.tableW, height: rowsH }}>
+          {model.rows.map((r) => (r.row.uid === null
+            ? <div key={r.key} className="plg-timeline-load-name is-none">{r.row.name}</div>
+            : <button key={r.key} type="button" className="plg-timeline-load-name" onClick={() => p.onEditPerson(r.row.uid)}>{loadNameText(r.row)}</button>))}
+        </div>
+        <div className="plg-timeline-load-view" ref={viewRef} style={{ height: rowsH }} onPointerMove={onMove} onPointerLeave={onLeave}>
+          <div className="plg-timeline-load-track" ref={p.trackRef}>
+            {chart}
+            {tipEl}
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 // 4f. Kalender kerja (Task 9; R18, keputusan pemilik U1) dan Daftar HP (R20, U3).
 // Nama libur/hari kerja pengganti: dipangkas, ≤ 60 unit (sama dengan TLCal.normalize, yang membuang entri lebih panjang);
 // pasangan surrogat tidak dipotong di tengah.
@@ -3594,6 +3856,17 @@ function TimelineViewBody(props) {
   const lastElRef = React.useRef(null); // elemen wadah terakhir yang dikenal (deteksi pasang ulang)
   const rowHRef = React.useRef(rowH);
   rowHRef.current = rowH;
+  // 1d-1 Task 5 (R5): panel Beban Tim — isi grafiknya (trackRef) digeser translateX(−scrollLeft) LANGSUNG dari handler
+  // gulir di bawah (tanpa setState per piksel); akarnya (loadBoxRef) diukur seperti legenda. getLeft stabil (prop memo).
+  const loadTrackRef = React.useRef(null);
+  const loadBoxRef = React.useRef(null);
+  const getLeft = React.useRef(() => (scrollRef.current ? Number(scrollRef.current.scrollLeft) || 0 : 0)).current;
+  const syncLoadLeft = (left) => {
+    const t = loadTrackRef.current;
+    if (t && t.style) t.style.transform = loadShift(left);
+  };
+  const loadShown = loadOn && load !== null && !narrow; // ≤ 640 px: daftar HP (Task 8) menggantikan histogram
+  const loadRowsN = loadShown ? load.rows.length : 0;
 
   const sl = vp.left === null ? TLLayout.initialScrollLeft(lay.range, lay.px, today, vp.w) : vp.left;
   const rw = TLLayout.windowRows(lay.rows.length, vp.top, vp.h + ROW_STEP * rowH, rowH);
@@ -3605,18 +3878,21 @@ function TimelineViewBody(props) {
   const applyLeft = (el, x) => {
     el.scrollLeft = Math.max(0, Math.round(x));
     setLeftRef.current = el.scrollLeft;
+    syncLoadLeft(el.scrollLeft);
     const left = el.scrollLeft;
     setVp((p) => (p.left === quantLeft(left, p.w) ? p : Object.assign({}, p, { left: quantLeft(left, p.w) })));
   };
 
-  // Ukur tinggi wadah (R11: max(360, innerHeight − rect.top − 16), dikurangi tinggi legenda di bawahnya agar legenda
-  // tetap terlihat) dan lebar grafik tampak. Selalu membaca elemen terkini (bukan yang ditangkap saat efek dipasang).
+  // Ukur tinggi wadah (R11: max(360, innerHeight − rect.top − 16), dikurangi tinggi legenda — dan panel Beban Tim bila
+  // terbuka (1d-1) — di bawahnya agar keduanya tetap terlihat) dan lebar grafik tampak. Selalu membaca elemen terkini
+  // (bukan yang ditangkap saat efek dipasang).
   const measure = () => {
     const el = scrollRef.current;
     if (!el || !hasWindow()) return;
     const rect = el.getBoundingClientRect();
     const footH = footRef.current ? footRef.current.offsetHeight || 0 : 0;
-    const boxH = Math.max(MIN_BOX_H, Math.floor((window.innerHeight || 0) - rect.top - BOX_GAP - footH));
+    const loadH = loadBoxRef.current ? loadBoxRef.current.offsetHeight || 0 : 0;
+    const boxH = Math.max(MIN_BOX_H, Math.floor((window.innerHeight || 0) - rect.top - BOX_GAP - footH - loadH));
     const w = Math.max(0, el.clientWidth - tableW);
     setVp((p) => (p.boxH === boxH && p.w === w ? p : Object.assign({}, p, { boxH, h: Math.max(0, boxH - HEAD_H), w })));
   };
@@ -3635,6 +3911,7 @@ function TimelineViewBody(props) {
     measure();
     el.scrollLeft = Math.max(0, Math.round(TLLayout.initialScrollLeft(lay.range, lay.px, today, vp.w)));
     setLeftRef.current = el.scrollLeft;
+    syncLoadLeft(el.scrollLeft);
     const top = quantTop(el.scrollTop || 0, rowH);
     const left = el.scrollLeft;
     setVp((p) => {
@@ -3656,7 +3933,7 @@ function TimelineViewBody(props) {
       window.removeEventListener("resize", onResize);
       caf(id);
     };
-  }, [tableW, hasRows, listMode]);
+  }, [tableW, hasRows, listMode, loadShown, loadRowsN]);
 
   // Posisi gulir horizontal (R22): pertama kali / belum digulir pengguna → hari ini di 1/3; zoom atau rentang bergeser →
   // tanggal di tengah layar dipertahankan.
@@ -3680,6 +3957,7 @@ function TimelineViewBody(props) {
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
+    syncLoadLeft(el.scrollLeft); // R5: panel Beban Tim mengikuti gulir horizontal di event yang sama (tanpa setState)
     if (setLeftRef.current === null || Math.abs(el.scrollLeft - setLeftRef.current) > 1) userScrolledRef.current = true;
     if (rafRef.current) return;
     rafRef.current = raf(() => {
@@ -3725,6 +4003,8 @@ function TimelineViewBody(props) {
 
   // ── 1c-1 Task 8: sakelar Jadwal otomatis (R15), pratinjau + CAS (R14) ──
   const [unitOpen, setUnitOpen] = React.useState(false);
+  // 1d-1 Task 5: nama orang di panel Beban Tim → editor kapasitas/cuti (Task 7 membaca editUid). Penyetel state = stabil.
+  const [editUid, setEditUid] = React.useState(null);
   const [blOpen, setBlOpen] = React.useState(false); // pemilih Baseline (1c-2)
   const [blDlg, setBlDlg] = React.useState(null); // dialog Simpan baseline: {id, bases (potret), rev, busy}
   const blDlgRef = React.useRef(null);
@@ -4125,6 +4405,13 @@ function TimelineViewBody(props) {
     );
   }
   const v = { lay, rw, dw, rowH, colDefs, tableW, chartW, bodyH, todayDn, groupNames, ix, isSel, ov, crit, bl: blDec, blOv, actOv };
+  // 1d-1 Task 5: panel Beban Tim di bawah grafik, sebelum legenda — props primitif/stabil agar memo menahan render ulang.
+  const loadPanel = loadShown
+    ? React.createElement(loadPanelMemo(), {
+      load, cal: eng.ctx.cal, result: eng.result, ctx: eng.ctx, rangeFrom: lay.range.from, px: lay.px, fromDn: dw.fromDn, toDn: dw.toDn,
+      tableW, viewW: vp.w, pageKind, trackRef: loadTrackRef, boxRef: loadBoxRef, getLeft, onEditPerson: setEditUid,
+    })
+    : null;
   return (
     <div className={cx("plg-timeline", compact && "is-compact")}>
       {top}
@@ -4139,6 +4426,7 @@ function TimelineViewBody(props) {
           {renderChart(v)}
         </div>
       </div>
+      {loadPanel}
       {renderLegend(lay, footRef, crit, legendX)}
       {dialog}
     </div>
@@ -6002,6 +6290,7 @@ const pure = {
   baselineStore, useBaselines, blRecId, BL_ENTITY, BL_NO_SNAP, MSG_BL_TOO_LARGE, MSG_BL_WAIT, RELOAD_TIMING, engineKeyOf, prefKey, cleanPref, PREF_DEFAULTS, PREF_CHOICES,
   resRecId, resourceStore, useResources, RES_ENTITY, MSG_RES_STALE, MSG_RES_WAIT, MSG_RES_TOO_LARGE, // 1d-1 Task 2
   usePref, peopleOf, useLoad, // 1d-1 Task 3
+  LoadPanel, loadHeadText, loadTipText, LOAD_HIT_MAX, // 1d-1 Task 5
   CAL_ENTITY, CAL_MAX_BYTES, MSG_CAL_TOO_LARGE, MSG_CAL_LOST, SEC_TIMING,
   MSG_EMPTY, MSG_VIOLATION, MSG_SCHEDULE_HINT, LEGEND, ZOOMS, COLS_FULL, COLS_COMPACT,
   engine, LOST_TIMING, rowCells, slackText, engineOverlay, NO_OVERLAY, baselineOverlay, actualOverlay, baselineTip, MSG_ACTUAL, pomoText, missingYearsNote, barGeom, createInteractions, checkLink, isSummaryIn,

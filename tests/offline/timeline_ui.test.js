@@ -7346,3 +7346,509 @@ test("T4 Beban Tim: ≤ 640 px → di Lainnya, baik Gantt maupun Daftar (daftar 
   assert.ok(loadBtnOf(tree));
   m.unmount();
 }));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 5: panel histogram desktop `LoadPanel` (spec §7.2, §1 butir 6; rencana R5, P3 (a))
+// ════════════════════════════════════════════════════════════════════════════
+// Workspace 12, hari ini Rab 4 Nov 2026. Orang: 7 Sari (pengguna aktif, kapasitas bawaan 8), 9 Budi (record: 2 🍅/hari,
+// cuti Sen 9–Sel 10 Nov), 11 Citra (bawaan 8; hanya task tanpa jadwal).
+//   1 Desain API  Budi  Rab 4–Jum 6, 12 🍅 → 4/hari > 2 → merah Rab 4, Kam 5, Jum 6
+//   2 Uji beban   Budi  Sen 9–Sel 10, 2 🍅 → 1/hari, cuti (kapasitas 0) → merah Sen 9, Sel 10
+//   3 Dokumen     Sari  Kam 5–Jum 6, 4 🍅 → 2/hari
+//   4 Riset       Citra tanpa jadwal → "belum dijadwalkan"
+//   5 Rapat       —     Jum 6, target bawaan 1 → baris "Belum ditugaskan"
+//   6 Laporan     Sari  Sen 26–Sel 27 Okt (terlambat), target bawaan 1 → 1 🍅 di T = Rab 4
+//   7 Rilis jauh  Budi  Sen 2 Agu 2027, 5 🍅 → merah DI LUAR jendela dw (zoom Minggu)
+// counted 5 (1, 2, 3, 5, 6), bertarget bawaan 2 (5, 6) → 2 × 4 > 5 → catatan tampil; belum dijadwalkan 1 (4).
+const PANEL_L = { list_id: 12, project: "P0" };
+function panelTasks() {
+  const L = PANEL_L;
+  return [
+    mk(1, "Desain API", { start: "2026-11-04", duration: 3 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 12 }, L)),
+    mk(2, "Uji beban", { start: "2026-11-09", duration: 2 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 2 }, L)),
+    mk(3, "Dokumen", { start: "2026-11-05", duration: 2 }, Object.assign({ assigned_to: 7, estimated_pomodoros: 4 }, L)),
+    mk(4, "Riset", {}, Object.assign({ assigned_to: 11, estimated_pomodoros: 3 }, L)),
+    mk(5, "Rapat", { start: "2026-11-06", duration: 1 }, L),
+    mk(6, "Laporan", { start: "2026-10-26", duration: 2 }, Object.assign({ assigned_to: 7 }, L)),
+    mk(7, "Rilis jauh", { start: "2027-08-02", duration: 1 }, Object.assign({ assigned_to: 9, estimated_pomodoros: 5 }, L)),
+  ];
+}
+const PANEL_PEOPLE = {
+  currentUser: { id: 7, username: "sari", display_name: "Sari" },
+  collaborators: [{ id: 9, username: "budi", display_name: "Budi" }, { id: 11, username: "citra", display_name: "Citra" }],
+};
+// View panel: pref load:<page> ON (kecuali loadOff), pref lain lewat opt.pref(k); records bawaan: unit P0 otomatis + record Budi.
+async function panelView(clock, o) {
+  const opt = o || {};
+  const tasks = opt.tasks || panelTasks();
+  const fr = opt.records || fakeRecords();
+  if (!opt.records) {
+    putRec(fr, unitRec(12, "P0"));
+    putRec(fr, resRec(12, 9, { capacity: 2, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }] }));
+  }
+  const ctxExtra = Object.assign({ page: "slist_12", pageKind: "workspace", listId: 12, projectName: null }, PANEL_PEOPLE, opt.ctx || {});
+  const page = ctxExtra.page;
+  const storageGet = (k) => Promise.resolve(k === "load:" + page ? !opt.loadOff : opt.pref ? opt.pref(k) : null);
+  const { api, calls } = fakeApi({ records: fr, storageGet });
+  api.env.userId = 7;
+  api.data = { tasks: { list: () => Promise.resolve(opt.listOf ? opt.listOf() : tasks) } };
+  const writes = spyWrites(api);
+  const { ctx, clicked } = ctxOf(tasks, ctxExtra);
+  const props = { context: ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const h = { m, fr, api, calls, writes, props, clicked, tasks };
+  h.tree = await settleView(m, () => props, clock);
+  h.render = () => (h.tree = m.render(props));
+  h.again = async () => (h.tree = await settleView(m, () => props, clock));
+  return h;
+}
+const panelOf = (tree) => nodes(tree, (n) => n.type === T.LoadPanel)[0];
+const panelHead = (pt) => txt(byCls(pt, "plg-timeline-load-head")[0]).trim();
+const panelNames = (pt) => byCls(pt, "plg-timeline-load-name").map((n) => [n.type, txt(n).trim()]);
+const panelSvgs = (pt) => nodes(pt, (n) => n.type === "svg" && hasCls(n, "plg-timeline-load-svg"));
+const panelHits = (pt) => byCls(pt, "plg-timeline-load-hit");
+const pathCls = (svg) => nodes(svg, (n) => n.type === "path").map((p) => p.props.className);
+const pathD = (svg, c) => (nodes(svg, (n) => n.type === "path" && hasCls(n, c))[0] || { props: {} }).props.d;
+const dnOfIso = (s) => T.TLCal.dn(s);
+
+test("T5 loadHeadText: 'Beban Tim · {n} hari kelebihan beban' (n = Σ pasangan orang×hari) + '· {m} task belum dijadwalkan' bila ada + '· {k} task bertarget bawaan 1 🍅' bila k > 25 % counted", () => {
+  const rows = [{ uid: 1, overDays: [10, 11] }, { uid: 2, overDays: [10] }, { uid: null, overDays: [] }];
+  const L = (o) => Object.assign({ rows, unscheduled: 0, counted: 4, defaultTarget: 1 }, o);
+  assert.equal(T.loadHeadText(L()), "Beban Tim · 3 hari kelebihan beban", "1 × 4 = 4 tidak > 4 (tepat 25 %)");
+  assert.equal(T.loadHeadText(L({ unscheduled: 2 })), "Beban Tim · 3 hari kelebihan beban · 2 task belum dijadwalkan");
+  assert.equal(T.loadHeadText(L({ defaultTarget: 2 })), "Beban Tim · 3 hari kelebihan beban · 2 task bertarget bawaan 1 🍅");
+  assert.equal(T.loadHeadText(L({ unscheduled: 1, defaultTarget: 3 })), "Beban Tim · 3 hari kelebihan beban · 1 task belum dijadwalkan · 3 task bertarget bawaan 1 🍅");
+  assert.equal(T.loadHeadText(L({ counted: 0, defaultTarget: 0 })), "Beban Tim · 3 hari kelebihan beban");
+  assert.equal(T.loadHeadText({ rows: [], unscheduled: 0, counted: 0, defaultTarget: 0 }), "Beban Tim · 0 hari kelebihan beban");
+});
+
+test("T5 view: pref load ON + mesin siap → LoadPanel di bawah .plg-timeline-scroll, sebelum legenda; props primitif jendela dw/zoom (sama dengan Gantt) + ref + callback; pref OFF / mesin belum siap → tidak ada", () => withEngineClock(async (clock) => {
+  // mesin belum siap: pref ON terbaca, load null → tanpa panel
+  {
+    const fr = fakeRecords();
+    const { api } = fakeApi({ records: fr, storageGet: loadPrefGet("slist_12", true) });
+    api.env.userId = 7;
+    api.data = { tasks: { list: () => Promise.resolve(panelTasks()) } };
+    const m = mount(T.TimelineViewBody);
+    const props = { context: ctxOf(panelTasks(), Object.assign({ page: "slist_12", pageKind: "workspace", listId: 12, projectName: null }, PANEL_PEOPLE)).ctx, api };
+    m.render(props);
+    m.flush();
+    await settle();
+    assert.equal(panelOf(m.render(props)), undefined, "sebelum mesin siap");
+    m.unmount();
+  }
+  const off = await panelView(clock, { loadOff: true });
+  assert.equal(panelOf(off.tree), undefined, "pref OFF");
+  off.m.unmount();
+  const h = await panelView(clock);
+  const root = h.tree;
+  assert.ok(hasCls(root, "plg-timeline"));
+  const kids = root.children.filter((c) => c && typeof c === "object");
+  const iGrid = kids.findIndex((c) => hasCls(c, "plg-timeline-scroll"));
+  const iPanel = kids.findIndex((c) => c.type === T.LoadPanel);
+  const iFoot = kids.findIndex((c) => hasCls(c, "plg-timeline-foot"));
+  assert.ok(iGrid >= 0 && iPanel === iGrid + 1 && iFoot === iPanel + 1, "urutan: grafik · panel · legenda (" + [iGrid, iPanel, iFoot] + ")");
+  const p = panelOf(root).props;
+  const lay = T.TLLayout.layout({ tasks: h.tasks, pageKind: "workspace", cal: T.TLCal.DEFAULT_CAL, today: TODAY, zoom: "week", readSchedOf: (t) => T.TLSched.readSched(h.api.taskExt.read(t)) });
+  const dw = T.TLLayout.windowDays(lay.range, lay.px, T.TLLayout.initialScrollLeft(lay.range, lay.px, TODAY, 1000), 1000);
+  assert.deepEqual([p.rangeFrom, p.px, p.fromDn, p.toDn, p.tableW, p.viewW, p.pageKind], [lay.range.from, lay.px, dw.fromDn, dw.toDn, TABLE_W_FULL, 1000, "workspace"]);
+  assert.ok(p.load && Array.isArray(p.load.rows));
+  assert.equal(p.cal && typeof p.cal.mask.has, "function", "kalender terkompilasi mesin (eng.ctx.cal)");
+  for (const k of ["trackRef", "boxRef"]) assert.ok(p[k] && "current" in p[k], k);
+  for (const k of ["getLeft", "onEditPerson"]) assert.equal(typeof p[k], "function", k);
+  assert.equal(p.getLeft(), 0, "tanpa wadah terpasang → 0");
+  // memo: render ulang view tanpa perubahan → props LoadPanel identik (React.memo melewati render panel)
+  const p2 = panelOf(h.render()).props;
+  for (const k of Object.keys(p)) assert.ok(Object.is(p[k], p2[k]), "prop stabil: " + k);
+  assert.match(jsx, /React\.memo\(LoadPanel\)/);
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("T5 view: ≤ 640 px (Gantt dan Daftar) → panel desktop tidak dirender (daftar HP = T8); Live Edit lebar → dirender", () => withEngineClock(async (clock) => {
+  const prevWin = global.window;
+  global.window = { matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }), innerHeight: 800, addEventListener() {}, removeEventListener() {} };
+  try {
+    const h = await panelView(clock);
+    assert.ok(gridOf(h.tree), "Gantt HP");
+    assert.equal(panelOf(h.tree), undefined, "Gantt ≤ 640 px");
+    buttonByText(h.tree, "Daftar").props.onClick({});
+    assert.equal(panelOf(h.render()), undefined, "Daftar");
+    h.m.unmount();
+  } finally {
+    global.window = prevWin;
+  }
+  const le = await panelView(clock, { ctx: { liveEdit: true } });
+  assert.ok(panelOf(le.tree), "Live Edit lebar: Gantt + panel");
+  assert.equal(panelOf(le.tree).props.tableW, 48 + 160, "kolom kiri = lebar tabel ringkas");
+  le.m.unmount();
+}));
+
+test("T5 LoadPanel: judul persis (+ belum dijadwalkan + bertarget bawaan), kolom kiri '{nama} · {cap} 🍅/hari' (tombol → onEditPerson(uid)), 'Belum ditugaskan' bukan tombol; tanpa catatan P3 di workspace", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const node = panelOf(h.tree);
+  const edits = [];
+  const props = Object.assign({}, node.props, { onEditPerson: (u) => edits.push(u) });
+  const pm = mount(T.LoadPanel);
+  const pt = pm.render(props);
+  const sec = nodes(pt, (n) => n.type === "section")[0];
+  assert.ok(sec && hasCls(sec, "plg-timeline-load"), "akar section.plg-timeline-load");
+  assert.equal(sec.props["aria-label"], "Beban Tim");
+  assert.equal(sec.props.ref, node.props.boxRef, "ref akar = boxRef view (ukur tinggi)");
+  const head = byCls(pt, "plg-timeline-load-head")[0];
+  assert.equal(head.type, "h3");
+  assert.equal(panelHead(pt), "Beban Tim · 6 hari kelebihan beban · 1 task belum dijadwalkan · 2 task bertarget bawaan 1 🍅");
+  assert.equal(byCls(pt, "plg-timeline-load-note").length, 0, "workspace tanpa catatan (P3 a)");
+  assert.deepEqual(panelNames(pt), [["button", "Budi · 2 🍅/hari"], ["button", "Citra · 8 🍅/hari"], ["button", "Sari · 8 🍅/hari"], ["div", "Belum ditugaskan"]]);
+  const names = byCls(pt, "plg-timeline-load-name");
+  names[0].props.onClick({});
+  names[2].props.onClick({});
+  assert.deepEqual(edits, [9, 7]);
+  assert.equal(names[3].props.onClick, undefined);
+  // halaman view: onEditPerson = penyetel state (T7) — memanggilnya merender ulang view tanpa tulis
+  const n0 = h.m.setCalls.length;
+  node.props.onEditPerson(9);
+  assert.equal(h.m.setCalls.length, n0 + 1);
+  pm.unmount();
+  assert.deepEqual(h.writes, []);
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("T5 LoadPanel project pribadi: satu baris pengguna aktif + catatan persis 'Hanya beban dari project ini' (P3 a)", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const tasks = [
+    mk(1, "A", { start: "2026-11-04", duration: 2 }, Object.assign({ estimated_pomodoros: 20 }, al)),
+    mk(2, "B", {}, al),
+  ];
+  const fr = fakeRecords();
+  putRec(fr, resRec(null, 7, { capacity: 6, leave: [] }));
+  const h = await panelView(clock, { tasks, records: fr, ctx: { page: "proj_Alpha", pageKind: "project", listId: null, projectName: "Alpha" } });
+  const pt = child(panelOf(h.tree));
+  assert.equal(panelOf(h.tree).props.pageKind, "project");
+  assert.equal(panelHead(pt), "Beban Tim · 2 hari kelebihan beban · 1 task belum dijadwalkan", "A 20 🍅 / 2 hari > 6; B tanpa jadwal (tidak berbeban → bukan bertarget bawaan)");
+  const note = byCls(pt, "plg-timeline-load-note");
+  assert.equal(note.length, 1);
+  assert.equal(txt(note[0]).trim(), "Hanya beban dari project ini");
+  assert.deepEqual(panelNames(pt), [["button", "Sari · 6 🍅/hari"]]);
+  h.m.unmount();
+}));
+
+test("T5 LoadPanel grafik (R5): satu <svg> per baris di xOf(dw.fromDn) selebar jendela, tinggi 28; path berkelas tanpa warna inline (satu per kelas); geometri batang/kelebihan/kapasitas; baris Belum ditugaskan tanpa kapasitas/merah/cuti", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const p = panelOf(h.tree).props;
+  const pt = child(panelOf(h.tree));
+  const svgs = panelSvgs(pt);
+  assert.equal(svgs.length, 4, "satu svg per baris");
+  const W = (p.toDn - p.fromDn + 1) * p.px;
+  svgs.forEach((s, i) => {
+    assert.equal(s.props.width, W);
+    assert.equal(s.props.height, 28);
+    assert.equal(s.props["aria-hidden"], "true");
+    assert.deepEqual(s.props.style, { left: (p.fromDn - p.rangeFrom) * p.px, top: i * 28 });
+    for (const n of nodes(s, (x) => x.type === "path")) {
+      assert.equal(n.props.fill, undefined);
+      assert.equal(n.props.stroke, undefined);
+      assert.equal(n.props.style, undefined);
+      assert.ok(typeof n.props.d === "string" && n.props.d.length > 0, "path tanpa d kosong");
+    }
+    const cls = pathCls(s);
+    assert.equal(new Set(cls).size, cls.length, "satu path per kelas");
+  });
+  assert.deepEqual(pathCls(svgs[0]), ["plg-timeline-load-off", "plg-timeline-load-cap", "plg-timeline-load-bar", "plg-timeline-load-over", "plg-timeline-load-leave"], "Budi: semua lapis");
+  assert.deepEqual(pathCls(svgs[1]), ["plg-timeline-load-off", "plg-timeline-load-cap"], "Citra: tanpa beban di jendela");
+  assert.deepEqual(pathCls(svgs[2]), ["plg-timeline-load-off", "plg-timeline-load-cap", "plg-timeline-load-bar"], "Sari: tanpa merah/cuti");
+  assert.deepEqual(pathCls(svgs[3]), ["plg-timeline-load-off", "plg-timeline-load-bar"], "Belum ditugaskan: tanpa kapasitas/merah/cuti");
+  // geometri Budi Rab 4 Nov: skala baris = maks(kapasitas 2, beban 4) = 4 🍅 → 25 px (28 − 3); kapasitas 2 → 12.5 px;
+  // batang = bagian ≤ kapasitas (12.5), kelebihan = 2 🍅 di atasnya (y 3..15.5); zoom Minggu 12 px, inset 1 → lebar 10.
+  const xd = (iso) => (dnOfIso(iso) - p.fromDn) * p.px;
+  assert.ok(pathD(svgs[0], "plg-timeline-load-bar").includes("M" + (xd("2026-11-04") + 1) + " 15.5h10v12.5h-10Z"), "batang Rab 4");
+  assert.ok(pathD(svgs[0], "plg-timeline-load-over").includes("M" + (xd("2026-11-04") + 1) + " 3h10v12.5h-10Z"), "kelebihan Rab 4");
+  // cuti Sen 9 (kapasitas 0): beban 1 seluruhnya merah, tanpa batang biasa; skala 4 → 6.25 → 6.3 px
+  assert.ok(pathD(svgs[0], "plg-timeline-load-over").includes("M" + (xd("2026-11-09") + 1) + " 21.8h10v6.3h-10Z"), "kelebihan Sen 9 (cuti)");
+  assert.ok(!pathD(svgs[0], "plg-timeline-load-bar").includes("M" + (xd("2026-11-09") + 1) + " "), "tanpa batang biasa di hari cuti");
+  // kapasitas Budi: area 12.5 px digabung per rentang hari kerja berkapasitas sama (Sen 2–Jum 6 satu persegi)
+  assert.ok(pathD(svgs[0], "plg-timeline-load-cap").includes("M" + xd("2026-11-02") + " 15.5h60v12.5h-60Z"), "kapasitas Sen 2–Jum 6");
+  // hari non-kerja: Sab 7–Min 8 satu persegi setinggi baris
+  assert.ok(pathD(svgs[0], "plg-timeline-load-off").includes("M" + xd("2026-11-07") + " 0h24v28h-24Z"), "Sab–Min");
+  // arsir cuti hanya di Sen 9–Sel 10 (x dalam [Sen 9, Rab 11))
+  const xs = pathD(svgs[0], "plg-timeline-load-leave").match(/[ML](-?[\d.]+) /g).map((s) => Number(s.slice(1)));
+  assert.ok(xs.length >= 4 && xs.every((x) => x >= xd("2026-11-09") - 1e-9 && x <= xd("2026-11-11") + 1e-9), "arsir dalam rentang cuti");
+  // Sari: skala 8 (kapasitas) → beban 2 🍅 = 6.25 → 6.3 px pada Kam 5
+  assert.ok(pathD(svgs[2], "plg-timeline-load-bar").includes("M" + (xd("2026-11-05") + 1) + " 21.8h10v6.3h-10Z"), "Sari Kam 5");
+  h.m.unmount();
+}));
+
+test("T5 LoadPanel tombol hari merah: hanya overDays di jendela dw (Rilis jauh Agu 2027 di luar → tanpa tombol), di atas hari itu, aria-label = teks tooltip persis", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const p = panelOf(h.tree).props;
+  const budi = p.load.rows.find((r) => r.uid === 9);
+  assert.deepEqual(budi.overDays.map(T.TLCal.iso), ["2026-11-04", "2026-11-05", "2026-11-06", "2026-11-09", "2026-11-10", "2027-08-02"]);
+  assert.ok(dnOfIso("2027-08-02") > p.toDn, "di luar jendela");
+  const pt = child(panelOf(h.tree));
+  const hits = panelHits(pt);
+  assert.deepEqual(hits.map((b) => b.props["aria-label"]), [
+    "Budi · Rab 4 Nov: 4 dari 2 🍅 (~1.5 jam)",
+    "Budi · Kam 5 Nov: 4 dari 2 🍅 (~1.5 jam)",
+    "Budi · Jum 6 Nov: 4 dari 2 🍅 (~1.5 jam)",
+    "Budi · Sen 9 Nov: 1 dari 0 🍅 (~0.5 jam)",
+    "Budi · Sel 10 Nov: 1 dari 0 🍅 (~0.5 jam)",
+  ]);
+  hits.forEach((b, k) => {
+    assert.equal(b.type, "button");
+    assert.equal(b.props.type, "button");
+    assert.equal(b.props["aria-haspopup"], "dialog");
+    const dn = budi.overDays[k];
+    assert.deepEqual(b.props.style, { left: (dn - p.rangeFrom) * p.px, top: 0, width: p.px });
+    assert.equal(typeof b.props.onClick, "function");
+  });
+  h.m.unmount();
+}));
+
+test("T5 LoadPanel readout: satu elemen .plg-timeline-load-tip aria-hidden saat pointer di atas grafik; teks persis (hari biasa/merah/libur/Belum ditugaskan, '(~x jam)' sekali); setState hanya bila (baris, hari) berubah; pointerleave → hilang", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const node = panelOf(h.tree);
+  const p = node.props;
+  const pm = mount(T.LoadPanel);
+  let pt = pm.render(p);
+  pm.flush();
+  const view = byCls(pt, "plg-timeline-load-view")[0];
+  assert.ok(view, "wadah grafik");
+  assert.equal(byCls(pt, "plg-timeline-load-tip").length, 0, "tanpa readout sebelum hover");
+  view.props.ref.current = { getBoundingClientRect: () => ({ left: 100, top: 50, width: 1000, height: 112 }) };
+  const at = (iso, i, dx) => ({ clientX: 100 + (dnOfIso(iso) - p.rangeFrom) * p.px + (dx || 1) - p.getLeft(), clientY: 50 + i * 28 + 5 });
+  const tipText = () => {
+    pt = pm.render(p);
+    const tips = byCls(pt, "plg-timeline-load-tip");
+    assert.ok(tips.length <= 1, "satu elemen readout per panel");
+    if (!tips.length) return null;
+    assert.equal(tips[0].props["aria-hidden"], "true");
+    return txt(tips[0]).trim();
+  };
+  const cases = [
+    ["2026-11-04", 0, "Budi · Rab 4 Nov: 4 dari 2 🍅 (~1.5 jam)"],
+    ["2026-11-09", 0, "Budi · Sen 9 Nov: 1 dari 0 🍅 (~0.5 jam)"],
+    ["2026-11-04", 2, "Sari · Rab 4 Nov: 1 dari 8 🍅 (~0.5 jam)"],
+    ["2026-11-05", 2, "Sari · Kam 5 Nov: 2 dari 8 🍅 (~1 jam)"],
+    ["2026-11-07", 2, "Sari · Sab 7 Nov: 0 dari 0 🍅 (~0 jam)"],
+    ["2026-11-05", 1, "Citra · Kam 5 Nov: 0 dari 8 🍅 (~0 jam)"],
+    ["2026-11-06", 3, "Belum ditugaskan · Jum 6 Nov: 1 🍅 (~0.5 jam)"],
+  ];
+  for (const [iso, i, want] of cases) {
+    view.props.onPointerMove(at(iso, i));
+    const got = tipText();
+    assert.equal(got, want);
+    assert.equal((got.match(/~/g) || []).length, 1, "satu '~'");
+    assert.equal((got.match(/jam/g) || []).length, 1, "satu 'jam'");
+  }
+  // gerak di dalam sel yang sama → tanpa setState; sel lain → tepat satu
+  const n0 = pm.setCalls.length;
+  view.props.onPointerMove(at("2026-11-06", 3, 2));
+  view.props.onPointerMove(at("2026-11-06", 3, 5));
+  assert.equal(pm.setCalls.length, n0, "sel sama → 0 setState");
+  view.props.onPointerMove(at("2026-11-05", 3));
+  assert.equal(pm.setCalls.length, n0 + 1);
+  assert.equal(tipText(), "Belum ditugaskan · Kam 5 Nov: 0 🍅 (~0 jam)");
+  // di bawah baris terakhir → hilang; pointerleave → hilang
+  view.props.onPointerMove({ clientX: at("2026-11-05", 0).clientX, clientY: 50 + 4 * 28 + 3 });
+  assert.equal(tipText(), null);
+  view.props.onPointerMove(at("2026-11-05", 0));
+  assert.ok(tipText());
+  view.props.onPointerLeave({});
+  assert.equal(tipText(), null);
+  pm.unmount();
+  assert.deepEqual(h.writes, [], "hover: 0 tulis");
+  assert.equal(h.fr.calls.put.length, 0);
+  h.m.unmount();
+}));
+
+test("T5 gulir (R5): onScroll wadah Gantt menyetel translateX isi grafik panel LANGSUNG lewat ref — tanpa setState view dalam kuantum yang sama, props LoadPanel tetap identik (memo); render panel menyetel transform dari getLeft (useLayoutEffect); kuantum baru → jendela dw baru", () => withEngineClock(async (clock) => {
+  const h = await panelView(clock);
+  const el = fakeEl();
+  let tree = attach(h.m, h.props, h.tree, el);
+  await settle();
+  clock.frames();
+  tree = h.m.render(h.props);
+  const node = panelOf(tree);
+  const track = { style: {} };
+  node.props.trackRef.current = track;
+  assert.equal(node.props.getLeft(), el.scrollLeft);
+  const n0 = h.m.setCalls.length;
+  const q = 500; // quantLeft: ½ lebar grafik tampak (1000)
+  const base = Math.floor(el.scrollLeft / q) * q;
+  const nextLeft = base + (el.scrollLeft - base === 7 ? 9 : 7);
+  el.scrollLeft = nextLeft;
+  gridOf(tree).props.onScroll();
+  assert.equal(track.style.transform, "translateX(-" + nextLeft + "px)", "disetel di handler gulir, sebelum frame");
+  clock.frames();
+  assert.equal(h.m.setCalls.length, n0, "kuantum sama → view tidak dirender ulang");
+  const p2 = panelOf(h.m.render(h.props)).props;
+  for (const k of Object.keys(node.props)) assert.ok(Object.is(node.props[k], p2[k]), "prop stabil: " + k);
+  // panel dirender (dw/zoom berubah) → transform dari getLeft() saat itu
+  const pm = mount(T.LoadPanel);
+  const track2 = { style: {} };
+  const pt = pm.render(p2);
+  nodes(pt, (n) => hasCls(n, "plg-timeline-load-track"))[0].props.ref.current = track2;
+  pm.flush();
+  assert.equal(track2.style.transform, "translateX(-" + nextLeft + "px)");
+  pm.unmount();
+  node.props.trackRef.current = track; // elemen isi grafik view kembali
+  // kuantum berikutnya → setVp → jendela dw baru (fromDn berubah) → panel menerima jendela baru
+  el.scrollLeft = base + 3 * q + 1;
+  gridOf(tree).props.onScroll();
+  assert.equal(track.style.transform, "translateX(-" + (base + 3 * q + 1) + "px)");
+  clock.frames();
+  assert.equal(h.m.setCalls.length, n0 + 1);
+  const p3 = panelOf(h.m.render(h.props)).props;
+  assert.notEqual(p3.fromDn, p2.fromDn);
+  assert.deepEqual(h.writes, []);
+  h.m.unmount();
+}));
+
+test("T5 tinggi: baris 28 px, maks 10 baris terlihat (body maxHeight 280, overflow-y di CSS), kolom kiri dan grafik setinggi semua baris dalam satu wadah gulir; tinggi panel dikurangkan dari wadah Gantt (legenda + panel tetap terlihat)", () => withEngineClock(async (clock) => {
+  const L = PANEL_L;
+  const tasks = [];
+  for (let u = 1; u <= 12; u++) tasks.push(mk(u, "T" + u, { start: "2026-11-04", duration: 1 }, Object.assign({ assigned_to: 100 + u, estimated_pomodoros: 2 }, L)));
+  const h = await panelView(clock, { tasks });
+  const pt = child(panelOf(h.tree));
+  const body = byCls(pt, "plg-timeline-load-body")[0];
+  assert.equal(body.props.style.maxHeight, 280);
+  const rowsN = panelOf(h.tree).props.load.rows.length;
+  assert.equal(rowsN, 14, "12 penanggung jawab + pengguna aktif + pemilik record (Budi)");
+  assert.equal(byCls(pt, "plg-timeline-load-names")[0].props.style.height, rowsN * 28);
+  assert.equal(byCls(pt, "plg-timeline-load-view")[0].props.style.height, rowsN * 28);
+  assert.equal(byCls(pt, "plg-timeline-load-names")[0].props.style.width, TABLE_W_FULL);
+  assert.match(css, /\.plg-timeline-load-body\s*\{[^}]*overflow-y:\s*auto/);
+  assert.match(css, /\.plg-timeline-load-view\s*\{[^}]*overflow:\s*hidden/);
+  h.m.unmount();
+  // ukur: boxH = maks(360, innerHeight − top − 16 − legenda − panel)
+  const prevWin = global.window;
+  global.window = { innerHeight: 1200, addEventListener() {}, removeEventListener() {} };
+  try {
+    const v = await panelView(clock, { loadOff: true });
+    const el = fakeEl();
+    let tree = attach(v.m, v.props, v.tree, el);
+    assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16, "panel tertutup");
+    loadBtnOf(tree).props.onClick({});
+    tree = v.m.render(v.props);
+    panelOf(tree).props.boxRef.current = { offsetHeight: 300 };
+    tree = attach(v.m, v.props, tree, el);
+    assert.equal(gridOf(tree).props.style.height, 1200 - 100 - 16 - 300, "panel terbuka: tingginya dikurangkan");
+    v.m.unmount();
+  } finally {
+    global.window = prevWin;
+  }
+}));
+
+// 10 orang dengan hampir semua hari kerja merah (40 task 99 🍅 per orang) — kasus terburuk tombol hari merah.
+function heavyLoad(zoom) {
+  const tasks = [];
+  const people = [];
+  let id = 1;
+  for (let u = 1; u <= 10; u++) {
+    people.push({ uid: u, name: "Orang " + u, res: u % 3 === 0 ? { capacity: 4, leave: [{ from: dnOfIso("2026-11-09"), to: dnOfIso("2026-11-20"), note: "" }] } : null });
+    for (let w = 0; w < 40; w++) {
+      tasks.push(mk(id++, "Berat " + u + "." + w, { start: T.TLCal.iso(dnOfIso("2026-08-03") + 7 * w), duration: 5 }, { assigned_to: u, estimated_pomodoros: 99, list_id: 12, project: "P0" }));
+    }
+  }
+  const api = fakeApi().api;
+  const cal = T.TLCal.compile(T.TLCal.DEFAULT_CAL);
+  const ctx = { tasks, cal, units: new Map(), readExt: (t) => api.taskExt.read(t) };
+  const result = T.TLCpm.run(ctx);
+  const load = T.TLLoad.run({ tasks, cal, readExt: ctx.readExt, result, units: ctx.units, people, byAssignee: true, ownerUid: 1, D: dnOfIso(TODAY) });
+  const lay = T.TLLayout.layout({ tasks, pageKind: "workspace", cal: T.TLCal.DEFAULT_CAL, today: TODAY, zoom, readSchedOf: (t) => T.TLSched.readSched(api.taskExt.read(t)) });
+  const sl = T.TLLayout.initialScrollLeft(lay.range, lay.px, TODAY, 1000);
+  const dw = T.TLLayout.windowDays(lay.range, lay.px, sl, 1000);
+  return {
+    load, ctx, result, lay, dw,
+    props: {
+      load, cal, result, ctx, rangeFrom: lay.range.from, px: lay.px, fromDn: dw.fromDn, toDn: dw.toDn, tableW: TABLE_W_FULL, viewW: 1000,
+      pageKind: "workspace", trackRef: { current: null }, boxRef: { current: null }, getLeft: () => sl, onEditPerson() {}, onReveal() {},
+    },
+  };
+}
+
+test("T5 anggaran DOM: 10 orang × zoom Hari/Minggu/Bulan → elemen panel ≤ 300; tombol merah dibatasi LOAD_HIT_MAX (prioritas dekat tengah jendela, urut baris lalu hari)", () => {
+  assert.equal(T.LOAD_HIT_MAX, 150);
+  for (const zoom of ["day", "week", "month"]) {
+    const x = heavyLoad(zoom);
+    const pm = mount(T.LoadPanel);
+    const pt = pm.render(x.props);
+    pm.flush();
+    const n = domCount(pt);
+    const inWin = x.load.rows.reduce((s, r) => s + r.overDays.filter((d) => d >= x.dw.fromDn && d <= x.dw.toDn).length, 0);
+    const hits = panelHits(pt);
+    assert.ok(inWin > T.LOAD_HIT_MAX, zoom + ": kasus terburuk (" + inWin + " hari merah di jendela)");
+    assert.equal(hits.length, T.LOAD_HIT_MAX);
+    assert.ok(n <= 300, zoom + ": " + n + " elemen");
+    assert.equal(panelSvgs(pt).length, 10);
+    // prioritas: jarak ke tengah jendela tidak melebihi hari merah mana pun yang tidak mendapat tombol
+    const mid = (x.dw.fromDn + x.dw.toDn) / 2;
+    const got = new Set(hits.map((b) => b.props.style.top / 28 + ":" + (b.props.style.left / x.lay.px + x.lay.range.from)));
+    const far = Math.max(...hits.map((b) => Math.abs(b.props.style.left / x.lay.px + x.lay.range.from - mid)));
+    for (const [i, r] of x.load.rows.entries()) {
+      for (const d of r.overDays) if (d >= x.dw.fromDn && d <= x.dw.toDn && !got.has(i + ":" + d)) assert.ok(Math.abs(d - mid) >= far, "tanpa tombol hanya yang lebih jauh dari tengah");
+    }
+    const order = hits.map((b) => [b.props.style.top, b.props.style.left]);
+    const sorted = order.slice().sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    assert.deepEqual(order, sorted, "urutan DOM (tab) = baris lalu hari");
+    console.log("# DOM panel Beban Tim 10 orang (" + zoom + "): " + n + " elemen, " + hits.length + "/" + inWin + " tombol merah");
+    pm.unmount();
+  }
+});
+
+test("T5 DOM total 500 task/400 dep + Jalur kritis + panel Beban Tim (10 orang) ≤ 1.500 elemen; 0 tulis", () => withEngineClock(async (clock) => {
+  const tasks = bigTasks(500, 400).map((t, i) => Object.assign(t, { list_id: 12, assigned_to: 1 + (i % 10) }));
+  const fr = fakeRecords();
+  for (let k = 0; k < 5; k++) putRec(fr, unitRec(12, "P" + k));
+  const { api } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "crit:slist_12" || k === "load:slist_12" ? true : null) });
+  api.env.userId = 1;
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const { ctx } = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null });
+  const props = { context: ctx, api };
+  const m = mount(T.TimelineViewBody);
+  const tree = await settleView(m, () => props, clock);
+  assert.equal(buttonByText(tree, "Jalur kritis").props["aria-pressed"], true);
+  assert.equal(loadBtnOf(tree).props["aria-pressed"], true);
+  const node = panelOf(tree);
+  assert.ok(node, "panel terbuka");
+  assert.equal(node.props.load.rows.filter((r) => r.uid !== null).length, 10);
+  const pm = mount(T.LoadPanel);
+  const pt = pm.render(node.props);
+  pm.flush();
+  const nView = domCount(tree);
+  const nPanel = domCount(pt);
+  assert.ok(nPanel <= 300, "panel: " + nPanel);
+  assert.ok(nView + nPanel <= 1500, "total: " + (nView + nPanel));
+  console.log("# DOM elemen 500 task/400 dep + Jalur kritis + Beban Tim: view " + nView + " + panel " + nPanel + " = " + (nView + nPanel));
+  for (const n of nodes(pt, (x) => typeof x.props.className === "string")) {
+    for (const c of n.props.className.split(/\s+/).filter(Boolean)) assert.match(c, /^(plg-timeline(-[\w-]+)?|is-[\w-]+)$/, c);
+  }
+  pm.unmount();
+  assert.deepEqual(writes, []);
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0);
+  m.unmount();
+}));
+
+test("T5 CSS panel: kelas .plg-timeline-load-* hanya token tema (kapasitas --bg-subtle, beban --accent, kelebihan --plg-timeline-danger, cuti --text-secondary + opacity, non-kerja pola libur Gantt), tanpa border-left aksen, :focus-visible untuk nama/tombol merah", () => {
+  const rule = (sel) => {
+    const m = css.match(new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([^}]*)\\}"));
+    assert.ok(m, "aturan " + sel);
+    return m[1];
+  };
+  assert.match(rule(".plg-timeline-load-cap"), /fill:\s*var\(--bg-subtle\)/);
+  assert.match(rule(".plg-timeline-load-bar"), /fill:\s*var\(--accent\)/);
+  assert.match(rule(".plg-timeline-load-over"), /fill:\s*var\(--plg-timeline-danger\)/);
+  const lv = rule(".plg-timeline-load-leave");
+  assert.match(lv, /stroke:\s*var\(--text-secondary\)/);
+  assert.match(lv, /(stroke-)?opacity:\s*0?\.\d+/);
+  assert.match(rule(".plg-timeline-load-off"), /fill:\s*color-mix\(in srgb, var\(--plg-timeline-danger\) 8%, transparent\)/);
+  assert.match(css, /\.plg-timeline-load-name:focus-visible[^{]*\{[^}]*outline:\s*2px solid var\(--accent\)/);
+  assert.match(css, /\.plg-timeline-load-hit:focus-visible[^{]*\{[^}]*outline:\s*2px solid var\(--accent\)/);
+  const block = css.slice(css.indexOf("1d-1: Beban Tim"));
+  assert.ok(block.length > 100);
+  assert.doesNotMatch(block, /border-left\s*:/, "tanpa border-left aksen");
+  assert.doesNotMatch(block, /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/);
+});
