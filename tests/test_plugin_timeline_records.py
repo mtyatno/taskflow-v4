@@ -76,7 +76,7 @@ def real_index(client):
 
 
 def test_records_decl_from_repo_index(real_index):
-    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}, "project": {"conflict": "lww", "maxBytes": 1024}, "baseline": {"conflict": "lww", "maxBytes": 65536}}
+    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}, "project": {"conflict": "lww", "maxBytes": 1024}, "baseline": {"conflict": "lww", "maxBytes": 65536}, "resource": {"conflict": "lww", "maxBytes": 4096}}
     assert "timeline" in plugin_loader.load_known()
     assert plugin_loader.default_enabled("timeline") is False
 
@@ -142,7 +142,7 @@ def test_deploy_window_reads_index_again_before_404(real_index, monkeypatch, tmp
     r = a.get(URL)
     assert r.status_code == 200, r.text
     assert a.send(cal_item())[0]["applied"] is True
-    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}, "project": {"conflict": "lww", "maxBytes": 1024}, "baseline": {"conflict": "lww", "maxBytes": 65536}}
+    assert plugin_loader.records_decl("timeline") == {"calendar": {"conflict": "lww", "maxBytes": 16384}, "project": {"conflict": "lww", "maxBytes": 1024}, "baseline": {"conflict": "lww", "maxBytes": 65536}, "resource": {"conflict": "lww", "maxBytes": 4096}}
 
 
 # ── 1c-2 Task 4: record `baseline` (K41) terhadap server nyata dengan index.json repo ────────────────────────────
@@ -186,3 +186,47 @@ def test_baseline_shared_in_workspace_with_task_refs_and_exact_size_limit(real_i
     # pribadi: bl1@user:<h> hanya terlihat pemiliknya
     assert member.send(bl_item("bl1@user:0123abcd", "user"))[0]["applied"] is True
     assert [i["id"] for i in owner.get(URL, params={"cursor": ""}).json()["items"] if i["scope"] == "user"] == []
+
+
+# ── 1d-1 Task 2: record `resource` (K48, R9) terhadap server nyata dengan index.json repo ─────────────────────────
+RES = {"v": 1, "capacity": 6, "leave": [{"from": "2026-12-22", "to": "2026-12-24", "note": "Mudik"}], "by": None}
+
+
+def res_item(res_id, scope, data=None, **kw):
+    base = {"entity": "resource", "id": res_id, "scope": scope, "data": RES if data is None else data,
+            "deleted": False, "updated_at": plugin_states.iso(datetime.now(timezone.utc)), "base_version": None}
+    base.update(kw)
+    return base
+
+
+def _res_sized(nbytes):
+    """Data resource yang ukuran JSON ringkas UTF-8-nya tepat `nbytes` (catatan cuti diisi)."""
+    d = {"v": 1, "capacity": 8, "leave": [{"from": "2026-12-22", "to": "2026-12-22", "note": ""}], "by": 7}
+    d["leave"][0]["note"] = "x" * (nbytes - len(json.dumps(d, separators=(",", ":"), ensure_ascii=False).encode("utf-8")))
+    return d
+
+
+def test_resource_decl_and_member_writes_any_row_with_size_limit(real_index):
+    assert plugin_loader.records_decl("timeline")["resource"] == {"conflict": "lww", "maxBytes": 4096}
+    owner, member, outsider = User(real_index), User(real_index), User(real_index)
+    lid = _mk_workspace(owner, member)
+    scope = f"list:{lid}"
+    # anggota mengatur kapasitas/cuti PEMILIK (Q4 (a): semua anggota boleh mengedit baris siapa pun) → 200 applied
+    rid = f"res@list:{lid}:{owner.id}"
+    data = dict(RES, by=member.id)
+    r = member.post(URL, json={"items": [res_item(rid, scope, data=data)]})
+    assert r.status_code == 200, r.text
+    res = r.json()["results"][0]
+    assert res["applied"] is True and res["record"]["scope"] == scope and res["record"]["id"] == rid, res
+    items = owner.get(URL, params={"cursor": ""}).json()["items"]
+    assert [(i["entity"], i["id"], i["data"]) for i in items if i["entity"] == "resource"] == [("resource", rid, data)]
+    # orang luar tidak boleh menulis dan tidak melihat record workspace
+    assert outsider.send(res_item(f"res@list:{lid}:{outsider.id}", scope))[0].get("error") == "FORBIDDEN_SCOPE"
+    assert [i for i in outsider.get(URL, params={"cursor": ""}).json()["items"] if i["id"] == rid] == []
+    # batas maxBytes 4096 eksak: = boleh, > ditolak
+    assert owner.send(res_item(f"res@list:{lid}:{member.id}", scope, data=_res_sized(4096)))[0]["applied"] is True
+    big = owner.send(res_item(f"res@list:{lid}:999", scope, data=_res_sized(4097)))[0]
+    assert (big.get("error"), big.get("detail")) == ("INVALID", "size"), big
+    # pribadi: res@user:<uid> scope user hanya terlihat pemiliknya
+    assert member.send(res_item(f"res@user:{member.id}", "user"))[0]["applied"] is True
+    assert [i for i in owner.get(URL, params={"cursor": ""}).json()["items"] if i["scope"] == "user"] == []

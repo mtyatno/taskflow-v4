@@ -19,7 +19,7 @@ test("manifest persis", () => {
     id: "timeline",
     name: "Timeline",
     description: "Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.",
-    version: "1.2.0",
+    version: "1.3.0",
     minApi: 1,
     defaultEnabled: false,
     slots: ["taskList.views", "taskDetail.sections"],
@@ -28,9 +28,9 @@ test("manifest persis", () => {
       "taskList.views": [{ id: "gantt", label: "Timeline", icon: { path: "M2 4h7M5 8h8M3 12h5" }, pages: ["project", "workspace"] }],
       "taskDetail.sections": [{ id: "schedule", label: "Jadwal", order: 10 }],
     },
-    records: { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 } },
+    records: { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 }, resource: { conflict: "lww", maxBytes: 4096 } },
     taskExt: { keys: ["start", "duration", "deps", "mode", "constraint", "actual"] },
-    parts: ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "layout.js", "drag.js"],
+    parts: ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "load.js", "layout.js", "drag.js"],
   });
 });
 
@@ -153,7 +153,7 @@ test("calendarStore: calIdFor/scopeFor — task workspace → cal@list:<id>, tan
   assert.deepEqual(T.calTarget(0), { id: "cal@user", scope: "user" });
 });
 
-test("calendarStore, projectStore, dan baselineStore satu-satunya yang menyentuh api.records; tiap entitas hanya di adaptornya (R5, R6, 1c-2 K41)", () => {
+test("calendarStore, projectStore, baselineStore, dan resourceStore satu-satunya yang menyentuh api.records; tiap entitas hanya di adaptornya (R5, R6, 1c-2 K41, 1d-1 K48)", () => {
   const hits = jsx.match(/\.records\b/g) || [];
   assert.ok(hits.length > 0);
   const body = (name) => {
@@ -165,8 +165,9 @@ test("calendarStore, projectStore, dan baselineStore satu-satunya yang menyentuh
   const [cs, ce] = body("calendarStore");
   const [ps, pe] = body("projectStore");
   const [bs, be] = body("baselineStore");
+  const [rs, re] = body("resourceStore");
   const strip = (s) => s.replace(/\/\/[^\n]*/g, "");
-  const cuts = [[cs, ce], [ps, pe], [bs, be]].sort((a, b) => a[0] - b[0]);
+  const cuts = [[cs, ce], [ps, pe], [bs, be], [rs, re]].sort((a, b) => a[0] - b[0]);
   let outside = "";
   let at = 0;
   for (const [s0, e0] of cuts) { outside += jsx.slice(at, s0); at = e0; }
@@ -181,6 +182,11 @@ test("calendarStore, projectStore, dan baselineStore satu-satunya yang menyentuh
   assert.match(strip(jsx.slice(bs, be)), /BL_ENTITY/);
   assert.doesNotMatch(strip(jsx.slice(cs, ce)) + strip(jsx.slice(ps, pe)), /BL_ENTITY|"baseline"/);
   assert.match(jsx, /const BL_ENTITY = "baseline";/);
+  // 1d-1 Task 2: resourceStore hanya entitas resource (RES_ENTITY); adaptor lain tidak menyentuhnya
+  assert.doesNotMatch(strip(jsx.slice(rs, re)), /CAL_ENTITY|PRJ_ENTITY|BL_ENTITY|"calendar"|"project"|"baseline"/);
+  assert.match(strip(jsx.slice(rs, re)), /RES_ENTITY/);
+  assert.doesNotMatch(strip(jsx.slice(cs, ce)) + strip(jsx.slice(ps, pe)) + strip(jsx.slice(bs, be)), /RES_ENTITY|"resource"/);
+  assert.match(jsx, /const RES_ENTITY = "resource";/);
 });
 
 test("registrasi: view gantt (taskList.views) dan seksi schedule order 10 (taskDetail.sections), komponen fungsi, sesuai contributes", () => {
@@ -3379,7 +3385,9 @@ test("spy taskExt.set/setMany + records.put/remove = 0 (view + useBaselines terp
 // terhitung (`api["taskExt"]`), atau destrukturisasi yang bisa melewati pagar.
 // 1c-2 Task 8: +recordActual — satu-satunya penulis OTOMATIS (dipicu event host gestur lokal pomodoro.ended/task.completed,
 // "isi bila kosong" {actual:{start}}); spy perilaku memastikan sync.done/pulled/onChange/refresh tetap 0 tulis.
-const FENCE_ALLOW = new Set(["issue", "issueMany", "write", "writeMany", "setAuto", "save", "saveBaseline", "recordActual"]);
+// 1d-1 Task 2: +saveResource — satu-satunya records.put record `resource` (tombol Simpan editor kapasitas/cuti, K27/R25);
+// spy perilaku Beban Tim (panel terbuka, sync.done/pulled/onChange resource/app.dayChanged) tetap 0 tulis.
+const FENCE_ALLOW = new Set(["issue", "issueMany", "write", "writeMany", "setAuto", "save", "saveBaseline", "recordActual", "saveResource"]);
 function fenceScan(code) {
   const parser = require("@babel/parser");
   const ast = parser.parse(code, { sourceType: "script" });
@@ -3430,7 +3438,7 @@ function fenceScan(code) {
   return { hits, bad };
 }
 
-test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.put(' / 'records.remove(' berada di dalam fungsi issue|issueMany|write|writeMany|setAuto|save|saveBaseline|recordActual", () => {
+test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.put(' / 'records.remove(' berada di dalam fungsi issue|issueMany|write|writeMany|setAuto|save|saveBaseline|recordActual|saveResource", () => {
   // pagar memeriksa dirinya sendiri: pelanggaran sintetis harus tertangkap, pola sah tidak
   const caught = (src) => fenceScan(src).bad.length > 0;
   assert.ok(caught("function useX(api) { api.records.put('project', 'x', {}, {}); }"), "fungsi lain");
@@ -3444,6 +3452,11 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
   assert.ok(caught("function useBaselines(api) { React.useEffect(() => { api.records.remove('baseline', 'b'); }); }"), "records.remove di efek");
   assert.ok(caught("function install(api) { api.events.on('sync.done', () => api.taskExt.set(1, {actual: {}})); }"), "pendengar event di luar recordActual");
   assert.ok(caught("function recordActuals(api) { api.taskExt.set(1, {}); }"), "nama mirip bukan daftar-izin");
+  // 1d-1 Task 2: tulis record resource dari efek hook pemuat → tertangkap; nama mirip saveResource juga
+  assert.ok(caught("function useResources(api) { React.useEffect(() => { api.records.put('resource', 'r', {}, {}); }); }"), "records.put resource di efek useResources");
+  assert.ok(caught("function saveResources(api) { return api.records.put('resource', 'r', {}, {}); }"), "nama mirip saveResource bukan daftar-izin");
+  assert.equal(fenceScan("function saveResource(api) { return api.records.put('resource','r',{}, {}); }").bad.length, 0, "pola sah saveResource");
+  assert.deepEqual(fenceScan("function saveResource(api) { return api.records.put('resource','r',{}, {}); }").hits.map((h) => h.fn + ":" + h.call), ["saveResource:records.put"]);
   const okSrc = "function issue(api) { const send = () => api.taskExt.setMany([]); return send() || api.taskExt.set(1, {}); }" +
     "const o = { save(api) { return api.records.put('calendar', 'c', {}, {}); }, setAuto(api) { return api.records.put('project', 'p', {}, {}); } };" +
     "function S(api) { const write = (p) => api.taskExt.set(1, p); return write; }" +
@@ -3465,6 +3478,7 @@ test("sumber plugin.js: setiap 'taskExt.set(' / 'taskExt.setMany(' / 'records.pu
     "save:records.put": 1, "setAuto:records.put": 1,
     "saveBaseline:records.put": 1, "saveBaseline:records.remove": 1, // 1c-2 Task 4: simpan/hapus baseline (K41)
     "recordActual:taskExt.set": 1, // 1c-2 Task 8: catat mulai aktual dari pomodoro.ended/task.completed (K42 diamandemen)
+    "saveResource:records.put": 1, // 1d-1 Task 2: simpan kapasitas/cuti (record resource, tombol Simpan)
   });
   // regex mentah tetap cocok dengan jumlah hit AST (tidak ada pemanggilan yang luput dari parser)
   const raw = (code.match(/taskExt\.set\(|taskExt\.setMany\(|records\.put\(|records\.remove\(/g) || []).length;
@@ -5782,7 +5796,7 @@ test("sumber Task 5 (1c-2): teks persis §7.6; simpan hanya lewat baselineStore 
     assert.ok(jsx.includes(t), t);
   }
   assert.match(jsx, /usePref\(api, "bl", page\)/);
-  assert.equal((jsx.match(/records\.put\(/g) || []).length, 3, "tidak ada situs records.put baru (calendar, project, baseline)");
+  assert.equal((jsx.match(/records\.put\(/g) || []).length, 4, "tidak ada situs records.put baru (calendar, project, baseline; 1d-1 Task 2: + resource lewat saveResource)");
 });
 
 // ── Fix review Task 5 (1c-2): teks toast baseline, potret dialog ikut pulled, hapus baseline ────────────────────────
@@ -6510,3 +6524,385 @@ test("T8 sumber: factory memasang installActualTracking; recordActual satu-satun
   assert.doesNotMatch(body, /\bDate\b|finish:\s/);
   assert.doesNotMatch(jsx, /"task\.progress|"task\.updated|taskUpdated/, "tidak ada pemicu progres");
 });
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-1 — Task 2: record `resource` (K48, R9) — resRecId, resourceStore ber-CAS (saveResource), useResources
+// (muat hanya saat panel terbuka, latch pulled), nol tulisan latar (R25)
+// ════════════════════════════════════════════════════════════════════════════
+// Record `resource` sah (lid null = pribadi). Id ditulis tangan DI TES (bentuk yang diharapkan); plugin membangunnya
+// hanya lewat resRecId.
+function resRec(lid, uid, data, extra) {
+  return Object.assign({
+    entity: "resource", id: lid ? "res@list:" + lid + ":" + uid : "res@user:" + uid, scope: lid ? "list:" + lid : "user",
+    data: Object.assign({ v: 1, capacity: 6, leave: [{ from: "2026-11-09", to: "2026-11-10", note: "Cuti" }], by: 9 }, data || {}),
+    updated_at: "2026-11-05T02:00:00Z", version: 2, pending: false,
+  }, extra || {});
+}
+const resPuts = (fr) => fr.calls.put.filter((p) => p[0] === "resource");
+const resLists = (fr) => fr.calls.list.filter((l) => l[0] === "resource");
+const RES_ABSENT = { exists: false, updatedAt: null };
+
+test("resRecId: workspace → res@list:<lid>:<uid> scope list:<lid>; project → res@user:<uid> scope user; uid/listId/pageKind tak sah → INVALID; id/scope cocok pola server", () => {
+  assert.deepEqual(T.resRecId("workspace", 12, 7), { id: "res@list:12:7", scope: "list:12" });
+  assert.deepEqual(T.resRecId("project", null, 7), { id: "res@user:7", scope: "user" });
+  assert.deepEqual(T.resRecId("project", 12, 7), { id: "res@user:7", scope: "user" }, "halaman project pribadi: listId diabaikan");
+  const bad = [
+    ["workspace", 12, 0], ["workspace", 12, -3], ["workspace", 12, "7"], ["workspace", 12, 1.5], ["workspace", 12, null], ["project", null, undefined],
+    ["workspace", null, 7], ["workspace", "12", 7], ["workspace", 0, 7], ["workspace", NaN, 7], ["workspace", 1.5, 7], ["lain", 12, 7], [undefined, 12, 7],
+  ];
+  for (const [k, lid, uid] of bad) assert.throws(() => T.resRecId(k, lid, uid), blCode("INVALID"), JSON.stringify([k, lid, uid]));
+  const src = fs.readFileSync(path.join(__dirname, "../../plugin_records.py"), "utf8");
+  const re = (n) => new RegExp(src.match(new RegExp("^" + n + ' = re\\.compile\\(r"([^"]+)"\\)', "m"))[1]);
+  for (const t of [T.resRecId("workspace", 12, 7), T.resRecId("workspace", 987654321, 123456789), T.resRecId("project", null, 123456789)]) {
+    assert.match(t.id, re("ID_RE"), t.id);
+    assert.match(t.scope, re("SCOPE_RE"), t.scope);
+  }
+});
+
+test("resourceStore.loadScope: dua halaman next (limit 1000) → Map<uid, {res, snap, pending}> lewat TLLoad.resourceDecode; id asing/rusak/scope lain dilewati; tanpa tulis", async () => {
+  const fr = fakeRecords();
+  for (let i = 0; i < 1003; i++) putRec(fr, resRec(12, 1000 + i, { capacity: i % 41 }));
+  const a = resRec(12, 7, {}, { pending: true });
+  const asing = resRec(12, 9, { v: 2, capacity: 3 }); // versi lain → bawaan lewat decode, tetap ada (exists, potret CAS)
+  const byStr = resRec(12, 11, { by: "9" });
+  for (const r of [a, asing, byStr]) putRec(fr, r);
+  // id yang tidak cocok pola scope ini (ditanam langsung di scope list:12) → dilewati
+  for (const id of ["res@list:13:5", "res@list:12:abc", "res@list:12:0", "res@list:12:007", "res@list:12:7:x", "res@user:5", "xres@list:12:5", "res@list:12:"]) {
+    putRec(fr, Object.assign(resRec(12, 1), { id }));
+  }
+  putRec(fr, resRec(13, 7)); // workspace lain
+  putRec(fr, resRec(null, 7, { capacity: 2 })); // pribadi
+  putRec(fr, unitRec(12, "Alpha")); // entitas lain di scope sama
+  const store = T.resourceStore({ records: fr.api, env: { userId: 7 } });
+  const map = await store.loadScope("list:12");
+  const ids12 = [...fr.store.values()].filter((r) => r.entity === "resource" && r.scope === "list:12").map((r) => r.id).sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
+  assert.deepEqual(resLists(fr), [["resource", { scope: "list:12", limit: 1000 }], ["resource", { scope: "list:12", limit: 1000, after: ids12[999] }]]);
+  assert.ok(map instanceof Map);
+  assert.equal(map.size, 1003 + 3);
+  const dn = T.TLCal.dn;
+  assert.deepEqual(map.get(7), { res: { capacity: 6, leave: [{ from: dn("2026-11-09"), to: dn("2026-11-10"), note: "Cuti" }] }, snap: { exists: true, updatedAt: "2026-11-05T02:00:00Z", by: 9 }, pending: true });
+  assert.deepEqual(map.get(9), { res: { capacity: 8, leave: [] }, snap: { exists: true, updatedAt: "2026-11-05T02:00:00Z", by: null }, pending: false }, "data asing: bawaan, by tidak dipercaya");
+  assert.equal(map.get(11).snap.by, null, "by bukan bilangan bulat → null");
+  assert.equal(map.get(1000 + 1002).res.capacity, 1002 % 41, "halaman kedua ikut");
+  for (const k of map.keys()) assert.ok(Number.isInteger(k) && k > 0, "kunci uid bilangan: " + k);
+  assert.equal(map.has(5), false);
+  assert.equal(map.has(1), false);
+  // pribadi: scope user, satu halaman
+  const mine = await store.loadScope("user");
+  assert.deepEqual(resLists(fr)[2], ["resource", { scope: "user", limit: 1000 }]);
+  assert.deepEqual([...mine.keys()], [7]);
+  assert.equal(mine.get(7).res.capacity, 2);
+  // scope tidak sah → INVALID tanpa list
+  for (const s of [null, undefined, "", "list:", "list:x", "list:0", "list:012", "workspace", 12]) await assert.rejects(store.loadScope(s), blCode("INVALID"), String(s));
+  assert.equal(resLists(fr).length, 3);
+  assert.equal(fr.calls.get.length, 0);
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "memuat tidak pernah menulis");
+});
+
+test("resourceStore.save → saveResource: CAS potret {exists, updatedAt} lewat records.get; beda → STALE (pesan persis) 0 put; record absen + potret {exists:false} → put ter-encode (by = env.userId, cuti tergabung) + {scope}", async () => {
+  assert.equal(T.MSG_RES_STALE, "Data berubah sejak dialog dibuka — muat ulang");
+  assert.equal(T.MSG_RES_WAIT, "Menunggu data workspace…");
+  assert.equal(T.RES_ENTITY, "resource");
+  const fr = fakeRecords();
+  const store = T.resourceStore({ records: fr.api, env: { userId: 7 } });
+  const tgt = T.resRecId("workspace", 12, 9);
+  const value = { capacity: 5, leave: [{ from: "2026-11-10", to: "2026-11-12", note: "" }, { from: "2026-11-09", to: "2026-11-09", note: "Mudik" }] };
+  // record absen + potret absen → satu get (CAS) lalu satu put
+  const rec = await store.save(tgt, value, RES_ABSENT);
+  assert.deepEqual(fr.calls.get, [["resource", "res@list:12:9"]]);
+  assert.deepEqual(resPuts(fr), [["resource", "res@list:12:9", { v: 1, capacity: 5, leave: [{ from: "2026-11-09", to: "2026-11-12", note: "Mudik" }], by: 7 }, { scope: "list:12" }]]);
+  assert.equal(rec.id, "res@list:12:9");
+  assert.equal(rec.pending, true);
+  // potret lama (absen) padahal record kini ada → STALE, 0 put
+  await assert.rejects(store.save(tgt, value, RES_ABSENT), (e) => e instanceof Error && e.code === "STALE" && e.message === T.MSG_RES_STALE);
+  assert.equal(resPuts(fr).length, 1);
+  // potret dari loadScope → cocok → put
+  const snap = (await store.loadScope("list:12")).get(9).snap;
+  assert.deepEqual(snap, { exists: true, updatedAt: "2026-11-01T00:00:00Z", by: 7 });
+  await store.save(tgt, { capacity: 4, leave: [] }, snap);
+  assert.equal(resPuts(fr).length, 2);
+  assert.deepEqual(resPuts(fr)[1][2], { v: 1, capacity: 4, leave: [], by: 7 });
+  // anggota lain menimpa (updated_at baru) → potret lama STALE; record dihapus (absen) dengan potret exists → STALE
+  const cur = fr.store.get("resource/res@list:12:9");
+  fr.store.set("resource/res@list:12:9", Object.assign({}, cur, { updated_at: "2026-11-06T00:00:00Z" }));
+  await assert.rejects(store.save(tgt, { capacity: 3, leave: [] }, snap), blCode("STALE"));
+  fr.store.delete("resource/res@list:12:9");
+  await assert.rejects(store.save(tgt, { capacity: 3, leave: [] }, snap), blCode("STALE"));
+  await assert.rejects(store.save(tgt, { capacity: 3, leave: [] }, { exists: true, updatedAt: null }), blCode("STALE"));
+  assert.equal(resPuts(fr).length, 2);
+  // hanya exists + updatedAt yang dibandingkan (by potret tidak berpengaruh)
+  await store.save(tgt, { capacity: 3, leave: [] }, { exists: false, updatedAt: null, by: 99 });
+  assert.equal(resPuts(fr).length, 3);
+  // pribadi: res@user:<uid> scope user; env.userId string angka → by bilangan (uidOf); env tanpa userId → by null
+  await T.resourceStore({ records: fr.api, env: { userId: "7" } }).save(T.resRecId("project", null, 7), { capacity: 8, leave: [] }, RES_ABSENT);
+  assert.deepEqual(resPuts(fr)[3], ["resource", "res@user:7", { v: 1, capacity: 8, leave: [], by: 7 }, { scope: "user" }]);
+  await T.resourceStore({ records: fr.api }).save(T.resRecId("project", null, 8), { capacity: 0 }, RES_ABSENT);
+  assert.deepEqual(resPuts(fr)[4], ["resource", "res@user:8", { v: 1, capacity: 0, leave: [], by: null }, { scope: "user" }]);
+  assert.equal(fr.calls.remove.length, 0);
+});
+
+test("saveResource: > 4096 byte → TOO_LARGE (MSG_RES_TOO_LARGE) sebelum baca/tulis; = 4096 boleh; nilai/target/potret tak sah → INVALID 0 put; TOO_LARGE host dipetakan, galat lain diteruskan", async () => {
+  assert.equal(typeof T.MSG_RES_TOO_LARGE, "string");
+  assert.ok(T.MSG_RES_TOO_LARGE.length > 0);
+  const fr = fakeRecords();
+  const store = T.resourceStore({ records: fr.api, env: { userId: 7 } });
+  const tgt = T.resRecId("workspace", 12, 9);
+  // 45 rentang cuti terpisah (selang 3 hari, tidak bergabung) → ukuran diatur lewat panjang catatan
+  const leaveOf = (lens) => lens.map((n, i) => ({ from: T.TLCal.iso(T.TLCal.dn("2026-01-05") + i * 3), to: T.TLCal.iso(T.TLCal.dn("2026-01-05") + i * 3), note: "x".repeat(n) }));
+  const sizeOf = (lens) => T.TLLoad.resourceByteSize(T.TLLoad.resourceEncode({ capacity: 8, leave: leaveOf(lens) }, { by: 7 }));
+  const base = sizeOf(new Array(45).fill(0));
+  let need = 4096 - base;
+  assert.ok(need > 0 && need <= 45 * 60, "rentang bisa mencapai 4096: " + base);
+  const lens = new Array(45).fill(0).map(() => { const n = Math.min(60, need); need -= n; return n; });
+  assert.equal(sizeOf(lens), 4096);
+  await store.save(tgt, { capacity: 8, leave: leaveOf(lens) }, RES_ABSENT);
+  assert.equal(resPuts(fr).length, 1, "= 4096 boleh");
+  const over = lens.slice();
+  over[over.findIndex((n) => n < 60)] += 1;
+  assert.equal(sizeOf(over), 4097);
+  const gets = fr.calls.get.length;
+  await assert.rejects(store.save(tgt, { capacity: 8, leave: leaveOf(over) }, RES_ABSENT), (e) => e.code === "TOO_LARGE" && e.message === T.MSG_RES_TOO_LARGE);
+  assert.equal(fr.calls.get.length, gets, "ditolak sebelum baca CAS");
+  assert.equal(resPuts(fr).length, 1);
+  // nilai tak sah (kode INVALID dari TLLoad.resourceEncode), target palsu, potret tak sah → INVALID tanpa baca/tulis
+  for (const v of [null, { capacity: 41 }, { capacity: 2.5 }, { capacity: 8, leave: [{ from: "2026-11-05", to: "2026-11-04" }] }, { capacity: 8, leave: "x" }]) {
+    await assert.rejects(store.save(tgt, v, RES_ABSENT), blCode("INVALID"), JSON.stringify(v));
+  }
+  for (const t of [null, {}, { id: "res@list:12:9", scope: "list:13" }, { id: "res@list:12:9", scope: "user" }, { id: "res@user:9", scope: "list:12" }, { id: "res@list:12:0", scope: "list:12" }, { id: "prj@list:12:-", scope: "list:12" }, { id: "res@list:12:9" }]) {
+    await assert.rejects(store.save(t, { capacity: 8, leave: [] }, RES_ABSENT), blCode("INVALID"), JSON.stringify(t));
+  }
+  for (const s of [undefined, null, "x", 5]) await assert.rejects(store.save(tgt, { capacity: 8, leave: [] }, s), blCode("INVALID"), String(s));
+  assert.equal(fr.calls.get.length, gets);
+  assert.equal(resPuts(fr).length, 1);
+  // TOO_LARGE dari host → galat sama dengan penolakan klien; galat lain apa adanya
+  fr.api.put = () => Promise.reject(Object.assign(new Error("TOO_LARGE: data > 4096 byte"), { code: "TOO_LARGE", detail: "size" }));
+  await assert.rejects(store.save(T.resRecId("workspace", 12, 3), { capacity: 8, leave: [] }, RES_ABSENT), (e) => e.code === "TOO_LARGE" && e.message === T.MSG_RES_TOO_LARGE);
+  fr.api.put = () => Promise.reject(Object.assign(new Error("SCOPE_IMMUTABLE"), { code: "SCOPE_IMMUTABLE" }));
+  await assert.rejects(store.save(T.resRecId("workspace", 12, 4), { capacity: 8, leave: [] }, RES_ABSENT), blCode("SCOPE_IMMUTABLE"));
+});
+
+test("resourceStore.subscribe: entitas resource + peristiwa pulled diteruskan (recordEvent); entitas lain diabaikan; off berhenti", () => {
+  const fr = fakeRecords();
+  const store = T.resourceStore({ records: fr.api, env: { userId: 7 } });
+  const got = [];
+  const off = store.subscribe((ev) => got.push(ev));
+  fr.emit({ entity: "resource", ids: ["res@list:12:7"], source: "sync", lost: ["res@list:12:7"] });
+  fr.emit({ entity: "baseline", ids: ["x"], source: "sync" });
+  fr.emit(PULLED);
+  fr.emit({ entity: "resource", ids: ["res@user:7"], source: "local" });
+  assert.deepEqual(got, [
+    { ids: ["res@list:12:7"], source: "sync", lost: ["res@list:12:7"] },
+    { ids: [], source: "sync", lost: [], pulled: true },
+    { ids: ["res@user:7"], source: "local", lost: [] },
+  ]);
+  off();
+  assert.equal(fr.listenerCount(), 0);
+});
+
+test("useResources: tertutup → 0 records.list (juga setelah onChange resource); terbuka → muat scope list:<lid>, muat ulang onChange resource (debounce 300 ms) dan SEGERA saat pulled lalu latch; ditutup → data dilepas, tidak memuat; lepas → 0 pendengar", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 7));
+  const { api } = fakeApi({ records: fr });
+  const m = mount((p) => T.useResources(p.api, p.pageKind, p.listId, p.open));
+  let props = { api, pageKind: "workspace", listId: 12, open: false };
+  m.render(props);
+  m.flush();
+  await settle();
+  let r = m.render(props);
+  assert.equal(resLists(fr).length, 0, "tertutup: tidak memuat");
+  assert.equal(r.loaded, false);
+  assert.equal(r.map.size, 0);
+  assert.equal(r.pulled, false);
+  fr.emit({ entity: "resource", ids: ["res@list:12:7"], source: "sync" });
+  clock.tick(300);
+  await settle();
+  assert.equal(resLists(fr).length, 0, "tertutup: onChange tidak memuat");
+  // buka → muat pertama segera (tanpa debounce)
+  props = Object.assign({}, props, { open: true });
+  m.render(props);
+  m.flush();
+  await settle();
+  r = m.render(props);
+  assert.deepEqual(resLists(fr), [["resource", { scope: "list:12", limit: 1000 }]]);
+  assert.equal(r.loaded, true);
+  assert.deepEqual([...r.map.keys()], [7]);
+  assert.equal(r.map.get(7).res.capacity, 6);
+  assert.equal(r.pulled, false);
+  // record tiba lewat sinkron biasa → muat ulang setelah 300 ms (beruntun = satu)
+  putRec(fr, resRec(12, 9, { capacity: 2 }));
+  fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+  fr.emit({ entity: "resource", ids: ["res@list:12:9"], source: "sync" });
+  clock.tick(299);
+  await settle();
+  assert.equal(resLists(fr).length, 1);
+  clock.tick(1);
+  await settle();
+  r = m.render(props);
+  assert.equal(resLists(fr).length, 2);
+  assert.deepEqual([...r.map.keys()].sort((a, b) => a - b), [7, 9]);
+  assert.equal(r.pulled, false, "sinkron biasa bukan tanda tarik sukses");
+  // entitas lain tidak memuat ulang
+  fr.emit({ entity: "baseline", ids: ["x"], source: "sync" });
+  clock.tick(300);
+  await settle();
+  assert.equal(resLists(fr).length, 2);
+  // tarik sukses → muat ulang SEGERA, lalu latch
+  fr.emit(PULLED);
+  await settle();
+  r = m.render(props);
+  assert.equal(resLists(fr).length, 3);
+  assert.equal(r.pulled, true);
+  // ditutup → data dilepas; event tidak memuat
+  props = Object.assign({}, props, { open: false });
+  r = m.render(props);
+  assert.equal(r.loaded, false);
+  assert.equal(r.map.size, 0);
+  m.flush();
+  await settle();
+  fr.emit({ entity: "resource", ids: ["res@list:12:7"], source: "sync" });
+  fr.emit(PULLED);
+  clock.tick(300);
+  await settle();
+  r = m.render(props);
+  assert.equal(resLists(fr).length, 3);
+  assert.equal(r.pulled, true, "latch bertahan selama terpasang");
+  assert.equal(r.loaded, false);
+  // dibuka lagi → mulai dari memuat (bukan data lama), lalu termuat
+  props = Object.assign({}, props, { open: true });
+  r = m.render(props);
+  assert.equal(r.loaded, false);
+  m.flush();
+  await settle();
+  r = m.render(props);
+  assert.equal(resLists(fr).length, 4);
+  assert.equal(r.loaded, true);
+  m.unmount();
+  assert.equal(fr.listenerCount(), 0);
+  assert.equal(fr.calls.put.length + fr.calls.remove.length, 0, "hook tidak pernah menulis");
+}));
+
+test("useResources: latch pulled menyala juga saat panel tertutup (tanpa muat) — dibuka sesudahnya → muat sekali; pribadi pulled true, scope user; listId tak sah → tanpa muat; muat gagal → failed + latch tetap menyala", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, resRec(12, 7));
+  putRec(fr, resRec(null, 7, { capacity: 3 }));
+  const { api } = fakeApi({ records: fr });
+  const hook = () => mount((p) => T.useResources(p.api, p.pageKind, p.listId, p.open));
+  const m = hook();
+  let props = { api, pageKind: "workspace", listId: 12, open: false };
+  m.render(props);
+  m.flush();
+  fr.emit(PULLED);
+  await settle();
+  let r = m.render(props);
+  assert.equal(r.pulled, true, "tarik sukses saat tertutup → latch menyala tanpa memuat");
+  assert.equal(resLists(fr).length, 0);
+  props = Object.assign({}, props, { open: true });
+  m.render(props);
+  m.flush();
+  await settle();
+  r = m.render(props);
+  assert.equal(resLists(fr).length, 1);
+  assert.equal(r.loaded, true);
+  assert.equal(r.pulled, true);
+  m.unmount();
+  // pribadi: tidak butuh latch (pulled true), scope user
+  const p = hook();
+  const pp = { api, pageKind: "project", listId: null, open: true };
+  r = p.render(pp);
+  assert.equal(r.pulled, true);
+  p.flush();
+  await settle();
+  r = p.render(pp);
+  assert.deepEqual(resLists(fr)[1], ["resource", { scope: "user", limit: 1000 }]);
+  assert.deepEqual([...r.map.keys()], [7]);
+  assert.equal(r.map.get(7).res.capacity, 3);
+  p.unmount();
+  // workspace dengan listId tak sah → tanpa muat, tidak termuat
+  const w = hook();
+  const wp = { api, pageKind: "workspace", listId: NaN, open: true };
+  w.render(wp);
+  w.flush();
+  await settle();
+  r = w.render(wp);
+  assert.equal(resLists(fr).length, 2);
+  assert.equal(r.loaded, false);
+  w.unmount();
+  // muat gagal → failed + warn; pulled → muat ulang (gagal lagi) tetapi latch tetap menyala (pola useBaselines)
+  const fr3 = fakeRecords();
+  fr3.api.list = () => Promise.reject(new Error("idb"));
+  const h3 = fakeApi({ records: fr3 });
+  const f = hook();
+  const fp = { api: h3.api, pageKind: "workspace", listId: 12, open: true };
+  f.render(fp);
+  f.flush();
+  await settle();
+  r = f.render(fp);
+  assert.equal(r.failed, true);
+  assert.equal(r.loaded, false);
+  assert.equal(h3.calls.warn.length, 1);
+  fr3.emit(PULLED);
+  await settle();
+  r = f.render(fp);
+  assert.equal(h3.calls.warn.length, 2);
+  assert.equal(r.pulled, true);
+  f.unmount();
+  assert.equal(fr.calls.put.length + fr3.calls.put.length + fr.calls.remove.length, 0);
+}));
+
+test("spy R25 Beban Tim: taskExt.set/setMany + records.put/remove = 0 dengan view + useResources TERBUKA (record resource ada) setelah: mount, sync.done, pulled, onChange resource dari sinkron (anggota lain), app.dayChanged + env.today berubah, lepas; record resource yang belum ada tidak pernah dibuat", () => withEngineClock(async (clock) => {
+  const tasks = bigTasks(60, 40).map((t, i) => Object.assign({}, t, { list_id: 12, assigned_to: [7, 9, 11, null][i % 4], estimated_pomodoros: 1 + (i % 6) }));
+  const fr = fakeRecords();
+  for (let i = 0; i < 5; i++) putRec(fr, unitRec(12, "P" + i));
+  putRec(fr, resRec(12, 7, { capacity: 1 }));
+  let resState = null;
+  const ViewRes = (p) => { resState = T.useResources(p.api, "workspace", 12, true); return T.TimelineViewBody(p); };
+  const { api, calls } = fakeApi({ records: fr });
+  api.env.userId = 7;
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const spy = spyRun();
+  try {
+    const base = ctxOf(tasks, { page: "slist_12", pageKind: "workspace", listId: 12, projectName: null }).ctx;
+    const props = { context: base, api };
+    const m = mount(ViewRes);
+    await settleView(m, () => props, clock);
+    const ok = (step) => {
+      assert.deepEqual(writes, [], step + ": taskExt");
+      assert.equal(fr.calls.put.length, 0, step + ": records.put");
+      assert.equal(fr.calls.remove.length, 0, step + ": records.remove");
+    };
+    assert.equal(resState.loaded, true);
+    assert.deepEqual([...resState.map.keys()], [7]);
+    ok("mount");
+    for (const f of calls.handlers["sync.done"] || []) f({ initial: false });
+    await settleView(m, () => props, clock);
+    ok("sync.done");
+    fr.emit(PULLED);
+    await settleView(m, () => props, clock);
+    assert.equal(resState.pulled, true);
+    ok("pulled");
+    // anggota lain mengubah kapasitas uid 7 dan menambah uid 9 (sinkron)
+    putRec(fr, resRec(12, 7, { capacity: 4 }, { updated_at: "2026-11-06T00:00:00Z" }));
+    putRec(fr, resRec(12, 9, { capacity: 2 }));
+    const lists = resLists(fr).length;
+    fr.emit({ entity: "resource", ids: ["res@list:12:7", "res@list:12:9"], source: "sync", lost: ["res@list:12:7"] });
+    await settleView(m, () => props, clock);
+    assert.ok(resLists(fr).length > lists, "onChange resource → muat ulang");
+    assert.equal(resState.map.get(7).res.capacity, 4);
+    assert.deepEqual([...resState.map.keys()].sort((a, b) => a - b), [7, 9]);
+    ok("onChange resource");
+    // ganti hari: app.dayChanged (bila ada pendengar) + env.today baru
+    api.env.today = () => "2026-11-05";
+    for (const f of calls.handlers["app.dayChanged"] || []) f({ today: "2026-11-05" });
+    await settleView(m, () => props, clock);
+    ok("app.dayChanged");
+    assert.equal(fr.store.has("resource/res@list:12:11"), false, "record uid 11 (tanpa record) tidak dibuat otomatis");
+    m.unmount();
+    clock.tick(5000);
+    await settle();
+    ok("lepas");
+    assert.equal(fr.listenerCount(), 0);
+  } finally {
+    spy.restore();
+  }
+}));

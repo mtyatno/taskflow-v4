@@ -24,7 +24,7 @@
       "id": "timeline",
       "name": "Timeline",
       "description": "Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "minApi": 1,
       "slots": [
         "taskList.views",
@@ -80,13 +80,17 @@
         "baseline": {
           "conflict": "lww",
           "maxBytes": 65536
+        },
+        "resource": {
+          "conflict": "lww",
+          "maxBytes": 4096
         }
       },
       "files": [
         "plugin.js",
         "style.css"
       ],
-      "hash": "9ee0a80c"
+      "hash": "93a62134"
     }
   ]
 }

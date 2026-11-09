@@ -201,7 +201,7 @@ test("index.json repo: timeline valid (izin records dikenal, records.calendar + 
   assert.deepEqual(P.validateManifest(entry, idx), { ok: true, reason: null }, "validateManifest runtime nyata menerima entri");
   assert.ok(P.KNOWN_PERMISSIONS.includes("records") && !P.RESERVED_PERMISSIONS.includes("records"), "D1: records dikenal");
   assert.deepEqual(entry.permissions, ["storage", "task.ext", "records"]);
-  assert.deepEqual(entry.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 } }, "D2: records tersalin ke index.json (1c-1 R6: + project; 1c-2 K41: + baseline)");
+  assert.deepEqual(entry.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 }, resource: { conflict: "lww", maxBytes: 4096 } }, "D2: records tersalin ke index.json (1c-1 R6: + project; 1c-2 K41: + baseline; 1d-1 K48: + resource)");
   assert.deepEqual(entry.records, manifest.records, "sama dengan manifest.json");
   assert.deepEqual(entry.taskExt, { keys: ["start", "duration", "deps", "mode", "constraint", "actual"] });
   assert.equal(entry.defaultEnabled, false);
@@ -549,10 +549,10 @@ async function recordEvents(fn) {
 }
 
 // 1c-2 T10: diperluas di tempat (nama tes brief "index.json: 1.2.0, records.baseline tersalin, enam kunci") — batas
-// deklarasi = BL_MAX plugin, validasi compile.js = runtime.
-test("index.json: 1.2.0, records.baseline tersalin, enam kunci (repo; + records.project tetap)", () => {
-  assert.equal(entry.version, "1.2.0");
-  assert.equal(manifest.version, "1.2.0");
+// deklarasi = BL_MAX plugin, validasi compile.js = runtime. 1d-1 Task 2: 1.3.0 + records.resource {lww, 4096}.
+test("index.json: 1.3.0, records.baseline + records.resource tersalin, enam kunci (repo; + records.project tetap)", () => {
+  assert.equal(entry.version, "1.3.0");
+  assert.equal(manifest.version, "1.3.0");
   assert.equal(entry.minApi, 1);
   assert.deepEqual(entry.records.project, { conflict: "lww", maxBytes: 1024 });
   assert.deepEqual(entry.records.project, manifest.records.project);
@@ -565,7 +565,9 @@ test("index.json: 1.2.0, records.baseline tersalin, enam kunci (repo; + records.
   assert.equal(P.recordsError(entry), null);
   // 1c-2 T10: batas deklarasi record baseline = konstanta klien K41 (adaptor menolak di batas yang sama dengan host)
   assert.equal(entry.records.baseline.maxBytes, require(path.join(dir, "plan.js")).BL_MAX);
-  assert.deepEqual(Object.keys(entry.records), ["calendar", "project", "baseline"], "urutan kunci records");
+  assert.deepEqual(entry.records.resource, { conflict: "lww", maxBytes: 4096 });
+  assert.deepEqual(entry.records.resource, manifest.records.resource);
+  assert.deepEqual(Object.keys(entry.records), ["calendar", "project", "baseline", "resource"], "urutan kunci records");
   assert.equal(build.validateRecords(entry), null, "compile.js dan runtime sepakat");
 });
 

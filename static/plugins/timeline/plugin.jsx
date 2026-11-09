@@ -2,16 +2,17 @@
 // 1.1.0 = PR 1c-1 jadwal otomatis, spec docs/superpowers/specs/2026-11-01-plugin-fase1-1c-otomatis-design.md).
 // Gantt untuk project dan workspace: view `gantt` (slot taskList.views) dan seksi `schedule` (slot
 // taskDetail.sections). Mesin murni ada di `parts` (holidays-id.js, calendar.js, schedule.js, cpm.js, plan.js,
-// layout.js, drag.js — compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLCpm/TLPlan/
-// TLLayout/TLDrag tersedia sebagai const di lingkup yang sama; tidak ada global window). `manifest` disuntik
-// compile.js dari manifest.json.
+// load.js, layout.js, drag.js — compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLCpm/
+// TLPlan/TLLoad/TLLayout/TLDrag tersedia sebagai const di lingkup yang sama; tidak ada global window). `manifest`
+// disuntik compile.js dari manifest.json. 1.3.0 = PR 1d-1 Beban Tim (TLLoad + record `resource`).
 //
 // Susunan modul (Task 6 = kerangka; komponen diisi Task 7–10):
 //   1. Konstanta + pesan UI persis (kalender, preferensi).
-//   2. calendarStore(api), projectStore(api) (1c-1 R6), dan baselineStore(api) (1c-2 K41) — SATU-SATUNYA kode yang
-//      menyentuh api.records (R5), masing-masing hanya entitasnya sendiri. calTarget (= TLSched.calTarget) /
-//      TLSched.unitOf memilih id/scope. Tulisan hanya di calendarStore.save, projectStore.setAuto, dan
-//      baselineStore → saveBaseline (put + remove) (R25: mesin dan pemuat tidak pernah menulis).
+//   2. calendarStore(api), projectStore(api) (1c-1 R6), baselineStore(api) (1c-2 K41), dan resourceStore(api) (1d-1 K48)
+//      — SATU-SATUNYA kode yang menyentuh api.records (R5), masing-masing hanya entitasnya sendiri. calTarget
+//      (= TLSched.calTarget) / TLSched.unitOf / resRecId memilih id/scope. Tulisan hanya di calendarStore.save,
+//      projectStore.setAuto, baselineStore → saveBaseline (put + remove), dan resourceStore → saveResource (put)
+//      (R25: mesin dan pemuat tidak pernah menulis).
 //   3. Preferensi per perangkat lewat api.storage: prefKey / cleanPref / PREF_DEFAULTS (R19); 1c-2: bl:<page> = baseline
 //      aktif yang ditampilkan (P2 a, tanpa record).
 //   4. Komponen: konstanta tampilan, pembantu murni, hooks (useMedia/usePref/useCalendar/useUnits/useBaselines/useEngine), fungsi render
@@ -310,6 +311,114 @@ function baselineStore(api) {
     subscribe(fn) {
       return api.records.onChange((ev) => {
         const e = recordEvent(ev, BL_ENTITY);
+        if (e) fn(e);
+      });
+    },
+  };
+}
+
+// ── 2d. Kapasitas/cuti anggota: record `resource` (1d-1 K48, R9) ─────────────
+// Satu record per orang per lingkup: workspace `res@list:<lid>:<uid>` (scope "list:<lid>", dibagi semua anggota — semua
+// anggota boleh mengedit baris siapa pun, Q4 (a)); halaman project pribadi `res@user:<uid>` (scope "user"). Data = kodek
+// TLLoad.resourceEncode/Decode {v: 1, capacity, leave: [{from, to, note}], by}. Tidak ada record → kapasitas bawaan
+// (TLLoad: 8 🍅/hari tanpa cuti); record yang belum ada TIDAK PERNAH dibuat otomatis (R25).
+const RES_ENTITY = "resource";
+const RES_PAGE = 1000; // batas atas limit api.records.list
+const RES_MAX_BYTES = 4096; // = manifest.records.resource.maxBytes
+const MSG_RES_STALE = "Data berubah sejak dialog dibuka — muat ulang";
+const MSG_RES_WAIT = "Menunggu data workspace…";
+const MSG_RES_TOO_LARGE = "Data kapasitas terlalu besar — kurangi cuti atau catatannya";
+const EMPTY_RES = new Map();
+const RES_SCOPE_RE = /^list:([1-9]\d*)$/;
+
+// Id + scope record resource satu orang (satu-satunya pembuat id). pageKind "workspace" + listId bilangan bulat > 0 →
+// {id: "res@list:<lid>:<uid>", scope: "list:<lid>"}; "project" (pribadi) → {id: "res@user:<uid>", scope: "user"}; uid
+// bukan bilangan bulat > 0 / halaman lain → Error code INVALID (pola blError).
+function resRecId(pageKind, listId, uid) {
+  if (!(Number.isInteger(uid) && uid > 0)) throw blError("INVALID", "anggota tidak sah");
+  if (pageKind === "workspace" && Number.isInteger(listId) && listId > 0) return { id: "res@list:" + listId + ":" + uid, scope: "list:" + listId };
+  if (pageKind === "project") return { id: "res@user:" + uid, scope: "user" };
+  throw blError("INVALID", "halaman tidak sah");
+}
+
+// Pola id record milik scope (uid tanpa nol di depan → satu id per orang); scope tak sah → null.
+function resIdRe(scope) {
+  if (scope === "user") return /^res@user:([1-9]\d*)$/;
+  const m = typeof scope === "string" ? RES_SCOPE_RE.exec(scope) : null;
+  return m ? new RegExp("^res@list:" + m[1] + ":([1-9]\\d*)$") : null;
+}
+
+// Record → entri {res, snap: {exists: true, updatedAt, by}, pending}. res = TLLoad.resourceDecode (data asing/rusak →
+// bawaan); by hanya dari data v 1 yang sah (pola blEntry: data asing tidak dipercaya).
+function resEntry(r) {
+  const d = r.data && typeof r.data === "object" && !Array.isArray(r.data) ? r.data : null;
+  const by = d && d.v === 1 && Number.isInteger(d.by) && d.by > 0 ? d.by : null;
+  return {
+    res: TLLoad.resourceDecode(r.data),
+    snap: { exists: true, updatedAt: typeof r.updated_at === "string" ? r.updated_at : null, by },
+    pending: !!r.pending,
+  };
+}
+
+// Adaptor tunggal api.records untuk entitas `resource` (pola baselineStore).
+//   loadScope(scope) → Promise<Map<uid, entri>>: list scope (ikuti `next`, berhenti bila next = after), hanya id yang
+//     cocok pola scope itu (resIdRe). Tidak pernah menulis. Scope tak sah → INVALID tanpa list.
+//   save(target, value, snap) → Promise<record>: lewat saveResource. target = keluaran resRecId; value = {capacity,
+//     leave} editor; snap = potret CAS saat dialog dibuka ({exists, updatedAt}; record absen = {exists: false,
+//     updatedAt: null}). Galat ber-`code`: INVALID (target/snap/nilai — dari TLLoad.resourceEncode), TOO_LARGE (> 4096
+//     byte, diperiksa SEBELUM baca/tulis seperti saveBaseline), STALE (potret sekarang ≠ snap; pesan MSG_RES_STALE).
+//   subscribe(fn) → off: perubahan entitas resource + peristiwa tarik sukses (recordEvent).
+// SATU-SATUNYA tulisan record resource: saveResource (pagar R25 + pin AST "saveResource:records.put": 1).
+function resourceStore(api) {
+  const snapOk = (s) => !!s && typeof s === "object" && !Array.isArray(s);
+  const sameSnap = (a, b) => a.exists === b.exists && a.updatedAt === b.updatedAt;
+  function saveResource(target, value, snap) {
+    return Promise.resolve().then(() => {
+      const t = target && typeof target === "object" ? target : null;
+      const re = t && typeof t.id === "string" ? resIdRe(t.scope) : null;
+      if (!re || !re.test(t.id)) throw blError("INVALID", "record kapasitas tidak sah");
+      if (!snapOk(snap)) throw blError("INVALID", "potret kapasitas tidak ada");
+      const want = { exists: snap.exists === true, updatedAt: typeof snap.updatedAt === "string" ? snap.updatedAt : null };
+      const data = TLLoad.resourceEncode(value, { by: TLLoad.uidOf(api.env ? api.env.userId : null) }); // INVALID diteruskan
+      if (TLLoad.resourceByteSize(data) > RES_MAX_BYTES) throw blError("TOO_LARGE", MSG_RES_TOO_LARGE);
+      return Promise.resolve(api.records.get(RES_ENTITY, t.id)).then((cur) => {
+        const now = cur && typeof cur === "object" ? { exists: true, updatedAt: typeof cur.updated_at === "string" ? cur.updated_at : null } : { exists: false, updatedAt: null };
+        if (!sameSnap(want, now)) throw blError("STALE", MSG_RES_STALE);
+        return api.records.put(RES_ENTITY, t.id, data, { scope: t.scope }).then((r) => r, (err) => {
+          throw err && err.code === "TOO_LARGE" ? blError("TOO_LARGE", MSG_RES_TOO_LARGE) : err;
+        });
+      });
+    });
+  }
+  function loadScope(scope) {
+    return Promise.resolve().then(() => {
+      const re = resIdRe(scope);
+      if (!re) throw blError("INVALID", "scope kapasitas tidak sah");
+      const out = new Map();
+      const page1 = (after) => {
+        const q = after === null ? { scope, limit: RES_PAGE } : { scope, limit: RES_PAGE, after };
+        return Promise.resolve(api.records.list(RES_ENTITY, q)).then((res) => {
+          const items = res && Array.isArray(res.items) ? res.items : [];
+          for (const r of items) {
+            const m = r && typeof r.id === "string" ? re.exec(r.id) : null;
+            const uid = m ? Number(m[1]) : NaN;
+            if (Number.isSafeInteger(uid)) out.set(uid, resEntry(r));
+          }
+          const next = res && typeof res.next === "string" && res.next ? res.next : null;
+          return next !== null && next !== after ? page1(next) : out;
+        });
+      };
+      return page1(null);
+    });
+  }
+  return {
+    loadScope,
+    save(target, value, snap) {
+      return saveResource(target, value, snap);
+    },
+    subscribe(fn) {
+      return api.records.onChange((ev) => {
+        const e = recordEvent(ev, RES_ENTITY);
         if (e) fn(e);
       });
     },
@@ -1159,6 +1268,90 @@ function useBaselines(api, unit) {
   const snapOf = (n, recId) => (basesOf(recId).has(n) ? basesOf(recId).get(n).snap : BL_NO_SNAP);
   const waiting = us.some((x) => BL_SLOTS.some((n) => waitingOf(n, x.recId)));
   return { bases: basesOf(), byUnit, loaded, failed, pulled, store, waitingOf, lockedOf, snapOf, waiting };
+}
+
+// Kapasitas/cuti halaman (1d-1 K48, R9, R10; pola useBaselines): useResources(api, pageKind, listId, open) →
+// {map: Map<uid, {res, snap, pending}>, pulled, loaded, failed, store}. Scope = "list:<lid>" (workspace) / "user"
+// (project pribadi); workspace dengan listId tak sah → tidak memuat.
+//   - Memuat HANYA saat `open` (panel Beban Tim terbuka; K56/R10): tertutup → 0 records.list. Buka → muat pertama segera;
+//     selama terbuka muat ulang pada perubahan entitas resource (debounce RELOAD_TIMING) dan SEGERA pada peristiwa tarik
+//     sukses. Ditutup → data dilepas (dibuka lagi = muat baru, bukan data lama).
+//   - `pulled` = latch "tarik record plugin SUKSES sejak pemasangan ini", dideteksi PERSIS seperti useCalendar/useUnits/
+//     useBaselines: peristiwa recordEvent `pulled` dari store.subscribe (bukan sync.done, bukan onChange "sync" biasa).
+//     Terbuka → dinyalakan SETELAH muat ulang sesudah peristiwa itu selesai — juga bila muat gagal (ruling review T4
+//     baseline: kunci tidak boleh selamanya; CAS saveResource tetap menjaga). Tertutup → langsung dinyalakan tanpa muat
+//     (tidak ada data yang ditampilkan; pembukaan berikutnya memuat sesudah tarik itu). Pendengar dipasang selama hook
+//     terpasang agar tarik saat panel tertutup tidak terlewat.
+//   - Project pribadi tidak butuh latch (record scope user hanya milik pengguna ini; pola baseline) → pulled true.
+// Kunci simpan R9 (T7): workspace terkunci MSG_RES_WAIT sampai record lokal orang itu ada (map) ATAU pulled. Hook ini
+// tidak pernah menulis.
+function resScopeOf(pageKind, listId) {
+  if (pageKind === "workspace") return Number.isInteger(listId) && listId > 0 ? "list:" + listId : null;
+  return "user";
+}
+
+function useResources(api, pageKind, listId, open) {
+  const kind = pageKind === "workspace" ? "workspace" : "project";
+  const scope = resScopeOf(kind, listId);
+  const on = open === true && scope !== null;
+  const store = React.useMemo(() => resourceStore(api), [api]);
+  const [st, setSt] = React.useState(() => ({ scope, map: EMPTY_RES, loaded: false, failed: false }));
+  const [pulled, setPulled] = React.useState(false);
+  React.useEffect(() => {
+    let alive = true;
+    let seq = 0;
+    let timer = null;
+    if (!on) {
+      // tertutup: lepas data (bail-out bila sudah kosong) — pembukaan berikutnya mulai dari "memuat"
+      setSt((p) => (p.scope === scope && !p.loaded && !p.failed && p.map === EMPTY_RES ? p : { scope, map: EMPTY_RES, loaded: false, failed: false }));
+    }
+    const load = () => {
+      const my = ++seq;
+      return store.loadScope(scope).then((map) => {
+        if (alive && my === seq) setSt({ scope, map, loaded: true, failed: false });
+        return true;
+      }, (e) => {
+        logWarn(api, "kapasitas gagal dimuat:", e);
+        if (alive && my === seq) setSt((p) => (p.scope === scope ? Object.assign({}, p, { failed: true }) : { scope, map: EMPTY_RES, loaded: false, failed: true }));
+        return false;
+      });
+    };
+    if (on) load();
+    let off = null;
+    try {
+      off = store.subscribe((ev) => {
+        if (ev.pulled) {
+          if (!on) {
+            if (alive) setPulled(true);
+            return;
+          }
+          load().then(() => { if (alive) setPulled(true); });
+          return;
+        }
+        if (!on) return;
+        if (timer !== null) clearTimeout(timer);
+        timer = setTimeout(() => {
+          timer = null;
+          if (alive) load();
+        }, RELOAD_TIMING.debounceMs);
+      });
+    } catch (e) {
+      logWarn(api, "pendengar kapasitas gagal:", e);
+    }
+    return () => {
+      alive = false;
+      if (timer !== null) clearTimeout(timer);
+      if (typeof off === "function") off();
+    };
+  }, [store, scope, on]);
+  const mine = on && st.scope === scope;
+  return {
+    map: mine ? st.map : EMPTY_RES,
+    loaded: mine && st.loaded,
+    failed: mine && st.failed,
+    pulled: kind === "project" ? true : pulled,
+    store,
+  };
 }
 
 // Baseline aktif yang DITAMPILKAN (1c-2 T5, P2 a): pref `bl:<page>` = n (0 = "Tidak ada" → null). Halaman workspace
@@ -5693,6 +5886,7 @@ const pure = {
   calendarStore, calTarget, projectStore, recordEvent, PRJ_ENTITY, NO_UNIT, useUnits, useEngine,
   installActualTracking, recordActual, ACT_EVENT,
   baselineStore, useBaselines, blRecId, BL_ENTITY, BL_NO_SNAP, MSG_BL_TOO_LARGE, MSG_BL_WAIT, RELOAD_TIMING, engineKeyOf, prefKey, cleanPref, PREF_DEFAULTS, PREF_CHOICES,
+  resRecId, resourceStore, useResources, RES_ENTITY, MSG_RES_STALE, MSG_RES_WAIT, MSG_RES_TOO_LARGE, // 1d-1 Task 2
   CAL_ENTITY, CAL_MAX_BYTES, MSG_CAL_TOO_LARGE, MSG_CAL_LOST, SEC_TIMING,
   MSG_EMPTY, MSG_VIOLATION, MSG_SCHEDULE_HINT, LEGEND, ZOOMS, COLS_FULL, COLS_COMPACT,
   engine, LOST_TIMING, rowCells, slackText, engineOverlay, NO_OVERLAY, baselineOverlay, actualOverlay, baselineTip, MSG_ACTUAL, pomoText, missingYearsNote, barGeom, createInteractions, checkLink, isSummaryIn,
@@ -5701,7 +5895,7 @@ const pure = {
   BaselinePicker, SaveBaselineDialog, activeBaseline, blNameOf,
   MoreMenu, menuAlign, UnitPopover, PreviewDialog, PreviewCard, whyText, dialogModel, toolbarSummary, pageUnits, unitCaption, signedHk, scopeFilter, flowItems,
 };
-if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLCpm, TLPlan, TLLayout, TLDrag }, pure);
+if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLCpm, TLPlan, TLLoad, TLLayout, TLDrag }, pure);
 
 const host = typeof window !== "undefined" ? window : null;
 if (host && host.TF && host.TF.plugins) {
