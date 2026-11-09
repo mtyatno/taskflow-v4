@@ -2,7 +2,7 @@
 
 - **Tanggal:** 2026-11-06 (ditulis), 2026-11-09 (basis diperbarui ke `main` terbaru; nomor baris dicek ulang).
 - **Basis kode:** `main` @ `a04f0e6` (mtyatno/taskflow-v4; SW `taskflow-v500-target-pomodoro`, ADR terakhir ADR-047).
-- **Status:** **DISETUJUI pemilik 2026-11-09 06.00 WIB** ("Setuju, tulis rencana PR A"; dampak Timeline diterima apa adanya, K17). Desain disetujui per bagian dalam sesi brainstorming 2026-11-06 (Bagian 1 Data & API, Bagian 2 Tampilan & interaksi, Bagian 3 Pengujian & rilis). Rencana PR A: `docs/superpowers/plans/2026-11-09-checklist-bertingkat-pr-a-server.md`; rencana PR B ditulis setelah PR A di-merge. Belum ada kode.
+- **Status:** **DISETUJUI pemilik 2026-11-09 06.00 WIB** ("Setuju, tulis rencana PR A"; dampak Timeline diterima apa adanya, K17). Desain disetujui per bagian dalam sesi brainstorming 2026-11-06 (Bagian 1 Data & API, Bagian 2 Tampilan & interaksi, Bagian 3 Pengujian & rilis). Rencana PR A: `docs/superpowers/plans/2026-11-09-checklist-bertingkat-pr-a-server.md`; rencana PR B ditulis setelah PR A di-merge. **PR A diimplementasikan 2026-11-09** di branch `claude/checklist-bertingkat-server` (lihat "Catatan implementasi PR A"); menunggu "merge dan deploy".
 - **Salinan:** repo `docs/superpowers/specs/2026-11-06-checklist-bertingkat-design.md`. Salinan Project claude.ai "alurik" (`claude/spec-checklist-bertingkat-2026-11-06.md`) **belum ada**: penulisan dari sesi 2026-11-06 ditolak (403); salin manual bila perlu.
 - **Sumber:** catatan brainstorming `docs/superpowers/specs/2026-11-06-checklist-bertingkat-brainstorm.md` (K1–K5, A1–A4, tiga pendekatan, titik sentuh repo).
 - **Istilah:**
@@ -327,7 +327,7 @@ Panel 1280 px tema terang; modal dan Fokus 375 px tema gelap.
 **PR A — server**
 - Skema, migrasi, hitung ulang (§3), endpoint (§4), aturan progress (§5), bot, ekspor, `merge_db.py` (§8), pytest §11.2.
 - Tanpa perubahan `static/` → tanpa naik versi SW.
-- Deploy: cadangkan `taskflow.db`; workflow menjalankan `migrate_db()`; restart `taskflow-web` **dan** bot.
+- Deploy: **cadangkan `taskflow.db` (`./backup.sh`) sebelum merge** (push ke `main` langsung menjalankan `migrate_db()`); workflow; lalu `sudo systemctl restart taskflow taskflow-web` dan cek `ActiveEnterTimestamp` keduanya.
 
 **PR B — tampilan** (di-deploy segera setelah PR A)
 - `static/offline/checklist.js`, `ChecklistTree`, kunci Progress, halaman Fokus, `hydrate.js`/`syncpull.js` (§9), tes §11.1, §11.3, §11.4.
@@ -359,5 +359,5 @@ Branch `claude/checklist-bertingkat-server`; rencana `docs/superpowers/plans/202
 - **§8 bot:** indentasi memakai spasi biasa (praktik yang sudah ada di bot), berhenti di tingkat 6 supaya pesan `/view` tetap di bawah 4.096 karakter; `ChecklistError` ditangkap di `/sub` dan input teks. Judul bagian tetap "📝 Subtasks".
 - **§10:** klaim "slider lama kembali ke angka checklist saat sinkron" dikoreksi (lihat §10).
 - **Residual (pra-ada, di luar cakupan):** id di path > 2⁶³ → 500 di seluruh API; idempotensi `client_id` di `add_subtask` tidak dibatasi per task; `merge_db.py` menggabung checklist cadangan ke task duplikat (menjalankan dua kali menggandakan butir).
-- **Untuk PR B (temuan E2E PR A):** pill Progress membulatkan ke kelipatan 5 (`TF.taskdetail.clampProgress`, mis. server 33 → "35%") padahal baris daftar menampilkan 33% — saat terkunci, pill harus menampilkan angka checklist apa adanya. `progress`/`checklist_total` WAJIB masuk `TASK_DERIVED` (tanpa itu angka tidak pernah sampai ke perangkat yang sudah punya task).
-- **Angka:** pytest 1633 passed / 3 skipped (basis 1476 / 3). E2E `temporary_files/e2e_checklist_pr_a.py` 41/41 (terhadap server `main`: 17/25 gagal tepat di cek perilaku baru); regresi `e2e_detail_redesign` 325/326 (T-8g pra-ada, terbukti di `main`), `e2e_live_edit` 122/122, `e2e_task_detail_body` 104/104, `e2e_focus_page` 36/36.
+- **Untuk PR B (temuan E2E PR A):** pill Progress membulatkan ke kelipatan 5 (`TF.taskdetail.clampProgress`, mis. server 33 → "35%") padahal baris daftar menampilkan 33% — saat terkunci, pill harus menampilkan angka checklist apa adanya. `progress`/`checklist_total` WAJIB masuk `TASK_DERIVED` (tanpa itu angka tidak pernah sampai ke perangkat yang sudah punya task). `POST …/subtasks` dengan `title: ""` masih memberi 422 bawaan pydantic (`min_length=1`, perilaku lama) — klien PR B menolak judul kosong sebelum mengirim.
+- **Angka:** pytest 1635 passed / 1 skipped dengan `node_modules` terpasang (basis tanpa `node_modules` 1476 / 3; dengan `node_modules` 1478 / 1); `npm test` 4477/4478 (satu-satunya gagal `draw_local_reactive`, pra-ada). E2E `temporary_files/e2e_checklist_pr_a.py` 41/41 (terhadap server `main`: 17/25 gagal tepat di cek perilaku baru); regresi `e2e_detail_redesign` 325/326 (T-8g pra-ada, terbukti di `main`), `e2e_live_edit` 122/122, `e2e_task_detail_body` 104/104, `e2e_focus_page` 36/36.
