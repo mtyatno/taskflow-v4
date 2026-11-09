@@ -706,6 +706,16 @@ def _renumber(conn, ordered: list[tuple]) -> None:
             conn.execute("UPDATE subtasks SET sort_order = ? WHERE id = ?", (i, sid))
 
 
+_SQLITE_INT_MIN, _SQLITE_INT_MAX = -(2 ** 63), 2 ** 63 - 1
+
+
+def _check_parent_id(parent_id: int) -> None:
+    """`parent_id` di luar rentang INTEGER SQLite tidak mungkin menunjuk butir (dan membuat sqlite3
+    melempar OverflowError) → ChecklistError("PARENT_NOT_FOUND")."""
+    if not _SQLITE_INT_MIN <= parent_id <= _SQLITE_INT_MAX:
+        raise ChecklistError("PARENT_NOT_FOUND")
+
+
 def _clamp_index(index: Optional[int], n: int) -> int:
     """Posisi di antara `n` saudara: None = paling akhir; di-clamp ke `0..n`."""
     return n if index is None else max(0, min(int(index), n))
@@ -1656,6 +1666,7 @@ class TaskRepository:
             if not clean:
                 raise ChecklistError("EMPTY_TITLE")
             if parent_id is not None:
+                _check_parent_id(parent_id)
                 parent = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (parent_id,)).fetchone()
                 if parent is None or parent["task_id"] != task_id:
                     raise ChecklistError("PARENT_NOT_FOUND")
@@ -1706,6 +1717,7 @@ class TaskRepository:
             if parent_id is not None:
                 if parent_id == subtask_id:
                     raise ChecklistError("CYCLE")
+                _check_parent_id(parent_id)
                 parent = conn.execute("SELECT task_id FROM subtasks WHERE id = ?", (parent_id,)).fetchone()
                 if parent is None or parent["task_id"] != task_id:
                     raise ChecklistError("PARENT_NOT_FOUND")

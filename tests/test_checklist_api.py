@@ -3,7 +3,12 @@ persis, bentuk respons lama tetap, hitungan Fokus level atas, ekspor berurutan d
 import io
 import json
 import zipfile
+from pathlib import Path
 
+import pytest
+
+import plugin_loader
+import task_ext
 from conftest import db
 from test_contexts_tasks import U, _add_member, _mk, _workspace
 
@@ -270,3 +275,66 @@ def test_ekspor_subtasks_preorder_dengan_depth(client):
         {"title": "a11", "done": True, "depth": 2},
         {"title": "b", "done": False, "depth": 0},
     ]
+
+
+# ── Perbaikan review: parent_id di luar rentang INTEGER SQLite ─────────────
+
+@pytest.mark.parametrize("induk", [2 ** 63, -(2 ** 63) - 1, 10 ** 30])
+def test_tambah_dan_pindah_parent_id_di_luar_rentang_integer_422(client, induk):
+    u = U(client, "co")
+    tid = _mk(u)["id"]
+    a = _add(u, tid, "a")["id"]
+    r = u.post(f"/api/tasks/{tid}/subtasks", json={"title": "x", "parent_id": induk})
+    assert r.status_code == 422 and r.json()["detail"] == T_INDUK
+    r = u.post(f"/api/subtasks/{a}/move", json={"parent_id": induk})
+    assert r.status_code == 422 and r.json()["detail"] == T_INDUK
+    assert [i["id"] for i in _list(u, tid)] == [a]
+
+
+# ── Celah review: hanya tambah yang memberi notifikasi ─────────────────────
+
+def _notif_semua(user_id):
+    conn = db()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM notifications WHERE user_id = ?", (user_id,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_ubah_teks_pindah_centang_hapus_tanpa_notifikasi_workspace(client):
+    a, b = U(client, "cq1"), U(client, "cq2")
+    ws = _workspace(a)
+    _add_member(ws, b.id)
+    tid = _mk(a, title="tim", list_id=ws)["id"]
+    s1 = _add(a, tid, "s1")["id"]
+    s2 = _add(a, tid, "s2")["id"]
+    sebelum = _notif_semua(b.id)
+    assert a.patch(f"/api/subtasks/{s1}", json={"title": "s1 baru"}).status_code == 200
+    assert a.post(f"/api/subtasks/{s2}/move", json={"parent_id": s1}).status_code == 200
+    assert a.post(f"/api/subtasks/{s1}/toggle").status_code == 200
+    assert a.delete(f"/api/subtasks/{s1}").status_code == 200
+    assert _notif_semua(b.id) == sebelum
+
+
+@pytest.fixture
+def demo_index():
+    plugin_loader.load_known(Path(__file__).resolve().parent / "fixtures" / "plugins" / "index.json")
+    task_ext._reset_for_tests()
+    yield
+    plugin_loader.load_known()
+    task_ext._reset_for_tests()
+
+
+def test_put_progress_dan_ext_patch_task_bercheklist_progress_tetap_tanpa_notifikasi(client, demo_index):
+    a, b = U(client, "cr1"), U(client, "cr2")
+    ws = _workspace(a)
+    _add_member(ws, b.id)
+    tid = _mk(a, title="tim", list_id=ws)["id"]
+    s1 = _add(a, tid, "s1")["id"]
+    _add(a, tid, "s2")
+    assert a.post(f"/api/subtasks/{s1}/toggle").json()["task_progress"]["progress"] == 50
+    sebelum = _notif_semua(b.id)
+    r = a.put(f"/api/tasks/{tid}", json={"progress": 90, "ext_patch": {"demo-ext.a": 1}})
+    assert r.status_code == 200, r.text
+    assert r.json()["progress"] == 50 and r.json()["ext"] == {"demo-ext.a": 1}
+    assert _notif_semua(b.id) == sebelum
