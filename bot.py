@@ -69,6 +69,7 @@ from config import (
 )
 from models import Task, GTDStatus, Priority, Quadrant
 from repository import TaskRepository, InvitationExists, AlreadyMember, InvitationNotFound, InvitationClosed, InvitationExpired
+from repository import ChecklistError
 import dbconn
 import plugin_host
 import plugin_loader
@@ -676,25 +677,70 @@ async def add_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ── /view ──────────────────────────────────────────────────────────────────────
 
+# ── Checklist bertingkat (spec checklist §8; rencana PR A R9) ──────────────────
+# `subtasks` = daftar pre-order dari repo.get_subtasks (`depth` 0 = level atas). Dict tanpa `depth`
+# (bentuk lama) dianggap level atas. Hitungan dan bar hanya dari level atas (K1).
+
+def _checklist_lines(subtasks) -> str:
+    """Bagian checklist pesan /view: judul + bar (level atas) lalu semua butir berindentasi."""
+    if not subtasks:
+        return ""
+    top = [s for s in subtasks if not s.get("depth", 0)]
+    done_count = sum(1 for s in top if s["is_done"])
+    total = len(top)
+    bar_len = 10
+    filled = round(done_count / total * bar_len) if total > 0 else 0
+    bar = "█" * filled + "░" * (bar_len - filled)
+
+    text = f"\n\n📝 <b>Subtasks</b>  {done_count}/{total}\n"
+    text += f"<code>{bar}</code>\n"
+    for s in subtasks:
+        depth = s.get("depth", 0)
+        icon = "☑️" if s["is_done"] else "☐"
+        strike = f"<s>{h(s['title'])}</s>" if s["is_done"] else h(s["title"])
+        text += "\n  " + "  " * depth + ("↳ " if depth else "") + f"{icon} {strike}"
+    return text
+
+
+def _checklist_toggle_rows(subtasks, task_id) -> list:
+    """Baris tombol centang (2 per baris); label sub butir diawali "↳ ", callback `togsub_<id>_<task>`."""
+    rows, row = [], []
+    for s in subtasks:
+        icon = "☑️" if s["is_done"] else "☐"
+        prefix = "↳ " if s.get("depth", 0) else ""
+        row.append(InlineKeyboardButton(f"{prefix}{icon} {s['title'][:20]}",
+                                        callback_data=f"togsub_{s['id']}_{task_id}"))
+        if len(row) == 2:
+            rows.append(row)
+            row = []
+    if row:
+        rows.append(row)
+    return rows
+
+
+def _delsub_buttons(subtasks, task_id) -> list:
+    """Tombol hapus per butir (callback `delsub_<id>_<task>`); butir berturunan diberi akhiran " (+N sub)"
+    — hapus ikut menghapus semua turunannya (K7). N dihitung dari `depth` daftar pre-order."""
+    buttons = []
+    for i, s in enumerate(subtasks):
+        depth = s.get("depth", 0)
+        n = 0
+        for t in subtasks[i + 1:]:
+            if t.get("depth", 0) <= depth:
+                break
+            n += 1
+        label = f"🗑 {s['title'][:30]}" + (f" (+{n} sub)" if n else "")
+        buttons.append([InlineKeyboardButton(label, callback_data=f"delsub_{s['id']}_{task_id}")])
+    return buttons
+
+
 def _build_view_message(task, subtasks, is_focused=False, notes=None, attachments=None):
     """Build task detail text with subtasks, notes, and attachments."""
     text = task.format_detail()
     if is_focused:
         text = "⭐ <b>FOKUS HARI INI</b>\n\n" + text
 
-    if subtasks:
-        done_count = sum(1 for s in subtasks if s["is_done"])
-        total = len(subtasks)
-        bar_len = 10
-        filled = round(done_count / total * bar_len) if total > 0 else 0
-        bar = "█" * filled + "░" * (bar_len - filled)
-
-        text += f"\n\n📝 <b>Subtasks</b>  {done_count}/{total}\n"
-        text += f"<code>{bar}</code>\n"
-        for s in subtasks:
-            icon = "☑️" if s["is_done"] else "☐"
-            strike = f"<s>{h(s['title'])}</s>" if s["is_done"] else h(s["title"])
-            text += f"\n  {icon} {strike}"
+    text += _checklist_lines(subtasks)
 
     if notes:
         text += f"\n\n📓 <b>Catatan</b> ({len(notes)})\n"
@@ -730,16 +776,7 @@ def _build_view_buttons(task, subtasks, is_focused=False, notes=None, attachment
 
     # Subtask toggle buttons (2 per row)
     if subtasks:
-        row = []
-        for s in subtasks:
-            icon = "☑️" if s["is_done"] else "☐"
-            label = f"{icon} {s['title'][:20]}"
-            row.append(InlineKeyboardButton(label, callback_data=f"togsub_{s['id']}_{task.id}"))
-            if len(row) == 2:
-                buttons.append(row)
-                row = []
-        if row:
-            buttons.append(row)
+        buttons.extend(_checklist_toggle_rows(subtasks, task.id))
 
     # Add subtask + Delete subtask row
     sub_actions = [InlineKeyboardButton("＋ Subtask", callback_data=f"addsub_{task.id}")]
@@ -1699,12 +1736,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not subtasks:
             await query.answer("Tidak ada subtask")
             return
-        buttons = []
-        for s in subtasks:
-            buttons.append([InlineKeyboardButton(
-                f"🗑 {s['title'][:30]}",
-                callback_data=f"delsub_{s['id']}_{task_id}",
-            )])
+        buttons = _delsub_buttons(subtasks, task_id)
         buttons.append([InlineKeyboardButton("⬅️ Kembali", callback_data=f"viewrefresh_{task_id}")])
         await query.answer()
         await query.edit_message_text(
@@ -2023,7 +2055,11 @@ async def handle_text_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     sub_task_id = context.user_data.get("waiting_subtask_for")
     if sub_task_id:
         context.user_data.pop("waiting_subtask_for", None)
-        repo.add_subtask(sub_task_id, text)
+        try:
+            repo.add_subtask(sub_task_id, text)
+        except ChecklistError:
+            await update.message.reply_text("❌ Judul subtask tidak boleh kosong.")
+            return
         task = repo.get(sub_task_id, uid(context))
         if task:
             subtasks, focused, notes, attachments = _refresh_view_data(sub_task_id)
@@ -2109,13 +2145,16 @@ async def cmd_sub(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Task tidak ditemukan.")
         return
 
-    repo.add_subtask(task_id, title)
-    subtasks = repo.get_subtasks(task_id)
-    done_count = sum(1 for s in subtasks if s["is_done"])
+    try:
+        repo.add_subtask(task_id, title)
+    except ChecklistError:
+        await update.message.reply_text("❌ Judul subtask tidak boleh kosong.")
+        return
+    done_count, total = repo.get_subtask_progress(task_id)  # level atas saja (K1)
     await update.message.reply_text(
         f"✅ Subtask ditambahkan ke <b>#{task_id}</b>\n"
         f"   ☐ {h(title)}\n\n"
-        f"📝 Subtasks: {done_count}/{len(subtasks)}",
+        f"📝 Subtasks: {done_count}/{total}",
         parse_mode=ParseMode.HTML,
     )
 
