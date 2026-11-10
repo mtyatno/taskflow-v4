@@ -478,9 +478,11 @@ berjalan setelah mesin 1c siap dan memakai konteks mesin yang sama (daftar lengk
   dijepit 0–100); AC = 🍅 selesai. Jadwal = EV ÷ PV, Efisiensi = EV ÷ AC (penyebut 0 → "—"). Task baseline yang sudah
   dihapus/diarsip dibuang dari semua angka; task baru tanpa baris baseline hanya dihitung di tooltip.
   - **Tidak terpengaruh filter panel:** unit dan task diambil dari daftar lengkap halaman, bukan baris yang digambar,
-    sehingga angkanya sama untuk filter apa pun dan sama di perangkat lain yang memilih baseline yang sama. Nama baseline:
+    sehingga angkanya sama untuk filter apa pun dan sama di perangkat lain yang memilih baseline yang sama (kecuali
+    filter yang tidak cocok satu task pun: mesin lalu tanpa scope, ringkasan EV hilang dan ekspor hanya berisi ringkasan
+    project — perilaku scope mesin 1c, residual ADR-050). Nama baseline:
     semua unit yang punya slot itu bernama sama → nama itu, selain itu "Baseline {n}".
-  - **Tidak tampil** tanpa baseline aktif, bila BAC 0, atau sebelum mesin siap (render awal tidak berubah).
+  - **Tidak tampil** tanpa baseline aktif, bila BAC 0, atau sebelum mesin siap (EV tidak dihitung di render awal).
 - **Ekspor Microsoft Project (.xml)** (`TLMspdi`, part `mspdi.js` setelah `layout.js`; unduh lewat `api.ui.saveFile`, §5).
   - **Letak:** item "Ekspor ke Microsoft Project (.xml)" di menu **"Lainnya"**. Layar lebar: tombol "Lainnya" kini selalu
     ada (setelah tombol aksi mesin — Jadwal otomatis … Jadwalkan ulang — dan sebelum "Kalender kerja") dan hanya berisi

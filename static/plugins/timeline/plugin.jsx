@@ -1477,7 +1477,8 @@ function activeBaseline(byUnit, recIds, n) {
 }
 
 // Unit jadwal DAFTAR LENGKAP (1d-2 R2): taskUnits(tasks) = keluaran TLSched.unitOf unik per recId, urut TLCpm.cmpKey;
-// unitIdsOf = recId-nya. Dipakai earned value dan ekspor dengan tasks = eng.ctx.tasks (daftar lengkap halaman), BUKAN
+// unitIdsOf = recId-nya (fasad tes; komponen memakai taskUnits langsung). Dipakai earned value dan ekspor dengan
+// tasks = eng.ctx.tasks (daftar lengkap halaman), BUKAN
 // baris tata letak (pageUnits/lay sudah tersaring panel) — angka EV tidak bergantung filter. Bukan objek dilewati. Murni.
 function taskUnits(tasks) {
   const by = new Map();

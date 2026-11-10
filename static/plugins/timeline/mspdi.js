@@ -123,7 +123,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
 
   // ---- pembantu data ----
   // Target 🍅 = salinan targetOf load.js (R3 1d-1): bilangan bulat ≥ 1 dijepit EST_MAX, selain itu 1 (dikunci tes silang
-  // lewat TLLoad.run; load.js tidak diubah agar bundel 1.3 tetap sama).
+  // lewat TLLoad.run; disalin agar modul ini tidak bergantung pada fungsi internal TLLoad).
   const targetOf = (t) => (isObj(t) && Number.isInteger(t.estimated_pomodoros) && t.estimated_pomodoros >= 1 ? Math.min(EST_MAX, t.estimated_pomodoros) : 1);
 
   // Ext mentah task (pola rawOf TLLoad/TLPlan): readExt melempar / bukan objek → {}.

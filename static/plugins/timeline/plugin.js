@@ -3505,7 +3505,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
 
   // ---- pembantu data ----
   // Target 🍅 = salinan targetOf load.js (R3 1d-1): bilangan bulat ≥ 1 dijepit EST_MAX, selain itu 1 (dikunci tes silang
-  // lewat TLLoad.run; load.js tidak diubah agar bundel 1.3 tetap sama).
+  // lewat TLLoad.run; disalin agar modul ini tidak bergantung pada fungsi internal TLLoad).
   const targetOf = (t) => (isObj(t) && Number.isInteger(t.estimated_pomodoros) && t.estimated_pomodoros >= 1 ? Math.min(EST_MAX, t.estimated_pomodoros) : 1);
 
   // Ext mentah task (pola rawOf TLLoad/TLPlan): readExt melempar / bukan objek → {}.
@@ -6322,7 +6322,8 @@ function activeBaseline(byUnit, recIds, n) {
 }
 
 // Unit jadwal DAFTAR LENGKAP (1d-2 R2): taskUnits(tasks) = keluaran TLSched.unitOf unik per recId, urut TLCpm.cmpKey;
-// unitIdsOf = recId-nya. Dipakai earned value dan ekspor dengan tasks = eng.ctx.tasks (daftar lengkap halaman), BUKAN
+// unitIdsOf = recId-nya (fasad tes; komponen memakai taskUnits langsung). Dipakai earned value dan ekspor dengan
+// tasks = eng.ctx.tasks (daftar lengkap halaman), BUKAN
 // baris tata letak (pageUnits/lay sudah tersaring panel) — angka EV tidak bergantung filter. Bukan objek dilewati. Murni.
 function taskUnits(tasks) {
   const by = new Map();
