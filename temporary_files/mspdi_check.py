@@ -14,6 +14,13 @@
 Pasang (sekali, lokal): pip install --break-system-packages mpxj JPype1 ; Java sistem (/usr/bin/java).
 Tanpa MPXJ → hanya pemeriksaan struktur xml.etree (dilaporkan sebagai FALLBACK, keluar kode 2).
 Jalankan: python3 temporary_files/mspdi_check.py
+
+Mode "periksa berkas X" (1d-2 Task 7, dipakai e2e_plugin_fase1_1d2.py atas berkas UNDUHAN nyata):
+    python3 temporary_files/mspdi_check.py --file X.xml [--json hasil.json]
+Tanpa membangun contoh: struktur generik (xml.etree), urutan elemen vs skema MSPDI MPXJ, lalu MPXJ membaca berkas dan
+setiap field task/kalender/assignment yang dibaca MPXJ dibandingkan dengan XML (durasi juga dihitung ulang dari kalender
+MPXJ). Apa yang dibaca MPXJ (properti project, kalender + pengecualian, task, tautan, baseline, resource, assignment)
+ditulis ke --json agar pemanggil mengasersi isinya terhadap harapannya sendiri. Keluar 0 = semua cek generik lulus.
 """
 import json
 import os
@@ -360,7 +367,168 @@ def mpxj_checks(root, data):
     jpype.shutdownJVM()
 
 
+# ── mode "periksa berkas X" (1d-2 Task 7) ─────────────────────────────────────
+
+def file_structure_checks(root):
+    """Struktur generik berkas ekspor apa pun (tanpa data contoh)."""
+    print("\n[1] Struktur (xml.etree)")
+    check(root.tag == NS + "Project", "akar <Project> dengan namespace http://schemas.microsoft.com/project")
+    blocks = [local(c.tag) for c in root]
+    check(blocks[-4:] == ["Calendars", "Tasks", "Resources", "Assignments"], "blok terakhir Calendars → Tasks → Resources → Assignments")
+    check(bool(tv(root, "Name")) and bool(tv(root, "Title")), f"Name ({tv(root, 'Name')}) dan Title ({tv(root, 'Title')}) terisi")
+    tasks = xml_tasks(root)
+    check(len(tasks) >= 1 and tv(tasks[0], "UID") == "0" and tv(tasks[0], "OutlineLevel") == "0", f"task UID 0 = ringkasan project tingkat 0 ({len(tasks)} <Task>)")
+
+
+def file_mpxj_dump(path, root):
+    """MPXJ membaca `path`: cek generik MPXJ = XML (pola mpxj_checks) dan kembalikan apa yang dibaca MPXJ (untuk --json)."""
+    from org.mpxj import TimeUnit
+    from org.mpxj.mspdi import MSPDIReader
+    from org.mpxj.reader import UniversalProjectReader
+
+    uni = UniversalProjectReader().read(path)
+    project = MSPDIReader().read(path)
+    props = project.getProjectProperties()
+    print("\n[3] MPXJ membaca berkas")
+    check(uni is not None and int(uni.getTasks().size()) == int(project.getTasks().size()), "UniversalProjectReader mengenali dan membaca berkas (task sama dengan MSPDIReader)")
+
+    def days(dur):
+        return None if dur is None else round(float(dur.convertUnits(TimeUnit.DAYS, props).getDuration()), 4)
+
+    def minutes(dur):
+        return None if dur is None else round(float(dur.convertUnits(TimeUnit.MINUTES, props).getDuration()), 2)
+
+    def dt(v):
+        return None if v is None else str(v)[:16]
+
+    out = {"props": {"title": None if props.getProjectTitle() is None else str(props.getProjectTitle()),
+                     "name": None if props.getName() is None else str(props.getName()),
+                     "start": dt(props.getStartDate()), "finish": dt(props.getFinishDate()),
+                     "minutesPerDay": int(props.getMinutesPerDay()), "minutesPerWeek": int(props.getMinutesPerWeek()),
+                     "honorConstraints": bool(props.getHonorConstraints()), "fileType": str(props.getFileType())}}
+
+    # ---- kalender: MPXJ = <WeekDays> DayType 0 = <Exceptions> 2007 (tanpa ganda)
+    print("\n[4] Kalender")
+    cal = project.getDefaultCalendar()
+    check(cal is not None and int(cal.getUniqueID()) == 1, f"kalender default UID 1 ({cal.getName() if cal else None})")
+    from java.time import DayOfWeek
+    week = [bool(cal.isWorkingDay(d)) for d in (DayOfWeek.MONDAY, DayOfWeek.TUESDAY, DayOfWeek.WEDNESDAY, DayOfWeek.THURSDAY,
+                                                DayOfWeek.FRIDAY, DayOfWeek.SATURDAY, DayOfWeek.SUNDAY)]
+    exc = sorted((str(e.getFromDate()), str(e.getToDate()), bool(e.getWorking()), None if e.getName() is None else str(e.getName()))
+                 for e in cal.getCalendarExceptions())
+    xcal = root.find(NS + "Calendars").find(NS + "Calendar")
+    xml_old = []
+    for wd in xcal.find(NS + "WeekDays"):
+        if tv(wd, "DayType") == "0":
+            tp = wd.find(NS + "TimePeriod")
+            xml_old.append((tv(tp, "FromDate")[:10], tv(tp, "ToDate")[:10], tv(wd, "DayWorking") == "1"))
+    xe = xcal.find(NS + "Exceptions")
+    xml_new = [] if xe is None else [(tv(x.find(NS + "TimePeriod"), "FromDate")[:10], tv(x.find(NS + "TimePeriod"), "ToDate")[:10],
+                                      tv(x, "DayWorking") == "1") for x in xe]
+    plain = sorted(e[:3] for e in exc)
+    check(plain == sorted(xml_new), f"{len(exc)} pengecualian MPXJ = blok <Exceptions> 2007 ({len(xml_new)}), tanpa ganda")
+    check(sorted(xml_old) == sorted(xml_new), f"WeekDay DayType 0 gaya 2003 ({len(xml_old)}) = <Exceptions> 2007 ({len(xml_new)})")
+    out["calendar"] = {"week": week, "exceptions": [list(e) for e in exc]}
+
+    # ---- task: setiap field MPXJ = XML; durasi = waktu kerja kalender MPXJ antara start dan finish
+    print("\n[5] Task")
+    xt = {tv(t, "UID"): t for t in xml_tasks(root)}
+    mt = {str(t.getUniqueID()): t for t in project.getTasks()}
+    check(sorted(xt, key=int) == sorted(mt, key=int), f"UID task MPXJ = XML ({len(mt)} task termasuk UID 0)")
+    ct_map = {"0": "AS_SOON_AS_POSSIBLE", "2": "MUST_START_ON", "3": "MUST_FINISH_ON", "4": "START_NO_EARLIER_THAN"}
+    link_map = {"0": "FINISH_FINISH", "1": "FINISH_START", "2": "START_FINISH", "3": "START_START"}
+    bad, rows = [], []
+    for uid in sorted(set(xt) & set(mt), key=int):
+        x, t = xt[uid], mt[uid]
+        mode = str(t.getTaskMode().name()) if t.getTaskMode() is not None else None
+        ctype = str(t.getConstraintType().name()) if t.getConstraintType() is not None else None
+        preds = sorted((str(r.getPredecessorTask().getUniqueID()), str(r.getType().name()), days(r.getLag())) for r in t.getPredecessors())
+        xpreds = sorted((tv(lk, "PredecessorUID"), link_map.get(tv(lk, "Type")), int(tv(lk, "LinkLag")) / 4800) for lk in x.findall(NS + "PredecessorLink"))
+        got = {
+            "name": str(t.getName()), "level": int(t.getOutlineLevel()), "outline": str(t.getOutlineNumber()), "wbs": str(t.getWBS()),
+            "start": dt(t.getStart()), "finish": dt(t.getFinish()), "dur": days(t.getDuration()), "milestone": bool(t.getMilestone()),
+            "summary": bool(t.getSummary()), "pct": float(t.getPercentageComplete()), "ctype": ctype, "cdate": dt(t.getConstraintDate()),
+            "manual": mode == "MANUALLY_SCHEDULED", "est": bool(t.getEstimated()), "preds": preds,
+            "astart": dt(t.getActualStart()), "afinish": dt(t.getActualFinish()),
+        }
+        want = {
+            "name": tv(x, "Name"), "level": int(tv(x, "OutlineLevel")), "outline": tv(x, "OutlineNumber"), "wbs": tv(x, "WBS"),
+            "start": tv(x, "Start")[:16], "finish": tv(x, "Finish")[:16], "dur": round(hours(tv(x, "Duration")) / 8, 4),
+            "milestone": tv(x, "Milestone") == "1", "summary": tv(x, "Summary") == "1", "pct": float(tv(x, "PercentComplete")),
+            "ctype": ct_map.get(tv(x, "ConstraintType")), "cdate": tv(x, "ConstraintDate")[:16] if tv(x, "ConstraintDate") else None,
+            "manual": tv(x, "Manual") == "1", "est": tv(x, "Estimated") == "1", "preds": xpreds,
+            "astart": tv(x, "ActualStart")[:16] if tv(x, "ActualStart") else None, "afinish": tv(x, "ActualFinish")[:16] if tv(x, "ActualFinish") else None,
+        }
+        diff = {k: (got[k], want[k]) for k in want if got[k] != want[k]}
+        if diff:
+            bad.append((uid, diff))
+        if t.getStart() is not None and t.getFinish() is not None and not got["est"]:
+            wk = days(cal.getWork(t.getStart(), t.getFinish(), TimeUnit.DAYS))
+            if wk != got["dur"]:
+                bad.append((uid, {"kalender(start..finish)": (wk, got["dur"])}))
+        row = dict(got, uid=int(uid), preds=[[p[0], str(mt[p[0]].getName()), p[1], p[2]] for p in preds],
+                   bstart=dt(t.getBaselineStart()), bfinish=dt(t.getBaselineFinish()), bdur=days(t.getBaselineDuration()),
+                   bwork=minutes(t.getBaselineWork()))
+        rows.append(row)
+    for b in bad[:20]:
+        print("    BEDA", b)
+    check(not bad, f"semua field {len(rows)} task MPXJ = XML; durasi = waktu kerja kalender MPXJ antara start dan finish")
+    out["tasks"] = rows
+    out["links"] = sum(len(r["preds"]) for r in rows)
+
+    # ---- resource + assignment
+    print("\n[6] Resource dan assignment")
+    out["resources"] = [[int(r.getUniqueID()), str(r.getName()), str(r.getType().name())] for r in project.getResources()
+                        if r.getUniqueID() is not None and int(r.getUniqueID()) > 0]
+    xa = list(root.find(NS + "Assignments"))
+    asg = list(project.getResourceAssignments())
+    check(len(asg) == len(xa), f"jumlah assignment MPXJ = XML ({len(asg)})")
+    abad, arows = [], []
+    for a in asg:
+        tuid, ruid = str(a.getTask().getUniqueID()), str(a.getResource().getUniqueID())
+        x = next((v for v in xa if tv(v, "TaskUID") == tuid and tv(v, "ResourceUID") == ruid), None)
+        got = (minutes(a.getWork()), round(float(a.getUnits()), 2))
+        want = None if x is None else (round(hours(tv(x, "Work")) * 60, 2), round(float(tv(x, "Units")) * 100, 2))
+        if got != want:
+            abad.append((tuid, ruid, got, want))
+        arows.append([str(a.getTask().getName()), int(tuid), str(a.getResource().getName()), got[0], got[1]])
+    check(not abad, f"work/units assignment MPXJ = XML {abad[:5]}")
+    out["assignments"] = sorted(arows)
+    return out
+
+
+def check_file(path, json_out):
+    print(f"Periksa berkas: {path}")
+    root = ET.parse(path).getroot()
+    file_structure_checks(root)
+    try:
+        import jpype
+        import jpype.imports  # noqa: F401
+        import mpxj  # noqa: F401  (menambahkan jar MPXJ ke classpath JPype)
+    except ImportError as e:
+        print(f"\nFALLBACK: MPXJ/JPype tidak terpasang ({e}); hanya pemeriksaan struktur xml.etree di atas.")
+        sys.exit(2 if not FAIL else 1)
+    jpype.startJVM()
+    from java.lang import Class
+
+    print("MPXJ jar:", Class.forName("org.mpxj.ProjectFile").getProtectionDomain().getCodeSource().getLocation())
+    xsd_order_checks(root)
+    dump = file_mpxj_dump(path, root)
+    dump["fail"] = list(FAIL)
+    if json_out:
+        with open(json_out, "w", encoding="utf-8") as fh:
+            json.dump(dump, fh, ensure_ascii=False, indent=1)
+    jpype.shutdownJVM()
+    print(f"\n{'SEMUA CEK GENERIK LULUS' if not FAIL else str(len(FAIL)) + ' CEK GAGAL'}")
+    sys.exit(1 if FAIL else 0)
+
+
 def main():
+    if "--file" in sys.argv:
+        i = sys.argv.index("--file")
+        j = sys.argv.index("--json") if "--json" in sys.argv else -1
+        check_file(sys.argv[i + 1], sys.argv[j + 1] if j > 0 else None)
+        return
     data = build_sample()
     print(f"XML contoh: {os.path.relpath(OUT, ROOT)} ({len(data['xml'])} karakter), stats {data['stats']}")
     root = ET.parse(OUT).getroot()
