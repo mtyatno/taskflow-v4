@@ -2,13 +2,14 @@
 """Verifikasi ekspor MSPDI Timeline (rencana 1d-2 Task 3 / T7) dengan MPXJ — BUKAN bagian CI.
 
 1. Membangun XML contoh lewat Node (`node -e`: modul Timeline + fixture kecil yang mewakili workspace 2 kelompok,
-   ringkasan, milestone, SNET, MFO, Manual, tanpa jadwal, 4 tipe tautan + lag, libur + hari kerja pengganti, baseline,
-   2 resource) → temporary_files/mspdi_sample.xml.
+   ringkasan, milestone, SNET, MFO, Manual, selesai/berjalan (aktual), tanpa jadwal, 4 tipe tautan + lag, libur + hari
+   kerja pengganti, baseline, 2 resource) → temporary_files/mspdi_sample.xml, plus es/ef mesin (TLCpm.run).
 2. Memeriksa urutan anak SETIAP elemen terhadap skema MSPDI MPXJ (propOrder JAXB org.mpxj.mspdi.schema.*, dibangkitkan
    dari XSD MSPDI Microsoft) — elemen tak dikenal / urutan terbalik / elemen tunggal ganda = gagal.
 3. Membaca berkas dengan MPXJ (UniversalProjectReader + MSPDIReader) lalu mengasersi: jumlah task, nama, outline,
-   start/finish, durasi (juga dihitung ulang dari kalender MPXJ), milestone, % selesai, kendala, mode Manual, perkiraan,
-   tautan (tipe + lag), kalender (pola mingguan + pengecualian), baseline, resource, assignment (work, units).
+   start/finish (= es/ef mesin), durasi (juga dihitung ulang dari kalender MPXJ), milestone, % selesai, aktual, kendala
+   (ASAP/SNET/MSO/MFO, HonorConstraints), mode Manual, perkiraan, tautan (tipe + lag), kalender (pola mingguan +
+   pengecualian gaya 2007 tanpa ganda, nama libur SKB), baseline, resource, assignment (work, units).
 
 Pasang (sekali, lokal): pip install --break-system-packages mpxj JPype1 ; Java sistem (/usr/bin/java).
 Tanpa MPXJ → hanya pemeriksaan struktur xml.etree (dilaporkan sebagai FALLBACK, keluar kode 2).
@@ -60,6 +61,7 @@ const tasks = [
   mk({ id: 5, title: "Dokumentasi", project: "Alpha", start: "2026-11-16", d: 3, deps: [[2, "SF", -1]], constraint: { type: "SNET", date: "2026-11-16" }, est: 2, to: 5 }),
   mk({ id: 6, title: "Audit", project: "Alpha", start: "2026-11-23", d: 2, constraint: { type: "MFO", date: "2026-11-24" }, to: 3 }),
   mk({ id: 7, title: "Lembur Sabtu", project: "Alpha", start: "2026-11-20", d: 2, est: 2, to: 5 }),
+  mk({ id: 8, title: "Survei", project: "Alpha", start: "2026-11-02", d: 2, est: 1, to: 5, done: true }),
   // Beta = unit Manual (bawaan, tanpa record project)
   mk({ id: 10, title: "Fase Beta", project: "Beta" }),
   mk({ id: 11, title: "Riset", project: "Beta", parent: 10, start: "2026-11-03", d: 2, est: 2, to: 5, done: true }),
@@ -82,7 +84,12 @@ const fileName = X.fileNameOf(title, D);
 const input = { tasks, cal, readExt, result, units, pageKind: "workspace", title, fileName, people, baseline, D };
 const out = X.build(input);
 const again = X.build(input);
-process.stdout.write(JSON.stringify({ xml: out.xml, stats: out.stats, fileName, same: again.xml === out.xml }));
+const engine = {};
+for (const t of tasks) {
+  const n = result.nodes.get(String(t.id));
+  if (n && Number.isInteger(n.es)) engine[t.title] = [C.iso(n.es), C.iso(n.ef), n.fixed || n.driver.kind];
+}
+process.stdout.write(JSON.stringify({ xml: out.xml, stats: out.stats, fileName, same: again.xml === out.xml, engine }));
 """
 
 FAIL = []
@@ -205,6 +212,7 @@ def mpxj_checks(root, data):
     check(str(props.getProjectTitle()) == "Tim Produk & Riset", "ProjectTitle")
     check(str(props.getStartDate())[:16] == "2026-11-02T08:00" and str(props.getFinishDate())[:16] == "2026-12-29T17:00", f"StartDate/FinishDate project ({props.getStartDate()} … {props.getFinishDate()})")
     check(int(props.getMinutesPerDay()) == 480 and int(props.getMinutesPerWeek()) == 2400, "MinutesPerDay 480 / MinutesPerWeek 2400")
+    check(bool(props.getHonorConstraints()), "HonorConstraints = true (MSO/MFO menang atas tautan)")
 
     def days(dur):
         return None if dur is None else round(float(dur.convertUnits(TimeUnit.DAYS, props).getDuration()), 4)
@@ -229,7 +237,12 @@ def mpxj_checks(root, data):
         if tv(w, "DayType") == "0":
             tp = w.find(NS + "TimePeriod")
             xml_exc.append((tv(tp, "FromDate")[:10], tv(tp, "ToDate")[:10], tv(w, "DayWorking") == "1"))
-    check(sorted(exc) == sorted(xml_exc), f"{len(exc)} pengecualian MPXJ = XML")
+    check(sorted(exc) == sorted(xml_exc), f"{len(exc)} pengecualian MPXJ = WeekDay DayType 0 XML")
+    xml_ex2 = root.find(NS + "Calendars").find(NS + "Calendar").find(NS + "Exceptions")
+    ex2 = [(tv(x.find(NS + "TimePeriod"), "FromDate")[:10], tv(x.find(NS + "TimePeriod"), "ToDate")[:10], tv(x, "DayWorking") == "1") for x in xml_ex2]
+    check(len(exc) == len(ex2) == len(xml_exc) and sorted(ex2) == sorted(exc), f"blok <Exceptions> 2007 ({len(ex2)}) dibaca tanpa ganda (MPXJ {len(exc)})")
+    names = {(str(e.getFromDate()), str(e.getToDate())): (None if e.getName() is None else str(e.getName())) for e in cal.getCalendarExceptions()}
+    check(names.get(("2026-12-24", "2026-12-25")) == "Kelahiran Yesus Kristus" and not names.get(("2026-11-18", "2026-11-18")), f"nama pengecualian SKB terbaca ({names.get(('2026-12-24', '2026-12-25'))})")
     check(("2026-11-18", "2026-11-18", False) in exc, "libur tambahan 18 Nov (Rabu) = pengecualian libur")
     check(("2026-11-21", "2026-11-21", True) in exc, "hari kerja pengganti 21 Nov (Sabtu) = pengecualian kerja")
     check(("2026-12-24", "2026-12-25", False) in exc, "SKB 24–25 Des digabung jadi satu pengecualian")
@@ -244,7 +257,7 @@ def mpxj_checks(root, data):
     xt = {tv(t, "UID"): t for t in xml_tasks(root)}
     mt = {str(t.getUniqueID()): t for t in project.getTasks()}
     check(sorted(xt, key=int) == sorted(mt, key=int), f"UID task MPXJ = XML ({len(mt)} task termasuk UID 0)")
-    ct_map = {"0": "AS_SOON_AS_POSSIBLE", "3": "MUST_FINISH_ON", "4": "START_NO_EARLIER_THAN"}
+    ct_map = {"0": "AS_SOON_AS_POSSIBLE", "2": "MUST_START_ON", "3": "MUST_FINISH_ON", "4": "START_NO_EARLIER_THAN"}
     link_map = {"0": "FINISH_FINISH", "1": "FINISH_START", "2": "START_FINISH", "3": "START_START"}
     print("    UID lvl outline  nama                     start            finish           dur  ms  %   kendala                    mode   est  pendahulu")
     bad = []
@@ -259,6 +272,7 @@ def mpxj_checks(root, data):
             "start": dt(t.getStart()), "finish": dt(t.getFinish()), "dur": days(t.getDuration()), "milestone": bool(t.getMilestone()),
             "summary": bool(t.getSummary()), "pct": float(t.getPercentageComplete()), "ctype": ctype, "cdate": dt(t.getConstraintDate()),
             "manual": mode == "MANUALLY_SCHEDULED", "est": bool(t.getEstimated()), "preds": preds,
+            "astart": dt(t.getActualStart()), "afinish": dt(t.getActualFinish()),
         }
         want = {
             "name": tv(x, "Name"), "level": int(tv(x, "OutlineLevel")), "outline": tv(x, "OutlineNumber"), "wbs": tv(x, "WBS"),
@@ -266,6 +280,7 @@ def mpxj_checks(root, data):
             "milestone": tv(x, "Milestone") == "1", "summary": tv(x, "Summary") == "1", "pct": float(tv(x, "PercentComplete")),
             "ctype": ct_map[tv(x, "ConstraintType")], "cdate": tv(x, "ConstraintDate")[:16] if tv(x, "ConstraintDate") else None,
             "manual": tv(x, "Manual") == "1", "est": tv(x, "Estimated") == "1", "preds": xpreds,
+            "astart": tv(x, "ActualStart")[:16] if tv(x, "ActualStart") else None, "afinish": tv(x, "ActualFinish")[:16] if tv(x, "ActualFinish") else None,
         }
         diff = {k: (got[k], want[k]) for k in want if got[k] != want[k]}
         if diff:
@@ -285,7 +300,18 @@ def mpxj_checks(root, data):
     check(dt(by["Dokumentasi"].getStart()) == "2026-11-16T08:00" and dt(by["Dokumentasi"].getFinish()) == "2026-11-19T17:00" and days(by["Dokumentasi"].getDuration()) == 3, "Dokumentasi 16–19 Nov melompati libur 18 Nov, 3 hari")
     check(dt(by["Lembur Sabtu"].getFinish()) == "2026-11-21T17:00", "Lembur Sabtu selesai di hari pengganti 21 Nov")
     check(dt(by["Natal"].getFinish()) == "2026-12-29T17:00" and days(by["Natal"].getDuration()) == 3, "Natal 23–29 Des melompati SKB + akhir pekan")
-    check(bool(by["Rilis"].getMilestone()) and dt(by["Rilis"].getStart()) == dt(by["Rilis"].getFinish()) == "2026-11-19T08:00", "milestone Rilis start = finish")
+    eng_bad = []
+    for name, (es, ef, kind) in sorted(data["engine"].items()):
+        t = by[name]
+        got = (dt(t.getStart())[:10], (dt(t.getStart()) if bool(t.getMilestone()) else dt(t.getFinish()))[:10])
+        if got != (es, ef):
+            eng_bad.append((name, kind, got, (es, ef)))
+    check(not eng_bad, f"start/finish MPXJ = es/ef mesin untuk {len(data['engine'])} simpul {eng_bad}")
+    rk = data["engine"]["Rilis"]
+    check(bool(by["Rilis"].getMilestone()) and dt(by["Rilis"].getStart()) == dt(by["Rilis"].getFinish()) == rk[0] + "T08:00" and str(by["Rilis"].getConstraintType().name()) == "MUST_START_ON", f"milestone Rilis (FF) di es mesin {rk[0]}, MSO")
+    check(dt(by["Desain"].getActualStart()) == "2026-11-02T08:00" and by["Desain"].getActualFinish() is None and str(by["Desain"].getConstraintType().name()) == "START_NO_EARLIER_THAN", "berjalan (progress 40): ActualStart, tanpa ActualFinish")
+    check(dt(by["Survei"].getActualStart()) == "2026-11-02T08:00" and dt(by["Survei"].getActualFinish()) == "2026-11-04T17:00" and days(by["Survei"].getDuration()) == 3, "selesai: ActualStart/ActualFinish = es/ef mesin (completed_at 4 Nov 10:00Z = 4 Nov WIB), durasi 3 hari")
+    check(str(by["Lembur Sabtu"].getConstraintType().name()) == "START_NO_EARLIER_THAN" and dt(by["Lembur Sabtu"].getConstraintDate()) == "2026-11-20T08:00", "akar Otomatis: SNET di es mesin")
     check(float(by["Riset"].getPercentageComplete()) == 100 and float(by["Desain"].getPercentageComplete()) == 40 and float(by["Wawancara"].getPercentageComplete()) == 50, "% selesai: selesai 100, progress 40/50")
     check(str(by["Dokumentasi"].getConstraintType().name()) == "START_NO_EARLIER_THAN" and dt(by["Dokumentasi"].getConstraintDate()) == "2026-11-16T08:00", "SNET eksplisit")
     check(str(by["Audit"].getConstraintType().name()) == "MUST_FINISH_ON" and dt(by["Audit"].getConstraintDate()) == "2026-11-24T17:00", "MFO")
@@ -316,7 +342,7 @@ def mpxj_checks(root, data):
     check(res == [(1, "Budi", "WORK"), (2, "Sari", "WORK")], "2 resource kerja, urut nama")
     xa = {tv(a, "UID"): a for a in root.find(NS + "Assignments")}
     asg = list(project.getResourceAssignments())
-    check(len(asg) == len(xa) == data["stats"]["assignments"] == 8, f"jumlah assignment MPXJ = XML = stats ({len(asg)})")
+    check(len(asg) == len(xa) == data["stats"]["assignments"] == 9, f"jumlah assignment MPXJ = XML = stats ({len(asg)})")
     abad = []
     for a in asg:
         tuid, ruid = str(a.getTask().getUniqueID()), str(a.getResource().getUniqueID())

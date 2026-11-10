@@ -87,31 +87,45 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
   - Desktop lebar: toolbar mendapat tombol menu **"Lainnya"** tetap (komponen `MoreMenu` yang sama) setelah extras; isinya hanya item ekspor.
   - Saat `collapse`: item ditambahkan di akhir daftar "Lainnya" yang sudah ada.
   - Tes urutan toolbar/Lainnya 1c/1d diperbarui (alasan: spec §7.1).
-- **R7 — Pemetaan MSPDI** (spec K53, §5.4). Namespace `http://schemas.microsoft.com/project`, `SaveVersion` 14. Urutan elemen **mengikuti XSD MSPDI** (implementer memverifikasi dengan MPXJ, T7).
-  - **Kalender:** satu kalender dasar UID 1. `WeekDays` gaya Project 2003:
-    - `DayType` 1–7 (1 = Minggu) dengan `DayWorking` dari pola mingguan kalender halaman. Hari kerja `WorkingTimes` 08:00–12:00 dan 13:00–17:00 (480 menit).
-    - Pengecualian = `WeekDay` `DayType 0` dengan `TimePeriod`. Libur di hari kerja → `DayWorking 0`; hari kerja pengganti di akhir pekan → `DayWorking 1` + `WorkingTimes`. Hari berurutan sejenis digabung.
+- **R7 — Pemetaan MSPDI** (spec K53, §5.4). Namespace `http://schemas.microsoft.com/project`, `SaveVersion` 14. Urutan elemen **mengikuti XSD MSPDI** (implementer memverifikasi dengan MPXJ, T7): propOrder JAXB skema MSPDI MPXJ 16.10 — `Manual` setelah `Name` sebelum `Type`; `ActualStart`/`ActualFinish` setelah `PercentComplete` sebelum `ConstraintType`; `HonorConstraints` setelah `WorkFormat` (dikoreksi review F2).
+  - **Project:** `HonorConstraints 1` — MSO/MFO menang atas tautan, sama dengan task tetap di mesin (dikoreksi review F2).
+  - **Kalender:** satu kalender dasar UID 1, pengecualian ditulis **dua kali** (dikoreksi review F2):
+    - `WeekDays` gaya Project 2003: `DayType` 1–7 (1 = Minggu) dengan `DayWorking` dari pola mingguan kalender halaman. Hari kerja `WorkingTimes` 08:00–12:00 dan 13:00–17:00 (480 menit).
+    - Pengecualian = `WeekDay` `DayType 0` dengan `TimePeriod` (dibaca ProjectLibre). Libur di hari kerja → `DayWorking 0`; hari kerja pengganti di akhir pekan → `DayWorking 1` + `WorkingTimes`. Hari berurutan sejenis digabung.
+    - Blok `<Exceptions>` gaya 2007 setelah `</WeekDays>` dengan rentang yang sama, bentuk keluaran `MSPDIWriter` MPXJ (`EnteredByOccurrences 0`, `TimePeriod`, `Occurrences 1`, `Name` = nama SKB bila ada, `Type 1`, `DayWorking`, `WorkingTimes`). Spec K53 meminta libur sebagai `Exceptions`; MS Project 2010+ mengabaikan gaya lama saat impor (MPXJ #335). MPXJ membaca `<Exceptions>` lebih dulu dan memakai `DayType 0` hanya bila blok itu kosong, jadi tidak ganda.
     - Rentang: [mulai paling awal − 7, selesai paling akhir + 31] hari, maksimal 3.660 hari.
   - **Task:**
     - UID 0 = ringkasan project (`OutlineLevel 0`).
     - UID 1…n mengikuti urutan baris `TLLayout.layout({…, sort: "wbs"})`. Halaman workspace: baris kelompok = task ringkasan tingkat 1 (nama kelompok atau "(Tanpa project)"), task di bawahnya +1 tingkat. Halaman project: task tingkat 1 dan seterusnya. `OutlineNumber`/`WBS` = nomor WBS Timeline.
+    - Nama task/resource/judul/kelompok: `\t \r \n` → spasi, dipotong 255 code point (dikoreksi review F2).
     - `Type 1` (durasi tetap), `EffortDriven 0`.
-    - `Start` = s 08:00, `Finish` = f 17:00 (`YYYY-MM-DDTHH:MM:SS`, lokal-naif Jakarta).
+    - `Start` = es 08:00, `Finish` = ef 17:00 dari hasil mesin `TLCpm.run` (`YYYY-MM-DDTHH:MM:SS`, lokal-naif Jakarta); task yang sedang drift diekspor di tanggal hasil mesin. Bukan simpul mesin → rentang tersimpan (dikoreksi review F2).
     - `Duration` `PT{d×8}H0M0S`, `DurationFormat 7`.
-    - `Milestone 1` bila d = 0 (Start = Finish = s 08:00).
+    - `Milestone 1` bila d = 0 (Start = Finish = es 08:00).
     - `Summary 1` untuk induk dan kelompok.
     - `PercentComplete` (selesai 100, selain itu `progress`).
-    - Kendala: ASAP 0; SNET 4 / MFO 3 + `ConstraintDate` 08:00 / 17:00.
+    - Task tetap mesin (dikoreksi review F2):
+      - selesai → `Start`/`ActualStart` = es, `Finish`/`ActualFinish` = ef (`doneFinish`), durasi = hari kerja rentang itu;
+      - berjalan Otomatis dengan es ≤ D → `ActualStart` = es, `Finish` = ef; es > D → tanpa aktual, dijangkar di es;
+      - anggota lingkaran → dijangkar di es (= tanggal tersimpan);
+      - "dijangkar" = SNET 4, atau MSO 2 bila task punya tautan masuk yang diekspor (mesin tidak menggeser task tetap walau pendahulunya terlambat; MSO + `HonorConstraints 1` juga tidak).
+    - Kendala: ASAP 0; SNET 4 / MFO 3 / MSO 2 + `ConstraintDate` 08:00 / 17:00 (MFO milestone 08:00). Akar Otomatis (simpul tanpa tautan masuk) → SNET di es mesin, termasuk bila SNET eksplisit lebih awal dari mulai tersimpan atau pendahulunya tanpa jadwal (dikoreksi review F2).
+    - Milestone (dikoreksi review F2): mesin menaruh milestone di awal harinya, tetapi penerus FS/FF-nya mulai hari kerja berikutnya; MS Project menaruh milestone di jam selesai pendahulu. Maka:
+      - milestone Otomatis bertautan masuk → SNET di es, atau MSO bila salah satu tautan masuknya FF/SF;
+      - penerus langsung milestone → SNET di es;
+      - penerus langsung pendahulu yang selesai di hari non-kerja (task selesai/aktual akhir pekan; `TLCal.addWork` menghitung dari hari itu, FF lag ≤ 0 → mesin 1 hari lebih lambat) → SNET di es.
+      Penyesuaian `LinkLag` tidak setara untuk keempat tipe: milestone sebagai penerus FS jatuh di 17:00 hari sebelumnya berapa pun lag-nya, dan SS/SF dari milestone tidak perlu digeser.
     - `PredecessorLink`: `Type` FF 0 / FS 1 / SF 2 / SS 3, `LinkLag` = lag × 4.800, `LagFormat 7`.
     - `Baseline` `Number 0` (`Start`, `Finish`, `Duration`, `Work` = w × 25 menit) dari baseline aktif bila ada.
-  - **Tautan dilewati** (dihitung `skippedLinks`): ke task di luar berkas, dan antaranggota `result.cycles`.
-  - **Task tanpa jadwal:** `Start` = D 08:00, `Duration PT8H0M0S`, `Estimated 1`, `Manual 1`.
+  - **Tautan** (dikoreksi review F2): hanya sisi yang dipakai mesin (`result.pred`). Dependensi lain dihitung `skippedLinks`: ke task di luar berkas / tidak diekspor, ke task tanpa jadwal yang bukan simpul (`notNode`), lintas scope, menyentuh ringkasan, antaranggota lingkaran, ke diri sendiri. Tanpa hasil mesin (`result` null) → cadangan: semua pendahulu yang diekspor kecuali diri sendiri, ringkasan, dan antaranggota `result.cycles`.
+  - **Task tanpa jadwal** (dikoreksi review F2): placeholder di hari kerja pertama ≥ D (cadangan D bila kalender buntu), 08:00–17:00, `Duration PT8H0M0S`, `Estimated 1`, `Manual 1`, kendala eksplisit atau SNET di tanggal itu. Penerus Otomatis tanpa Mulai yang dihitung mesin (simpul BFS) diekspor Otomatis di es/ef mesin dengan `Estimated 1`.
   - **Resource:** setiap penanggung jawab task di berkas (workspace) atau pemilik (pribadi), dengan `Type 1`, `MaxUnits 1`. Nama dari currentUser/collaborators, selain itu "Anggota #id".
   - **Assignment:** hanya untuk task non-ringkasan dengan d > 0. `Work` = target × 25 menit (`PT{h}H{m}M0S`), `Units` = Work ÷ (d × 480) dibulatkan 4 desimal.
   - **Escape** `& < > " '`; karakter kontrol C0 selain `\t \n \r` dibuang.
   - **Determinisme:** tanpa `Date`; `CreationDate` = D 00:00:00.
-- **R8 — Task Manual tetap di tanggalnya.** Task dengan mode efektif `manual` (G9) diekspor `Manual 1` (penjadwalan manual Project 2010+). Bila task itu tanpa kendala eksplisit, ditambah `ConstraintType 4` (SNET) di tanggal mulai tersimpan, supaya pembaca tanpa penjadwalan manual (mis. ProjectLibre) juga tidak memajukannya ke awal project.
-  - Task Otomatis diekspor terjadwal otomatis dengan kendala/dependensi apa adanya. MS Project lalu menghitungnya sama dengan mesin Timeline; task yang sedang drift tampil di tanggal hasil mesin.
+  - **Paritas (review F2):** simulator "MS Project sederhana" di `timeline_mspdi.test.js` menjadwalkan ulang XML (ASAP, aturan di atas). Tanggalnya = es/ef mesin untuk E1–E5, milestone di tengah rantai, pendahulu selesai di akhir pekan, dan fixture campuran. Simulator adalah pendekatan, bukan MS Project.
+- **R8 — Task Manual tetap di tanggalnya.** Task dengan mode efektif `manual` (G9) diekspor `Manual 1` (penjadwalan manual Project 2010+), dengan `ManualStart`/`ManualFinish`/`ManualDuration`. Bila task itu tanpa kendala eksplisit, ditambah `ConstraintType 4` (SNET) di tanggal mulai tersimpan, supaya pembaca tanpa penjadwalan manual (mis. ProjectLibre) juga tidak memajukannya ke awal project.
+  - Task Otomatis diekspor terjadwal otomatis. Tanggal, tautan, dan kendala dipilih supaya MS Project menghitungnya sama dengan mesin Timeline (R7, dikoreksi review F2): sisi `result.pred` saja, akar SNET di es, task tetap mesin dijangkar lewat aktual/SNET/MSO/MFO, milestone di rantai dijangkar SNET/MSO, `HonorConstraints 1`. Task yang sedang drift tampil di tanggal hasil mesin.
   - Dicatat di ADR-050 dan diverifikasi pemilik.
 - **R9 — Nama berkas** `{judul}-{YYYY-MM-DD}.xml`; karakter tak aman (R4) dan spasi berlebih diganti "-", dipotong 80 karakter.
   - Judul halaman project = `projectName`.
@@ -121,7 +135,13 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
   - EV O(baris baseline × hari kerja), ≤ 5 ms untuk 500 baris (Node).
   - `TLMspdi.build` 1.000 task ≤ 300 ms (Node) dan menghasilkan string, bukan DOM. Hanya dijalankan saat diklik.
   - Render awal tidak berubah (EV dihitung setelah mesin siap, 1 elemen DOM).
-- **R11 — ADR-050** (cek nomor terhadap `main` saat rilis): R1–R10, residual (resource tanpa kapasitas/kalender orang; ProjectLibre mungkin mengabaikan `Manual`; tanpa `ActualStart`/`ActualFinish`).
+- **R11 — ADR-050** (cek nomor terhadap `main` saat rilis): R1–R10, residual (dikoreksi review F2):
+  - resource tanpa kapasitas/kalender orang;
+  - ProjectLibre mungkin mengabaikan `Manual`;
+  - `ActualStart`/`ActualFinish` hanya untuk task yang dijangkar mesin (selesai; berjalan dengan es ≤ D), tanpa `ActualDuration`/`RemainingDuration` (dihitung MS Project);
+  - task tetap dan milestone di rantai memakai SNET/MSO di tanggal mesin; bila jadwal diubah di MS Project, kendala itu ikut menahan task;
+  - task tetap tanpa aktual (lingkaran, berjalan es > D) yang tersimpan di hari libur dimulai MS Project di hari kerja berikutnya (selesai sama);
+  - urutan kelompok workspace mengikuti `layout.js` (`localeCompare` "id"), yang bisa berbeda antar mesin JS.
 
 ## Global Constraints
 
@@ -242,7 +262,7 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
 ### Task 4: Manifest 1.4.0 + ringkasan EV di toolbar
 
 **Files:**
-- Modify: `manifest.json` (version `1.4.0`, parts + `mspdi.js` setelah `load.js`), `plugin.jsx`, `style.css`, `tests/offline/timeline_ui.test.js`, `tests/build-plugins.test.js`, `tests/offline/timeline_runtime.test.js`.
+- Modify: `manifest.json` (version `1.4.0`, parts `[…, "load.js", "layout.js", "mspdi.js", "drag.js"]` — `mspdi.js` setelah `layout.js` karena memakai `TLLayout`; di depan `layout.js` bundel melempar zona mati temporal (dikoreksi review F2)), `plugin.jsx`, `style.css`, `tests/offline/timeline_ui.test.js`, `tests/build-plugins.test.js`, `tests/offline/timeline_runtime.test.js`.
 - Generated: `plugin.js`, `index.json`, blok hash `sw.js`.
 
 - [ ] **Step 1: Tes gagal:**

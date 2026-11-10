@@ -16,6 +16,7 @@
   <DefaultTaskType>1</DefaultTaskType>
   <DurationFormat>7</DurationFormat>
   <WorkFormat>2</WorkFormat>
+  <HonorConstraints>1</HonorConstraints>
   <NewTasksEffortDriven>0</NewTasksEffortDriven>
   <WeekStartDay>1</WeekStartDay>
   <Calendars>
@@ -154,6 +155,71 @@
           </TimePeriod>
         </WeekDay>
       </WeekDays>
+      <Exceptions>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2026-11-18T00:00:00</FromDate>
+            <ToDate>2026-11-18T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2026-11-21T00:00:00</FromDate>
+            <ToDate>2026-11-21T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Type>1</Type>
+          <DayWorking>1</DayWorking>
+          <WorkingTimes>
+            <WorkingTime>
+              <FromTime>08:00:00</FromTime>
+              <ToTime>12:00:00</ToTime>
+            </WorkingTime>
+            <WorkingTime>
+              <FromTime>13:00:00</FromTime>
+              <ToTime>17:00:00</ToTime>
+            </WorkingTime>
+          </WorkingTimes>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2026-12-24T00:00:00</FromDate>
+            <ToDate>2026-12-25T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Kelahiran Yesus Kristus</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2027-01-01T00:00:00</FromDate>
+            <ToDate>2027-01-01T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Tahun Baru 2027 Masehi</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2027-01-05T00:00:00</FromDate>
+            <ToDate>2027-01-05T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Isra Mikraj Nabi Muhammad saw.</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+      </Exceptions>
     </Calendar>
   </Calendars>
   <Tasks>
@@ -224,6 +290,7 @@
       <Milestone>0</Milestone>
       <Summary>0</Summary>
       <PercentComplete>40</PercentComplete>
+      <ActualStart>2026-11-02T08:00:00</ActualStart>
       <ConstraintType>4</ConstraintType>
       <CalendarUID>-1</CalendarUID>
       <ConstraintDate>2026-11-02T08:00:00</ConstraintDate>
@@ -246,8 +313,8 @@
       <WBS>1.2</WBS>
       <OutlineNumber>1.2</OutlineNumber>
       <OutlineLevel>2</OutlineLevel>
-      <Start>2026-11-09T08:00:00</Start>
-      <Finish>2026-11-11T17:00:00</Finish>
+      <Start>2026-11-10T08:00:00</Start>
+      <Finish>2026-11-12T17:00:00</Finish>
       <Duration>PT24H0M0S</Duration>
       <DurationFormat>7</DurationFormat>
       <Work>PT2H30M0S</Work>
@@ -315,8 +382,8 @@
       <WBS>1.4</WBS>
       <OutlineNumber>1.4</OutlineNumber>
       <OutlineLevel>2</OutlineLevel>
-      <Start>2026-11-19T08:00:00</Start>
-      <Finish>2026-11-19T08:00:00</Finish>
+      <Start>2026-11-17T08:00:00</Start>
+      <Finish>2026-11-17T08:00:00</Finish>
       <Duration>PT0H0M0S</Duration>
       <DurationFormat>7</DurationFormat>
       <EffortDriven>0</EffortDriven>
@@ -324,8 +391,9 @@
       <Milestone>1</Milestone>
       <Summary>0</Summary>
       <PercentComplete>0</PercentComplete>
-      <ConstraintType>0</ConstraintType>
+      <ConstraintType>2</ConstraintType>
       <CalendarUID>-1</CalendarUID>
+      <ConstraintDate>2026-11-17T08:00:00</ConstraintDate>
       <PredecessorLink>
         <PredecessorUID>4</PredecessorUID>
         <Type>0</Type>
@@ -426,6 +494,33 @@
     <Task>
       <UID>9</UID>
       <ID>9</ID>
+      <Name>Survei</Name>
+      <Manual>0</Manual>
+      <Type>1</Type>
+      <IsNull>0</IsNull>
+      <CreateDate>2026-11-10T00:00:00</CreateDate>
+      <WBS>1.8</WBS>
+      <OutlineNumber>1.8</OutlineNumber>
+      <OutlineLevel>2</OutlineLevel>
+      <Start>2026-11-02T08:00:00</Start>
+      <Finish>2026-11-04T17:00:00</Finish>
+      <Duration>PT24H0M0S</Duration>
+      <DurationFormat>7</DurationFormat>
+      <Work>PT0H25M0S</Work>
+      <EffortDriven>0</EffortDriven>
+      <Estimated>0</Estimated>
+      <Milestone>0</Milestone>
+      <Summary>0</Summary>
+      <PercentComplete>100</PercentComplete>
+      <ActualStart>2026-11-02T08:00:00</ActualStart>
+      <ActualFinish>2026-11-04T17:00:00</ActualFinish>
+      <ConstraintType>4</ConstraintType>
+      <CalendarUID>-1</CalendarUID>
+      <ConstraintDate>2026-11-02T08:00:00</ConstraintDate>
+    </Task>
+    <Task>
+      <UID>10</UID>
+      <ID>10</ID>
       <Name>Beta</Name>
       <Manual>0</Manual>
       <Type>1</Type>
@@ -447,8 +542,8 @@
       <CalendarUID>-1</CalendarUID>
     </Task>
     <Task>
-      <UID>10</UID>
-      <ID>10</ID>
+      <UID>11</UID>
+      <ID>11</ID>
       <Name>Fase Beta</Name>
       <Manual>0</Manual>
       <Type>1</Type>
@@ -470,8 +565,8 @@
       <CalendarUID>-1</CalendarUID>
     </Task>
     <Task>
-      <UID>11</UID>
-      <ID>11</ID>
+      <UID>12</UID>
+      <ID>12</ID>
       <Name>Riset</Name>
       <Manual>1</Manual>
       <Type>1</Type>
@@ -490,6 +585,8 @@
       <Milestone>0</Milestone>
       <Summary>0</Summary>
       <PercentComplete>100</PercentComplete>
+      <ActualStart>2026-11-03T08:00:00</ActualStart>
+      <ActualFinish>2026-11-04T17:00:00</ActualFinish>
       <ConstraintType>4</ConstraintType>
       <CalendarUID>-1</CalendarUID>
       <ConstraintDate>2026-11-03T08:00:00</ConstraintDate>
@@ -498,8 +595,8 @@
       <ManualDuration>PT16H0M0S</ManualDuration>
     </Task>
     <Task>
-      <UID>12</UID>
-      <ID>12</ID>
+      <UID>13</UID>
+      <ID>13</ID>
       <Name>Wawancara</Name>
       <Manual>1</Manual>
       <Type>1</Type>
@@ -526,8 +623,8 @@
       <ManualDuration>PT8H0M0S</ManualDuration>
     </Task>
     <Task>
-      <UID>13</UID>
-      <ID>13</ID>
+      <UID>14</UID>
+      <ID>14</ID>
       <Name>Belum dijadwalkan</Name>
       <Manual>1</Manual>
       <Type>1</Type>
@@ -545,15 +642,16 @@
       <Milestone>0</Milestone>
       <Summary>0</Summary>
       <PercentComplete>0</PercentComplete>
-      <ConstraintType>0</ConstraintType>
+      <ConstraintType>4</ConstraintType>
       <CalendarUID>-1</CalendarUID>
+      <ConstraintDate>2026-11-10T08:00:00</ConstraintDate>
       <ManualStart>2026-11-10T08:00:00</ManualStart>
       <ManualFinish>2026-11-10T17:00:00</ManualFinish>
       <ManualDuration>PT8H0M0S</ManualDuration>
     </Task>
     <Task>
-      <UID>14</UID>
-      <ID>14</ID>
+      <UID>15</UID>
+      <ID>15</ID>
       <Name>Natal</Name>
       <Manual>1</Manual>
       <Type>1</Type>
@@ -611,8 +709,8 @@
       <UID>2</UID>
       <TaskUID>3</TaskUID>
       <ResourceUID>1</ResourceUID>
-      <Finish>2026-11-11T17:00:00</Finish>
-      <Start>2026-11-09T08:00:00</Start>
+      <Finish>2026-11-12T17:00:00</Finish>
+      <Start>2026-11-10T08:00:00</Start>
       <Units>0.1042</Units>
       <Work>PT2H30M0S</Work>
     </Assignment>
@@ -654,7 +752,16 @@
     </Assignment>
     <Assignment>
       <UID>7</UID>
-      <TaskUID>11</TaskUID>
+      <TaskUID>9</TaskUID>
+      <ResourceUID>1</ResourceUID>
+      <Finish>2026-11-04T17:00:00</Finish>
+      <Start>2026-11-02T08:00:00</Start>
+      <Units>0.0174</Units>
+      <Work>PT0H25M0S</Work>
+    </Assignment>
+    <Assignment>
+      <UID>8</UID>
+      <TaskUID>12</TaskUID>
       <ResourceUID>1</ResourceUID>
       <Finish>2026-11-04T17:00:00</Finish>
       <Start>2026-11-03T08:00:00</Start>
@@ -662,8 +769,8 @@
       <Work>PT0H50M0S</Work>
     </Assignment>
     <Assignment>
-      <UID>8</UID>
-      <TaskUID>12</TaskUID>
+      <UID>9</UID>
+      <TaskUID>13</TaskUID>
       <ResourceUID>2</ResourceUID>
       <Finish>2026-11-05T17:00:00</Finish>
       <Start>2026-11-05T08:00:00</Start>

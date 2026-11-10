@@ -1,15 +1,19 @@
 // Plugin Timeline — TLMspdi: pembangun XML MSPDI (Microsoft Project XML Data Interchange) murni untuk "Ekspor ke
-// Microsoft Project (.xml)" (spec 1d K53, §5.4, §8; rencana 1d-2 R5, R7–R10).
+// Microsoft Project (.xml)" (spec 1d K53, §5.4, §8; rencana 1d-2 R5, R7–R10, dikoreksi review F2).
 // Masukan = data yang sudah dibaca mesin (eng.ctx.tasks daftar lengkap halaman, kalender halaman, hasil TLCpm.run,
 // baseline aktif terdekode, nama orang); keluaran = string XML + statistik untuk toast. Murni: tanpa jam lokal, tanpa
 // global, tanpa DOM, TIDAK menulis (K27/R25) dan tidak mengubah masukan. Urutan baris = TLLayout.layout sort "wbs"
 // (sama dengan Gantt); urutan lain lewat TLCpm.cmpKey → string identik untuk urutan masukan apa pun.
+// Paritas mesin (review F2): tanggal task = hasil TLCpm.run (es/ef), tautan = sisi yang dipakai mesin (result.pred),
+// dan kendala/aktual dipilih supaya penjadwalan MS Project (HonorConstraints 1) menghasilkan tanggal yang sama —
+// akar Otomatis SNET di es, task tetap mesin (selesai/berjalan/lingkaran/MFO/Manual) dijangkar lewat Actual*/MSO/MFO/
+// Manual, dan milestone yang menurut mesin "memakan" harinya dijangkar SNET/MSO (lihat buildConstraint).
 // Urutan elemen = XSD MSPDI: propOrder JAXB skema MSPDI MPXJ 16.10 (org.mpxj.mspdi.schema.Project, dibangkitkan dari
 // XSD Microsoft Project 2010+; `Manual` SETELAH `Name`, SEBELUM `Type`); urutan Project dicocokkan dengan dokumentasi
 // Microsoft "Project elements and XML structure".
 // Bundel: bergantung pada TLLayout dan TLLoad → di manifest `parts` WAJIB setelah layout.js (dan load.js); di depan
 // layout.js, `typeof TLLayout` jatuh di zona mati temporal `const` bundel dan melempar saat plugin dimuat.
-const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
+const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   const NS = "http://schemas.microsoft.com/project";
   const PROLOG = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
   const SAVE_VERSION = 14;
@@ -21,6 +25,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
   const WORK_FORMAT = 2; // jam
   const EST_MAX = LOAD.EST_MAX; // R3 1d-1: target 🍅 dijepit batas host
   const NAME_CUT = 80; // R9: maks code point judul di nama berkas
+  const NAME_MAX = 255; // M2 F2: maks code point nama task/resource/judul/kelompok/pengecualian
   const PAD_BEFORE = 7; // R7: pengecualian kalender mulai paling awal − 7 hari
   const PAD_AFTER = 31; // R7: … sampai selesai paling akhir + 31 hari
   const SPAN_MAX = 3660; // R7: maks hari kalender rentang pengecualian / hitung hari kerja ringkasan
@@ -29,6 +34,11 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
   const CAL_NAME = "Standar";
   const NO_RES = "Anggota #";
   const LINK_TYPE = Object.freeze({ FF: 0, FS: 1, SF: 2, SS: 3 });
+  // ConstraintType MSPDI: 0 ASAP, 2 MSO (harus mulai pada), 3 MFO (harus selesai pada), 4 SNET (mulai tidak lebih awal).
+  const C_ASAP = 0;
+  const C_MSO = 2;
+  const C_MFO = 3;
+  const C_SNET = 4;
   const T_START = "T08:00:00";
   const T_FINISH = "T17:00:00";
   const T_DAY0 = "T00:00:00";
@@ -69,11 +79,26 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
     return from === 0 ? s : out + s.slice(from);
   }
 
+  // Nama tampilan (M2 F2): \t \r \n → spasi (MS Project menampilkan nama satu baris), lalu dipotong NAME_MAX code point
+  // (pasangan surrogate tidak terbelah). Bukan string → "". Karakter tak sah XML dibuang kemudian oleh esc.
+  function clip(s) {
+    const src = typeof s === "string" ? s.replace(/[\t\r\n]/g, " ") : "";
+    if (src.length <= NAME_MAX) return src;
+    let out = "";
+    let n = 0;
+    for (const ch of src) {
+      if (n++ >= NAME_MAX) break;
+      out += ch;
+    }
+    return out;
+  }
+
   // ---- nama berkas (R9) ----
   // Karakter yang diganti "-": terlarang saveFile (/ \ : * ? " < > |), kontrol C0/DEL/C1, spasi (\s, termasuk NBSP,
-  // U+2028/9, BOM), dan kontrol arah/format teks (U+200B–U+200F, U+202A–U+202E, U+2066–U+2069) yang bisa menyamarkan
-  // ekstensi. Surrogate tunggal juga diganti "-".
-  const FILE_BAD_RE = /[\/\\:*?"<>|\s\u0000-\u001f\u007f-\u009f​-‏‪-‮⁦-⁩]/;
+  // U+2028/9, BOM U+FEFF), dan kontrol arah/format teks (U+061C, U+200B–U+200F, U+202A–U+202E, U+2066–U+2069) yang bisa
+  // menyamarkan ekstensi. Ditulis sebagai escape \u (sumber tidak memuat karakter bidi mentah, review F2 I5).
+  // Surrogate tunggal juga diganti "-".
+  const FILE_BAD_RE = /[\/\\:*?"<>|\s\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/;
   const isLone = (ch) => ch.length === 1 && ch.charCodeAt(0) >= 0xd800 && ch.charCodeAt(0) <= 0xdfff;
 
   // fileNameOf(title, D) → "{judul}-{YYYY-MM-DD}.xml": rangkaian karakter tak aman/spasi → satu "-", titik/"-" di awal-
@@ -126,6 +151,16 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
     }
   }
 
+  // Hari kerja pertama ≥ dn; kalender buntu (TL_CAL_LOOP) / galat → dn apa adanya.
+  function nextWorkOr(c, dn) {
+    try {
+      const n = CAL.nextWork(c, dn);
+      return isDn(n) ? n : dn;
+    } catch (e) {
+      return dn;
+    }
+  }
+
   // Hari kerja di [a, b] inklusif, dibatasi SPAN_MAX hari kalender (data rusak tidak menggantung).
   function workdays(c, a, b) {
     let n = 0;
@@ -174,8 +209,8 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
     return fp ? ip + "." + fp : String(ip);
   }
 
-  // Durasi ringkasan (menit kerja dari startPt s ke titik selesai f): hari kerja [ptDn(s), ptDn(f)], dikurangi hari
-  // terakhir bila selesai pukul 08:00 (anak terakhir milestone) dan hari itu hari kerja.
+  // Durasi (hari kerja) dari titik mulai s ke titik selesai f: hari kerja [ptDn(s), ptDn(f)], dikurangi hari terakhir
+  // bila selesai pukul 08:00 (milestone) dan hari itu hari kerja.
   function spanDays(c, s, f) {
     if (f < s) return 0;
     const a = ptDn(s);
@@ -201,13 +236,106 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
     };
   }
 
+  // Tanggal task (review F2 I1/I2, M1). Simpul mesin terhitung → es/ef mesin (Otomatis yang drift tampil di tanggal
+  // hasil mesin, sama dengan hitungan MS Project): selesai → mulai/selesai aktual mesin (doneFinish) + ActualStart/
+  // ActualFinish, durasi = hari kerja rentang itu (milestone selesai di harinya tetap milestone); berjalan Otomatis
+  // dengan es ≤ D → ActualStart. Simpul tanpa Mulai (penerus Otomatis yang dihitung mesin) tetap Estimated.
+  // Bukan simpul / mesin tidak ada: rentang tersimpan (bar Gantt); tanpa jadwal → placeholder hari kerja pertama ≥ D.
+  function taskDates(e, c, nodes, D) {
+    const sp = e.row.span;
+    const n = nodes ? nodes.get(e.key) : undefined;
+    e.unscheduled = !sp;
+    if (n && isDn(n.es) && isDn(n.ef) && Number.isInteger(n.d)) {
+      e.node = n;
+      let d = n.d;
+      e.ms = d === 0;
+      if (n.fixed === "done") {
+        e.actualS = true;
+        e.actualF = true;
+        if (!(d === 0 && n.ef === n.es)) {
+          e.ms = false;
+          d = spanDays(c, startPt(n.es), finishPt(n.ef));
+        }
+      } else if (n.fixed === "started" && n.es <= D) e.actualS = true;
+      e.d = d;
+      e.s = startPt(n.es);
+      e.f = e.ms ? startPt(n.es) : finishPt(n.ef);
+    } else if (sp) {
+      e.d = e.row.sched.duration === null || e.row.sched.duration === undefined ? 1 : e.row.sched.duration;
+      e.ms = e.d === 0;
+      e.s = startPt(sp.s);
+      e.f = e.ms ? startPt(sp.s) : finishPt(sp.f);
+    } else {
+      e.ph = nextWorkOr(c, D);
+      e.d = 1;
+      e.ms = false;
+      e.s = startPt(e.ph);
+      e.f = finishPt(e.ph);
+    }
+  }
+
+  // Kendala + mode (R7, R8; review F2 I1–I3, M1). e.links sudah terisi (hanya sisi result.pred bila mesin ada).
+  //  Simpul mesin:
+  //   - mode efektif Manual → Manual 1; kendala eksplisit, selain itu SNET di es (= mulai tersimpan) (R8);
+  //   - selesai / berjalan ber-ActualStart → SNET di es (aktual sudah menjangkar; SNET hanya untuk pembaca lain);
+  //   - berjalan dengan es > D (tanpa aktual) / anggota lingkaran → tetap di es: SNET, atau MSO bila punya tautan masuk
+  //     (mesin tidak menggeser task tetap walau pendahulu terlambat; MSO + HonorConstraints 1 juga tidak);
+  //   - MFO → MFO (dihormati MS Project, HonorConstraints 1);
+  //   - akar Otomatis (tanpa tautan masuk) → SNET di es (mesin: es = maks(SNET, mulai tersimpan); E1, E2);
+  //   - milestone Otomatis bertautan masuk FF/SF → MSO di es; milestone lain bertautan masuk / penerus langsung
+  //     milestone → SNET di es (mesin menaruh milestone di awal harinya tetapi penerus FS/FF-nya mulai hari kerja
+  //     berikutnya; MS Project menaruh milestone di jam selesai pendahulu — I3). Penerus langsung pendahulu yang
+  //     selesai di hari non-kerja (task selesai/aktual akhir pekan) juga SNET di es: TLCal.addWork menghitung dari hari
+  //     itu sendiri (FF lag ≤ 0 → mesin 1 hari lebih lambat dari MS Project). Di semua kasus ini mesin ≥ hitungan MS
+  //     Project dari tautan, jadi SNET di es mengembalikan tanggal mesin tanpa membekukan task;
+  //   - selain itu SNET eksplisit atau ASAP.
+  //  Bukan simpul: tanpa jadwal → Manual 1 + kendala eksplisit / SNET di placeholder (M1); terjadwal → aturan cadangan
+  //  (Manual / tanpa tautan masuk → SNET di mulai tersimpan).
+  function buildConstraint(e, mode) {
+    const cst = e.row.sched.constraint;
+    const inLinks = e.links.length > 0;
+    const at = (type, dn, finish) => {
+      e.ctype = type;
+      e.cdate = CAL.iso(dn) + (finish ? T_FINISH : T_START);
+    };
+    const explicit = () => {
+      if (cst.type === "SNET") at(C_SNET, CAL.dn(cst.date), false);
+      else at(C_MFO, CAL.dn(cst.date), !e.ms); // milestone MFO di 08:00 = jam milestone di berkas
+    };
+    const n = e.node;
+    if (n) {
+      e.manual = mode === "manual";
+      const fx = n.fixed;
+      if (e.manual) {
+        if (cst) explicit();
+        else at(C_SNET, n.es, false);
+      } else if (fx === "done" || (fx === "started" && e.actualS)) at(C_SNET, n.es, false);
+      else if (fx === "started" || fx === "cycle") at(inLinks ? C_MSO : C_SNET, n.es, false);
+      else if (fx === "mfo" && cst) explicit();
+      else if (!inLinks) at(C_SNET, n.es, false);
+      else if (e.ms && e.links.some((l) => l.tt === "FF" || l.tt === "SF")) at(C_MSO, n.es, false);
+      else if (e.ms || e.links.some((l) => l.anchor)) at(C_SNET, n.es, false);
+      else if (cst && cst.type === "SNET") explicit();
+      return;
+    }
+    if (e.unscheduled) {
+      e.manual = true;
+      if (cst) explicit();
+      else at(C_SNET, e.ph, false);
+      return;
+    }
+    e.manual = mode === "manual";
+    if (cst) explicit();
+    else if (e.manual || !inLinks) at(C_SNET, e.row.span.s, false);
+  }
+
   // build(input) → {xml, stats: {tasks, links, skippedLinks, unscheduled, resources, assignments}}.
   //   input = {tasks, cal, readExt, result, units, pageKind, title, fileName, people, baseline, ownerUid, D}:
-  //   tasks = eng.ctx.tasks (daftar lengkap halaman, R5); cal = kalender halaman; result = TLCpm.run (hanya `cycles`);
-  //   units = Map record `project` (TLSched.modeOf); pageKind "workspace" | "project"; title/fileName (R9; fileName absen →
-  //   fileNameOf(title, D)); people = Map<uid, nama>; baseline = {rows: Map<refKey, {s, f, d, w}>} | null; ownerUid =
-  //   pemilik halaman pribadi (resource tunggal); D = bilangan hari hari ini (wajib; selain itu TypeError).
-  //   stats.tasks = jumlah <Task> UID ≥ 1 (kelompok + task; tanpa ringkasan project UID 0).
+  //   tasks = eng.ctx.tasks (daftar lengkap halaman, R5); cal = kalender halaman; result = TLCpm.run (nodes, pred, cycles;
+  //   null → aturan cadangan tanpa mesin); units = Map record `project` (TLSched.modeOf); pageKind "workspace" |
+  //   "project"; title/fileName (R9; fileName absen → fileNameOf(title, D)); people = Map<uid, nama>; baseline =
+  //   {rows: Map<refKey, {s, f, d, w}>} | null; ownerUid = pemilik halaman pribadi (resource tunggal); D = bilangan hari
+  //   hari ini (wajib; selain itu TypeError). stats.tasks = jumlah <Task> UID ≥ 1 (kelompok + task; tanpa UID 0).
   function build(input) {
     const a = isObj(input) ? input : {};
     if (!isDn(a.D)) throw new TypeError("TLMspdi.build: D harus bilangan hari");
@@ -218,6 +346,10 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
     const units = a.units instanceof Map ? a.units : new Map();
     const title = typeof a.title === "string" && a.title.trim() !== "" ? a.title : DEFAULT_TITLE;
     const fileName = typeof a.fileName === "string" && a.fileName !== "" ? a.fileName : fileNameOf(title, D);
+    const R = isObj(a.result) ? a.result : null;
+    const nodes = R && R.nodes instanceof Map ? R.nodes : null;
+    const predMap = R && R.pred instanceof Map ? R.pred : null;
+    const eng = nodes !== null && predMap !== null;
 
     // 1. baris = tata letak Gantt (sort "wbs"): berulang/diarsip/dihapus tidak ikut (aturan TLLayout).
     const raws = new Map();
@@ -232,30 +364,19 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
     const byKey = new Map();
     const groupEnt = new Map();
     for (const r of lay.rows) {
-      const e = { uid: ents.length + 1, row: r, kind: r.kind, key: r.key, task: r.task, level: r.kind === "group" ? 1 : r.depth + (workspace ? 2 : 1), kidsPts: null };
+      const e = { uid: ents.length + 1, row: r, kind: r.kind, key: r.key, task: r.task, level: r.kind === "group" ? 1 : r.depth + (workspace ? 2 : 1) };
       ents.push(e);
       if (r.kind === "group") groupEnt.set(r.group, e);
       else byKey.set(r.key, e);
     }
 
-    // 2. tanggal daun: tersimpan (rentang bar, TLSched.spanOf) atau tanpa jadwal → D (R7, spec §8).
+    // 2. tanggal daun (taskDates); ringkasan/kelompok = min/maks titik anak (dari belakang pra-urut: anak sebelum induk).
     let unscheduled = 0;
     for (const e of ents) {
       if (e.kind !== "task") continue;
-      const sp = e.row.span;
-      if (sp) {
-        e.d = e.row.sched.duration === null || e.row.sched.duration === undefined ? 1 : e.row.sched.duration;
-        e.s = startPt(sp.s);
-        e.f = e.d === 0 ? startPt(sp.s) : finishPt(sp.f);
-      } else {
-        unscheduled++;
-        e.d = 1;
-        e.s = startPt(D);
-        e.f = finishPt(D);
-        e.unscheduled = true;
-      }
+      taskDates(e, c, eng ? nodes : null, D);
+      if (e.unscheduled) unscheduled++;
     }
-    // Ringkasan/kelompok = min/maks titik anak (dari belakang pra-urut: anak selalu sebelum induk).
     const top = { s: Infinity, f: -Infinity };
     const parentOf = (e) => {
       if (e.kind === "group") return top;
@@ -282,12 +403,14 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
     }
     top.d = spanDays(c, top.s, top.f);
 
-    // 3. tautan (R7): pendahulu kanonik lewat TLSched.buildIndex(daftar lengkap); satu tautan per pendahulu (cid/id task
-    // yang sama, pola resolveDeps). Dilewati (skippedLinks): pendahulu tak ada / tidak diekspor, ke diri sendiri,
-    // menyentuh ringkasan (mesin mengabaikannya, MS Project menolak tautan induk–anak), antaranggota result.cycles.
+    // 3. tautan. Mesin ada → hanya sisi yang dipakai mesin (result.pred: kedua ujung simpul, scope sama, bukan ringkasan,
+    // bukan di dalam lingkaran — review F2 I1). Tanpa mesin → cadangan: pendahulu kanonik lewat TLSched.buildIndex,
+    // kecuali diri sendiri / ringkasan / antaranggota result.cycles. Satu tautan per pendahulu kanonik (cid/id task yang
+    // sama, pola resolveDeps); dependensi lain (pendahulu tak ada / tidak diekspor / tanpa jadwal / lintas scope /
+    // ringkasan / lingkaran) dihitung skippedLinks.
     const idx = SCHED.buildIndex(tasks);
     const cyc = new Map();
-    const cycles = isObj(a.result) && Array.isArray(a.result.cycles) ? a.result.cycles : [];
+    const cycles = R && Array.isArray(R.cycles) ? R.cycles : [];
     cycles.forEach((cy, i) => {
       if (Array.isArray(cy)) for (const k of cy) cyc.set(String(k), i);
     });
@@ -297,6 +420,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
       e.links = [];
       if (e.kind === "group") continue;
       const deps = e.row.sched && Array.isArray(e.row.sched.deps) ? e.row.sched.deps : [];
+      const used = eng ? predMap.get(e.key) : undefined;
       const seen = new Set();
       for (const dep of deps) {
         const pt = idx.get(dep.key);
@@ -306,38 +430,41 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
           seen.add(pk);
         }
         const pe = pk === null ? undefined : byKey.get(pk);
-        const ring = pe ? cyc.get(pe.key) : undefined;
-        if (!pe || pe === e || pe.kind !== "task" || e.kind !== "task" || (ring !== undefined && ring === cyc.get(e.key))) {
+        let type = dep.type;
+        let lag = dep.lag;
+        let ok = !!pe && pe !== e && pe.kind === "task" && e.kind === "task";
+        if (ok && eng) {
+          const hit = Array.isArray(used) ? used.find((x) => x && x.key === pk) : undefined;
+          ok = !!hit;
+          if (hit) {
+            type = hit.type;
+            lag = hit.lag;
+          }
+        } else if (ok) {
+          const ring = cyc.get(pe.key);
+          ok = !(ring !== undefined && ring === cyc.get(e.key));
+        }
+        if (!ok) {
           skipped++;
           continue;
         }
-        e.links.push({ uid: pe.uid, type: LINK_TYPE[dep.type] === undefined ? LINK_TYPE.FS : LINK_TYPE[dep.type], lag: dep.lag * LAG_UNIT });
+        const tt = LINK_TYPE[type] === undefined ? "FS" : type;
+        // anchor: pendahulu milestone, atau selesai di hari non-kerja (task selesai/aktual di akhir pekan) — di sana
+        // aritmetika hari kerja mesin (TLCal.addWork dari hari itu) lebih lambat 1 hari dari waktu kerja MS Project.
+        const anchor = pe.ms === true || !workAt(c, ptDn(pe.f));
+        e.links.push({ uid: pe.uid, tt, type: LINK_TYPE[tt], lag: (Number.isInteger(lag) ? lag : 0) * LAG_UNIT, anchor });
       }
       e.links.sort((x, y) => x.uid - y.uid);
       nLinks += e.links.length;
     }
 
-    // 4. mode + kendala (R7, R8). Tanpa jadwal → Manual (placeholder D). Manual → SNET di mulai tersimpan bila tanpa
-    // kendala eksplisit. Otomatis tanpa tautan pendahulu di berkas → SNET di mulai tersimpan juga: mesin menjadwalkan
-    // akar di mulai tersimpannya (TLCpm driver "root"), sedangkan MS Project menarik task ASAP tanpa pendahulu ke awal
-    // project. Kelompok/ringkasan selalu Otomatis tanpa kendala (dihitung MS Project dari anak).
+    // 4. mode + kendala (buildConstraint). Kelompok/ringkasan selalu Otomatis tanpa kendala (dihitung dari anak).
     for (const e of ents) {
       e.manual = false;
-      e.ctype = 0;
+      e.ctype = C_ASAP;
       e.cdate = null;
       if (e.kind !== "task") continue;
-      const t = e.task;
-      const sched = e.row.sched;
-      const mode = SCHED.modeOf(rawFor(t), units, t);
-      e.manual = e.unscheduled === true || mode === "manual";
-      const cst = sched.constraint;
-      if (cst) {
-        e.ctype = cst.type === "SNET" ? 4 : 3;
-        e.cdate = cst.date + (cst.type === "SNET" ? T_START : T_FINISH);
-      } else if (!e.unscheduled && (mode === "manual" || e.links.length === 0)) {
-        e.ctype = 4;
-        e.cdate = CAL.iso(e.row.span.s) + T_START;
-      }
+      buildConstraint(e, SCHED.modeOf(rawFor(e.task), units, e.task));
     }
 
     // 5. baseline aktif (pola compareBaseline): kunci baris urut cmpKey → task lewat buildIndex → kunci kanonik; baris
@@ -380,13 +507,13 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
       asg.push({ uid: asg.length + 1, task: e, rid, units: fmtUnits(e.work, e.d) });
     }
 
-    // 8. kalender (R7): pola mingguan + pengecualian di rentang [mulai − 7, selesai + 31] (≤ SPAN_MAX hari).
+    // 8. XML.
     const out = Buf();
     out.line(0, PROLOG);
     out.line(0, '<Project xmlns="' + NS + '">');
     out.el(1, "SaveVersion", SAVE_VERSION);
     out.el(1, "Name", esc(fileName));
-    out.el(1, "Title", esc(title));
+    out.el(1, "Title", esc(clip(title)));
     out.el(1, "CreationDate", CAL.iso(D) + T_DAY0);
     out.el(1, "ScheduleFromStart", 1);
     out.el(1, "StartDate", fmtPt(top.s));
@@ -400,13 +527,14 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
     out.el(1, "DefaultTaskType", 1);
     out.el(1, "DurationFormat", DUR_FORMAT);
     out.el(1, "WorkFormat", WORK_FORMAT);
+    out.el(1, "HonorConstraints", 1); // I4 F2: MSO/MFO menang atas tautan (sama dengan task tetap di mesin)
     out.el(1, "NewTasksEffortDriven", 0);
     out.el(1, "WeekStartDay", 1);
     writeCalendar(out, c, ents, D);
     out.line(1, "<Tasks>");
-    writeTask(out, { uid: 0, kind: "project", name: title, level: 0, wbs: "0", s: top.s, f: top.f, d: top.d, links: [], manual: false, ctype: 0, cdate: null }, D);
+    writeTask(out, { uid: 0, kind: "project", name: title, level: 0, wbs: "0", s: top.s, f: top.f, d: top.d, links: [], manual: false, ctype: C_ASAP, cdate: null }, D);
     for (const e of ents) {
-      const name = e.kind === "group" ? groupName.get(e.row.group) : typeof e.task.title === "string" ? e.task.title : "";
+      const name = e.kind === "group" ? groupName.get(e.row.group) : e.task.title;
       writeTask(out, Object.assign(e, { name, wbs: e.row.wbs }), D);
     }
     out.line(1, "</Tasks>");
@@ -416,7 +544,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
       out.line(2, "<Resource>");
       out.el(3, "UID", id);
       out.el(3, "ID", id);
-      out.el(3, "Name", esc(r.name));
+      out.el(3, "Name", esc(clip(r.name)));
       out.el(3, "Type", 1);
       out.el(3, "IsNull", 0);
       out.el(3, "MaxUnits", 1);
@@ -458,10 +586,27 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
     out.line(depth, "</WorkingTimes>");
   }
 
-  // Kalender dasar UID 1 gaya Project 2003 (R7): WeekDay DayType 1–7 (1 = Minggu = ISO 7) dari pola mingguan
-  // (c.mask, ISO 1 = Senin … 7 = Minggu); pengecualian = WeekDay DayType 0 + TimePeriod untuk hari yang isWork-nya
-  // berbeda dari pola (libur di hari kerja → DayWorking 0; hari kerja pengganti → DayWorking 1 + jam), hari berurutan
-  // sejenis digabung. Rentang [mulai − 7, selesai + 31] atas semua task; > SPAN_MAX hari → SPAN_MAX hari yang digeser
+  // Nama pengecualian libur: nama SKB (TLHolidays.lookup) untuk hari libur rentang yang memang mengikuti sakelar
+  // libur nasional / cuti bersama kalender; nama unik digabung " / " (urut tanggal); hari kerja pengganti / libur
+  // tambahan tanpa nama (kalender terkompilasi tidak menyimpan nama) → "".
+  function excName(c, x) {
+    if (x.work || !HOL || typeof HOL.lookup !== "function") return "";
+    const seen = [];
+    for (let d = x.from; d <= x.to; d++) {
+      if (!c.off.has(d)) continue;
+      const h = HOL.lookup(CAL.iso(d));
+      if (!h || !((h.kind === "libur" && c.national) || (h.kind === "cuti" && c.cutiBersama))) continue;
+      if (seen.indexOf(h.nama) < 0) seen.push(h.nama);
+    }
+    return clip(seen.join(" / "));
+  }
+
+  // Kalender dasar UID 1 (R7, review F2 C1): WeekDay DayType 1–7 (1 = Minggu = ISO 7) dari pola mingguan (c.mask, ISO
+  // 1 = Senin … 7 = Minggu); pengecualian = hari yang isWork-nya berbeda dari pola (libur di hari kerja → DayWorking 0;
+  // hari kerja pengganti → DayWorking 1 + jam), hari berurutan sejenis digabung. Ditulis DUA kali: WeekDay DayType 0 +
+  // TimePeriod (gaya Project 2003, dibaca ProjectLibre) dan blok <Exceptions> gaya 2007 (MS Project 2010+ mengabaikan
+  // gaya lama saat impor; MPXJ membaca <Exceptions> lebih dulu dan memakai DayType 0 hanya bila blok itu kosong, jadi
+  // tidak ganda). Rentang [mulai − 7, selesai + 31] atas semua task; > SPAN_MAX hari → SPAN_MAX hari yang digeser
   // mendekati D − HALF_SPAN (tidak keluar dari rentang task).
   function writeCalendar(out, c, ents, D) {
     let lo = Infinity;
@@ -492,6 +637,12 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
       if (cur && cur.work === w) cur.to = d;
       else exc.push((cur = { from: d, to: d, work: w }));
     }
+    const period = (depth, x) => {
+      out.line(depth, "<TimePeriod>");
+      out.el(depth + 1, "FromDate", CAL.iso(x.from) + T_DAY0);
+      out.el(depth + 1, "ToDate", CAL.iso(x.to) + T_DAY_END);
+      out.line(depth, "</TimePeriod>");
+    };
     out.line(1, "<Calendars>");
     out.line(2, "<Calendar>");
     out.el(3, "UID", 1);
@@ -511,30 +662,43 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
       out.line(4, "<WeekDay>");
       out.el(5, "DayType", 0);
       out.el(5, "DayWorking", x.work ? 1 : 0);
-      out.line(5, "<TimePeriod>");
-      out.el(6, "FromDate", CAL.iso(x.from) + T_DAY0);
-      out.el(6, "ToDate", CAL.iso(x.to) + T_DAY_END);
-      out.line(5, "</TimePeriod>");
+      period(5, x);
       if (x.work) writeTimes(out, 5);
       out.line(4, "</WeekDay>");
     }
     out.line(3, "</WeekDays>");
+    if (exc.length) {
+      // Bentuk = keluaran MSPDIWriter MPXJ (EnteredByOccurrences 0, Occurrences 1, Type 1 = harian) + Name opsional.
+      out.line(3, "<Exceptions>");
+      for (const x of exc) {
+        const nm = excName(c, x);
+        out.line(4, "<Exception>");
+        out.el(5, "EnteredByOccurrences", 0);
+        period(5, x);
+        out.el(5, "Occurrences", 1);
+        if (nm) out.el(5, "Name", esc(nm));
+        out.el(5, "Type", 1);
+        out.el(5, "DayWorking", x.work ? 1 : 0);
+        if (x.work) writeTimes(out, 5);
+        out.line(4, "</Exception>");
+      }
+      out.line(3, "</Exceptions>");
+    }
     out.line(2, "</Calendar>");
     out.line(1, "</Calendars>");
   }
 
   // Satu <Task> dengan urutan anak XSD (subset): UID, ID, Name, Manual, Type, IsNull, CreateDate, WBS, OutlineNumber,
   // OutlineLevel, Start, Finish, Duration, DurationFormat, Work?, EffortDriven, Estimated, Milestone, Summary,
-  // PercentComplete, ConstraintType, CalendarUID, ConstraintDate?, PredecessorLink*, Baseline?, ManualStart/
-  // ManualFinish/ManualDuration (task Manual: tanggal yang dijaga MS Project 2010+ untuk penjadwalan manual).
+  // PercentComplete, ActualStart?, ActualFinish?, ConstraintType, CalendarUID, ConstraintDate?, PredecessorLink*,
+  // Baseline?, ManualStart/ManualFinish/ManualDuration (task Manual: tanggal yang dijaga MS Project 2010+).
   function writeTask(out, e, D) {
     const summary = e.kind !== "task";
-    const milestone = e.kind === "task" && e.d === 0;
     const dur = fmtDur(e.d);
     out.line(2, "<Task>");
     out.el(3, "UID", e.uid);
     out.el(3, "ID", e.uid);
-    out.el(3, "Name", esc(e.name));
+    out.el(3, "Name", esc(clip(e.name)));
     out.el(3, "Manual", e.manual ? 1 : 0);
     out.el(3, "Type", 1);
     out.el(3, "IsNull", 0);
@@ -549,9 +713,11 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
     if (e.work !== undefined) out.el(3, "Work", fmtWork(e.work));
     out.el(3, "EffortDriven", 0);
     out.el(3, "Estimated", e.unscheduled ? 1 : 0);
-    out.el(3, "Milestone", milestone ? 1 : 0);
+    out.el(3, "Milestone", !summary && e.ms ? 1 : 0);
     out.el(3, "Summary", summary ? 1 : 0);
     out.el(3, "PercentComplete", summary ? 0 : pctOf(e.task));
+    if (e.actualS) out.el(3, "ActualStart", fmtPt(e.s));
+    if (e.actualF) out.el(3, "ActualFinish", fmtPt(e.f));
     out.el(3, "ConstraintType", e.ctype);
     out.el(3, "CalendarUID", -1);
     if (e.cdate !== null) out.el(3, "ConstraintDate", e.cdate);
@@ -586,6 +752,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
     SAVE_VERSION,
     LAG_UNIT,
     NAME_CUT,
+    NAME_MAX,
     build,
     fileNameOf,
     esc,
@@ -597,5 +764,6 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD) {
   typeof TLCpm !== "undefined" ? TLCpm : require("./cpm.js"),
   typeof TLLayout !== "undefined" ? TLLayout : require("./layout.js"),
   typeof TLLoad !== "undefined" ? TLLoad : require("./load.js"),
+  typeof TLHolidays !== "undefined" ? TLHolidays : require("./holidays-id.js"),
 );
 if (typeof module !== "undefined" && module.exports) module.exports = TLMspdi;
