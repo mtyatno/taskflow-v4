@@ -173,3 +173,31 @@ def test_descendant_ids_2000_tingkat():
     n = 2000
     rows = [_r(1)] + [_r(i, i - 1) for i in range(2, n + 1)]
     assert ct.descendant_ids(rows, 1) == list(range(2, n + 1))
+
+
+# ── Vektor pohon lintas bahasa (rencana PR B R2) ────────────────────────────
+# Berkas yang sama diuji `tests/offline/checklist.test.js` (TF.checklist.preorder/applyMove) dan
+# `tests/test_checklist_repo.py` (move_subtask), sehingga JS = Python = server.
+
+TREE_VECTORS = json.loads((FIXTURES / "checklist_tree_vectors.json").read_text(encoding="utf-8"))
+
+
+def _vec_rows(rows):
+    return [{"task_id": 1, **r} for r in rows]
+
+
+def test_vektor_pohon_mencakup_kasus_wajib():
+    names = " | ".join(v["name"] for v in TREE_VECTORS["preorder"])
+    for kata in ("tiga tingkat", "kembar", "NULL", "yatim", "task lain", "siklus 2", "siklus 3"):
+        assert kata in names
+    move_names = " | ".join(v["name"] for v in TREE_VECTORS["move"])
+    for kata in ("naik", "turun", "induk lain", "level atas", "lebih dari n", "index null", "posisi sama"):
+        assert kata in move_names
+
+
+@pytest.mark.parametrize("vec", TREE_VECTORS["preorder"], ids=lambda v: v["name"])
+def test_preorder_sesuai_vektor_pohon_bersama(vec):
+    out = ct.preorder(_vec_rows(vec["rows"]))
+    # parent_id efektif = parent_id tersimpan untuk butir ber-depth > 0, None untuk level atas (_subtask_items)
+    got = [[r["id"], r["depth"], r["parent_id"] if r["depth"] else None] for r in out]
+    assert got == vec["expected"]

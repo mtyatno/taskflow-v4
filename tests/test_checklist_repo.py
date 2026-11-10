@@ -3,9 +3,11 @@
 Semua operasi tulis checklist berjalan dalam satu `dbconn.write_tx`, menghitung ulang `tasks.progress`
 dan `tasks.checklist_total` dari butir level atas, dan TIDAK PERNAH menaikkan `tasks.updated_at`.
 """
+import json
 import sqlite3
 import uuid
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 
@@ -859,3 +861,52 @@ def test_tambah_dengan_induk_index_1_di_antara_2_anak(repo, tid):
     assert n["depth"] == 1 and n["parent_id"] == a and n["sort_order"] == 1
     assert _view(repo, tid) == [(a, 0), (a1, 1), (a11, 2), (n["id"], 1), (a2, 1), (b, 0), (c, 0)]
     assert _orders(repo, tid, parent_id=a) == [0, 1, 2]
+
+
+# ── Vektor pohon lintas bahasa (rencana PR B R2) ────────────────────────────
+# Baris vektor dimasukkan ke DB tes (id vektor → id DB menurut urutan id, sehingga pemutus `id` sama), lalu
+# `get_subtasks` / `move_subtask` dibandingkan dengan hasil yang diharapkan `TF.checklist` di klien.
+
+TREE_VECTORS = json.loads(
+    (Path(__file__).resolve().parent / "fixtures" / "checklist_tree_vectors.json").read_text(encoding="utf-8"))
+
+
+def _muat_vektor(u, tid, rows):
+    """Sisipkan baris vektor (`sort_order` NULL tetap NULL); kembalikan (vid → id DB, id DB → vid). `task_id` 1 =
+    `tid`, lainnya = task baru; induk yang tidak ada di vektor → id yang pasti tidak ada (yatim)."""
+    tasks = {1: tid}
+    to_db, to_vec = {}, {}
+    for r in sorted(rows, key=lambda r: r["id"]):
+        t = r.get("task_id", 1)
+        if t not in tasks:
+            tasks[t] = _mk(u, title=f"lain {t}")["id"]
+        sid = _ins(tasks[t], f"v{r['id']}", sort_order=r["sort_order"])
+        to_db[r["id"]], to_vec[sid] = sid, r["id"]
+    for r in rows:
+        p = r["parent_id"]
+        if p is not None:
+            _set_parent(to_db[r["id"]], to_db.get(p, 987654321))
+    return to_db, to_vec
+
+
+@pytest.mark.parametrize("vec", TREE_VECTORS["preorder"], ids=lambda v: v["name"])
+def test_get_subtasks_sesuai_vektor_pohon_bersama(repo, u, tid, vec):
+    to_db, to_vec = _muat_vektor(u, tid, vec["rows"])
+    task1 = {r["id"] for r in vec["rows"] if r.get("task_id", 1) == 1}
+    got = [[to_vec[s["id"]], s["depth"], to_vec.get(s["parent_id"])] for s in repo.get_subtasks(tid)]
+    assert got == [e for e in vec["expected"] if e[0] in task1]
+
+
+@pytest.mark.parametrize("vec", TREE_VECTORS["move"], ids=lambda v: v["name"])
+def test_move_subtask_sesuai_vektor_pindah_bersama(repo, u, tid, vec):
+    to_db, to_vec = _muat_vektor(u, tid, vec["rows"])
+    m = vec["move"]
+    parent = to_db[m["parent_id"]] if m["parent_id"] is not None else None
+    r = repo.move_subtask(to_db[m["id"]], parent, m["index"])
+
+    def bentuk(items):
+        return [[to_vec[s["id"]], s["depth"], to_vec.get(s["parent_id"]), s["sort_order"]] for s in items]
+
+    assert bentuk(r["items"]) == vec["expected"]
+    assert bentuk(repo.get_subtasks(tid)) == vec["expected"]
+    assert _task(tid)["updated_at"] == FROZEN
