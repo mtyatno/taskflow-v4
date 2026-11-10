@@ -12233,6 +12233,7 @@ function FocusTaskItem({
     onCount: onCount
   }) : React.createElement(FocusSubtasks, {
     taskId: task.id,
+    task: task,
     onCount: onCount
   }))));
 }
@@ -13487,62 +13488,25 @@ function TopBarPomodoroChip({
 
 function FocusSubtasks({
   taskId,
+  task = null,
   onCount
 }) {
-  const [subtasks, setSubtasks] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-  const [newSub, setNewSub] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const clientId = useRef(genId());
-  const fetchSubs = useCallback(() => {
-    api.get(`/api/tasks/${taskId}/subtasks`).then(data => {
-      setSubtasks(data);
-      setLoaded(true);
-    }).catch(() => {});
-  }, [taskId]);
+  // Checklist bertingkat (rencana PR B R7): cangkang lama tetap (bar progres, "Belum ada checklist.", kotak tambah +
+  // "Tambah"); daftar dan perilakunya (ubah teks, hapus, seret, lipat, Tab/Shift+Tab di kotak tambah) dari ChecklistTree
+  // variant "focus", yang juga memuat ulang tiap 15 dtk (ditunda selama sibuk). Hitungan = butir level atas.
+  const [counts, setCounts] = useState({
+    done: 0,
+    total: 0,
+    loaded: false
+  });
+  const doneCount = counts.done;
+  const total = counts.total;
   useEffect(() => {
-    fetchSubs();
-  }, [fetchSubs]);
-
-  // Auto-refresh every 15 seconds (only while this panel is open)
-  useEffect(() => {
-    const interval = setInterval(fetchSubs, 15000);
-    return () => clearInterval(interval);
-  }, [fetchSubs]);
-  const doneCount = subtasks.filter(s => s.is_done).length;
-  const total = subtasks.length;
-  useEffect(() => {
-    if (loaded) onCount?.(taskId, {
+    if (counts.loaded) onCount?.(taskId, {
       subDone: doneCount,
       subTotal: total
     });
-  }, [loaded, doneCount, total]);
-  const handleToggle = async subId => {
-    try {
-      const result = await api.post(`/api/subtasks/${subId}/toggle`);
-      setSubtasks(prev => prev.map(s => s.id === subId ? result : s));
-    } catch (err) {
-      console.error(err);
-    }
-  };
-  const handleAdd = async () => {
-    if (!newSub.trim() || submitting) return;
-    setSubmitting(true);
-    try {
-      const result = await api.post(`/api/tasks/${taskId}/subtasks`, {
-        title: newSub.trim(),
-        client_id: clientId.current
-      });
-      setSubtasks(prev => [...prev, result]);
-      setLoaded(true);
-      setNewSub("");
-      clientId.current = genId();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  }, [counts.loaded, doneCount, total]);
   return React.createElement("div", {
     className: "ftask-section"
   }, total > 0 && React.createElement("div", {
@@ -13559,43 +13523,34 @@ function FocusSubtasks({
     style: {
       width: `${doneCount / total * 100}%`
     }
-  })), React.createElement("span", null, doneCount, "/", total, " selesai")), total > 0 && React.createElement("ul", {
-    className: "ftask-sublist"
-  }, subtasks.map(s => React.createElement("li", {
-    key: s.id
-  }, React.createElement("button", {
-    type: "button",
-    className: `ftask-sub${s.is_done ? " is-done" : ""}`,
-    role: "checkbox",
-    "aria-checked": !!s.is_done,
-    onClick: () => handleToggle(s.id)
-  }, React.createElement("span", {
-    className: "ftask-sub-box"
-  }, s.is_done && React.createElement(FocusGlyph, {
-    name: "check",
-    size: 11
-  })), React.createElement("span", {
-    className: "ftask-sub-title"
-  }, s.title))))), total === 0 && loaded && React.createElement("div", {
-    className: "ftask-empty"
-  }, "Belum ada checklist."), React.createElement("div", {
-    className: "ftask-add"
-  }, React.createElement("input", {
-    className: "input",
-    value: newSub,
-    onChange: e => setNewSub(e.target.value),
-    placeholder: "Tambah item checklist, tekan Enter",
-    "aria-label": "Item checklist baru",
-    onKeyDown: e => {
-      if (e.key === "Enter") handleAdd();
-      if (e.key === "Escape") setNewSub("");
-    }
-  }), React.createElement("button", {
-    type: "button",
-    className: "btn btn-primary btn-sm",
-    onClick: handleAdd,
-    disabled: submitting || !newSub.trim()
-  }, submitting ? "..." : "Tambah")));
+  })), React.createElement("span", null, doneCount, "/", total, " selesai")), React.createElement(ChecklistTree, {
+    key: String(taskId),
+    taskId: taskId,
+    task: task,
+    variant: "focus",
+    autoRefreshMs: 15000,
+    onCounts: setCounts,
+    // Persen task dari checklist sudah ditulis ke task lokal: daftar Fokus (dan badge) dimuat ulang.
+    onProgress: () => window.__refreshTasks?.(),
+    renderAdd: add => React.createElement(React.Fragment, null, total === 0 && counts.loaded && React.createElement("div", {
+      className: "ftask-empty"
+    }, "Belum ada checklist."), React.createElement("div", {
+      className: "ftask-add td-tree-add",
+      style: add.style
+    }, React.createElement("input", {
+      className: "input",
+      value: add.text,
+      onChange: e => add.setText(e.target.value),
+      placeholder: "Tambah item checklist, tekan Enter",
+      "aria-label": "Item checklist baru",
+      onKeyDown: add.onKeyDown
+    }), React.createElement("button", {
+      type: "button",
+      className: "btn btn-primary btn-sm",
+      onClick: add.submit,
+      disabled: add.busy || !add.text.trim()
+    }, add.busy ? "..." : "Tambah")))
+  }));
 }
 
 // ── Inline Notes (for Focus page) ──────────

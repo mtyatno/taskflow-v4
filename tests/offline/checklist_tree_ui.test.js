@@ -139,6 +139,9 @@ function mountComp(names, props, env = {}) {
   const useCallback = (fn, deps) => useMemo(() => fn, deps);
   const React = {
     createElement: (type, p, ...children) => {
+      // env.inline: komponen fungsi dirender langsung (urutan hook tetap: satu anak per induk, mis. FocusSubtasks →
+      // ChecklistTree).
+      if (typeof type === "function" && env.inline) return type(Object.assign({}, p));
       // env.refs(type, props) → elemen palsu untuk ref objek (mis. .td-tree-body saat seret).
       if (p && p.ref && typeof p.ref === "object" && env.refs) {
         const el = env.refs(type, p);
@@ -1094,6 +1097,83 @@ test("CSS kunci Progress di blok detail: token saja", () => {
   const block = detailBlock();
   assert.match(block, /\.td-progress-lock\s*\{/);
   assert.match(block, /\.td-progress-note\s*\{[^}]*color: var\(--text-secondary\)/);
+});
+
+// ── Task 7: halaman Fokus ────────────────────────────────────────────────────────────────────────────────────────
+
+async function mountFocus(env = {}) {
+  const srv = env.server || fakeServer(env.rows || SAMPLE);
+  const reported = [];
+  const refreshed = [];
+  const h = mountComp(["FocusSubtasks", "ChecklistTree"], { taskId: 7, task: { id: 7, server_id: 7 }, onCount: (id, c) => reported.push([id, c]) },
+    Object.assign({ api: srv.api, inline: true, window: { __refreshTasks: () => refreshed.push(1) } }, env));
+  await h.settle();
+  return Object.assign(h, { srv, reported, refreshed });
+}
+const focusInput = tree => findAll(tree, n => n.type === "input" && n.props["aria-label"] === "Item checklist baru")[0];
+const focusAddBtn = tree => findAll(tree, n => n.type === "button" && hasClass(n, "btn-primary"))[0];
+
+test("FocusSubtasks: cangkang lama + ChecklistTree variant focus (15 dtk), badge level atas", async () => {
+  const s = fnSource("FocusSubtasks");
+  for (const re of [/React\.createElement\(ChecklistTree, \{/, /variant: "focus"/, /autoRefreshMs: 15000/, /onCounts: setCounts/,
+    /onProgress: \(\) => window\.__refreshTasks\?\.\(\)/, /key: String\(taskId\)/, /renderAdd: add =>/, /className: "ftask-add td-tree-add"/,
+    /style: add\.style/, /onKeyDown: add\.onKeyDown/, /onClick: add\.submit/])
+    assert.match(s, re);
+  for (const re of [/setInterval/, /api\.(get|post)/, /ftask-sublist/, /setSubtasks/]) assert.doesNotMatch(s, re);
+  assert.match(fnSource("FocusTaskItem"), /React\.createElement\(FocusSubtasks, \{\s*taskId: task\.id,\s*task: task,\s*onCount: onCount\s*\}\)/);
+  const h = await mountFocus();
+  assert.deepEqual(h.reported, [[7, { subDone: 0, subTotal: 2 }]], "hanya butir level atas");
+  assert.deepEqual(rowsOf(h.out).map(r => r.id), [1, 2, 3, 4, 5]);
+  const bar = findAll(h.out, n => n.props.role === "progressbar")[0];
+  assert.equal(bar.props["aria-label"], "0 dari 2 item checklist selesai");
+  assert.ok(textOf(bar).includes("0/2 selesai"));
+  assert.ok(findAll(h.out, n => hasClass(n, "td-tree") && hasClass(n, "is-focus")).length === 1);
+  assert.equal(h.intervals.length, 1); assert.equal(h.intervals[0].ms, 15000);
+  // centang level atas → badge + daftar Fokus disegarkan
+  one(h.out, "B").props.onClick(); await h.settle();
+  assert.deepEqual(h.reported.at(-1), [7, { subDone: 1, subTotal: 2 }]);
+  assert.deepEqual(h.refreshed, [1], "onProgress → window.__refreshTasks");
+  // centang sub butir → badge tetap
+  const n = h.reported.length;
+  one(h.out, "A1a").props.onClick(); await h.settle();
+  assert.equal(h.reported.length, n);
+});
+
+test("FocusSubtasks: kotak tambah (Tab/Shift+Tab menjorok, Enter / Tambah), Escape mengosongkan; kosong → 'Belum ada checklist.'", async () => {
+  const h = await mountFocus({ rows: [] });
+  assert.ok(textOf(h.out).includes("Belum ada checklist."));
+  assert.equal(findAll(h.out, n => n.props.role === "progressbar").length, 0);
+  let inp = focusInput(h.out);
+  assert.equal(inp.props.placeholder, "Tambah item checklist, tekan Enter");
+  assert.equal(textOf(focusAddBtn(h.out)), "Tambah");
+  assert.equal(focusAddBtn(h.out).props.disabled, true);
+  inp.props.onChange({ target: { value: "Satu" } }); await h.settle();
+  focusInput(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  assert.deepEqual(h.srv.mutations().at(-1).body.parent_id, null);
+  assert.equal(focusInput(h.out).props.value, "");
+  assert.ok(!textOf(h.out).includes("Belum ada checklist."));
+  assert.deepEqual(h.reported.at(-1), [7, { subDone: 0, subTotal: 1 }]);
+  // Tab → sub butir dari butir terakhir; kotak menjorok
+  focusInput(h.out).props.onChange({ target: { value: "Sub" } }); await h.settle();
+  const tab = key({ key: "Tab" });
+  focusInput(h.out).props.onKeyDown(tab); await h.settle();
+  assert.ok(tab.prevented);
+  const wrap = findAll(h.out, n => hasClass(n, "ftask-add"))[0];
+  assert.deepEqual(wrap.props.style, { "--td-depth": 1 });
+  focusAddBtn(h.out).props.onClick(); await h.settle();
+  assert.deepEqual(h.srv.mutations().at(-1).body.parent_id, 100);
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), [[100, 0], [101, 1]]);
+  assert.deepEqual(h.reported.at(-1), [7, { subDone: 0, subTotal: 1 }], "sub butir tidak menambah badge");
+  focusInput(h.out).props.onChange({ target: { value: "dibuang" } }); await h.settle();
+  focusInput(h.out).props.onKeyDown(key({ key: "Escape" })); await h.settle();
+  assert.equal(focusInput(h.out).props.value, "");
+  assert.deepEqual(findAll(h.out, n => hasClass(n, "ftask-add"))[0].props.style, { "--td-depth": 0 });
+});
+
+test("CSS Fokus: daftar bergulir sendiri (pengganti .ftask-sublist), kotak tambah menjorok; token saja", () => {
+  const block = detailBlock();
+  assert.match(block, /\.td-tree\.is-focus \.td-tree-body\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/);
+  assert.match(block, /\.td-tree-add\s*\{\s*padding-inline-start:\s*calc\(var\(--td-depth, 0\) \* 20px\)/);
 });
 
 // ── Detail (R5) ──────────────────────────────────────────────────────────────────────────────────────────────────

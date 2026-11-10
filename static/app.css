@@ -5368,6 +5368,8 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .td-tree-item.is-dragging { opacity: 0.4; }
 .td-tree-line { position: absolute; right: 0; left: calc(26px + var(--td-depth, 0) * 20px); height: 2px; margin-top: -1px; border-radius: 1px; background: var(--accent); pointer-events: none; z-index: 1; }
 .td-tree-line::before { content: ""; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; box-sizing: border-box; border: 2px solid var(--accent); border-radius: 50%; background: var(--bg-card); }
+/* Halaman Fokus: daftar bergulir sendiri seperti .ftask-sublist dulu (wadah gulir terdekat untuk seret). */
+.td-tree.is-focus .td-tree-body { max-height: 280px; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
 /* Kotak ubah teks (klik teks / ⋯ → Ubah teks): MentionInput, pembungkusnya mengisi sisa baris. */
 .td-tree-text { cursor: text; }
 .td-tree-row > div { flex: 1 1 auto; min-width: 0; }
