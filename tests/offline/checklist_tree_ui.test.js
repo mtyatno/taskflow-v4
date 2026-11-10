@@ -255,7 +255,7 @@ async function mountTree(extra = {}, env = {}) {
   const progress = [];
   let add = null;
   const props = Object.assign({
-    taskId: 7, task: { id: 7, server_id: 7 }, collaborators: [], variant: "detail",
+    taskId: 7, task: { id: 7, server_id: 7, progress: 0, checklist_total: 2 }, collaborators: [], variant: "detail",
     onCounts: c => counts.push(c), onProgress: tp => progress.push(tp),
     renderAdd: a => { add = a; return { type: "ADD", props: {}, children: [] }; }
   }, extra);
@@ -334,8 +334,27 @@ test("ChecklistTree: gagal muat → daftar kosong, onCounts 0/0 loaded", async (
   srv.fail["GET /subtasks$"] = true;
   const h = await mountTree({}, { server: srv });
   assert.deepEqual(rowsOf(h.out), []);
-  assert.deepEqual(h.counts, [{ done: 0, total: 0, loaded: true }]);
+  assert.deepEqual(h.counts, [{ done: 0, total: 0, loaded: true, failed: true }], "gagal muat = keadaan tersendiri (S3)");
   assert.deepEqual(h.toasts, [], "muat pertama yang gagal tidak memunculkan toast");
+});
+
+test("S3: gagal muat lalu berhasil → hitungan biasa tanpa failed; lockFor gagal muat + checklist_total > 0 → pending", async () => {
+  const srv = fakeServer(SAMPLE);
+  srv.fail["GET /subtasks$"] = true;
+  const h = await mountTree({ autoRefreshMs: 15000 }, { server: srv });
+  assert.deepEqual(h.counts, [{ done: 0, total: 0, loaded: true, failed: true }]);
+  assert.deepEqual(C.lockFor({ checklist_total: 2 }, h.counts.at(-1)), { pending: true }, "pill tetap terkunci");
+  assert.equal(C.lockFor({ checklist_total: 0 }, h.counts.at(-1)), null);
+  srv.fail["GET /subtasks$"] = false;
+  h.intervals[0].fn(); await h.settle();
+  assert.deepEqual(h.counts.at(-1), { done: 0, total: 2, loaded: true });
+  // daftar kosong yang berhasil dimuat sesudah gagal: hitungan 0/0 tanpa failed
+  const srv2 = fakeServer([]);
+  srv2.fail["GET /subtasks$"] = true;
+  const h2 = await mountTree({ autoRefreshMs: 15000 }, { server: srv2 });
+  srv2.fail["GET /subtasks$"] = false;
+  h2.intervals[0].fn(); await h2.settle();
+  assert.deepEqual(h2.counts, [{ done: 0, total: 0, loaded: true, failed: true }, { done: 0, total: 0, loaded: true }]);
 });
 
 test("ChecklistTree: task belum tersinkron (id = cid) → tanpa permintaan, daftar kosong, 0/0", async () => {
@@ -545,6 +564,78 @@ test("autoRefreshMs: memuat ulang berkala; dilewati selama antrean belum kosong 
   // tanpa autoRefreshMs → tanpa interval
   const h2 = await mountTree();
   assert.equal(h2.intervals.length, 0);
+});
+
+test("S1: onProgress hanya bila task_progress berbeda dari nilai terakhir yang diketahui; adoptTaskProgress tetap dipanggil", async () => {
+  const h = await mountTree(); // task 0% / checklist_total 2; muat: 0/2
+  textBtn(h.out, 5).props.onClick(); await h.settle();
+  editBox(h.out).props.onChange({ target: { value: "B2" } }); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  one(h.out, "A1a").props.onClick(); await h.settle();
+  rowNode(h.out, 5).props.onKeyDown(key({ key: "ArrowUp", altKey: true, target: { getAttribute: () => "check" } })); await h.settle();
+  await pick(h, "A2", "Jadikan sub");
+  assert.equal(h.adopted.length, 4, "adoptTaskProgress tetap dipanggil untuk setiap respons");
+  assert.deepEqual(h.progress, [], "ubah teks / centang sub butir / pindah tanpa perubahan level atas → tanpa onProgress");
+  one(h.out, "A").props.onClick(); await h.settle();
+  assert.deepEqual(h.progress, [{ done: 1, total: 2, progress: 50 }], "centang level atas → satu onProgress");
+  textBtn(h.out, 1).props.onClick(); await h.settle();
+  editBox(h.out).props.onChange({ target: { value: "A2x" } }); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  assert.equal(h.progress.length, 1, "nilai terakhir kini 50%");
+});
+
+test("S1: nilai awal task basi (progress lokal ≠ server) → respons pertama tetap memicu onProgress, sekali", async () => {
+  const rows = SAMPLE.map(r => (r.id === 1 ? Object.assign({}, r, { is_done: true }) : r));
+  const h = await mountTree({ task: { id: 7, server_id: 7, progress: 0, checklist_total: 2 } }, { rows });
+  textBtn(h.out, 5).props.onClick(); await h.settle();
+  editBox(h.out).props.onChange({ target: { value: "B2" } }); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  assert.deepEqual(h.progress, [{ done: 1, total: 2, progress: 50 }], "angka checklist belum sampai ke task lokal");
+  textBtn(h.out, 5).props.onClick(); await h.settle();
+  editBox(h.out).props.onChange({ target: { value: "B3" } }); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  assert.equal(h.progress.length, 1);
+});
+
+test("S4: muat berkala yang mendarat saat komponen sibuk dibuang (seret / kotak ubah teks); muat berikutnya diterapkan", async () => {
+  const srv = fakeServer(SAMPLE);
+  const gates = [];
+  const get = srv.api.get;
+  srv.api.get = url => new Promise(r => gates.push(r)).then(() => get(url));
+  const h = await mountDrag({ autoRefreshMs: 15000 }, { server: srv });
+  gates.shift()(); await h.settle(); // muat pertama
+  assert.equal(rowsOf(h.out).length, 5);
+  h.intervals[0].fn(); await h.settle(); // muat berkala dimulai saat tidak sibuk
+  srv.rows.push({ id: 50, task_id: 7, parent_id: null, title: "Baru", is_done: false, sort_order: 9 });
+  h.down("B", { clientX: 10, clientY: 162 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: 10, clientY: 20 });
+  await h.settle();
+  assert.ok(lineOf(h.out), "seret berjalan");
+  gates.shift()(); await h.settle();
+  assert.equal(rowsOf(h.out).length, 5, "hasil muat dibuang selama seret");
+  h.fire("pointercancel", { pointerId: 1 }); await h.settle();
+  // kotak ubah teks dibuka saat muat berjalan → dibuang juga
+  h.intervals[0].fn(); await h.settle();
+  textBtn(h.out, 5).props.onClick(); await h.settle();
+  gates.shift()(); await h.settle();
+  assert.equal(rowsOf(h.out).length, 5, "hasil muat dibuang selama kotak ubah teks terbuka");
+  editBox(h.out).props.onKeyDown(key({ key: "Escape" })); await h.settle();
+  h.intervals[0].fn(); await h.settle();
+  gates.shift()(); await h.settle();
+  assert.equal(rowsOf(h.out).length, 6, "tidak sibuk → diterapkan");
+  assert.match(fnSource("ChecklistTree"), /!force && \(mut !== mutSeqRef\.current \|\| busyRef\.current\(\)\)/);
+});
+
+test("C1: lipat dari dua instans (modal + kartu Fokus) tidak saling menimpa: toggleFold membaca ulang penyimpanan", async () => {
+  const storage = fakeStorage();
+  const h1 = await mountTree({}, { storage });
+  const h2 = await mountTree({}, { storage });
+  one(h1.out, "Lipat sub butir «A»").props.onClick(); await h1.settle();
+  one(h2.out, "Lipat sub butir «A1»").props.onClick(); await h2.settle();
+  assert.deepEqual(JSON.parse(storage.m.get("tf_check_collapsed")), [1, 2], "lipatan instans pertama tidak hilang");
+  one(h1.out, "Buka sub butir «A»").props.onClick(); await h1.settle();
+  assert.deepEqual(JSON.parse(storage.m.get("tf_check_collapsed")), [2], "lipatan instans kedua tidak hilang");
+  assert.match(fnSource("ChecklistTree"), /const toggleFold = \(id, fold\) => \{\s*const next = freshCollapsed\(\);/);
 });
 
 test("CSS blok detail: pohon checklist hanya token, --td-depth 20/16 px, target 32 px, tanpa border-left", () => {
@@ -1032,6 +1123,19 @@ test("ProgressPill terkunci: angka checklist apa adanya, aria-label, slider nona
   assert.ok(btn);
   btn.props.onClick();
   assert.deepEqual(opened, [1]);
+  // C4: judul dan label popover "Progress" (bukan "Ubah Progress") saat terkunci
+  const pop = findAll(out, n => n.type === "DetailPopover")[0];
+  assert.equal(pop.props.label, "Progress");
+  assert.equal(textOf(findAll(pop, n => hasClass(n, "td-pop-title"))[0]).replace(/\d+%$/, ""), "Progress");
+  // S2: elemen pertama yang bisa difokus di popover = "Buka Checklist" (slider nonaktif dilewati DetailPopover)
+  const focusable = findAll(pop, n => (n.type === "input" || n.type === "button") && !n.props.disabled);
+  assert.equal(textOf(focusable[0]), "Buka Checklist");
+});
+
+test("S2: DetailPopover memfokuskan input/button pertama yang tidak nonaktif", () => {
+  const p = fnSource("DetailPopover");
+  assert.match(p, /el\.querySelector\("input:not\(\[disabled\]\), button:not\(\[disabled\]\)"\)/);
+  assert.doesNotMatch(p, /querySelector\("input, button"\)/);
 });
 
 test("ProgressPill: hitungan belum dimuat (pending) → nilai task apa adanya, tanpa (d/t); tidak terkunci → seperti sebelumnya", () => {
@@ -1045,6 +1149,9 @@ test("ProgressPill: hitungan belum dimuat (pending) → nilai task apa adanya, t
   assert.ok(u.clampCalls.length > 0, "manual: dibulatkan seperti sebelumnya");
   const upill = findAll(u.out, n => n.type === "button" && hasClass(n, "td-pill"))[0];
   assert.equal(upill.props["aria-label"], "Progress 35%");
+  const upop = findAll(u.out, n => n.type === "DetailPopover")[0];
+  assert.equal(upop.props.label, "Ubah Progress");
+  assert.equal(textOf(findAll(upop, n => hasClass(n, "td-pop-title"))[0]), "Ubah Progress35%");
   assert.equal(findAll(u.out, n => hasClass(n, "td-presets")).length, 1);
   assert.equal(findAll(u.out, n => n.type === "input" && n.props.type === "range")[0].props.disabled, false);
   assert.equal(findAll(u.out, n => textOf(n) === "Buka Checklist").length, 0);
@@ -1064,6 +1171,31 @@ test("TaskDetailBody: kunci dari TF.checklist.lockFor(task, checkCounts); Live E
     '", otomatis dari checklist"'])
     assert.ok(pp.includes(t), t);
   assert.doesNotMatch(pp, EMOJI);
+});
+
+test("S1 detail: scheduleRefresh = debounce 500 ms (onSaved dan onProgress); setelah unmount langsung", () => {
+  const s = fnSource("TaskDetailBody");
+  const a = s.indexOf("const scheduleRefresh = () =>");
+  assert.ok(a > 0, "scheduleRefresh ada");
+  const code = s.slice(a, s.indexOf("\n  };", a) + 5);
+  const timers = [];
+  const refreshed = [];
+  const make = new Function("liveMountedRef", "refreshTimerRef", "onRefreshRef", "setTimeout", "clearTimeout", code + "\nreturn scheduleRefresh;");
+  const mounted = { current: true };
+  const timer = { current: null };
+  const sched = make(mounted, timer, { current: () => refreshed.push(1) },
+    (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, h => { if (h) timers[h - 1].cleared = true; });
+  sched(); sched(); sched();
+  assert.deepEqual(timers.map(t => [t.ms, !!t.cleared]), [[500, true], [500, true], [500, false]]);
+  timers.filter(t => !t.cleared).forEach(t => t.fn());
+  assert.deepEqual(refreshed, [1], "tiga aksi beruntun → satu refresh");
+  assert.equal(timer.current, null);
+  mounted.current = false;
+  sched();
+  assert.deepEqual(refreshed, [1, 1], "sesudah unmount: langsung");
+  assert.match(s, /const onSaved = patch => \{[\s\S]{0,700}scheduleRefresh\(\);\s*\};/);
+  assert.doesNotMatch(s.slice(s.indexOf("const onSaved = patch =>"), s.indexOf("const auto = useTaskAutosave")), /setTimeout/,
+    "onSaved memakai scheduleRefresh");
 });
 
 test("Live Edit: commit progress tanpa perubahan (pill terkunci ditutup) tidak mengirim PUT; angka baru dari luar diadopsi tanpa disimpan", async () => {
@@ -1116,7 +1248,7 @@ const focusAddBtn = tree => findAll(tree, n => n.type === "button" && hasClass(n
 test("FocusSubtasks: cangkang lama + ChecklistTree variant focus (15 dtk), badge level atas", async () => {
   const s = fnSource("FocusSubtasks");
   for (const re of [/React\.createElement\(ChecklistTree, \{/, /variant: "focus"/, /autoRefreshMs: 15000/, /onCounts: setCounts/,
-    /onProgress: \(\) => window\.__refreshTasks\?\.\(\)/, /key: String\(taskId\)/, /renderAdd: add =>/, /className: "ftask-add td-tree-add"/,
+    /onProgress: scheduleRefresh/, /setTimeout\(\(\) => \{\s*refreshTimerRef\.current = null;\s*window\.__refreshTasks\?\.\(\);\s*\}, 500\)/, /key: String\(taskId\)/, /renderAdd: add =>/, /className: "ftask-add td-tree-add"/,
     /style: add\.style/, /onKeyDown: add\.onKeyDown/, /onClick: add\.submit/])
     assert.match(s, re);
   for (const re of [/setInterval/, /api\.(get|post)/, /ftask-sublist/, /setSubtasks/]) assert.doesNotMatch(s, re);
@@ -1132,6 +1264,8 @@ test("FocusSubtasks: cangkang lama + ChecklistTree variant focus (15 dtk), badge
   // centang level atas → badge + daftar Fokus disegarkan
   one(h.out, "B").props.onClick(); await h.settle();
   assert.deepEqual(h.reported.at(-1), [7, { subDone: 1, subTotal: 2 }]);
+  assert.deepEqual(h.refreshed, [], "ditunda 500 ms (S1)");
+  h.runTimers(); await h.settle();
   assert.deepEqual(h.refreshed, [1], "onProgress → window.__refreshTasks");
   // centang sub butir → badge tetap
   const n = h.reported.length;
@@ -1170,6 +1304,21 @@ test("FocusSubtasks: kotak tambah (Tab/Shift+Tab menjorok, Enter / Tambah), Esca
   assert.deepEqual(findAll(h.out, n => hasClass(n, "ftask-add"))[0].props.style, { "--td-depth": 0 });
 });
 
+test("S1 Fokus: tiga aksi yang mengubah progress beruntun cepat → satu __refreshTasks; unmount mengirim yang tertunda", async () => {
+  const h = await mountFocus();
+  one(h.out, "B").props.onClick(); await h.settle();
+  one(h.out, "A").props.onClick(); await h.settle();
+  one(h.out, "B").props.onClick(); await h.settle();
+  assert.deepEqual(h.refreshed, []);
+  h.runTimers(); await h.settle();
+  assert.deepEqual(h.refreshed, [1], "satu refresh");
+  one(h.out, "A").props.onClick(); await h.settle();
+  h.unmount();
+  assert.deepEqual(h.refreshed, [1, 1], "refresh tertunda dikirim saat panel ditutup");
+  h.runTimers();
+  assert.deepEqual(h.refreshed, [1, 1], "tanpa refresh ganda");
+});
+
 test("CSS Fokus: daftar bergulir sendiri (pengganti .ftask-sublist), kotak tambah menjorok; token saja", () => {
   const block = detailBlock();
   assert.match(block, /\.td-tree\.is-focus \.td-tree-body\s*\{[^}]*max-height:[^}]*overflow-y:\s*auto/);
@@ -1181,7 +1330,7 @@ test("CSS Fokus: daftar bergulir sendiri (pengganti .ftask-sublist), kotak tamba
 test("TaskDetailBody: tab Checklist = ChecklistTree variant detail; state checklist lama dihapus", () => {
   const s = fnSource("TaskDetailBody");
   for (const re of [/React\.createElement\(ChecklistTree, \{/, /variant: "detail"/, /onCounts: setCheckCounts/,
-    /onProgress: tp => \{[\s\S]{0,300}auto\.external\(Object\.assign\(\{\}, task, auto\.getState\(\)\.saved, \{\s*progress: tp\.progress,[\s\S]{0,120}onRefreshRef\.current\?\.\(\);\s*\}/,
+    /onProgress: tp => \{[\s\S]{0,300}auto\.external\(Object\.assign\(\{\}, task, auto\.getState\(\)\.saved, \{\s*progress: tp\.progress,[\s\S]{0,120}scheduleRefresh\(\);\s*\}/,
     /key: String\(task\.id\)/,
     /const \[checkCounts, setCheckCounts\] = useState\(\{\s*done: 0,\s*total: 0,\s*loaded: false\s*\}\)/])
     assert.match(s, re);

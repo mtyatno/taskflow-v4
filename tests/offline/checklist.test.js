@@ -489,6 +489,12 @@ test("lockFor: belum dimuat dan task.checklist_total > 0 → {pending:true}", ()
   assert.deepEqual(C.lockFor({ checklist_total: 2 }, { done: 0, total: 0, loaded: false }), { pending: true });
 });
 
+test("lockFor: muat gagal (counts.failed) dan task.checklist_total > 0 → {pending:true}; tanpa checklist_total → null", () => {
+  assert.deepEqual(C.lockFor({ checklist_total: 3 }, { done: 0, total: 0, loaded: true, failed: true }), { pending: true });
+  assert.equal(C.lockFor({ checklist_total: 0 }, { done: 0, total: 0, loaded: true, failed: true }), null);
+  assert.equal(C.lockFor({}, { done: 0, total: 0, loaded: true, failed: true }), null);
+});
+
 test("lockFor: selain itu null (termasuk dimuat dengan total 0 walau checklist_total basi)", () => {
   assert.equal(C.lockFor({ checklist_total: 4 }, { done: 0, total: 0, loaded: true }), null);
   assert.equal(C.lockFor({ checklist_total: 0 }, null), null);

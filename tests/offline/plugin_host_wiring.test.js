@@ -22,7 +22,7 @@ const HOST_1D0_EXTRA = 162;
 // Checklist bertingkat PR B (fitur host, bukan plugin; rencana docs/superpowers/plans/2026-11-10-checklist-bertingkat-pr-b-ui.md):
 // ChecklistTree, kunci Progress, Fokus menambah tepat sekian baris index.html terhadap main 6182810 (46236 baris).
 // Diperbarui per tugas PR B supaya anggaran plugin tetap ketat; anggaran historis di bawah ikut naik.
-const CHECKLIST_PRB_EXTRA = 801;
+const CHECKLIST_PRB_EXTRA = 875;
 
 function fnSource(name) {
   const s = html.indexOf(`function ${name}(`);

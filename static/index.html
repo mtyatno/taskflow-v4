@@ -8919,9 +8919,10 @@ function DetailPopover({
     document.addEventListener("focusin", onFocusIn, true);
     window.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
-    // Fokus ke elemen pertama bila belum ada di dalam (autoFocus milik isi popover didahulukan).
+    // Fokus ke elemen pertama yang bisa dipakai bila belum ada di dalam (autoFocus milik isi popover didahulukan;
+    // slider Progress yang terkunci dilewati sehingga "Buka Checklist" terfokus).
     if (el && !el.contains(document.activeElement)) {
-      const first = el.querySelector("input, button");
+      const first = el.querySelector("input:not([disabled]), button:not([disabled])");
       if (first) first.focus({ preventScroll: true });
     }
     focusInsideRef.current = !!(el && el.contains(document.activeElement));
@@ -9166,11 +9167,11 @@ function ProgressPill({
     anchorRef: pillRef,
     open: open,
     onClose: onClose,
-    label: "Ubah Progress",
+    label: locked ? "Progress" : "Ubah Progress",
     className: "td-progress-pop"
   }, /*#__PURE__*/React.createElement("div", {
     className: "td-pop-title"
-  }, /*#__PURE__*/React.createElement("span", null, "Ubah Progress"), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", null, locked ? "Progress" : "Ubah Progress"), /*#__PURE__*/React.createElement("span", {
     className: "td-pop-value" + (full ? " is-full" : "")
   }, v + "%")), /*#__PURE__*/React.createElement("input", {
     type: "range",
@@ -9752,12 +9753,15 @@ function ChecklistGlyph({
 // Checklist bertingkat (spec checklist-bertingkat §6–§7, rencana PR B R3): satu komponen untuk detail task (modal +
 // panel Live Edit, variant "detail") dan halaman Fokus (variant "focus"). Logika pohon murni di TF.checklist; di sini
 // state, antrean mutasi, dan tampilan. Pemanggil memberi key = id task (id cid → id server memasang ulang).
-// - Memuat GET /api/tasks/{id}/subtasks sendiri; onCounts({done, total, loaded: true}) level atas sesudah muat pertama
-//   (gagal = 0/0), lalu setiap hitungan berubah.
+// - Memuat GET /api/tasks/{id}/subtasks sendiri; onCounts({done, total, loaded: true}) level atas sesudah muat pertama,
+//   lalu setiap hitungan berubah. Muat pertama gagal → {done: 0, total: 0, loaded: true, failed: true} (pill tetap
+//   terkunci bila task bercheklist, lockFor). Muat berkala yang mendarat saat sibuk dibuang.
 // - Satu antrean mutasi berurutan (D9): pindah dan ubah teks tampil langsung (optimistis), tambah/centang/hapus menunggu
 //   respons. Galat apa pun → toast §6.7, sisa antrean dibuang, daftar kembali ke versi terakhir yang dikenal server lalu
-//   dimuat ulang. Setiap task_progress → TF.checklist.adoptTaskProgress (record task lokal tanpa dirty/rev) lalu
-//   onProgress(tp) (§7.8).
+//   dimuat ulang. Setiap task_progress → TF.checklist.adoptTaskProgress (record task lokal tanpa dirty/rev); onProgress(tp)
+//   (§7.8) hanya bila {done, total, progress} berbeda dari nilai terakhir yang diketahui (awal: task.progress /
+//   task.checklist_total + hitungan muat), jadi ubah teks, centang sub butir, atau pindah tanpa perubahan level atas tidak
+//   memuat ulang daftar task.
 // - autoRefreshMs (Fokus) memuat ulang berkala, dilewati selama sibuk (seret, kotak isian berisi teks, menu terbuka,
 //   antrean belum kosong).
 // - Task belum tersinkron (id bukan angka): daftar kosong, tanpa GET dan tanpa /api/subtasks/*.
@@ -9785,7 +9789,8 @@ function ChecklistTree({
     return s;
   };
   const [items, setItemsState] = useState([]);
-  const [loaded, setLoaded] = useState(!synced);
+  const [loadState, setLoadState] = useState(synced ? "loading" : "ok"); // "loading" | "ok" | "failed" (muat pertama gagal)
+  const loaded = loadState !== "loading";
   const [collapsed, setCollapsedState] = useState(() => C.loadCollapsed(storage()));
   const [addText, setAddText] = useState("");
   const [addDepth, setAddDepth] = useState(0);
@@ -9806,6 +9811,13 @@ function ChecklistTree({
   const mutSeqRef = useRef(0);
   const loadSeqRef = useRef(0);
   const countsRef = useRef(null);
+  // task_progress terakhir yang diketahui; onProgress hanya bila respons berbeda darinya.
+  const knownTpRef = useRef(null);
+  if (knownTpRef.current === null) knownTpRef.current = {
+    done: null,
+    total: task && task.checklist_total != null ? Number(task.checklist_total) : null,
+    progress: task && task.progress != null ? Number(task.progress) : null
+  };
   const toggleBusyRef = useRef(new Set());
   const addClientIdRef = useRef(null);
   if (addClientIdRef.current === null) addClientIdRef.current = genId();
@@ -9837,14 +9849,21 @@ function ChecklistTree({
     const seq = ++loadSeqRef.current;
     const mut = mutSeqRef.current;
     return api.get(listUrl).then(data => {
-      if (!aliveRef.current || seq !== loadSeqRef.current || !force && mut !== mutSeqRef.current) return;
+      // Muat bukan paksa (berkala) dibuang bila daftar berubah lokal sejak dimulai atau komponen sedang sibuk (seret,
+      // kotak isian berisi teks, menu terbuka, antrean belum kosong); muat berikutnya menyusul.
+      if (!aliveRef.current || seq !== loadSeqRef.current || !force && (mut !== mutSeqRef.current || busyRef.current())) return;
       const list = C.preorder(Array.isArray(data) ? data : []);
       confirmedRef.current = list;
       itemsRef.current = list;
+      const c = C.topLevelCounts(list);
+      knownTpRef.current = Object.assign({}, knownTpRef.current, {
+        done: c.done,
+        total: c.total
+      });
       setItemsState(list);
-      setLoaded(true);
+      setLoadState("ok");
     }, () => {
-      if (aliveRef.current) setLoaded(true);
+      if (aliveRef.current) setLoadState(st => st === "ok" ? st : "failed");
     });
   };
   const enqueue = (run, failText) => {
@@ -9867,7 +9886,16 @@ function ChecklistTree({
     const tp = resp && resp.task_progress;
     if (!tp) return;
     const sid = task && task.server_id != null ? task.server_id : taskId;
-    C.adoptTaskProgress(sid, tp).then(() => cbRef.current.onProgress?.(tp));
+    const k = knownTpRef.current;
+    const changed = k.done !== tp.done || k.total !== tp.total || k.progress !== tp.progress;
+    knownTpRef.current = {
+      done: tp.done,
+      total: tp.total,
+      progress: tp.progress
+    };
+    C.adoptTaskProgress(sid, tp).then(() => {
+      if (changed) cbRef.current.onProgress?.(tp);
+    });
   };
   // Perubahan yang sudah diterima server: ke daftar server dan ke tampilan.
   const applyServer = fn => {
@@ -9896,19 +9924,29 @@ function ChecklistTree({
     collapsedRef.current = saved;
     setCollapsedState(saved);
   };
-  // Lipat terakhir = paling baru (yang tertua dibuang lebih dulu saat melewati batas).
-  const toggleFold = id => {
-    const next = new Set(collapsedRef.current);
-    if (next.has(id)) next.delete(id);else {
-      next.delete(id);
-      next.add(id);
-    }
+  // Status lipat dibaca ulang dari penyimpanan sebelum diubah: instans lain (modal dan kartu Fokus) bisa sudah melipat /
+  // membuka butir lain sejak komponen ini dimuat. Penyimpanan tidak terbaca → keadaan instans ini.
+  const freshCollapsed = () => {
+    const st = storage();
+    try {
+      if (st) {
+        st.getItem(C.COLLAPSE_KEY);
+        return C.loadCollapsed(st);
+      }
+    } catch (_) {}
+    return new Set(collapsedRef.current);
+  };
+  // fold = keadaan yang diminta tombol (lipat / buka). Lipat terakhir = paling baru (yang tertua dibuang lebih dulu).
+  const toggleFold = (id, fold) => {
+    const next = freshCollapsed();
+    next.delete(id);
+    if (fold) next.add(id);
     setCollapsed(next);
   };
   // Buka butir dan seluruh leluhurnya (butir baru / tujuan pindah tidak boleh tersembunyi di bawah butir terlipat).
   const expandChain = id => {
     const byId = new Map(C.preorder(itemsRef.current).map(r => [r.id, r]));
-    const next = new Set(collapsedRef.current);
+    const next = freshCollapsed();
     let changed = false;
     for (let cur = byId.get(id); cur; cur = cur.parent_id == null ? null : byId.get(cur.parent_id)) {
       if (next.delete(cur.id)) changed = true;
@@ -10356,15 +10394,26 @@ function ChecklistTree({
   useEffect(() => {
     if (!loaded) return;
     const c = C.topLevelCounts(items);
+    // Gagal = muat pertama gagal dan belum ada butir yang diketahui (butir dari respons tambah = daftar yang dikenal).
+    const failed = loadState === "failed" && items.length === 0;
     const last = countsRef.current;
-    if (last && last.done === c.done && last.total === c.total) return;
-    countsRef.current = c;
-    cbRef.current.onCounts?.({
+    if (last && last.done === c.done && last.total === c.total && last.failed === failed) return;
+    countsRef.current = {
+      done: c.done,
+      total: c.total,
+      failed
+    };
+    cbRef.current.onCounts?.(failed ? {
+      done: 0,
+      total: 0,
+      loaded: true,
+      failed: true
+    } : {
       done: c.done,
       total: c.total,
       loaded: true
     });
-  }, [items, loaded]);
+  }, [items, loadState]);
   // Daftar berubah: depth kotak bawah di-clamp ulang; kotak/menu milik butir yang sudah tidak ada ditutup.
   useEffect(() => {
     const max = C.maxAddDepth(items);
@@ -10446,7 +10495,7 @@ function ChecklistTree({
       "aria-expanded": !folded,
       "aria-label": folded ? "Buka sub butir «" + title + "»" : "Lipat sub butir «" + title + "»",
       "data-check-part": "fold",
-      onClick: () => toggleFold(id)
+      onClick: () => toggleFold(id, !folded)
     }, React.createElement(ChecklistGlyph, {
       name: folded ? "chevronRight" : "chevronDown"
     })) : React.createElement("span", {
@@ -10769,6 +10818,19 @@ function TaskDetailBody({
       onRefreshRef.current?.();
     }
   }, []);
+  // Muat ulang daftar (onRefresh) dengan debounce 500 ms (simpan Live Edit, progress dari checklist); setelah unmount
+  // langsung.
+  const scheduleRefresh = () => {
+    if (!liveMountedRef.current) {
+      onRefreshRef.current?.();
+      return;
+    }
+    clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      onRefreshRef.current?.();
+    }, 500);
+  };
   const onSaved = patch => {
     window.dispatchEvent(new CustomEvent("taskUpdated", {
       detail: {
@@ -10783,11 +10845,7 @@ function TaskDetailBody({
       // Chip ikut #tag baru dari judul ini (simpan judul berikutnya memuat tag sendiri, R21).
       loadTags(task.id).catch(() => {});
     }
-    clearTimeout(refreshTimerRef.current);
-    refreshTimerRef.current = setTimeout(() => {
-      refreshTimerRef.current = null;
-      onRefreshRef.current?.();
-    }, 500);
+    scheduleRefresh();
   };
   const auto = useTaskAutosave(task, true, {
     onSaved,
@@ -11389,16 +11447,16 @@ function TaskDetailBody({
     collaborators: collaborators,
     variant: "detail",
     onCounts: setCheckCounts,
-    // Progress dari checklist sudah ditulis ke task lokal (adoptTaskProgress): daftar, pill, dan Timeline dimuat ulang.
-    // Prop task modal tidak ikut dimuat ulang, jadi angkanya juga masuk ke form Live Edit sebagai perubahan dari luar
-    // (mergeExternal: field yang tidak sedang diubah ikut; tidak disimpan ulang) — slider yang terbuka lagi setelah
-    // butir level atas terakhir dihapus mulai dari angka terakhir (K11).
+    // Progress dari checklist berubah dan sudah ditulis ke task lokal (adoptTaskProgress): daftar dan Timeline dimuat
+    // ulang (debounce 500 ms). Prop task modal tidak ikut dimuat ulang, jadi angkanya langsung masuk ke form Live Edit
+    // sebagai perubahan dari luar (mergeExternal: field yang tidak sedang diubah ikut; tidak disimpan ulang) — slider
+    // yang terbuka lagi setelah butir level atas terakhir dihapus mulai dari angka terakhir (K11).
     onProgress: tp => {
       if (tp && typeof tp.progress === "number") auto.external(Object.assign({}, task, auto.getState().saved, {
         progress: tp.progress,
         checklist_total: tp.total
       }));
-      onRefreshRef.current?.();
+      scheduleRefresh();
     },
     // Kotak bawah: Enter menambah dan tetap terbuka; Tab/Shift+Tab = tingkat; Escape / blur saat kosong menutup.
     renderAdd: add => /*#__PURE__*/React.createElement(React.Fragment, null, checkCounts.loaded && checkCounts.total === 0 && !add.open && /*#__PURE__*/React.createElement("div", {
@@ -13501,6 +13559,23 @@ function FocusSubtasks({
   });
   const doneCount = counts.done;
   const total = counts.total;
+  // Persen task dari checklist berubah: daftar Fokus (window.__refreshTasks = fetchAll) dimuat ulang dengan debounce
+  // 500 ms; yang masih tertunda dikirim saat panel ditutup.
+  const refreshTimerRef = useRef(null);
+  const scheduleRefresh = () => {
+    clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      window.__refreshTasks?.();
+    }, 500);
+  };
+  useEffect(() => () => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+      window.__refreshTasks?.();
+    }
+  }, []);
   useEffect(() => {
     if (counts.loaded) onCount?.(taskId, {
       subDone: doneCount,
@@ -13530,8 +13605,7 @@ function FocusSubtasks({
     variant: "focus",
     autoRefreshMs: 15000,
     onCounts: setCounts,
-    // Persen task dari checklist sudah ditulis ke task lokal: daftar Fokus (dan badge) dimuat ulang.
-    onProgress: () => window.__refreshTasks?.(),
+    onProgress: scheduleRefresh,
     renderAdd: add => React.createElement(React.Fragment, null, total === 0 && counts.loaded && React.createElement("div", {
       className: "ftask-empty"
     }, "Belum ada checklist."), React.createElement("div", {

@@ -56,7 +56,7 @@
   //   menyimpan array maks `COLLAPSE_MAX` (yang paling lama ditambahkan dibuang dulu) dan mengembalikan array itu.
   //   Setiap akses `try/catch`; JSON rusak / bukan array / storage null → kosong tanpa galat.
   // - `lockFor(task, counts)`: `counts.loaded && counts.total > 0` → `{done, total, percent}`; hitungan belum dimuat
-  //   dan `task.checklist_total > 0` → `{pending: true}`; selain itu null.
+  //   atau gagal dimuat (`counts.failed`) dan `task.checklist_total > 0` → `{pending: true}`; selain itu null.
   // - `adoptTaskProgress(serverTaskId, tp)` → Promise<boolean> (satu-satunya yang menyentuh IndexedDB; spec §7.8,
   //   ADR-048): `tp` = `task_progress` server `{done, total, progress}`. Record task lokal (dicari lewat
   //   `idmap.cidOf("task", id)`) mendapat `checklist_total = total` dan `progress` (hanya bila angka; null/bukan
@@ -420,7 +420,7 @@
   // ── kunci Progress ─────────────────────────────────────────────────────────
 
   function lockFor(task, counts) {
-    if (counts && counts.loaded) {
+    if (counts && counts.loaded && !counts.failed) {
       const total = Number(counts.total) || 0;
       if (total > 0) {
         const done = Number(counts.done) || 0;
