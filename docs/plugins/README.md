@@ -166,7 +166,7 @@ Plugin menerima `api = TF.api.for(id)` di `factory` dan sebagai prop `api` di ko
 | `api.storage` (izin `storage`) | `get(key) → Promise<nilai∣null>`, `set(key, val)`, `remove(key)`, `keys()`; disimpan di `_meta` `plugin:<id>:<key>`; kunci string 1–128 karakter; nilai JSON ≤ 64 KB (lebih → `PluginStorageError`). Tanpa izin → `PluginPermissionError` (dihitung sebagai error). |
 | `api.data.habits` | `list()` → habit (bentuk `GET /api/habits` lokal); `logs({from, to})` → `[{cid, habitId, habit_cid, date, status, skip_reason}]`, tanggal inklusif `YYYY-MM-DD`, log terhapus dan log dari habit terhapus dibuang |
 | `api.data.tasks` | `list({includeDone, since})` → task dari IndexedDB (bentuk `GET /api/tasks` lokal, `id = server_id ?? cid`); `since` ISO dibandingkan dengan `updated_at` (fallback `completed_at`, `created_at`) |
-| `api.ui` | `toast(message, type, action?)` (`action` opsional `{label: 1–20 karakter, onClick}`: tombol di toast, mis. "Urungkan"; host menampilkannya 6 s; error sinkron di `onClick` dicatat `api.log` dan tidak dihitung error plugin, sedangkan `onClick` async wajib menangani reject sendiri; `action` tidak sah diabaikan dan toast tetap tampil), `openTask(taskId)`, `navigate(page)` (hanya `dashboard`, `focus`, `inbox`, `settings`; selain itu melempar), `sanitize(html)` (lewat `TF.safehtml`) |
+| `api.ui` | `toast(message, type, action?)` (`action` opsional `{label: 1–20 karakter, onClick}`: tombol di toast, mis. "Urungkan"; host menampilkannya 6 s; error sinkron di `onClick` dicatat `api.log` dan tidak dihitung error plugin, sedangkan `onClick` async wajib menangani reject sendiri; `action` tidak sah diabaikan dan toast tetap tampil), `openTask(taskId)`, `navigate(page)` (hanya `dashboard`, `focus`, `inbox`, `settings`; selain itu melempar), `sanitize(html)` (lewat `TF.safehtml`), `saveFile(name, text, mime) → Promise<boolean>` (1d-2: unduh teks sebagai berkas; tanpa izin manifest; rinci di bawah) |
 | `api.env` | `online` (getter), `platform` (`"web"∣"tauri"`), `theme` (`{palette, mode}`), `today()` (Asia/Jakarta `YYYY-MM-DD`), `userId` |
 | `api.log` | `info/warn/error` berprefiks `[plugin:<id>]` |
 | `api.fetch(path, {method, body, timeoutMs})` (izin `network`, Fase 0b) | `→ Promise<json>` ke rute server plugin sendiri: `path` diawali `/api/plugins/<id>/` (atau sama dengan `/api/plugins/<id>`), tanpa `..`, `//`, `\`, `#`, skema/host; `method` GET/POST/PUT/PATCH/DELETE; `body` JSON ≤ 256 KB; timeout bawaan 15 s. Lewat `api.fetch` host (token, `API_BASE` Tauri, 401 → login ulang). Bila toggle plugin ini masih menunggu sinkron, menunggu push ≤ 5 s dulu. Selalu ada di `api`; tanpa izin `network` / path asing → `PluginPermissionError` (dihitung error). |
@@ -174,6 +174,23 @@ Plugin menerima `api = TF.api.for(id)` di `factory` dan sebagai prop `api` di ko
 
 | `api.taskExt` (izin `task.ext`, Fase 1) | `read(task) → {field: nilai}` (kunci namespace sendiri tanpa prefiks; sinkron, murni); `set(taskId, patch) → Promise<task>`; `setMany([{taskId, patch}]) → Promise`; `ref(task) → {$task: id}`. Selalu ada di `api`; tanpa izin → `PluginPermissionError` (dihitung error). Rinci di bawah. |
 | `api.records` (izin `records`, Fase 1) | `get(entity, id)`, `list(entity, {scope, limit, after}) → {items, next}`, `put(entity, id∣null, data, {scope}) → Promise<record>`, `remove(entity, id)`, `onChange(fn) → off`, `newId()`. Selalu ada di `api`; tanpa izin → `PluginPermissionError` (dihitung error). Rinci di bawah. |
+
+**`api.ui.saveFile(name, text, mime)` (1d-2).** Satu jalur unduh berkas untuk plugin (plugin tidak menyentuh DOM
+global sendiri). Aditif di API v1 (`minApi` tetap 1), tanpa izin manifest.
+
+- **Validasi sinkron** (pola `navigate`): gagal → melempar `PluginPermissionError` dan dihitung sebagai error plugin.
+  - `name`: string 1–120 karakter (code point), tanpa `/ \ : * ? " < > |`, tanpa karakter kontrol (U+0000–U+001F,
+    U+007F), tidak diawali titik.
+  - `text`: string, `length` ≤ 20 MiB (unit kode UTF-16).
+  - `mime`: salah satu `application/xml`, `text/xml`, `text/csv`, `text/plain`, `application/json`; Blob diberi
+    `;charset=utf-8`.
+- **Web:** Blob → `URL.createObjectURL` → `<a download=name>` tersembunyi ditempel ke `document.body` → `click()` →
+  dilepas → URL objek dicabut 1 s kemudian → resolve `true`. Galat → reject (elemen tetap dilepas, URL dicabut); tanpa
+  `document`/`URL`/`Blob` → reject `Error("saveFile tidak didukung")`.
+- **Aplikasi native** (`api.env.platform === "tauri"`): resolve `false` tanpa aksi (host native memakai API
+  lintas-origin, `<a download>` tidak berlaku). Plugin menampilkan sendiri petunjuk untuk mengunduh lewat browser.
+- **Panggil hanya dari gestur pengguna** (handler klik/menu). Browser bisa memblokir unduhan yang tidak dipicu gestur,
+  dan plugin tidak boleh mengunduh di latar.
 
 **`api.taskExt` (Fase 1).** Field plugin disimpan di kolom task `tasks.ext` (objek datar berkunci `<id>.<field>`)
 dan ikut sinkron task di semua jalur (hidrasi, push, pull, workspace bersama).
