@@ -69,6 +69,9 @@ const tasks = [
   mk({ id: 6, title: "Audit", project: "Alpha", start: "2026-11-23", d: 2, constraint: { type: "MFO", date: "2026-11-24" }, to: 3 }),
   mk({ id: 7, title: "Lembur Sabtu", project: "Alpha", start: "2026-11-20", d: 2, est: 2, to: 5 }),
   mk({ id: 8, title: "Survei", project: "Alpha", start: "2026-11-02", d: 2, est: 1, to: 5, done: true }),
+  // review F5: task panjang — 70 🍅 = 1.750 menit dalam 260 hari kerja (Units 0,0140224… → 6 desimal ke atas 0.014023;
+  // 4 desimal lama 0.014 × 124.800 = 1.747,2 menit ≠ Work → asersi kalender resource menolaknya).
+  mk({ id: 9, title: "Arsip panjang", project: "Alpha", start: "2026-11-02", d: 260, est: 70, to: 3 }),
   // Beta = unit Manual (bawaan, tanpa record project)
   mk({ id: 10, title: "Fase Beta", project: "Beta" }),
   mk({ id: 11, title: "Riset", project: "Beta", parent: 10, start: "2026-11-03", d: 2, est: 2, to: 5, done: true }),
@@ -265,7 +268,8 @@ def mpxj_checks(root, data):
     check(uni is not None and int(uni.getTasks().size()) == int(project.getTasks().size()), "UniversalProjectReader mengenali dan membaca berkas (task sama dengan MSPDIReader)")
     print(f"    tipe berkas MPXJ: {props.getFileType()}, judul: {props.getProjectTitle()}, nama: {props.getName()}")
     check(str(props.getProjectTitle()) == "Tim Produk & Riset", "ProjectTitle")
-    check(str(props.getStartDate())[:16] == "2026-11-02T08:00" and str(props.getFinishDate())[:16] == "2026-12-29T17:00", f"StartDate/FinishDate project ({props.getStartDate()} … {props.getFinishDate()})")
+    last = max(ef for _es, ef, _k in data["engine"].values())
+    check(str(props.getStartDate())[:16] == "2026-11-02T08:00" and str(props.getFinishDate())[:16] == last + "T17:00", f"StartDate/FinishDate project ({props.getStartDate()} … {props.getFinishDate()}; ef mesin terakhir {last})")
     check(int(props.getMinutesPerDay()) == 480 and int(props.getMinutesPerWeek()) == 2400, "MinutesPerDay 480 / MinutesPerWeek 2400")
     check(bool(props.getHonorConstraints()), "HonorConstraints = true (MSO/MFO menang atas tautan)")
 
@@ -400,7 +404,7 @@ def mpxj_checks(root, data):
     check(res == [(1, "Budi", "WORK"), (2, "Sari", "WORK")], "2 resource kerja, urut nama")
     xa = {tv(a, "UID"): a for a in root.find(NS + "Assignments")}
     asg = list(project.getResourceAssignments())
-    check(len(asg) == len(xa) == data["stats"]["assignments"] == 9, f"jumlah assignment MPXJ = XML = stats ({len(asg)})")
+    check(len(asg) == len(xa) == data["stats"]["assignments"] == 10, f"jumlah assignment MPXJ = XML = stats ({len(asg)})")
     abad = []
     for a in asg:
         tuid, ruid = str(a.getTask().getUniqueID()), str(a.getResource().getUniqueID())
@@ -415,6 +419,16 @@ def mpxj_checks(root, data):
     check(ad["Desain"] == ("Sari", 100.0, 4.17), f"Desain: Sari 4 🍅 = 100 menit, units 4,17 % ({ad['Desain']})")
     check(ad["Bangun"] == ("Budi", 150.0, 10.42), f"Bangun: Budi 6 🍅 = 150 menit / 3 hari ({ad['Bangun']})")
     check("Rilis" not in ad and "Belum dijadwalkan" not in ad and "Natal" not in ad, "milestone / tanpa jadwal / tanpa penanggung jawab → tanpa assignment")
+    xp = next(v for v in xa.values() if tv(v, "TaskUID") == str(by["Arsip panjang"].getUniqueID()))
+    check(days(by["Arsip panjang"].getDuration()) == 260 and ad["Arsip panjang"][:2] == ("Sari", 1750.0) and tv(xp, "Units") == "0.014023",
+          f"Arsip panjang: 70 🍅 = 1.750 menit / 260 hari, Units 6 desimal dibulatkan ke atas ({tv(xp, 'Units')}, review F5)")
+    xbad = []
+    for v in xa.values():
+        t = next(t for t in xml_tasks(root) if tv(t, "UID") == tv(v, "TaskUID"))
+        over = float(tv(v, "Units")) * hours(tv(t, "Duration")) * 60 - hours(tv(v, "Work")) * 60
+        if not (-1e-6 <= over < 1) or "e" in tv(v, "Units").lower() or len(tv(v, "Units").partition(".")[2]) > 6:
+            xbad.append((tv(t, "Name"), tv(v, "Units"), round(over, 4)))
+    check(not xbad, f"Units ≤ 6 desimal tanpa notasi ilmiah; Units × durasi (menit) − Work ∈ [0, 1) (review F5) {xbad}")
     resource_calendar_checks(project, root)
     jpype.shutdownJVM()
 

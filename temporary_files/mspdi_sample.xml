@@ -6,7 +6,7 @@
   <CreationDate>2026-11-10T00:00:00</CreationDate>
   <ScheduleFromStart>1</ScheduleFromStart>
   <StartDate>2026-11-02T08:00:00</StartDate>
-  <FinishDate>2026-12-29T17:00:00</FinishDate>
+  <FinishDate>2027-11-26T17:00:00</FinishDate>
   <CalendarUID>1</CalendarUID>
   <DefaultStartTime>08:00:00</DefaultStartTime>
   <DefaultFinishTime>17:00:00</DefaultFinishTime>
@@ -155,6 +155,78 @@
             <ToDate>2027-01-05T23:59:00</ToDate>
           </TimePeriod>
         </WeekDay>
+        <WeekDay>
+          <DayType>0</DayType>
+          <DayWorking>0</DayWorking>
+          <TimePeriod>
+            <FromDate>2027-02-05T00:00:00</FromDate>
+            <ToDate>2027-02-05T23:59:00</ToDate>
+          </TimePeriod>
+        </WeekDay>
+        <WeekDay>
+          <DayType>0</DayType>
+          <DayWorking>0</DayWorking>
+          <TimePeriod>
+            <FromDate>2027-03-08T00:00:00</FromDate>
+            <ToDate>2027-03-12T23:59:00</ToDate>
+          </TimePeriod>
+        </WeekDay>
+        <WeekDay>
+          <DayType>0</DayType>
+          <DayWorking>0</DayWorking>
+          <TimePeriod>
+            <FromDate>2027-03-15T00:00:00</FromDate>
+            <ToDate>2027-03-15T23:59:00</ToDate>
+          </TimePeriod>
+        </WeekDay>
+        <WeekDay>
+          <DayType>0</DayType>
+          <DayWorking>0</DayWorking>
+          <TimePeriod>
+            <FromDate>2027-03-25T00:00:00</FromDate>
+            <ToDate>2027-03-26T23:59:00</ToDate>
+          </TimePeriod>
+        </WeekDay>
+        <WeekDay>
+          <DayType>0</DayType>
+          <DayWorking>0</DayWorking>
+          <TimePeriod>
+            <FromDate>2027-05-06T00:00:00</FromDate>
+            <ToDate>2027-05-06T23:59:00</ToDate>
+          </TimePeriod>
+        </WeekDay>
+        <WeekDay>
+          <DayType>0</DayType>
+          <DayWorking>0</DayWorking>
+          <TimePeriod>
+            <FromDate>2027-05-17T00:00:00</FromDate>
+            <ToDate>2027-05-20T23:59:00</ToDate>
+          </TimePeriod>
+        </WeekDay>
+        <WeekDay>
+          <DayType>0</DayType>
+          <DayWorking>0</DayWorking>
+          <TimePeriod>
+            <FromDate>2027-06-01T00:00:00</FromDate>
+            <ToDate>2027-06-01T23:59:00</ToDate>
+          </TimePeriod>
+        </WeekDay>
+        <WeekDay>
+          <DayType>0</DayType>
+          <DayWorking>0</DayWorking>
+          <TimePeriod>
+            <FromDate>2027-08-17T00:00:00</FromDate>
+            <ToDate>2027-08-17T23:59:00</ToDate>
+          </TimePeriod>
+        </WeekDay>
+        <WeekDay>
+          <DayType>0</DayType>
+          <DayWorking>0</DayWorking>
+          <TimePeriod>
+            <FromDate>2027-12-24T00:00:00</FromDate>
+            <ToDate>2027-12-24T23:59:00</ToDate>
+          </TimePeriod>
+        </WeekDay>
       </WeekDays>
       <Exceptions>
         <Exception>
@@ -220,6 +292,105 @@
           <Type>1</Type>
           <DayWorking>0</DayWorking>
         </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2027-02-05T00:00:00</FromDate>
+            <ToDate>2027-02-05T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Tahun Baru Imlek 2578 Kongzili</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2027-03-08T00:00:00</FromDate>
+            <ToDate>2027-03-12T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Hari Suci Nyepi (Tahun Baru Saka 1949) / Hari Raya Idulfitri 1448 Hijriah / Idulfitri 1448 Hijriah</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2027-03-15T00:00:00</FromDate>
+            <ToDate>2027-03-15T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Hari Raya Idulfitri 1448 Hijriah</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2027-03-25T00:00:00</FromDate>
+            <ToDate>2027-03-26T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Wafat Yesus Kristus</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2027-05-06T00:00:00</FromDate>
+            <ToDate>2027-05-06T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Kenaikan Yesus Kristus</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2027-05-17T00:00:00</FromDate>
+            <ToDate>2027-05-20T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Iduladha 1448 Hijriah / Iduladha 1448 H / Waisak 2571 BE / Hari Raya Waisak 2571 BE</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2027-06-01T00:00:00</FromDate>
+            <ToDate>2027-06-01T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Hari Lahir Pancasila</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2027-08-17T00:00:00</FromDate>
+            <ToDate>2027-08-17T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Proklamasi Kemerdekaan</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
+        <Exception>
+          <EnteredByOccurrences>0</EnteredByOccurrences>
+          <TimePeriod>
+            <FromDate>2027-12-24T00:00:00</FromDate>
+            <ToDate>2027-12-24T23:59:00</ToDate>
+          </TimePeriod>
+          <Occurrences>1</Occurrences>
+          <Name>Kelahiran Yesus Kristus (Natal)</Name>
+          <Type>1</Type>
+          <DayWorking>0</DayWorking>
+        </Exception>
       </Exceptions>
     </Calendar>
     <Calendar>
@@ -250,8 +421,8 @@
       <OutlineNumber>0</OutlineNumber>
       <OutlineLevel>0</OutlineLevel>
       <Start>2026-11-02T08:00:00</Start>
-      <Finish>2026-12-29T17:00:00</Finish>
-      <Duration>PT320H0M0S</Duration>
+      <Finish>2027-11-26T17:00:00</Finish>
+      <Duration>PT2080H0M0S</Duration>
       <DurationFormat>7</DurationFormat>
       <EffortDriven>0</EffortDriven>
       <Estimated>0</Estimated>
@@ -273,8 +444,8 @@
       <OutlineNumber>1</OutlineNumber>
       <OutlineLevel>1</OutlineLevel>
       <Start>2026-11-02T08:00:00</Start>
-      <Finish>2026-11-24T17:00:00</Finish>
-      <Duration>PT136H0M0S</Duration>
+      <Finish>2027-11-26T17:00:00</Finish>
+      <Duration>PT2080H0M0S</Duration>
       <DurationFormat>7</DurationFormat>
       <EffortDriven>0</EffortDriven>
       <Estimated>0</Estimated>
@@ -535,6 +706,31 @@
     <Task>
       <UID>10</UID>
       <ID>10</ID>
+      <Name>Arsip panjang</Name>
+      <Manual>0</Manual>
+      <Type>1</Type>
+      <IsNull>0</IsNull>
+      <CreateDate>2026-11-10T00:00:00</CreateDate>
+      <WBS>1.9</WBS>
+      <OutlineNumber>1.9</OutlineNumber>
+      <OutlineLevel>2</OutlineLevel>
+      <Start>2026-11-02T08:00:00</Start>
+      <Finish>2027-11-26T17:00:00</Finish>
+      <Duration>PT2080H0M0S</Duration>
+      <DurationFormat>7</DurationFormat>
+      <Work>PT29H10M0S</Work>
+      <EffortDriven>0</EffortDriven>
+      <Estimated>0</Estimated>
+      <Milestone>0</Milestone>
+      <Summary>0</Summary>
+      <PercentComplete>0</PercentComplete>
+      <ConstraintType>4</ConstraintType>
+      <CalendarUID>-1</CalendarUID>
+      <ConstraintDate>2026-11-02T08:00:00</ConstraintDate>
+    </Task>
+    <Task>
+      <UID>11</UID>
+      <ID>11</ID>
       <Name>Beta</Name>
       <Manual>0</Manual>
       <Type>1</Type>
@@ -556,8 +752,8 @@
       <CalendarUID>-1</CalendarUID>
     </Task>
     <Task>
-      <UID>11</UID>
-      <ID>11</ID>
+      <UID>12</UID>
+      <ID>12</ID>
       <Name>Fase Beta</Name>
       <Manual>0</Manual>
       <Type>1</Type>
@@ -579,8 +775,8 @@
       <CalendarUID>-1</CalendarUID>
     </Task>
     <Task>
-      <UID>12</UID>
-      <ID>12</ID>
+      <UID>13</UID>
+      <ID>13</ID>
       <Name>Riset</Name>
       <Manual>1</Manual>
       <Type>1</Type>
@@ -609,8 +805,8 @@
       <ManualDuration>PT16H0M0S</ManualDuration>
     </Task>
     <Task>
-      <UID>13</UID>
-      <ID>13</ID>
+      <UID>14</UID>
+      <ID>14</ID>
       <Name>Wawancara</Name>
       <Manual>1</Manual>
       <Type>1</Type>
@@ -637,8 +833,8 @@
       <ManualDuration>PT8H0M0S</ManualDuration>
     </Task>
     <Task>
-      <UID>14</UID>
-      <ID>14</ID>
+      <UID>15</UID>
+      <ID>15</ID>
       <Name>Belum dijadwalkan</Name>
       <Manual>0</Manual>
       <Type>1</Type>
@@ -661,8 +857,8 @@
       <ConstraintDate>2026-11-10T08:00:00</ConstraintDate>
     </Task>
     <Task>
-      <UID>15</UID>
-      <ID>15</ID>
+      <UID>16</UID>
+      <ID>16</ID>
       <Name>Natal</Name>
       <Manual>1</Manual>
       <Type>1</Type>
@@ -715,7 +911,7 @@
       <ResourceUID>2</ResourceUID>
       <Finish>2026-11-06T17:00:00</Finish>
       <Start>2026-11-02T08:00:00</Start>
-      <Units>0.0417</Units>
+      <Units>0.041667</Units>
       <Work>PT1H40M0S</Work>
     </Assignment>
     <Assignment>
@@ -724,7 +920,7 @@
       <ResourceUID>1</ResourceUID>
       <Finish>2026-11-12T17:00:00</Finish>
       <Start>2026-11-10T08:00:00</Start>
-      <Units>0.1042</Units>
+      <Units>0.104167</Units>
       <Work>PT2H30M0S</Work>
     </Assignment>
     <Assignment>
@@ -733,7 +929,7 @@
       <ResourceUID>2</ResourceUID>
       <Finish>2026-11-17T17:00:00</Finish>
       <Start>2026-11-12T08:00:00</Start>
-      <Units>0.0391</Units>
+      <Units>0.039063</Units>
       <Work>PT1H15M0S</Work>
     </Assignment>
     <Assignment>
@@ -742,7 +938,7 @@
       <ResourceUID>1</ResourceUID>
       <Finish>2026-11-19T17:00:00</Finish>
       <Start>2026-11-16T08:00:00</Start>
-      <Units>0.0347</Units>
+      <Units>0.034723</Units>
       <Work>PT0H50M0S</Work>
     </Assignment>
     <Assignment>
@@ -751,7 +947,7 @@
       <ResourceUID>2</ResourceUID>
       <Finish>2026-11-24T17:00:00</Finish>
       <Start>2026-11-23T08:00:00</Start>
-      <Units>0.026</Units>
+      <Units>0.026042</Units>
       <Work>PT0H25M0S</Work>
     </Assignment>
     <Assignment>
@@ -760,7 +956,7 @@
       <ResourceUID>1</ResourceUID>
       <Finish>2026-11-21T17:00:00</Finish>
       <Start>2026-11-20T08:00:00</Start>
-      <Units>0.0521</Units>
+      <Units>0.052084</Units>
       <Work>PT0H50M0S</Work>
     </Assignment>
     <Assignment>
@@ -769,25 +965,34 @@
       <ResourceUID>1</ResourceUID>
       <Finish>2026-11-04T17:00:00</Finish>
       <Start>2026-11-02T08:00:00</Start>
-      <Units>0.0174</Units>
+      <Units>0.017362</Units>
       <Work>PT0H25M0S</Work>
     </Assignment>
     <Assignment>
       <UID>8</UID>
-      <TaskUID>12</TaskUID>
-      <ResourceUID>1</ResourceUID>
-      <Finish>2026-11-04T17:00:00</Finish>
-      <Start>2026-11-03T08:00:00</Start>
-      <Units>0.0521</Units>
-      <Work>PT0H50M0S</Work>
+      <TaskUID>10</TaskUID>
+      <ResourceUID>2</ResourceUID>
+      <Finish>2027-11-26T17:00:00</Finish>
+      <Start>2026-11-02T08:00:00</Start>
+      <Units>0.014023</Units>
+      <Work>PT29H10M0S</Work>
     </Assignment>
     <Assignment>
       <UID>9</UID>
       <TaskUID>13</TaskUID>
+      <ResourceUID>1</ResourceUID>
+      <Finish>2026-11-04T17:00:00</Finish>
+      <Start>2026-11-03T08:00:00</Start>
+      <Units>0.052084</Units>
+      <Work>PT0H50M0S</Work>
+    </Assignment>
+    <Assignment>
+      <UID>10</UID>
+      <TaskUID>14</TaskUID>
       <ResourceUID>2</ResourceUID>
       <Finish>2026-11-05T17:00:00</Finish>
       <Start>2026-11-05T08:00:00</Start>
-      <Units>0.0521</Units>
+      <Units>0.052084</Units>
       <Work>PT0H25M0S</Work>
     </Assignment>
   </Assignments>

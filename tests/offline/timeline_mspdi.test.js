@@ -187,7 +187,7 @@ test("modul: pola part UMD (seperti load.js), require fallback, ekspor beku, tan
   assert.match(src, /module\.exports = TLMspdi/);
   assert.doesNotMatch(src, /\bwindow\b|\bself\b|\bglobalThis\b|\bdocument\b/);
   assert.ok(Object.isFrozen(X));
-  for (const f of ["build", "fileNameOf", "esc", "targetOf"]) assert.equal(typeof X[f], "function", f);
+  for (const f of ["build", "fileNameOf", "esc", "targetOf", "fmtUnits"]) assert.equal(typeof X[f], "function", f);
 });
 
 test("sumber mspdi.js tanpa kata Date utuh, localeCompare, Math.random, XMLHttpRequest — termasuk komentar", () => {
@@ -710,34 +710,34 @@ test("resource workspace: tiap penanggung jawab task di berkas, urut nama (cmpKe
   assert.equal(r.stats.resources, 4);
 });
 
-test("assignment: task non-ringkasan, terjadwal, d > 0, berpenanggung jawab → Work = target × 25 menit, Units = Work ÷ (d × 480) dibulatkan 4 desimal; Work task sama", () => {
+test("assignment: task non-ringkasan, terjadwal, d > 0, berpenanggung jawab → Work = target × 25 menit, Units = Work ÷ (d × 480) 6 desimal dibulatkan ke atas (F5); Work task sama", () => {
   const tasks = [
-    mk({ id: 1, title: "a", start: "2026-11-02", d: 5, est: 4, to: 3 }), // 100 menit / 2400 = 0,041666… → 0.0417
-    mk({ id: 2, title: "b", start: "2026-11-09", d: 1, est: 3, to: 5 }), // 75 / 480 = 0,15625 → 0.1563 (setengah ke atas)
-    mk({ id: 3, title: "c", start: "2026-11-10", d: 1, est: 99, to: "3" }), // 2475 / 480 = 5,15625 → 5.1563
-    mk({ id: 4, title: "d", start: "2026-11-11", d: 999, to: 5 }), // target bawaan 1: 25 / 479520 → 0.0001
-    mk({ id: 5, title: "e", start: "2026-11-12", d: 2, est: 150, to: 3 }), // dijepit 99: 2475 / 960 = 2,578125 → 2.5781
+    mk({ id: 1, title: "a", start: "2026-11-02", d: 5, est: 4, to: 3 }), // 100 menit / 2400 = 0,041666… → 0.041667 (ke atas)
+    mk({ id: 2, title: "b", start: "2026-11-09", d: 1, est: 3, to: 5 }), // 75 / 480 = 0,15625 → 0.15625 (tepat)
+    mk({ id: 3, title: "c", start: "2026-11-10", d: 1, est: 99, to: "3" }), // 2475 / 480 = 5,15625 → 5.15625
+    mk({ id: 4, title: "d", start: "2026-11-11", d: 999, to: 5 }), // target bawaan 1: 25 / 479520 = 0,0000521… → 0.000053 (ke atas)
+    mk({ id: 5, title: "e", start: "2026-11-12", d: 2, est: 150, to: 3 }), // dijepit 99: 2475 / 960 = 2,578125 → 2.578125
     mk({ id: 6, title: "f", start: "2026-11-12", d: 2, est: 24, to: 3 }), // 600 / 960 = 0,625 → 0.625
     mk({ id: 7, title: "g", start: "2026-11-12", d: 1, est: 96, to: 3 }), // 2400 / 480 = 5 → 5
     mk({ id: 8, title: "milestone", start: "2026-11-12", d: 0, est: 2, to: 3 }),
     mk({ id: 9, title: "tanpa pj", start: "2026-11-12", d: 1, est: 2 }),
     mk({ id: 10, title: "tanpa jadwal", est: 2, to: 3 }),
     mk({ id: 11, title: "Induk", est: 5, to: 3 }),
-    mk({ id: 12, title: "anak", parent: 11, start: "2026-11-16", d: 2, est: 2, to: 5 }), // 50 / 960 → 0.0521
+    mk({ id: 12, title: "anak", parent: 11, start: "2026-11-16", d: 2, est: 2, to: 5 }), // 50 / 960 = 0,0520833… → 0.052084
   ];
   const r = exp(tasks, { people: new Map([[3, "Sari"], [5, "Budi"]]) });
   const uidOf = (nm) => val(byName(r.doc, nm), "UID");
   const resUid = { Sari: "2", Budi: "1" };
   const asg = kids(kid(r.doc, "Assignments"), "Assignment").map((x) => names(x).map((n) => val(x, n)));
   const exp1 = [
-    ["a", "Sari", "2026-11-06T17:00:00", "2026-11-02T08:00:00", "0.0417", "PT1H40M0S"],
-    ["b", "Budi", "2026-11-09T17:00:00", "2026-11-09T08:00:00", "0.1563", "PT1H15M0S"],
-    ["c", "Sari", "2026-11-10T17:00:00", "2026-11-10T08:00:00", "5.1563", "PT41H15M0S"],
-    ["d", "Budi", val(byName(r.doc, "d"), "Finish"), "2026-11-11T08:00:00", "0.0001", "PT0H25M0S"],
-    ["e", "Sari", "2026-11-13T17:00:00", "2026-11-12T08:00:00", "2.5781", "PT41H15M0S"],
+    ["a", "Sari", "2026-11-06T17:00:00", "2026-11-02T08:00:00", "0.041667", "PT1H40M0S"],
+    ["b", "Budi", "2026-11-09T17:00:00", "2026-11-09T08:00:00", "0.15625", "PT1H15M0S"],
+    ["c", "Sari", "2026-11-10T17:00:00", "2026-11-10T08:00:00", "5.15625", "PT41H15M0S"],
+    ["d", "Budi", val(byName(r.doc, "d"), "Finish"), "2026-11-11T08:00:00", "0.000053", "PT0H25M0S"],
+    ["e", "Sari", "2026-11-13T17:00:00", "2026-11-12T08:00:00", "2.578125", "PT41H15M0S"],
     ["f", "Sari", "2026-11-13T17:00:00", "2026-11-12T08:00:00", "0.625", "PT10H0M0S"],
     ["g", "Sari", "2026-11-12T17:00:00", "2026-11-12T08:00:00", "5", "PT40H0M0S"],
-    ["anak", "Budi", "2026-11-17T17:00:00", "2026-11-16T08:00:00", "0.0521", "PT0H50M0S"],
+    ["anak", "Budi", "2026-11-17T17:00:00", "2026-11-16T08:00:00", "0.052084", "PT0H50M0S"],
   ].sort((x, y) => Number(uidOf(x[0])) - Number(uidOf(y[0])));
   assert.deepEqual(asg, exp1.map((e, i) => [String(i + 1), uidOf(e[0]), resUid[e[1]], e[2], e[3], e[4], e[5]]));
   for (const e of exp1) assert.equal(val(byName(r.doc, e[0]), "Work"), e[5], "Work task " + e[0]);
@@ -753,7 +753,7 @@ test("resource pribadi: satu resource pemilik (ownerUid, nama dari people) memik
   ];
   const r = exp(tasks, { pageKind: "project", ownerUid: "7", people: new Map([[7, "Budi"], [99, "Lain"]]) });
   assert.deepEqual(kids(kid(r.doc, "Resources"), "Resource").map((x) => [val(x, "UID"), val(x, "Name")]), [["1", "Budi"]]);
-  assert.deepEqual(kids(kid(r.doc, "Assignments"), "Assignment").map((x) => [val(x, "TaskUID"), val(x, "ResourceUID"), val(x, "Work"), val(x, "Units")]), [["1", "1", "PT1H40M0S", "0.1042"], ["2", "1", "PT0H25M0S", "0.0521"]]);
+  assert.deepEqual(kids(kid(r.doc, "Assignments"), "Assignment").map((x) => [val(x, "TaskUID"), val(x, "ResourceUID"), val(x, "Work"), val(x, "Units")]), [["1", "1", "PT1H40M0S", "0.104167"], ["2", "1", "PT0H25M0S", "0.052084"]]);
   const r2 = exp(tasks, { pageKind: "project", ownerUid: 8, people: new Map() });
   assert.deepEqual(kids(kid(r2.doc, "Resources"), "Resource").map((x) => val(x, "Name")), ["Anggota #8"]);
   const r3 = exp(tasks, { pageKind: "project", people: new Map([[7, "Budi"]]) });
@@ -763,6 +763,53 @@ test("resource pribadi: satu resource pemilik (ownerUid, nama dari people) memik
   // people boleh objek biasa {uid: nama}.
   const r4 = exp(tasks, { pageKind: "project", ownerUid: 7, people: { 7: "Budi" } });
   assert.equal(val(kid(kid(r4.doc, "Resources"), "Resource"), "Name"), "Budi");
+});
+
+// Units (string desimal) → mikro-unit bilangan bulat (tanpa galat pecahan biner).
+function microUnits(u) {
+  assert.match(u, /^(0|[1-9]\d*)(\.\d{0,5}[1-9])?$/, "format Units " + u);
+  const [ip, fp = ""] = u.split(".");
+  return Number(ip) * 1000000 + Number(fp.padEnd(6, "0"));
+}
+const workMin = (w) => {
+  const m = /^PT(\d+)H(\d+)M0S$/.exec(w);
+  return Number(m[1]) * 60 + Number(m[2]);
+};
+
+test("properti Units F5: target 1–99 × d 1–999 → 6 desimal dibulatkan ke atas, tanpa notasi ilmiah; Units × d × 480 − Work ∈ [0, 1) menit dan minimal (6 desimal di bawahnya < Work)", () => {
+  let worst = 0;
+  let worst999 = 0;
+  for (let t = 1; t <= 99; t++) {
+    const w = t * 25;
+    for (let d = 1; d <= 999; d++) {
+      const u = X.fmtUnits(w, d);
+      const n = microUnits(u);
+      const over = n * d * 480 - w * 1000000; // (Units × d × 480 − Work) × 10⁶, eksak
+      assert.ok(over >= 0 && over < 1000000, "t " + t + " d " + d + " Units " + u);
+      assert.ok((n - 1) * d * 480 < w * 1000000, "dibulatkan ke atas minimal: t " + t + " d " + d);
+      if (over > worst) worst = over;
+      if (d === 999 && over > worst999) worst999 = over;
+    }
+  }
+  console.log("Units: galat maks " + (worst / 1e6).toFixed(4) + " menit; d = 999: " + (worst999 / 1e6).toFixed(4) + " menit");
+  assert.ok(worst999 < 0.48 * 1000000, "galat d = 999 < 0,48 menit (d × 480 ÷ 10⁶)");
+  // lewat build: XML Assignment untuk d ∈ {1, 2, 5, 20, 60, 250, 999} × target terpilih
+  const ds = [1, 2, 5, 20, 60, 250, 999];
+  const ts = [1, 7, 33, 70, 99];
+  const tasks = [];
+  for (const d of ds) for (const t of ts) tasks.push(mk({ id: tasks.length + 1, title: "u" + d + "x" + t, start: "2026-11-02", d, est: t, to: 3 }));
+  const r = exp(tasks, { people: new Map([[3, "Sari"]]) });
+  const asg = kids(kid(r.doc, "Assignments"), "Assignment");
+  assert.equal(asg.length, ds.length * ts.length);
+  const byUid = new Map(taskEls(r.doc).map((x) => [val(x, "UID"), x]));
+  for (const a of asg) {
+    const t = byUid.get(val(a, "TaskUID"));
+    const [d, tg] = val(t, "Name").slice(1).split("x").map(Number);
+    assert.equal(val(t, "Duration"), "PT" + d * 8 + "H0M0S");
+    assert.equal(workMin(val(a, "Work")), tg * 25);
+    const over = microUnits(val(a, "Units")) * d * 480 - tg * 25 * 1000000;
+    assert.ok(over >= 0 && over < 1000000, val(t, "Name") + " Units " + val(a, "Units"));
+  }
 });
 
 // ---------------------------------------------------------------- escape
@@ -897,6 +944,32 @@ test("murni: masukan tidak diubah; D tak sah → TypeError; masukan kosong → X
   // readExt yang melempar → task dianggap tanpa ext (tanpa jadwal), build tidak melempar.
   const bad = X.build({ tasks: [mk({ id: 1, start: "2026-11-02", d: 1 })], cal: std(), readExt: () => { throw new Error("x"); }, pageKind: "project", title: "t", D: D0 });
   assert.equal(bad.stats.unscheduled, 1);
+});
+
+test("M5 F5: build tidak mengubah objek masukan — snapshot result mesin (nodes/pred/order/cycles) dan tasks sama sebelum/sesudah; build dengan result yang dibekukan dalam → XML identik; dua build berturut-turut identik", () => {
+  const tasks = genMix(160, 200, 20261110);
+  const cal = mixCal();
+  const units = autoUnits("Alpha");
+  const snap = (r) => JSON.stringify([[...r.nodes.entries()], [...r.pred.entries()], r.order, r.cycles]);
+  const deepFreeze = (o) => {
+    if (o === null || typeof o !== "object" || Object.isFrozen(o)) return o;
+    if (o instanceof Map) for (const [k, v] of o) (deepFreeze(k), deepFreeze(v));
+    Object.freeze(o);
+    for (const v of Object.values(o)) deepFreeze(v);
+    return o;
+  };
+  const tBefore = JSON.stringify(tasks);
+  const input = (result) => ({ tasks, cal, readExt, result, units, pageKind: "workspace", title: "M5", people: new Map(), baseline: null, D: D0 });
+  const r1 = M.run({ tasks, cal, units, readExt });
+  const before = snap(r1);
+  const a = X.build(input(r1)).xml;
+  assert.equal(snap(r1), before, "result mesin tidak diubah");
+  assert.equal(X.build(input(r1)).xml, a, "build kedua dengan result yang sama identik");
+  const r2 = M.run({ tasks, cal, units, readExt });
+  for (const n of r2.nodes.values()) deepFreeze(n);
+  for (const l of r2.pred.values()) deepFreeze(l);
+  assert.equal(X.build(input(r2)).xml, a, "result dibekukan → XML sama (tidak bergantung pada mutasi)");
+  assert.equal(JSON.stringify(tasks), tBefore);
 });
 
 // ---------------------------------------------------------------- review F2: kalender, tautan, jangkar, milestone, nama
@@ -1102,7 +1175,7 @@ test("F4 A: setiap resource punya kalender resource turunan UID 1 (UID = UID res
   assert.ok(Math.abs(Number(val(natal, "Units")) * plain - 100) > 1, "asersi menolak kalender tanpa libur");
 });
 
-test("F4 B (kasus pemilik): milestone Otomatis dengan FF 0 masuk dari task yang selesai 17 Nov 17:00 → Start/Finish 17:00, tanpa kendala, tanpa konflik; penerus FS+2 ASAP; paritas", () => {
+test("F4 B (kasus pemilik) + F5: milestone Otomatis dengan FF 0 masuk dari task yang selesai 17 Nov 17:00 → Start/Finish 17:00, tanpa kendala, tanpa konflik; penerus FS+2 ASAP; penerus SS 0 lag asli (selisih kelas \"geser\" +1 hari)", () => {
   const tasks = [
     mk({ id: 1, title: "Konsep kreatif", start: "2026-11-09", d: 3 }),
     mk({ id: 2, title: "Produksi konten", start: "2026-11-11", d: 5, deps: [[1, "SS", 2]] }),
@@ -1116,10 +1189,13 @@ test("F4 B (kasus pemilik): milestone Otomatis dengan FF 0 masuk dari task yang 
   const g = (nm) => ["Start", "Finish", "ConstraintType", "ConstraintDate"].map((k) => val(byName(r.doc, nm), k));
   assert.deepEqual(g("Peluncuran kampanye"), ["2026-11-17T17:00:00", "2026-11-17T17:00:00", "0", undefined]);
   assert.deepEqual(g("Laporan kampanye"), ["2026-11-20T08:00:00", "2026-11-23T17:00:00", "0", undefined], "FS+2 dari 17:00 = mesin tanpa SNET");
-  assert.deepEqual(linksOf(byName(r.doc, "Siaran pers")).map((l) => [l.type, l.lag]), [["3", "-4800"]], "SS 0 dari milestone 17:00 → lag −1 hari");
+  assert.deepEqual(linksOf(byName(r.doc, "Siaran pers")).map((l) => [l.type, l.lag]), [["3", "0"]], "SS 0 = lag asli Timeline (review F5: tanpa koreksi)");
+  assert.deepEqual(g("Siaran pers"), ["2026-11-17T08:00:00", "2026-11-17T17:00:00", "0", undefined], "residu: tanggal mesin ditulis, ASAP (MS Project menghitung ulang dari tautan)");
   assert.ok(!/<ConstraintType>2<\/ConstraintType>/.test(r.xml), "tanpa MSO");
   const p = parity(tasks);
-  assert.deepEqual(p.bad, []);
+  // MS Project: SS 0 dari milestone 17 Nov 17:00 → mulai 18 Nov 08:00 (mesin 17 Nov) — residu yang dikenali, bukan konflik.
+  assert.deepEqual(p.bad.map((x) => [x.key, x.cls, x.sim, x.eng]), [["5", "geser", "2026-11-18..2026-11-18", "2026-11-17..2026-11-17"]]);
+  assert.deepEqual(p.cls.unknown, []);
   assert.deepEqual(p.conflicts, []);
 });
 
@@ -1282,6 +1358,7 @@ function simMsp(doc) {
   const res = new Map();
   for (const t of els) res.set(val(t, "UID"), sch(t));
   res.conflicts = conflicts; // UID task berkonflik kendala
+  res.add = add; // aritmetika waktu kerja kalender berkas (untuk klasifikasi selisih)
   return res;
 }
 
@@ -1305,9 +1382,48 @@ function parity(tasks, o = {}) {
     const s = sim.get(val(t, "UID"));
     const ms = val(t, "Milestone") === "1";
     const es = ms || s.raw ? n.es : C.nextWork(cal, n.es);
-    rows.push({ key, ms, kind: n.fixed || n.driver.kind, sim: s.start + ".." + s.finish, eng: I(es) + ".." + I(n.ef) });
+    rows.push({ key, uid: val(t, "UID"), es: n.es, ms, kind: n.fixed || n.driver.kind, sim: s.start + ".." + s.finish, eng: I(es) + ".." + I(n.ef) });
   }
-  return { rows, result, doc, out, sim, bad: rows.filter((r) => r.sim !== r.eng), conflicts: sim.conflicts.map((u) => val(taskEls(doc).find((t) => val(t, "UID") === u), "Name")) };
+  const bad = rows.filter((r) => r.sim !== r.eng);
+  return { rows, result, doc, out, sim, bad, cls: classify(doc, sim, rows, bad), conflicts: sim.conflicts.map((u) => val(taskEls(doc).find((t) => val(t, "UID") === u), "Name")) };
+}
+
+// Kelas selisih paritas yang dikenali (review F5: lag asli Timeline, tanpa koreksi). Mesin menghitung milestone per hari
+// (penerus FS/FF mulai hari kerja berikutnya, SS/SF di harinya), MS Project per jam:
+//  - "label": milestone yang menurut MS Project jatuh di 08:00 hari x sedangkan mesin di x−1 (hari kerja sebelumnya) —
+//    instan kerja SAMA (17:00 x−1 = 08:00 x; tautan masuk SF / FF lag < 0); hanya label tanggal yang berbeda;
+//  - "geser": tanggal task bergeser (MS Project lebih lambat) karena salah satu tautan masuknya SS/SF dari milestone
+//    yang menurut MS Project ada di 17:00 tanggal mesinnya (mesin: penerus SS/SF milestone mulai di hari milestone + lag,
+//    MS Project: 17:00 + lag → hari kerja berikutnya), atau berasal dari pendahulu yang sudah berselisih (rambatan).
+// Selisih lain = "?" (tidak dikenali) → tes gagal.
+function classify(doc, sim, rows, bad) {
+  const els = new Map(taskEls(doc).map((t) => [val(t, "UID"), t]));
+  const rowOf = new Map(rows.map((r) => [r.uid, r]));
+  const badUid = new Set(bad.map((r) => r.uid));
+  const out = { label: 0, geser: 0, unknown: [] };
+  for (const r of bad) {
+    const sr = sim.get(r.uid);
+    const sameInstant = r.ms && sr.s % 1440 === 480 && sim.add(sr.s, -1) + 1 === r.es * 1440 + 1020;
+    if (sameInstant) {
+      r.cls = "label";
+      out.label++;
+      continue;
+    }
+    const cause = kids(els.get(r.uid), "PredecessorLink").some((l) => {
+      const pu = val(l, "PredecessorUID");
+      const pr = rowOf.get(pu);
+      if (badUid.has(pu)) return true;
+      return !!pr && val(els.get(pu), "Milestone") === "1" && (val(l, "Type") === "3" || val(l, "Type") === "2") && sim.get(pu).s === pr.es * 1440 + 1020;
+    });
+    if (cause && sim.get(r.uid).s > (r.ms ? r.es * 1440 + 480 : r.es * 1440)) {
+      r.cls = "geser";
+      out.geser++;
+    } else {
+      r.cls = "?";
+      out.unknown.push(r);
+    }
+  }
+  return out;
 }
 
 test("paritas E1–E5 (kasus review): tanggal simulator MS Project = es/ef mesin", () => {
@@ -1342,7 +1458,7 @@ test("paritas E1–E5 (kasus review): tanggal simulator MS Project = es/ef mesin
   assert.deepEqual([sim4("T2").start, sim4("T3").start], ["2026-11-04", "2026-11-05"], "MS Project tanpa jangkar: milestone di 17:00 pendahulu, penerus hari yang sama");
 });
 
-test("paritas milestone di tengah rantai: keluar FS/SS/FF/SF (+ lag), masuk FS/SS/FF/SF, MFO milestone, milestone akhir pekan", () => {
+test("paritas milestone di tengah rantai: keluar FS/SS/FF/SF (+ lag), masuk FS/SS/FF/SF, MFO milestone, milestone akhir pekan; lag asli, selisih hanya kelas dikenali (F5)", () => {
   const tasks = [
     mk({ id: 1, start: "2026-11-02", d: 3 }),
     mk({ id: 2, start: "2026-11-05", d: 0, deps: [[1, "FS", 0]] }),
@@ -1366,14 +1482,18 @@ test("paritas milestone di tengah rantai: keluar FS/SS/FF/SF (+ lag), masuk FS/S
   ];
   const p = parity(tasks);
   assert.equal(p.rows.length, 19);
-  assert.deepEqual(p.bad, []);
   assert.deepEqual(p.conflicts, [], "tanpa konflik kendala (F4 B)");
   assert.ok(!/<ConstraintType>2<\/ConstraintType>/.test(p.out.xml), "tanpa MSO");
-  // T7 (FF 0 → milestone) di 17:00 tanpa kendala; T8 (SS 0 dari milestone 17:00) → lag dikoreksi −1 hari.
+  // T7 (FF 0 → milestone) di 17:00 tanpa kendala; T8 (SS 0 dari milestone 17:00) lag asli → MS Project 5 Nov (mesin 4 Nov).
   assert.deepEqual([val(byName(p.doc, "T7"), "Start"), val(byName(p.doc, "T7"), "ConstraintType")], ["2026-11-04T17:00:00", "0"]);
-  assert.deepEqual(linksOf(byName(p.doc, "T8")).map((l) => [l.type, l.lag]), [["3", "-4800"]]);
-  // T9 (SF 0 → milestone): MS Project menaruhnya di awal hari kerja berikut → lag dikoreksi −1 hari.
-  assert.deepEqual(linksOf(byName(p.doc, "T9")).map((l) => [l.type, l.lag]), [["2", "-4800"]]);
+  assert.deepEqual(linksOf(byName(p.doc, "T8")).map((l) => [l.type, l.lag]), [["3", "0"]]);
+  // T9 (SF 0 → milestone) lag asli: MS Project 2 Nov 08:00 = mesin 30 Okt (17:00) — instan kerja sama, label berbeda.
+  assert.deepEqual(linksOf(byName(p.doc, "T9")).map((l) => [l.type, l.lag]), [["2", "0"]]);
+  assert.deepEqual(p.bad.map((x) => [x.key, x.cls, x.sim, x.eng]), [
+    ["8", "geser", "2026-11-05..2026-11-05", "2026-11-04..2026-11-04"],
+    ["9", "label", "2026-11-02..2026-11-02", "2026-10-30..2026-10-30"],
+  ]);
+  assert.deepEqual(p.cls.unknown, []);
 });
 
 test("paritas pendahulu yang selesai di hari non-kerja (task selesai Sabtu): penerus FF lag 0/−2, FS −1, SS, SF → SNET di es bila perlu, tanggal = mesin", () => {
@@ -1394,17 +1514,22 @@ test("paritas pendahulu yang selesai di hari non-kerja (task selesai Sabtu): pen
   assert.deepEqual(["T2", "T3", "T8"].map((nm) => val(byName(p.doc, nm), "ConstraintType")), ["4", "4", "4"]);
 });
 
-test("paritas sapuan kecil: 12 benih × halaman workspace/project, fixture campuran → nol selisih", () => {
+test("paritas sapuan kecil: 12 benih × halaman workspace/project, fixture campuran → selisih hanya kelas dikenali (label/geser, F5), nol konflik", () => {
   let rows = 0;
+  const cls = { label: 0, geser: 0 };
   for (let k = 1; k <= 12; k++) {
     for (const pageKind of ["workspace", "project"]) {
       const p = parity(genMix(120, 160, k * 7919), { pageKind, cal: mixCal() });
       rows += p.rows.length;
-      assert.deepEqual(p.bad, [], "benih " + k + " " + pageKind);
+      cls.label += p.cls.label;
+      cls.geser += p.cls.geser;
+      assert.deepEqual(p.cls.unknown, [], "benih " + k + " " + pageKind);
       assert.deepEqual(p.conflicts, [], "konflik benih " + k + " " + pageKind);
     }
   }
+  console.log("sapuan kecil: " + rows + " baris, selisih " + JSON.stringify(cls));
   assert.ok(rows > 2500, "baris " + rows);
+  assert.ok(cls.label + cls.geser < rows / 40, "selisih " + JSON.stringify(cls));
 });
 
 // Fixture campuran representatif (LCG berbenih): Alpha Otomatis + Beta Manual, kalender SKB + libur tambahan + hari
@@ -1454,7 +1579,7 @@ function genMix(n, nDeps, seed) {
 }
 const mixCal = () => C.compile({ weekdays: [1, 2, 3, 4, 5], national: true, cutiBersama: true, off: [{ d: "2026-11-18" }, { d: "2026-12-07" }], work: [{ d: "2026-11-21" }, { d: "2026-12-12" }] });
 
-test("paritas fixture campuran 160 task / 200 dependensi (workspace, kalender SKB + pengecualian): tanggal simulator = es/ef mesin untuk semua simpul terhitung", () => {
+test("paritas fixture campuran 160 task / 200 dependensi (workspace, kalender SKB + pengecualian): tanggal simulator = es/ef mesin untuk semua simpul terhitung kecuali kelas selisih yang dikenali (F5)", () => {
   const tasks = genMix(160, 200, 20261110);
   const p = parity(tasks, { pageKind: "workspace", cal: mixCal() });
   const kinds = {};
@@ -1469,12 +1594,13 @@ test("paritas fixture campuran 160 task / 200 dependensi (workspace, kalender SK
   assert.deepEqual([...lt].sort(), ["0", "1", "2", "3"], "empat tipe tautan");
   assert.deepEqual([...ct].sort(), ["0", "3", "4"], "ASAP/MFO/SNET (tanpa MSO, F4 B)");
   assert.ok(p.result.cycles.length >= 1, "lingkaran");
-  assert.deepEqual(p.bad, [], JSON.stringify(p.bad, null, 1));
+  assert.deepEqual(p.cls.unknown, [], JSON.stringify(p.cls.unknown, null, 1));
+  assert.ok(p.bad.length < p.rows.length / 40, "selisih (kelas dikenali) " + JSON.stringify({ label: p.cls.label, geser: p.cls.geser }));
   assert.deepEqual(p.conflicts, [], "tanpa konflik kendala (F4 B)");
   assert.ok(taskEls(p.doc).some((t) => val(t, "Manual") === "1" && p.result.nodes.get(val(t, "Name").slice(1)) && p.result.nodes.get(val(t, "Name").slice(1)).conflict && !["manual", "done"].includes(p.result.nodes.get(val(t, "Name").slice(1)).fixed)), "task tetap berkonflik mesin → Manual");
 });
 
-test("properti F2/F4 (fixture campuran): task Otomatis non-ringkasan ber-ConstraintType 0 punya ≥ 1 PredecessorLink; setiap tautan yang diekspor ada di result.pred dengan tipe sama dan lag sama atau dikoreksi −1/−2 hari hanya pada tautan yang menyentuh milestone", () => {
+test("properti F2/F5 (fixture campuran): task Otomatis non-ringkasan ber-ConstraintType 0 punya ≥ 1 PredecessorLink; setiap tautan yang diekspor ada di result.pred dengan tipe dan lag IDENTIK (tanpa koreksi lag, review F5)", () => {
   const tasks = genMix(160, 200, 20261110);
   const p = parity(tasks, { pageKind: "workspace", cal: mixCal() });
   const keyOfUid = new Map();
@@ -1482,7 +1608,6 @@ test("properti F2/F4 (fixture campuran): task Otomatis non-ringkasan ber-Constra
   for (const t of taskEls(p.doc)) keyOfUid.set(val(t, "UID"), byTitle.get(val(t, "Name")));
   const TY = { 0: "FF", 1: "FS", 2: "SF", 3: "SS" };
   let n = 0;
-  let tweaks = 0;
   for (const t of taskEls(p.doc)) {
     if (val(t, "Summary") === "1") continue;
     const links = kids(t, "PredecessorLink");
@@ -1493,13 +1618,7 @@ test("properti F2/F4 (fixture campuran): task Otomatis non-ringkasan ber-Constra
       const hit = pl.find((x) => x.key === pk);
       assert.ok(hit, "tautan " + pk + " → " + val(t, "Name") + " ada di result.pred");
       assert.equal(TY[val(l, "Type")], hit.type);
-      const dl = Number(val(l, "LinkLag")) / 4800 - hit.lag;
-      if (dl !== 0) {
-        assert.ok(dl === -1 || dl === -2, "koreksi lag " + dl);
-        const pEl = taskEls(p.doc).find((x) => val(x, "UID") === val(l, "PredecessorUID"));
-        assert.ok(val(t, "Milestone") === "1" || val(pEl, "Milestone") === "1", "koreksi lag hanya pada tautan yang menyentuh milestone");
-        tweaks++;
-      }
+      assert.equal(val(l, "LinkLag"), String(hit.lag * 4800), "lag " + pk + " → " + val(t, "Name"));
       n++;
     }
   }
@@ -1511,7 +1630,7 @@ test("properti F2/F4 (fixture campuran): task Otomatis non-ringkasan ber-Constra
   for (const [k, l] of p.result.pred) if (!uncomputable.includes(k)) total2 += l.filter((x) => !uncomputable.includes(x.key)).length;
   assert.equal(n, total2, "semua sisi result.pred antar simpul terhitung diekspor");
   assert.ok(total >= total2);
-  assert.ok(tweaks > 0 && tweaks < n / 10, "koreksi lag " + tweaks + " dari " + n);
+  assert.ok(n > 150, "tautan " + n);
 });
 
 // ---------------------------------------------------------------- kinerja

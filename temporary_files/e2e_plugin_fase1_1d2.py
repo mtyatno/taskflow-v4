@@ -943,10 +943,10 @@ def check_ws_file(data, path, fname, P, ids, srv, spans, rows, tmp, out):
             continue
         dur = want[v["title"]]["dur"]
         work = v["est"] * 25
-        units = math.floor((2 * work * 10000 + dur * 480) / (2 * dur * 480)) / 100
+        units = -(-work * 10**6 // (dur * 480)) / 10**6 * 100  # 6 desimal dibulatkan ke atas (review F5), dalam %
         want_asg.append([v["title"], {"a": "Rani", "b": "Sari", "c": "Tono"}[v["who"]], float(work), round(units, 2)])
     got_asg = sorted([a[0], a[2], a[3], a[4]] for a in mp["assignments"])
-    check("2j MPXJ resource %r (urut nama) + %d assignment (Work = target × 25 menit, Units = Work ÷ durasi×480; milestone / tanpa "
+    check("2j MPXJ resource %r (urut nama) + %d assignment (Work = target × 25 menit, Units = Work ÷ durasi×480, 6 desimal ke atas; milestone / tanpa "
           "jadwal / ringkasan tanpa assignment)" % ([r[1] for r in mp["resources"]], len(want_asg)),
           mp["resources"] == want_res and got_asg == sorted(want_asg), repr((mp["resources"], got_asg, sorted(want_asg))))
     rcal = xml_rescal(data)

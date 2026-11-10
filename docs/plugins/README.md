@@ -500,12 +500,14 @@ berjalan setelah mesin 1c siap dan memakai konteks mesin yang sama (daftar lengk
     `HonorConstraints 1`) menghitung tanggal tampil yang sama **tanpa konflik kendala** (dikoreksi uji pemilik F4: tanpa
     MSO) — akar Otomatis dan task tetap mesin → SNET di tanggal mesin (selesai → `ActualStart`/`ActualFinish`; berjalan
     dengan mulai ≤ hari ini → `ActualStart`; task tetap yang dilanggar pendahulunya → `Manual 1`), milestone di jam yang
-    dihitung MS Project (FF → 17:00), tautan yang menyentuh milestone bisa ditulis dengan lag 1–2 hari lebih kecil
-    (setara dalam model jam MS Project); task tanpa jadwal → placeholder **Otomatis** di hari kerja pertama ≥ hari ini,
+    dihitung MS Project (FF → 17:00); lag tautan selalu lag Timeline apa adanya (dikoreksi review F5: tanpa koreksi lag —
+    di sekitar milestone MS Project bisa menampilkan tanggal milestone x untuk x−1 Timeline pada instan kerja yang sama,
+    dan penerus SS/SF dari milestone 17:00 bisa 1 hari kerja lebih lambat; sweep 1,3 % baris, 0 konflik kendala); task tanpa jadwal → placeholder **Otomatis** di hari kerja pertama ≥ hari ini,
     `Estimated 1` + `DurationFormat 39` ("1 hari?") + SNET; baseline aktif → `Baseline` Number 0; resource = penanggung
     jawab (workspace) atau pemilik (pribadi), masing-masing dengan kalender resource turunan kalender dasar (libur ikut),
-    assignment `Work` = target 🍅 × 25 menit. Tanpa `Date`: data yang sama di hari yang sama menghasilkan berkas
-    identik. Residual interop (ProjectLibre, kolom Batasan, lag yang dikoreksi): ADR-050.
+    assignment `Work` = target 🍅 × 25 menit, `Units` 6 desimal dibulatkan ke atas (Units × durasi ≥ Work, dikoreksi
+    review F5). Tanpa `Date`: data yang sama di hari yang sama menghasilkan berkas identik. Residual interop
+    (ProjectLibre, kolom Batasan, selisih tanggal di sekitar milestone): ADR-050.
   - **Toast:** "Berkas {nama} diunduh" (+ " · {n} task tanpa jadwal ditandai perkiraan", " · {k} tautan dilewati"),
     gagal → "Ekspor gagal". Aplikasi desktop/Android (`api.env.platform === "tauri"`) → "Ekspor tersedia di alurik.com
     lewat browser" tanpa membangun XML (`saveFile` di native → `false`).

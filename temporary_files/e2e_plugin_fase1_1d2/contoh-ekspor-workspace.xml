@@ -819,7 +819,7 @@
       <ResourceUID>2</ResourceUID>
       <Finish>2026-11-06T17:00:00</Finish>
       <Start>2026-11-03T08:00:00</Start>
-      <Units>0.0521</Units>
+      <Units>0.052084</Units>
       <Work>PT1H40M0S</Work>
     </Assignment>
     <Assignment>
@@ -828,7 +828,7 @@
       <ResourceUID>1</ResourceUID>
       <Finish>2026-11-12T17:00:00</Finish>
       <Start>2026-11-10T08:00:00</Start>
-      <Units>0.1042</Units>
+      <Units>0.104167</Units>
       <Work>PT2H30M0S</Work>
     </Assignment>
     <Assignment>
@@ -837,7 +837,7 @@
       <ResourceUID>3</ResourceUID>
       <Finish>2026-11-18T17:00:00</Finish>
       <Start>2026-11-12T08:00:00</Start>
-      <Units>0.1042</Units>
+      <Units>0.104167</Units>
       <Work>PT4H10M0S</Work>
     </Assignment>
     <Assignment>
@@ -846,7 +846,7 @@
       <ResourceUID>2</ResourceUID>
       <Finish>2026-11-24T17:00:00</Finish>
       <Start>2026-11-23T08:00:00</Start>
-      <Units>0.0781</Units>
+      <Units>0.078125</Units>
       <Work>PT1H15M0S</Work>
     </Assignment>
     <Assignment>
@@ -855,7 +855,7 @@
       <ResourceUID>2</ResourceUID>
       <Finish>2026-11-16T17:00:00</Finish>
       <Start>2026-11-16T08:00:00</Start>
-      <Units>0.1042</Units>
+      <Units>0.104167</Units>
       <Work>PT0H50M0S</Work>
     </Assignment>
     <Assignment>
@@ -864,7 +864,7 @@
       <ResourceUID>3</ResourceUID>
       <Finish>2026-11-18T17:00:00</Finish>
       <Start>2026-11-17T08:00:00</Start>
-      <Units>0.0781</Units>
+      <Units>0.078125</Units>
       <Work>PT1H15M0S</Work>
     </Assignment>
     <Assignment>
@@ -873,7 +873,7 @@
       <ResourceUID>1</ResourceUID>
       <Finish>2026-11-27T17:00:00</Finish>
       <Start>2026-11-26T08:00:00</Start>
-      <Units>0.0521</Units>
+      <Units>0.052084</Units>
       <Work>PT0H50M0S</Work>
     </Assignment>
     <Assignment>
@@ -882,7 +882,7 @@
       <ResourceUID>2</ResourceUID>
       <Finish>2026-12-29T17:00:00</Finish>
       <Start>2026-12-22T08:00:00</Start>
-      <Units>0.0521</Units>
+      <Units>0.052084</Units>
       <Work>PT1H40M0S</Work>
     </Assignment>
     <Assignment>
@@ -891,7 +891,7 @@
       <ResourceUID>1</ResourceUID>
       <Finish>2026-11-13T17:00:00</Finish>
       <Start>2026-11-11T08:00:00</Start>
-      <Units>0.0521</Units>
+      <Units>0.052084</Units>
       <Work>PT1H15M0S</Work>
     </Assignment>
     <Assignment>
@@ -900,7 +900,7 @@
       <ResourceUID>2</ResourceUID>
       <Finish>2026-11-17T17:00:00</Finish>
       <Start>2026-11-16T08:00:00</Start>
-      <Units>0.0521</Units>
+      <Units>0.052084</Units>
       <Work>PT0H50M0S</Work>
     </Assignment>
     <Assignment>
@@ -909,7 +909,7 @@
       <ResourceUID>3</ResourceUID>
       <Finish>2026-11-11T17:00:00</Finish>
       <Start>2026-11-09T08:00:00</Start>
-      <Units>0.0868</Units>
+      <Units>0.086806</Units>
       <Work>PT2H5M0S</Work>
     </Assignment>
   </Assignments>

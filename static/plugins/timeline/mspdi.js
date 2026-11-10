@@ -199,14 +199,16 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   const fmtPt = (p) => CAL.iso(ptDn(p)) + (p - ptDn(p) * 2 === 1 ? T_FINISH : T_START);
   const fmtDur = (days) => "PT" + days * 8 + "H0M0S";
   const fmtWork = (min) => "PT" + Math.floor(min / 60) + "H" + (min % 60) + "M0S";
-  // Units = menit kerja ÷ (d × 480), dibulatkan setengah ke atas pada 4 desimal dengan aritmetika bilangan bulat
-  // (tanpa galat pecahan biner), tanpa notasi ilmiah, nol di belakang dibuang ("0.0417", "0.625", "5").
+  // Units = menit kerja ÷ (d × 480), 6 desimal DIBULATKAN KE ATAS dengan aritmetika bilangan bulat (review F5: 4 desimal
+  // setengah ke atas bisa membuat Units × menit kerja < Work, hingga ±24 menit di 999 hari — penugasan tidak muat di
+  // rentang task). Ke atas → Units × d × 480 − Work ∈ [0, d × 480 ÷ 10⁶) menit (< 0,48 menit di 999 hari). Tanpa notasi
+  // ilmiah, nol di belakang dibuang ("0.041667", "0.625", "5").
   function fmtUnits(workMin, d) {
-    const num = workMin * 10000;
+    const num = workMin * 1000000;
     const den = d * MIN_DAY;
-    const n = Math.floor((2 * num + den) / (2 * den));
-    const ip = Math.floor(n / 10000);
-    const fp = String(n - ip * 10000).padStart(4, "0").replace(/0+$/, "");
+    const n = Math.floor((num + den - 1) / den);
+    const ip = Math.floor(n / 1000000);
+    const fp = String(n - ip * 1000000).padStart(6, "0").replace(/0+$/, "");
     return fp ? ip + "." + fp : String(ip);
   }
 
@@ -328,9 +330,14 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   //  - MFO → MFO (milestone 08:00, atau 17:00 bila tautan FF/SF menuntut selesai di 17:00 hari itu); tautan menuntut lebih
   //    lambat (konflik mesin) → Manual 1 + MFO;
   //  - Otomatis lain: syarat tautan (+ SNET eksplisit) lebih awal dari es → SNET di es (akar E1/E2, penerus milestone,
-  //    pendahulu selesai di hari libur); sama → ASAP (SNET eksplisit tetap); lebih lambat → residu (MS Project 1 hari kerja
-  //    lebih lambat; tanpa kendala). Milestone ditulis di jam yang dihitung MS Project (FF → 17:00); milestone yang menurut
-  //    MS Project jatuh di awal hari kerja berikut (FF lag < 0, SF lag ≤ 0: instan kerja sama) = residu tanggal tampil.
+  //    pendahulu selesai di hari libur); sama → ASAP (SNET eksplisit tetap); lebih lambat → residu tanpa kendala (review
+  //    F5: lag asli, tanpa koreksi). Mesin menghitung milestone per hari (penerus FS/FF mulai hari kerja berikutnya, SS/SF
+  //    di harinya), MS Project per jam, sehingga residu hanya muncul di sekitar milestone: milestone dengan tautan masuk SF
+  //    / FF lag < 0 yang menurut MS Project jatuh di 08:00 hari kerja berikut (instan kerja sama dengan 17:00 tanggal
+  //    mesin → residu label tanggal; ditulis di tanggal mesin), dan penerus SS/SF dari milestone yang jatuh 17:00 (MS
+  //    Project 1 hari kerja lebih lambat, ikut ke penerusnya). Milestone ditulis di jam yang dihitung MS Project (FF → 17:00).
+  //    Task tetap mesin yang terdorong residu ini mengikuti aturan task tetap di atas (Manual bila tautan menuntut lebih
+  //    lambat), jadi tetap tanpa konflik kendala.
   function planNode(e, c, mode) {
     const n = e.node;
     const cst = e.row.sched.constraint;
@@ -346,37 +353,21 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
       e.mF = e.f;
     };
     const startOf = (p) => (ms ? p : nsP(c, p));
-    const reqOf = (l, L) => {
+    // Syarat mulai satu tautan menurut MS Project dari titik MS Project pendahulu (mS/mF), dengan lag asli Timeline
+    // (review F5: lag tidak pernah dikoreksi). Hanya membaca tautan dan pendahulu; yang ditulis hanya keluaran di `e`.
+    const reqOf = (l) => {
       const pS = l.pe.mS === undefined ? l.pe.s : l.pe.mS;
       const pF = l.pe.mF === undefined ? l.pe.f : l.pe.mF;
-      if (l.tt === "FS") return addP(c, pF, L);
-      if (l.tt === "SS") return addP(c, pS, L);
-      return addP(c, addP(c, l.tt === "FF" ? pF : pS, L), -d);
+      if (l.tt === "FS") return addP(c, pF, l.L);
+      if (l.tt === "SS") return addP(c, pS, l.L);
+      return addP(c, addP(c, l.tt === "FF" ? pF : pS, l.L), -d);
     };
-    // Syarat tautan menurut MS Project lebih lambat dari tanggal mesin? (milestone: tanggal; task berdurasi: saat mulai)
-    const tooLate = (r) => (ms ? ptDn(r) > n.es : nsP(c, r) > S0);
     e.manual = mode === "manual";
     const fx = n.fixed;
     const actual = fx === "done" || (fx === "started" && e.actualS);
     let req = null;
     for (const l of e.links) {
-      let r = reqOf(l, l.L);
-      // Koreksi lag 1 hari (uji pemilik F4 B): mesin menghitung milestone per hari (penerus FS/FF mulai hari kerja
-      // berikutnya, SS/SF di harinya), MS Project per jam — milestone yang jatuh di 17:00 (FF) atau di awal hari kerja
-      // berikut (FF lag < 0, SF lag ≤ 0) membuat syarat SS/SF penerusnya / syarat milestone itu sendiri tepat 1 hari kerja
-      // lebih lambat dari mesin. Bila lag − 1 mengembalikan syarat ke ≤ tanggal mesin, tautan ditulis dengan lag − 1
-      // (setara di kedua model; tanpa kendala tambahan, tanpa konflik); SF dari milestone 17:00 ke milestone butuh lag − 2.
-      // Hanya pada tautan yang menyentuh milestone (konflik nyata task tetap tidak disembunyikan); task Manual/beraktual tidak
-      // dijadwalkan dari tautan.
-      for (let k = 1; k <= 2 && (ms || l.pe.ms === true) && !e.manual && !actual && tooLate(r); k++) {
-        // maks 2: satu per kebiasaan (pendahulu milestone 17:00; milestone ini jatuh di awal hari kerja berikut)
-        const r2 = reqOf(l, l.L - k);
-        if (tooLate(r2)) continue;
-        l.L -= k;
-        l.lag = l.L * LAG_UNIT;
-        l.tweak = k;
-        r = r2;
-      }
+      const r = reqOf(l);
       if (req === null || r > req) req = r;
     }
     if (e.manual) {
@@ -925,6 +916,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     fileNameOf,
     esc,
     targetOf,
+    fmtUnits,
   });
 })(
   typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"),
