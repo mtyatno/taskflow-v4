@@ -4465,4 +4465,4 @@
 - **Task:** Merge + deploy PR #132 (checklist bertingkat PR B, tampilan) atas "merge ini dulu" pemilik.
 - **Changes:** PR ditandai ready lalu di-merge (`66c7ad1`); CI Tests + Deploy sukses (00.11 WIB; statis, tanpa restart). v502 dipakai checklist → PR 1d-2 harus memakai v503.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
-- **Status:** Done (checklist bertingkat Fase 1 selesai). Verifikasi pasca-deploy di perangkat pemilik belum terkonfirmasi.
+- **Status:** Done (checklist bertingkat Fase 1 selesai). Verifikasi pasca-deploy dikonfirmasi pemilik 00.18 WIB.
