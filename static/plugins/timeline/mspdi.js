@@ -253,6 +253,9 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
         e.actualS = true;
         e.actualF = true;
         if (!(d === 0 && n.ef === n.es)) {
+          // Milestone yang selesai setelah harinya: dijadwalkan sebagai rentang es..ef (e.ms false), tetapi tetap
+          // ditandai <Milestone>1</Milestone> agar MS Project menampilkannya sebagai milestone (review F2b).
+          e.msMark = d === 0;
           e.ms = false;
           d = spanDays(c, startPt(n.es), finishPt(n.ef));
         }
@@ -309,7 +312,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
       if (e.manual) {
         if (cst) explicit();
         else at(C_SNET, n.es, false);
-      } else if (fx === "done" || (fx === "started" && e.actualS)) at(C_SNET, n.es, false);
+      } else if (fx === "done" || (fx === "started" && e.actualS)) at(C_SNET, n.es, false); // sabuk pengaman: pembaca yang tidak menjangkar dari ActualStart (mis. ProjectLibre) tetap tidak memajukannya
       else if (fx === "started" || fx === "cycle") at(inLinks ? C_MSO : C_SNET, n.es, false);
       else if (fx === "mfo" && cst) explicit();
       else if (!inLinks) at(C_SNET, n.es, false);
@@ -451,7 +454,8 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
         const tt = LINK_TYPE[type] === undefined ? "FS" : type;
         // anchor: pendahulu milestone, atau selesai di hari non-kerja (task selesai/aktual di akhir pekan) — di sana
         // aritmetika hari kerja mesin (TLCal.addWork dari hari itu) lebih lambat 1 hari dari waktu kerja MS Project.
-        const anchor = pe.ms === true || !workAt(c, ptDn(pe.f));
+        // Hanya dipakai buildConstraint untuk simpul mesin; jalur cadangan (tanpa mesin) tidak menghitungnya.
+        const anchor = eng && (pe.ms === true || !workAt(c, ptDn(pe.f)));
         e.links.push({ uid: pe.uid, tt, type: LINK_TYPE[tt], lag: (Number.isInteger(lag) ? lag : 0) * LAG_UNIT, anchor });
       }
       e.links.sort((x, y) => x.uid - y.uid);
@@ -604,9 +608,9 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   // Kalender dasar UID 1 (R7, review F2 C1): WeekDay DayType 1–7 (1 = Minggu = ISO 7) dari pola mingguan (c.mask, ISO
   // 1 = Senin … 7 = Minggu); pengecualian = hari yang isWork-nya berbeda dari pola (libur di hari kerja → DayWorking 0;
   // hari kerja pengganti → DayWorking 1 + jam), hari berurutan sejenis digabung. Ditulis DUA kali: WeekDay DayType 0 +
-  // TimePeriod (gaya Project 2003, dibaca ProjectLibre) dan blok <Exceptions> gaya 2007 (MS Project 2010+ mengabaikan
-  // gaya lama saat impor; MPXJ membaca <Exceptions> lebih dulu dan memakai DayType 0 hanya bila blok itu kosong, jadi
-  // tidak ganda). Rentang [mulai − 7, selesai + 31] atas semua task; > SPAN_MAX hari → SPAN_MAX hari yang digeser
+  // TimePeriod (gaya Project 2003, dibaca ProjectLibre) dan blok <Exceptions> gaya 2007 (menurut pelapor MPXJ bug
+  // #335, MS Project 2010+ mengabaikan gaya lama saat impor — belum kami verifikasi sendiri; MPXJ membaca <Exceptions>
+  // lebih dulu dan memakai DayType 0 hanya bila blok itu kosong, jadi tidak ganda). Rentang [mulai − 7, selesai + 31] atas semua task; > SPAN_MAX hari → SPAN_MAX hari yang digeser
   // mendekati D − HALF_SPAN (tidak keluar dari rentang task).
   function writeCalendar(out, c, ents, D) {
     let lo = Infinity;
@@ -713,7 +717,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     if (e.work !== undefined) out.el(3, "Work", fmtWork(e.work));
     out.el(3, "EffortDriven", 0);
     out.el(3, "Estimated", e.unscheduled ? 1 : 0);
-    out.el(3, "Milestone", !summary && e.ms ? 1 : 0);
+    out.el(3, "Milestone", !summary && (e.ms || e.msMark) ? 1 : 0);
     out.el(3, "Summary", summary ? 1 : 0);
     out.el(3, "PercentComplete", summary ? 0 : pctOf(e.task));
     if (e.actualS) out.el(3, "ActualStart", fmtPt(e.s));

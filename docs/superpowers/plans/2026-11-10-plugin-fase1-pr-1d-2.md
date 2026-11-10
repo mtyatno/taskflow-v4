@@ -142,6 +142,12 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
   - task tetap dan milestone di rantai memakai SNET/MSO di tanggal mesin; bila jadwal diubah di MS Project, kendala itu ikut menahan task;
   - task tetap tanpa aktual (lingkaran, berjalan es > D) yang tersimpan di hari libur dimulai MS Project di hari kerja berikutnya (selesai sama);
   - urutan kelompok workspace mengikuti `layout.js` (`localeCompare` "id"), yang bisa berbeda antar mesin JS.
+  - (dikoreksi review F2b) **MSO dan jalur kritis:** task ber-MSO (milestone Otomatis bertautan masuk FF/SF, anggota lingkaran, task berjalan dengan es > D) punya slack total 0 di MS Project bila `HonorConstraints 1`. Rantai pendahulunya ikut tampil kritis, jadi jalur kritis MS Project bisa lebih lebar daripada "Jalur kritis" Timeline. Untuk konflik yang ditandai mesin, slack menjadi negatif. Planning Wizard muncul saat task itu diedit, bukan saat berkas dibuka.
+  - (dikoreksi review F2b) **Kolom "Batasan" bukan cermin Timeline:** akar Otomatis mendapat SNET di tanggal mesin (tanggal mulai tersimpan Timeline memang berlaku sebagai "mulai tidak lebih awal"); task tetap dan milestone di rantai mendapat SNET/MSO buatan ekspor; kendala eksplisit pada task tetap diganti dengan jangkar.
+  - (dikoreksi review F2b) **Milestone yang jangkarnya jatuh di hari libur atau akhir pekan:** simulator membiarkannya di tempat, sedangkan MS Project kemungkinan memindahkannya ke saat kerja berikutnya. Yang terdampak hanya tanggal tampil milestone itu; penerusnya sudah dijangkar.
+  - (dikoreksi review F2b) **ProjectLibre:** dukungan MSO dan `HonorConstraints` belum terverifikasi — masuk uji pemilik.
+  - (dikoreksi review F2b) **Berkas berbeda dari bar Gantt** untuk dua kelompok task: task yang drift (ikut mesin) dan task selesai (tanggal aktual).
+  - (dikoreksi review F2b) **Milestone yang selesai setelah harinya** diekspor dengan rentang es..ef mesin (durasi = hari kerja rentang itu) dan tetap bertanda `Milestone 1`.
 
 ## Global Constraints
 

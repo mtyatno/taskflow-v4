@@ -984,6 +984,22 @@ test("I2 F2: task tetap mesin — selesai: Start/ActualStart = es, Finish/Actual
   assert.equal(val(byName(r.doc, "T2"), "PercentComplete"), "100");
 });
 
+test("F2b: milestone yang selesai setelah harinya → rentang es..ef mesin (Start/ActualStart, Finish/ActualFinish, durasi hari kerja) tetap bertanda Milestone 1; paritas penerusnya", () => {
+  const tasks = [
+    mk({ id: 1, start: "2026-11-02", d: 0, done: true }), // completed_at 5 Nov 17:30Z = 6 Nov WIB → ef 6 Nov
+    mk({ id: 2, start: "2026-11-09", d: 2, deps: [[1, "FS", 0]] }),
+    mk({ id: 3, start: "2026-11-09", d: 1, deps: [[1, "FF", 0]] }),
+    mk({ id: 4, start: "2026-11-03", d: 0, done: true, completed_at: "2026-11-03T02:00:00Z" }), // selesai di harinya
+  ];
+  const p = parity(tasks);
+  assert.deepEqual([I(p.result.nodes.get("1").es), I(p.result.nodes.get("1").ef)], ["2026-11-02", "2026-11-06"]);
+  const F = ["Milestone", "Start", "Finish", "Duration", "ActualStart", "ActualFinish"];
+  assert.deepEqual(F.map((k) => val(byName(p.doc, "T1"), k)), ["1", "2026-11-02T08:00:00", "2026-11-06T17:00:00", "PT40H0M0S", "2026-11-02T08:00:00", "2026-11-06T17:00:00"]);
+  assert.deepEqual(F.map((k) => val(byName(p.doc, "T4"), k)), ["1", "2026-11-03T08:00:00", "2026-11-03T08:00:00", "PT0H0M0S", "2026-11-03T08:00:00", "2026-11-03T08:00:00"]);
+  assert.equal(p.rows.length, 4);
+  assert.deepEqual(p.bad, []);
+});
+
 test("I3 F2: milestone di rantai — milestone Otomatis berpendahulu SNET di es (MSO bila tautan masuk FF/SF), penerus langsung milestone SNET di es, MFO milestone 08:00", () => {
   const tasks = [
     mk({ id: 1, start: "2026-11-02", d: 3 }),
