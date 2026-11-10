@@ -353,11 +353,12 @@ def run_flow(browser, ctx, p, base, user, titles):
     check("e2 .focus-zen-note tampil", p.locator(".focus-zen-note").is_visible(), p.locator(".focus-zen-note").inner_text())
     check("e3 panel task aktif terbuka", p.locator(".ftask.is-focusing.is-open .ftask-panel").is_visible())
     shot(p, "zen_light_desktop.png")
-    sub = p.locator(".ftask.is-focusing .ftask-sub").first
+    # Checklist bertingkat (PR B): baris ChecklistTree varian Fokus, centang = tombol role="checkbox" di baris.
+    sub = p.locator(".ftask.is-focusing .td-tree.is-focus .td-tree-row [role='checkbox']").first
     sub.wait_for(state="visible", timeout=8000)
     sub.click()
     p.wait_for_timeout(800)
-    check("e4 centang subtask berfungsi", p.locator(".ftask.is-focusing .ftask-sub.is-done").count() == 1)
+    check("e4 centang subtask berfungsi", p.locator(".ftask.is-focusing .td-tree-row.is-done").count() == 1)
     p.locator(".focus-pomo .pomo-btn-main.is-pause").first.click()
     p.wait_for_timeout(500)
     check("e5a task aktif tidak memutar ulang fade-in saat Jeda",

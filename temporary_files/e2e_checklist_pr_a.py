@@ -1,5 +1,12 @@
 """E2E PR A checklist bertingkat: klien SEKARANG (static/ tidak berubah, SW v500) + server baru. Tidak dijalankan CI.
 
+TIDAK BERLAKU SETELAH PR B (rencana docs/superpowers/plans/2026-11-10-checklist-bertingkat-pr-b-ui.md R11): skrip ini
+mengunci perilaku klien LAMA sampai SW v501 (`.td-check-row` datar tanpa indentasi, × "Hapus butir", label/bar dan panel
+Fokus menghitung semua butir, pill membulatkan ke kelipatan 5, progress dari checklist tidak sampai ke perangkat yang
+sudah menyimpan task, slider tetap bisa digeser). PR B mengubah semua itu dengan sengaja, jadi skrip ini tidak dijalankan
+sebagai regresi lagi; cek server yang masih relevan ditiru di temporary_files/e2e_checklist_tree.py. Simpan sebagai
+catatan jendela deploy PR A -> PR B.
+
 Membuktikan jendela deploy PR A -> PR B (rencana docs/superpowers/plans/2026-11-09-checklist-bertingkat-pr-a-server.md
 Task 11, ADR-048): UI yang sekarang tetap berjalan dengan server checklist bertingkat. Satu pengguna, perangkat D1
 (panel Live Edit 1280 px terang) dan, di akhir, perangkat D2 (login yang sama, konteks browser + IndexedDB bersih).
