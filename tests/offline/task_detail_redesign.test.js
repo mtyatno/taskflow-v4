@@ -124,9 +124,13 @@ test("DatePicker: tanggal setengah diketik (validity.badInput) tidak masuk form"
 });
 test("tambah checklist / subtask / tag: input dikosongkan hanya bila masih berisi teks yang dikirim", () => {
   const s = fnSource("TaskDetailBody");
-  assert.match(s, /setNewSub\(t => t === submitted \? "" : t\)/);
+  // Checklist bertingkat PR B: kotak tambah butir dikelola ChecklistTree (renderAdd), aturan yang sama.
+  const tree = fnSource("ChecklistTree");
+  const submit = tree.slice(tree.indexOf("const submitAdd = () =>"), tree.indexOf("const onAddKey = e =>"));
+  assert.ok(submit.length > 30, "submitAdd ada");
+  assert.match(submit, /setAddText\(t => t === submitted \? "" : t\)/);
+  assert.doesNotMatch(submit, /setAddText\(""\)/);
   assert.match(s, /setNewChildTitle\(t => t === submitted \? "" : t\)/);
-  assert.doesNotMatch(s, /setNewSub\(""\);\s*\/\/ Input tetap terbuka/);
   assert.doesNotMatch(s, /setNewChildTitle\(""\);\s*fetchChildTasks/);
   const t = fnSource("TagAdder");
   assert.match(t, /const typed = text;/); assert.match(t, /setText\(t => t === typed \? "" : t\)/);
@@ -192,26 +196,30 @@ test("tab: urutan, jumlah, hidden, tab awal sekali setelah empat muatan, pilihan
   const t = fnSource("DetailTabs");
   for (const re of [/role: "tablist"/, /role: "tab"/, /"aria-selected"/, /"aria-controls"/, /"ArrowRight"/, /"ArrowLeft"/]) assert.match(t, re);
 });
-test("SubtaskRow / ChecklistRow", () => {
+test("SubtaskRow / ChecklistTree", () => {
   const r = fnSource("SubtaskRow");
   for (const re of [/"aria-label": "Buka subtask"/, /StatusBadge/, /TF\.taskdetail\.formatShortDate\(/, /line-through/, /role: "checkbox"/]) assert.match(r, re);
-  const c = fnSource("ChecklistRow");
-  for (const re of [/"aria-label": "Hapus butir"/, /role: "checkbox"/, /"aria-checked"/]) assert.match(c, re);
-  for (const n of ["DetailTabs", "SubtaskRow", "ChecklistRow"]) assert.doesNotMatch(fnSource(n), EMOJI, n);
+  // Checklist bertingkat PR B: ChecklistRow (× "Hapus butir") diganti ChecklistTree; hapus pindah ke menu ⋯ (K13).
+  assert.ok(indexHtml.indexOf("\nfunction ChecklistRow(") < 0, "ChecklistRow dihapus");
+  const c = fnSource("ChecklistTree");
+  for (const re of [/role: "checkbox"/, /"aria-checked"/]) assert.match(c, re);
+  for (const n of ["DetailTabs", "SubtaskRow", "ChecklistTree", "ChecklistGlyph"]) assert.doesNotMatch(fnSource(n), EMOJI, n);
 });
 test("ModalNotes / ModalAttachments: bare + onCount, bawaan tetap", () => {
   for (const n of ["ModalNotes", "ModalAttachments"]) {
     const m = fnSource(n); assert.match(m, /bare = false/); assert.match(m, /onCount/); assert.match(m, /!bare &&/);
   }
 });
-test("CSS tab/deskripsi/baris: di blok detail, × checklist selalu tampil tanpa hover", () => {
+test("CSS tab/deskripsi/baris: di blok detail, ⠿ dan ⋯ checklist selalu tampil tanpa hover", () => {
   const a = appCss.indexOf("/* ── Detail task: awal ── */"), b = appCss.indexOf("/* ── Detail task: akhir ── */");
   const block = appCss.slice(a, b);
-  for (const c of [".td-desc", ".td-tabs", ".td-tab", ".td-tabpanel", ".td-sub-row", ".td-check-row", ".td-add"])
+  for (const c of [".td-desc", ".td-tabs", ".td-tab", ".td-tabpanel", ".td-sub-row", ".td-tree-row", ".td-add"])
     assert.ok(block.includes(c + " {"), c);
   assert.match(block, /\.td-desc\s*\{[^}]*resize:\s*none;[^}]*overflow-y:\s*auto/);
   assert.match(block, /\.td-tabpanel\[hidden\]\s*\{\s*display:\s*none;/);
-  assert.match(block, /@media \(hover: none\)\s*\{\s*\.td-check-del\s*\{\s*opacity:\s*1;/);
+  // Checklist bertingkat PR B: × "Hapus butir" pindah ke menu ⋯ (K13); ⋯ dan ⠿ selalu tampil di perangkat tanpa hover.
+  assert.match(block, /@media \(hover: none\)\s*\{\s*\.td-tree-grip, \.td-tree-more\s*\{\s*opacity:\s*1;/);
+  assert.doesNotMatch(block, /\.td-check-del/);
 });
 
 // Detail padat (permintaan pemilik 2026-10-27, layar laptop 14"): properti satu baris (label kiri, nilai kanan), dua

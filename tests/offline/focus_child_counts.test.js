@@ -240,16 +240,16 @@ test("Detail task: tab Checklist memakai 'butir checklist'; tab Subtask (task an
   const end = body.indexOf('tabPanel("notes",', start);
   assert.ok(end > start, "akhir panel Checklist");
   const section = body.slice(start, end);
-  for (const fn of ["handleToggle(s.id)", "handleDeleteSub(s.id)", "handleAddSub()", "React.createElement(ChecklistRow"])
+  // Checklist bertingkat PR B: daftar + centang/tambah/hapus pindah ke ChecklistTree (variant detail); hapus lewat ⋯.
+  for (const fn of ["React.createElement(ChecklistTree", 'variant: "detail"', "renderAdd: add =>"])
     assert.ok(section.includes(fn), fn);
   assert.ok(section.includes('"+ Tambah butir checklist baru"'));
   assert.ok(section.includes('placeholder: "Butir checklist baru"'));
   assert.ok(section.includes('"Belum ada checklist"'));
-  assert.ok(!/subtask/i.test(section.replace(/Subs\b|setNewSub|newSub|addingSub|loadingSubs|subtasks\.map|handleDeleteSub|handleAddSub/g, "")),
-    "tidak ada teks 'subtask' di panel Checklist");
-  const row = fnSource("ChecklistRow");
-  assert.ok(row.includes('"aria-label": "Hapus butir"'));
-  assert.ok(!/subtask/i.test(row), "tidak ada teks 'subtask' di ChecklistRow");
+  assert.ok(!/subtask/i.test(section), "tidak ada teks 'subtask' di panel Checklist");
+  assert.ok(indexHtml.indexOf("\nfunction ChecklistRow(") < 0, "ChecklistRow dihapus");
+  const tree = fnSource("ChecklistTree");
+  assert.ok(!/subtask/i.test(tree.replace(/\/api\/subtasks\/|\/subtasks`/g, "")), "tidak ada teks 'subtask' di ChecklistTree selain URL API");
   // Task anak (parent_id) tetap "subtask".
   const sub = body.slice(body.indexOf('tabPanel("subtask",'), start);
   assert.ok(sub.includes('placeholder: "+ Buat subtask baru…"') && sub.includes('"Belum ada subtask"'), "panel task anak di detail");

@@ -19,6 +19,10 @@ const MAX_ADDED_LINES = 60;
 // PR 1d-0 (host): kolom angka Fokus + baris Target 🍅 detail task menambah 162 baris index.html terhadap main (22cd9e5: 46074 → 46236);
 // anggaran historis di bawah ikut naik.
 const HOST_1D0_EXTRA = 162;
+// Checklist bertingkat PR B (fitur host, bukan plugin; rencana docs/superpowers/plans/2026-11-10-checklist-bertingkat-pr-b-ui.md):
+// ChecklistTree, kunci Progress, Fokus menambah tepat sekian baris index.html terhadap main 6182810 (46236 baris).
+// Diperbarui per tugas PR B supaya anggaran plugin tetap ketat; anggaran historis di bawah ikut naik.
+const CHECKLIST_PRB_EXTRA = 291;
 
 function fnSource(name) {
   const s = html.indexOf(`function ${name}(`);
@@ -100,7 +104,7 @@ test("Dashboard merender <TF.Slot name=dashboard.widgets> setelah grid GTD, deng
 
 test("index.html bertambah ≤ 60 baris (Lampiran A #13)", () => {
   const lines = (html.match(/\n/g) || []).length;
-  assert.ok(lines - BASELINE_LINES <= MAX_ADDED_LINES + HOST_1D0_EXTRA, `index.html +${lines - BASELINE_LINES} baris (batas ${MAX_ADDED_LINES} + ${HOST_1D0_EXTRA} host 1d-0)`);
+  assert.ok(lines - BASELINE_LINES <= MAX_ADDED_LINES + HOST_1D0_EXTRA + CHECKLIST_PRB_EXTRA, `index.html +${lines - BASELINE_LINES} baris (batas ${MAX_ADDED_LINES} + ${HOST_1D0_EXTRA} host 1d-0 + ${CHECKLIST_PRB_EXTRA} checklist PR B)`);
 });
 
 // ── Fase 0b (spec docs/superpowers/specs/2026-10-31-plugin-fase0b-design.md §6.2–§6.4; rencana PR B Task 11) ──
@@ -237,7 +241,7 @@ test("bindHost meneruskan updateTaskExt (PUT ext_patch), patchTaskExt (TF.taskex
 
 test("index.html PR 1a-1 bertambah ≤ 35 baris (spec Fase 1 §12)", () => {
   const lines = (html.match(/\n/g) || []).length;
-  assert.ok(lines - BASELINE_LINES <= 35 + HOST_1D0_EXTRA, `index.html +${lines - BASELINE_LINES} baris (batas 35 + ${HOST_1D0_EXTRA} host 1d-0)`);
+  assert.ok(lines - BASELINE_LINES <= 35 + HOST_1D0_EXTRA + CHECKLIST_PRB_EXTRA, `index.html +${lines - BASELINE_LINES} baris (batas 35 + ${HOST_1D0_EXTRA} host 1d-0 + ${CHECKLIST_PRB_EXTRA} checklist PR B)`);
 });
 
 // ── Fase 1 PR 1a-2 (rencana Task 9, R14, R15, R21) ──
@@ -274,5 +278,5 @@ test("sync(): langkah pullPluginRecords terisolasi (step) setelah pluginstate.pu
 const MAIN_LINES_AFTER_121 = 46072;
 test("anggaran PR 1a-2: index.html ≤ main (setelah #121) + 5 baris", () => {
   const lines = (html.match(/\n/g) || []).length;
-  assert.ok(lines - MAIN_LINES_AFTER_121 <= 5 + HOST_1D0_EXTRA, `index.html ${lines} baris (+${lines - MAIN_LINES_AFTER_121} dari ${MAIN_LINES_AFTER_121}; batas +5 + ${HOST_1D0_EXTRA} host 1d-0)`);
+  assert.ok(lines - MAIN_LINES_AFTER_121 <= 5 + HOST_1D0_EXTRA + CHECKLIST_PRB_EXTRA, `index.html ${lines} baris (+${lines - MAIN_LINES_AFTER_121} dari ${MAIN_LINES_AFTER_121}; batas +5 + ${HOST_1D0_EXTRA} host 1d-0 + ${CHECKLIST_PRB_EXTRA} checklist PR B)`);
 });

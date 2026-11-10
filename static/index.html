@@ -9689,38 +9689,382 @@ function SubtaskRow({
     size: 15
   })));
 }
-// Baris butir checklist (spec §4.6): kotak centang + judul + tombol hapus (tampil saat hover; selalu di perangkat
-// tanpa hover, lewat CSS).
-function ChecklistRow({
-  item,
-  onToggle,
-  onDelete
+// Glyph checklist bertingkat (rencana PR B R4): SVG inline seperti FocusGlyph, karena ui-components.js (Icon) bisa
+// tertahan di cache lama. grip = enam titik (pegangan seret ⠿), more = tiga titik (menu butir ⋯), chevron = lipat.
+function ChecklistGlyph({
+  name,
+  size = 16
 }) {
-  const done = !!item.is_done;
-  return /*#__PURE__*/React.createElement("div", {
-    className: "td-check-row" + (done ? " is-done" : "")
-  }, /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    role: "checkbox",
-    className: "td-check",
-    "aria-checked": done,
-    "aria-label": item.title,
-    onClick: onToggle
-  }, done && /*#__PURE__*/React.createElement(Icon, {
-    name: "check",
-    size: 13
-  })), /*#__PURE__*/React.createElement("span", {
-    className: "td-check-title"
-  }, item.title), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "td-icon-btn td-check-del",
-    "aria-label": "Hapus butir",
-    title: "Hapus butir",
-    onClick: onDelete
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "x",
-    size: 14
-  })));
+  const paths = {
+    grip: '<g fill="currentColor" stroke="none"><circle cx="9" cy="5.5" r="1.6"/><circle cx="15" cy="5.5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18.5" r="1.6"/><circle cx="15" cy="18.5" r="1.6"/></g>',
+    more: '<g fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></g>',
+    chevronRight: '<path d="m9 18 6-6-6-6"/>',
+    chevronDown: '<path d="m6 9 6 6 6-6"/>'
+  };
+  return React.createElement("svg", {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true",
+    focusable: "false",
+    dangerouslySetInnerHTML: { __html: paths[name] || "" }
+  });
+}
+// Checklist bertingkat (spec checklist-bertingkat §6–§7, rencana PR B R3): satu komponen untuk detail task (modal +
+// panel Live Edit, variant "detail") dan halaman Fokus (variant "focus"). Logika pohon murni di TF.checklist; di sini
+// state, antrean mutasi, dan tampilan. Pemanggil memberi key = id task (id cid → id server memasang ulang).
+// - Memuat GET /api/tasks/{id}/subtasks sendiri; onCounts({done, total, loaded: true}) level atas sesudah muat pertama
+//   (gagal = 0/0), lalu setiap hitungan berubah.
+// - Satu antrean mutasi berurutan (D9): pindah dan ubah teks tampil langsung (optimistis), tambah/centang/hapus menunggu
+//   respons. Galat apa pun → toast §6.7, sisa antrean dibuang, daftar kembali ke versi terakhir yang dikenal server lalu
+//   dimuat ulang. Setiap task_progress → TF.checklist.adoptTaskProgress (record task lokal tanpa dirty/rev) lalu
+//   onProgress(tp) (§7.8).
+// - autoRefreshMs (Fokus) memuat ulang berkala, dilewati selama sibuk (seret, kotak isian berisi teks, menu terbuka,
+//   antrean belum kosong).
+// - Task belum tersinkron (id bukan angka): daftar kosong, tanpa GET dan tanpa /api/subtasks/*.
+// - Kotak tambah bawah dirender pemanggil lewat renderAdd(add) (teks persis milik pemanggil); add = {text, setText,
+//   depth, open, setOpen, busy, onKeyDown, onBlur, submit, style}. Tab/Shift+Tab mengubah depth (0..maxAddDepth) dan
+//   hanya ditangkap bila depth benar-benar berubah, supaya fokus tetap bisa keluar dari kotak (K14).
+function ChecklistTree({
+  taskId,
+  task = null,
+  collaborators = [],
+  variant = "detail",
+  autoRefreshMs = 0,
+  onCounts,
+  onProgress,
+  renderAdd
+}) {
+  const C = window.TF.checklist;
+  const synced = /^\d+$/.test(String(taskId));
+  const listUrl = `/api/tasks/${taskId}/subtasks`;
+  const storage = () => {
+    let s = null;
+    try {
+      s = window.localStorage;
+    } catch (_) {}
+    return s;
+  };
+  const [items, setItemsState] = useState([]);
+  const [loaded, setLoaded] = useState(!synced);
+  const [collapsed, setCollapsedState] = useState(() => C.loadCollapsed(storage()));
+  const [addText, setAddText] = useState("");
+  const [addDepth, setAddDepth] = useState(0);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const itemsRef = useRef(items);
+  const confirmedRef = useRef([]); // daftar terakhir yang dikenal server (tanpa perubahan optimistis)
+  const collapsedRef = useRef(collapsed);
+  const aliveRef = useRef(true);
+  const queueRef = useRef(Promise.resolve());
+  const epochRef = useRef(0);
+  const pendingRef = useRef(0);
+  const mutSeqRef = useRef(0);
+  const loadSeqRef = useRef(0);
+  const countsRef = useRef(null);
+  const toggleBusyRef = useRef(new Set());
+  const addClientIdRef = useRef(null);
+  if (addClientIdRef.current === null) addClientIdRef.current = genId();
+  const cbRef = useRef(null);
+  cbRef.current = { onCounts, onProgress };
+  const busyRef = useRef(null);
+  const bodyRef = useRef(null);
+  // Perubahan lokal (optimistis atau hasil respons) menaikkan mutSeq, sehingga muat berkala yang dimulai sebelumnya
+  // tidak menimpanya.
+  const setItems = next => {
+    itemsRef.current = next;
+    mutSeqRef.current += 1;
+    setItemsState(next);
+  };
+  const load = force => {
+    if (!synced) return Promise.resolve();
+    const seq = ++loadSeqRef.current;
+    const mut = mutSeqRef.current;
+    return api.get(listUrl).then(data => {
+      if (!aliveRef.current || seq !== loadSeqRef.current || !force && mut !== mutSeqRef.current) return;
+      const list = C.preorder(Array.isArray(data) ? data : []);
+      confirmedRef.current = list;
+      itemsRef.current = list;
+      setItemsState(list);
+      setLoaded(true);
+    }, () => {
+      if (aliveRef.current) setLoaded(true);
+    });
+  };
+  const enqueue = (run, failText) => {
+    const epoch = epochRef.current;
+    pendingRef.current += 1;
+    const p = queueRef.current.then(() => epochRef.current === epoch ? run() : undefined).catch(err => {
+      if (epochRef.current !== epoch) return undefined;
+      epochRef.current += 1;
+      console.error(err);
+      window.__showToast?.(failText, "error");
+      if (aliveRef.current) setItems(confirmedRef.current);
+      return load(true);
+    }).then(() => {
+      pendingRef.current -= 1;
+    });
+    queueRef.current = p;
+    return p;
+  };
+  const adopt = resp => {
+    const tp = resp && resp.task_progress;
+    if (!tp) return;
+    const sid = task && task.server_id != null ? task.server_id : taskId;
+    C.adoptTaskProgress(sid, tp).then(() => cbRef.current.onProgress?.(tp));
+  };
+  // Perubahan yang sudah diterima server: ke daftar server dan ke tampilan.
+  const applyServer = fn => {
+    confirmedRef.current = fn(confirmedRef.current);
+    setItems(fn(itemsRef.current));
+  };
+  const itemOf = resp => {
+    const it = Object.assign({}, resp);
+    delete it.task_progress;
+    delete it.changed_ids;
+    return it;
+  };
+  // Butir baru = saudara terakhir (server menomori ulang saudaranya 0..n−1 dan memberi butir baru n).
+  const withAdded = (list, it) => {
+    const flat = C.preorder(list);
+    if (flat.some(r => r.id === it.id)) return C.preorder(flat.map(r => r.id === it.id ? Object.assign({}, r, it) : r));
+    const parent = it.parent_id == null ? null : it.parent_id;
+    const sibs = flat.filter(r => r.parent_id === parent);
+    const order = new Map(sibs.map((r, i) => [r.id, i]));
+    const next = flat.map(r => order.has(r.id) ? Object.assign({}, r, { sort_order: order.get(r.id) }) : r);
+    next.push(Object.assign({}, it, { parent_id: parent, sort_order: sibs.length }));
+    return C.preorder(next);
+  };
+  const setCollapsed = next => {
+    const saved = new Set(C.saveCollapsed(storage(), next));
+    collapsedRef.current = saved;
+    setCollapsedState(saved);
+  };
+  // Lipat terakhir = paling baru (yang tertua dibuang lebih dulu saat melewati batas).
+  const toggleFold = id => {
+    const next = new Set(collapsedRef.current);
+    if (next.has(id)) next.delete(id);else {
+      next.delete(id);
+      next.add(id);
+    }
+    setCollapsed(next);
+  };
+  // Buka butir dan seluruh leluhurnya (butir baru / tujuan pindah tidak boleh tersembunyi di bawah butir terlipat).
+  const expandChain = id => {
+    const byId = new Map(C.preorder(itemsRef.current).map(r => [r.id, r]));
+    const next = new Set(collapsedRef.current);
+    let changed = false;
+    for (let cur = byId.get(id); cur; cur = cur.parent_id == null ? null : byId.get(cur.parent_id)) {
+      if (next.delete(cur.id)) changed = true;
+    }
+    if (changed) setCollapsed(next);
+  };
+  const toggle = id => {
+    if (!synced || toggleBusyRef.current.has(id)) return;
+    toggleBusyRef.current.add(id);
+    enqueue(() => api.post(`/api/subtasks/${id}/toggle`).then(resp => {
+      const ids = new Set(Array.isArray(resp.changed_ids) ? resp.changed_ids : []);
+      ids.add(resp.id != null ? resp.id : id);
+      const done = !!resp.is_done;
+      applyServer(list => list.map(r => ids.has(r.id) ? Object.assign({}, r, { is_done: done }) : r));
+      adopt(resp);
+    }), "Gagal mencentang butir").then(() => toggleBusyRef.current.delete(id));
+  };
+  // Tambah butir di akhir saudara (tanpa index); true bila tersimpan.
+  const addItem = (title, parentId, clientId) => {
+    let ok = false;
+    return enqueue(() => api.post(listUrl, {
+      title,
+      client_id: clientId,
+      parent_id: parentId
+    }).then(resp => {
+      applyServer(list => withAdded(list, itemOf(resp)));
+      if (parentId != null) expandChain(parentId);
+      adopt(resp);
+      ok = true;
+    }), "Gagal menambah butir").then(() => ok);
+  };
+  const closeAdd = () => {
+    setAddOpen(false);
+    setAddText("");
+    setAddDepth(0);
+  };
+  const submitAdd = () => {
+    const title = addText.trim();
+    if (!title || addBusy) return;
+    const submitted = addText;
+    setAddBusy(true);
+    addItem(title, C.addParentFor(itemsRef.current, addDepth), addClientIdRef.current).then(ok => {
+      if (ok) {
+        addClientIdRef.current = genId();
+        // Ketikan baru selama menunggu tidak terhapus.
+        setAddText(t => t === submitted ? "" : t);
+      }
+      setAddBusy(false);
+    });
+  };
+  const onAddKey = e => {
+    if (e.nativeEvent && e.nativeEvent.isComposing) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitAdd();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeAdd();
+    } else if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      const next = e.shiftKey ? Math.max(0, addDepth - 1) : Math.min(addDepth + 1, C.maxAddDepth(itemsRef.current));
+      if (next !== addDepth) {
+        e.preventDefault();
+        setAddDepth(next);
+      }
+    }
+  };
+  const add = {
+    text: addText,
+    setText: setAddText,
+    depth: addDepth,
+    open: addOpen,
+    setOpen: setAddOpen,
+    busy: addBusy,
+    onKeyDown: onAddKey,
+    onBlur: () => {
+      if (!addText.trim() && !addBusy) closeAdd();
+    },
+    submit: submitAdd,
+    style: {
+      "--td-depth": Math.min(addDepth, 6)
+    }
+  };
+  busyRef.current = () => pendingRef.current > 0 || addText.trim() !== "";
+  useEffect(() => {
+    aliveRef.current = true;
+    load(true);
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (!autoRefreshMs || !synced) return undefined;
+    const h = setInterval(() => {
+      if (!busyRef.current()) load(false);
+    }, autoRefreshMs);
+    return () => clearInterval(h);
+  }, [autoRefreshMs]);
+  useEffect(() => {
+    if (!loaded) return;
+    const c = C.topLevelCounts(items);
+    const last = countsRef.current;
+    if (last && last.done === c.done && last.total === c.total) return;
+    countsRef.current = c;
+    cbRef.current.onCounts?.({
+      done: c.done,
+      total: c.total,
+      loaded: true
+    });
+  }, [items, loaded]);
+  // Depth kotak bawah di-clamp ulang saat daftar berubah (butir terakhir bisa hilang / pindah).
+  useEffect(() => {
+    const max = C.maxAddDepth(items);
+    if (addDepth > max) setAddDepth(max);
+  }, [items]);
+  const rows = useMemo(() => C.visibleRows(items, collapsed), [items, collapsed]);
+  const kids = useMemo(() => C.childCountsAll(items), [items]);
+  // ul/li bersarang dari baris pre-order (iteratif): simpul = {row, kids}.
+  const roots = [];
+  const stack = [];
+  for (const row of rows) {
+    const node = {
+      row,
+      kids: []
+    };
+    while (stack.length && stack[stack.length - 1].row.depth >= row.depth) stack.pop();
+    (stack.length ? stack[stack.length - 1].kids : roots).push(node);
+    stack.push(node);
+  }
+  const renderList = nodes => React.createElement("ul", {
+    className: "td-tree-list"
+  }, nodes.map(renderNode));
+  const renderNode = node => {
+    const {
+      item,
+      depth,
+      hasChildren,
+      collapsed: folded
+    } = node.row;
+    const id = item.id;
+    const title = item.title || "";
+    const done = !!item.is_done;
+    const kc = folded ? kids.get(id) : null;
+    return React.createElement("li", {
+      key: id,
+      className: "td-tree-item",
+      "data-check-id": id
+    }, React.createElement("div", {
+      className: "td-tree-row" + (done ? " is-done" : ""),
+      "data-check-row": id,
+      style: {
+        "--td-depth": Math.min(depth, 6)
+      }
+    }, React.createElement("button", {
+      type: "button",
+      className: "td-tree-grip",
+      tabIndex: -1,
+      "aria-label": "Pindahkan «" + title + "»",
+      "data-check-part": "grip"
+    }, React.createElement(ChecklistGlyph, {
+      name: "grip"
+    })), hasChildren ? React.createElement("button", {
+      type: "button",
+      className: "td-tree-fold",
+      "aria-expanded": !folded,
+      "aria-label": folded ? "Buka sub butir «" + title + "»" : "Lipat sub butir «" + title + "»",
+      "data-check-part": "fold",
+      onClick: () => toggleFold(id)
+    }, React.createElement(ChecklistGlyph, {
+      name: folded ? "chevronRight" : "chevronDown"
+    })) : React.createElement("span", {
+      className: "td-tree-fold is-empty",
+      "aria-hidden": "true"
+    }), React.createElement("button", {
+      type: "button",
+      role: "checkbox",
+      className: "td-tree-check",
+      "aria-checked": done,
+      "aria-label": title,
+      "data-check-part": "check",
+      onClick: () => toggle(id)
+    }, React.createElement("span", {
+      className: "td-tree-box",
+      "aria-hidden": "true"
+    }, done && React.createElement(Icon, {
+      name: "check",
+      size: 13
+    }))), React.createElement("span", {
+      className: "td-tree-text"
+    }, title), kc && kc.total > 0 && React.createElement("span", {
+      className: "td-tree-chip"
+    }, kc.done + "/" + kc.total), React.createElement("button", {
+      type: "button",
+      className: "td-tree-more",
+      "aria-label": "Aksi butir «" + title + "»",
+      "aria-haspopup": "menu",
+      "data-check-part": "more",
+      disabled: true
+    }, React.createElement(ChecklistGlyph, {
+      name: "more"
+    }))), node.kids.length > 0 && renderList(node.kids));
+  };
+  return React.createElement("div", {
+    className: "td-tree" + (variant === "focus" ? " is-focus" : "")
+  }, React.createElement("div", {
+    className: "td-tree-body",
+    ref: bodyRef
+  }, roots.length > 0 && renderList(roots)), renderAdd ? renderAdd(add) : null);
 }
 function TaskDetailBody({
   task,
@@ -9824,12 +10168,12 @@ function TaskDetailBody({
   const scopeProjects = useScopeProjects(task.list_id);
   const scopeContexts = useScopeContexts(task.list_id);
   const scopeLists = useScopeLists(task.list_id, sharedLists);
-  const [subtasks, setSubtasks] = useState([]);
-  const [newSub, setNewSub] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [addingSub, setAddingSub] = useState(false);
-  const [loadingSubs, setLoadingSubs] = useState(true);
-  const subClientId = useRef(genId());
+  // Hitungan checklist level atas dari ChecklistTree (onCounts): label tab, tab awal, bar d/t, kunci pill Progress.
+  const [checkCounts, setCheckCounts] = useState({
+    done: 0,
+    total: 0,
+    loaded: false
+  });
   // Child tasks (subtasks as full tasks)
   const [childTasks, setChildTasks] = useState([]);
   const [childLoaded, setChildLoaded] = useState(false);
@@ -9941,17 +10285,6 @@ function TaskDetailBody({
     }
   }, [task?.list_id]);
 
-  // Fetch subtasks (checklist)
-  useEffect(() => {
-    if (task?.id) {
-      setLoadingSubs(true);
-      api.get(`/api/tasks/${task.id}/subtasks`).then(data => {
-        setSubtasks(data);
-        setLoadingSubs(false);
-      }).catch(() => setLoadingSubs(false));
-    }
-  }, [task?.id]);
-
   // Fetch child tasks (full tasks with parent_id)
   const fetchChildTasks = () => {
     if (task?.id) {
@@ -10000,42 +10333,6 @@ function TaskDetailBody({
       console.error(err);
     }
   };
-  const handleToggle = async subId => {
-    try {
-      const result = await api.post(`/api/subtasks/${subId}/toggle`);
-      setSubtasks(prev => prev.map(s => s.id === subId ? result : s));
-    } catch (err) {
-      console.error(err);
-    }
-  };
-  const handleAddSub = async () => {
-    if (!newSub.trim() || addingSub) return;
-    const submitted = newSub;
-    setAddingSub(true);
-    try {
-      const result = await api.post(`/api/tasks/${task.id}/subtasks`, {
-        title: submitted.trim(),
-        client_id: subClientId.current
-      });
-      setSubtasks(prev => [...prev, result]);
-      // Ketikan baru selama menunggu tidak terhapus: kosongkan hanya bila input masih berisi teks yang dikirim.
-      setNewSub(t => t === submitted ? "" : t);
-      // Input tetap terbuka untuk butir berikutnya (Escape menutup).
-      subClientId.current = genId();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setAddingSub(false);
-    }
-  };
-  const handleDeleteSub = async subId => {
-    try {
-      await api.del(`/api/subtasks/${subId}`);
-      setSubtasks(prev => prev.filter(s => s.id !== subId));
-    } catch (err) {
-      console.error(err);
-    }
-  };
   // Centang task anak: selesai → POST done; buka lagi → PUT gtd_status next; lalu muat ulang anak + daftar.
   const childBusyRef = useRef(new Set());
   const handleToggleChild = async ct => {
@@ -10057,16 +10354,16 @@ function TaskDetailBody({
     onOpenTask ? onOpenTask(ct) : onClose();
   };
   useEffect(() => {
-    if (autoTabDoneRef.current || !childLoaded || loadingSubs || notesCount === null || attCount === null) return;
+    if (autoTabDoneRef.current || !childLoaded || !checkCounts.loaded || notesCount === null || attCount === null) return;
     autoTabDoneRef.current = true;
     if (tabPickedRef.current) return;
     setTab(window.TF.taskdetail.initialTab({
       subtask: childTasks.length,
-      checklist: subtasks.length,
+      checklist: checkCounts.total,
       notes: notesCount,
       attachments: attCount
     }));
-  }, [childLoaded, loadingSubs, notesCount, attCount]);
+  }, [childLoaded, checkCounts.loaded, notesCount, attCount]);
   React.useLayoutEffect(() => {
     const ta = descWrapRef.current && descWrapRef.current.querySelector("textarea");
     if (!ta) return;
@@ -10173,9 +10470,6 @@ function TaskDetailBody({
     name: "plus",
     size: 14
   })));
-  const doneCount = subtasks.filter(s => s.is_done).length;
-  const totalSubs = subtasks.length;
-  const progress = totalSubs > 0 ? Math.round(doneCount / totalSubs * 100) : 0;
   const todayISO = window.TF.tasklogic.todayLocalISO();
   // Aturan simpan properti (spec §4.4): memilih = change + tutup + commit; menutup popover properti dengan cara apa
   // pun (Enter, Escape, klik di luar, klik nilai lagi) = commit field itu. Commit tanpa perubahan tidak mengirim apa pun.
@@ -10493,7 +10787,7 @@ function TaskDetailBody({
     }, {
       id: "checklist",
       label: "Checklist",
-      count: totalSubs
+      count: checkCounts.total
     }, {
       id: "notes",
       label: "Catatan",
@@ -10526,55 +10820,51 @@ function TaskDetailBody({
         setNewChildTitle("");
       }
     }
-  })), tabPanel("checklist", totalSubs > 0 && /*#__PURE__*/React.createElement("div", {
+  })), tabPanel("checklist", checkCounts.total > 0 && /*#__PURE__*/React.createElement("div", {
     className: "td-check-head"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "td-check-bar" + (progress === 100 ? " is-full" : ""),
+    className: "td-check-bar" + (checkCounts.done === checkCounts.total ? " is-full" : ""),
     role: "progressbar",
-    "aria-label": `${doneCount} dari ${totalSubs} butir selesai`,
+    "aria-label": `${checkCounts.done} dari ${checkCounts.total} butir selesai`,
     "aria-valuemin": 0,
-    "aria-valuemax": totalSubs,
-    "aria-valuenow": doneCount
+    "aria-valuemax": checkCounts.total,
+    "aria-valuenow": checkCounts.done
   }, /*#__PURE__*/React.createElement("div", {
     className: "td-check-fill",
     style: {
-      width: `${progress}%`
+      width: `${window.TF.checklist.percent(checkCounts.done, checkCounts.total)}%`
     }
-  })), /*#__PURE__*/React.createElement("span", null, doneCount, "/", totalSubs)), loadingSubs ? /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("span", null, checkCounts.done, "/", checkCounts.total)), !checkCounts.loaded && /*#__PURE__*/React.createElement("div", {
     className: "td-empty"
-  }, "Memuat…") : subtasks.map(s => /*#__PURE__*/React.createElement(ChecklistRow, {
-    key: s.id,
-    item: s,
-    onToggle: () => handleToggle(s.id),
-    onDelete: () => handleDeleteSub(s.id)
-  })), !loadingSubs && totalSubs === 0 && !adding && /*#__PURE__*/React.createElement("div", {
-    className: "td-empty"
-  }, "Belum ada checklist"), adding ? /*#__PURE__*/React.createElement(MentionInput, {
+  }, "Memuat…"), /*#__PURE__*/React.createElement(ChecklistTree, {
+    key: String(task.id),
+    taskId: task.id,
+    task: task,
     collaborators: collaborators,
-    className: "td-add-input",
-    value: newSub,
-    onChange: e => setNewSub(e.target.value),
-    placeholder: "Butir checklist baru",
-    "aria-label": "Butir checklist baru",
-    autoFocus: true,
-    onKeyDown: e => {
-      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
-        e.preventDefault();
-        handleAddSub();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        setAdding(false);
-        setNewSub("");
-      }
-    },
-    onBlur: () => {
-      if (!newSub.trim() && !addingSub) setAdding(false);
-    }
-  }) : /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "td-add",
-    onClick: () => setAdding(true)
-  }, "+ Tambah butir checklist baru")), tabPanel("notes", /*#__PURE__*/React.createElement(ModalNotes, {
+    variant: "detail",
+    onCounts: setCheckCounts,
+    // Progress dari checklist sudah ditulis ke task lokal (adoptTaskProgress): daftar, pill, dan Timeline dimuat ulang.
+    onProgress: () => onRefreshRef.current?.(),
+    // Kotak bawah: Enter menambah dan tetap terbuka; Tab/Shift+Tab = tingkat; Escape / blur saat kosong menutup.
+    renderAdd: add => /*#__PURE__*/React.createElement(React.Fragment, null, checkCounts.loaded && checkCounts.total === 0 && !add.open && /*#__PURE__*/React.createElement("div", {
+      className: "td-empty"
+    }, "Belum ada checklist"), add.open ? /*#__PURE__*/React.createElement(MentionInput, {
+      collaborators: collaborators,
+      className: "td-add-input td-tree-add",
+      value: add.text,
+      onChange: e => add.setText(e.target.value),
+      placeholder: "Butir checklist baru",
+      "aria-label": "Butir checklist baru",
+      autoFocus: true,
+      style: add.style,
+      onKeyDown: add.onKeyDown,
+      onBlur: add.onBlur
+    }) : /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "td-add",
+      onClick: () => add.setOpen(true)
+    }, "+ Tambah butir checklist baru"))
+  })), tabPanel("notes", /*#__PURE__*/React.createElement(ModalNotes, {
     taskId: task.id,
     collaborators: collaborators,
     bare: true,
