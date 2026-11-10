@@ -2101,7 +2101,9 @@ const TLPlan = (function (CAL, SCHED, CPM) {
 
   // baselineDecode (Review Focus 3): v ≠ 1, bukan objek, t bukan larik, n bukan 1–3 → null. Entri rusak (bukan larik,
   // < 4 elemen, ref tak terpecahkan — null dari host / bukan {$task} sah —, tanggal tak sah, f < s, durasi tak sah)
-  // DILEWATI; ref ganda → yang pertama menang. w tidak dibaca (1d). → {n, name, savedAt, by, rows: Map<key, {s, f, d}>}.
+  // DILEWATI; ref ganda → yang pertama menang. w dibaca sejak 1d-2 (R3, earned value): e[4] bila bilangan bulat ≥ 0,
+  // selain itu 0 — entri 4 elemen dari baseline 1c-2 lama tetap sah dengan w 0; w rusak tidak membuang baris.
+  // → {n, name, savedAt, by, rows: Map<key, {s, f, d, w}>}.
   function baselineDecode(data) {
     if (!isObj(data) || data.v !== 1 || !Array.isArray(data.t) || [1, 2, 3].indexOf(data.n) < 0) return null;
     const rows = new Map();
@@ -2112,7 +2114,7 @@ const TLPlan = (function (CAL, SCHED, CPM) {
       const s = isoDn(e[1]);
       const f = isoDn(e[2]);
       if (!isDn(s) || !isDn(f) || f < s || !isDur(e[3])) continue;
-      rows.set(key, { s, f, d: e[3] });
+      rows.set(key, { s, f, d: e[3], w: Number.isInteger(e[4]) && e[4] >= 0 ? e[4] : 0 });
     }
     return {
       n: data.n,
@@ -2178,7 +2180,8 @@ const TLPlan = (function (CAL, SCHED, CPM) {
 );
 if (typeof module !== "undefined" && module.exports) module.exports = TLPlan;
 // part: load.js
-// Plugin Timeline — TLLoad: mesin Beban Tim murni (spec 1d §5.1–§5.2, K45–K50; rencana 1d-1 R1–R3, R6, R8, R9).
+// Plugin Timeline — TLLoad: mesin Beban Tim murni (spec 1d §5.1–§5.2, K45–K50; rencana 1d-1 R1–R3, R6, R8, R9) +
+// earned value 🍅 dari baseline aktif (spec 1d §5.3, K51; rencana 1d-2 R1).
 // Membagi sisa 🍅 tiap task rata ke hari kerja jendela bar Gantt (tanggal TERSIMPAN lewat TLSched.spanOf, R1 — bukan
 // ES/EF mesin), menjumlahkannya per penanggung jawab per hari dalam milipomodoro (×1000, bilangan bulat, R8), lalu
 // membandingkannya dengan kapasitas/cuti record `resource` (K47–K48). Saran leveling (R6) memakai slack hasil TLCpm.run.
@@ -2567,6 +2570,134 @@ const TLLoad = (function (CAL, SCHED, CPM) {
     return "~" + String(h) + " jam";
   }
 
+  // ---- earned value 🍅 (spec 1d §5.3, K51; rencana 1d-2 R1) ----
+  const SPAN_MAX = 3660; // rentang hari kalender maks untuk hitung hari kerja (pola SPAN_MAX TLPlan/TLCpm)
+
+  // Hari kerja kalender halaman. Kalender rusak (.has melempar — TL_CAL_LOOP atau galat lain — / gagal dikompilasi)
+  // → bukan hari kerja: ev tidak pernah melempar karena kalender.
+  function workAt(c, dn) {
+    if (c === null) return false;
+    try {
+      return CAL.isWork(c, dn) === true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // PV satu baris (milipomodoro, wm = w × 1000): D < s → 0; milestone (d 0) → wm; selain itu
+  // round(wm × hk(s..min(f, D)) ÷ hk(s..f)). Penyebut 0 (rentang tanpa hari kerja) = satu hari di s → wm (D ≥ s).
+  // Satu putaran menghitung pembilang dan penyebut; rentang dibatasi s + SPAN_MAX hari kalender (data rusak tidak
+  // menggantung — durasi sah ≤ 999 hk jauh di bawahnya).
+  function pvOf(c, b, D, wm) {
+    if (D < b.s) return 0;
+    if (b.d === 0) return wm;
+    let den = 0;
+    let num = 0;
+    for (let d = b.s, hi = Math.min(b.f, b.s + SPAN_MAX); d <= hi; d++) {
+      if (!workAt(c, d)) continue;
+      den++;
+      if (d <= D) num++;
+    }
+    return den === 0 ? wm : Math.round((wm * num) / den);
+  }
+
+  // % selesai (R1): task selesai = 100; selain itu progress bilangan hingga dijepit 0–100; bukan bilangan → 0.
+  function pctOf(t) {
+    if (isDone(t)) return 100;
+    const p = t.progress;
+    return typeof p === "number" && Number.isFinite(p) ? Math.min(100, Math.max(0, p)) : 0;
+  }
+
+  // ev(bl, ctx, D) → {bac, pv, ev, ac, spi, cpi, rows, outside, missing} | null.
+  //   bl = {n, name, rows: Map<refKey, {s, f, d, w}>} (baseline aktif, TLPlan.baselineDecode); ctx = {tasks, cal, result}
+  //   (daftar lengkap halaman, kalender halaman, hasil TLCpm.run — hanya summaries yang dibaca); D = bilangan hari hari ini.
+  //   Baris → task lewat TLSched.buildIndex(ctx.tasks) dengan kunci kanonik String(task.id) (pola compareBaseline): urut
+  //   cmpKey, dua baris ke task sama → yang pertama. Task tidak ditemukan / tidak hidup → missing, dibuang dari SEMUA
+  //   angka. Per baris dalam milipomodoro, dibulatkan per baris lalu dijumlah (determinis): BAC += w; PV (pvOf);
+  //   EV += w × % selesai (pctOf); AC += pomodoros_done bulat ≥ 0. spi = ev ÷ pv, cpi = ev ÷ ac (penyebut 0 → null).
+  //   outside = task hidup, bukan berulang, bukan induk ringkasan, yang tidak dipetakan baris mana pun (sekali per kunci).
+  //   bl / bl.rows / D tidak sah atau BAC 0 → null (ringkasan tidak tampil, K51). Murni: tidak menulis, tidak mengubah masukan.
+  function ev(bl, ctx, D) {
+    if (!isObj(bl) || !(bl.rows instanceof Map) || !isDn(D)) return null;
+    const x = isObj(ctx) ? ctx : {};
+    const tasks = Array.isArray(x.tasks) ? x.tasks : [];
+    let c;
+    try {
+      c = calOf(x.cal);
+    } catch (e) {
+      c = null;
+    }
+    const idx = SCHED.buildIndex(tasks);
+    const sums = isObj(x.result) && x.result.summaries instanceof Map ? x.result.summaries : new Map();
+    const mapped = new Set();
+    let bac = 0;
+    let pv = 0;
+    let earned = 0;
+    let ac = 0;
+    let rows = 0;
+    let missing = 0;
+    for (const rk of [...bl.rows.keys()].sort(cmpKey)) {
+      const t = idx.get(rk);
+      if (!t) {
+        missing++;
+        continue;
+      }
+      const key = keyOf(t);
+      if (mapped.has(key)) continue;
+      mapped.add(key);
+      if (!isLive(t)) {
+        missing++;
+        continue;
+      }
+      const b = bl.rows.get(rk);
+      if (!isObj(b) || !isDn(b.s) || !isDn(b.f) || b.f < b.s) continue; // nilai baris rusak (bukan keluaran decode)
+      const wm = (Number.isInteger(b.w) && b.w >= 0 ? b.w : 0) * MILLI;
+      bac += wm;
+      pv += pvOf(c, b, D, wm);
+      earned += Math.round((wm * pctOf(t)) / 100);
+      ac += doneOf(t) * MILLI;
+      rows++;
+    }
+    if (bac === 0) return null;
+    let outside = 0;
+    const seen = new Set();
+    for (const t of tasks) {
+      if (!isObj(t) || t.id === undefined || t.id === null || !isLive(t) || t.recurrence_type) continue;
+      const key = keyOf(t);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (!sums.has(key) && !mapped.has(key)) outside++;
+    }
+    return { bac, pv, ev: earned, ac, spi: pv > 0 ? earned / pv : null, cpi: ac > 0 ? earned / ac : null, rows, outside, missing };
+  }
+
+  // fmtPomo1(milli) (R1): milipomodoro → 🍅 satu desimal dengan titik desimal seperti host ("12.5"); bilangan bulat
+  // tanpa ".0" ("12"); bukan bilangan hingga → "0".
+  function fmtPomo1(milli) {
+    const v = Number(milli);
+    if (!Number.isFinite(v)) return "0";
+    const h = Math.round(v / 100) / 10;
+    return String(h === 0 ? 0 : h);
+  }
+
+  const pctText = (q) => (typeof q === "number" && Number.isFinite(q) ? Math.round(q * 100) + "%" : "—");
+
+  // evText (Q6 (a)): "Jadwal {p}% · Efisiensi 🍅 {q}%" — persen bulat; spi/cpi null → "—".
+  function evText(r) {
+    const x = isObj(r) ? r : {};
+    return "Jadwal " + pctText(x.spi) + " · Efisiensi 🍅 " + pctText(x.cpi);
+  }
+
+  // evTip: "Baseline: {nama} · PV {x} · EV {y} · AC {z} · BAC {w} 🍅" (🍅 satu desimal, fmtPomo1), ditambah
+  // " · {n} task di luar baseline" bila n > 0.
+  function evTip(r, name) {
+    const x = isObj(r) ? r : {};
+    const nm = typeof name === "string" ? name : "";
+    let s = "Baseline: " + nm + " · PV " + fmtPomo1(x.pv) + " · EV " + fmtPomo1(x.ev) + " · AC " + fmtPomo1(x.ac) + " · BAC " + fmtPomo1(x.bac) + " 🍅";
+    if (Number.isInteger(x.outside) && x.outside > 0) s += " · " + x.outside + " task di luar baseline";
+    return s;
+  }
+
   return Object.freeze({
     EST_MAX,
     DEFAULT_CAP,
@@ -2585,6 +2716,10 @@ const TLLoad = (function (CAL, SCHED, CPM) {
     uidOf,
     isLive,
     isDone,
+    ev,
+    evText,
+    evTip,
+    fmtPomo1,
   });
 })(
   typeof TLCal !== "undefined" ? TLCal : require("./calendar.js"),

@@ -490,7 +490,9 @@ const TLPlan = (function (CAL, SCHED, CPM) {
 
   // baselineDecode (Review Focus 3): v ≠ 1, bukan objek, t bukan larik, n bukan 1–3 → null. Entri rusak (bukan larik,
   // < 4 elemen, ref tak terpecahkan — null dari host / bukan {$task} sah —, tanggal tak sah, f < s, durasi tak sah)
-  // DILEWATI; ref ganda → yang pertama menang. w tidak dibaca (1d). → {n, name, savedAt, by, rows: Map<key, {s, f, d}>}.
+  // DILEWATI; ref ganda → yang pertama menang. w dibaca sejak 1d-2 (R3, earned value): e[4] bila bilangan bulat ≥ 0,
+  // selain itu 0 — entri 4 elemen dari baseline 1c-2 lama tetap sah dengan w 0; w rusak tidak membuang baris.
+  // → {n, name, savedAt, by, rows: Map<key, {s, f, d, w}>}.
   function baselineDecode(data) {
     if (!isObj(data) || data.v !== 1 || !Array.isArray(data.t) || [1, 2, 3].indexOf(data.n) < 0) return null;
     const rows = new Map();
@@ -501,7 +503,7 @@ const TLPlan = (function (CAL, SCHED, CPM) {
       const s = isoDn(e[1]);
       const f = isoDn(e[2]);
       if (!isDn(s) || !isDn(f) || f < s || !isDur(e[3])) continue;
-      rows.set(key, { s, f, d: e[3] });
+      rows.set(key, { s, f, d: e[3], w: Number.isInteger(e[4]) && e[4] >= 0 ? e[4] : 0 });
     }
     return {
       n: data.n,
