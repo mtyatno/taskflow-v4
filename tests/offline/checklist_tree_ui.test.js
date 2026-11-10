@@ -1000,12 +1000,109 @@ test("seret menunda autoRefreshMs; sumber memakai pola seret pin sidebar + TF.ch
   assert.match(block, /\.td-tree-grip\s*\{[^}]*touch-action:\s*manipulation;[^}]*user-select:\s*none;[^}]*-webkit-touch-callout:\s*none/);
 });
 
+// ── Task 6: kunci Progress (pill + form edit lengkap) ────────────────────────────────────────────────────────────
+
+function renderPill(props) {
+  const clampCalls = [];
+  const opened = [];
+  const h = mountComp(["ProgressPill"], Object.assign({
+    value: 33, open: true, onToggle() {}, onClose() {}, onChange() { throw new Error("onChange saat terkunci"); },
+    onCommit() {}, onOpenChecklist: () => opened.push(1)
+  }, props), {
+    window: { TF: { taskdetail: { clampProgress: v => { clampCalls.push(v); return Math.round(Number(v) / 5) * 5; }, PROGRESS_PRESETS: [0, 25, 50, 75, 100] } } }
+  });
+  return { out: h.out, clampCalls, opened };
+}
+
+test("ProgressPill terkunci: angka checklist apa adanya, aria-label, slider nonaktif, tanpa preset, keterangan, Buka Checklist", () => {
+  const { out, clampCalls, opened } = renderPill({ locked: { done: 1, total: 3, percent: 33 } });
+  assert.deepEqual(clampCalls, [], "tampilan terkunci tidak memakai clampProgress (33 tetap 33, bukan 35)");
+  const pill = findAll(out, n => n.type === "button" && hasClass(n, "td-pill"))[0];
+  assert.equal(pill.props["aria-label"], "Progress 33%, otomatis dari checklist");
+  assert.ok(textOf(pill).includes("33%"));
+  const range = findAll(out, n => n.type === "input" && n.props.type === "range")[0];
+  assert.equal(range.props.disabled, true);
+  assert.equal(range.props.value, 33);
+  assert.equal(findAll(out, n => hasClass(n, "td-presets")).length, 0, "preset 0/25/50/75/100 tidak dirender");
+  assert.ok(textOf(out).includes("Otomatis dari checklist (1/3)"));
+  const btn = findAll(out, n => n.type === "button" && textOf(n) === "Buka Checklist")[0];
+  assert.ok(btn);
+  btn.props.onClick();
+  assert.deepEqual(opened, [1]);
+});
+
+test("ProgressPill: hitungan belum dimuat (pending) → nilai task apa adanya, tanpa (d/t); tidak terkunci → seperti sebelumnya", () => {
+  const p = renderPill({ value: 67, locked: { pending: true } });
+  assert.deepEqual(p.clampCalls, []);
+  const pill = findAll(p.out, n => n.type === "button" && hasClass(n, "td-pill"))[0];
+  assert.equal(pill.props["aria-label"], "Progress 67%, otomatis dari checklist");
+  const note = findAll(p.out, n => hasClass(n, "td-progress-note"))[0];
+  assert.equal(textOf(note), "Otomatis dari checklist");
+  const u = renderPill({ value: 33, locked: null, onChange() {} });
+  assert.ok(u.clampCalls.length > 0, "manual: dibulatkan seperti sebelumnya");
+  const upill = findAll(u.out, n => n.type === "button" && hasClass(n, "td-pill"))[0];
+  assert.equal(upill.props["aria-label"], "Progress 35%");
+  assert.equal(findAll(u.out, n => hasClass(n, "td-presets")).length, 1);
+  assert.equal(findAll(u.out, n => n.type === "input" && n.props.type === "range")[0].props.disabled, false);
+  assert.equal(findAll(u.out, n => textOf(n) === "Buka Checklist").length, 0);
+});
+
+test("TaskDetailBody: kunci dari TF.checklist.lockFor(task, checkCounts); Live Edit tidak menyimpan progress saat terkunci", () => {
+  const s = fnSource("TaskDetailBody");
+  assert.match(s, /const progressLock = window\.TF\.checklist\.lockFor\(task, checkCounts\);/);
+  assert.match(s, /locked: progressLock,/);
+  assert.match(s, /onProgressChange: p => \{\s*if \(!progressLock\) sf\("progress", p\);\s*\}/);
+  assert.match(s, /onProgressCommit: \(\) => \{\s*if \(!progressLock\) auto\.commit\("progress"\);\s*\}/);
+  assert.match(s, /onOpenChecklist: \(\) => \{\s*setOpenPop\(null\);\s*pickTab\("checklist"\);/);
+  const c = fnSource("DetailChips");
+  assert.match(c, /locked: locked,\s*onOpenChecklist: onOpenChecklist/);
+  const pp = fnSource("ProgressPill");
+  for (const t of ['"Otomatis dari checklist (" + locked.done + "/" + locked.total + ")"', '"Otomatis dari checklist"', '"Buka Checklist"',
+    '", otomatis dari checklist"'])
+    assert.ok(pp.includes(t), t);
+  assert.doesNotMatch(pp, EMOJI);
+});
+
+test("Live Edit: commit progress tanpa perubahan (pill terkunci ditutup) tidak mengirim PUT; angka baru dari luar diadopsi tanpa disimpan", async () => {
+  const le = require("../../static/offline/liveedit.js");
+  const calls = [];
+  const s = le.createAutosaver({ task: { id: 7, cid: "c7", title: "T", priority: "P3", gtd_status: "next", progress: 0 },
+    put: patch => { calls.push(patch); return Promise.resolve(undefined); }, onChange() {}, setTimer: () => 0, clearTimer() {} });
+  s.commit("progress"); await tick();
+  assert.deepEqual(calls, []);
+  // adoptTaskProgress → daftar dimuat ulang → task baru (progress 33) masuk lewat external/mergeExternal
+  s.external({ id: 7, cid: "c7", title: "T", priority: "P3", gtd_status: "next", progress: 33, checklist_total: 3 });
+  assert.equal(s.getState().form.progress, 33);
+  s.commit("progress"); await tick();
+  await s.flush();
+  assert.deepEqual(calls, [], "angka dari checklist tidak disimpan ulang oleh Live Edit");
+  s.change("priority", "P1"); await tick();
+  assert.deepEqual(calls, [{ priority: "P1" }], "simpan field lain tidak membawa progress");
+  assert.match(fnSource("useTaskAutosave"), /external: saver\.external/, "detail meneruskan angka checklist ke form (modal)");
+});
+
+test("TaskFormModal: checklist_total > 0 → slider nonaktif + 'Otomatis dari checklist', progress tidak dikirim saat simpan", () => {
+  const f = fnSource("TaskFormModal");
+  assert.match(f, /const progressLocked = isEdit && Number\(task\?\.checklist_total\) > 0;/);
+  assert.match(f, /disabled: progressLocked,/);
+  assert.match(f, /progressLocked && \/\*#__PURE__\*\/React\.createElement\("div", \{[\s\S]{0,200}\}, "Otomatis dari checklist"\)/);
+  const put = f.slice(f.indexOf("if (isEdit) {", f.indexOf("// ── Task mode")), f.indexOf("onSave();", f.indexOf("// ── Task mode")));
+  assert.match(put, /const body = \{\s*\.\.\.form,\s*\.\.\.recurrencePayload\s*\};\s*if \(progressLocked\) delete body\.progress;\s*await api\.put\(`\/api\/tasks\/\$\{task\.id\}`, body\);/);
+});
+
+test("CSS kunci Progress di blok detail: token saja", () => {
+  const block = detailBlock();
+  assert.match(block, /\.td-progress-lock\s*\{/);
+  assert.match(block, /\.td-progress-note\s*\{[^}]*color: var\(--text-secondary\)/);
+});
+
 // ── Detail (R5) ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 test("TaskDetailBody: tab Checklist = ChecklistTree variant detail; state checklist lama dihapus", () => {
   const s = fnSource("TaskDetailBody");
   for (const re of [/React\.createElement\(ChecklistTree, \{/, /variant: "detail"/, /onCounts: setCheckCounts/,
-    /onProgress: \(\) => onRefreshRef\.current\?\.\(\)/, /key: String\(task\.id\)/,
+    /onProgress: tp => \{[\s\S]{0,300}auto\.external\(Object\.assign\(\{\}, task, auto\.getState\(\)\.saved, \{\s*progress: tp\.progress,[\s\S]{0,120}onRefreshRef\.current\?\.\(\);\s*\}/,
+    /key: String\(task\.id\)/,
     /const \[checkCounts, setCheckCounts\] = useState\(\{\s*done: 0,\s*total: 0,\s*loaded: false\s*\}\)/])
     assert.match(s, re);
   for (const re of [/\[subtasks, setSubtasks\]/, /setSubtasks\(/, /subtasks\.(?:filter|length|map)/, /\/api\/tasks\/\$\{task\.id\}\/subtasks/,

@@ -54,7 +54,8 @@ test("DetailChips + ProgressPill: kuadran dari nilai form, Terlambat, popover Ub
   const c = fnSource("DetailChips"), pp = fnSource("ProgressPill");
   assert.match(c, /TF\.tasklogic\.calculateQuadrant\(\{\s*priority,\s*deadline\s*\}/);
   assert.match(c, /TF\.taskdetail\.isOverdue\(deadline, status, /); assert.match(c, /"Terlambat"/);
-  for (const re of [/"Ubah Progress"/, /TF\.taskdetail\.PROGRESS_PRESETS\.map\(/, /type: "range"/, /step: 5/, /onPointerUp/, /onKeyUp/, /"aria-pressed"/])
+  // Checklist bertingkat PR B: langkah 5 untuk slider manual; terkunci (checklist) langkah 1 dan nonaktif.
+  for (const re of [/"Ubah Progress"/, /TF\.taskdetail\.PROGRESS_PRESETS\.map\(/, /type: "range"/, /step: locked \? 1 : 5/, /onPointerUp/, /onKeyUp/, /"aria-pressed"/])
     assert.match(pp, re);
 });
 test("TaskDetailBody: bar atas menggantikan bar aksi bawah", () => {

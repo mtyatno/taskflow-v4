@@ -6121,6 +6121,9 @@ function TaskFormModal({
   showToast
 }) {
   const isEdit = !!task?.id;
+  // Kunci Progress (checklist bertingkat K2, spec §6.5): task dengan checklist level atas → slider nonaktif dan progress
+  // tidak dikirim saat simpan (server toh mengabaikannya, D3; tanpa progress PUT tidak membawa angka basi).
+  const progressLocked = isEdit && Number(task?.checklist_total) > 0;
   const [form, setForm] = useState({
     title: task?.title || "",
     description: task?.description || "",
@@ -7087,10 +7090,12 @@ function TaskFormModal({
     };
     try {
       if (isEdit) {
-        await api.put(`/api/tasks/${task.id}`, {
+        const body = {
           ...form,
           ...recurrencePayload
-        });
+        };
+        if (progressLocked) delete body.progress;
+        await api.put(`/api/tasks/${task.id}`, body);
         onSave();
       } else {
         const newTask = await api.post("/api/tasks", {
@@ -7976,12 +7981,19 @@ function TaskFormModal({
       fontWeight: 700,
       color: form.progress === 100 ? "#22c55e" : "var(--accent)"
     }
-  }, form.progress, "%")), /*#__PURE__*/React.createElement("input", {
+  }, form.progress, "%")), progressLocked && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-light)",
+      marginBottom: 4
+    }
+  }, "Otomatis dari checklist"), /*#__PURE__*/React.createElement("input", {
     type: "range",
     min: "0",
     max: "100",
-    step: "5",
+    step: progressLocked ? "1" : "5",
     value: form.progress,
+    disabled: progressLocked,
     onChange: e => set("progress", parseInt(e.target.value)),
     style: {
       width: "100%",
@@ -8775,7 +8787,8 @@ function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
     commit: saver.commit,
     revertTitle: saver.revertTitle,
     retry: saver.retry,
-    flush: saver.flush
+    flush: saver.flush,
+    external: saver.external
   };
 }
 // Live Edit (spec §7.5): indikator simpan di baris judul panel. Kosong sebelum ada edit; "Tersimpan" hilang 2 dtk
@@ -9072,7 +9085,7 @@ function DetailTopBar({
   }), "Hapus"))), headerAction));
 }
 // Chip di bawah judul (spec §4.3): kuadran dan "Terlambat" dihitung dari nilai form saat ini (bukan prop task yang
-// bisa basi), lalu pill progress.
+// bisa basi), lalu pill progress (terkunci selama task punya checklist: locked = TF.checklist.lockFor).
 function DetailChips({
   priority,
   deadline,
@@ -9083,7 +9096,9 @@ function DetailChips({
   onProgressToggle,
   onProgressClose,
   onProgressChange,
-  onProgressCommit
+  onProgressCommit,
+  locked = null,
+  onOpenChecklist
 }) {
   const quadrant = window.TF.tasklogic.calculateQuadrant({ priority, deadline }, todayISO);
   const late = window.TF.taskdetail.isOverdue(deadline, status, todayISO);
@@ -9101,30 +9116,43 @@ function DetailChips({
     onToggle: onProgressToggle,
     onClose: onProgressClose,
     onChange: onProgressChange,
-    onCommit: onProgressCommit
+    onCommit: onProgressCommit,
+    locked: locked,
+    onOpenChecklist: onOpenChecklist
   }));
 }
 // Pill progress + popover "Ubah Progress": slider 0–100 langkah 5 (onChange saat geser, onCommit saat lepas / keyup /
 // blur) dan preset 0/25/50/75/100% (onChange + onCommit). Menutup popover juga commit (di TaskDetailBody).
+// Terkunci (checklist bertingkat K2, spec §6.5; locked = {done, total, percent} | {pending: true} | null): angka
+// checklist apa adanya (bukan kelipatan 5 clampProgress), slider nonaktif, preset tidak dirender, keterangan
+// "Otomatis dari checklist (d/t)" (tanpa d/t selama hitungan belum dimuat) dan tombol "Buka Checklist".
 function ProgressPill({
   value,
   open,
   onToggle,
   onClose,
   onChange,
-  onCommit
+  onCommit,
+  locked = null,
+  onOpenChecklist
 }) {
   const pillRef = useRef(null);
-  const v = window.TF.taskdetail.clampProgress(value);
+  const v = locked ? locked.pending ? Math.max(0, Math.min(100, Math.round(Number(value) || 0))) : locked.percent : window.TF.taskdetail.clampProgress(value);
   const full = v >= 100;
+  const slide = locked ? {} : {
+    onChange: e => onChange(window.TF.taskdetail.clampProgress(e.target.value)),
+    onPointerUp: () => onCommit(),
+    onKeyUp: () => onCommit(),
+    onBlur: () => onCommit()
+  };
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
     type: "button",
     ref: pillRef,
     className: "td-pill" + (full ? " is-full" : ""),
     "aria-haspopup": "dialog",
     "aria-expanded": open,
-    "aria-label": "Progress " + v + "%",
-    title: "Ubah Progress",
+    "aria-label": "Progress " + v + "%" + (locked ? ", otomatis dari checklist" : ""),
+    title: locked ? "Otomatis dari checklist" : "Ubah Progress",
     onClick: onToggle
   }, /*#__PURE__*/React.createElement("span", {
     className: "td-pill-bar",
@@ -9149,14 +9177,20 @@ function ProgressPill({
     className: "td-range" + (full ? " is-full" : ""),
     min: 0,
     max: 100,
-    step: 5,
+    step: locked ? 1 : 5,
     value: v,
+    disabled: !!locked,
     "aria-label": "Progress",
-    onChange: e => onChange(window.TF.taskdetail.clampProgress(e.target.value)),
-    onPointerUp: () => onCommit(),
-    onKeyUp: () => onCommit(),
-    onBlur: () => onCommit()
-  }), /*#__PURE__*/React.createElement("div", {
+    ...slide
+  }), locked ? /*#__PURE__*/React.createElement("div", {
+    className: "td-progress-lock"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "td-progress-note"
+  }, locked.pending ? "Otomatis dari checklist" : "Otomatis dari checklist (" + locked.done + "/" + locked.total + ")"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-btn",
+    onClick: onOpenChecklist
+  }, "Buka Checklist")) : /*#__PURE__*/React.createElement("div", {
     className: "td-presets"
   }, window.TF.taskdetail.PROGRESS_PRESETS.map(p => /*#__PURE__*/React.createElement("button", {
     key: p,
@@ -10959,6 +10993,9 @@ function TaskDetailBody({
     size: 14
   })));
   const todayISO = window.TF.tasklogic.todayLocalISO();
+  // Kunci Progress (K2, spec §6.5): selama task punya checklist level atas, persen dari checklist dan slider terkunci;
+  // Live Edit tidak mengubah/menyimpan progress (angka baru dari server masuk lewat mergeExternal, §7.8).
+  const progressLock = window.TF.checklist.lockFor(task, checkCounts);
   // Aturan simpan properti (spec §4.4): memilih = change + tutup + commit; menutup popover properti dengan cara apa
   // pun (Enter, Escape, klik di luar, klik nilai lagi) = commit field itu. Commit tanpa perubahan tidak mengirim apa pun.
   const pick = field => v => { sf(field, v); setOpenPop(null); auto.commit(field); };
@@ -11108,8 +11145,29 @@ function TaskDetailBody({
       setOpenPop(null);
       auto.commit("progress");
     },
-    onProgressChange: p => sf("progress", p),
-    onProgressCommit: () => auto.commit("progress")
+    onProgressChange: p => {
+      if (!progressLock) sf("progress", p);
+    },
+    onProgressCommit: () => {
+      if (!progressLock) auto.commit("progress");
+    },
+    locked: progressLock,
+    // "Buka Checklist": pindah ke tab Checklist dan tutup popover; tab terlihat dan terfokus.
+    onOpenChecklist: () => {
+      setOpenPop(null);
+      pickTab("checklist");
+      setTimeout(() => {
+        const el = document.getElementById(`${tabIdBase}-tab-checklist`);
+        if (el) {
+          el.scrollIntoView({
+            block: "nearest"
+          });
+          el.focus({
+            preventScroll: true
+          });
+        }
+      }, 0);
+    }
   }), /*#__PURE__*/React.createElement("div", {
     className: "td-props-box"
   }, /*#__PURE__*/React.createElement("div", {
@@ -11332,7 +11390,16 @@ function TaskDetailBody({
     variant: "detail",
     onCounts: setCheckCounts,
     // Progress dari checklist sudah ditulis ke task lokal (adoptTaskProgress): daftar, pill, dan Timeline dimuat ulang.
-    onProgress: () => onRefreshRef.current?.(),
+    // Prop task modal tidak ikut dimuat ulang, jadi angkanya juga masuk ke form Live Edit sebagai perubahan dari luar
+    // (mergeExternal: field yang tidak sedang diubah ikut; tidak disimpan ulang) — slider yang terbuka lagi setelah
+    // butir level atas terakhir dihapus mulai dari angka terakhir (K11).
+    onProgress: tp => {
+      if (tp && typeof tp.progress === "number") auto.external(Object.assign({}, task, auto.getState().saved, {
+        progress: tp.progress,
+        checklist_total: tp.total
+      }));
+      onRefreshRef.current?.();
+    },
     // Kotak bawah: Enter menambah dan tetap terbuka; Tab/Shift+Tab = tingkat; Escape / blur saat kosong menutup.
     renderAdd: add => /*#__PURE__*/React.createElement(React.Fragment, null, checkCounts.loaded && checkCounts.total === 0 && !add.open && /*#__PURE__*/React.createElement("div", {
       className: "td-empty"
