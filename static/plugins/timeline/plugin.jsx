@@ -479,7 +479,22 @@ const LBL = {
   auto: "Jadwal otomatis", reschedule: "Jadwalkan ulang", more: "Lainnya", // 1c-1 R23
   bl: "Baseline", blSave: "Simpan baseline", // 1c-2 §7.1
   load: "Beban Tim", // 1d-1 §7.1 (R10)
+  export: "Ekspor ke Microsoft Project (.xml)", // 1d-2 §7.1, §7.7 (R6): item menu "Lainnya"
 };
+// 1d-2 Task 5 (R5, Q7 (a); spec §7.5, §7.7): ekspor MSPDI (teks persis).
+const MSG_EXPORT_FAIL = "Ekspor gagal";
+const MSG_EXPORT_NATIVE = "Ekspor tersedia di alurik.com lewat browser";
+const EXPORT_MIME = "application/xml";
+const EXPORT_TITLE = "Timeline"; // R9: judul cadangan (halaman tanpa nama / host lama tanpa context.listName)
+// "Berkas {nama} diunduh" + " · {n} task tanpa jadwal ditandai perkiraan" (stats.unscheduled > 0) + " · {k} tautan
+// dilewati" (stats.skippedLinks > 0) — stats = keluaran TLMspdi.build.
+function exportDoneText(name, stats) {
+  const s = stats && typeof stats === "object" ? stats : {};
+  let out = "Berkas " + name + " diunduh";
+  if (Number.isInteger(s.unscheduled) && s.unscheduled > 0) out += " · " + s.unscheduled + " task tanpa jadwal ditandai perkiraan";
+  if (Number.isInteger(s.skippedLinks) && s.skippedLinks > 0) out += " · " + s.skippedLinks + " tautan dilewati";
+  return out;
+}
 // 1c-1 R14, R15, R28: sakelar Jadwal otomatis dan dialog pratinjau (teks persis).
 const MSG_AUTO_ON0 = "Jadwal otomatis menyala — tidak ada task yang bergeser";
 const MSG_AUTO_OFF = "Jadwal otomatis dimatikan — tanggal tetap seperti sekarang";
@@ -587,12 +602,14 @@ function missingYearsNote(years) {
 // explain (1c-1 R21, Task 12): hanya saat "Kenapa dijadwalkan di sini?" dibuka — kalender + readExt = masukan run.
 // load (1d-1 R10): TLLoad.run, dipanggil hanya dari useLoad (panel Beban Tim terbuka + mesin siap).
 // ev (1d-2 R1, R2, R10): TLLoad.ev, dipanggil hanya dari memo ringkasan EV view (baseline aktif + mesin siap).
+// mspdi (1d-2 R5, R10): TLMspdi.build, dipanggil hanya dari handler item menu "Ekspor ke Microsoft Project (.xml)".
 const engine = {
   layout: (args) => TLLayout.layout(args),
   run: (ctx) => TLCpm.run(ctx),
   explain: (result, key, cal, readExt) => TLCpm.explain(result, key, cal, readExt),
   load: (input) => TLLoad.run(input),
   ev: (bl, ctx, D) => TLLoad.ev(bl, ctx, D),
+  mspdi: (input) => TLMspdi.build(input),
 };
 
 const DEFAULT_CAL_DATA = TLCal.normalize(TLCal.DEFAULT_CAL);
@@ -711,6 +728,35 @@ function jktDateSuffix(updatedAt) {
   return Number.isInteger(d) ? " · " + TLCal.fmtShort(d) : "";
 }
 
+const NO_PEOPLE = Object.freeze([]);
+const memberName = (uid) => "Anggota #" + uid;
+
+// Nama orang (pola unitCaption; dipakai peopleOf 1d-1 dan ekspor 1d-2 R5): peopleNames({currentUser, collaborators,
+// userId}) → Map<uid, nama>: collaborators (uid pertama menang), lalu pengguna aktif → currentUser bila id-nya = userId;
+// display_name || username dipangkas ("" bila kosong — pemakai menggantinya dengan "Anggota #{uid}"). Murni.
+function peopleNames(o) {
+  const x = o && typeof o === "object" ? o : {};
+  const me = TLLoad.uidOf(x.userId);
+  const nameOf = (v) => (v && typeof v === "object" ? String(v.display_name || v.username || "").trim() : "");
+  const names = new Map();
+  for (const c of Array.isArray(x.collaborators) ? x.collaborators : []) {
+    const u = c && typeof c === "object" ? TLLoad.uidOf(c.id) : null;
+    if (u !== null && !names.has(u)) names.set(u, nameOf(c));
+  }
+  const cu = x.currentUser && typeof x.currentUser === "object" ? x.currentUser : null;
+  if (me !== null && cu && TLLoad.uidOf(cu.id) === me) names.set(me, nameOf(cu));
+  return names;
+}
+
+// Judul ekspor (1d-2 R9, P2 (a)): halaman project = context.projectName; halaman workspace = context.listName (nama
+// workspace dari host, P2 (a)); kosong / absen (host lama) → "Timeline". Dipangkas. Murni.
+function exportTitle(pageKind, context) {
+  const c = context && typeof context === "object" ? context : {};
+  const raw = pageKind === "workspace" ? c.listName : c.projectName;
+  const s = typeof raw === "string" ? raw.trim() : "";
+  return s || EXPORT_TITLE;
+}
+
 // Baris orang panel Beban Tim (1d-1 R4, P2 (a); tanpa perubahan host — plugin tidak bisa membaca anggota workspace, F5):
 // peopleOf({byAssignee, ctxTasks, resources, currentUser, collaborators, userId}) → [{uid, name, res}], urut uid naik
 // (deterministik; TLLoad.run sendiri mengurutkan baris menurut nama). uid lewat TLLoad.uidOf (userId host bisa string
@@ -720,8 +766,6 @@ function jktDateSuffix(updatedAt) {
 //   `resource` halaman (kunci `resources` = useResources().map). Pribadi: satu baris pengguna aktif.
 //   Nama (pola unitCaption): pengguna aktif → currentUser (id cocok), lainnya → collaborators; display_name || username;
 //   tidak ditemukan / kosong → "Anggota #{uid}". res = resources.get(uid).res (terdekode), selain itu null (bawaan).
-const NO_PEOPLE = Object.freeze([]);
-const memberName = (uid) => "Anggota #" + uid;
 function peopleOf(o) {
   const x = o && typeof o === "object" ? o : {};
   const me = TLLoad.uidOf(x.userId);
@@ -739,14 +783,7 @@ function peopleOf(o) {
       if (u !== null) uids.add(u);
     }
   }
-  const nameOf = (v) => (v && typeof v === "object" ? String(v.display_name || v.username || "").trim() : "");
-  const names = new Map();
-  for (const c of Array.isArray(x.collaborators) ? x.collaborators : []) {
-    const u = c && typeof c === "object" ? TLLoad.uidOf(c.id) : null;
-    if (u !== null && !names.has(u)) names.set(u, nameOf(c));
-  }
-  const cu = x.currentUser && typeof x.currentUser === "object" ? x.currentUser : null;
-  if (me !== null && cu && TLLoad.uidOf(cu.id) === me) names.set(me, nameOf(cu));
+  const names = peopleNames(x);
   const out = [];
   for (const uid of [...uids].sort((a, b) => a - b)) {
     const ent = resources.get(uid);
@@ -1721,6 +1758,10 @@ function renderToolbar(v) {
     if (it.id === "blsave") return <button key="blsave" type="button" className="plg-timeline-btn" aria-haspopup="dialog" onClick={it.onSelect}>{LBL.blSave}</button>;
     return <button key={it.id} type="button" className="plg-timeline-btn" disabled={it.disabled} onClick={it.onSelect}>{it.text}</button>;
   };
+  // 1d-2 R6 (§7.1): aksi yang hanya hidup di menu (Ekspor; v.exportItem, nonaktif sampai mesin siap). Layar lebar → tombol
+  // "Lainnya" tetap SETELAH extras berisi aksi menu saja; collapse → ditambahkan di AKHIR daftar Lainnya (satu tombol).
+  const menuOnly = v.exportItem ? [v.exportItem] : [];
+  const moreItems = extras.concat(menuOnly);
   const sum = v.summary;
   const showEnd = !!sum && sum.end !== null;
   // 1d-2 Task 4 (K57, §7.1): ringkasan earned value SEBELUM "Selesai {tgl}" — v.ev = {text, tip} (TLLoad.evText/evTip)
@@ -1731,7 +1772,8 @@ function renderToolbar(v) {
     <div className="plg-timeline-toolbar">
       {gantt ? seg(ZOOMS, v.zoom, v.pickZoom, LBL.zoom) : null}
       {gantt ? <button type="button" className="plg-timeline-btn" onClick={v.goToday}>{LBL.today}</button> : null}
-      {extras.length && v.collapse ? <MoreMenu items={extras} /> : extras.map(extraBtn)}
+      {v.collapse ? (moreItems.length ? <MoreMenu items={moreItems} /> : null) : extras.map(extraBtn)}
+      {!v.collapse && menuOnly.length ? <MoreMenu items={menuOnly} /> : null}
       <button type="button" ref={v.calBtnRef} className={cx("plg-timeline-btn", "plg-timeline-calbtn", v.calOpen && "is-active")} aria-expanded={v.calOpen} aria-haspopup="dialog" onClick={v.toggleCal}>{LBL.calendar}</button>
       {gantt ? <button type="button" className={cx("plg-timeline-btn", v.sort === "start" && "is-active")} aria-pressed={v.sort === "start"} onClick={() => v.setSort(v.sort === "start" ? "wbs" : "start")}>{LBL.sort}</button> : null}
       {gantt && v.compact ? <button type="button" className={cx("plg-timeline-btn", v.cols && "is-active")} aria-pressed={v.cols} onClick={() => v.setCols(!v.cols)}>{LBL.cols}</button> : null}
@@ -3299,8 +3341,10 @@ function menuAlign(rect, viewW, menuW) {
   return rect.left + menuW > viewW - MORE_GAP && rect.right - menuW >= MORE_GAP ? "end" : "start";
 }
 
-// Menu "Lainnya" (HP ≤ 640 px / Live Edit): items = [{id, text, role: "menuitem"|"menuitemcheckbox", checked, disabled,
-// haspopup, onSelect}]. Memilih item menutup menu lalu menjalankan onSelect.
+// Menu "Lainnya" (HP ≤ 640 px / Live Edit: semua extras + Ekspor; layar lebar sejak 1d-2 R6: hanya Ekspor): items =
+// [{id, text, role: "menuitem"|"menuitemcheckbox", checked, disabled, haspopup, onSelect}]. Memilih item menutup menu
+// lalu menjalankan onSelect (item nonaktif: tidak dijalankan). onSelect dipanggil SINKRON di handler klik (gestur
+// pengguna — ekspor memanggil api.ui.saveFile di dalamnya).
 function MoreMenu(props) {
   const items = Array.isArray(props.items) ? props.items : [];
   const [open, setOpen] = React.useState(false);
@@ -5318,12 +5362,61 @@ function TimelineViewBody(props) {
     ? { value: blPref, open: blOpen, btnRef: blBtnRef, onPick: () => { setCalOpen(false); setUnitOpen(false); setBlOpen(!blOpen); }, onSave: openSaveBl }
     : null;
 
+  // ── 1d-2 Task 5 (R5, R6, R9; K53, K54; Q7 (a), P2 (a)): Ekspor ke Microsoft Project (.xml) — HANYA BACA (R25) ──
+  // Dipanggil dari onSelect item menu (gestur pengguna; api.ui.saveFile dipanggil sinkron di dalamnya, tanpa await
+  // sebelumnya). Aplikasi native (api.env.platform "tauri") → petunjuk ke browser TANPA membangun XML. Web: masukan =
+  // mesin AKTIF (engRef: daftar lengkap halaman, kalender, readExt, hasil, unit — bukan baris tersaring panel), judul R9,
+  // nama orang (peopleNames), pemilik halaman pribadi (resource tunggal), baseline aktif atas unit daftar lengkap (R2),
+  // hari ini. build melempar → "Ekspor gagal" tanpa unduhan; saveFile → true: "Berkas {nama} diunduh" (+ catatan stats),
+  // false (native): petunjuk browser, reject/lempar: "Ekspor gagal". Galat dicatat api.log.warn.
+  const exportXml = () => {
+    const e = engRef.current;
+    if (!e || e.status !== "ready" || !e.result || !e.ctx) return;
+    if (api.env && api.env.platform === "tauri") {
+      toastSafe(api, MSG_EXPORT_NATIVE, "info");
+      return;
+    }
+    let fileName;
+    let out;
+    try {
+      const title = exportTitle(pageKind, context);
+      fileName = TLMspdi.fileNameOf(title, todayDn);
+      out = engine.mspdi({
+        tasks: e.ctx.tasks, cal: e.ctx.cal, readExt: e.ctx.readExt, result: e.result, units: e.ctx.units,
+        pageKind, title, fileName,
+        people: peopleNames({ currentUser: context.currentUser, collaborators: context.collaborators, userId: meUid }),
+        ownerUid: pageKind === "workspace" ? null : meUid,
+        baseline: evBl && evBl.rows.size > 0 ? { rows: evBl.rows } : null,
+        D: todayDn,
+      });
+    } catch (err) {
+      logWarn(api, "ekspor gagal dibangun:", err);
+      toastSafe(api, MSG_EXPORT_FAIL, "error");
+      return;
+    }
+    let saved;
+    try {
+      saved = Promise.resolve(api.ui.saveFile(fileName, out.xml, EXPORT_MIME));
+    } catch (err) {
+      saved = Promise.reject(err);
+    }
+    saved.then((ok) => {
+      if (ok === true) toastSafe(api, exportDoneText(fileName, out.stats), "success");
+      else toastSafe(api, MSG_EXPORT_NATIVE, "info");
+    }, (err) => {
+      logWarn(api, "ekspor gagal diunduh:", err);
+      toastSafe(api, MSG_EXPORT_FAIL, "error");
+    });
+  };
+  const exportItem = { id: "export", text: LBL.export, role: "menuitem", disabled: !ov.ready, onSelect: exportXml };
+
   const toolbar = renderToolbar({
     zoom, pickZoom, goToday, sort, setSort, compact, cols, setCols, narrow, mode, setMode, listMode,
     engReady: ov.ready, crit, setCrit, calOpen, toggleCal: () => { setUnitOpen(false); setBlOpen(false); setCalOpen(!calOpen); }, calBtnRef,
     auto, autoBtnRef, collapse: compact, summary, onReschedule: openResched, bl: blTool,
     loadOn, setLoadOn: toggleLoad, // 1d-1 T4 (R10); review akhir I1: gestur → gulir ke panel
     ev: evView, // 1d-2 T4 (K57): ringkasan earned value sebelum "Selesai {tgl}"
+    exportItem, // 1d-2 T5 (R6): item "Ekspor ke Microsoft Project (.xml)" di menu Lainnya
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
@@ -7290,6 +7383,7 @@ const pure = {
   TimelineViewBody, ScheduleSection, ScheduleBody, CalendarPopover, ListFallback,
   BaselinePicker, SaveBaselineDialog, activeBaseline, blNameOf,
   unitIdsOf, taskUnits, blNameFor, // 1d-2 Task 4 (R2)
+  peopleNames, exportTitle, exportDoneText, MSG_EXPORT_FAIL, MSG_EXPORT_NATIVE, EXPORT_MIME, EXPORT_TITLE, // 1d-2 Task 5
   MoreMenu, menuAlign, UnitPopover, PreviewDialog, PreviewCard, whyText, dialogModel, toolbarSummary, pageUnits, unitCaption, signedHk, scopeFilter, flowItems,
 };
 if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLCpm, TLPlan, TLLoad, TLLayout, TLMspdi, TLDrag }, pure);

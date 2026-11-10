@@ -276,3 +276,31 @@ test("anggaran PR 1a-2: index.html ≤ main (setelah #121) + 5 baris", () => {
   const lines = (html.match(/\n/g) || []).length;
   assert.ok(lines - MAIN_LINES_AFTER_121 <= 5 + HOST_1D0_EXTRA, `index.html ${lines} baris (+${lines - MAIN_LINES_AFTER_121} dari ${MAIN_LINES_AFTER_121}; batas +5 + ${HOST_1D0_EXTRA} host 1d-0)`);
 });
+
+// ── Fase 1 PR 1d-2 (rencana Task 5, P2 (a); spec 1d §1 kriteria 8 dikecualikan P2 (a)) ──
+// Host memberi nama workspace (`listName`) ke context view plugin untuk judul/nama berkas ekspor Timeline. Anggaran: main
+// setelah 1d-1 (#130, 46236 baris) + HOST_1D2_EXTRA baris; versi SW (Task 6) hanya mengganti string.
+const MAIN_LINES_AFTER_1D1 = 46236;
+const HOST_1D2_EXTRA = 1;
+test("1d-2 P2 (a): extCtx memuat listName = title (nama workspace) di halaman workspace, undefined di halaman lain; title ikut deps useMemo", () => {
+  const tl = fnSource("TaskListView");
+  const m = tl.indexOf("const extCtx = React.useMemo(");
+  assert.ok(m > 0);
+  const depsAt = tl.indexOf("} : null, [", tl.indexOf("scopeTasks:", m));
+  const ctxSrc = tl.slice(m, depsAt);
+  assert.match(ctxSrc, /listName: pageKind === "workspace" \? title : undefined,/);
+  const deps = tl.slice(depsAt, tl.indexOf("]);", depsAt));
+  assert.match(deps, /\btitle\b/, "deps memuat title (nama workspace berganti → context baru)");
+  // title halaman workspace = nama list aktif (getPageTitle: sharedLists.find(...).name) — dirujuk, bukan disalin
+  const gpt = app.slice(app.indexOf("const getPageTitle = () => {"), app.indexOf("const getPageIcon = () => {"));
+  assert.match(gpt, /if \(page\.startsWith\("slist_"\)\) \{[\s\S]*?return lst \? lst\.name : "Shared List";/);
+  // README §6.2 mendokumentasikan field baru
+  const readme = fs.readFileSync(path.join(root, "docs/plugins/README.md"), "utf8");
+  const sec = readme.slice(readme.indexOf("### 6.2 `taskList.views`"), readme.indexOf("**Pemakai pertama: Timeline**"));
+  assert.match(sec, /\| `listName` \|/);
+});
+
+test("anggaran PR 1d-2: index.html ≤ main (setelah 1d-1) + 1 baris (P2 (a) listName)", () => {
+  const lines = (html.match(/\n/g) || []).length;
+  assert.ok(lines - MAIN_LINES_AFTER_1D1 <= HOST_1D2_EXTRA, `index.html ${lines} baris (+${lines - MAIN_LINES_AFTER_1D1} dari ${MAIN_LINES_AFTER_1D1}; batas +${HOST_1D2_EXTRA})`);
+});

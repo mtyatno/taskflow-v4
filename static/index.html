@@ -19653,9 +19653,10 @@ function TaskListView({
   const extCbRef = React.useRef(null);
   extCbRef.current = { rowClick, isSel };
   const extCtx = React.useMemo(() => extView ? { page, pageKind, listId: pageKind === "workspace" ? parseInt(page.slice(6)) : null, projectName: pageKind === "project" ? page.slice(5) : null,
+    listName: pageKind === "workspace" ? title : undefined, // nama workspace (judul halaman) — nama berkas ekspor Timeline (1d-2 P2 a)
     tasks: applyPanelFilters(tasks), scopeTasks: applyPanelFilters((allTasks || []).filter(t => t && !t.archived && pageScopePred(page)(t))), collaborators, currentUser,
     onTaskClick: t => extCbRef.current.rowClick && extCbRef.current.rowClick(t), isSelected: t => !!extCbRef.current.isSel(t), liveEdit: liveOn, showToast: showToast || window.__showToast
-  } : null, [extView ? extPick : "", page, tasks, allTasks, fPriority, fQuadrant, fProject, fContext, fAssignee, fSearch, collaborators, currentUser, liveOn, sel.ref]);
+  } : null, [extView ? extPick : "", page, title, tasks, allTasks, fPriority, fQuadrant, fProject, fContext, fAssignee, fSearch, collaborators, currentUser, liveOn, sel.ref]);
   // Panel tampil: isi daftar (Loading / Kanban / kosong / grup) di kolom kiri, panel detail di kanan.
   const liveWrap = content => liveOn ? /*#__PURE__*/React.createElement("div", {
     className: "tl-live"

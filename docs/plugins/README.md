@@ -416,6 +416,7 @@ View ke-4 di halaman daftar task, setelah Normal/Compact/Kanban.
 |---|---|
 | `page`, `pageKind` | id halaman host, `"project"∣"workspace"` |
 | `listId`, `projectName` | workspace (`slist_<id>`) atau nama project (`proj_<nama>`) |
+| `listName` | (1d-2) halaman workspace: nama workspace = judul halaman host (cadangan host "Shared List" bila list belum ada di daftar workspace); halaman project: `undefined`. Host lama tanpa field ini → plugin memakai judul cadangannya sendiri (Timeline: "Timeline") |
 | `tasks` | task aktif hasil filter panel (sama dengan daftar Normal) |
 | `scopeTasks` | semua task halaman itu selain `archived` (termasuk selesai), filter panel diterapkan |
 | `collaborators`, `currentUser` | `collaborators` = **semua rekan dari semua workspace pengguna** (dari `/api/collaborators`, tanpa diri sendiri), **bukan** anggota workspace halaman ini; `currentUser` = pengguna aktif |
