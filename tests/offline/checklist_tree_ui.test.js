@@ -1325,6 +1325,69 @@ test("CSS Fokus: daftar bergulir sendiri (pengganti .ftask-sublist), kotak tamba
   assert.match(block, /\.td-tree-add\s*\{\s*padding-inline-start:\s*calc\(var\(--td-depth, 0\) \* 20px\)/);
 });
 
+// ── Review akhir PR B ────────────────────────────────────────────────────────────────────────────────────────────
+
+test("S1 menu ⋯: item nonaktif tampak nonaktif (redup, cursor not-allowed, tanpa latar hover) — blok detail, token", () => {
+  const block = detailBlock();
+  assert.match(block, /\.td-pop-item:disabled\s*\{[^}]*opacity:\s*0?\.45;[^}]*cursor:\s*not-allowed;/);
+  assert.match(block, /\.td-pop-item:disabled:hover\s*\{\s*background:\s*none;/);
+});
+
+test("S3 Fokus offline: muat gagal → onCount tidak dipanggil (badge child-counts tetap) dan tanpa 'Belum ada checklist.'", async () => {
+  const srv = fakeServer(SAMPLE);
+  srv.fail["GET /subtasks$"] = true;
+  const h = await mountFocus({ server: srv });
+  assert.deepEqual(h.reported, [], "badge dari child-counts / cache SW tidak ditimpa 0/0");
+  assert.ok(!textOf(h.out).includes("Belum ada checklist."));
+  assert.ok(focusInput(h.out), "kotak tambah tetap ada");
+  srv.fail["GET /subtasks$"] = false;
+  h.intervals[0].fn(); await h.settle();
+  assert.deepEqual(h.reported, [[7, { subDone: 0, subTotal: 2 }]], "berhasil dimuat kemudian → badge diperbarui");
+  // daftar memang kosong (berhasil dimuat setelah gagal) → pesan kosong + badge 0/0
+  const srv2 = fakeServer([]);
+  srv2.fail["GET /subtasks$"] = true;
+  const h2 = await mountFocus({ server: srv2 });
+  assert.ok(!textOf(h2.out).includes("Belum ada checklist."));
+  srv2.fail["GET /subtasks$"] = false;
+  h2.intervals[0].fn(); await h2.settle();
+  assert.ok(textOf(h2.out).includes("Belum ada checklist."));
+  assert.deepEqual(h2.reported, [[7, { subDone: 0, subTotal: 0 }]]);
+  const f = fnSource("FocusSubtasks");
+  assert.match(f, /if \(counts\.loaded && !counts\.failed\) onCount\?\.\(taskId, \{/);
+  assert.match(f, /total === 0 && counts\.loaded && !counts\.failed && React\.createElement\("div", \{\s*className: "ftask-empty"/);
+});
+
+test("C1 detail: hitungan checklist milik task.id — ganti task tanpa remount tidak menampilkan hitungan/kunci task lama", () => {
+  const s = fnSource("TaskDetailBody");
+  const a = s.indexOf("const [checkCountsOf, setCheckCountsOf] = useState(");
+  assert.ok(a > 0, "hitungan per task");
+  const b = s.indexOf("\n  });", s.indexOf("const setCheckCounts = c =>", a)) + 6;
+  const code = s.slice(a, b);
+  const slots = [];
+  const run = task => {
+    let i = 0;
+    const useState = init => {
+      const k = i++;
+      if (!(k in slots)) slots[k] = init;
+      return [slots[k], v => { slots[k] = v; }];
+    };
+    return new Function("useState", "task", code + "\nreturn { checkCounts, setCheckCounts };")(useState, task);
+  };
+  const A = { id: 41, checklist_total: 3 }, B = { id: 42, checklist_total: 0 };
+  assert.deepEqual(run(A).checkCounts, { done: 0, total: 0, loaded: false });
+  run(A).setCheckCounts({ done: 1, total: 3, loaded: true });
+  assert.deepEqual(run(A).checkCounts, { done: 1, total: 3, loaded: true });
+  const onB = run(B).checkCounts;
+  assert.deepEqual(onB, { done: 0, total: 0, loaded: false }, "task lain: belum dimuat (label, bar, tab awal menunggu)");
+  assert.equal(C.lockFor(B, onB), null, "kunci pill task lama tidak terbawa");
+  run(B).setCheckCounts({ done: 0, total: 0, loaded: true });
+  assert.deepEqual(run(B).checkCounts, { done: 0, total: 0, loaded: true });
+  assert.deepEqual(run(A).checkCounts, { done: 0, total: 0, loaded: false }, "kembali ke A: menunggu muat ulang A");
+  // ChecklistTree dipasang ulang per task (items, antrean, task_progress terakhir, kotak/menu ikut baru).
+  assert.match(s, /React\.createElement\(ChecklistTree, \{\s*key: String\(task\.id\),\s*taskId: task\.id,/);
+  assert.match(fnSource("FocusSubtasks"), /React\.createElement\(ChecklistTree, \{\s*key: String\(taskId\),\s*taskId: taskId,/);
+});
+
 // ── Detail (R5) ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 test("TaskDetailBody: tab Checklist = ChecklistTree variant detail; state checklist lama dihapus", () => {
@@ -1332,7 +1395,7 @@ test("TaskDetailBody: tab Checklist = ChecklistTree variant detail; state checkl
   for (const re of [/React\.createElement\(ChecklistTree, \{/, /variant: "detail"/, /onCounts: setCheckCounts/,
     /onProgress: tp => \{[\s\S]{0,300}auto\.external\(Object\.assign\(\{\}, task, auto\.getState\(\)\.saved, \{\s*progress: tp\.progress,[\s\S]{0,120}scheduleRefresh\(\);\s*\}/,
     /key: String\(task\.id\)/,
-    /const \[checkCounts, setCheckCounts\] = useState\(\{\s*done: 0,\s*total: 0,\s*loaded: false\s*\}\)/])
+    /const \[checkCountsOf, setCheckCountsOf\] = useState\(\{\s*id: null,\s*counts: null\s*\}\)/])
     assert.match(s, re);
   for (const re of [/\[subtasks, setSubtasks\]/, /setSubtasks\(/, /subtasks\.(?:filter|length|map)/, /\/api\/tasks\/\$\{task\.id\}\/subtasks/,
     /loadingSubs/, /\bnewSub\b/, /setNewSub/, /addingSub/, /subClientId/, /handleToggle\b/, /handleAddSub/, /handleDeleteSub/,

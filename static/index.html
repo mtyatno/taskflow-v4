@@ -10740,10 +10740,20 @@ function TaskDetailBody({
   const scopeContexts = useScopeContexts(task.list_id);
   const scopeLists = useScopeLists(task.list_id, sharedLists);
   // Hitungan checklist level atas dari ChecklistTree (onCounts): label tab, tab awal, bar d/t, kunci pill Progress.
-  const [checkCounts, setCheckCounts] = useState({
+  // Disimpan bersama id task pelapornya: berganti task tanpa remount (modal tidak ber-key, mis. Ctrl+K) langsung
+  // kembali ke "belum dimuat", bukan label/bar/kunci milik task lama. ChecklistTree sendiri dipasang ulang (key).
+  const [checkCountsOf, setCheckCountsOf] = useState({
+    id: null,
+    counts: null
+  });
+  const checkCounts = checkCountsOf.id === String(task.id) && checkCountsOf.counts || {
     done: 0,
     total: 0,
     loaded: false
+  };
+  const setCheckCounts = c => setCheckCountsOf({
+    id: String(task.id),
+    counts: c
   });
   // Child tasks (subtasks as full tasks)
   const [childTasks, setChildTasks] = useState([]);
@@ -13576,12 +13586,13 @@ function FocusSubtasks({
       window.__refreshTasks?.();
     }
   }, []);
+  // Muat gagal (offline tanpa cache): badge dari child-counts / cache SW dibiarkan, tanpa "Belum ada checklist.".
   useEffect(() => {
-    if (counts.loaded) onCount?.(taskId, {
+    if (counts.loaded && !counts.failed) onCount?.(taskId, {
       subDone: doneCount,
       subTotal: total
     });
-  }, [counts.loaded, doneCount, total]);
+  }, [counts.loaded, counts.failed, doneCount, total]);
   return React.createElement("div", {
     className: "ftask-section"
   }, total > 0 && React.createElement("div", {
@@ -13606,7 +13617,7 @@ function FocusSubtasks({
     autoRefreshMs: 15000,
     onCounts: setCounts,
     onProgress: scheduleRefresh,
-    renderAdd: add => React.createElement(React.Fragment, null, total === 0 && counts.loaded && React.createElement("div", {
+    renderAdd: add => React.createElement(React.Fragment, null, total === 0 && counts.loaded && !counts.failed && React.createElement("div", {
       className: "ftask-empty"
     }, "Belum ada checklist."), React.createElement("div", {
       className: "ftask-add td-tree-add",

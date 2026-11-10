@@ -5227,6 +5227,9 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .td-pop-item:hover { background: var(--bg-hover); }
 .td-pop-item.is-danger { color: var(--danger, #dc2626); }
 .td-pop-item[aria-pressed="true"] { background: var(--accent-soft); color: var(--text-primary); font-weight: 700; }
+/* Item nonaktif (mis. menu ⋯ butir checklist "Jadikan sub" / "Naikkan level") tampak nonaktif. */
+.td-pop-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.td-pop-item:disabled:hover { background: none; }
 .td-menu { padding: 6px; }
 .td-range { display: block; width: calc(100% - 12px); margin: 4px 6px 10px; accent-color: var(--accent); }
 .td-range.is-full { accent-color: var(--success); }
