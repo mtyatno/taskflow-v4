@@ -1,5 +1,9 @@
 {
   "entries": [
+    {"version": "taskflow-v502-ev-ekspor", "date": "2026-11-10", "title": "Timeline: kinerja jadwal dan ekspor",
+     "new": ["Bandingkan kemajuan dengan baseline: toolbar Gantt kini menampilkan “Jadwal 92% · Efisiensi 🍅 108%”.",
+             "Ekspor Timeline ke Microsoft Project (.xml) dari menu Lainnya.",
+             "Di aplikasi desktop dan Android, ekspor dilakukan lewat browser di alurik.com."]},
     {"version": "taskflow-v501-beban-tim", "date": "2026-11-09", "title": "Timeline: Beban Tim",
      "new": ["Lihat beban 🍅 tiap orang per hari di bawah Gantt — hari yang melebihi kapasitas tampil merah.",
              "Klik hari merah untuk melihat task mana yang paling aman digeser.",

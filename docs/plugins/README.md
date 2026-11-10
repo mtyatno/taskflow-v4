@@ -1,4 +1,4 @@
-# Menulis plugin Alurik (Fase 0a–1d-1)
+# Menulis plugin Alurik (Fase 0a–1d-2)
 
 Plugin = fitur opsional yang dinyalakan/dimatikan pengguna di **Pengaturan › Plugin**. Kodenya hidup di
 `static/plugins/<id>/`, bukan di `index.html`, dan baru dieksekusi saat plugin ON dan slot-nya dirender.
@@ -178,10 +178,11 @@ Plugin menerima `api = TF.api.for(id)` di `factory` dan sebagai prop `api` di ko
 **`api.ui.saveFile(name, text, mime)` (1d-2).** Satu jalur unduh berkas untuk plugin (plugin tidak menyentuh DOM
 global sendiri). Aditif di API v1 (`minApi` tetap 1), tanpa izin manifest.
 
-- **Validasi** (sebelum cabang native): gagal → ditolak dengan `TypeError` (tidak dihitung sebagai error plugin),
-  tanpa efek. `saveFile` tidak pernah melempar sinkron; galat apa pun menjadi Promise yang ditolak.
-  - `name`: string 1–120 karakter (code point), tanpa `/ \ : * ? " < > |`, tanpa karakter kontrol (U+0000–U+001F,
-    U+007F), tidak diawali titik.
+- **Validasi** (sebelum cabang native): gagal → ditolak dengan `TypeError("saveFile: <alasan>")`, tanpa efek. Penolakan
+  ini **tidak** dihitung sebagai error plugin (tidak ada izin yang dilanggar) dan tidak mematikan plugin, berapa kali pun
+  terjadi. `saveFile` tidak pernah melempar sinkron; galat apa pun menjadi Promise yang ditolak.
+  - `name`: string 1–120 karakter (code point; string > 240 unit UTF-16 ditolak sebelum dihitung), tanpa
+    `/ \ : * ? " < > |`, tanpa karakter kontrol (U+0000–U+001F, U+007F), tidak diawali titik.
   - `text`: string, `length` ≤ 20 MiB (unit kode UTF-16).
   - `mime`: salah satu `application/xml`, `text/xml`, `text/csv`, `text/plain`, `application/json`; Blob diberi
     `;charset=utf-8`.
@@ -465,6 +466,45 @@ kapasitas bawaan, judul bertanda "kapasitas belum termuat"), di atas konteks mes
 - **Render.** Satu `<svg>` per baris orang (tanpa sel per hari), ≤ 150 tombol hari merah; ≤ 640 px diganti daftar
   "Hari kelebihan beban". Kapasitas/cuti diatur dari nama orang (record `resource`, §5).
 
+**Timeline 1.4 (earned value + ekspor Microsoft Project, Fase 1d-2).** Dua fitur baca saja (§8 butir 9), keduanya baru
+berjalan setelah mesin 1c siap dan memakai konteks mesin yang sama (daftar lengkap halaman, kalender halaman, hasil
+`TLCpm.run`).
+
+- **Earned value 🍅** (`TLLoad.ev`, `load.js`). Ringkasan "Jadwal {p}% · Efisiensi 🍅 {q}%" di sisi kanan toolbar,
+  sebelum "Selesai {tgl}"; tooltip "Baseline: {nama} · PV {x} · EV {y} · AC {z} · BAC {w} 🍅" (+ " · {n} task di luar
+  baseline"). Dihitung dari **baseline aktif** (preferensi per perangkat `bl:<page>`, slot 1–3) per baris baseline:
+  BAC = Σ w (target 🍅 saat baseline disimpan; baseline tanpa `w` → 0); PV = w × hari kerja s..min(f, hari ini) ÷ hari
+  kerja s..f (milestone: w bila hari ini ≥ s); EV = w × % selesai (task selesai = 100, selain itu `Number(progress)`
+  dijepit 0–100); AC = 🍅 selesai. Jadwal = EV ÷ PV, Efisiensi = EV ÷ AC (penyebut 0 → "—"). Task baseline yang sudah
+  dihapus/diarsip dibuang dari semua angka; task baru tanpa baris baseline hanya dihitung di tooltip.
+  - **Tidak terpengaruh filter panel:** unit dan task diambil dari daftar lengkap halaman, bukan baris yang digambar,
+    sehingga angkanya sama untuk filter apa pun dan sama di perangkat lain yang memilih baseline yang sama. Nama baseline:
+    semua unit yang punya slot itu bernama sama → nama itu, selain itu "Baseline {n}".
+  - **Tidak tampil** tanpa baseline aktif, bila BAC 0, atau sebelum mesin siap (render awal tidak berubah).
+- **Ekspor Microsoft Project (.xml)** (`TLMspdi`, part `mspdi.js` setelah `layout.js`; unduh lewat `api.ui.saveFile`, §5).
+  - **Letak:** item "Ekspor ke Microsoft Project (.xml)" di menu **"Lainnya"**. Layar lebar: tombol "Lainnya" kini selalu
+    ada (setelah tombol aksi mesin — Jadwal otomatis … Jadwalkan ulang — dan sebelum "Kalender kerja") dan hanya berisi
+    ekspor; ≤ 640 px / Live Edit: item terakhir di menu "Lainnya" yang sudah ada. Nonaktif sampai mesin siap.
+  - **Nama berkas** `{judul}-{YYYY-MM-DD}.xml` (tanggal hari ini): judul = `projectName` (halaman project) atau
+    `context.listName` (halaman workspace); kosong / host lama → "Timeline". Spasi dan karakter tak aman → "-", judul
+    dipotong 80 karakter. `<Title>` = judul.
+  - **Isi** (MSPDI, urutan elemen sesuai XSD): daftar lengkap halaman (filter panel diabaikan) dengan outline WBS
+    Timeline (workspace: kelompok project = task ringkasan tingkat 1); satu kalender dasar dengan pola mingguan halaman,
+    libur dan hari kerja pengganti ditulis dua kali — `WeekDays` gaya 2003 (`DayType 0`, dibaca ProjectLibre) dan
+    `Exceptions` gaya 2007 (dibaca Project 2010+); tanggal task = hasil mesin (task yang sedang drift ikut mesin, bukan
+    bar tersimpan); tautan = sisi yang dipakai mesin (`result.pred`), sisanya dilewati dan dihitung; task Manual →
+    `Manual 1` + "mulai tidak lebih awal dari" (SNET) tanggal tersimpannya bila tanpa kendala; akar Otomatis, task tetap
+    mesin (selesai → `ActualStart`/`ActualFinish`; berjalan dengan mulai ≤ hari ini → `ActualStart`; lainnya, termasuk
+    anggota lingkaran → SNET, atau MSO bila bertautan masuk), dan milestone di rantai dijangkar SNET/MSO di tanggal mesin
+    dengan `HonorConstraints 1`, supaya MS Project menghitung tanggal yang sama; task tanpa jadwal → placeholder hari
+    kerja pertama ≥ hari ini, `Estimated 1`; baseline aktif → `Baseline` Number 0; resource = penanggung jawab
+    (workspace) atau pemilik (pribadi), assignment `Work` = target 🍅 × 25 menit. Tanpa `Date`: data yang sama di hari
+    yang sama menghasilkan berkas identik. Residual interop (ProjectLibre, jalur kritis MS Project, kolom Batasan):
+    ADR-050.
+  - **Toast:** "Berkas {nama} diunduh" (+ " · {n} task tanpa jadwal ditandai perkiraan", " · {k} tautan dilewati"),
+    gagal → "Ekspor gagal". Aplikasi desktop/Android (`api.env.platform === "tauri"`) → "Ekspor tersedia di alurik.com
+    lewat browser" tanpa membangun XML (`saveFile` di native → `false`).
+
 ### 6.3 `taskDetail.sections` (Fase 1)
 
 Seksi di detail task, antara Deskripsi dan tab (Subtask/Komentar/…), di modal maupun panel Live Edit. Tanpa
@@ -542,6 +582,9 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
    Beban Tim (Timeline 1.3) hanya menghitung: membuka/menutup panel, menghitung beban dan saran, `sync.done`, `pulled`,
    `onChange` record `resource`, dan `app.dayChanged` tidak pernah menulis. Satu-satunya tulisan barunya adalah
    `saveResource` atas tombol Simpan editor kapasitas; record `resource` yang belum ada tidak pernah dibuat otomatis.
+   Earned value dan ekspor Microsoft Project (Timeline 1.4) tidak menulis apa pun: tanpa `taskExt.set/setMany` maupun
+   `records.put/remove`; `api.ui.saveFile` hanya dipanggil dari handler item menu ekspor (gestur pengguna), tidak pernah
+   dari render, `sync.done`, atau pendengar.
 10. **Aktual dicatat dari gestur perangkat itu (pomodoro selesai, task selesai), isi bila kosong — tidak pernah dari
    sync** (K42 setelah amandemen). Timeline mencatat `timeline.actual.start` hanya pada event `pomodoro.ended` dan
    `task.completed` (keduanya hanya dari gestur lokal), memakai tanggal Asia/Jakarta dari `endedAt`/`completedAt`
