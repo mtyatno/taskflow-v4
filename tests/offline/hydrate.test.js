@@ -110,3 +110,16 @@ test("taskFromServer: ext objek disalin; ext string '{}' / tidak ada → tanpa k
     assert.equal("ext_dirty" in rec, false);
   }
 });
+
+test("taskFromServer menyalin checklist_total (bawaan 0 bila tidak dikirim / null)", () => {
+  assert.equal(taskFromServer(serverTask({ id: 1, checklist_total: 4, progress: 75 }), () => "c").checklist_total, 4);
+  assert.equal(taskFromServer(serverTask({ id: 2 }), () => "c").checklist_total, 0);
+  assert.equal(taskFromServer(serverTask({ id: 3, checklist_total: null }), () => "c").checklist_total, 0);
+});
+
+test("coreFromServer menyalin checklist_total hanya bila dikirim (null → 0)", () => {
+  const { coreFromServer } = require("../../static/offline/hydrate.js");
+  assert.equal(coreFromServer({ id: 1, checklist_total: 3, progress: 67 }).checklist_total, 3);
+  assert.equal(coreFromServer({ id: 1, checklist_total: null }).checklist_total, 0);
+  assert.equal("checklist_total" in coreFromServer({ id: 1, progress: 10 }), false);
+});

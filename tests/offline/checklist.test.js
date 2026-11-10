@@ -45,7 +45,7 @@ test("modul: di browser terpasang sebagai TF.checklist (pola UMD taskdetail.js)"
   const api = ctx.self.TF.checklist;
   for (const k of ["percent", "preorder", "topLevelCounts", "childCounts", "descendantIds", "visibleRows",
     "indentTarget", "outdentTarget", "siblingMoveTarget", "dropRange", "dropTarget", "applyMove", "maxAddDepth",
-    "addParentFor", "autoScrollDelta", "loadCollapsed", "saveCollapsed", "lockFor"]) {
+    "addParentFor", "autoScrollDelta", "loadCollapsed", "saveCollapsed", "lockFor", "adoptTaskProgress"]) {
     assert.equal(typeof api[k], "function", k);
   }
   assert.equal(api.COLLAPSE_KEY, "tf_check_collapsed");
@@ -465,4 +465,116 @@ test("2.000 tingkat: semua fungsi pohon iteratif tanpa RangeError", () => {
   assert.deepEqual(C.dropTarget(items, rows, n, 0, 0), { parent_id: null, index: 0 });
   const siklus = items.map((r) => (r.id === 1 ? Object.assign({}, r, { parent_id: n }) : r));
   assert.equal(C.preorder(siklus).length, n);
+});
+
+// ── adoptTaskProgress (Task 2; spec §7.8, ADR-048) ───────────────────────────
+// Menulis progress/checklist_total ke record task lokal (dicari lewat _idmap) TANPA menyentuh dirty/rev/base_rev/
+// updated_at/ext — angka ini field turunan server, bukan editan pengguna.
+
+const { deleteDB } = require("./setup.js");
+const TFdb = require("../../static/offline/db.js");
+const { mapPut } = require("../../static/offline/idmap.js");
+
+async function siapkanTask(rec, serverId) {
+  TFdb._reset();
+  await deleteDB(TFdb.DB_NAME);
+  const db = await TFdb.openDB();
+  await new Promise((res, rej) => {
+    const tx = db.transaction("tasks", "readwrite");
+    tx.objectStore("tasks").put(rec);
+    tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+  });
+  if (serverId != null) await mapPut("task", serverId, rec.cid);
+}
+async function bacaTask(cid) {
+  const db = await TFdb.openDB();
+  return new Promise((res) => { const q = db.transaction("tasks").objectStore("tasks").get(cid); q.onsuccess = () => res(q.result); });
+}
+function rekam(over) {
+  return Object.assign({
+    cid: "t1", server_id: 7, title: "T", progress: 10, checklist_total: 0, dirty: 0, rev: 3,
+    base_rev: "2026-11-01T00:00:00", updated_at: "2026-11-01T00:00:00", ext: { "demo-ext.a": 1 }, deleted: false,
+  }, over || {});
+}
+
+test("adoptTaskProgress: menulis progress dan checklist_total tanpa mengubah dirty/rev/base_rev/updated_at/ext", async () => {
+  await siapkanTask(rekam(), 7);
+  assert.equal(await C.adoptTaskProgress(7, { done: 1, total: 3, progress: 33 }), true);
+  const r = await bacaTask("t1");
+  assert.deepEqual([r.progress, r.checklist_total], [33, 3]);
+  assert.deepEqual([r.dirty, r.rev, r.base_rev, r.updated_at], [0, 3, "2026-11-01T00:00:00", "2026-11-01T00:00:00"]);
+  assert.deepEqual(r.ext, { "demo-ext.a": 1 });
+  assert.equal(r.title, "T");
+});
+
+test("adoptTaskProgress: nilai sama → tanpa tulis (false)", async () => {
+  await siapkanTask(rekam({ progress: 33, checklist_total: 3 }), 7);
+  assert.equal(await C.adoptTaskProgress(7, { done: 1, total: 3, progress: 33 }), false);
+  assert.equal(await C.adoptTaskProgress("7", { done: 1, total: 3, progress: 33 }), false);
+});
+
+test("adoptTaskProgress: id server berupa string dipetakan sama", async () => {
+  await siapkanTask(rekam(), 7);
+  assert.equal(await C.adoptTaskProgress("7", { done: 2, total: 2, progress: 100 }), true);
+  assert.equal((await bacaTask("t1")).progress, 100);
+});
+
+test("adoptTaskProgress: id tidak dikenal / tp tidak sah → false tanpa galat", async () => {
+  await siapkanTask(rekam(), 7);
+  assert.equal(await C.adoptTaskProgress(99, { done: 0, total: 1, progress: 0 }), false);
+  assert.equal(await C.adoptTaskProgress(null, { done: 0, total: 1, progress: 0 }), false);
+  assert.equal(await C.adoptTaskProgress(7, null), false);
+  assert.equal(await C.adoptTaskProgress(7, {}), false);
+  assert.equal(await C.adoptTaskProgress(7, { done: 0, total: "x", progress: 5 }), false);
+  assert.equal(await C.adoptTaskProgress(7, { done: 0, total: -1, progress: 5 }), false);
+  const r = await bacaTask("t1");
+  assert.deepEqual([r.progress, r.checklist_total], [10, 0]);
+});
+
+test("adoptTaskProgress: record dirty tetap dirty (rev tetap), nilai progress ikut diperbarui", async () => {
+  await siapkanTask(rekam({ dirty: 1, rev: 5 }), 7);
+  assert.equal(await C.adoptTaskProgress(7, { done: 3, total: 5, progress: 60 }), true);
+  const r = await bacaTask("t1");
+  assert.deepEqual([r.progress, r.checklist_total, r.dirty, r.rev], [60, 5, 1, 5]);
+});
+
+test("adoptTaskProgress: progress null/bukan angka → hanya checklist_total diperbarui", async () => {
+  await siapkanTask(rekam({ progress: 42, checklist_total: 2 }), 7);
+  assert.equal(await C.adoptTaskProgress(7, { done: 0, total: 0, progress: null }), true);
+  let r = await bacaTask("t1");
+  assert.deepEqual([r.progress, r.checklist_total], [42, 0]);
+  assert.equal(await C.adoptTaskProgress(7, { done: 1, total: 4, progress: "x" }), true);
+  r = await bacaTask("t1");
+  assert.deepEqual([r.progress, r.checklist_total], [42, 4]);
+});
+
+test("adoptTaskProgress: total 0 (level atas terakhir dihapus) → checklist_total 0, progress = nilai terakhir (K11)", async () => {
+  await siapkanTask(rekam({ progress: 50, checklist_total: 2 }), 7);
+  assert.equal(await C.adoptTaskProgress(7, { done: 0, total: 0, progress: 50 }), true);
+  const r = await bacaTask("t1");
+  assert.deepEqual([r.progress, r.checklist_total], [50, 0]);
+});
+
+test("adoptTaskProgress: record task tidak ada walau idmap ada → false", async () => {
+  await siapkanTask(rekam({ cid: "lain" }), null);
+  await mapPut("task", 8, "hilang");
+  assert.equal(await C.adoptTaskProgress(8, { done: 1, total: 1, progress: 100 }), false);
+});
+
+test("adoptTaskProgress: di browser memakai TF.idmap dan TF.db (dibaca saat dipanggil)", async () => {
+  const ctx = { self: {} };
+  vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(SRC, "utf8"), ctx);
+  const ditulis = [];
+  ctx.self.TF.idmap = { cidOf: (type, id) => Promise.resolve(type === "task" && id === 5 ? "c5" : undefined) };
+  ctx.self.TF.db = {
+    mutate: (store, key, fn) => {
+      const next = fn({ cid: key, progress: 0, checklist_total: 0, dirty: 0, rev: 1 });
+      if (next) ditulis.push([store, key, next.progress, next.checklist_total, next.rev]);
+      return Promise.resolve(next || null);
+    },
+  };
+  assert.equal(await ctx.self.TF.checklist.adoptTaskProgress(5, { done: 1, total: 2, progress: 50 }), true);
+  assert.equal(await ctx.self.TF.checklist.adoptTaskProgress(6, { done: 1, total: 2, progress: 50 }), false);
+  assert.deepEqual(ditulis, [["tasks", "c5", 50, 2, 1]]);
 });

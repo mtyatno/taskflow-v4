@@ -654,3 +654,38 @@ test("pullTasks leaves pomodoros_done of a dirty record with a pending op", asyn
   await pullTasks([srv({ id: 71, pomodoros_done: 4 })]);
   assert.equal((await getTask("pe")).pomodoros_done, 1);
 });
+
+// Checklist bertingkat (spec §9, ADR-048): progress dan checklist_total = field turunan server (tanpa bump updated_at).
+test("pullTasks mengadopsi progress dan checklist_total pada record bersih dengan updated_at sama", async () => {
+  await putTasks([local({ cid: "ck", quadrant: "Q4", project: "", server_id: 72, progress: 10, checklist_total: 0, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 72, "ck");
+  const r = await pullTasks([srv({ id: 72, progress: 33, checklist_total: 3 })]);
+  const rec = await getTask("ck");
+  assert.deepEqual([rec.progress, rec.checklist_total], [33, 3]);
+  assert.deepEqual([rec.dirty, rec.base_rev], [0, "2026-06-04T00:00:00"]);
+  assert.equal(r.derived, 1);
+});
+
+test("pullTasks tidak mengadopsi progress/checklist_total pada record dirty dengan op tertunda", async () => {
+  await putTasks([local({ cid: "cl", quadrant: "Q4", project: "", server_id: 73, progress: 10, checklist_total: 0, dirty: 1, rev: 2, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 73, "cl");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "cl", payload: {} });
+  await pullTasks([srv({ id: 73, progress: 33, checklist_total: 3 })]);
+  const rec = await getTask("cl");
+  assert.deepEqual([rec.progress, rec.checklist_total, rec.dirty], [10, 0, 1]);
+});
+
+test("pullTasks: dict server tanpa checklist_total tidak mengubah checklist_total lokal", async () => {
+  await putTasks([local({ cid: "cm", quadrant: "Q4", project: "", server_id: 74, progress: 60, checklist_total: 5, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 74, "cm");
+  const r = await pullTasks([srv({ id: 74, progress: 60 })]);
+  assert.equal((await getTask("cm")).checklist_total, 5);
+  assert.equal(r.derived, 0);
+});
+
+test("pullTasks: progress/checklist_total lokal yang belum ada setara 0 (tanpa tulis ulang massal)", async () => {
+  await putTasks([local({ cid: "cn", quadrant: "Q4", project: "", server_id: 75, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 75, "cn");
+  const r = await pullTasks([srv({ id: 75, progress: 0, checklist_total: 0 })]);
+  assert.equal(r.derived, 0);
+});

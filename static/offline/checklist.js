@@ -53,6 +53,15 @@
   //   Setiap akses `try/catch`; JSON rusak / bukan array / storage null → kosong tanpa galat.
   // - `lockFor(task, counts)`: `counts.loaded && counts.total > 0` → `{done, total, percent}`; hitungan belum dimuat
   //   dan `task.checklist_total > 0` → `{pending: true}`; selain itu null.
+  // - `adoptTaskProgress(serverTaskId, tp)` → Promise<boolean> (satu-satunya yang menyentuh IndexedDB; spec §7.8,
+  //   ADR-048): `tp` = `task_progress` server `{done, total, progress}`. Record task lokal (dicari lewat
+  //   `idmap.cidOf("task", id)`) mendapat `checklist_total = total` dan `progress` (hanya bila angka; null/bukan
+  //   angka → `progress` tidak disentuh), lewat `TFdb.mutate`, HANYA bila berbeda. `dirty`, `rev`, `base_rev`,
+  //   `updated_at`, `ext*` tidak disentuh (record dirty tetap dirty; server mengabaikan `progress` saat push, D3).
+  //   true = ditulis; id tidak dikenal, record tidak ada, `tp` tidak sah, nilai sama, atau galat IndexedDB → false.
+
+  const isNode = typeof module !== "undefined" && module.exports;
+  const req = (m, g) => (isNode ? require(m) : g);
 
   const COLLAPSE_KEY = "tf_check_collapsed";
   const COLLAPSE_MAX = 500;
@@ -405,10 +414,40 @@
     return null;
   }
 
+  // ── progress ke task lokal ─────────────────────────────────────────────────
+
+  // Dibaca malas: fungsi murni di atas tidak butuh IndexedDB, dan urutan <script> tidak mengikat.
+  function idmapMod() { return req("./idmap.js", root.TF && root.TF.idmap); }
+  function dbMod() { return req("./db.js", root.TF && root.TF.db); }
+
+  function adoptTaskProgress(serverTaskId, tp) {
+    if (serverTaskId == null || serverTaskId === "" || !tp || typeof tp !== "object") return Promise.resolve(false);
+    const total = tp.total;
+    if (typeof total !== "number" || !Number.isInteger(total) || total < 0) return Promise.resolve(false);
+    const progress = typeof tp.progress === "number" && Number.isFinite(tp.progress) ? tp.progress : null;
+    return Promise.resolve()
+      .then(() => {
+        const idmap = idmapMod();
+        const TFdb = dbMod();
+        if (!idmap || !TFdb || typeof TFdb.mutate !== "function") return null;
+        return idmap.cidOf("task", serverTaskId).then((cid) => {
+          if (!cid) return null;
+          return TFdb.mutate("tasks", cid, (cur) => {
+            if (!cur) return undefined;
+            const patch = {};
+            if (cur.checklist_total !== total) patch.checklist_total = total;
+            if (progress != null && cur.progress !== progress) patch.progress = progress;
+            return Object.keys(patch).length ? Object.assign({}, cur, patch) : undefined;
+          });
+        });
+      })
+      .then((saved) => !!saved, () => false);
+  }
+
   return {
     COLLAPSE_KEY, COLLAPSE_MAX,
     percent, preorder, topLevelCounts, childCounts, descendantIds, visibleRows,
     indentTarget, outdentTarget, siblingMoveTarget, dropRange, dropTarget, applyMove,
-    maxAddDepth, addParentFor, autoScrollDelta, loadCollapsed, saveCollapsed, lockFor,
+    maxAddDepth, addParentFor, autoScrollDelta, loadCollapsed, saveCollapsed, lockFor, adoptTaskProgress,
   };
 });

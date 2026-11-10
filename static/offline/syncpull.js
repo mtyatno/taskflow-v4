@@ -196,14 +196,20 @@
   // lagi mem-bump updated_at (K2) → diadopsi terpisah pada record bersih yang "tidak berubah" menurut base_rev.
   // PR 5: project/project_id ikut — backfill server menautkan project_id (dan mengkanonkan nama) tanpa
   // menaikkan updated_at. Kanban tahap: context/context_id ikut (server melepas/mengganti tahap tanpa bump).
+  // Checklist bertingkat (ADR-048, spec §9): progress dan checklist_total ditulis server saat checklist berubah tanpa
+  // menaikkan updated_at; checklist_total only-if-sent (server lama tidak mengirimnya).
   const TASK_DERIVED = ["quadrant", "recurrence_end_date", "recurrence_notif_level", "completed_at", "project", "project_id",
-    "context", "context_id", "pomodoros_done"];
+    "context", "context_id", "pomodoros_done", "progress", "checklist_total"];
   // pomodoros_done: milik server (tanpa bump updated_at) → diadopsi tiap pull bila server mengirimnya.
-  const ONLY_IF_SENT = ["project", "project_id", "context", "context_id", "pomodoros_done"];
+  const ONLY_IF_SENT = ["project", "project_id", "context", "context_id", "pomodoros_done", "checklist_total"];
   // context: null dan "" setara (record lama/lokal memakai "", server bisa null) → tanpa tulis ulang massal.
-  function derivedVal(k, v) { return v != null ? v : (k === "context" ? "" : null); }
+  // progress/checklist_total: null/tidak ada setara 0 (bawaan hydrate) → record lama tanpa checklist_total tidak
+  // ditulis ulang massal pada pull pertama setelah pembaruan.
+  const ZERO_DEFAULT = { progress: 1, checklist_total: 1 };
+  function derivedVal(k, v) { return v != null ? v : (k === "context" ? "" : ZERO_DEFAULT[k] ? 0 : null); }
   function derivedDiffers(k, s, local) {
     if (k === "context") return nocaseKey(derivedVal(k, s[k])) !== nocaseKey(derivedVal(k, local[k])) || derivedVal(k, s[k]) !== derivedVal(k, local[k]);
+    if (ZERO_DEFAULT[k]) return derivedVal(k, s[k]) !== derivedVal(k, local[k]);
     return (s[k] != null ? s[k] : null) !== (local[k] != null ? local[k] : null);
   }
   function nocaseKey(x) { return String(x == null ? "" : x).replace(/[A-Z]/g, (c) => c.toLowerCase()); }
@@ -224,7 +230,7 @@
       const next = Object.assign({}, cur);
       for (const k of keys) {
         if (k === "context" && !derivedDiffers(k, s, local)) continue; // ""/null setara → biarkan nilai lokal
-        next[k] = s[k] != null ? s[k] : null;
+        next[k] = ZERO_DEFAULT[k] ? derivedVal(k, s[k]) : (s[k] != null ? s[k] : null);
       }
       if (keys.indexOf("project_id") >= 0 || keys.indexOf("project") >= 0) {
         next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
