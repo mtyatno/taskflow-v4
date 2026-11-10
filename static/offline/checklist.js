@@ -63,6 +63,8 @@
   //   angka → `progress` tidak disentuh), lewat `TFdb.mutate`, HANYA bila berbeda. `dirty`, `rev`, `base_rev`,
   //   `updated_at`, `ext*` tidak disentuh (record dirty tetap dirty; server mengabaikan `progress` saat push, D3).
   //   true = ditulis; id tidak dikenal, record tidak ada, `tp` tidak sah, nilai sama, atau galat IndexedDB → false.
+  //   Setiap tulis juga mencatat `checklist_adopted_at = Date.now()` (kolom bantu lokal, tidak ikut payload push):
+  //   pull yang GET daftarnya dimulai pada/sebelum cap itu tidak menimpa progress/checklist_total (daftar basi).
 
   const isNode = typeof module !== "undefined" && module.exports;
   const req = (m, g) => (isNode ? require(m) : g);
@@ -455,7 +457,9 @@
             const patch = {};
             if (cur.checklist_total !== total) patch.checklist_total = total;
             if (progress != null && cur.progress !== progress) patch.progress = progress;
-            return Object.keys(patch).length ? Object.assign({}, cur, patch) : undefined;
+            if (!Object.keys(patch).length) return undefined;
+            patch.checklist_adopted_at = Date.now(); // penjaga pull basi (syncpull adoptedSince); bukan field server
+            return Object.assign({}, cur, patch);
           });
         });
       })

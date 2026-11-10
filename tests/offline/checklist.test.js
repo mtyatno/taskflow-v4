@@ -569,6 +569,28 @@ test("adoptTaskProgress: nilai sama → tanpa tulis (false)", async () => {
   await siapkanTask(rekam({ progress: 33, checklist_total: 3 }), 7);
   assert.equal(await C.adoptTaskProgress(7, { done: 1, total: 3, progress: 33 }), false);
   assert.equal(await C.adoptTaskProgress("7", { done: 1, total: 3, progress: 33 }), false);
+  assert.equal("checklist_adopted_at" in (await bacaTask("t1")), false);
+});
+
+test("adoptTaskProgress: menulis cap waktu lokal checklist_adopted_at (penjaga pull basi) tanpa dirty/rev", async () => {
+  await siapkanTask(rekam(), 7);
+  const sebelum = Date.now();
+  assert.equal(await C.adoptTaskProgress(7, { done: 2, total: 3, progress: 67 }), true);
+  const r = await bacaTask("t1");
+  assert.equal(typeof r.checklist_adopted_at, "number");
+  assert.ok(r.checklist_adopted_at >= sebelum && r.checklist_adopted_at <= Date.now());
+  assert.deepEqual([r.dirty, r.rev], [0, 3]);
+});
+
+test("checklist_adopted_at tidak ikut payload push (create maupun update)", () => {
+  const TFpush = require("../../static/offline/syncpush.js");
+  const rec = rekam({ checklist_adopted_at: 123, checklist_total: 3, progress: 67, gtd_status: "next", priority: "P3" });
+  const upd = TFpush.taskToUpdatePayload(rec, [], [], []);
+  const cre = TFpush.taskToCreatePayload(rec, [], null, [], []);
+  for (const pl of [upd, cre]) {
+    assert.equal("checklist_adopted_at" in pl, false);
+    assert.equal("checklist_total" in pl, false);
+  }
 });
 
 test("adoptTaskProgress: id server berupa string dipetakan sama", async () => {
