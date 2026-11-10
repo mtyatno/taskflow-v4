@@ -9757,6 +9757,10 @@ function ChecklistTree({
   const [addDepth, setAddDepth] = useState(0);
   const [addOpen, setAddOpen] = useState(false);
   const [addBusy, setAddBusy] = useState(false);
+  const [editing, setEditing] = useState(null); // {id, text}: kotak ubah teks terbuka
+  const [menuFor, setMenuFor] = useState(null); // id butir yang menu ⋯-nya terbuka
+  const [subAdd, setSubAdd] = useState(null); // {id, text, busy}: kotak "Tambah sub butir"
+  const [announce, setAnnounce] = useState("");
   const itemsRef = useRef(items);
   const confirmedRef = useRef([]); // daftar terakhir yang dikenal server (tanpa perubahan optimistis)
   const collapsedRef = useRef(collapsed);
@@ -9770,6 +9774,13 @@ function ChecklistTree({
   const toggleBusyRef = useRef(new Set());
   const addClientIdRef = useRef(null);
   if (addClientIdRef.current === null) addClientIdRef.current = genId();
+  const subClientIdRef = useRef(null);
+  const editRef = useRef(null);
+  const subAddRef = useRef(null);
+  subAddRef.current = subAdd;
+  const menuAnchorRef = useRef(null);
+  const pendingFocusRef = useRef(null); // {id, part}: fokus dikembalikan ke bagian baris ini setelah render
+  const suppressBlurRef = useRef(false); // kotak ubah teks dipasang ulang karena pindah: blur bukan "selesai"
   const cbRef = useRef(null);
   cbRef.current = { onCounts, onProgress };
   const busyRef = useRef(null);
@@ -9780,6 +9791,10 @@ function ChecklistTree({
     itemsRef.current = next;
     mutSeqRef.current += 1;
     setItemsState(next);
+  };
+  const setEdit = next => {
+    editRef.current = next;
+    setEditing(next);
   };
   const load = force => {
     if (!synced) return Promise.resolve();
@@ -9875,6 +9890,127 @@ function ChecklistTree({
       adopt(resp);
     }), "Gagal mencentang butir").then(() => toggleBusyRef.current.delete(id));
   };
+  // Pindah optimistis + antrean (keyboard, menu, seret). target = {parent_id, index} dari TF.checklist; null atau
+  // tujuan tidak sah (applyMove null) → tidak terjadi apa-apa. Fokus kembali ke bagian `part` baris yang sama setelah
+  // render (dicari menurut id, karena li bisa dipasang ulang di ul lain).
+  const moveItem = (id, target, part) => {
+    if (!synced || !target) return false;
+    const next = C.applyMove(itemsRef.current, id, target.parent_id, target.index);
+    if (!next) return false;
+    if (target.parent_id != null) expandChain(target.parent_id);
+    suppressBlurRef.current = true;
+    pendingFocusRef.current = {
+      id,
+      part
+    };
+    setItems(next);
+    const it = next.find(r => r.id === id);
+    const sibs = next.filter(r => r.parent_id === it.parent_id);
+    setAnnounce("«" + (it.title || "") + "» dipindah ke tingkat " + (it.depth + 1) + ", posisi " + (sibs.findIndex(r => r.id === id) + 1) + " dari " + sibs.length + ".");
+    enqueue(() => api.post(`/api/subtasks/${id}/move`, {
+      parent_id: target.parent_id,
+      index: target.index
+    }).then(resp => {
+      if (!resp || !Array.isArray(resp.items)) throw new Error("Respons pindah tidak sah");
+      const list = C.preorder(resp.items);
+      confirmedRef.current = list;
+      // Daftar server menggantikan tampilan hanya bila tidak ada perubahan lain yang masih menunggu.
+      if (pendingRef.current === 1) setItems(list);
+      adopt(resp);
+    }), "Gagal memindah butir");
+    return true;
+  };
+  // Simpan teks kotak ubah teks (optimistis; trim; sama atau kosong → tanpa permintaan, kosong kembali ke teks lama).
+  // keepOpen: kotak tetap terbuka (Tab/Shift+Tab, Alt+↑/↓).
+  const commitEdit = keepOpen => {
+    const ed = editRef.current;
+    if (!ed) return;
+    if (!keepOpen) setEdit(null);
+    const cur = itemsRef.current.find(r => r.id === ed.id);
+    const title = ed.text.trim();
+    if (!cur || !title || title === cur.title) return;
+    setItems(itemsRef.current.map(r => r.id === ed.id ? Object.assign({}, r, { title }) : r));
+    enqueue(() => api.patch(`/api/subtasks/${ed.id}`, {
+      title
+    }).then(resp => {
+      const saved = resp && typeof resp.title === "string" ? resp.title : title;
+      const put = list => list.map(r => r.id === ed.id ? Object.assign({}, r, { title: saved }) : r);
+      confirmedRef.current = put(confirmedRef.current);
+      if (pendingRef.current === 1) setItems(put(itemsRef.current));
+      adopt(resp);
+    }), "Gagal menyimpan teks butir");
+  };
+  const startEdit = id => {
+    const it = itemsRef.current.find(r => r.id === id);
+    if (!it || !synced) return;
+    if (editRef.current && editRef.current.id !== id) commitEdit(false);
+    setMenuFor(null);
+    pendingFocusRef.current = {
+      id,
+      part: "edit"
+    };
+    setEdit({
+      id,
+      text: it.title || ""
+    });
+  };
+  // Pindah dari keyboard: teks yang sedang diubah di baris itu disimpan dulu (bila berubah), kotak tetap terbuka.
+  const keyMove = (id, target, part) => {
+    if (!target) return;
+    if (editRef.current && editRef.current.id === id) commitEdit(true);
+    moveItem(id, target, part);
+  };
+  const onEditKey = (e, id) => {
+    if (e.nativeEvent && e.nativeEvent.isComposing) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      pendingFocusRef.current = {
+        id,
+        part: "text"
+      };
+      commitEdit(false);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      pendingFocusRef.current = {
+        id,
+        part: "text"
+      };
+      setEdit(null);
+    } else if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      // §7.2: di kotak ubah teks Tab/Shift+Tab selalu ditangkap, walau pindahnya tidak mungkin (keluar: Enter/Escape).
+      e.preventDefault();
+      keyMove(id, e.shiftKey ? C.outdentTarget(itemsRef.current, id) : C.indentTarget(itemsRef.current, id), "edit");
+    }
+  };
+  // Alt+↑/↓ di elemen mana pun dalam baris, termasuk kotak ubah teks (D11). Tab di luar kotak isian tidak ditangkap (K14).
+  const onRowKey = (e, id) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const part = e.target && e.target.getAttribute && e.target.getAttribute("data-check-part") || "check";
+    keyMove(id, C.siblingMoveTarget(itemsRef.current, id, e.key === "ArrowUp" ? -1 : 1), part);
+  };
+  // Hapus (K7, K13): butir dengan turunan dikonfirmasi; respons deleted_ids dibuang dari daftar.
+  const remove = id => {
+    const flat = itemsRef.current;
+    const it = flat.find(r => r.id === id);
+    if (!it || !synced) return;
+    const title = it.title || "";
+    const n = C.descendantIds(flat, id).length;
+    if (n > 0 && !window.confirm("Hapus «" + title + "» beserta " + n + " sub butir?")) return;
+    enqueue(() => api.del(`/api/subtasks/${id}`).then(resp => {
+      const gone = new Set(Array.isArray(resp && resp.deleted_ids) ? resp.deleted_ids : [id, ...C.descendantIds(itemsRef.current, id)]);
+      // Fokus yang hilang bersama baris pindah ke baris tampil berikutnya (atau sebelumnya).
+      const vis = C.visibleRows(itemsRef.current, collapsedRef.current);
+      const at = vis.findIndex(r => r.item.id === id);
+      const near = vis.slice(at + 1).find(r => !gone.has(r.item.id)) || vis.slice(0, Math.max(at, 0)).reverse().find(r => !gone.has(r.item.id));
+      if (near) pendingFocusRef.current = {
+        id: near.item.id,
+        part: "check"
+      };
+      applyServer(list => list.filter(r => !gone.has(r.id)));
+      adopt(resp);
+    }), "Gagal menghapus butir");
+  };
   // Tambah butir di akhir saudara (tanpa index); true bila tersimpan.
   const addItem = (title, parentId, clientId) => {
     let ok = false;
@@ -9940,7 +10076,47 @@ function ChecklistTree({
       "--td-depth": Math.min(addDepth, 6)
     }
   };
-  busyRef.current = () => pendingRef.current > 0 || addText.trim() !== "";
+  // "Tambah sub butir" (§7.3): kotak di bawah turunan terakhir butir itu; Enter = anak terakhir, kotak tetap terbuka;
+  // Escape atau blur saat kosong menutup; Tab tidak ditangkap.
+  const openSubAdd = id => {
+    setMenuFor(null);
+    expandChain(id);
+    subClientIdRef.current = genId();
+    setSubAdd({
+      id,
+      text: "",
+      busy: false
+    });
+  };
+  const submitSubAdd = () => {
+    const s = subAddRef.current;
+    if (!s || s.busy || !s.text.trim()) return;
+    const submitted = s.text;
+    setSubAdd(Object.assign({}, s, { busy: true }));
+    addItem(submitted.trim(), s.id, subClientIdRef.current).then(ok => {
+      if (ok) subClientIdRef.current = genId();
+      setSubAdd(cur => cur && cur.id === s.id ? Object.assign({}, cur, {
+        busy: false,
+        text: ok && cur.text === submitted ? "" : cur.text
+      }) : cur);
+    });
+  };
+  const onSubAddKey = e => {
+    if (e.nativeEvent && e.nativeEvent.isComposing) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitSubAdd();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      const s = subAddRef.current;
+      if (s) pendingFocusRef.current = {
+        id: s.id,
+        part: "more"
+      };
+      setSubAdd(null);
+    }
+  };
+  busyRef.current = () => pendingRef.current > 0 || addText.trim() !== "" || editRef.current != null || menuFor != null || !!(subAddRef.current && subAddRef.current.text.trim());
   useEffect(() => {
     aliveRef.current = true;
     load(true);
@@ -9967,11 +10143,32 @@ function ChecklistTree({
       loaded: true
     });
   }, [items, loaded]);
-  // Depth kotak bawah di-clamp ulang saat daftar berubah (butir terakhir bisa hilang / pindah).
+  // Daftar berubah: depth kotak bawah di-clamp ulang; kotak/menu milik butir yang sudah tidak ada ditutup.
   useEffect(() => {
     const max = C.maxAddDepth(items);
     if (addDepth > max) setAddDepth(max);
+    const has = id => items.some(r => r.id === id);
+    if (editRef.current && !has(editRef.current.id)) setEdit(null);
+    if (subAddRef.current && !has(subAddRef.current.id)) setSubAdd(null);
+    if (menuFor != null && !has(menuFor)) setMenuFor(null);
   }, [items]);
+  // Fokus kembali ke butir yang sama (dicari menurut id) bila fokus hilang karena barisnya dipasang ulang.
+  React.useLayoutEffect(() => {
+    const f = pendingFocusRef.current;
+    if (!f) return;
+    pendingFocusRef.current = null;
+    suppressBlurRef.current = false;
+    const body = bodyRef.current;
+    const row = body && body.querySelector(`[data-check-row="${f.id}"]`);
+    const el = row && (row.querySelector(`[data-check-part="${f.part}"]`) || row.querySelector('[data-check-part="check"]'));
+    const ae = document.activeElement;
+    if (!el || ae && ae !== document.body && ae.isConnected) return;
+    el.focus();
+    if (f.part === "edit" && el.setSelectionRange) {
+      const n = el.value.length;
+      el.setSelectionRange(n, n);
+    }
+  });
   const rows = useMemo(() => C.visibleRows(items, collapsed), [items, collapsed]);
   const kids = useMemo(() => C.childCountsAll(items), [items]);
   // ul/li bersarang dari baris pre-order (iteratif): simpul = {row, kids}.
@@ -10009,7 +10206,8 @@ function ChecklistTree({
       "data-check-row": id,
       style: {
         "--td-depth": Math.min(depth, 6)
-      }
+      },
+      onKeyDown: e => onRowKey(e, id)
     }, React.createElement("button", {
       type: "button",
       className: "td-tree-grip",
@@ -10044,8 +10242,33 @@ function ChecklistTree({
     }, done && React.createElement(Icon, {
       name: "check",
       size: 13
-    }))), React.createElement("span", {
-      className: "td-tree-text"
+    }))), editing && editing.id === id ? React.createElement(MentionInput, {
+      collaborators: collaborators,
+      className: "td-tree-edit",
+      value: editing.text,
+      onChange: e => setEdit({
+        id,
+        text: e.target.value
+      }),
+      "aria-label": "Ubah teks butir",
+      "data-check-part": "edit",
+      autoFocus: true,
+      // Kursor di akhir teks lama saat kotak dibuka.
+      onFocus: e => {
+        const n = e.target.value.length;
+        try {
+          e.target.setSelectionRange(n, n);
+        } catch (_) {}
+      },
+      onKeyDown: e => onEditKey(e, id),
+      onBlur: () => {
+        if (!suppressBlurRef.current) commitEdit(false);
+      }
+    }) : React.createElement("button", {
+      type: "button",
+      className: "td-tree-text",
+      "data-check-part": "text",
+      onClick: () => startEdit(id)
     }, title), kc && kc.total > 0 && React.createElement("span", {
       className: "td-tree-chip"
     }, kc.done + "/" + kc.total), React.createElement("button", {
@@ -10053,18 +10276,86 @@ function ChecklistTree({
       className: "td-tree-more",
       "aria-label": "Aksi butir «" + title + "»",
       "aria-haspopup": "menu",
+      "aria-expanded": menuFor === id,
       "data-check-part": "more",
-      disabled: true
+      onClick: e => {
+        menuAnchorRef.current = e.currentTarget;
+        setMenuFor(f => f === id ? null : id);
+      }
     }, React.createElement(ChecklistGlyph, {
       name: "more"
-    }))), node.kids.length > 0 && renderList(node.kids));
+    }))), node.kids.length > 0 && renderList(node.kids), subAdd && subAdd.id === id && React.createElement("div", {
+      className: "td-tree-subadd"
+    }, React.createElement(MentionInput, {
+      collaborators: collaborators,
+      className: "td-add-input td-tree-add",
+      value: subAdd.text,
+      onChange: e => {
+        const text = e.target.value;
+        setSubAdd(s => s && Object.assign({}, s, { text }));
+      },
+      placeholder: "Sub butir baru",
+      "aria-label": "Sub butir baru",
+      autoFocus: true,
+      style: {
+        "--td-depth": Math.min(depth + 1, 6)
+      },
+      onKeyDown: onSubAddKey,
+      onBlur: () => {
+        const s = subAddRef.current;
+        if (s && !s.text.trim() && !s.busy) setSubAdd(null);
+      }
+    })));
   };
+  // Menu ⋯ (§6.3): satu DetailPopover untuk seluruh daftar (di luar baris, supaya tombol panah di menu tidak sampai ke
+  // pendengar Alt+↑/↓ baris). Panah atas/bawah berpindah antar-butir menu.
+  const menuItem = menuFor != null ? items.find(r => r.id === menuFor) || null : null;
+  const onMenuKey = e => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const list = Array.from(e.currentTarget.querySelectorAll('[role="menuitem"]:not([disabled])'));
+    if (!list.length) return;
+    e.preventDefault();
+    const i = list.indexOf(document.activeElement);
+    list[e.key === "ArrowDown" ? (i + 1) % list.length : i <= 0 ? list.length - 1 : i - 1].focus();
+  };
+  const menuBtn = (label, icon, onClick, disabled = false, danger = false) => React.createElement("button", {
+    type: "button",
+    role: "menuitem",
+    className: "td-pop-item" + (danger ? " is-danger" : ""),
+    disabled: disabled,
+    onClick: onClick
+  }, React.createElement(Icon, {
+    name: icon,
+    size: 15
+  }), label);
+  const menuMove = targetOf => () => {
+    const id = menuItem.id;
+    setMenuFor(null);
+    moveItem(id, targetOf(itemsRef.current, id), "more");
+  };
+  const menu = React.createElement(DetailPopover, {
+    anchorRef: menuAnchorRef,
+    open: !!menuItem,
+    onClose: () => setMenuFor(null),
+    label: menuItem ? "Aksi butir «" + (menuItem.title || "") + "»" : "",
+    role: "menu",
+    className: "td-menu"
+  }, menuItem && React.createElement("div", {
+    className: "td-menu-list",
+    onKeyDown: onMenuKey
+  }, menuBtn("Ubah teks", "edit", () => startEdit(menuItem.id)), menuBtn("Tambah sub butir", "plus", () => openSubAdd(menuItem.id)), menuBtn("Jadikan sub", "chevronRight", menuMove(C.indentTarget), !C.indentTarget(items, menuItem.id)), menuBtn("Naikkan level", "chevronLeft", menuMove(C.outdentTarget), !C.outdentTarget(items, menuItem.id)), menuBtn("Hapus", "trash", () => {
+    setMenuFor(null);
+    remove(menuItem.id);
+  }, false, true)));
   return React.createElement("div", {
     className: "td-tree" + (variant === "focus" ? " is-focus" : "")
   }, React.createElement("div", {
     className: "td-tree-body",
     ref: bodyRef
-  }, roots.length > 0 && renderList(roots)), renderAdd ? renderAdd(add) : null);
+  }, roots.length > 0 && renderList(roots)), menu, React.createElement("div", {
+    className: "sr-only",
+    "aria-live": "polite"
+  }, announce), renderAdd ? renderAdd(add) : null);
 }
 function TaskDetailBody({
   task,

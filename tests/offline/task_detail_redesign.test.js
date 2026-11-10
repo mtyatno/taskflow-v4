@@ -202,7 +202,8 @@ test("SubtaskRow / ChecklistTree", () => {
   // Checklist bertingkat PR B: ChecklistRow (× "Hapus butir") diganti ChecklistTree; hapus pindah ke menu ⋯ (K13).
   assert.ok(indexHtml.indexOf("\nfunction ChecklistRow(") < 0, "ChecklistRow dihapus");
   const c = fnSource("ChecklistTree");
-  for (const re of [/role: "checkbox"/, /"aria-checked"/]) assert.match(c, re);
+  for (const re of [/role: "checkbox"/, /"aria-checked"/, /menuBtn\("Hapus", "trash"/, /role: "menuitem"/, /role: "menu"/]) assert.match(c, re);
+  assert.doesNotMatch(c, /"Hapus butir"/);
   for (const n of ["DetailTabs", "SubtaskRow", "ChecklistTree", "ChecklistGlyph"]) assert.doesNotMatch(fnSource(n), EMOJI, n);
 });
 test("ModalNotes / ModalAttachments: bare + onCount, bawaan tetap", () => {

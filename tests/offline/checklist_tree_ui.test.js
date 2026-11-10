@@ -547,6 +547,292 @@ test("CSS blok detail: pohon checklist hanya token, --td-depth 20/16 px, target 
   assert.doesNotMatch(block, /\.td-check-del|\.td-check-row|\.td-check-title/, "CSS baris lama dihapus");
 });
 
+// ── Task 4: ubah teks, menu ⋯, keyboard, hapus ───────────────────────────────────────────────────────────────────
+
+const menuOf = tree => findAll(tree, n => n.type === "DetailPopover" && n.props.open)[0] || null;
+const menuItems = tree => {
+  const m = menuOf(tree);
+  return m ? findAll(m, n => n.props.role === "menuitem").map(n => ({ text: textOf(n).trim(), disabled: !!n.props.disabled, node: n })) : [];
+};
+async function openMenu(h, title) {
+  one(h.out, `Aksi butir «${title}»`).props.onClick({ currentTarget: { title } });
+  await h.settle();
+  return menuItems(h.out);
+}
+async function pick(h, title, item) {
+  const it = (await openMenu(h, title)).find(x => x.text === item);
+  assert.ok(it, `item menu ${item}`);
+  assert.equal(it.disabled, false, `${item} aktif`);
+  it.node.props.onClick();
+  await h.settle();
+}
+const editBox = tree => findAll(tree, n => n.type === "MentionInput" && n.props["aria-label"] === "Ubah teks butir")[0] || null;
+const subBox = tree => findAll(tree, n => n.type === "MentionInput" && n.props["aria-label"] === "Sub butir baru")[0] || null;
+const textBtn = (tree, id) => findAll(tree, n => n.type === "button" && hasClass(n, "td-tree-text") && n.props["data-check-part"] === "text")
+  .find(n => findAll(tree, r => hasClass(r, "td-tree-row") && r.props["data-check-row"] === id)[0].children.includes(n));
+const rowNode = (tree, id) => findAll(tree, r => hasClass(r, "td-tree-row") && r.props["data-check-row"] === id)[0];
+const live = tree => findAll(tree, n => n.props["aria-live"] === "polite").map(textOf);
+
+test("menu ⋯: DetailPopover role menu td-menu, item persis, aturan nonaktif §6.3", async () => {
+  const h = await mountTree();
+  const more = one(h.out, "Aksi butir «A»");
+  assert.equal(more.props["aria-haspopup"], "menu");
+  assert.equal(more.props["aria-expanded"], false);
+  let items = await openMenu(h, "A");
+  assert.deepEqual(items.map(i => i.text), ["Ubah teks", "Tambah sub butir", "Jadikan sub", "Naikkan level", "Hapus"]);
+  const m = menuOf(h.out);
+  assert.equal(m.props.role, "menu"); assert.equal(m.props.className, "td-menu"); assert.equal(m.props.label, "Aksi butir «A»");
+  assert.equal(one(h.out, "Aksi butir «A»").props["aria-expanded"], true);
+  assert.deepEqual(items.map(i => i.disabled), [false, false, true, true, false], "A: butir pertama + level atas");
+  m.props.onClose(); await h.settle();
+  assert.equal(menuOf(h.out), null);
+  items = await openMenu(h, "A2");
+  assert.deepEqual(items.map(i => i.disabled), [false, false, false, false, false], "A2: punya saudara sebelumnya, bukan level atas");
+  items = await openMenu(h, "A1");
+  assert.deepEqual(items.map(i => i.disabled), [false, false, true, false, false]);
+  assert.ok(hasClass(items.find(i => i.text === "Hapus").node, "is-danger"));
+});
+
+test("Jadikan sub (= Tab): optimistis, POST move {parent_id, index} dari indentTarget, pengumuman aria-live", async () => {
+  const h = await mountTree();
+  let release;
+  const post = h.srv.api.post;
+  h.srv.api.post = (url, body) => (url.endsWith("/move") ? new Promise(r => { release = r; }).then(() => post(url, body)) : post(url, body));
+  await pick(h, "B", "Jadikan sub");
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), [[1, 0], [2, 1], [3, 2], [4, 1], [5, 1]], "langsung tampil sebelum respons");
+  assert.deepEqual(live(h.out), ["«B» dipindah ke tingkat 2, posisi 3 dari 3."]);
+  assert.deepEqual(h.counts.at(-1), { done: 0, total: 1, loaded: true }, "hitungan level atas ikut berubah");
+  release(); await h.settle();
+  assert.deepEqual(h.srv.mutations().at(-1), { method: "POST", url: "/api/subtasks/5/move", body: { parent_id: 1, index: 2 } });
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), [[1, 0], [2, 1], [3, 2], [4, 1], [5, 1]]);
+  assert.equal(h.adopted.at(-1)[1].total, 1);
+  assert.deepEqual(h.toasts, []);
+});
+
+test("Naikkan level (= Shift+Tab): tepat di bawah induk; saudara berikutnya tetap", async () => {
+  const h = await mountTree();
+  await pick(h, "A1", "Naikkan level");
+  assert.deepEqual(h.srv.mutations().at(-1).body, { parent_id: null, index: 1 });
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), [[1, 0], [4, 1], [2, 0], [3, 1], [5, 0]]);
+});
+
+test("galat pindah → toast persis, tampilan kembali ke versi server, muat ulang", async () => {
+  const srv = fakeServer(SAMPLE);
+  const h = await mountTree({}, { server: srv });
+  srv.fail["POST /move$"] = true;
+  await pick(h, "B", "Jadikan sub");
+  assert.deepEqual(h.toasts, [["Gagal memindah butir", "error"]]);
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), [[1, 0], [2, 1], [3, 2], [4, 1], [5, 0]]);
+  assert.equal(srv.calls.at(-1).method, "GET");
+});
+
+test("antrean: respons move mengganti daftar hanya bila antrean sudah kosong; galat membuang sisa antrean", async () => {
+  const srv = fakeServer(SAMPLE);
+  const gates = [];
+  const post = srv.api.post;
+  srv.api.post = (url, body) => new Promise(r => gates.push(r)).then(() => post(url, body));
+  const h = await mountTree({}, { server: srv });
+  await pick(h, "B", "Jadikan sub");      // B → anak terakhir A
+  rowNode(h.out, 5).props.onKeyDown(key({ key: "ArrowUp", altKey: true, target: { getAttribute: () => "check" } }));
+  await h.settle();
+  const want = [[1, 0], [2, 1], [3, 2], [5, 1], [4, 1]];
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), want, "dua pindah optimistis");
+  gates.shift()(); await h.settle();
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), want, "respons pertama tidak menimpa pindah kedua");
+  gates.shift()(); await h.settle();
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), want);
+  assert.deepEqual(srv.mutations().map(c => c.body), [{ parent_id: 1, index: 2 }, { parent_id: 1, index: 1 }]);
+  // Galat pada yang pertama: yang kedua tidak dikirim.
+  srv.fail["POST /move$"] = true;
+  await pick(h, "A2", "Naikkan level");
+  rowNode(h.out, 1).props.onKeyDown(key({ key: "ArrowDown", altKey: true, target: { getAttribute: () => "check" } }));
+  await h.settle();
+  while (gates.length) { gates.shift()(); await h.settle(); }
+  assert.equal(srv.calls.filter(c => c.url.endsWith("/move")).length, 3, "dari dua pindah terakhir hanya yang pertama dikirim");
+  assert.deepEqual(h.toasts, [["Gagal memindah butir", "error"]]);
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), want, "kembali ke daftar server");
+});
+
+test("Alt+↑/↓ di elemen mana pun dalam baris: tukar dengan saudara; ujung = tidak terjadi apa-apa", async () => {
+  const h = await mountTree();
+  const e = key({ key: "ArrowUp", altKey: true, target: { getAttribute: () => "more" } });
+  rowNode(h.out, 5).props.onKeyDown(e); await h.settle();
+  assert.ok(e.prevented);
+  assert.deepEqual(h.srv.mutations().at(-1).body, { parent_id: null, index: 0 });
+  assert.deepEqual(rowsOf(h.out).map(r => r.id), [5, 1, 2, 3, 4]);
+  const n = h.srv.mutations().length;
+  rowNode(h.out, 5).props.onKeyDown(key({ key: "ArrowUp", altKey: true, target: { getAttribute: () => "check" } })); await h.settle();
+  assert.equal(h.srv.mutations().length, n, "butir pertama: Alt+↑ tidak mengirim apa pun");
+  rowNode(h.out, 2).props.onKeyDown(key({ key: "ArrowDown", altKey: true, target: { getAttribute: () => "grip" } })); await h.settle();
+  assert.deepEqual(h.srv.mutations().at(-1).body, { parent_id: 1, index: 1 });
+  // Tanpa Alt: diabaikan
+  const plain = key({ key: "ArrowUp", target: { getAttribute: () => "check" } });
+  rowNode(h.out, 4).props.onKeyDown(plain);
+  assert.ok(!plain.prevented);
+});
+
+test("ubah teks: klik teks → MentionInput berisi teks lama; Enter simpan trim (optimistis); sama/kosong tanpa permintaan; Escape batal", async () => {
+  const h = await mountTree();
+  textBtn(h.out, 5).props.onClick(); await h.settle();
+  let box = editBox(h.out);
+  assert.ok(box, "kotak ubah teks");
+  assert.equal(box.props.value, "B"); assert.equal(box.props.autoFocus, true); assert.equal(box.props["data-check-part"], "edit");
+  assert.equal(textBtn(h.out, 5), undefined, "tombol teks diganti kotak");
+  box.props.onChange({ target: { value: "  B baru  " } }); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  assert.equal(editBox(h.out), null);
+  assert.deepEqual(h.srv.mutations().at(-1), { method: "PATCH", url: "/api/subtasks/5", body: { title: "B baru" } });
+  assert.equal(textOf(textBtn(h.out, 5)), "B baru");
+  // sama → tanpa permintaan
+  const n = h.srv.mutations().length;
+  textBtn(h.out, 5).props.onClick(); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  // kosong → kembali ke teks lama
+  textBtn(h.out, 5).props.onClick(); await h.settle();
+  editBox(h.out).props.onChange({ target: { value: "   " } }); await h.settle();
+  editBox(h.out).props.onBlur(); await h.settle();
+  assert.equal(textOf(textBtn(h.out, 5)), "B baru");
+  // Escape → batal (blur sesudahnya tidak menyimpan)
+  textBtn(h.out, 5).props.onClick(); await h.settle();
+  box = editBox(h.out);
+  box.props.onChange({ target: { value: "dibatalkan" } }); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Escape" }));
+  box.props.onBlur(); await h.settle();
+  assert.equal(h.srv.mutations().length, n, "tanpa permintaan");
+  assert.equal(textOf(textBtn(h.out, 5)), "B baru");
+  // ⋯ → Ubah teks
+  await pick(h, "A1", "Ubah teks");
+  assert.equal(editBox(h.out).props.value, "A1");
+});
+
+test("galat ubah teks → toast persis, teks kembali ke versi server", async () => {
+  const srv = fakeServer(SAMPLE);
+  const h = await mountTree({}, { server: srv });
+  srv.fail["PATCH /api/subtasks/"] = true;
+  textBtn(h.out, 5).props.onClick(); await h.settle();
+  editBox(h.out).props.onChange({ target: { value: "X" } }); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  assert.deepEqual(h.toasts, [["Gagal menyimpan teks butir", "error"]]);
+  assert.equal(textOf(textBtn(h.out, 5)), "B");
+});
+
+test("Tab/Shift+Tab di kotak ubah teks: simpan teks dulu lalu pindah; kotak tetap terbuka di butir yang sama; selalu ditangkap", async () => {
+  const h = await mountTree();
+  textBtn(h.out, 4).props.onClick(); await h.settle();
+  editBox(h.out).props.onChange({ target: { value: "A2 diubah" } }); await h.settle();
+  let e = key({ key: "Tab" });
+  editBox(h.out).props.onKeyDown(e); await h.settle();
+  assert.ok(e.prevented);
+  assert.deepEqual(h.srv.mutations().map(c => [c.method, c.url, c.body]), [
+    ["PATCH", "/api/subtasks/4", { title: "A2 diubah" }],
+    ["POST", "/api/subtasks/4/move", { parent_id: 2, index: 1 }]], "teks lalu pindah (A2 → anak terakhir A1)");
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), [[1, 0], [2, 1], [3, 2], [4, 2], [5, 0]]);
+  assert.ok(editBox(h.out), "kotak tetap terbuka");
+  assert.equal(editBox(h.out).props.value, "A2 diubah");
+  assert.ok(rowNode(h.out, 4).children.some(c => c && c.type === "MentionInput"), "di baris yang sama");
+  // Shift+Tab dua kali: A1 → level atas (setelah A)
+  editBox(h.out).props.onKeyDown(key({ key: "Tab", shiftKey: true })); await h.settle();
+  assert.deepEqual(h.srv.mutations().at(-1).body, { parent_id: 1, index: 1 });
+  editBox(h.out).props.onKeyDown(key({ key: "Tab", shiftKey: true })); await h.settle();
+  assert.deepEqual(h.srv.mutations().at(-1).body, { parent_id: null, index: 1 });
+  const n = h.srv.mutations().length;
+  // level atas: Shift+Tab tidak mungkin → tetap ditangkap, tanpa permintaan
+  e = key({ key: "Tab", shiftKey: true });
+  editBox(h.out).props.onKeyDown(e); await h.settle();
+  assert.ok(e.prevented); assert.equal(h.srv.mutations().length, n);
+  assert.equal(h.srv.mutations().filter(c => c.method === "PATCH").length, 1, "teks yang tidak berubah lagi tidak dikirim ulang");
+});
+
+test("hapus: konfirmasi «judul» beserta N sub butir hanya bila punya turunan; deleted_ids dibuang", async () => {
+  const h = await mountTree({}, { confirm: () => false });
+  await pick(h, "A", "Hapus");
+  assert.deepEqual(h.confirms, ["Hapus «A» beserta 3 sub butir?"]);
+  assert.deepEqual(h.srv.mutations(), [], "batal → tanpa permintaan");
+  await pick(h, "B", "Hapus");
+  assert.equal(h.confirms.length, 1, "B tanpa turunan: tanpa konfirmasi");
+  assert.deepEqual(h.srv.mutations().at(-1), { method: "DELETE", url: "/api/subtasks/5", body: undefined });
+  assert.deepEqual(rowsOf(h.out).map(r => r.id), [1, 2, 3, 4]);
+  assert.deepEqual(h.counts.at(-1), { done: 0, total: 1, loaded: true });
+  assert.equal(h.adopted.at(-1)[1].total, 1);
+  const h2 = await mountTree();
+  await pick(h2, "A", "Hapus");
+  assert.deepEqual(h2.confirms, ["Hapus «A» beserta 3 sub butir?"]);
+  assert.deepEqual(rowsOf(h2.out).map(r => r.id), [5], "A beserta turunannya");
+  const srv = fakeServer(SAMPLE);
+  const h3 = await mountTree({}, { server: srv });
+  srv.fail["DELETE /api/subtasks/"] = true;
+  await pick(h3, "B", "Hapus");
+  assert.deepEqual(h3.toasts, [["Gagal menghapus butir", "error"]]);
+  assert.equal(rowsOf(h3.out).length, 5);
+});
+
+test("Tambah sub butir: kotak di bawah turunan terakhir, Enter = anak terakhir dan tetap terbuka, Escape/blur kosong menutup, Tab tidak ditangkap", async () => {
+  const storage = fakeStorage({ tf_check_collapsed: "[1]" });
+  const h = await mountTree({}, { storage });
+  await pick(h, "A", "Tambah sub butir");
+  assert.deepEqual(rowsOf(h.out).map(r => r.id), [1, 2, 3, 4, 5], "butir terlipat dibuka");
+  let box = subBox(h.out);
+  assert.ok(box);
+  assert.equal(box.props.placeholder, "Sub butir baru"); assert.equal(box.props.autoFocus, true);
+  // di dalam li A, setelah ul anak
+  const liA = findAll(h.out, n => n.type === "li" && n.props["data-check-id"] === 1)[0];
+  const kids = liA.children.filter(Boolean);
+  assert.equal(kids.at(-2).type, "ul");
+  assert.ok(findAll(kids.at(-1), n => n === box).length === 1, "kotak sesudah ul anak");
+  assert.deepEqual(findAll(kids.at(-1), n => n.props && n.props.style && "--td-depth" in n.props.style)[0].props.style, { "--td-depth": 1 });
+  const tab = key({ key: "Tab" });
+  box.props.onKeyDown(tab);
+  assert.ok(!tab.prevented, "Tab tidak ditangkap");
+  box.props.onChange({ target: { value: "A3" } }); await h.settle();
+  subBox(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  const post = h.srv.mutations().at(-1);
+  assert.deepEqual([post.url, post.body.title, post.body.parent_id, "index" in post.body], ["/api/tasks/7/subtasks", "A3", 1, false]);
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), [[1, 0], [2, 1], [3, 2], [4, 1], [100, 1], [5, 0]]);
+  box = subBox(h.out);
+  assert.ok(box, "tetap terbuka"); assert.equal(box.props.value, "");
+  box.props.onBlur(); await h.settle();
+  assert.equal(subBox(h.out), null, "blur saat kosong menutup");
+  await pick(h, "B", "Tambah sub butir");
+  subBox(h.out).props.onChange({ target: { value: "isi" } }); await h.settle();
+  subBox(h.out).props.onBlur(); await h.settle();
+  assert.ok(subBox(h.out), "blur berisi teks tidak menutup");
+  subBox(h.out).props.onKeyDown(key({ key: "Escape" })); await h.settle();
+  assert.equal(subBox(h.out), null);
+});
+
+test("autoRefreshMs ditunda selama menu terbuka atau kotak ubah teks terbuka", async () => {
+  const h = await mountTree({ autoRefreshMs: 15000 });
+  const gets = () => h.srv.calls.filter(c => c.method === "GET").length;
+  await openMenu(h, "A");
+  h.intervals[0].fn(); await h.settle();
+  assert.equal(gets(), 1, "menu terbuka");
+  menuOf(h.out).props.onClose(); await h.settle();
+  textBtn(h.out, 5).props.onClick(); await h.settle();
+  h.intervals[0].fn(); await h.settle();
+  assert.equal(gets(), 1, "kotak ubah teks terbuka");
+  editBox(h.out).props.onKeyDown(key({ key: "Escape" })); await h.settle();
+  h.intervals[0].fn(); await h.settle();
+  assert.equal(gets(), 2);
+});
+
+test("ChecklistTree (Task 4): teks persis menu/aria/konfirmasi/toast, satu aria-live, Tab hanya di kotak isian", () => {
+  const s = fnSource("ChecklistTree");
+  for (const t of ['"Ubah teks"', '"Tambah sub butir"', '"Jadikan sub"', '"Naikkan level"', '"Hapus"', '"Ubah teks butir"', '"Sub butir baru"',
+    '"Gagal menyimpan teks butir"', '"Gagal memindah butir"', '"Gagal menghapus butir"'])
+    assert.ok(s.includes(t), t);
+  assert.match(s, /"Hapus «" \+ title \+ "» beserta " \+ n \+ " sub butir\?"/);
+  assert.match(s, /"«" \+ \(it\.title \|\| ""\) \+ "» dipindah ke tingkat " \+ \(it\.depth \+ 1\) \+ ", posisi " \+ [^;]+ \+ " dari " \+ sibs\.length \+ "\."/);
+  assert.equal((s.match(/"aria-live": "polite"/g) || []).length, 1, "satu pengumuman per komponen");
+  for (const re of [/role: "menu"/, /className: "td-menu"/, /role: "menuitem"/, /C\.indentTarget\(/, /C\.outdentTarget\(/, /C\.siblingMoveTarget\(/,
+    /C\.applyMove\(/, /C\.descendantIds\(/, /window\.confirm\(/, /api\.patch\(`\/api\/subtasks\/\$\{/, /\/move`, \{\s*parent_id: target\.parent_id,\s*index: target\.index\s*\}/,
+    /api\.del\(`\/api\/subtasks\/\$\{/])
+    assert.match(s, re);
+  // Tab ditangkap hanya di handler kotak isian (kotak bawah, kotak ubah teks); bukan di baris.
+  const row = s.slice(s.indexOf("const onRowKey = "), s.indexOf("\n  };", s.indexOf("const onRowKey = ")));
+  assert.ok(row.length > 20, "onRowKey ada");
+  assert.doesNotMatch(row, /"Tab"/);
+});
+
 // ── Detail (R5) ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 test("TaskDetailBody: tab Checklist = ChecklistTree variant detail; state checklist lama dihapus", () => {

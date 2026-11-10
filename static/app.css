@@ -5357,7 +5357,12 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .td-tree-row:hover .td-tree-grip, .td-tree-row:hover .td-tree-more, .td-tree-row:focus-within .td-tree-more, .td-tree-more[aria-expanded="true"] { opacity: 1; }
 @media (hover: none) { .td-tree-grip, .td-tree-more { opacity: 1; } }
 .td-tree-grip:focus-visible, .td-tree-fold:focus-visible, .td-tree-check:focus-visible, .td-tree-text:focus-visible, .td-tree-more:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: -2px; }
-/* Kotak tambah bawah (detail: input; Fokus: baris input + tombol) menjorok sesuai tingkat tujuan. */
+/* Kotak ubah teks (klik teks / ⋯ → Ubah teks): MentionInput, pembungkusnya mengisi sisa baris. */
+.td-tree-text { cursor: text; }
+.td-tree-row > div { flex: 1 1 auto; min-width: 0; }
+.td-tree-edit { display: block; width: 100%; box-sizing: border-box; min-height: 30px; margin: 2px 0; padding: 4px 6px; border: 1px solid var(--accent); border-radius: 6px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 13.5px; line-height: 1.4; }
+.td-tree-edit:focus { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+/* Kotak tambah bawah (detail: input; Fokus: baris input + tombol) dan "Tambah sub butir" menjorok sesuai tingkat tujuan. */
 .td-tree-add { padding-inline-start: calc(var(--td-depth, 0) * 20px); }
 .td-add-input.td-tree-add { padding-inline-start: calc(6px + var(--td-depth, 0) * 20px); }
 @media (max-width: 640px) {
