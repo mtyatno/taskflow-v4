@@ -197,11 +197,12 @@
   // PR 5: project/project_id ikut — backfill server menautkan project_id (dan mengkanonkan nama) tanpa
   // menaikkan updated_at. Kanban tahap: context/context_id ikut (server melepas/mengganti tahap tanpa bump).
   // Checklist bertingkat (ADR-048, spec §9): progress dan checklist_total ditulis server saat checklist berubah tanpa
-  // menaikkan updated_at; checklist_total only-if-sent (server lama tidak mengirimnya).
+  // menaikkan updated_at; only-if-sent (server lama tidak mengirim checklist_total; dict parsial tanpa progress tidak
+  // menolkan nilai lokal).
   const TASK_DERIVED = ["quadrant", "recurrence_end_date", "recurrence_notif_level", "completed_at", "project", "project_id",
     "context", "context_id", "pomodoros_done", "progress", "checklist_total"];
   // pomodoros_done: milik server (tanpa bump updated_at) → diadopsi tiap pull bila server mengirimnya.
-  const ONLY_IF_SENT = ["project", "project_id", "context", "context_id", "pomodoros_done", "checklist_total"];
+  const ONLY_IF_SENT = ["project", "project_id", "context", "context_id", "pomodoros_done", "progress", "checklist_total"];
   // context: null dan "" setara (record lama/lokal memakai "", server bisa null) → tanpa tulis ulang massal.
   // progress/checklist_total: null/tidak ada setara 0 (bawaan hydrate) → record lama tanpa checklist_total tidak
   // ditulis ulang massal pada pull pertama setelah pembaruan.
@@ -228,10 +229,17 @@
     return TFdb.mutate("tasks", local.cid, (cur) => {
       if (!sameRecState(cur, local)) return undefined;
       const next = Object.assign({}, cur);
+      let wrote = false;
       for (const k of keys) {
-        if (k === "context" && !derivedDiffers(k, s, local)) continue; // ""/null setara → biarkan nilai lokal
+        // Hanya kunci yang berbeda dari snapshot (context: ""/null setara → biarkan nilai lokal).
+        if (!derivedDiffers(k, s, local)) continue;
+        // Berubah sejak snapshot tanpa menaikkan rev (mis. TF.checklist.adoptTaskProgress dari respons checklist yang
+        // lebih baru dari daftar ini) → nilai di record lebih baru; jangan timpa dengan daftar basi.
+        if (derivedVal(k, cur[k]) !== derivedVal(k, local[k])) continue;
         next[k] = ZERO_DEFAULT[k] ? derivedVal(k, s[k]) : (s[k] != null ? s[k] : null);
+        wrote = true;
       }
+      if (!wrote) return undefined;
       if (keys.indexOf("project_id") >= 0 || keys.indexOf("project") >= 0) {
         next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
       }

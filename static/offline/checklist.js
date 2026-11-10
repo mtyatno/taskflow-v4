@@ -19,8 +19,10 @@
   //   Dalam setiap siklus, anggota dengan `(sort_order, id)` terkecil naik ke level atas. `parent_id` efektif = null
   //   untuk butir depth 0 (sama dengan `GET …/subtasks`), selain itu = `parent_id` tersimpan.
   // - `preorder(items)` → salinan baru pre-order + `depth` + `parent_id` efektif. Masukan tidak diubah.
-  // - `topLevelCounts(items)` → `{done, total}` level atas. `childCounts(items, id)` → `{done, total}` anak langsung
-  //   (chip lipat). `descendantIds(items, id)` → id turunan pre-order tanpa akar (`[]` bila tidak dikenal).
+  // - `topLevelCounts(items)` → `{done, total}` level atas. `childCountsAll(items)` → `Map(id → {done, total})` anak
+  //   langsung SETIAP butir (daun 0/0) dalam satu lintasan O(n) — dipakai chip lipat di setiap render;
+  //   `childCounts(items, id)` = satu entri darinya (`{0, 0}` bila id tidak dikenal).
+  //   `descendantIds(items, id)` → id turunan pre-order tanpa akar (`[]` bila tidak dikenal).
   // - `visibleRows(items, collapsedSet)` → `[{item, depth, hasChildren, collapsed}]` pre-order; turunan butir
   //   terlipat tidak muncul. `collapsed` hanya true untuk butir yang punya anak. `collapsedSet`: Set / array / null.
   // - Target pindah `{parent_id, index}` (atau null bila tidak mungkin) dengan semantik `index` server: posisi akhir
@@ -39,10 +41,12 @@
   //     pre-order penuh — jatuh sebagai anak butir terlipat = anak terakhir. null bila posisi sekarang, id tidak
   //     dikenal, atau induk tujuan = butir yang diseret / turunannya.
   // - `applyMove(items, id, parent_id, index)` → daftar baru pre-order (bentuk `preorder`), meniru `move_subtask`:
-  //   `index` null/undefined = akhir, desimal dipotong, di-clamp `0..n`; kelompok saudara lama dan baru dinomori
+  //   `index` null/undefined = akhir, selain itu harus bilangan bulat ≥ 0 (kontrak HTTP `index: int, ge=0`), lalu
+  //   di-clamp ke `n` (> n = akhir); kelompok saudara lama dan baru dinomori
   //   ulang `0..n−1` menurut urutan tampil (kelompok lain tidak disentuh, `sort_order` NULL/kembar tetap); posisi
   //   sama → daftar tidak berubah (= `preorder(items)`); turunan ikut. Tujuan tidak sah (id / induk tidak dikenal,
-  //   induk = diri / turunan / task lain, index bukan angka) → null (server akan menolak; jangan kirim).
+  //   induk = diri / turunan / task lain, index negatif / bukan bilangan bulat / bukan number) → null (server akan
+  //   menolak; jangan kirim). Repository Python meng-clamp index negatif ke 0, tetapi HTTP menolaknya (422).
   // - Kotak tambah bawah: `maxAddDepth(items)` = depth butir terakhir pre-order + 1 (0 bila kosong);
   //   `addParentFor(items, depth)` → id induk = leluhur butir terakhir pada tingkat depth−1 (butir terakhir itu
   //   sendiri bila depth = depth-nya + 1), null untuk 0; `depth` di-clamp ke `0..maxAddDepth`.
@@ -113,11 +117,16 @@
     return parent;
   }
 
-  function preorder(items) {
+  // {list, parent}: butir sah + induk efektif setiap id (tanpa pengurutan).
+  function effective(items) {
     const list = Array.isArray(items) ? items.filter((it) => it && typeof it === "object") : [];
     const byId = new Map();
     for (const it of list) byId.set(it.id, it);
-    const parent = effectiveParents(list, byId);
+    return { list, parent: effectiveParents(list, byId) };
+  }
+
+  function preorder(items) {
+    const { list, parent } = effective(items);
     const roots = [];
     const children = new Map();
     for (const it of list) {
@@ -167,10 +176,23 @@
     return countDone(preorder(items).filter((r) => r.depth === 0));
   }
 
+  function childCountsAll(items) {
+    const { list, parent } = effective(items);
+    const out = new Map();
+    for (const it of list) if (!out.has(it.id)) out.set(it.id, { done: 0, total: 0 });
+    for (const it of list) {
+      const p = parent.get(it.id);
+      if (p == null) continue;
+      const c = out.get(p);
+      c.total++;
+      if (it.is_done) c.done++;
+    }
+    return out;
+  }
+
   function childCounts(items, id) {
-    const flat = preorder(items);
-    if (indexOfId(flat, id) < 0) return { done: 0, total: 0 };
-    return countDone(siblingsIn(flat, id));
+    const c = childCountsAll(items).get(id);
+    return c ? { done: c.done, total: c.total } : { done: 0, total: 0 };
   }
 
   function descendantIds(items, id) {
@@ -309,12 +331,8 @@
       const di = indexOfId(flat, id);
       if (pi >= di && pi < subtreeEnd(flat, di)) return null; // diri sendiri / turunannya
     }
-    let idx = null;
-    if (index != null) {
-      const n = Number(index);
-      if (!Number.isFinite(n)) return null;
-      idx = Math.trunc(n);
-    }
+    if (index != null && !(typeof index === "number" && Number.isInteger(index) && index >= 0)) return null;
+    const idx = index == null ? null : index;
 
     const same = target === L.it.parent_id;
     const oldRest = L.sibs.filter((r) => r.id !== id);
@@ -446,7 +464,7 @@
 
   return {
     COLLAPSE_KEY, COLLAPSE_MAX,
-    percent, preorder, topLevelCounts, childCounts, descendantIds, visibleRows,
+    percent, preorder, topLevelCounts, childCounts, childCountsAll, descendantIds, visibleRows,
     indentTarget, outdentTarget, siblingMoveTarget, dropRange, dropTarget, applyMove,
     maxAddDepth, addParentFor, autoScrollDelta, loadCollapsed, saveCollapsed, lockFor, adoptTaskProgress,
   };

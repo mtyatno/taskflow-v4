@@ -85,6 +85,15 @@
       "expected": [[1, 0, null], [2, 1, 1]]
     },
     {
+      "name": "sort_order negatif sebelum 0 dan NULL",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": null, "sort_order": null},
+        {"id": 3, "parent_id": null, "sort_order": -1}
+      ],
+      "expected": [[3, 0, null], [1, 0, null], [2, 0, null]]
+    },
+    {
       "name": "kosong",
       "rows": [],
       "expected": []
@@ -170,7 +179,8 @@
       "expected": [[2, 0, null, 0], [3, 0, null, 1], [1, 0, null, 2], [4, 1, 1, 0], [6, 2, 4, 0], [5, 1, 1, 1]]
     },
     {
-      "name": "index negatif di-clamp ke 0",
+      "name": "index negatif di-clamp ke 0 (khusus repository; HTTP dan JS menolak index negatif)",
+      "python_only": true,
       "rows": [
         {"id": 1, "parent_id": null, "sort_order": 0},
         {"id": 2, "parent_id": null, "sort_order": 1},
@@ -204,6 +214,14 @@
       "expected": [[1, 0, null, 5], [4, 1, 1, null], [3, 1, 1, 7], [2, 0, null, 5]]
     },
     {
+      "name": "satu butir, index lebih dari n = posisi sama tanpa penomoran ulang",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 1}
+      ],
+      "move": {"id": 1, "parent_id": null, "index": 5},
+      "expected": [[1, 0, null, 1]]
+    },
+    {
       "name": "sort_order kembar dinomori ulang hanya di kelompok yang berubah",
       "rows": [
         {"id": 1, "parent_id": null, "sort_order": 0},
@@ -235,6 +253,51 @@
       ],
       "move": {"id": 2, "parent_id": null, "index": null},
       "expected": [[1, 0, null, 0], [3, 0, null, 1], [2, 0, null, 2]]
+    }
+  ],
+  "move_invalid": [
+    {
+      "name": "induk = butir itu sendiri",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": null, "sort_order": 1},
+        {"id": 4, "parent_id": 1, "sort_order": 0},
+        {"id": 6, "parent_id": 4, "sort_order": 0}
+      ],
+      "move": {"id": 1, "parent_id": 1, "index": 0},
+      "error": "CYCLE"
+    },
+    {
+      "name": "induk = turunan (cucu)",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": null, "sort_order": 1},
+        {"id": 4, "parent_id": 1, "sort_order": 0},
+        {"id": 6, "parent_id": 4, "sort_order": 0}
+      ],
+      "move": {"id": 1, "parent_id": 6, "index": null},
+      "error": "CYCLE"
+    },
+    {
+      "name": "induk di task lain",
+      "rows": [
+        {"id": 1, "task_id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "task_id": 1, "parent_id": null, "sort_order": 1},
+        {"id": 10, "task_id": 2, "parent_id": null, "sort_order": 0}
+      ],
+      "move": {"id": 1, "parent_id": 10, "index": 0},
+      "error": "PARENT_NOT_FOUND"
+    },
+    {
+      "name": "induk tidak ada",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": null, "sort_order": 1},
+        {"id": 4, "parent_id": 1, "sort_order": 0},
+        {"id": 6, "parent_id": 4, "sort_order": 0}
+      ],
+      "move": {"id": 2, "parent_id": 999, "index": 0},
+      "error": "PARENT_NOT_FOUND"
     }
   ]
 }

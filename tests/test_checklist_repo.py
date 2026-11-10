@@ -910,3 +910,15 @@ def test_move_subtask_sesuai_vektor_pindah_bersama(repo, u, tid, vec):
     assert bentuk(r["items"]) == vec["expected"]
     assert bentuk(repo.get_subtasks(tid)) == vec["expected"]
     assert _task(tid)["updated_at"] == FROZEN
+
+
+@pytest.mark.parametrize("vec", TREE_VECTORS["move_invalid"], ids=lambda v: v["name"])
+def test_move_subtask_menolak_vektor_tidak_sah_tanpa_menulis(repo, u, tid, vec):
+    to_db, to_vec = _muat_vektor(u, tid, vec["rows"])
+    m = vec["move"]
+    sebelum = _rows(tid)
+    parent = to_db.get(m["parent_id"], 987654321) if m["parent_id"] is not None else None
+    with pytest.raises(ChecklistError) as ei:
+        repo.move_subtask(to_db[m["id"]], parent, m["index"])
+    assert ei.value.code == vec["error"]
+    assert _rows(tid) == sebelum

@@ -45,7 +45,7 @@ test("modul: di browser terpasang sebagai TF.checklist (pola UMD taskdetail.js)"
   const api = ctx.self.TF.checklist;
   for (const k of ["percent", "preorder", "topLevelCounts", "childCounts", "descendantIds", "visibleRows",
     "indentTarget", "outdentTarget", "siblingMoveTarget", "dropRange", "dropTarget", "applyMove", "maxAddDepth",
-    "addParentFor", "autoScrollDelta", "loadCollapsed", "saveCollapsed", "lockFor", "adoptTaskProgress"]) {
+    "addParentFor", "autoScrollDelta", "loadCollapsed", "saveCollapsed", "lockFor", "adoptTaskProgress", "childCountsAll"]) {
     assert.equal(typeof api[k], "function", k);
   }
   assert.equal(api.COLLAPSE_KEY, "tf_check_collapsed");
@@ -120,6 +120,38 @@ test("childCounts: anak langsung saja; daun / id tidak dikenal 0/0", () => {
   assert.deepEqual(C.childCounts(items, 4), { done: 1, total: 1 });
   assert.deepEqual(C.childCounts(items, 6), { done: 0, total: 0 });
   assert.deepEqual(C.childCounts(items, 99), { done: 0, total: 0 });
+});
+
+test("childCountsAll: Map id → {done, total} anak langsung untuk setiap butir, sama dengan childCounts", () => {
+  const items = pohon({ 4: { is_done: true }, 6: { is_done: true } });
+  const m = C.childCountsAll(items);
+  assert.ok(m instanceof Map);
+  assert.deepEqual([...m.keys()].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6]);
+  for (const id of [1, 2, 3, 4, 5, 6]) assert.deepEqual(m.get(id), C.childCounts(items, id), "id " + id);
+  assert.deepEqual(m.get(1), { done: 1, total: 2 });
+  assert.equal(m.get(99), undefined);
+  assert.deepEqual([...C.childCountsAll([]).keys()], []);
+  assert.deepEqual([...C.childCountsAll(null).keys()], []);
+});
+
+test("childCountsAll: pohon efektif (yatim → level atas, siklus diputus seperti preorder)", () => {
+  const m = C.childCountsAll([b(1, 999, 0), b(2, 1, 0, { is_done: 1 }), b(5, 6, 0), b(6, 5, 1)]);
+  assert.deepEqual(m.get(1), { done: 1, total: 1 });
+  assert.deepEqual(m.get(5), { done: 0, total: 1 }); // 5 pemutus siklus (sort_order terkecil) → level atas, 6 anaknya
+  assert.deepEqual(m.get(6), { done: 0, total: 0 });
+});
+
+test("childCountsAll: 2.000 butir (rantai dan lebar) < 50 ms", () => {
+  const lebar = [b(1, null, 0)];
+  for (let i = 2; i <= 2000; i++) lebar.push(b(i, 1, i, { is_done: i % 2 === 0 }));
+  for (const items of [rantai(2000), lebar]) {
+    const t0 = process.hrtime.bigint();
+    const m = C.childCountsAll(items);
+    const ms = Number(process.hrtime.bigint() - t0) / 1e6;
+    assert.equal(m.size, 2000);
+    assert.ok(ms < 50, "childCountsAll " + ms.toFixed(1) + " ms");
+  }
+  assert.deepEqual(C.childCountsAll(lebar).get(1), { done: 1000, total: 1999 });
 });
 
 test("descendantIds: pre-order tanpa akar; daun/id tidak dikenal []; tahan siklus", () => {
@@ -295,11 +327,24 @@ test("dropTarget: id yang diseret tidak dikenal → null", () => {
 // ── applyMove ────────────────────────────────────────────────────────────────
 
 for (const vec of TREE.move) {
+  if (vec.python_only) continue; // khusus repository (index negatif): kontrak HTTP/JS menolaknya, lihat tes di bawah
   test("applyMove vektor: " + vec.name, () => {
     const out = C.applyMove(vec.rows, vec.move.id, vec.move.parent_id, vec.move.index);
     assert.deepEqual(out.map((r) => [r.id, r.depth, r.parent_id, r.sort_order]), vec.expected);
   });
 }
+
+for (const vec of TREE.move_invalid) {
+  test("applyMove vektor tidak sah → null: " + vec.name, () => {
+    assert.equal(C.applyMove(vec.rows, vec.move.id, vec.move.parent_id, vec.move.index), null);
+  });
+}
+
+test("applyMove: vektor khusus Python (index negatif) ditolak JS → null", () => {
+  const khusus = TREE.move.filter((v) => v.python_only);
+  assert.ok(khusus.length >= 1);
+  for (const v of khusus) assert.equal(C.applyMove(v.rows, v.move.id, v.move.parent_id, v.move.index), null, v.name);
+});
 
 test("applyMove: tidak mengubah masukan dan field lain ikut tersalin", () => {
   const items = pohon({ 3: { is_done: true } });
@@ -327,10 +372,17 @@ test("applyMove: tujuan tidak sah → null (id/induk tidak dikenal, diri sendiri
   assert.equal(C.applyMove(items, 3, null, "x"), null);
 });
 
-test("applyMove: parent_id undefined = level atas; index desimal dipotong seperti int() Python", () => {
+test("applyMove: parent_id undefined = level atas", () => {
+  assert.deepEqual(ids(C.applyMove(pohon(), 4, undefined, 1)), [1, 5, 4, 6, 2, 3]);
+});
+
+test("applyMove: index negatif / bukan bilangan bulat / bukan number → null (kontrak HTTP index int ≥ 0)", () => {
   const items = pohon();
-  assert.deepEqual(ids(C.applyMove(items, 4, undefined, 1)), [1, 5, 4, 6, 2, 3]);
-  assert.deepEqual(ids(C.applyMove(items, 3, null, 1.9)), [1, 4, 6, 5, 3, 2]);
+  for (const bad of [-1, -5, 1.9, 0.5, "1", NaN, Infinity, true]) {
+    assert.equal(C.applyMove(items, 3, null, bad), null, String(bad));
+  }
+  assert.deepEqual(ids(C.applyMove(items, 3, null, 0)), [3, 1, 4, 6, 5, 2]);
+  assert.deepEqual(ids(C.applyMove(items, 3, null, 1e9)), [1, 4, 6, 5, 2, 3]); // > n tetap di-clamp ke akhir
 });
 
 // ── kotak tambah bawah ───────────────────────────────────────────────────────
@@ -553,6 +605,51 @@ test("adoptTaskProgress: total 0 (level atas terakhir dihapus) → checklist_tot
   assert.equal(await C.adoptTaskProgress(7, { done: 0, total: 0, progress: 50 }), true);
   const r = await bacaTask("t1");
   assert.deepEqual([r.progress, r.checklist_total], [50, 0]);
+});
+
+test("adoptTaskProgress: ext, ext_dirty, dan penanda ext saja tidak disentuh", async () => {
+  const X = require("../../static/offline/taskext.js");
+  const rec = rekam({ dirty: 1, rev: 6, ext: { "demo-ext.a": 2 }, ext_dirty: ["demo-ext.a"] });
+  rec[X.EXT_ONLY_KEY] = 6;
+  await siapkanTask(rec, 7);
+  assert.equal(X.extOnlyNow(await bacaTask("t1")), true);
+  assert.equal(await C.adoptTaskProgress(7, { done: 1, total: 2, progress: 50 }), true);
+  const r = await bacaTask("t1");
+  assert.deepEqual([r.progress, r.checklist_total], [50, 2]);
+  assert.deepEqual(r.ext, { "demo-ext.a": 2 });
+  assert.deepEqual(r.ext_dirty, ["demo-ext.a"]);
+  assert.equal(r[X.EXT_ONLY_KEY], 6);
+  assert.equal(X.extOnlyNow(r), true);
+  assert.deepEqual([r.dirty, r.rev], [1, 6]);
+});
+
+test("adoptTaskProgress saat push berjalan: setelah respons PUT record bersih dan progress tidak tertimpa", async () => {
+  const { outboxAdd, outboxAll } = require("../../static/offline/outbox.js");
+  const TFpush = require("../../static/offline/syncpush.js");
+  await siapkanTask(rekam({ cid: "q1", server_id: 9, progress: 10, quadrant: "Q4", gtd_status: "next", dirty: 1, rev: 4 }), 9);
+  await outboxAdd({ op: "update", entity_type: "task", cid: "q1", payload: {} });
+  let lepas;
+  const gerbang = new Promise((r) => { lepas = r; });
+  const minta = [];
+  const transport = {
+    request: (method, url, body) => {
+      minta.push([method, url, body && body.progress]);
+      // Respons PUT dibuat server SEBELUM centang (progress lama 10), tiba SETELAH adopsi progress baru.
+      return gerbang.then(() => ({ status: 200, data: {
+        id: 9, title: "T", gtd_status: "next", quadrant: "Q4", progress: 10, checklist_total: 3,
+        updated_at: "2026-11-02T00:00:00", created_at: "2026-11-01T00:00:00",
+      } }));
+    },
+  };
+  const push = TFpush.pushOutbox(transport);
+  for (let i = 0; i < 50 && !minta.length; i++) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(minta.length, 1, "PUT harus sudah terkirim sebelum adopsi");
+  assert.equal(await C.adoptTaskProgress(9, { done: 2, total: 3, progress: 67 }), true);
+  lepas();
+  await push;
+  const r = await bacaTask("q1");
+  assert.deepEqual([r.dirty, r.rev, r.progress, r.checklist_total, r.base_rev], [0, 4, 67, 3, "2026-11-02T00:00:00"]);
+  assert.equal((await outboxAll()).length, 0);
 });
 
 test("adoptTaskProgress: record task tidak ada walau idmap ada → false", async () => {

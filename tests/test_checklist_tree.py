@@ -193,6 +193,11 @@ def test_vektor_pohon_mencakup_kasus_wajib():
     move_names = " | ".join(v["name"] for v in TREE_VECTORS["move"])
     for kata in ("naik", "turun", "induk lain", "level atas", "lebih dari n", "index null", "posisi sama"):
         assert kata in move_names
+    assert "negatif" in names
+    # Vektor khusus repository (python_only) tidak dipakai JS; hanya index negatif (kontrak HTTP index >= 0).
+    assert all("negatif" in v["name"] for v in TREE_VECTORS["move"] if v.get("python_only"))
+    assert {v["error"] for v in TREE_VECTORS["move_invalid"]} == {"CYCLE", "PARENT_NOT_FOUND"}
+    assert len(TREE_VECTORS["move_invalid"]) >= 4
 
 
 @pytest.mark.parametrize("vec", TREE_VECTORS["preorder"], ids=lambda v: v["name"])
