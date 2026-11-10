@@ -55,7 +55,7 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
   - Rumus per baris:
     - BAC += w.
     - PV += w × hk(s..min(f, D)) ÷ hk(s..f), dengan hk = hari kerja kalender halaman saat ini dan pembilang 0 bila D < s. Milestone (d = 0): PV += w bila D ≥ s.
-    - EV += w × % selesai: task selesai = 100; selain itu `progress` 0–100 (dijepit; bukan bilangan → 0).
+    - EV += w × % selesai: task selesai = 100; selain itu `Number(progress)` dijepit 0–100, tak hingga/NaN → 0 (string angka `"50"` = 50 %, sama dengan `cpm.js`/`plan.js`/`layout.js`) (dikoreksi review F1).
     - AC += `pomodoros_done` (bulat ≥ 0).
   - Semua angka dalam milipomodoro, dibulatkan per baris lalu dijumlah agar determinis.
   - SPI = EV ÷ PV dan CPI = EV ÷ AC; penyebut 0 → `null`.
@@ -69,9 +69,9 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
   - Nama baseline: semua unit yang punya slot n bernama sama → nama itu; selain itu "Baseline {n}".
   - Tanpa baseline aktif atau BAC = 0 → ringkasan tidak dirender.
   - EV dihitung di `useMemo` atas `[eng.result, eng.ctx, blRowsKey, todayDn]`, setelah mesin siap. Tidak pernah menulis.
-- **R3 — `baselineDecode` membaca `w`.** Baris berisi `{s, f, d, w}`, dengan `w` = `e[4]` bila bilangan bulat ≥ 0, selain itu 0 (baseline lama tetap sah). `compareBaseline` tidak berubah.
+- **R3 — `baselineDecode` membaca `w`.** Baris berisi `{s, f, d, w}`, dengan `w` = `e[4]` bila bilangan bulat 0–99 (batas = `EST_MAX` host, dikoreksi review F1), selain itu 0 (baseline lama tetap sah). `compareBaseline` tidak berubah.
 - **R4 — `api.ui.saveFile(name, text, mime) → Promise<boolean>`** (K54, aditif, `minApi` tetap 1).
-  - Validasi (gagal → lempar `denied` sinkron, pola `navigate`):
+  - Validasi, sebelum cabang native (gagal → `Promise.reject(new TypeError("saveFile: <alasan>"))` tanpa `markFailed` dan tanpa efek, pola validasi `storage`/`fetch`; `saveFile` tidak berizin sehingga tidak ada izin yang dilanggar, tidak dihitung error plugin, dan tidak mematikan plugin; `saveFile` tidak pernah melempar sinkron; `name` bukan string atau > 240 unit UTF-16 ditolak sebelum `Array.from`) (dikoreksi review F1):
     - `name` string 1–120 karakter, tanpa `/ \ : * ? " < > |`, karakter kontrol, atau awalan titik;
     - `text` string ≤ 20 MiB (UTF-16 `length`);
     - `mime` ∈ `{"application/xml", "text/xml", "text/csv", "text/plain", "application/json"}`.
@@ -163,7 +163,7 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
    - MPXJ membaca jumlah task/tautan/resource/assignment, tanggal, durasi, milestone, % selesai, kendala, empat tipe dependensi + lag, kalender + libur, dan baseline sesuai masukan;
    - escape dan karakter kontrol;
    - determinis (dua build identik).
-4. **`saveFile` aman:** validasi nama/mime/ukuran; native → `false` tanpa efek; web → satu unduhan, URL dicabut; tidak ada jalur tanpa gestur dari kode plugin (hanya dari handler menu).
+4. **`saveFile` aman:** validasi nama/mime/ukuran → reject `TypeError` tanpa efek, bukan error plugin, tidak pernah melempar sinkron (dikoreksi review F1); native → `false` tanpa efek; web → satu unduhan, URL dicabut; tidak ada jalur tanpa gestur dari kode plugin (hanya dari handler menu).
 5. **Anggaran dan regresi:** render awal sama; DOM +1 elemen; toolbar/Lainnya di HP 375 px tanpa gulir horizontal.
 
 ---
@@ -203,7 +203,7 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
 
 - [ ] **Step 1: Tes gagal:**
   - kunci `api.ui` + `saveFile`;
-  - validasi (nama kosong/terlalu panjang/berkarakter terlarang/berawalan titik, mime di luar daftar, teks bukan string, > 20 MiB) → lempar sinkron tanpa efek;
+  - validasi (nama kosong/terlalu panjang/berkarakter terlarang/berawalan titik, mime di luar daftar, teks bukan string, > 20 MiB) → reject `TypeError` tanpa efek; `failures` tetap 0 setelah ≥ 3 penolakan dan plugin tidak diredam; panggilan tidak melempar sinkron (termasuk getter global yang melempar) (dikoreksi review F1);
   - `platform` tauri → resolve `false`, 0 elemen `<a>`, 0 `createObjectURL`;
   - web (document dan URL palsu): satu `<a>` dengan `download` = nama dan `href` = URL objek, `click` sekali, elemen dilepas, `revokeObjectURL` setelah timer, resolve `true`;
   - `click` melempar → reject.

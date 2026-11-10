@@ -178,7 +178,8 @@ Plugin menerima `api = TF.api.for(id)` di `factory` dan sebagai prop `api` di ko
 **`api.ui.saveFile(name, text, mime)` (1d-2).** Satu jalur unduh berkas untuk plugin (plugin tidak menyentuh DOM
 global sendiri). Aditif di API v1 (`minApi` tetap 1), tanpa izin manifest.
 
-- **Validasi sinkron** (pola `navigate`): gagal → melempar `PluginPermissionError` dan dihitung sebagai error plugin.
+- **Validasi** (sebelum cabang native): gagal → ditolak dengan `TypeError` (tidak dihitung sebagai error plugin),
+  tanpa efek. `saveFile` tidak pernah melempar sinkron; galat apa pun menjadi Promise yang ditolak.
   - `name`: string 1–120 karakter (code point), tanpa `/ \ : * ? " < > |`, tanpa karakter kontrol (U+0000–U+001F,
     U+007F), tidak diawali titik.
   - `text`: string, `length` ≤ 20 MiB (unit kode UTF-16).

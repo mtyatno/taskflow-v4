@@ -705,6 +705,29 @@ test("baselineDecode 1d-2 (R3): w = e[4] bila bilangan bulat ≥ 0; absen (basel
   assert.deepEqual(fut.rows.get("1"), { s: D("2026-11-02"), f: D("2026-11-02"), d: 1, w: 3 });
 });
 
+test("baselineDecode review F1 (M2): w sah hanya bilangan bulat 0..BATAS (BATAS = EST_MAX host 99, tes silang pomologic + TLLoad); 1e300 / −1 / 1,5 / BATAS+1 → 0, baris tetap sah", () => {
+  const pomologic = require(path.join(__dirname, "../../static/offline/pomologic.js"));
+  const LD = require(path.join(dir, "load.js"));
+  const BATAS = pomologic.EST_MAX;
+  assert.equal(BATAS, 99);
+  assert.equal(LD.EST_MAX, BATAS, "batas w decode = batas target 🍅 Timeline");
+  const cases = [
+    [1, 1e300, 0], // bilangan bulat menurut Number.isInteger, tetapi di luar batas → 0 (BAC tidak meledak)
+    [2, -1, 0],
+    [3, 1.5, 0],
+    [4, BATAS, BATAS],
+    [5, BATAS + 1, 0],
+    [6, Number.MAX_SAFE_INTEGER, 0],
+    [7, 0, 0],
+    [8, 1, 1],
+  ];
+  const dec = P.baselineDecode({ v: 1, n: 1, t: cases.map(([id, w]) => [{ $task: id }, "2026-11-02", "2026-11-03", 2, w]) });
+  assert.equal(dec.rows.size, cases.length, "w di luar batas tidak membuang baris");
+  for (const [id, w, want] of cases) {
+    assert.deepEqual(dec.rows.get(String(id)), { s: D("2026-11-02"), f: D("2026-11-03"), d: 2, w: want }, "w " + w);
+  }
+});
+
 test("compareBaseline 1d-2: tambahan w di baris tidak mengubah keluaran (w diabaikan)", () => {
   const units = autoUnits("Alpha");
   const tasks = [mk({ id: 1, start: "2026-11-04", d: 2 }), mk({ id: 2, start: "2026-11-02", d: 1 })];

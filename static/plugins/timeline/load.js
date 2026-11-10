@@ -419,11 +419,13 @@ const TLLoad = (function (CAL, SCHED, CPM) {
     return den === 0 ? wm : Math.round((wm * num) / den);
   }
 
-  // % selesai (R1): task selesai = 100; selain itu progress bilangan hingga dijepit 0–100; bukan bilangan → 0.
+  // % selesai (R1, dikoreksi review F1): task selesai = 100; selain itu Number(progress) dijepit 0–100, tak hingga/NaN
+  // → 0. Number() sama dengan pembaca progress lain (cpm.js isStarted, plan.js isStarted/reschedule, layout.js bar, load.js
+  // isStarted): string angka "50" = 50 %; null/"" → 0.
   function pctOf(t) {
     if (isDone(t)) return 100;
-    const p = t.progress;
-    return typeof p === "number" && Number.isFinite(p) ? Math.min(100, Math.max(0, p)) : 0;
+    const p = Number(t.progress);
+    return Number.isFinite(p) ? Math.min(100, Math.max(0, p)) : 0;
   }
 
   // ev(bl, ctx, D) → {bac, pv, ev, ac, spi, cpi, rows, outside, missing} | null.

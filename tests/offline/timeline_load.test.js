@@ -989,15 +989,24 @@ test("ev R1: PV per tanggal D — sebelum semua mulai PV 0 + SPI null; milestone
   assert.equal(late.spi, 5750 / 11000);
 });
 
-test("ev R1: % selesai — task selesai (gtd_status done ATAU completed_at) = 100 %; progress dijepit 0–100; bukan bilangan → 0; pecahan dibulatkan per baris", () => {
+test("ev R1: % selesai — task selesai (gtd_status done ATAU completed_at) = 100 %; Number(progress) dijepit 0–100; tak hingga/NaN → 0; pecahan dibulatkan per baris", () => {
   const ev1 = (o1) => LD.ev(evBl(), evCtx(evTasks({ 1: o1 })), EV_D).ev - 4000; // EV task 2 (selesai) = 4000, milestone 0
   assert.equal(ev1({ progress: 35 }), 1750);
   assert.equal(ev1({ progress: 150 }), 5000, "150 → 100 %");
   assert.equal(ev1({ progress: -5 }), 0, "−5 → 0 %");
-  assert.equal(ev1({ progress: "x" }), 0, "bukan bilangan → 0");
-  assert.equal(ev1({ progress: "50" }), 0, "string angka bukan bilangan → 0");
+  assert.equal(ev1({ progress: "x" }), 0, "bukan angka → 0");
+  // review F1: string angka dibaca Number() seperti cpm/plan/layout → "50" = 50 % → round(5000 × 50 / 100) = 2500 milli
+  assert.equal(ev1({ progress: "50" }), 2500, "string angka \"50\" → 50 %");
   assert.equal(ev1({ progress: NaN }), 0);
   assert.equal(ev1({ progress: Infinity }), 0, "tak hingga bukan bilangan sah → 0");
+  // progress dipasang langsung pada task (mk menormalkan nilai falsy ke 0): w task 1 = 5 → 5000 milli = 100 %
+  const evRaw = (p) => {
+    const tasks = evTasks();
+    tasks[0].progress = p;
+    return LD.ev(evBl(), evCtx(tasks), EV_D).ev - 4000;
+  };
+  const raw = [[null, 0], ["", 0], ["abc", 0], [Infinity, 0], [-Infinity, 0], [-5, 0], [150, 5000], ["150", 5000], [" 20 ", 1000], [undefined, 0]];
+  for (const [p, want] of raw) assert.equal(evRaw(p), want, "progress " + String(p));
   assert.equal(ev1({ progress: 33.3 }), 1665, "round(5000 × 33,3 / 100) = 1665");
   assert.equal(ev1({ progress: 0.01 }), 1, "round(0,5) = 1 (Math.round)");
   // selesai lewat completed_at saja (gtd_status bukan done) → 100 %
