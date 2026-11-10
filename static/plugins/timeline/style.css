@@ -1563,6 +1563,18 @@
   white-space: nowrap;
 }
 
+/* 1d-2 Task 4 (K57): ringkasan earned value sebelum "Selesai {tgl}" — teks sekunder satu baris seperti elemen kanan
+   toolbar lain (warisan font-size/warna .plg-timeline-toolbar-end); bila tetap tidak muat (≤ 640 px, lihat media di
+   bawah) dipotong elipsis di dalam lebar baris, tidak pernah melebarkan toolbar. Tooltip lengkap lewat title. */
+.plg-timeline-ev {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .plg-timeline-latechip {
   padding: 2px 8px;
   border-radius: 999px;
@@ -1800,8 +1812,15 @@
     padding: 8px;
   }
 
+  /* 1d-2 Task 4: ringkasan EV + Selesai + chip bisa melebihi 343 px (375 px − padding) — kanan toolbar dibatasi lebar
+     baris toolbar dan anaknya terbungkus ke baris berikut (masing-masing tetap satu baris; EV terpotong elipsis bila
+     satu baris pun tidak cukup), jadi tidak ada gulir horizontal. */
   .plg-timeline-toolbar-end {
     margin-left: 0;
+    flex-wrap: wrap;
+    row-gap: 4px;
+    min-width: 0;
+    max-width: 100%;
   }
 }
 

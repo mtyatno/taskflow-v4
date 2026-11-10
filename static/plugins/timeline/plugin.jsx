@@ -2,9 +2,10 @@
 // 1.1.0 = PR 1c-1 jadwal otomatis, spec docs/superpowers/specs/2026-11-01-plugin-fase1-1c-otomatis-design.md).
 // Gantt untuk project dan workspace: view `gantt` (slot taskList.views) dan seksi `schedule` (slot
 // taskDetail.sections). Mesin murni ada di `parts` (holidays-id.js, calendar.js, schedule.js, cpm.js, plan.js,
-// load.js, layout.js, drag.js — compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLCpm/
-// TLPlan/TLLoad/TLLayout/TLDrag tersedia sebagai const di lingkup yang sama; tidak ada global window). `manifest`
-// disuntik compile.js dari manifest.json. 1.3.0 = PR 1d-1 Beban Tim (TLLoad + record `resource`).
+// load.js, layout.js, mspdi.js, drag.js — compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/
+// TLCpm/TLPlan/TLLoad/TLLayout/TLMspdi/TLDrag tersedia sebagai const di lingkup yang sama; tidak ada global window).
+// `manifest` disuntik compile.js dari manifest.json. 1.3.0 = PR 1d-1 Beban Tim (TLLoad + record `resource`); 1.4.0 =
+// PR 1d-2 earned value 🍅 (TLLoad.ev, ringkasan toolbar) + ekspor Microsoft Project (TLMspdi, api.ui.saveFile).
 //
 // Susunan modul (Task 6 = kerangka; komponen diisi Task 7–10):
 //   1. Konstanta + pesan UI persis (kalender, preferensi).
@@ -585,11 +586,13 @@ function missingYearsNote(years) {
 // Satu pintu ke mesin murni (spy di tes): tata letak (R24) dan CPM (1c-1 R7; dipanggil hanya dari useEngine).
 // explain (1c-1 R21, Task 12): hanya saat "Kenapa dijadwalkan di sini?" dibuka — kalender + readExt = masukan run.
 // load (1d-1 R10): TLLoad.run, dipanggil hanya dari useLoad (panel Beban Tim terbuka + mesin siap).
+// ev (1d-2 R1, R2, R10): TLLoad.ev, dipanggil hanya dari memo ringkasan EV view (baseline aktif + mesin siap).
 const engine = {
   layout: (args) => TLLayout.layout(args),
   run: (ctx) => TLCpm.run(ctx),
   explain: (result, key, cal, readExt) => TLCpm.explain(result, key, cal, readExt),
   load: (input) => TLLoad.run(input),
+  ev: (bl, ctx, D) => TLLoad.ev(bl, ctx, D),
 };
 
 const DEFAULT_CAL_DATA = TLCal.normalize(TLCal.DEFAULT_CAL);
@@ -1436,6 +1439,34 @@ function activeBaseline(byUnit, recIds, n) {
   return { n, rows };
 }
 
+// Unit jadwal DAFTAR LENGKAP (1d-2 R2): taskUnits(tasks) = keluaran TLSched.unitOf unik per recId, urut TLCpm.cmpKey;
+// unitIdsOf = recId-nya. Dipakai earned value dan ekspor dengan tasks = eng.ctx.tasks (daftar lengkap halaman), BUKAN
+// baris tata letak (pageUnits/lay sudah tersaring panel) — angka EV tidak bergantung filter. Bukan objek dilewati. Murni.
+function taskUnits(tasks) {
+  const by = new Map();
+  for (const t of Array.isArray(tasks) ? tasks : []) {
+    if (!t || typeof t !== "object") continue;
+    const u = TLSched.unitOf(t);
+    if (!by.has(u.recId)) by.set(u.recId, u);
+  }
+  return [...by.keys()].sort(TLCpm.cmpKey).map((k) => by.get(k));
+}
+const unitIdsOf = (tasks) => taskUnits(tasks).map((u) => u.recId);
+
+// Nama baseline aktif tergabung (1d-2 R2): semua unit (recIds) yang PUNYA slot n bernama sama → nama itu; nama beda,
+// slot asing (versi lebih baru), atau tanpa nama → "Baseline {n}"; unit tanpa slot n tidak ikut menentukan. Murni.
+function blNameFor(byUnit, recIds, n) {
+  let name = null;
+  for (const id of Array.isArray(recIds) ? recIds : []) {
+    const e = byUnit instanceof Map && byUnit.get(id) instanceof Map ? byUnit.get(id).get(n) : null;
+    if (!e) continue;
+    const nm = !e.foreign && typeof e.name === "string" && e.name !== "" ? e.name : null;
+    if (nm === null || (name !== null && nm !== name)) return blSlotName(n);
+    name = nm;
+  }
+  return name === null ? blSlotName(n) : name;
+}
+
 // Mesin jadwal di view (1c-1 R7, K31, K43): useEngine(api, {scopeTasks, calData, units}). Memuat daftar task LENGKAP (api.data.tasks.list({includeDone: true});
 // scopeTasks host sudah difilter panel) saat pasang, lalu — debounce RELOAD_TIMING.debounceMs, hanya jawaban terbaru —
 // saat identitas scopeTasks berubah dan saat sync.done. Saringan scope = TLSched.scopeKeyOf halaman. TLCpm.run
@@ -1691,6 +1722,11 @@ function renderToolbar(v) {
     return <button key={it.id} type="button" className="plg-timeline-btn" disabled={it.disabled} onClick={it.onSelect}>{it.text}</button>;
   };
   const sum = v.summary;
+  const showEnd = !!sum && sum.end !== null;
+  // 1d-2 Task 4 (K57, §7.1): ringkasan earned value SEBELUM "Selesai {tgl}" — v.ev = {text, tip} (TLLoad.evText/evTip)
+  // atau null (tanpa baseline aktif / BAC 0 / mesin belum siap). Tooltip = pola plugin untuk elemen bertip (bar baseline,
+  // tenggat, ⚠): role img + aria-label + title; label memuat teks tampak + tooltip agar pembaca layar mendengar keduanya.
+  const ev = v.ev || null;
   return (
     <div className="plg-timeline-toolbar">
       {gantt ? seg(ZOOMS, v.zoom, v.pickZoom, LBL.zoom) : null}
@@ -1700,10 +1736,11 @@ function renderToolbar(v) {
       {gantt ? <button type="button" className={cx("plg-timeline-btn", v.sort === "start" && "is-active")} aria-pressed={v.sort === "start"} onClick={() => v.setSort(v.sort === "start" ? "wbs" : "start")}>{LBL.sort}</button> : null}
       {gantt && v.compact ? <button type="button" className={cx("plg-timeline-btn", v.cols && "is-active")} aria-pressed={v.cols} onClick={() => v.setCols(!v.cols)}>{LBL.cols}</button> : null}
       {v.narrow ? seg([["gantt", LBL.gantt], ["list", LBL.list]], v.mode, v.setMode, LBL.mode) : null}
-      {sum && sum.end !== null ? (
+      {showEnd || ev ? (
         <div className="plg-timeline-toolbar-end">
-          <span className="plg-timeline-finish">{"Selesai " + TLCal.fmtShort(sum.end)}</span>
-          {sum.late > 0 ? <span className="plg-timeline-latechip">{sum.late + " lewat tenggat"}</span> : null}
+          {ev ? <span className="plg-timeline-ev" role="img" aria-label={ev.text + " · " + ev.tip} title={ev.tip}>{ev.text}</span> : null}
+          {showEnd ? <span className="plg-timeline-finish">{"Selesai " + TLCal.fmtShort(sum.end)}</span> : null}
+          {showEnd && sum.late > 0 ? <span className="plg-timeline-latechip">{sum.late + " lewat tenggat"}</span> : null}
         </div>
       ) : null}
     </div>
@@ -4589,9 +4626,30 @@ function TimelineViewBody(props) {
   // SATU pemuat se-scope untuk semua unit (useBaselines larik). blDec = baseline aktif tergabung (activeBaseline) — sumber
   // pembanding T6 (bar, lewat v.bl) dan T7; hanya baca (R25).
   const blPage = React.useMemo(() => pageUnits(lay, pageKind, context.projectName, groupNames), [lay, pageKind, context.projectName, groupNames]);
-  const bls = useBaselines(api, blPage.map((x) => x.unit));
+  // 1d-2 Task 4 (R2): unit DAFTAR LENGKAP mesin (eng.ctx.tasks) untuk earned value/ekspor. Pemuat baseline tetap SATU list
+  // se-scope: unit halaman (urutan kelompok, unit pertama = bentuk satu unit useBaselines) + unit daftar lengkap yang
+  // tersaring panel (scope sama). Tanpa filter keduanya sama → kunci muat tidak berubah saat mesin siap.
+  const evUnits = React.useMemo(() => taskUnits(engTasks), [engTasks]);
+  const blUnitsAll = blPage.map((x) => x.unit);
+  for (const u of evUnits) {
+    if (blUnitsAll.some((x) => x.recId === u.recId)) continue;
+    if (!blUnitsAll.length || blUnitsAll[0].scope === u.scope) blUnitsAll.push(u);
+  }
+  const bls = useBaselines(api, blUnitsAll);
   const blIdsKey = blPage.map((x) => x.unit.recId).join("\u0000");
   const blDec = React.useMemo(() => activeBaseline(bls.byUnit, blPage.map((x) => x.unit.recId), blPref), [bls.byUnit, blIdsKey, blPref]);
+  // Baseline aktif atas unit daftar lengkap (R2): kunci baris memuat s/f/d/w sehingga muat ulang baseline tanpa perubahan
+  // isi (identitas byUnit baru) tidak menghitung EV ulang. Nama: blNameFor.
+  const evIds = evUnits.map((u) => u.recId);
+  const evIdsKey = evIds.join("\u0000");
+  const evBl = React.useMemo(() => activeBaseline(bls.byUnit, evIds, blPref), [bls.byUnit, evIdsKey, blPref]);
+  const evName = React.useMemo(() => (evBl ? blNameFor(bls.byUnit, evIds, evBl.n) : ""), [bls.byUnit, evIdsKey, evBl]);
+  const blRowsKey = React.useMemo(() => {
+    if (!evBl) return "";
+    const out = [];
+    for (const [k, r] of evBl.rows) out.push([k, r.s, r.f, r.d, r.w]);
+    return evBl.n + "\u0000" + JSON.stringify(out);
+  }, [evBl]);
   // 1c-1 (R18, R19): overlay mesin dalam memo TERPISAH. Belum siap → NO_OVERLAY.
   // eng.ctx berasal dari keluaran run yang sama dengan eng.result, jadi kunci [lay, engResult] cukup.
   const ov = React.useMemo(() => engineOverlay(lay, engResult, eng.ctx), [lay, engResult]);
@@ -4601,6 +4659,25 @@ function TimelineViewBody(props) {
   const blOv = React.useMemo(() => baselineOverlay(blDec, engResult, eng.ctx), [blDec, engResult]);
   const actOv = React.useMemo(() => actualOverlay(lay, extOf, todayDn), [lay, extOf, todayDn]);
   const legendX = { bl: blOv !== null && blDec !== null && blDec.rows.size > 0, act: actOv.size > 0 };
+  // 1d-2 Task 4 (R1, R2, R10; K51, K57): earned value 🍅 dari baseline aktif — dihitung (engine.ev = satu pintu TLLoad.ev)
+  // HANYA setelah mesin siap (render awal tidak berubah), atas daftar lengkap + kalender + hasil mesin yang sama, hari ini.
+  // Memo [engResult, eng.ctx, blRowsKey, todayDn]: pilihan/isi baseline, data mesin, atau hari berganti → hitung ulang.
+  // Tanpa baseline aktif / tanpa baris / BAC 0 (ev → null) → null (ringkasan tidak dirender). Lempar → null + satu
+  // peringatan. Hanya baca (R25).
+  const evWarned = React.useRef(false);
+  const evRes = React.useMemo(() => {
+    if (!engResult || !eng.ctx || !Number.isInteger(todayDn) || !evBl || evBl.rows.size === 0) return null;
+    try {
+      return engine.ev(evBl, { tasks: eng.ctx.tasks, cal: eng.ctx.cal, result: engResult }, todayDn);
+    } catch (e) {
+      if (!evWarned.current) {
+        evWarned.current = true;
+        logWarn(api, "earned value gagal dihitung:", e);
+      }
+      return null;
+    }
+  }, [engResult, eng.ctx, blRowsKey, todayDn]);
+  const evView = React.useMemo(() => (evRes && evRes.bac > 0 ? { text: TLLoad.evText(evRes), tip: TLLoad.evTip(evRes, evName) } : null), [evRes, evName]);
 
   const compact = narrow || !!context.liveEdit;
   const colDefs = !compact || cols ? COLS_FULL : COLS_COMPACT;
@@ -5246,6 +5323,7 @@ function TimelineViewBody(props) {
     engReady: ov.ready, crit, setCrit, calOpen, toggleCal: () => { setUnitOpen(false); setBlOpen(false); setCalOpen(!calOpen); }, calBtnRef,
     auto, autoBtnRef, collapse: compact, summary, onReschedule: openResched, bl: blTool,
     loadOn, setLoadOn: toggleLoad, // 1d-1 T4 (R10); review akhir I1: gestur → gulir ke panel
+    ev: evView, // 1d-2 T4 (K57): ringkasan earned value sebelum "Selesai {tgl}"
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
@@ -7211,9 +7289,10 @@ const pure = {
   MSG_CHANGED, MSG_UNDO, MSG_SAVE_FAIL, MSG_CYCLE, MSG_MAX_DEPS, MSG_SUMMARY_DEP, MSG_DUP_DEP, MSG_SUMMARY_SCHED,
   TimelineViewBody, ScheduleSection, ScheduleBody, CalendarPopover, ListFallback,
   BaselinePicker, SaveBaselineDialog, activeBaseline, blNameOf,
+  unitIdsOf, taskUnits, blNameFor, // 1d-2 Task 4 (R2)
   MoreMenu, menuAlign, UnitPopover, PreviewDialog, PreviewCard, whyText, dialogModel, toolbarSummary, pageUnits, unitCaption, signedHk, scopeFilter, flowItems,
 };
-if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLCpm, TLPlan, TLLoad, TLLayout, TLDrag }, pure);
+if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLCpm, TLPlan, TLLoad, TLLayout, TLMspdi, TLDrag }, pure);
 
 const host = typeof window !== "undefined" ? window : null;
 if (host && host.TF && host.TF.plugins) {
