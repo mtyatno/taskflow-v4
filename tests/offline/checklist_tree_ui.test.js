@@ -118,6 +118,7 @@ function mountComp(names, props, env = {}) {
   let dirty = false;
   let out = null;
   const intervals = [];
+  const timers = [];
   const useState = init => {
     const i = slot++;
     if (!(i in slots)) slots[i] = { v: typeof init === "function" ? init() : init };
@@ -137,7 +138,14 @@ function mountComp(names, props, env = {}) {
   };
   const useCallback = (fn, deps) => useMemo(() => fn, deps);
   const React = {
-    createElement: (type, p, ...children) => ({ type, props: p || {}, children: children.flat(Infinity) }),
+    createElement: (type, p, ...children) => {
+      // env.refs(type, props) → elemen palsu untuk ref objek (mis. .td-tree-body saat seret).
+      if (p && p.ref && typeof p.ref === "object" && env.refs) {
+        const el = env.refs(type, p);
+        if (el) p.ref.current = el;
+      }
+      return { type, props: p || {}, children: children.flat(Infinity) };
+    },
     Fragment: "Fragment",
     useLayoutEffect: useEffect,
     useMemo,
@@ -167,10 +175,12 @@ function mountComp(names, props, env = {}) {
     Icon: "Icon", MentionInput: "MentionInput", DetailPopover: "DetailPopover", ChecklistGlyph: "ChecklistGlyph",
     setInterval: (fn, ms) => { intervals.push({ fn, ms }); return intervals.length; },
     clearInterval: h => { if (intervals[h - 1]) intervals[h - 1].cleared = true; },
-    setTimeout: (fn) => { fn(); return 0; }, clearTimeout: () => {},
-    requestAnimationFrame: () => 0, cancelAnimationFrame: () => {},
-    kanbanDragStart: (e, now) => ({ pointerType: e.pointerType || "mouse", x: e.clientX, y: e.clientY, t: now }),
-    kanbanDragShouldStart: () => false,
+    // Timer antre (dijalankan h.runTimers()); rAF tidak pernah berjalan sendiri.
+    setTimeout: (fn) => { timers.push(fn); return timers.length; }, clearTimeout: h => { if (h) timers[h - 1] = null; },
+    requestAnimationFrame: () => 1, cancelAnimationFrame: () => {},
+    getComputedStyle: () => ({ overflowY: "visible" }),
+    // Pola seret asli dari index.html (mouse ≥ 6 px; sentuh tahan 250 ms).
+    ...new Function(`${fnSource("kanbanDragStart")}\n${fnSource("kanbanDragShouldStart")}\nreturn { kanbanDragStart, kanbanDragShouldStart };`)(),
     console: { error() {}, log() {} },
     ...(env.globals || {})
   };
@@ -201,6 +211,7 @@ function mountComp(names, props, env = {}) {
   render();
   return {
     get out() { return out; }, settle, toasts, adopted, confirms, storage, intervals, win,
+    runTimers: () => { const q = timers.splice(0); q.forEach(f => f && f()); },
     rerender: async p => { Object.assign(props, p || {}); render(); await settle(); },
     unmount: () => { cleanups.forEach(c => c && c()); }
   };
@@ -831,6 +842,162 @@ test("ChecklistTree (Task 4): teks persis menu/aria/konfirmasi/toast, satu aria-
   const row = s.slice(s.indexOf("const onRowKey = "), s.indexOf("\n  };", s.indexOf("const onRowKey = ")));
   assert.ok(row.length > 20, "onRowKey ada");
   assert.doesNotMatch(row, /"Tab"/);
+});
+
+// ── Task 5: seret ⠿ ──────────────────────────────────────────────────────────────────────────────────────────────
+
+// Dokumen palsu dengan pendengar, dan .td-tree-body palsu: tiap baris tampil 36 px (offsetTop = urutan × 36).
+async function mountDrag(extra = {}, env = {}) {
+  const listeners = {};
+  const doc = {
+    activeElement: null, body: { tag: "body" }, documentElement: { tag: "html" }, scrollingElement: { scrollTop: 0 },
+    addEventListener: (t, f) => { (listeners[t] = listeners[t] || []).push(f); },
+    removeEventListener: (t, f) => { listeners[t] = (listeners[t] || []).filter(x => x !== f); },
+    querySelector: () => null
+  };
+  let h = null;
+  const body = {
+    scrollTop: 0, scrollHeight: 0, clientHeight: 0, parentElement: null,
+    getBoundingClientRect: () => ({ top: 0, bottom: 400 }),
+    addEventListener() {}, removeEventListener() {}, querySelector: () => null,
+    querySelectorAll: () => rowsOf(h.out).map((r, i) => ({ getAttribute: () => String(r.id), offsetTop: i * 36, offsetHeight: 36 }))
+  };
+  h = await mountTree(extra, Object.assign({ document: doc, refs: (type, p) => (p.className === "td-tree-body" ? body : null) }, env));
+  const fire = (t, ev) => (listeners[t] || []).slice().forEach(f => f(ev));
+  const captured = [];
+  const down = (title, ev) => one(h.out, `Pindahkan «${title}»`).props.onPointerDown(Object.assign({
+    pointerType: "mouse", button: 0, pointerId: 1, currentTarget: { setPointerCapture: id => captured.push(id) }
+  }, ev));
+  return Object.assign(h, { fire, listeners, down, captured, doc });
+}
+const lineOf = tree => findAll(tree, n => hasClass(n, "td-tree-line"))[0] || null;
+const liOf = (tree, id) => findAll(tree, n => n.type === "li" && n.props["data-check-id"] === id)[0];
+
+test("seret mouse: mulai setelah 6 px, celah dari posisi vertikal, tingkat dari geseran horizontal, jatuh → move", async () => {
+  const h = await mountDrag();
+  h.down("B", { clientX: 10, clientY: 162 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: 12, clientY: 160 });
+  await h.settle();
+  assert.equal(lineOf(h.out), null, "< 6 px: belum mulai");
+  // celah sebelum A2 (y 100), geser kanan 40 px = +2 tingkat → dibatasi dropRange {1..3} → 2 (anak A1)
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: 50, clientY: 100 });
+  await h.settle();
+  assert.deepEqual(h.captured, [1], "setPointerCapture");
+  assert.deepEqual(lineOf(h.out).props.style, { top: 108, "--td-depth": 2 }, "garis penanda di celah, berindentasi");
+  assert.ok(hasClass(liOf(h.out, 5), "is-dragging"), "subtree yang diseret diredupkan");
+  assert.ok(findAll(h.out, n => hasClass(n, "td-tree") && hasClass(n, "is-dragging")).length === 1);
+  assert.equal((h.listeners.contextmenu || []).length, 1, "menu konteks ditekan selama seret");
+  // geser kiri jauh → dibatasi min (tingkat baris di bawah celah = A2, 1)
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: -200, clientY: 100 });
+  await h.settle();
+  assert.equal(lineOf(h.out).props.style["--td-depth"], 1);
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: 50, clientY: 100 });
+  h.fire("pointerup", { pointerId: 1 });
+  await h.settle();
+  assert.equal(lineOf(h.out), null);
+  assert.deepEqual(h.srv.mutations().at(-1), { method: "POST", url: "/api/subtasks/5/move", body: { parent_id: 2, index: 1 } });
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), [[1, 0], [2, 1], [3, 2], [5, 2], [4, 1]]);
+  for (const t of ["pointermove", "pointerup", "pointercancel", "keydown", "contextmenu"]) assert.equal((h.listeners[t] || []).length, 0, t + " dilepas");
+});
+
+test("seret butir berturunan: turunan ikut; jatuh di posisi sama → tanpa permintaan", async () => {
+  const h = await mountDrag();
+  // A (dengan A1, A1a, A2) ke bawah B: baris tanpa subtree A = [B] (B tetap di posisinya, 144–180 px);
+  // y 170 (> tengah B) → celah 1, tingkat 0
+  h.down("A", { clientX: 10, clientY: 10 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: 10, clientY: 170 });
+  h.fire("pointerup", { pointerId: 1 });
+  await h.settle();
+  assert.deepEqual(h.srv.mutations().at(-1).body, { parent_id: null, index: 1 });
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), [[5, 0], [1, 0], [2, 1], [3, 2], [4, 1]]);
+  const n = h.srv.mutations().length;
+  h.down("B", { clientX: 10, clientY: 10 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: 10, clientY: 2 });
+  h.fire("pointerup", { pointerId: 1 });
+  await h.settle();
+  assert.equal(h.srv.mutations().length, n, "posisi sama → dropTarget null");
+});
+
+test("seret ke butir terlipat: jadi anak terakhirnya dan butir itu dibuka", async () => {
+  const storage = fakeStorage({ tf_check_collapsed: "[1]" });
+  const h = await mountDrag({}, { storage });
+  assert.deepEqual(rowsOf(h.out).map(r => r.id), [1, 5]);
+  h.down("B", { clientX: 10, clientY: 50 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: 30, clientY: 50 });
+  h.fire("pointerup", { pointerId: 1 });
+  await h.settle();
+  assert.deepEqual(h.srv.mutations().at(-1).body, { parent_id: 1, index: 2 });
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), [[1, 0], [2, 1], [3, 2], [4, 1], [5, 1]]);
+  assert.deepEqual(JSON.parse(storage.m.get("tf_check_collapsed")), []);
+});
+
+test("seret: Escape membatalkan; pointerup yang hilang (tombol lepas) dan pointercancel membongkar tanpa pindah", async () => {
+  const h = await mountDrag();
+  h.down("B", { clientX: 10, clientY: 162 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: 10, clientY: 20 });
+  await h.settle();
+  assert.ok(lineOf(h.out));
+  let esc = key({ key: "Escape" });
+  h.fire("keydown", esc);
+  await h.settle();
+  assert.ok(esc.prevented);
+  assert.equal(lineOf(h.out), null);
+  h.fire("pointerup", { pointerId: 1 });
+  await h.settle();
+  h.down("B", { clientX: 10, clientY: 162 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: 10, clientY: 20 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 0, clientX: 10, clientY: 10 });
+  await h.settle();
+  assert.equal(lineOf(h.out), null, "tombol mouse sudah lepas → bongkar");
+  assert.equal((h.listeners.pointerup || []).length, 0);
+  h.down("B", { clientX: 10, clientY: 162 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: 10, clientY: 20 });
+  h.fire("pointercancel", { pointerId: 1 });
+  await h.settle();
+  assert.equal(lineOf(h.out), null);
+  assert.deepEqual(h.srv.mutations(), [], "tanpa permintaan");
+});
+
+test("seret sentuh: tahan 250 ms memulai; bergeser lebih dulu = gulir (tanpa seret)", async () => {
+  const h = await mountDrag();
+  h.down("B", { pointerType: "touch", clientX: 10, clientY: 162 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "touch", clientX: 10, clientY: 150 });
+  h.runTimers();
+  await h.settle();
+  assert.equal(lineOf(h.out), null, "geser ≥ 6 px sebelum 250 ms → gulir biasa");
+  assert.equal((h.listeners.pointermove || []).length, 0);
+  h.down("B", { pointerType: "touch", clientX: 10, clientY: 162 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "touch", clientX: 11, clientY: 163 });
+  h.runTimers(); // 250 ms berlalu tanpa bergeser
+  await h.settle();
+  assert.ok(lineOf(h.out), "seret mulai");
+  h.fire("pointermove", { pointerId: 1, pointerType: "touch", clientX: 11, clientY: 10 });
+  h.fire("pointerup", { pointerId: 1 });
+  await h.settle();
+  assert.deepEqual(h.srv.mutations().at(-1).body, { parent_id: null, index: 0 });
+  assert.deepEqual(rowsOf(h.out).map(r => r.id), [5, 1, 2, 3, 4]);
+});
+
+test("seret menunda autoRefreshMs; sumber memakai pola seret pin sidebar + TF.checklist", async () => {
+  const h = await mountDrag({ autoRefreshMs: 15000 });
+  h.down("B", { clientX: 10, clientY: 162 });
+  h.fire("pointermove", { pointerId: 1, pointerType: "mouse", buttons: 1, clientX: 10, clientY: 20 });
+  await h.settle();
+  h.intervals[0].fn(); await h.settle();
+  assert.equal(h.srv.calls.filter(c => c.method === "GET").length, 1, "ditunda selama seret");
+  const s = fnSource("ChecklistTree");
+  for (const re of [/kanbanDragStart\(e, Date\.now\(\)\)/, /kanbanDragShouldStart\(start, ev, Date\.now\(\)\)/, /setPointerCapture\(s\.pointerId\)/,
+    /addEventListener\("touchmove", h, \{\s*passive: false\s*\}\)/, /ev\.cancelable\) ev\.preventDefault\(\)/, /addEventListener\("contextmenu", preventMenu\)/,
+    /addEventListener\("pointercancel", onCancel\)/, /ev\.buttons === 0/, /ev\.key !== "Escape"/, /C\.dropRange\(s\.rows, gap\)/,
+    /C\.dropTarget\(itemsRef\.current, rows, id, gap, depth\)/, /C\.autoScrollDelta\(s\.y, rect\)/, /requestAnimationFrame\(tick\)/,
+    /matchMedia\("\(max-width: 640px\)"\)\.matches \? 16 : 20/, /Math\.round\(\(s\.x - start\.x\) \/ s\.indent\)/, /C\.descendantIds\(cur, id\)/,
+    /offsetTop/, /className: "td-tree-line"/])
+    assert.match(s, re);
+  assert.equal((s.match(/onPointerDown:/g) || []).length, 1, "seret hanya dari pegangan ⠿");
+  const block = detailBlock();
+  assert.match(block, /\.td-tree-item\.is-dragging\s*\{[^}]*opacity:/);
+  assert.match(block, /\.td-tree-line\s*\{[^}]*position:\s*absolute;[^}]*background:\s*var\(--accent\);[^}]*pointer-events:\s*none/);
+  assert.match(block, /\.td-tree-grip\s*\{[^}]*touch-action:\s*manipulation;[^}]*user-select:\s*none;[^}]*-webkit-touch-callout:\s*none/);
 });
 
 // ── Detail (R5) ──────────────────────────────────────────────────────────────────────────────────────────────────

@@ -9761,6 +9761,7 @@ function ChecklistTree({
   const [menuFor, setMenuFor] = useState(null); // id butir yang menu ⋯-nya terbuka
   const [subAdd, setSubAdd] = useState(null); // {id, text, busy}: kotak "Tambah sub butir"
   const [announce, setAnnounce] = useState("");
+  const [drag, setDrag] = useState(null); // {id, gap, depth, lineTop}: seret ⠿ yang sedang berjalan
   const itemsRef = useRef(items);
   const confirmedRef = useRef([]); // daftar terakhir yang dikenal server (tanpa perubahan optimistis)
   const collapsedRef = useRef(collapsed);
@@ -9781,6 +9782,7 @@ function ChecklistTree({
   const menuAnchorRef = useRef(null);
   const pendingFocusRef = useRef(null); // {id, part}: fokus dikembalikan ke bagian baris ini setelah render
   const suppressBlurRef = useRef(false); // kotak ubah teks dipasang ulang karena pindah: blur bukan "selesai"
+  const dragRef = useRef(null);
   const cbRef = useRef(null);
   cbRef.current = { onCounts, onProgress };
   const busyRef = useRef(null);
@@ -10116,12 +10118,198 @@ function ChecklistTree({
       setSubAdd(null);
     }
   };
-  busyRef.current = () => pendingRef.current > 0 || addText.trim() !== "" || editRef.current != null || menuFor != null || !!(subAddRef.current && subAddRef.current.text.trim());
+  // Seret ⠿ (§7.1, D7; pola seret pin sidebar): hanya dari pegangan; mouse mulai setelah bergeser ≥ 6 px, sentuh
+  // setelah tahan 250 ms tanpa bergeser (bergeser lebih dulu = gulir biasa). Saat mulai, baris tampil tanpa subtree
+  // yang diseret diukur sekali (offsetTop relatif .td-tree-body, tetap benar saat wadah digulir). Celah = posisi
+  // vertikal; tingkat = tingkat awal + round(dx / indentPx) dibatasi dropRange; garis penanda di celah. Wadah gulir
+  // terdekat digulir otomatis di tepi. Jatuh → dropTarget → pindah optimistis + antrean. Escape membatalkan;
+  // pointerup/pointercancel (juga pointerup yang hilang: tombol mouse sudah lepas) membongkar seret.
+  const scrollParentOf = node => {
+    for (let n = node; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+      const oy = getComputedStyle(n).overflowY;
+      if ((oy === "auto" || oy === "scroll" || oy === "overlay") && n.scrollHeight > n.clientHeight) return n;
+    }
+    return document.scrollingElement || document.documentElement;
+  };
+  const onGripDown = (e, id) => {
+    if (!synced || dragRef.current) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const el = e.currentTarget;
+    const start = kanbanDragStart(e, Date.now());
+    const s = {
+      pointerId: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      began: false,
+      cancelled: false,
+      timer: null,
+      raf: 0,
+      body: null,
+      scroller: null,
+      indent: 20,
+      rows: [],
+      bands: [],
+      startDepth: 0,
+      gap: 0,
+      depth: 0
+    };
+    dragRef.current = s;
+    const preventMenu = ev => ev.preventDefault();
+    const update = () => {
+      const r = s.body.getBoundingClientRect();
+      const y = s.y - r.top + (s.scroller === s.body ? s.body.scrollTop : 0);
+      let gap = s.bands.length;
+      for (let i = 0; i < s.bands.length; i++) {
+        if (y < (s.bands[i].top + s.bands[i].bottom) / 2) {
+          gap = i;
+          break;
+        }
+      }
+      const range = C.dropRange(s.rows, gap);
+      const depth = Math.max(range.min, Math.min(s.startDepth + Math.round((s.x - start.x) / s.indent), range.max));
+      const lineTop = gap < s.bands.length ? s.bands[gap].top : s.bands.length ? s.bands[s.bands.length - 1].bottom : 0;
+      s.gap = gap;
+      s.depth = depth;
+      setDrag(d => d && d.id === id && d.gap === gap && d.depth === depth && d.lineTop === lineTop ? d : {
+        id,
+        gap,
+        depth,
+        lineTop
+      });
+    };
+    const tick = () => {
+      s.raf = 0;
+      if (!s.began || s.cancelled) return;
+      const box = s.scroller;
+      const doc = box === document.scrollingElement || box === document.documentElement;
+      const rect = doc ? {
+        top: 0,
+        bottom: window.innerHeight
+      } : box.getBoundingClientRect();
+      const d = C.autoScrollDelta(s.y, rect);
+      if (d) {
+        const before = box.scrollTop;
+        box.scrollTop = before + d;
+        if (box.scrollTop !== before) update();
+      }
+      s.raf = requestAnimationFrame(tick);
+    };
+    const begin = () => {
+      if (s.began || s.cancelled) return;
+      const body = bodyRef.current;
+      if (!body) return;
+      s.began = true;
+      s.body = body;
+      s.scroller = scrollParentOf(body);
+      s.indent = window.matchMedia && window.matchMedia("(max-width: 640px)").matches ? 16 : 20;
+      const cur = itemsRef.current;
+      const skip = new Set([id, ...C.descendantIds(cur, id)]);
+      s.rows = C.visibleRows(cur, collapsedRef.current).filter(r => !skip.has(r.item.id));
+      const els = new Map(Array.from(body.querySelectorAll("[data-check-row]")).map(n => [n.getAttribute("data-check-row"), n]));
+      s.bands = s.rows.map(r => {
+        const n = els.get(String(r.item.id));
+        return n ? {
+          top: n.offsetTop,
+          bottom: n.offsetTop + n.offsetHeight
+        } : {
+          top: 0,
+          bottom: 0
+        };
+      });
+      const me = C.preorder(cur).find(r => r.id === id);
+      s.startDepth = me ? me.depth : 0;
+      try {
+        el.setPointerCapture(s.pointerId);
+      } catch (_) {}
+      document.addEventListener("contextmenu", preventMenu);
+      setMenuFor(null);
+      update();
+      s.raf = requestAnimationFrame(tick);
+    };
+    const onMove = ev => {
+      if (ev.pointerId !== s.pointerId || s.cancelled) return;
+      if (ev.pointerType !== "touch" && ev.buttons === 0) {
+        s.teardown(); // pointerup hilang sebelum/selama seret
+        return;
+      }
+      s.x = ev.clientX;
+      s.y = ev.clientY;
+      if (!s.began) {
+        if (kanbanDragShouldStart(start, ev, Date.now())) begin();else if (start.pointerType === "touch" && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) >= 6) s.teardown(); // sentuh bergeser sebelum 250 ms → gulir
+        return;
+      }
+      update();
+    };
+    const onUp = ev => {
+      if (ev.pointerId !== s.pointerId) return;
+      const ok = s.began && !s.cancelled;
+      const rows = s.rows,
+        gap = s.gap,
+        depth = s.depth;
+      s.teardown();
+      if (ok) moveItem(id, C.dropTarget(itemsRef.current, rows, id, gap, depth), "grip");
+    };
+    const onCancel = ev => {
+      if (ev.pointerId !== s.pointerId) return;
+      s.teardown();
+    };
+    const onKey = ev => {
+      if (ev.key !== "Escape" || !s.began) return;
+      ev.preventDefault();
+      s.cancelled = true;
+      s.teardown();
+    };
+    s.teardown = () => {
+      if (s.timer) {
+        clearTimeout(s.timer);
+        s.timer = null;
+      }
+      if (s.raf) {
+        cancelAnimationFrame(s.raf);
+        s.raf = 0;
+      }
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("contextmenu", preventMenu);
+      if (s.began) setDrag(null);
+      if (dragRef.current === s) dragRef.current = null;
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onCancel);
+    document.addEventListener("keydown", onKey);
+    if (start.pointerType === "touch") {
+      s.timer = setTimeout(() => {
+        s.timer = null;
+        const now = Math.max(Date.now(), start.t + 250);
+        if (kanbanDragShouldStart(start, {
+          clientX: s.x,
+          clientY: s.y
+        }, now)) begin();
+      }, 250);
+    }
+  };
+  busyRef.current = () => !!dragRef.current || pendingRef.current > 0 || addText.trim() !== "" || editRef.current != null || menuFor != null || !!(subAddRef.current && subAddRef.current.text.trim());
   useEffect(() => {
     aliveRef.current = true;
     load(true);
+    // touchmove non-pasif (pola papan Kanban / pin sidebar): gulir dicegah hanya selama seret berjalan.
+    const el = bodyRef.current;
+    const h = ev => {
+      const d = dragRef.current;
+      if (d && d.began && !d.cancelled && ev.cancelable) ev.preventDefault();
+    };
+    if (el) el.addEventListener("touchmove", h, {
+      passive: false
+    });
     return () => {
       aliveRef.current = false;
+      if (el) el.removeEventListener("touchmove", h, {
+        passive: false
+      });
+      if (dragRef.current) dragRef.current.teardown();
     };
   }, []);
   useEffect(() => {
@@ -10199,7 +10387,7 @@ function ChecklistTree({
     const kc = folded ? kids.get(id) : null;
     return React.createElement("li", {
       key: id,
-      className: "td-tree-item",
+      className: "td-tree-item" + (drag && drag.id === id ? " is-dragging" : ""),
       "data-check-id": id
     }, React.createElement("div", {
       className: "td-tree-row" + (done ? " is-done" : ""),
@@ -10213,7 +10401,9 @@ function ChecklistTree({
       className: "td-tree-grip",
       tabIndex: -1,
       "aria-label": "Pindahkan «" + title + "»",
-      "data-check-part": "grip"
+      "data-check-part": "grip",
+      onPointerDown: e => onGripDown(e, id),
+      onContextMenu: e => e.preventDefault()
     }, React.createElement(ChecklistGlyph, {
       name: "grip"
     })), hasChildren ? React.createElement("button", {
@@ -10348,11 +10538,18 @@ function ChecklistTree({
     remove(menuItem.id);
   }, false, true)));
   return React.createElement("div", {
-    className: "td-tree" + (variant === "focus" ? " is-focus" : "")
+    className: "td-tree" + (variant === "focus" ? " is-focus" : "") + (drag ? " is-dragging" : "")
   }, React.createElement("div", {
     className: "td-tree-body",
     ref: bodyRef
-  }, roots.length > 0 && renderList(roots)), menu, React.createElement("div", {
+  }, roots.length > 0 && renderList(roots), drag && React.createElement("div", {
+    className: "td-tree-line",
+    "aria-hidden": "true",
+    style: {
+      top: drag.lineTop,
+      "--td-depth": Math.min(drag.depth, 6)
+    }
+  })), menu, React.createElement("div", {
     className: "sr-only",
     "aria-live": "polite"
   }, announce), renderAdd ? renderAdd(add) : null);

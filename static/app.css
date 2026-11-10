@@ -5357,6 +5357,13 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .td-tree-row:hover .td-tree-grip, .td-tree-row:hover .td-tree-more, .td-tree-row:focus-within .td-tree-more, .td-tree-more[aria-expanded="true"] { opacity: 1; }
 @media (hover: none) { .td-tree-grip, .td-tree-more { opacity: 1; } }
 .td-tree-grip:focus-visible, .td-tree-fold:focus-visible, .td-tree-check:focus-visible, .td-tree-text:focus-visible, .td-tree-more:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Seret ⠿ (§7.1): subtree yang diseret diredupkan; garis penanda di celah tujuan, menjorok sesuai tingkat tujuan
+   (--td-depth, inline; 20/16 px per tingkat), mulai sesudah kolom ⠿. */
+.td-tree.is-dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+.td-tree.is-dragging .td-tree-grip { cursor: grabbing; }
+.td-tree-item.is-dragging { opacity: 0.4; }
+.td-tree-line { position: absolute; right: 0; left: calc(26px + var(--td-depth, 0) * 20px); height: 2px; margin-top: -1px; border-radius: 1px; background: var(--accent); pointer-events: none; z-index: 1; }
+.td-tree-line::before { content: ""; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; box-sizing: border-box; border: 2px solid var(--accent); border-radius: 50%; background: var(--bg-card); }
 /* Kotak ubah teks (klik teks / ⋯ → Ubah teks): MentionInput, pembungkusnya mengisi sisa baris. */
 .td-tree-text { cursor: text; }
 .td-tree-row > div { flex: 1 1 auto; min-width: 0; }
@@ -5367,6 +5374,7 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .td-add-input.td-tree-add { padding-inline-start: calc(6px + var(--td-depth, 0) * 20px); }
 @media (max-width: 640px) {
   .td-tree-row { padding-inline-start: calc(var(--td-depth, 0) * 16px); }
+  .td-tree-line { left: calc(26px + var(--td-depth, 0) * 16px); }
   .td-tree-add { padding-inline-start: calc(var(--td-depth, 0) * 16px); }
   .td-add-input.td-tree-add { padding-inline-start: calc(6px + var(--td-depth, 0) * 16px); }
 }
