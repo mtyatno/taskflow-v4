@@ -501,6 +501,18 @@ def xml_struct(data):
             "exceptions": len(list(root.find(ns + "Calendars").find(ns + "Calendar").find(ns + "Exceptions") or []))}
 
 
+def xml_rescal(data):
+    """Uji pemilik F4: resource → CalendarUID, kalender resource (UID, Name, IsBaseCalendar, BaseCalendarUID), placeholder SW3."""
+    ns = "{http://schemas.microsoft.com/project}"
+    root = ET.fromstring(data)
+    tv = lambda el, n: (el.find(ns + n).text if el.find(ns + n) is not None else None)  # noqa: E731
+    cals = [c for c in root.find(ns + "Calendars")]
+    sw3 = next((t for t in root.find(ns + "Tasks") if tv(t, "Name") == "Uji tampilan"), None)
+    return {"res": [[int(tv(r, "UID")), tv(r, "Name"), int(tv(r, "CalendarUID") or 0)] for r in root.find(ns + "Resources")],
+            "cals": [[int(tv(c, "UID")), tv(c, "Name"), tv(c, "IsBaseCalendar"), tv(c, "BaseCalendarUID")] for c in cals[1:]],
+            "sw3": None if sw3 is None else [tv(sw3, "Manual"), tv(sw3, "Estimated"), tv(sw3, "DurationFormat")]}
+
+
 # ── seed ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def plan_ws():
@@ -652,9 +664,11 @@ def want_ws(P, ids, srv, D):
     put("KA1", pt(ka1["s"]), pt(ka1["f"], True), 4, 100, SNET, pt(ka1["s"]), astart=pt(ka1["s"]), afinish=pt(ka1["f"], True))
     put("KA2", pt(p("KA2")["s"]), pt(p("KA2")["f"], True), 3, srv[ids["KA2"]]["progress"], SNET, pt(p("KA2")["s"]),
         astart=pt(p("KA2")["s"]), preds=[(t("KA1"), LINK["FS"], 1.0)])
-    put("KA3", pt(p("KA3")["s"]), pt(p("KA3")["f"], True), 5, 0, MSO, pt(p("KA3")["s"]), preds=[(t("KA2"), LINK["SS"], 2.0)])
-    put("KA4", pt(p("KA4")["s"]), pt(p("KA4")["s"]), 0, 0, MSO, pt(p("KA4")["s"]), preds=[(t("KA3"), LINK["FF"], 0.0)], ms=True)
-    put("KA5", pt(p("KA5")["s"]), pt(p("KA5")["f"], True), 2, 0, SNET, pt(p("KA5")["s"]), preds=[(t("KA4"), LINK["FS"], 2.0)])
+    # Uji pemilik F4 B: tanpa MSO. KA3 (berjalan es > D) — SS+2 tidak menuntut lebih lambat → SNET di es; KA4 milestone FF 0
+    # → di 17:00 hari selesai KA3 (hitungan MS Project) tanpa kendala; KA5 FS+2 dari milestone 17:00 = mesin → ASAP.
+    put("KA3", pt(p("KA3")["s"]), pt(p("KA3")["f"], True), 5, 0, SNET, pt(p("KA3")["s"]), preds=[(t("KA2"), LINK["SS"], 2.0)])
+    put("KA4", pt(p("KA4")["s"], True), pt(p("KA4")["s"], True), 0, 0, ASAP, None, preds=[(t("KA3"), LINK["FF"], 0.0)], ms=True)
+    put("KA5", pt(p("KA5")["s"]), pt(p("KA5")["f"], True), 2, 0, ASAP, None, preds=[(t("KA4"), LINK["FS"], 2.0)])
     put("KA6", pt(p("KA6")["s"]), pt(p("KA6")["f"], True), 1, 0, ASAP, None, preds=[(t("KA3"), LINK["SF"], 3.0)])
     put("KA7", pt(p("KA7")["s"]), pt(p("KA7")["f"], True), 2, 0, SNET, pt(p("KA7")["cst"][1]), preds=[(t("KA2"), LINK["FS"], -1.0)])
     put("KA8", pt(p("KA8")["s"]), pt(p("KA8")["f"], True), 2, 0, MFO, pt(p("KA8")["cst"][1], True))
@@ -662,7 +676,7 @@ def want_ws(P, ids, srv, D):
     put("SW1", pt(p("SW1")["s"]), pt(p("SW1")["f"], True), 3, srv[ids["SW1"]]["progress"], SNET, pt(p("SW1")["s"]), manual=True)
     put("SW2", pt(p("SW2")["s"]), pt(p("SW2")["f"], True), 2, 0, SNET, pt(p("SW2")["s"]), manual=True, preds=[(t("SW1"), LINK["FS"], 0.0)])
     ph = next_work(D)  # task tanpa jadwal: placeholder hari kerja pertama ≥ D
-    put("SW3", pt(ph), pt(ph, True), 1, 0, SNET, pt(ph), manual=True, est=True)
+    put("SW3", pt(ph), pt(ph, True), 1, 0, SNET, pt(ph), est=True)  # F4 C: placeholder Otomatis + perkiraan
     put("SW4", pt(p("SW4")["s"]), pt(p("SW4")["s"]), 0, 0, SNET, pt(p("SW4")["s"]), manual=True, ms=True)
     s5 = p("SW5")["s"]
     f5 = max(s5, jkt_day(srv[ids["SW5"]]["completed_at"]) or p("SW5")["f"])
@@ -900,9 +914,9 @@ def check_ws_file(data, path, fname, P, ids, srv, spans, rows, tmp, out):
     check("2e MPXJ Start/Finish/durasi/milestone/%% selesai/ActualStart/ActualFinish %d task = harapan (es/ef mesin = hitungan "
           "skrip; selesai = aktual; berjalan es ≤ D = ActualStart; tanpa jadwal = placeholder %s) dan = tanggal bar Gantt (task "
           "belum selesai)" % (len(want), short(next_work(TODAY))), not bad_d and not bad_bar, repr((bad_d, bad_bar)))
-    check("2f MPXJ kendala + mode: akar Otomatis/selesai/berjalan SNET di es, berjalan es > D + tautan MSO, milestone FF MSO, "
-          "penerus milestone SNET, SNET eksplisit, MFO 17:00, SF tanpa jangkar ASAP; Manual (R8) = MANUALLY_SCHEDULED + SNET; "
-          "tanpa jadwal Estimated", not bad_c, repr(bad_c))
+    check("2f MPXJ kendala + mode (uji pemilik F4): akar Otomatis/selesai/berjalan SNET di es, berjalan es > D SNET (tautan "
+          "tidak menuntut lebih lambat), milestone FF 0 di 17:00 tanpa kendala, penerusnya FS+2 ASAP, SNET eksplisit, MFO 17:00, "
+          "SF ASAP; Manual (R8) = MANUALLY_SCHEDULED + SNET; tanpa jadwal Otomatis + Estimated + SNET", not bad_c, repr(bad_c))
     check("2g MPXJ tautan 7 = sisi mesin: FS+1, SS+2, FF 0, FS+2 (dari milestone), SF+3, FS−1, FS 0 (Manual); ke task tanpa "
           "jadwal dilewati", not bad_l, repr(bad_l))
     exc = [tuple(e[:3]) for e in mp["calendar"]["exceptions"]]
@@ -935,6 +949,14 @@ def check_ws_file(data, path, fname, P, ids, srv, spans, rows, tmp, out):
     check("2j MPXJ resource %r (urut nama) + %d assignment (Work = target × 25 menit, Units = Work ÷ durasi×480; milestone / tanpa "
           "jadwal / ringkasan tanpa assignment)" % ([r[1] for r in mp["resources"]], len(want_asg)),
           mp["resources"] == want_res and got_asg == sorted(want_asg), repr((mp["resources"], got_asg, sorted(want_asg))))
+    rcal = xml_rescal(data)
+    est = [t for t in x["tasks"] if t[1] == P["SW3"]["title"]]
+    check("2m uji pemilik F4: tiap resource ber-kalender resource turunan UID 1 %r; MPXJ Units × waktu kerja kalender resource "
+          "(Start..Finish) ≈ Work ±1 menit untuk %d assignment (Materi Natal melewati 24–25 Des), 24/12 libur; tanpa MSO; placeholder "
+          "'%s' Otomatis + Estimated + DurationFormat 39 %r" % (rcal["res"], len(mp["assignments"]), P["SW3"]["title"], rcal["sw3"]),
+          rcal["res"] == [[1, "Rani", 2], [2, "Sari", 3], [3, "Tono", 4]] and rcal["cals"] == [[2, "Rani", "0", "1"], [3, "Sari", "0", "1"], [4, "Tono", "0", "1"]]
+          and mp.get("resourceCalendarBad") == [] and mp.get("mso") == [] and "<ConstraintType>2</ConstraintType>" not in data.decode("utf-8")
+          and est and rcal["sw3"] == ["0", "1", "39"], repr((rcal, mp.get("resourceCalendarBad"), mp.get("mso"))))
 
 
 def names_key(P, nm):

@@ -494,15 +494,18 @@ berjalan setelah mesin 1c siap dan memakai konteks mesin yang sama (daftar lengk
     Timeline (workspace: kelompok project = task ringkasan tingkat 1); satu kalender dasar dengan pola mingguan halaman,
     libur dan hari kerja pengganti ditulis dua kali — `WeekDays` gaya 2003 (`DayType 0`, dibaca ProjectLibre) dan
     `Exceptions` gaya 2007 (dibaca Project 2010+); tanggal task = hasil mesin (task yang sedang drift ikut mesin, bukan
-    bar tersimpan); tautan = sisi yang dipakai mesin (`result.pred`), sisanya dilewati dan dihitung; task Manual →
-    `Manual 1` + "mulai tidak lebih awal dari" (SNET) tanggal tersimpannya bila tanpa kendala; akar Otomatis, task tetap
-    mesin (selesai → `ActualStart`/`ActualFinish`; berjalan dengan mulai ≤ hari ini → `ActualStart`; lainnya, termasuk
-    anggota lingkaran → SNET, atau MSO bila bertautan masuk), dan milestone di rantai dijangkar SNET/MSO di tanggal mesin
-    dengan `HonorConstraints 1`, supaya MS Project menghitung tanggal yang sama; task tanpa jadwal → placeholder hari
-    kerja pertama ≥ hari ini, `Estimated 1`; baseline aktif → `Baseline` Number 0; resource = penanggung jawab
-    (workspace) atau pemilik (pribadi), assignment `Work` = target 🍅 × 25 menit. Tanpa `Date`: data yang sama di hari
-    yang sama menghasilkan berkas identik. Residual interop (ProjectLibre, jalur kritis MS Project, kolom Batasan):
-    ADR-050.
+    bar tersimpan); tautan = sisi yang dipakai mesin (`result.pred`) antar task yang tanggalnya terhitung, sisanya
+    dilewati dan dihitung; task Manual → `Manual 1` + "mulai tidak lebih awal dari" (SNET) tanggal tersimpannya bila
+    tanpa kendala; kendala Otomatis dipilih dengan aritmetika waktu kerja MS Project supaya MS Project (dengan
+    `HonorConstraints 1`) menghitung tanggal tampil yang sama **tanpa konflik kendala** (dikoreksi uji pemilik F4: tanpa
+    MSO) — akar Otomatis dan task tetap mesin → SNET di tanggal mesin (selesai → `ActualStart`/`ActualFinish`; berjalan
+    dengan mulai ≤ hari ini → `ActualStart`; task tetap yang dilanggar pendahulunya → `Manual 1`), milestone di jam yang
+    dihitung MS Project (FF → 17:00), tautan yang menyentuh milestone bisa ditulis dengan lag 1–2 hari lebih kecil
+    (setara dalam model jam MS Project); task tanpa jadwal → placeholder **Otomatis** di hari kerja pertama ≥ hari ini,
+    `Estimated 1` + `DurationFormat 39` ("1 hari?") + SNET; baseline aktif → `Baseline` Number 0; resource = penanggung
+    jawab (workspace) atau pemilik (pribadi), masing-masing dengan kalender resource turunan kalender dasar (libur ikut),
+    assignment `Work` = target 🍅 × 25 menit. Tanpa `Date`: data yang sama di hari yang sama menghasilkan berkas
+    identik. Residual interop (ProjectLibre, kolom Batasan, lag yang dikoreksi): ADR-050.
   - **Toast:** "Berkas {nama} diunduh" (+ " · {n} task tanpa jadwal ditandai perkiraan", " · {k} tautan dilewati"),
     gagal → "Ekspor gagal". Aplikasi desktop/Android (`api.env.platform === "tauri"`) → "Ekspor tersedia di alurik.com
     lewat browser" tanpa membangun XML (`saveFile` di native → `false`).

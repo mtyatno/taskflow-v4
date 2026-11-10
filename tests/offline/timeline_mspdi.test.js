@@ -30,11 +30,13 @@ const TASK_ORDER = ["UID", "ID", "Name", "Manual", "Type", "IsNull", "CreateDate
 const TASK_REQUIRED = ["UID", "ID", "Name", "Manual", "Type", "IsNull", "CreateDate", "WBS", "OutlineNumber", "OutlineLevel", "Start", "Finish", "Duration", "DurationFormat", "EffortDriven", "Estimated", "Milestone", "Summary", "PercentComplete", "ConstraintType", "CalendarUID"];
 const LINK_ORDER = ["PredecessorUID", "Type", "CrossProject", "LinkLag", "LagFormat"];
 const BASELINE_ORDER = ["Number", "Start", "Finish", "Duration", "Work"];
-const CALENDAR_ORDER = ["UID", "Name", "IsBaseCalendar", "BaseCalendarUID", "WeekDays", "Exceptions"];
+const CALENDAR_ORDER = ["UID", "Name", "IsBaseCalendar", "IsBaselineCalendar", "BaseCalendarUID", "WeekDays", "Exceptions"];
+// Kalender resource turunan UID 1 (uji pemilik F4 A; bentuk MSPDIWriter MPXJ): tanpa WeekDays.
+const RESCAL_ORDER = ["UID", "Name", "IsBaseCalendar", "IsBaselineCalendar", "BaseCalendarUID"];
 // propOrder Project$Calendars$Calendar$Exceptions$Exception (subset; Name opsional, WorkingTimes hanya hari kerja).
 const EXCEPTION_ORDER = ["EnteredByOccurrences", "TimePeriod", "Occurrences", "Name", "Type", "DayWorking", "WorkingTimes"];
 const WEEKDAY_ORDER = ["DayType", "DayWorking", "TimePeriod", "WorkingTimes"];
-const RESOURCE_ORDER = ["UID", "ID", "Name", "Type", "IsNull", "MaxUnits"];
+const RESOURCE_ORDER = ["UID", "ID", "Name", "Type", "IsNull", "MaxUnits", "CalendarUID"];
 const ASSIGNMENT_ORDER = ["UID", "TaskUID", "ResourceUID", "Finish", "Start", "Units", "Work"];
 
 // ---- parser XML kecil (cukup untuk keluaran TLMspdi): prolog tetap, elemen tanpa atribut kecuali xmlns di akar,
@@ -284,8 +286,9 @@ test("urutan anak Task/PredecessorLink/Baseline/Calendar/WeekDay/Resource/Assign
   assert.ok(all.some((t) => kid(t, "Work")), "fixture memuat Work task");
   assert.ok(all.some((t) => kid(t, "ConstraintDate")), "fixture memuat ConstraintDate");
   const cal = kid(kid(r.doc, "Calendars"), "Calendar");
-  assert.deepEqual(names(kid(r.doc, "Calendars")), ["Calendar"]);
+  assert.deepEqual(names(kid(r.doc, "Calendars")), ["Calendar", "Calendar", "Calendar"], "kalender dasar + 2 kalender resource");
   assert.deepEqual(names(cal), CALENDAR_ORDER);
+  for (const rc of kids(kid(r.doc, "Calendars"), "Calendar").slice(1)) assert.deepEqual(names(rc), RESCAL_ORDER);
   for (const w of kids(kid(cal, "WeekDays"), "WeekDay")) {
     assertOrder(w, WEEKDAY_ORDER, "WeekDay");
     const tp = kid(w, "TimePeriod");
@@ -563,7 +566,7 @@ test("R8: mode efektif Manual → Manual 1 + SNET di mulai tersimpan bila tanpa 
   for (const nm of ["Alpha", "Beta", "Tim Uji"]) assert.deepEqual(g(nm), ["0", "0", undefined, undefined, undefined, undefined], nm);
 });
 
-test("tanpa jadwal → placeholder hari kerja pertama ≥ D (08:00–17:00), PT8H0M0S, Estimated 1, Manual 1 + SNET (M1 F2); penerus Otomatis yang dihitung mesin → tanggal mesin, Estimated 1; ringkasan ikut", () => {
+test("tanpa jadwal → placeholder Otomatis di hari kerja pertama ≥ D (08:00–17:00), PT8H0M0S, Estimated 1, DurationFormat 39, SNET (M1 F2, uji pemilik F4 C); penerus Otomatis yang dihitung mesin → tanggal mesin, Estimated 1; ringkasan ikut", () => {
   const tasks = [
     mk({ id: 1, title: "Terjadwal", start: "2026-11-02", d: 1 }),
     mk({ id: 2, title: "Kosong", deps: [[1, "FS", 0]] }), // Otomatis tanpa Mulai, simpul mesin (es = 3 Nov dari FS)
@@ -574,13 +577,15 @@ test("tanpa jadwal → placeholder hari kerja pertama ≥ D (08:00–17:00), PT8
   const r = exp(tasks, { pageKind: "project" });
   const g = (nm) => {
     const t = byName(r.doc, nm);
-    return [val(t, "Start"), val(t, "Finish"), val(t, "Duration"), val(t, "Estimated"), val(t, "Manual"), val(t, "ConstraintType"), val(t, "ConstraintDate"), val(t, "Milestone")];
+    return [val(t, "Start"), val(t, "Finish"), val(t, "Duration"), val(t, "Estimated"), val(t, "Manual"), val(t, "ConstraintType"), val(t, "ConstraintDate"), val(t, "Milestone"), val(t, "DurationFormat")];
   };
-  assert.deepEqual(g("Kosong"), ["2026-11-03T08:00:00", "2026-11-03T17:00:00", "PT8H0M0S", "1", "0", "0", undefined, "0"], "simpul mesin: Otomatis di es/ef mesin, tetap perkiraan");
-  assert.deepEqual(g("Kosong MFO"), ["2026-11-10T08:00:00", "2026-11-10T17:00:00", "PT8H0M0S", "1", "1", "3", "2026-11-20T17:00:00", "0"]);
-  assert.deepEqual(g("Anak kosong"), ["2026-11-10T08:00:00", "2026-11-10T17:00:00", "PT8H0M0S", "1", "1", "4", "2026-11-10T08:00:00", "0"]);
+  assert.deepEqual(g("Kosong"), ["2026-11-03T08:00:00", "2026-11-03T17:00:00", "PT8H0M0S", "1", "0", "0", undefined, "0", "39"], "simpul mesin: Otomatis di es/ef mesin, tetap perkiraan");
+  // Kendala eksplisit task tanpa jadwal tidak diekspor (mesin juga tidak menjadwalkannya): placeholder selalu SNET D.
+  assert.deepEqual(g("Kosong MFO"), ["2026-11-10T08:00:00", "2026-11-10T17:00:00", "PT8H0M0S", "1", "0", "4", "2026-11-10T08:00:00", "0", "39"]);
+  assert.deepEqual(g("Anak kosong"), ["2026-11-10T08:00:00", "2026-11-10T17:00:00", "PT8H0M0S", "1", "0", "4", "2026-11-10T08:00:00", "0", "39"]);
   assert.deepEqual(g("Induk").slice(0, 5), ["2026-11-10T08:00:00", "2026-11-10T17:00:00", "PT8H0M0S", "0", "0"]);
-  assert.equal(val(byName(r.doc, "Anak kosong"), "ManualStart"), "2026-11-10T08:00:00");
+  assert.equal(val(byName(r.doc, "Induk"), "DurationFormat"), "7");
+  assert.equal(val(byName(r.doc, "Anak kosong"), "ManualStart"), undefined, "placeholder Otomatis: tanpa Manual*");
   assert.equal(val(byName(r.doc, "Kosong"), "ManualStart"), undefined);
   assert.equal(r.stats.unscheduled, 3);
   // D = Sabtu 14 Nov → placeholder Senin 16 Nov (hari kerja pertama ≥ D) + SNET di sana.
@@ -683,7 +688,7 @@ test("baseline aktif → <Baseline> Number 0 (Start/Finish/Duration/Work = w × 
 
 // ---------------------------------------------------------------- resource dan assignment
 
-test("resource workspace: tiap penanggung jawab task di berkas, urut nama (cmpKey) lalu uid; nama dari people, selain itu \"Anggota #uid\"; Type 1, MaxUnits 1", () => {
+test("resource workspace: tiap penanggung jawab task di berkas, urut nama (cmpKey) lalu uid; nama dari people, selain itu \"Anggota #uid\"; Type 1, MaxUnits 1, CalendarUID = kalender resource (F4 A)", () => {
   const tasks = [
     mk({ id: 1, start: "2026-11-02", d: 5, est: 4, to: 3 }),
     mk({ id: 2, start: "2026-11-09", d: 1, est: 3, to: 5 }),
@@ -697,10 +702,10 @@ test("resource workspace: tiap penanggung jawab task di berkas, urut nama (cmpKe
   const r = exp(tasks, { people });
   const res = kids(kid(r.doc, "Resources"), "Resource").map((x) => names(x).map((n) => val(x, n)));
   assert.deepEqual(res, [
-    ["1", "1", "Anggota #9", "1", "0", "1"],
-    ["2", "2", "Budi", "1", "0", "1"],
-    ["3", "3", "Sari", "1", "0", "1"],
-    ["4", "4", "budi", "1", "0", "1"],
+    ["1", "1", "Anggota #9", "1", "0", "1", "2"],
+    ["2", "2", "Budi", "1", "0", "1", "3"],
+    ["3", "3", "Sari", "1", "0", "1", "4"],
+    ["4", "4", "budi", "1", "0", "1", "5"],
   ]);
   assert.equal(r.stats.resources, 4);
 });
@@ -925,7 +930,7 @@ test("C1 F2: blok <Exceptions> gaya 2007 setelah </WeekDays> = pengecualian DayT
   ]);
   // Tanpa pengecualian → tanpa blok <Exceptions>.
   const r3 = exp([mk({ id: 1, start: "2026-11-02", d: 1 })], { cal: C.compile({ weekdays: [1, 2, 3, 4, 5], national: false, cutiBersama: false }) });
-  assert.deepEqual(names(kid(kid(r3.doc, "Calendars"), "Calendar")), ["UID", "Name", "IsBaseCalendar", "BaseCalendarUID", "WeekDays"]);
+  assert.deepEqual(names(kid(kid(r3.doc, "Calendars"), "Calendar")), ["UID", "Name", "IsBaseCalendar", "IsBaselineCalendar", "BaseCalendarUID", "WeekDays"]);
 });
 
 test("I1 F2: tautan = sisi result.pred saja — pendahulu tanpa jadwal (notNode) dan lintas scope dihitung skippedLinks; penerusnya akar → SNET di es", () => {
@@ -952,11 +957,12 @@ test("I1 F2 (E1): akar Otomatis dengan SNET eksplisit lebih awal dari mulai ters
   const tasks = [mk({ id: 1, start: "2026-11-16", d: 2, constraint: { type: "SNET", date: "2026-11-02" } }), mk({ id: 2, start: "2026-11-02", d: 1, constraint: { type: "SNET", date: "2026-11-07" } })];
   const r = exp(tasks, { pageKind: "project" });
   assert.deepEqual([val(byName(r.doc, "T1"), "ConstraintType"), val(byName(r.doc, "T1"), "ConstraintDate"), val(byName(r.doc, "T1"), "Start")], ["4", "2026-11-16T08:00:00", "2026-11-16T08:00:00"]);
-  // SNET eksplisit lebih lambat (Sabtu 7 Nov) → es mesin = hari kerja berikut (Senin 9 Nov).
-  assert.deepEqual([val(byName(r.doc, "T2"), "ConstraintDate"), val(byName(r.doc, "T2"), "Start")], ["2026-11-09T08:00:00", "2026-11-09T08:00:00"]);
+  // SNET eksplisit lebih lambat (Sabtu 7 Nov) → es mesin = hari kerja berikut (Senin 9 Nov); MS Project memulai task dari
+  // SNET Sabtu di Senin juga → SNET eksplisit dipertahankan (F4: kendala dipilih dari hitungan MS Project).
+  assert.deepEqual([val(byName(r.doc, "T2"), "ConstraintDate"), val(byName(r.doc, "T2"), "Start")], ["2026-11-07T08:00:00", "2026-11-09T08:00:00"]);
 });
 
-test("I2 F2: task tetap mesin — selesai: Start/ActualStart = es, Finish/ActualFinish = ef; berjalan es ≤ D: ActualStart + Finish = ef; berjalan es > D: SNET/MSO tanpa aktual; lingkaran: SNET, MSO bila bertautan masuk", () => {
+test("I2 F2 + F4: task tetap mesin — selesai: Start/ActualStart = es, Finish/ActualFinish = ef; berjalan es ≤ D: ActualStart + Finish = ef; berjalan es > D / lingkaran: SNET, atau Manual + SNET bila tautan menuntut lebih lambat (konflik mesin; tanpa MSO)", () => {
   const tasks = [
     mk({ id: 1, start: "2026-11-09", d: 5 }),
     mk({ id: 2, start: "2026-11-04", d: 2, deps: [[1, "FS", 0]], done: true, completed_at: "2026-11-06T03:00:00Z" }), // E3: selesai molor
@@ -976,9 +982,10 @@ test("I2 F2: task tetap mesin — selesai: Start/ActualStart = es, Finish/Actual
   assert.deepEqual(g("T2"), ["2026-11-04T08:00:00", "2026-11-06T17:00:00", "PT24H0M0S", "2026-11-04T08:00:00", "2026-11-06T17:00:00", "4", "2026-11-04T08:00:00", "0"]);
   assert.deepEqual(g("T3"), ["2026-11-05T08:00:00", "2026-11-09T17:00:00", "PT24H0M0S", "2026-11-05T08:00:00", undefined, "4", "2026-11-05T08:00:00", "0"]);
   assert.deepEqual(g("T4"), ["2026-11-09T08:00:00", "2026-11-09T17:00:00", "PT8H0M0S", undefined, undefined, "0", undefined, "0"]);
-  assert.deepEqual(g("T5"), ["2026-11-12T08:00:00", "2026-11-13T17:00:00", "PT16H0M0S", undefined, undefined, "2", "2026-11-12T08:00:00", "0"]);
+  assert.deepEqual(g("T5"), ["2026-11-12T08:00:00", "2026-11-13T17:00:00", "PT16H0M0S", undefined, undefined, "4", "2026-11-12T08:00:00", "1"]);
   assert.deepEqual(g("T6"), ["2026-11-13T08:00:00", "2026-11-13T17:00:00", "PT8H0M0S", undefined, undefined, "4", "2026-11-13T08:00:00", "0"]);
-  assert.deepEqual(g("T8"), ["2026-11-03T08:00:00", "2026-11-03T17:00:00", "PT8H0M0S", undefined, undefined, "2", "2026-11-03T08:00:00", "0"]);
+  assert.deepEqual(g("T8"), ["2026-11-03T08:00:00", "2026-11-03T17:00:00", "PT8H0M0S", undefined, undefined, "4", "2026-11-03T08:00:00", "1"]);
+  assert.ok(res.nodes.get("5").conflict && res.nodes.get("8").conflict, "mesin juga menandai konflik T5/T8");
   assert.deepEqual(g("T9"), ["2026-11-04T08:00:00", "2026-11-04T17:00:00", "PT8H0M0S", undefined, undefined, "4", "2026-11-04T08:00:00", "0"]);
   assert.deepEqual(linksOf(byName(r.doc, "T8")).map((l) => l.uid), [val(byName(r.doc, "T7"), "UID")], "tautan dalam lingkaran dilewati, dari luar diekspor");
   assert.equal(val(byName(r.doc, "T2"), "PercentComplete"), "100");
@@ -1000,7 +1007,7 @@ test("F2b: milestone yang selesai setelah harinya → rentang es..ef mesin (Star
   assert.deepEqual(p.bad, []);
 });
 
-test("I3 F2: milestone di rantai — milestone Otomatis berpendahulu SNET di es (MSO bila tautan masuk FF/SF), penerus langsung milestone SNET di es, MFO milestone 08:00", () => {
+test("I3 F2 + F4 B: milestone di rantai — FS masuk → SNET di es (08:00); FF 0 masuk → jam MS Project 17:00 tanpa kendala (tanpa MSO); penerus FS milestone 08:00 → SNET di es; MFO milestone tanpa tautan 08:00", () => {
   const tasks = [
     mk({ id: 1, start: "2026-11-02", d: 3 }),
     mk({ id: 2, start: "2026-11-05", d: 0, deps: [[1, "FS", 0]] }), // E4
@@ -1013,7 +1020,7 @@ test("I3 F2: milestone di rantai — milestone Otomatis berpendahulu SNET di es 
   const g = (nm) => [val(byName(r.doc, nm), "Start"), val(byName(r.doc, nm), "ConstraintType"), val(byName(r.doc, nm), "ConstraintDate")];
   assert.deepEqual(g("T2"), ["2026-11-05T08:00:00", "4", "2026-11-05T08:00:00"]);
   assert.deepEqual(g("T3"), ["2026-11-06T08:00:00", "4", "2026-11-06T08:00:00"]);
-  assert.deepEqual(g("T4"), ["2026-11-04T08:00:00", "2", "2026-11-04T08:00:00"]);
+  assert.deepEqual(g("T4"), ["2026-11-04T17:00:00", "0", undefined]);
   assert.deepEqual(g("T5"), ["2026-11-27T08:00:00", "3", "2026-11-27T08:00:00"]);
   assert.deepEqual(g("T6"), ["2026-11-09T08:00:00", "0", undefined]);
 });
@@ -1034,6 +1041,118 @@ test("M2 F2: nama task/resource/judul/kelompok — \\t \\r \\n → spasi, dipoto
 test("I5 F2: sumber mspdi.js dan berkas tes ini tanpa karakter bidi/format mentah (U+061C, U+200B–U+200F, U+202A–U+202E, U+2066–U+2069, U+FEFF)", () => {
   const BAD = /[\u061c\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]/;
   for (const f of [path.join(dir, "mspdi.js"), __filename]) assert.doesNotMatch(fs.readFileSync(f, "utf8"), BAD, f);
+});
+
+// ---------------------------------------------------------------- uji pemilik di MS Project (F4)
+
+// Hari kerja menurut kalender berkas (UID 1: <WeekDays> pola + <Exceptions>); kalender resource turunan UID 1 = sama.
+function xmlWorking(doc, calUid = "1") {
+  const cals = kids(kid(doc, "Calendars"), "Calendar");
+  let cal = cals.find((x) => val(x, "UID") === calUid);
+  if (val(cal, "IsBaseCalendar") === "0") cal = cals.find((x) => val(x, "UID") === val(cal, "BaseCalendarUID"));
+  const week = new Map();
+  for (const w of kids(kid(cal, "WeekDays"), "WeekDay")) if (val(w, "DayType") !== "0") week.set(Number(val(w, "DayType")), val(w, "DayWorking") === "1");
+  const exc = new Map();
+  for (const x of kid(cal, "Exceptions") ? kids(kid(cal, "Exceptions"), "Exception") : []) {
+    const tp = kid(x, "TimePeriod");
+    for (let d = D(val(tp, "FromDate").slice(0, 10)), e = D(val(tp, "ToDate").slice(0, 10)); d <= e; d++) exc.set(d, val(x, "DayWorking") === "1");
+  }
+  return (d) => (exc.has(d) ? exc.get(d) : week.get(C.isoWeekday(d) === 7 ? 1 : C.isoWeekday(d) + 1) === true);
+}
+
+test("F4 A: setiap resource punya kalender resource turunan UID 1 (UID = UID resource + 1, Name = nama, tanpa WeekDays); Units × waktu kerja kalender resource Start..Finish ≈ Work (±1 menit), libur 24–25 Des ikut", () => {
+  // Kasus pemilik: Materi Natal 22–29 Des (Sari, 4 🍅 = 100 menit) melewati SKB 24–25 Des.
+  const tasks = [
+    mk({ id: 1, title: "Materi Natal", start: "2026-12-22", d: 4, est: 4, to: 3 }),
+    mk({ id: 2, title: "Riset", start: "2026-11-02", d: 4, est: 2, to: 5 }),
+    mk({ id: 3, title: "Konsep", start: "2026-11-09", d: 3, est: 6, to: 7, deps: [[2, "FS", 1]] }),
+  ];
+  const r = exp(tasks, { people: new Map([[3, "Sari"], [5, "Rani"], [7, "Tono"]]) });
+  const cals = kids(kid(r.doc, "Calendars"), "Calendar");
+  const res = kids(kid(r.doc, "Resources"), "Resource");
+  assert.deepEqual(res.map((x) => [val(x, "UID"), val(x, "Name"), val(x, "CalendarUID")]), [["1", "Rani", "2"], ["2", "Sari", "3"], ["3", "Tono", "4"]]);
+  assert.deepEqual(cals.map((x) => [val(x, "UID"), val(x, "Name"), val(x, "IsBaseCalendar"), val(x, "BaseCalendarUID")]), [["1", "Standar", "1", "-1"], ["2", "Rani", "0", "1"], ["3", "Sari", "0", "1"], ["4", "Tono", "0", "1"]]);
+  for (const rc of cals.slice(1)) assert.deepEqual(names(rc), RESCAL_ORDER);
+  assert.equal(val(byName(r.doc, "Materi Natal"), "Finish"), "2026-12-29T17:00:00");
+  for (const x of res) {
+    const working = xmlWorking(r.doc, val(x, "CalendarUID"));
+    assert.equal(working(D("2026-12-24")), false, "kalender resource " + val(x, "Name") + ": 24 Des libur");
+    assert.equal(working(D("2026-12-23")), true);
+  }
+  const at = (s) => D(s.slice(0, 10));
+  const workMin = (pt) => {
+    const m = /^PT(\d+)H(\d+)M0S$/.exec(pt);
+    return Number(m[1]) * 60 + Number(m[2]);
+  };
+  const asg = kids(kid(r.doc, "Assignments"), "Assignment");
+  assert.equal(asg.length, 3);
+  for (const x of asg) {
+    const rc = val(res.find((y) => val(y, "UID") === val(x, "ResourceUID")), "CalendarUID");
+    const working = xmlWorking(r.doc, rc);
+    let mins = 0;
+    for (let d = at(val(x, "Start")); d <= at(val(x, "Finish")); d++) if (working(d)) mins += 480; // Start 08:00 … Finish 17:00
+    const units = Number(val(x, "Units"));
+    assert.ok(Math.abs(units * mins - workMin(val(x, "Work"))) <= 1, "Units " + units + " × " + mins + " menit ≈ Work " + val(x, "Work"));
+  }
+  // Tanpa kalender libur (Standard bawaan MS Project: Sen–Jum saja) Materi Natal mendapat 6 hari = 2.880 menit → 150 ≠ 100.
+  const natal = asg.find((x) => val(x, "TaskUID") === val(byName(r.doc, "Materi Natal"), "UID"));
+  let plain = 0;
+  for (let d = D("2026-12-22"); d <= D("2026-12-29"); d++) if (C.isoWeekday(d) <= 5) plain += 480;
+  assert.equal(plain, 2880);
+  assert.ok(Math.abs(Number(val(natal, "Units")) * plain - 100) > 1, "asersi menolak kalender tanpa libur");
+});
+
+test("F4 B (kasus pemilik): milestone Otomatis dengan FF 0 masuk dari task yang selesai 17 Nov 17:00 → Start/Finish 17:00, tanpa kendala, tanpa konflik; penerus FS+2 ASAP; paritas", () => {
+  const tasks = [
+    mk({ id: 1, title: "Konsep kreatif", start: "2026-11-09", d: 3 }),
+    mk({ id: 2, title: "Produksi konten", start: "2026-11-11", d: 5, deps: [[1, "SS", 2]] }),
+    mk({ id: 3, title: "Peluncuran kampanye", start: "2026-11-17", d: 0, deps: [[2, "FF", 0]] }),
+    mk({ id: 4, title: "Laporan kampanye", start: "2026-11-20", d: 2, deps: [[3, "FS", 2]] }),
+    mk({ id: 5, title: "Siaran pers", start: "2026-11-17", d: 1, deps: [[3, "SS", 0]] }),
+  ];
+  const res = M.run({ tasks, cal: std(), units: autoUnits("Alpha"), readExt });
+  assert.deepEqual(["2", "3", "4", "5"].map((k) => I(res.nodes.get(k).es)), ["2026-11-11", "2026-11-17", "2026-11-20", "2026-11-17"]);
+  const r = exp(tasks, { pageKind: "project", result: res });
+  const g = (nm) => ["Start", "Finish", "ConstraintType", "ConstraintDate"].map((k) => val(byName(r.doc, nm), k));
+  assert.deepEqual(g("Peluncuran kampanye"), ["2026-11-17T17:00:00", "2026-11-17T17:00:00", "0", undefined]);
+  assert.deepEqual(g("Laporan kampanye"), ["2026-11-20T08:00:00", "2026-11-23T17:00:00", "0", undefined], "FS+2 dari 17:00 = mesin tanpa SNET");
+  assert.deepEqual(linksOf(byName(r.doc, "Siaran pers")).map((l) => [l.type, l.lag]), [["3", "-4800"]], "SS 0 dari milestone 17:00 → lag −1 hari");
+  assert.ok(!/<ConstraintType>2<\/ConstraintType>/.test(r.xml), "tanpa MSO");
+  const p = parity(tasks);
+  assert.deepEqual(p.bad, []);
+  assert.deepEqual(p.conflicts, []);
+});
+
+test("F4: tautan ke/dari simpul mesin yang tak terhitung (es null) tidak diekspor — placeholder/tanggal tersimpannya tetap di MS Project", () => {
+  // T2 tanpa Mulai, penerus Otomatis T1 (simpul BFS) tetapi di lingkaran dengan T3 → tetap "cycle" tanpa tanggal; T4
+  // bergantung pada T2 → ikut tak terhitung (tanggal tersimpan 5 Nov).
+  const tasks = [
+    mk({ id: 1, start: "2026-11-02", d: 1 }),
+    mk({ id: 2, deps: [[1, "FS", 0], [3, "FS", 0]] }),
+    mk({ id: 3, start: "2026-11-04", d: 1, deps: [[2, "FS", 0]] }),
+    mk({ id: 4, start: "2026-11-05", d: 1, deps: [[2, "FS", 0]] }),
+  ];
+  const res = M.run({ tasks, cal: std(), units: autoUnits("Alpha"), readExt });
+  assert.equal(res.nodes.get("2").es, null, "fixture: T2 simpul tak terhitung");
+  assert.equal(res.nodes.get("4").es, null, "fixture: T4 ikut tak terhitung");
+  assert.ok(res.pred.get("2").some((x) => x.key === "1") && res.pred.get("4").some((x) => x.key === "2"), "fixture: sisi ada di result.pred");
+  const r = exp(tasks, { pageKind: "project", result: res });
+  for (const nm of ["T2", "T4"]) assert.deepEqual(linksOf(byName(r.doc, nm)), [], nm);
+  const sim = simMsp(r.doc);
+  assert.equal(sim.get(val(byName(r.doc, "T4"), "UID")).start, "2026-11-05");
+  assert.equal(sim.get(val(byName(r.doc, "T2"), "UID")).start, "2026-11-10", "placeholder D");
+  assert.deepEqual(sim.conflicts, []);
+});
+
+test("F4 C: placeholder tanpa jadwal = Otomatis (Manual 0) + Estimated 1 + DurationFormat 39 (\"1 hari?\") + Duration PT8H0M0S + SNET hari kerja pertama ≥ D, tanpa Manual*/tautan", () => {
+  const tasks = [mk({ id: 1, title: "Situs" }), mk({ id: 2, title: "Uji tampilan", parent: 1 }), mk({ id: 3, title: "Tata letak", parent: 1, start: "2026-11-10", d: 3, mode: "manual" })];
+  const r = exp(tasks, { pageKind: "project" });
+  const t = byName(r.doc, "Uji tampilan");
+  assert.deepEqual(names(t).filter((n) => n.startsWith("Manual") && n !== "Manual"), []);
+  assert.deepEqual(["Manual", "Estimated", "Milestone", "Duration", "DurationFormat", "Start", "Finish", "ConstraintType", "ConstraintDate"].map((k) => val(t, k)), ["0", "1", "0", "PT8H0M0S", "39", "2026-11-10T08:00:00", "2026-11-10T17:00:00", "4", "2026-11-10T08:00:00"]);
+  assert.deepEqual(kids(t, "PredecessorLink"), []);
+  assert.equal(val(byName(r.doc, "Tata letak"), "DurationFormat"), "7");
+  assert.equal(val(byName(r.doc, "Tata letak"), "Manual"), "1");
 });
 
 // ---------------------------------------------------------------- paritas mesin ↔ "MS Project sederhana" (review F2)
@@ -1103,6 +1222,7 @@ function simMsp(doc) {
   const els = taskEls(doc).filter((t) => val(t, "Summary") === "0");
   const byUid = new Map(els.map((t) => [val(t, "UID"), t]));
   const memo = new Map();
+  const conflicts = [];
   function sch(t) {
     const uid = val(t, "UID");
     if (memo.has(uid)) {
@@ -1127,21 +1247,28 @@ function simMsp(doc) {
     } else {
       const ct = val(t, "ConstraintType");
       const cd = kid(t, "ConstraintDate") ? at(val(t, "ConstraintDate")) : null;
-      if (honor && ct === "2") s = ms ? cd : ns(cd);
-      else if (honor && ct === "3") {
+      let req = null; // syarat mulai dari tautan (FF/SF sudah dikurangi durasi)
+      for (const l of kids(t, "PredecessorLink")) {
+        const pt = byUid.get(val(l, "PredecessorUID"));
+        assert.ok(pt, "pendahulu UID " + val(l, "PredecessorUID") + " ada dan bukan ringkasan");
+        const p = sch(pt);
+        const lag = Number(val(l, "LinkLag")) / 10;
+        const ty = val(l, "Type");
+        const r = ty === "1" ? add(p.f, lag) : ty === "3" ? add(p.s, lag) : ty === "0" ? add(add(p.f, lag), -dur) : add(add(p.s, lag), -dur);
+        if (req === null || r > req) req = r;
+      }
+      // Konflik kendala (indikator MS Project, HonorConstraints 1): kendala tak fleksibel (MSO/MFO) lebih awal dari
+      // syarat tautan. SNET tidak pernah konflik (tautan boleh menggeser lebih lambat).
+      const late = (st) => req !== null && (ms ? req > st : ns(req) > st);
+      if (honor && ct === "2") {
+        s = ms ? cd : ns(cd);
+        if (late(s)) conflicts.push(uid);
+      } else if (honor && ct === "3") {
         f = ms ? cd : pe(cd);
         s = add(f, -dur);
+        if (late(s)) conflicts.push(uid);
       } else {
-        let es = null;
-        for (const l of kids(t, "PredecessorLink")) {
-          const pt = byUid.get(val(l, "PredecessorUID"));
-          assert.ok(pt, "pendahulu UID " + val(l, "PredecessorUID") + " ada dan bukan ringkasan");
-          const p = sch(pt);
-          const lag = Number(val(l, "LinkLag")) / 10;
-          const ty = val(l, "Type");
-          const req = ty === "1" ? add(p.f, lag) : ty === "3" ? add(p.s, lag) : ty === "0" ? add(add(p.f, lag), -dur) : add(add(p.s, lag), -dur);
-          if (es === null || req > es) es = req;
-        }
+        let es = req;
         if (ct === "4" && (es === null || cd > es)) es = cd;
         if (es === null) es = projStart;
         s = ms ? es : ns(es);
@@ -1154,6 +1281,7 @@ function simMsp(doc) {
   }
   const res = new Map();
   for (const t of els) res.set(val(t, "UID"), sch(t));
+  res.conflicts = conflicts; // UID task berkonflik kendala
   return res;
 }
 
@@ -1179,7 +1307,7 @@ function parity(tasks, o = {}) {
     const es = ms || s.raw ? n.es : C.nextWork(cal, n.es);
     rows.push({ key, ms, kind: n.fixed || n.driver.kind, sim: s.start + ".." + s.finish, eng: I(es) + ".." + I(n.ef) });
   }
-  return { rows, result, doc, out, sim, bad: rows.filter((r) => r.sim !== r.eng) };
+  return { rows, result, doc, out, sim, bad: rows.filter((r) => r.sim !== r.eng), conflicts: sim.conflicts.map((u) => val(taskEls(doc).find((t) => val(t, "UID") === u), "Name")) };
 }
 
 test("paritas E1–E5 (kasus review): tanggal simulator MS Project = es/ef mesin", () => {
@@ -1200,6 +1328,7 @@ test("paritas E1–E5 (kasus review): tanggal simulator MS Project = es/ef mesin
     const p = parity(tasks);
     assert.equal(p.rows.length, want[k], k + " jumlah baris dibandingkan");
     assert.deepEqual(p.bad, [], k);
+    assert.deepEqual(p.conflicts, [], k + " tanpa konflik kendala (F4 B)");
   }
   // Simulator bukan tautologi: tanpa SNET jangkar milestone (E4, ekspor sebelum F2) tanggalnya berbeda dari mesin.
   const p4 = parity(cases.E4);
@@ -1238,7 +1367,13 @@ test("paritas milestone di tengah rantai: keluar FS/SS/FF/SF (+ lag), masuk FS/S
   const p = parity(tasks);
   assert.equal(p.rows.length, 19);
   assert.deepEqual(p.bad, []);
-  assert.deepEqual(["T7", "T9"].map((nm) => val(byName(p.doc, nm), "ConstraintType")), ["2", "2"], "milestone bertautan masuk FF/SF → MSO");
+  assert.deepEqual(p.conflicts, [], "tanpa konflik kendala (F4 B)");
+  assert.ok(!/<ConstraintType>2<\/ConstraintType>/.test(p.out.xml), "tanpa MSO");
+  // T7 (FF 0 → milestone) di 17:00 tanpa kendala; T8 (SS 0 dari milestone 17:00) → lag dikoreksi −1 hari.
+  assert.deepEqual([val(byName(p.doc, "T7"), "Start"), val(byName(p.doc, "T7"), "ConstraintType")], ["2026-11-04T17:00:00", "0"]);
+  assert.deepEqual(linksOf(byName(p.doc, "T8")).map((l) => [l.type, l.lag]), [["3", "-4800"]]);
+  // T9 (SF 0 → milestone): MS Project menaruhnya di awal hari kerja berikut → lag dikoreksi −1 hari.
+  assert.deepEqual(linksOf(byName(p.doc, "T9")).map((l) => [l.type, l.lag]), [["2", "-4800"]]);
 });
 
 test("paritas pendahulu yang selesai di hari non-kerja (task selesai Sabtu): penerus FF lag 0/−2, FS −1, SS, SF → SNET di es bila perlu, tanggal = mesin", () => {
@@ -1266,6 +1401,7 @@ test("paritas sapuan kecil: 12 benih × halaman workspace/project, fixture campu
       const p = parity(genMix(120, 160, k * 7919), { pageKind, cal: mixCal() });
       rows += p.rows.length;
       assert.deepEqual(p.bad, [], "benih " + k + " " + pageKind);
+      assert.deepEqual(p.conflicts, [], "konflik benih " + k + " " + pageKind);
     }
   }
   assert.ok(rows > 2500, "baris " + rows);
@@ -1331,12 +1467,14 @@ test("paritas fixture campuran 160 task / 200 dependensi (workspace, kalender SK
   for (const k of ["done", "started", "cycle", "mfo", "manual", "pred", "root"]) assert.ok(kinds[k] > 0, "jenis " + k);
   assert.ok(p.rows.filter((r) => r.ms).length >= 10, "milestone");
   assert.deepEqual([...lt].sort(), ["0", "1", "2", "3"], "empat tipe tautan");
-  assert.deepEqual([...ct].sort(), ["0", "2", "3", "4"], "ASAP/MSO/MFO/SNET");
+  assert.deepEqual([...ct].sort(), ["0", "3", "4"], "ASAP/MFO/SNET (tanpa MSO, F4 B)");
   assert.ok(p.result.cycles.length >= 1, "lingkaran");
   assert.deepEqual(p.bad, [], JSON.stringify(p.bad, null, 1));
+  assert.deepEqual(p.conflicts, [], "tanpa konflik kendala (F4 B)");
+  assert.ok(taskEls(p.doc).some((t) => val(t, "Manual") === "1" && p.result.nodes.get(val(t, "Name").slice(1)) && p.result.nodes.get(val(t, "Name").slice(1)).conflict && !["manual", "done"].includes(p.result.nodes.get(val(t, "Name").slice(1)).fixed)), "task tetap berkonflik mesin → Manual");
 });
 
-test("properti F2 (fixture campuran): task Otomatis non-ringkasan ber-ConstraintType 0 punya ≥ 1 PredecessorLink; setiap tautan yang diekspor ada di result.pred dengan tipe dan lag yang sama", () => {
+test("properti F2/F4 (fixture campuran): task Otomatis non-ringkasan ber-ConstraintType 0 punya ≥ 1 PredecessorLink; setiap tautan yang diekspor ada di result.pred dengan tipe sama dan lag sama atau dikoreksi −1/−2 hari hanya pada tautan yang menyentuh milestone", () => {
   const tasks = genMix(160, 200, 20261110);
   const p = parity(tasks, { pageKind: "workspace", cal: mixCal() });
   const keyOfUid = new Map();
@@ -1344,6 +1482,7 @@ test("properti F2 (fixture campuran): task Otomatis non-ringkasan ber-Constraint
   for (const t of taskEls(p.doc)) keyOfUid.set(val(t, "UID"), byTitle.get(val(t, "Name")));
   const TY = { 0: "FF", 1: "FS", 2: "SF", 3: "SS" };
   let n = 0;
+  let tweaks = 0;
   for (const t of taskEls(p.doc)) {
     if (val(t, "Summary") === "1") continue;
     const links = kids(t, "PredecessorLink");
@@ -1353,14 +1492,26 @@ test("properti F2 (fixture campuran): task Otomatis non-ringkasan ber-Constraint
       const pk = keyOfUid.get(val(l, "PredecessorUID"));
       const hit = pl.find((x) => x.key === pk);
       assert.ok(hit, "tautan " + pk + " → " + val(t, "Name") + " ada di result.pred");
-      assert.deepEqual([TY[val(l, "Type")], Number(val(l, "LinkLag")) / 4800], [hit.type, hit.lag]);
+      assert.equal(TY[val(l, "Type")], hit.type);
+      const dl = Number(val(l, "LinkLag")) / 4800 - hit.lag;
+      if (dl !== 0) {
+        assert.ok(dl === -1 || dl === -2, "koreksi lag " + dl);
+        const pEl = taskEls(p.doc).find((x) => val(x, "UID") === val(l, "PredecessorUID"));
+        assert.ok(val(t, "Milestone") === "1" || val(pEl, "Milestone") === "1", "koreksi lag hanya pada tautan yang menyentuh milestone");
+        tweaks++;
+      }
       n++;
     }
   }
   let total = 0;
   for (const l of p.result.pred.values()) total += l.length;
   assert.equal(n, p.out.stats.links);
-  assert.equal(n, total, "semua sisi result.pred diekspor (simpul selalu task yang diekspor)");
+  const uncomputable = [...p.result.nodes.values()].filter((x) => !Number.isInteger(x.es)).map((x) => x.key);
+  let total2 = 0;
+  for (const [k, l] of p.result.pred) if (!uncomputable.includes(k)) total2 += l.filter((x) => !uncomputable.includes(x.key)).length;
+  assert.equal(n, total2, "semua sisi result.pred antar simpul terhitung diekspor");
+  assert.ok(total >= total2);
+  assert.ok(tweaks > 0 && tweaks < n / 10, "koreksi lag " + tweaks + " dari " + n);
 });
 
 // ---------------------------------------------------------------- kinerja

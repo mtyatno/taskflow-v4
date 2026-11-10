@@ -24,6 +24,7 @@
       <UID>1</UID>
       <Name>Standar</Name>
       <IsBaseCalendar>1</IsBaseCalendar>
+      <IsBaselineCalendar>0</IsBaselineCalendar>
       <BaseCalendarUID>-1</BaseCalendarUID>
       <WeekDays>
         <WeekDay>
@@ -221,6 +222,20 @@
         </Exception>
       </Exceptions>
     </Calendar>
+    <Calendar>
+      <UID>2</UID>
+      <Name>Budi</Name>
+      <IsBaseCalendar>0</IsBaseCalendar>
+      <IsBaselineCalendar>0</IsBaselineCalendar>
+      <BaseCalendarUID>1</BaseCalendarUID>
+    </Calendar>
+    <Calendar>
+      <UID>3</UID>
+      <Name>Sari</Name>
+      <IsBaseCalendar>0</IsBaseCalendar>
+      <IsBaselineCalendar>0</IsBaselineCalendar>
+      <BaseCalendarUID>1</BaseCalendarUID>
+    </Calendar>
   </Calendars>
   <Tasks>
     <Task>
@@ -382,8 +397,8 @@
       <WBS>1.4</WBS>
       <OutlineNumber>1.4</OutlineNumber>
       <OutlineLevel>2</OutlineLevel>
-      <Start>2026-11-17T08:00:00</Start>
-      <Finish>2026-11-17T08:00:00</Finish>
+      <Start>2026-11-17T17:00:00</Start>
+      <Finish>2026-11-17T17:00:00</Finish>
       <Duration>PT0H0M0S</Duration>
       <DurationFormat>7</DurationFormat>
       <EffortDriven>0</EffortDriven>
@@ -391,9 +406,8 @@
       <Milestone>1</Milestone>
       <Summary>0</Summary>
       <PercentComplete>0</PercentComplete>
-      <ConstraintType>2</ConstraintType>
+      <ConstraintType>0</ConstraintType>
       <CalendarUID>-1</CalendarUID>
-      <ConstraintDate>2026-11-17T08:00:00</ConstraintDate>
       <PredecessorLink>
         <PredecessorUID>4</PredecessorUID>
         <Type>0</Type>
@@ -626,7 +640,7 @@
       <UID>14</UID>
       <ID>14</ID>
       <Name>Belum dijadwalkan</Name>
-      <Manual>1</Manual>
+      <Manual>0</Manual>
       <Type>1</Type>
       <IsNull>0</IsNull>
       <CreateDate>2026-11-10T00:00:00</CreateDate>
@@ -636,7 +650,7 @@
       <Start>2026-11-10T08:00:00</Start>
       <Finish>2026-11-10T17:00:00</Finish>
       <Duration>PT8H0M0S</Duration>
-      <DurationFormat>7</DurationFormat>
+      <DurationFormat>39</DurationFormat>
       <EffortDriven>0</EffortDriven>
       <Estimated>1</Estimated>
       <Milestone>0</Milestone>
@@ -645,9 +659,6 @@
       <ConstraintType>4</ConstraintType>
       <CalendarUID>-1</CalendarUID>
       <ConstraintDate>2026-11-10T08:00:00</ConstraintDate>
-      <ManualStart>2026-11-10T08:00:00</ManualStart>
-      <ManualFinish>2026-11-10T17:00:00</ManualFinish>
-      <ManualDuration>PT8H0M0S</ManualDuration>
     </Task>
     <Task>
       <UID>15</UID>
@@ -685,6 +696,7 @@
       <Type>1</Type>
       <IsNull>0</IsNull>
       <MaxUnits>1</MaxUnits>
+      <CalendarUID>2</CalendarUID>
     </Resource>
     <Resource>
       <UID>2</UID>
@@ -693,6 +705,7 @@
       <Type>1</Type>
       <IsNull>0</IsNull>
       <MaxUnits>1</MaxUnits>
+      <CalendarUID>3</CalendarUID>
     </Resource>
   </Resources>
   <Assignments>

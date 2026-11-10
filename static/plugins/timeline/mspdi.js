@@ -4,10 +4,10 @@
 // baseline aktif terdekode, nama orang); keluaran = string XML + statistik untuk toast. Murni: tanpa jam lokal, tanpa
 // global, tanpa DOM, TIDAK menulis (K27/R25) dan tidak mengubah masukan. Urutan baris = TLLayout.layout sort "wbs"
 // (sama dengan Gantt); urutan lain lewat TLCpm.cmpKey → string identik untuk urutan masukan apa pun.
-// Paritas mesin (review F2): tanggal task = hasil TLCpm.run (es/ef), tautan = sisi yang dipakai mesin (result.pred),
-// dan kendala/aktual dipilih supaya penjadwalan MS Project (HonorConstraints 1) menghasilkan tanggal yang sama —
-// akar Otomatis SNET di es, task tetap mesin (selesai/berjalan/lingkaran/MFO/Manual) dijangkar lewat Actual*/MSO/MFO/
-// Manual, dan milestone yang menurut mesin "memakan" harinya dijangkar SNET/MSO (lihat buildConstraint).
+// Paritas mesin (review F2, uji pemilik F4): tanggal task = hasil TLCpm.run (es/ef), tautan = sisi yang dipakai mesin
+// (result.pred), dan kendala/aktual dipilih dengan aritmetika waktu kerja MS Project (planNode) supaya penjadwalan
+// MS Project (HonorConstraints 1) menghasilkan tanggal tampil yang sama TANPA konflik kendala (tanpa MSO).
+// Resource memakai kalender resource turunan kalender UID 1 (libur ikut) agar Work/Units muat di tanggal task.
 // Urutan elemen = XSD MSPDI: propOrder JAXB skema MSPDI MPXJ 16.10 (org.mpxj.mspdi.schema.Project, dibangkitkan dari
 // XSD Microsoft Project 2010+; `Manual` SETELAH `Name`, SEBELUM `Type`); urutan Project dicocokkan dengan dokumentasi
 // Microsoft "Project elements and XML structure".
@@ -22,6 +22,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   const LAG_UNIT = 4800; // LinkLag = persepuluh menit; 1 hari kerja = 480 × 10
   const LAG_FORMAT = 7; // hari
   const DUR_FORMAT = 7; // hari
+  const DUR_FORMAT_EST = 39; // hari perkiraan ("d?"), kode yang ditulis MS Project/MSPDIWriter MPXJ untuk durasi Estimated
   const WORK_FORMAT = 2; // jam
   const EST_MAX = LOAD.EST_MAX; // R3 1d-1: target 🍅 dijepit batas host
   const NAME_CUT = 80; // R9: maks code point judul di nama berkas
@@ -34,9 +35,9 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   const CAL_NAME = "Standar";
   const NO_RES = "Anggota #";
   const LINK_TYPE = Object.freeze({ FF: 0, FS: 1, SF: 2, SS: 3 });
-  // ConstraintType MSPDI: 0 ASAP, 2 MSO (harus mulai pada), 3 MFO (harus selesai pada), 4 SNET (mulai tidak lebih awal).
+  // ConstraintType MSPDI: 0 ASAP, 3 MFO (harus selesai pada), 4 SNET (mulai tidak lebih awal). 2 MSO (harus mulai pada)
+  // sengaja tidak dipakai (uji pemilik F4: MSO di tanggal yang dilanggar tautan = ikon konflik kendala di MS Project).
   const C_ASAP = 0;
-  const C_MSO = 2;
   const C_MFO = 3;
   const C_SNET = 4;
   const T_START = "T08:00:00";
@@ -277,59 +278,193 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     }
   }
 
-  // Kendala + mode (R7, R8; review F2 I1–I3, M1). e.links sudah terisi (hanya sisi result.pred bila mesin ada).
-  //  Simpul mesin:
-  //   - mode efektif Manual → Manual 1; kendala eksplisit, selain itu SNET di es (= mulai tersimpan) (R8);
-  //   - selesai / berjalan ber-ActualStart → SNET di es (aktual sudah menjangkar; SNET hanya untuk pembaca lain);
-  //   - berjalan dengan es > D (tanpa aktual) / anggota lingkaran → tetap di es: SNET, atau MSO bila punya tautan masuk
-  //     (mesin tidak menggeser task tetap walau pendahulu terlambat; MSO + HonorConstraints 1 juga tidak);
-  //   - MFO → MFO (dihormati MS Project, HonorConstraints 1);
-  //   - akar Otomatis (tanpa tautan masuk) → SNET di es (mesin: es = maks(SNET, mulai tersimpan); E1, E2);
-  //   - milestone Otomatis bertautan masuk FF/SF → MSO di es; milestone lain bertautan masuk / penerus langsung
-  //     milestone → SNET di es (mesin menaruh milestone di awal harinya tetapi penerus FS/FF-nya mulai hari kerja
-  //     berikutnya; MS Project menaruh milestone di jam selesai pendahulu — I3). Penerus langsung pendahulu yang
-  //     selesai di hari non-kerja (task selesai/aktual akhir pekan) juga SNET di es: TLCal.addWork menghitung dari hari
-  //     itu sendiri (FF lag ≤ 0 → mesin 1 hari lebih lambat dari MS Project). Di semua kasus ini mesin ≥ hitungan MS
-  //     Project dari tautan, jadi SNET di es mengembalikan tanggal mesin tanpa membekukan task;
-  //   - selain itu SNET eksplisit atau ASAP.
-  //  Bukan simpul: tanpa jadwal → Manual 1 + kendala eksplisit / SNET di placeholder (M1); terjadwal → aturan cadangan
-  //  (Manual / tanpa tautan masuk → SNET di mulai tersimpan).
-  function buildConstraint(e, mode) {
-    const cst = e.row.sched.constraint;
-    const inLinks = e.links.length > 0;
-    const at = (type, dn, finish) => {
-      e.ctype = type;
-      e.cdate = CAL.iso(dn) + (finish ? T_FINISH : T_START);
-    };
-    const explicit = () => {
-      if (cst.type === "SNET") at(C_SNET, CAL.dn(cst.date), false);
-      else at(C_MFO, CAL.dn(cst.date), !e.ms); // milestone MFO di 08:00 = jam milestone di berkas
-    };
+  // ---- waktu kerja MS Project pada titik setengah hari (uji pemilik F4) ----
+  // Titik = startPt/finishPt (S(x) = x 08:00, E(x) = x 17:00). Untuk durasi/lag kelipatan 480 menit (selalu di berkas
+  // ini) penjumlahan waktu kerja MS Project = S(x) + L hari → E(addWork(nw(x), L − 1)); E(x) + L → E(addWork(pw(x), L));
+  // S(x) − k → S(addWork(nw(x), −k)); E(x) − k → S(addWork(pw(x), 1 − k)); L = 0 → titik apa adanya (S di hari libur
+  // = S hari kerja berikut, E di hari libur = E hari kerja sebelumnya). Kalender buntu → hari apa adanya.
+  function prevWorkOr(c, dn) {
+    try {
+      const n = CAL.prevWork(c, dn);
+      return isDn(n) ? n : dn;
+    } catch (e) {
+      return dn;
+    }
+  }
+  function addWorkOr(c, dn, k) {
+    try {
+      const n = CAL.addWork(c, dn, k);
+      return isDn(n) ? n : dn + k;
+    } catch (e) {
+      return dn + k;
+    }
+  }
+  const isS = (p) => p - ptDn(p) * 2 === 0;
+  function addP(c, p, L) {
+    if (L === 0) return p;
+    const x = ptDn(p);
+    if (isS(p)) {
+      const x1 = nextWorkOr(c, x);
+      return L > 0 ? finishPt(addWorkOr(c, x1, L - 1)) : startPt(addWorkOr(c, x1, L));
+    }
+    const x1 = prevWorkOr(c, x);
+    return L > 0 ? finishPt(addWorkOr(c, x1, L)) : startPt(addWorkOr(c, x1, L + 1));
+  }
+  // Saat kerja pertama ≥ p (mulai task berdurasi) dan akhir kerja terakhir ≤ p (selesai task berdurasi).
+  const nsP = (c, p) => startPt(nextWorkOr(c, isS(p) ? ptDn(p) : ptDn(p) + 1));
+  const peP = (c, p) => finishPt(prevWorkOr(c, isS(p) ? ptDn(p) - 1 : ptDn(p)));
+
+  // Kendala + mode simpul mesin (R7, R8; review F2 I1–I3; uji pemilik F4 B). Dipanggil dalam urutan topologis mesin
+  // (result.order) sehingga titik MS Project pendahulu (mS/mF) sudah final. Syarat tiap tautan dihitung seperti MS Project
+  // (FS: selesai P + lag; SS: mulai P + lag; FF/SF: (selesai/mulai P + lag) − durasi) lalu kendala dipilih supaya
+  // tanggal tampil MS Project = es/ef mesin TANPA konflik kendala (tidak ada MSO; MFO hanya bila tautan tidak menuntut
+  // lebih lambat):
+  //  - mode efektif Manual → Manual 1; kendala eksplisit, selain itu SNET di es (= mulai tersimpan) (R8);
+  //  - selesai / berjalan ber-ActualStart → SNET di es (sabuk pengaman: pembaca yang tidak menjangkar dari ActualStart,
+  //    mis. ProjectLibre, tetap tidak memajukannya);
+  //  - berjalan dengan es > D / anggota lingkaran → SNET di es bila tautan tidak menuntut lebih lambat; bila menuntut
+  //    (konflik yang juga ditandai mesin) → Manual 1 + SNET di es (MS Project tidak menggeser task Manual dan tidak
+  //    menandai konflik kendala);
+  //  - MFO → MFO (milestone 08:00, atau 17:00 bila tautan FF/SF menuntut selesai di 17:00 hari itu); tautan menuntut lebih
+  //    lambat (konflik mesin) → Manual 1 + MFO;
+  //  - Otomatis lain: syarat tautan (+ SNET eksplisit) lebih awal dari es → SNET di es (akar E1/E2, penerus milestone,
+  //    pendahulu selesai di hari libur); sama → ASAP (SNET eksplisit tetap); lebih lambat → residu (MS Project 1 hari kerja
+  //    lebih lambat; tanpa kendala). Milestone ditulis di jam yang dihitung MS Project (FF → 17:00); milestone yang menurut
+  //    MS Project jatuh di awal hari kerja berikut (FF lag < 0, SF lag ≤ 0: instan kerja sama) = residu tanggal tampil.
+  function planNode(e, c, mode) {
     const n = e.node;
-    if (n) {
-      e.manual = mode === "manual";
-      const fx = n.fixed;
-      if (e.manual) {
-        if (cst) explicit();
-        else at(C_SNET, n.es, false);
-      } else if (fx === "done" || (fx === "started" && e.actualS)) at(C_SNET, n.es, false); // sabuk pengaman: pembaca yang tidak menjangkar dari ActualStart (mis. ProjectLibre) tetap tidak memajukannya
-      else if (fx === "started" || fx === "cycle") at(inLinks ? C_MSO : C_SNET, n.es, false);
-      else if (fx === "mfo" && cst) explicit();
-      else if (!inLinks) at(C_SNET, n.es, false);
-      else if (e.ms && e.links.some((l) => l.tt === "FF" || l.tt === "SF")) at(C_MSO, n.es, false);
-      else if (e.ms || e.links.some((l) => l.anchor)) at(C_SNET, n.es, false);
-      else if (cst && cst.type === "SNET") explicit();
+    const cst = e.row.sched.constraint;
+    const d = e.d;
+    const ms = e.ms;
+    const S0 = startPt(n.es);
+    const at = (type, p) => {
+      e.ctype = type;
+      e.cdate = fmtPt(p);
+    };
+    const keep = () => {
+      e.mS = e.s;
+      e.mF = e.f;
+    };
+    const startOf = (p) => (ms ? p : nsP(c, p));
+    const reqOf = (l, L) => {
+      const pS = l.pe.mS === undefined ? l.pe.s : l.pe.mS;
+      const pF = l.pe.mF === undefined ? l.pe.f : l.pe.mF;
+      if (l.tt === "FS") return addP(c, pF, L);
+      if (l.tt === "SS") return addP(c, pS, L);
+      return addP(c, addP(c, l.tt === "FF" ? pF : pS, L), -d);
+    };
+    // Syarat tautan menurut MS Project lebih lambat dari tanggal mesin? (milestone: tanggal; task berdurasi: saat mulai)
+    const tooLate = (r) => (ms ? ptDn(r) > n.es : nsP(c, r) > S0);
+    e.manual = mode === "manual";
+    const fx = n.fixed;
+    const actual = fx === "done" || (fx === "started" && e.actualS);
+    let req = null;
+    for (const l of e.links) {
+      let r = reqOf(l, l.L);
+      // Koreksi lag 1 hari (uji pemilik F4 B): mesin menghitung milestone per hari (penerus FS/FF mulai hari kerja
+      // berikutnya, SS/SF di harinya), MS Project per jam — milestone yang jatuh di 17:00 (FF) atau di awal hari kerja
+      // berikut (FF lag < 0, SF lag ≤ 0) membuat syarat SS/SF penerusnya / syarat milestone itu sendiri tepat 1 hari kerja
+      // lebih lambat dari mesin. Bila lag − 1 mengembalikan syarat ke ≤ tanggal mesin, tautan ditulis dengan lag − 1
+      // (setara di kedua model; tanpa kendala tambahan, tanpa konflik); SF dari milestone 17:00 ke milestone butuh lag − 2.
+      // Hanya pada tautan yang menyentuh milestone (konflik nyata task tetap tidak disembunyikan); task Manual/beraktual tidak
+      // dijadwalkan dari tautan.
+      for (let k = 1; k <= 2 && (ms || l.pe.ms === true) && !e.manual && !actual && tooLate(r); k++) {
+        // maks 2: satu per kebiasaan (pendahulu milestone 17:00; milestone ini jatuh di awal hari kerja berikut)
+        const r2 = reqOf(l, l.L - k);
+        if (tooLate(r2)) continue;
+        l.L -= k;
+        l.lag = l.L * LAG_UNIT;
+        l.tweak = k;
+        r = r2;
+      }
+      if (req === null || r > req) req = r;
+    }
+    if (e.manual) {
+      if (cst && cst.type === "SNET") at(C_SNET, startPt(CAL.dn(cst.date)));
+      else if (cst) at(C_MFO, (ms ? startPt : finishPt)(CAL.dn(cst.date)));
+      else at(C_SNET, S0);
+      return keep();
+    }
+    if (actual) {
+      at(C_SNET, S0);
+      e.mS = e.s;
+      e.mF = e.actualF || ms ? e.f : addP(c, e.s, d);
       return;
     }
+    if (fx === "started" || fx === "cycle") {
+      at(C_SNET, S0);
+      const got = startOf(req === null || req < S0 ? S0 : req);
+      if (ms ? ptDn(got) === n.es : got === startOf(S0)) {
+        e.mS = got;
+        e.mF = ms ? got : addP(c, got, d);
+      } else {
+        e.manual = true;
+        keep();
+      }
+      return;
+    }
+    if (fx === "mfo" && cst) {
+      const md = CAL.dn(cst.date);
+      if (ms) {
+        const P = req === null || req <= startPt(md) ? startPt(md) : req <= finishPt(md) ? finishPt(md) : null;
+        at(C_MFO, P === null ? finishPt(md) : P);
+        if (P === null) {
+          e.manual = true;
+          return keep();
+        }
+        e.s = e.f = e.mS = e.mF = P;
+        return;
+      }
+      at(C_MFO, finishPt(md));
+      const F = peP(c, finishPt(md));
+      const S = addP(c, F, -d);
+      if (req !== null && nsP(c, req) > S) {
+        e.manual = true;
+        return keep();
+      }
+      e.mS = S;
+      e.mF = F;
+      return;
+    }
+    const snetP = cst && cst.type === "SNET" ? startPt(CAL.dn(cst.date)) : null;
+    const b = snetP !== null && (req === null || snetP > req) ? snetP : req;
+    const st = b === null ? null : startOf(b);
+    if (st === null || (ms ? ptDn(st) < n.es : st < S0)) {
+      at(C_SNET, S0);
+      e.mS = S0;
+    } else {
+      if (snetP !== null) at(C_SNET, snetP);
+      e.mS = st;
+      if (ms ? ptDn(st) > n.es : st > S0) e.residual = true;
+      else if (ms) e.s = e.f = st; // milestone di jam MS Project (mis. FF → 17:00); tanggal = es
+    }
+    e.mF = ms ? e.mS : addP(c, e.mS, d);
+    if (e.residual && ms) e.s = e.f = finishPt(n.es); // residu: tulis tanggal mesin (instan kerja sama dengan MS Project)
+  }
+
+  // Kendala + mode task yang bukan simpul mesin terhitung (tanpa mesin, diarsip-bendera, tanpa jadwal).
+  //  - Tanpa jadwal → placeholder Otomatis (Manual 0) + Estimated 1 + DurationFormat 39 ("1 hari?") + SNET di hari kerja
+  //    pertama ≥ D (uji pemilik F4 C: Manual 1 + Estimated 1 tampil "0 days?" berlian di MS Project). Tanpa tautan
+  //    (bukan simpul → sisinya notNode) sehingga tanggalnya tetap; kendala eksplisit task tanpa jadwal tidak diekspor
+  //    (mesin juga tidak menjadwalkannya).
+  //  - Terjadwal → Manual (mode efektif) atau Otomatis; kendala eksplisit, selain itu SNET di mulai tersimpan bila Manual
+  //    atau tanpa tautan masuk (cadangan tanpa mesin).
+  function planOther(e, mode) {
+    const cst = e.row.sched.constraint;
+    const at = (type, p) => {
+      e.ctype = type;
+      e.cdate = fmtPt(p);
+    };
+    e.mS = e.s;
+    e.mF = e.f;
     if (e.unscheduled) {
-      e.manual = true;
-      if (cst) explicit();
-      else at(C_SNET, e.ph, false);
+      at(C_SNET, e.s);
       return;
     }
     e.manual = mode === "manual";
-    if (cst) explicit();
-    else if (e.manual || !inLinks) at(C_SNET, e.row.span.s, false);
+    if (cst && cst.type === "SNET") at(C_SNET, startPt(CAL.dn(cst.date)));
+    else if (cst) at(C_MFO, (e.ms ? startPt : finishPt)(CAL.dn(cst.date)));
+    else if (e.manual || !e.links.length) at(C_SNET, e.s);
   }
 
   // build(input) → {xml, stats: {tasks, links, skippedLinks, unscheduled, resources, assignments}}.
@@ -373,39 +508,13 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
       else byKey.set(r.key, e);
     }
 
-    // 2. tanggal daun (taskDates); ringkasan/kelompok = min/maks titik anak (dari belakang pra-urut: anak sebelum induk).
+    // 2. tanggal daun (taskDates); ringkasan dihitung setelah kendala (langkah 4 bisa memindah jam milestone).
     let unscheduled = 0;
     for (const e of ents) {
       if (e.kind !== "task") continue;
       taskDates(e, c, eng ? nodes : null, D);
       if (e.unscheduled) unscheduled++;
     }
-    const top = { s: Infinity, f: -Infinity };
-    const parentOf = (e) => {
-      if (e.kind === "group") return top;
-      const pk = e.row.parentKey;
-      if (pk !== null && byKey.has(pk)) return byKey.get(pk);
-      return workspace && groupEnt.has(e.row.group) ? groupEnt.get(e.row.group) : top;
-    };
-    for (let i = ents.length - 1; i >= 0; i--) {
-      const e = ents[i];
-      if (e.kind !== "task") {
-        if (e.s === undefined) {
-          e.s = startPt(D);
-          e.f = finishPt(D);
-        }
-        e.d = spanDays(c, e.s, e.f);
-      }
-      const p = parentOf(e);
-      if (p.s === undefined || e.s < p.s) p.s = e.s;
-      if (p.f === undefined || e.f > p.f) p.f = e.f;
-    }
-    if (top.s === Infinity) {
-      top.s = startPt(D);
-      top.f = finishPt(D);
-    }
-    top.d = spanDays(c, top.s, top.f);
-
     // 3. tautan. Mesin ada → hanya sisi yang dipakai mesin (result.pred: kedua ujung simpul, scope sama, bukan ringkasan,
     // bukan di dalam lingkaran — review F2 I1). Tanpa mesin → cadangan: pendahulu kanonik lewat TLSched.buildIndex,
     // kecuali diri sendiri / ringkasan / antaranggota result.cycles. Satu tautan per pendahulu kanonik (cid/id task yang
@@ -437,7 +546,10 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
         let lag = dep.lag;
         let ok = !!pe && pe !== e && pe.kind === "task" && e.kind === "task";
         if (ok && eng) {
-          const hit = Array.isArray(used) ? used.find((x) => x && x.key === pk) : undefined;
+          // Sisi mesin yang kedua ujungnya terhitung (es/ef): sisi ke/dari simpul tak terhitung tidak memengaruhi tanggal
+          // mesin mana pun (penerus Otomatis ikut tak terhitung, task tetap mengabaikannya), tetapi di MS Project akan
+          // menggeser placeholder / tanggal tersimpannya (uji pemilik F4).
+          const hit = e.node && pe.node && Array.isArray(used) ? used.find((x) => x && x.key === pk) : undefined;
           ok = !!hit;
           if (hit) {
             type = hit.type;
@@ -452,24 +564,60 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
           continue;
         }
         const tt = LINK_TYPE[type] === undefined ? "FS" : type;
-        // anchor: pendahulu milestone, atau selesai di hari non-kerja (task selesai/aktual di akhir pekan) — di sana
-        // aritmetika hari kerja mesin (TLCal.addWork dari hari itu) lebih lambat 1 hari dari waktu kerja MS Project.
-        // Hanya dipakai buildConstraint untuk simpul mesin; jalur cadangan (tanpa mesin) tidak menghitungnya.
-        const anchor = eng && (pe.ms === true || !workAt(c, ptDn(pe.f)));
-        e.links.push({ uid: pe.uid, tt, type: LINK_TYPE[tt], lag: (Number.isInteger(lag) ? lag : 0) * LAG_UNIT, anchor });
+        const L = Number.isInteger(lag) ? lag : 0;
+        e.links.push({ uid: pe.uid, pe, tt, type: LINK_TYPE[tt], L, lag: L * LAG_UNIT });
       }
       e.links.sort((x, y) => x.uid - y.uid);
       nLinks += e.links.length;
     }
 
-    // 4. mode + kendala (buildConstraint). Kelompok/ringkasan selalu Otomatis tanpa kendala (dihitung dari anak).
+    // 4. mode + kendala. Bukan simpul mesin → planOther; simpul mesin → planNode dalam urutan topologis mesin
+    // (result.order; sisa yang tak ada di sana menyusul). Kelompok/ringkasan selalu Otomatis tanpa kendala.
+    const modeOf = (e) => SCHED.modeOf(rawFor(e.task), units, e.task);
     for (const e of ents) {
       e.manual = false;
       e.ctype = C_ASAP;
       e.cdate = null;
-      if (e.kind !== "task") continue;
-      buildConstraint(e, SCHED.modeOf(rawFor(e.task), units, e.task));
+      if (e.kind === "task" && !e.node) planOther(e, modeOf(e));
     }
+    if (eng) {
+      const done = new Set();
+      const plan = (e) => {
+        if (!e || e.kind !== "task" || !e.node || done.has(e)) return;
+        done.add(e);
+        planNode(e, c, modeOf(e));
+      };
+      for (const k of Array.isArray(R.order) ? R.order : []) plan(byKey.get(String(k)));
+      for (const e of ents) plan(e);
+    }
+
+    // Ringkasan/kelompok = min/maks titik anak (dari belakang pra-urut: anak sebelum induk).
+    const top = { s: Infinity, f: -Infinity };
+    const parentOf = (e) => {
+      if (e.kind === "group") return top;
+      const pk = e.row.parentKey;
+      if (pk !== null && byKey.has(pk)) return byKey.get(pk);
+      return workspace && groupEnt.has(e.row.group) ? groupEnt.get(e.row.group) : top;
+    };
+    for (let i = ents.length - 1; i >= 0; i--) {
+      const e = ents[i];
+      if (e.kind !== "task") {
+        if (e.s === undefined) {
+          e.s = startPt(D);
+          e.f = finishPt(D);
+        }
+        e.d = spanDays(c, e.s, e.f);
+      }
+      const p = parentOf(e);
+      if (p.s === undefined || e.s < p.s) p.s = e.s;
+      if (p.f === undefined || e.f > p.f) p.f = e.f;
+    }
+    if (top.s === Infinity) {
+      top.s = startPt(D);
+      top.f = finishPt(D);
+    }
+    top.d = spanDays(c, top.s, top.f);
+
 
     // 5. baseline aktif (pola compareBaseline): kunci baris urut cmpKey → task lewat buildIndex → kunci kanonik; baris
     // sah pertama per task menang; hanya task non-ringkasan yang diekspor.
@@ -531,10 +679,10 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     out.el(1, "DefaultTaskType", 1);
     out.el(1, "DurationFormat", DUR_FORMAT);
     out.el(1, "WorkFormat", WORK_FORMAT);
-    out.el(1, "HonorConstraints", 1); // I4 F2: MSO/MFO menang atas tautan (sama dengan task tetap di mesin)
+    out.el(1, "HonorConstraints", 1); // I4 F2: MFO menang atas tautan (sama dengan task tetap di mesin)
     out.el(1, "NewTasksEffortDriven", 0);
     out.el(1, "WeekStartDay", 1);
-    writeCalendar(out, c, ents, D);
+    writeCalendar(out, c, ents, D, res, resId);
     out.line(1, "<Tasks>");
     writeTask(out, { uid: 0, kind: "project", name: title, level: 0, wbs: "0", s: top.s, f: top.f, d: top.d, links: [], manual: false, ctype: C_ASAP, cdate: null }, D);
     for (const e of ents) {
@@ -552,6 +700,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
       out.el(3, "Type", 1);
       out.el(3, "IsNull", 0);
       out.el(3, "MaxUnits", 1);
+      out.el(3, "CalendarUID", resId.get(r.uid) + 1); // kalender resource (writeCalendar), F4 A
       out.line(2, "</Resource>");
     }
     out.line(1, "</Resources>");
@@ -612,7 +761,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   // #335, MS Project 2010+ mengabaikan gaya lama saat impor — belum kami verifikasi sendiri; MPXJ membaca <Exceptions>
   // lebih dulu dan memakai DayType 0 hanya bila blok itu kosong, jadi tidak ganda). Rentang [mulai − 7, selesai + 31] atas semua task; > SPAN_MAX hari → SPAN_MAX hari yang digeser
   // mendekati D − HALF_SPAN (tidak keluar dari rentang task).
-  function writeCalendar(out, c, ents, D) {
+  function writeCalendar(out, c, ents, D, res, resId) {
     let lo = Infinity;
     let hi = -Infinity;
     for (const e of ents) {
@@ -652,6 +801,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     out.el(3, "UID", 1);
     out.el(3, "Name", CAL_NAME);
     out.el(3, "IsBaseCalendar", 1);
+    out.el(3, "IsBaselineCalendar", 0);
     out.el(3, "BaseCalendarUID", -1);
     out.line(3, "<WeekDays>");
     for (let dt = 1; dt <= 7; dt++) {
@@ -689,6 +839,20 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
       out.line(3, "</Exceptions>");
     }
     out.line(2, "</Calendar>");
+    // Kalender resource (uji pemilik F4 A): tanpa CalendarUID MS Project memberi resource kalender turunan "Standard"
+    // bawaannya (tanpa libur kita) → Work/Units tidak muat di tanggal task (dialog "resource is assigned outside the
+    // original dates", Units diturunkan). Bentuk = keluaran MSPDIWriter MPXJ untuk kalender resource turunan: UID resource
+    // + 1 (unik, sesudah UID 1, deterministik), Name = nama resource, IsBaseCalendar 0, BaseCalendarUID 1, tanpa WeekDays
+    // (semua hari ikut kalender dasar, termasuk pengecualian libur).
+    for (const r of res) {
+      out.line(2, "<Calendar>");
+      out.el(3, "UID", resId.get(r.uid) + 1);
+      out.el(3, "Name", esc(clip(r.name)));
+      out.el(3, "IsBaseCalendar", 0);
+      out.el(3, "IsBaselineCalendar", 0);
+      out.el(3, "BaseCalendarUID", 1);
+      out.line(2, "</Calendar>");
+    }
     out.line(1, "</Calendars>");
   }
 
@@ -713,7 +877,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     out.el(3, "Start", fmtPt(e.s));
     out.el(3, "Finish", fmtPt(e.f));
     out.el(3, "Duration", dur);
-    out.el(3, "DurationFormat", DUR_FORMAT);
+    out.el(3, "DurationFormat", e.unscheduled ? DUR_FORMAT_EST : DUR_FORMAT);
     if (e.work !== undefined) out.el(3, "Work", fmtWork(e.work));
     out.el(3, "EffortDriven", 0);
     out.el(3, "Estimated", e.unscheduled ? 1 : 0);

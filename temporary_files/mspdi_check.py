@@ -202,6 +202,54 @@ def xsd_order_checks(root):
     check(not errors, f"{counted[0]} elemen diperiksa, {len(errors)} pelanggaran urutan/nama")
 
 
+def resource_calendar_checks(project, root, label=""):
+    """Uji pemilik F4 A: setiap resource memakai kalender resource (turunan kalender UID 1) dan, untuk setiap assignment,
+    Units × waktu kerja kalender RESOURCE antara Start dan Finish ≈ Work (±1 menit). Resource tanpa kalender dinilai
+    seperti MS Project: kalender turunan "Standard" bawaannya (Sen–Jum 08–12/13–17 tanpa libur berkas) — itu yang
+    memicu dialog "resource is assigned outside the original dates" (Units diturunkan). Juga: 24/12 libur di kalender
+    resource bila kalender UID 1 meliburkannya (dan setiap hari pengecualian UID 1 sama di kalender resource). Mengembalikan
+    daftar pelanggaran."""
+    from java.time import LocalDate
+    from org.mpxj import ProjectFile, TimeUnit
+
+    std = ProjectFile().addDefaultBaseCalendar()  # "Standard" MS Project: Sen–Jum, tanpa pengecualian
+    props = project.getProjectProperties()
+    base = project.getDefaultCalendar()
+    bad, rows = [], []
+    for r in project.getResources():
+        if r.getUniqueID() is None or int(r.getUniqueID()) == 0:
+            continue
+        rc = r.getCalendar()
+        if rc is None:
+            bad.append((str(r.getName()), "tanpa kalender resource"))
+        elif rc.getParent() is None or int(rc.getParent().getUniqueID()) != int(base.getUniqueID()):
+            bad.append((str(r.getName()), "kalender resource bukan turunan kalender UID 1"))
+        else:
+            # Setiap hari pengecualian kalender UID 1 (libur SKB, libur tambahan, hari kerja pengganti) berlaku sama di kalender
+            # resource (turunan) — termasuk 24/12 bila ada di rentang berkas.
+            for ex in base.getCalendarExceptions():
+                d = ex.getFromDate()
+                while not d.isAfter(ex.getToDate()):
+                    if bool(rc.isWorkingDate(d)) != bool(base.isWorkingDate(d)):
+                        bad.append((str(r.getName()), f"kalender resource ≠ kalender UID 1 pada {d}"))
+                    d = d.plusDays(1)
+            if not bool(base.isWorkingDate(LocalDate.of(2026, 12, 24))) and bool(rc.isWorkingDate(LocalDate.of(2026, 12, 24))):
+                bad.append((str(r.getName()), "kalender resource: 24/12 hari kerja"))
+    for a in project.getResourceAssignments():
+        res = a.getResource()
+        rc = res.getCalendar() if res is not None and res.getCalendar() is not None else std
+        mins = float(rc.getWork(a.getStart(), a.getFinish(), TimeUnit.MINUTES).getDuration())
+        work = float(a.getWork().convertUnits(TimeUnit.MINUTES, props).getDuration())
+        units = float(a.getUnits()) / 100.0
+        rows.append((str(a.getTask().getName()), str(res.getName()), round(units, 4), mins, work))
+        if abs(units * mins - work) > 1:
+            bad.append((str(a.getTask().getName()), str(res.getName()), f"Units {units:.4f} × {mins:.0f} menit = {units * mins:.1f} ≠ Work {work:.0f}"))
+    for row in rows:
+        print(f"    {label}{row[0]:<22} {row[1]:<8} units {row[2]:<7} × kerja kalender resource {row[3]:>6.0f} menit ≈ Work {row[4]:>5.0f}")
+    check(not bad, f"F4 A: {len(rows)} assignment — Units × waktu kerja kalender resource (Start..Finish) ≈ Work ±1 menit; kalender resource turunan UID 1 dengan pengecualian sama (24/12 libur) {bad[:4]}")
+    return bad
+
+
 def mpxj_checks(root, data):
     import jpype
 
@@ -315,7 +363,8 @@ def mpxj_checks(root, data):
             eng_bad.append((name, kind, got, (es, ef)))
     check(not eng_bad, f"start/finish MPXJ = es/ef mesin untuk {len(data['engine'])} simpul {eng_bad}")
     rk = data["engine"]["Rilis"]
-    check(bool(by["Rilis"].getMilestone()) and dt(by["Rilis"].getStart()) == dt(by["Rilis"].getFinish()) == rk[0] + "T08:00" and str(by["Rilis"].getConstraintType().name()) == "MUST_START_ON", f"milestone Rilis (FF) di es mesin {rk[0]}, MSO")
+    check(bool(by["Rilis"].getMilestone()) and dt(by["Rilis"].getStart()) == dt(by["Rilis"].getFinish()) == rk[0] + "T17:00" and str(by["Rilis"].getConstraintType().name()) == "AS_SOON_AS_POSSIBLE", f"milestone Rilis (FF 0) di es mesin {rk[0]} jam 17:00 (hitungan MS Project), tanpa kendala (F4 B)")
+    check(not [t for t in project.getTasks() if t.getConstraintType() is not None and str(t.getConstraintType().name()) == "MUST_START_ON"], "tanpa MSO (F4 B: tanpa konflik kendala)")
     check(dt(by["Desain"].getActualStart()) == "2026-11-02T08:00" and by["Desain"].getActualFinish() is None and str(by["Desain"].getConstraintType().name()) == "START_NO_EARLIER_THAN", "berjalan (progress 40): ActualStart, tanpa ActualFinish")
     check(dt(by["Survei"].getActualStart()) == "2026-11-02T08:00" and dt(by["Survei"].getActualFinish()) == "2026-11-04T17:00" and days(by["Survei"].getDuration()) == 3, "selesai: ActualStart/ActualFinish = es/ef mesin (completed_at 4 Nov 10:00Z = 4 Nov WIB), durasi 3 hari")
     check(str(by["Lembur Sabtu"].getConstraintType().name()) == "START_NO_EARLIER_THAN" and dt(by["Lembur Sabtu"].getConstraintDate()) == "2026-11-20T08:00", "akar Otomatis: SNET di es mesin")
@@ -326,7 +375,9 @@ def mpxj_checks(root, data):
     check(str(by["Riset"].getTaskMode().name()) == "MANUALLY_SCHEDULED" and str(by["Riset"].getConstraintType().name()) == "START_NO_EARLIER_THAN" and dt(by["Riset"].getConstraintDate()) == "2026-11-03T08:00", "R8: Manual + SNET di mulai tersimpan")
     check(str(by["Bangun"].getTaskMode().name()) == "AUTO_SCHEDULED", "task Otomatis = AUTO_SCHEDULED")
     u = by["Belum dijadwalkan"]
-    check(bool(u.getEstimated()) and str(u.getTaskMode().name()) == "MANUALLY_SCHEDULED" and dt(u.getStart()) == "2026-11-10T08:00" and days(u.getDuration()) == 1, "tanpa jadwal: perkiraan, Manual, mulai D, 1 hari")
+    xu = next(t for t in xml_tasks(root) if tv(t, "Name") == "Belum dijadwalkan")
+    check(bool(u.getEstimated()) and str(u.getTaskMode().name()) == "AUTO_SCHEDULED" and dt(u.getStart()) == "2026-11-10T08:00" and days(u.getDuration()) == 1
+          and tv(xu, "DurationFormat") == "39" and str(u.getConstraintType().name()) == "START_NO_EARLIER_THAN", "tanpa jadwal: Otomatis + perkiraan (DurationFormat 39 \"1 hari?\"), mulai D, 1 hari, SNET (F4 C)")
     rel = {str(t.getName()): [(str(r.getPredecessorTask().getName()), str(r.getType().name()), days(r.getLag())) for r in t.getPredecessors()] for t in project.getTasks()}
     check(rel["Bangun"] == [("Desain", "FINISH_START", 1.0)], f"FS lag 1 hari ({rel['Bangun']})")
     check(rel["Uji"] == [("Bangun", "START_START", 2.0)], f"SS lag 2 hari ({rel['Uji']})")
@@ -364,6 +415,7 @@ def mpxj_checks(root, data):
     check(ad["Desain"] == ("Sari", 100.0, 4.17), f"Desain: Sari 4 🍅 = 100 menit, units 4,17 % ({ad['Desain']})")
     check(ad["Bangun"] == ("Budi", 150.0, 10.42), f"Bangun: Budi 6 🍅 = 150 menit / 3 hari ({ad['Bangun']})")
     check("Rilis" not in ad and "Belum dijadwalkan" not in ad and "Natal" not in ad, "milestone / tanpa jadwal / tanpa penanggung jawab → tanpa assignment")
+    resource_calendar_checks(project, root)
     jpype.shutdownJVM()
 
 
@@ -494,6 +546,9 @@ def file_mpxj_dump(path, root):
         arows.append([str(a.getTask().getName()), int(tuid), str(a.getResource().getName()), got[0], got[1]])
     check(not abad, f"work/units assignment MPXJ = XML {abad[:5]}")
     out["assignments"] = sorted(arows)
+    out["resourceCalendarBad"] = [list(map(str, b)) for b in resource_calendar_checks(project, root)]
+    out["mso"] = [str(t.getName()) for t in project.getTasks() if t.getConstraintType() is not None and str(t.getConstraintType().name()) == "MUST_START_ON"]
+    check(not out["mso"], f"tanpa MSO (F4 B) {out['mso']}")
     return out
 
 
