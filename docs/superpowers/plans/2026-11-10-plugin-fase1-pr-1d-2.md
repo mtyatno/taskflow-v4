@@ -25,6 +25,8 @@ Fitur ini menutup Fase 1. Tidak ada tulisan data baru: EV dan ekspor hanya memba
 
 Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 tetap berlaku. Keputusan pemilik P1–P2 ada di akhir dokumen ini.
 
+**Keputusan pemilik (2026-11-10 13.58 WIB): P1 (a) — teks whatsnew v502 disetujui apa adanya; P2 (a) — host memberi nama workspace (`listName`) ke konteks Timeline untuk nama berkas/judul ekspor.**
+
 **Basis kode:** `main` @ `6182810` (setelah #130 1d-1).
 - SW `taskflow-v501-beban-tim`, `app.css?v=384`, IndexedDB v7.
 - `index.html` 46.236 baris, `plugin-runtime.js` 1.704 baris, ADR terakhir ADR-049.
