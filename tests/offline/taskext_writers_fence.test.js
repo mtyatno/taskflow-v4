@@ -157,6 +157,7 @@ const AUDIT = [
   { file: "static/index.html", pat: "P_MUTATE", n: 1, cat: "rev+1", reason: "applyMovedTasksLocal (pindah workspace): nilai server + rev+1 (R9, tanpa ubah index.html)" },
   { file: "static/index.html", pat: "P_TX_DYN", n: 1, cat: "none", reason: "OfflineDB.tr(store, mode): DB cache lama 'taskflow-offline', bukan IndexedDB TF" },
   { file: "static/index.html", pat: "REV", n: 2, tasks: 1, cat: "rev+1", reason: "applyMovedTasksLocal (task); 1 sisanya mindmap" },
+  { file: "static/offline/checklist.js", pat: "P_MUTATE", n: 1, cat: "same-rev", reason: "adoptTaskProgress (checklist bertingkat, ADR-048): progress/checklist_total turunan server dari task_progress; rev, dirty, base_rev, updated_at, penanda tidak disentuh (pola adoptTaskDerived; server mengabaikan progress selama ada checklist, D3)" },
   { file: "static/offline/commentrepo.js", pat: "P_GENERIC", n: 2, cat: "none", reason: "mutate() lokal pembantu komentar (bukan TFdb.mutate; store komentar)" },
   { file: "static/offline/commentrepo.js", pat: "P_TX_DYN", n: 1, cat: "none", reason: "storeOp(store, mode): hanya store komentar (STORE) dan baca scratchpad_notes; tidak pernah tasks" },
   { file: "static/offline/db.js", pat: "P_GENERIC", n: 1, cat: "none", reason: "definisi TFdb.mutate generik (bukan penulis)" },

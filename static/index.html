@@ -99,7 +99,7 @@
   </script>
   <script src="/static/vendor/milkdown.bundle.js?v=289"></script>
   <link href="/static/vendor/tailwind.min.css" rel="stylesheet">
-  <link rel="stylesheet" href="/static/app.css?v=384">
+  <link rel="stylesheet" href="/static/app.css?v=385">
   <link rel="stylesheet" href="/static/themes.css?v=2">
 
 <style>
@@ -267,7 +267,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v501-beban-tim";
+    window.__SW_VERSION = "taskflow-v502-checklist-bertingkat";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -317,6 +317,7 @@
   <script src="/static/offline/tasklogic.js"></script>
   <script src="/static/offline/focusfilter.js"></script>
   <script src="/static/offline/taskdetail.js"></script>
+  <script src="/static/offline/checklist.js"></script>
   <script src="/static/offline/tagrepo.js"></script>
   <script src="/static/offline/taskrepo.js"></script>
   <script src="/static/offline/taskquery.js"></script>
@@ -6120,6 +6121,9 @@ function TaskFormModal({
   showToast
 }) {
   const isEdit = !!task?.id;
+  // Kunci Progress (checklist bertingkat K2, spec §6.5): task dengan checklist level atas → slider nonaktif dan progress
+  // tidak dikirim saat simpan (server toh mengabaikannya, D3; tanpa progress PUT tidak membawa angka basi).
+  const progressLocked = isEdit && Number(task?.checklist_total) > 0;
   const [form, setForm] = useState({
     title: task?.title || "",
     description: task?.description || "",
@@ -7086,10 +7090,12 @@ function TaskFormModal({
     };
     try {
       if (isEdit) {
-        await api.put(`/api/tasks/${task.id}`, {
+        const body = {
           ...form,
           ...recurrencePayload
-        });
+        };
+        if (progressLocked) delete body.progress;
+        await api.put(`/api/tasks/${task.id}`, body);
         onSave();
       } else {
         const newTask = await api.post("/api/tasks", {
@@ -7975,12 +7981,19 @@ function TaskFormModal({
       fontWeight: 700,
       color: form.progress === 100 ? "#22c55e" : "var(--accent)"
     }
-  }, form.progress, "%")), /*#__PURE__*/React.createElement("input", {
+  }, form.progress, "%")), progressLocked && /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 12,
+      color: "var(--text-light)",
+      marginBottom: 4
+    }
+  }, "Otomatis dari checklist"), /*#__PURE__*/React.createElement("input", {
     type: "range",
     min: "0",
     max: "100",
-    step: "5",
+    step: progressLocked ? "1" : "5",
     value: form.progress,
+    disabled: progressLocked,
     onChange: e => set("progress", parseInt(e.target.value)),
     style: {
       width: "100%",
@@ -8774,7 +8787,8 @@ function useTaskAutosave(task, enabled, { onSaved, getTags } = {}) {
     commit: saver.commit,
     revertTitle: saver.revertTitle,
     retry: saver.retry,
-    flush: saver.flush
+    flush: saver.flush,
+    external: saver.external
   };
 }
 // Live Edit (spec §7.5): indikator simpan di baris judul panel. Kosong sebelum ada edit; "Tersimpan" hilang 2 dtk
@@ -8905,9 +8919,10 @@ function DetailPopover({
     document.addEventListener("focusin", onFocusIn, true);
     window.addEventListener("scroll", schedule, true);
     window.addEventListener("resize", schedule);
-    // Fokus ke elemen pertama bila belum ada di dalam (autoFocus milik isi popover didahulukan).
+    // Fokus ke elemen pertama yang bisa dipakai bila belum ada di dalam (autoFocus milik isi popover didahulukan;
+    // slider Progress yang terkunci dilewati sehingga "Buka Checklist" terfokus).
     if (el && !el.contains(document.activeElement)) {
-      const first = el.querySelector("input, button");
+      const first = el.querySelector("input:not([disabled]), button:not([disabled])");
       if (first) first.focus({ preventScroll: true });
     }
     focusInsideRef.current = !!(el && el.contains(document.activeElement));
@@ -9071,7 +9086,7 @@ function DetailTopBar({
   }), "Hapus"))), headerAction));
 }
 // Chip di bawah judul (spec §4.3): kuadran dan "Terlambat" dihitung dari nilai form saat ini (bukan prop task yang
-// bisa basi), lalu pill progress.
+// bisa basi), lalu pill progress (terkunci selama task punya checklist: locked = TF.checklist.lockFor).
 function DetailChips({
   priority,
   deadline,
@@ -9082,7 +9097,9 @@ function DetailChips({
   onProgressToggle,
   onProgressClose,
   onProgressChange,
-  onProgressCommit
+  onProgressCommit,
+  locked = null,
+  onOpenChecklist
 }) {
   const quadrant = window.TF.tasklogic.calculateQuadrant({ priority, deadline }, todayISO);
   const late = window.TF.taskdetail.isOverdue(deadline, status, todayISO);
@@ -9100,30 +9117,43 @@ function DetailChips({
     onToggle: onProgressToggle,
     onClose: onProgressClose,
     onChange: onProgressChange,
-    onCommit: onProgressCommit
+    onCommit: onProgressCommit,
+    locked: locked,
+    onOpenChecklist: onOpenChecklist
   }));
 }
 // Pill progress + popover "Ubah Progress": slider 0–100 langkah 5 (onChange saat geser, onCommit saat lepas / keyup /
 // blur) dan preset 0/25/50/75/100% (onChange + onCommit). Menutup popover juga commit (di TaskDetailBody).
+// Terkunci (checklist bertingkat K2, spec §6.5; locked = {done, total, percent} | {pending: true} | null): angka
+// checklist apa adanya (bukan kelipatan 5 clampProgress), slider nonaktif, preset tidak dirender, keterangan
+// "Otomatis dari checklist (d/t)" (tanpa d/t selama hitungan belum dimuat) dan tombol "Buka Checklist".
 function ProgressPill({
   value,
   open,
   onToggle,
   onClose,
   onChange,
-  onCommit
+  onCommit,
+  locked = null,
+  onOpenChecklist
 }) {
   const pillRef = useRef(null);
-  const v = window.TF.taskdetail.clampProgress(value);
+  const v = locked ? locked.pending ? Math.max(0, Math.min(100, Math.round(Number(value) || 0))) : locked.percent : window.TF.taskdetail.clampProgress(value);
   const full = v >= 100;
+  const slide = locked ? {} : {
+    onChange: e => onChange(window.TF.taskdetail.clampProgress(e.target.value)),
+    onPointerUp: () => onCommit(),
+    onKeyUp: () => onCommit(),
+    onBlur: () => onCommit()
+  };
   return /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("button", {
     type: "button",
     ref: pillRef,
     className: "td-pill" + (full ? " is-full" : ""),
     "aria-haspopup": "dialog",
     "aria-expanded": open,
-    "aria-label": "Progress " + v + "%",
-    title: "Ubah Progress",
+    "aria-label": "Progress " + v + "%" + (locked ? ", otomatis dari checklist" : ""),
+    title: locked ? "Otomatis dari checklist" : "Ubah Progress",
     onClick: onToggle
   }, /*#__PURE__*/React.createElement("span", {
     className: "td-pill-bar",
@@ -9137,25 +9167,31 @@ function ProgressPill({
     anchorRef: pillRef,
     open: open,
     onClose: onClose,
-    label: "Ubah Progress",
+    label: locked ? "Progress" : "Ubah Progress",
     className: "td-progress-pop"
   }, /*#__PURE__*/React.createElement("div", {
     className: "td-pop-title"
-  }, /*#__PURE__*/React.createElement("span", null, "Ubah Progress"), /*#__PURE__*/React.createElement("span", {
+  }, /*#__PURE__*/React.createElement("span", null, locked ? "Progress" : "Ubah Progress"), /*#__PURE__*/React.createElement("span", {
     className: "td-pop-value" + (full ? " is-full" : "")
   }, v + "%")), /*#__PURE__*/React.createElement("input", {
     type: "range",
     className: "td-range" + (full ? " is-full" : ""),
     min: 0,
     max: 100,
-    step: 5,
+    step: locked ? 1 : 5,
     value: v,
+    disabled: !!locked,
     "aria-label": "Progress",
-    onChange: e => onChange(window.TF.taskdetail.clampProgress(e.target.value)),
-    onPointerUp: () => onCommit(),
-    onKeyUp: () => onCommit(),
-    onBlur: () => onCommit()
-  }), /*#__PURE__*/React.createElement("div", {
+    ...slide
+  }), locked ? /*#__PURE__*/React.createElement("div", {
+    className: "td-progress-lock"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "td-progress-note"
+  }, locked.pending ? "Otomatis dari checklist" : "Otomatis dari checklist (" + locked.done + "/" + locked.total + ")"), /*#__PURE__*/React.createElement("button", {
+    type: "button",
+    className: "td-btn",
+    onClick: onOpenChecklist
+  }, "Buka Checklist")) : /*#__PURE__*/React.createElement("div", {
     className: "td-presets"
   }, window.TF.taskdetail.PROGRESS_PRESETS.map(p => /*#__PURE__*/React.createElement("button", {
     key: p,
@@ -9688,38 +9724,918 @@ function SubtaskRow({
     size: 15
   })));
 }
-// Baris butir checklist (spec §4.6): kotak centang + judul + tombol hapus (tampil saat hover; selalu di perangkat
-// tanpa hover, lewat CSS).
-function ChecklistRow({
-  item,
-  onToggle,
-  onDelete
+// Glyph checklist bertingkat (rencana PR B R4): SVG inline seperti FocusGlyph, karena ui-components.js (Icon) bisa
+// tertahan di cache lama. grip = enam titik (pegangan seret ⠿), more = tiga titik (menu butir ⋯), chevron = lipat.
+function ChecklistGlyph({
+  name,
+  size = 16
 }) {
-  const done = !!item.is_done;
-  return /*#__PURE__*/React.createElement("div", {
-    className: "td-check-row" + (done ? " is-done" : "")
-  }, /*#__PURE__*/React.createElement("button", {
+  const paths = {
+    grip: '<g fill="currentColor" stroke="none"><circle cx="9" cy="5.5" r="1.6"/><circle cx="15" cy="5.5" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18.5" r="1.6"/><circle cx="15" cy="18.5" r="1.6"/></g>',
+    more: '<g fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></g>',
+    chevronRight: '<path d="m9 18 6-6-6-6"/>',
+    chevronDown: '<path d="m6 9 6 6 6-6"/>'
+  };
+  return React.createElement("svg", {
+    width: size,
+    height: size,
+    viewBox: "0 0 24 24",
+    fill: "none",
+    stroke: "currentColor",
+    strokeWidth: 2,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+    "aria-hidden": "true",
+    focusable: "false",
+    dangerouslySetInnerHTML: { __html: paths[name] || "" }
+  });
+}
+// Checklist bertingkat (spec checklist-bertingkat §6–§7, rencana PR B R3): satu komponen untuk detail task (modal +
+// panel Live Edit, variant "detail") dan halaman Fokus (variant "focus"). Logika pohon murni di TF.checklist; di sini
+// state, antrean mutasi, dan tampilan. Pemanggil memberi key = id task (id cid → id server memasang ulang).
+// - Memuat GET /api/tasks/{id}/subtasks sendiri; onCounts({done, total, loaded: true}) level atas sesudah muat pertama,
+//   lalu setiap hitungan berubah. Muat pertama gagal → {done: 0, total: 0, loaded: true, failed: true} (pill tetap
+//   terkunci bila task bercheklist, lockFor). Muat berkala yang mendarat saat sibuk dibuang.
+// - Satu antrean mutasi berurutan (D9): pindah dan ubah teks tampil langsung (optimistis), tambah/centang/hapus menunggu
+//   respons. Galat apa pun → toast §6.7, sisa antrean dibuang, daftar kembali ke versi terakhir yang dikenal server lalu
+//   dimuat ulang. Setiap task_progress → TF.checklist.adoptTaskProgress (record task lokal tanpa dirty/rev); onProgress(tp)
+//   (§7.8) hanya bila {done, total, progress} berbeda dari nilai terakhir yang diketahui (awal: task.progress /
+//   task.checklist_total + hitungan muat), jadi ubah teks, centang sub butir, atau pindah tanpa perubahan level atas tidak
+//   memuat ulang daftar task.
+// - autoRefreshMs (Fokus) memuat ulang berkala, dilewati selama sibuk (seret, kotak isian berisi teks, menu terbuka,
+//   antrean belum kosong).
+// - Task belum tersinkron (id bukan angka): daftar kosong, tanpa GET dan tanpa /api/subtasks/*.
+// - Kotak tambah bawah dirender pemanggil lewat renderAdd(add) (teks persis milik pemanggil); add = {text, setText,
+//   depth, open, setOpen, busy, onKeyDown, onBlur, submit, style}. Tab/Shift+Tab mengubah depth (0..maxAddDepth) dan
+//   hanya ditangkap bila depth benar-benar berubah, supaya fokus tetap bisa keluar dari kotak (K14).
+function ChecklistTree({
+  taskId,
+  task = null,
+  collaborators = [],
+  variant = "detail",
+  autoRefreshMs = 0,
+  onCounts,
+  onProgress,
+  renderAdd
+}) {
+  const C = window.TF.checklist;
+  const synced = /^\d+$/.test(String(taskId));
+  const listUrl = `/api/tasks/${taskId}/subtasks`;
+  const storage = () => {
+    let s = null;
+    try {
+      s = window.localStorage;
+    } catch (_) {}
+    return s;
+  };
+  const [items, setItemsState] = useState([]);
+  const [loadState, setLoadState] = useState(synced ? "loading" : "ok"); // "loading" | "ok" | "failed" (muat pertama gagal)
+  const loaded = loadState !== "loading";
+  const [collapsed, setCollapsedState] = useState(() => C.loadCollapsed(storage()));
+  const [addText, setAddText] = useState("");
+  const [addDepth, setAddDepth] = useState(0);
+  const [addOpen, setAddOpen] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [editing, setEditing] = useState(null); // {id, text}: kotak ubah teks terbuka
+  const [menuFor, setMenuFor] = useState(null); // id butir yang menu ⋯-nya terbuka
+  const [subAdd, setSubAdd] = useState(null); // {id, text, busy}: kotak "Tambah sub butir"
+  const [announce, setAnnounce] = useState("");
+  const [drag, setDrag] = useState(null); // {id, gap, depth, lineTop}: seret ⠿ yang sedang berjalan
+  const itemsRef = useRef(items);
+  const confirmedRef = useRef([]); // daftar terakhir yang dikenal server (tanpa perubahan optimistis)
+  const collapsedRef = useRef(collapsed);
+  const aliveRef = useRef(true);
+  const queueRef = useRef(Promise.resolve());
+  const epochRef = useRef(0);
+  const pendingRef = useRef(0);
+  const mutSeqRef = useRef(0);
+  const loadSeqRef = useRef(0);
+  const countsRef = useRef(null);
+  // task_progress terakhir yang diketahui; onProgress hanya bila respons berbeda darinya.
+  const knownTpRef = useRef(null);
+  if (knownTpRef.current === null) knownTpRef.current = {
+    done: null,
+    total: task && task.checklist_total != null ? Number(task.checklist_total) : null,
+    progress: task && task.progress != null ? Number(task.progress) : null
+  };
+  const toggleBusyRef = useRef(new Set());
+  const addClientIdRef = useRef(null);
+  if (addClientIdRef.current === null) addClientIdRef.current = genId();
+  const subClientIdRef = useRef(null);
+  const editRef = useRef(null);
+  const subAddRef = useRef(null);
+  subAddRef.current = subAdd;
+  const menuAnchorRef = useRef(null);
+  const pendingFocusRef = useRef(null); // {id, part}: fokus dikembalikan ke bagian baris ini setelah render
+  const suppressBlurRef = useRef(false); // kotak ubah teks dipasang ulang karena pindah: blur bukan "selesai"
+  const dragRef = useRef(null);
+  const cbRef = useRef(null);
+  cbRef.current = { onCounts, onProgress };
+  const busyRef = useRef(null);
+  const bodyRef = useRef(null);
+  // Perubahan lokal (optimistis atau hasil respons) menaikkan mutSeq, sehingga muat berkala yang dimulai sebelumnya
+  // tidak menimpanya.
+  const setItems = next => {
+    itemsRef.current = next;
+    mutSeqRef.current += 1;
+    setItemsState(next);
+  };
+  const setEdit = next => {
+    editRef.current = next;
+    setEditing(next);
+  };
+  const load = force => {
+    if (!synced) return Promise.resolve();
+    const seq = ++loadSeqRef.current;
+    const mut = mutSeqRef.current;
+    return api.get(listUrl).then(data => {
+      // Muat bukan paksa (berkala) dibuang bila daftar berubah lokal sejak dimulai atau komponen sedang sibuk (seret,
+      // kotak isian berisi teks, menu terbuka, antrean belum kosong); muat berikutnya menyusul.
+      if (!aliveRef.current || seq !== loadSeqRef.current || !force && (mut !== mutSeqRef.current || busyRef.current())) return;
+      const list = C.preorder(Array.isArray(data) ? data : []);
+      confirmedRef.current = list;
+      itemsRef.current = list;
+      const c = C.topLevelCounts(list);
+      knownTpRef.current = Object.assign({}, knownTpRef.current, {
+        done: c.done,
+        total: c.total
+      });
+      setItemsState(list);
+      setLoadState("ok");
+    }, () => {
+      if (aliveRef.current) setLoadState(st => st === "ok" ? st : "failed");
+    });
+  };
+  const enqueue = (run, failText) => {
+    const epoch = epochRef.current;
+    pendingRef.current += 1;
+    const p = queueRef.current.then(() => epochRef.current === epoch ? run() : undefined).catch(err => {
+      if (epochRef.current !== epoch) return undefined;
+      epochRef.current += 1;
+      console.error(err);
+      window.__showToast?.(failText, "error");
+      if (aliveRef.current) setItems(confirmedRef.current);
+      return load(true);
+    }).then(() => {
+      pendingRef.current -= 1;
+    });
+    queueRef.current = p;
+    return p;
+  };
+  const adopt = resp => {
+    const tp = resp && resp.task_progress;
+    if (!tp) return;
+    const sid = task && task.server_id != null ? task.server_id : taskId;
+    const k = knownTpRef.current;
+    const changed = k.done !== tp.done || k.total !== tp.total || k.progress !== tp.progress;
+    knownTpRef.current = {
+      done: tp.done,
+      total: tp.total,
+      progress: tp.progress
+    };
+    C.adoptTaskProgress(sid, tp).then(() => {
+      if (changed) cbRef.current.onProgress?.(tp);
+    });
+  };
+  // Perubahan yang sudah diterima server: ke daftar server dan ke tampilan.
+  const applyServer = fn => {
+    confirmedRef.current = fn(confirmedRef.current);
+    setItems(fn(itemsRef.current));
+  };
+  const itemOf = resp => {
+    const it = Object.assign({}, resp);
+    delete it.task_progress;
+    delete it.changed_ids;
+    return it;
+  };
+  // Butir baru = saudara terakhir (server menomori ulang saudaranya 0..n−1 dan memberi butir baru n).
+  const withAdded = (list, it) => {
+    const flat = C.preorder(list);
+    if (flat.some(r => r.id === it.id)) return C.preorder(flat.map(r => r.id === it.id ? Object.assign({}, r, it) : r));
+    const parent = it.parent_id == null ? null : it.parent_id;
+    const sibs = flat.filter(r => r.parent_id === parent);
+    const order = new Map(sibs.map((r, i) => [r.id, i]));
+    const next = flat.map(r => order.has(r.id) ? Object.assign({}, r, { sort_order: order.get(r.id) }) : r);
+    next.push(Object.assign({}, it, { parent_id: parent, sort_order: sibs.length }));
+    return C.preorder(next);
+  };
+  const setCollapsed = next => {
+    const saved = new Set(C.saveCollapsed(storage(), next));
+    collapsedRef.current = saved;
+    setCollapsedState(saved);
+  };
+  // Status lipat dibaca ulang dari penyimpanan sebelum diubah: instans lain (modal dan kartu Fokus) bisa sudah melipat /
+  // membuka butir lain sejak komponen ini dimuat. Penyimpanan tidak terbaca → keadaan instans ini.
+  const freshCollapsed = () => {
+    const st = storage();
+    try {
+      if (st) {
+        st.getItem(C.COLLAPSE_KEY);
+        return C.loadCollapsed(st);
+      }
+    } catch (_) {}
+    return new Set(collapsedRef.current);
+  };
+  // fold = keadaan yang diminta tombol (lipat / buka). Lipat terakhir = paling baru (yang tertua dibuang lebih dulu).
+  const toggleFold = (id, fold) => {
+    const next = freshCollapsed();
+    next.delete(id);
+    if (fold) next.add(id);
+    setCollapsed(next);
+  };
+  // Buka butir dan seluruh leluhurnya (butir baru / tujuan pindah tidak boleh tersembunyi di bawah butir terlipat).
+  const expandChain = id => {
+    const byId = new Map(C.preorder(itemsRef.current).map(r => [r.id, r]));
+    const next = freshCollapsed();
+    let changed = false;
+    for (let cur = byId.get(id); cur; cur = cur.parent_id == null ? null : byId.get(cur.parent_id)) {
+      if (next.delete(cur.id)) changed = true;
+    }
+    if (changed) setCollapsed(next);
+  };
+  const toggle = id => {
+    if (!synced || toggleBusyRef.current.has(id)) return;
+    toggleBusyRef.current.add(id);
+    enqueue(() => api.post(`/api/subtasks/${id}/toggle`).then(resp => {
+      const ids = new Set(Array.isArray(resp.changed_ids) ? resp.changed_ids : []);
+      ids.add(resp.id != null ? resp.id : id);
+      const done = !!resp.is_done;
+      applyServer(list => list.map(r => ids.has(r.id) ? Object.assign({}, r, { is_done: done }) : r));
+      adopt(resp);
+    }), "Gagal mencentang butir").then(() => toggleBusyRef.current.delete(id));
+  };
+  // Pindah optimistis + antrean (keyboard, menu, seret). target = {parent_id, index} dari TF.checklist; null atau
+  // tujuan tidak sah (applyMove null) → tidak terjadi apa-apa. Fokus kembali ke bagian `part` baris yang sama setelah
+  // render (dicari menurut id, karena li bisa dipasang ulang di ul lain).
+  const moveItem = (id, target, part) => {
+    if (!synced || !target) return false;
+    const next = C.applyMove(itemsRef.current, id, target.parent_id, target.index);
+    if (!next) return false;
+    if (target.parent_id != null) expandChain(target.parent_id);
+    suppressBlurRef.current = true;
+    pendingFocusRef.current = {
+      id,
+      part
+    };
+    setItems(next);
+    const it = next.find(r => r.id === id);
+    const sibs = next.filter(r => r.parent_id === it.parent_id);
+    setAnnounce("«" + (it.title || "") + "» dipindah ke tingkat " + (it.depth + 1) + ", posisi " + (sibs.findIndex(r => r.id === id) + 1) + " dari " + sibs.length + ".");
+    enqueue(() => api.post(`/api/subtasks/${id}/move`, {
+      parent_id: target.parent_id,
+      index: target.index
+    }).then(resp => {
+      if (!resp || !Array.isArray(resp.items)) throw new Error("Respons pindah tidak sah");
+      const list = C.preorder(resp.items);
+      confirmedRef.current = list;
+      // Daftar server menggantikan tampilan hanya bila tidak ada perubahan lain yang masih menunggu.
+      if (pendingRef.current === 1) setItems(list);
+      adopt(resp);
+    }), "Gagal memindah butir");
+    return true;
+  };
+  // Simpan teks kotak ubah teks (optimistis; trim; sama atau kosong → tanpa permintaan, kosong kembali ke teks lama).
+  // keepOpen: kotak tetap terbuka (Tab/Shift+Tab, Alt+↑/↓).
+  const commitEdit = keepOpen => {
+    const ed = editRef.current;
+    if (!ed) return;
+    if (!keepOpen) setEdit(null);
+    const cur = itemsRef.current.find(r => r.id === ed.id);
+    const title = ed.text.trim();
+    if (!cur || !title || title === cur.title) return;
+    setItems(itemsRef.current.map(r => r.id === ed.id ? Object.assign({}, r, { title }) : r));
+    enqueue(() => api.patch(`/api/subtasks/${ed.id}`, {
+      title
+    }).then(resp => {
+      const saved = resp && typeof resp.title === "string" ? resp.title : title;
+      const put = list => list.map(r => r.id === ed.id ? Object.assign({}, r, { title: saved }) : r);
+      confirmedRef.current = put(confirmedRef.current);
+      if (pendingRef.current === 1) setItems(put(itemsRef.current));
+      adopt(resp);
+    }), "Gagal menyimpan teks butir");
+  };
+  const startEdit = id => {
+    const it = itemsRef.current.find(r => r.id === id);
+    if (!it || !synced) return;
+    if (editRef.current && editRef.current.id !== id) commitEdit(false);
+    setMenuFor(null);
+    pendingFocusRef.current = {
+      id,
+      part: "edit"
+    };
+    setEdit({
+      id,
+      text: it.title || ""
+    });
+  };
+  // Pindah dari keyboard: teks yang sedang diubah di baris itu disimpan dulu (bila berubah), kotak tetap terbuka.
+  const keyMove = (id, target, part) => {
+    if (!target) return;
+    if (editRef.current && editRef.current.id === id) commitEdit(true);
+    moveItem(id, target, part);
+  };
+  const onEditKey = (e, id) => {
+    if (e.nativeEvent && e.nativeEvent.isComposing) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      pendingFocusRef.current = {
+        id,
+        part: "text"
+      };
+      commitEdit(false);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      pendingFocusRef.current = {
+        id,
+        part: "text"
+      };
+      setEdit(null);
+    } else if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      // §7.2: di kotak ubah teks Tab/Shift+Tab selalu ditangkap, walau pindahnya tidak mungkin (keluar: Enter/Escape).
+      e.preventDefault();
+      keyMove(id, e.shiftKey ? C.outdentTarget(itemsRef.current, id) : C.indentTarget(itemsRef.current, id), "edit");
+    }
+  };
+  // Alt+↑/↓ di elemen mana pun dalam baris, termasuk kotak ubah teks (D11). Tab di luar kotak isian tidak ditangkap (K14).
+  const onRowKey = (e, id) => {
+    if (!e.altKey || e.ctrlKey || e.metaKey || e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+    e.preventDefault();
+    const part = e.target && e.target.getAttribute && e.target.getAttribute("data-check-part") || "check";
+    keyMove(id, C.siblingMoveTarget(itemsRef.current, id, e.key === "ArrowUp" ? -1 : 1), part);
+  };
+  // Hapus (K7, K13): butir dengan turunan dikonfirmasi; respons deleted_ids dibuang dari daftar.
+  const remove = id => {
+    const flat = itemsRef.current;
+    const it = flat.find(r => r.id === id);
+    if (!it || !synced) return;
+    const title = it.title || "";
+    const n = C.descendantIds(flat, id).length;
+    if (n > 0 && !window.confirm("Hapus «" + title + "» beserta " + n + " sub butir?")) return;
+    enqueue(() => api.del(`/api/subtasks/${id}`).then(resp => {
+      const gone = new Set(Array.isArray(resp && resp.deleted_ids) ? resp.deleted_ids : [id, ...C.descendantIds(itemsRef.current, id)]);
+      // Fokus yang hilang bersama baris pindah ke baris tampil berikutnya (atau sebelumnya).
+      const vis = C.visibleRows(itemsRef.current, collapsedRef.current);
+      const at = vis.findIndex(r => r.item.id === id);
+      const near = vis.slice(at + 1).find(r => !gone.has(r.item.id)) || vis.slice(0, Math.max(at, 0)).reverse().find(r => !gone.has(r.item.id));
+      if (near) pendingFocusRef.current = {
+        id: near.item.id,
+        part: "check"
+      };
+      applyServer(list => list.filter(r => !gone.has(r.id)));
+      adopt(resp);
+    }), "Gagal menghapus butir");
+  };
+  // Tambah butir di akhir saudara (tanpa index); true bila tersimpan.
+  const addItem = (title, parentId, clientId) => {
+    let ok = false;
+    return enqueue(() => api.post(listUrl, {
+      title,
+      client_id: clientId,
+      parent_id: parentId
+    }).then(resp => {
+      applyServer(list => withAdded(list, itemOf(resp)));
+      if (parentId != null) expandChain(parentId);
+      adopt(resp);
+      ok = true;
+    }), "Gagal menambah butir").then(() => ok);
+  };
+  const closeAdd = () => {
+    setAddOpen(false);
+    setAddText("");
+    setAddDepth(0);
+  };
+  const submitAdd = () => {
+    const title = addText.trim();
+    if (!title || addBusy) return;
+    const submitted = addText;
+    setAddBusy(true);
+    addItem(title, C.addParentFor(itemsRef.current, addDepth), addClientIdRef.current).then(ok => {
+      if (ok) {
+        addClientIdRef.current = genId();
+        // Ketikan baru selama menunggu tidak terhapus.
+        setAddText(t => t === submitted ? "" : t);
+      }
+      setAddBusy(false);
+    });
+  };
+  const onAddKey = e => {
+    if (e.nativeEvent && e.nativeEvent.isComposing) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitAdd();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeAdd();
+    } else if (e.key === "Tab" && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      const next = e.shiftKey ? Math.max(0, addDepth - 1) : Math.min(addDepth + 1, C.maxAddDepth(itemsRef.current));
+      if (next !== addDepth) {
+        e.preventDefault();
+        setAddDepth(next);
+      }
+    }
+  };
+  const add = {
+    text: addText,
+    setText: setAddText,
+    depth: addDepth,
+    open: addOpen,
+    setOpen: setAddOpen,
+    busy: addBusy,
+    onKeyDown: onAddKey,
+    onBlur: () => {
+      if (!addText.trim() && !addBusy) closeAdd();
+    },
+    submit: submitAdd,
+    style: {
+      "--td-depth": Math.min(addDepth, 6)
+    }
+  };
+  // "Tambah sub butir" (§7.3): kotak di bawah turunan terakhir butir itu; Enter = anak terakhir, kotak tetap terbuka;
+  // Escape atau blur saat kosong menutup; Tab tidak ditangkap.
+  const openSubAdd = id => {
+    setMenuFor(null);
+    expandChain(id);
+    subClientIdRef.current = genId();
+    setSubAdd({
+      id,
+      text: "",
+      busy: false
+    });
+  };
+  const submitSubAdd = () => {
+    const s = subAddRef.current;
+    if (!s || s.busy || !s.text.trim()) return;
+    const submitted = s.text;
+    setSubAdd(Object.assign({}, s, { busy: true }));
+    addItem(submitted.trim(), s.id, subClientIdRef.current).then(ok => {
+      if (ok) subClientIdRef.current = genId();
+      setSubAdd(cur => cur && cur.id === s.id ? Object.assign({}, cur, {
+        busy: false,
+        text: ok && cur.text === submitted ? "" : cur.text
+      }) : cur);
+    });
+  };
+  const onSubAddKey = e => {
+    if (e.nativeEvent && e.nativeEvent.isComposing) return;
+    if (e.key === "Enter") {
+      e.preventDefault();
+      submitSubAdd();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      const s = subAddRef.current;
+      if (s) pendingFocusRef.current = {
+        id: s.id,
+        part: "more"
+      };
+      setSubAdd(null);
+    }
+  };
+  // Seret ⠿ (§7.1, D7; pola seret pin sidebar): hanya dari pegangan; mouse mulai setelah bergeser ≥ 6 px, sentuh
+  // setelah tahan 250 ms tanpa bergeser (bergeser lebih dulu = gulir biasa). Saat mulai, baris tampil tanpa subtree
+  // yang diseret diukur sekali (offsetTop relatif .td-tree-body, tetap benar saat wadah digulir). Celah = posisi
+  // vertikal; tingkat = tingkat awal + round(dx / indentPx) dibatasi dropRange; garis penanda di celah. Wadah gulir
+  // terdekat digulir otomatis di tepi. Jatuh → dropTarget → pindah optimistis + antrean. Escape membatalkan;
+  // pointerup/pointercancel (juga pointerup yang hilang: tombol mouse sudah lepas) membongkar seret.
+  const scrollParentOf = node => {
+    for (let n = node; n && n !== document.body && n !== document.documentElement; n = n.parentElement) {
+      const oy = getComputedStyle(n).overflowY;
+      if ((oy === "auto" || oy === "scroll" || oy === "overlay") && n.scrollHeight > n.clientHeight) return n;
+    }
+    return document.scrollingElement || document.documentElement;
+  };
+  const onGripDown = (e, id) => {
+    if (!synced || dragRef.current) return;
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    const el = e.currentTarget;
+    const start = kanbanDragStart(e, Date.now());
+    const s = {
+      pointerId: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      began: false,
+      cancelled: false,
+      timer: null,
+      raf: 0,
+      body: null,
+      scroller: null,
+      indent: 20,
+      rows: [],
+      bands: [],
+      startDepth: 0,
+      gap: 0,
+      depth: 0
+    };
+    dragRef.current = s;
+    const preventMenu = ev => ev.preventDefault();
+    const update = () => {
+      const r = s.body.getBoundingClientRect();
+      const y = s.y - r.top + (s.scroller === s.body ? s.body.scrollTop : 0);
+      let gap = s.bands.length;
+      for (let i = 0; i < s.bands.length; i++) {
+        if (y < (s.bands[i].top + s.bands[i].bottom) / 2) {
+          gap = i;
+          break;
+        }
+      }
+      const range = C.dropRange(s.rows, gap);
+      const depth = Math.max(range.min, Math.min(s.startDepth + Math.round((s.x - start.x) / s.indent), range.max));
+      const lineTop = gap < s.bands.length ? s.bands[gap].top : s.bands.length ? s.bands[s.bands.length - 1].bottom : 0;
+      s.gap = gap;
+      s.depth = depth;
+      setDrag(d => d && d.id === id && d.gap === gap && d.depth === depth && d.lineTop === lineTop ? d : {
+        id,
+        gap,
+        depth,
+        lineTop
+      });
+    };
+    const tick = () => {
+      s.raf = 0;
+      if (!s.began || s.cancelled) return;
+      const box = s.scroller;
+      const doc = box === document.scrollingElement || box === document.documentElement;
+      const rect = doc ? {
+        top: 0,
+        bottom: window.innerHeight
+      } : box.getBoundingClientRect();
+      const d = C.autoScrollDelta(s.y, rect);
+      if (d) {
+        const before = box.scrollTop;
+        box.scrollTop = before + d;
+        if (box.scrollTop !== before) update();
+      }
+      s.raf = requestAnimationFrame(tick);
+    };
+    const begin = () => {
+      if (s.began || s.cancelled) return;
+      const body = bodyRef.current;
+      if (!body) return;
+      s.began = true;
+      s.body = body;
+      s.scroller = scrollParentOf(body);
+      s.indent = window.matchMedia && window.matchMedia("(max-width: 640px)").matches ? 16 : 20;
+      const cur = itemsRef.current;
+      const skip = new Set([id, ...C.descendantIds(cur, id)]);
+      s.rows = C.visibleRows(cur, collapsedRef.current).filter(r => !skip.has(r.item.id));
+      const els = new Map(Array.from(body.querySelectorAll("[data-check-row]")).map(n => [n.getAttribute("data-check-row"), n]));
+      s.bands = s.rows.map(r => {
+        const n = els.get(String(r.item.id));
+        return n ? {
+          top: n.offsetTop,
+          bottom: n.offsetTop + n.offsetHeight
+        } : {
+          top: 0,
+          bottom: 0
+        };
+      });
+      const me = C.preorder(cur).find(r => r.id === id);
+      s.startDepth = me ? me.depth : 0;
+      try {
+        el.setPointerCapture(s.pointerId);
+      } catch (_) {}
+      document.addEventListener("contextmenu", preventMenu);
+      setMenuFor(null);
+      update();
+      s.raf = requestAnimationFrame(tick);
+    };
+    const onMove = ev => {
+      if (ev.pointerId !== s.pointerId || s.cancelled) return;
+      if (ev.pointerType !== "touch" && ev.buttons === 0) {
+        s.teardown(); // pointerup hilang sebelum/selama seret
+        return;
+      }
+      s.x = ev.clientX;
+      s.y = ev.clientY;
+      if (!s.began) {
+        if (kanbanDragShouldStart(start, ev, Date.now())) begin();else if (start.pointerType === "touch" && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) >= 6) s.teardown(); // sentuh bergeser sebelum 250 ms → gulir
+        return;
+      }
+      update();
+    };
+    const onUp = ev => {
+      if (ev.pointerId !== s.pointerId) return;
+      const ok = s.began && !s.cancelled;
+      const rows = s.rows,
+        gap = s.gap,
+        depth = s.depth;
+      s.teardown();
+      if (ok) moveItem(id, C.dropTarget(itemsRef.current, rows, id, gap, depth), "grip");
+    };
+    const onCancel = ev => {
+      if (ev.pointerId !== s.pointerId) return;
+      s.teardown();
+    };
+    const onKey = ev => {
+      if (ev.key !== "Escape" || !s.began) return;
+      ev.preventDefault();
+      s.cancelled = true;
+      s.teardown();
+    };
+    s.teardown = () => {
+      if (s.timer) {
+        clearTimeout(s.timer);
+        s.timer = null;
+      }
+      if (s.raf) {
+        cancelAnimationFrame(s.raf);
+        s.raf = 0;
+      }
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      document.removeEventListener("pointercancel", onCancel);
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("contextmenu", preventMenu);
+      if (s.began) setDrag(null);
+      if (dragRef.current === s) dragRef.current = null;
+    };
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    document.addEventListener("pointercancel", onCancel);
+    document.addEventListener("keydown", onKey);
+    if (start.pointerType === "touch") {
+      s.timer = setTimeout(() => {
+        s.timer = null;
+        const now = Math.max(Date.now(), start.t + 250);
+        if (kanbanDragShouldStart(start, {
+          clientX: s.x,
+          clientY: s.y
+        }, now)) begin();
+      }, 250);
+    }
+  };
+  busyRef.current = () => !!dragRef.current || pendingRef.current > 0 || addText.trim() !== "" || editRef.current != null || menuFor != null || !!(subAddRef.current && subAddRef.current.text.trim());
+  useEffect(() => {
+    aliveRef.current = true;
+    load(true);
+    // touchmove non-pasif (pola papan Kanban / pin sidebar): gulir dicegah hanya selama seret berjalan.
+    const el = bodyRef.current;
+    const h = ev => {
+      const d = dragRef.current;
+      if (d && d.began && !d.cancelled && ev.cancelable) ev.preventDefault();
+    };
+    if (el) el.addEventListener("touchmove", h, {
+      passive: false
+    });
+    return () => {
+      aliveRef.current = false;
+      if (el) el.removeEventListener("touchmove", h, {
+        passive: false
+      });
+      if (dragRef.current) dragRef.current.teardown();
+    };
+  }, []);
+  useEffect(() => {
+    if (!autoRefreshMs || !synced) return undefined;
+    const h = setInterval(() => {
+      if (!busyRef.current()) load(false);
+    }, autoRefreshMs);
+    return () => clearInterval(h);
+  }, [autoRefreshMs]);
+  useEffect(() => {
+    if (!loaded) return;
+    const c = C.topLevelCounts(items);
+    // Gagal = muat pertama gagal dan belum ada butir yang diketahui (butir dari respons tambah = daftar yang dikenal).
+    const failed = loadState === "failed" && items.length === 0;
+    const last = countsRef.current;
+    if (last && last.done === c.done && last.total === c.total && last.failed === failed) return;
+    countsRef.current = {
+      done: c.done,
+      total: c.total,
+      failed
+    };
+    cbRef.current.onCounts?.(failed ? {
+      done: 0,
+      total: 0,
+      loaded: true,
+      failed: true
+    } : {
+      done: c.done,
+      total: c.total,
+      loaded: true
+    });
+  }, [items, loadState]);
+  // Daftar berubah: depth kotak bawah di-clamp ulang; kotak/menu milik butir yang sudah tidak ada ditutup.
+  useEffect(() => {
+    const max = C.maxAddDepth(items);
+    if (addDepth > max) setAddDepth(max);
+    const has = id => items.some(r => r.id === id);
+    if (editRef.current && !has(editRef.current.id)) setEdit(null);
+    if (subAddRef.current && !has(subAddRef.current.id)) setSubAdd(null);
+    if (menuFor != null && !has(menuFor)) setMenuFor(null);
+  }, [items]);
+  // Fokus kembali ke butir yang sama (dicari menurut id) bila fokus hilang karena barisnya dipasang ulang.
+  React.useLayoutEffect(() => {
+    const f = pendingFocusRef.current;
+    if (!f) return;
+    pendingFocusRef.current = null;
+    suppressBlurRef.current = false;
+    const body = bodyRef.current;
+    const row = body && body.querySelector(`[data-check-row="${f.id}"]`);
+    const el = row && (row.querySelector(`[data-check-part="${f.part}"]`) || row.querySelector('[data-check-part="check"]'));
+    const ae = document.activeElement;
+    if (!el || ae && ae !== document.body && ae.isConnected) return;
+    el.focus();
+    if (f.part === "edit" && el.setSelectionRange) {
+      const n = el.value.length;
+      el.setSelectionRange(n, n);
+    }
+  });
+  const rows = useMemo(() => C.visibleRows(items, collapsed), [items, collapsed]);
+  const kids = useMemo(() => C.childCountsAll(items), [items]);
+  // ul/li bersarang dari baris pre-order (iteratif): simpul = {row, kids}.
+  const roots = [];
+  const stack = [];
+  for (const row of rows) {
+    const node = {
+      row,
+      kids: []
+    };
+    while (stack.length && stack[stack.length - 1].row.depth >= row.depth) stack.pop();
+    (stack.length ? stack[stack.length - 1].kids : roots).push(node);
+    stack.push(node);
+  }
+  const renderList = nodes => React.createElement("ul", {
+    className: "td-tree-list"
+  }, nodes.map(renderNode));
+  const renderNode = node => {
+    const {
+      item,
+      depth,
+      hasChildren,
+      collapsed: folded
+    } = node.row;
+    const id = item.id;
+    const title = item.title || "";
+    const done = !!item.is_done;
+    const kc = folded ? kids.get(id) : null;
+    return React.createElement("li", {
+      key: id,
+      className: "td-tree-item" + (drag && drag.id === id ? " is-dragging" : ""),
+      "data-check-id": id
+    }, React.createElement("div", {
+      className: "td-tree-row" + (done ? " is-done" : ""),
+      "data-check-row": id,
+      style: {
+        "--td-depth": Math.min(depth, 6)
+      },
+      onKeyDown: e => onRowKey(e, id)
+    }, React.createElement("button", {
+      type: "button",
+      className: "td-tree-grip",
+      tabIndex: -1,
+      "aria-label": "Pindahkan «" + title + "»",
+      "data-check-part": "grip",
+      onPointerDown: e => onGripDown(e, id),
+      onContextMenu: e => e.preventDefault()
+    }, React.createElement(ChecklistGlyph, {
+      name: "grip"
+    })), hasChildren ? React.createElement("button", {
+      type: "button",
+      className: "td-tree-fold",
+      "aria-expanded": !folded,
+      "aria-label": folded ? "Buka sub butir «" + title + "»" : "Lipat sub butir «" + title + "»",
+      "data-check-part": "fold",
+      onClick: () => toggleFold(id, !folded)
+    }, React.createElement(ChecklistGlyph, {
+      name: folded ? "chevronRight" : "chevronDown"
+    })) : React.createElement("span", {
+      className: "td-tree-fold is-empty",
+      "aria-hidden": "true"
+    }), React.createElement("button", {
+      type: "button",
+      role: "checkbox",
+      className: "td-tree-check",
+      "aria-checked": done,
+      "aria-label": title,
+      "data-check-part": "check",
+      onClick: () => toggle(id)
+    }, React.createElement("span", {
+      className: "td-tree-box",
+      "aria-hidden": "true"
+    }, done && React.createElement(Icon, {
+      name: "check",
+      size: 13
+    }))), editing && editing.id === id ? React.createElement(MentionInput, {
+      collaborators: collaborators,
+      className: "td-tree-edit",
+      value: editing.text,
+      onChange: e => setEdit({
+        id,
+        text: e.target.value
+      }),
+      "aria-label": "Ubah teks butir",
+      "data-check-part": "edit",
+      autoFocus: true,
+      // Kursor di akhir teks lama saat kotak dibuka.
+      onFocus: e => {
+        const n = e.target.value.length;
+        try {
+          e.target.setSelectionRange(n, n);
+        } catch (_) {}
+      },
+      onKeyDown: e => onEditKey(e, id),
+      onBlur: () => {
+        if (!suppressBlurRef.current) commitEdit(false);
+      }
+    }) : React.createElement("button", {
+      type: "button",
+      className: "td-tree-text",
+      "data-check-part": "text",
+      onClick: () => startEdit(id)
+    }, title), kc && kc.total > 0 && React.createElement("span", {
+      className: "td-tree-chip"
+    }, kc.done + "/" + kc.total), React.createElement("button", {
+      type: "button",
+      className: "td-tree-more",
+      "aria-label": "Aksi butir «" + title + "»",
+      "aria-haspopup": "menu",
+      "aria-expanded": menuFor === id,
+      "data-check-part": "more",
+      onClick: e => {
+        menuAnchorRef.current = e.currentTarget;
+        setMenuFor(f => f === id ? null : id);
+      }
+    }, React.createElement(ChecklistGlyph, {
+      name: "more"
+    }))), node.kids.length > 0 && renderList(node.kids), subAdd && subAdd.id === id && React.createElement("div", {
+      className: "td-tree-subadd"
+    }, React.createElement(MentionInput, {
+      collaborators: collaborators,
+      className: "td-add-input td-tree-add",
+      value: subAdd.text,
+      onChange: e => {
+        const text = e.target.value;
+        setSubAdd(s => s && Object.assign({}, s, { text }));
+      },
+      placeholder: "Sub butir baru",
+      "aria-label": "Sub butir baru",
+      autoFocus: true,
+      style: {
+        "--td-depth": Math.min(depth + 1, 6)
+      },
+      onKeyDown: onSubAddKey,
+      onBlur: () => {
+        const s = subAddRef.current;
+        if (s && !s.text.trim() && !s.busy) setSubAdd(null);
+      }
+    })));
+  };
+  // Menu ⋯ (§6.3): satu DetailPopover untuk seluruh daftar (di luar baris, supaya tombol panah di menu tidak sampai ke
+  // pendengar Alt+↑/↓ baris). Panah atas/bawah berpindah antar-butir menu.
+  const menuItem = menuFor != null ? items.find(r => r.id === menuFor) || null : null;
+  const onMenuKey = e => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const list = Array.from(e.currentTarget.querySelectorAll('[role="menuitem"]:not([disabled])'));
+    if (!list.length) return;
+    e.preventDefault();
+    const i = list.indexOf(document.activeElement);
+    list[e.key === "ArrowDown" ? (i + 1) % list.length : i <= 0 ? list.length - 1 : i - 1].focus();
+  };
+  const menuBtn = (label, icon, onClick, disabled = false, danger = false) => React.createElement("button", {
     type: "button",
-    role: "checkbox",
-    className: "td-check",
-    "aria-checked": done,
-    "aria-label": item.title,
-    onClick: onToggle
-  }, done && /*#__PURE__*/React.createElement(Icon, {
-    name: "check",
-    size: 13
-  })), /*#__PURE__*/React.createElement("span", {
-    className: "td-check-title"
-  }, item.title), /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "td-icon-btn td-check-del",
-    "aria-label": "Hapus butir",
-    title: "Hapus butir",
-    onClick: onDelete
-  }, /*#__PURE__*/React.createElement(Icon, {
-    name: "x",
-    size: 14
-  })));
+    role: "menuitem",
+    className: "td-pop-item" + (danger ? " is-danger" : ""),
+    disabled: disabled,
+    onClick: onClick
+  }, React.createElement(Icon, {
+    name: icon,
+    size: 15
+  }), label);
+  const menuMove = targetOf => () => {
+    const id = menuItem.id;
+    setMenuFor(null);
+    moveItem(id, targetOf(itemsRef.current, id), "more");
+  };
+  const menu = React.createElement(DetailPopover, {
+    anchorRef: menuAnchorRef,
+    open: !!menuItem,
+    onClose: () => setMenuFor(null),
+    label: menuItem ? "Aksi butir «" + (menuItem.title || "") + "»" : "",
+    role: "menu",
+    className: "td-menu"
+  }, menuItem && React.createElement("div", {
+    className: "td-menu-list",
+    onKeyDown: onMenuKey
+  }, menuBtn("Ubah teks", "edit", () => startEdit(menuItem.id)), menuBtn("Tambah sub butir", "plus", () => openSubAdd(menuItem.id)), menuBtn("Jadikan sub", "chevronRight", menuMove(C.indentTarget), !C.indentTarget(items, menuItem.id)), menuBtn("Naikkan level", "chevronLeft", menuMove(C.outdentTarget), !C.outdentTarget(items, menuItem.id)), menuBtn("Hapus", "trash", () => {
+    setMenuFor(null);
+    remove(menuItem.id);
+  }, false, true)));
+  return React.createElement("div", {
+    className: "td-tree" + (variant === "focus" ? " is-focus" : "") + (drag ? " is-dragging" : "")
+  }, React.createElement("div", {
+    className: "td-tree-body",
+    ref: bodyRef
+  }, roots.length > 0 && renderList(roots), drag && React.createElement("div", {
+    className: "td-tree-line",
+    "aria-hidden": "true",
+    style: {
+      top: drag.lineTop,
+      "--td-depth": Math.min(drag.depth, 6)
+    }
+  })), menu, React.createElement("div", {
+    className: "sr-only",
+    "aria-live": "polite"
+  }, announce), renderAdd ? renderAdd(add) : null);
 }
 function TaskDetailBody({
   task,
@@ -9823,12 +10739,22 @@ function TaskDetailBody({
   const scopeProjects = useScopeProjects(task.list_id);
   const scopeContexts = useScopeContexts(task.list_id);
   const scopeLists = useScopeLists(task.list_id, sharedLists);
-  const [subtasks, setSubtasks] = useState([]);
-  const [newSub, setNewSub] = useState("");
-  const [adding, setAdding] = useState(false);
-  const [addingSub, setAddingSub] = useState(false);
-  const [loadingSubs, setLoadingSubs] = useState(true);
-  const subClientId = useRef(genId());
+  // Hitungan checklist level atas dari ChecklistTree (onCounts): label tab, tab awal, bar d/t, kunci pill Progress.
+  // Disimpan bersama id task pelapornya: berganti task tanpa remount (modal tidak ber-key, mis. Ctrl+K) langsung
+  // kembali ke "belum dimuat", bukan label/bar/kunci milik task lama. ChecklistTree sendiri dipasang ulang (key).
+  const [checkCountsOf, setCheckCountsOf] = useState({
+    id: null,
+    counts: null
+  });
+  const checkCounts = checkCountsOf.id === String(task.id) && checkCountsOf.counts || {
+    done: 0,
+    total: 0,
+    loaded: false
+  };
+  const setCheckCounts = c => setCheckCountsOf({
+    id: String(task.id),
+    counts: c
+  });
   // Child tasks (subtasks as full tasks)
   const [childTasks, setChildTasks] = useState([]);
   const [childLoaded, setChildLoaded] = useState(false);
@@ -9902,6 +10828,19 @@ function TaskDetailBody({
       onRefreshRef.current?.();
     }
   }, []);
+  // Muat ulang daftar (onRefresh) dengan debounce 500 ms (simpan Live Edit, progress dari checklist); setelah unmount
+  // langsung.
+  const scheduleRefresh = () => {
+    if (!liveMountedRef.current) {
+      onRefreshRef.current?.();
+      return;
+    }
+    clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      onRefreshRef.current?.();
+    }, 500);
+  };
   const onSaved = patch => {
     window.dispatchEvent(new CustomEvent("taskUpdated", {
       detail: {
@@ -9916,11 +10855,7 @@ function TaskDetailBody({
       // Chip ikut #tag baru dari judul ini (simpan judul berikutnya memuat tag sendiri, R21).
       loadTags(task.id).catch(() => {});
     }
-    clearTimeout(refreshTimerRef.current);
-    refreshTimerRef.current = setTimeout(() => {
-      refreshTimerRef.current = null;
-      onRefreshRef.current?.();
-    }, 500);
+    scheduleRefresh();
   };
   const auto = useTaskAutosave(task, true, {
     onSaved,
@@ -9939,17 +10874,6 @@ function TaskDetailBody({
       });
     }
   }, [task?.list_id]);
-
-  // Fetch subtasks (checklist)
-  useEffect(() => {
-    if (task?.id) {
-      setLoadingSubs(true);
-      api.get(`/api/tasks/${task.id}/subtasks`).then(data => {
-        setSubtasks(data);
-        setLoadingSubs(false);
-      }).catch(() => setLoadingSubs(false));
-    }
-  }, [task?.id]);
 
   // Fetch child tasks (full tasks with parent_id)
   const fetchChildTasks = () => {
@@ -9999,42 +10923,6 @@ function TaskDetailBody({
       console.error(err);
     }
   };
-  const handleToggle = async subId => {
-    try {
-      const result = await api.post(`/api/subtasks/${subId}/toggle`);
-      setSubtasks(prev => prev.map(s => s.id === subId ? result : s));
-    } catch (err) {
-      console.error(err);
-    }
-  };
-  const handleAddSub = async () => {
-    if (!newSub.trim() || addingSub) return;
-    const submitted = newSub;
-    setAddingSub(true);
-    try {
-      const result = await api.post(`/api/tasks/${task.id}/subtasks`, {
-        title: submitted.trim(),
-        client_id: subClientId.current
-      });
-      setSubtasks(prev => [...prev, result]);
-      // Ketikan baru selama menunggu tidak terhapus: kosongkan hanya bila input masih berisi teks yang dikirim.
-      setNewSub(t => t === submitted ? "" : t);
-      // Input tetap terbuka untuk butir berikutnya (Escape menutup).
-      subClientId.current = genId();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setAddingSub(false);
-    }
-  };
-  const handleDeleteSub = async subId => {
-    try {
-      await api.del(`/api/subtasks/${subId}`);
-      setSubtasks(prev => prev.filter(s => s.id !== subId));
-    } catch (err) {
-      console.error(err);
-    }
-  };
   // Centang task anak: selesai → POST done; buka lagi → PUT gtd_status next; lalu muat ulang anak + daftar.
   const childBusyRef = useRef(new Set());
   const handleToggleChild = async ct => {
@@ -10056,16 +10944,16 @@ function TaskDetailBody({
     onOpenTask ? onOpenTask(ct) : onClose();
   };
   useEffect(() => {
-    if (autoTabDoneRef.current || !childLoaded || loadingSubs || notesCount === null || attCount === null) return;
+    if (autoTabDoneRef.current || !childLoaded || !checkCounts.loaded || notesCount === null || attCount === null) return;
     autoTabDoneRef.current = true;
     if (tabPickedRef.current) return;
     setTab(window.TF.taskdetail.initialTab({
       subtask: childTasks.length,
-      checklist: subtasks.length,
+      checklist: checkCounts.total,
       notes: notesCount,
       attachments: attCount
     }));
-  }, [childLoaded, loadingSubs, notesCount, attCount]);
+  }, [childLoaded, checkCounts.loaded, notesCount, attCount]);
   React.useLayoutEffect(() => {
     const ta = descWrapRef.current && descWrapRef.current.querySelector("textarea");
     if (!ta) return;
@@ -10172,10 +11060,10 @@ function TaskDetailBody({
     name: "plus",
     size: 14
   })));
-  const doneCount = subtasks.filter(s => s.is_done).length;
-  const totalSubs = subtasks.length;
-  const progress = totalSubs > 0 ? Math.round(doneCount / totalSubs * 100) : 0;
   const todayISO = window.TF.tasklogic.todayLocalISO();
+  // Kunci Progress (K2, spec §6.5): selama task punya checklist level atas, persen dari checklist dan slider terkunci;
+  // Live Edit tidak mengubah/menyimpan progress (angka baru dari server masuk lewat mergeExternal, §7.8).
+  const progressLock = window.TF.checklist.lockFor(task, checkCounts);
   // Aturan simpan properti (spec §4.4): memilih = change + tutup + commit; menutup popover properti dengan cara apa
   // pun (Enter, Escape, klik di luar, klik nilai lagi) = commit field itu. Commit tanpa perubahan tidak mengirim apa pun.
   const pick = field => v => { sf(field, v); setOpenPop(null); auto.commit(field); };
@@ -10325,8 +11213,29 @@ function TaskDetailBody({
       setOpenPop(null);
       auto.commit("progress");
     },
-    onProgressChange: p => sf("progress", p),
-    onProgressCommit: () => auto.commit("progress")
+    onProgressChange: p => {
+      if (!progressLock) sf("progress", p);
+    },
+    onProgressCommit: () => {
+      if (!progressLock) auto.commit("progress");
+    },
+    locked: progressLock,
+    // "Buka Checklist": pindah ke tab Checklist dan tutup popover; tab terlihat dan terfokus.
+    onOpenChecklist: () => {
+      setOpenPop(null);
+      pickTab("checklist");
+      setTimeout(() => {
+        const el = document.getElementById(`${tabIdBase}-tab-checklist`);
+        if (el) {
+          el.scrollIntoView({
+            block: "nearest"
+          });
+          el.focus({
+            preventScroll: true
+          });
+        }
+      }, 0);
+    }
   }), /*#__PURE__*/React.createElement("div", {
     className: "td-props-box"
   }, /*#__PURE__*/React.createElement("div", {
@@ -10492,7 +11401,7 @@ function TaskDetailBody({
     }, {
       id: "checklist",
       label: "Checklist",
-      count: totalSubs
+      count: checkCounts.total
     }, {
       id: "notes",
       label: "Catatan",
@@ -10525,55 +11434,60 @@ function TaskDetailBody({
         setNewChildTitle("");
       }
     }
-  })), tabPanel("checklist", totalSubs > 0 && /*#__PURE__*/React.createElement("div", {
+  })), tabPanel("checklist", checkCounts.total > 0 && /*#__PURE__*/React.createElement("div", {
     className: "td-check-head"
   }, /*#__PURE__*/React.createElement("div", {
-    className: "td-check-bar" + (progress === 100 ? " is-full" : ""),
+    className: "td-check-bar" + (checkCounts.done === checkCounts.total ? " is-full" : ""),
     role: "progressbar",
-    "aria-label": `${doneCount} dari ${totalSubs} butir selesai`,
+    "aria-label": `${checkCounts.done} dari ${checkCounts.total} butir selesai`,
     "aria-valuemin": 0,
-    "aria-valuemax": totalSubs,
-    "aria-valuenow": doneCount
+    "aria-valuemax": checkCounts.total,
+    "aria-valuenow": checkCounts.done
   }, /*#__PURE__*/React.createElement("div", {
     className: "td-check-fill",
     style: {
-      width: `${progress}%`
+      width: `${window.TF.checklist.percent(checkCounts.done, checkCounts.total)}%`
     }
-  })), /*#__PURE__*/React.createElement("span", null, doneCount, "/", totalSubs)), loadingSubs ? /*#__PURE__*/React.createElement("div", {
+  })), /*#__PURE__*/React.createElement("span", null, checkCounts.done, "/", checkCounts.total)), !checkCounts.loaded && /*#__PURE__*/React.createElement("div", {
     className: "td-empty"
-  }, "Memuat…") : subtasks.map(s => /*#__PURE__*/React.createElement(ChecklistRow, {
-    key: s.id,
-    item: s,
-    onToggle: () => handleToggle(s.id),
-    onDelete: () => handleDeleteSub(s.id)
-  })), !loadingSubs && totalSubs === 0 && !adding && /*#__PURE__*/React.createElement("div", {
-    className: "td-empty"
-  }, "Belum ada checklist"), adding ? /*#__PURE__*/React.createElement(MentionInput, {
+  }, "Memuat…"), /*#__PURE__*/React.createElement(ChecklistTree, {
+    key: String(task.id),
+    taskId: task.id,
+    task: task,
     collaborators: collaborators,
-    className: "td-add-input",
-    value: newSub,
-    onChange: e => setNewSub(e.target.value),
-    placeholder: "Butir checklist baru",
-    "aria-label": "Butir checklist baru",
-    autoFocus: true,
-    onKeyDown: e => {
-      if (e.key === "Enter" && !(e.nativeEvent && e.nativeEvent.isComposing)) {
-        e.preventDefault();
-        handleAddSub();
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        setAdding(false);
-        setNewSub("");
-      }
+    variant: "detail",
+    onCounts: setCheckCounts,
+    // Progress dari checklist berubah dan sudah ditulis ke task lokal (adoptTaskProgress): daftar dan Timeline dimuat
+    // ulang (debounce 500 ms). Prop task modal tidak ikut dimuat ulang, jadi angkanya langsung masuk ke form Live Edit
+    // sebagai perubahan dari luar (mergeExternal: field yang tidak sedang diubah ikut; tidak disimpan ulang) — slider
+    // yang terbuka lagi setelah butir level atas terakhir dihapus mulai dari angka terakhir (K11).
+    onProgress: tp => {
+      if (tp && typeof tp.progress === "number") auto.external(Object.assign({}, task, auto.getState().saved, {
+        progress: tp.progress,
+        checklist_total: tp.total
+      }));
+      scheduleRefresh();
     },
-    onBlur: () => {
-      if (!newSub.trim() && !addingSub) setAdding(false);
-    }
-  }) : /*#__PURE__*/React.createElement("button", {
-    type: "button",
-    className: "td-add",
-    onClick: () => setAdding(true)
-  }, "+ Tambah butir checklist baru")), tabPanel("notes", /*#__PURE__*/React.createElement(ModalNotes, {
+    // Kotak bawah: Enter menambah dan tetap terbuka; Tab/Shift+Tab = tingkat; Escape / blur saat kosong menutup.
+    renderAdd: add => /*#__PURE__*/React.createElement(React.Fragment, null, checkCounts.loaded && checkCounts.total === 0 && !add.open && /*#__PURE__*/React.createElement("div", {
+      className: "td-empty"
+    }, "Belum ada checklist"), add.open ? /*#__PURE__*/React.createElement(MentionInput, {
+      collaborators: collaborators,
+      className: "td-add-input td-tree-add",
+      value: add.text,
+      onChange: e => add.setText(e.target.value),
+      placeholder: "Butir checklist baru",
+      "aria-label": "Butir checklist baru",
+      autoFocus: true,
+      style: add.style,
+      onKeyDown: add.onKeyDown,
+      onBlur: add.onBlur
+    }) : /*#__PURE__*/React.createElement("button", {
+      type: "button",
+      className: "td-add",
+      onClick: () => add.setOpen(true)
+    }, "+ Tambah butir checklist baru"))
+  })), tabPanel("notes", /*#__PURE__*/React.createElement(ModalNotes, {
     taskId: task.id,
     collaborators: collaborators,
     bare: true,
@@ -11387,6 +12301,7 @@ function FocusTaskItem({
     onCount: onCount
   }) : React.createElement(FocusSubtasks, {
     taskId: task.id,
+    task: task,
     onCount: onCount
   }))));
 }
@@ -12641,62 +13556,43 @@ function TopBarPomodoroChip({
 
 function FocusSubtasks({
   taskId,
+  task = null,
   onCount
 }) {
-  const [subtasks, setSubtasks] = useState([]);
-  const [loaded, setLoaded] = useState(false);
-  const [newSub, setNewSub] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const clientId = useRef(genId());
-  const fetchSubs = useCallback(() => {
-    api.get(`/api/tasks/${taskId}/subtasks`).then(data => {
-      setSubtasks(data);
-      setLoaded(true);
-    }).catch(() => {});
-  }, [taskId]);
+  // Checklist bertingkat (rencana PR B R7): cangkang lama tetap (bar progres, "Belum ada checklist.", kotak tambah +
+  // "Tambah"); daftar dan perilakunya (ubah teks, hapus, seret, lipat, Tab/Shift+Tab di kotak tambah) dari ChecklistTree
+  // variant "focus", yang juga memuat ulang tiap 15 dtk (ditunda selama sibuk). Hitungan = butir level atas.
+  const [counts, setCounts] = useState({
+    done: 0,
+    total: 0,
+    loaded: false
+  });
+  const doneCount = counts.done;
+  const total = counts.total;
+  // Persen task dari checklist berubah: daftar Fokus (window.__refreshTasks = fetchAll) dimuat ulang dengan debounce
+  // 500 ms; yang masih tertunda dikirim saat panel ditutup.
+  const refreshTimerRef = useRef(null);
+  const scheduleRefresh = () => {
+    clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      window.__refreshTasks?.();
+    }, 500);
+  };
+  useEffect(() => () => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+      window.__refreshTasks?.();
+    }
+  }, []);
+  // Muat gagal (offline tanpa cache): badge dari child-counts / cache SW dibiarkan, tanpa "Belum ada checklist.".
   useEffect(() => {
-    fetchSubs();
-  }, [fetchSubs]);
-
-  // Auto-refresh every 15 seconds (only while this panel is open)
-  useEffect(() => {
-    const interval = setInterval(fetchSubs, 15000);
-    return () => clearInterval(interval);
-  }, [fetchSubs]);
-  const doneCount = subtasks.filter(s => s.is_done).length;
-  const total = subtasks.length;
-  useEffect(() => {
-    if (loaded) onCount?.(taskId, {
+    if (counts.loaded && !counts.failed) onCount?.(taskId, {
       subDone: doneCount,
       subTotal: total
     });
-  }, [loaded, doneCount, total]);
-  const handleToggle = async subId => {
-    try {
-      const result = await api.post(`/api/subtasks/${subId}/toggle`);
-      setSubtasks(prev => prev.map(s => s.id === subId ? result : s));
-    } catch (err) {
-      console.error(err);
-    }
-  };
-  const handleAdd = async () => {
-    if (!newSub.trim() || submitting) return;
-    setSubmitting(true);
-    try {
-      const result = await api.post(`/api/tasks/${taskId}/subtasks`, {
-        title: newSub.trim(),
-        client_id: clientId.current
-      });
-      setSubtasks(prev => [...prev, result]);
-      setLoaded(true);
-      setNewSub("");
-      clientId.current = genId();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  }, [counts.loaded, counts.failed, doneCount, total]);
   return React.createElement("div", {
     className: "ftask-section"
   }, total > 0 && React.createElement("div", {
@@ -12713,43 +13609,33 @@ function FocusSubtasks({
     style: {
       width: `${doneCount / total * 100}%`
     }
-  })), React.createElement("span", null, doneCount, "/", total, " selesai")), total > 0 && React.createElement("ul", {
-    className: "ftask-sublist"
-  }, subtasks.map(s => React.createElement("li", {
-    key: s.id
-  }, React.createElement("button", {
-    type: "button",
-    className: `ftask-sub${s.is_done ? " is-done" : ""}`,
-    role: "checkbox",
-    "aria-checked": !!s.is_done,
-    onClick: () => handleToggle(s.id)
-  }, React.createElement("span", {
-    className: "ftask-sub-box"
-  }, s.is_done && React.createElement(FocusGlyph, {
-    name: "check",
-    size: 11
-  })), React.createElement("span", {
-    className: "ftask-sub-title"
-  }, s.title))))), total === 0 && loaded && React.createElement("div", {
-    className: "ftask-empty"
-  }, "Belum ada checklist."), React.createElement("div", {
-    className: "ftask-add"
-  }, React.createElement("input", {
-    className: "input",
-    value: newSub,
-    onChange: e => setNewSub(e.target.value),
-    placeholder: "Tambah item checklist, tekan Enter",
-    "aria-label": "Item checklist baru",
-    onKeyDown: e => {
-      if (e.key === "Enter") handleAdd();
-      if (e.key === "Escape") setNewSub("");
-    }
-  }), React.createElement("button", {
-    type: "button",
-    className: "btn btn-primary btn-sm",
-    onClick: handleAdd,
-    disabled: submitting || !newSub.trim()
-  }, submitting ? "..." : "Tambah")));
+  })), React.createElement("span", null, doneCount, "/", total, " selesai")), React.createElement(ChecklistTree, {
+    key: String(taskId),
+    taskId: taskId,
+    task: task,
+    variant: "focus",
+    autoRefreshMs: 15000,
+    onCounts: setCounts,
+    onProgress: scheduleRefresh,
+    renderAdd: add => React.createElement(React.Fragment, null, total === 0 && counts.loaded && !counts.failed && React.createElement("div", {
+      className: "ftask-empty"
+    }, "Belum ada checklist."), React.createElement("div", {
+      className: "ftask-add td-tree-add",
+      style: add.style
+    }, React.createElement("input", {
+      className: "input",
+      value: add.text,
+      onChange: e => add.setText(e.target.value),
+      placeholder: "Tambah item checklist, tekan Enter",
+      "aria-label": "Item checklist baru",
+      onKeyDown: add.onKeyDown
+    }), React.createElement("button", {
+      type: "button",
+      className: "btn btn-primary btn-sm",
+      onClick: add.submit,
+      disabled: add.busy || !add.text.trim()
+    }, add.busy ? "..." : "Tambah")))
+  }));
 }
 
 // ── Inline Notes (for Focus page) ──────────
@@ -28165,7 +29051,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v501-beban-tim"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v502-checklist-bertingkat"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",

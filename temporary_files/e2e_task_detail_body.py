@@ -665,7 +665,8 @@ def run_overlay(browser, base, user):
         n = seed_local_tags(p, [T_TALL, T_TALL_OTHER], TAG_TALL)
         check("%s setup: tag #%s dipasang di 2 task" % (tag, TAG_TALL), n == 2, repr(n))
         open_task(p, T_TALL)
-        p.locator(".modal-content span", has_text="Poin rapat 7").first.wait_for(timeout=10000)
+        # Judul butir checklist (ChecklistTree, PR B) ada di button.td-tree-text.
+        p.locator(".modal-content button.td-tree-text", has_text="Poin rapat 7").first.wait_for(timeout=10000)
         check_overlay_scrolled(p, tag, ".modal-content", ".modal-content")
         check("%s f1 tanpa error konsol/pageerror" % tag, not errors, "; ".join(errors[:5]))
     except Exception as e:  # noqa: BLE001
@@ -691,7 +692,7 @@ def run_overlay(browser, base, user):
         reload_app(p)
         go_sidebar(p, "Next Actions")
         p.locator(".task-row", has_text=T_TALL).first.click()
-        p.locator(panel + " span", has_text="Poin rapat 7").first.wait_for(timeout=10000)
+        p.locator(panel + " button.td-tree-text", has_text="Poin rapat 7").first.wait_for(timeout=10000)
         check("%s setup: tag #%s di 2 task; panel Live Edit menampilkan task tinggi" % (tag, TAG_TALL),
               n == 2 and wait_until(lambda: p.locator(panel + " input[aria-label='Judul task']").first.input_value()
                                     == T_TALL, 8), repr(n))

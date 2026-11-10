@@ -266,9 +266,9 @@ test("CSS slash menu grid", async (t) => {
   });
 });
 
-test("cache bust v450 + app.css?v=384", () => {
-  assert.match(swJs, /^const CACHE = "taskflow-v501-beban-tim";/m);
-  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v501-beban-tim";/);
-  assert.match(indexHtml, /app\.css\?v=384/);
+test("cache bust v450 + app.css?v=385", () => {
+  assert.match(swJs, /^const CACHE = "taskflow-v502-checklist-bertingkat";/m);
+  assert.match(indexHtml, /window\.__SW_VERSION\s*=\s*"taskflow-v502-checklist-bertingkat";/);
+  assert.match(indexHtml, /app\.css\?v=385/);
   assert.equal(/app\.css\?v=352/.test(indexHtml), false);
 });

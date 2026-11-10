@@ -1105,7 +1105,8 @@ def scen_tall(browser, base, T):
     try:
         go_next(p)
         check("I0 task tinggi dipilih di panel", wait_title(p, T_TALL, 10), repr(panel_title(p)))
-        p.locator(PANEL + " span", has_text="Langkah checklist 7").first.wait_for(timeout=10000)
+        # Judul butir checklist (ChecklistTree, PR B) ada di button.td-tree-text.
+        p.locator(PANEL + " button.td-tree-text", has_text="Langkah checklist 7").first.wait_for(timeout=10000)
         p.wait_for_timeout(500)
         g0 = panel_geom(p)
         check("I1 konten panel lebih tinggi dari panel (task tinggi sungguhan)", g0["scrollH"] > g0["clientH"] + 100,

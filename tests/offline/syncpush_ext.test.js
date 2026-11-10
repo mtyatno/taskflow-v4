@@ -442,6 +442,53 @@ test("PUT ext saja terbang + edit judul di dalam transport → inti TIDAK diadop
   assert.equal((await outboxAll()).length, 0);
 });
 
+// Checklist bertingkat (review PR B): respons PUT ext saja dilayani server SEBELUM centang tetapi tiba SESUDAH
+// TF.checklist.adoptTaskProgress → progress/checklist_total respons basi; checklist_adopted_at ≥ waktu kirim → dilewati.
+const TFchecklist = require("../../static/offline/checklist.js");
+async function setelahJam(t) { while (Date.now() <= t) await new Promise((r) => setTimeout(r, 1)); }
+
+test("PUT ext saja: adopsi progress saat PUT terbang → respons basi tidak menimpa progress/checklist_total; inti lain tetap diadopsi", async () => {
+  const srv = fakeServer();
+  await extEdited(srv);
+  srv.rows.get(7).core.checklist_total = 2;
+  const inner = srv.request;
+  let adopsi = null;
+  srv.request = (m, p, b) => inner(m, p, b).then((res) => {   // server melayani PUT (progress 60, checklist 2)…
+    if (adopsi) return res;
+    adopsi = TFchecklist.adoptTaskProgress(7, { done: 2, total: 3, progress: 67 }); // …respons centang tiba dulu
+    return adopsi.then(() => res);                                // …lalu respons PUT diproses
+  });
+  await drain(srv);
+  assert.equal(await adopsi, true);
+  const rec = await getRec("t");
+  assert.deepEqual([rec.progress, rec.checklist_total], [67, 3]);
+  assert.deepEqual([rec.title, rec.gtd_status, rec.dirty, rec.base_rev], ["judul server", "done", 0, srv.lastTs]);
+  assert.equal(EXT_ONLY(rec), false);
+  assert.equal((await outboxAll()).length, 0);
+});
+
+test("PUT ext saja: adopsi SEBELUM PUT dikirim → progress/checklist_total respons diadopsi seperti biasa", async () => {
+  const srv = fakeServer();
+  await extEdited(srv);
+  srv.rows.get(7).core.checklist_total = 2;
+  assert.equal(await TFchecklist.adoptTaskProgress(7, { done: 2, total: 3, progress: 67 }), true);
+  const rec0 = await getRec("t");
+  assert.equal(EXT_ONLY(rec0), true); // adopsi tidak membatalkan penanda ext saja
+  await setelahJam(rec0.checklist_adopted_at);
+  await drain(srv);
+  const rec = await getRec("t");
+  assert.deepEqual([rec.progress, rec.checklist_total, rec.title, rec.dirty], [60, 2, "judul server", 0]);
+});
+
+test("PUT ext saja tanpa adopsi → progress dan checklist_total respons diadopsi (perilaku lama)", async () => {
+  const srv = fakeServer();
+  await extEdited(srv);
+  srv.rows.get(7).core.checklist_total = 2;
+  await drain(srv);
+  const rec = await getRec("t");
+  assert.deepEqual([rec.progress, rec.checklist_total, rec.dirty], [60, 2, 0]);
+});
+
 test("PUT ext saja terbang + edit ext lain di dalam transport → inti diadopsi, ext_dirty kunci baru tetap, penanda = rev baru; drain berikut → {ext_patch} kunci baru", async () => {
   const srv = fakeServer();
   await extEdited(srv);

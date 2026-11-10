@@ -559,6 +559,13 @@
       }
     };
   }
+  // Checklist bertingkat (review PR B): TF.checklist.adoptTaskProgress menulis progress/checklist_total dari respons
+  // checklist + cap waktu lokal `checklist_adopted_at` (tanpa rev). Respons task yang permintaannya dikirim pada/sebelum
+  // cap itu bisa dilayani server sebelum centang → kedua nilai itu basi dan tidak diadopsi (pola syncpull adoptedSince).
+  function adoptedSince(cur, sentAt) {
+    const at = cur ? cur.checklist_adopted_at : null;
+    return typeof at === "number" && at >= sentAt;
+  }
   function updatedAtOf(res) {
     return res && res.data && res.data.updated_at != null ? res.data.updated_at : null;
   }
@@ -680,6 +687,7 @@
           payload = taskToUpdatePayload(rec, tags, projects, contexts);
           if (ext) payload.ext_patch = ext.value;
         }
+        const sentAt = Date.now(); // sebelum PUT dikirim (penjaga respons basi progress checklist)
         return send(transport, "PUT", "/api/tasks/" + sid, payload).then((res) => {
           if (ok(res)) {
             // R5: payload ext saja → field inti respons diadopsi selama tidak ada edit inti lokal sejak payload
@@ -692,7 +700,10 @@
               ? (next, cur) => {
                 if (!X.extOnlyNow(cur)) return;
                 if (respAt != null && tsPrecise(respAt) && tsNewer(cur.base_rev, respAt)) return;
-                Object.assign(next, H.coreFromServer(res.data));
+                const core = H.coreFromServer(res.data);
+                // progress/checklist_total diadopsi dari respons checklist sesudah PUT ini dikirim → respons basi
+                if (adoptedSince(cur, sentAt)) { delete core.progress; delete core.checklist_total; }
+                Object.assign(next, core);
               }
               : null;
             return markPushed("tasks", op.cid, sentRev, respAt, null, taskAdopt(res.data), adoptCore)
