@@ -3559,8 +3559,10 @@ def _readable_task_ids(conn, task_ids: list[int], uid: int) -> list[int]:
 
 # Unduhan checklist banyak task sekaligus untuk aplikasi offline (spec checklist offline §3.2, F1; rencana PR A2
 # R5): `{"<task_id>": {"rev": n, "items": [...]}}`, `items` = bentuk GET /api/tasks/{id}/subtasks. Baca saja.
+# `def` (bukan `async def`): kueri sinkron sampai 200 task berjalan di threadpool, tidak menahan event loop
+# (dependency async `get_current_user` tetap dijalankan FastAPI di event loop; pola plugin_states.get_state).
 @app.get("/api/checklists")
-async def get_checklists(task_ids: str = "", user=Depends(get_current_user)):
+def get_checklists(task_ids: str = "", user=Depends(get_current_user)):
     if len(task_ids) > CHECKLISTS_MAX_CHARS:
         raise HTTPException(status_code=400, detail=_CHECKLISTS_TOO_MANY)
     wanted, seen = [], set()

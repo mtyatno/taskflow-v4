@@ -62,7 +62,7 @@ def test_tambah_sub_butir_get_preorder_dengan_depth(client):
     tid = _mk(u)["id"]
     a = _add(u, tid, "a")
     assert set(a) == KEYS | {"task_progress"}
-    assert a["task_progress"] == {"done": 0, "total": 1, "progress": 0, "rev": 1}
+    assert a["task_progress"] == {"done": 0, "total": 1, "progress": 0, "rev": 1, "rev_bumped": True}
     b = _add(u, tid, "b")
     s = _add(u, tid, "sub", parent_id=a["id"])
     assert s["depth"] == 1 and s["parent_id"] == a["id"]
@@ -145,7 +145,7 @@ def test_pindah_sukses_items_preorder(client):
     assert body["items"] == _list(u, tid)
     r = u.post(f"/api/subtasks/{a1}/move", json={"parent_id": None})
     assert r.status_code == 200
-    assert r.json()["task_progress"] == {"done": 0, "total": 3, "progress": 0, "rev": 6}
+    assert r.json()["task_progress"] == {"done": 0, "total": 3, "progress": 0, "rev": 6, "rev_bumped": True}
 
 
 def test_pindah_tanpa_parent_id_di_body_422(client):
@@ -208,7 +208,7 @@ def test_centang_bentuk_lama_tetap_ditambah_changed_ids_dan_task_progress(client
     body = r.json()
     assert body["id"] == a and body["title"] == "a" and body["is_done"] is True  # bentuk lama
     assert body["changed_ids"] == [a, a1, a11]
-    assert body["task_progress"] == {"done": 1, "total": 2, "progress": 50, "rev": 5}
+    assert body["task_progress"] == {"done": 1, "total": 2, "progress": 50, "rev": 5, "rev_bumped": True}
     r = u.post("/api/subtasks/987654321/toggle")
     assert r.status_code == 404 and r.json()["detail"] == "Subtask not found"
 
@@ -220,7 +220,7 @@ def test_hapus_ok_true_dengan_deleted_ids_dan_task_progress(client):
     r = u.delete(f"/api/subtasks/{a}")
     assert r.status_code == 200, r.text
     assert r.json() == {"ok": True, "deleted_ids": [a, a1, a11],
-                        "task_progress": {"done": 0, "total": 1, "progress": 0, "rev": 5}}
+                        "task_progress": {"done": 0, "total": 1, "progress": 0, "rev": 5, "rev_bumped": True}}
     assert [i["id"] for i in _list(u, tid)] == [b]
     r = u.delete(f"/api/subtasks/{a}")
     assert r.status_code == 404 and r.json()["detail"] == "Subtask not found"

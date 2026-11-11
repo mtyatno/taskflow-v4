@@ -42,7 +42,7 @@ Checklist (dengan semua kemampuan Fase 1: tambah, Tab/Shift+Tab, seret, Alt+↑/
 | # | Keputusan | Alasan |
 |---|---|---|
 | E1 | `tasks.checklist_rev` = field turunan server (ditulis bersama operasi checklist, **tanpa** `updated_at`), diambil klien lewat `TASK_DERIVED`. | Sama dengan `progress`/`checklist_total` (ADR-048): centang anggota workspace tidak memicu konflik task. |
-| E2 | Setiap transaksi tulis checklist yang **mengubah sesuatu** menaikkan rev **tepat 1**; pemulihan pohon (`_heal_task_tree`) yang mengubah sesuatu menaikkan rev 1 **tersendiri**; operasi tanpa perubahan tidak menaikkan. | Klien bisa memajukan rev tersimpan tanpa mengambil ulang hanya bila rev server = rev tersimpan + 1 (berarti hanya aksinya sendiri yang mengubah). |
+| E2 | Setiap transaksi tulis checklist yang **mengubah sesuatu** menaikkan rev **tepat 1**; pemulihan pohon (`_heal_task_tree`) yang mengubah sesuatu menaikkan rev 1 **tersendiri**; operasi tanpa perubahan tidak menaikkan. | Aturan klien: rev tersimpan dimajukan hanya bila `rev_bumped` **dan** `rev` = tersimpan + 1; selain itu dikosongkan (ambil ulang) — kecuali `rev` = tersimpan (tidak ada perubahan di server) → tetap. `rev_bumped` (di `task_progress`) = aksi itu sendiri yang menaikkan rev; `rev` = tersimpan + 1 saja tidak cukup, karena aksi tanpa perubahan bisa membawa kenaikan milik perangkat lain (perbaikan review S1). |
 | E3 | Centang offline dikirim sebagai `PATCH {is_done}` (set, bukan toggle). | Toggle tidak aman diulang: pengiriman ulang setelah koneksi putus bisa membalik centang. |
 | E4 | Idempotensi tambah: `client_id` dicari **per task**. | Pengiriman ulang tambah tidak menggandakan butir; menutup residual Fase 1 (`client_id` lintas task). |
 | E5 | Task yang masih punya aksi checklist di antrean **tidak** diambil ulang checklist-nya dan **tidak** mengadopsi `progress`/`checklist_total` dari server. | Pull berjalan sebelum push dalam satu siklus sinkron; tanpa ini hasil offline tertimpa angka/isi lama lalu "melompat". |
@@ -55,15 +55,15 @@ Checklist (dengan semua kemampuan Fase 1: tambah, Tab/Shift+Tab, seret, Alt+↑/
 - `tasks.checklist_rev INTEGER DEFAULT 0` (migrasi kolom di `_init_db`, pola `checklist_total`).
 - Naik sesuai E2 di setiap operasi repository: `add_subtask`, `rename_subtask`, `move_subtask`, `toggle_subtask`, `set_subtask_done` (baru), `delete_subtask`, dan `heal_checklists` (per task yang dipulihkan). Termasuk aksi dari bot (bot memakai repository yang sama).
 - `migrate_db()`: task yang punya butir tetapi `checklist_rev = 0` → `1` (idempoten; tanpa `updated_at`). `recompute_all` tidak menyentuh rev.
-- Ikut di semua respons task (`dict(row)`), dan `task_progress` mendapat field `rev`.
+- Ikut di semua respons task (`dict(row)`), dan `task_progress` mendapat field `rev` (nilai kolom sesudah operasi) dan `rev_bumped` (bool: operasi itu sendiri menaikkan rev; pemulihan pohon tidak dihitung; `false` untuk tambah dengan `client_id` yang sudah ada, teks sama, posisi sama, centang set tanpa perubahan).
 
 ### 3.2 Endpoint
 | Endpoint | Perubahan |
 |---|---|
 | **Baru** `GET /api/checklists?task_ids=1,2,3` | `{"<task_id>": {"rev": n, "items": [...]}}`; `items` = bentuk `GET /api/tasks/{id}/subtasks` (pre-order, `parent_id` efektif, `depth`). Maksimal **200** id (lebih → 400, teks pola `child-counts`); id bukan angka → 400; task tak ada / tanpa akses → dilewati. Baca saja (tanpa pemulihan pohon tulis). |
-| `PATCH /api/subtasks/{id}` | Body: `title` dan/atau `is_done` (minimal satu; kosong → 422 "Tidak ada perubahan"). `is_done: true` → butir + semua turunan selesai; `false` → hanya butir itu (sama dengan toggle). Keduanya dalam satu transaksi, rev +1 bila ada yang berubah. Respons = butir + `changed_ids` + `task_progress` (dengan `rev`). Akses tulis seperti sekarang. |
-| `POST /api/tasks/{id}/subtasks` | Idempotensi `client_id` per task (E4). |
-| Lainnya | Respons yang membawa `task_progress` kini memuat `rev`. Toggle dan perilaku lain tidak berubah. |
+| `PATCH /api/subtasks/{id}` | Body: `title` dan/atau `is_done` (minimal satu; kosong → 422 "Tidak ada perubahan"). `is_done: true` → butir + semua turunan selesai; `false` → hanya butir itu (sama dengan toggle). Keduanya dalam satu transaksi, rev +1 bila ada yang berubah. Respons = butir + `changed_ids` + `task_progress` (dengan `rev` dan `rev_bumped`). Akses tulis seperti sekarang. |
+| `POST /api/tasks/{id}/subtasks` | Idempotensi `client_id` per task (E4). `client_id` yang sudah dipakai task lain disimpan sebagai `"<task_id>:<client_id>"` (indeks unik global tidak diubah); pengiriman ulang tetap idempoten. |
+| Lainnya | Respons yang membawa `task_progress` kini memuat `rev` dan `rev_bumped`. Toggle dan perilaku lain tidak berubah. |
 
 ### 3.3 Kompatibilitas
 - Aplikasi v502 mengabaikan `checklist_rev` dan `rev`; tidak memakai endpoint baru.
@@ -103,7 +103,7 @@ Checklist (dengan semua kemampuan Fase 1: tambah, Tab/Shift+Tab, seret, Alt+↑/
 - Bentuk entri: `{entity_type: "subtasks", cid: <cid butir>, task_cid, op: "create"|"rename"|"set_done"|"move"|"delete", payload}`; payload `create {title, parent_cid, index}`, `rename {title}`, `set_done {is_done}`, `move {parent_cid, index}`.
 - Dikirim berurutan (`qid`). Menunggu bila task (`task_cid`) atau induk (`parent_cid`) masih punya `create` tertunda (pola `parentCreatePending`).
 - Endpoint: `create` → `POST /api/tasks/{tsid}/subtasks {title, client_id: cid, parent_id, index}`; `rename`/`set_done` → `PATCH`; `move` → `POST …/move`; `delete` → `DELETE`.
-- Berhasil: `create` → idmap + `server_id`; adopsi `task_progress` (pola Fase 1 + `rev`); bila `rev` = rev tersimpan + 1 → rev tersimpan = `rev`, selain itu rev tersimpan dikosongkan (task diambil ulang saat antreannya kosong).
+- Berhasil: `create` → idmap + `server_id`; adopsi `task_progress` (pola Fase 1 + `rev`/`rev_bumped`); rev tersimpan dimajukan hanya bila `rev_bumped` **dan** `rev` = tersimpan + 1; selain itu dikosongkan (ambil ulang) — kecuali `rev` = tersimpan (tidak ada perubahan di server) → tetap. Rev yang dikosongkan membuat task diambil ulang saat antreannya kosong. Respons tanpa `task_progress` (`delete` 404) → dikosongkan.
 - Galat sementara (jaringan, 5xx, 401, 429) → aksi tetap, siklus berhenti seperti entitas lain.
 - Ditolak (403, 404, 422; kecuali `delete` 404 = berhasil) → aksi dibuang, aksi lain pada butir yang tak punya id server dan tak punya `create` tertunda ikut dibuang, rev tersimpan task itu dikosongkan, dan penghitung pembatalan naik.
 - Akhir `pushOutbox`: bila penghitung > 0 → satu event → toast "N perubahan checklist dibatalkan karena checklist sudah berubah di perangkat lain."
@@ -126,7 +126,7 @@ Checklist (dengan semua kemampuan Fase 1: tambah, Tab/Shift+Tab, seret, Alt+↑/
 
 ## 6. Pengujian
 
-- **pytest (PR A2):** rev +1 per operasi termasuk berantai; operasi tanpa perubahan tidak menaikkan; pemulihan menaikkan tersendiri; tanpa `updated_at`; migrasi rev task lama (idempoten); `GET /api/checklists` (bentuk, batas 200, id tidak sah, akses per task, task tak dikenal); `PATCH {is_done}` (berantai, aman diulang, kombinasi dengan `title`, body kosong); `client_id` per task; `task_progress.rev` di semua respons.
+- **pytest (PR A2):** rev +1 per operasi termasuk berantai; operasi tanpa perubahan tidak menaikkan; pemulihan menaikkan tersendiri; tanpa `updated_at`; migrasi rev task lama (idempoten); `GET /api/checklists` (bentuk, batas 200, id tidak sah, akses per task, task tak dikenal); `PATCH {is_done}` (berantai, aman diulang, kombinasi dengan `title`, body kosong); `client_id` per task (termasuk bertabrakan lintas task); `task_progress.rev` dan `rev_bumped` di semua respons; `merge_db.py` menaikkan rev task penerima butir.
 - **node --test (PR B2):** rute lokal (tiap endpoint, bentuk respons, galat 422, progress lokal, id campuran); antrean (urutan, menunggu task/induk, tambah-lalu-hapus dibuang, galat sementara vs ditolak, `delete` 404, toast sekali); `pullChecklists` (lewati task berantrean, ganti isi + pertahankan `cid`, hapus butir hilang, batch 200, gagal tidak menggagalkan siklus); balapan pull vs aksi lokal; vektor Fase 1 tetap lulus.
 - **E2E (PR B2):** offline → tambah, Tab, seret, centang, hapus → muat ulang offline → tetap ada → online → server + perangkat kedua sama; task baru offline + checklist; bentrok dengan perangkat lain → satu pesan; perangkat baru mengunduh semua checklist; `e2e_checklist_tree.py` tetap lulus.
 

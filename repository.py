@@ -719,9 +719,16 @@ def _set_done(conn, task_id: int, subtask_id: int, is_done: bool) -> list[int]:
     return changed
 
 
-def _subtask_with_progress(conn, task_id: int, subtask_id: int) -> dict:
-    """Satu butir (bentuk `_subtask_items`) + `task_progress` terkini (sesudah hitung ulang)."""
-    tp = _recompute_progress(conn, task_id)
+def _progress(conn, task_id: int, bumped: bool) -> dict:
+    """`task_progress` untuk respons operasi tulis: `_recompute_progress` + `rev_bumped` = operasi INI sendiri
+    menaikkan rev (pemulihan pohon tidak dihitung). Klien memajukan rev tersimpan hanya bila `rev_bumped` dan
+    `rev` = tersimpan + 1 (spec checklist offline §4.4; perbaikan review S1)."""
+    return {**_recompute_progress(conn, task_id), "rev_bumped": bumped}
+
+
+def _subtask_with_progress(conn, task_id: int, subtask_id: int, bumped: bool) -> dict:
+    """Satu butir (bentuk `_subtask_items`) + `task_progress` terkini (sesudah hitung ulang, dengan `rev_bumped`)."""
+    tp = _progress(conn, task_id, bumped)
     item = next(s for s in _subtask_items(conn, task_id) if s["id"] == subtask_id)
     return {**item, "task_progress": tp}
 
@@ -1696,24 +1703,29 @@ class TaskRepository:
         """Tambah butir checklist (spec §4). `parent_id` None = level atas; `index` = posisi di antara
         saudara (None = paling akhir, di-clamp). Judul di-trim; kosong → ChecklistError("EMPTY_TITLE");
         induk tidak ada / di task lain → ChecklistError("PARENT_NOT_FOUND"). `client_id` yang sudah ada DI TASK
-        INI → butir lama dikembalikan tanpa menaikkan `checklist_rev` (spec checklist offline E4). Mengembalikan
-        butir + `task_progress`."""
+        INI → butir lama dikembalikan tanpa menaikkan `checklist_rev` (`rev_bumped` False; spec checklist offline
+        E4). Mengembalikan butir + `task_progress`."""
         clean = (title or "").strip()
         now = datetime.now().isoformat()
         with self._connect() as conn, dbconn.write_tx(conn):
             _heal_task_tree(conn, task_id)
             if client_id:
-                # Idempotensi per task (rencana PR A2 R3): butir task lain tidak pernah dikembalikan.
+                # Idempotensi per task (rencana PR A2 R3): butir task lain tidak pernah dikembalikan. Indeks unik
+                # `idx_subtasks_client_id` berlaku global (skema tidak diubah), jadi `client_id` yang sudah dipakai
+                # task lain disimpan berprefiks "<task_id>:<client_id>" (perbaikan review C3); pencarian memeriksa
+                # kedua bentuk sehingga pengiriman ulang tetap idempoten.
+                scoped = f"{task_id}:{client_id}"
                 existing = conn.execute(
-                    "SELECT id FROM subtasks WHERE client_id = ? AND task_id = ?", (client_id, task_id)
-                ).fetchone()
+                    "SELECT id FROM subtasks WHERE task_id = ? AND client_id IN (?, ?)",
+                    (task_id, client_id, scoped)).fetchone()
                 if existing:
-                    return _subtask_with_progress(conn, task_id, existing["id"])
-                # Indeks unik `idx_subtasks_client_id` berlaku global (skema Fase 1 tidak diubah): `client_id`
-                # yang sudah dipakai task lain tidak disimpan ulang — butir baru tanpa `client_id`. Tidak terjadi
-                # untuk cid acak klien; hanya mencegah 500/IntegrityError dan kebocoran butir task lain.
-                if conn.execute("SELECT 1 FROM subtasks WHERE client_id = ?", (client_id,)).fetchone():
-                    client_id = None
+                    return _subtask_with_progress(conn, task_id, existing["id"], False)
+                taken = {r[0] for r in conn.execute(
+                    "SELECT client_id FROM subtasks WHERE client_id IN (?, ?)", (client_id, scoped)).fetchall()}
+                if client_id in taken:
+                    # Bentuk berprefiks pun dipakai task lain (hanya bila klien mengirim id berbentuk itu) →
+                    # butir baru tanpa client_id daripada IntegrityError.
+                    client_id = None if scoped in taken else scoped
             if not clean:
                 raise ChecklistError("EMPTY_TITLE")
             if parent_id is not None:
@@ -1732,7 +1744,7 @@ class TaskRepository:
             siblings.insert(pos, (new_id, pos))
             _renumber(conn, siblings)
             _bump_rev(conn, task_id)
-            return _subtask_with_progress(conn, task_id, new_id)
+            return _subtask_with_progress(conn, task_id, new_id, True)
 
     def get_subtasks(self, task_id: int) -> list[dict]:
         """Butir checklist pre-order (induk lalu turunannya) dengan `parent_id` dan `depth` (spec §4, D4)."""
@@ -1765,10 +1777,11 @@ class TaskRepository:
             row = conn.execute("SELECT task_id, title FROM subtasks WHERE id = ?", (subtask_id,)).fetchone()
             if not clean:
                 raise ChecklistError("EMPTY_TITLE")
-            if clean != row["title"]:
+            renamed = clean != row["title"]
+            if renamed:
                 conn.execute("UPDATE subtasks SET title = ? WHERE id = ?", (clean, subtask_id))
                 _bump_rev(conn, row["task_id"])
-            return _subtask_with_progress(conn, row["task_id"], subtask_id)
+            return _subtask_with_progress(conn, row["task_id"], subtask_id, renamed)
 
     def move_subtask(self, subtask_id: int, parent_id: Optional[int],
                      index: Optional[int] = None) -> Optional[dict]:
@@ -1803,7 +1816,8 @@ class TaskRepository:
             new_rest = old_rest if same_parent else _sibling_rows(conn, task_id, parent_id)
             pos = _clamp_index(index, len(new_rest))
 
-            if not (same_parent and pos == old_pos):
+            moved = not (same_parent and pos == old_pos)
+            if moved:
                 if not same_parent:
                     conn.execute("UPDATE subtasks SET parent_id = ? WHERE id = ?", (parent_id, subtask_id))
                     _renumber(conn, old_rest)
@@ -1811,7 +1825,7 @@ class TaskRepository:
                 new_group.insert(pos, (subtask_id, row["sort_order"]))
                 _renumber(conn, new_group)
                 _bump_rev(conn, task_id)
-            tp = _recompute_progress(conn, task_id)
+            tp = _progress(conn, task_id, moved)
             return {"items": _subtask_items(conn, task_id), "task_progress": tp}
 
     def toggle_subtask(self, subtask_id: int) -> Optional[dict]:
@@ -1826,7 +1840,7 @@ class TaskRepository:
             changed = _set_done(conn, task_id, subtask_id, not row["is_done"])
             if changed:  # toggle selalu mengubah butir itu sendiri
                 _bump_rev(conn, task_id)
-            return {**_subtask_with_progress(conn, task_id, subtask_id), "changed_ids": changed}
+            return {**_subtask_with_progress(conn, task_id, subtask_id, bool(changed)), "changed_ids": changed}
 
     def update_subtask(self, subtask_id: int, title: Optional[str] = None,
                        is_done: Optional[bool] = None) -> Optional[dict]:
@@ -1852,9 +1866,10 @@ class TaskRepository:
                     conn.execute("UPDATE subtasks SET title = ? WHERE id = ?", (clean, subtask_id))
                     renamed = True
             changed = [] if is_done is None else _set_done(conn, task_id, subtask_id, bool(is_done))
-            if renamed or changed:
+            bumped = renamed or bool(changed)
+            if bumped:
                 _bump_rev(conn, task_id)
-            return {**_subtask_with_progress(conn, task_id, subtask_id), "changed_ids": changed}
+            return {**_subtask_with_progress(conn, task_id, subtask_id, bumped), "changed_ids": changed}
 
     def delete_subtask(self, subtask_id: int) -> Optional[dict]:
         """Hapus butir beserta semua turunannya dalam satu transaksi (K7). Saudara yang tersisa tidak
@@ -1869,7 +1884,7 @@ class TaskRepository:
             ids = [subtask_id] + checklist_tree.descendant_ids(rows, subtask_id)
             conn.executemany("DELETE FROM subtasks WHERE id = ?", [(i,) for i in ids])
             _bump_rev(conn, task_id)
-            return {"deleted_ids": ids, "task_progress": _recompute_progress(conn, task_id)}
+            return {"deleted_ids": ids, "task_progress": _progress(conn, task_id, True)}
 
     def get_child_tasks(self, parent_id: int) -> list[dict]:
         """Return all tasks that are children of parent_id."""

@@ -63,10 +63,11 @@ def test_patch_is_done_true_berantai_dengan_rev_lalu_diulang_tanpa_perubahan(cli
     body = r.json()
     assert set(body) == KEYS | {"changed_ids", "task_progress"}
     assert body["id"] == a and body["is_done"] is True and body["changed_ids"] == [a, a1, a11]
-    assert body["task_progress"] == {"done": 1, "total": 2, "progress": 50, "rev": 5}
+    assert body["task_progress"] == {"done": 1, "total": 2, "progress": 50, "rev": 5, "rev_bumped": True}
     r = u.patch(f"/api/subtasks/{a}", json={"is_done": True})
     assert r.status_code == 200, r.text
     assert r.json()["changed_ids"] == [] and r.json()["task_progress"]["rev"] == 5
+    assert r.json()["task_progress"]["rev_bumped"] is False
     assert all(i["is_done"] for i in _list(u, tid) if i["id"] != b)
     assert _kolom(tid, "updated_at", "checklist_rev") == (sebelum, 5)
 
@@ -100,7 +101,7 @@ def test_patch_title_bentuk_lama_tetap_ditambah_changed_ids_kosong(client):
     body = r.json()
     assert set(body) == KEYS | {"changed_ids", "task_progress"}
     assert body["title"] == "baru" and body["changed_ids"] == []
-    assert body["task_progress"] == {"done": 0, "total": 1, "progress": 0, "rev": 2}
+    assert body["task_progress"] == {"done": 0, "total": 1, "progress": 0, "rev": 2, "rev_bumped": True}
     for kosong in ("", "   "):
         r = u.patch(f"/api/subtasks/{a}", json={"title": kosong, "is_done": True})
         assert r.status_code == 422 and r.json()["detail"] == T_KOSONG
@@ -148,6 +149,10 @@ def test_post_client_id_task_lain_tidak_mengembalikan_butir_orang_lain(client):
     assert ulang["id"] == rahasia["id"] and ulang["title"] == "rahasia a"
     assert ulang["task_progress"]["rev"] == 1
     assert [i["title"] for i in _list(a, ta)] == ["rahasia a"]
+    # Perbaikan review C3: POST berulang ke task B dengan client_id milik task A → tetap satu butir.
+    r2 = _add(b, tb, "milik b (ulang)", client_id=cid)
+    assert r2["id"] == r["id"] and r2["title"] == "milik b" and r2["task_progress"]["rev_bumped"] is False
+    assert [i["title"] for i in _list(b, tb)] == ["milik b"]
 
 
 # ── GET /api/checklists ─────────────────────────────────────────────────────
@@ -296,9 +301,34 @@ def test_semua_respons_tulis_memuat_rev_sama_dengan_kolom_dan_batch(client):
                  u.delete(f"/api/subtasks/{b['id']}")):
         assert resp.status_code == 200, resp.text
         tp = resp.json()["task_progress"]
-        assert set(tp) == {"done", "total", "progress", "rev"}
+        assert set(tp) == {"done", "total", "progress", "rev", "rev_bumped"} and tp["rev_bumped"] is True
         revs.append(tp["rev"])
     assert revs == [1, 2, 3, 4, 5, 6, 7]
     task = u.get(f"/api/tasks/{tid}").json()
     assert task["checklist_rev"] == 7 and task["updated_at"] == sebelum
     assert _batch(u, [tid])[str(tid)]["rev"] == 7
+
+
+# ── Perbaikan review S1 dan C4 ──────────────────────────────────────────────
+
+def test_skenario_review_patch_tanpa_perubahan_setelah_centang_berantai_rev_bumped_false(client):
+    pemilik, lain = U(client, "or1"), U(client, "or2")
+    ws = _workspace(pemilik)
+    _add_member(ws, lain.id)
+    tid = _mk(pemilik, title="tim", list_id=ws)["id"]
+    p = _add(pemilik, tid, "P")["id"]
+    x = _add(pemilik, tid, "x", parent_id=p)["id"]
+    _add(pemilik, tid, "y", parent_id=p)
+    tersimpan = _batch(pemilik, [tid])[str(tid)]["rev"]
+    assert tersimpan == 3
+    assert lain.post(f"/api/subtasks/{p}/toggle").json()["task_progress"]["rev"] == 4
+    r = pemilik.patch(f"/api/subtasks/{x}", json={"is_done": True})
+    assert r.status_code == 200, r.text
+    tp = r.json()["task_progress"]
+    assert r.json()["changed_ids"] == [] and tp == {"done": 1, "total": 1, "progress": 100, "rev": 4,
+                                                     "rev_bumped": False}
+
+
+def test_get_checklists_endpoint_sinkron_di_threadpool():
+    import inspect
+    assert not inspect.iscoroutinefunction(webapp.get_checklists)

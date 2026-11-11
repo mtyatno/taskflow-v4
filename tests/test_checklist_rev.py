@@ -289,7 +289,7 @@ def test_task_progress_rev_sama_dengan_kolom_di_setiap_kembalian(repo, tid):
              repo.toggle_subtask(a["id"]),
              repo.move_subtask(a["id"], None, 0)]
     for r in hasil:
-        assert set(r["task_progress"]) == {"done", "total", "progress", "rev"}
+        assert set(r["task_progress"]) == {"done", "total", "progress", "rev", "rev_bumped"}
     assert [r["task_progress"]["rev"] for r in hasil] == [1, 2, 3, 4, 4]
     d = repo.delete_subtask(a["id"])
     assert d["task_progress"]["rev"] == 5 == _rev(tid)
@@ -328,7 +328,7 @@ def test_set_selesai_berantai_bentuk_kembalian_dan_naik_1(repo, tid):
     assert set(r) == KEYS | {"changed_ids", "task_progress"}
     assert r["id"] == a and r["is_done"] is True and r["title"] == "a"
     assert r["changed_ids"] == [a, a1, a11, a2]
-    assert r["task_progress"] == {"done": 1, "total": 3, "progress": 33, "rev": 7}
+    assert r["task_progress"] == {"done": 1, "total": 3, "progress": 33, "rev": 7, "rev_bumped": True}
     d = _done(repo, tid)
     assert d[a] and d[a1] and d[a11] and d[a2] and not d[b] and not d[c]
     assert _updated_at(tid) == FROZEN
@@ -437,3 +437,91 @@ def test_update_memakai_satu_write_tx(repo, tid, spy_tx):
     repo.update_subtask(a, is_done=False)
     repo.update_subtask(987654321, title="x")
     assert spy_tx == [False, False, False]
+
+
+# ── Perbaikan review S1: `task_progress.rev_bumped` = operasi INI menaikkan rev (bukan pemulihan pohon) ──
+# Aturan klien (spec Fase 2 §4.4): rev tersimpan dimajukan hanya bila `rev_bumped` DAN `rev` = tersimpan + 1.
+
+def _rb(r):
+    return r["task_progress"]["rev_bumped"]
+
+
+def test_rev_bumped_tambah_baru_true_client_id_sudah_ada_false(repo, tid):
+    cid = f"cid-{uuid.uuid4().hex}"
+    a = repo.add_subtask(tid, "a", client_id=cid)
+    assert _rb(a) is True
+    assert _rb(repo.add_subtask(tid, "a lagi", client_id=cid)) is False
+    assert _rb(repo.add_subtask(tid, "sub", parent_id=a["id"])) is True
+
+
+def test_rev_bumped_ubah_teks_berbeda_true_sama_false(repo, tid):
+    a = repo.add_subtask(tid, "a")["id"]
+    assert _rb(repo.rename_subtask(a, "b")) is True
+    assert _rb(repo.rename_subtask(a, " b ")) is False
+
+
+def test_rev_bumped_pindah_berubah_true_posisi_sama_false(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    assert _rb(repo.move_subtask(b, None, 1)) is False
+    assert _rb(repo.move_subtask(b, None, 0)) is True
+    assert _rb(repo.move_subtask(a1, b)) is True
+
+
+def test_rev_bumped_toggle_dan_hapus_true(repo, tid):
+    a = repo.add_subtask(tid, "a")["id"]
+    assert _rb(repo.toggle_subtask(a)) is True
+    assert _rb(repo.toggle_subtask(a)) is True
+    assert _rb(repo.delete_subtask(a)) is True
+
+
+def test_rev_bumped_update_subtask(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    assert _rb(repo.update_subtask(a, is_done=True)) is True
+    assert _rb(repo.update_subtask(a, is_done=True)) is False          # set tanpa perubahan
+    assert _rb(repo.update_subtask(a, title="A")) is True
+    assert _rb(repo.update_subtask(a, title="A")) is False
+    assert _rb(repo.update_subtask(a, title="A", is_done=False)) is True
+    assert _rb(repo.update_subtask(a, title="A", is_done=False)) is False
+
+
+@pytest.mark.parametrize("op,berubah", [
+    ("rename_sama", False), ("move_sama", False), ("set_sama", False),
+    ("rename_beda", True), ("toggle", True), ("delete", True)])
+def test_rev_bumped_tidak_menghitung_pemulihan_pohon(repo, tid, op, berubah):
+    a, b, o = _yatim(tid)
+    r = {
+        "rename_sama": lambda: repo.rename_subtask(a, "a"),
+        "move_sama": lambda: repo.move_subtask(b, None, 1),
+        "set_sama": lambda: repo.update_subtask(a, is_done=False),
+        "rename_beda": lambda: repo.rename_subtask(a, "a baru"),
+        "toggle": lambda: repo.toggle_subtask(a),
+        "delete": lambda: repo.delete_subtask(b),
+    }[op]()
+    assert r["task_progress"]["rev"] == (2 if berubah else 1)   # pemulihan +1 tersendiri
+    assert _rb(r) is berubah
+
+
+def test_skenario_review_set_tanpa_perubahan_setelah_centang_berantai_perangkat_lain(repo, tid):
+    """Rev tersimpan 3; perangkat lain mencentang induk P berantai → rev 4; antrean offline mengirim set x
+    selesai → tanpa perubahan, rev 4 = tersimpan + 1, tetapi `rev_bumped` False → klien wajib mengambil ulang."""
+    p = repo.add_subtask(tid, "P")["id"]
+    x = repo.add_subtask(tid, "x", parent_id=p)["id"]
+    repo.add_subtask(tid, "y", parent_id=p)
+    tersimpan = _rev(tid)
+    assert tersimpan == 3
+    assert repo.toggle_subtask(p)["task_progress"]["rev"] == 4       # perangkat lain
+    r = repo.update_subtask(x, is_done=True)                         # aksi offline yang terkirim
+    tp = r["task_progress"]
+    assert r["changed_ids"] == [] and tp["rev"] == tersimpan + 1 and tp["rev_bumped"] is False
+    boleh_maju = tp["rev_bumped"] and tp["rev"] == tersimpan + 1
+    assert not boleh_maju
+
+
+def test_rev_bumped_selalu_bool_di_setiap_kembalian(repo, tid):
+    a = repo.add_subtask(tid, "a")
+    hasil = [a, repo.rename_subtask(a["id"], "a"), repo.move_subtask(a["id"], None),
+             repo.toggle_subtask(a["id"]), repo.update_subtask(a["id"], is_done=True),
+             repo.delete_subtask(a["id"])]
+    for r in hasil:
+        assert set(r["task_progress"]) == {"done", "total", "progress", "rev", "rev_bumped"}
+        assert isinstance(r["task_progress"]["rev_bumped"], bool)
