@@ -32,6 +32,6 @@ test("fullSync memanggil pullComments setelah pullNotesAndReconcile dan sebelum 
 
 test("sw.js mem-precache ketiga modul komentar dan versi v457", () => {
   for (const f of FILES) assert.ok(swJs.includes(`"/static/offline/${f}"`), f);
-  assert.ok(swJs.includes('"taskflow-v503-ev-ekspor"'));
-  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v503-ev-ekspor"'));
+  assert.ok(swJs.includes('"taskflow-v504-checklist-offline"'));
+  assert.ok(indexHtml.includes('window.__SW_VERSION = "taskflow-v504-checklist-offline"'));
 });
