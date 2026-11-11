@@ -45,7 +45,8 @@ test("modul: di browser terpasang sebagai TF.checklist (pola UMD taskdetail.js)"
   const api = ctx.self.TF.checklist;
   for (const k of ["percent", "preorder", "topLevelCounts", "childCounts", "descendantIds", "visibleRows",
     "indentTarget", "outdentTarget", "siblingMoveTarget", "dropRange", "dropTarget", "applyMove", "maxAddDepth",
-    "addParentFor", "autoScrollDelta", "loadCollapsed", "saveCollapsed", "lockFor", "adoptTaskProgress", "childCountsAll"]) {
+    "addParentFor", "autoScrollDelta", "loadCollapsed", "saveCollapsed", "lockFor", "adoptTaskProgress", "childCountsAll",
+    "applyCreate", "applySetDone", "applyRename", "applyDelete", "moveError"]) {
     assert.equal(typeof api[k], "function", k);
   }
   assert.equal(api.COLLAPSE_KEY, "tf_check_collapsed");
@@ -383,6 +384,195 @@ test("applyMove: index negatif / bukan bilangan bulat / bukan number → null (k
   }
   assert.deepEqual(ids(C.applyMove(items, 3, null, 0)), [3, 1, 4, 6, 5, 2]);
   assert.deepEqual(ids(C.applyMove(items, 3, null, 1e9)), [1, 4, 6, 5, 2, 3]); // > n tetap di-clamp ke akhir
+});
+
+// ── id campuran (checklist offline Fase 2, rencana PR B2 R1) ────────────────
+// Butir yang belum tersinkron memakai cid (string) sebagai id: angka sebelum teks, teks menurut `<` biasa.
+
+test("id campuran: sort_order sama → id angka sebelum id teks, teks menurut abjad", () => {
+  const items = [b("zz", null, 0), b(7, null, 0), b("aa", null, 0), b(2, null, 0), b("m", null, 1), b(1, null, 1)];
+  assert.deepEqual(ids(C.preorder(items)), [2, 7, "aa", "zz", 1, "m"]);
+});
+
+test("id campuran: parent_id string (cid) membentuk pohon; turunan, hitungan, dan target pindah ikut", () => {
+  const items = [b(1, null, 0), b("c-a", 1, 0), b("c-b", "c-a", 0), b(2, null, 1, { is_done: true }), b("c-c", null, 2)];
+  const flat = C.preorder(items);
+  assert.deepEqual(flat.map((r) => [r.id, r.depth, r.parent_id]),
+    [[1, 0, null], ["c-a", 1, 1], ["c-b", 2, "c-a"], [2, 0, null], ["c-c", 0, null]]);
+  assert.deepEqual(C.descendantIds(items, 1), ["c-a", "c-b"]);
+  assert.deepEqual(C.childCounts(items, "c-a"), { done: 0, total: 1 });
+  assert.deepEqual(C.topLevelCounts(items), { done: 1, total: 3 });
+  assert.deepEqual(C.indentTarget(items, "c-c"), { parent_id: 2, index: 0 });
+  assert.deepEqual(C.outdentTarget(items, "c-b"), { parent_id: 1, index: 1 });
+  const moved = C.applyMove(items, "c-c", "c-a", 0);
+  assert.deepEqual(moved.map((r) => [r.id, r.depth, r.parent_id, r.sort_order]),
+    [[1, 0, null, 0], ["c-a", 1, 1, 0], ["c-c", 2, "c-a", 0], ["c-b", 2, "c-a", 1], [2, 0, null, 1]]);
+  assert.equal(C.applyMove(items, 1, "c-b", 0), null); // turunan sendiri
+});
+
+test("id campuran: siklus diputus pada anggota (sort_order, id) terkecil — angka lebih kecil dari teks", () => {
+  const out = C.preorder([b("x", 5, 0), b(5, "x", 0)]);
+  assert.deepEqual(out.map((r) => [r.id, r.depth]), [[5, 0], ["x", 1]]);
+});
+
+test("vektor pohon Fase 1 tetap lulus dengan pembanding id campuran (preorder dan applyMove)", () => {
+  for (const vec of TREE.preorder) assert.deepEqual(C.preorder(vec.rows).map((r) => [r.id, r.depth, r.parent_id]), vec.expected, vec.name);
+  for (const vec of TREE.move.filter((v) => !v.python_only)) {
+    const out = C.applyMove(vec.rows, vec.move.id, vec.move.parent_id, vec.move.index);
+    assert.deepEqual(out.map((r) => [r.id, r.depth, r.parent_id, r.sort_order]), vec.expected, vec.name);
+  }
+});
+
+// ── aksi murni (rute lokal = server; vektor bersama pytest) ─────────────────
+
+const ACTIONS = JSON.parse(fs.readFileSync(path.join(ROOT, "tests/fixtures/checklist_action_vectors.json"), "utf8"));
+// Baris vektor → butir bentuk API (task_id bawaan 1, judul bawaan "v<id>", is_done bawaan false).
+function barisVektor(rows) {
+  return rows.map((r) => ({
+    id: r.id, task_id: r.task_id != null ? r.task_id : 1, parent_id: r.parent_id, sort_order: r.sort_order,
+    title: r.title != null ? r.title : "v" + r.id, is_done: !!r.is_done,
+  }));
+}
+const bentuk = (list) => list.map((r) => [r.id, r.depth, r.parent_id, r.sort_order]);
+const hitung = (list) => { const c = C.topLevelCounts(list); return [c.done, c.total]; };
+
+test("aksi: vektor aksi bersama memuat semua jenis aksi", () => {
+  for (const k of ["create", "create_invalid", "set_done", "rename", "rename_invalid", "delete"]) {
+    assert.ok(Array.isArray(ACTIONS[k]) && ACTIONS[k].length > 0, k);
+  }
+});
+
+for (const vec of ACTIONS.create) {
+  test("applyCreate vektor: " + vec.name, () => {
+    const rows = barisVektor(vec.rows);
+    const snap = JSON.stringify(rows);
+    const a = vec.action;
+    const r = C.applyCreate(rows, { id: "new", task_id: 1, title: a.title, parent_id: a.parent_id, index: a.index });
+    assert.equal(r.error, undefined);
+    assert.deepEqual(bentuk(r.items), vec.expected.items);
+    assert.deepEqual(bentuk([r.item]), [vec.expected.item]);
+    assert.equal(r.item.title, vec.expected.title);
+    assert.equal(r.item.is_done, false);
+    assert.equal(r.item.task_id, 1);
+    assert.deepEqual(hitung(r.items), vec.expected.counts);
+    assert.equal(JSON.stringify(rows), snap, "masukan tidak berubah");
+  });
+}
+
+for (const vec of ACTIONS.create_invalid) {
+  test("applyCreate vektor tidak sah: " + vec.name, () => {
+    const a = vec.action;
+    const r = C.applyCreate(barisVektor(vec.rows), { id: "new", task_id: 1, title: a.title, parent_id: a.parent_id, index: a.index });
+    assert.deepEqual(r, { error: vec.error });
+  });
+}
+
+for (const vec of ACTIONS.set_done) {
+  test("applySetDone vektor: " + vec.name, () => {
+    const rows = barisVektor(vec.rows);
+    const snap = JSON.stringify(rows);
+    const r = C.applySetDone(rows, vec.action.id, vec.action.is_done);
+    assert.deepEqual(r.changed_ids, vec.expected.changed_ids);
+    assert.deepEqual(r.items.filter((x) => x.is_done).map((x) => x.id), vec.expected.done);
+    assert.deepEqual(hitung(r.items), vec.expected.counts);
+    assert.deepEqual(r.items.map((x) => x.id), C.preorder(rows).map((x) => x.id), "urutan tidak berubah");
+    assert.equal(JSON.stringify(rows), snap, "masukan tidak berubah");
+  });
+}
+
+for (const vec of ACTIONS.rename) {
+  test("applyRename vektor: " + vec.name, () => {
+    const rows = barisVektor(vec.rows);
+    const r = C.applyRename(rows, vec.action.id, vec.action.title);
+    assert.equal(r.item.id, vec.action.id);
+    assert.equal(r.item.title, vec.expected.title);
+    assert.equal(r.changed, vec.expected.changed);
+    assert.deepEqual(bentuk(r.items), bentuk(C.preorder(rows)));
+    assert.equal(r.items.find((x) => x.id === vec.action.id).title, vec.expected.title);
+  });
+}
+
+for (const vec of ACTIONS.rename_invalid) {
+  test("applyRename vektor tidak sah: " + vec.name, () => {
+    assert.deepEqual(C.applyRename(barisVektor(vec.rows), vec.action.id, vec.action.title), { error: vec.error });
+  });
+}
+
+for (const vec of ACTIONS.delete) {
+  test("applyDelete vektor: " + vec.name, () => {
+    const rows = barisVektor(vec.rows);
+    const snap = JSON.stringify(rows);
+    const r = C.applyDelete(rows, vec.action.id);
+    assert.deepEqual(r.deleted_ids, vec.expected.deleted_ids);
+    assert.deepEqual(bentuk(r.items), vec.expected.items);
+    assert.deepEqual(hitung(r.items), vec.expected.counts);
+    assert.equal(JSON.stringify(rows), snap, "masukan tidak berubah");
+  });
+}
+
+test("aksi: id tidak dikenal → null (rute membalas 404)", () => {
+  const items = pohon();
+  assert.equal(C.applySetDone(items, 99, true), null);
+  assert.equal(C.applyRename(items, 99, "x"), null);
+  assert.equal(C.applyRename(items, 99, "  "), null, "404 diperiksa sebelum judul kosong (seperti server)");
+  assert.equal(C.applyDelete(items, 99), null);
+  assert.equal(C.applyDelete(items, "99"), null, "id dibandingkan apa adanya");
+});
+
+test("applyCreate: id campuran — cid baru di bawah induk ber-id server dan sebaliknya", () => {
+  const items = [b(1, null, 0), b(2, null, 1)];
+  const a = C.applyCreate(items, { id: "cid-1", task_id: 1, title: "anak", parent_id: 1, index: null });
+  assert.deepEqual(bentuk(a.items), [[1, 0, null, 0], ["cid-1", 1, 1, 0], [2, 0, null, 1]]);
+  const b2 = C.applyCreate(a.items, { id: "cid-2", task_id: 1, title: "cucu", parent_id: "cid-1", index: 0 });
+  assert.deepEqual(bentuk(b2.items), [[1, 0, null, 0], ["cid-1", 1, 1, 0], ["cid-2", 2, "cid-1", 0], [2, 0, null, 1]]);
+  assert.deepEqual(C.applyDelete(b2.items, "cid-1").deleted_ids, ["cid-1", "cid-2"]);
+  assert.deepEqual(C.applySetDone(b2.items, 1, true).changed_ids, [1, "cid-1", "cid-2"]);
+});
+
+test("applyCreate: task_id bawaan = task butir yang ada; saudara task lain tidak ikut dinomori", () => {
+  const items = [b(1, null, 0), b(9, null, 0, { task_id: 2 })];
+  const r = C.applyCreate(items, { id: "n", title: "x", parent_id: null, index: 0 });
+  assert.equal(r.item.task_id, 1);
+  assert.deepEqual(r.items.filter((x) => x.task_id === 1).map((x) => [x.id, x.sort_order]), [["n", 0], [1, 1]]);
+  assert.equal(r.items.find((x) => x.id === 9).sort_order, 0);
+  assert.equal(C.applyCreate([], { id: "n", title: "x" }).item.task_id, null);
+});
+
+test("applyCreate: index null/undefined = akhir; index pecahan dibulatkan ke bawah; negatif → 0 (seperti repository)", () => {
+  const items = [b(1, null, 0), b(2, null, 1), b(3, null, 2)];
+  const pos = (index) => C.applyCreate(items, { id: "n", task_id: 1, title: "x", parent_id: null, index }).item.sort_order;
+  assert.equal(pos(undefined), 3);
+  assert.equal(pos(null), 3);
+  assert.equal(pos(1.9), 1);
+  assert.equal(pos(-4), 0);
+});
+
+test("applyCreate: judul bukan string → EMPTY_TITLE", () => {
+  assert.deepEqual(C.applyCreate([], { id: "n", title: null }), { error: "EMPTY_TITLE" });
+  assert.deepEqual(C.applyCreate([], { id: "n", title: 5 }), { error: "EMPTY_TITLE" });
+  assert.deepEqual(C.applyCreate([], { id: "n" }), { error: "EMPTY_TITLE" });
+});
+
+test("applySetDone: is_done hasil berupa boolean; field lain utuh", () => {
+  const items = [b(1, null, 0, { is_done: 0, title: "a" }), b(2, 1, 0, { is_done: 1 })];
+  const r = C.applySetDone(items, 1, true);
+  assert.deepEqual(r.items.map((x) => [x.id, x.is_done, x.title]), [[1, true, "a"], [2, 1, "b2"]]);
+  assert.deepEqual(C.applySetDone(items, 2, false).items.map((x) => x.is_done), [0, false]);
+});
+
+test("applyRename: judul bukan string → EMPTY_TITLE", () => {
+  assert.deepEqual(C.applyRename(pohon(), 1, null), { error: "EMPTY_TITLE" });
+});
+
+test("moveError: kode galat server untuk vektor pindah tidak sah; tujuan sah / id tidak dikenal → null", () => {
+  for (const vec of TREE.move_invalid) {
+    assert.equal(C.moveError(vec.rows, vec.move.id, vec.move.parent_id), vec.error, vec.name);
+  }
+  const items = pohon();
+  assert.equal(C.moveError(items, 3, 1), null);
+  assert.equal(C.moveError(items, 3, null), null);
+  assert.equal(C.moveError(items, 99, 1), null);
+  assert.equal(C.moveError(items.concat([b("c", 6, 0)]), 1, "c"), "CYCLE");
 });
 
 // ── kotak tambah bawah ───────────────────────────────────────────────────────

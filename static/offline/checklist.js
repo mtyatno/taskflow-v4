@@ -15,6 +15,13 @@
   //
   // Butir = bentuk API `{id, task_id, parent_id, depth, title, is_done, sort_order}` (field lain ikut tersalin).
   //
+  // - Id campuran (Fase 2, spec checklist offline §4.3, rencana PR B2 R1): `id`/`parent_id` boleh angka (id server)
+  //   atau teks (cid butir yang belum tersinkron); pembanding id: angka sebelum teks, teks menurut `<` biasa.
+  // - Aksi murni untuk rute lokal (hasil = repository server; vektor bersama tests/fixtures/checklist_action_vectors.json):
+  //   `applyCreate(items, {id, task_id, title, parent_id, index})` → {items, item}; `applySetDone(items, id, done)` →
+  //   {items, changed_ids}; `applyRename(items, id, title)` → {items, item, changed}; `applyDelete(items, id)` →
+  //   {items, deleted_ids}; `moveError(items, id, parent_id)` → kode galat pindah | null. Id tidak dikenal → null;
+  //   galat validasi → {error: "PARENT_NOT_FOUND"|"CYCLE"|"EMPTY_TITLE"}.
   // - Pohon efektif: saudara urut `(sort_order NULL→0, id)`. Induk yang tidak ada atau di task lain → level atas.
   //   Dalam setiap siklus, anggota dengan `(sort_order, id)` terkecil naik ke level atas. `parent_id` efektif = null
   //   untuk butir depth 0 (sama dengan `GET …/subtasks`), selain itu = `parent_id` tersimpan.
@@ -83,7 +90,15 @@
   // ── pohon efektif ──────────────────────────────────────────────────────────
 
   const soOf = (it) => Number(it.sort_order) || 0;
-  function cmpId(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+  // Id campuran (Fase 2, rencana PR B2 R1): butir yang belum tersinkron memakai cid (string) sebagai id. Angka
+  // sebelum teks (cid ≈ butir terbaru, sama dengan id autoincrement server yang selalu terbesar); sesama angka /
+  // sesama teks menurut `<` biasa. Hanya relevan lokal — server selalu berisi angka.
+  function cmpId(a, b) {
+    const na = typeof a === "number";
+    const nb = typeof b === "number";
+    if (na !== nb) return na ? -1 : 1;
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
   function cmpItem(a, b) { return (soOf(a) - soOf(b)) || cmpId(a.id, b.id); }
   const taskOf = (it) => (it.task_id == null ? null : it.task_id);
 
@@ -357,6 +372,101 @@
     return preorder(next);
   }
 
+  // ── aksi murni untuk rute lokal (Fase 2, rencana PR B2 R1) ──────────────────
+  // Hasil HARUS sama dengan repository server untuk aksi yang sama (vektor bersama
+  // tests/fixtures/checklist_action_vectors.json diuji di JS dan pytest). Masukan tidak diubah; `items` hasil =
+  // daftar pre-order baru (bentuk `preorder`). Id tidak dikenal → null (rute: 404); galat validasi → {error: kode}
+  // dengan kode ChecklistError server.
+
+  // Posisi di antara `n` saudara seperti `_clamp_index` repository: null/undefined = akhir; selain itu int(index)
+  // di-clamp ke 0..n (kontrak HTTP `index ≥ 0` dicek rute, bukan di sini).
+  function clampIndex(index, n) {
+    if (index == null) return n;
+    return Math.max(0, Math.min(Math.trunc(Number(index)) || 0, n));
+  }
+
+  // `add_subtask`: judul di-trim (kosong → EMPTY_TITLE, dicek sebelum induk); induk tidak ada / task lain →
+  // PARENT_NOT_FOUND; butir baru `{id, task_id, parent_id, title, is_done: false}` disisipkan di posisi `index`
+  // di antara saudara (task yang sama) lalu seluruh kelompok saudara itu dinomori ulang 0..n (kelompok lain tidak
+  // disentuh). `task_id` bawaan = task butir pertama pre-order (null bila kosong). Prasyarat: `id` belum dipakai.
+  // → {items, item} | {error}.
+  function applyCreate(items, spec) {
+    const s = spec || {};
+    const title = typeof s.title === "string" ? s.title.trim() : "";
+    if (!title) return { error: "EMPTY_TITLE" };
+    const flat = preorder(items);
+    const task = s.task_id !== undefined ? s.task_id : (flat.length ? taskOf(flat[0]) : null);
+    const parent = s.parent_id == null ? null : s.parent_id;
+    if (parent != null) {
+      const pi = indexOfId(flat, parent);
+      if (pi < 0 || taskOf(flat[pi]) !== task) return { error: "PARENT_NOT_FOUND" };
+    }
+    const sibs = flat.filter((r) => r.parent_id === parent && taskOf(r) === task);
+    const pos = clampIndex(s.index, sibs.length);
+    const fresh = { id: s.id, task_id: task, parent_id: parent, title, is_done: false, sort_order: pos };
+    const group = sibs.slice();
+    group.splice(pos, 0, fresh);
+    const order = new Map(group.map((r, i) => [r.id, i]));
+    const next = flat.map((r) => (order.has(r.id) && r.sort_order !== order.get(r.id)
+      ? Object.assign({}, r, { sort_order: order.get(r.id) }) : r));
+    next.push(fresh);
+    const out = preorder(next);
+    return { items: out, item: out[indexOfId(out, s.id)] };
+  }
+
+  // Centang SET (`_set_done`): true → butir + semua turunan yang belum selesai; false → hanya butir itu (bila
+  // selesai). `changed_ids` = id yang berubah (pre-order; kosong = tanpa perubahan). → {items, changed_ids} | null.
+  function applySetDone(items, id, done) {
+    const flat = preorder(items);
+    const i = indexOfId(flat, id);
+    if (i < 0) return null;
+    let changed;
+    if (done) changed = flat.slice(i, subtreeEnd(flat, i)).filter((r) => !r.is_done).map((r) => r.id);
+    else changed = flat[i].is_done ? [id] : [];
+    const set = new Set(changed);
+    const val = !!done;
+    return { items: flat.map((r) => (set.has(r.id) ? Object.assign({}, r, { is_done: val }) : r)), changed_ids: changed };
+  }
+
+  // Ubah teks (`rename_subtask` / `update_subtask` title): id tidak dikenal → null (dicek lebih dulu, seperti server);
+  // judul di-trim, kosong / bukan string → EMPTY_TITLE; sama → `changed` false dan daftar tidak berubah.
+  // → {items, item, changed} | null | {error}.
+  function applyRename(items, id, title) {
+    const flat = preorder(items);
+    const i = indexOfId(flat, id);
+    if (i < 0) return null;
+    const clean = typeof title === "string" ? title.trim() : "";
+    if (!clean) return { error: "EMPTY_TITLE" };
+    const changed = clean !== flat[i].title;
+    const out = changed ? flat.map((r, k) => (k === i ? Object.assign({}, r, { title: clean }) : r)) : flat;
+    return { items: out, item: out[i], changed };
+  }
+
+  // Hapus berantai (`delete_subtask`): butir + semua turunannya; saudara yang tersisa TIDAK dinomori ulang.
+  // `deleted_ids` = butir lalu turunannya (pre-order). → {items, deleted_ids} | null.
+  function applyDelete(items, id) {
+    const flat = preorder(items);
+    const i = indexOfId(flat, id);
+    if (i < 0) return null;
+    const end = subtreeEnd(flat, i);
+    return { items: flat.slice(0, i).concat(flat.slice(end)), deleted_ids: flat.slice(i, end).map((r) => r.id) };
+  }
+
+  // Kode galat `move_subtask` untuk tujuan pindah (urutan cek sama dengan server): induk = diri → CYCLE; induk tidak
+  // ada / task lain → PARENT_NOT_FOUND; induk = turunan → CYCLE. Tujuan sah, level atas, atau id tidak dikenal → null.
+  // Rute lokal memakainya untuk teks 422 sebelum `applyMove` (yang hanya mengembalikan null).
+  function moveError(items, id, parentId) {
+    if (parentId == null) return null;
+    const L = locate(items, id);
+    if (!L) return null;
+    if (parentId === id) return "CYCLE";
+    const pi = indexOfId(L.flat, parentId);
+    if (pi < 0 || taskOf(L.flat[pi]) !== taskOf(L.it)) return "PARENT_NOT_FOUND";
+    const di = indexOfId(L.flat, id);
+    if (pi >= di && pi < subtreeEnd(L.flat, di)) return "CYCLE";
+    return null;
+  }
+
   // ── kotak tambah bawah ─────────────────────────────────────────────────────
 
   function maxAddDepth(items) {
@@ -470,6 +580,7 @@
     COLLAPSE_KEY, COLLAPSE_MAX,
     percent, preorder, topLevelCounts, childCounts, childCountsAll, descendantIds, visibleRows,
     indentTarget, outdentTarget, siblingMoveTarget, dropRange, dropTarget, applyMove,
+    applyCreate, applySetDone, applyRename, applyDelete, moveError,
     maxAddDepth, addParentFor, autoScrollDelta, loadCollapsed, saveCollapsed, lockFor, adoptTaskProgress,
   };
 });
