@@ -4527,3 +4527,9 @@
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — menunggu konfirmasi verifikasi pasca-deploy dari pemilik (SW v503, modal Apa yang baru, ekspor). Statis, tanpa restart.
 
+## [2026-11-12 02:25] - Claude (Fable 5.2)
+- **Task:** Verifikasi pasca-deploy #131 (1d-2 Timeline 1.4).
+- **Changes:** Pemilik mengonfirmasi keempat butir pasca-deploy ada (SW v503, modal "Apa yang baru", ringkasan EV di toolbar, ekspor Microsoft Project). CURRENT_STATE diperbarui.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — PR 1d-2 dan Fase 1 plugin Timeline selesai.
+
