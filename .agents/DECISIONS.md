@@ -455,3 +455,19 @@
     - (f) `peopleOf` tidak melewati induk ringkasan: penanggung jawab yang hanya memegang induk ringkasan menjadi baris berbeban 0 (tidak berbahaya; kapasitasnya tetap bisa diatur).
     - (g) `useLoad` menunggu data kapasitas termuat atau gagal dimuat (`resources.loaded || resources.failed`; workspace tanpa `listId` sah = siap): tanpa kilatan kapasitas bawaan 8 🍅/hari dan tanpa run terbuang saat panel dinyalakan (0 run sebelum `records.list` selesai, lalu 1). Gagal dimuat sebelum pernah termuat → panel tetap tampil dengan kapasitas bawaan dan judul bertanda persis " · kapasitas belum termuat" (string UI baru; desktop dan HP); muat ulang yang gagal SETELAH pernah termuat tetap memakai data terakhir tanpa tanda.
     - (h) Menyalakan Beban Tim lewat gestur (tombol toolbar / item "Lainnya") menggulir akar panel desktop / daftar HP ke layar tepat sekali (`scrollIntoView({block: "nearest"})`, frame sesudah terpasang dan sesudah ukur ulang tinggi wadah Gantt); pref tersimpan saat dipasang, mematikan, dan render ulang/sinkron tidak menggulir. Di HP daftar tetap di bawah seluruh Gantt/Daftar (tombol + host bisa menutup bagian bawahnya; judul selalu tampak). Daftar HP juga mendapat fokus cadangan pola desktop: pemicu popover saran terlepas / popover menutup sendiri → subjudul "Hari kelebihan beban" (atau judul), hanya bila fokus memang hilang.
+
+### ADR-051: Checklist Fase 2 — `checklist_rev` sebagai field turunan, centang set, sinyal `rev_bumped`
+- **Date:** 2026-11-11
+- **Agent:** Claude (Opus 5.5)
+- **Context:** Spec `docs/superpowers/specs/2026-11-11-checklist-offline-fase2-design.md` (F1 semua checklist offline, F5 pendekatan A antrean aksi, E1–E7) dan rencana `docs/superpowers/plans/2026-11-11-checklist-offline-pr-a2-server.md`. Klien local-first (PR B2) perlu tahu checklist task mana yang berubah tanpa mengunduh semuanya, perlu mengirim ulang aksi dengan aman setelah koneksi putus, dan perlu tahu kapan versi lokalnya boleh dimajukan tanpa mengambil ulang. Toggle membalik status sehingga tidak aman diulang. ADR-050 dipesan rencana PR 1d-2, jadi keputusan ini memakai ADR-051.
+- **Decision:**
+  - `tasks.checklist_rev` (field turunan seperti `progress`/`checklist_total` di ADR-048): naik tepat 1 per transaksi tulis checklist yang mengubah sesuatu, +1 tersendiri bila `_heal_task_tree` memulihkan pohon, 0 untuk no-op; tanpa `updated_at`. `migrate_db`/`heal_checklists` mengisi 1 untuk task lama bercheklist (`rev_init`). `merge_db.py` menaikkan rev task penerima butir.
+  - `task_progress` mendapat `rev` dan `rev_bumped` (operasi ini sendiri — bukan pemulihan — menaikkan rev). Aturan klien: rev tersimpan dimajukan hanya bila `rev_bumped` dan `rev` = tersimpan + 1; `rev` = tersimpan → tetap; selain itu dikosongkan (ambil ulang).
+  - `PATCH /api/subtasks/{id}` menerima `title` dan/atau `is_done` (set; `true` berantai ke turunan) dalam satu transaksi — dipakai antrean klien sebagai pengganti toggle.
+  - `GET /api/checklists?task_ids=` (≤ 200, baca saja, akses setara `_can_access_task` lewat satu kueri, `def` di threadpool).
+  - Idempotensi tambah per task; `client_id` yang bertabrakan dengan task lain disimpan berprefiks `"<task_id>:"` (indeks unik global `idx_subtasks_client_id` tidak diubah).
+- **Consequences:**
+  - Aplikasi v502 tidak terpengaruh (field tambahan diabaikan; `PATCH {title}` dan toggle tetap; E2E `e2e_checklist_tree.py` 152/152 terhadap server baru).
+  - PR B2 mengambil `checklist_rev` lewat `TASK_DERIVED` dan mengunduh lewat batch; aturan majukan rev memakai `rev_bumped`.
+  - Rollback: revert sebagai rilis baru; kolom `checklist_rev` dibiarkan (kode lama mengabaikannya). `client_id` berprefiks tetap unik secara global.
+  - Deploy: cadangkan `taskflow.db` sebelum merge (migrasi mengisi `checklist_rev`), lalu `sudo systemctl restart taskflow taskflow-web`.

@@ -138,3 +138,14 @@ Checklist (dengan semua kemampuan Fase 1: tambah, Tab/Shift+Tab, seret, Alt+↑/
 ## 8. Di luar cakupan
 
 - Catatan task offline (F4), memindah butir antar task, urungkan (undo), tanda "belum terkirim" per butir (F6).
+
+## Catatan implementasi PR A2 (server) — 2026-11-11
+
+Branch `claude/checklist-offline-server`; rencana `docs/superpowers/plans/2026-11-11-checklist-offline-pr-a2-server.md`; ADR-051.
+
+- **Indeks unik global `idx_subtasks_client_id` sudah ada** (tabel fakta rencana keliru). Idempotensi tambah dicari per task (`client_id` asli atau berprefiks `"<task_id>:"`); `client_id` yang sudah dipakai task lain disimpan berprefiks, sehingga pengiriman ulang tetap idempoten tanpa ubah skema. **PR B2: cid butir tidak boleh dipakai ulang lintas task** (mis. saat menduplikasi task).
+- **`task_progress.rev_bumped`** (tambahan atas review): E2/§4.4 kini memakai sinyal ini, karena aturan "rev = tersimpan + 1" saja keliru bila aksi klien ternyata tanpa perubahan (kenaikan itu milik perangkat lain).
+- **Akses batch** memakai satu kueri dengan aturan setara `_can_access_task` (diuji kesetaraannya untuk semua kombinasi akses); endpoint `def` (threadpool). 200 task × 30 butir ≈ 90–160 ms.
+- **Kenaikan rev pemulihan** ada di dalam `_heal_task_tree` (semua pemanggil ikut); gagal 422 me-rollback kenaikannya.
+- **`merge_db.py`** menaikkan `checklist_rev` task penerima butir (tujuan wajib sudah dimigrasi).
+- **Angka:** pytest 1762 passed / 1 skipped (basis 1674 / 1); `import webapp, bot` OK; E2E klien v502 `e2e_checklist_tree.py` 152/152 terhadap server baru.
