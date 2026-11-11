@@ -4520,3 +4520,10 @@
 - **Changes:** Tanpa perubahan kode. P1 (kode F8): tanpa dialog, % Complete semua task = Timeline, tanggal tetap. P2 (kepala F8): semua bentuk progres terbaca. P3 (kepala lama): dialog + 0 % untuk bentuk ber-assignment nyata → akar terbukti: `ProjectExternallyEdited 0`. Dicatat di ADR-050 (Verification + residual), README §6.2, catatan spec; tanggal whatsnew v503 → 2026-11-12.
 - **Files Touch:** .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md, docs/plugins/README.md, docs/superpowers/specs/2026-11-06-plugin-fase1-1d-beban-tim-design.md, static/whatsnew.json
 - **Status:** Completed (siap merge; pemilik: "bereskan progres dulu, setelah itu kita merge"). Deploy statis, tanpa restart.
+
+## [2026-11-12 02:10] - Claude (Fable 5.2)
+- **Task:** Merge + deploy PR #131 (1d-2 Timeline 1.4 earned value + ekspor Microsoft Project).
+- **Changes:** Gabung `main` (#133 checklist offline PR A2 + dokumennya; konflik hanya `.agents/*`), pytest 1765/1 skip, npm 4884/4885 (pra-ada `draw_local_reactive`), E2E 1d2 41/41, CI hijau → PR ditandai siap dan di-merge (`43e70e4`). Workflow Deploy + Tests sukses. CURRENT_STATE 1d-2 → 🟢.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Completed — menunggu konfirmasi verifikasi pasca-deploy dari pemilik (SW v503, modal Apa yang baru, ekspor). Statis, tanpa restart.
+
