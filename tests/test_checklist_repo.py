@@ -249,6 +249,23 @@ def test_tambah_client_id_sama_dua_kali_satu_baris_dengan_progress_terkini(repo,
     assert _task(tid)["checklist_total"] == 2
 
 
+def test_tambah_client_id_dicari_per_task(repo, u, tid):
+    """Spec checklist offline Fase 2 E4 (rencana PR A2 R3): `client_id` yang sama di task LAIN tidak
+    mengembalikan butir task itu — butir baru dibuat di task ini; di task yang sama → butir lama."""
+    lain = _mk(u, title="lain")["id"]
+    cid = f"cid-{uuid.uuid4().hex}"
+    x = repo.add_subtask(lain, "milik lain", client_id=cid)
+    baru = repo.add_subtask(tid, "punya sini", client_id=cid)
+    assert baru["id"] != x["id"] and baru["task_id"] == tid and baru["title"] == "punya sini"
+    assert baru["task_progress"]["total"] == 1
+    assert [r["title"] for r in _rows(tid)] == ["punya sini"]
+    assert [r["title"] for r in _rows(lain)] == ["milik lain"]
+    lagi = repo.add_subtask(lain, "ulang", client_id=cid)
+    assert lagi["id"] == x["id"] and lagi["title"] == "milik lain"
+    assert len(_rows(lain)) == 1
+    assert _task(tid)["updated_at"] == FROZEN
+
+
 def test_tambah_level_atas_menghitung_progress_dan_checklist_total(repo, tid):
     _set_task(tid, progress=70)
     a = repo.add_subtask(tid, "a")

@@ -19,7 +19,7 @@ import webapp
 from conftest import db
 from repository import ChecklistError, TaskRepository, _bump_rev, _recompute_progress
 from test_bot_checklist import _callback, _Msg, _update, pengguna  # noqa: F401 (fixture)
-from test_checklist_repo import FROZEN, _ins, _pohon, _set_task, repo, tid, u  # noqa: F401 (fixture)
+from test_checklist_repo import FROZEN, _ins, _pohon, _set_task, repo, spy_tx, tid, tulis, u  # noqa: F401 (fixture)
 from test_contexts_tasks import _mk
 
 
@@ -311,3 +311,129 @@ def test_jalur_bot_tambah_centang_hapus_menaikkan_rev(pengguna):  # noqa: F811
     assert _rev(tid) == 3
     assert bot.repo.get_subtasks(tid) == []
     assert _updated_at(tid) == FROZEN
+
+
+# ── Task 2: update_subtask — ubah teks dan/atau centang SET dalam satu transaksi (R2, E3) ──
+
+KEYS = {"id", "task_id", "parent_id", "depth", "title", "is_done", "sort_order"}
+
+
+def _done(repo, tid):
+    return {s["id"]: s["is_done"] for s in repo.get_subtasks(tid)}
+
+
+def test_set_selesai_berantai_bentuk_kembalian_dan_naik_1(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    r = repo.update_subtask(a, is_done=True)
+    assert set(r) == KEYS | {"changed_ids", "task_progress"}
+    assert r["id"] == a and r["is_done"] is True and r["title"] == "a"
+    assert r["changed_ids"] == [a, a1, a11, a2]
+    assert r["task_progress"] == {"done": 1, "total": 3, "progress": 33, "rev": 7}
+    d = _done(repo, tid)
+    assert d[a] and d[a1] and d[a11] and d[a2] and not d[b] and not d[c]
+    assert _updated_at(tid) == FROZEN
+
+
+def test_set_selesai_dua_kali_kedua_tanpa_perubahan_tanpa_tulis(repo, tid, tulis):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    repo.update_subtask(a, is_done=True)
+    tulis.clear()
+    r = repo.update_subtask(a, is_done=True)
+    assert r["changed_ids"] == [] and r["is_done"] is True
+    assert r["task_progress"]["rev"] == 7 == _rev(tid)
+    assert tulis == [0]
+
+
+def test_set_selesai_butir_sudah_selesai_menyelesaikan_turunan_yang_belum(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    repo.toggle_subtask(a)       # semua turunan selesai (rev 7)
+    repo.toggle_subtask(a11)     # a11 dibuka lagi (rev 8)
+    r = repo.update_subtask(a, is_done=True)
+    assert r["changed_ids"] == [a11] and r["task_progress"]["rev"] == 9
+    assert all(_done(repo, tid)[i] for i in (a, a1, a11, a2))
+
+
+def test_set_belum_selesai_hanya_butir_itu_diulang_tanpa_perubahan(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    repo.update_subtask(a, is_done=True)
+    r = repo.update_subtask(a, is_done=False)
+    assert r["is_done"] is False and r["changed_ids"] == [a] and r["task_progress"]["rev"] == 8
+    d = _done(repo, tid)
+    assert not d[a] and d[a1] and d[a11] and d[a2]
+    r = repo.update_subtask(a, is_done=False)
+    assert r["changed_ids"] == [] and _rev(tid) == 8
+
+
+def test_set_sama_dengan_toggle_ke_arah_yang_sama(repo, u, tid):
+    """Dua pohon kembar: centang set menghasilkan perubahan yang sama dengan toggle ke arah yang sama."""
+    lain = _mk(u, title="kembar")["id"]
+    p, q = _pohon(repo, tid), _pohon(repo, lain)
+    for i in (0, 3, 0):  # a selesai (berantai), a1 dibuka (a tetap selesai), a dibuka
+        x = repo.toggle_subtask(p[i])
+        y = repo.update_subtask(q[i], is_done=x["is_done"])
+        assert [p.index(j) for j in x["changed_ids"]] == [q.index(j) for j in y["changed_ids"]]
+        assert y["is_done"] == x["is_done"] and y["task_progress"] == x["task_progress"]
+
+
+def test_ubah_teks_saja_changed_ids_kosong_naik_1_sama_tidak_naik(repo, tid):
+    a = repo.add_subtask(tid, "a")["id"]
+    r = repo.update_subtask(a, title="  baru  ")
+    assert r["title"] == "baru" and r["changed_ids"] == [] and r["task_progress"]["rev"] == 2
+    r = repo.update_subtask(a, title="baru")
+    assert r["changed_ids"] == [] and r["task_progress"]["rev"] == 2
+    assert _updated_at(tid) == FROZEN
+
+
+def test_ubah_teks_dan_centang_satu_kenaikan(repo, tid):
+    a, b, c, a1, a2, a11 = _pohon(repo, tid)
+    r = repo.update_subtask(a1, title="A1", is_done=True)
+    assert r["title"] == "A1" and r["is_done"] is True and r["changed_ids"] == [a1, a11]
+    assert r["task_progress"]["rev"] == 7 == _rev(tid)
+    # teks sama + centang berubah → tetap satu kenaikan; keduanya sama → tanpa kenaikan
+    assert repo.update_subtask(a1, title="A1", is_done=False)["task_progress"]["rev"] == 8
+    assert repo.update_subtask(a1, title=" A1 ", is_done=False)["task_progress"]["rev"] == 8
+    assert _updated_at(tid) == FROZEN
+
+
+def test_tanpa_argumen_no_change_tanpa_menulis(repo, tid):
+    a = repo.add_subtask(tid, "a")["id"]
+    for sid in (a, 987654321):
+        with pytest.raises(ChecklistError) as ei:
+            repo.update_subtask(sid)
+        assert ei.value.code == "NO_CHANGE"
+        with pytest.raises(ChecklistError) as ei:
+            repo.update_subtask(sid, title=None, is_done=None)
+        assert ei.value.code == "NO_CHANGE"
+    assert _rev(tid) == 1
+
+
+def test_judul_kosong_empty_title_centang_ikut_batal(repo, tid):
+    a = repo.add_subtask(tid, "a")["id"]
+    for kosong in ("", "   ", "\n"):
+        with pytest.raises(ChecklistError) as ei:
+            repo.update_subtask(a, title=kosong, is_done=True)
+        assert ei.value.code == "EMPTY_TITLE"
+    assert _done(repo, tid)[a] is False and _rev(tid) == 1
+    assert repo.get_subtasks(tid)[0]["title"] == "a"
+
+
+def test_id_tidak_ada_none(repo):
+    assert repo.update_subtask(987654321, title="x") is None
+    assert repo.update_subtask(987654321, is_done=True) is None
+
+
+def test_update_data_yatim_pemulihan_naik_tersendiri(repo, tid):
+    a, b, o = _yatim(tid)
+    r = repo.update_subtask(a, is_done=True)
+    assert _raw_parent(o) is None and r["task_progress"]["rev"] == 2
+    r = repo.update_subtask(a, is_done=True)
+    assert r["task_progress"]["rev"] == 2
+
+
+def test_update_memakai_satu_write_tx(repo, tid, spy_tx):
+    a = repo.add_subtask(tid, "a")["id"]
+    spy_tx.clear()
+    repo.update_subtask(a, title="b", is_done=True)
+    repo.update_subtask(a, is_done=False)
+    repo.update_subtask(987654321, title="x")
+    assert spy_tx == [False, False, False]
