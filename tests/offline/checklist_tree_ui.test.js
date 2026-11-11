@@ -554,7 +554,7 @@ test("ChecklistTree: respons hapus / tambah / pindah ber-id tak dikenal → muat
   }
 });
 
-test("App: pendengar tf:checklist-rejected sekali → satu toast error berteks persis + sinkron ulang (spec §4.4, F3)", () => {
+test("App: pendengar tf:checklist-rejected sekali → satu toast error berteks persis + sinkron ulang dan daftar task dimuat ulang (spec §4.4, F3)", () => {
   const app = fnSource("App");
   const n = app.split('"tf:checklist-rejected"').length - 1;
   assert.equal(n, 2, "addEventListener + removeEventListener di satu efek App");
@@ -563,21 +563,29 @@ test("App: pendengar tf:checklist-rejected sekali → satu toast error berteks p
   const eff = app.slice(app.lastIndexOf("useEffect(() => {", i), app.indexOf("}, []);", i) + 7);
   assert.match(eff, /window\.__showToast\?\.\(`\$\{n\} perubahan checklist dibatalkan karena checklist sudah berubah di perangkat lain\.`, "error"\)/);
   assert.match(eff, /if \(!\(n > 0\)\) return;/);
-  assert.match(eff, /window\.__syncNow\?\.\(\)/);
+  assert.match(eff, /\(window\.__refreshTasks \|\| window\.__syncNow\)\?\.\(\)/);
   assert.match(eff, /\}, \[\]\);$/);
-  // perilaku: jalankan efeknya dengan window palsu
-  const seen = [];
-  const handlers = {};
-  const win = { addEventListener: (t, f) => { handlers[t] = f; }, removeEventListener: (t) => { delete handlers[t]; },
-    __showToast: (m, k) => seen.push(["toast", m, k]), __syncNow: () => seen.push(["sync"]) };
-  const body = eff.slice(eff.indexOf("{") + 1, eff.lastIndexOf("}, []);"));
-  const cleanup = new Function("window", body)(win);
-  handlers["tf:checklist-rejected"]({ detail: { count: 3 } });
-  handlers["tf:checklist-rejected"]({ detail: { count: 0 } });
-  handlers["tf:checklist-rejected"]({});
-  assert.deepEqual(seen, [["toast", "3 perubahan checklist dibatalkan karena checklist sudah berubah di perangkat lain.", "error"], ["sync"]]);
-  cleanup();
-  assert.equal(handlers["tf:checklist-rejected"], undefined);
+  // perilaku: jalankan efeknya dengan window palsu. E2E (temporary_files/e2e_checklist_offline.py S3): sinkron saja
+  // tidak memuat ulang daftar task → progress yang dibatalkan tetap tampil sampai refresh 30 dtk berikutnya. Maka
+  // __refreshTasks (fetchAll = sinkron + muat ulang daftar, pola tombol konflik task) dipakai bila ada; __syncNow cadangan.
+  const run = (withRefresh) => {
+    const seen = [];
+    const handlers = {};
+    const win = { addEventListener: (t, f) => { handlers[t] = f; }, removeEventListener: (t) => { delete handlers[t]; },
+      __showToast: (m, k) => seen.push(["toast", m, k]), __syncNow: () => seen.push(["sync"]) };
+    if (withRefresh) win.__refreshTasks = () => seen.push(["refresh"]);
+    const body = eff.slice(eff.indexOf("{") + 1, eff.lastIndexOf("}, []);"));
+    const cleanup = new Function("window", body)(win);
+    handlers["tf:checklist-rejected"]({ detail: { count: 3 } });
+    handlers["tf:checklist-rejected"]({ detail: { count: 0 } });
+    handlers["tf:checklist-rejected"]({});
+    cleanup();
+    assert.equal(handlers["tf:checklist-rejected"], undefined);
+    return seen;
+  };
+  const toast = ["toast", "3 perubahan checklist dibatalkan karena checklist sudah berubah di perangkat lain.", "error"];
+  assert.deepEqual(run(true), [toast, ["refresh"]], "daftar task dimuat ulang (fetchAll sudah termasuk sinkron), tanpa sinkron kedua");
+  assert.deepEqual(run(false), [toast, ["sync"]], "tanpa __refreshTasks (belum login) → sinkron saja");
 });
 
 test("centang induk → menunggu respons, semua changed_ids dicoret; progress diadopsi lalu onProgress", async () => {

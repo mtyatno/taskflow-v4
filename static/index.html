@@ -45265,13 +45265,13 @@ function App() {
   }, [user]);
 
   // Checklist offline (spec §4.4, F3): perubahan checklist yang ditolak server → satu pesan per drain push (syncpush
-  // memancarkan tf:checklist-rejected sekali dengan jumlahnya); sinkron ulang supaya checklist lokal kembali ke versi server.
+  // memancarkan tf:checklist-rejected sekali dengan jumlahnya); sinkron ulang + muat ulang daftar task (fetchAll) supaya checklist dan progress kembali ke versi server.
   useEffect(() => {
     const onRejected = e => {
       const n = Number(e && e.detail && e.detail.count) || 0;
       if (!(n > 0)) return;
       window.__showToast?.(`${n} perubahan checklist dibatalkan karena checklist sudah berubah di perangkat lain.`, "error");
-      window.__syncNow?.();
+      (window.__refreshTasks || window.__syncNow)?.();
     };
     window.addEventListener("tf:checklist-rejected", onRejected);
     return () => window.removeEventListener("tf:checklist-rejected", onRejected);
