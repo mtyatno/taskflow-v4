@@ -831,3 +831,54 @@ test("setRevs: banyak rev dalam satu transaksi _meta; onlyIfAbsent tidak menimpa
   assert.equal((await R.getRevs()).t1, 4);
   assert.equal(await R.setRevs([]), 0);
 });
+
+// Id stabil (perbaikan uji coba PR B2 Task 6): butir yang DIBUAT di perangkat ini tetap memakai cid sebagai id API walau
+// push sudah mengadopsi id servernya — ChecklistTree yang sedang terbuka memegang cid itu (tanpa ini respons centang/pindah
+// sesudah sinkron memakai id server dan tampilan tidak cocok lagi). Butir dari server tetap memakai id server; urutan
+// pohon tetap dihitung dengan id server (tie-break sama dengan server).
+test("id stabil: butir buatan perangkat ini tetap ber-id cid sesudah adoptServerId; butir server ber-id server", async () => {
+  await pohon();
+  const r = await R.create("t1", { title: "Baru", parent_id: 11 });
+  const cid = r.item.id;
+  assert.equal(typeof cid, "string");
+  await R.adoptServerId(cid, 40);
+  const items = await R.itemsForTask("t1");
+  assert.deepEqual(items.map((i) => [i.id, i.parent_id]), [[11, null], [12, 11], [cid, 11], ["b", null]]);
+  // aksi lewat cid: respons memakai cid (item, changed_ids, items, deleted_ids)
+  const t = await R.toggle(cid);
+  assert.equal(t.item.id, cid);
+  assert.deepEqual(t.changed_ids, [cid]);
+  const mv = await R.move(cid, null, 0);
+  assert.equal(mv.items[0].id, cid);
+  // aksi lewat id server butir yang sama juga dijawab dengan cid (id API butir itu di perangkat ini)
+  const p = await R.patch(40, { title: "Baru 2" });
+  assert.equal(p.item.id, cid);
+  const del = await R.remove(cid);
+  assert.deepEqual(del.deleted_ids, [cid]);
+});
+
+test("id stabil: body parent_id berupa cid butir yang sudah ber-id server dipetakan (tanpa PARENT_NOT_FOUND)", async () => {
+  await pohon();
+  // a1 (server 12) dikenal tampilan lewat cid-nya "a1" bila dibuat di perangkat ini → body memakai "a1"
+  const c = await R.create("t1", { title: "Anak", parent_id: "a1" });
+  assert.equal(c.item.parent_id, 12, "a1 berasal dari server → id server");
+  const mv = await R.move("b", "a", 0);
+  assert.deepEqual(mv.items.map((i) => [i.id, i.parent_id]).slice(0, 2), [[11, null], ["b", 11]]);
+  const own = await R.create("t1", { title: "Milik" });
+  await R.adoptServerId(own.item.id, 41);
+  const sub = await R.create("t1", { title: "Sub milik", parent_id: own.item.id });
+  assert.equal(sub.item.parent_id, own.item.id, "induk buatan perangkat ini → cid");
+});
+
+test("id stabil: replaceTaskChecklist mempertahankan asal butir (cid tetap id API sesudah unduh ulang)", async () => {
+  await pohon();
+  const r = await R.create("t1", { title: "Baru" });
+  const cid = r.item.id;
+  await R.adoptServerId(cid, 40);
+  await tx("_outbox", "readwrite", (t) => { t.objectStore("_outbox").clear(); });
+  await R.replaceTaskChecklist("t1", [
+    { id: 11, parent_id: null, title: "a", is_done: false, sort_order: 0 },
+    { id: 40, parent_id: null, title: "Baru", is_done: true, sort_order: 1 },
+  ], 9);
+  assert.deepEqual((await R.itemsForTask("t1")).map((i) => [i.id, i.is_done]), [[11, false], [cid, true]]);
+});

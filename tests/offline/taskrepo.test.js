@@ -196,6 +196,24 @@ test("deleteTask sets deleted=true + dirty and enqueues a delete op", async () =
   assert.ok(ops.some((o) => o.op === "delete" && o.cid === t.cid));
 });
 
+test("deleteTask: checklist task itu ikut dibuang (butir, antrean subtasks, rev tersimpan) — checklist offline Fase 2", async () => {
+  const CR = require("../../static/offline/checklistrepo.js");
+  CR._reset();
+  const t = await createTask({ title: "Bercheklist" }, { today: TODAY, now: NOW });
+  const lain = await createTask({ title: "Lain" }, { today: TODAY, now: NOW });
+  await CR.create(t.cid, { title: "Butir" });
+  await CR.create(lain.cid, { title: "Butir lain" });
+  await CR.setRev(t.cid, 0);
+  await deleteTask(t.cid, { now: LATER });
+  assert.deepEqual(await CR.recordsForTask(t.cid), []);
+  assert.equal((await CR.recordsForTask(lain.cid)).length, 1, "checklist task lain utuh");
+  const ops = await outboxAll();
+  assert.ok(!ops.some((o) => o.entity_type === "subtasks" && o.task_cid === t.cid));
+  assert.ok(ops.some((o) => o.entity_type === "subtasks" && o.task_cid === lain.cid));
+  assert.ok(ops.some((o) => o.entity_type === "task" && o.op === "delete" && o.cid === t.cid), "op delete task tetap");
+  assert.equal(t.cid in (await CR.getRevs()), false);
+});
+
 test("deleteTask rejects an unknown cid", async () => {
   await assert.rejects(() => deleteTask("ghost", { now: LATER }), /not found/i);
 });

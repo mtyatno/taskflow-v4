@@ -360,8 +360,11 @@ def _repo_rev(path, rows, rev):
 
 
 def _local_tree(node):
-    """Pohon lokal dengan id server (semua butir sudah terkirim)."""
-    return [[i["id"], i["parent_id"], i["depth"], bool(i["is_done"]), i["title"]] for i in node(cmd="items")["items"]]
+    """Pohon lokal dengan id server (semua butir sudah terkirim). Butir buatan perangkat ini tetap ber-id cid di API
+    lokal (id stabil) → dipetakan ke id server lewat record-nya."""
+    sid = {r["cid"]: r["server_id"] for r in node(cmd="records")["records"]}
+    m = lambda x: sid.get(x, x) if isinstance(x, str) else x  # noqa: E731
+    return [[m(i["id"]), m(i["parent_id"]), i["depth"], bool(i["is_done"]), i["title"]] for i in node(cmd="items")["items"]]
 
 
 def _server_tree(repo):

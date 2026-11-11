@@ -21,6 +21,10 @@
   const TFprojects = () => (isNode ? require("./projectcache.js") : (root.TF && root.TF.projectcache));
   // Kanban tahap: contextcache juga dimuat malas (sama seperti projectcache).
   const TFcontexts = () => (isNode ? require("./contextcache.js") : (root.TF && root.TF.contextcache));
+  // Checklist offline (Fase 2): checklistrepo dimuat malas — modul lama dari cache SW tanpa checklistrepo → null.
+  function checklistRepo() {
+    try { return isNode ? require("./checklistrepo.js") : (root.TF && root.TF.checklistrepo) || null; } catch (_) { return null; }
+  }
 
   // ASCII-only lowercase (SQLite NOCASE), sama dengan projectcache.nocaseKey (tanpa require: siklus).
   function nocaseKey(s) {
@@ -415,6 +419,12 @@
       delete next[TFtaskext.EXT_ONLY_KEY]; // rev+1 sudah membatalkan penanda; kunci dihapus demi kebersihan
       return putRaw(next)
         .then(() => TFoutbox.outboxAdd({ op: "delete", entity_type: "task", cid: cid, payload: { cid: cid } }))
+        // Checklist offline (spec §4.4): butir + antrean checklist task ini dibuang (server membuangnya bersama task);
+        // gagal di sini tidak menggagalkan hapus task (push juga membuang antrean task yang terhapus).
+        .then(() => {
+          const CR = checklistRepo();
+          return CR && typeof CR.purgeTask === "function" ? Promise.resolve().then(() => CR.purgeTask(cid)).catch(() => null) : null;
+        })
         .then(() => ({ ok: true }));
     });
   }

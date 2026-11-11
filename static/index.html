@@ -9771,7 +9771,8 @@ function ChecklistGlyph({
 //   memuat ulang daftar task.
 // - autoRefreshMs (Fokus) memuat ulang berkala, dilewati selama sibuk (seret, kotak isian berisi teks, menu terbuka,
 //   antrean belum kosong).
-// - Task belum tersinkron (id bukan angka): daftar kosong, tanpa GET dan tanpa /api/subtasks/*.
+// - Task belum tersinkron (id = cid) dan butir belum terkirim (id = cid): dilayani rute lokal seperti id server
+//   (checklist offline Fase 2, E6/E7); hanya id kosong yang tidak memuat. Respons lokal tanpa rev (adoptTaskProgress aman).
 // - Kotak tambah bawah dirender pemanggil lewat renderAdd(add) (teks persis milik pemanggil); add = {text, setText,
 //   depth, open, setOpen, busy, onKeyDown, onBlur, submit, style}. Tab/Shift+Tab mengubah depth (0..maxAddDepth) dan
 //   hanya ditangkap bila depth benar-benar berubah, supaya fokus tetap bisa keluar dari kotak (K14).
@@ -9786,7 +9787,7 @@ function ChecklistTree({
   renderAdd
 }) {
   const C = window.TF.checklist;
-  const synced = /^\d+$/.test(String(taskId));
+  const hasId = taskId != null && String(taskId) !== "";
   const listUrl = `/api/tasks/${taskId}/subtasks`;
   const storage = () => {
     let s = null;
@@ -9796,7 +9797,7 @@ function ChecklistTree({
     return s;
   };
   const [items, setItemsState] = useState([]);
-  const [loadState, setLoadState] = useState(synced ? "loading" : "ok"); // "loading" | "ok" | "failed" (muat pertama gagal)
+  const [loadState, setLoadState] = useState(hasId ? "loading" : "ok"); // "loading" | "ok" | "failed" (muat pertama gagal)
   const loaded = loadState !== "loading";
   const [collapsed, setCollapsedState] = useState(() => C.loadCollapsed(storage()));
   const [addText, setAddText] = useState("");
@@ -9852,7 +9853,7 @@ function ChecklistTree({
     setEditing(next);
   };
   const load = force => {
-    if (!synced) return Promise.resolve();
+    if (!hasId) return Promise.resolve();
     const seq = ++loadSeqRef.current;
     const mut = mutSeqRef.current;
     return api.get(listUrl).then(data => {
@@ -9961,7 +9962,7 @@ function ChecklistTree({
     if (changed) setCollapsed(next);
   };
   const toggle = id => {
-    if (!synced || toggleBusyRef.current.has(id)) return;
+    if (!hasId || toggleBusyRef.current.has(id)) return;
     toggleBusyRef.current.add(id);
     enqueue(() => api.post(`/api/subtasks/${id}/toggle`).then(resp => {
       const ids = new Set(Array.isArray(resp.changed_ids) ? resp.changed_ids : []);
@@ -9975,7 +9976,7 @@ function ChecklistTree({
   // tujuan tidak sah (applyMove null) → tidak terjadi apa-apa. Fokus kembali ke bagian `part` baris yang sama setelah
   // render (dicari menurut id, karena li bisa dipasang ulang di ul lain).
   const moveItem = (id, target, part) => {
-    if (!synced || !target) return false;
+    if (!hasId || !target) return false;
     const next = C.applyMove(itemsRef.current, id, target.parent_id, target.index);
     if (!next) return false;
     if (target.parent_id != null) expandChain(target.parent_id);
@@ -10023,7 +10024,7 @@ function ChecklistTree({
   };
   const startEdit = id => {
     const it = itemsRef.current.find(r => r.id === id);
-    if (!it || !synced) return;
+    if (!it || !hasId) return;
     if (editRef.current && editRef.current.id !== id) commitEdit(false);
     setMenuFor(null);
     pendingFocusRef.current = {
@@ -10074,7 +10075,7 @@ function ChecklistTree({
   const remove = id => {
     const flat = itemsRef.current;
     const it = flat.find(r => r.id === id);
-    if (!it || !synced) return;
+    if (!it || !hasId) return;
     const title = it.title || "";
     const n = C.descendantIds(flat, id).length;
     if (n > 0 && !window.confirm("Hapus «" + title + "» beserta " + n + " sub butir?")) return;
@@ -10211,7 +10212,7 @@ function ChecklistTree({
     return document.scrollingElement || document.documentElement;
   };
   const onGripDown = (e, id) => {
-    if (!synced || dragRef.current) return;
+    if (!hasId || dragRef.current) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const el = e.currentTarget;
     const start = kanbanDragStart(e, Date.now());
@@ -10392,7 +10393,7 @@ function ChecklistTree({
     };
   }, []);
   useEffect(() => {
-    if (!autoRefreshMs || !synced) return undefined;
+    if (!autoRefreshMs || !hasId) return undefined;
     const h = setInterval(() => {
       if (!busyRef.current()) load(false);
     }, autoRefreshMs);
@@ -45244,6 +45245,19 @@ function App() {
       window.removeEventListener("tf:contexts-changed", reloadContextItems);
     };
   }, [user]);
+
+  // Checklist offline (spec §4.4, F3): perubahan checklist yang ditolak server → satu pesan per drain push (syncpush
+  // memancarkan tf:checklist-rejected sekali dengan jumlahnya); sinkron ulang supaya checklist lokal kembali ke versi server.
+  useEffect(() => {
+    const onRejected = e => {
+      const n = Number(e && e.detail && e.detail.count) || 0;
+      if (!(n > 0)) return;
+      window.__showToast?.(`${n} perubahan checklist dibatalkan karena checklist sudah berubah di perangkat lain.`, "error");
+      window.__syncNow?.();
+    };
+    window.addEventListener("tf:checklist-rejected", onRejected);
+    return () => window.removeEventListener("tf:checklist-rejected", onRejected);
+  }, []);
 
   // Auto-refresh every 30 seconds (skip saat sedang sync queue)
   useEffect(() => {

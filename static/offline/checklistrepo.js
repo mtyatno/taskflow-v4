@@ -14,7 +14,10 @@
   // - Record store `subtasks`: {cid, server_id, task_cid, parent_cid, title, is_done, sort_order, created_at}
   //   (+ `client_id` dari tampilan untuk tambah yang idempoten per task). Pemetaan cid ↔ id server: _idmap "subtask".
   // - Bentuk API (`itemsForTask`): pre-order `{id, task_id, parent_id, depth, title, is_done, sort_order}` dengan
-  //   id = server_id ?? cid, parent_id = id induk, task_id = id server task ?? cid task.
+  //   id = server_id ?? cid, parent_id = id induk, task_id = id server task ?? cid task. Id STABIL: butir yang dibuat di
+  //   perangkat ini (record `origin: "local"`) tetap ber-id cid walau push sudah mengadopsi id servernya — tampilan yang
+  //   terbuka memegang id itu. Urutan pohon tetap dihitung dengan id server (tie-break sama dengan server); id masukan
+  //   (path / parent_id body) boleh cid maupun id server.
   // - Aksi lokal (create/setDone/toggle/patch/move/remove): baca butir task + antrean task itu → fungsi murni
   //   TF.checklist → tulis butir yang berubah + entri `_outbox` (+ rev kosong di `_meta`) dalam SATU transaksi
   //   ["subtasks", "_outbox", "_meta"] →
@@ -54,6 +57,7 @@
   const MAP_TYPE = "subtask";
   const REVS_KEY = "checklist_revs";
   const HYDRATED_KEY = "checklists_hydrated";
+  const ORIGIN_LOCAL = "local"; // record butir yang dibuat di perangkat ini (id API = cid selamanya, lihat viewOf)
 
   const nowIso = () => new Date().toISOString();
   const isObj = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -275,12 +279,21 @@
       is_done: !!r.is_done,
       sort_order: r.sort_order == null ? null : r.sort_order,
     }));
-    return { recs, taskId, items: C.preorder(raw), apiOf, cidOf, byCid: new Map(recs.map((r) => [r.cid, r])) };
+    const byCid = new Map(recs.map((r) => [r.cid, r]));
+    // Id pandangan (urutan) → id API keluar: butir buatan perangkat ini tetap cid (id stabil); lainnya apa adanya.
+    const out = (id) => {
+      if (id == null || !cidOf.has(id)) return id;
+      const r = byCid.get(cidOf.get(id));
+      return r && r.origin === ORIGIN_LOCAL ? r.cid : id;
+    };
+    return { recs, taskId, items: C.preorder(raw), apiOf, cidOf, byCid, out };
   }
+  // Daftar pandangan → bentuk API keluar (id / parent_id lewat view.out).
+  const outItems = (view, items) => items.map((it) => Object.assign({}, it, { id: view.out(it.id), parent_id: view.out(it.parent_id) }));
 
   function itemsForTask(taskCid) {
     return Promise.all([readTask(taskCid), recordsForTask(taskCid)])
-      .then(([task, recs]) => viewOf(recs, taskIdOf(task, taskCid)).items);
+      .then(([task, recs]) => { const v = viewOf(recs, taskIdOf(task, taskCid)); return outItems(v, v.items); });
   }
 
   function outboxSubtaskOps() {
@@ -301,6 +314,7 @@
   // (fungsi murni lalu menolaknya sebagai PARENT_NOT_FOUND).
   function apiIdIn(view, x) {
     if (x == null) return null;
+    if (typeof x === "string" && view.apiOf.has(x)) return view.apiOf.get(x); // cid butir (juga yang sudah ber-id server)
     for (const it of view.items) if (it.id === x) return it.id;
     const s = String(x);
     for (const it of view.items) if (String(it.id) === s) return it.id;
@@ -337,7 +351,7 @@
         const cur = view.byCid.get(cid);
         const base = cur || {
           cid: cid, server_id: null, task_cid: taskCid, parent_cid: null, title: "", is_done: false, sort_order: 0,
-          created_at: plan.create.created_at, client_id: plan.create.client_id,
+          created_at: plan.create.created_at, client_id: plan.create.client_id, origin: ORIGIN_LOCAL,
         };
         const next = Object.assign({}, base, {
           parent_cid: it.parent_id == null ? null : cidFor(it.parent_id),
@@ -426,7 +440,8 @@
               const first = plan.ops && plan.ops.length ? plan.ops[0].cid : null;
               emit("tf:outbox-queued", first != null ? { entity: ENTITY, cid: first } : { entity: ENTITY });
             }
-            return { items, task_progress: tp, result: plan.result || {} };
+            // `out` = penerjemah id pandangan sesudah aksi (butir baru belum ada di pandangan lama → id-nya cid apa adanya).
+            return { items: outItems(view, items), task_progress: tp, result: plan.result || {}, out: view.out };
           });
       });
     });
@@ -467,7 +482,7 @@
           payload: { title: r.item.title, parent_cid: parent == null ? null : view.cidOf.get(parent), index: normIndex(b.index) } }],
         result: {},
       };
-    }).then((res) => ({ item: itemIn(res.items, newId), items: res.items, task_progress: res.task_progress }));
+    }).then((res) => ({ item: itemIn(res.items, res.out(newId)), items: res.items, task_progress: res.task_progress }));
   }
 
   // PATCH /api/subtasks/:id (`title` dan/atau `is_done`) dan toggle (`{toggle: true}`): ubah teks lalu centang SET,
@@ -503,7 +518,8 @@
       }
       return { items: dirty ? items : null, ops, result: { id: apiId, changed_ids: changed } };
     }).then((res) => ({
-      item: itemIn(res.items, res.result.id), items: res.items, changed_ids: res.result.changed_ids, task_progress: res.task_progress,
+      item: itemIn(res.items, res.out(res.result.id)), items: res.items, changed_ids: (res.result.changed_ids || []).map(res.out),
+      task_progress: res.task_progress,
     }));
   }
   const patch = (id, body) => change(id, body || {});
@@ -595,7 +611,7 @@
         clearRev = clearRev || queued.some((o) => !dropSet.has(o.qid) && o.qid > first);
       }
       return { items: r.items, ops, drop, rewrite, clearRev, result: { deleted_ids: r.deleted_ids } };
-    }).then((res) => ({ items: res.items, deleted_ids: res.result.deleted_ids, task_progress: res.task_progress }));
+    }).then((res) => ({ items: res.items, deleted_ids: (res.result.deleted_ids || []).map(res.out), task_progress: res.task_progress }));
   }
 
   // ── rev tersimpan dan unduhan awal ───────────────────────────────────────────
