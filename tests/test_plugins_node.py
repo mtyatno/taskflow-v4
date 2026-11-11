@@ -38,7 +38,8 @@ REQUIRED = [
     "db_versionchange", "dbupgrade",
     "db_v7", "plugin_sync", "plugin_sync_push", "plugin_sync_pull", "plugin_records_api",
     "timeline_holidays", "timeline_calendar", "timeline_schedule", "timeline_layout", "timeline_drag",
-    "timeline_ui", "timeline_section", "timeline_runtime", "timeline_cpm", "timeline_plan", "timeline_load", "taskext_many",
+    "timeline_ui", "timeline_section", "timeline_runtime", "timeline_cpm", "timeline_plan", "timeline_load", "timeline_mspdi",
+    "taskext_many",
     "taskext_only_flow", "taskext_writers_fence", "taskext_core_lww", "syncconflict",
 ]
 

@@ -345,9 +345,18 @@ def more_menu_items(p):
     return menu, menu.locator("[role^=menuitem]").all_inner_texts()
 
 
+# (1d-2: Lainnya tetap di desktop + item Ekspor) desktop kini selalu punya `.plg-timeline-more` (hanya berisi Ekspor) →
+# tunggu tombol "Beban Tim" di toolbar ATAU (collapse ≤ 640 px / Live Edit) item `load` di props MoreMenu (fiber React).
+MORE_HAS_LOAD = """() => Array.from(document.querySelectorAll('.plg-timeline-more')).some((el) => {
+  const fk = Object.keys(el).find((k) => k.indexOf('__reactFiber$') === 0); let f = fk ? el[fk] : null;
+  while (f && !(f.memoizedProps && Array.isArray(f.memoizedProps.items))) f = f.return;
+  return !!f && f.memoizedProps.items.some((it) => it && it.id === 'load'); })"""
+
+
 def panel_on(p, on=True):
     """Nyalakan/matikan Beban Tim (pref load:<page>, lokal): tombol toolbar, atau item "Lainnya" (≤ 640 px / Live Edit)."""
-    p.wait_for_function("() => !!document.querySelector('.plg-timeline-loadbtn, .plg-timeline-more')", timeout=40000)
+    p.wait_for_function("() => !!document.querySelector('.plg-timeline-toolbar .plg-timeline-loadbtn') || (" + MORE_HAS_LOAD + ")()",
+                        timeout=40000)
     if p.locator(".plg-timeline-toolbar .plg-timeline-loadbtn").count():
         b = p.locator(".plg-timeline-toolbar .plg-timeline-loadbtn").first
         if (b.get_attribute("aria-pressed") == "true") != on:
@@ -1089,9 +1098,11 @@ def run_mobile(browser, base, ua, ids):
         pal = m.evaluate("() => [document.documentElement.getAttribute('data-palette'), document.documentElement.getAttribute('data-theme')]")
         shot(m, "9-M-375-sakura-gelap-daftar.png")
         exp_days = ["Dewi · %s · %s dari 0 🍅" % (short(d), b) for d, b in ids["dewi_days"]]
+        # (1d-2: Lainnya tetap di desktop + item Ekspor) daftar diakhiri "Ekspor ke Microsoft Project (.xml)" (R6).
         check("9d 375 px Sakura gelap (%r): 'Lainnya' = %r (Beban Tim setelah Jalur kritis); panel = daftar '%s' + chip %r, item %r, "
               "tanpa svg; scrollWidth %d ≤ 375" % (pal, items, "Hari kelebihan beban", st["names"], st["days"], st["sw"]),
-              ok and pal == ["sakura", "dark"] and items == ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]
+              ok and pal == ["sakura", "dark"] and items == ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline",
+                                                             "Jadwalkan ulang", "Ekspor ke Microsoft Project (.xml)"]
               and st["m"] and st["svgs"] == 0 and st["names"] == ["Dewi · 0 🍅/hari", "Rani · 8 🍅/hari", "Sari · 6 🍅/hari", "Tono · 8 🍅/hari"]
               and st["days"] == exp_days and st["sw"] <= 375 and st["head"] == "Beban Tim · 8 hari kelebihan beban", repr(st))
         check("9h (review akhir I1) mode Gantt 375 px: menyalakan Beban Tim lewat 'Lainnya' → judul daftar di dalam viewport "

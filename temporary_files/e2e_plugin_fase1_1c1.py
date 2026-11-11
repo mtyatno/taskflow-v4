@@ -198,9 +198,21 @@ BARS_JS = """(keys) => Object.fromEntries(keys.map((k) => { const b = document.q
   return [k, b ? [b.style.left, b.style.width] : null]; }))"""
 
 
+# (1d-2: Lainnya tetap di desktop + item Ekspor) `.plg-timeline-more` kini ada sejak render pertama (item Ekspor nonaktif
+# sampai mesin siap) → keberadaannya bukan lagi tanda mesin siap. Tanda setara: item `export` di props MoreMenu (fiber React,
+# pola LPROPS_JS 1d-1) tidak nonaktif; klien lama tanpa item Ekspor → keberadaan menu Lainnya (perilaku lama: hanya
+# dirender saat mesin siap).
+MORE_READY_EXPR = """Array.from(document.querySelectorAll('.plg-timeline-more')).some((el) => {
+  const fk = Object.keys(el).find((k) => k.indexOf('__reactFiber$') === 0); let f = fk ? el[fk] : null;
+  while (f && !(f.memoizedProps && Array.isArray(f.memoizedProps.items))) f = f.return;
+  if (!f) return false; const items = f.memoizedProps.items; const ex = items.find((it) => it && it.id === 'export');
+  return ex ? !ex.disabled : items.length > 0; })"""
+
+
 def wait_engine(p, slack=True, timeout=40000):
-    """Mesin siap: tombol Jadwal otomatis/Lainnya ada (engReady) dan (desktop) sel Slack terisi angka."""
-    p.wait_for_function("""(slack) => !!document.querySelector('.plg-timeline-autobtn, .plg-timeline-more, .plg-timeline-toolbar .plg-timeline-switch')
+    """Mesin siap: tombol Jadwal otomatis ada atau item Lainnya aktif (engReady) dan (desktop) sel Slack terisi angka."""
+    p.wait_for_function("""(slack) => (!!document.querySelector('.plg-timeline-autobtn, .plg-timeline-toolbar .plg-timeline-switch')
+          || """ + MORE_READY_EXPR + """)
         && (!slack || Array.from(document.querySelectorAll('.plg-timeline-row:not(.is-group) .plg-timeline-col-slack')).some(c => /\\d/.test(c.textContent)))""",
                         arg=slack, timeout=timeout)
 
@@ -1047,10 +1059,12 @@ def run_narrow_dark(browser, base, u1, ids, ctxs):
     shot(m, "12-M-375-lainnya.png")
     # Kontrak 1.2 (1c-2 Task 5 §contract): ≤ 640 px "Baseline" + "Simpan baseline" ikut masuk "Lainnya" (urutan toolbar).
     # Kontrak 1.3 (1d-1 R10 / Task 4): "Beban Tim" setelah "Jalur kritis".
+    # (1d-2: Lainnya tetap di desktop + item Ekspor) Kontrak 1.4 (R6): daftar diakhiri "Ekspor ke Microsoft Project (.xml)".
     check("12a 375 px: toolbar menu 'Lainnya' memuat Jadwal otomatis, Jalur kritis, Beban Tim, Baseline, Simpan baseline, "
-          "Jadwalkan ulang; scrollWidth === 375",
+          "Jadwalkan ulang, Ekspor ke Microsoft Project (.xml); scrollWidth === 375",
           more.inner_text() == "Lainnya"
-          and items == ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"] and geo1[0] == 375,
+          and items == ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang",
+                        "Ekspor ke Microsoft Project (.xml)"] and geo1[0] == 375,
           repr((items, geo1)))
     m.keyboard.press("Escape")
     m.wait_for_timeout(300)
@@ -1064,11 +1078,12 @@ def run_narrow_dark(browser, base, u1, ids, ctxs):
     m.keyboard.press("Escape")
     m.wait_for_timeout(300)
     # Daftar (1c-2 Task 5): Baseline disembunyikan (seperti Jalur kritis), Simpan baseline tetap; 1d-1 R10: Beban Tim juga
-    # tampil di mode Daftar (daftar "Hari kelebihan beban").
+    # tampil di mode Daftar (daftar "Hari kelebihan beban"). (1d-2: Lainnya tetap di desktop + item Ekspor) Ekspor terakhir.
     check("12a-2 menu 'Lainnya' di dalam layar pada Gantt dan Daftar: tepi kiri ≥ 0, tepi kanan ≤ 375, scrollWidth 375 "
           "(Gantt %r, Daftar %r)" % (g_box, l_box),
           all(0 <= bx["left"] and bx["right"] <= 375 and bx["sw"] == 375 for bx in (g_box, l_box))
-          and l_items == ["Jadwal otomatis", "Beban Tim", "Simpan baseline", "Jadwalkan ulang"], repr((g_box, l_box, l_items)))
+          and l_items == ["Jadwal otomatis", "Beban Tim", "Simpan baseline", "Jadwalkan ulang", "Ekspor ke Microsoft Project (.xml)"],
+          repr((g_box, l_box, l_items)))
     a3 = ids["titles"][ids["alpha"][2]]
     m.locator(".plg-timeline-li", has_text=a3).first.click()
     sec = m.locator(".modal-content .plg-timeline-section:not([aria-busy='true'])")

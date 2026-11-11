@@ -877,6 +877,28 @@
   // ── Fasad TF.api v1 (spec §4.7) ────────────────────────────────────────────
   const STORAGE_MAX_BYTES = 64 * 1024;
   const NAV_PAGES = ["dashboard", "focus", "inbox", "settings"];
+  // api.ui.saveFile (1d-2 R4, spec 1d K54): batas nama (code point), teks (unit kode UTF-16), dan mime yang diizinkan.
+  const SAVE_NAME_MAX = 120;
+  const SAVE_TEXT_MAX = 20 * 1024 * 1024;
+  const SAVE_NAME_BAD_RE = /[\/\\:*?"<>|\u0000-\u001f\u007f]/;
+  const SAVE_MIMES = ["application/xml", "text/xml", "text/csv", "text/plain", "application/json"];
+  // 120 code point ≤ 240 unit kode UTF-16: nama lebih panjang ditolak sebelum Array.from (review F1 M1) sehingga string
+  // raksasa tidak pernah dipecah per karakter.
+  const SAVE_NAME_MAX_UNITS = SAVE_NAME_MAX * 2;
+
+  // Alasan argumen saveFile tidak sah (tanpa prefiks "saveFile: "), atau null bila sah. Hanya typeof, length, regex,
+  // dan indexOf (perbandingan ketat): tidak ada koersi argumen, jadi toString/valueOf milik plugin tidak pernah
+  // dipanggil. Teks cukup dicek length (unit kode UTF-16), tanpa hitung byte.
+  function saveFileInvalid(name, text, mime) {
+    if (typeof name !== "string") return "nama berkas harus string";
+    if (name.length > SAVE_NAME_MAX_UNITS) return "nama berkas 1–" + SAVE_NAME_MAX + " karakter";
+    const len = Array.from(name).length;
+    if (len < 1 || len > SAVE_NAME_MAX) return "nama berkas 1–" + SAVE_NAME_MAX + " karakter";
+    if (SAVE_NAME_BAD_RE.test(name) || name.charAt(0) === ".") return "nama berkas memuat karakter terlarang atau diawali titik";
+    if (typeof text !== "string" || text.length > SAVE_TEXT_MAX) return "isi harus string ≤ 20 MiB";
+    if (SAVE_MIMES.indexOf(mime) < 0) return "mime hanya " + SAVE_MIMES.join("/");
+    return null;
+  }
 
   class PluginStorageError extends Error {
     constructor(message) { super(message); this.name = "PluginStorageError"; }
@@ -1143,6 +1165,54 @@
         const sh = host("safehtml");
         if (!sh) throw new Error("TF.safehtml belum dimuat");
         return sh.restoreAllowedTags(sh.escapeHtml(html));
+      },
+      // saveFile(name, text, mime) → Promise<boolean> (1d-2 R4; spec 1d K54, Q7 (a)). Satu jalur unduh berkas untuk
+      // plugin (plugin tidak menyentuh DOM global sendiri): Blob → URL objek → <a download> (pola downloadBackup host).
+      // TIDAK PERNAH melempar sinkron (review F1): argumen tidak sah → reject TypeError("saveFile: <alasan>") tanpa efek
+      // dan TANPA markFailed — saveFile tidak berizin, jadi tidak ada izin yang dilanggar (pola validasi storage/fetch;
+      // bukan error plugin, tidak mematikan plugin). Validasi mendahului cabang native. Aplikasi native (Tauri, API
+      // lintas-origin: <a download> tidak berlaku) → resolve false tanpa efek; plugin menampilkan petunjuk ke browser
+      // (Q7 (a)). Web → resolve true setelah click; galat (termasuk getter global yang melempar) → reject (elemen
+      // dilepas, URL objek dicabut). Dipanggil hanya dari gestur pengguna; tanpa izin manifest.
+      saveFile(name, text, mime) {
+        try {
+          const bad = saveFileInvalid(name, text, mime);
+          if (bad !== null) return Promise.reject(new TypeError("saveFile: " + bad));
+          if (env.platform === "tauri") return Promise.resolve(false);
+          const doc = root.document;
+          const URLc = root.URL;
+          const BlobC = root.Blob;
+          if (!doc || !doc.body || typeof doc.createElement !== "function" || !URLc || typeof URLc.createObjectURL !== "function" || typeof BlobC !== "function") {
+            return Promise.reject(new Error("saveFile tidak didukung"));
+          }
+          let url = null;
+          let a = null;
+          let attached = false;
+          let ok = false;
+          try {
+            url = URLc.createObjectURL(new BlobC([text], { type: mime + ";charset=utf-8" }));
+            a = doc.createElement("a");
+            a.href = url;
+            a.download = name;
+            a.rel = "noopener";
+            a.style.display = "none";
+            doc.body.appendChild(a);
+            attached = true;
+            a.click();
+            ok = true;
+            return Promise.resolve(true);
+          } finally {
+            if (attached) { try { doc.body.removeChild(a); } catch (_) {} }
+            if (url !== null) {
+              // Sukses: cabut setelah 1 s (unduhan sudah berjalan); gagal: cabut segera.
+              const revoke = () => { try { URLc.revokeObjectURL(url); } catch (_) {} };
+              if (ok && typeof root.setTimeout === "function") root.setTimeout(revoke, 1000);
+              else revoke();
+            }
+          }
+        } catch (e) {
+          return Promise.reject(e);
+        }
       },
     });
   }

@@ -911,3 +911,323 @@ test("fmtPomo (review T1): beban > 0 tidak pernah tampil \"0\" (minimal 0.5); up
     assert.ok(Number(LD.fmtPomo(cap * 1000 + extra, true)) > cap, cap + " + " + extra);
   }
 });
+
+// ---- 1d-2 Task 1: earned value 🍅 (spec §5.3, K51; rencana 1d-2 R1) ----
+// Fixture tangan lintas libur Natal 2026 (kalender std: Sen–Jum, libur nasional + cuti bersama SKB ON):
+//   Kam 24 Des = cuti bersama, Jum 25 Des = libur nasional, Sab 26/Min 27 akhir pekan. D = Sen 28 Des.
+//   Task 1: baseline Sen 21 → Rab 30 Des, d 6, w 5; progress 35; 🍅 selesai 3.
+//     hk(21..30) = {21, 22, 23, 28, 29, 30} = 6; hk(21..28) = {21, 22, 23, 28} = 4
+//     PV = round(5000 × 4 / 6) = round(3333,3) = 3333; EV = round(5000 × 35 / 100) = 1750; AC = 3000
+//   Task 2: baseline Rab 23 → Sel 29 Des, d 3, w 4; SELESAI (progress 10 diabaikan); 🍅 selesai 6.
+//     hk(23..29) = {23, 28, 29} = 3; hk(23..28) = {23, 28} = 2
+//     PV = round(4000 × 2 / 3) = round(2666,7) = 2667; EV = 4000 (selesai = 100 %); AC = 6000
+//   Task 3: milestone Rab 23 Des (d 0), w 2; progress 0; 🍅 0 → D ≥ s → PV = 2000; EV = 0; AC = 0
+//   Σ: BAC 11000, PV 8000, EV 5750, AC 9000 → SPI 5750/8000 = 0,71875 (72 %), CPI 5750/9000 = 0,6389 (64 %).
+const EV_D = D("2026-12-28");
+const blRow = (s, f, d, w) => ({ s: D(s), f: D(f), d, w });
+function evTasks(o = {}) {
+  return [
+    mk(Object.assign({ id: 1, progress: 35, pomo: 3 }, o[1] || {})),
+    mk(Object.assign({ id: 2, done: true, progress: 10, pomo: 6 }, o[2] || {})),
+    mk(Object.assign({ id: 3, pomo: 0 }, o[3] || {})),
+  ];
+}
+function evRows(extra) {
+  return new Map([
+    ["1", blRow("2026-12-21", "2026-12-30", 6, 5)],
+    ["2", blRow("2026-12-23", "2026-12-29", 3, 4)],
+    ["3", blRow("2026-12-23", "2026-12-23", 0, 2)],
+    ...(extra || []),
+  ]);
+}
+const evBl = (rows, name = "Rencana awal") => ({ n: 1, name, rows: rows || evRows() });
+function evCtx(tasks, o = {}) {
+  const cal = o.cal === undefined ? std() : o.cal;
+  const result = o.result === undefined ? M.run({ tasks, cal: std(), units: autoUnits("Alpha"), readExt }) : o.result;
+  return { tasks, cal, result };
+}
+const evPick = (r) => (r ? [r.bac, r.pv, r.ev, r.ac, r.rows, r.outside, r.missing] : r);
+
+test("modul 1d-2: ekspor ev, evText, evTip, fmtPomo1 (fungsi murni)", () => {
+  for (const f of ["ev", "evText", "evTip", "fmtPomo1"]) assert.equal(typeof LD[f], "function", f);
+});
+
+test("ev R1: fixture tangan 3 task lintas libur Natal → BAC 11000, PV 8000, EV 5750, AC 9000 (milipomodoro), SPI 0,71875, CPI 5750/9000", () => {
+  const tasks = evTasks();
+  const r = LD.ev(evBl(), evCtx(tasks), EV_D);
+  assert.deepEqual(r, { bac: 11000, pv: 8000, ev: 5750, ac: 9000, spi: 5750 / 8000, cpi: 5750 / 9000, rows: 3, outside: 0, missing: 0 });
+  assert.equal(LD.evText(r), "Jadwal 72% · Efisiensi 🍅 64%");
+  assert.equal(LD.evTip(r, "Rencana awal"), "Baseline: Rencana awal · PV 8 · EV 5.8 · AC 9 · BAC 11 🍅");
+  // Kalender tanpa libur nasional/cuti bersama (mentah, dikompilasi ev): task 1 hk 6/8 → 3750, task 2 hk 4/5 → 3200,
+  // milestone 2000 → PV 8950 — membuktikan PV memakai kalender ctx, bukan bawaan.
+  const plain = LD.ev(evBl(), evCtx(tasks, { cal: { v: 1, weekdays: [1, 2, 3, 4, 5], national: false, cutiBersama: false, off: [], work: [] } }), EV_D);
+  assert.equal(plain.pv, 3750 + 3200 + 2000);
+  // ctx.cal absen → kalender bawaan (libur ON) → sama dengan std
+  assert.equal(LD.ev(evBl(), evCtx(tasks, { cal: null }), EV_D).pv, 8000);
+});
+
+test("ev R1: PV per tanggal D — sebelum semua mulai PV 0 + SPI null; milestone sebelum/sesudah D; D di hari libur = hari kerja sebelumnya; D setelah semua selesai = BAC", () => {
+  const tasks = evTasks();
+  const at = (iso) => LD.ev(evBl(), evCtx(tasks), D(iso));
+  // Jum 18 Des: belum ada yang mulai → PV 0 → SPI null; EV/AC tidak bergantung D
+  const early = at("2026-12-18");
+  assert.equal(early.pv, 0);
+  assert.equal(early.spi, null);
+  assert.equal(early.ev, 5750);
+  assert.equal(early.cpi, 5750 / 9000);
+  assert.equal(LD.evText(early), "Jadwal — · Efisiensi 🍅 64%");
+  // Sel 22 Des: milestone (Rab 23) belum jatuh tempo → 0; task 1 hk(21..22) = 2 → round(5000 × 2/6) = 1667; task 2 belum mulai
+  assert.equal(at("2026-12-22").pv, 1667);
+  // Rab 23 Des: milestone jatuh tempo → 2000; task 1 hk 3/6 → 2500; task 2 hk 1/3 → round(1333,3) = 1333
+  assert.equal(at("2026-12-23").pv, 2000 + 2500 + 1333);
+  // Jum 25 Des (libur nasional): tidak menambah hari kerja → sama dengan Rab 23
+  assert.equal(at("2026-12-25").pv, 2000 + 2500 + 1333);
+  assert.equal(at("2026-12-27").pv, 2000 + 2500 + 1333);
+  // Kam 31 Des: semua lewat selesai baseline → PV = BAC, SPI = EV/BAC
+  const late = at("2026-12-31");
+  assert.equal(late.pv, 11000);
+  assert.equal(late.spi, 5750 / 11000);
+});
+
+test("ev R1: % selesai — task selesai (gtd_status done ATAU completed_at) = 100 %; Number(progress) dijepit 0–100; tak hingga/NaN → 0; pecahan dibulatkan per baris", () => {
+  const ev1 = (o1) => LD.ev(evBl(), evCtx(evTasks({ 1: o1 })), EV_D).ev - 4000; // EV task 2 (selesai) = 4000, milestone 0
+  assert.equal(ev1({ progress: 35 }), 1750);
+  assert.equal(ev1({ progress: 150 }), 5000, "150 → 100 %");
+  assert.equal(ev1({ progress: -5 }), 0, "−5 → 0 %");
+  assert.equal(ev1({ progress: "x" }), 0, "bukan angka → 0");
+  // review F1: string angka dibaca Number() seperti cpm/plan/layout → "50" = 50 % → round(5000 × 50 / 100) = 2500 milli
+  assert.equal(ev1({ progress: "50" }), 2500, "string angka \"50\" → 50 %");
+  assert.equal(ev1({ progress: NaN }), 0);
+  assert.equal(ev1({ progress: Infinity }), 0, "tak hingga bukan bilangan sah → 0");
+  // progress dipasang langsung pada task (mk menormalkan nilai falsy ke 0): w task 1 = 5 → 5000 milli = 100 %
+  const evRaw = (p) => {
+    const tasks = evTasks();
+    tasks[0].progress = p;
+    return LD.ev(evBl(), evCtx(tasks), EV_D).ev - 4000;
+  };
+  const raw = [[null, 0], ["", 0], ["abc", 0], [Infinity, 0], [-Infinity, 0], [-5, 0], [150, 5000], ["150", 5000], [" 20 ", 1000], [undefined, 0]];
+  for (const [p, want] of raw) assert.equal(evRaw(p), want, "progress " + String(p));
+  assert.equal(ev1({ progress: 33.3 }), 1665, "round(5000 × 33,3 / 100) = 1665");
+  assert.equal(ev1({ progress: 0.01 }), 1, "round(0,5) = 1 (Math.round)");
+  // selesai lewat completed_at saja (gtd_status bukan done) → 100 %
+  assert.equal(ev1({ progress: 10, completed_at: "2026-12-24T03:00:00Z" }), 5000);
+  assert.equal(ev1({ progress: 10, gtd_status: "done", completed_at: null }), 5000);
+});
+
+test("ev R1: AC = Σ pomodoros_done bulat ≥ 0 × 1000 (pecahan/string/negatif → 0); AC 0 → CPI null", () => {
+  const ac = (p1, p2) => LD.ev(evBl(), evCtx(evTasks({ 1: { pomo: p1 }, 2: { pomo: p2 } })), EV_D);
+  assert.equal(ac(3, 6).ac, 9000);
+  assert.equal(ac(2.5, 6).ac, 6000);
+  assert.equal(ac("3", 6).ac, 6000);
+  assert.equal(ac(-1, 6).ac, 6000);
+  assert.equal(ac(null, 6).ac, 6000);
+  const zero = ac(0, 0);
+  assert.equal(zero.ac, 0);
+  assert.equal(zero.cpi, null);
+  assert.equal(zero.spi, 5750 / 8000);
+  assert.equal(LD.evText(zero), "Jadwal 72% · Efisiensi 🍅 —");
+  // PV 0 dan AC 0 sekaligus
+  const none = LD.ev(evBl(), evCtx(evTasks({ 1: { pomo: 0 }, 2: { pomo: 0 } })), D("2026-12-01"));
+  assert.equal(LD.evText(none), "Jadwal — · Efisiensi 🍅 —");
+});
+
+test("ev R1: baris baseline yang task-nya dihapus / diarsip / tidak ada → missing dan TIDAK dihitung di angka mana pun", () => {
+  const tasks = evTasks().concat([
+    mk({ id: 5, gtd_status: "archived", progress: 100, pomo: 9 }),
+    mk({ id: 6, archived: true, progress: 100, pomo: 9 }),
+    mk({ id: 7, deleted: true, progress: 100, pomo: 9 }),
+  ]);
+  const rows = evRows([
+    ["4", blRow("2026-12-21", "2026-12-23", 3, 9)], // task 4 tidak ada di daftar halaman
+    ["5", blRow("2026-12-21", "2026-12-23", 3, 9)],
+    ["6", blRow("2026-12-21", "2026-12-23", 3, 9)],
+    ["7", blRow("2026-12-21", "2026-12-23", 3, 9)],
+  ]);
+  const r = LD.ev(evBl(rows), evCtx(tasks), EV_D);
+  assert.deepEqual(evPick(r), [11000, 8000, 5750, 9000, 3, 0, 4]);
+  // semua baris hilang → BAC 0 → null (ringkasan tidak tampil)
+  assert.equal(LD.ev(evBl(new Map([["4", blRow("2026-12-21", "2026-12-23", 3, 9)]])), evCtx(tasks), EV_D), null);
+});
+
+test("ev R1: kunci kanonik lewat TLSched.buildIndex — baris ber-cid ('c-7') → task id server 70; dua baris ke task sama → yang pertama menurut cmpKey, dihitung sekali", () => {
+  const t70 = Object.assign(mk({ id: 70, progress: 50, pomo: 1 }), { cid: "c-7" });
+  const tasks = evTasks().concat([t70]);
+  const viaCid = LD.ev(evBl(evRows([["c-7", blRow("2026-12-21", "2026-12-21", 1, 2)]])), evCtx(tasks), EV_D);
+  // + task 70: BAC 2000, PV 2000 (hk 1/1), EV 1000, AC 1000; bukan outside
+  assert.deepEqual(evPick(viaCid), [13000, 10000, 6750, 10000, 4, 0, 0]);
+  // "70" < "c-7" (cmpKey) → baris "70" menang (w 1), baris "c-7" diabaikan, apa pun urutan sisip Map
+  const dupRows = [["c-7", blRow("2026-12-21", "2026-12-21", 1, 2)], ["70", blRow("2026-12-21", "2026-12-21", 1, 1)]];
+  const a = LD.ev(evBl(evRows(dupRows)), evCtx(tasks), EV_D);
+  const b = LD.ev(evBl(evRows(dupRows.slice().reverse())), evCtx(tasks), EV_D);
+  assert.deepEqual(evPick(a), [12000, 9000, 6250, 10000, 4, 0, 0]);
+  assert.deepEqual(a, b);
+});
+
+test("ev R1: outside = task hidup, bukan berulang, bukan induk ringkasan, yang tidak dipetakan baris baseline mana pun (selesai tetap dihitung)", () => {
+  const tasks = evTasks().concat([
+    mk({ id: 20 }), // baru, tanpa baseline → outside
+    mk({ id: 21, recurrence_type: "daily" }), // berulang → bukan
+    mk({ id: 22, start: "2026-12-21", d: 1 }), // induk ringkasan → bukan
+    mk({ id: 23, start: "2026-12-21", d: 1, parent: 22 }), // anak baru → outside
+    mk({ id: 24, archived: true }), // tidak hidup → bukan
+    mk({ id: 25, done: true }), // selesai tetap hidup → outside
+    mk({ id: 20 }), // kunci ganda → dihitung sekali
+  ]);
+  const ctx = evCtx(tasks);
+  assert.ok(ctx.result.summaries.has("22"), "prasyarat: 22 induk ringkasan");
+  const r = LD.ev(evBl(), ctx, EV_D);
+  assert.deepEqual(evPick(r), [11000, 8000, 5750, 9000, 3, 3, 0]);
+  assert.equal(LD.evTip(r, "Rencana awal"), "Baseline: Rencana awal · PV 8 · EV 5.8 · AC 9 · BAC 11 🍅 · 3 task di luar baseline");
+  // tanpa result (mesin belum siap) → ringkasan tidak dikenali: 22 ikut outside
+  assert.equal(LD.ev(evBl(), evCtx(tasks, { result: null }), EV_D).outside, 4);
+  // task yang dipetakan lewat cid bukan outside
+  const t70 = Object.assign(mk({ id: 70 }), { cid: "c-7" });
+  assert.equal(LD.ev(evBl(evRows([["c-7", blRow("2026-12-21", "2026-12-21", 1, 0)]])), evCtx(evTasks().concat([t70])), EV_D).outside, 0);
+});
+
+test("ev R1: BAC 0 → null; bl / bl.rows / D tidak sah → null; w rusak di baris → 0", () => {
+  const tasks = evTasks();
+  const ctx = evCtx(tasks);
+  const zero = new Map([["1", blRow("2026-12-21", "2026-12-30", 6, 0)], ["2", blRow("2026-12-23", "2026-12-29", 3, 0)]]);
+  assert.equal(LD.ev(evBl(zero), ctx, EV_D), null, "BAC 0 (baseline lama tanpa w) → null");
+  assert.equal(LD.ev(evBl(new Map()), ctx, EV_D), null);
+  for (const bad of [null, undefined, 5, "x", {}, { rows: [] }, { rows: {} }, { rows: null }]) assert.equal(LD.ev(bad, ctx, EV_D), null, JSON.stringify(bad));
+  for (const bad of [null, undefined, "2026-12-28", 1.5, NaN]) assert.equal(LD.ev(evBl(), ctx, bad), null, "D " + String(bad));
+  // ctx rusak → tanpa task → semua baris missing → null; tidak melempar
+  assert.equal(LD.ev(evBl(), null, EV_D), null);
+  assert.equal(LD.ev(evBl(), { tasks: "x" }, EV_D), null);
+  // w bukan bilangan bulat ≥ 0 di baris (Map dibangun tangan) → 0
+  const odd = new Map([["1", { s: D("2026-12-21"), f: D("2026-12-30"), d: 6, w: 2.5 }], ["2", { s: D("2026-12-23"), f: D("2026-12-29"), d: 3, w: 4 }]]);
+  assert.equal(LD.ev(evBl(odd), ctx, EV_D).bac, 4000);
+  // nilai baris rusak (bukan objek / tanggal bukan bilangan bulat / f < s) → dilewati tanpa lempar
+  const broken = evRows([["1", null]]);
+  broken.set("1", null);
+  broken.set("2", { s: "2026-12-23", f: D("2026-12-29"), d: 3, w: 4 });
+  broken.set("3", { s: D("2026-12-23"), f: D("2026-12-22"), d: 0, w: 2 });
+  assert.equal(LD.ev(evBl(broken), ctx, EV_D), null);
+});
+
+test("ev: kalender rusak tidak melempar — kalender buntu (tanpa hari kerja) → penyebut 0 = satu hari di s (D ≥ s → w penuh); .has melempar (TL_CAL_LOOP / galat lain) → bukan hari kerja", () => {
+  const tasks = evTasks();
+  // tanpa hari kerja: task 1 (s 21 ≤ D) → 5000, task 2 (s 23 ≤ D) → 4000, milestone → 2000
+  const dead = LD.ev(evBl(), evCtx(tasks, { cal: deadCal() }), EV_D);
+  assert.equal(dead.pv, 11000);
+  assert.equal(LD.ev(evBl(), evCtx(tasks, { cal: deadCal() }), D("2026-12-22")).pv, 5000, "task 2 dan milestone belum mulai");
+  for (const msg of ["TL_CAL_LOOP", "rusak"]) {
+    const thrower = { has() { throw new Error(msg); } };
+    const cal = { key: "x", mask: thrower, off: thrower, work: thrower };
+    let r;
+    assert.doesNotThrow(() => { r = LD.ev(evBl(), evCtx(tasks, { cal }), EV_D); }, msg);
+    assert.equal(r.pv, 11000, msg);
+  }
+});
+
+test("ev: rentang baseline sangat panjang (data rusak 0100 → 9999) dibatasi SPAN_MAX hari kalender — selesai cepat, angka hingga", () => {
+  const tasks = evTasks();
+  const rows = new Map([["1", { s: D("2026-12-21"), f: D("9999-12-31"), d: 6, w: 5 }]]);
+  for (let i = 0; i < 200; i++) {
+    tasks.push(mk({ id: 1000 + i }));
+    rows.set(String(1000 + i), { s: D("0100-01-01"), f: D("9999-12-31"), d: 999, w: 1 });
+  }
+  assert.ok(Number.isInteger(D("0100-01-01")), "prasyarat: tanggal awal sah");
+  const s = process.hrtime.bigint();
+  const r = LD.ev(evBl(rows), evCtx(tasks, { result: { summaries: new Map() } }), EV_D);
+  const ms = Number(process.hrtime.bigint() - s) / 1e6;
+  console.log(`TLLoad.ev 201 baris rentang ±9900 tahun: ${ms.toFixed(2)} ms`);
+  assert.ok(ms < 1000, "ms " + ms);
+  assert.equal(r.rows, 201);
+  assert.equal(r.missing, 0);
+  // 200 baris lama: D jauh setelah s + SPAN_MAX → pembilang = penyebut → w penuh (200 × 1000); task 1: 4 hk dari ±2600 → kecil
+  assert.ok(Number.isInteger(r.pv) && r.pv > 200000 && r.pv < 200100, "pv " + r.pv);
+});
+
+test("ev murni: tidak mengubah tasks, rows, maupun result", () => {
+  const tasks = evTasks().concat([mk({ id: 20 })]);
+  const ctx = evCtx(tasks);
+  const rows = evRows();
+  const before = JSON.stringify({ tasks, rows: [...rows], sums: [...ctx.result.summaries.keys()] });
+  LD.ev(evBl(rows), ctx, EV_D);
+  assert.equal(JSON.stringify({ tasks, rows: [...rows], sums: [...ctx.result.summaries.keys()] }), before);
+});
+
+// Generator EV: task acak (selesai, berjalan, progress liar, 🍅, berulang, diarsip, cid) + baris baseline (cid, hilang).
+function genEv(n, seed) {
+  const rnd = lcg(seed);
+  const ri = (a, b) => a + Math.floor(rnd() * (b - a + 1));
+  const base = D("2026-11-02");
+  const tasks = [];
+  const rows = [];
+  for (let i = 0; i < n; i++) {
+    const id = 900 + i;
+    const x = rnd();
+    const o = { id, progress: [0, 10, 35, 50, 100, 150, -5, "x"][ri(0, 7)], pomo: [0, 1, 3, 7, 2.5][ri(0, 4)] };
+    if (x < 0.1) o.done = true;
+    else if (x < 0.14) o.recurrence_type = "weekly";
+    else if (x < 0.18) o.archived = true;
+    const t = mk(o);
+    if (rnd() < 0.1) t.cid = "c-" + id;
+    tasks.push(t);
+    if (rnd() < 0.85) {
+      const s = base + ri(0, 60);
+      const d = rnd() < 0.08 ? 0 : ri(1, 30);
+      rows.push([t.cid && rnd() < 0.5 ? t.cid : String(id), { s, f: d === 0 ? s : s + ri(0, 40), d, w: ri(0, 12) }]);
+    }
+  }
+  for (let k = 0; k < 10; k++) rows.push([String(50000 + k), { s: base, f: base + 5, d: 4, w: 3 }]); // task tidak ada
+  return { tasks, rows };
+}
+
+test("ev determinisme: 50 permutasi acak (LCG berbenih) dari ctx.tasks DAN urutan sisip Map baris → hasil identik", () => {
+  const { tasks, rows } = genEv(150, 1357);
+  const cal = std();
+  const result = M.run({ tasks, cal, units: autoUnits("Alpha"), readExt });
+  const D1 = D("2026-12-01");
+  const ref = LD.ev({ n: 2, name: "B", rows: new Map(rows) }, { tasks, cal, result }, D1);
+  assert.ok(ref && ref.rows > 80 && ref.missing >= 10 && ref.outside > 0 && ref.spi !== null && ref.cpi !== null, JSON.stringify(ref));
+  const refJ = JSON.stringify(ref);
+  const rnd = lcg(2468);
+  for (let p = 0; p < 50; p++) {
+    const r = LD.ev({ n: 2, name: "B", rows: new Map(shuffle(rows, rnd)) }, { tasks: shuffle(tasks, rnd), cal, result }, D1);
+    assert.equal(JSON.stringify(r), refJ, "permutasi " + p);
+  }
+});
+
+test("kinerja ev: 500 baris baseline (rentang 1–40 hari) → median 5 putaran ≤ 5 ms (dicatat)", () => {
+  const { tasks } = genEv(500, 4242);
+  const all = tasks.map((t) => (t.archived || t.recurrence_type ? Object.assign({}, t, { archived: false, recurrence_type: null }) : t));
+  const full = new Map(all.map((t) => [String(t.id), { s: D("2026-11-02") + (t.id % 60), f: D("2026-11-02") + (t.id % 60) + (t.id % 40), d: 1 + (t.id % 30), w: 1 + (t.id % 12) }]));
+  const cal = std();
+  const result = M.run({ tasks: all, cal, units: autoUnits("Alpha"), readExt });
+  const bl = { n: 1, name: "Kinerja", rows: full };
+  const ctx = { tasks: all, cal, result };
+  const first = LD.ev(bl, ctx, D("2026-12-01"));
+  assert.equal(first.rows, 500);
+  const times = [];
+  for (let i = 0; i < 5; i++) {
+    const s = process.hrtime.bigint();
+    LD.ev(bl, ctx, D("2026-12-01"));
+    times.push(Number(process.hrtime.bigint() - s) / 1e6);
+  }
+  times.sort((a, b) => a - b);
+  console.log(`TLLoad.ev 500 baris: median ${times[2].toFixed(3)} ms (${times.map((t) => t.toFixed(3)).join(", ")})`);
+  assert.ok(times[2] <= 5, "median " + times[2]);
+});
+
+test("fmtPomo1: milipomodoro → 🍅 satu desimal dengan titik, bilangan bulat tanpa '.0'", () => {
+  const cases = [[0, "0"], [12000, "12"], [12500, "12.5"], [5750, "5.8"], [3333, "3.3"], [2667, "2.7"], [49, "0"], [50, "0.1"], [8000, "8"], [11000, "11"], [1234567, "1234.6"], [999, "1"], [950, "1"], [949, "0.9"]];
+  for (const [m, want] of cases) assert.equal(LD.fmtPomo1(m), want, String(m));
+  for (const bad of [NaN, Infinity, "x", null, undefined]) assert.equal(LD.fmtPomo1(bad), "0", String(bad));
+});
+
+test("evText / evTip: format persis Q6 (a) — persen bulat, '—' untuk null, 🍅 satu desimal, sufiks task di luar baseline hanya bila > 0", () => {
+  const r = { bac: 11000, pv: 8000, ev: 5750, ac: 9000, spi: 0.71875, cpi: 5750 / 9000, rows: 3, outside: 0, missing: 0 };
+  assert.equal(LD.evText(r), "Jadwal 72% · Efisiensi 🍅 64%");
+  assert.equal(LD.evText(Object.assign({}, r, { spi: 0.92, cpi: 1.08 })), "Jadwal 92% · Efisiensi 🍅 108%");
+  assert.equal(LD.evText(Object.assign({}, r, { spi: null })), "Jadwal — · Efisiensi 🍅 64%");
+  assert.equal(LD.evText(Object.assign({}, r, { cpi: null })), "Jadwal 72% · Efisiensi 🍅 —");
+  assert.equal(LD.evText(Object.assign({}, r, { spi: null, cpi: null })), "Jadwal — · Efisiensi 🍅 —");
+  assert.equal(LD.evText(Object.assign({}, r, { spi: 0, cpi: 2 })), "Jadwal 0% · Efisiensi 🍅 200%");
+  assert.equal(LD.evTip(r, "Rencana awal"), "Baseline: Rencana awal · PV 8 · EV 5.8 · AC 9 · BAC 11 🍅");
+  assert.equal(LD.evTip(Object.assign({}, r, { outside: 1 }), "Baseline 2"), "Baseline: Baseline 2 · PV 8 · EV 5.8 · AC 9 · BAC 11 🍅 · 1 task di luar baseline");
+  assert.equal(LD.evTip(Object.assign({}, r, { outside: 12, pv: 0, ac: 0 }), "Sprint ✓🌸"), "Baseline: Sprint ✓🌸 · PV 0 · EV 5.8 · AC 0 · BAC 11 🍅 · 12 task di luar baseline");
+});

@@ -552,9 +552,10 @@ async function recordEvents(fn) {
 
 // 1c-2 T10: diperluas di tempat (nama tes brief "index.json: 1.2.0, records.baseline tersalin, enam kunci") — batas
 // deklarasi = BL_MAX plugin, validasi compile.js = runtime. 1d-1 Task 2: 1.3.0 + records.resource {lww, 4096}.
-test("index.json: 1.3.0, records.baseline + records.resource tersalin, enam kunci (repo; + records.project tetap)", () => {
-  assert.equal(entry.version, "1.3.0");
-  assert.equal(manifest.version, "1.3.0");
+// 1d-2 Task 4: 1.4.0 (part mspdi.js; records/taskExt tidak berubah).
+test("index.json: 1.4.0, records.baseline + records.resource tersalin, enam kunci (repo; + records.project tetap)", () => {
+  assert.equal(entry.version, "1.4.0");
+  assert.equal(manifest.version, "1.4.0");
   assert.equal(entry.minApi, 1);
   assert.deepEqual(entry.records.project, { conflict: "lww", maxBytes: 1024 });
   assert.deepEqual(entry.records.project, manifest.records.project);
@@ -945,8 +946,8 @@ function resValueOfSize(L, bytes) {
 const CALM = require(path.join(dir, "calendar.js"));
 const isoPlus = (iso, n) => CALM.iso(CALM.dn(iso) + n);
 
-test("1d-1 T9: index.json 1.3.0 + records.resource tersalin; plugin.js yang di-inject runtime nyata (P.load, ?v=hash) membundel part load.js — TLLoad bundel = load.js (konstanta, kunci, kodek)", async () => {
-  assert.equal(entry.version, "1.3.0");
+test("1d-1 T9: index.json (1.4.0) + records.resource tersalin; plugin.js yang di-inject runtime nyata (P.load, ?v=hash) membundel part load.js — TLLoad bundel = load.js (konstanta, kunci, kodek)", async () => {
+  assert.equal(entry.version, "1.4.0");
   assert.deepEqual(entry.records.resource, { conflict: "lww", maxBytes: 4096 });
   assert.deepEqual(entry.records.resource, manifest.records.resource);
   assert.equal(entry.parts, undefined, "parts tidak disalin ke index.json");
@@ -964,6 +965,41 @@ test("1d-1 T9: index.json 1.3.0 + records.resource tersalin; plugin.js yang di-i
   const v = { capacity: 5, leave: [{ from: "2026-11-10", to: "2026-11-12", note: "Mudik" }, { from: "2026-11-13", to: "2026-11-13", note: "" }] };
   assert.deepEqual(J(T.TLLoad.resourceEncode(v, { by: 7 })), L.resourceEncode(v, { by: 7 }), "kodek bundel = Node");
   assert.equal(P.failures("timeline").length, 0);
+});
+
+// 1d-2 Task 4: part mspdi.js dibundel SETELAH layout.js (TLMspdi memakai TLLayout/TLLoad/TLHolidays bundel, tanpa require
+// di sandbox vm) — plugin.js hasil build dimuat runtime nyata tanpa galat; TLMspdi bundel = mspdi.js (kunci + XML sampel).
+test("1d-2 T4: plugin.js runtime nyata membundel part mspdi.js setelah layout.js — dimuat tanpa galat (tanpa require di vm), TLMspdi bundel = mspdi.js (kunci, build sampel identik)", async () => {
+  assert.equal(entry.version, "1.4.0");
+  assert.ok(manifest.parts.indexOf("mspdi.js") > manifest.parts.indexOf("layout.js"), "manifest: mspdi.js setelah layout.js");
+  const iLay = code.indexOf("// part: layout.js\n");
+  const iMs = code.indexOf("// part: mspdi.js\n");
+  const iDrag = code.indexOf("// part: drag.js\n");
+  assert.ok(iLay > 0 && iLay < iMs && iMs < iDrag, "part mspdi.js dibundel di antara layout.js dan drag.js");
+  const { T } = await enableAndLoad();
+  const M = require(path.join(dir, "mspdi.js"));
+  assert.deepEqual(Object.keys(T.TLMspdi), Object.keys(M), "ekspor TLMspdi bundel = mspdi.js");
+  assert.ok(Object.isFrozen(T.TLMspdi));
+  const C = require(path.join(dir, "calendar.js"));
+  const tasks = [
+    { id: 1, title: "Desain & <uji>", gtd_status: "next", project: "Alpha", ext: { "timeline.start": "2026-11-02", "timeline.duration": 2 } },
+    { id: 2, title: "Rilis", gtd_status: "next", project: "Alpha", ext: { "timeline.start": "2026-11-04", "timeline.duration": 0, "timeline.deps": [{ t: { $task: 1 }, type: "FS", lag: 0 }] } },
+  ];
+  const readExt = (t) => {
+    const out = {};
+    for (const k of Object.keys(t.ext || {})) out[k.slice(9)] = t.ext[k];
+    return out;
+  };
+  // people bentuk objek {uid: nama} (Map dari realm tes gagal `instanceof Map` di realm vm bundel — artefak sandbox)
+  const input = { tasks, cal: C.DEFAULT_CAL, readExt, result: null, units: undefined, pageKind: "project", title: "Alpha", people: { 7: "Saya" }, ownerUid: 7, baseline: null, D: C.dn("2026-11-04") };
+  const a = T.TLMspdi.build(input);
+  const b = M.build(input);
+  assert.equal(a.xml, b.xml, "XML bundel = Node");
+  assert.deepEqual(J(a.stats), J(b.stats));
+  assert.ok(a.xml.startsWith('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'));
+  assert.ok(a.xml.includes("<Name>Saya</Name>"), "nama orang dari people");
+  assert.equal(T.TLMspdi.fileNameOf("Alpha", C.dn("2026-11-04")), "Alpha-2026-11-04.xml");
+  assert.equal(P.failures("timeline").length, 0, "memuat bundel tanpa galat plugin");
 });
 
 test("1d-1 T9: api.records nyata — saveResource res@list:12:7 → record pending + satu op outbox plugin (id/scope cocok pola server, by dari userId string); CAS potret basi → STALE 0 put; > 4.096 byte ditolak sisi klien sebelum baca/tulis, tepat 4.096 diterima (batas klien = runtime)", async () => {

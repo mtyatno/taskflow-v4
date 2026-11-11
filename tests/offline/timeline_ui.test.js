@@ -19,7 +19,7 @@ test("manifest persis", () => {
     id: "timeline",
     name: "Timeline",
     description: "Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.",
-    version: "1.3.0",
+    version: "1.4.0",
     minApi: 1,
     defaultEnabled: false,
     slots: ["taskList.views", "taskDetail.sections"],
@@ -30,7 +30,8 @@ test("manifest persis", () => {
     },
     records: { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 }, resource: { conflict: "lww", maxBytes: 4096 } },
     taskExt: { keys: ["start", "duration", "deps", "mode", "constraint", "actual"] },
-    parts: ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "load.js", "layout.js", "drag.js"],
+    // 1d-2 Task 4: mspdi.js (TLMspdi memakai TLLayout) SETELAH layout.js — di depannya bundel melempar TDZ saat dimuat
+    parts: ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "load.js", "layout.js", "mspdi.js", "drag.js"],
   });
 });
 
@@ -3875,7 +3876,8 @@ async function swView(clock, o) {
 }
 
 test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya'; mesin belum siap → tombol Jadwal otomatis/Jalur kritis/Jadwalkan ulang tidak tampil", () => withEngineClock(async (clock) => {
-  // mesin belum siap: tidak ada tiga tombol baru (juga tidak ada 'Lainnya' di Live Edit)
+  // mesin belum siap: tidak ada tiga tombol baru. 1d-2 T5 (R6): 'Lainnya' kini selalu ada (layar lebar setelah extras,
+  // Live Edit di posisi extras) dengan item Ekspor nonaktif sampai mesin siap.
   {
     const { api } = fakeApi();
     api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
@@ -3885,21 +3887,22 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
     m.flush();
     await settle();
     const tree = m.render(props);
-    assert.deepEqual(toolbarTexts(tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Kalender kerja", "Urutkan menurut Mulai"]);
+    assert.deepEqual(toolbarTexts(tree), ["Hari", "Minggu", "Bulan", "Hari ini", "[Lainnya]", "Kalender kerja", "Urutkan menurut Mulai"]);
+    assert.deepEqual(moreOf(tree).props.items.map((it) => [it.text, !!it.disabled]), [["Ekspor ke Microsoft Project (.xml)", true]]);
     const le = mount(T.TimelineViewBody).render({ context: ctxOf(chainTasks(), { liveEdit: true }).ctx, api });
-    assert.equal(moreOf(le), undefined, "Lainnya tanpa isi tidak tampil");
+    assert.deepEqual(moreOf(le).props.items.map((it) => [it.text, !!it.disabled]), [["Ekspor ke Microsoft Project (.xml)", true]], "Live Edit: hanya Ekspor (nonaktif)");
     m.unmount();
   }
   // lebar, mesin siap: urutan R23
   const h = await swView(clock);
-  assert.deepEqual(toolbarTexts(h.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang", "Kalender kerja", "Urutkan menurut Mulai"]); // 1c-2 T5: §7.1; 1d-1 T4: Beban Tim
-  assert.equal(moreOf(h.tree), undefined);
+  assert.deepEqual(toolbarTexts(h.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang", "[Lainnya]", "Kalender kerja", "Urutkan menurut Mulai"]); // 1c-2 T5: §7.1; 1d-1 T4: Beban Tim; 1d-2 T5: Lainnya (Ekspor)
+  assert.deepEqual(moreOf(h.tree).props.items.map((it) => it.text), ["Ekspor ke Microsoft Project (.xml)"], "layar lebar: Lainnya hanya aksi menu");
   h.m.unmount();
   // Live Edit: tiga tombol pindah ke 'Lainnya' (posisi sama di urutan), Kolom tetap di toolbar
   const le = await swView(clock, { ctx: { liveEdit: true } });
   assert.deepEqual(toolbarTexts(le.tree), ["Hari", "Minggu", "Bulan", "Hari ini", "[Lainnya]", "Kalender kerja", "Urutkan menurut Mulai", "Kolom"]);
   const mm = moreOf(le.tree);
-  assert.deepEqual(mm.props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+  assert.deepEqual(mm.props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang", "Ekspor ke Microsoft Project (.xml)"]); // 1d-2 T5: Ekspor di akhir
   // MoreMenu: tombol 'Lainnya' aria-haspopup="menu"; dibuka → role menu dengan item menuitemcheckbox/menuitem
   const mt = mount(T.MoreMenu);
   let t = mt.render(mm.props);
@@ -3914,6 +3917,7 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   assert.deepEqual(its.map((n) => [txt(n).trim(), n.props.role, n.props["aria-checked"]]), [
     ["Jadwal otomatis", "menuitemcheckbox", false], ["Jalur kritis", "menuitemcheckbox", false], ["Beban Tim", "menuitemcheckbox", false],
     ["Baseline", "menuitem", undefined], ["Simpan baseline", "menuitem", undefined], ["Jadwalkan ulang", "menuitem", undefined],
+    ["Ekspor ke Microsoft Project (.xml)", "menuitem", undefined],
   ]);
   // pilih Jalur kritis → pref crit ditulis, menu tertutup
   its[1].props.onClick({});
@@ -3928,13 +3932,13 @@ test("toolbar urutan R23; ≤ 640 px / liveEdit → tiga tombol di menu 'Lainnya
   global.window = { matchMedia: (q) => ({ matches: q === "(max-width: 640px)", addEventListener() {}, removeEventListener() {} }), innerHeight: 800, addEventListener() {}, removeEventListener() {} };
   try {
     const n = await swView(clock);
-    assert.deepEqual(moreOf(n.tree).props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+    assert.deepEqual(moreOf(n.tree).props.items.map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang", "Ekspor ke Microsoft Project (.xml)"]);
     assert.equal(switchOf(n.tree), undefined, "sakelar tidak di toolbar HP");
     buttonByText(n.tree, "Daftar").props.onClick({});
     const lt = n.render();
     // 1c-2 T5: pilihan Baseline hanya untuk Gantt (seperti Jalur kritis); Simpan baseline tetap (aksi data). 1d-1 T4: Beban
     // Tim tetap di Daftar HP (R10: daftar "Hari kelebihan beban" menggantikan histogram ≤ 640 px).
-    assert.deepEqual(moreOf(lt).props.items.map((it) => it.text), ["Jadwal otomatis", "Beban Tim", "Simpan baseline", "Jadwalkan ulang"]);
+    assert.deepEqual(moreOf(lt).props.items.map((it) => it.text), ["Jadwal otomatis", "Beban Tim", "Simpan baseline", "Jadwalkan ulang", "Ekspor ke Microsoft Project (.xml)"]);
     n.m.unmount();
   } finally {
     global.window = prevWin;
@@ -7339,10 +7343,10 @@ test("T4 Beban Tim: ≤ 640 px → di Lainnya, baik Gantt maupun Daftar (daftar 
     const n = await swView(clock);
     assert.equal(loadBtnOf(n.tree), undefined);
     const items = () => moreOf(n.tree).props.items;
-    assert.deepEqual(items().map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang"]);
+    assert.deepEqual(items().map((it) => it.text), ["Jadwal otomatis", "Jalur kritis", "Beban Tim", "Baseline", "Simpan baseline", "Jadwalkan ulang", "Ekspor ke Microsoft Project (.xml)"]); // 1d-2 T5
     buttonByText(n.tree, "Daftar").props.onClick({});
     n.render();
-    assert.deepEqual(items().map((it) => it.text), ["Jadwal otomatis", "Beban Tim", "Simpan baseline", "Jadwalkan ulang"]);
+    assert.deepEqual(items().map((it) => it.text), ["Jadwal otomatis", "Beban Tim", "Simpan baseline", "Jadwalkan ulang", "Ekspor ke Microsoft Project (.xml)"]);
     const it = items().find((x) => x.text === "Beban Tim");
     assert.equal(it.role, "menuitemcheckbox");
     it.onSelect();
@@ -10281,3 +10285,547 @@ test("Review akhir: LoadPanel meneruskan anchorRef = boxRef (akar panel) ke Reso
     global.window = prev;
   }
 }));
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-2 — Task 4: ringkasan earned value 🍅 di toolbar (rencana R1, R2, R10; spec K51, K57, §7.1, §7.5)
+// ════════════════════════════════════════════════════════════════════════════
+// Workspace list 12, hari ini Rab 4 Nov: A1 (Alpha, baseline Sen 2–Rab 4, w 4, progres 50, 2 🍅 selesai), B1 (Beta,
+// baseline Kam 5, w 2, progres 20, 1 🍅), A2 (Alpha, baru — di luar baseline). PV = 4 (A1 penuh, B1 belum mulai), EV =
+// 2 + 0,4, AC = 3, BAC = 6 → Jadwal 60% · Efisiensi 🍅 80%.
+const EV_TEXT = "Jadwal 60% · Efisiensi 🍅 80%";
+const EV_TIP = "Baseline: Rencana · PV 4 · EV 2.4 · AC 3 · BAC 6 🍅 · 1 task di luar baseline";
+const EV_ROWS = {
+  Alpha: [[{ $task: 1 }, "2026-11-02", "2026-11-04", 3, 4]],
+  Beta: [[{ $task: 2 }, "2026-11-05", "2026-11-05", 1, 2]],
+};
+function evTasks() {
+  const w = { list_id: 12 };
+  return [
+    mk(1, "A1", { start: "2026-11-02", duration: 3 }, Object.assign({ project: "Alpha", progress: 50, pomodoros_done: 2, estimated_pomodoros: 4 }, w)),
+    mk(2, "B1", { start: "2026-11-05", duration: 1 }, Object.assign({ project: "Beta", progress: 20, pomodoros_done: 1, estimated_pomodoros: 2 }, w)),
+    mk(3, "A2", { start: "2026-11-03", duration: 1 }, Object.assign({ project: "Alpha" }, w)),
+  ];
+}
+// Record baseline slot n unit (workspace 12); rows = baris t [ref, s, f, d, w]; nama bawaan "Rencana".
+const evRec = (project, n, data) => blRec(12, project, n, Object.assign({ name: "Rencana", t: EV_ROWS[project] }, data || {}));
+const evOf = (tree) => byCls(tree, "plg-timeline-ev")[0];
+const EV_CTX = {
+  page: "slist_12", pageKind: "workspace", listId: 12, projectName: null,
+  collaborators: [{ id: 9, display_name: "Sari" }, { id: 11, username: "budi" }],
+  currentUser: { id: 7, display_name: "Saya", username: "saya" },
+};
+// Spy EV: T.engine.ev (satu pintu TLLoad.ev di plugin) → daftar {bl, ctx, D, out}.
+function spyEv() {
+  const orig = T.engine.ev;
+  const runs = [];
+  T.engine.ev = (bl, ctx, D) => {
+    const out = orig(bl, ctx, D);
+    runs.push({ bl, ctx, D, out });
+    return out;
+  };
+  return { runs, restore: () => { T.engine.ev = orig; } };
+}
+
+// View workspace EV: recs = record baseline (bawaan Alpha + Beta slot 1 "Rencana"), pref bl:slist_12 (bawaan 1).
+async function evView(clock, o) {
+  const opt = o || {};
+  const fr = fakeRecords();
+  for (const r of opt.recs || [evRec("Alpha", 1), evRec("Beta", 1)]) putRec(fr, r);
+  const tasks = opt.tasks || evTasks();
+  const pref = opt.pref === undefined ? 1 : opt.pref;
+  const { api, calls } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "bl:slist_12" ? pref : null) });
+  api.env.userId = 7;
+  api.data = { tasks: { list: () => Promise.resolve(tasks) } };
+  const writes = spyWrites(api);
+  const ctx = ctxOf(tasks, Object.assign({}, EV_CTX, opt.ctx || {})).ctx;
+  const m = mount(T.TimelineViewBody);
+  const h = { m, fr, api, calls, writes, tasks, props: { context: ctx, api } };
+  h.render = () => (h.tree = m.render(h.props));
+  h.again = async () => (h.tree = await settleView(m, () => h.props, clock));
+  h.zero = () => writes.length + fr.calls.put.length + fr.calls.remove.length;
+  await h.again();
+  return h;
+}
+
+test("1d-2 T4: unitIdsOf — recId TLSched.unitOf unik dari daftar task (bukan baris tata letak), urut cmpKey; bukan objek dilewati", () => {
+  const ts = evTasks().concat([null, "x", mk(4, "N1", {}, { list_id: 12 }), mk(5, "A3", {}, { list_id: 12, project: "ALPHA" })]);
+  const want = [blUnit(12, "Alpha").recId, blUnit(12, "Beta").recId, blUnit(12, "").recId].sort(T.TLCpm.cmpKey);
+  assert.deepEqual(T.unitIdsOf(ts), want, "Alpha/ALPHA satu unit (lipatan), tanpa project = unit '-'");
+  assert.deepEqual(T.unitIdsOf(ts.slice().reverse()), want, "urutan masukan tidak berpengaruh");
+  assert.deepEqual(T.unitIdsOf([]), []);
+  assert.deepEqual(T.unitIdsOf(null), []);
+});
+
+test("1d-2 T4: blNameFor — semua unit yang punya slot n bernama sama → nama itu; nama beda / asing / tanpa nama → 'Baseline {n}'; unit tanpa slot n diabaikan", () => {
+  const a = blUnit(12, "Alpha").recId;
+  const b = blUnit(12, "Beta").recId;
+  const ent = (name, foreign) => ({ n: 1, foreign: !!foreign, name, rows: new Map() });
+  const by = (ea, eb) => new Map([[a, new Map(ea ? [[1, ea]] : [])], [b, new Map(eb ? [[1, eb]] : [])]]);
+  assert.equal(T.blNameFor(by(ent("Rencana"), ent("Rencana")), [a, b], 1), "Rencana", "seragam");
+  assert.equal(T.blNameFor(by(ent("Rencana"), ent("Revisi")), [a, b], 1), "Baseline 1", "campur");
+  assert.equal(T.blNameFor(by(ent("Rencana"), null), [a, b], 1), "Rencana", "Beta tanpa slot 1 tidak ikut menentukan");
+  assert.equal(T.blNameFor(by(ent("Rencana"), ent(null, true)), [a, b], 1), "Baseline 1", "slot asing (versi lebih baru)");
+  assert.equal(T.blNameFor(by(ent(""), ent("")), [a, b], 1), "Baseline 1", "tanpa nama");
+  assert.equal(T.blNameFor(by(null, null), [a, b], 2), "Baseline 2", "tidak ada slot");
+  assert.equal(T.blNameFor(new Map(), [], 3), "Baseline 3");
+});
+
+test("1d-2 T4: ringkasan EV '.plg-timeline-ev' = TLLoad.evText dengan tooltip TLLoad.evTip (title + aria-label pola blbar/flag) SEBELUM 'Selesai {tgl}'; angka = TLLoad.ev atas daftar lengkap + baseline gabungan; 0 tulis", () => withEngineClock(async (clock) => {
+  const spy = spyRun();
+  try {
+    const h = await evView(clock);
+    const end = byCls(h.tree, "plg-timeline-toolbar-end")[0];
+    assert.ok(end, "kanan toolbar");
+    const kids = end.children.filter((c) => c && typeof c === "object");
+    assert.deepEqual(kids.map((c) => c.props.className), ["plg-timeline-ev", "plg-timeline-finish"], "EV sebelum Selesai");
+    const ev = evOf(h.tree);
+    assert.equal(ev.type, "span");
+    assert.equal(txt(ev), EV_TEXT);
+    assert.equal(ev.props.title, EV_TIP);
+    assert.equal(ev.props.role, "img", "pola tooltip plugin (blbar/flag/⚠): role img + aria-label + title");
+    assert.equal(ev.props["aria-label"], EV_TEXT + " · " + EV_TIP, "pembaca layar mendengar teks + tooltip");
+    assert.equal(nodes(ev, (n) => typeof n.type === "string").length, 1, "satu elemen");
+    // angka = mesin murni atas masukan yang sama (daftar lengkap mesin, baris dua unit, hari ini)
+    const res = spy.runs[spy.runs.length - 1].result;
+    const ctx = spy.runs[spy.runs.length - 1].ctx;
+    const rows = new Map();
+    for (const p of ["Alpha", "Beta"]) for (const [k, r] of T.TLPlan.baselineDecode(evRec(p, 1).data).rows) rows.set(k, r);
+    const r = T.TLLoad.ev({ n: 1, rows }, { tasks: ctx.tasks, cal: ctx.cal, result: res }, T.TLCal.dn(TODAY));
+    assert.deepEqual([r.bac, r.pv, r.ev, r.ac, r.outside, r.missing], [6000, 4000, 2400, 3000, 1, 0]);
+    assert.equal(T.TLLoad.evText(r), EV_TEXT);
+    assert.equal(T.TLLoad.evTip(r, "Rencana"), EV_TIP);
+    assert.equal(h.zero(), 0, "EV tidak menulis apa pun (R25)");
+    h.m.unmount();
+  } finally {
+    spy.restore();
+  }
+}));
+
+test("1d-2 T4 (R2): filter panel (scopeTasks hanya Alpha) tidak mengubah EV — unit dari eng.ctx.tasks, baseline unit tersaring tetap dimuat dalam SATU list se-scope; hari ini berubah → dihitung ulang", () => withEngineClock(async (clock) => {
+  const h = await evView(clock);
+  assert.equal(txt(evOf(h.tree)), EV_TEXT);
+  const lists0 = blLists(h.fr).length;
+  // host menyaring panel: hanya project Alpha (scopeTasks baru); Beta tetap di daftar lengkap mesin
+  const alpha = h.tasks.filter((t) => t.project === "Alpha");
+  h.props = { context: Object.assign({}, h.props.context, { tasks: alpha, scopeTasks: alpha }), api: h.api };
+  await h.again();
+  assert.equal(nodes(h.tree, (n) => n.props.role === "row" && n.props["data-key"] === "2").length, 0, "baris B1 tersaring");
+  assert.equal(txt(evOf(h.tree)), EV_TEXT, "teks sama");
+  assert.equal(evOf(h.tree).props.title, EV_TIP, "BAC/outside sama (Beta tetap dihitung)");
+  assert.equal(blLists(h.fr).length, lists0, "unit Beta sudah termuat — filter tidak memuat ulang baseline");
+  assert.ok(blLists(h.fr).every((l) => l[1].scope === "list:12"), "tidak ada list per unit");
+  // filter dimuat SEJAK awal (halaman dibuka dengan filter aktif) → angka tetap sama
+  const f = await evView(clock, { ctx: { tasks: alpha, scopeTasks: alpha } });
+  assert.equal(txt(evOf(f.tree)), EV_TEXT);
+  assert.equal(evOf(f.tree).props.title, EV_TIP);
+  assert.equal(new Set(blLists(f.fr).map((l) => JSON.stringify(l[1]))).size, 1, "satu bentuk list se-scope (tanpa list per unit)");
+  f.m.unmount();
+  // hari ini Kam 5 Nov → PV B1 ikut (6) → Jadwal 40%
+  h.api.env.today = () => "2026-11-05";
+  await h.again();
+  assert.equal(txt(evOf(h.tree)), "Jadwal 40% · Efisiensi 🍅 80%");
+  assert.equal(h.zero(), 0);
+  h.m.unmount();
+}));
+
+test("1d-2 T4: tanpa baseline aktif (pref Tidak ada) / slot kosong / BAC 0 (baseline lama tanpa w) / mesin belum siap → ringkasan TIDAK dirender (Selesai tetap)", () => withEngineClock(async (clock) => {
+  for (const [label, o] of [
+    ["pref 0", { pref: 0 }],
+    ["slot 2 kosong", { pref: 2 }],
+    ["BAC 0", { recs: [evRec("Alpha", 1, { t: [[{ $task: 1 }, "2026-11-02", "2026-11-04", 3]] }), evRec("Beta", 1, { t: [[{ $task: 2 }, "2026-11-05", "2026-11-05", 1, 0]] })] }],
+    ["slot asing", { recs: [evRec("Alpha", 1, { v: 2 }), evRec("Beta", 1, { v: 2 })] }],
+  ]) {
+    const h = await evView(clock, o);
+    assert.equal(evOf(h.tree), undefined, label);
+    assert.ok(byCls(h.tree, "plg-timeline-finish").length === 1, label + ": Selesai tetap");
+    assert.equal(h.zero(), 0, label);
+    h.m.unmount();
+  }
+  // mesin belum siap (render pertama, pref + record sudah termuat) → tanpa ringkasan
+  const fr = fakeRecords();
+  putRec(fr, evRec("Alpha", 1));
+  putRec(fr, evRec("Beta", 1));
+  const { api } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "bl:slist_12" ? 1 : null) });
+  api.data = { tasks: { list: () => Promise.resolve(evTasks()) } };
+  const m = mount(T.TimelineViewBody);
+  const props = { context: ctxOf(evTasks(), EV_CTX).ctx, api };
+  let tree = m.render(props);
+  m.flush();
+  await settle();
+  tree = m.render(props);
+  m.flush();
+  await settle();
+  tree = m.render(props);
+  assert.ok(fr.calls.list.some((c) => c[0] === "baseline"), "baseline sudah dimuat");
+  assert.equal(evOf(tree), undefined, "mesin belum siap");
+  m.unmount();
+}));
+
+test("1d-2 T4: nama baseline di tooltip — semua unit slot 1 bernama sama → nama itu; campur → 'Baseline 1'; hanya satu unit punya slot → namanya", () => withEngineClock(async (clock) => {
+  const same = await evView(clock);
+  assert.ok(evOf(same.tree).props.title.startsWith("Baseline: Rencana · "));
+  same.m.unmount();
+  const mixed = await evView(clock, { recs: [evRec("Alpha", 1), evRec("Beta", 1, { name: "Revisi" })] });
+  assert.equal(evOf(mixed.tree).props.title, "Baseline: Baseline 1 · PV 4 · EV 2.4 · AC 3 · BAC 6 🍅 · 1 task di luar baseline");
+  mixed.m.unmount();
+  const one = await evView(clock, { recs: [evRec("Alpha", 1, { name: "Awal Alpha" })] });
+  // hanya Alpha: BAC 4, B1 di luar baseline (2 task di luar)
+  assert.equal(txt(evOf(one.tree)), "Jadwal 50% · Efisiensi 🍅 100%");
+  assert.equal(evOf(one.tree).props.title, "Baseline: Awal Alpha · PV 4 · EV 2 · AC 2 · BAC 4 🍅 · 2 task di luar baseline");
+  one.m.unmount();
+}));
+
+test("1d-2 T4 (R10): render awal tanpa TLLoad.ev — EV dihitung SETELAH mesin (raf + setTimeout 0), tepat 1×; render ulang tanpa perubahan 0; 0 tulis", () => withEngineClock(async (clock) => {
+  const fr = fakeRecords();
+  putRec(fr, evRec("Alpha", 1));
+  putRec(fr, evRec("Beta", 1));
+  const { api } = fakeApi({ records: fr, storageGet: (k) => Promise.resolve(k === "bl:slist_12" ? 1 : null) });
+  api.data = { tasks: { list: () => Promise.resolve(evTasks()) } };
+  const writes = spyWrites(api);
+  const props = { context: ctxOf(evTasks(), EV_CTX).ctx, api };
+  const spy = spyRun();
+  const evs = spyEv();
+  try {
+    const m = mount(T.TimelineViewBody);
+    let tree = m.render(props);
+    assert.deepEqual([spy.runs.length, evs.runs.length], [0, 0], "render pertama tanpa mesin dan tanpa EV");
+    m.flush();
+    await settle();
+    tree = m.render(props);
+    m.flush();
+    await settle();
+    tree = m.render(props);
+    assert.deepEqual([spy.runs.length, evs.runs.length], [0, 0], "pref + baseline termuat, mesin belum → EV belum dihitung");
+    assert.ok(clock.frames() >= 1);
+    clock.tick(0);
+    assert.equal(spy.runs.length, 1);
+    assert.equal(evs.runs.length, 0, "EV dihitung saat render (memo), bukan di penjadwal mesin");
+    tree = m.render(props);
+    m.flush();
+    await settle();
+    tree = m.render(props);
+    assert.equal(evs.runs.length, 1, "tepat satu hitung EV setelah mesin siap");
+    assert.equal(evs.runs[0].ctx.result, spy.runs[0].result, "hasil mesin yang sama");
+    assert.equal(evs.runs[0].ctx.tasks, spy.runs[0].ctx.tasks, "daftar lengkap mesin (R2)");
+    assert.equal(evs.runs[0].D, T.TLCal.dn(TODAY));
+    assert.equal(txt(evOf(tree)), EV_TEXT);
+    m.render(props);
+    m.render(props);
+    assert.equal(evs.runs.length, 1, "render ulang tanpa perubahan tidak menghitung ulang");
+    assert.deepEqual(writes, []);
+    assert.equal(fr.calls.put.length + fr.calls.remove.length, 0);
+    m.unmount();
+  } finally {
+    evs.restore();
+    spy.restore();
+  }
+}));
+
+test("1d-2 T4 (R10): DOM +1 elemen — baseline ber-w vs baseline sama tanpa w (BAC 0) berselisih tepat satu elemen (span ringkasan)", () => withEngineClock(async (clock) => {
+  const withW = await evView(clock);
+  const noW = await evView(clock, { recs: [
+    evRec("Alpha", 1, { t: [[{ $task: 1 }, "2026-11-02", "2026-11-04", 3, 0]] }), evRec("Beta", 1, { t: [[{ $task: 2 }, "2026-11-05", "2026-11-05", 1, 0]] }),
+  ] });
+  assert.ok(evOf(withW.tree));
+  assert.equal(evOf(noW.tree), undefined);
+  assert.equal(domCount(withW.tree) - domCount(noW.tree), 1);
+  withW.m.unmount();
+  noW.m.unmount();
+}));
+
+test("1d-2 T4: CSS .plg-timeline-ev token saja (tanpa border-left aksen), satu baris + elipsis; ≤ 640 px kanan toolbar boleh terbungkus dan dibatasi lebar baris (tanpa gulir horizontal 375 px); sumber: teks EV dari TLLoad, 1 pintu engine.ev", () => {
+  const rule = css.match(/\.plg-timeline-ev\s*\{([^}]*)\}/);
+  assert.ok(rule, "aturan .plg-timeline-ev");
+  for (const re of [/min-width:\s*0/, /max-width:\s*100%/, /overflow:\s*hidden/, /text-overflow:\s*ellipsis/, /white-space:\s*nowrap/]) assert.match(rule[1], re);
+  assert.doesNotMatch(rule[1], /border-left/);
+  assert.doesNotMatch(rule[1], /#[0-9a-fA-F]{3,8}\b|rgba?\(/);
+  for (const m of rule[1].matchAll(/color:\s*([^;]+);/g)) assert.match(m[1], /^var\(--/, "warna lewat token");
+  // ≤ 640 px: blok media yang memuat .plg-timeline-toolbar-end → bungkus + dibatasi lebar baris toolbar
+  const narrow = [...css.matchAll(/@media \(max-width: 640px\) \{([\s\S]*?)\n\}/g)].map((x) => x[1]).join("\n");
+  const endRule = narrow.match(/\.plg-timeline-toolbar-end\s*\{([^}]*)\}/);
+  assert.ok(endRule, "aturan HP .plg-timeline-toolbar-end");
+  for (const re of [/flex-wrap:\s*wrap/, /max-width:\s*100%/, /min-width:\s*0/]) assert.match(endRule[1], re);
+  // sumber: teks persis lewat TLLoad (tanpa salinan teks di plugin.jsx), satu pintu engine.ev
+  assert.match(jsx, /TLLoad\.evText\(/);
+  assert.match(jsx, /TLLoad\.evTip\(/);
+  assert.equal((jsx.match(/TLLoad\.ev\(/g) || []).length, 1, "TLLoad.ev hanya lewat engine.ev");
+  assert.doesNotMatch(jsx, /"Jadwal "|Efisiensi 🍅/, "teks EV tidak disalin ke plugin.jsx");
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Fase 1 PR 1d-2 — Task 5: menu "Lainnya" → "Ekspor ke Microsoft Project (.xml)" + alur unduh (rencana R5, R6, R9; spec
+// K53, K54, §7.1, §7.5, §7.7; Q7 (a); P2 (a) context.listName)
+// ════════════════════════════════════════════════════════════════════════════
+const EXPORT = "Ekspor ke Microsoft Project (.xml)";
+const MSG_EXPORT_NATIVE = "Ekspor tersedia di alurik.com lewat browser";
+const MSG_EXPORT_FAIL = "Ekspor gagal";
+const exportOf = (tree) => {
+  const mm = nodes(tree, (n) => n.type === T.MoreMenu);
+  assert.equal(mm.length, 1, "tepat satu menu Lainnya");
+  return mm[0].props.items.find((it) => it.text === EXPORT);
+};
+// Spy ekspor: T.engine.mspdi (satu pintu TLMspdi.build di plugin) → daftar {input, out}; throwErr → melempar.
+function spyMspdi(throwErr) {
+  const orig = T.engine.mspdi;
+  const runs = [];
+  T.engine.mspdi = (input) => {
+    if (throwErr) {
+      runs.push({ input, out: null });
+      throw throwErr;
+    }
+    const out = orig(input);
+    runs.push({ input, out });
+    return out;
+  };
+  return { runs, restore: () => { T.engine.mspdi = orig; } };
+}
+// api.ui.saveFile palsu: hasil per panggilan (true / false / "reject" / "throw").
+function fakeSave(api, mode) {
+  const calls = [];
+  api.ui.saveFile = (...a) => {
+    calls.push(a);
+    const m = typeof mode === "function" ? mode(calls.length) : mode === undefined ? true : mode;
+    if (m === "throw") throw new TypeError("saveFile: sinkron");
+    if (m === "reject") return Promise.reject(new TypeError("saveFile: nama tidak sah"));
+    return Promise.resolve(m);
+  };
+  return calls;
+}
+const exportToasts = (calls) => calls.toast.filter((t) => /^Berkas |^Ekspor /.test(t[0]));
+
+test("1d-2 T5 (R6): layar lebar — tombol 'Lainnya' tetap SETELAH extras berisi tepat 'Ekspor ke Microsoft Project (.xml)' (menuitem, aktif setelah mesin siap); dibuka → satu item role menuitem", () => withEngineClock(async (clock) => {
+  const h = await swView(clock);
+  const tt = toolbarTexts(h.tree);
+  assert.equal(tt.indexOf("[Lainnya]"), tt.indexOf("Jadwalkan ulang") + 1, "setelah extras");
+  assert.equal(tt.indexOf("Kalender kerja"), tt.indexOf("[Lainnya]") + 1);
+  const mm = moreOf(h.tree);
+  assert.deepEqual(mm.props.items.map((it) => [it.id, it.text, it.role, !!it.disabled]), [["export", EXPORT, "menuitem", false]]);
+  const mt = mount(T.MoreMenu);
+  let t = mt.render(mm.props);
+  buttonByText(t, "Lainnya").props.onClick({});
+  t = mt.render(mm.props);
+  const menu = nodes(t, (n) => n.props.role === "menu")[0];
+  const its = nodes(menu, (n) => n.type === "button");
+  assert.deepEqual(its.map((n) => [txt(n).trim(), n.props.role, n.props.disabled]), [[EXPORT, "menuitem", false]]);
+  mt.unmount();
+  assert.deepEqual(h.writes(), []);
+  h.m.unmount();
+}));
+
+test("1d-2 T5 (R6): collapse (Live Edit / ≤ 640 px Gantt + Daftar) → Ekspor di AKHIR daftar Lainnya yang ada, satu tombol Lainnya; mesin belum siap → item nonaktif dan memilihnya tidak membangun/mengunduh", () => withEngineClock(async (clock) => {
+  const le = await swView(clock, { ctx: { liveEdit: true } });
+  const items = moreOf(le.tree).props.items;
+  assert.equal(items[items.length - 1].text, EXPORT);
+  assert.equal(exportOf(le.tree).disabled, false);
+  le.m.unmount();
+  const prevWin = global.window;
+  global.window = narrowGlobal();
+  try {
+    const n = await swView(clock);
+    assert.equal(moreOf(n.tree).props.items.slice(-1)[0].text, EXPORT, "HP Gantt");
+    exportOf(n.tree);
+    buttonByText(n.tree, "Daftar").props.onClick({});
+    n.render();
+    assert.equal(moreOf(n.tree).props.items.slice(-1)[0].text, EXPORT, "HP Daftar");
+    exportOf(n.tree);
+    n.m.unmount();
+  } finally {
+    global.window = prevWin;
+  }
+  // mesin belum siap: item ada tetapi nonaktif; onSelect (dipanggil paksa) tidak membangun dan tidak mengunduh
+  const ms = spyMspdi();
+  try {
+    for (const liveEdit of [false, true]) {
+      const { api, calls } = fakeApi();
+      api.data = { tasks: { list: () => Promise.resolve(chainTasks()) } };
+      const saves = fakeSave(api);
+      const m = mount(T.TimelineViewBody);
+      const props = { context: ctxOf(chainTasks(), { liveEdit }).ctx, api };
+      m.render(props);
+      m.flush();
+      await settle();
+      const tree = m.render(props);
+      const it = exportOf(tree);
+      assert.equal(it.disabled, true, "nonaktif sebelum mesin siap (liveEdit " + liveEdit + ")");
+      it.onSelect();
+      await settle();
+      assert.deepEqual([ms.runs.length, saves.length, exportToasts(calls).length], [0, 0, 0]);
+      m.unmount();
+    }
+  } finally {
+    ms.restore();
+  }
+}));
+
+test("1d-2 T5 (R5): klik Ekspor di web (workspace, filter panel aktif) → engine.mspdi SEKALI dengan daftar lengkap/kalender/readExt/hasil/unit mesin, judul context.listName, nama orang, baseline aktif semua unit, hari ini → api.ui.saveFile(nama, xml, 'application/xml') sinkron di gestur → toast 'Berkas {nama} diunduh'; 0 tulis", () => withEngineClock(async (clock) => {
+  const spy = spyRun();
+  const ms = spyMspdi();
+  try {
+    const alpha = evTasks().filter((t) => t.project === "Alpha");
+    const h = await evView(clock, { ctx: { listName: "Tim Pemasaran", tasks: alpha, scopeTasks: alpha } });
+    const saves = fakeSave(h.api);
+    exportOf(h.tree).onSelect();
+    assert.equal(ms.runs.length, 1, "build sekali");
+    assert.equal(saves.length, 1, "saveFile dipanggil sinkron di dalam gestur (sebelum await apa pun)");
+    const run = spy.runs[spy.runs.length - 1];
+    const inp = ms.runs[0].input;
+    assert.equal(inp.tasks, run.ctx.tasks, "daftar lengkap mesin (R5), bukan baris tersaring");
+    assert.ok(inp.tasks.some((t) => t.title === "B1"), "B1 (tersaring panel) ikut");
+    assert.equal(inp.cal, run.ctx.cal);
+    assert.equal(inp.readExt, run.ctx.readExt);
+    assert.equal(inp.result, run.result);
+    assert.equal(inp.units, run.ctx.units);
+    assert.equal(inp.pageKind, "workspace");
+    assert.equal(inp.title, "Tim Pemasaran");
+    assert.equal(inp.fileName, "Tim-Pemasaran-2026-11-04.xml");
+    assert.equal(inp.D, T.TLCal.dn(TODAY));
+    assert.ok(inp.people instanceof Map);
+    assert.deepEqual([...inp.people].sort((a, b) => a[0] - b[0]), [[7, "Saya"], [9, "Sari"], [11, "budi"]]);
+    assert.equal(inp.ownerUid, null, "workspace: resource = penanggung jawab");
+    assert.ok(inp.baseline && inp.baseline.rows instanceof Map);
+    const want = new Map();
+    for (const p of ["Alpha", "Beta"]) for (const [k, r] of T.TLPlan.baselineDecode(evRec(p, 1).data).rows) want.set(k, r);
+    assert.deepEqual([...inp.baseline.rows.keys()].sort(), [...want.keys()].sort(), "baseline aktif semua unit (Beta tersaring tetap)");
+    const out = ms.runs[0].out;
+    assert.deepEqual(saves[0], ["Tim-Pemasaran-2026-11-04.xml", out.xml, "application/xml"]);
+    assert.ok(out.xml.includes("<Title>Tim Pemasaran</Title>"));
+    assert.deepEqual([out.stats.unscheduled, out.stats.skippedLinks], [0, 0]);
+    await settle();
+    assert.deepEqual(exportToasts(h.calls), [["Berkas Tim-Pemasaran-2026-11-04.xml diunduh", "success"]]);
+    assert.equal(h.zero(), 0, "ekspor tidak menulis apa pun (R25)");
+    h.m.unmount();
+  } finally {
+    ms.restore();
+    spy.restore();
+  }
+}));
+
+test("1d-2 T5 (R5): toast sukses varian — ' · {n} task tanpa jadwal ditandai perkiraan' dan/atau ' · {k} tautan dilewati' bila > 0 (stats build)", () => withEngineClock(async (clock) => {
+  const al = { project: "Alpha" };
+  const base = () => [mk(1, "A", { start: "2026-11-02", duration: 2 }, al)];
+  const cases = [
+    ["tanpa jadwal", base().concat([mk(2, "B", {}, al)]), [1, 0], "Berkas Alpha-2026-11-04.xml diunduh · 1 task tanpa jadwal ditandai perkiraan"],
+    ["tautan dilewati", base().concat([mk(3, "C", { start: "2026-11-03", duration: 1, deps: [{ t: { $task: 999 }, type: "FS", lag: 0 }] }, al)]), [0, 1],
+      "Berkas Alpha-2026-11-04.xml diunduh · 1 tautan dilewati"],
+    ["keduanya", base().concat([mk(2, "B", {}, al), mk(4, "D", {}, al), mk(3, "C", { start: "2026-11-03", duration: 1, deps: [{ t: { $task: 999 }, type: "FS", lag: 0 }] }, al)]), [2, 1],
+      "Berkas Alpha-2026-11-04.xml diunduh · 2 task tanpa jadwal ditandai perkiraan · 1 tautan dilewati"],
+  ];
+  const ms = spyMspdi();
+  try {
+    for (const [label, tasks, stats, text] of cases) {
+      const h = await swView(clock, { tasks });
+      fakeSave(h.api);
+      exportOf(h.tree).onSelect();
+      await settle();
+      const out = ms.runs[ms.runs.length - 1].out;
+      assert.deepEqual([out.stats.unscheduled, out.stats.skippedLinks], stats, label);
+      assert.deepEqual(exportToasts(h.calls), [[text, "success"]], label);
+      assert.deepEqual(h.writes(), [], label);
+      h.m.unmount();
+    }
+  } finally {
+    ms.restore();
+  }
+}));
+
+test("1d-2 T5 (R5): saveFile reject / melempar sinkron atau build melempar → 'Ekspor gagal' (error) + log; build melempar → saveFile tidak dipanggil", () => withEngineClock(async (clock) => {
+  for (const mode of ["reject", "throw"]) {
+    const h = await swView(clock);
+    const saves = fakeSave(h.api, mode);
+    exportOf(h.tree).onSelect();
+    await settle();
+    assert.equal(saves.length, 1, mode);
+    assert.deepEqual(exportToasts(h.calls), [[MSG_EXPORT_FAIL, "error"]], mode);
+    assert.ok(h.calls.warn.length >= 1, mode + ": galat dicatat");
+    h.m.unmount();
+  }
+  const ms = spyMspdi(new Error("rusak"));
+  try {
+    const h = await swView(clock);
+    const saves = fakeSave(h.api);
+    exportOf(h.tree).onSelect();
+    await settle();
+    assert.equal(ms.runs.length, 1);
+    assert.equal(saves.length, 0, "tanpa XML tidak ada unduhan");
+    assert.deepEqual(exportToasts(h.calls), [[MSG_EXPORT_FAIL, "error"]]);
+    assert.deepEqual(h.writes(), []);
+    h.m.unmount();
+  } finally {
+    ms.restore();
+  }
+}));
+
+test("1d-2 T5 (Q7 a): api.env.platform 'tauri' → toast 'Ekspor tersedia di alurik.com lewat browser' TANPA membangun XML dan tanpa saveFile; web dengan saveFile → false → toast yang sama (setelah build)", () => withEngineClock(async (clock) => {
+  const ms = spyMspdi();
+  try {
+    const h = await swView(clock);
+    h.api.env.platform = "tauri";
+    const saves = fakeSave(h.api);
+    exportOf(h.tree).onSelect();
+    await settle();
+    assert.deepEqual([ms.runs.length, saves.length], [0, 0], "native: build tidak dipanggil");
+    assert.deepEqual(exportToasts(h.calls), [[MSG_EXPORT_NATIVE, "info"]]);
+    h.m.unmount();
+    const w = await swView(clock);
+    w.api.env.platform = "web";
+    const s2 = fakeSave(w.api, false);
+    exportOf(w.tree).onSelect();
+    await settle();
+    assert.deepEqual([ms.runs.length, s2.length], [1, 1]);
+    assert.deepEqual(exportToasts(w.calls), [[MSG_EXPORT_NATIVE, "info"]]);
+    assert.deepEqual(w.writes(), []);
+    w.m.unmount();
+  } finally {
+    ms.restore();
+  }
+}));
+
+test("1d-2 T5 (R9, P2 a): nama berkas/judul — project = projectName (+ ownerUid pengguna aktif); workspace = context.listName; listName kosong/absen (host lama) → 'Timeline'", () => withEngineClock(async (clock) => {
+  const ms = spyMspdi();
+  try {
+    const p = await swView(clock, { ctx: { currentUser: { id: 7, display_name: "Saya" } } });
+    const sp = fakeSave(p.api);
+    exportOf(p.tree).onSelect();
+    assert.deepEqual([ms.runs[0].input.title, ms.runs[0].input.fileName, ms.runs[0].input.pageKind, ms.runs[0].input.ownerUid], ["Alpha", "Alpha-2026-11-04.xml", "project", 7]);
+    assert.equal(sp[0][0], "Alpha-2026-11-04.xml");
+    assert.match(ms.runs[0].out.xml, /<Resource>\s*<UID>1<\/UID>\s*<ID>1<\/ID>\s*<Name>Saya<\/Name>/, "halaman pribadi: resource tunggal = pengguna aktif (currentUser)");
+    p.m.unmount();
+    for (const [listName, title, file] of [["Tim Pemasaran", "Tim Pemasaran", "Tim-Pemasaran-2026-11-04.xml"], [undefined, "Timeline", "Timeline-2026-11-04.xml"], ["   ", "Timeline", "Timeline-2026-11-04.xml"], [" Riset & Data ", "Riset & Data", "Riset-&-Data-2026-11-04.xml"]]) {
+      const before = ms.runs.length;
+      const w = await evView(clock, { ctx: listName === undefined ? {} : { listName } });
+      const sw = fakeSave(w.api);
+      exportOf(w.tree).onSelect();
+      const inp = ms.runs[before].input;
+      assert.deepEqual([inp.title, inp.fileName], [title, file], JSON.stringify(listName));
+      assert.equal(sw[0][0], file);
+      await settle();
+      assert.deepEqual(exportToasts(w.calls), [["Berkas " + file + " diunduh", "success"]]);
+      w.m.unmount();
+    }
+  } finally {
+    ms.restore();
+  }
+}));
+
+test("1d-2 T5: sumber — teks UI persis, satu pintu engine.mspdi (TLMspdi.build) dan satu api.ui.saveFile (hanya dari handler menu), toast lewat api.ui.toast; CSS menu Lainnya 375 px tanpa luber (lebar menu tetap, label panjang terbungkus)", () => {
+  for (const t of ['"Ekspor ke Microsoft Project (.xml)"', '"Ekspor gagal"', '"Ekspor tersedia di alurik.com lewat browser"', '"Berkas "', '" diunduh"', '" task tanpa jadwal ditandai perkiraan"', '" tautan dilewati"', '"application/xml"']) {
+    assert.ok(jsx.includes(t), t);
+  }
+  assert.equal((jsx.match(/TLMspdi\.build\(/g) || []).length, 1, "build hanya lewat engine.mspdi");
+  assert.equal((jsx.match(/api\.ui\.saveFile\(/g) || []).length, 1, "satu situs saveFile");
+  assert.equal((jsx.match(/\.saveFile\(/g) || []).length, 1);
+  // saveFile hanya di dalam handler ekspor (dipicu onSelect item menu), bukan efek/pendengar
+  const at = jsx.indexOf("api.ui.saveFile(");
+  const fnAt = jsx.lastIndexOf("const exportXml = () => {", at);
+  assert.ok(fnAt > 0 && jsx.indexOf("\n  };\n", fnAt) > at, "di dalam exportXml");
+  assert.match(jsx, /onSelect: exportXml/);
+  assert.doesNotMatch(jsx, /showToast\(/, "toast lewat api.ui.toast (toastSafe), bukan context.showToast");
+  // CSS 375 px: menu Lainnya lebar tetap (min-width = MORE_MENU_W menuAlign) dibatasi viewport; item tanpa nowrap →
+  // label "Ekspor ke Microsoft Project (.xml)" terbungkus di dalam menu, bukan melebarkannya melewati tepi layar
+  assert.match(css, /\.plg-timeline-more-menu\s*\{[^}]*min-width:\s*180px;[^}]*max-width:\s*calc\(100vw - 16px\)/);
+  assert.match(jsx, /const MORE_MENU_W = 180;/);
+  const item = css.match(/\.plg-timeline-more-item\s*\{([^}]*)\}/)[1];
+  assert.doesNotMatch(item, /white-space:\s*nowrap/);
+  assert.match(css, /\.plg-timeline-toolbar\s*\{[^}]*flex-wrap:\s*wrap/);
+  assert.equal(T.menuAlign({ left: 262, right: 330 }, 375, 180), "end", "tombol di separuh kanan HP → rata kanan");
+});

@@ -2,7 +2,7 @@
   "id": "timeline",
   "name": "Timeline",
   "description": "Gantt untuk project dan workspace: jadwal hari kerja, dependensi, milestone.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "minApi": 1,
   "defaultEnabled": false,
   "slots": ["taskList.views", "taskDetail.sections"],
@@ -17,5 +17,5 @@
   },
   "records": {"calendar": {"conflict": "lww", "maxBytes": 16384}, "project": {"conflict": "lww", "maxBytes": 1024}, "baseline": {"conflict": "lww", "maxBytes": 65536}, "resource": {"conflict": "lww", "maxBytes": 4096}},
   "taskExt": {"keys": ["start", "duration", "deps", "mode", "constraint", "actual"]},
-  "parts": ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "load.js", "layout.js", "drag.js"]
+  "parts": ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "load.js", "layout.js", "mspdi.js", "drag.js"]
 }

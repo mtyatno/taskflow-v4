@@ -469,7 +469,8 @@ test("habit-heatmap dan demo-ext: index.json dan hash tidak berubah", (t) => {
 const TIMELINE = path.join(PLUGINS, "timeline");
 // R2 1c-1 (K44): holidays-id.js sebelum cpm.js (TLCpm memakai TLHolidays), cpm.js sebelum plan.js (TLPlan memakai TLCpm).
 // 1d-1 Task 2: load.js (TLLoad memakai TLCal/TLSched/TLCpm) setelah plan.js.
-const TL_PARTS = ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "load.js", "layout.js", "drag.js"];
+// 1d-2 Task 4: mspdi.js (TLMspdi memakai TLLayout + TLLoad + TLHolidays) setelah layout.js.
+const TL_PARTS = ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "load.js", "layout.js", "mspdi.js", "drag.js"];
 function copyTimeline(t) {
   const d = tmpDir(t);
   const pdir = path.join(d, "plugins");
@@ -522,15 +523,19 @@ test("timeline: parts digabung berurutan sebelum plugin.jsx, contributes + taskE
 // ── Fase 1 PR 1c-1 (rencana Task 6, R2, R6): Timeline 1.1.0 — mesin jadwal otomatis + record `project` ────────────
 // 1c-2 Task 4: 1.2.0 — records.baseline {lww, 65536} (K41) + kunci taskExt `actual` (enam); bagian 1.1 dipertahankan.
 // 1d-1 Task 2: 1.3.0 — records.resource {lww, 4096} (K48, R9) + part load.js setelah plan.js; taskExt.keys tidak berubah.
-test("timeline 1.3.0: parts urutan R2 + load.js setelah plan.js, records.project/baseline + records.resource {lww, 4096}, taskExt.keys enam kunci (tetap), hash berubah, build dua kali stabil", (t) => {
+// 1d-2 Task 4: 1.4.0 — part mspdi.js SETELAH layout.js (TLMspdi memakai TLLayout; di depannya `typeof TLLayout` jatuh di
+// zona mati temporal const bundel dan melempar saat dimuat); records/taskExt/izin tidak berubah (EV + ekspor hanya baca).
+test("timeline 1.4.0: parts urutan R2 + load.js setelah plan.js + mspdi.js setelah layout.js, records.project/baseline/resource, taskExt.keys enam kunci (tetap), hash berubah, build dua kali stabil", (t) => {
   const m = JSON.parse(fs.readFileSync(path.join(TIMELINE, "manifest.json"), "utf8"));
-  assert.equal(m.version, "1.3.0");
+  assert.equal(m.version, "1.4.0");
   assert.equal(m.minApi, 1);
   assert.equal(m.defaultEnabled, false);
-  assert.deepEqual(m.parts, ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "load.js", "layout.js", "drag.js"]);
+  assert.deepEqual(m.parts, ["holidays-id.js", "calendar.js", "schedule.js", "cpm.js", "plan.js", "load.js", "layout.js", "mspdi.js", "drag.js"]);
   assert.ok(m.parts.indexOf("holidays-id.js") < m.parts.indexOf("cpm.js"), "TLHolidays sebelum TLCpm");
   assert.ok(m.parts.indexOf("cpm.js") < m.parts.indexOf("plan.js"), "TLCpm sebelum TLPlan");
   assert.equal(m.parts.indexOf("load.js"), m.parts.indexOf("plan.js") + 1, "load.js tepat setelah plan.js");
+  assert.ok(m.parts.indexOf("mspdi.js") > m.parts.indexOf("layout.js"), "mspdi.js setelah layout.js (TLLayout)");
+  assert.ok(m.parts.indexOf("mspdi.js") > m.parts.indexOf("load.js"), "mspdi.js setelah load.js (TLLoad)");
   assert.deepEqual(m.records, { calendar: { conflict: "lww", maxBytes: 16384 }, project: { conflict: "lww", maxBytes: 1024 }, baseline: { conflict: "lww", maxBytes: 65536 }, resource: { conflict: "lww", maxBytes: 4096 } });
   assert.deepEqual(Object.keys(m.records), ["calendar", "project", "baseline", "resource"]);
   assert.deepEqual(m.taskExt, { keys: ["start", "duration", "deps", "mode", "constraint", "actual"] });
@@ -539,20 +544,26 @@ test("timeline 1.3.0: parts urutan R2 + load.js setelah plan.js, records.project
   const fx = copyTimeline(t);
   const r1 = build.buildPlugins(fx);
   const entry = r1.index.plugins.find((p) => p.id === "timeline");
-  assert.equal(entry.version, "1.3.0");
+  assert.equal(entry.version, "1.4.0");
   assert.deepEqual(entry.records, m.records);
   assert.deepEqual(entry.taskExt, m.taskExt);
   const js = fs.readFileSync(path.join(fx.pluginsDir, "timeline", "plugin.js"), "utf8");
-  for (const p of ["cpm.js", "plan.js", "load.js"]) assert.ok(js.includes("// part: " + p + "\n"), p + " ikut dibundel");
+  for (const p of ["cpm.js", "plan.js", "load.js", "mspdi.js"]) assert.ok(js.includes("// part: " + p + "\n"), p + " ikut dibundel");
   assert.ok(js.indexOf("const TLCpm = (function") < js.indexOf("const TLPlan = (function"), "TLCpm didefinisikan sebelum TLPlan");
   assert.ok(js.indexOf("const TLPlan = (function") < js.indexOf("const TLLoad = (function"), "TLPlan didefinisikan sebelum TLLoad");
-  assert.ok(js.indexOf("const TLLoad = (function") < js.indexOf("function calendarStore("), "TLLoad sebelum kode plugin.jsx");
+  assert.ok(js.indexOf("const TLLayout = (function") < js.indexOf("const TLMspdi = (function"), "TLLayout didefinisikan sebelum TLMspdi");
+  assert.ok(js.indexOf("const TLMspdi = (function") < js.indexOf("function calendarStore("), "TLMspdi sebelum kode plugin.jsx");
   assert.equal(build.lintPlugin(js, entry), null);
-  // hash berubah: build yang sama dengan manifest 1.2.0 (tanpa resource/load.js), 1.1.0 (tanpa baseline/actual) dan
-  // 1.0.0 (tanpa part mesin) menghasilkan hash lain → cache SW pasti diganti
+  // hash berubah: build yang sama dengan manifest 1.3.0 (tanpa mspdi.js), 1.2.0 (tanpa resource/load.js), 1.1.0 (tanpa
+  // baseline/actual) dan 1.0.0 (tanpa part mesin) menghasilkan hash lain → cache SW pasti diganti
+  const v13 = copyTimeline(t);
+  fs.writeFileSync(path.join(v13.pluginsDir, "timeline", "manifest.json"), JSON.stringify(Object.assign({}, m, {
+    version: "1.3.0", parts: m.parts.filter((p) => p !== "mspdi.js"),
+  })));
+  assert.notEqual(entry.hash, build.buildPlugins(v13).index.plugins.find((p) => p.id === "timeline").hash);
   const v12 = copyTimeline(t);
   fs.writeFileSync(path.join(v12.pluginsDir, "timeline", "manifest.json"), JSON.stringify(Object.assign({}, m, {
-    version: "1.2.0", parts: m.parts.filter((p) => p !== "load.js"),
+    version: "1.2.0", parts: m.parts.filter((p) => p !== "load.js" && p !== "mspdi.js"),
     records: { calendar: m.records.calendar, project: m.records.project, baseline: m.records.baseline },
   })));
   assert.notEqual(entry.hash, build.buildPlugins(v12).index.plugins.find((p) => p.id === "timeline").hash);
@@ -581,21 +592,24 @@ test("timeline 1.3.0: parts urutan R2 + load.js setelah plan.js, records.project
   assert.deepEqual(real.plugins.find((p) => p.id === "timeline"), entry);
 });
 
-test("cpm.js, plan.js, dan load.js bisa di-require sendiri", () => {
+test("cpm.js, plan.js, load.js, dan mspdi.js bisa di-require sendiri", () => {
   const probe = {
     "cpm.js": "typeof m.run === 'function' && typeof m.explain === 'function' && typeof m.cmpKey === 'function' && Object.isFrozen(m)",
     "plan.js": "typeof m.diff === 'function' && typeof m.cascade === 'function' && typeof m.toggleUnit === 'function' && Object.isFrozen(m)",
     "load.js": "typeof m.run === 'function' && typeof m.suggest === 'function' && typeof m.resourceEncode === 'function' && Object.isFrozen(m)",
+    "mspdi.js": "typeof m.build === 'function' && typeof m.fileNameOf === 'function' && typeof m.esc === 'function' && Object.isFrozen(m)",
   };
   for (const p of Object.keys(probe)) {
     const r = spawnSync(process.execPath, ["-e", "const m = require(process.argv[1]); if (!(" + probe[p] + ")) process.exit(2);", path.join(TIMELINE, p)], { encoding: "utf8" });
     assert.equal(r.status, 0, p + ": " + r.stderr);
   }
-  // bundel mengekspor ketiganya (R2: {TLHolidays, TLCal, TLSched, TLCpm, TLPlan, TLLoad, TLLayout, TLDrag})
+  // bundel mengekspor keempatnya (R2: {TLHolidays, TLCal, TLSched, TLCpm, TLPlan, TLLoad, TLLayout, TLMspdi, TLDrag})
   const P = require(path.join(TIMELINE, "plugin.js"));
   assert.equal(typeof P.TLCpm.run, "function");
   assert.equal(typeof P.TLPlan.cascade, "function");
   assert.equal(typeof P.TLLoad.run, "function");
+  assert.equal(typeof P.TLMspdi.build, "function");
+  assert.deepEqual(Object.keys(P.TLMspdi), Object.keys(require(path.join(TIMELINE, "mspdi.js"))), "TLMspdi bundel = mspdi.js");
 });
 
 test("plugin.js timeline bisa di-require Node dan mengekspor TLCal/TLSched/TLLayout/TLDrag/TLHolidays", () => {

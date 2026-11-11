@@ -1,4 +1,4 @@
-# Menulis plugin Alurik (Fase 0a–1d-1)
+# Menulis plugin Alurik (Fase 0a–1d-2)
 
 Plugin = fitur opsional yang dinyalakan/dimatikan pengguna di **Pengaturan › Plugin**. Kodenya hidup di
 `static/plugins/<id>/`, bukan di `index.html`, dan baru dieksekusi saat plugin ON dan slot-nya dirender.
@@ -166,7 +166,7 @@ Plugin menerima `api = TF.api.for(id)` di `factory` dan sebagai prop `api` di ko
 | `api.storage` (izin `storage`) | `get(key) → Promise<nilai∣null>`, `set(key, val)`, `remove(key)`, `keys()`; disimpan di `_meta` `plugin:<id>:<key>`; kunci string 1–128 karakter; nilai JSON ≤ 64 KB (lebih → `PluginStorageError`). Tanpa izin → `PluginPermissionError` (dihitung sebagai error). |
 | `api.data.habits` | `list()` → habit (bentuk `GET /api/habits` lokal); `logs({from, to})` → `[{cid, habitId, habit_cid, date, status, skip_reason}]`, tanggal inklusif `YYYY-MM-DD`, log terhapus dan log dari habit terhapus dibuang |
 | `api.data.tasks` | `list({includeDone, since})` → task dari IndexedDB (bentuk `GET /api/tasks` lokal, `id = server_id ?? cid`); `since` ISO dibandingkan dengan `updated_at` (fallback `completed_at`, `created_at`) |
-| `api.ui` | `toast(message, type, action?)` (`action` opsional `{label: 1–20 karakter, onClick}`: tombol di toast, mis. "Urungkan"; host menampilkannya 6 s; error sinkron di `onClick` dicatat `api.log` dan tidak dihitung error plugin, sedangkan `onClick` async wajib menangani reject sendiri; `action` tidak sah diabaikan dan toast tetap tampil), `openTask(taskId)`, `navigate(page)` (hanya `dashboard`, `focus`, `inbox`, `settings`; selain itu melempar), `sanitize(html)` (lewat `TF.safehtml`) |
+| `api.ui` | `toast(message, type, action?)` (`action` opsional `{label: 1–20 karakter, onClick}`: tombol di toast, mis. "Urungkan"; host menampilkannya 6 s; error sinkron di `onClick` dicatat `api.log` dan tidak dihitung error plugin, sedangkan `onClick` async wajib menangani reject sendiri; `action` tidak sah diabaikan dan toast tetap tampil), `openTask(taskId)`, `navigate(page)` (hanya `dashboard`, `focus`, `inbox`, `settings`; selain itu melempar), `sanitize(html)` (lewat `TF.safehtml`), `saveFile(name, text, mime) → Promise<boolean>` (1d-2: unduh teks sebagai berkas; tanpa izin manifest; rinci di bawah) |
 | `api.env` | `online` (getter), `platform` (`"web"∣"tauri"`), `theme` (`{palette, mode}`), `today()` (Asia/Jakarta `YYYY-MM-DD`), `userId` |
 | `api.log` | `info/warn/error` berprefiks `[plugin:<id>]` |
 | `api.fetch(path, {method, body, timeoutMs})` (izin `network`, Fase 0b) | `→ Promise<json>` ke rute server plugin sendiri: `path` diawali `/api/plugins/<id>/` (atau sama dengan `/api/plugins/<id>`), tanpa `..`, `//`, `\`, `#`, skema/host; `method` GET/POST/PUT/PATCH/DELETE; `body` JSON ≤ 256 KB; timeout bawaan 15 s. Lewat `api.fetch` host (token, `API_BASE` Tauri, 401 → login ulang). Bila toggle plugin ini masih menunggu sinkron, menunggu push ≤ 5 s dulu. Selalu ada di `api`; tanpa izin `network` / path asing → `PluginPermissionError` (dihitung error). |
@@ -174,6 +174,25 @@ Plugin menerima `api = TF.api.for(id)` di `factory` dan sebagai prop `api` di ko
 
 | `api.taskExt` (izin `task.ext`, Fase 1) | `read(task) → {field: nilai}` (kunci namespace sendiri tanpa prefiks; sinkron, murni); `set(taskId, patch) → Promise<task>`; `setMany([{taskId, patch}]) → Promise`; `ref(task) → {$task: id}`. Selalu ada di `api`; tanpa izin → `PluginPermissionError` (dihitung error). Rinci di bawah. |
 | `api.records` (izin `records`, Fase 1) | `get(entity, id)`, `list(entity, {scope, limit, after}) → {items, next}`, `put(entity, id∣null, data, {scope}) → Promise<record>`, `remove(entity, id)`, `onChange(fn) → off`, `newId()`. Selalu ada di `api`; tanpa izin → `PluginPermissionError` (dihitung error). Rinci di bawah. |
+
+**`api.ui.saveFile(name, text, mime)` (1d-2).** Satu jalur unduh berkas untuk plugin (plugin tidak menyentuh DOM
+global sendiri). Aditif di API v1 (`minApi` tetap 1), tanpa izin manifest.
+
+- **Validasi** (sebelum cabang native): gagal → ditolak dengan `TypeError("saveFile: <alasan>")`, tanpa efek. Penolakan
+  ini **tidak** dihitung sebagai error plugin (tidak ada izin yang dilanggar) dan tidak mematikan plugin, berapa kali pun
+  terjadi. `saveFile` tidak pernah melempar sinkron; galat apa pun menjadi Promise yang ditolak.
+  - `name`: string 1–120 karakter (code point; string > 240 unit UTF-16 ditolak sebelum dihitung), tanpa
+    `/ \ : * ? " < > |`, tanpa karakter kontrol (U+0000–U+001F, U+007F), tidak diawali titik.
+  - `text`: string, `length` ≤ 20 MiB (unit kode UTF-16).
+  - `mime`: salah satu `application/xml`, `text/xml`, `text/csv`, `text/plain`, `application/json`; Blob diberi
+    `;charset=utf-8`.
+- **Web:** Blob → `URL.createObjectURL` → `<a download=name>` tersembunyi ditempel ke `document.body` → `click()` →
+  dilepas → URL objek dicabut 1 s kemudian → resolve `true`. Galat → reject (elemen tetap dilepas, URL dicabut); tanpa
+  `document`/`URL`/`Blob` → reject `Error("saveFile tidak didukung")`.
+- **Aplikasi native** (`api.env.platform === "tauri"`): resolve `false` tanpa aksi (host native memakai API
+  lintas-origin, `<a download>` tidak berlaku). Plugin menampilkan sendiri petunjuk untuk mengunduh lewat browser.
+- **Panggil hanya dari gestur pengguna** (handler klik/menu). Browser bisa memblokir unduhan yang tidak dipicu gestur,
+  dan plugin tidak boleh mengunduh di latar.
 
 **`api.taskExt` (Fase 1).** Field plugin disimpan di kolom task `tasks.ext` (objek datar berkunci `<id>.<field>`)
 dan ikut sinkron task di semua jalur (hidrasi, push, pull, workspace bersama).
@@ -398,6 +417,7 @@ View ke-4 di halaman daftar task, setelah Normal/Compact/Kanban.
 |---|---|
 | `page`, `pageKind` | id halaman host, `"project"∣"workspace"` |
 | `listId`, `projectName` | workspace (`slist_<id>`) atau nama project (`proj_<nama>`) |
+| `listName` | (1d-2) halaman workspace: nama workspace = judul halaman host (cadangan host "Shared List" bila list belum ada di daftar workspace); halaman project: `undefined`. Host lama tanpa field ini → plugin memakai judul cadangannya sendiri (Timeline: "Timeline") |
 | `tasks` | task aktif hasil filter panel (sama dengan daftar Normal) |
 | `scopeTasks` | semua task halaman itu selain `archived` (termasuk selesai), filter panel diterapkan |
 | `collaborators`, `currentUser` | `collaborators` = **semua rekan dari semua workspace pengguna** (dari `/api/collaborators`, tanpa diri sendiri), **bukan** anggota workspace halaman ini; `currentUser` = pengguna aktif |
@@ -445,6 +465,65 @@ kapasitas bawaan, judul bertanda "kapasitas belum termuat"), di atas konteks mes
   project ini".
 - **Render.** Satu `<svg>` per baris orang (tanpa sel per hari), ≤ 150 tombol hari merah; ≤ 640 px diganti daftar
   "Hari kelebihan beban". Kapasitas/cuti diatur dari nama orang (record `resource`, §5).
+
+**Timeline 1.4 (earned value + ekspor Microsoft Project, Fase 1d-2).** Dua fitur baca saja (§8 butir 9), keduanya baru
+berjalan setelah mesin 1c siap dan memakai konteks mesin yang sama (daftar lengkap halaman, kalender halaman, hasil
+`TLCpm.run`).
+
+- **Earned value 🍅** (`TLLoad.ev`, `load.js`). Ringkasan "Jadwal {p}% · Efisiensi 🍅 {q}%" di sisi kanan toolbar,
+  sebelum "Selesai {tgl}"; tooltip "Baseline: {nama} · PV {x} · EV {y} · AC {z} · BAC {w} 🍅" (+ " · {n} task di luar
+  baseline"). Dihitung dari **baseline aktif** (preferensi per perangkat `bl:<page>`, slot 1–3) per baris baseline:
+  BAC = Σ w (target 🍅 saat baseline disimpan; baseline tanpa `w` → 0); PV = w × hari kerja s..min(f, hari ini) ÷ hari
+  kerja s..f (milestone: w bila hari ini ≥ s); EV = w × % selesai (task selesai = 100, selain itu `Number(progress)`
+  dijepit 0–100); AC = 🍅 selesai. Jadwal = EV ÷ PV, Efisiensi = EV ÷ AC (penyebut 0 → "—"). Task baseline yang sudah
+  dihapus/diarsip dibuang dari semua angka; task baru tanpa baris baseline hanya dihitung di tooltip.
+  - **Tidak terpengaruh filter panel:** unit dan task diambil dari daftar lengkap halaman, bukan baris yang digambar,
+    sehingga angkanya sama untuk filter apa pun dan sama di perangkat lain yang memilih baseline yang sama (kecuali
+    filter yang tidak cocok satu task pun: mesin lalu tanpa scope, ringkasan EV hilang dan ekspor hanya berisi ringkasan
+    project — perilaku scope mesin 1c, residual ADR-050). Nama baseline:
+    semua unit yang punya slot itu bernama sama → nama itu, selain itu "Baseline {n}".
+  - **Tidak tampil** tanpa baseline aktif, bila BAC 0, atau sebelum mesin siap (EV tidak dihitung di render awal).
+- **Ekspor Microsoft Project (.xml)** (`TLMspdi`, part `mspdi.js` setelah `layout.js`; unduh lewat `api.ui.saveFile`, §5).
+  - **Letak:** item "Ekspor ke Microsoft Project (.xml)" di menu **"Lainnya"**. Layar lebar: tombol "Lainnya" kini selalu
+    ada (setelah tombol aksi mesin — Jadwal otomatis … Jadwalkan ulang — dan sebelum "Kalender kerja") dan hanya berisi
+    ekspor; ≤ 640 px / Live Edit: item terakhir di menu "Lainnya" yang sudah ada. Nonaktif sampai mesin siap.
+  - **Nama berkas** `{judul}-{YYYY-MM-DD}.xml` (tanggal hari ini): judul = `projectName` (halaman project) atau
+    `context.listName` (halaman workspace); kosong / host lama → "Timeline". Spasi dan karakter tak aman → "-", judul
+    dipotong 80 karakter. `<Title>` = judul.
+  - **Isi** (MSPDI, urutan elemen sesuai XSD): daftar lengkap halaman (filter panel diabaikan) dengan outline WBS
+    Timeline (workspace: kelompok project = task ringkasan tingkat 1); satu kalender dasar dengan pola mingguan halaman,
+    libur dan hari kerja pengganti ditulis dua kali — `WeekDays` gaya 2003 (`DayType 0`, dibaca ProjectLibre) dan
+    `Exceptions` gaya 2007 (dibaca Project 2010+); tanggal task = hasil mesin (task yang sedang drift ikut mesin, bukan
+    bar tersimpan); tautan = sisi yang dipakai mesin (`result.pred`) antar task yang tanggalnya terhitung, sisanya
+    dilewati dan dihitung; task Manual → `Manual 1` + "mulai tidak lebih awal dari" (SNET) tanggal tersimpannya bila
+    tanpa kendala; kendala Otomatis dipilih dengan aritmetika waktu kerja MS Project supaya MS Project (dengan
+    `HonorConstraints 1`) menghitung tanggal tampil yang sama **tanpa konflik kendala** (dikoreksi uji pemilik F4: tanpa
+    MSO) — akar Otomatis dan task tetap mesin → SNET di tanggal mesin (selesai → `ActualStart`/`ActualFinish`; berjalan
+    dengan mulai ≤ hari ini → `ActualStart`; task tetap yang dilanggar pendahulunya → `Manual 1`), milestone di jam yang
+    dihitung MS Project (FF → 17:00); lag tautan selalu lag Timeline apa adanya (dikoreksi review F5: tanpa koreksi lag —
+    di sekitar milestone MS Project bisa menampilkan tanggal milestone x untuk x−1 Timeline pada instan kerja yang sama,
+    dan penerus SS/SF dari milestone 17:00 bisa 1 hari kerja lebih lambat; sweep 1,3 % baris, 0 konflik kendala); task tanpa jadwal → placeholder **Otomatis** di hari kerja pertama ≥ hari ini
+    (ber-% > 0: hari kerja terakhir ≤ hari ini / hari selesainya, supaya tanggal aktual tidak di masa depan — dikoreksi
+    review F7), `Estimated 1` + `DurationFormat 39` ("1 hari?") + SNET; baseline aktif → `Baseline` Number 0; resource = penanggung
+    jawab (workspace) atau pemilik (pribadi), masing-masing dengan kalender resource turunan kalender dasar (libur ikut),
+    assignment `Work` = target 🍅 × 25 menit, `Units` 6 desimal dibulatkan ke atas (Units × durasi ≥ Work, dikoreksi
+    review F5). Kemajuan (dikoreksi uji pemilik #2 F6): MS Project membacanya dari pasangan aktual/sisa, jadi setiap
+    task menulis `Work`, `ActualDuration` = durasi × %, `RemainingDuration`, `ActualWork`/`RemainingWork`,
+    `PercentWorkComplete`, `ActualStart` bila % > 0 dan `ActualFinish` bila 100 %; setiap assignment `ActualWork` = Work
+    × % + `RemainingWork`; task ber-% > 0 tanpa assignment (tanpa penanggung jawab, milestone) mendapat assignment semu
+    `ResourceUID -65535` (bentuk MPXJ: `Units 1`, Work = durasi); nilai dalam detik bulat (eksak); kalender dasar
+    bernama "Standard". Dikoreksi review F7: kepala Project `SplitsInProgressTasks 0` (MS Project tidak memecah sisa kerja
+    task berjalan ke setelah pendahulu yang belum selesai — sama dengan mesin), dan `Type 1` (durasi tetap) hanya untuk
+    task ber-assignment nyata, selain itu `Type 0` (unit tetap; task durasi tetap tanpa resource rusak di MS Project
+    lama, MPXJ #240). Kepala Project juga menulis `ProjectExternallyEdited 0` + bendera bawaan MPXJ (`ActualsInSync`,
+    `TaskUpdatesResource 1`, `Spread*`, `Move*` 0) agar MS Project tidak memperlakukan berkas sebagai "disunting dari
+    luar" lalu menghitung ulang (uji pemilik #3 F8; terbukti di uji pemilik #4: tanpa bendera itu progres task
+    ber-assignment terbaca 0 % dan dialog penugasan muncul). Belum ada `TimephasedData` (tidak diperlukan). Tanpa `Date`: data yang sama di hari yang sama menghasilkan berkas
+    identik. Residual interop (ProjectLibre, kolom Batasan, selisih tanggal di sekitar milestone, Work task tanpa
+    penanggung jawab): ADR-050.
+  - **Toast:** "Berkas {nama} diunduh" (+ " · {n} task tanpa jadwal ditandai perkiraan", " · {k} tautan dilewati"),
+    gagal → "Ekspor gagal". Aplikasi desktop/Android (`api.env.platform === "tauri"`) → "Ekspor tersedia di alurik.com
+    lewat browser" tanpa membangun XML (`saveFile` di native → `false`).
 
 ### 6.3 `taskDetail.sections` (Fase 1)
 
@@ -523,6 +602,9 @@ perangkat lain), dengarkan juga `sync.done` lalu baca ulang.
    Beban Tim (Timeline 1.3) hanya menghitung: membuka/menutup panel, menghitung beban dan saran, `sync.done`, `pulled`,
    `onChange` record `resource`, dan `app.dayChanged` tidak pernah menulis. Satu-satunya tulisan barunya adalah
    `saveResource` atas tombol Simpan editor kapasitas; record `resource` yang belum ada tidak pernah dibuat otomatis.
+   Earned value dan ekspor Microsoft Project (Timeline 1.4) tidak menulis apa pun: tanpa `taskExt.set/setMany` maupun
+   `records.put/remove`; `api.ui.saveFile` hanya dipanggil dari handler item menu ekspor (gestur pengguna), tidak pernah
+   dari render, `sync.done`, atau pendengar.
 10. **Aktual dicatat dari gestur perangkat itu (pomodoro selesai, task selesai), isi bila kosong — tidak pernah dari
    sync** (K42 setelah amandemen). Timeline mencatat `timeline.actual.start` hanya pada event `pomodoro.ended` dan
    `task.completed` (keduanya hanya dari gestur lokal), memakai tanggal Asia/Jakarta dari `endedAt`/`completedAt`
