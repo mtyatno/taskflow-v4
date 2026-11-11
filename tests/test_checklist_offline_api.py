@@ -332,3 +332,46 @@ def test_skenario_review_patch_tanpa_perubahan_setelah_centang_berantai_rev_bump
 def test_get_checklists_endpoint_sinkron_di_threadpool():
     import inspect
     assert not inspect.iscoroutinefunction(webapp.get_checklists)
+
+
+# ── Perbaikan review akhir: kirim ulang tanpa notifikasi ganda, client_id kosong ──
+
+def _notif_count(user_id, needle):
+    conn = db()
+    try:
+        return conn.execute("SELECT COUNT(*) FROM notifications WHERE user_id = ? AND message LIKE ?",
+                            (user_id, f"%{needle}%")).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_post_kirim_ulang_client_id_sama_di_workspace_notifikasi_tepat_sekali(client):
+    a, b = U(client, "os1"), U(client, "os2")
+    ws = _workspace(a)
+    _add_member(ws, b.id)
+    tid = _mk(a, title="Tugas tim kirim ulang", list_id=ws)["id"]
+    cid = f"cid-{uuid.uuid4().hex}"
+    sebelum = _notif_count(b.id, "menambah item checklist")
+    pertama = _add(a, tid, "butir", client_id=cid)
+    ulang = _add(a, tid, "butir", client_id=cid)
+    assert ulang["id"] == pertama["id"] and ulang["task_progress"]["rev_bumped"] is False
+    assert _notif_count(b.id, "menambah item checklist") == sebelum + 1
+    _add(a, tid, "butir lain")                       # butir baru → notifikasi lagi
+    assert _notif_count(b.id, "menambah item checklist") == sebelum + 2
+
+
+@pytest.mark.parametrize("kosong", ["", "   "])
+def test_post_client_id_kosong_dua_kali_dua_butir(client, kosong):
+    u = U(client, "ot")
+    tid = _mk(u)["id"]
+    r1 = u.post(f"/api/tasks/{tid}/subtasks", json={"title": "satu", "client_id": kosong})
+    r2 = u.post(f"/api/tasks/{tid}/subtasks", json={"title": "dua", "client_id": kosong})
+    assert r1.status_code == 200 and r2.status_code == 200, (r1.text, r2.text)
+    assert r1.json()["id"] != r2.json()["id"]
+    assert [i["title"] for i in _list(u, tid)] == ["satu", "dua"]
+    conn = db()
+    try:
+        assert [r[0] for r in conn.execute(
+            "SELECT client_id FROM subtasks WHERE task_id = ? ORDER BY id", (tid,)).fetchall()] == [None, None]
+    finally:
+        conn.close()

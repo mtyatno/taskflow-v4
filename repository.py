@@ -1707,6 +1707,8 @@ class TaskRepository:
         E4). Mengembalikan butir + `task_progress`."""
         clean = (title or "").strip()
         now = datetime.now().isoformat()
+        # `client_id` kosong/spasi = tanpa client_id: "" tersimpan bukan NULL dan bentrok di indeks unik global.
+        client_id = (client_id or "").strip() or None
         with self._connect() as conn, dbconn.write_tx(conn):
             _heal_task_tree(conn, task_id)
             if client_id:

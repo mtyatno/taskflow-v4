@@ -3607,7 +3607,9 @@ async def create_subtask(task_id: int, req: SubtaskCreate, background_tasks: Bac
                                   parent_id=req.parent_id, index=req.index)
     except repository.ChecklistError as e:
         raise _checklist_422(e)
-    if row["list_id"]:
+    # Kirim ulang dengan `client_id` yang sudah ada (antrean offline) mengembalikan butir lama dengan
+    # `rev_bumped` False → tanpa notifikasi ganda.
+    if row["list_id"] and result["task_progress"]["rev_bumped"]:
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
