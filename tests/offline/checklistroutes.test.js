@@ -167,7 +167,7 @@ test("PATCH is_done true (berantai) lewat id server dan cid; antrean set_done", 
   assert.deepEqual(r.task_progress, { done: 1, total: 2, progress: 50 });
   const b = await R.dispatch("PATCH", "/api/subtasks/b", { is_done: true });
   assert.deepEqual([b.id, b.changed_ids, b.task_progress], ["b", ["b"], { done: 2, total: 2, progress: 100 }]);
-  assert.deepEqual(await ops(), [["set_done", "a", { is_done: true }], ["set_done", "b", { is_done: true }]]);
+  assert.deepEqual(await ops(), [["set_done", "a", { is_done: true, cascade_cids: ["a1"] }], ["set_done", "b", { is_done: true }]]);
 });
 
 test("PATCH: tidak dikenal → 404 (sebelum cek body); body kosong → 422 Tidak ada perubahan; judul kosong / tipe salah → 422", async () => {
@@ -259,16 +259,73 @@ test("parseCall: hanya endpoint checklist (metode + path), query dan garis mirin
   }
 });
 
-test("routeDecision sebelum siap (unduhan awal belum selesai) = perilaku v502: hanya GET task cid lokal", async () => {
+test("routeDecision sebelum siap (unduhan awal belum selesai): id angka ke jaringan (v502); id cid selalu lokal (F2)", async () => {
   await siapkan();
   await CR.start();
   assert.equal(CR.isReady(), false);
-  assert.equal(RT.routeDecision("GET", "/api/tasks/t2/subtasks"), true);
-  for (const [m, p] of [["GET", "/api/tasks/7/subtasks"], ["POST", "/api/tasks/7/subtasks"], ["POST", "/api/tasks/t2/subtasks"],
-    ["PATCH", "/api/subtasks/11"], ["PATCH", "/api/subtasks/b"], ["POST", "/api/subtasks/b/toggle"], ["DELETE", "/api/subtasks/11"]]) {
+  // cid: server selalu menolak id bukan angka → lokal walau belum siap (task yang dibuat offline bisa diberi checklist)
+  for (const [m, p] of [["GET", "/api/tasks/t2/subtasks"], ["POST", "/api/tasks/t2/subtasks"], ["PATCH", "/api/subtasks/b"],
+    ["POST", "/api/subtasks/b/toggle"], ["POST", "/api/subtasks/b/move"], ["DELETE", "/api/subtasks/b"]]) {
+    assert.equal(RT.routeDecision(m, p), true, m + " " + p);
+  }
+  for (const [m, p] of [["GET", "/api/tasks/7/subtasks"], ["POST", "/api/tasks/7/subtasks"], ["PATCH", "/api/subtasks/11"],
+    ["POST", "/api/subtasks/11/toggle"], ["DELETE", "/api/subtasks/11"]]) {
     assert.equal(RT.routeDecision(m, p), false, m + " " + p);
   }
   assert.equal(RT.routeDecision("GET", "/api/tasks/7"), null);
+});
+
+test("sebelum siap: task dibuat offline langsung bisa diberi checklist lewat rute lokal; GET cid tak dikenal tetap []", async () => {
+  await siapkan();
+  const R = buildTaskRouter();
+  const n = await R.dispatch("POST", "/api/tasks/t2/subtasks", { title: "pertama" });
+  assert.equal(RT.routeDecision("PATCH", "/api/subtasks/" + n.id), true);
+  await R.dispatch("PATCH", "/api/subtasks/" + n.id, { is_done: true });
+  assert.deepEqual((await R.dispatch("GET", "/api/tasks/t2/subtasks")).map((x) => [x.title, x.is_done]), [["pertama", true]]);
+  assert.deepEqual(await R.dispatch("GET", "/api/tasks/tidak-dikenal/subtasks"), []);
+  await galat(R.dispatch("POST", "/api/tasks/tidak-dikenal/subtasks", { title: "x" }), 404, "Task not found");
+});
+
+// ── api.fetch (index.html): memori kesiapan dimuat sebelum keputusan routing checklist (perbaikan review S2a) ──
+
+const HTML = fs.readFileSync(path.join(ROOT, "static/index.html"), "utf8");
+const API_SRC = HTML.match(/\nconst api = \{[\s\S]*?\n\};/)[0];
+function loadApi(win) {
+  return new Function("window", "schedulePush", API_SRC + "\nreturn api;")(win, () => {});
+}
+
+test("api.fetch: path checklist menunggu checklistrepo.start() SEBELUM shouldRouteLocally; path lain tidak", async () => {
+  const urutan = [];
+  let lepas;
+  const muat = new Promise((r) => { lepas = r; });
+  const router = { hasRoute: () => true, dispatch: (m, u) => { urutan.push("dispatch " + u); return Promise.resolve([]); } };
+  const win = { TF: {
+    taskroutes: { buildTaskRouter: () => router, shouldRouteLocally: (r, m, u) => { urutan.push("putuskan " + u); return true; } },
+    checklistroutes: { parseCall: RT.parseCall },
+    checklistrepo: { start: () => { urutan.push("start"); return muat; } },
+  } };
+  const api = loadApi(win);
+  const p = api.fetch("/api/tasks/7/subtasks");
+  await new Promise((r) => setTimeout(r, 5));
+  assert.deepEqual(urutan, ["start"], "keputusan menunggu memori dimuat");
+  lepas();
+  await p;
+  assert.deepEqual(urutan, ["start", "putuskan /api/tasks/7/subtasks", "dispatch /api/tasks/7/subtasks"]);
+  urutan.length = 0;
+  await api.fetch("/api/tasks/7");
+  assert.deepEqual(urutan, ["putuskan /api/tasks/7", "dispatch /api/tasks/7"], "bukan checklist → tanpa start");
+});
+
+test("api.fetch: tanpa checklistrepo/checklistroutes (modul lama) atau start() gagal → tetap memutuskan seperti biasa", async () => {
+  for (const extra of [{}, { checklistroutes: { parseCall: RT.parseCall } },
+    { checklistroutes: { parseCall: RT.parseCall }, checklistrepo: {} },
+    { checklistroutes: { parseCall: RT.parseCall }, checklistrepo: { start: () => Promise.reject(new Error("IndexedDB mati")) } }]) {
+    const seen = [];
+    const router = { hasRoute: () => true, dispatch: () => Promise.resolve("ok") };
+    const win = { TF: Object.assign({ taskroutes: { buildTaskRouter: () => router, shouldRouteLocally: (r, m, u) => { seen.push(u); return true; } } }, extra) };
+    assert.equal(await loadApi(win).fetch("/api/subtasks/5", { method: "PATCH", body: "{}" }), "ok");
+    assert.deepEqual(seen, ["/api/subtasks/5"]);
+  }
 });
 
 test("routeDecision sesudah siap: task/butir dikenal atau belum tersinkron → lokal; selain itu jaringan", async () => {

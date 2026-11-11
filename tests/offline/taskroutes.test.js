@@ -481,15 +481,17 @@ async function seedChecklist() {
   ]);
 }
 
-test("checklist: sebelum siap semua jalur checklist sama dengan v502", async () => {
+test("checklist: sebelum siap id angka sama dengan v502 (jaringan); id cid selalu lokal", async () => {
   await seedChecklist();
   await CR.start();
   const R = buildTaskRouter();
-  assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/501/subtasks"), false);
-  assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/t_c/subtasks"), true);
-  for (const [m, p] of [["POST", "/api/tasks/501/subtasks"], ["POST", "/api/tasks/t_c/subtasks"], ["PATCH", "/api/subtasks/61"],
-    ["PATCH", "/api/subtasks/s2"], ["POST", "/api/subtasks/61/toggle"], ["POST", "/api/subtasks/61/move"], ["DELETE", "/api/subtasks/61"]]) {
+  for (const [m, p] of [["GET", "/api/tasks/501/subtasks"], ["POST", "/api/tasks/501/subtasks"], ["PATCH", "/api/subtasks/61"],
+    ["POST", "/api/subtasks/61/toggle"], ["POST", "/api/subtasks/61/move"], ["DELETE", "/api/subtasks/61"]]) {
     assert.equal(shouldRouteLocally(R, m, p), false, m + " " + p);
+  }
+  for (const [m, p] of [["GET", "/api/tasks/t_c/subtasks"], ["POST", "/api/tasks/t_c/subtasks"], ["PATCH", "/api/subtasks/s2"],
+    ["DELETE", "/api/subtasks/s2"]]) {
+    assert.equal(shouldRouteLocally(R, m, p), true, m + " " + p);
   }
 });
 

@@ -16,21 +16,27 @@
   // - Bentuk API (`itemsForTask`): pre-order `{id, task_id, parent_id, depth, title, is_done, sort_order}` dengan
   //   id = server_id ?? cid, parent_id = id induk, task_id = id server task ?? cid task.
   // - Aksi lokal (create/setDone/toggle/patch/move/remove): baca butir task + antrean task itu → fungsi murni
-  //   TF.checklist → tulis butir yang berubah + entri `_outbox` dalam SATU transaksi ["subtasks", "_outbox"] →
+  //   TF.checklist → tulis butir yang berubah + entri `_outbox` (+ rev kosong di `_meta`) dalam SATU transaksi
+  //   ["subtasks", "_outbox", "_meta"] →
   //   progress task lokal (TF.checklist.writeTaskProgress: tanpa dirty/rev/base_rev, cap checklist_adopted_at) →
   //   event tf:outbox-queued. Entri antrean: {entity_type: "subtasks", cid, task_cid, op, payload} dengan payload
-  //   create {title, parent_cid, index} | rename {title} | set_done {is_done} | move {parent_cid, index} | delete {}.
+  //   create {title, parent_cid, index} | rename {title} | set_done {is_done, cascade_cids?} | move {parent_cid, index} |
+  //   delete {}. `cascade_cids` (hanya lokal; push mengabaikannya) = butir lain yang ikut tercentang berantai.
   //   Aksi tanpa perubahan (judul sama, centang sudah sesuai, posisi sama) tidak menulis apa pun.
   // - Hapus: butir tanpa server_id (create belum terkirim) → semua entrinya dibuang tanpa delete; butir tersinkron →
   //   delete untuk setiap butir tersinkron yang induknya bukan butir tersinkron yang ikut terhapus (biasanya hanya
-  //   akarnya; server berantai). `move` butir tersinkron ke induk yang dibuang ikut dibuang. Bila ada entri yang
-  //   dibuang dan entri lain task itu yang lebih baru masih antre (posisi index-nya dihitung dengan butir yang kini
-  //   batal), rev tersimpan dikosongkan → diambil ulang setelah antrean kosong.
+  //   akarnya; server berantai). `move` butir tersinkron ke induk yang dibuang ikut dibuang; entri create/move butir
+  //   lain yang menunjuk induk yang dibuang ditulis ulang ke akhir level atas (tanpa entri yatim); centang berantai dari
+  //   set_done yang dibuang ke butir yang tidak ikut terhapus diganti entri set_done sendiri. Bila ada entri yang
+  //   ditulis ulang, atau entri dibuang padahal entri lain task itu yang lebih baru masih antre (posisi index-nya
+  //   dihitung dengan butir yang kini batal), rev tersimpan dikosongkan di transaksi yang sama → diambil ulang setelah
+  //   antrean kosong.
   // - Rev tersimpan: _meta `checklist_revs` {task_cid: rev | null}; null = dikenal tetapi perlu diambil ulang
   //   (ADR-051 "dikosongkan"); kunci tidak ada = belum pernah diunduh. Unduhan awal selesai: _meta
   //   `checklists_hydrated` = true.
   // - Kesiapan SINKRON untuk routing (taskroutes.shouldRouteLocally): isReady(), knowsTask(id), knowsItem(id) dibaca
-  //   dari memori yang dimuat async saat start (otomatis di browser) dan diperbarui setiap tulis modul ini. Perubahan
+  //   dari memori yang dimuat async saat start (otomatis di browser; idempoten — api.fetch menunggunya sebelum
+  //   keputusan routing checklist; refresh() memaksa muat ulang) dan diperbarui setiap tulis modul ini. Perubahan
   //   memori selama pemuatan dicatat dan diputar ulang di atas hasil muat. Ganti sesi (window.__userEpoch naik di
   //   clearLocalUserData) → memori kosong dan tidak siap sampai markHydrated berikutnya. Id server task yang baru
   //   diketahui: setRev / replaceTaskChecklist / aksi mencatatnya; syncpush memanggil noteTaskServerId.
@@ -144,10 +150,8 @@
     }));
   }
 
-  // Muat memori dari IndexedDB (sekali; panggilan berikutnya menunggu yang sama). Gagal → tetap tidak siap.
-  function start() {
-    checkEpoch();
-    if (startP) return startP;
+  // Muat memori dari IndexedDB; perubahan memori selama pemuatan dicatat lalu diputar ulang di atas hasilnya.
+  function load() {
     const token = ++loadToken;
     const epoch = curEpoch();
     journal = [];
@@ -161,10 +165,19 @@
     });
     return startP;
   }
+  // Memori siap dipakai: sudah dimuat → langsung selesai (tanpa memuat ulang; api.fetch menunggu ini sebelum keputusan
+  // routing checklist); sedang dimuat → menunggu yang sama; belum / gagal → muat. Gagal → tetap tidak siap.
+  function start() {
+    checkEpoch();
+    if (mem.loaded) return Promise.resolve();
+    return startP || load();
+  }
+  // Muat ulang paksa dari IndexedDB (tab lain mengubah checklist / menyelesaikan unduhan awal; dipanggil sesudah
+  // setiap pullChecklists).
   function refresh() {
-    loadToken++;
+    checkEpoch();
     startP = null;
-    return start();
+    return load();
   }
   function reset() {
     loadToken++;
@@ -307,8 +320,10 @@
   }
 
   // Tulis rencana di transaksi yang sama: butir berubah/baru di-put, butir yang hilang dari `plan.items` dihapus,
-  // entri `plan.drop` dibuang, `plan.ops` ditambahkan berurutan.
-  function commitPlan(st, ob, view, plan, taskCid) {
+  // entri `plan.drop` dibuang, `plan.rewrite` (entri utuh) ditulis ulang, `plan.ops` ditambahkan berurutan, dan bila
+  // `plan.clearRev` rev tersimpan task dikosongkan (null) di _meta — atomik dengan perubahan antrean (galat apa pun
+  // membatalkan semuanya lewat `abort(err)`).
+  function commitPlan(st, ob, meta, view, plan, taskCid, abort) {
     const put = [];
     const removed = [];
     if (plan.items) {
@@ -335,6 +350,17 @@
       for (const r of view.recs) if (!seen.has(r.cid)) { st.delete(r.cid); removed.push(r); }
     }
     for (const qid of plan.drop || []) ob.delete(qid);
+    for (const o of plan.rewrite || []) ob.put(o);
+    if (plan.clearRev) {
+      const mr = meta.get(REVS_KEY);
+      mr.onsuccess = () => {
+        try {
+          const o = Object.assign({}, isObj(mr.result) ? mr.result : {});
+          o[taskCid] = null;
+          meta.put(o, REVS_KEY);
+        } catch (err) { abort(err); }
+      };
+    }
     const ts = Date.now();
     for (const o of plan.ops || []) {
       ob.add({ ts: ts, retries: 0, entity_type: ENTITY, op: o.op, cid: o.cid, task_cid: taskCid, payload: o.payload });
@@ -350,9 +376,9 @@
     return { done: c.done, total: c.total, progress };
   }
 
-  // Satu aksi lokal atomik. `decide(view, queued)` dipanggil SINKRON di dalam transaksi ["subtasks", "_outbox"]
-  // (queued = entri antrean subtasks task ini) dan mengembalikan {error} atau rencana
-  // {items|null, create?, ops?, drop?, clearRev?, result}. → {items, task_progress, result}.
+  // Satu aksi lokal atomik. `decide(view, queued)` dipanggil SINKRON di dalam transaksi ["subtasks", "_outbox",
+  // "_meta"] (queued = entri antrean subtasks task ini) dan mengembalikan {error} atau rencana
+  // {items|null, create?, ops?, drop?, rewrite?, clearRev?, result}. → {items, task_progress, result}.
   function runAction(taskCid, decide) {
     return readTask(taskCid).then((task) => {
       if (!task || task.deleted) throw fail("TASK_NOT_FOUND");
@@ -361,9 +387,11 @@
         let failed = null;
         let out = null;
         let t;
-        try { t = db.transaction(["subtasks", "_outbox"], "readwrite"); } catch (err) { reject(err); return; }
+        try { t = db.transaction(["subtasks", "_outbox", "_meta"], "readwrite"); } catch (err) { reject(err); return; }
         const st = t.objectStore("subtasks");
         const ob = t.objectStore("_outbox");
+        const meta = t.objectStore("_meta");
+        const abort = (err) => { failed = err; try { t.abort(); } catch (_) {} };
         const rq = st.index("task_cid").getAll(taskCid);
         rq.onsuccess = () => {
           const oq = ob.getAll();
@@ -373,10 +401,9 @@
             try {
               const plan = decide(view, queued);
               if (!plan || plan.error) { failed = fail(plan ? plan.error : "INVALID"); return; }
-              out = { plan, view, wrote: commitPlan(st, ob, view, plan, taskCid) };
+              out = { plan, view, wrote: commitPlan(st, ob, meta, view, plan, taskCid, abort) };
             } catch (err) {
-              failed = err;
-              try { t.abort(); } catch (_) {}
+              abort(err);
             }
           };
         };
@@ -388,12 +415,12 @@
           noteTask(m, task);
           for (const r of wrote.removed) dropItem(m, r);
           for (const r of wrote.put) addItem(m, r);
+          if (plan.clearRev) m.revs.set(taskCid, null);
         });
         const items = plan.items || view.items;
         const tp = progressOf(items, task);
-        const queuedChanged = (plan.ops && plan.ops.length) || (plan.drop && plan.drop.length);
-        return (plan.clearRev ? setRev(taskCid, null) : Promise.resolve())
-          .then(() => C.writeTaskProgress(taskCid, tp))
+        const queuedChanged = (plan.ops && plan.ops.length) || (plan.drop && plan.drop.length) || (plan.rewrite && plan.rewrite.length);
+        return C.writeTaskProgress(taskCid, tp)
           .then(() => {
             if (queuedChanged) {
               const first = plan.ops && plan.ops.length ? plan.ops[0].cid : null;
@@ -463,7 +490,16 @@
         const done = ch.toggle ? !itemIn(items, apiId).is_done : !!ch.is_done;
         const r = C.applySetDone(items, apiId, done);
         changed = r.changed_ids;
-        if (changed.length) { items = r.items; dirty = true; ops.push({ op: "set_done", cid: cid, payload: { is_done: done } }); }
+        if (changed.length) {
+          items = r.items;
+          dirty = true;
+          const payload = { is_done: done };
+          // Butir lain yang ikut berubah lewat centang berantai (hanya lokal; push cukup mengirim is_done). Dipakai
+          // `remove` bila entri ini dibuang: efek berantainya ke butir yang tidak ikut terhapus diganti entri sendiri.
+          const cascade = changed.filter((a) => a !== apiId).map((a) => view.cidOf.get(a));
+          if (cascade.length) payload.cascade_cids = cascade;
+          ops.push({ op: "set_done", cid: cid, payload: payload });
+        }
       }
       return { items: dirty ? items : null, ops, result: { id: apiId, changed_ids: changed } };
     }).then((res) => ({
@@ -503,10 +539,24 @@
         const c = view.cidOf.get(a);
         (view.byCid.get(c).server_id == null ? unsynced : synced).add(c);
       }
+      const intoDropped = (o) => (o.op === "create" || o.op === "move") && !!o.payload && o.payload.parent_cid != null
+        && unsynced.has(o.payload.parent_cid);
       const drop = [];
+      const rewrite = [];
       for (const o of queued) {
-        const intoDropped = o.op === "move" && o.payload && o.payload.parent_cid != null && unsynced.has(o.payload.parent_cid);
-        if (unsynced.has(o.cid) || (synced.has(o.cid) && intoDropped)) drop.push(o.qid);
+        if (unsynced.has(o.cid) || (synced.has(o.cid) && intoDropped(o))) { drop.push(o.qid); continue; }
+        // Perbaikan review W1: entri create/move butir LAIN (tidak ikut terhapus) yang induknya butir belum terkirim
+        // yang dibuang → ditulis ulang ke {parent_cid: null, index: null} (akhir level atas), supaya tidak ada entri
+        // yang menunjuk induk yang tidak akan pernah ada di server. Aman: butir itu pernah menjadi anak LANGSUNG
+        // butir yang dibuang dan kini tidak lagi di dalam subtree-nya. Memindah leluhur tidak mengeluarkan anak
+        // dari subtree, jadi butir itu sendiri pasti punya `move` SESUDAH entri ini; `move` terakhirnya menunjuk
+        // induknya sekarang (tidak ikut terhapus → tidak ditulis ulang) dan dihitung tanpa butir itu sendiri,
+        // sehingga posisi akhirnya sama. Posisi sementara di AKHIR level atas tidak mengubah urutan relatif butir
+        // lain (index ≤ n jatuh sebelumnya, index > n tetap sesudahnya, lalu butir itu pindah). Rev tetap
+        // dikosongkan (lihat bawah) sebagai jaring pengaman.
+        if (intoDropped(o)) {
+          rewrite.push(Object.assign({}, o, { payload: Object.assign({}, o.payload, { parent_cid: null, index: null }) }));
+        }
       }
       const ops = [];
       for (const a of r.deleted_ids) {
@@ -516,13 +566,35 @@
         const pc = p == null ? null : view.cidOf.get(p);
         if (pc == null || !synced.has(pc)) ops.push({ op: "delete", cid: c, payload: {} });
       }
-      let clearRev = false;
-      if (drop.length) {
-        const dropped = new Set(drop);
-        const first = Math.min.apply(null, drop);
-        clearRev = queued.some((o) => !dropped.has(o.qid) && o.qid > first);
+      // Centang berantai dari entri set_done(true) yang dibuang tidak pernah terjadi di server: butir yang ikut
+      // tercentang lalu keluar dari subtree yang dihapus akan terbuka lagi sesudah sinkron. Ganti efeknya: set_done
+      // true untuk butir terdampak yang kini selesai (pre-order), lalu set_done false untuk turunannya yang kini
+      // terbuka (true berantai di server; false tidak). Butir yang kini terbuka tidak disentuh.
+      const dropSet = new Set(drop);
+      const hit = new Set();
+      for (const o of queued) {
+        if (!dropSet.has(o.qid) || o.op !== "set_done" || !o.payload || !o.payload.is_done) continue;
+        for (const c of o.payload.cascade_cids || []) if (view.byCid.has(c) && !unsynced.has(c) && !synced.has(c)) hit.add(c);
       }
-      return { items: r.items, ops, drop, clearRev, result: { deleted_ids: r.deleted_ids } };
+      if (hit.size) {
+        const after = r.items;
+        const fixed = new Set();
+        for (let i = 0; i < after.length; i++) {
+          const c = view.cidOf.get(after[i].id);
+          if (!hit.has(c) || !after[i].is_done) continue;
+          ops.push({ op: "set_done", cid: c, payload: { is_done: true } });
+          for (let j = i + 1; j < after.length && after[j].depth > after[i].depth; j++) fixed.add(j);
+        }
+        for (const j of Array.from(fixed).sort((x, y) => x - y)) {
+          if (!after[j].is_done) ops.push({ op: "set_done", cid: view.cidOf.get(after[j].id), payload: { is_done: false } });
+        }
+      }
+      let clearRev = rewrite.length > 0;
+      if (drop.length) {
+        const first = Math.min.apply(null, drop);
+        clearRev = clearRev || queued.some((o) => !dropSet.has(o.qid) && o.qid > first);
+      }
+      return { items: r.items, ops, drop, rewrite, clearRev, result: { deleted_ids: r.deleted_ids } };
     }).then((res) => ({ items: res.items, deleted_ids: res.result.deleted_ids, task_progress: res.task_progress }));
   }
 
@@ -703,7 +775,9 @@
   // ── id server dari push ──────────────────────────────────────────────────────
 
   // Butir `cid` mendapat id server (create terkirim): record + _idmap "subtask" dalam satu transaksi. Record tidak
-  // ada (dihapus lokal saat create sedang terkirim) → false.
+  // ada → false: butir itu dihapus lokal SAAT create-nya sedang terkirim (`remove` membuang entri create yang belum
+  // selesai), jadi server kini punya butir "hantu" yang tidak dikenal perangkat ini — push (handler subtasks) WAJIB
+  // mengirim DELETE /api/subtasks/{serverId} untuknya.
   function adoptServerId(cid, serverId) {
     if (cid == null || serverId == null) return Promise.resolve(false);
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {

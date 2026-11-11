@@ -59,7 +59,7 @@
   //   sendiri bila depth = depth-nya + 1), null untuk 0; `depth` di-clamp ke `0..maxAddDepth`.
   // - `autoScrollDelta(pointerY, rect)`: < 40 px dari `rect.top` → negatif, < 40 px dari `rect.bottom` → positif,
   //   besarnya `max(1, round(16 × (40 − jarak) / 40))` maks 16; 0 selain itu (pola kanbanAutoScrollDelta).
-  // - Lipat per perangkat: `loadCollapsed(storage)` → Set id angka (urutan penambahan); `saveCollapsed(storage, ids)`
+  // - Lipat per perangkat: `loadCollapsed(storage)` → Set id angka / cid (urutan penambahan); `saveCollapsed(storage, ids)`
   //   menyimpan array maks `COLLAPSE_MAX` (yang paling lama ditambahkan dibuang dulu) dan mengembalikan array itu.
   //   Setiap akses `try/catch`; JSON rusak / bukan array / storage null → kosong tanpa galat.
   // - `lockFor(task, counts)`: `counts.loaded && counts.total > 0` → `{done, total, percent}`; hitungan belum dimuat
@@ -80,6 +80,7 @@
 
   const COLLAPSE_KEY = "tf_check_collapsed";
   const COLLAPSE_MAX = 500;
+  const CID_MAX = 64;
   const SCROLL_EDGE = 40;
   const SCROLL_MAX = 16;
 
@@ -498,12 +499,16 @@
 
   // ── lipat per perangkat ────────────────────────────────────────────────────
 
+  // Id butir tersimpan: bilangan bulat (teks angka → angka, seperti id server) atau cid (teks bukan angka, 1–64
+  // karakter setelah trim; Fase 2: butir yang belum tersinkron). Selain itu null.
   function idOrNull(x) {
     if (typeof x === "number") return Number.isInteger(x) ? x : null;
-    if (typeof x === "string" && /^-?\d+$/.test(x.trim())) return Number(x);
-    return null;
+    if (typeof x !== "string") return null;
+    const t = x.trim();
+    if (/^-?\d+$/.test(t)) return Number(t);
+    return t && t.length <= CID_MAX ? t : null;
   }
-  // Id unik (urutan pertama kali muncul), hanya bilangan bulat; maks COLLAPSE_MAX terakhir.
+  // Id unik (urutan pertama kali muncul), bilangan bulat atau cid; maks COLLAPSE_MAX terakhir.
   function cleanIds(list) {
     const seen = new Set();
     for (const x of list) {

@@ -823,6 +823,9 @@ const api = {
       try { _router = api._localRouter || (api._localRouter = _R.buildTaskRouter()); } catch (_) { _router = null; }
       if (_router) {
         const _method = (opts.method || "GET").toUpperCase();
+        // Checklist offline: keputusan routing checklist dibaca dari memori TF.checklistrepo → tunggu memori dimuat (langsung bila sudah; modul lama/tidak ada → dilewati).
+        const _CL = window.TF.checklistroutes, _CR = window.TF.checklistrepo;
+        if (_CL && _CR && typeof _CL.parseCall === "function" && typeof _CR.start === "function" && _CL.parseCall(_method, url)) await Promise.resolve().then(() => _CR.start()).catch(() => null);
         // shouldRouteLocally: /api/tags?entity_type=note, /api/scratchpad/trash..., /api/tasks/child-counts selalu ke jaringan.
         // Fallback untuk taskroutes.js lama dari cache SW (index.html bisa lebih baru dari modulnya). child-counts
         // dicek di luar keduanya: taskroutes.js lama (dengan shouldRouteLocally, tanpa isTaskChildCountsCall)

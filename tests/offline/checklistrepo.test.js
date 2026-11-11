@@ -153,7 +153,7 @@ test("create: butir baru (cid UUID) + satu entri antrean create; respons bentuk 
   assert.equal(ops[0].retries, 0);
 });
 
-test("create: tulis butir dan antrean dalam SATU transaksi readwrite [subtasks, _outbox]", async () => {
+test("create: tulis butir dan antrean dalam SATU transaksi readwrite [subtasks, _outbox, _meta]", async () => {
   await pohon();
   const db = await TFdb.openDB();
   const asli = db.transaction;
@@ -162,8 +162,8 @@ test("create: tulis butir dan antrean dalam SATU transaksi readwrite [subtasks, 
   try {
     await R.create("t1", { title: "x" });
   } finally { db.transaction = asli; }
-  const tulis = catat.filter(([s, m]) => m === "readwrite" && /subtasks|_outbox/.test(s));
-  assert.deepEqual(tulis, [["subtasks,_outbox", "readwrite"]]);
+  const tulis = catat.filter(([s, m]) => m === "readwrite" && /subtasks|_outbox|_meta/.test(s));
+  assert.deepEqual(tulis, [["subtasks,_outbox,_meta", "readwrite"]]);
 });
 
 test("create: antrean gagal ditulis → butir juga tidak tersimpan (atomik)", async () => {
@@ -249,7 +249,7 @@ test("create: cid butir selalu baru dan berbeda lintas task", async () => {
 
 // ── centang ──────────────────────────────────────────────────────────────────
 
-test("setDone: centang berantai lokal + antrean set_done {is_done}; tanpa perubahan → tanpa entri", async () => {
+test("setDone: centang berantai lokal + antrean set_done {is_done, cascade_cids (lokal)}; tanpa perubahan → tanpa entri", async () => {
   await pohon();
   const out = await R.setDone(11, true);
   assert.deepEqual(out.changed_ids, [11, 12]);
@@ -257,7 +257,7 @@ test("setDone: centang berantai lokal + antrean set_done {is_done}; tanpa peruba
   assert.deepEqual(out.task_progress, { done: 1, total: 2, progress: 50 });
   const again = await R.setDone("a", true);
   assert.deepEqual(again.changed_ids, []);
-  assert.deepEqual(qOf(await subtaskOps()), [["set_done", "a", "t1", { is_done: true }]]);
+  assert.deepEqual(qOf(await subtaskOps()), [["set_done", "a", "t1", { is_done: true, cascade_cids: ["a1"] }]]);
   const byCid = new Map((await allItems()).map((x) => [x.cid, x]));
   assert.deepEqual([byCid.get("a").is_done, byCid.get("a1").is_done, byCid.get("b").is_done], [true, true, false]);
 });
@@ -296,7 +296,7 @@ test("patch title + is_done: dua entri berurutan (rename lalu set_done) dalam sa
   const out = await R.patch("a", { title: "A", is_done: true });
   assert.deepEqual([out.item.title, out.item.is_done, out.changed_ids], ["A", true, [11, 12]]);
   assert.deepEqual(qOf(await subtaskOps()), [
-    ["rename", "a", "t1", { title: "A" }], ["set_done", "a", "t1", { is_done: true }],
+    ["rename", "a", "t1", { title: "A" }], ["set_done", "a", "t1", { is_done: true, cascade_cids: ["a1"] }],
   ]);
   await assert.rejects(R.patch("a", {}), (e) => e.code === "NO_CHANGE");
   await assert.rejects(R.patch("a", { title: null, is_done: null }), (e) => e.code === "NO_CHANGE");
@@ -630,4 +630,179 @@ test("setRev mencatat id server task (task yang diketahui pull sesudah memori di
   assert.equal(R.knowsTask(55), false);
   await R.setRev("t5", 0);
   assert.equal(R.knowsTask(55), true);
+});
+
+
+// ── perbaikan review: antrean tanpa induk yatim (W1) ─────────────────────────
+// Hapus butir yang create-nya belum terkirim (U) membuang entri U; entri create/move butir LAIN yang masih
+// menunjuk U sebagai induk ditulis ulang menjadi {parent_cid: null, index: null}. Aman: butir itu tidak ikut terhapus,
+// jadi sesudah entri itu ia pasti punya `move` sendiri ke induk akhirnya (lihat komentar di checklistrepo.remove).
+
+const tanpaYatim = async () => {
+  const cids = new Set((await allItems()).map((x) => x.cid));
+  for (const o of await subtaskOps()) {
+    const pc = o.payload && o.payload.parent_cid;
+    assert.ok(pc == null || cids.has(pc), "entri " + o.op + " menunjuk induk yang tidak ada: " + pc);
+    assert.ok(o.op === "delete" || cids.has(o.cid), "entri " + o.op + " untuk butir yang tidak ada: " + o.cid);
+  }
+};
+
+test("W1 S1: anak dibuat di bawah U, dikeluarkan (Shift+Tab), U dihapus → create anak ditulis ulang ke level atas", async () => {
+  await putTask(task());
+  await putItems([rec("a", { server_id: 1 })]);
+  await R.setRev("t1", 1);
+  const u = await R.create("t1", { title: "U" });
+  const c = await R.create("t1", { title: "C", parent_id: u.item.id });
+  await R.move(c.item.id, null, 1);
+  await R.remove(u.item.id);
+  assert.deepEqual(qOf(await subtaskOps()), [
+    ["create", c.item.id, "t1", { title: "C", parent_cid: null, index: null }],
+    ["move", c.item.id, "t1", { parent_cid: null, index: 1 }],
+  ]);
+  await tanpaYatim();
+  assert.equal((await R.getRevs()).t1, null, "entri lain sesudah create U → ambil ulang");
+});
+
+test("W1 S2: butir tersinkron masuk ke U lalu keluar, U dihapus → move ke U ditulis ulang", async () => {
+  await putTask(task());
+  await putItems([rec("a", { server_id: 1 })]);
+  const u = await R.create("t1", { title: "U" });
+  await R.move("a", u.item.id, null);
+  await R.move("a", null, 0);
+  await R.remove(u.item.id);
+  assert.deepEqual(qOf(await subtaskOps()), [
+    ["move", "a", "t1", { parent_cid: null, index: null }],
+    ["move", "a", "t1", { parent_cid: null, index: 0 }],
+  ]);
+  await tanpaYatim();
+});
+
+test("W1 S3: butir belum terkirim masuk ke U lalu keluar, U dihapus → move ke U ditulis ulang, create-nya utuh", async () => {
+  await putTask(task());
+  await putItems([rec("a", { server_id: 1 })]);
+  const u = await R.create("t1", { title: "U" });
+  const d = await R.create("t1", { title: "D" });
+  await R.move(d.item.id, u.item.id, null);
+  await R.move(d.item.id, null, 2);
+  await R.remove(u.item.id);
+  assert.deepEqual(qOf(await subtaskOps()), [
+    ["create", d.item.id, "t1", { title: "D", parent_cid: null, index: null }],
+    ["move", d.item.id, "t1", { parent_cid: null, index: null }],
+    ["move", d.item.id, "t1", { parent_cid: null, index: 2 }],
+  ]);
+  await tanpaYatim();
+});
+
+test("W1: cucu U yang dikeluarkan bersama induknya — hanya entri yang menunjuk U langsung yang ditulis ulang", async () => {
+  await putTask(task());
+  const u = await R.create("t1", { title: "U" });
+  const w = await R.create("t1", { title: "W", parent_id: u.item.id });
+  const y = await R.create("t1", { title: "Y", parent_id: w.item.id });
+  await R.move(w.item.id, null, 0);
+  await R.remove(u.item.id);
+  assert.deepEqual(qOf(await subtaskOps()), [
+    ["create", w.item.id, "t1", { title: "W", parent_cid: null, index: null }],
+    ["create", y.item.id, "t1", { title: "Y", parent_cid: w.item.id, index: null }],
+    ["move", w.item.id, "t1", { parent_cid: null, index: 0 }],
+  ]);
+  await tanpaYatim();
+  assert.deepEqual((await R.itemsForTask("t1")).map((x) => [x.id, x.depth]), [[w.item.id, 0], [y.item.id, 1]]);
+});
+
+// ── perbaikan review: rev dikosongkan atomik (S1) ────────────────────────────
+
+test("S1: rev tersimpan dikosongkan di transaksi aksi yang sama — galat sesudah commit tidak meninggalkan rev lama", async () => {
+  await putTask(task());
+  await putItems([rec("a", { server_id: 1 })]);
+  await R.setRev("t1", 4);
+  const x = await R.create("t1", { title: "x", index: 0 });
+  await R.move("a", null, 0);
+  const C = require("../../static/offline/checklist.js");
+  const asli = C.writeTaskProgress;
+  C.writeTaskProgress = () => Promise.reject(new Error("tab ditutup"));
+  try {
+    await assert.rejects(R.remove(x.item.id));
+  } finally { C.writeTaskProgress = asli; }
+  assert.equal((await R.getRevs()).t1, null);
+  assert.deepEqual(qOf(await subtaskOps()), [["move", "a", "t1", { parent_cid: null, index: 0 }]]);
+});
+
+test("S1: menulis rev kosong gagal → seluruh aksi batal (butir, antrean, dan rev tetap seperti semula)", async () => {
+  await putTask(task());
+  await putItems([rec("a", { server_id: 1 })]);
+  await R.setRev("t1", 4);
+  const x = await R.create("t1", { title: "x", index: 0 });
+  await R.move("a", null, 0);
+  const sebelum = qOf(await subtaskOps());
+  const proto = globalThis.IDBObjectStore.prototype;
+  const asli = proto.put;
+  proto.put = function () { if (this.name === "_meta") throw new Error("kuota penuh"); return asli.apply(this, arguments); };
+  try {
+    await assert.rejects(R.remove(x.item.id));
+  } finally { proto.put = asli; }
+  assert.equal((await R.getRevs()).t1, 4);
+  assert.deepEqual(qOf(await subtaskOps()), sebelum);
+  assert.ok((await allItems()).some((r) => r.cid === x.item.id), "butir tidak terhapus");
+});
+
+test("S1: hapus yang mengosongkan rev tidak membuka transaksi _meta terpisah", async () => {
+  await putTask(task());
+  await putItems([rec("a", { server_id: 1 })]);
+  await R.setRev("t1", 4);
+  const x = await R.create("t1", { title: "x", index: 0 });
+  await R.move("a", null, 0);
+  const db = await TFdb.openDB();
+  const asli = db.transaction;
+  const catat = [];
+  db.transaction = function (stores, mode) { catat.push([[].concat(stores).join(","), mode || "readonly"]); return asli.apply(this, arguments); };
+  try { await R.remove(x.item.id); } finally { db.transaction = asli; }
+  assert.deepEqual(catat.filter(([st, m]) => m === "readwrite" && /subtasks|_outbox|_meta/.test(st)),
+    [["subtasks,_outbox,_meta", "readwrite"]]);
+  assert.equal((await R.getRevs()).t1, null);
+  assert.equal(R.knowsTask("t1"), true);
+});
+
+// ── perbaikan review: kesiapan (S2) ──────────────────────────────────────────
+
+test("S2: start() idempoten — sudah dimuat → langsung selesai tanpa memuat ulang; refresh() memuat ulang", async () => {
+  await pohon();
+  await metaPut("checklists_hydrated", true);
+  await R.start();
+  await putItems([rec("baru", { server_id: 90 })]); // ditulis tab lain
+  await R.start();
+  assert.equal(R.knowsItem(90), false, "start kedua tidak memuat ulang");
+  await R.refresh();
+  assert.equal(R.knowsItem(90), true);
+});
+
+test("S2: markHydrated idempoten", async () => {
+  await R.start();
+  await R.markHydrated();
+  await R.markHydrated();
+  assert.equal(R.isReady(), true);
+  assert.equal(await metaGet("checklists_hydrated"), true);
+});
+
+test("W1 kaskade: centang U (berantai ke anak C), C dikeluarkan, U dihapus → centang C tidak hilang di server", async () => {
+  await putTask(task());
+  const u = await R.create("t1", { title: "U" });
+  const c = await R.create("t1", { title: "C", parent_id: u.item.id });
+  const z = await R.create("t1", { title: "Z", parent_id: c.item.id });
+  await R.setDone(u.item.id, true);               // U, C, Z selesai
+  await R.setDone(z.item.id, false);              // Z dibuka lagi (hanya Z)
+  await R.move(c.item.id, null, null);            // C (beserta Z) keluar dari U
+  await R.remove(u.item.id);
+  const items = await R.itemsForTask("t1");
+  assert.deepEqual(items.map((x) => [x.title, x.is_done]), [["C", true], ["Z", false]]);
+  // set_done U dibuang (U tidak pernah ada di server); efek berantainya ke C diganti entri set_done C, dan Z yang
+  // terbuka ditegaskan sesudahnya (set_done true berantai di server).
+  assert.deepEqual((await subtaskOps()).map((o) => [o.op, o.cid, o.payload]), [
+    ["create", c.item.id, { title: "C", parent_cid: null, index: null }],
+    ["create", z.item.id, { title: "Z", parent_cid: c.item.id, index: null }],
+    ["set_done", z.item.id, { is_done: false }],
+    ["move", c.item.id, { parent_cid: null, index: null }],
+    ["set_done", c.item.id, { is_done: true }],
+    ["set_done", z.item.id, { is_done: false }],
+  ]);
+  await tanpaYatim();
 });

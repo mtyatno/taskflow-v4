@@ -22,9 +22,11 @@
   // Error = Error(detail) {status, body: {detail}, code} (pola taskroutes `invalid`; api.fetch menyalinnya).
   //
   // `routeDecision(method, path)` (dipakai taskroutes.shouldRouteLocally, SINKRON): null = bukan endpoint checklist;
-  // false = jaringan; true = lokal. GET task ber-id cid selalu lokal (K6, sama dengan v502). Selain itu lokal hanya bila
-  // TF.checklistrepo.isReady() (unduhan awal selesai) DAN (id bukan angka = belum tersinkron, ATAU task/butir dikenal
-  // lokal: rev tersimpan atau butir lokal). Sebelum siap / tidak dikenal → jaringan (perilaku v502).
+  // false = jaringan; true = lokal. Id task/butir bukan angka (cid: belum tersinkron) → SELALU lokal, juga sebelum
+  // unduhan awal selesai (server selalu menolak id bukan angka; task yang dibuat offline bisa langsung diberi checklist,
+  // F2; GET cid tak dikenal = [] seperti v502). Id angka → lokal hanya bila TF.checklistrepo.isReady() (unduhan awal
+  // selesai) DAN task/butir dikenal lokal (rev tersimpan atau butir lokal); selain itu jaringan (perilaku v502).
+  // api.fetch (index.html) menunggu checklistrepo.start() sebelum memanggil keputusan ini untuk path checklist.
 
   const isNode = typeof module !== "undefined" && module.exports;
   // Dibaca saat dipanggil: modul ini dimuat sebelum taskroutes.js (yang me-req-nya), sesudah checklistrepo.js.
@@ -132,10 +134,8 @@
     if (!c) return null;
     const repo = repoMod();
     if (!repo) return null;
-    const numeric = /^\d+$/.test(c.id);
-    if (c.kind === "task" && c.method === "GET" && !numeric) return true; // K6: task belum tersinkron (v502)
+    if (!/^\d+$/.test(c.id)) return true; // cid: hanya ada di perangkat ini (server menolak id bukan angka)
     if (!repo.isReady()) return false;
-    if (!numeric) return true; // cid: hanya ada di perangkat ini (server menolak id bukan angka)
     return c.kind === "task" ? repo.knowsTask(c.id) : repo.knowsItem(c.id);
   }
 

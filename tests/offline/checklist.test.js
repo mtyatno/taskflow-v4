@@ -650,12 +650,23 @@ test("lipat: maksimal 500, yang paling lama ditambahkan dibuang lebih dulu", () 
   assert.equal(C.loadCollapsed(s).size, 500);
 });
 
-test("lipat: JSON rusak / bukan array / entri bukan angka → diabaikan tanpa galat", () => {
+test("lipat: JSON rusak / bukan array / entri bukan id → diabaikan tanpa galat", () => {
   assert.deepEqual([...C.loadCollapsed(memStorage({ tf_check_collapsed: "{rusak" }))], []);
   assert.deepEqual([...C.loadCollapsed(memStorage({ tf_check_collapsed: "{\"a\":1}" }))], []);
   assert.deepEqual([...C.loadCollapsed(memStorage({ tf_check_collapsed: "null" }))], []);
   assert.deepEqual([...C.loadCollapsed(memStorage())], []);
-  assert.deepEqual([...C.loadCollapsed(memStorage({ tf_check_collapsed: "[1,\"2\",\"x\",null,1]" }))], [1, 2]);
+  // Fase 2: cid (teks bukan angka) kini id sah butir yang belum tersinkron; teks angka tetap jadi angka.
+  assert.deepEqual([...C.loadCollapsed(memStorage({ tf_check_collapsed: "[1,\"2\",\"x\",null,1,{},1.5,\"\",\"  \"]" }))], [1, 2, "x"]);
+});
+
+test("lipat: id cid (butir belum tersinkron) disimpan dan dimuat apa adanya; teks kosong / > 64 karakter dibuang", () => {
+  const s = memStorage();
+  const cid = "0f8b6c2e-3a51-4c5e-9a4f-7d1e2b3c4d5e";
+  const saved = C.saveCollapsed(s, new Set([5, cid, "7", "x".repeat(65), "", " "]));
+  assert.deepEqual(saved, [5, cid, 7]);
+  assert.deepEqual([...C.loadCollapsed(s)], [5, cid, 7]);
+  const rows = C.visibleRows([b(cid, null, 0), b("anak", cid, 0)], C.loadCollapsed(s));
+  assert.deepEqual(rows.map((r) => [r.item.id, r.collapsed]), [[cid, true]]);
 });
 
 test("lipat: storage melempar atau null → set kosong, simpan tidak melempar", () => {
