@@ -83,7 +83,7 @@ test("modul: di browser terpasang sebagai TF.checklistrepo", () => {
   const api = ctx.self.TF.checklistrepo;
   for (const k of ["start", "refresh", "reset", "isReady", "knowsTask", "knowsItem", "resolveTask", "findItem",
     "recordsForTask", "itemsForTask", "pendingTaskCids", "create", "setDone", "toggle", "patch", "move", "remove",
-    "getRevs", "setRev", "clearRev", "markHydrated", "replaceTaskChecklist", "purgeTask", "adoptServerId"]) {
+    "getRevs", "setRev", "clearRev", "markHydrated", "replaceTaskChecklist", "purgeTask", "adoptServerId", "noteTaskServerId"]) {
     assert.equal(typeof api[k], "function", k);
   }
   assert.equal(api.STORE, "subtasks");
@@ -609,4 +609,25 @@ test("recordsForTask: record mentah butir task itu", async () => {
   await pohon();
   assert.deepEqual((await R.recordsForTask("t1")).map((x) => x.cid).sort(), ["a", "a1", "b"]);
   assert.deepEqual(await R.recordsForTask("t2"), []);
+});
+
+// ── id server task untuk routing (rencana PR B2 R3) ──────────────────────────
+
+test("noteTaskServerId: task yang tersinkron sesudah memori dimuat langsung dikenal lewat id server", async () => {
+  await putTask(task({ server_id: null }));
+  await putItems([rec("a")]);
+  await R.start();
+  assert.equal(R.knowsTask("t1"), true);
+  assert.equal(R.knowsTask(70), false);
+  R.noteTaskServerId("t1", 70);
+  assert.equal(R.knowsTask(70), true);
+  assert.equal(R.knowsTask("70"), true);
+});
+
+test("setRev mencatat id server task (task yang diketahui pull sesudah memori dimuat)", async () => {
+  await R.start();
+  await putTask(task({ cid: "t5", server_id: 55 }));
+  assert.equal(R.knowsTask(55), false);
+  await R.setRev("t5", 0);
+  assert.equal(R.knowsTask(55), true);
 });

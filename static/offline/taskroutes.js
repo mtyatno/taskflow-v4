@@ -23,6 +23,9 @@
   const TFmindmaproutes = req("./mindmaproutes.js", root.TF && root.TF.mindmaproutes);
   const TFchatroutes = req("./chatroutes.js", root.TF && root.TF.chatroutes);
   const TFcommentroutes = req("./commentroutes.js", root.TF && root.TF.commentroutes);
+  // Checklist offline Fase 2 (rencana PR B2 R3). Bisa tidak ada bila index.html lama memuat taskroutes.js ini →
+  // perilaku v502 (K6 di bawah).
+  const TFchecklistroutes = req("./checklistroutes.js", root.TF && root.TF.checklistroutes);
   const TFprojects = req("./projectcache.js", root.TF && root.TF.projectcache);
   const TFcontexts = req("./contextcache.js", root.TF && root.TF.contextcache);
   const TFoutbox = req("./outbox.js", root.TF && root.TF.outbox);
@@ -130,9 +133,11 @@
     return base === "/api/mindmaps/trash" || base.startsWith("/api/mindmaps/trash/");
   }
 
-  // K6: GET /api/tasks/:id/subtasks|notes|attachments — store lokalnya tidak pernah diisi (tidak ada pull),
-  // jadi rute lokal hanya dipakai untuk task yang belum tersinkron (id = cid → `[]`); id numerik (task sudah
-  // ada di server) diteruskan ke jaringan supaya subtask/catatan/lampiran dari server tampil lagi.
+  // K6: GET /api/tasks/:id/subtasks|notes|attachments — store lokal catatan/lampiran tidak pernah diisi (tidak ada
+  // pull), jadi rute lokal hanya dipakai untuk task yang belum tersinkron (id = cid → `[]`); id numerik (task sudah
+  // ada di server) diteruskan ke jaringan supaya catatan/lampiran dari server tampil lagi. Checklist (subtasks)
+  // diputuskan TF.checklistroutes.routeDecision (checklist offline Fase 2); aturan K6 ini hanya cadangan bila modul
+  // itu tidak ada.
   function isTaskChildListCall(method, path) {
     if (String(method || "GET").toUpperCase() !== "GET") return false;
     const q = path.indexOf("?");
@@ -158,6 +163,12 @@
     const m = String(method || "GET").toUpperCase();
     if (isNoteTagsCall(m, path) || isNoteTrashCall(m, path) || isMindmapTrashDelete(m, path)) return false;
     if (isTaskChildCountsCall(m, path)) return false;
+    // Checklist (Fase 2, R3): lokal hanya bila unduhan awal selesai dan task/butir dikenal lokal atau belum
+    // tersinkron; null = bukan endpoint checklist / modul tidak ada → aturan di bawah.
+    const cl = TFchecklistroutes && typeof TFchecklistroutes.routeDecision === "function"
+      ? TFchecklistroutes.routeDecision(m, path) : null;
+    if (cl === false) return false;
+    if (cl === true) return router.hasRoute(m, path);
     const child = isTaskChildListCall(m, path);
     if (child && child.numeric) return false; // K6: data ada di server, bukan di store lokal
     return router.hasRoute(m, path);
@@ -249,17 +260,22 @@
         );
       }));
 
-    router.register("GET", "/api/tasks/:id/subtasks", ({ params }) =>
-      resolveCid(params.id).then((cid) => {
-        if (!cid) return [];
-        return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
-          const tx = db.transaction("subtasks", "readonly");
-          const idx = tx.objectStore("subtasks").index("task_cid");
-          const r = idx.getAll(cid);
-          r.onsuccess = () => resolve((r.result || []).filter((s) => !s.deleted));
-          r.onerror = () => reject(r.error);
+    // Checklist: rute lokal lengkap di checklistroutes.js (Fase 2). Cadangan bila modul itu tidak ada = rute GET v502.
+    const checklistRouted = !!(TFchecklistroutes && typeof TFchecklistroutes.registerChecklistRoutes === "function"
+      && TFchecklistroutes.registerChecklistRoutes(router));
+    if (!checklistRouted) {
+      router.register("GET", "/api/tasks/:id/subtasks", ({ params }) =>
+        resolveCid(params.id).then((cid) => {
+          if (!cid) return [];
+          return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+            const tx = db.transaction("subtasks", "readonly");
+            const idx = tx.objectStore("subtasks").index("task_cid");
+            const r = idx.getAll(cid);
+            r.onsuccess = () => resolve((r.result || []).filter((s) => !s.deleted));
+            r.onerror = () => reject(r.error);
+          }));
         }));
-      }));
+    }
 
     router.register("GET", "/api/tasks/:id/notes", ({ params }) =>
       resolveCid(params.id).then((cid) => {

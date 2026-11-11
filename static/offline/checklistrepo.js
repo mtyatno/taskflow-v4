@@ -32,7 +32,8 @@
   // - Kesiapan SINKRON untuk routing (taskroutes.shouldRouteLocally): isReady(), knowsTask(id), knowsItem(id) dibaca
   //   dari memori yang dimuat async saat start (otomatis di browser) dan diperbarui setiap tulis modul ini. Perubahan
   //   memori selama pemuatan dicatat dan diputar ulang di atas hasil muat. Ganti sesi (window.__userEpoch naik di
-  //   clearLocalUserData) → memori kosong dan tidak siap sampai markHydrated berikutnya.
+  //   clearLocalUserData) → memori kosong dan tidak siap sampai markHydrated berikutnya. Id server task yang baru
+  //   diketahui: setRev / replaceTaskChecklist / aksi mencatatnya; syncpush memanggil noteTaskServerId.
   // - Galat ditolak dengan Error {code}: TASK_NOT_FOUND | NOT_FOUND | EMPTY_TITLE | PARENT_NOT_FOUND | CYCLE |
   //   NO_CHANGE | INVALID (rute memetakannya ke 404/422 berteks server).
 
@@ -246,7 +247,8 @@
 
   // Pandangan bentuk API atas record satu task: {recs, taskId, items (pre-order), apiOf (cid → id), cidOf (id → cid),
   // byCid}.
-  function viewOf(recs, taskId) {
+  function viewOf(all, taskId) {
+    const recs = all.filter((r) => r && !r.deleted); // penanda `deleted` (bentuk lama store) = tidak ada
     const apiOf = new Map();
     for (const r of recs) apiOf.set(r.cid, r.server_id != null ? r.server_id : r.cid);
     const cidOf = new Map();
@@ -547,9 +549,20 @@
       };
       t.oncomplete = () => resolve();
       t.onerror = () => reject(t.error);
-    })).then(() => { memApply((m) => { m.revs.set(taskCid, val); }); });
+    })).then(() => {
+      memApply((m) => { m.revs.set(taskCid, val); });
+      // id server task (task yang diketahui pull sesudah memori dimuat) → routing ber-id server mengenalnya
+      return readTask(taskCid).then((task) => { memApply((m) => noteTask(m, task)); }, () => {});
+    });
   }
   const clearRev = (taskCid) => setRev(taskCid, null);
+
+  // Id server task baru diketahui di luar modul ini (create task terkirim, syncpush): catat di memori supaya
+  // GET/POST checklist ber-id server langsung dikenal tanpa menunggu pull / muat ulang. Sinkron, tanpa IndexedDB.
+  function noteTaskServerId(taskCid, serverId) {
+    if (taskCid == null || serverId == null || serverId === "") return;
+    memApply((m) => { m.taskSid.set(String(serverId), taskCid); });
+  }
 
   function markHydrated() {
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -718,7 +731,7 @@
     start, refresh, reset, isReady, knowsTask, knowsItem,
     resolveTask, findItem, recordsForTask, itemsForTask, pendingTaskCids,
     create, setDone, toggle, patch, move, remove,
-    getRevs, setRev, clearRev, markHydrated, replaceTaskChecklist, purgeTask, adoptServerId,
+    getRevs, setRev, clearRev, markHydrated, replaceTaskChecklist, purgeTask, adoptServerId, noteTaskServerId,
   };
   // Browser: memori kesiapan dimuat saat modul dimuat (Node/tes memanggil start() sendiri).
   if (!isNode) { try { start(); } catch (_) {} }
