@@ -1030,6 +1030,16 @@ def check_ws_file(data, path, fname, P, ids, srv, spans, rows, tmp, out):
           and p12["s"] <= TODAY and k7.get("pct") == 0.0 and k7.get("finish", "")[:10] > iso(p12["s"])
           and (k12.get("adur"), k12.get("rdur"), k12.get("awork"), k12.get("rwork")) == (576.0, 864.0, 30.0, 45.0),
           repr((mp["props"].get("splitsInProgressTasks"), bad_t, k12, k7)))
+    # 2p uji pemilik #3 F8: bendera kepala bawaan MSPDIWriter MPXJ (ProjectExternallyEdited 0 = bukan "disunting dari luar").
+    want_head = {"SpreadActualCost": "0", "SpreadPercentComplete": "0", "TaskUpdatesResource": "1", "MoveCompletedEndsBack": "0",
+                 "MoveRemainingStartsBack": "0", "MoveRemainingStartsForward": "0", "MoveCompletedEndsForward": "0",
+                 "ProjectExternallyEdited": "0", "ActualsInSync": "0"}
+    txt = data.decode("utf-8")
+    check("2p uji pemilik #3 F8: kepala Project memuat %r; <ProjectExternallyEdited>0 + <ActualsInSync>0 tepat sebelum <Calendars>"
+          % (mp["props"].get("headFlags"),),
+          mp["props"].get("headFlags") == want_head
+          and "  <ProjectExternallyEdited>0</ProjectExternallyEdited>\n  <ActualsInSync>0</ActualsInSync>\n  <Calendars>\n" in txt
+          and all(txt.count("<%s>" % k) == 1 for k in want_head), repr(mp["props"].get("headFlags")))
 
 
 def names_key(P, nm):

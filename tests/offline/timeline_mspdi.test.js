@@ -25,7 +25,10 @@ const D0 = D("2026-11-10"); // Selasa = "hari ini"
 // dari XSD MSPDI Microsoft (Project 2010+: Manual SETELAH Name, SEBELUM Type; ActualStart/ActualFinish setelah
 // PercentComplete, sebelum ConstraintType; HonorConstraints setelah WorkFormat). Urutan Project dicocokkan juga dengan
 // learn.microsoft.com "Project elements and XML structure".
-const PROJECT_ORDER = ["SaveVersion", "Name", "Title", "CreationDate", "ScheduleFromStart", "StartDate", "FinishDate", "CalendarUID", "DefaultStartTime", "DefaultFinishTime", "MinutesPerDay", "MinutesPerWeek", "DaysPerMonth", "DefaultTaskType", "DurationFormat", "WorkFormat", "HonorConstraints", "NewTasksEffortDriven", "SplitsInProgressTasks", "WeekStartDay", "Calendars", "Tasks", "Resources", "Assignments"];
+const PROJECT_ORDER = ["SaveVersion", "Name", "Title", "CreationDate", "ScheduleFromStart", "StartDate", "FinishDate", "CalendarUID", "DefaultStartTime", "DefaultFinishTime", "MinutesPerDay", "MinutesPerWeek", "DaysPerMonth", "DefaultTaskType", "DurationFormat", "WorkFormat", "HonorConstraints", "NewTasksEffortDriven", "SplitsInProgressTasks", "SpreadActualCost", "SpreadPercentComplete", "TaskUpdatesResource", "WeekStartDay", "MoveCompletedEndsBack", "MoveRemainingStartsBack", "MoveRemainingStartsForward", "MoveCompletedEndsForward", "ProjectExternallyEdited", "ActualsInSync", "Calendars", "Tasks", "Resources", "Assignments"];
+// Uji pemilik #3 F8: bendera kepala bawaan MSPDIWriter MPXJ dengan nilai persis (ProjectExternallyEdited 0 = MS Project
+// tidak memperlakukan berkas sebagai "disunting dari luar" lalu menghitung ulang).
+const HEAD_FLAGS_F8 = [["SpreadActualCost", "0"], ["SpreadPercentComplete", "0"], ["TaskUpdatesResource", "1"], ["MoveCompletedEndsBack", "0"], ["MoveRemainingStartsBack", "0"], ["MoveRemainingStartsForward", "0"], ["MoveCompletedEndsForward", "0"], ["ProjectExternallyEdited", "0"], ["ActualsInSync", "0"]];
 const TASK_ORDER = ["UID", "ID", "Name", "Manual", "Type", "IsNull", "CreateDate", "WBS", "OutlineNumber", "OutlineLevel", "Start", "Finish", "Duration", "DurationFormat", "Work", "EffortDriven", "Estimated", "Milestone", "Summary", "PercentComplete", "PercentWorkComplete", "ActualStart", "ActualFinish", "ActualDuration", "ActualWork", "RemainingDuration", "RemainingWork", "ConstraintType", "CalendarUID", "ConstraintDate", "PredecessorLink", "Baseline", "ManualStart", "ManualFinish", "ManualDuration"];
 // Uji pemilik #2 F6: Work + pasangan aktual/sisa selalu ada di setiap <Task> (MS Project membaca kemajuan dari situ).
 const TASK_REQUIRED = ["UID", "ID", "Name", "Manual", "Type", "IsNull", "CreateDate", "WBS", "OutlineNumber", "OutlineLevel", "Start", "Finish", "Duration", "DurationFormat", "Work", "EffortDriven", "Estimated", "Milestone", "Summary", "PercentComplete", "PercentWorkComplete", "ActualDuration", "ActualWork", "RemainingDuration", "RemainingWork", "ConstraintType", "CalendarUID"];
@@ -262,8 +265,9 @@ test("prolog + namespace + urutan blok Project sesuai XSD (Project → Calendars
   assert.equal(val(p, "NewTasksEffortDriven"), "0");
   // Review F7: tanpa pecah task berjalan (bawaan MS Project memecah sisa kerja ke setelah pendahulu yang belum selesai).
   assert.equal(val(p, "SplitsInProgressTasks"), "0");
-  assert.deepEqual(names(p).slice(names(p).indexOf("NewTasksEffortDriven"), names(p).indexOf("WeekStartDay") + 1), ["NewTasksEffortDriven", "SplitsInProgressTasks", "WeekStartDay"]);
+  assert.deepEqual(names(p).slice(names(p).indexOf("NewTasksEffortDriven"), names(p).indexOf("WeekStartDay") + 1), ["NewTasksEffortDriven", "SplitsInProgressTasks", "SpreadActualCost", "SpreadPercentComplete", "TaskUpdatesResource", "WeekStartDay"]);
   assert.equal(val(p, "WeekStartDay"), "1");
+  for (const [k, v] of HEAD_FLAGS_F8) assert.equal(val(p, k), v, k + " (uji pemilik #3 F8)");
   // fileName absen → fileNameOf(title, D)
   const r2 = exp(tasks, { title: "Tim Pemasaran" });
   assert.equal(val(r2.doc, "Name"), "Tim-Pemasaran-2026-11-10.xml");
@@ -993,6 +997,31 @@ test("properti F6 (1.000 task / 800 dependensi / 10 orang, hasil mesin): aktual 
   assert.equal(aEls.findIndex((a) => val(a, "ResourceUID") === NULL_RES), seen.real, "semua assignment semu sesudah yang nyata");
   console.log("properti F6: " + JSON.stringify(seen));
   for (const k of Object.keys(seen)) assert.ok(seen[k] > 0, "cakupan " + k);
+});
+
+// ---------------------------------------------------------------- uji pemilik #3 F8
+
+test("F8 kepala Project: ProjectExternallyEdited 0 + ActualsInSync 0 tepat sebelum Calendars; SpreadActualCost 0 / SpreadPercentComplete 0 / TaskUpdatesResource 1 setelah SplitsInProgressTasks; empat Move* 0 setelah WeekStartDay; sekali saja, juga untuk masukan kosong dan halaman project; dua build identik", () => {
+  const cases = [
+    exp(f6Tasks(), { people: new Map([[3, "Sari"]]) }),
+    exp([mk({ id: 1, start: "2026-11-02", d: 2 })], { pageKind: "project", ownerUid: 7, people: new Map([[7, "Budi"]]) }),
+    exp([], { title: "" }),
+  ];
+  for (const r of cases) {
+    const p = r.doc;
+    const ns = names(p);
+    assert.deepEqual(ns, PROJECT_ORDER, "urutan kepala = propOrder XSD");
+    for (const [k, v] of HEAD_FLAGS_F8) {
+      assert.equal(kids(p, k).length, 1, k + " tepat sekali");
+      assert.equal(val(p, k), v, k);
+    }
+    assert.deepEqual(ns.slice(ns.indexOf("SplitsInProgressTasks"), ns.indexOf("Calendars") + 1), ["SplitsInProgressTasks", "SpreadActualCost", "SpreadPercentComplete", "TaskUpdatesResource", "WeekStartDay", "MoveCompletedEndsBack", "MoveRemainingStartsBack", "MoveRemainingStartsForward", "MoveCompletedEndsForward", "ProjectExternallyEdited", "ActualsInSync", "Calendars"]);
+    assert.ok(r.xml.includes("  <ProjectExternallyEdited>0</ProjectExternallyEdited>\n  <ActualsInSync>0</ActualsInSync>\n  <Calendars>\n"), "bentuk baris persis");
+  }
+  // bendera kepala tidak bergantung data; build kedua identik
+  const input = { tasks: f6Tasks(), cal: std(), readExt, result: M.run({ tasks: f6Tasks(), cal: std(), units: autoUnits("Alpha"), readExt }), units: autoUnits("Alpha"), pageKind: "workspace", title: "Tim Uji", people: new Map([[3, "Sari"]]), baseline: null, D: D0 };
+  assert.equal(X.build(input).xml, X.build(input).xml);
+  assert.equal(X.build(input).xml, cases[0].xml);
 });
 
 // ---------------------------------------------------------------- review F7

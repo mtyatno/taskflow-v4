@@ -19,7 +19,16 @@
   <HonorConstraints>1</HonorConstraints>
   <NewTasksEffortDriven>0</NewTasksEffortDriven>
   <SplitsInProgressTasks>0</SplitsInProgressTasks>
+  <SpreadActualCost>0</SpreadActualCost>
+  <SpreadPercentComplete>0</SpreadPercentComplete>
+  <TaskUpdatesResource>1</TaskUpdatesResource>
   <WeekStartDay>1</WeekStartDay>
+  <MoveCompletedEndsBack>0</MoveCompletedEndsBack>
+  <MoveRemainingStartsBack>0</MoveRemainingStartsBack>
+  <MoveRemainingStartsForward>0</MoveRemainingStartsForward>
+  <MoveCompletedEndsForward>0</MoveCompletedEndsForward>
+  <ProjectExternallyEdited>0</ProjectExternallyEdited>
+  <ActualsInSync>0</ActualsInSync>
   <Calendars>
     <Calendar>
       <UID>1</UID>

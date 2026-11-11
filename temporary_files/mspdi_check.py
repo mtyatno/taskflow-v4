@@ -15,6 +15,8 @@
    ditulis ulang dengan MSPDIWriter bawaan; RemainingDuration setiap Task dan RemainingWork/ActualWork/ActualFinish setiap
    Assignment hasil tulis-ulang harus sama dengan milik kita (MPXJ tidak perlu menurunkan apa pun).
 5. Review F7: <SplitsInProgressTasks>0 di kepala Project (MPXJ membacanya false) dan Type 1 ⇔ task ber-assignment nyata.
+6. Uji pemilik #3 F8: bendera kepala bawaan MSPDIWriter MPXJ — <ProjectExternallyEdited>0, <ActualsInSync>0,
+   <TaskUpdatesResource>1, <SpreadPercentComplete>0, <SpreadActualCost>0, empat <Move*>0 (elemen ada, nilai persis).
 
 Pasang (sekali, lokal): pip install --break-system-packages mpxj JPype1 ; Java sistem (/usr/bin/java).
 Tanpa MPXJ → hanya pemeriksaan struktur xml.etree (dilaporkan sebagai FALLBACK, keluar kode 2).
@@ -426,7 +428,30 @@ def progress_checks(project, root, path):
     check(not tbad, f"F7 Type 1 (durasi tetap) ⇔ punya assignment nyata ({n1} task); selain itu Type 0 (unit tetap; {len(xt) - n1} task termasuk "
                     f"ringkasan/placeholder/milestone/assignment semu); MPXJ membaca sama {tbad[:3]}")
     f7bad = ([("SplitsInProgressTasks", split)] if split != "0" or not pos_ok else []) + tbad
-    return {"bad": [list(map(str, b)) for b in xbad + mbad + rbad + f7bad], "pseudo": sorted(pseudo)}
+    # Uji pemilik #3 F8: bendera kepala bawaan MSPDIWriter MPXJ. Elemen XML-nya sendiri wajib ada dengan nilai persis (MPXJ
+    # membaca elemen absen sebagai false juga — pola SplitsInProgressTasks); nilai yang dibaca MPXJ harus sama.
+    head = (("SpreadActualCost", "0", props.getSpreadActualCost), ("SpreadPercentComplete", "0", props.getSpreadPercentComplete),
+            ("TaskUpdatesResource", "1", props.getUpdatingTaskStatusUpdatesResourceStatus),
+            ("MoveCompletedEndsBack", "0", props.getMoveCompletedEndsBack), ("MoveRemainingStartsBack", "0", props.getMoveRemainingStartsBack),
+            ("MoveRemainingStartsForward", "0", props.getMoveRemainingStartsForward), ("MoveCompletedEndsForward", "0", props.getMoveCompletedEndsForward),
+            ("ProjectExternallyEdited", "0", props.getProjectExternallyEdited), ("ActualsInSync", "0", props.getActualsInSync))
+    hbad = []
+    for name, want, getter in head:
+        els = root.findall(NS + name)
+        got_m = bool(getter())
+        if len(els) != 1 or els[0].text != want or got_m != (want == "1"):
+            hbad.append((name, [e.text for e in els] or "absen", f"MPXJ {got_m}", f"harapan {want}"))
+    hpos = [n for n in names if n in {h[0] for h in head} or n in ("SplitsInProgressTasks", "WeekStartDay", "Calendars")]
+    hwant = ["SplitsInProgressTasks", "SpreadActualCost", "SpreadPercentComplete", "TaskUpdatesResource", "WeekStartDay", "MoveCompletedEndsBack",
+             "MoveRemainingStartsBack", "MoveRemainingStartsForward", "MoveCompletedEndsForward", "ProjectExternallyEdited", "ActualsInSync", "Calendars"]
+    if hpos != hwant:
+        hbad.append(("urutan kepala", hpos))
+    for b in hbad[:10]:
+        print("    BEDA", b)
+    check(not hbad, f"F8 kepala Project: <ProjectExternallyEdited>0 (berkas tidak diperlakukan 'disunting dari luar'), <ActualsInSync>0, "
+                    f"<TaskUpdatesResource>1, <SpreadPercentComplete>0, <SpreadActualCost>0, empat <Move*>0 — elemen ada, nilai persis, urutan XSD, "
+                    f"MPXJ membaca sama {hbad[:3]}")
+    return {"bad": [list(map(str, b)) for b in xbad + mbad + rbad + f7bad + hbad], "pseudo": sorted(pseudo)}
 
 
 def mpxj_checks(root, data):
@@ -782,6 +807,9 @@ def file_mpxj_dump(path, root):
         row.update(work=secs(tv(x, "Work")) / 60, adur=secs(tv(x, "ActualDuration")) / 60, rdur=secs(tv(x, "RemainingDuration")) / 60,
                    awork=secs(tv(x, "ActualWork")) / 60, rwork=secs(tv(x, "RemainingWork")) / 60, ttype=tv(x, "Type"))
     out["props"]["splitsInProgressTasks"] = tv(root, "SplitsInProgressTasks")
+    out["props"]["headFlags"] = {n: tv(root, n) for n in ("SpreadActualCost", "SpreadPercentComplete", "TaskUpdatesResource", "MoveCompletedEndsBack",
+                                                          "MoveRemainingStartsBack", "MoveRemainingStartsForward", "MoveCompletedEndsForward",
+                                                          "ProjectExternallyEdited", "ActualsInSync")}
     return out
 
 

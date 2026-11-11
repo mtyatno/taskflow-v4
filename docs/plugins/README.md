@@ -515,7 +515,9 @@ berjalan setelah mesin 1c siap dan memakai konteks mesin yang sama (daftar lengk
     bernama "Standard". Dikoreksi review F7: kepala Project `SplitsInProgressTasks 0` (MS Project tidak memecah sisa kerja
     task berjalan ke setelah pendahulu yang belum selesai — sama dengan mesin), dan `Type 1` (durasi tetap) hanya untuk
     task ber-assignment nyata, selain itu `Type 0` (unit tetap; task durasi tetap tanpa resource rusak di MS Project
-    lama, MPXJ #240). Belum ada `TimephasedData`. Tanpa `Date`: data yang sama di hari yang sama menghasilkan berkas
+    lama, MPXJ #240). Kepala Project juga menulis `ProjectExternallyEdited 0` + bendera bawaan MPXJ (`ActualsInSync`,
+    `TaskUpdatesResource 1`, `Spread*`, `Move*` 0) agar MS Project tidak memperlakukan berkas sebagai "disunting dari
+    luar" lalu menghitung ulang (uji pemilik #3 F8). Belum ada `TimephasedData`. Tanpa `Date`: data yang sama di hari yang sama menghasilkan berkas
     identik. Residual interop (ProjectLibre, kolom Batasan, selisih tanggal di sekitar milestone, Work task tanpa
     penanggung jawab): ADR-050.
   - **Toast:** "Berkas {nama} diunduh" (+ " · {n} task tanpa jadwal ditandai perkiraan", " · {k} tautan dilewati"),

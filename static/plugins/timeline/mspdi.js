@@ -731,7 +731,22 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     // task berjalan ke setelah pendahulu yang belum selesai. Mesin Timeline tidak pernah memecah (task yang sudah mulai
     // tetap di tempat) → 0.
     out.el(1, "SplitsInProgressTasks", 0);
+    // Uji pemilik #3 F8: bendera kepala bawaan MSPDIWriter MPXJ (nilai yang sama). Yang penting ProjectExternallyEdited 0:
+    // tanpa elemen itu MS Project memperlakukan berkas sebagai "disunting dari luar" lalu menghitung ulang (docxy #111 /
+    // PR #222, Project 2021 lewat COM: Duration diabaikan, task tanpa Work jadi durasi 0) — dugaan: karena itu progres task
+    // Otomatis hilang sedangkan task Manual dibiarkan. TaskUpdatesResource 1 = "% selesai task memperbarui kerja resource"
+    // (bawaan MS Project); SpreadPercentComplete / Move* 0 = MS Project tidak menggeser bagian selesai/sisa terhadap
+    // tanggal status. Urutan = propOrder XSD.
+    out.el(1, "SpreadActualCost", 0);
+    out.el(1, "SpreadPercentComplete", 0);
+    out.el(1, "TaskUpdatesResource", 1);
     out.el(1, "WeekStartDay", 1);
+    out.el(1, "MoveCompletedEndsBack", 0);
+    out.el(1, "MoveRemainingStartsBack", 0);
+    out.el(1, "MoveRemainingStartsForward", 0);
+    out.el(1, "MoveCompletedEndsForward", 0);
+    out.el(1, "ProjectExternallyEdited", 0);
+    out.el(1, "ActualsInSync", 0);
     writeCalendar(out, c, ents, D, res, resId);
     out.line(1, "<Tasks>");
     writeTask(out, { uid: 0, kind: "project", name: title, level: 0, wbs: "0", s: top.s, f: top.f, d: top.d, links: [], manual: false, ctype: C_ASAP, cdate: null }, D);
