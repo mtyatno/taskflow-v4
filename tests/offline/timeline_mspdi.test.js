@@ -26,8 +26,9 @@ const D0 = D("2026-11-10"); // Selasa = "hari ini"
 // PercentComplete, sebelum ConstraintType; HonorConstraints setelah WorkFormat). Urutan Project dicocokkan juga dengan
 // learn.microsoft.com "Project elements and XML structure".
 const PROJECT_ORDER = ["SaveVersion", "Name", "Title", "CreationDate", "ScheduleFromStart", "StartDate", "FinishDate", "CalendarUID", "DefaultStartTime", "DefaultFinishTime", "MinutesPerDay", "MinutesPerWeek", "DaysPerMonth", "DefaultTaskType", "DurationFormat", "WorkFormat", "HonorConstraints", "NewTasksEffortDriven", "WeekStartDay", "Calendars", "Tasks", "Resources", "Assignments"];
-const TASK_ORDER = ["UID", "ID", "Name", "Manual", "Type", "IsNull", "CreateDate", "WBS", "OutlineNumber", "OutlineLevel", "Start", "Finish", "Duration", "DurationFormat", "Work", "EffortDriven", "Estimated", "Milestone", "Summary", "PercentComplete", "ActualStart", "ActualFinish", "ConstraintType", "CalendarUID", "ConstraintDate", "PredecessorLink", "Baseline", "ManualStart", "ManualFinish", "ManualDuration"];
-const TASK_REQUIRED = ["UID", "ID", "Name", "Manual", "Type", "IsNull", "CreateDate", "WBS", "OutlineNumber", "OutlineLevel", "Start", "Finish", "Duration", "DurationFormat", "EffortDriven", "Estimated", "Milestone", "Summary", "PercentComplete", "ConstraintType", "CalendarUID"];
+const TASK_ORDER = ["UID", "ID", "Name", "Manual", "Type", "IsNull", "CreateDate", "WBS", "OutlineNumber", "OutlineLevel", "Start", "Finish", "Duration", "DurationFormat", "Work", "EffortDriven", "Estimated", "Milestone", "Summary", "PercentComplete", "PercentWorkComplete", "ActualStart", "ActualFinish", "ActualDuration", "ActualWork", "RemainingDuration", "RemainingWork", "ConstraintType", "CalendarUID", "ConstraintDate", "PredecessorLink", "Baseline", "ManualStart", "ManualFinish", "ManualDuration"];
+// Uji pemilik #2 F6: Work + pasangan aktual/sisa selalu ada di setiap <Task> (MS Project membaca kemajuan dari situ).
+const TASK_REQUIRED = ["UID", "ID", "Name", "Manual", "Type", "IsNull", "CreateDate", "WBS", "OutlineNumber", "OutlineLevel", "Start", "Finish", "Duration", "DurationFormat", "Work", "EffortDriven", "Estimated", "Milestone", "Summary", "PercentComplete", "PercentWorkComplete", "ActualDuration", "ActualWork", "RemainingDuration", "RemainingWork", "ConstraintType", "CalendarUID"];
 const LINK_ORDER = ["PredecessorUID", "Type", "CrossProject", "LinkLag", "LagFormat"];
 const BASELINE_ORDER = ["Number", "Start", "Finish", "Duration", "Work"];
 const CALENDAR_ORDER = ["UID", "Name", "IsBaseCalendar", "IsBaselineCalendar", "BaseCalendarUID", "WeekDays", "Exceptions"];
@@ -37,7 +38,10 @@ const RESCAL_ORDER = ["UID", "Name", "IsBaseCalendar", "IsBaselineCalendar", "Ba
 const EXCEPTION_ORDER = ["EnteredByOccurrences", "TimePeriod", "Occurrences", "Name", "Type", "DayWorking", "WorkingTimes"];
 const WEEKDAY_ORDER = ["DayType", "DayWorking", "TimePeriod", "WorkingTimes"];
 const RESOURCE_ORDER = ["UID", "ID", "Name", "Type", "IsNull", "MaxUnits", "CalendarUID"];
-const ASSIGNMENT_ORDER = ["UID", "TaskUID", "ResourceUID", "Finish", "Start", "Units", "Work"];
+// propOrder Project$Assignments$Assignment (subset, F6): ActualFinish hanya 100 %, ActualStart hanya assignment nyata ber-% > 0.
+const ASSIGNMENT_ORDER = ["UID", "TaskUID", "ResourceUID", "PercentWorkComplete", "ActualFinish", "ActualStart", "ActualWork", "Finish", "RemainingWork", "Start", "Units", "Work"];
+const ASSIGNMENT_REQUIRED = ["UID", "TaskUID", "ResourceUID", "PercentWorkComplete", "ActualWork", "Finish", "RemainingWork", "Start", "Units", "Work"];
+const NULL_RES = "-65535"; // ResourceUID assignment semu (tanpa resource)
 
 // ---- parser XML kecil (cukup untuk keluaran TLMspdi): prolog tetap, elemen tanpa atribut kecuali xmlns di akar,
 // teks dengan lima entitas bawaan. Galat struktur / entitas tak dikenal / `<` `&` mentah → lempar.
@@ -269,11 +273,14 @@ test("urutan anak Task/PredecessorLink/Baseline/Calendar/WeekDay/Resource/Assign
     mk({ id: 3, project: "Beta" }),
     mk({ id: 4, project: "Beta", start: "2026-11-03", d: 0 }),
     mk({ id: 5, project: "Beta", parent: 4, start: "2026-11-04", d: 1 }),
+    mk({ id: 6, project: "Beta", start: "2026-11-05", d: 2, progress: 50 }), // tanpa penanggung jawab, 50 % → assignment semu
+    mk({ id: 7, project: "Beta", start: "2026-11-03", d: 2, to: 3, done: true, completed_at: "2026-11-04T03:00:00Z" }), // 100 % → ActualFinish
+    mk({ id: 8, project: "Beta", start: "2026-11-06", d: 0, done: true, completed_at: "2026-11-06T03:00:00Z" }), // milestone 100 % → semu
   ];
   const bl = { rows: new Map([["1", { s: D("2026-11-02"), f: D("2026-11-06"), d: 5, w: 4 }]]) };
   const r = exp(tasks, { baseline: bl, people: new Map([[3, "Sari"]]), cal: C.compile({ weekdays: [1, 2, 3, 4, 5], off: [{ d: "2026-11-20" }], work: [{ d: "2026-11-21" }] }) });
   const all = taskEls(r.doc);
-  assert.equal(all.length, 1 + 2 + 5, "UID 0 + 2 kelompok + 5 task");
+  assert.equal(all.length, 1 + 2 + 8, "UID 0 + 2 kelompok + 8 task");
   for (const t of all) {
     assertOrder(t, TASK_ORDER, "Task " + val(t, "UID"));
     for (const n of TASK_REQUIRED) assert.equal(kids(t, n).length, 1, "Task " + val(t, "UID") + " wajib " + n);
@@ -307,8 +314,13 @@ test("urutan anak Task/PredecessorLink/Baseline/Calendar/WeekDay/Resource/Assign
   assert.equal(res.length, 2);
   for (const x of res) assert.deepEqual(names(x), RESOURCE_ORDER);
   const asg = kids(kid(r.doc, "Assignments"), "Assignment");
-  assert.equal(asg.length, 2);
-  for (const x of asg) assert.deepEqual(names(x), ASSIGNMENT_ORDER);
+  assert.equal(asg.length, 3 + 2, "3 nyata + 2 semu");
+  for (const x of asg) {
+    assertOrder(x, ASSIGNMENT_ORDER, "Assignment " + val(x, "UID"));
+    for (const n of ASSIGNMENT_REQUIRED) assert.equal(kids(x, n).length, 1, "Assignment " + val(x, "UID") + " wajib " + n);
+  }
+  assert.ok(asg.some((x) => kid(x, "ActualStart")) && asg.some((x) => kid(x, "ActualFinish")) && asg.some((x) => val(x, "ResourceUID") === NULL_RES), "fixture memuat ActualStart, ActualFinish, dan assignment semu");
+  assert.ok(all.some((t) => kid(t, "ActualFinish")), "fixture memuat ActualFinish task");
 });
 
 // ---------------------------------------------------------------- kalender
@@ -317,7 +329,7 @@ test("kalender: satu kalender dasar UID 1, pola mingguan DayType 1–7 (1 = Ming
   const r = exp([mk({ id: 1, start: "2026-11-02", d: 1 })]);
   const cal = kid(kid(r.doc, "Calendars"), "Calendar");
   assert.equal(val(cal, "UID"), "1");
-  assert.equal(val(cal, "Name"), "Standar");
+  assert.equal(val(cal, "Name"), "Standard", "nama kalender dasar bawaan MS Project/MPXJ (uji pemilik #2 F6)");
   assert.equal(val(cal, "IsBaseCalendar"), "1");
   assert.equal(val(cal, "BaseCalendarUID"), "-1");
   const wd = kids(kid(cal, "WeekDays"), "WeekDay");
@@ -710,7 +722,7 @@ test("resource workspace: tiap penanggung jawab task di berkas, urut nama (cmpKe
   assert.equal(r.stats.resources, 4);
 });
 
-test("assignment: task non-ringkasan, terjadwal, d > 0, berpenanggung jawab → Work = target × 25 menit, Units = Work ÷ (d × 480) 6 desimal dibulatkan ke atas (F5); Work task sama", () => {
+test("assignment: task non-ringkasan, terjadwal, d > 0, berpenanggung jawab → Work = target × 25 menit, Units = Work ÷ (d × 480) 6 desimal dibulatkan ke atas (F5); Work task sama, tanpa assignment → Work PT0H0M0S (F6)", () => {
   const tasks = [
     mk({ id: 1, title: "a", start: "2026-11-02", d: 5, est: 4, to: 3 }), // 100 menit / 2400 = 0,041666… → 0.041667 (ke atas)
     mk({ id: 2, title: "b", start: "2026-11-09", d: 1, est: 3, to: 5 }), // 75 / 480 = 0,15625 → 0.15625 (tepat)
@@ -728,7 +740,10 @@ test("assignment: task non-ringkasan, terjadwal, d > 0, berpenanggung jawab → 
   const r = exp(tasks, { people: new Map([[3, "Sari"], [5, "Budi"]]) });
   const uidOf = (nm) => val(byName(r.doc, nm), "UID");
   const resUid = { Sari: "2", Budi: "1" };
-  const asg = kids(kid(r.doc, "Assignments"), "Assignment").map((x) => names(x).map((n) => val(x, n)));
+  const asgEls = kids(kid(r.doc, "Assignments"), "Assignment");
+  const asg = asgEls.map((x) => ["UID", "TaskUID", "ResourceUID", "Finish", "Start", "Units", "Work"].map((n) => val(x, n)));
+  // F6: semua 0 % → PercentWorkComplete 0, ActualWork nol, RemainingWork = Work, tanpa ActualStart/ActualFinish.
+  for (const x of asgEls) assert.deepEqual(names(x).map((n) => (n === "RemainingWork" ? val(x, n) === val(x, "Work") : ["PercentWorkComplete", "ActualWork"].includes(n) ? val(x, n) : n)), ["UID", "TaskUID", "ResourceUID", "0", "PT0H0M0S", "Finish", true, "Start", "Units", "Work"]);
   const exp1 = [
     ["a", "Sari", "2026-11-06T17:00:00", "2026-11-02T08:00:00", "0.041667", "PT1H40M0S"],
     ["b", "Budi", "2026-11-09T17:00:00", "2026-11-09T08:00:00", "0.15625", "PT1H15M0S"],
@@ -741,7 +756,7 @@ test("assignment: task non-ringkasan, terjadwal, d > 0, berpenanggung jawab → 
   ].sort((x, y) => Number(uidOf(x[0])) - Number(uidOf(y[0])));
   assert.deepEqual(asg, exp1.map((e, i) => [String(i + 1), uidOf(e[0]), resUid[e[1]], e[2], e[3], e[4], e[5]]));
   for (const e of exp1) assert.equal(val(byName(r.doc, e[0]), "Work"), e[5], "Work task " + e[0]);
-  for (const nm of ["milestone", "tanpa pj", "tanpa jadwal", "Induk"]) assert.equal(val(byName(r.doc, nm), "Work"), undefined, nm);
+  for (const nm of ["milestone", "tanpa pj", "tanpa jadwal", "Induk"]) assert.equal(val(byName(r.doc, nm), "Work"), "PT0H0M0S", nm + ": tanpa assignment → Work nol (F6)");
   assert.equal(r.stats.assignments, 8);
   assert.equal(r.stats.resources, 2);
 });
@@ -810,6 +825,169 @@ test("properti Units F5: target 1–99 × d 1–999 → 6 desimal dibulatkan ke 
     const over = microUnits(val(a, "Units")) * d * 480 - tg * 25 * 1000000;
     assert.ok(over >= 0 && over < 1000000, val(t, "Name") + " Units " + val(a, "Units"));
   }
+});
+
+// ---------------------------------------------------------------- kemajuan (uji pemilik #2 F6)
+
+// "PT{j}H{m}M{d}S" → detik.
+const secOf = (pt) => {
+  const m = /^PT(\d+)H(\d+)M(\d+)S$/.exec(pt);
+  assert.ok(m, "format durasi " + pt);
+  return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
+};
+const PROG = ["Duration", "Work", "PercentComplete", "PercentWorkComplete", "ActualStart", "ActualFinish", "ActualDuration", "ActualWork", "RemainingDuration", "RemainingWork"];
+const f6Tasks = () => [
+  mk({ id: 1, title: "nol", start: "2026-11-11", d: 3, est: 4, to: 3 }),
+  mk({ id: 2, title: "separuh", start: "2026-11-09", d: 3, est: 3, to: 3, progress: 50 }),
+  mk({ id: 3, title: "selesai", start: "2026-11-03", d: 2, est: 2, to: 3, done: true, completed_at: "2026-11-04T03:00:00Z" }),
+  mk({ id: 4, title: "tanpa pj", start: "2026-11-16", d: 2 }),
+  mk({ id: 5, title: "tanpa pj 50", start: "2026-11-09", d: 4, progress: 50 }),
+  mk({ id: 6, title: "ms selesai", start: "2026-11-06", d: 0, done: true, completed_at: "2026-11-06T03:00:00Z" }),
+  mk({ id: 7, title: "tanpa jadwal", to: 3 }),
+  mk({ id: 8, title: "sepertiga", start: "2026-11-10", d: 1, progress: 33 }),
+  mk({ id: 9, title: "manual 50", project: "Beta", start: "2026-11-11", d: 2, est: 1, to: 3, progress: 50 }),
+  mk({ id: 10, title: "selesai tanpa pj", project: "Beta", start: "2026-11-05", d: 2, done: true, completed_at: "2026-11-06T03:00:00Z" }),
+  mk({ id: 11, title: "tanpa jadwal 40", project: "Beta", progress: 40 }),
+];
+
+test("F6 task: Work selalu ada; ActualDuration = durasi × % (detik eksak) + RemainingDuration = sisa; 100 % → sisa PT0H0M0S; placeholder → PT8H0M0S; ActualStart bila % > 0 (termasuk Manual / tanpa jadwal), ActualFinish bila 100 %; ringkasan = % 0, sisa = durasi, kerja nol", () => {
+  const r = exp(f6Tasks(), { people: new Map([[3, "Sari"]]) });
+  const g = (nm) => PROG.map((k) => val(byName(r.doc, nm), k));
+  const Z = "PT0H0M0S";
+  assert.deepEqual(g("nol"), ["PT24H0M0S", "PT1H40M0S", "0", "0", undefined, undefined, Z, Z, "PT24H0M0S", "PT1H40M0S"]);
+  assert.deepEqual(g("separuh"), ["PT24H0M0S", "PT1H15M0S", "50", "50", "2026-11-09T08:00:00", undefined, "PT12H0M0S", "PT0H37M30S", "PT12H0M0S", "PT0H37M30S"]);
+  assert.deepEqual(g("selesai"), ["PT16H0M0S", "PT0H50M0S", "100", "100", "2026-11-03T08:00:00", "2026-11-04T17:00:00", "PT16H0M0S", "PT0H50M0S", Z, Z]);
+  // H1: task terjadwal tanpa penanggung jawab (tanpa assignment) tetap membawa durasi sisa penuh + Work nol.
+  assert.deepEqual(g("tanpa pj"), ["PT16H0M0S", Z, "0", "0", undefined, undefined, Z, Z, "PT16H0M0S", Z]);
+  // % > 0 tanpa assignment nyata → nilai kerja task = assignment semu (Work = durasi).
+  assert.deepEqual(g("tanpa pj 50"), ["PT32H0M0S", "PT32H0M0S", "50", "50", "2026-11-09T08:00:00", undefined, "PT16H0M0S", "PT16H0M0S", "PT16H0M0S", "PT16H0M0S"]);
+  assert.deepEqual(g("ms selesai"), [Z, Z, "100", "100", "2026-11-06T08:00:00", "2026-11-06T08:00:00", Z, Z, Z, Z]);
+  assert.deepEqual(g("tanpa jadwal"), ["PT8H0M0S", Z, "0", "0", undefined, undefined, Z, Z, "PT8H0M0S", Z]);
+  assert.deepEqual(["Estimated", "DurationFormat"].map((k) => val(byName(r.doc, "tanpa jadwal"), k)), ["1", "39"]);
+  // 33 % dari 1 hari = 2 j 38 m 24 d — detik eksak, sama dengan keluaran MSPDIWriter MPXJ (bukan dibulatkan ke menit).
+  assert.deepEqual(g("sepertiga"), ["PT8H0M0S", "PT8H0M0S", "33", "33", "2026-11-10T08:00:00", undefined, "PT2H38M24S", "PT2H38M24S", "PT5H21M36S", "PT5H21M36S"]);
+  // Manual ber-% > 0 → ActualStart = Start (F6); 25 menit × 50 % = 12 m 30 d.
+  assert.deepEqual(g("manual 50"), ["PT16H0M0S", "PT0H25M0S", "50", "50", "2026-11-11T08:00:00", undefined, "PT8H0M0S", "PT0H12M30S", "PT8H0M0S", "PT0H12M30S"]);
+  assert.deepEqual(["Manual", "Start", "ManualStart"].map((k) => val(byName(r.doc, "manual 50"), k)), ["1", "2026-11-11T08:00:00", "2026-11-11T08:00:00"]);
+  assert.deepEqual(g("selesai tanpa pj"), ["PT16H0M0S", "PT16H0M0S", "100", "100", "2026-11-05T08:00:00", "2026-11-06T17:00:00", "PT16H0M0S", "PT16H0M0S", Z, Z]);
+  assert.deepEqual(g("tanpa jadwal 40"), ["PT8H0M0S", "PT8H0M0S", "40", "40", "2026-11-10T08:00:00", undefined, "PT3H12M0S", "PT3H12M0S", "PT4H48M0S", "PT4H48M0S"]);
+  // Ringkasan (UID 0 + kelompok): bentuk MPXJ — % 0, sisa = durasi, tanpa aktual; kerja nol.
+  const sums = taskEls(r.doc).filter((t) => val(t, "Summary") === "1");
+  assert.deepEqual(sums.map((t) => val(t, "Name")), ["Tim Uji", "Alpha", "Beta"]);
+  for (const t of sums) {
+    const v = PROG.map((k) => val(t, k));
+    assert.deepEqual(v, [v[0], Z, "0", "0", undefined, undefined, Z, Z, v[0], Z], val(t, "Name"));
+    assert.ok(secOf(v[0]) > 0);
+  }
+  // Setiap task: aktual + sisa = total (durasi dan kerja), aktual × 100 = total × %.
+  for (const t of taskEls(r.doc)) {
+    const pc = Number(val(t, "PercentComplete"));
+    assert.equal(secOf(val(t, "ActualDuration")) + secOf(val(t, "RemainingDuration")), secOf(val(t, "Duration")), val(t, "Name"));
+    assert.equal(secOf(val(t, "ActualDuration")) * 100, secOf(val(t, "Duration")) * pc, val(t, "Name"));
+    assert.equal(secOf(val(t, "ActualWork")) + secOf(val(t, "RemainingWork")), secOf(val(t, "Work")), val(t, "Name"));
+  }
+});
+
+test("F6 assignment: nyata → PercentWorkComplete = % task, ActualWork = Work × % (detik eksak), RemainingWork = Work − ActualWork, ActualStart bila % > 0, ActualFinish bila 100 %; semu ResourceUID −65535 (bentuk MPXJ) untuk % > 0 tanpa assignment nyata (task biasa, milestone 100 %, tanpa jadwal); UID semu sesudah nyata; stats.assignments = nyata saja", () => {
+  const r = exp(f6Tasks(), { people: new Map([[3, "Sari"]]) });
+  const uidOf = (nm) => val(byName(r.doc, nm), "UID");
+  const els = kids(kid(r.doc, "Assignments"), "Assignment");
+  const of = (nm) => {
+    const hit = els.filter((x) => val(x, "TaskUID") === uidOf(nm));
+    assert.equal(hit.length, 1, "satu assignment untuk " + nm);
+    return names(hit[0]).slice(3).map((n) => [n, val(hit[0], n)]);
+  };
+  const Z = "PT0H0M0S";
+  // nyata (ResourceUID 1 = Sari): 0 %, 50 %, 100 %, Manual 50 %
+  assert.deepEqual(of("nol"), [["PercentWorkComplete", "0"], ["ActualWork", Z], ["Finish", "2026-11-13T17:00:00"], ["RemainingWork", "PT1H40M0S"], ["Start", "2026-11-11T08:00:00"], ["Units", "0.069445"], ["Work", "PT1H40M0S"]]);
+  assert.deepEqual(of("separuh"), [["PercentWorkComplete", "50"], ["ActualStart", "2026-11-09T08:00:00"], ["ActualWork", "PT0H37M30S"], ["Finish", "2026-11-11T17:00:00"], ["RemainingWork", "PT0H37M30S"], ["Start", "2026-11-09T08:00:00"], ["Units", "0.052084"], ["Work", "PT1H15M0S"]]);
+  assert.deepEqual(of("selesai"), [["PercentWorkComplete", "100"], ["ActualFinish", "2026-11-04T17:00:00"], ["ActualStart", "2026-11-03T08:00:00"], ["ActualWork", "PT0H50M0S"], ["Finish", "2026-11-04T17:00:00"], ["RemainingWork", Z], ["Start", "2026-11-03T08:00:00"], ["Units", "0.052084"], ["Work", "PT0H50M0S"]]);
+  assert.deepEqual(of("manual 50"), [["PercentWorkComplete", "50"], ["ActualStart", "2026-11-11T08:00:00"], ["ActualWork", "PT0H12M30S"], ["Finish", "2026-11-12T17:00:00"], ["RemainingWork", "PT0H12M30S"], ["Start", "2026-11-11T08:00:00"], ["Units", "0.026042"], ["Work", "PT0H25M0S"]]);
+  // semu: Units 1, Work = durasi, tanpa ActualStart; ActualFinish hanya 100 %
+  assert.deepEqual(of("tanpa pj 50"), [["PercentWorkComplete", "50"], ["ActualWork", "PT16H0M0S"], ["Finish", "2026-11-12T17:00:00"], ["RemainingWork", "PT16H0M0S"], ["Start", "2026-11-09T08:00:00"], ["Units", "1"], ["Work", "PT32H0M0S"]]);
+  assert.deepEqual(of("ms selesai"), [["PercentWorkComplete", "100"], ["ActualFinish", "2026-11-06T08:00:00"], ["ActualWork", Z], ["Finish", "2026-11-06T08:00:00"], ["RemainingWork", Z], ["Start", "2026-11-06T08:00:00"], ["Units", "1"], ["Work", Z]]);
+  assert.deepEqual(of("sepertiga"), [["PercentWorkComplete", "33"], ["ActualWork", "PT2H38M24S"], ["Finish", "2026-11-10T17:00:00"], ["RemainingWork", "PT5H21M36S"], ["Start", "2026-11-10T08:00:00"], ["Units", "1"], ["Work", "PT8H0M0S"]]);
+  assert.deepEqual(of("selesai tanpa pj"), [["PercentWorkComplete", "100"], ["ActualFinish", "2026-11-06T17:00:00"], ["ActualWork", "PT16H0M0S"], ["Finish", "2026-11-06T17:00:00"], ["RemainingWork", Z], ["Start", "2026-11-05T08:00:00"], ["Units", "1"], ["Work", "PT16H0M0S"]]);
+  assert.deepEqual(of("tanpa jadwal 40"), [["PercentWorkComplete", "40"], ["ActualWork", "PT3H12M0S"], ["Finish", "2026-11-10T17:00:00"], ["RemainingWork", "PT4H48M0S"], ["Start", "2026-11-10T08:00:00"], ["Units", "1"], ["Work", "PT8H0M0S"]]);
+  // 0 % tanpa assignment nyata → tanpa assignment sama sekali
+  for (const nm of ["tanpa pj", "tanpa jadwal"]) assert.deepEqual(els.filter((x) => val(x, "TaskUID") === uidOf(nm)), [], nm);
+  // UID 1…n berurutan; nyata (urutan task) lalu semua semu (urutan task)
+  assert.deepEqual(els.map((x) => val(x, "UID")), els.map((_, i) => String(i + 1)));
+  assert.deepEqual(els.map((x) => val(x, "ResourceUID")), ["1", "1", "1", "1", NULL_RES, NULL_RES, NULL_RES, NULL_RES, NULL_RES]);
+  const tuids = els.map((x) => Number(val(x, "TaskUID")));
+  assert.deepEqual(tuids.slice(0, 4), [...tuids.slice(0, 4)].sort((x, y) => x - y));
+  assert.deepEqual(tuids.slice(4), [...tuids.slice(4)].sort((x, y) => x - y));
+  assert.equal(r.stats.assignments, 4, "stats.assignments hanya assignment nyata");
+  assert.equal(r.stats.resources, 1);
+  assert.deepEqual(kids(kid(r.doc, "Resources"), "Resource").map((x) => val(x, "UID")), ["1"], "tanpa resource semu");
+});
+
+test("properti F6 (1.000 task / 800 dependensi / 10 orang, hasil mesin): aktual + sisa = total dan aktual × 100 = total × % untuk durasi task dan kerja assignment; ActualStart ⇔ % > 0 atau aktual mesin, ActualFinish ⇔ 100 %; Work task = jumlah Work assignment-nya; tepat satu assignment semu per task ber-% > 0 tanpa assignment nyata", () => {
+  const tasks = genBig(1000, 800, 4242);
+  const cal = std();
+  const units = autoUnits("Alpha", "Gamma");
+  const result = M.run({ tasks, cal, units, readExt });
+  const people = new Map([3, 5, 7, 9, 11, 13, 15, 17, 19, 21].map((u, i) => [u, "Orang " + i]));
+  const out = X.build({ tasks, cal, readExt, result, units, pageKind: "workspace", title: "Besar", people, baseline: null, D: D0 });
+  const doc = parseXml(out.xml);
+  const tEls = taskEls(doc);
+  const byUid = new Map(tEls.map((t) => [val(t, "UID"), t]));
+  const aEls = kids(kid(doc, "Assignments"), "Assignment");
+  const ofTask = new Map();
+  for (const a of aEls) {
+    const k = val(a, "TaskUID");
+    if (!ofTask.has(k)) ofTask.set(k, []);
+    ofTask.get(k).push(a);
+  }
+  const nodeOf = new Map(tasks.map((t) => [t.title, result.nodes.get(String(t.id))]));
+  const seen = { real: 0, pseudo: 0, started: 0, done: 0, zero: 0, frac: 0 };
+  for (const t of tEls) {
+    const nm = val(t, "Name");
+    const pc = Number(val(t, "PercentComplete"));
+    const dur = secOf(val(t, "Duration"));
+    assert.equal(secOf(val(t, "ActualDuration")) + secOf(val(t, "RemainingDuration")), dur, nm);
+    assert.equal(secOf(val(t, "ActualDuration")) * 100, dur * pc, nm);
+    assert.equal(secOf(val(t, "ActualWork")) + secOf(val(t, "RemainingWork")), secOf(val(t, "Work")), nm);
+    const as = ofTask.get(val(t, "UID")) || [];
+    assert.ok(as.length <= 1, nm + ": paling banyak satu assignment");
+    assert.equal(secOf(val(t, "Work")), as.reduce((n, a) => n + secOf(val(a, "Work")), 0), nm + ": Work task = jumlah Work assignment");
+    assert.equal(secOf(val(t, "ActualWork")), as.reduce((n, a) => n + secOf(val(a, "ActualWork")), 0), nm);
+    assert.equal(val(t, "PercentWorkComplete"), as.length ? String(pc) : "0", nm);
+    if (val(t, "Summary") === "1") {
+      assert.deepEqual([pc, as.length, kid(t, "ActualStart"), kid(t, "ActualFinish")], [0, 0, undefined, undefined], nm);
+      continue;
+    }
+    const n = nodeOf.get(nm);
+    const engActual = !!n && Number.isInteger(n.es) && (n.fixed === "done" || (n.fixed === "started" && n.es <= D0));
+    assert.equal(!!kid(t, "ActualStart"), pc > 0 || engActual, nm + ": ActualStart ⇔ % > 0 atau aktual mesin");
+    if (kid(t, "ActualStart")) assert.equal(val(t, "ActualStart"), val(t, "Start"), nm);
+    assert.equal(!!kid(t, "ActualFinish"), pc === 100, nm + ": ActualFinish ⇔ 100 %");
+    if (pc === 100) assert.equal(val(t, "ActualFinish"), val(t, "Finish"), nm);
+    if (pc > 0 && pc < 100) seen.started++;
+    if (pc === 100) seen.done++;
+    if (pc === 0) seen.zero++;
+    if (secOf(val(t, "ActualDuration")) % 60) seen.frac++;
+    assert.equal(as.length === 1 && val(as[0], "ResourceUID") === NULL_RES, pc > 0 && !as.some((a) => val(a, "ResourceUID") !== NULL_RES), nm + ": assignment semu ⇔ % > 0 tanpa assignment nyata");
+  }
+  for (const a of aEls) {
+    const t = byUid.get(val(a, "TaskUID"));
+    const pc = Number(val(t, "PercentComplete"));
+    const real = val(a, "ResourceUID") !== NULL_RES;
+    real ? seen.real++ : seen.pseudo++;
+    assertOrder(a, ASSIGNMENT_ORDER, "Assignment " + val(a, "UID"));
+    assert.equal(val(a, "PercentWorkComplete"), String(pc));
+    assert.equal(secOf(val(a, "ActualWork")) + secOf(val(a, "RemainingWork")), secOf(val(a, "Work")));
+    assert.equal(secOf(val(a, "ActualWork")) * 100, secOf(val(a, "Work")) * pc, "ActualWork = Work × % persis");
+    assert.deepEqual([val(a, "Start"), val(a, "Finish")], [val(t, "Start"), val(t, "Finish")]);
+    assert.equal(!!kid(a, "ActualFinish"), pc === 100);
+    assert.equal(!!kid(a, "ActualStart"), real && pc > 0);
+    if (!real) assert.deepEqual([val(a, "Units"), val(a, "Work")], ["1", val(t, "Duration")], "semu: Units 1, Work = durasi");
+  }
+  assert.deepEqual(aEls.map((a) => val(a, "UID")), aEls.map((_, i) => String(i + 1)));
+  assert.equal(out.stats.assignments, seen.real);
+  assert.equal(aEls.findIndex((a) => val(a, "ResourceUID") === NULL_RES), seen.real, "semua assignment semu sesudah yang nyata");
+  console.log("properti F6: " + JSON.stringify(seen));
+  for (const k of Object.keys(seen)) assert.ok(seen[k] > 0, "cakupan " + k);
 });
 
 // ---------------------------------------------------------------- escape
@@ -1056,7 +1234,8 @@ test("I2 F2 + F4: task tetap mesin — selesai: Start/ActualStart = es, Finish/A
   assert.deepEqual(g("T3"), ["2026-11-05T08:00:00", "2026-11-09T17:00:00", "PT24H0M0S", "2026-11-05T08:00:00", undefined, "4", "2026-11-05T08:00:00", "0"]);
   assert.deepEqual(g("T4"), ["2026-11-09T08:00:00", "2026-11-09T17:00:00", "PT8H0M0S", undefined, undefined, "0", undefined, "0"]);
   assert.deepEqual(g("T5"), ["2026-11-12T08:00:00", "2026-11-13T17:00:00", "PT16H0M0S", undefined, undefined, "4", "2026-11-12T08:00:00", "1"]);
-  assert.deepEqual(g("T6"), ["2026-11-13T08:00:00", "2026-11-13T17:00:00", "PT8H0M0S", undefined, undefined, "4", "2026-11-13T08:00:00", "0"]);
+  // F6: berjalan es > D ber-% > 0 → ActualStart = Start (MS Project menyetelnya sendiri saat % > 0); T5 (0 %, hanya actual.start) tidak.
+  assert.deepEqual(g("T6"), ["2026-11-13T08:00:00", "2026-11-13T17:00:00", "PT8H0M0S", "2026-11-13T08:00:00", undefined, "4", "2026-11-13T08:00:00", "0"]);
   assert.deepEqual(g("T8"), ["2026-11-03T08:00:00", "2026-11-03T17:00:00", "PT8H0M0S", undefined, undefined, "4", "2026-11-03T08:00:00", "1"]);
   assert.ok(res.nodes.get("5").conflict && res.nodes.get("8").conflict, "mesin juga menandai konflik T5/T8");
   assert.deepEqual(g("T9"), ["2026-11-04T08:00:00", "2026-11-04T17:00:00", "PT8H0M0S", undefined, undefined, "4", "2026-11-04T08:00:00", "0"]);
@@ -1144,7 +1323,7 @@ test("F4 A: setiap resource punya kalender resource turunan UID 1 (UID = UID res
   const cals = kids(kid(r.doc, "Calendars"), "Calendar");
   const res = kids(kid(r.doc, "Resources"), "Resource");
   assert.deepEqual(res.map((x) => [val(x, "UID"), val(x, "Name"), val(x, "CalendarUID")]), [["1", "Rani", "2"], ["2", "Sari", "3"], ["3", "Tono", "4"]]);
-  assert.deepEqual(cals.map((x) => [val(x, "UID"), val(x, "Name"), val(x, "IsBaseCalendar"), val(x, "BaseCalendarUID")]), [["1", "Standar", "1", "-1"], ["2", "Rani", "0", "1"], ["3", "Sari", "0", "1"], ["4", "Tono", "0", "1"]]);
+  assert.deepEqual(cals.map((x) => [val(x, "UID"), val(x, "Name"), val(x, "IsBaseCalendar"), val(x, "BaseCalendarUID")]), [["1", "Standard", "1", "-1"], ["2", "Rani", "0", "1"], ["3", "Sari", "0", "1"], ["4", "Tono", "0", "1"]]);
   for (const rc of cals.slice(1)) assert.deepEqual(names(rc), RESCAL_ORDER);
   assert.equal(val(byName(r.doc, "Materi Natal"), "Finish"), "2026-12-29T17:00:00");
   for (const x of res) {

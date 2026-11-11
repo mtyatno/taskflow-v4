@@ -506,8 +506,14 @@ berjalan setelah mesin 1c siap dan memakai konteks mesin yang sama (daftar lengk
     `Estimated 1` + `DurationFormat 39` ("1 hari?") + SNET; baseline aktif → `Baseline` Number 0; resource = penanggung
     jawab (workspace) atau pemilik (pribadi), masing-masing dengan kalender resource turunan kalender dasar (libur ikut),
     assignment `Work` = target 🍅 × 25 menit, `Units` 6 desimal dibulatkan ke atas (Units × durasi ≥ Work, dikoreksi
-    review F5). Tanpa `Date`: data yang sama di hari yang sama menghasilkan berkas identik. Residual interop
-    (ProjectLibre, kolom Batasan, selisih tanggal di sekitar milestone): ADR-050.
+    review F5). Kemajuan (dikoreksi uji pemilik #2 F6): MS Project membacanya dari pasangan aktual/sisa, jadi setiap
+    task menulis `Work`, `ActualDuration` = durasi × %, `RemainingDuration`, `ActualWork`/`RemainingWork`,
+    `PercentWorkComplete`, `ActualStart` bila % > 0 dan `ActualFinish` bila 100 %; setiap assignment `ActualWork` = Work
+    × % + `RemainingWork`; task ber-% > 0 tanpa assignment (tanpa penanggung jawab, milestone) mendapat assignment semu
+    `ResourceUID -65535` (bentuk MPXJ: `Units 1`, Work = durasi); nilai dalam detik bulat (eksak); kalender dasar
+    bernama "Standard". Belum ada `TimephasedData`. Tanpa `Date`: data yang sama di hari yang sama menghasilkan berkas
+    identik. Residual interop (ProjectLibre, kolom Batasan, selisih tanggal di sekitar milestone, Work task tanpa
+    penanggung jawab): ADR-050.
   - **Toast:** "Berkas {nama} diunduh" (+ " · {n} task tanpa jadwal ditandai perkiraan", " · {k} tautan dilewati"),
     gagal → "Ekspor gagal". Aplikasi desktop/Android (`api.env.platform === "tauri"`) → "Ekspor tersedia di alurik.com
     lewat browser" tanpa membangun XML (`saveFile` di native → `false`).

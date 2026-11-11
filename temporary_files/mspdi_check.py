@@ -10,6 +10,10 @@
    start/finish (= es/ef mesin), durasi (juga dihitung ulang dari kalender MPXJ), milestone, % selesai, aktual, kendala
    (ASAP/SNET/MSO/MFO, HonorConstraints), mode Manual, perkiraan, tautan (tipe + lag), kalender (pola mingguan +
    pengecualian gaya 2007 tanpa ganda, nama libur SKB), baseline, resource, assignment (work, units).
+4. Kemajuan (uji pemilik #2 F6): aktual + sisa = total untuk durasi task dan kerja assignment, assignment semu
+   ResourceUID -65535 untuk task ber-% > 0 tanpa assignment nyata, dan "tanpa turunan MPXJ" — berkas dibaca MPXJ lalu
+   ditulis ulang dengan MSPDIWriter bawaan; RemainingDuration setiap Task dan RemainingWork/ActualWork/ActualFinish setiap
+   Assignment hasil tulis-ulang harus sama dengan milik kita (MPXJ tidak perlu menurunkan apa pun).
 
 Pasang (sekali, lokal): pip install --break-system-packages mpxj JPype1 ; Java sistem (/usr/bin/java).
 Tanpa MPXJ → hanya pemeriksaan struktur xml.etree (dilaporkan sebagai FALLBACK, keluar kode 2).
@@ -26,11 +30,13 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import xml.etree.ElementTree as ET
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "temporary_files", "mspdi_sample.xml")
 NS = "{http://schemas.microsoft.com/project}"
+NULL_RES = "-65535"  # ResourceUID assignment semu (tanpa resource), bentuk MSPDIWriter MPXJ / MS Project
 
 NODE_JS = r"""
 const path = require("path");
@@ -78,6 +84,11 @@ const tasks = [
   mk({ id: 12, title: "Wawancara", project: "Beta", parent: 10, start: "2026-11-05", d: 1, to: 3, progress: 50 }),
   mk({ id: 13, title: "Belum dijadwalkan", project: "Beta", parent: 10, to: 3 }),
   mk({ id: 14, title: "Natal", project: "Beta", start: "2026-12-23", d: 3 }),
+  // uji pemilik #2 F6: tanpa penanggung jawab — 50 % (assignment semu), milestone selesai (semu + ActualFinish), selesai
+  // (semu 100 %); "Natal" di atas = terjadwal 0 % tanpa assignment (RemainingDuration penuh, Work nol).
+  mk({ id: 15, title: "Notulen", project: "Alpha", start: "2026-11-09", d: 4, progress: 50 }),
+  mk({ id: 16, title: "Serah terima", project: "Beta", start: "2026-11-06", d: 0, done: true }),
+  mk({ id: 17, title: "Cadangan", project: "Beta", start: "2026-11-02", d: 2, done: true }),
 ];
 const units = new Map([[S.unitOf({ list_id: 7, project: "Alpha" }).recId, { auto: true }]]);
 const cal = C.compile({ v: 1, weekdays: [1, 2, 3, 4, 5], national: true, cutiBersama: true,
@@ -134,10 +145,16 @@ def tv(el, name):
     return None if x is None else x.text
 
 
-def hours(iso_dur):  # "PT40H0M0S" → jam
+def secs(iso_dur):  # "PT2H38M24S" → detik; None (elemen absen) → 0
+    if not iso_dur:
+        return 0
     h, rest = iso_dur[2:].split("H")
-    m = rest.split("M")[0]
-    return int(h) + int(m) / 60
+    m, rest = rest.split("M")
+    return int(h) * 3600 + int(m) * 60 + int(rest.rstrip("S") or 0)
+
+
+def hours(iso_dur):  # "PT40H0M0S" → jam
+    return secs(iso_dur) / 3600
 
 
 def structure_checks(root, data):
@@ -240,7 +257,9 @@ def resource_calendar_checks(project, root, label=""):
                 bad.append((str(r.getName()), "kalender resource: 24/12 hari kerja"))
     for a in project.getResourceAssignments():
         res = a.getResource()
-        rc = res.getCalendar() if res is not None and res.getCalendar() is not None else std
+        if res is None:  # assignment semu ResourceUID -65535 (F6): Units 1, Work = durasi — bukan penugasan resource
+            continue
+        rc = res.getCalendar() if res.getCalendar() is not None else std
         mins = float(rc.getWork(a.getStart(), a.getFinish(), TimeUnit.MINUTES).getDuration())
         work = float(a.getWork().convertUnits(TimeUnit.MINUTES, props).getDuration())
         units = float(a.getUnits()) / 100.0
@@ -251,6 +270,134 @@ def resource_calendar_checks(project, root, label=""):
         print(f"    {label}{row[0]:<22} {row[1]:<8} units {row[2]:<7} × kerja kalender resource {row[3]:>6.0f} menit ≈ Work {row[4]:>5.0f}")
     check(not bad, f"F4 A: {len(rows)} assignment — Units × waktu kerja kalender resource (Start..Finish) ≈ Work ±1 menit; kalender resource turunan UID 1 dengan pengecualian sama (24/12 libur) {bad[:4]}")
     return bad
+
+
+def progress_checks(project, root, path):
+    """Uji pemilik #2 F6. (a) XML: setiap Task punya Work + pasangan aktual/sisa dan aktual + sisa = total (durasi, kerja);
+    ActualStart bila % > 0, ActualFinish ⇔ 100 %; setiap Assignment punya ActualWork + RemainingWork = Work dan
+    PercentWorkComplete = % task; task non-ringkasan ber-% > 0 tanpa assignment nyata punya tepat satu assignment semu
+    (ResourceUID -65535, Units 1, Work = durasi). (b) MPXJ membaca % selesai, ActualDuration/RemainingDuration dan nilai
+    kerja task sama dengan XML. (c) "tanpa turunan MPXJ": berkas dibaca ulang lalu ditulis MSPDIWriter bawaan —
+    RemainingDuration setiap Task dan RemainingWork/ActualWork/ActualFinish setiap Assignment hasil tulis-ulang = milik
+    kita (elemen absen = nol; toleransi 1 detik untuk pembulatan MPXJ), tanpa assignment tambahan. Mengembalikan
+    {"bad": [...], "pseudo": [...]}."""
+    from org.mpxj import TimeUnit
+    from org.mpxj.mspdi import MSPDIReader, MSPDIWriter
+
+    props = project.getProjectProperties()
+    print("\n[F6] Kemajuan: aktual/sisa, assignment semu, tanpa turunan MPXJ")
+    xt = {tv(t, "UID"): t for t in xml_tasks(root)}
+    xa = list(root.find(NS + "Assignments"))
+    by_task = {}
+    for a in xa:
+        by_task.setdefault(tv(a, "TaskUID"), []).append(a)
+    need_t = ("Work", "PercentWorkComplete", "ActualDuration", "ActualWork", "RemainingDuration", "RemainingWork")
+    need_a = ("PercentWorkComplete", "ActualWork", "RemainingWork", "Start", "Finish", "Units", "Work")
+    xbad, pseudo = [], []
+    for uid, t in xt.items():
+        nm = tv(t, "Name")
+        miss = [n for n in need_t if t.find(NS + n) is None]
+        if miss:
+            xbad.append((nm, "Task tanpa " + "/".join(miss)))
+            continue
+        pct = int(tv(t, "PercentComplete"))
+        if secs(tv(t, "ActualDuration")) + secs(tv(t, "RemainingDuration")) != secs(tv(t, "Duration")):
+            xbad.append((nm, "ActualDuration + RemainingDuration ≠ Duration"))
+        if secs(tv(t, "ActualDuration")) * 100 != secs(tv(t, "Duration")) * pct:
+            xbad.append((nm, "ActualDuration ≠ Duration × %"))
+        if secs(tv(t, "ActualWork")) + secs(tv(t, "RemainingWork")) != secs(tv(t, "Work")):
+            xbad.append((nm, "ActualWork + RemainingWork ≠ Work (task)"))
+        mine = by_task.get(uid, [])
+        if secs(tv(t, "Work")) != sum(secs(tv(a, "Work")) for a in mine):
+            xbad.append((nm, "Work task ≠ jumlah Work assignment"))
+        if tv(t, "Summary") == "1":
+            continue
+        if pct > 0 and tv(t, "ActualStart") != tv(t, "Start"):
+            xbad.append((nm, "% > 0 tanpa ActualStart = Start"))
+        if (pct == 100) != (t.find(NS + "ActualFinish") is not None):
+            xbad.append((nm, "ActualFinish ⇎ 100 %"))
+        real = [a for a in mine if tv(a, "ResourceUID") != NULL_RES]
+        fake = [a for a in mine if tv(a, "ResourceUID") == NULL_RES]
+        if len(fake) != (1 if pct > 0 and not real else 0):
+            xbad.append((nm, f"assignment semu {len(fake)} (% {pct}, nyata {len(real)})"))
+        for a in fake:
+            if tv(a, "Units") != "1" or tv(a, "Work") != tv(t, "Duration"):
+                xbad.append((nm, "assignment semu: Units ≠ 1 atau Work ≠ durasi"))
+            pseudo.append([nm, int(uid), pct, secs(tv(a, "Work")) / 60, secs(tv(a, "ActualWork")) / 60, (tv(a, "ActualFinish") or "")[:16] or None])
+    for a in xa:
+        t = xt.get(tv(a, "TaskUID"))
+        nm = None if t is None else tv(t, "Name")
+        miss = [n for n in need_a if a.find(NS + n) is None]
+        if t is None or miss:
+            xbad.append((nm, "Assignment tanpa " + "/".join(miss)))
+            continue
+        pct = int(tv(t, "PercentComplete"))
+        if secs(tv(a, "ActualWork")) + secs(tv(a, "RemainingWork")) != secs(tv(a, "Work")):
+            xbad.append((nm, "ActualWork + RemainingWork ≠ Work (assignment)"))
+        if secs(tv(a, "ActualWork")) * 100 != secs(tv(a, "Work")) * pct or tv(a, "PercentWorkComplete") != str(pct):
+            xbad.append((nm, "ActualWork ≠ Work × % atau PercentWorkComplete ≠ % task"))
+        if (pct == 100) != (a.find(NS + "ActualFinish") is not None):
+            xbad.append((nm, "ActualFinish assignment ⇎ 100 %"))
+    for b in xbad[:10]:
+        print("    BEDA", b)
+    check(not xbad, f"XML: {len(xt)} task + {len(xa)} assignment ({len(pseudo)} semu) — Work + aktual/sisa ada, aktual + sisa = total, "
+                    f"ActualStart bila % > 0, ActualFinish ⇔ 100 %, assignment semu ⇔ % > 0 tanpa assignment nyata {xbad[:3]}")
+
+    def mins(dur):
+        return 0.0 if dur is None else round(float(dur.convertUnits(TimeUnit.MINUTES, props).getDuration()), 2)
+
+    mbad = []
+    for t in project.getTasks():
+        x = xt.get(str(t.getUniqueID()))
+        if x is None:
+            continue
+        got = (float(t.getPercentageComplete() or 0), mins(t.getActualDuration()), mins(t.getRemainingDuration()), mins(t.getWork()),
+               mins(t.getActualWork()), mins(t.getRemainingWork()), float(t.getPercentageWorkComplete() or 0))
+        want = (float(tv(x, "PercentComplete")), round(secs(tv(x, "ActualDuration")) / 60, 2), round(secs(tv(x, "RemainingDuration")) / 60, 2),
+                round(secs(tv(x, "Work")) / 60, 2), round(secs(tv(x, "ActualWork")) / 60, 2), round(secs(tv(x, "RemainingWork")) / 60, 2),
+                float(tv(x, "PercentWorkComplete") or 0))
+        if got != want:
+            mbad.append((str(t.getName()), got, want))
+    for b in mbad[:10]:
+        print("    BEDA", b)
+    check(not mbad, f"MPXJ membaca % selesai, ActualDuration, RemainingDuration, Work, ActualWork, RemainingWork, % kerja {len(xt)} task = XML {mbad[:3]}")
+
+    # (c) tulis ulang dengan MSPDIWriter bawaan (instans baca terpisah agar model yang diperiksa tidak tersentuh)
+    fd, tmp = tempfile.mkstemp(suffix=".xml", prefix="mspdi_rw_")
+    os.close(fd)
+    try:
+        MSPDIWriter().write(MSPDIReader().read(path), tmp)
+        rw = ET.parse(tmp).getroot()
+    finally:
+        os.remove(tmp)
+    rbad = []
+    rt = {tv(t, "UID"): t for t in xml_tasks(rw)}
+    for uid, t in xt.items():
+        r = rt.get(uid)
+        if r is None:
+            rbad.append((tv(t, "Name"), "task hilang di tulis-ulang"))
+        elif t.find(NS + "RemainingDuration") is None or abs(secs(tv(r, "RemainingDuration")) - secs(tv(t, "RemainingDuration"))) > 1:
+            rbad.append((tv(t, "Name"), "RemainingDuration", tv(t, "RemainingDuration"), tv(r, "RemainingDuration")))
+    ra = {(tv(a, "TaskUID"), tv(a, "ResourceUID")): a for a in rw.find(NS + "Assignments")}
+    ours = {(tv(a, "TaskUID"), tv(a, "ResourceUID")): a for a in xa}
+    for k in sorted(set(ra) - set(ours)):
+        rbad.append((tv(rt[k[0]], "Name") if k[0] in rt else k[0], "assignment diturunkan MPXJ (tidak ada di berkas kita)", k[1]))
+    for k, a in ours.items():
+        nm = tv(xt[k[0]], "Name") if k[0] in xt else k[0]
+        r = ra.get(k)
+        if r is None:
+            rbad.append((nm, "assignment hilang di tulis-ulang"))
+            continue
+        for n in ("RemainingWork", "ActualWork"):
+            if a.find(NS + n) is None or abs(secs(tv(r, n)) - secs(tv(a, n))) > 1:
+                rbad.append((nm, n, tv(a, n), tv(r, n)))
+        if (tv(r, "ActualFinish") or "")[:19] != (tv(a, "ActualFinish") or "")[:19]:
+            rbad.append((nm, "ActualFinish", tv(a, "ActualFinish"), tv(r, "ActualFinish")))
+    for b in rbad[:10]:
+        print("    BEDA", b)
+    check(not rbad, f"tanpa turunan MPXJ: tulis-ulang MSPDIWriter — RemainingDuration {len(xt)} task dan RemainingWork/ActualWork/ActualFinish "
+                    f"{len(xa)} assignment = milik kita, tanpa assignment tambahan ({len(rbad)} beda) {rbad[:3]}")
+    return {"bad": [list(map(str, b)) for b in xbad + mbad + rbad], "pseudo": sorted(pseudo)}
 
 
 def mpxj_checks(root, data):
@@ -403,8 +550,11 @@ def mpxj_checks(root, data):
     print("    resource", res)
     check(res == [(1, "Budi", "WORK"), (2, "Sari", "WORK")], "2 resource kerja, urut nama")
     xa = {tv(a, "UID"): a for a in root.find(NS + "Assignments")}
-    asg = list(project.getResourceAssignments())
-    check(len(asg) == len(xa) == data["stats"]["assignments"] == 10, f"jumlah assignment MPXJ = XML = stats ({len(asg)})")
+    all_asg = list(project.getResourceAssignments())
+    asg = [a for a in all_asg if a.getResource() is not None]  # nyata; assignment semu (ResourceUID -65535) terpisah (F6)
+    fake = {str(a.getTask().getName()): a for a in all_asg if a.getResource() is None}
+    check(len(asg) == data["stats"]["assignments"] == 10 and len(all_asg) == len(xa) == 10 + 3 and sorted(fake) == ["Cadangan", "Notulen", "Serah terima"],
+          f"assignment nyata MPXJ = stats ({len(asg)}); + {len(fake)} semu {sorted(fake)} = XML ({len(xa)})")
     abad = []
     for a in asg:
         tuid, ruid = str(a.getTask().getUniqueID()), str(a.getResource().getUniqueID())
@@ -418,18 +568,40 @@ def mpxj_checks(root, data):
     ad = {str(a.getTask().getName()): (str(a.getResource().getName()), minutes(a.getWork()), round(float(a.getUnits()), 2)) for a in asg}
     check(ad["Desain"] == ("Sari", 100.0, 4.17), f"Desain: Sari 4 🍅 = 100 menit, units 4,17 % ({ad['Desain']})")
     check(ad["Bangun"] == ("Budi", 150.0, 10.42), f"Bangun: Budi 6 🍅 = 150 menit / 3 hari ({ad['Bangun']})")
-    check("Rilis" not in ad and "Belum dijadwalkan" not in ad and "Natal" not in ad, "milestone / tanpa jadwal / tanpa penanggung jawab → tanpa assignment")
+    check(all(n not in ad and n not in fake for n in ("Rilis", "Belum dijadwalkan", "Natal")), "milestone / tanpa jadwal / tanpa penanggung jawab ber-0 % → tanpa assignment")
+    am = {str(a.getTask().getName()): a for a in asg}
+    check((float(am["Desain"].getPercentageWorkComplete()), minutes(am["Desain"].getActualWork()), minutes(am["Desain"].getRemainingWork()), dt(am["Desain"].getActualStart()), am["Desain"].getActualFinish()) == (40.0, 40.0, 60.0, "2026-11-02T08:00", None),
+          "F6 Desain 40 %: assignment ActualWork 40 menit + RemainingWork 60 menit, ActualStart, tanpa ActualFinish")
+    check((float(am["Survei"].getPercentageWorkComplete()), minutes(am["Survei"].getActualWork()), dt(am["Survei"].getActualFinish())) == (100.0, 25.0, "2026-11-04T17:00") and not minutes(am["Survei"].getRemainingWork()),
+          "F6 Survei 100 %: assignment ActualWork = Work, RemainingWork nol, ActualFinish")
+    check((minutes(am["Bangun"].getActualWork()) or 0.0, minutes(am["Bangun"].getRemainingWork())) == (0.0, 150.0), "F6 Bangun 0 %: RemainingWork = Work 150 menit")
+    f = fake.get("Notulen")
+    check(f is not None and (minutes(f.getWork()), minutes(f.getActualWork()), minutes(f.getRemainingWork()), float(f.getUnits()), f.getActualFinish()) == (1920.0, 960.0, 960.0, 100.0, None)
+          and days(by["Notulen"].getRemainingDuration()) == 2 and dt(by["Notulen"].getActualStart()) == "2026-11-09T08:00",
+          "F6 Notulen (tanpa penanggung jawab, 50 %): assignment semu Work = durasi 32 j, ActualWork 16 j, Units 1; task RemainingDuration 2 hari + ActualStart")
+    f = fake.get("Serah terima")
+    check(f is not None and dt(f.getActualFinish()) == "2026-11-06T08:00" and not minutes(f.getWork()) and float(by["Serah terima"].getPercentageComplete()) == 100,
+          "F6 Serah terima (milestone selesai): assignment semu ber-ActualFinish, Work nol, task 100 %")
+    f = fake.get("Cadangan")
+    check(f is not None and minutes(f.getActualWork()) == minutes(f.getWork()) == days(by["Cadangan"].getDuration()) * 480 and f.getActualFinish() is not None,
+          "F6 Cadangan (selesai tanpa penanggung jawab): assignment semu ActualWork = Work = durasi, ActualFinish")
+    check(days(by["Natal"].getRemainingDuration()) == 3 and not minutes(by["Natal"].getWork()) and days(by["Belum dijadwalkan"].getRemainingDuration()) == 1,
+          "F6 tanpa assignment: Natal RemainingDuration 3 hari + Work nol; placeholder RemainingDuration 1 hari")
+    check(str(cal.getName()) == "Standard", f"kalender dasar bernama 'Standard' ({cal.getName()})")
     xp = next(v for v in xa.values() if tv(v, "TaskUID") == str(by["Arsip panjang"].getUniqueID()))
     check(days(by["Arsip panjang"].getDuration()) == 260 and ad["Arsip panjang"][:2] == ("Sari", 1750.0) and tv(xp, "Units") == "0.014023",
           f"Arsip panjang: 70 🍅 = 1.750 menit / 260 hari, Units 6 desimal dibulatkan ke atas ({tv(xp, 'Units')}, review F5)")
     xbad = []
     for v in xa.values():
+        if tv(v, "ResourceUID") == NULL_RES:
+            continue
         t = next(t for t in xml_tasks(root) if tv(t, "UID") == tv(v, "TaskUID"))
         over = float(tv(v, "Units")) * hours(tv(t, "Duration")) * 60 - hours(tv(v, "Work")) * 60
         if not (-1e-6 <= over < 1) or "e" in tv(v, "Units").lower() or len(tv(v, "Units").partition(".")[2]) > 6:
             xbad.append((tv(t, "Name"), tv(v, "Units"), round(over, 4)))
     check(not xbad, f"Units ≤ 6 desimal tanpa notasi ilmiah; Units × durasi (menit) − Work ∈ [0, 1) (review F5) {xbad}")
     resource_calendar_checks(project, root)
+    progress_checks(project, root, OUT)
     jpype.shutdownJVM()
 
 
@@ -547,8 +719,9 @@ def file_mpxj_dump(path, root):
     out["resources"] = [[int(r.getUniqueID()), str(r.getName()), str(r.getType().name())] for r in project.getResources()
                         if r.getUniqueID() is not None and int(r.getUniqueID()) > 0]
     xa = list(root.find(NS + "Assignments"))
-    asg = list(project.getResourceAssignments())
-    check(len(asg) == len(xa), f"jumlah assignment MPXJ = XML ({len(asg)})")
+    all_asg = list(project.getResourceAssignments())
+    asg = [a for a in all_asg if a.getResource() is not None]  # nyata; assignment semu (ResourceUID -65535) → out["pseudo"] (F6)
+    check(len(all_asg) == len(xa), f"jumlah assignment MPXJ = XML ({len(all_asg)}; nyata {len(asg)})")
     abad, arows = [], []
     for a in asg:
         tuid, ruid = str(a.getTask().getUniqueID()), str(a.getResource().getUniqueID())
@@ -563,6 +736,15 @@ def file_mpxj_dump(path, root):
     out["resourceCalendarBad"] = [list(map(str, b)) for b in resource_calendar_checks(project, root)]
     out["mso"] = [str(t.getName()) for t in project.getTasks() if t.getConstraintType() is not None and str(t.getConstraintType().name()) == "MUST_START_ON"]
     check(not out["mso"], f"tanpa MSO (F4 B) {out['mso']}")
+    prog = progress_checks(project, root, path)
+    out["progressBad"] = prog["bad"]
+    out["pseudo"] = prog["pseudo"]
+    out["calendarName"] = None if cal.getName() is None else str(cal.getName())
+    xmap = {tv(t, "UID"): t for t in xml_tasks(root)}
+    for row in out["tasks"]:  # nilai kemajuan XML per task (menit) untuk asersi pemanggil
+        x = xmap[str(row["uid"])]
+        row.update(work=secs(tv(x, "Work")) / 60, adur=secs(tv(x, "ActualDuration")) / 60, rdur=secs(tv(x, "RemainingDuration")) / 60,
+                   awork=secs(tv(x, "ActualWork")) / 60, rwork=secs(tv(x, "RemainingWork")) / 60)
     return out
 
 

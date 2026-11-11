@@ -18,6 +18,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   const PROLOG = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>';
   const SAVE_VERSION = 14;
   const MIN_DAY = 480; // menit kerja per hari (08:00–12:00 + 13:00–17:00)
+  const SEC_DAY = MIN_DAY * 60; // detik kerja per hari (kemajuan ditulis eksak dalam detik, F6)
   const POMO_MIN = 25; // menit per 🍅 (rumus hoursLabel TLLoad)
   const LAG_UNIT = 4800; // LinkLag = persepuluh menit; 1 hari kerja = 480 × 10
   const LAG_FORMAT = 7; // hari
@@ -32,8 +33,11 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   const SPAN_MAX = 3660; // R7: maks hari kalender rentang pengecualian / hitung hari kerja ringkasan
   const HALF_SPAN = 1830; // rentang terlalu lebar → digeser mendekati hari ini ± 1830 (pola RANGE_SPAN TLLayout)
   const DEFAULT_TITLE = "Timeline";
-  const CAL_NAME = "Standar";
+  // Nama kalender dasar = "Standard", nama kalender dasar bawaan MS Project dan MPXJ (uji pemilik #2 F6: nama lain diduga
+  // membuat MS Project memakai kalender proyek sementara tanpa libur saat impor).
+  const CAL_NAME = "Standard";
   const NO_RES = "Anggota #";
+  const NULL_RES = -65535; // ResourceUID "tanpa resource" MS Project (assignment semu, F6)
   const LINK_TYPE = Object.freeze({ FF: 0, FS: 1, SF: 2, SS: 3 });
   // ConstraintType MSPDI: 0 ASAP, 3 MFO (harus selesai pada), 4 SNET (mulai tidak lebih awal). 2 MSO (harus mulai pada)
   // sengaja tidak dipakai (uji pemilik F4: MSO di tanggal yang dilanggar tautan = ikon konflik kendala di MS Project).
@@ -199,6 +203,9 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   const fmtPt = (p) => CAL.iso(ptDn(p)) + (p - ptDn(p) * 2 === 1 ? T_FINISH : T_START);
   const fmtDur = (days) => "PT" + days * 8 + "H0M0S";
   const fmtWork = (min) => "PT" + Math.floor(min / 60) + "H" + (min % 60) + "M0S";
+  // Durasi/kerja dalam detik bulat → "PT{j}H{m}M{d}S" (kemajuan F6: durasi × % dan Work × % selalu detik bulat — 288 × d ×
+  // % dan 15 × target × % — jadi aktual ÷ total = % persis, tanpa pembulatan; bentuk yang sama ditulis MPXJ/MS Project).
+  const fmtSec = (sec) => "PT" + Math.floor(sec / 3600) + "H" + Math.floor((sec % 3600) / 60) + "M" + (sec % 60) + "S";
   // Units = menit kerja ÷ (d × 480), 6 desimal DIBULATKAN KE ATAS dengan aritmetika bilangan bulat (review F5: 4 desimal
   // setengah ke atas bisa membuat Units × menit kerja < Work, hingga ±24 menit di 999 hari — penugasan tidak muat di
   // rentang task). Ke atas → Units × d × 480 − Work ∈ [0, d × 480 ÷ 10⁶) menit (< 0,48 menit di 999 hari). Tanpa notasi
@@ -650,6 +657,41 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
       asg.push({ uid: asg.length + 1, task: e, rid, units: fmtUnits(e.work, e.d) });
     }
 
+    // 7b. kemajuan (uji pemilik #2 F6). MS Project membaca kemajuan dari pasangan aktual/sisa, bukan dari PercentComplete
+    // saja: tanpa RemainingDuration task tanpa assignment diimpor "0 days?", tanpa ActualWork/RemainingWork di assignment
+    // % selesai hilang dan muncul dialog "resource is assigned outside the original dates" (bentuk rujukan: MSPDIWriter
+    // MPXJ selalu menulis RemainingDuration/RemainingWork). Per task non-ringkasan, dalam detik bulat (eksak):
+    //  - ActualDuration = durasi × %, RemainingDuration = durasi − ActualDuration (placeholder 0 % → PT8H0M0S);
+    //  - ActualStart bila % > 0 (= Start; task selesai/berjalan sudah memakai aktual mesin), ActualFinish bila 100 %
+    //    (= Finish) — sama dengan yang disetel MS Project sendiri saat % diisi;
+    //  - assignment nyata: ActualWork = Work × %, RemainingWork = Work − ActualWork;
+    //  - tanpa assignment nyata dan % > 0 (tanpa penanggung jawab, milestone, tanpa jadwal) → assignment semu
+    //    ResourceUID −65535 bentuk MPXJ (Units 1, Work = durasi, ActualWork = durasi × %): tanpa assignment MS Project
+    //    mengabaikan % selesai task; UID sesudah assignment nyata (urutan task), tidak dihitung stats.assignments;
+    //  - Work/ActualWork/RemainingWork/PercentWorkComplete task = milik assignment-nya (nyata atau semu); tanpa
+    //    assignment → nol.
+    // Ringkasan/kelompok/UID 0 mengikuti keluaran MPXJ: % 0, RemainingDuration = Duration, nilai kerja nol (MS Project
+    // menghitung sendiri gulungan ringkasan).
+    const pseudo = [];
+    for (const e of ents) {
+      if (e.kind !== "task") continue;
+      const pct = pctOf(e.task);
+      e.pct = pct;
+      e.aS = e.actualS === true || pct > 0;
+      e.aF = e.actualF === true || pct === 100;
+      e.actDur = e.d * (SEC_DAY / 100) * pct;
+      if (e.work !== undefined) {
+        e.wSec = e.work * 60;
+        e.awSec = Math.round((e.wSec * pct) / 100);
+        e.pwc = pct;
+      } else if (pct > 0) {
+        e.wSec = e.d * SEC_DAY;
+        e.awSec = e.actDur;
+        e.pwc = pct;
+        pseudo.push({ uid: asg.length + pseudo.length + 1, task: e });
+      }
+    }
+
     // 8. XML.
     const out = Buf();
     out.line(0, PROLOG);
@@ -696,15 +738,24 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     }
     out.line(1, "</Resources>");
     out.line(1, "<Assignments>");
-    for (const x of asg) {
+    // Urutan anak XSD (subset): UID, TaskUID, ResourceUID, PercentWorkComplete, ActualFinish?, ActualStart?, ActualWork,
+    // Finish, RemainingWork, Start, Units, Work. Assignment semu (rid absen) = bentuk MPXJ: tanpa ActualStart, Units 1.
+    for (const x of asg.concat(pseudo)) {
+      const t = x.task;
+      const real = x.rid !== undefined;
       out.line(2, "<Assignment>");
       out.el(3, "UID", x.uid);
-      out.el(3, "TaskUID", x.task.uid);
-      out.el(3, "ResourceUID", x.rid);
-      out.el(3, "Finish", fmtPt(x.task.f));
-      out.el(3, "Start", fmtPt(x.task.s));
-      out.el(3, "Units", x.units);
-      out.el(3, "Work", fmtWork(x.task.work));
+      out.el(3, "TaskUID", t.uid);
+      out.el(3, "ResourceUID", real ? x.rid : NULL_RES);
+      out.el(3, "PercentWorkComplete", t.pct);
+      if (t.pct === 100) out.el(3, "ActualFinish", fmtPt(t.f));
+      if (real && t.pct > 0) out.el(3, "ActualStart", fmtPt(t.s));
+      out.el(3, "ActualWork", fmtSec(t.awSec));
+      out.el(3, "Finish", fmtPt(t.f));
+      out.el(3, "RemainingWork", fmtSec(t.wSec - t.awSec));
+      out.el(3, "Start", fmtPt(t.s));
+      out.el(3, "Units", real ? x.units : 1);
+      out.el(3, "Work", fmtSec(t.wSec));
       out.line(2, "</Assignment>");
     }
     out.line(1, "</Assignments>");
@@ -848,12 +899,17 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   }
 
   // Satu <Task> dengan urutan anak XSD (subset): UID, ID, Name, Manual, Type, IsNull, CreateDate, WBS, OutlineNumber,
-  // OutlineLevel, Start, Finish, Duration, DurationFormat, Work?, EffortDriven, Estimated, Milestone, Summary,
-  // PercentComplete, ActualStart?, ActualFinish?, ConstraintType, CalendarUID, ConstraintDate?, PredecessorLink*,
-  // Baseline?, ManualStart/ManualFinish/ManualDuration (task Manual: tanggal yang dijaga MS Project 2010+).
+  // OutlineLevel, Start, Finish, Duration, DurationFormat, Work, EffortDriven, Estimated, Milestone, Summary,
+  // PercentComplete, PercentWorkComplete, ActualStart?, ActualFinish?, ActualDuration, ActualWork, RemainingDuration,
+  // RemainingWork, ConstraintType, CalendarUID, ConstraintDate?, PredecessorLink*, Baseline?,
+  // ManualStart/ManualFinish/ManualDuration (task Manual: tanggal yang dijaga MS Project 2010+). Nilai kemajuan = langkah
+  // 7b build (F6); ringkasan/kelompok/UID 0: % 0, sisa = durasi, kerja nol.
   function writeTask(out, e, D) {
     const summary = e.kind !== "task";
     const dur = fmtDur(e.d);
+    const wSec = summary || e.wSec === undefined ? 0 : e.wSec;
+    const awSec = summary || e.awSec === undefined ? 0 : e.awSec;
+    const actDur = summary ? 0 : e.actDur;
     out.line(2, "<Task>");
     out.el(3, "UID", e.uid);
     out.el(3, "ID", e.uid);
@@ -869,14 +925,19 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     out.el(3, "Finish", fmtPt(e.f));
     out.el(3, "Duration", dur);
     out.el(3, "DurationFormat", e.unscheduled ? DUR_FORMAT_EST : DUR_FORMAT);
-    if (e.work !== undefined) out.el(3, "Work", fmtWork(e.work));
+    out.el(3, "Work", fmtSec(wSec));
     out.el(3, "EffortDriven", 0);
     out.el(3, "Estimated", e.unscheduled ? 1 : 0);
     out.el(3, "Milestone", !summary && (e.ms || e.msMark) ? 1 : 0);
     out.el(3, "Summary", summary ? 1 : 0);
-    out.el(3, "PercentComplete", summary ? 0 : pctOf(e.task));
-    if (e.actualS) out.el(3, "ActualStart", fmtPt(e.s));
-    if (e.actualF) out.el(3, "ActualFinish", fmtPt(e.f));
+    out.el(3, "PercentComplete", summary ? 0 : e.pct);
+    out.el(3, "PercentWorkComplete", summary || e.pwc === undefined ? 0 : e.pwc);
+    if (!summary && e.aS) out.el(3, "ActualStart", fmtPt(e.s));
+    if (!summary && e.aF) out.el(3, "ActualFinish", fmtPt(e.f));
+    out.el(3, "ActualDuration", fmtSec(actDur));
+    out.el(3, "ActualWork", fmtSec(awSec));
+    out.el(3, "RemainingDuration", fmtSec(e.d * SEC_DAY - actDur));
+    out.el(3, "RemainingWork", fmtSec(wSec - awSec));
     out.el(3, "ConstraintType", e.ctype);
     out.el(3, "CalendarUID", -1);
     if (e.cdate !== null) out.el(3, "ConstraintDate", e.cdate);
