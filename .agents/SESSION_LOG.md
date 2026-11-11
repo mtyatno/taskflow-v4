@@ -4509,6 +4509,12 @@
 - **Files Touch:** static/plugins/timeline/{mspdi.js,plugin.js}, static/plugins/index.json, static/sw.js (blok hash), tests/offline/timeline_mspdi.test.js, temporary_files/{mspdi_check.py,mspdi_sample.xml,mspdi_uji_progres.py,e2e_plugin_fase1_1d2.py,e2e_plugin_fase1_1d2/{contoh-ekspor-workspace.xml,uji-progres-P2.xml,uji-progres-P3-kepala-lama.xml}}, docs/plugins/README.md, .agents/DECISIONS.md, docs/superpowers/{plans,specs}/*1d*, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — menunggu uji pemilik #4 (P1, P2, P3 dengan kolom % Complete). Efek F8 pada progres/dialog belum terverifikasi. Merge hanya atas "merge dan deploy". npm 4884/4885 (pra-ada `draw_local_reactive`).
 
+## [2026-11-12 01:50] - Claude (Opus 5.5)
+- **Task:** Merge + deploy PR #133 (checklist offline Fase 2, PR A2 server) atas "backup done, merge dan deploy".
+- **Changes:** PR ditandai ready lalu di-merge (`f293bcb`); CI Tests + Deploy sukses (01.46 WIB, `migrate_db` tanpa galat). Pemilik diminta `sudo systemctl restart taskflow taskflow-web`.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Done kecuali restart (menunggu pemilik). Berikutnya: rencana + eksekusi PR B2 (aplikasi).
+
 ## [2026-11-12 02:00] - Claude (Fable 5.2)
 - **Task:** Hasil uji pemilik #4 PR 1d-2 (#131) di Microsoft Project (P1, P2, P3 dengan kolom % Complete) → merge.
 - **Changes:** Tanpa perubahan kode. P1 (kode F8): tanpa dialog, % Complete semua task = Timeline, tanggal tetap. P2 (kepala F8): semua bentuk progres terbaca. P3 (kepala lama): dialog + 0 % untuk bentuk ber-assignment nyata → akar terbukti: `ProjectExternallyEdited 0`. Dicatat di ADR-050 (Verification + residual), README §6.2, catatan spec; tanggal whatsnew v503 → 2026-11-12.
