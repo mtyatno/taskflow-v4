@@ -25,11 +25,12 @@ Fitur ini menutup Fase 1. Tidak ada tulisan data baru: EV dan ekspor hanya memba
 
 Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 tetap berlaku. Keputusan pemilik P1–P2 ada di akhir dokumen ini.
 
-**Keputusan pemilik (2026-11-10 13.58 WIB): P1 (a) — teks whatsnew v502 disetujui apa adanya; P2 (a) — host memberi nama workspace (`listName`) ke konteks Timeline untuk nama berkas/judul ekspor.**
+**Keputusan pemilik (2026-11-10 13.58 WIB): P1 (a) — teks whatsnew (dipesan sebagai v502, dirilis **v503**) disetujui apa adanya; P2 (a) — host memberi nama workspace (`listName`) ke konteks Timeline untuk nama berkas/judul ekspor.**
 
 **Basis kode:** `main` @ `6182810` (setelah #130 1d-1).
 - SW `taskflow-v501-beban-tim`, `app.css?v=384`, IndexedDB v7.
 - `index.html` 46.236 baris, `plugin-runtime.js` 1.704 baris, ADR terakhir ADR-049.
+- **Setelah digabung dengan `main` @ `155ee07` (2026-11-11; #132 checklist bertingkat PR B di-merge lebih dulu):** SW dasar `taskflow-v502-checklist-bertingkat`, `app.css?v=385`, `index.html` 47.122 baris. Rilis PR ini menjadi **`taskflow-v503-ev-ekspor`** (v502 dipakai #132 checklist bertingkat; dinomori ulang 2026-11-11), `index.html` 47.123 baris; ADR-050 tetap.
 - Timeline 1.3.0: `plugin.jsx` 7.229, `load.js` 414, `plan.js` 568, `layout.js` 643, `schedule.js` 651, `cpm.js` 535, `calendar.js` 250 baris.
 
 ## Fakta hasil eksplorasi
@@ -173,7 +174,7 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
   - `node compile.js --plugins-only` setelah mengubah sumber plugin; berkas hasil di-commit; build dua kali tanpa diff;
   - commit diakhiri trailer atribusi sesi;
   - implementer/reviewer tidak push.
-- **Tidak berubah:** `webapp.py`, `plugin_records.py`, `static/offline/**`, `app.css` (`?v=384`), IndexedDB v7.
+- **Tidak berubah:** `webapp.py`, `plugin_records.py`, `static/offline/**`, `app.css` (`?v=384` saat rencana ditulis; `?v=385` milik `main` sejak #132), IndexedDB v7.
   - `index.html` hanya 2 string versi SW, **kecuali** P2 (a): +1 field `listName` di objek `extCtx`, dengan baris sesedikit mungkin.
   - `plugin-runtime.js` hanya menambah `saveFile`.
 - **String UI baru (persis, diperiksa tes):**
@@ -189,7 +190,7 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
   - " · {n} task di luar baseline"
   - "Baseline {n}"
   - "(Tanpa project)" (sudah ada)
-- **Rilis:** SW berikutnya diperkirakan **`taskflow-v502-ev-ekspor`** (cek terhadap `main` saat merge); whatsnew **non-silent** dengan teks dari P1.
+- **Rilis:** SW **`taskflow-v503-ev-ekspor`** (v502 dipakai #132 checklist bertingkat; dinomori ulang 2026-11-11); whatsnew **non-silent** dengan teks dari P1.
 - PR dibuka sebagai **DRAFT**. Merge hanya atas "merge dan deploy", dan **setelah pemilik membuka satu berkas ekspor di Microsoft Project atau ProjectLibre** (spec §1 kriteria 5). Deploy statis, tanpa restart.
 
 ## Review Focus
@@ -313,15 +314,15 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
   - HP 375 px tanpa luber (struktur CSS).
 - [ ] **Step 2–4.** **Step 5: Commit** `feat(timeline): ekspor ke Microsoft Project (.xml) dari menu Lainnya`
 
-### Task 6: Rilis — SW v502, whatsnew (P1), README, ADR-050
+### Task 6: Rilis — SW v503 (dinomori ulang dari v502), whatsnew (P1), README, ADR-050
 
 **Files:** `static/sw.js`, `static/index.html` (2 string versi), ganti massal versi lama (**kecuali** `static/whatsnew.json`), `static/whatsnew.json`, `docs/plugins/README.md` (judul "(Fase 0a–1d-2)", §5 `saveFile`, §6.2 EV + ekspor, §8), `.agents/DECISIONS.md`
 
-- [ ] **Step 1:** versi berikutnya setelah v501 (cek `main`), PROTOCOL §4 lengkap; `app.css?v=384` tetap.
+- [ ] **Step 1:** versi berikutnya setelah v501 (cek `main`), PROTOCOL §4 lengkap; `app.css` tidak diubah (`?v=385` milik `main` sejak #132).
 - [ ] **Step 2:** whatsnew teratas non-silent, teks = P1.
 - [ ] **Step 3:** ADR-050 (nomor dicek ulang) = R1–R11 + residual.
 - [ ] **Step 4:** PROTOCOL §4 butir 5 + `npm test` + pytest penuh + `compile.js` idempoten + jumlah baris `index.html`.
-- [ ] **Step 5: Commit** `chore(release): SW v502 Timeline 1.4 earned value + ekspor MSPDI, README, ADR-050`
+- [ ] **Step 5: Commit** `chore(release): SW v502 Timeline 1.4 earned value + ekspor MSPDI, README, ADR-050` (`18b6c96`); setelah gabung `main`: `chore(release): SW v503 Timeline 1.4 (dinomori ulang setelah #132), dokumen`
 
 ### Task 7: E2E + verifikasi MPXJ + review akhir + PR draft
 
@@ -348,7 +349,7 @@ Jawaban pemilik: Q6 (a), Q7 (a). Catatan implementasi 1d-0/1d-1 dan ADR-049 teta
 
 | # | Pertanyaan | Pilihan | Rekomendasi |
 |---|---|---|---|
-| **P1** | **Teks "Apa yang baru"** v502 | (a) setujui usulan apa adanya; (b) ubah | **(a)** — judul **"Timeline: kinerja jadwal dan ekspor"**; poin `new`: "Bandingkan kemajuan dengan baseline: toolbar Gantt kini menampilkan “Jadwal 92% · Efisiensi 🍅 108%”.", "Ekspor Timeline ke Microsoft Project (.xml) dari menu Lainnya.", "Di aplikasi desktop dan Android, ekspor dilakukan lewat browser di alurik.com." |
+| **P1** | **Teks "Apa yang baru"** v503 (dipesan sebagai v502) | (a) setujui usulan apa adanya; (b) ubah | **(a)** — judul **"Timeline: kinerja jadwal dan ekspor"**; poin `new`: "Bandingkan kemajuan dengan baseline: toolbar Gantt kini menampilkan “Jadwal 92% · Efisiensi 🍅 108%”.", "Ekspor Timeline ke Microsoft Project (.xml) dari menu Lainnya.", "Di aplikasi desktop dan Android, ekspor dilakukan lewat browser di alurik.com." |
 | **P2** | **Nama berkas ekspor halaman workspace.** Timeline tahu nama project pribadi, tetapi **tidak** tahu nama workspace (host hanya memberi nomornya). | (a) **perubahan kecil di aplikasi inti:** host ikut memberikan nama workspace ke Timeline (satu field, ± 1 baris), sehingga berkas bernama mis. "Tim Pemasaran-2026-11-10.xml" dan judul project di MS Project sama dengan nama workspace; (b) tanpa perubahan inti: "Workspace 12-2026-11-10.xml" | **(a)** — nama berkas dan judul di MS Project adalah hal pertama yang dilihat penerima. Perubahannya satu field di objek yang sudah ada, tanpa restart. |
 
 **Disahkan rencana ini tanpa pertanyaan (dicatat di ADR-050):**
