@@ -502,8 +502,9 @@ berjalan setelah mesin 1c siap dan memakai konteks mesin yang sama (daftar lengk
     dengan mulai ≤ hari ini → `ActualStart`; task tetap yang dilanggar pendahulunya → `Manual 1`), milestone di jam yang
     dihitung MS Project (FF → 17:00); lag tautan selalu lag Timeline apa adanya (dikoreksi review F5: tanpa koreksi lag —
     di sekitar milestone MS Project bisa menampilkan tanggal milestone x untuk x−1 Timeline pada instan kerja yang sama,
-    dan penerus SS/SF dari milestone 17:00 bisa 1 hari kerja lebih lambat; sweep 1,3 % baris, 0 konflik kendala); task tanpa jadwal → placeholder **Otomatis** di hari kerja pertama ≥ hari ini,
-    `Estimated 1` + `DurationFormat 39` ("1 hari?") + SNET; baseline aktif → `Baseline` Number 0; resource = penanggung
+    dan penerus SS/SF dari milestone 17:00 bisa 1 hari kerja lebih lambat; sweep 1,3 % baris, 0 konflik kendala); task tanpa jadwal → placeholder **Otomatis** di hari kerja pertama ≥ hari ini
+    (ber-% > 0: hari kerja terakhir ≤ hari ini / hari selesainya, supaya tanggal aktual tidak di masa depan — dikoreksi
+    review F7), `Estimated 1` + `DurationFormat 39` ("1 hari?") + SNET; baseline aktif → `Baseline` Number 0; resource = penanggung
     jawab (workspace) atau pemilik (pribadi), masing-masing dengan kalender resource turunan kalender dasar (libur ikut),
     assignment `Work` = target 🍅 × 25 menit, `Units` 6 desimal dibulatkan ke atas (Units × durasi ≥ Work, dikoreksi
     review F5). Kemajuan (dikoreksi uji pemilik #2 F6): MS Project membacanya dari pasangan aktual/sisa, jadi setiap
@@ -511,7 +512,10 @@ berjalan setelah mesin 1c siap dan memakai konteks mesin yang sama (daftar lengk
     `PercentWorkComplete`, `ActualStart` bila % > 0 dan `ActualFinish` bila 100 %; setiap assignment `ActualWork` = Work
     × % + `RemainingWork`; task ber-% > 0 tanpa assignment (tanpa penanggung jawab, milestone) mendapat assignment semu
     `ResourceUID -65535` (bentuk MPXJ: `Units 1`, Work = durasi); nilai dalam detik bulat (eksak); kalender dasar
-    bernama "Standard". Belum ada `TimephasedData`. Tanpa `Date`: data yang sama di hari yang sama menghasilkan berkas
+    bernama "Standard". Dikoreksi review F7: kepala Project `SplitsInProgressTasks 0` (MS Project tidak memecah sisa kerja
+    task berjalan ke setelah pendahulu yang belum selesai — sama dengan mesin), dan `Type 1` (durasi tetap) hanya untuk
+    task ber-assignment nyata, selain itu `Type 0` (unit tetap; task durasi tetap tanpa resource rusak di MS Project
+    lama, MPXJ #240). Belum ada `TimephasedData`. Tanpa `Date`: data yang sama di hari yang sama menghasilkan berkas
     identik. Residual interop (ProjectLibre, kolom Batasan, selisih tanggal di sekitar milestone, Work task tanpa
     penanggung jawab): ADR-050.
   - **Toast:** "Berkas {nama} diunduh" (+ " · {n} task tanpa jadwal ditandai perkiraan", " · {k} tautan dilewati"),

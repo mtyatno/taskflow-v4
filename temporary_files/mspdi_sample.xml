@@ -18,6 +18,7 @@
   <WorkFormat>2</WorkFormat>
   <HonorConstraints>1</HonorConstraints>
   <NewTasksEffortDriven>0</NewTasksEffortDriven>
+  <SplitsInProgressTasks>0</SplitsInProgressTasks>
   <WeekStartDay>1</WeekStartDay>
   <Calendars>
     <Calendar>
@@ -414,7 +415,7 @@
       <ID>0</ID>
       <Name>Tim Produk &amp; Riset</Name>
       <Manual>0</Manual>
-      <Type>1</Type>
+      <Type>0</Type>
       <IsNull>0</IsNull>
       <CreateDate>2026-11-10T00:00:00</CreateDate>
       <WBS>0</WBS>
@@ -443,7 +444,7 @@
       <ID>1</ID>
       <Name>Alpha</Name>
       <Manual>0</Manual>
-      <Type>1</Type>
+      <Type>0</Type>
       <IsNull>0</IsNull>
       <CreateDate>2026-11-10T00:00:00</CreateDate>
       <WBS>1</WBS>
@@ -589,7 +590,7 @@
       <ID>5</ID>
       <Name>Rilis</Name>
       <Manual>0</Manual>
-      <Type>1</Type>
+      <Type>0</Type>
       <IsNull>0</IsNull>
       <CreateDate>2026-11-10T00:00:00</CreateDate>
       <WBS>1.4</WBS>
@@ -791,7 +792,7 @@
       <ID>11</ID>
       <Name>Notulen</Name>
       <Manual>0</Manual>
-      <Type>1</Type>
+      <Type>0</Type>
       <IsNull>0</IsNull>
       <CreateDate>2026-11-10T00:00:00</CreateDate>
       <WBS>1.10</WBS>
@@ -820,9 +821,47 @@
     <Task>
       <UID>12</UID>
       <ID>12</ID>
-      <Name>Beta</Name>
+      <Name>Unggah</Name>
       <Manual>0</Manual>
       <Type>1</Type>
+      <IsNull>0</IsNull>
+      <CreateDate>2026-11-10T00:00:00</CreateDate>
+      <WBS>1.11</WBS>
+      <OutlineNumber>1.11</OutlineNumber>
+      <OutlineLevel>2</OutlineLevel>
+      <Start>2026-11-09T08:00:00</Start>
+      <Finish>2026-11-11T17:00:00</Finish>
+      <Duration>PT24H0M0S</Duration>
+      <DurationFormat>7</DurationFormat>
+      <Work>PT1H15M0S</Work>
+      <EffortDriven>0</EffortDriven>
+      <Estimated>0</Estimated>
+      <Milestone>0</Milestone>
+      <Summary>0</Summary>
+      <PercentComplete>40</PercentComplete>
+      <PercentWorkComplete>40</PercentWorkComplete>
+      <ActualStart>2026-11-09T08:00:00</ActualStart>
+      <ActualDuration>PT9H36M0S</ActualDuration>
+      <ActualWork>PT0H30M0S</ActualWork>
+      <RemainingDuration>PT14H24M0S</RemainingDuration>
+      <RemainingWork>PT0H45M0S</RemainingWork>
+      <ConstraintType>4</ConstraintType>
+      <CalendarUID>-1</CalendarUID>
+      <ConstraintDate>2026-11-09T08:00:00</ConstraintDate>
+      <PredecessorLink>
+        <PredecessorUID>7</PredecessorUID>
+        <Type>1</Type>
+        <CrossProject>0</CrossProject>
+        <LinkLag>0</LinkLag>
+        <LagFormat>7</LagFormat>
+      </PredecessorLink>
+    </Task>
+    <Task>
+      <UID>13</UID>
+      <ID>13</ID>
+      <Name>Beta</Name>
+      <Manual>0</Manual>
+      <Type>0</Type>
       <IsNull>0</IsNull>
       <CreateDate>2026-11-10T00:00:00</CreateDate>
       <WBS>2</WBS>
@@ -847,11 +886,11 @@
       <CalendarUID>-1</CalendarUID>
     </Task>
     <Task>
-      <UID>13</UID>
-      <ID>13</ID>
+      <UID>14</UID>
+      <ID>14</ID>
       <Name>Fase Beta</Name>
       <Manual>0</Manual>
-      <Type>1</Type>
+      <Type>0</Type>
       <IsNull>0</IsNull>
       <CreateDate>2026-11-10T00:00:00</CreateDate>
       <WBS>2.1</WBS>
@@ -876,8 +915,8 @@
       <CalendarUID>-1</CalendarUID>
     </Task>
     <Task>
-      <UID>14</UID>
-      <ID>14</ID>
+      <UID>15</UID>
+      <ID>15</ID>
       <Name>Riset</Name>
       <Manual>1</Manual>
       <Type>1</Type>
@@ -911,8 +950,8 @@
       <ManualDuration>PT16H0M0S</ManualDuration>
     </Task>
     <Task>
-      <UID>15</UID>
-      <ID>15</ID>
+      <UID>16</UID>
+      <ID>16</ID>
       <Name>Wawancara</Name>
       <Manual>1</Manual>
       <Type>1</Type>
@@ -945,11 +984,11 @@
       <ManualDuration>PT8H0M0S</ManualDuration>
     </Task>
     <Task>
-      <UID>16</UID>
-      <ID>16</ID>
+      <UID>17</UID>
+      <ID>17</ID>
       <Name>Belum dijadwalkan</Name>
       <Manual>0</Manual>
-      <Type>1</Type>
+      <Type>0</Type>
       <IsNull>0</IsNull>
       <CreateDate>2026-11-10T00:00:00</CreateDate>
       <WBS>2.1.3</WBS>
@@ -975,11 +1014,11 @@
       <ConstraintDate>2026-11-10T08:00:00</ConstraintDate>
     </Task>
     <Task>
-      <UID>17</UID>
-      <ID>17</ID>
+      <UID>18</UID>
+      <ID>18</ID>
       <Name>Natal</Name>
       <Manual>1</Manual>
-      <Type>1</Type>
+      <Type>0</Type>
       <IsNull>0</IsNull>
       <CreateDate>2026-11-10T00:00:00</CreateDate>
       <WBS>2.2</WBS>
@@ -1008,11 +1047,11 @@
       <ManualDuration>PT24H0M0S</ManualDuration>
     </Task>
     <Task>
-      <UID>18</UID>
-      <ID>18</ID>
+      <UID>19</UID>
+      <ID>19</ID>
       <Name>Serah terima</Name>
       <Manual>1</Manual>
-      <Type>1</Type>
+      <Type>0</Type>
       <IsNull>0</IsNull>
       <CreateDate>2026-11-10T00:00:00</CreateDate>
       <WBS>2.3</WBS>
@@ -1043,11 +1082,11 @@
       <ManualDuration>PT0H0M0S</ManualDuration>
     </Task>
     <Task>
-      <UID>19</UID>
-      <ID>19</ID>
+      <UID>20</UID>
+      <ID>20</ID>
       <Name>Cadangan</Name>
       <Manual>1</Manual>
-      <Type>1</Type>
+      <Type>0</Type>
       <IsNull>0</IsNull>
       <CreateDate>2026-11-10T00:00:00</CreateDate>
       <WBS>2.4</WBS>
@@ -1076,6 +1115,37 @@
       <ManualStart>2026-11-02T08:00:00</ManualStart>
       <ManualFinish>2026-11-04T17:00:00</ManualFinish>
       <ManualDuration>PT24H0M0S</ManualDuration>
+    </Task>
+    <Task>
+      <UID>21</UID>
+      <ID>21</ID>
+      <Name>Catatan lepas</Name>
+      <Manual>0</Manual>
+      <Type>0</Type>
+      <IsNull>0</IsNull>
+      <CreateDate>2026-11-10T00:00:00</CreateDate>
+      <WBS>2.5</WBS>
+      <OutlineNumber>2.5</OutlineNumber>
+      <OutlineLevel>2</OutlineLevel>
+      <Start>2026-11-10T08:00:00</Start>
+      <Finish>2026-11-10T17:00:00</Finish>
+      <Duration>PT8H0M0S</Duration>
+      <DurationFormat>39</DurationFormat>
+      <Work>PT8H0M0S</Work>
+      <EffortDriven>0</EffortDriven>
+      <Estimated>1</Estimated>
+      <Milestone>0</Milestone>
+      <Summary>0</Summary>
+      <PercentComplete>25</PercentComplete>
+      <PercentWorkComplete>25</PercentWorkComplete>
+      <ActualStart>2026-11-10T08:00:00</ActualStart>
+      <ActualDuration>PT2H0M0S</ActualDuration>
+      <ActualWork>PT2H0M0S</ActualWork>
+      <RemainingDuration>PT6H0M0S</RemainingDuration>
+      <RemainingWork>PT6H0M0S</RemainingWork>
+      <ConstraintType>4</ConstraintType>
+      <CalendarUID>-1</CalendarUID>
+      <ConstraintDate>2026-11-10T08:00:00</ConstraintDate>
     </Task>
   </Tasks>
   <Resources>
@@ -1200,7 +1270,20 @@
     </Assignment>
     <Assignment>
       <UID>9</UID>
-      <TaskUID>14</TaskUID>
+      <TaskUID>12</TaskUID>
+      <ResourceUID>1</ResourceUID>
+      <PercentWorkComplete>40</PercentWorkComplete>
+      <ActualStart>2026-11-09T08:00:00</ActualStart>
+      <ActualWork>PT0H30M0S</ActualWork>
+      <Finish>2026-11-11T17:00:00</Finish>
+      <RemainingWork>PT0H45M0S</RemainingWork>
+      <Start>2026-11-09T08:00:00</Start>
+      <Units>0.052084</Units>
+      <Work>PT1H15M0S</Work>
+    </Assignment>
+    <Assignment>
+      <UID>10</UID>
+      <TaskUID>15</TaskUID>
       <ResourceUID>1</ResourceUID>
       <PercentWorkComplete>100</PercentWorkComplete>
       <ActualFinish>2026-11-04T17:00:00</ActualFinish>
@@ -1213,8 +1296,8 @@
       <Work>PT0H50M0S</Work>
     </Assignment>
     <Assignment>
-      <UID>10</UID>
-      <TaskUID>15</TaskUID>
+      <UID>11</UID>
+      <TaskUID>16</TaskUID>
       <ResourceUID>2</ResourceUID>
       <PercentWorkComplete>50</PercentWorkComplete>
       <ActualStart>2026-11-05T08:00:00</ActualStart>
@@ -1226,7 +1309,7 @@
       <Work>PT0H25M0S</Work>
     </Assignment>
     <Assignment>
-      <UID>11</UID>
+      <UID>12</UID>
       <TaskUID>11</TaskUID>
       <ResourceUID>-65535</ResourceUID>
       <PercentWorkComplete>50</PercentWorkComplete>
@@ -1238,8 +1321,8 @@
       <Work>PT32H0M0S</Work>
     </Assignment>
     <Assignment>
-      <UID>12</UID>
-      <TaskUID>18</TaskUID>
+      <UID>13</UID>
+      <TaskUID>19</TaskUID>
       <ResourceUID>-65535</ResourceUID>
       <PercentWorkComplete>100</PercentWorkComplete>
       <ActualFinish>2026-11-06T08:00:00</ActualFinish>
@@ -1251,8 +1334,8 @@
       <Work>PT0H0M0S</Work>
     </Assignment>
     <Assignment>
-      <UID>13</UID>
-      <TaskUID>19</TaskUID>
+      <UID>14</UID>
+      <TaskUID>20</TaskUID>
       <ResourceUID>-65535</ResourceUID>
       <PercentWorkComplete>100</PercentWorkComplete>
       <ActualFinish>2026-11-04T17:00:00</ActualFinish>
@@ -1262,6 +1345,18 @@
       <Start>2026-11-02T08:00:00</Start>
       <Units>1</Units>
       <Work>PT24H0M0S</Work>
+    </Assignment>
+    <Assignment>
+      <UID>15</UID>
+      <TaskUID>21</TaskUID>
+      <ResourceUID>-65535</ResourceUID>
+      <PercentWorkComplete>25</PercentWorkComplete>
+      <ActualWork>PT2H0M0S</ActualWork>
+      <Finish>2026-11-10T17:00:00</Finish>
+      <RemainingWork>PT6H0M0S</RemainingWork>
+      <Start>2026-11-10T08:00:00</Start>
+      <Units>1</Units>
+      <Work>PT8H0M0S</Work>
     </Assignment>
   </Assignments>
 </Project>

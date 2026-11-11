@@ -250,10 +250,19 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   // hasil mesin, sama dengan hitungan MS Project): selesai → mulai/selesai aktual mesin (doneFinish) + ActualStart/
   // ActualFinish, durasi = hari kerja rentang itu (milestone selesai di harinya tetap milestone); berjalan Otomatis
   // dengan es ≤ D → ActualStart. Simpul tanpa Mulai (penerus Otomatis yang dihitung mesin) tetap Estimated.
-  // Bukan simpul / mesin tidak ada: rentang tersimpan (bar Gantt); tanpa jadwal → placeholder hari kerja pertama ≥ D.
+  // Bukan simpul / mesin tidak ada: rentang tersimpan (bar Gantt); tanpa jadwal → placeholder 1 hari: 0 % → hari kerja
+  // pertama ≥ D; ber-% > 0 (review F7 M2) → tanggal aktual tidak boleh di masa depan: hari kerja terakhir ≤ D, dan untuk
+  // task selesai hari selesainya (actual.finish / completed_at Jakarta) bila ≤ D, dibulatkan ke hari kerja ≤ itu.
+  // e.pct = % selesai; e.actualS / e.actualF = satu pasang bendera ActualStart / ActualFinish yang ditulis (review F7 M3):
+  // % > 0 / 100 % (uji pemilik #2 F6: MS Project menyetelnya sendiri saat % diisi) atau jangkar aktual mesin (F2:
+  // selesai; berjalan dengan es ≤ D walau 0 %).
   function taskDates(e, c, nodes, D) {
     const sp = e.row.span;
     const n = nodes ? nodes.get(e.key) : undefined;
+    const pct = pctOf(e.task);
+    e.pct = pct;
+    e.actualS = pct > 0;
+    e.actualF = pct === 100;
     e.unscheduled = !sp;
     if (n && isDn(n.es) && isDn(n.ef) && Number.isInteger(n.d)) {
       e.node = n;
@@ -279,7 +288,12 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
       e.s = startPt(sp.s);
       e.f = e.ms ? startPt(sp.s) : finishPt(sp.f);
     } else {
-      e.ph = nextWorkOr(c, D);
+      let day = D;
+      if (pct > 0 && LOAD.isDone(e.task)) {
+        const fin = SCHED.actualOf(e.task, e.row.sched).finish;
+        if (isDn(fin) && fin <= D) day = fin;
+      }
+      e.ph = pct > 0 ? prevWorkOr(c, day) : nextWorkOr(c, D);
       e.d = 1;
       e.ms = false;
       e.s = startPt(e.ph);
@@ -345,7 +359,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
   //    Project 1 hari kerja lebih lambat, ikut ke penerusnya). Milestone ditulis di jam yang dihitung MS Project (FF → 17:00).
   //    Task tetap mesin yang terdorong residu ini mengikuti aturan task tetap di atas (Manual bila tautan menuntut lebih
   //    lambat), jadi tetap tanpa konflik kendala.
-  function planNode(e, c, mode) {
+  function planNode(e, c, mode, D) {
     const n = e.node;
     const cst = e.row.sched.constraint;
     const d = e.d;
@@ -371,7 +385,9 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     };
     e.manual = mode === "manual";
     const fx = n.fixed;
-    const actual = fx === "done" || (fx === "started" && e.actualS);
+    // Jangkar aktual MESIN (selesai; berjalan es ≤ D) — bukan bendera tulis e.actualS, yang juga hidup untuk % > 0 (F6):
+    // task berjalan es > D / lingkaran ber-% > 0 tetap lewat cabang task tetap di bawah (Manual bila tautan menuntut lebih lambat).
+    const actual = fx === "done" || (fx === "started" && n.es <= D);
     let req = null;
     for (const l of e.links) {
       const r = reqOf(l);
@@ -386,7 +402,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     if (actual) {
       at(C_SNET, S0);
       e.mS = e.s;
-      e.mF = e.actualF || ms ? e.f : addP(c, e.s, d);
+      e.mF = fx === "done" || ms ? e.f : addP(c, e.s, d);
       return;
     }
     if (fx === "started" || fx === "cycle") {
@@ -583,7 +599,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
       const plan = (e) => {
         if (!e || e.kind !== "task" || !e.node || done.has(e)) return;
         done.add(e);
-        planNode(e, c, modeOf(e));
+        planNode(e, c, modeOf(e), D);
       };
       for (const k of Array.isArray(R.order) ? R.order : []) plan(byKey.get(String(k)));
       for (const e of ents) plan(e);
@@ -663,7 +679,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     // MPXJ selalu menulis RemainingDuration/RemainingWork). Per task non-ringkasan, dalam detik bulat (eksak):
     //  - ActualDuration = durasi × %, RemainingDuration = durasi − ActualDuration (placeholder 0 % → PT8H0M0S);
     //  - ActualStart bila % > 0 (= Start; task selesai/berjalan sudah memakai aktual mesin), ActualFinish bila 100 %
-    //    (= Finish) — sama dengan yang disetel MS Project sendiri saat % diisi;
+    //    (= Finish) — sama dengan yang disetel MS Project sendiri saat % diisi (bendera e.actualS/e.actualF, taskDates);
     //  - assignment nyata: ActualWork = Work × %, RemainingWork = Work − ActualWork;
     //  - tanpa assignment nyata dan % > 0 (tanpa penanggung jawab, milestone, tanpa jadwal) → assignment semu
     //    ResourceUID −65535 bentuk MPXJ (Units 1, Work = durasi, ActualWork = durasi × %): tanpa assignment MS Project
@@ -675,10 +691,7 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     const pseudo = [];
     for (const e of ents) {
       if (e.kind !== "task") continue;
-      const pct = pctOf(e.task);
-      e.pct = pct;
-      e.aS = e.actualS === true || pct > 0;
-      e.aF = e.actualF === true || pct === 100;
+      const pct = e.pct;
       e.actDur = e.d * (SEC_DAY / 100) * pct;
       if (e.work !== undefined) {
         e.wSec = e.work * 60;
@@ -714,6 +727,10 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     out.el(1, "WorkFormat", WORK_FORMAT);
     out.el(1, "HonorConstraints", 1); // I4 F2: MFO menang atas tautan (sama dengan task tetap di mesin)
     out.el(1, "NewTasksEffortDriven", 0);
+    // Review F7: sejak F6 % selesai terbaca; dengan opsi bawaan "Split in-progress tasks" MS Project memecah sisa kerja
+    // task berjalan ke setelah pendahulu yang belum selesai. Mesin Timeline tidak pernah memecah (task yang sudah mulai
+    // tetap di tempat) → 0.
+    out.el(1, "SplitsInProgressTasks", 0);
     out.el(1, "WeekStartDay", 1);
     writeCalendar(out, c, ents, D, res, resId);
     out.line(1, "<Tasks>");
@@ -915,7 +932,10 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     out.el(3, "ID", e.uid);
     out.el(3, "Name", esc(clip(e.name)));
     out.el(3, "Manual", e.manual ? 1 : 0);
-    out.el(3, "Type", 1);
+    // Type 1 (durasi tetap) hanya untuk task ber-assignment NYATA; tanpa assignment / hanya assignment semu / placeholder
+    // / milestone / ringkasan → Type 0 (unit tetap, bawaan MPXJ dan MS Project): task durasi tetap tanpa resource tampil
+    // terpecah/rusak di MS Project 2007–2013 (MPXJ bug #240) — review F7.
+    out.el(3, "Type", !summary && e.work !== undefined ? 1 : 0);
     out.el(3, "IsNull", 0);
     out.el(3, "CreateDate", CAL.iso(D) + T_DAY0);
     out.el(3, "WBS", esc(e.wbs));
@@ -932,8 +952,8 @@ const TLMspdi = (function (CAL, SCHED, CPM, LAYOUT, LOAD, HOL) {
     out.el(3, "Summary", summary ? 1 : 0);
     out.el(3, "PercentComplete", summary ? 0 : e.pct);
     out.el(3, "PercentWorkComplete", summary || e.pwc === undefined ? 0 : e.pwc);
-    if (!summary && e.aS) out.el(3, "ActualStart", fmtPt(e.s));
-    if (!summary && e.aF) out.el(3, "ActualFinish", fmtPt(e.f));
+    if (!summary && e.actualS) out.el(3, "ActualStart", fmtPt(e.s));
+    if (!summary && e.actualF) out.el(3, "ActualFinish", fmtPt(e.f));
     out.el(3, "ActualDuration", fmtSec(actDur));
     out.el(3, "ActualWork", fmtSec(awSec));
     out.el(3, "RemainingDuration", fmtSec(e.d * SEC_DAY - actDur));

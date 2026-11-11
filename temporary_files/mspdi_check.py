@@ -14,6 +14,7 @@
    ResourceUID -65535 untuk task ber-% > 0 tanpa assignment nyata, dan "tanpa turunan MPXJ" — berkas dibaca MPXJ lalu
    ditulis ulang dengan MSPDIWriter bawaan; RemainingDuration setiap Task dan RemainingWork/ActualWork/ActualFinish setiap
    Assignment hasil tulis-ulang harus sama dengan milik kita (MPXJ tidak perlu menurunkan apa pun).
+5. Review F7: <SplitsInProgressTasks>0 di kepala Project (MPXJ membacanya false) dan Type 1 ⇔ task ber-assignment nyata.
 
 Pasang (sekali, lokal): pip install --break-system-packages mpxj JPype1 ; Java sistem (/usr/bin/java).
 Tanpa MPXJ → hanya pemeriksaan struktur xml.etree (dilaporkan sebagai FALLBACK, keluar kode 2).
@@ -89,6 +90,11 @@ const tasks = [
   mk({ id: 15, title: "Notulen", project: "Alpha", start: "2026-11-09", d: 4, progress: 50 }),
   mk({ id: 16, title: "Serah terima", project: "Beta", start: "2026-11-06", d: 0, done: true }),
   mk({ id: 17, title: "Cadangan", project: "Beta", start: "2026-11-02", d: 2, done: true }),
+  // review F7: task berjalan (40 %, mulai ≤ D) dengan pendahulu FS yang belum selesai dan selesai lebih lambat (Audit
+  // 23–24 Nov) → tautan diekspor, SNET + ActualStart, bukan Manual (SplitsInProgressTasks 0 menjaganya di tempat);
+  // placeholder tanpa jadwal ber-% > 0 → hari kerja terakhir ≤ D.
+  mk({ id: 18, title: "Unggah", project: "Alpha", start: "2026-11-09", d: 3, deps: [[6, "FS", 0]], est: 3, to: 5, progress: 40 }),
+  mk({ id: 19, title: "Catatan lepas", project: "Beta", progress: 25 }),
 ];
 const units = new Map([[S.unitOf({ list_id: 7, project: "Alpha" }).recId, { auto: true }]]);
 const cal = C.compile({ v: 1, weekdays: [1, 2, 3, 4, 5], national: true, cutiBersama: true,
@@ -397,7 +403,30 @@ def progress_checks(project, root, path):
         print("    BEDA", b)
     check(not rbad, f"tanpa turunan MPXJ: tulis-ulang MSPDIWriter — RemainingDuration {len(xt)} task dan RemainingWork/ActualWork/ActualFinish "
                     f"{len(xa)} assignment = milik kita, tanpa assignment tambahan ({len(rbad)} beda) {rbad[:3]}")
-    return {"bad": [list(map(str, b)) for b in xbad + mbad + rbad], "pseudo": sorted(pseudo)}
+    # Review F7: tanpa pecah task berjalan + tipe task. MPXJ membaca elemen absen sebagai false juga (bawaan MS Project =
+    # true), jadi elemen XML-nya sendiri wajib ada dan bernilai 0.
+    split = tv(root, "SplitsInProgressTasks")
+    check(split == "0" and not bool(props.getSplitInProgressTasks()),
+          f"F7 <SplitsInProgressTasks>0</SplitsInProgressTasks> di kepala Project ({split}); MPXJ getSplitInProgressTasks = {bool(props.getSplitInProgressTasks())}")
+    names = [local(c.tag) for c in root]
+    pos_ok = "SplitsInProgressTasks" in names and "NewTasksEffortDriven" in names and "WeekStartDay" in names \
+        and names.index("NewTasksEffortDriven") < names.index("SplitsInProgressTasks") < names.index("WeekStartDay")
+    check(pos_ok, "F7 SplitsInProgressTasks setelah NewTasksEffortDriven, sebelum WeekStartDay")
+    tbad = []
+    real_uids = {tv(a, "TaskUID") for a in xa if tv(a, "ResourceUID") != NULL_RES}
+    mt = {str(t.getUniqueID()): t for t in project.getTasks()}
+    for uid, t in xt.items():
+        want = "1" if uid in real_uids else "0"
+        got_m = None if uid not in mt or mt[uid].getType() is None else str(mt[uid].getType().name())
+        if tv(t, "Type") != want or got_m != ("FIXED_DURATION" if want == "1" else "FIXED_UNITS"):
+            tbad.append((tv(t, "Name"), tv(t, "Type"), got_m, want))
+    for b in tbad[:10]:
+        print("    BEDA", b)
+    n1 = sum(1 for t in xt.values() if tv(t, "Type") == "1")
+    check(not tbad, f"F7 Type 1 (durasi tetap) ⇔ punya assignment nyata ({n1} task); selain itu Type 0 (unit tetap; {len(xt) - n1} task termasuk "
+                    f"ringkasan/placeholder/milestone/assignment semu); MPXJ membaca sama {tbad[:3]}")
+    f7bad = ([("SplitsInProgressTasks", split)] if split != "0" or not pos_ok else []) + tbad
+    return {"bad": [list(map(str, b)) for b in xbad + mbad + rbad + f7bad], "pseudo": sorted(pseudo)}
 
 
 def mpxj_checks(root, data):
@@ -534,7 +563,11 @@ def mpxj_checks(root, data):
     check(rel["Uji"] == [("Bangun", "START_START", 2.0)], f"SS lag 2 hari ({rel['Uji']})")
     check(rel["Rilis"] == [("Uji", "FINISH_FINISH", 0.0)], f"FF lag 0 ({rel['Rilis']})")
     check(rel["Dokumentasi"] == [("Bangun", "START_FINISH", -1.0)], f"SF lag −1 hari ({rel['Dokumentasi']})")
-    check(sum(len(v) for v in rel.values()) == data["stats"]["links"] == 4, "jumlah tautan = stats.links = 4")
+    check(rel["Unggah"] == [("Audit", "FINISH_START", 0.0)] and dt(by["Unggah"].getActualStart()) == "2026-11-09T08:00" and by["Unggah"].getActualFinish() is None
+          and str(by["Unggah"].getConstraintType().name()) == "START_NO_EARLIER_THAN" and dt(by["Unggah"].getConstraintDate()) == "2026-11-09T08:00"
+          and str(by["Unggah"].getTaskMode().name()) == "AUTO_SCHEDULED" and dt(by["Unggah"].getFinish()) == "2026-11-11T17:00" and dt(by["Audit"].getFinish()) == "2026-11-24T17:00",
+          "F7 Unggah (berjalan 40 %, pendahulu FS Audit belum selesai, selesai 24 Nov): tautan FS 0 diekspor, SNET + ActualStart 9 Nov, Otomatis, selesai 11 Nov (= mesin)")
+    check(sum(len(v) for v in rel.values()) == data["stats"]["links"] == 5, "jumlah tautan = stats.links = 5")
 
     # ---- baseline
     print("\n[6] Baseline")
@@ -553,7 +586,7 @@ def mpxj_checks(root, data):
     all_asg = list(project.getResourceAssignments())
     asg = [a for a in all_asg if a.getResource() is not None]  # nyata; assignment semu (ResourceUID -65535) terpisah (F6)
     fake = {str(a.getTask().getName()): a for a in all_asg if a.getResource() is None}
-    check(len(asg) == data["stats"]["assignments"] == 10 and len(all_asg) == len(xa) == 10 + 3 and sorted(fake) == ["Cadangan", "Notulen", "Serah terima"],
+    check(len(asg) == data["stats"]["assignments"] == 11 and len(all_asg) == len(xa) == 11 + 4 and sorted(fake) == ["Cadangan", "Catatan lepas", "Notulen", "Serah terima"],
           f"assignment nyata MPXJ = stats ({len(asg)}); + {len(fake)} semu {sorted(fake)} = XML ({len(xa)})")
     abad = []
     for a in asg:
@@ -588,6 +621,9 @@ def mpxj_checks(root, data):
     check(days(by["Natal"].getRemainingDuration()) == 3 and not minutes(by["Natal"].getWork()) and days(by["Belum dijadwalkan"].getRemainingDuration()) == 1,
           "F6 tanpa assignment: Natal RemainingDuration 3 hari + Work nol; placeholder RemainingDuration 1 hari")
     check(str(cal.getName()) == "Standard", f"kalender dasar bernama 'Standard' ({cal.getName()})")
+    cl = by["Catatan lepas"]
+    check(bool(cl.getEstimated()) and dt(cl.getStart()) == dt(cl.getActualStart()) == "2026-11-10T08:00" and cl.getActualFinish() is None and "Catatan lepas" in fake,
+          "F7 placeholder tanpa jadwal ber-25 %: hari kerja terakhir ≤ D (10 Nov), ActualStart di hari itu, assignment semu")
     xp = next(v for v in xa.values() if tv(v, "TaskUID") == str(by["Arsip panjang"].getUniqueID()))
     check(days(by["Arsip panjang"].getDuration()) == 260 and ad["Arsip panjang"][:2] == ("Sari", 1750.0) and tv(xp, "Units") == "0.014023",
           f"Arsip panjang: 70 🍅 = 1.750 menit / 260 hari, Units 6 desimal dibulatkan ke atas ({tv(xp, 'Units')}, review F5)")
@@ -744,7 +780,8 @@ def file_mpxj_dump(path, root):
     for row in out["tasks"]:  # nilai kemajuan XML per task (menit) untuk asersi pemanggil
         x = xmap[str(row["uid"])]
         row.update(work=secs(tv(x, "Work")) / 60, adur=secs(tv(x, "ActualDuration")) / 60, rdur=secs(tv(x, "RemainingDuration")) / 60,
-                   awork=secs(tv(x, "ActualWork")) / 60, rwork=secs(tv(x, "RemainingWork")) / 60)
+                   awork=secs(tv(x, "ActualWork")) / 60, rwork=secs(tv(x, "RemainingWork")) / 60, ttype=tv(x, "Type"))
+    out["props"]["splitsInProgressTasks"] = tv(root, "SplitsInProgressTasks")
     return out
 
 

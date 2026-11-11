@@ -541,6 +541,10 @@ def plan_ws():
     # 50 % (assignment semu ResourceUID -65535); "Cadangkan situs lama" di project Manual selesai 100 % (semu + ActualFinish).
     P["KA10"] = dict(title="Rapat evaluasi", project=KA, s=w(8), d=2, who=None)
     P["KA11"] = dict(title="Kumpulkan testimoni", project=KA, s=w(-1), d=4, who=None, progress=50)
+    # Review F7 butir 4: task BERJALAN (40 %, mulai awal pekan ≤ D) yang pendahulu FS-nya ("Desain spanduk") belum mulai dan
+    # selesai lebih lambat dari mulai task ini → mesin: tetap di tempat (konflik ditandai). Ekspor: tautan FS 0 tetap ada,
+    # SNET + ActualStart, bukan Manual; <SplitsInProgressTasks>0 menjaga MS Project tidak memecah sisa kerjanya.
+    P["KA12"] = dict(title="Unggah materi", project=KA, s=w(-2), d=3, who="c", est=3, deps=[("KA7", "FS", 0)], progress=40)
     P["SW0"] = dict(title="Halaman produk", project=SWP, s=None, d=None, who=None)
     P["SW1"] = dict(title="Tata letak halaman", project=SWP, s=w(0), d=3, who="a", est=3, parent="SW0")
     P["SW2"] = dict(title="Penulisan teks", project=SWP, s=w(3), d=2, who="b", est=2, parent="SW0", deps=[("SW1", "FS", 0)])
@@ -681,6 +685,9 @@ def want_ws(P, ids, srv, D):
     # Uji pemilik #2 F6: tanpa penanggung jawab — akar Otomatis 0 % (SNET di es); berjalan 50 % es ≤ D (ActualStart).
     put("KA10", pt(p("KA10")["s"]), pt(p("KA10")["f"], True), 2, 0, SNET, pt(p("KA10")["s"]))
     put("KA11", pt(p("KA11")["s"]), pt(p("KA11")["f"], True), 4, srv[ids["KA11"]]["progress"], SNET, pt(p("KA11")["s"]), astart=pt(p("KA11")["s"]))
+    # Review F7: berjalan es ≤ D dengan pendahulu FS belum selesai → tanggal mesin (tetap), SNET di es, ActualStart, Otomatis.
+    put("KA12", pt(p("KA12")["s"]), pt(p("KA12")["f"], True), 3, srv[ids["KA12"]]["progress"], SNET, pt(p("KA12")["s"]),
+        astart=pt(p("KA12")["s"]), preds=[(t("KA7"), LINK["FS"], 0.0)])
     # F6: task Manual ber-% > 0 → ActualStart = Start (MS Project menyetelnya sendiri saat % diisi).
     put("SW1", pt(p("SW1")["s"]), pt(p("SW1")["f"], True), 3, srv[ids["SW1"]]["progress"], SNET, pt(p("SW1")["s"]), manual=True,
         astart=pt(p("SW1")["s"]) if srv[ids["SW1"]]["progress"] else None)
@@ -879,13 +886,13 @@ def check_ws_file(data, path, fname, P, ids, srv, spans, rows, tmp, out):
     kids = [t for t in x["tasks"] if t[1] in (P["SW1"]["title"], P["SW2"]["title"], P["SW3"]["title"])]
     check("2b xml.etree: prolog + <Project xmlns MSPDI>, Title '%s', Name '%s', blok …Calendars→Tasks→Resources→Assignments; "
           "%d <Task> (UID 0 + 2 kelompok + %d task); kelompok tingkat 1 %r (Summary); task KA di 1.x, Situs Web di 2.x, anak "
-          "ringkasan tingkat 3; %d tautan, %d resource, %d assignment (11 nyata + 2 semu F6), %d pengecualian kalender"
+          "ringkasan tingkat 3; %d tautan, %d resource, %d assignment (12 nyata + 2 semu F6), %d pengecualian kalender"
           % (x["title"], x["name"], len(x["tasks"]), len(P), [t[1] for t in lvl1], x["links"], x["resources"], x["assignments"], x["exceptions"]),
           x["prolog"] == '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' and x["root"] == "{http://schemas.microsoft.com/project}Project"
           and x["title"] == WS and x["name"] == fname and x["blocks"] == ["Calendars", "Tasks", "Resources", "Assignments"]
           and len(x["tasks"]) == 1 + 2 + len(P) and [(t[1], t[4]) for t in lvl1] == [(KA, "1"), (SWP, "1")] and ok_out
           and sw0 and sw0[2] == "2" and sw0[4] == "1" and len(kids) == 3 and all(t[2] == "3" and t[3].startswith(sw0[3] + ".") for t in kids)
-          and x["links"] == 7 and x["resources"] == 3 and x["assignments"] == 11 + 2 and x["exceptions"] == 3, repr(x))
+          and x["links"] == 8 and x["resources"] == 3 and x["assignments"] == 12 + 2 and x["exceptions"] == 3, repr(x))
     rc, mp, lines = mpxj(path, tmp)
     out["mpxj_ws"] = mp
     info("2c mspdi_check --file (baris ringkas)", lines)
@@ -898,7 +905,7 @@ def check_ws_file(data, path, fname, P, ids, srv, spans, rows, tmp, out):
     want = want_ws(P, ids, srv, TODAY)
     check("2d MPXJ jumlah: %d task (UID 0 + 2 kelompok + %d), %d tautan, %d resource, %d assignment; judul '%s', HonorConstraints, "
           "480 menit/hari" % (len(mp["tasks"]), len(P), mp["links"], len(mp["resources"]), len(mp["assignments"]), mp["props"]["title"]),
-          len(mp["tasks"]) == 3 + len(P) and mp["links"] == 7 and len(mp["resources"]) == 3 and len(mp["assignments"]) == 11
+          len(mp["tasks"]) == 3 + len(P) and mp["links"] == 8 and len(mp["resources"]) == 3 and len(mp["assignments"]) == 12
           and mp["props"]["title"] == WS and mp["props"]["name"] == fname and mp["props"]["honorConstraints"]
           and mp["props"]["minutesPerDay"] == 480, repr(mp["props"]))
     bad_d, bad_c, bad_l, bad_bar = [], [], [], []
@@ -929,7 +936,7 @@ def check_ws_file(data, path, fname, P, ids, srv, spans, rows, tmp, out):
     check("2f MPXJ kendala + mode (uji pemilik F4): akar Otomatis/selesai/berjalan SNET di es, berjalan es > D SNET (tautan "
           "tidak menuntut lebih lambat), milestone FF 0 di 17:00 tanpa kendala, penerusnya FS+2 ASAP, SNET eksplisit, MFO 17:00, "
           "SF ASAP; Manual (R8) = MANUALLY_SCHEDULED + SNET; tanpa jadwal Otomatis + Estimated + SNET", not bad_c, repr(bad_c))
-    check("2g MPXJ tautan 7 = sisi mesin: FS+1, SS+2, FF 0, FS+2 (dari milestone), SF+3, FS−1, FS 0 (Manual); ke task tanpa "
+    check("2g MPXJ tautan 8 = sisi mesin: FS+1, SS+2, FF 0, FS+2 (dari milestone), SF+3, FS−1, FS 0 (Manual), FS 0 ke task berjalan (F7); ke task tanpa "
           "jadwal dilewati", not bad_l, repr(bad_l))
     exc = [tuple(e[:3]) for e in mp["calendar"]["exceptions"]]
     want_exc = [("2026-12-24", "2026-12-25", False), ("2027-01-01", "2027-01-01", False), ("2027-01-05", "2027-01-05", False)]
@@ -1005,6 +1012,24 @@ def check_ws_file(data, path, fname, P, ids, srv, spans, rows, tmp, out):
           and (k6.get("rdur"), k6.get("awork")) == (0.0, k6.get("work")) and k6.get("work") == k6.get("dur", 0) * 480
           and (k3.get("rdur"), k3.get("adur"), k3.get("work")) == (480.0, 0.0, 0.0),
           repr((bad_p, bad_s, got_pseudo, sorted(want_pseudo), mp.get("progressBad"), mp.get("calendarName"))))
+    # 2o review F7: tanpa pecah task berjalan, Type, dan task berjalan yang pendahulu FS-nya belum selesai.
+    bad_t = [(t["name"], t["ttype"]) for t in mp["tasks"] if t["ttype"] != ("1" if t["name"] in real else "0")]
+    k12, k7 = by.get(P["KA12"]["title"], {}), by.get(P["KA7"]["title"], {})
+    p12 = P["KA12"]
+    check("2o review F7: <SplitsInProgressTasks> %r; Type 1 ⇔ assignment nyata (%d task Type 1, %d Type 0 termasuk ringkasan/"
+          "placeholder/milestone/tanpa penanggung jawab); '%s' (berjalan %s %%, mulai %s ≤ D) dengan pendahulu FS '%s' belum "
+          "selesai (%s–%s): tautan FS 0 diekspor, %s di %s, ActualStart %s, Manual %r, Start–Finish %s–%s = mesin (tetap di tempat)"
+          % (mp["props"].get("splitsInProgressTasks"), sum(1 for t in mp["tasks"] if t["ttype"] == "1"),
+             sum(1 for t in mp["tasks"] if t["ttype"] == "0"), p12["title"], k12.get("pct"), k12.get("start"), P["KA7"]["title"],
+             k7.get("start"), k7.get("finish"), k12.get("ctype"), k12.get("cdate"), k12.get("astart"), k12.get("manual"),
+             k12.get("start"), k12.get("finish")),
+          mp["props"].get("splitsInProgressTasks") == "0" and not bad_t and len(real) == 12
+          and [(q[1], q[2], q[3]) for q in k12.get("preds", [])] == [(P["KA7"]["title"], LINK["FS"], 0.0)]
+          and (k12.get("start"), k12.get("finish"), k12.get("astart"), k12.get("afinish")) == (pt(p12["s"]), pt(p12["f"], True), pt(p12["s"]), None)
+          and (k12.get("ctype"), k12.get("cdate"), k12.get("manual")) == (SNET, pt(p12["s"]), False)
+          and p12["s"] <= TODAY and k7.get("pct") == 0.0 and k7.get("finish", "")[:10] > iso(p12["s"])
+          and (k12.get("adur"), k12.get("rdur"), k12.get("awork"), k12.get("rwork")) == (576.0, 864.0, 30.0, 45.0),
+          repr((mp["props"].get("splitsInProgressTasks"), bad_t, k12, k7)))
 
 
 def names_key(P, nm):
