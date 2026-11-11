@@ -286,19 +286,27 @@ test("task baru terkirim di drain yang sama: id server dicatat (noteTaskServerId
   assert.equal((await get("subtasks", "n")).server_id, 31);
 });
 
-test("task baru tanpa butir lokal → rev tidak disimpan; rev kosong (null) tidak ditimpa 0", async () => {
-  await put("tasks", [task({ cid: "t2", server_id: null, dirty: 1 }), task({ cid: "t3", server_id: null, dirty: 1 })]);
+test("SEBAIKNYA-1: SETIAP task baru terkirim (juga tanpa butir lokal) → rev 0 dari respons disimpan dan dikenal routing; null tidak ditimpa; rev respons > 0 tidak disimpan", async () => {
+  await put("tasks", [task({ cid: "t2", server_id: null, dirty: 1 }), task({ cid: "t3", server_id: null, dirty: 1 }),
+    task({ cid: "t4", server_id: null, dirty: 1 }), task({ cid: "t5", server_id: null, dirty: 1 })]);
   await put("subtasks", [rec("m", { task_cid: "t3" })]);
   await setRevs({ t3: null });
-  await put("_outbox", [
-    { qid: 1, ts: 1, retries: 0, entity_type: "task", op: "create", cid: "t2", payload: {} },
-    { qid: 2, ts: 1, retries: 0, entity_type: "task", op: "create", cid: "t3", payload: {} },
-  ]);
+  await put("_outbox", ["t2", "t3", "t4", "t5"].map((cid, i) => ({ qid: i + 1, ts: 1, retries: 0, entity_type: "task", op: "create", cid, payload: {} })));
+  await CR.start();
   let id = 80;
-  await pushOutbox(fakeTransport(() => ({ status: 201, data: { id: ++id, updated_at: "2026-11-12T00:00:00" } })));
+  const rev = { 81: 0, 82: 0, 83: 4 }; // 84: respons tanpa checklist_rev (server lama) → 0
+  await pushOutbox(fakeTransport(() => {
+    id++;
+    const data = { id, updated_at: "2026-11-12T00:00:00" };
+    if (id in rev) data.checklist_rev = rev[id];
+    return { status: 201, data };
+  }));
   const r = await revs();
-  assert.equal("t2" in r, false);
-  assert.equal(r.t3, null);
+  assert.equal(r.t2, 0, "task tanpa butir lokal");
+  assert.equal(r.t3, null, "rev kosong tidak ditimpa");
+  assert.equal("t4" in r, false, "rev > 0 (task sudah punya butir di server) → diunduh pullChecklists");
+  assert.equal(r.t5, 0);
+  assert.equal(CR.knowsTask(81), true, "routing mengenal task baru tanpa butir (offline sesudahnya tetap bisa menambah)");
 });
 
 test("task tanpa id server dan tanpa create antre (sync_error) → entri checklist ditahan, tidak dibuang", async () => {
@@ -406,7 +414,7 @@ test("ditolak 422/404/403: entri dibuang, rev dikosongkan, dihitung; satu event 
   assert.deepEqual(seen, [["tf:checklist-rejected", { count: 3 }]]);
 });
 
-test("create ditolak: entri lain butir itu (tanpa id server, tanpa create antre) ikut dibuang; anaknya ditolak saat diproses", async () => {
+test("create ditolak: entri lain butir itu (tanpa id server, tanpa create antre) ikut dibuang DAN dihitung (CATATAN-2); anaknya ditolak saat diproses", async () => {
   await dasar();
   await put("subtasks", [rec("c", { parent_cid: "b" })]);
   await put("_outbox", [
@@ -421,9 +429,9 @@ test("create ditolak: entri lain butir itu (tanpa id server, tanpa create antre)
     : { status: 200, data: Object.assign(butir(12), { changed_ids: [], task_progress: tp(5, true) }) }));
   const r = await pushOutbox(tr);
   assert.deepEqual(kunci(tr.calls), ["POST /api/tasks/7/subtasks", "PATCH /api/subtasks/12"], "create c tidak dikirim (induk yatim)");
-  assert.equal(r.checklistRejected, 2);
+  assert.equal(r.checklistRejected, 4, "create b + rename b + set_done b (yatim) + create c");
   assert.equal((await subtaskOps()).length, 0);
-  assert.deepEqual(seen, [["tf:checklist-rejected", { count: 2 }]]);
+  assert.deepEqual(seen, [["tf:checklist-rejected", { count: 4 }]]);
   assert.equal((await revs()).t1, null);
 });
 
@@ -519,4 +527,80 @@ test("hantu: DELETE gagal sementara → entri delete {server_id} tetap antre dan
   await pushOutbox(tr2);
   assert.deepEqual(kunci(tr2.calls), ["DELETE /api/subtasks/21"]);
   assert.equal((await subtaskOps()).length, 0);
+});
+
+// ── WAJIB-1 (review Task 4–6): create yang dicoba dikirim, respons hilang, lalu butir dihapus lokal ───────────────
+
+const entriOf = async (cid, op) => (await subtaskOps()).find((o) => o.cid === cid && o.op === (op || "create"));
+
+test("WAJIB-1: entri create ditandai attempted di _outbox SEBELUM request dikirim", async () => {
+  await dasar();
+  await put("_outbox", [entri("create", "b", { title: "B", parent_cid: null, index: null })]);
+  let saatKirim = null;
+  const tr = fakeTransport(async () => { saatKirim = (await entriOf("b")).attempted; return "NETWORK"; });
+  await pushOutbox(tr);
+  assert.equal(saatKirim, true);
+  assert.equal((await entriOf("b")).attempted, true, "gagal jaringan → entri tetap, bertanda attempted");
+});
+
+test("WAJIB-1: entri create dibuang aksi lokal sesudah dibaca push tetapi sebelum ditandai → tidak dikirim", async () => {
+  await dasar();
+  await put("_outbox", [entri("create", "b", { title: "B", parent_cid: null, index: null })]);
+  const asli = CR.findItem;
+  // aksi hapus lokal (create belum dicoba → record + entri dibuang) tepat SESUDAH push membaca butirnya
+  CR.findItem = (id) => asli(id).then((r) => tx(["subtasks", "_outbox"], "readwrite", (t) => {
+    t.objectStore("_outbox").delete(1); t.objectStore("subtasks").delete("b");
+  }).then(() => r));
+  const tr = fakeTransport(() => ({ status: 200, data: Object.assign(butir(21), { task_progress: tp(4, true) }) }));
+  try { await pushOutbox(tr); } finally { CR.findItem = asli; }
+  assert.equal(tr.calls.length, 0);
+  assert.equal((await subtaskOps()).length, 0, "entri tidak dihidupkan lagi oleh penanda");
+});
+
+test("WAJIB-1: payload create ditulis ulang (W1) sesudah dibaca push → dikirim dengan payload terbaru", async () => {
+  await dasar();
+  await put("subtasks", [rec("c", { parent_cid: "a" })]);
+  await put("_outbox", [entri("create", "c", { title: "C", parent_cid: "a", index: 2 })]);
+  const asli = CR.findItem;
+  let sekali = false;
+  CR.findItem = (id) => (sekali ? Promise.resolve() : (sekali = true, entriOf("c").then((o) => put("_outbox", [Object.assign({}, o, { payload: { title: "C", parent_cid: null, index: null } })]))))
+    .then(() => asli(id));
+  const tr = fakeTransport(() => ({ status: 200, data: Object.assign(butir(21), { task_progress: tp(4, true) }) }));
+  try { await pushOutbox(tr); } finally { CR.findItem = asli; }
+  assert.deepEqual(tr.calls.map((c) => c.body), [{ title: "C", client_id: "c", parent_id: null, index: null }]);
+});
+
+test("WAJIB-1: respons create hilang → butir dihapus lokal → push berikut mengirim ulang create lalu DELETE id servernya", async () => {
+  CR._reset();
+  await dasar();
+  await CR.start();
+  const x = (await CR.create("t1", { title: "Salah ketik" })).item.id;
+  // push 1: server menerapkan create (id 31) tetapi respons hilang
+  await pushOutbox(fakeTransport(() => "NETWORK"));
+  assert.equal((await entriOf(x)).attempted, true);
+  await CR.remove(x);
+  assert.deepEqual((await subtaskOps()).map((o) => [o.op, o.cid]), [["create", x]], "create dipertahankan");
+  const seen = tangkapEvent();
+  const tr = fakeTransport((m) => (m === "POST"
+    ? { status: 200, data: Object.assign(butir(31, { title: "Salah ketik" }), { task_progress: tp(4, false) }) }
+    : { status: 200, data: { ok: true, deleted_ids: [31], task_progress: tp(5, true) } }));
+  const r = await pushOutbox(tr);
+  assert.deepEqual(tr.calls.map((c) => [c.method, c.path, c.body && c.body.client_id]), [
+    ["POST", "/api/tasks/7/subtasks", x], ["DELETE", "/api/subtasks/31", undefined]]);
+  assert.equal((await subtaskOps()).length, 0);
+  assert.ok(!(await all("subtasks")).some((s) => s.cid === x), "nisan dibuang");
+  assert.equal(r.checklistRejected, undefined);
+  assert.deepEqual(seen, []);
+});
+
+test("WAJIB-1: create ulang butir nisan ditolak server → dibuang tanpa dihitung (pengguna sudah menghapusnya)", async () => {
+  await dasar();
+  await put("subtasks", [rec("n", { deleted: true })]);
+  await put("_outbox", [entri("create", "n", { title: "N", parent_cid: "a", index: null }, { attempted: true })]);
+  const seen = tangkapEvent();
+  const r = await pushOutbox(fakeTransport(() => ({ status: 422, data: { detail: "Induk checklist tidak ditemukan" } })));
+  assert.equal((await subtaskOps()).length, 0);
+  assert.equal(r.checklistRejected, undefined);
+  assert.deepEqual(seen, []);
+  assert.equal((await revs()).t1, null, "rev tetap dikosongkan (ambil ulang)");
 });

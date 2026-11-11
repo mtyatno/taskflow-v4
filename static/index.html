@@ -9905,6 +9905,13 @@ function ChecklistTree({
       if (changed) cbRef.current.onProgress?.(tp);
     });
   };
+  // CATATAN-4 (review PR B2): respons mutasi yang menyebut id yang tidak ada di daftar (pohon dimuat lewat jaringan, id
+  // server, sebelum unduhan awal selesai, lalu rute lokal menjawab dengan id stabil cid butir buatan perangkat ini, atau
+  // sebaliknya) → daftar dimuat ulang (GET) di antrean yang sama supaya id tampilan selaras dengan rute.
+  const stale = ids => {
+    const known = new Set(itemsRef.current.map(r => r.id));
+    return ids.some(x => x != null && !known.has(x));
+  };
   // Perubahan yang sudah diterima server: ke daftar server dan ke tampilan.
   const applyServer = fn => {
     confirmedRef.current = fn(confirmedRef.current);
@@ -9968,8 +9975,10 @@ function ChecklistTree({
       const ids = new Set(Array.isArray(resp.changed_ids) ? resp.changed_ids : []);
       ids.add(resp.id != null ? resp.id : id);
       const done = !!resp.is_done;
+      const resync = stale([...ids]);
       applyServer(list => list.map(r => ids.has(r.id) ? Object.assign({}, r, { is_done: done }) : r));
       adopt(resp);
+      if (resync) return load(true);
     }), "Gagal mencentang butir").then(() => toggleBusyRef.current.delete(id));
   };
   // Pindah optimistis + antrean (keyboard, menu, seret). target = {parent_id, index} dari TF.checklist; null atau
@@ -9995,10 +10004,12 @@ function ChecklistTree({
     }).then(resp => {
       if (!resp || !Array.isArray(resp.items)) throw new Error("Respons pindah tidak sah");
       const list = C.preorder(resp.items);
+      const resync = !list.some(r => r.id === id);
       confirmedRef.current = list;
       // Daftar server menggantikan tampilan hanya bila tidak ada perubahan lain yang masih menunggu.
       if (pendingRef.current === 1) setItems(list);
       adopt(resp);
+      if (resync) return load(true);
     }), "Gagal memindah butir");
     return true;
   };
@@ -10017,9 +10028,11 @@ function ChecklistTree({
     }).then(resp => {
       const saved = resp && typeof resp.title === "string" ? resp.title : title;
       const put = list => list.map(r => r.id === ed.id ? Object.assign({}, r, { title: saved }) : r);
+      const resync = !!resp && stale([resp.id]);
       confirmedRef.current = put(confirmedRef.current);
       if (pendingRef.current === 1) setItems(put(itemsRef.current));
       adopt(resp);
+      if (resync) return load(true);
     }), "Gagal menyimpan teks butir");
   };
   const startEdit = id => {
@@ -10089,8 +10102,10 @@ function ChecklistTree({
         id: near.item.id,
         part: "check"
       };
+      const resync = stale([...gone]);
       applyServer(list => list.filter(r => !gone.has(r.id)));
       adopt(resp);
+      if (resync) return load(true);
     }), "Gagal menghapus butir");
   };
   // Tambah butir di akhir saudara (tanpa index); true bila tersimpan.
@@ -10101,10 +10116,12 @@ function ChecklistTree({
       client_id: clientId,
       parent_id: parentId
     }).then(resp => {
+      const resync = stale([resp.parent_id]);
       applyServer(list => withAdded(list, itemOf(resp)));
       if (parentId != null) expandChain(parentId);
       adopt(resp);
       ok = true;
+      if (resync) return load(true);
     }), "Gagal menambah butir").then(() => ok);
   };
   const closeAdd = () => {

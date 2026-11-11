@@ -648,7 +648,7 @@
               .then(() => rewriteNoteTaskLinks(op.cid, sid)) // S15
               .then(() => rewriteTaskExtRefs(op.cid, sid)) // K7: {"$task": cid} → id server di task lain
               .then(() => rewritePluginTaskRefs(op.cid, sid)) // R13: ... dan di data record plugin
-              .then(() => noteChecklistTask(op.cid, sid)) // checklist offline: id server task + rev 0
+              .then(() => noteChecklistTask(op.cid, sid, res.data)) // checklist offline: id server task + rev 0
               .then(() => { result.pushed++; });
           }
           if (classify(res) === "forbidden") { return accessLost("tasks", op.cid, op, result); }
@@ -658,19 +658,21 @@
     });
   }
 
-  // Checklist offline (spec §4.2, rencana PR B2 R4): task yang baru terkirim → id server-nya dicatat di memori
-  // checklistrepo (routing ber-id server langsung mengenalnya); task yang sudah punya butir lokal dan belum punya kunci
-  // rev tersimpan → rev 0 (server task baru = rev 0) supaya respons aksi pertamanya memajukan rev tanpa ambil ulang.
-  // Kunci yang sudah ada (termasuk null = ambil ulang) tidak ditimpa. Gagal di sini tidak menggagalkan create task.
-  function noteChecklistTask(taskCid, sid) {
+  // Checklist offline (spec §4.2, rencana PR B2 R4; SEBAIKNYA-1 review Task 4–6): SETIAP task yang baru terkirim →
+  // id server-nya dicatat di memori checklistrepo dan rev 0 dari respons (task baru = checklist kosong di server)
+  // disimpan atomik bila kunci rev belum ada (null = ambil ulang tidak ditimpa): routing langsung mengenalnya (offline
+  // sesudahnya tetap bisa menambah checklist) dan respons aksi pertamanya memajukan rev tanpa ambil ulang. Rev respons
+  // > 0 (POST idempoten untuk task yang sudah punya butir di server) → tidak disimpan; pullChecklists mengunduhnya.
+  // Respons tanpa checklist_rev (server lama) → 0. Gagal di sini tidak menggagalkan create task.
+  function noteChecklistTask(taskCid, sid, data) {
     const CR = checklistRepo();
     if (!CR) return Promise.resolve();
+    const rev = data && typeof data.checklist_rev === "number" ? data.checklist_rev : 0;
     return Promise.resolve()
       .then(() => {
         if (typeof CR.noteTaskServerId === "function") CR.noteTaskServerId(taskCid, sid);
-        return Promise.all([CR.recordsForTask(taskCid), CR.getRevs()]);
+        return rev === 0 && typeof CR.setRevs === "function" ? CR.setRevs([[taskCid, 0]], { onlyIfAbsent: true }) : null;
       })
-      .then(([recs, revs]) => (recs.length && !hasOwn(revs, taskCid) ? CR.setRev(taskCid, 0) : null))
       .catch(() => {});
   }
 
@@ -705,7 +707,16 @@
           if (ext) payload.ext_patch = ext.value;
         }
         const sentAt = Date.now(); // sebelum PUT dikirim (penjaga respons basi progress checklist)
+        let checklistQueued = false;
         return send(transport, "PUT", "/api/tasks/" + sid, payload).then((res) => {
+          if (!ok(res) || !extOnly) return res;
+          // CATATAN-3 (E5): task yang masih punya entri antrean checklist → progress/checklist_total respons (milik server
+          // sebelum entri itu terkirim) tidak diadopsi; aksi lokal sesudahnya dijaga cap checklist_adopted_at.
+          return TFoutbox.outboxAll().then((all) => {
+            checklistQueued = all.some((o) => o && o.entity_type === SUBTASKS && o.task_cid === op.cid);
+            return res;
+          });
+        }).then((res) => {
           if (ok(res)) {
             // R5: payload ext saja → field inti respons diadopsi selama tidak ada edit inti lokal sejak payload
             // dibaca (penanda masih sah di record terkini, termasuk bila rev naik karena edit ext lain).
@@ -718,8 +729,9 @@
                 if (!X.extOnlyNow(cur)) return;
                 if (respAt != null && tsPrecise(respAt) && tsNewer(cur.base_rev, respAt)) return;
                 const core = H.coreFromServer(res.data);
-                // progress/checklist_total diadopsi dari respons checklist sesudah PUT ini dikirim → respons basi
-                if (adoptedSince(cur, sentAt)) { delete core.progress; delete core.checklist_total; }
+                // progress/checklist_total diadopsi dari respons checklist sesudah PUT ini dikirim → respons basi; task
+                // masih berantrean checklist (E5) → nilai lokal tetap
+                if (adoptedSince(cur, sentAt) || checklistQueued) { delete core.progress; delete core.checklist_total; }
                 Object.assign(next, core);
               }
               : null;
@@ -2402,22 +2414,26 @@
   }
 
   // Sesudah penolakan: entri lain task itu untuk butir yang tidak punya id server dan tidak punya create antre (yatim)
-  // dibuang tanpa dihitung — butir lokalnya dibereskan ambil ulang (rev dikosongkan).
+  // dibuang — butir lokalnya dibereskan ambil ulang (rev dikosongkan). → jumlah entri yang dibuang (ikut dihitung
+  // sebagai perubahan yang dibatalkan, CATATAN-2 review Task 4–6).
   function dropOrphanSubtaskOps(CR, taskCid) {
     return Promise.all([TFoutbox.outboxAll(), CR.recordsForTask(taskCid)]).then(([ops, recs]) => {
       const mine = ops.filter((o) => o && o.entity_type === SUBTASKS && o.task_cid === taskCid);
       const creating = new Set(mine.filter((o) => o.op === "create").map((o) => o.cid));
       const synced = new Set(recs.filter((r) => r.server_id != null).map((r) => r.cid));
       const cand = mine.filter((o) => !creating.has(o.cid) && !synced.has(o.cid) && !(o.payload && o.payload.server_id != null));
-      return cand.reduce((p, o) => p.then(() => TFidmap.serverIdOf(o.cid)
-        .then((sid) => (sid != null ? null : TFoutbox.outboxRemove(o.qid)))), Promise.resolve());
+      return cand.reduce((p, o) => p.then((n) => TFidmap.serverIdOf(o.cid)
+        .then((sid) => (sid != null ? n : TFoutbox.outboxRemove(o.qid).then(() => n + 1)))), Promise.resolve(0));
     });
   }
 
-  function subtaskRejected(CR, op, result) {
-    result.checklistRejected = (result.checklistRejected || 0) + 1;
+  // `counted` false: create ulang butir nisan (pengguna sudah menghapusnya) — dibuang tanpa masuk hitungan pesan.
+  function subtaskRejected(CR, op, result, counted) {
+    const add = (n) => { if (n > 0) result.checklistRejected = (result.checklistRejected || 0) + n; };
+    if (counted !== false) add(1);
     return TFoutbox.outboxRemove(op.qid)
       .then(() => dropOrphanSubtaskOps(CR, op.task_cid))
+      .then(add)
       .then(() => CR.clearRev(op.task_cid));
   }
 
@@ -2432,6 +2448,28 @@
     if (op.op === "move") return { method: "POST", path: "/api/subtasks/" + sid + "/move", body: { parent_id: psid, index: index } };
     if (op.op === "delete") return { method: "DELETE", path: "/api/subtasks/" + sid, body: undefined };
     return null;
+  }
+
+  // WAJIB-1 (review Task 4–6): tandai entri create `attempted` SEBELUM request dikirim (respons bisa hilang padahal
+  // server menerapkannya; checklistrepo.remove lalu mempertahankan create-nya + nisan, bukan membuangnya tanpa jejak).
+  // Satu transaksi: entri harus masih ada dengan payload yang sama dengan yang akan dikirim. → "ok" | "gone" (dibuang
+  // aksi lokal: jangan kirim) | "changed" (ditulis ulang aksi lokal: proses ulang dengan entri terbaru).
+  function markCreateAttempted(op) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let out = "gone";
+      const t = db.transaction("_outbox", "readwrite");
+      const os = t.objectStore("_outbox");
+      const r = os.get(op.qid);
+      r.onsuccess = () => {
+        const cur = r.result;
+        if (!cur || cur.entity_type !== SUBTASKS || cur.op !== "create" || cur.cid !== op.cid) return;
+        if (JSON.stringify(cur.payload || {}) !== JSON.stringify(op.payload || {})) { out = "changed"; return; }
+        out = "ok";
+        if (!cur.attempted) os.put(Object.assign({}, cur, { attempted: true }));
+      };
+      t.oncomplete = () => resolve(out);
+      t.onerror = () => reject(t.error);
+    }));
   }
 
   function putOutboxEntry(entry) {
@@ -2504,11 +2542,17 @@
             }
             const req = subtaskRequest(op, tsid, sid, psid);
             if (!req) return TFoutbox.outboxRemove(op.qid); // jenis aksi tidak dikenal
-            return send(transport, req.method, req.path, req.body).then((res) => {
-              if (ok(res) || (op.op === "delete" && res.status === 404)) {
-                return subtaskSucceeded(CR, op, res, sid, transport, result, drain);
-              }
-              return subtaskRejected(CR, op, result);
+            const tomb = op.op === "create" && !!item.deleted; // create ulang butir yang sudah dihapus lokal (nisan)
+            const marked = op.op === "create" ? markCreateAttempted(op) : Promise.resolve("ok");
+            return marked.then((m) => {
+              if (m === "gone") return null;
+              if (m === "changed") return processSubtaskOp(op0, transport, result, drain);
+              return send(transport, req.method, req.path, req.body).then((res) => {
+                if (ok(res) || (op.op === "delete" && res.status === 404)) {
+                  return subtaskSucceeded(CR, op, res, sid, transport, result, drain);
+                }
+                return subtaskRejected(CR, op, result, !tomb);
+              });
             });
           });
         });

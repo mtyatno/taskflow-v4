@@ -22,12 +22,17 @@ const SP = require(path.join(OFF, "syncpush.js"));
 const SL = require(path.join(OFF, "syncpull.js"));
 const { deleteDB } = require("./setup.js");
 
-// Jembatan transport push → pytest: satu request menunggu satu baris jawaban.
+// Jembatan transport push → pytest: satu request menunggu satu baris jawaban {status, data}, atau {net: true}
+// (jaringan putus / respons hilang → TypeError) / {abort: true} (batas waktu → AbortError).
 let waiter = null;
 const transport = {
   request(method, p, body) {
-    return new Promise((resolve) => {
-      waiter = resolve;
+    return new Promise((resolve, reject) => {
+      waiter = (ans) => {
+        if (ans && ans.net) { reject(new TypeError("Failed to fetch")); return; }
+        if (ans && ans.abort) { const e = new Error("abort"); e.name = "AbortError"; reject(e); return; }
+        resolve(ans);
+      };
       process.stdout.write(JSON.stringify({ req: { method, path: p, body: body === undefined ? null : body } }) + "\n");
     });
   },

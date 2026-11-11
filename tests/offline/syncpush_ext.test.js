@@ -480,6 +480,21 @@ test("PUT ext saja: adopsi SEBELUM PUT dikirim → progress/checklist_total resp
   assert.deepEqual([rec.progress, rec.checklist_total, rec.title, rec.dirty], [60, 2, "judul server", 0]);
 });
 
+// CATATAN-3 review Task 4–6 (E5, checklist offline Fase 2): task yang masih punya entri antrean `subtasks` — progress
+// lokal hasil aksi checklist yang belum terkirim tidak boleh ditimpa progress/checklist_total respons PUT ext saja.
+test("PUT ext saja: task berantrean checklist (subtasks) → progress/checklist_total respons tidak diadopsi; inti lain diadopsi", async () => {
+  const srv = fakeServer();
+  await extEdited(srv, null, { progress: 67, checklist_total: 3 });
+  srv.rows.get(7).core.checklist_total = 2;
+  // entri checklist task ini antre SESUDAH op update task (dibuang push karena butirnya tidak ada — tanpa request)
+  await put("_outbox", [{ ts: 1, retries: 0, entity_type: "subtasks", op: "rename", cid: "zz", task_cid: "t", payload: { title: "x" } }]);
+  await drain(srv);
+  const rec = await getRec("t");
+  assert.deepEqual([rec.progress, rec.checklist_total], [67, 3]);
+  assert.deepEqual([rec.title, rec.gtd_status, rec.dirty], ["judul server", "done", 0]);
+  assert.equal(srv.calls.length, 1);
+});
+
 test("PUT ext saja tanpa adopsi → progress dan checklist_total respons diadopsi (perilaku lama)", async () => {
   const srv = fakeServer();
   await extEdited(srv);

@@ -48,8 +48,9 @@ class Driver:
             out = json.loads(line)
             if "req" in out:
                 assert server is not None, out
-                status, data = server(out["req"]["method"], out["req"]["path"], out["req"]["body"])
-                self._send({"status": status, "data": data})
+                ans = server(out["req"]["method"], out["req"]["path"], out["req"]["body"])
+                # dict = jawaban mentah ({"net": True} respons hilang / {"abort": True} batas waktu)
+                self._send(ans if isinstance(ans, dict) else {"status": ans[0], "data": ans[1]})
                 continue
             assert "crash" not in out, out.get("crash")
             return out
@@ -478,3 +479,94 @@ def test_push_aplikasi_bentrok_perangkat_lain_tidak_tersangkut(node, tmp_path):
     assert gagal == [], json.dumps(gagal[:3], default=str)[:3000]
     assert ditolak > 0, "skenario bentrok seharusnya menghasilkan penolakan"
     assert diunduh > len(SEEDS) // 2, "skenario bentrok seharusnya mengambil ulang checklist (%d)" % diunduh
+
+
+# ── WAJIB-1 review Task 4–6: respons hilang (server sudah menerapkan) lalu aksi lokal berlanjut ──────────────────────
+
+class _Lost:
+    """Bungkus _http: request ke-k (0-based) DITERAPKAN server tetapi responsnya hilang (jaringan putus / batas waktu)."""
+
+    def __init__(self, inner, k, mode="net"):
+        self.inner, self.k, self.mode, self.n, self.log = inner, k, mode, 0, []
+
+    def __call__(self, method, path, body):
+        i = self.n
+        self.n += 1
+        self.log.append((method, path))
+        if i == self.k:
+            self.inner(method, path, body)
+            return {"net": True} if self.mode == "net" else {"abort": True}
+        return self.inner(method, path, body)
+
+
+@pytest.mark.parametrize("mode", ["net", "abort"])
+def test_respons_create_hilang_lalu_dihapus_tidak_hidup_lagi(node, tmp_path, mode):
+    """rv_lostcreate: create diterapkan server, respons hilang; pengguna menghapus butir sebelum push berikutnya →
+    butir tidak hidup lagi di server (create dikirim ulang idempoten lalu DELETE), tanpa pesan ditolak, konvergen."""
+    rows = [{"id": 1, "title": "A", "is_done": False, "sort_order": 0, "parent_id": None}]
+    _init(node, rows, rev=1)
+    x = _ok(node, "POST", "/api/tasks/7/subtasks", {"title": "Salah ketik"})["id"]
+    db = tmp_path / ("lost_%s.db" % mode)
+    repo = _repo_rev(db, rows, 1)
+    node(cmd="push", server=_Lost(_http(repo, db), 0, mode))
+    assert [i["title"] for i in repo.get_subtasks(TASK)] == ["A", "Salah ketik"]
+    _ok(node, "DELETE", "/api/subtasks/%s" % x)
+    res = node(cmd="push", server=_http(repo, db))["result"]
+    assert node(cmd="queue")["queue"] == []
+    assert [i["title"] for i in repo.get_subtasks(TASK)] == ["A"]
+    assert not res.get("checklistRejected")
+    gagal = []
+    _pull_converges(node, repo, db, mode, gagal)
+    assert gagal == [], gagal
+
+
+def _lost_run(node, tmp_path, seed, lost):
+    """Antrean acak → push dengan respons hilang pada request ke-k (lost=True) → aksi lokal lanjutan → push → pull.
+    Mengembalikan (repo, db, k, request yang hilang)."""
+    rnd = random.Random(seed * 101)
+    rows = _rows(rnd)
+    rev = rnd.randint(1, 3)
+    _init(node, rows, rev=rev)
+    for _ in range(rnd.randint(2, 8)):
+        _step(node, rnd)
+    q0 = node(cmd="queue")["queue"]
+    if not q0:
+        return None
+    db = tmp_path / ("ls%d_%s.db" % (seed, "lost" if lost else "ok"))
+    repo = _repo_rev(db, rows, rev)
+    k = rnd.randint(0, len(q0) - 1)
+    lost_req = None
+    if lost:
+        f = _Lost(_http(repo, db), k)
+        node(cmd="push", server=f)
+        lost_req = f.log[k] if len(f.log) > k else None
+    for _ in range(rnd.randint(1, 6)):
+        _step(node, rnd)
+    res = node(cmd="push", server=_http(repo, db))["result"]
+    return repo, db, lost_req, res
+
+
+def test_respons_hilang_acak_server_sama_dengan_tanpa_galat(node, tmp_path):
+    """rv_lost_steps (seed tetap): isi server sesudah respons hilang + aksi lanjutan = isi server jalur tanpa galat;
+    antrean habis, tanpa penolakan, dan pull konvergen."""
+    gagal = []
+    kena = 0
+    for seed in range(1, 151):
+        a = _lost_run(node, tmp_path, seed, True)
+        if a is None:
+            continue
+        repo, db, lost_req, res = a
+        q = node(cmd="queue")["queue"]
+        if lost_req and lost_req[0] == "POST" and lost_req[1].endswith("/subtasks"):
+            kena += 1
+        if q or res.get("checklistRejected"):
+            gagal.append((seed, "antrean/ditolak", res, [(o["op"], o.get("payload")) for o in q]))
+            continue
+        _pull_converges(node, repo, db, seed, gagal)
+        b = _lost_run(node, tmp_path, seed, False)
+        isi_a = sorted((x[3], x[4]) for x in _server_tree(repo))
+        isi_b = sorted((x[3], x[4]) for x in _server_tree(b[0]))
+        if isi_a != isi_b:
+            gagal.append((seed, "server berbeda dari jalur tanpa galat", lost_req, isi_a, isi_b))
+    assert gagal == [], json.dumps(gagal[:3], default=str)[:3000]
+    assert kena > 10, "skenario seharusnya mengenai create yang responsnya hilang (%d)" % kena

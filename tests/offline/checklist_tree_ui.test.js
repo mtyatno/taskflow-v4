@@ -481,6 +481,79 @@ test("ChecklistTree + rute lokal: id butir tetap sesudah push mengadopsi id serv
   assert.ok(calls.every(c => c.local));
 });
 
+// CATATAN-4 review Task 4–6: pohon dimuat lewat jaringan (id server) sebelum unduhan awal selesai, lalu rute lokal
+// menjawab mutasi dengan id stabil (cid) butir buatan perangkat ini → id respons tidak dikenal daftar → daftar dimuat ulang
+// (GET) sekali di antrean yang sama, supaya tampilan selaras dengan rute lokal.
+test("ChecklistTree: respons centang ber-id yang tidak dikenal daftar → daftar dimuat ulang sekali; id selaras → tanpa muat ulang", async () => {
+  // butir yang sama: id server 501/502 (muat pertama lewat jaringan) = cid "c1"/"c2" (rute lokal)
+  const st = { local: false, done: { c1: false, c2: false }, title: { c1: "Satu", c2: "Dua" }, gone: new Set(), calls: [] };
+  const idOf = c => (st.local ? c : { c1: 501, c2: 502 }[c]);
+  const row = c => ({ id: idOf(c), task_id: 7, parent_id: null, depth: 0, title: st.title[c], is_done: st.done[c], sort_order: c === "c1" ? 0 : 1 });
+  const list = () => ["c1", "c2"].filter(c => !st.gone.has(c)).map(row);
+  const tp = { done: 0, total: 2, progress: 0 };
+  const api = {
+    get: url => { st.calls.push("GET " + url); const out = list(); st.local = true; return Promise.resolve(out); },
+    post: (url, body) => {
+      st.calls.push("POST " + url);
+      if (/\/toggle$/.test(url)) { st.done.c1 = !st.done.c1; return Promise.resolve(Object.assign(row("c1"), { changed_ids: ["c1"], task_progress: tp })); }
+      return Promise.resolve({ id: "c9", task_id: 7, parent_id: "c1", depth: 1, title: body.title, is_done: false, sort_order: 0, task_progress: tp });
+    },
+    patch: (url, body) => { st.calls.push("PATCH " + url); st.title.c2 = body.title; return Promise.resolve(Object.assign(row("c2"), { changed_ids: [], task_progress: tp })); },
+    del: url => { st.calls.push("DELETE " + url); st.gone.add("c2"); return Promise.resolve({ ok: true, deleted_ids: ["c2"], task_progress: tp }); },
+    put: () => Promise.reject(new Error("tidak dipakai")),
+  };
+  const srv = { calls: st.calls, api };
+  const h = await mountTree({}, { server: srv });
+  assert.deepEqual(rowsOf(h.out).map(r => r.id), [501, 502], "muat pertama lewat jaringan: id server");
+  one(h.out, "Satu").props.onClick(); await h.settle();
+  assert.deepEqual(st.calls.slice(-2), ["POST /api/subtasks/501/toggle", "GET /api/tasks/7/subtasks"], "id respons c1 tidak dikenal → muat ulang");
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.done]), [["c1", true], ["c2", false]]);
+  const n = st.calls.length;
+  one(h.out, "Satu").props.onClick(); await h.settle();
+  assert.equal(st.calls.length, n + 1, "id sudah selaras → tanpa muat ulang");
+  assert.deepEqual(h.toasts, []);
+  const g0 = st.calls.length;
+  textBtn(h.out, "c2").props.onClick(); await h.settle();
+  editBox(h.out).props.onChange({ target: { value: "Dua baru" } }); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  assert.equal(st.calls.length, g0 + 1, "respons ubah teks ber-id dikenal (c2) → tanpa muat ulang");
+});
+
+test("ChecklistTree: respons hapus / tambah / pindah ber-id tak dikenal → muat ulang sekali", async () => {
+  for (const kind of ["hapus", "tambah", "pindah"]) {
+    const st = { calls: [], n: 0 };
+    const rows0 = [{ id: 501, task_id: 7, parent_id: null, depth: 0, title: "Satu", is_done: false, sort_order: 0 },
+      { id: 502, task_id: 7, parent_id: null, depth: 0, title: "Dua", is_done: false, sort_order: 1 }];
+    const asCid = r => Object.assign({}, r, { id: r.id === 501 ? "c1" : "c2" });
+    const tp = { done: 0, total: 2, progress: 0 };
+    const api = {
+      get: url => { st.calls.push("GET"); return Promise.resolve(st.n++ === 0 ? rows0 : rows0.map(asCid)); },
+      post: (url, body) => {
+        st.calls.push("POST " + url);
+        if (/\/move$/.test(url)) return Promise.resolve({ items: [rows0[1], rows0[0]].map(asCid), task_progress: tp });
+        return Promise.resolve({ id: "c9", task_id: 7, parent_id: "c1", depth: 1, title: body.title, is_done: false, sort_order: 0, task_progress: tp });
+      },
+      del: url => { st.calls.push("DELETE " + url); return Promise.resolve({ ok: true, deleted_ids: ["c2"], task_progress: tp }); },
+      patch: () => Promise.reject(new Error("x")), put: () => Promise.reject(new Error("x")),
+    };
+    const h = await mountTree({}, { server: { calls: st.calls, api } });
+    if (kind === "hapus") await pick(h, "Dua", "Hapus");
+    if (kind === "tambah") await pick(h, "Satu", "Tambah sub butir").then(async () => {
+      const box = findAll(h.out, nd => nd.type === "MentionInput" && nd.props["aria-label"] === "Sub butir baru")[0];
+      box.props.onChange({ target: { value: "Anak" } }); await h.settle();
+      findAll(h.out, nd => nd.type === "MentionInput" && nd.props["aria-label"] === "Sub butir baru")[0].props.onKeyDown(key({ key: "Enter" }));
+      await h.settle();
+    });
+    if (kind === "pindah") {
+      rowNode(h.out, 502).props.onKeyDown(key({ key: "ArrowUp", altKey: true, target: { getAttribute: () => "check" } }));
+      await h.settle();
+    }
+    assert.ok(st.calls.some(c => c.startsWith(kind === "hapus" ? "DELETE" : "POST")), kind + ": mutasi terkirim " + st.calls.join(", "));
+    assert.equal(st.calls.filter(c => c === "GET").length, 2, kind + ": " + st.calls.join(", "));
+    assert.ok(rowsOf(h.out).every(r => typeof r.id === "string"), kind + ": id selaras dengan rute lokal");
+  }
+});
+
 test("App: pendengar tf:checklist-rejected sekali → satu toast error berteks persis + sinkron ulang (spec §4.4, F3)", () => {
   const app = fnSource("App");
   const n = app.split('"tf:checklist-rejected"').length - 1;

@@ -2102,8 +2102,8 @@
   //   - rev server 0 dan kunci rev tersimpan tidak ada → simpan 0 tanpa unduh (server menjamin task yang punya butir
   //     selalu rev ≥ 1); satu transaksi untuk semua (setRevs onlyIfAbsent);
   //   - rev server ≠ tersimpan (termasuk null = dikosongkan, kunci tidak ada = belum pernah diunduh) dan task tanpa entri
-  //     antrean `subtasks` (E5) → diunduh; rev server tidak diketahui (record tanpa checklist_rev): diunduh hanya bila
-  //     kunci belum ada (tidak pernah dianggap 0 — tidak pernah melayani checklist kosong untuk task yang punya butir);
+  //     antrean `subtasks` (E5) → diunduh; rev server tidak diketahui (record tanpa checklist_rev): diunduh bila kunci
+  //     belum ada atau null (tidak pernah dianggap 0 — tidak pernah melayani checklist kosong untuk task yang punya butir);
   //   - selain itu dilewati.
   // Unduhan: GET /api/checklists?task_ids= (≤ 200 id per permintaan, berurutan) → replaceTaskChecklist (menolak sendiri
   // bila antrean muncul di antaranya); task tanpa kunci di respons (tidak ada / tanpa akses) → purgeTask; entri bukan
@@ -2129,7 +2129,9 @@
         const has = Object.prototype.hasOwnProperty.call(revs, t.cid);
         const srv = typeof t.checklist_rev === "number" && Number.isFinite(t.checklist_rev) ? t.checklist_rev : null;
         if (srv === 0 && !has) { zero.push([t.cid, 0]); continue; }
-        if (srv == null ? has : revs[t.cid] === srv) continue;
+        // rev server tidak diketahui: dilewati hanya bila rev tersimpan berupa angka; null (dikosongkan) SELALU diambil
+        // ulang (CATATAN-1: rev server 0 tidak pernah ditulis ke record lama karena setara bawaan 0).
+        if (srv == null ? (has && revs[t.cid] !== null) : revs[t.cid] === srv) continue;
         if (pending.has(t.cid)) { result.skipped++; continue; }
         want.push(t);
       }

@@ -26,7 +26,9 @@
   //   create {title, parent_cid, index} | rename {title} | set_done {is_done, cascade_cids?} | move {parent_cid, index} |
   //   delete {}. `cascade_cids` (hanya lokal; push mengabaikannya) = butir lain yang ikut tercentang berantai.
   //   Aksi tanpa perubahan (judul sama, centang sudah sesuai, posisi sama) tidak menulis apa pun.
-  // - Hapus: butir tanpa server_id (create belum terkirim) → semua entrinya dibuang tanpa delete; butir tersinkron →
+  // - Hapus: butir tanpa server_id (create belum terkirim) → semua entrinya dibuang tanpa delete — kecuali create yang
+  //   sudah DICOBA dikirim (entri `attempted`, respons bisa hilang padahal server menerapkannya): entri create itu tetap
+  //   dan butirnya menjadi nisan (`deleted`, tak terlihat) sampai push mengirim ulang create lalu DELETE; butir tersinkron →
   //   delete untuk setiap butir tersinkron yang induknya bukan butir tersinkron yang ikut terhapus (biasanya hanya
   //   akarnya; server berantai). `move` butir tersinkron ke induk yang dibuang ikut dibuang; entri create/move butir
   //   lain yang menunjuk induk yang dibuang ditulis ulang ke akhir level atas (tanpa entri yatim); centang berantai dari
@@ -140,7 +142,7 @@
       const hy = meta.get(HYDRATED_KEY);
       hy.onsuccess = () => { m.hydrated = hy.result === true; };
       const sq = t.objectStore("subtasks").getAll();
-      sq.onsuccess = () => { for (const r of sq.result || []) addItem(m, r); };
+      sq.onsuccess = () => { for (const r of sq.result || []) if (!r.deleted) addItem(m, r); }; // nisan: tidak ada
       const kc = t.objectStore("tasks").index("server_id").openKeyCursor();
       kc.onsuccess = () => {
         const c = kc.result;
@@ -361,7 +363,14 @@
         });
         if (!cur || recChanged(cur, next)) { st.put(next); put.push(next); }
       }
-      for (const r of view.recs) if (!seen.has(r.cid)) { st.delete(r.cid); removed.push(r); }
+      const tomb = new Set(plan.tombstone || []);
+      for (const r of view.recs) {
+        if (seen.has(r.cid)) continue;
+        // Nisan (WAJIB-1): butir yang create-nya sudah dicoba dikirim tetap disimpan bertanda `deleted` (tak terlihat)
+        // sampai push mengirim ulang create-nya lalu DELETE (adoptServerId membuangnya).
+        if (tomb.has(r.cid)) st.put(Object.assign({}, r, { deleted: true })); else st.delete(r.cid);
+        removed.push(r);
+      }
     }
     for (const qid of plan.drop || []) ob.delete(qid);
     for (const o of plan.rewrite || []) ob.put(o);
@@ -557,9 +566,17 @@
       }
       const intoDropped = (o) => (o.op === "create" || o.op === "move") && !!o.payload && o.payload.parent_cid != null
         && unsynced.has(o.payload.parent_cid);
+      // WAJIB-1 (review Task 4–6): create yang SUDAH dicoba dikirim (`attempted`, ditandai syncpush sebelum request)
+      // mungkin sudah diterapkan server walau responsnya hilang → entri create-nya DIPERTAHANKAN dan butirnya menjadi
+      // nisan; push mengirim ulang create (idempoten lewat client_id) → adoptServerId false → DELETE id server-nya.
+      // Untuk aturan lain (W1, centang berantai, rev) butir itu tetap dianggap dibuang: create anak / turunannya belum
+      // pernah dicoba (menunggu id server butir ini), dan DELETE-nya langsung menyusul create ulang.
+      const kept = queued.filter((o) => o.op === "create" && o.attempted && unsynced.has(o.cid));
+      const keptQids = new Set(kept.map((o) => o.qid));
       const drop = [];
       const rewrite = [];
       for (const o of queued) {
+        if (keptQids.has(o.qid)) continue;
         if (unsynced.has(o.cid) || (synced.has(o.cid) && intoDropped(o))) { drop.push(o.qid); continue; }
         // Perbaikan review W1: entri create/move butir LAIN (tidak ikut terhapus) yang induknya butir belum terkirim
         // yang dibuang → ditulis ulang ke {parent_cid: null, index: null} (akhir level atas), supaya tidak ada entri
@@ -606,11 +623,14 @@
         }
       }
       let clearRev = rewrite.length > 0;
-      if (drop.length) {
-        const first = Math.min.apply(null, drop);
-        clearRev = clearRev || queued.some((o) => !dropSet.has(o.qid) && o.qid > first);
+      const gone = drop.concat(Array.from(keptQids));
+      if (gone.length) {
+        const first = Math.min.apply(null, gone);
+        clearRev = clearRev || queued.some((o) => !dropSet.has(o.qid) && !keptQids.has(o.qid) && o.qid > first);
       }
-      return { items: r.items, ops, drop, rewrite, clearRev, result: { deleted_ids: r.deleted_ids } };
+      return {
+        items: r.items, ops, drop, rewrite, clearRev, tombstone: kept.map((o) => o.cid), result: { deleted_ids: r.deleted_ids },
+      };
     }).then((res) => ({ items: res.items, deleted_ids: (res.result.deleted_ids || []).map(res.out), task_progress: res.task_progress }));
   }
 
@@ -742,6 +762,7 @@
               const cid = cidFor.get(String(s.id));
               const cur = byCid.get(cid) || bySid.get(String(s.id)) || null;
               const next = Object.assign({}, cur || {}, {
+                deleted: false, // snapshot server berwenang (nisan hanya ada selama create-nya masih antre)
                 cid: cid, server_id: s.id, task_cid: taskCid,
                 parent_cid: s.parent_id == null ? null : (cidFor.get(String(s.parent_id)) || null),
                 title: s.title != null ? s.title : "", is_done: !!s.is_done,
@@ -834,9 +855,9 @@
   // ── id server dari push ──────────────────────────────────────────────────────
 
   // Butir `cid` mendapat id server (create terkirim): record + _idmap "subtask" dalam satu transaksi. Record tidak
-  // ada → false: butir itu dihapus lokal SAAT create-nya sedang terkirim (`remove` membuang entri create yang belum
-  // selesai), jadi server kini punya butir "hantu" yang tidak dikenal perangkat ini — push (handler subtasks) WAJIB
-  // mengirim DELETE /api/subtasks/{serverId} untuknya.
+  // ada atau nisan (dihapus lokal sesudah create-nya dicoba, WAJIB-1; nisan ikut dibuang di transaksi ini) → false:
+  // server kini punya butir "hantu" yang tidak dikenal perangkat ini — push (handler subtasks) WAJIB mengirim
+  // DELETE /api/subtasks/{serverId} untuknya.
   function adoptServerId(cid, serverId) {
     if (cid == null || serverId == null) return Promise.resolve(false);
     return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -846,6 +867,7 @@
       const r = st.get(cid);
       r.onsuccess = () => {
         if (!r.result) return;
+        if (r.result.deleted) { st.delete(cid); return; } // nisan (WAJIB-1): butir sudah dihapus lokal → hantu
         saved = Object.assign({}, r.result, { server_id: serverId });
         st.put(saved);
         t.objectStore("_idmap").put({ key: mapKey(serverId), entity_type: MAP_TYPE, server_id: serverId, cid: cid });

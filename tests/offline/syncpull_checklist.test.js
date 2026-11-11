@@ -180,13 +180,13 @@ test("task tanpa kunci di respons batch (tidak ada / tanpa akses) → checklist 
   assert.equal(r.purged, 1);
 });
 
-test("rev server tidak diketahui (record tanpa checklist_rev): tanpa kunci → diunduh; dengan kunci → dilewati", async () => {
-  await put("tasks", [task("t1", 7, undefined), task("t2", 8, undefined)]);
-  await setRevs({ t2: 5 });
-  const f = server({ 7: { rev: 2, items: [item(11)] } });
+test("rev server tidak diketahui (record tanpa checklist_rev): tanpa kunci → diunduh; kunci angka → dilewati; kunci null → SELALU diunduh (CATATAN-1)", async () => {
+  await put("tasks", [task("t1", 7, undefined), task("t2", 8, undefined), task("t3", 9, undefined)]);
+  await setRevs({ t2: 5, t3: null });
+  const f = server({ 7: { rev: 2, items: [item(11)] }, 9: { rev: 0, items: [] } });
   await pullChecklists(f);
-  assert.deepEqual(f.urls.map(idsOf), [[7]]);
-  assert.deepEqual(await CR.getRevs(), { t1: 2, t2: 5 });
+  assert.deepEqual(f.urls.map(idsOf), [[7, 9]]);
+  assert.deepEqual(await CR.getRevs(), { t1: 2, t2: 5, t3: 0 });
 });
 
 test("task yang sedang konflik (menunggu keputusan pengguna) tidak diunduh / dibuang", async () => {

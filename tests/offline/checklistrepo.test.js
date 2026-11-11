@@ -882,3 +882,72 @@ test("id stabil: replaceTaskChecklist mempertahankan asal butir (cid tetap id AP
   ], 9);
   assert.deepEqual((await R.itemsForTask("t1")).map((i) => [i.id, i.is_done]), [[11, false], [cid, true]]);
 });
+
+// WAJIB-1 review Task 4–6: create yang SUDAH dicoba dikirim (entri `attempted`, respons bisa hilang padahal server sudah
+// menerapkannya) tidak boleh dibuang tanpa jejak saat butirnya dihapus lokal — entri create dipertahankan, butir menjadi
+// nisan (deleted, tak terlihat), entri lain butir itu dibuang; push mengirim ulang create (idempoten client_id) →
+// adoptServerId false (nisan) → DELETE id server-nya.
+async function tandaiDicoba(cid) {
+  const o = (await subtaskOps()).find((x) => x.op === "create" && x.cid === cid);
+  await tx("_outbox", "readwrite", (t) => { t.objectStore("_outbox").put(Object.assign({}, o, { attempted: true })); });
+}
+
+test("WAJIB-1: hapus butir yang create-nya sudah dicoba → entri create tetap (attempted), entri lain dibuang, butir jadi nisan", async () => {
+  await pohon();
+  await R.start();
+  const x = (await R.create("t1", { title: "Salah ketik" })).item.id;
+  await R.patch(x, { title: "Salah ketik 2" });
+  await tandaiDicoba(x);
+  const res = await R.remove(x);
+  assert.deepEqual(res.deleted_ids, [x]);
+  assert.deepEqual(qOf(await subtaskOps()).map((q) => [q[0], q[1]]), [["create", x]]);
+  assert.equal((await subtaskOps())[0].attempted, true);
+  const rec2 = (await allItems()).find((r) => r.cid === x);
+  assert.equal(rec2.deleted, true, "nisan");
+  assert.ok(!(await R.itemsForTask("t1")).some((i) => i.id === x), "tak terlihat");
+  assert.equal(R.knowsItem(x), false);
+  await assert.rejects(R.toggle(x), { code: "NOT_FOUND" });
+  assert.equal(await R.adoptServerId(x, 77), false, "nisan → hantu");
+  assert.ok(!(await allItems()).some((r) => r.cid === x), "nisan dibuang saat diadopsi");
+});
+
+test("WAJIB-1: nisan tidak dimuat ke memori kesiapan; create belum dicoba tetap dibuang tuntas (perilaku lama)", async () => {
+  await pohon();
+  const x = (await R.create("t1", { title: "X" })).item.id;
+  const y = (await R.create("t1", { title: "Y" })).item.id;
+  await tandaiDicoba(x);
+  await R.remove(x);
+  await R.remove(y);
+  assert.deepEqual(qOf(await subtaskOps()).map((q) => [q[0], q[1]]), [["create", x]]);
+  assert.ok(!(await allItems()).some((r) => r.cid === y), "Y (belum dicoba) dihapus tuntas");
+  R._reset();
+  await R.start();
+  assert.equal(R.knowsItem(x), false);
+});
+
+test("WAJIB-1: hapus induk ber-create dicoba → anak yang dikeluarkan (W1) ditulis ulang ke level atas; rev dikosongkan bila entri lain sesudahnya", async () => {
+  await pohon();
+  const u = (await R.create("t1", { title: "U" })).item.id;
+  await tandaiDicoba(u);
+  // anak C dibuat di bawah U (belum dicoba: menunggu id server U), lalu dikeluarkan ke level atas
+  const c = (await R.create("t1", { title: "C", parent_id: u })).item.id;
+  await R.move(c, null, 0);
+  await R.remove(u);
+  const q = qOf(await subtaskOps());
+  assert.deepEqual(q.map((x) => [x[0], x[1]]), [["create", u], ["create", c], ["move", c]]);
+  assert.deepEqual(q[1][3], { title: "C", parent_cid: null, index: null }, "create C tidak lagi menunjuk U");
+  assert.equal((await R.getRevs()).t1, null);
+});
+
+test("WAJIB-1: centang berantai dari set_done butir ber-create dicoba yang dibuang tetap diganti entri sendiri", async () => {
+  await pohon();
+  const u = (await R.create("t1", { title: "U" })).item.id;
+  const c = (await R.create("t1", { title: "C", parent_id: u })).item.id;
+  await tandaiDicoba(u);
+  await R.toggle(u); // berantai ke C
+  await R.move(c, null, 0); // C keluar dari U (tetap selesai)
+  await R.remove(u);
+  const q = qOf(await subtaskOps());
+  assert.ok(q.some((x) => x[0] === "set_done" && x[1] === c && x[3].is_done === true), JSON.stringify(q));
+  assert.ok(!q.some((x) => x[1] === u && x[0] !== "create"));
+});
