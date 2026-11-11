@@ -619,6 +619,8 @@ def backfill_contexts(conn) -> dict:
 # ── Checklist bertingkat (spec 2026-11-06 §3–§5; rencana PR A R2–R6) ──────────
 # Butir = baris `subtasks`; `parent_id` NULL = level atas. Semua fungsi di bawah memakai koneksi
 # pemanggil (di dalam `dbconn.write_tx` untuk operasi tulis) dan tidak pernah menulis `tasks.updated_at`.
+# Fase 2 (spec checklist offline E2, rencana PR A2 R1): setiap transaksi tulis yang mengubah butir menaikkan
+# `tasks.checklist_rev` tepat 1 (`_bump_rev`); pemulihan pohon yang mengubah sesuatu naik 1 tersendiri.
 
 class ChecklistError(ValueError):
     """Aturan checklist dilanggar; `code` ∈ PARENT_NOT_FOUND | CYCLE | EMPTY_TITLE (webapp → 422)."""
@@ -628,17 +630,26 @@ class ChecklistError(ValueError):
         self.code = code
 
 
+def _bump_rev(conn, task_id: int, n: int = 1) -> None:
+    """Naikkan `tasks.checklist_rev` sebanyak `n` (NULL dianggap 0). Field turunan: `updated_at` tidak disentuh
+    (E1). Dipanggil di transaksi tulis yang sama dengan perubahan butir (rencana PR A2 R1)."""
+    conn.execute("UPDATE tasks SET checklist_rev = COALESCE(checklist_rev, 0) + ? WHERE id = ?", (n, task_id))
+
+
 def _recompute_progress(conn, task_id: int) -> dict:
     """Hitung ulang `tasks.progress`/`checklist_total` dari butir level atas (R3), tulis hanya bila berbeda.
     Tanpa butir level atas → hanya `checklist_total = 0`; `progress` tetap nilai terakhir (K11).
-    Field turunan: `updated_at` tidak disentuh (D2). Mengembalikan `{"done", "total", "progress"}`."""
+    Field turunan: `updated_at` tidak disentuh (D2). Mengembalikan `{"done", "total", "progress", "rev"}`;
+    `rev` = `checklist_rev` terkini (panggil SESUDAH `_bump_rev`), None bila task tidak ada."""
     agg = conn.execute(
         "SELECT COUNT(*), COALESCE(SUM(CASE WHEN is_done THEN 1 ELSE 0 END), 0) "
         "FROM subtasks WHERE task_id = ? AND parent_id IS NULL", (task_id,)).fetchone()
     total, done = agg[0], agg[1]
-    cur = conn.execute("SELECT progress, checklist_total FROM tasks WHERE id = ?", (task_id,)).fetchone()
+    cur = conn.execute(
+        "SELECT progress, checklist_total, COALESCE(checklist_rev, 0) FROM tasks WHERE id = ?",
+        (task_id,)).fetchone()
     if cur is None:
-        return {"done": done, "total": total, "progress": None}
+        return {"done": done, "total": total, "progress": None, "rev": None}
     if total > 0:
         progress = checklist_tree.percent(done, total)
         if cur[0] != progress or cur[1] != total:
@@ -648,18 +659,21 @@ def _recompute_progress(conn, task_id: int) -> dict:
         progress = cur[0]
         if cur[1] != 0:
             conn.execute("UPDATE tasks SET checklist_total = 0 WHERE id = ?", (task_id,))
-    return {"done": done, "total": total, "progress": progress}
+    return {"done": done, "total": total, "progress": progress, "rev": cur[2]}
 
 
 def _heal_task_tree(conn, task_id: int) -> int:
     """Samakan `parent_id` tersimpan dengan pohon efektif `checklist_tree.preorder`: butir yang tampil di
     level atas (induk tidak ada, di task lain, atau pemutus siklus) → `parent_id = NULL`. Dipanggil di awal
-    setiap operasi tulis checklist (dalam transaksi pemanggil) dan oleh `heal_checklists`. Tanpa `updated_at`.
+    setiap operasi tulis checklist (dalam transaksi pemanggil) dan oleh `heal_checklists`. Bila ada yang
+    diubah, `checklist_rev` naik 1 tersendiri (E2), terpisah dari kenaikan operasinya. Tanpa `updated_at`.
     Mengembalikan jumlah baris yang diubah."""
     rows = conn.execute(
         "SELECT id, task_id, parent_id, sort_order FROM subtasks WHERE task_id = ?", (task_id,)).fetchall()
     ids = [r["id"] for r in checklist_tree.preorder(rows) if r["depth"] == 0 and r["parent_id"] is not None]
-    conn.executemany("UPDATE subtasks SET parent_id = NULL WHERE id = ?", [(i,) for i in ids])
+    if ids:
+        conn.executemany("UPDATE subtasks SET parent_id = NULL WHERE id = ?", [(i,) for i in ids])
+        _bump_rev(conn, task_id)
     return len(ids)
 
 
@@ -1010,6 +1024,10 @@ class TaskRepository:
             # Jumlah butir checklist level atas (0 = tanpa checklist); hanya server yang menulis (spec checklist §3.2).
             if "checklist_total" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN checklist_total INTEGER DEFAULT 0")
+            # Versi checklist per task (spec checklist offline Fase 2 §3.1, E1–E2): naik bersama operasi checklist
+            # yang mengubah sesuatu; field turunan tanpa updated_at, hanya server yang menulis.
+            if "checklist_rev" not in cols:
+                conn.execute("ALTER TABLE tasks ADD COLUMN checklist_rev INTEGER DEFAULT 0")
             if "parent_id" not in cols:
                 conn.execute("ALTER TABLE tasks ADD COLUMN parent_id INTEGER DEFAULT NULL REFERENCES tasks(id) ON DELETE SET NULL")
 
@@ -1680,6 +1698,7 @@ class TaskRepository:
             new_id = cur.lastrowid
             siblings.insert(pos, (new_id, pos))
             _renumber(conn, siblings)
+            _bump_rev(conn, task_id)
             return _subtask_with_progress(conn, task_id, new_id)
 
     def get_subtasks(self, task_id: int) -> list[dict]:
@@ -1699,6 +1718,7 @@ class TaskRepository:
                 raise ChecklistError("EMPTY_TITLE")
             if clean != row["title"]:
                 conn.execute("UPDATE subtasks SET title = ? WHERE id = ?", (clean, subtask_id))
+                _bump_rev(conn, row["task_id"])
             return _subtask_with_progress(conn, row["task_id"], subtask_id)
 
     def move_subtask(self, subtask_id: int, parent_id: Optional[int],
@@ -1741,6 +1761,7 @@ class TaskRepository:
                 new_group = list(new_rest)
                 new_group.insert(pos, (subtask_id, row["sort_order"]))
                 _renumber(conn, new_group)
+                _bump_rev(conn, task_id)
             tp = _recompute_progress(conn, task_id)
             return {"items": _subtask_items(conn, task_id), "task_progress": tp}
 
@@ -1764,6 +1785,7 @@ class TaskRepository:
                 ids = [subtask_id] + checklist_tree.descendant_ids(rows, subtask_id)
                 changed = [i for i in ids if not done[i]]
                 conn.executemany("UPDATE subtasks SET is_done = 1 WHERE id = ?", [(i,) for i in changed])
+            _bump_rev(conn, task_id)  # toggle selalu mengubah butir itu sendiri
             return {**_subtask_with_progress(conn, task_id, subtask_id), "changed_ids": changed}
 
     def delete_subtask(self, subtask_id: int) -> Optional[dict]:
@@ -1778,6 +1800,7 @@ class TaskRepository:
                 (task_id,)).fetchall()
             ids = [subtask_id] + checklist_tree.descendant_ids(rows, subtask_id)
             conn.executemany("DELETE FROM subtasks WHERE id = ?", [(i,) for i in ids])
+            _bump_rev(conn, task_id)
             return {"deleted_ids": ids, "task_progress": _recompute_progress(conn, task_id)}
 
     def get_child_tasks(self, parent_id: int) -> list[dict]:
