@@ -71,7 +71,8 @@ Kelompok (E2E_ONLY=autosave,... menjalankan sebagian; kosong = semua). Tiap kelo
     B-2  "+ Buat subtask baru…" "Anak C" Enter → baris `#<id> Anak C` chip Inbox, "Subtask (3)"; centang → dicoret +
          server done; centang lagi → server next; tombol buka → panel/modal menampilkan Anak C
     B-3  checklist: "Butir 4" lalu "Butir 5" tanpa membuka ulang, Escape → "Checklist (5)"; centang → aria-checked
-         dan lokal selesai; × → "Checklist (4)"; 375 px (sentuh): × terlihat tanpa hover
+         dan lokal selesai; ⋯ → Hapus → "Checklist (4)"; 375 px (sentuh): ⋯ terlihat tanpa hover (checklist
+         bertingkat PR B: × "Hapus butir" pindah ke menu ⋯, baris `.td-tree-row` / judul `button.td-tree-text`)
     B-4  tab Catatan tampil sebagai chat: Shift+Enter baris baru, Enter kirim → "Catatan (2)", kotak tulis di atas + terbaru tepat di bawahnya,
          milik sendiri di kanan; tombol kirim nonaktif saat kosong
     B-6  fokus tab "Subtask", ArrowRight → "Checklist" aria-selected dan terfokus; ArrowLeft → kembali
@@ -1486,7 +1487,8 @@ def sub_row(page, scope, title):
 
 
 def check_row(page, scope, title):
-    return page.locator(scope + " .td-check-row", has=page.locator(".td-check-title", has_text=re.compile("^%s$" % re.escape(title)))).first
+    """Baris butir checklist (ChecklistTree, PR B) berjudul persis `title`."""
+    return page.locator(scope + " .td-tree-row", has=page.locator("button.td-tree-text", has_text=re.compile("^%s$" % re.escape(title)))).first
 
 
 def run_tabs(browser, base):
@@ -1580,13 +1582,13 @@ def run_tabs(browser, base):
             inp.first.wait_for(timeout=3000)
             p.keyboard.type("Butir 4")
             p.keyboard.press("Enter")
-            wait_until(lambda: p.locator(scope + " .td-check-row").count() == 4, 5)
+            wait_until(lambda: p.locator(scope + " .td-tree-row").count() == 4, 5)
             p.keyboard.type("Butir 5")
             p.keyboard.press("Enter")
             check("%s B-3b 'Butir 4' lalu 'Butir 5' tanpa membuka ulang → 5 baris, input tetap terbuka" % tag,
-                  wait_until(lambda: p.locator(scope + " .td-check-row").count() == 5, 5)
+                  wait_until(lambda: p.locator(scope + " .td-tree-row").count() == 5, 5)
                   and inp.count() == 1 and inp.first.input_value() == "",
-                  repr(p.locator(scope + " .td-check-title").all_inner_texts()))
+                  repr(p.locator(scope + " button.td-tree-text").all_inner_texts()))
             p.keyboard.press("Escape")
             check("%s B-3c Escape → input tertutup, label 'Checklist (5)'" % tag,
                   wait_until(lambda: inp.count() == 0, 3) and tab_labels(p, scope)[1] == "Checklist (5)",
@@ -1601,13 +1603,15 @@ def run_tabs(browser, base):
                       mid), 5))
             r5 = check_row(p, scope, "Butir 5")
             r5.hover()
-            r5.locator('button[aria-label="Hapus butir"]').click()
-            check("%s B-3e × Butir 5 → 'Checklist (4)'" % tag,
+            # PR B (K13): × "Hapus butir" pindah ke menu ⋯ (portal ke body); butir tanpa turunan terhapus tanpa konfirmasi.
+            r5.locator('button[aria-label="Aksi butir «Butir 5»"]').click()
+            p.locator('.td-pop.td-menu[role="menu"] [role="menuitem"]', has_text="Hapus").first.click()
+            check("%s B-3e ⋯ → Hapus Butir 5 → 'Checklist (4)'" % tag,
                   wait_until(lambda: tab_labels(p, scope)[1] == "Checklist (4)"
-                             and p.locator(scope + " .td-check-row").count() == 4, 5), repr(tab_labels(p, scope)))
+                             and p.locator(scope + " .td-tree-row").count() == 4, 5), repr(tab_labels(p, scope)))
             if mobile:
-                check("%s B-3f perangkat sentuh: × terlihat tanpa hover" % tag,
-                      p.evaluate("""(sel) => { const b = document.querySelector(sel + ' .td-check-del');
+                check("%s B-3f perangkat sentuh: ⋯ terlihat tanpa hover" % tag,
+                      p.evaluate("""(sel) => { const b = document.querySelector(sel + ' .td-tree-more');
                           return !!b && getComputedStyle(b).opacity === '1'; }""", scope))
 
             # ── B-4: catatan baru ──

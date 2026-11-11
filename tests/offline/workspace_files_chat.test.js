@@ -65,9 +65,9 @@ describe('Workspace Files and Chat Attachments UI', () => {
     assert.match(indexHtml, /hasNewline/);
   });
 
-  test('Service Worker cache version is bumped to taskflow-v502-ev-ekspor', () => {
+  test('Service Worker cache version is bumped to taskflow-v502-checklist-bertingkat', () => {
     const swJs = fs.readFileSync(path.join(__dirname, '../../static/sw.js'), 'utf8');
-    assert.match(swJs, /^const CACHE = "taskflow-v502-ev-ekspor";/m);
+    assert.match(swJs, /^const CACHE = "taskflow-v502-checklist-bertingkat";/m);
   });
 });
 

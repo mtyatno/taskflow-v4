@@ -4,7 +4,7 @@ const assert = require("node:assert/strict");
 const { deleteDB } = require("./setup.js");
 const { DB_NAME, _reset, openDB } = require("../../static/offline/db.js");
 const { mapPut } = require("../../static/offline/idmap.js");
-const { pullTasks } = require("../../static/offline/syncpull.js");
+const { pullTasks, pullAndReconcile } = require("../../static/offline/syncpull.js");
 const { outboxAll, outboxAdd } = require("../../static/offline/outbox.js");
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
@@ -653,4 +653,168 @@ test("pullTasks leaves pomodoros_done of a dirty record with a pending op", asyn
   await outboxAdd({ op: "update", entity_type: "task", cid: "pe", payload: {} });
   await pullTasks([srv({ id: 71, pomodoros_done: 4 })]);
   assert.equal((await getTask("pe")).pomodoros_done, 1);
+});
+
+// Checklist bertingkat (spec §9, ADR-048): progress dan checklist_total = field turunan server (tanpa bump updated_at).
+test("pullTasks mengadopsi progress dan checklist_total pada record bersih dengan updated_at sama", async () => {
+  await putTasks([local({ cid: "ck", quadrant: "Q4", project: "", server_id: 72, progress: 10, checklist_total: 0, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 72, "ck");
+  const r = await pullTasks([srv({ id: 72, progress: 33, checklist_total: 3 })]);
+  const rec = await getTask("ck");
+  assert.deepEqual([rec.progress, rec.checklist_total], [33, 3]);
+  assert.deepEqual([rec.dirty, rec.base_rev], [0, "2026-06-04T00:00:00"]);
+  assert.equal(r.derived, 1);
+});
+
+test("pullTasks tidak mengadopsi progress/checklist_total pada record dirty dengan op tertunda", async () => {
+  await putTasks([local({ cid: "cl", quadrant: "Q4", project: "", server_id: 73, progress: 10, checklist_total: 0, dirty: 1, rev: 2, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 73, "cl");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "cl", payload: {} });
+  await pullTasks([srv({ id: 73, progress: 33, checklist_total: 3 })]);
+  const rec = await getTask("cl");
+  assert.deepEqual([rec.progress, rec.checklist_total, rec.dirty], [10, 0, 1]);
+});
+
+test("pullTasks: dict server tanpa checklist_total tidak mengubah checklist_total lokal", async () => {
+  await putTasks([local({ cid: "cm", quadrant: "Q4", project: "", server_id: 74, progress: 60, checklist_total: 5, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 74, "cm");
+  const r = await pullTasks([srv({ id: 74, progress: 60 })]);
+  assert.equal((await getTask("cm")).checklist_total, 5);
+  assert.equal(r.derived, 0);
+});
+
+test("pullTasks: progress/checklist_total lokal yang belum ada setara 0 (tanpa tulis ulang massal)", async () => {
+  await putTasks([local({ cid: "cn", quadrant: "Q4", project: "", server_id: 75, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 75, "cn");
+  const r = await pullTasks([srv({ id: 75, progress: 0, checklist_total: 0 })]);
+  assert.equal(r.derived, 0);
+});
+
+// Balapan pull vs adoptTaskProgress (review S1): daftar server dibaca SEBELUM centang (progress 33); respons centang
+// diadopsi (67) di antara snapshot pull dan mutate-nya. Pull tidak boleh menimpa 67 dengan nilai basi, dan hanya
+// menulis kunci turunan yang memang berbeda. Hook deterministik: adopsi dijalankan tepat sebelum mutate pull.
+const TFdbMod = require("../../static/offline/db.js");
+const TFchecklist = require("../../static/offline/checklist.js");
+async function pullDenganAdopsiDiTengah(list, cid, serverId, tp) {
+  const asli = TFdbMod.mutate;
+  let sudah = false;
+  TFdbMod.mutate = function (store, key, fn) {
+    if (!sudah && store === "tasks" && key === cid) {
+      sudah = true;
+      return TFchecklist.adoptTaskProgress(serverId, tp).then(() => asli.call(TFdbMod, store, key, fn));
+    }
+    return asli.call(TFdbMod, store, key, fn);
+  };
+  try { return await pullTasks(list); } finally { TFdbMod.mutate = asli; assert.equal(sudah, true, "hook harus terpicu"); }
+}
+
+test("pullTasks tidak menimpa progress yang diadopsi setelah snapshot dengan nilai basi dari daftar", async () => {
+  await putTasks([local({ cid: "ra", quadrant: "Q4", project: "", server_id: 80, progress: 0, checklist_total: 3, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 80, "ra");
+  const r = await pullDenganAdopsiDiTengah([srv({ id: 80, progress: 33, checklist_total: 3 })], "ra", 80, { done: 2, total: 3, progress: 67 });
+  const rec = await getTask("ra");
+  assert.deepEqual([rec.progress, rec.checklist_total, rec.dirty], [67, 3, 0]);
+  assert.equal(r.derived, 0); // satu-satunya kunci berbeda sudah berubah setelah snapshot → tanpa tulis
+});
+
+test("pullTasks: hanya kunci turunan yang berbeda yang ditulis (quadrant diadopsi, progress hasil adopsi tetap)", async () => {
+  await putTasks([local({ cid: "rb", quadrant: "Q4", project: "", server_id: 81, progress: 33, checklist_total: 3, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 81, "rb");
+  const r = await pullDenganAdopsiDiTengah([srv({ id: 81, quadrant: "Q2", progress: 33, checklist_total: 3 })], "rb", 81, { done: 2, total: 3, progress: 67 });
+  const rec = await getTask("rb");
+  assert.deepEqual([rec.quadrant, rec.progress, rec.checklist_total], ["Q2", 67, 3]);
+  assert.equal(r.derived, 1);
+});
+
+test("pullTasks: dict server tanpa progress tidak menolkan progress lokal (only-if-sent)", async () => {
+  await putTasks([local({ cid: "rc", quadrant: "Q4", project: "", server_id: 82, progress: 60, checklist_total: 5, base_rev: "2026-06-04T00:00:00", updated_at: "2026-06-04T00:00:00" })]);
+  await mapPut("task", 82, "rc");
+  const d = srv({ id: 82, checklist_total: 5 });
+  delete d.progress;
+  const r = await pullTasks([d]);
+  assert.equal((await getTask("rc")).progress, 60);
+  assert.equal(r.derived, 0);
+});
+
+// Balapan pull basi (review akhir S2): GET daftar dilayani server SEBELUM centang, respons centang diadopsi lebih
+// dulu, lalu snapshot pull membaca nilai hasil adopsi SESUDAHNYA — nilai daftar yang basi tidak boleh menimpanya.
+// Penjaga: checklist_adopted_at (cap waktu lokal saat adoptTaskProgress menulis) ≥ waktu mulai GET daftar
+// (pullAndReconcile → pullTasks opts.requestedAt) → progress/checklist_total dari daftar itu dilewati.
+const B = "2026-06-04T00:00:00";
+function responsDaftar(list) { return { status: 200, ok: true, json: () => Promise.resolve(list) }; }
+function fetchTertahan(list) {
+  let lepas;
+  const gerbang = new Promise((r) => { lepas = r; });
+  const rawFetch = (u) => (u === "/api/tasks?include_done=true" ? gerbang.then(() => responsDaftar(list)) : Promise.resolve(null));
+  return { rawFetch, lepas };
+}
+async function setelahJam(t) { while (Date.now() <= t) await new Promise((r) => setTimeout(r, 1)); }
+
+test("pullAndReconcile: GET dimulai sebelum adopsi → daftar basi tidak menimpa progress hasil adopsi (jalur turunan)", async () => {
+  await putTasks([local({ cid: "sa", quadrant: "Q4", project: "", server_id: 90, progress: 33, checklist_total: 3, base_rev: B, updated_at: B })]);
+  await mapPut("task", 90, "sa");
+  const f = fetchTertahan([srv({ id: 90, quadrant: "Q2", progress: 33, checklist_total: 3 })]);
+  const pull = pullAndReconcile(f.rawFetch); // GET daftar dimulai (dilayani server sebelum centang)
+  assert.equal(await TFchecklist.adoptTaskProgress(90, { done: 2, total: 3, progress: 67 }), true); // respons centang
+  f.lepas(); // respons GET basi baru diproses; snapshot pull membaca 67
+  await pull;
+  const rec = await getTask("sa");
+  assert.deepEqual([rec.progress, rec.checklist_total, rec.quadrant, rec.dirty], [67, 3, "Q2", 0]);
+});
+
+test("pullAndReconcile: GET dimulai sebelum adopsi → jalur tulis penuh (updated_at server baru) mempertahankan progress hasil adopsi", async () => {
+  await putTasks([local({ cid: "sb", quadrant: "Q4", project: "", server_id: 91, progress: 33, checklist_total: 3, base_rev: B, updated_at: B })]);
+  await mapPut("task", 91, "sb");
+  const f = fetchTertahan([srv({ id: 91, title: "Judul baru", progress: 33, checklist_total: 3, updated_at: "2026-06-05T00:00:00" })]);
+  const pull = pullAndReconcile(f.rawFetch);
+  assert.equal(await TFchecklist.adoptTaskProgress(91, { done: 2, total: 3, progress: 67 }), true);
+  const stamp = (await getTask("sb")).checklist_adopted_at;
+  f.lepas();
+  await pull;
+  const rec = await getTask("sb");
+  assert.deepEqual([rec.title, rec.base_rev, rec.dirty], ["Judul baru", "2026-06-05T00:00:00", 0]);
+  assert.deepEqual([rec.progress, rec.checklist_total, rec.checklist_adopted_at], [67, 3, stamp]);
+});
+
+test("pullAndReconcile: GET yang dimulai SESUDAH adopsi mengadopsi nilai server seperti biasa (turunan dan tulis penuh)", async () => {
+  await putTasks([
+    local({ cid: "sc", quadrant: "Q4", project: "", server_id: 92, progress: 33, checklist_total: 3, base_rev: B, updated_at: B }),
+    local({ cid: "sd", quadrant: "Q4", project: "", server_id: 93, progress: 33, checklist_total: 3, base_rev: B, updated_at: B }),
+  ]);
+  await mapPut("task", 92, "sc");
+  await mapPut("task", 93, "sd");
+  await TFchecklist.adoptTaskProgress(92, { done: 2, total: 3, progress: 67 });
+  await TFchecklist.adoptTaskProgress(93, { done: 2, total: 3, progress: 67 });
+  await setelahJam(Math.max((await getTask("sc")).checklist_adopted_at, (await getTask("sd")).checklist_adopted_at));
+  // perangkat lain mengubah checklist sesudahnya; GET baru melihat nilai server terbaru
+  const f = fetchTertahan([
+    srv({ id: 92, progress: 100, checklist_total: 4 }),
+    srv({ id: 93, title: "Lain", progress: 100, checklist_total: 4, updated_at: "2026-06-05T00:00:00" }),
+  ]);
+  const pull = pullAndReconcile(f.rawFetch);
+  f.lepas();
+  await pull;
+  for (const cid of ["sc", "sd"]) {
+    const rec = await getTask(cid);
+    assert.deepEqual([rec.progress, rec.checklist_total], [100, 4], cid);
+  }
+});
+
+test("pullTasks tanpa requestedAt (umur daftar tidak diketahui): progress hasil adopsi tidak ditimpa; requestedAt sesudah adopsi → diadopsi", async () => {
+  await putTasks([local({ cid: "se", quadrant: "Q4", project: "", server_id: 94, progress: 33, checklist_total: 3, base_rev: B, updated_at: B })]);
+  await mapPut("task", 94, "se");
+  await TFchecklist.adoptTaskProgress(94, { done: 2, total: 3, progress: 67 });
+  await pullTasks([srv({ id: 94, progress: 33, checklist_total: 3 })]);
+  assert.equal((await getTask("se")).progress, 67);
+  const stamp = (await getTask("se")).checklist_adopted_at;
+  await setelahJam(stamp);
+  await pullTasks([srv({ id: 94, progress: 33, checklist_total: 3 })], undefined, { requestedAt: Date.now() });
+  assert.equal((await getTask("se")).progress, 33);
+});
+
+test("pullTasks: record tanpa checklist_adopted_at tetap mengadopsi progress tanpa requestedAt (perilaku lama)", async () => {
+  await putTasks([local({ cid: "sf", quadrant: "Q4", project: "", server_id: 95, progress: 10, checklist_total: 3, base_rev: B, updated_at: B })]);
+  await mapPut("task", 95, "sf");
+  await pullTasks([srv({ id: 95, progress: 33, checklist_total: 3 })]);
+  assert.equal((await getTask("sf")).progress, 33);
 });

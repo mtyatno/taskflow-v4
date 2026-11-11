@@ -5227,10 +5227,17 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .td-pop-item:hover { background: var(--bg-hover); }
 .td-pop-item.is-danger { color: var(--danger, #dc2626); }
 .td-pop-item[aria-pressed="true"] { background: var(--accent-soft); color: var(--text-primary); font-weight: 700; }
+/* Item nonaktif (mis. menu ⋯ butir checklist "Jadikan sub" / "Naikkan level") tampak nonaktif. */
+.td-pop-item:disabled { opacity: 0.45; cursor: not-allowed; }
+.td-pop-item:disabled:hover { background: none; }
 .td-menu { padding: 6px; }
 .td-range { display: block; width: calc(100% - 12px); margin: 4px 6px 10px; accent-color: var(--accent); }
 .td-range.is-full { accent-color: var(--success); }
 .td-presets { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; }
+/* Progress terkunci (checklist bertingkat K2): slider nonaktif + keterangan + tombol "Buka Checklist", tanpa preset. */
+.td-range:disabled { opacity: 0.7; cursor: not-allowed; }
+.td-progress-lock { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; padding: 0 6px 2px; }
+.td-progress-note { font-size: 12.5px; color: var(--text-secondary); }
 .td-presets .td-pop-item { justify-content: center; padding: 6px 0; border: 1px solid var(--border); font-weight: 600; }
 /* Kisi properti (spec §4.4): label kecil di atas nilai; nilai = tombol teks yang membuka popover. 1 kolom ≤ 640 px. */
 /* Properti satu baris: label kiri, nilai kanan. Dua pasang kolom bila lebar wadah cukup (panel lebar), satu kolom di
@@ -5329,18 +5336,57 @@ button.dash-hero-chip:hover { border-color: var(--accent); transform: translateY
 .td-sub-date { flex-shrink: 0; font-size: 12px; color: var(--text-secondary); white-space: nowrap; }
 .td-sub-date.is-danger { color: var(--danger, #dc2626); font-weight: 600; }
 .td-sub-open { flex-shrink: 0; width: 28px; height: 28px; }
-/* Checklist: bar tipis selesai/total, baris butir, × saat hover (selalu tampil tanpa hover). */
+/* Checklist: bar tipis selesai/total (level atas) di atas pohon butir. */
 .td-check-head { display: flex; align-items: center; gap: 10px; margin: 2px 0 6px; font-size: 12px; color: var(--text-light); }
 .td-check-bar { position: relative; flex: 1 1 auto; height: 4px; border-radius: 2px; background: var(--bg-selected); overflow: hidden; }
 .td-check-fill { height: 100%; border-radius: 2px; background: var(--accent); transition: width 0.3s; }
 .td-check-bar.is-full .td-check-fill { background: var(--success); }
-.td-check-row { display: flex; align-items: center; gap: 8px; min-height: 34px; margin: 0 -6px; padding: 2px 6px; border-radius: 8px; transition: background 0.15s; }
-.td-check-row:hover { background: var(--bg-hover); }
-.td-check-title { flex: 1 1 auto; min-width: 0; font-size: 13.5px; line-height: 1.4; color: var(--text-primary); overflow-wrap: anywhere; }
-.td-check-row.is-done .td-check-title { color: var(--text-light); text-decoration: line-through; }
-.td-check-del { flex-shrink: 0; width: 28px; height: 28px; opacity: 0; }
-.td-check-row:hover .td-check-del, .td-check-del:focus-visible { opacity: 1; }
-@media (hover: none) { .td-check-del { opacity: 1; } }
+/* Checklist bertingkat (spec checklist-bertingkat §6.2, §6.4; detail dan Fokus): ul > li bersarang; indentasi lewat
+   --td-depth (= min(depth, 6), inline) × 20 px, 16 px di ≤ 640 px. Baris: ⠿ · ▸/▾ · centang · teks · chip · ⋯; target
+   sentuh keempat tombol 32 × 32 px. ⋯ (dan ⠿ redup) muncul saat hover / fokus; selalu tampil di perangkat tanpa hover. */
+.td-tree { position: relative; }
+.td-tree-body { position: relative; }
+.td-tree-list { list-style: none; margin: 0; padding: 0; }
+.td-tree-row { display: flex; align-items: center; min-width: 0; min-height: 36px; margin: 0 -6px; padding: 0 2px 0 0; padding-inline-start: calc(var(--td-depth, 0) * 20px); border-radius: 8px; transition: background 0.15s; }
+.td-tree-row:hover { background: var(--bg-hover); }
+.td-tree-grip, .td-tree-fold, .td-tree-check, .td-tree-more { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; box-sizing: border-box; width: 32px; height: 32px; padding: 0; border: none; border-radius: 8px; background: none; color: var(--text-light); font: inherit; cursor: pointer; }
+.td-tree-grip { cursor: grab; touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; opacity: 0.55; transition: opacity 0.15s; }
+.td-tree-fold { color: var(--text-secondary); }
+.td-tree-fold.is-empty { cursor: default; }
+.td-tree-fold:not(.is-empty):hover, .td-tree-more:hover, .td-tree-more[aria-expanded="true"] { background: var(--bg-selected); color: var(--text-primary); }
+.td-tree-box { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; width: 18px; height: 18px; border: 1.5px solid var(--text-light); border-radius: 5px; color: var(--bg-card); transition: background 0.15s, border-color 0.15s; }
+.td-tree-check:hover .td-tree-box { border-color: var(--accent); }
+.td-tree-check[aria-checked="true"] .td-tree-box { background: var(--success); border-color: var(--success); }
+.td-tree-text { flex: 1 1 auto; min-width: 0; margin: 0; padding: 6px 4px; border: none; border-radius: 6px; background: none; color: var(--text-primary); font: inherit; font-size: 13.5px; line-height: 1.4; text-align: left; overflow-wrap: anywhere; }
+.td-tree-row.is-done .td-tree-text { color: var(--text-light); text-decoration: line-through; }
+.td-tree-chip { flex-shrink: 0; margin: 0 4px; padding: 1px 7px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-subtle); color: var(--text-secondary); font-size: 11.5px; font-weight: 600; line-height: 1.5; }
+.td-tree-more { opacity: 0; transition: opacity 0.15s; }
+.td-tree-row:hover .td-tree-grip, .td-tree-row:hover .td-tree-more, .td-tree-row:focus-within .td-tree-more, .td-tree-more[aria-expanded="true"] { opacity: 1; }
+@media (hover: none) { .td-tree-grip, .td-tree-more { opacity: 1; } }
+.td-tree-grip:focus-visible, .td-tree-fold:focus-visible, .td-tree-check:focus-visible, .td-tree-text:focus-visible, .td-tree-more:focus-visible { opacity: 1; outline: 2px solid var(--accent); outline-offset: -2px; }
+/* Seret ⠿ (§7.1): subtree yang diseret diredupkan; garis penanda di celah tujuan, menjorok sesuai tingkat tujuan
+   (--td-depth, inline; 20/16 px per tingkat), mulai sesudah kolom ⠿. */
+.td-tree.is-dragging { user-select: none; -webkit-user-select: none; cursor: grabbing; }
+.td-tree.is-dragging .td-tree-grip { cursor: grabbing; }
+.td-tree-item.is-dragging { opacity: 0.4; }
+.td-tree-line { position: absolute; right: 0; left: calc(26px + var(--td-depth, 0) * 20px); height: 2px; margin-top: -1px; border-radius: 1px; background: var(--accent); pointer-events: none; z-index: 1; }
+.td-tree-line::before { content: ""; position: absolute; left: -4px; top: -3px; width: 8px; height: 8px; box-sizing: border-box; border: 2px solid var(--accent); border-radius: 50%; background: var(--bg-card); }
+/* Halaman Fokus: daftar bergulir sendiri seperti .ftask-sublist dulu (wadah gulir terdekat untuk seret). */
+.td-tree.is-focus .td-tree-body { max-height: 280px; overflow-y: auto; margin: 0 -6px; padding: 0 6px; }
+/* Kotak ubah teks (klik teks / ⋯ → Ubah teks): MentionInput, pembungkusnya mengisi sisa baris. */
+.td-tree-text { cursor: text; }
+.td-tree-row > div { flex: 1 1 auto; min-width: 0; }
+.td-tree-edit { display: block; width: 100%; box-sizing: border-box; min-height: 30px; margin: 2px 0; padding: 4px 6px; border: 1px solid var(--accent); border-radius: 6px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 13.5px; line-height: 1.4; }
+.td-tree-edit:focus { outline: none; box-shadow: 0 0 0 2px var(--accent-soft); }
+/* Kotak tambah bawah (detail: input; Fokus: baris input + tombol) dan "Tambah sub butir" menjorok sesuai tingkat tujuan. */
+.td-tree-add { padding-inline-start: calc(var(--td-depth, 0) * 20px); }
+.td-add-input.td-tree-add { padding-inline-start: calc(6px + var(--td-depth, 0) * 20px); }
+@media (max-width: 640px) {
+  .td-tree-row { padding-inline-start: calc(var(--td-depth, 0) * 16px); }
+  .td-tree-line { left: calc(26px + var(--td-depth, 0) * 16px); }
+  .td-tree-add { padding-inline-start: calc(var(--td-depth, 0) * 16px); }
+  .td-add-input.td-tree-add { padding-inline-start: calc(6px + var(--td-depth, 0) * 16px); }
+}
 /* Tambah: tombol teks (checklist) dan input bergaya teks (subtask, butir baru). */
 .td-add { display: flex; align-items: center; width: calc(100% + 12px); min-height: 34px; margin: 2px -6px 0; padding: 6px; box-sizing: border-box; border: none; border-radius: 8px; background: none; color: var(--text-secondary); font: inherit; font-size: 13px; text-align: left; cursor: pointer; transition: background 0.15s, color 0.15s; }
 .td-add:hover { background: var(--bg-hover); color: var(--accent); }

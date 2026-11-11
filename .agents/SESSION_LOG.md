@@ -4461,6 +4461,18 @@
 - **Files Touch:** static/plugins/timeline/{load.js,plan.js,mspdi.js,plugin.jsx,plugin.js,style.css,manifest.json}, static/plugin-runtime.js, static/plugins/index.json, static/sw.js, static/index.html (2 string versi + listName), static/whatsnew.json, tests/** (timeline_mspdi baru, timeline_load/plan/ui/runtime, plugin_api, plugin_host_wiring, build-plugins, 26 tes versi, test_plugins_node), temporary_files/{e2e_plugin_fase1_1d2*,mspdi_check.py,mspdi_sample.xml,e2e 1c1/1c2/1d1}, docs/plugins/README.md, docs/superpowers/{plans,specs}/*1d*, .agents/*
 - **Status:** Needs Review (PR DRAFT #131; merge hanya setelah pemilik membuka contoh XML di MS Project/ProjectLibre dan bilang "merge dan deploy"; statis tanpa restart). pytest 1636/1 skip; npm 4709/4710 (pra-ada `draw_local_reactive`).
 
+## [2026-11-10 19:30] - Claude (Opus 5.5)
+- **Task:** PR B checklist bertingkat (tampilan) — rencana + eksekusi lewat subagent implementer/reviewer (PROTOCOL §2.4). Pemilik mengonfirmasi restart PR A.
+- **Changes:** rencana `docs/superpowers/plans/2026-11-10-checklist-bertingkat-pr-b-ui.md`; `static/offline/checklist.js` (baru), `syncpull.js`, `syncpush.js`, `hydrate.js`; `ChecklistTree`/`ChecklistGlyph` + kunci Progress + Fokus di `static/index.html`; CSS; SW v502 + whatsnew; tes (vektor pohon bersama Node/Python, `checklist*.test.js`, tes lama diselaraskan); E2E `e2e_checklist_tree.py` 152/152 + E2E lama diselaraskan; catatan implementasi PR B di spec.
+- **Files Touch:** static/offline/{checklist,syncpull,syncpush,hydrate}.js, static/index.html, static/app.css, static/sw.js, static/whatsnew.json, tests/fixtures/checklist_tree_vectors.json, tests/offline/*.test.js (checklist, checklist_tree_ui, syncpull, syncpush_ext, hydrate, versi), tests/test_checklist_{tree,repo}.py, tests/test_taskdetail_node.py, tests/test_static_revalidate.py, temporary_files/e2e_checklist_tree*, temporary_files/e2e_{detail_redesign,live_edit,task_detail_body,focus_page,checklist_pr_a}.py, docs, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (PR DRAFT; merge hanya atas "merge dan deploy"; deploy statis tanpa restart). npm 4777/4778 (pra-ada), pytest 1674/1, E2E 152/152.
+
+## [2026-11-11 00:15] - Claude (Opus 5.5)
+- **Task:** Merge + deploy PR #132 (checklist bertingkat PR B, tampilan) atas "merge ini dulu" pemilik.
+- **Changes:** PR ditandai ready lalu di-merge (`66c7ad1`); CI Tests + Deploy sukses (00.11 WIB; statis, tanpa restart). v502 dipakai checklist → PR 1d-2 harus memakai v503.
+- **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Done (checklist bertingkat Fase 1 selesai). Verifikasi pasca-deploy dikonfirmasi pemilik 00.18 WIB.
+
 ## [2026-11-11 01:30] - Claude (Opus 5.5)
 - **Task:** Tindak lanjut uji pemilik PR 1d-2 (#131) di Microsoft Project (tangkapan: dialog Materi Natal + Gantt).
 - **Changes:** Diagnosis: tanggal task semua utuh; (A) resource tanpa kalender → MSP memakai "Standard" tanpa libur; (B) MSO 08:00 milestone berkonflik dengan FF 17:00; (C) placeholder Manual+Estimated → "0 days?". F4 `a995e34` (kalender resource turunan, tanggal MSP per simpul tanpa MSO/konflik, placeholder Otomatis `DurationFormat 39`) + review → F5 `7f0c345` (koreksi lag dibatalkan — lag asli; Units 6 desimal dibulatkan ke atas). Asersi MPXJ baru Units × menit kalender resource ≈ Work (gagal di XML lama). Contoh XML diregenerasi lewat E2E (38/38).

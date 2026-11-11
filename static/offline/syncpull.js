@@ -189,25 +189,51 @@
     if (!local) return !cur;
     return !!cur && (cur.rev || 0) === (local.rev || 0) && !!cur.dirty === !!local.dirty && !!cur.deleted === !!local.deleted;
   }
-  function putIfUnchanged(storeName, rec, local) {
-    return TFdb.mutate(storeName, rec.cid, (cur) => (sameRecState(cur, local) ? rec : undefined)).then((saved) => !!saved);
+  // `adjust(rec, cur)` opsional: menyesuaikan record yang akan ditulis menurut record terkini (dalam transaksi CAS).
+  function putIfUnchanged(storeName, rec, local, adjust) {
+    return TFdb.mutate(storeName, rec.cid, (cur) => (sameRecState(cur, local) ? (adjust ? adjust(rec, cur) : rec) : undefined))
+      .then((saved) => !!saved);
   }
   // Field turunan server (kuadran dari cron Eisenhower, tanggal akhir/level notif recurring, completed_at) tidak
   // lagi mem-bump updated_at (K2) → diadopsi terpisah pada record bersih yang "tidak berubah" menurut base_rev.
   // PR 5: project/project_id ikut — backfill server menautkan project_id (dan mengkanonkan nama) tanpa
   // menaikkan updated_at. Kanban tahap: context/context_id ikut (server melepas/mengganti tahap tanpa bump).
+  // Checklist bertingkat (ADR-048, spec §9): progress dan checklist_total ditulis server saat checklist berubah tanpa
+  // menaikkan updated_at; only-if-sent (server lama tidak mengirim checklist_total; dict parsial tanpa progress tidak
+  // menolkan nilai lokal).
   const TASK_DERIVED = ["quadrant", "recurrence_end_date", "recurrence_notif_level", "completed_at", "project", "project_id",
-    "context", "context_id", "pomodoros_done"];
+    "context", "context_id", "pomodoros_done", "progress", "checklist_total"];
   // pomodoros_done: milik server (tanpa bump updated_at) → diadopsi tiap pull bila server mengirimnya.
-  const ONLY_IF_SENT = ["project", "project_id", "context", "context_id", "pomodoros_done"];
+  const ONLY_IF_SENT = ["project", "project_id", "context", "context_id", "pomodoros_done", "progress", "checklist_total"];
   // context: null dan "" setara (record lama/lokal memakai "", server bisa null) → tanpa tulis ulang massal.
-  function derivedVal(k, v) { return v != null ? v : (k === "context" ? "" : null); }
+  // progress/checklist_total: null/tidak ada setara 0 (bawaan hydrate) → record lama tanpa checklist_total tidak
+  // ditulis ulang massal pada pull pertama setelah pembaruan.
+  const ZERO_DEFAULT = { progress: 1, checklist_total: 1 };
+  function derivedVal(k, v) { return v != null ? v : (k === "context" ? "" : ZERO_DEFAULT[k] ? 0 : null); }
   function derivedDiffers(k, s, local) {
     if (k === "context") return nocaseKey(derivedVal(k, s[k])) !== nocaseKey(derivedVal(k, local[k])) || derivedVal(k, s[k]) !== derivedVal(k, local[k]);
+    if (ZERO_DEFAULT[k]) return derivedVal(k, s[k]) !== derivedVal(k, local[k]);
     return (s[k] != null ? s[k] : null) !== (local[k] != null ? local[k] : null);
   }
   function nocaseKey(x) { return String(x == null ? "" : x).replace(/[A-Z]/g, (c) => c.toLowerCase()); }
-  function adoptTaskDerived(s, local) {
+  // Pull basi vs TF.checklist.adoptTaskProgress (review PR B S2): adopsi dari respons checklist menulis cap waktu lokal
+  // `checklist_adopted_at` (tanpa rev). Daftar dari GET yang dimulai pada/sebelum cap itu (`requestedAt`, ms jam
+  // perangkat yang sama) bisa dilayani server sebelum centang → progress/checklist_total-nya basi dan dilewati.
+  // `requestedAt` tidak diketahui (null) → umur daftar tidak diketahui → nilai hasil adopsi dipertahankan; pull
+  // berikutnya lewat pullAndReconcile (GET dimulai sesudah adopsi) mengadopsi nilai server seperti biasa.
+  const CHECKLIST_KEYS = { progress: 1, checklist_total: 1 };
+  function adoptedSince(cur, requestedAt) {
+    const at = cur ? cur.checklist_adopted_at : null;
+    return typeof at === "number" && (requestedAt == null || at >= requestedAt);
+  }
+  // Tulis penuh dari daftar: pertahankan progress/checklist_total (dan cap waktunya) hasil adopsi yang lebih baru.
+  function keepAdopted(rec, cur, requestedAt) {
+    if (!adoptedSince(cur, requestedAt)) return rec;
+    return Object.assign({}, rec, {
+      progress: cur.progress, checklist_total: cur.checklist_total, checklist_adopted_at: cur.checklist_adopted_at,
+    });
+  }
+  function adoptTaskDerived(s, local, requestedAt) {
     // project/context(+id) hanya bila server mengirimnya (dict lama/parsial tidak mengosongkan nilai lokal)
     let keys = TASK_DERIVED.filter((k) => ONLY_IF_SENT.indexOf(k) < 0 || k in s);
     // Tahap pending (context_id lokal = cid non-angka, belum di-push/dipetakan): server belum mengenalnya, jadi
@@ -222,10 +248,19 @@
     return TFdb.mutate("tasks", local.cid, (cur) => {
       if (!sameRecState(cur, local)) return undefined;
       const next = Object.assign({}, cur);
+      let wrote = false;
       for (const k of keys) {
-        if (k === "context" && !derivedDiffers(k, s, local)) continue; // ""/null setara → biarkan nilai lokal
-        next[k] = s[k] != null ? s[k] : null;
+        // Hanya kunci yang berbeda dari snapshot (context: ""/null setara → biarkan nilai lokal).
+        if (!derivedDiffers(k, s, local)) continue;
+        // Berubah sejak snapshot tanpa menaikkan rev (mis. TF.checklist.adoptTaskProgress dari respons checklist yang
+        // lebih baru dari daftar ini) → nilai di record lebih baru; jangan timpa dengan daftar basi.
+        if (derivedVal(k, cur[k]) !== derivedVal(k, local[k])) continue;
+        // Diadopsi dari respons checklist sesudah GET daftar ini dimulai → daftar basi untuk kunci ini.
+        if (CHECKLIST_KEYS[k] && adoptedSince(cur, requestedAt)) continue;
+        next[k] = ZERO_DEFAULT[k] ? derivedVal(k, s[k]) : (s[k] != null ? s[k] : null);
+        wrote = true;
       }
+      if (!wrote) return undefined;
       if (keys.indexOf("project_id") >= 0 || keys.indexOf("project") >= 0) {
         next.project_ref_name = next.project_id != null ? (next.project != null ? next.project : "") : null;
       }
@@ -311,8 +346,12 @@
 
   // fetchOne(serverId) opsional: GET /api/tasks/:id → body | {status:404|403} | null — hanya untuk konfirmasi
   // sebelum hapus lokal (daftar bisa parsial / diambil saat POST in-flight). Tanpa fetchOne → perilaku lama.
-  function pullTasks(serverList, fetchOne) {
+  // opts.requestedAt (ms, Date.now() sebelum GET daftar dimulai; diisi pullAndReconcile) → penjaga pull basi
+  // progress/checklist_total (adoptedSince); tidak diisi → umur daftar tidak diketahui.
+  function pullTasks(serverList, fetchOne, opts) {
     const list = serverList || [];
+    const requestedAt = opts && typeof opts.requestedAt === "number" ? opts.requestedAt : null;
+    const keep = (rec, cur) => keepAdopted(rec, cur, requestedAt);
     const cache = {}; // serverId -> cid
     return getAllTasks()
       .then((pre) => {
@@ -335,7 +374,7 @@
           if (clientId != null) rec.client_id = clientId; else delete rec.client_id;
           return withLocalExt(rec, localRec); // ext only-if-sent + tempel kunci yang belum terkirim (K5)
         };
-        const write = (s, localRec, counter) => putIfUnchanged("tasks", fromServer(s, localRec), localRec)
+        const write = (s, localRec, counter) => putIfUnchanged("tasks", fromServer(s, localRec), localRec, keep)
           .then((wrote) => { if (wrote) result[counter]++; else result.skipped++; });
         const result = { created: 0, updated: 0, deleted: 0, skipped: 0, lwwResolved: 0, conflicts: 0, requeued: 0, derived: 0, clientIds: 0, extKept: 0, coreKept: 0 };
         let chain = requeueDirtyWithoutOps("task", localAll, pendingTaskOps, result);
@@ -382,7 +421,7 @@
                   // R11: field inti = server, kunci ext yang belum terkirim ditempel (withLocalExt) + op diantre ulang
                   const rec = fromServer(s, localRec);
                   return dropOutbox("task", cid)
-                    .then(() => putIfUnchanged("tasks", rec, localRec))
+                    .then(() => putIfUnchanged("tasks", rec, localRec, keep))
                     .then((wrote) => {
                       if (!wrote) { result.skipped++; return; } // berubah selama pull → pull berikutnya (requeue)
                       result.updated++;
@@ -397,7 +436,7 @@
             // dirty tanpa op sudah diantre ulang di atas (ada di pendingTaskOps) → tidak pernah sampai sini
             if (s.updated_at !== localRec.base_rev || localRec.deleted) { return write(s, localRec, "updated"); }
             // updated_at sama → hanya field turunan (kuadran cron, dsb.) yang mungkin berubah (K2)
-            return adoptTaskDerived(s, localRec).then((adopted) => { if (adopted) result.derived++; });
+            return adoptTaskDerived(s, localRec, requestedAt).then((adopted) => { if (adopted) result.derived++; });
           });
         }
         const serverIds = new Set(list.map((s) => String(s.id)));
@@ -432,9 +471,10 @@
 
   function pullAndReconcile(rawFetch) {
     const fetchOne = (sid) => Promise.resolve(rawFetch("/api/tasks/" + sid)).then(goneOrJson).catch(() => null);
+    const requestedAt = Date.now(); // sebelum GET daftar dimulai (penjaga pull basi progress checklist)
     return Promise.resolve(rawFetch("/api/tasks?include_done=true"))
       .then(listJsonOrThrow)
-      .then((list) => pullTasks(list || [], fetchOne))
+      .then((list) => pullTasks(list || [], fetchOne, { requestedAt }))
       // PR 5: segarkan cache project setelah pull task berhasil; gagal (offline/5xx) tidak menggagalkan pull
       .then((result) => (TFprojects && TFprojects.refresh
         ? Promise.resolve().then(() => TFprojects.refresh(rawFetch)).then(() => result, () => result)
