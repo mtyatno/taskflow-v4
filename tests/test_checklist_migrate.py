@@ -14,7 +14,7 @@ from repository import TaskRepository
 from test_contexts_tasks import U, _mk
 
 FROZEN = "2020-01-01T00:00:00"
-NOL = {"orphans": 0, "recomputed": 0}
+NOL = {"orphans": 0, "recomputed": 0, "rev_init": 0}
 
 
 def _task_baru(u, **cols):
@@ -210,3 +210,57 @@ def test_migrate_db_memanggil_heal_checklists_tepat_setelah_heal_orphan_workspac
     antara = [ln.strip() for ln in src[i + len("heal_orphan_workspace_items()"):j].splitlines()
               if ln.strip() and not ln.strip().startswith("#")]
     assert antara == ["repo."]
+
+
+# ── Fase 2 (spec checklist offline §3.1; rencana PR A2 R4): versi checklist saat start ──
+
+def _rev(tid):
+    conn = db()
+    try:
+        return conn.execute("SELECT checklist_rev FROM tasks WHERE id = ?", (tid,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_migrate_rev_awal_1_untuk_task_lama_bercheklist_task_tanpa_butir_tetap_0(u):
+    lama = _task_baru(u)
+    _ins(lama, "a")
+    _ins(lama, "b", is_done=1)
+    kosong = _task_baru(u)
+    sudah = _task_baru(u, checklist_rev=3)
+    _ins(sudah, "x")
+    assert (_rev(lama), _rev(kosong), _rev(sudah)) == (0, 0, 3)
+    hasil = TaskRepository(webapp.DB_PATH).heal_checklists()
+    assert hasil["rev_init"] >= 1
+    assert (_rev(lama), _rev(kosong), _rev(sudah)) == (1, 0, 3)
+    assert _task(lama)["updated_at"] == FROZEN and _task(sudah)["updated_at"] == FROZEN
+
+
+def test_migrate_pemulihan_menaikkan_rev_1_per_task_bukan_per_butir(u):
+    tid = _task_baru(u, checklist_rev=5)
+    _ins(tid, "a", sort_order=0)
+    _ins(tid, "yatim 1", parent_id=987654321, sort_order=1)
+    _ins(tid, "yatim 2", parent_id=987654322, sort_order=2)
+    utuh = _task_baru(u, checklist_rev=5)
+    p = _ins(utuh, "p")
+    _ins(utuh, "anak", parent_id=p)
+    webapp.migrate_db()
+    assert (_rev(tid), _rev(utuh)) == (6, 5)
+    assert _task(tid)["updated_at"] == FROZEN
+
+
+def test_migrate_task_lama_tanpa_rev_dengan_yatim_jadi_1(u):
+    tid = _task_baru(u)
+    _ins(tid, "a", sort_order=0)
+    _ins(tid, "yatim", parent_id=987654321, sort_order=1)
+    webapp.migrate_db()
+    assert _rev(tid) == 1
+
+
+def test_migrate_kedua_rev_tidak_berubah(u):
+    tid = _task_baru(u)
+    _ins(tid, "a", parent_id=987654321)
+    webapp.migrate_db()
+    sebelum = _rev(tid)
+    assert TaskRepository(webapp.DB_PATH).heal_checklists() == NOL
+    assert _rev(tid) == sebelum == 1

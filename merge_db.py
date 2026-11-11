@@ -40,6 +40,11 @@ if "parent_id" not in _cols(dst_cur, "subtasks"):
     print("GALAT: tabel subtasks di DB tujuan belum punya kolom parent_id. "
           "Jalankan migrasi dulu (python3 -c \"import webapp; webapp.migrate_db()\" dengan DB_PATH tujuan).")
     sys.exit(1)
+# Checklist offline (Fase 2): task penerima butir menaikkan tasks.checklist_rev — kolom wajib sudah ada di tujuan.
+if "checklist_rev" not in _cols(dst_cur, "tasks"):
+    print("GALAT: tabel tasks di DB tujuan belum punya kolom checklist_rev. "
+          "Jalankan migrasi dulu (python3 -c \"import webapp; webapp.migrate_db()\" dengan DB_PATH tujuan).")
+    sys.exit(1)
 # Cadangan lama (sebelum checklist bertingkat) tidak punya parent_id → semua butir level atas.
 SRC_HAS_PARENT = "parent_id" in _cols(src_cur, "subtasks")
 
@@ -132,6 +137,7 @@ if not DRY_RUN:
             row["parent_id"] = None
         by_task.setdefault(row["task_id"], []).append(row)
     sub_id_map = {}  # old_id → new_id
+    receivers = set()  # task tujuan yang benar-benar menerima butir baru
     for old_task_id, rows in by_task.items():
         new_task_id = task_id_map.get(old_task_id)
         if not new_task_id or isinstance(new_task_id, str):
@@ -144,12 +150,18 @@ if not DRY_RUN:
             """, (new_task_id, s["title"], s["is_done"], s["sort_order"], s["created_at"], new_parent))
             if dst_cur.rowcount:
                 sub_id_map[s["id"]] = dst_cur.lastrowid
+                receivers.add(new_task_id)
             count += 1
+    # Versi checklist (spec checklist offline E2): +1 per task penerima butir — termasuk task duplikat yang sudah
+    # ada di tujuan — supaya perangkat offline mengambil ulang checklist-nya. Field turunan: tanpa updated_at.
+    dst_cur.executemany("UPDATE tasks SET checklist_rev = COALESCE(checklist_rev, 0) + 1 WHERE id = ?",
+                        [(t,) for t in sorted(receivers)])
     # progress/checklist_total = field turunan dari butir level atas (tanpa menyentuh updated_at)
     recomputed = checklist_tree.recompute_all(dst)
     dst.commit()
     print(f"  Ditambahkan: {count} subtasks")
     print(f"  Progress checklist dihitung ulang: {recomputed} tasks")
+    print(f"  Versi checklist dinaikkan: {len(receivers)} tasks")
 
 # ── 4. Merge Task Notes ─────────────────────────────────────────────────────
 if not DRY_RUN:

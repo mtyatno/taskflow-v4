@@ -244,15 +244,66 @@ def test_tambah_client_id_sama_dua_kali_satu_baris_dengan_progress_terkini(repo,
     _set_task(tid, progress=77, checklist_total=9)  # nilai basi
     again = repo.add_subtask(tid, "a lagi", client_id=cid)
     assert again["id"] == a["id"] and again["title"] == "a" and set(again) == KEYS | {"task_progress"}
-    assert again["task_progress"] == {"done": 0, "total": 2, "progress": 0}
+    assert again["task_progress"] == {"done": 0, "total": 2, "progress": 0, "rev": 2, "rev_bumped": False}
     assert len(_rows(tid)) == 2
     assert _task(tid)["checklist_total"] == 2
+
+
+def test_tambah_client_id_dicari_per_task(repo, u, tid):
+    """Spec checklist offline Fase 2 E4 (rencana PR A2 R3): `client_id` yang sama di task LAIN tidak
+    mengembalikan butir task itu — butir baru dibuat di task ini; di task yang sama → butir lama."""
+    lain = _mk(u, title="lain")["id"]
+    cid = f"cid-{uuid.uuid4().hex}"
+    x = repo.add_subtask(lain, "milik lain", client_id=cid)
+    baru = repo.add_subtask(tid, "punya sini", client_id=cid)
+    assert baru["id"] != x["id"] and baru["task_id"] == tid and baru["title"] == "punya sini"
+    assert baru["task_progress"]["total"] == 1
+    assert [r["title"] for r in _rows(tid)] == ["punya sini"]
+    assert [r["title"] for r in _rows(lain)] == ["milik lain"]
+    lagi = repo.add_subtask(lain, "ulang", client_id=cid)
+    assert lagi["id"] == x["id"] and lagi["title"] == "milik lain"
+    assert len(_rows(lain)) == 1
+    assert _task(tid)["updated_at"] == FROZEN
+
+
+def _client_id(sid):
+    conn = db()
+    try:
+        return conn.execute("SELECT client_id FROM subtasks WHERE id = ?", (sid,)).fetchone()[0]
+    finally:
+        conn.close()
+
+
+def test_tambah_client_id_bertabrakan_lintas_task_berprefiks_dan_tetap_idempoten(repo, u, tid):
+    """Perbaikan review C3: `client_id` milik task lain disimpan sebagai "<task_id>:<client_id>" (indeks unik
+    global tidak diubah), dan pengiriman ulang ke task ini mengembalikan butir yang sama."""
+    lain = _mk(u, title="lain")["id"]
+    cid = f"cid-{uuid.uuid4().hex}"
+    x = repo.add_subtask(lain, "milik lain", client_id=cid)
+    baru = repo.add_subtask(tid, "punya sini", client_id=cid)
+    assert _client_id(baru["id"]) == f"{tid}:{cid}" and _client_id(x["id"]) == cid
+    ulang = repo.add_subtask(tid, "kirim ulang", client_id=cid)
+    assert ulang["id"] == baru["id"] and ulang["title"] == "punya sini"
+    assert ulang["task_progress"]["rev_bumped"] is False
+    assert [r["title"] for r in _rows(tid)] == ["punya sini"]
+    assert repo.add_subtask(lain, "ulang", client_id=cid)["id"] == x["id"]
+
+
+def test_tambah_client_id_asli_dan_berprefiks_sudah_dipakai_task_lain_tanpa_galat(repo, u, tid):
+    """Kasus dibuat-buat: bentuk berprefiks pun sudah dipakai task lain → butir baru tanpa client_id (bukan 500)."""
+    lain, ketiga = _mk(u, title="lain")["id"], _mk(u, title="ketiga")["id"]
+    cid = f"cid-{uuid.uuid4().hex}"
+    repo.add_subtask(lain, "a", client_id=cid)
+    repo.add_subtask(ketiga, "b", client_id=f"{tid}:{cid}")
+    baru = repo.add_subtask(tid, "c", client_id=cid)
+    assert baru["task_id"] == tid and _client_id(baru["id"]) is None
+    assert [r["title"] for r in _rows(tid)] == ["c"]
 
 
 def test_tambah_level_atas_menghitung_progress_dan_checklist_total(repo, tid):
     _set_task(tid, progress=70)
     a = repo.add_subtask(tid, "a")
-    assert a["task_progress"] == {"done": 0, "total": 1, "progress": 0}
+    assert a["task_progress"] == {"done": 0, "total": 1, "progress": 0, "rev": 1, "rev_bumped": True}
     assert _task(tid)["progress"] == 0 and _task(tid)["checklist_total"] == 1
     _set_task(tid, progress=0)
     conn = db()
@@ -260,9 +311,9 @@ def test_tambah_level_atas_menghitung_progress_dan_checklist_total(repo, tid):
     conn.commit()
     conn.close()
     b = repo.add_subtask(tid, "b")
-    assert b["task_progress"] == {"done": 1, "total": 2, "progress": 50}
+    assert b["task_progress"] == {"done": 1, "total": 2, "progress": 50, "rev": 2, "rev_bumped": True}
     c = repo.add_subtask(tid, "c")
-    assert c["task_progress"] == {"done": 1, "total": 3, "progress": 33}
+    assert c["task_progress"] == {"done": 1, "total": 3, "progress": 33, "rev": 3, "rev_bumped": True}
     assert _task(tid)["checklist_total"] == 3
 
 
@@ -270,7 +321,7 @@ def test_tambah_sub_butir_tidak_mengubah_checklist_total_dan_progress(repo, tid)
     a = repo.add_subtask(tid, "a")
     repo.add_subtask(tid, "b")
     s = repo.add_subtask(tid, "sub", parent_id=a["id"])
-    assert s["task_progress"] == {"done": 0, "total": 2, "progress": 0}
+    assert s["task_progress"] == {"done": 0, "total": 2, "progress": 0, "rev": 3, "rev_bumped": True}
     assert _task(tid)["checklist_total"] == 2
 
 
@@ -322,11 +373,11 @@ def test_recompute_progress_hanya_menulis_bila_berbeda(tid):
     conn = dbconn.connect(webapp.DB_PATH)
     try:
         with dbconn.write_tx(conn):
-            assert _recompute_progress(conn, tid) == {"done": 1, "total": 2, "progress": 50}
+            assert _recompute_progress(conn, tid) == {"done": 1, "total": 2, "progress": 50, "rev": 0}
         sesudah_pertama = conn.total_changes
         assert sesudah_pertama == 1
         with dbconn.write_tx(conn):
-            assert _recompute_progress(conn, tid) == {"done": 1, "total": 2, "progress": 50}
+            assert _recompute_progress(conn, tid) == {"done": 1, "total": 2, "progress": 50, "rev": 0}
         assert conn.total_changes == sesudah_pertama
     finally:
         conn.close()
@@ -338,7 +389,7 @@ def test_recompute_progress_total_0_progress_tetap(tid):
     conn = dbconn.connect(webapp.DB_PATH)
     try:
         with dbconn.write_tx(conn):
-            assert _recompute_progress(conn, tid) == {"done": 0, "total": 0, "progress": 42}
+            assert _recompute_progress(conn, tid) == {"done": 0, "total": 0, "progress": 42, "rev": 0}
         n = conn.total_changes
         with dbconn.write_tx(conn):
             _recompute_progress(conn, tid)
@@ -400,7 +451,7 @@ def test_ubah_teks_di_trim_mengembalikan_butir_dan_task_progress(repo, tid):
     r = repo.rename_subtask(a1, "  teks baru  ")
     assert set(r) == KEYS | {"task_progress"}
     assert r["id"] == a1 and r["title"] == "teks baru" and r["depth"] == 1 and r["parent_id"] == a
-    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0}
+    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0, "rev": 7, "rev_bumped": True}
     assert [s["title"] for s in repo.get_subtasks(tid) if s["id"] == a1] == ["teks baru"]
     assert _task(tid)["updated_at"] == FROZEN
 
@@ -418,7 +469,7 @@ def test_ubah_teks_sama_tanpa_tulis(repo, tid, tulis):
     a = repo.add_subtask(tid, "a")["id"]
     tulis.clear()
     r = repo.rename_subtask(a, "  a ")
-    assert r["title"] == "a" and r["task_progress"] == {"done": 0, "total": 1, "progress": 0}
+    assert r["title"] == "a" and r["task_progress"] == {"done": 0, "total": 1, "progress": 0, "rev": 1, "rev_bumped": False}
     assert tulis == [0]
     assert _task(tid)["updated_at"] == FROZEN
 
@@ -530,7 +581,7 @@ def test_pindah_sub_jadi_level_atas_menaikkan_checklist_total_dan_progress(repo,
     conn.commit()
     conn.close()
     r = repo.move_subtask(a1, None)
-    assert r["task_progress"] == {"done": 2, "total": 4, "progress": 50}
+    assert r["task_progress"] == {"done": 2, "total": 4, "progress": 50, "rev": 7, "rev_bumped": True}
     assert _task(tid) == {"progress": 50, "checklist_total": 4, "updated_at": FROZEN}
 
 
@@ -540,8 +591,8 @@ def test_pindah_level_atas_jadi_sub_menurunkannya(repo, tid):
     conn.execute("UPDATE subtasks SET is_done = 1 WHERE id = ?", (a,))
     conn.commit()
     conn.close()
-    assert repo.move_subtask(c, a)["task_progress"] == {"done": 1, "total": 2, "progress": 50}
-    assert repo.move_subtask(b, a)["task_progress"] == {"done": 1, "total": 1, "progress": 100}
+    assert repo.move_subtask(c, a)["task_progress"] == {"done": 1, "total": 2, "progress": 50, "rev": 7, "rev_bumped": True}
+    assert repo.move_subtask(b, a)["task_progress"] == {"done": 1, "total": 1, "progress": 100, "rev": 8, "rev_bumped": True}
     assert _task(tid) == {"progress": 100, "checklist_total": 1, "updated_at": FROZEN}
 
 
@@ -553,7 +604,7 @@ def test_pindah_posisi_sama_tanpa_tulis(repo, tid, tulis):
     r3 = repo.move_subtask(a2, a, 7)
     assert tulis == [0, 0, 0]
     assert r1["items"] == r2["items"] == r3["items"] == repo.get_subtasks(tid)
-    assert r1["task_progress"] == {"done": 0, "total": 3, "progress": 0}
+    assert r1["task_progress"] == {"done": 0, "total": 3, "progress": 0, "rev": 6, "rev_bumped": False}
 
 
 def test_pindah_tidak_mengubah_updated_at(repo, tid):
@@ -587,10 +638,10 @@ def test_centang_bentuk_kembalian_kompatibel(repo, tid):
     assert set(r) == KEYS | {"task_progress", "changed_ids"}
     assert r["id"] == a and r["title"] == "a" and r["is_done"] is True and r["task_id"] == tid
     assert r["changed_ids"] == [a]
-    assert r["task_progress"] == {"done": 1, "total": 1, "progress": 100}
+    assert r["task_progress"] == {"done": 1, "total": 1, "progress": 100, "rev": 2, "rev_bumped": True}
     r = repo.toggle_subtask(a)
     assert r["is_done"] is False and r["changed_ids"] == [a]
-    assert r["task_progress"] == {"done": 0, "total": 1, "progress": 0}
+    assert r["task_progress"] == {"done": 0, "total": 1, "progress": 0, "rev": 3, "rev_bumped": True}
 
 
 def test_centang_induk_anak_campuran_semua_selesai_changed_ids_tanpa_yang_sudah_selesai(repo, tid):
@@ -634,16 +685,16 @@ def test_centang_sub_butir_tidak_mengubah_progress(repo, tid):
     a, b, c, a1, a2, a11 = _pohon(repo, tid)
     _set_task(tid, progress=0)
     r = repo.toggle_subtask(a1)
-    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0}
+    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0, "rev": 7, "rev_bumped": True}
     assert _task(tid)["progress"] == 0
 
 
 def test_centang_level_atas_1_dari_3_progress_33(repo, tid):
     a, b, c, a1, a2, a11 = _pohon(repo, tid)
     r = repo.toggle_subtask(b)
-    assert r["task_progress"] == {"done": 1, "total": 3, "progress": 33}
+    assert r["task_progress"] == {"done": 1, "total": 3, "progress": 33, "rev": 7, "rev_bumped": True}
     assert _task(tid) == {"progress": 33, "checklist_total": 3, "updated_at": FROZEN}
-    assert repo.toggle_subtask(a)["task_progress"] == {"done": 2, "total": 3, "progress": 67}
+    assert repo.toggle_subtask(a)["task_progress"] == {"done": 2, "total": 3, "progress": 67, "rev": 8, "rev_bumped": True}
 
 
 def test_centang_id_tidak_ada_none(repo):
@@ -659,7 +710,7 @@ def test_hapus_induk_tiga_tingkat_semua_turunan_hilang_cabang_saudara_utuh(repo,
     assert r and set(r) == {"deleted_ids", "task_progress"}
     assert r["deleted_ids"] == [a, a1, a11, a2]
     assert _view(repo, tid) == [(b, 0), (b1, 1), (c, 0)]
-    assert r["task_progress"] == {"done": 0, "total": 2, "progress": 0}
+    assert r["task_progress"] == {"done": 0, "total": 2, "progress": 0, "rev": 8, "rev_bumped": True}
     assert _task(tid)["checklist_total"] == 2
 
 
@@ -668,7 +719,7 @@ def test_hapus_sub_butir_hanya_cabangnya(repo, tid):
     r = repo.delete_subtask(a1)
     assert r["deleted_ids"] == [a1, a11]
     assert _view(repo, tid) == [(a, 0), (a2, 1), (b, 0), (c, 0)]
-    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0}
+    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0, "rev": 7, "rev_bumped": True}
 
 
 def test_hapus_level_atas_terakhir_checklist_total_0_progress_tetap(repo, tid):
@@ -676,10 +727,10 @@ def test_hapus_level_atas_terakhir_checklist_total_0_progress_tetap(repo, tid):
     b = repo.add_subtask(tid, "b")["id"]
     s = repo.add_subtask(tid, "s", parent_id=b)["id"]
     repo.toggle_subtask(a)
-    assert repo.delete_subtask(b)["task_progress"] == {"done": 1, "total": 1, "progress": 100}
+    assert repo.delete_subtask(b)["task_progress"] == {"done": 1, "total": 1, "progress": 100, "rev": 5, "rev_bumped": True}
     r = repo.delete_subtask(a)
     assert r["deleted_ids"] == [a]
-    assert r["task_progress"] == {"done": 0, "total": 0, "progress": 100}
+    assert r["task_progress"] == {"done": 0, "total": 0, "progress": 100, "rev": 6, "rev_bumped": True}
     assert _task(tid) == {"progress": 100, "checklist_total": 0, "updated_at": FROZEN}
     assert _rows(tid) == [] and repo.toggle_subtask(s) is None
 
@@ -775,7 +826,7 @@ def test_progress_yatim_dihitung_sesuai_pohon_tampil(repo, tid):
     assert sum(1 for _, d in _view(repo, tid) if d == 0) == 4
     assert repo.get_subtask_progress(tid) == (2, 4)
     r = repo.toggle_subtask(a)
-    assert r["task_progress"] == {"done": 1, "total": 4, "progress": 25}
+    assert r["task_progress"] == {"done": 1, "total": 4, "progress": 25, "rev": 2, "rev_bumped": True}
     assert _raw_parent(o) is None
     assert _task(tid) == {"progress": 25, "checklist_total": 4, "updated_at": FROZEN}
 
@@ -815,7 +866,7 @@ def test_siklus_a_b_lalu_pindah_b_ke_level_atas_a_tetap_level_atas(repo, tid):
     assert [(s["id"], s["depth"], s["parent_id"]) for s in r["items"]] == [
         (a, 0, None), (c, 0, None), (b, 0, None)]
     assert _raw_parent(a) is None
-    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0}
+    assert r["task_progress"] == {"done": 0, "total": 3, "progress": 0, "rev": 2, "rev_bumped": True}
 
 
 @pytest.mark.parametrize("op", ["rename", "toggle", "delete", "move"])
