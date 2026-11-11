@@ -665,7 +665,7 @@ test("baselineByteSize: ±55 B/task — 1000 task muat < 65536 dan 1300 task > B
   }
 });
 
-test("baselineDecode: round-trip encode → JSON → decode; rows Map<key, {s: dn, f: dn, d}>", () => {
+test("baselineDecode: round-trip encode → JSON → decode; rows Map<key, {s: dn, f: dn, d, w}> (w dibaca sejak 1d-2)", () => {
   const ctx = ctxOf(blTasks(), autoUnits("Alpha"));
   const enc = P.baselineEncode(M.run(ctx), ctx, META, unitKey("Alpha"));
   const dec = P.baselineDecode(JSON.parse(JSON.stringify(enc.data)));
@@ -675,8 +675,71 @@ test("baselineDecode: round-trip encode → JSON → decode; rows Map<key, {s: d
   assert.equal(dec.by, "Yatno");
   assert.ok(dec.rows instanceof Map);
   assert.deepEqual([...dec.rows.keys()], ["1", "2", "3", "6"]);
-  assert.deepEqual(dec.rows.get("1"), { s: D("2026-11-02"), f: D("2026-11-03"), d: 2 });
-  assert.deepEqual(dec.rows.get("3"), { s: D("2026-10-26"), f: D("2026-11-06"), d: 1 });
+  assert.deepEqual(dec.rows.get("1"), { s: D("2026-11-02"), f: D("2026-11-03"), d: 2, w: 4 });
+  assert.deepEqual(dec.rows.get("3"), { s: D("2026-10-26"), f: D("2026-11-06"), d: 1, w: 0 });
+});
+
+test("baselineDecode 1d-2 (R3): w = e[4] bila bilangan bulat ≥ 0; absen (baseline 1c-2 larik 4) / negatif / pecahan / string / null / NaN / Infinity / boolean → 0; baris tetap sah", () => {
+  const row = (id, w) => (w === undefined ? [{ $task: id }, "2026-11-02", "2026-11-03", 2] : [{ $task: id }, "2026-11-02", "2026-11-03", 2, w]);
+  const cases = [
+    [1, 7, 7],
+    [2, 0, 0],
+    [3, undefined, 0], // larik 4 elemen (baseline lama) → w 0
+    [4, -1, 0],
+    [5, 2.5, 0],
+    [6, "5", 0],
+    [7, null, 0],
+    [8, NaN, 0],
+    [9, Infinity, 0],
+    [10, true, 0],
+    [11, 99, 99],
+  ];
+  const dec = P.baselineDecode({ v: 1, n: 1, name: "Baseline 1", savedAt: null, by: null, t: cases.map(([id, w]) => row(id, w)) });
+  assert.ok(dec);
+  assert.equal(dec.rows.size, cases.length, "w rusak tidak membuang baris");
+  for (const [id, , want] of cases) {
+    assert.deepEqual(dec.rows.get(String(id)), { s: D("2026-11-02"), f: D("2026-11-03"), d: 2, w: want }, "task " + id);
+  }
+  // elemen setelah w diabaikan (bentuk masa depan), w tetap dibaca
+  const fut = P.baselineDecode({ v: 1, n: 2, t: [[{ $task: 1 }, "2026-11-02", "2026-11-02", 1, 3, "x"]] });
+  assert.deepEqual(fut.rows.get("1"), { s: D("2026-11-02"), f: D("2026-11-02"), d: 1, w: 3 });
+});
+
+test("baselineDecode review F1 (M2): w sah hanya bilangan bulat 0..BATAS (BATAS = EST_MAX host 99, tes silang pomologic + TLLoad); 1e300 / −1 / 1,5 / BATAS+1 → 0, baris tetap sah", () => {
+  const pomologic = require(path.join(__dirname, "../../static/offline/pomologic.js"));
+  const LD = require(path.join(dir, "load.js"));
+  const BATAS = pomologic.EST_MAX;
+  assert.equal(BATAS, 99);
+  assert.equal(LD.EST_MAX, BATAS, "batas w decode = batas target 🍅 Timeline");
+  const cases = [
+    [1, 1e300, 0], // bilangan bulat menurut Number.isInteger, tetapi di luar batas → 0 (BAC tidak meledak)
+    [2, -1, 0],
+    [3, 1.5, 0],
+    [4, BATAS, BATAS],
+    [5, BATAS + 1, 0],
+    [6, Number.MAX_SAFE_INTEGER, 0],
+    [7, 0, 0],
+    [8, 1, 1],
+  ];
+  const dec = P.baselineDecode({ v: 1, n: 1, t: cases.map(([id, w]) => [{ $task: id }, "2026-11-02", "2026-11-03", 2, w]) });
+  assert.equal(dec.rows.size, cases.length, "w di luar batas tidak membuang baris");
+  for (const [id, w, want] of cases) {
+    assert.deepEqual(dec.rows.get(String(id)), { s: D("2026-11-02"), f: D("2026-11-03"), d: 2, w: want }, "w " + w);
+  }
+});
+
+test("compareBaseline 1d-2: tambahan w di baris tidak mengubah keluaran (w diabaikan)", () => {
+  const units = autoUnits("Alpha");
+  const tasks = [mk({ id: 1, start: "2026-11-04", d: 2 }), mk({ id: 2, start: "2026-11-02", d: 1 })];
+  const ctx = ctxOf(tasks, units);
+  const r = M.run(ctx);
+  const rows = (w) => new Map([
+    ["1", Object.assign({ s: D("2026-11-02"), f: D("2026-11-03"), d: 2 }, w === undefined ? {} : { w })],
+    ["2", Object.assign({ s: D("2026-11-02"), f: D("2026-11-02"), d: 1 }, w === undefined ? {} : { w })],
+  ]);
+  const ser = (c) => JSON.stringify({ perTask: [...c.perTask], group: [...c.group] });
+  const base = ser(P.compareBaseline(r, { n: 1, rows: rows() }, ctx));
+  for (const w of [0, 5, 99]) assert.equal(ser(P.compareBaseline(r, { n: 1, rows: rows(w) }, ctx)), base, "w " + w);
 });
 
 test("baselineDecode (Review Focus 3): v 2 / bukan objek / t bukan larik / n di luar 1–3 → null; entri rusak dan ref tak terpecahkan → dilewati, bukan null total", () => {
@@ -707,8 +770,8 @@ test("baselineDecode (Review Focus 3): v 2 / bukan objek / t bukan larik / n di 
   );
   assert.ok(dec, "data dengan entri rusak tidak null total");
   assert.deepEqual([...dec.rows.keys()], ["1", "c-9"]);
-  assert.deepEqual(dec.rows.get("1"), { s: D("2026-11-02"), f: D("2026-11-03"), d: 2 });
-  assert.deepEqual(dec.rows.get("c-9"), { s: D("2026-11-04"), f: D("2026-11-04"), d: 0 });
+  assert.deepEqual(dec.rows.get("1"), { s: D("2026-11-02"), f: D("2026-11-03"), d: 2, w: 0 });
+  assert.deepEqual(dec.rows.get("c-9"), { s: D("2026-11-04"), f: D("2026-11-04"), d: 0, w: 0 });
   // meta asing → bentuk aman
   const odd = P.baselineDecode({ v: 1, n: 3, t: [] });
   assert.deepEqual([odd.n, odd.name, odd.savedAt, odd.by, odd.rows.size], [3, "", null, null, 0]);

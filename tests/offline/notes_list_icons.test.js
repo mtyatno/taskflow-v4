@@ -51,8 +51,8 @@ test("NotesPage memakai glyph yang ditentukan", () => {
 });
 
 test("versi SW di-bump", () => {
-  assert.match(sw, /taskflow-v502-checklist-bertingkat/);
-  assert.match(indexHtml, /taskflow-v502-checklist-bertingkat/);
+  assert.match(sw, /taskflow-v503-ev-ekspor/);
+  assert.match(indexHtml, /taskflow-v503-ev-ekspor/);
   assert.ok(!/taskflow-v44[0-3]-/.test(indexHtml));
 });
 

@@ -2,9 +2,10 @@
 // 1.1.0 = PR 1c-1 jadwal otomatis, spec docs/superpowers/specs/2026-11-01-plugin-fase1-1c-otomatis-design.md).
 // Gantt untuk project dan workspace: view `gantt` (slot taskList.views) dan seksi `schedule` (slot
 // taskDetail.sections). Mesin murni ada di `parts` (holidays-id.js, calendar.js, schedule.js, cpm.js, plan.js,
-// load.js, layout.js, drag.js — compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/TLCpm/
-// TLPlan/TLLoad/TLLayout/TLDrag tersedia sebagai const di lingkup yang sama; tidak ada global window). `manifest`
-// disuntik compile.js dari manifest.json. 1.3.0 = PR 1d-1 Beban Tim (TLLoad + record `resource`).
+// load.js, layout.js, mspdi.js, drag.js — compile.js menggabungkannya SEBELUM kode ini, jadi TLHolidays/TLCal/TLSched/
+// TLCpm/TLPlan/TLLoad/TLLayout/TLMspdi/TLDrag tersedia sebagai const di lingkup yang sama; tidak ada global window).
+// `manifest` disuntik compile.js dari manifest.json. 1.3.0 = PR 1d-1 Beban Tim (TLLoad + record `resource`); 1.4.0 =
+// PR 1d-2 earned value 🍅 (TLLoad.ev, ringkasan toolbar) + ekspor Microsoft Project (TLMspdi, api.ui.saveFile).
 //
 // Susunan modul (Task 6 = kerangka; komponen diisi Task 7–10):
 //   1. Konstanta + pesan UI persis (kalender, preferensi).
@@ -478,7 +479,22 @@ const LBL = {
   auto: "Jadwal otomatis", reschedule: "Jadwalkan ulang", more: "Lainnya", // 1c-1 R23
   bl: "Baseline", blSave: "Simpan baseline", // 1c-2 §7.1
   load: "Beban Tim", // 1d-1 §7.1 (R10)
+  export: "Ekspor ke Microsoft Project (.xml)", // 1d-2 §7.1, §7.7 (R6): item menu "Lainnya"
 };
+// 1d-2 Task 5 (R5, Q7 (a); spec §7.5, §7.7): ekspor MSPDI (teks persis).
+const MSG_EXPORT_FAIL = "Ekspor gagal";
+const MSG_EXPORT_NATIVE = "Ekspor tersedia di alurik.com lewat browser";
+const EXPORT_MIME = "application/xml";
+const EXPORT_TITLE = "Timeline"; // R9: judul cadangan (halaman tanpa nama / host lama tanpa context.listName)
+// "Berkas {nama} diunduh" + " · {n} task tanpa jadwal ditandai perkiraan" (stats.unscheduled > 0) + " · {k} tautan
+// dilewati" (stats.skippedLinks > 0) — stats = keluaran TLMspdi.build.
+function exportDoneText(name, stats) {
+  const s = stats && typeof stats === "object" ? stats : {};
+  let out = "Berkas " + name + " diunduh";
+  if (Number.isInteger(s.unscheduled) && s.unscheduled > 0) out += " · " + s.unscheduled + " task tanpa jadwal ditandai perkiraan";
+  if (Number.isInteger(s.skippedLinks) && s.skippedLinks > 0) out += " · " + s.skippedLinks + " tautan dilewati";
+  return out;
+}
 // 1c-1 R14, R15, R28: sakelar Jadwal otomatis dan dialog pratinjau (teks persis).
 const MSG_AUTO_ON0 = "Jadwal otomatis menyala — tidak ada task yang bergeser";
 const MSG_AUTO_OFF = "Jadwal otomatis dimatikan — tanggal tetap seperti sekarang";
@@ -585,11 +601,15 @@ function missingYearsNote(years) {
 // Satu pintu ke mesin murni (spy di tes): tata letak (R24) dan CPM (1c-1 R7; dipanggil hanya dari useEngine).
 // explain (1c-1 R21, Task 12): hanya saat "Kenapa dijadwalkan di sini?" dibuka — kalender + readExt = masukan run.
 // load (1d-1 R10): TLLoad.run, dipanggil hanya dari useLoad (panel Beban Tim terbuka + mesin siap).
+// ev (1d-2 R1, R2, R10): TLLoad.ev, dipanggil hanya dari memo ringkasan EV view (baseline aktif + mesin siap).
+// mspdi (1d-2 R5, R10): TLMspdi.build, dipanggil hanya dari handler item menu "Ekspor ke Microsoft Project (.xml)".
 const engine = {
   layout: (args) => TLLayout.layout(args),
   run: (ctx) => TLCpm.run(ctx),
   explain: (result, key, cal, readExt) => TLCpm.explain(result, key, cal, readExt),
   load: (input) => TLLoad.run(input),
+  ev: (bl, ctx, D) => TLLoad.ev(bl, ctx, D),
+  mspdi: (input) => TLMspdi.build(input),
 };
 
 const DEFAULT_CAL_DATA = TLCal.normalize(TLCal.DEFAULT_CAL);
@@ -708,6 +728,35 @@ function jktDateSuffix(updatedAt) {
   return Number.isInteger(d) ? " · " + TLCal.fmtShort(d) : "";
 }
 
+const NO_PEOPLE = Object.freeze([]);
+const memberName = (uid) => "Anggota #" + uid;
+
+// Nama orang (pola unitCaption; dipakai peopleOf 1d-1 dan ekspor 1d-2 R5): peopleNames({currentUser, collaborators,
+// userId}) → Map<uid, nama>: collaborators (uid pertama menang), lalu pengguna aktif → currentUser bila id-nya = userId;
+// display_name || username dipangkas ("" bila kosong — pemakai menggantinya dengan "Anggota #{uid}"). Murni.
+function peopleNames(o) {
+  const x = o && typeof o === "object" ? o : {};
+  const me = TLLoad.uidOf(x.userId);
+  const nameOf = (v) => (v && typeof v === "object" ? String(v.display_name || v.username || "").trim() : "");
+  const names = new Map();
+  for (const c of Array.isArray(x.collaborators) ? x.collaborators : []) {
+    const u = c && typeof c === "object" ? TLLoad.uidOf(c.id) : null;
+    if (u !== null && !names.has(u)) names.set(u, nameOf(c));
+  }
+  const cu = x.currentUser && typeof x.currentUser === "object" ? x.currentUser : null;
+  if (me !== null && cu && TLLoad.uidOf(cu.id) === me) names.set(me, nameOf(cu));
+  return names;
+}
+
+// Judul ekspor (1d-2 R9, P2 (a)): halaman project = context.projectName; halaman workspace = context.listName (nama
+// workspace dari host, P2 (a)); kosong / absen (host lama) → "Timeline". Dipangkas. Murni.
+function exportTitle(pageKind, context) {
+  const c = context && typeof context === "object" ? context : {};
+  const raw = pageKind === "workspace" ? c.listName : c.projectName;
+  const s = typeof raw === "string" ? raw.trim() : "";
+  return s || EXPORT_TITLE;
+}
+
 // Baris orang panel Beban Tim (1d-1 R4, P2 (a); tanpa perubahan host — plugin tidak bisa membaca anggota workspace, F5):
 // peopleOf({byAssignee, ctxTasks, resources, currentUser, collaborators, userId}) → [{uid, name, res}], urut uid naik
 // (deterministik; TLLoad.run sendiri mengurutkan baris menurut nama). uid lewat TLLoad.uidOf (userId host bisa string
@@ -717,8 +766,6 @@ function jktDateSuffix(updatedAt) {
 //   `resource` halaman (kunci `resources` = useResources().map). Pribadi: satu baris pengguna aktif.
 //   Nama (pola unitCaption): pengguna aktif → currentUser (id cocok), lainnya → collaborators; display_name || username;
 //   tidak ditemukan / kosong → "Anggota #{uid}". res = resources.get(uid).res (terdekode), selain itu null (bawaan).
-const NO_PEOPLE = Object.freeze([]);
-const memberName = (uid) => "Anggota #" + uid;
 function peopleOf(o) {
   const x = o && typeof o === "object" ? o : {};
   const me = TLLoad.uidOf(x.userId);
@@ -736,14 +783,7 @@ function peopleOf(o) {
       if (u !== null) uids.add(u);
     }
   }
-  const nameOf = (v) => (v && typeof v === "object" ? String(v.display_name || v.username || "").trim() : "");
-  const names = new Map();
-  for (const c of Array.isArray(x.collaborators) ? x.collaborators : []) {
-    const u = c && typeof c === "object" ? TLLoad.uidOf(c.id) : null;
-    if (u !== null && !names.has(u)) names.set(u, nameOf(c));
-  }
-  const cu = x.currentUser && typeof x.currentUser === "object" ? x.currentUser : null;
-  if (me !== null && cu && TLLoad.uidOf(cu.id) === me) names.set(me, nameOf(cu));
+  const names = peopleNames(x);
   const out = [];
   for (const uid of [...uids].sort((a, b) => a - b)) {
     const ent = resources.get(uid);
@@ -1436,6 +1476,35 @@ function activeBaseline(byUnit, recIds, n) {
   return { n, rows };
 }
 
+// Unit jadwal DAFTAR LENGKAP (1d-2 R2): taskUnits(tasks) = keluaran TLSched.unitOf unik per recId, urut TLCpm.cmpKey;
+// unitIdsOf = recId-nya (fasad tes; komponen memakai taskUnits langsung). Dipakai earned value dan ekspor dengan
+// tasks = eng.ctx.tasks (daftar lengkap halaman), BUKAN
+// baris tata letak (pageUnits/lay sudah tersaring panel) — angka EV tidak bergantung filter. Bukan objek dilewati. Murni.
+function taskUnits(tasks) {
+  const by = new Map();
+  for (const t of Array.isArray(tasks) ? tasks : []) {
+    if (!t || typeof t !== "object") continue;
+    const u = TLSched.unitOf(t);
+    if (!by.has(u.recId)) by.set(u.recId, u);
+  }
+  return [...by.keys()].sort(TLCpm.cmpKey).map((k) => by.get(k));
+}
+const unitIdsOf = (tasks) => taskUnits(tasks).map((u) => u.recId);
+
+// Nama baseline aktif tergabung (1d-2 R2): semua unit (recIds) yang PUNYA slot n bernama sama → nama itu; nama beda,
+// slot asing (versi lebih baru), atau tanpa nama → "Baseline {n}"; unit tanpa slot n tidak ikut menentukan. Murni.
+function blNameFor(byUnit, recIds, n) {
+  let name = null;
+  for (const id of Array.isArray(recIds) ? recIds : []) {
+    const e = byUnit instanceof Map && byUnit.get(id) instanceof Map ? byUnit.get(id).get(n) : null;
+    if (!e) continue;
+    const nm = !e.foreign && typeof e.name === "string" && e.name !== "" ? e.name : null;
+    if (nm === null || (name !== null && nm !== name)) return blSlotName(n);
+    name = nm;
+  }
+  return name === null ? blSlotName(n) : name;
+}
+
 // Mesin jadwal di view (1c-1 R7, K31, K43): useEngine(api, {scopeTasks, calData, units}). Memuat daftar task LENGKAP (api.data.tasks.list({includeDone: true});
 // scopeTasks host sudah difilter panel) saat pasang, lalu — debounce RELOAD_TIMING.debounceMs, hanya jawaban terbaru —
 // saat identitas scopeTasks berubah dan saat sync.done. Saringan scope = TLSched.scopeKeyOf halaman. TLCpm.run
@@ -1690,20 +1759,31 @@ function renderToolbar(v) {
     if (it.id === "blsave") return <button key="blsave" type="button" className="plg-timeline-btn" aria-haspopup="dialog" onClick={it.onSelect}>{LBL.blSave}</button>;
     return <button key={it.id} type="button" className="plg-timeline-btn" disabled={it.disabled} onClick={it.onSelect}>{it.text}</button>;
   };
+  // 1d-2 R6 (§7.1): aksi yang hanya hidup di menu (Ekspor; v.exportItem, nonaktif sampai mesin siap). Layar lebar → tombol
+  // "Lainnya" tetap SETELAH extras berisi aksi menu saja; collapse → ditambahkan di AKHIR daftar Lainnya (satu tombol).
+  const menuOnly = v.exportItem ? [v.exportItem] : [];
+  const moreItems = extras.concat(menuOnly);
   const sum = v.summary;
+  const showEnd = !!sum && sum.end !== null;
+  // 1d-2 Task 4 (K57, §7.1): ringkasan earned value SEBELUM "Selesai {tgl}" — v.ev = {text, tip} (TLLoad.evText/evTip)
+  // atau null (tanpa baseline aktif / BAC 0 / mesin belum siap). Tooltip = pola plugin untuk elemen bertip (bar baseline,
+  // tenggat, ⚠): role img + aria-label + title; label memuat teks tampak + tooltip agar pembaca layar mendengar keduanya.
+  const ev = v.ev || null;
   return (
     <div className="plg-timeline-toolbar">
       {gantt ? seg(ZOOMS, v.zoom, v.pickZoom, LBL.zoom) : null}
       {gantt ? <button type="button" className="plg-timeline-btn" onClick={v.goToday}>{LBL.today}</button> : null}
-      {extras.length && v.collapse ? <MoreMenu items={extras} /> : extras.map(extraBtn)}
+      {v.collapse ? (moreItems.length ? <MoreMenu items={moreItems} /> : null) : extras.map(extraBtn)}
+      {!v.collapse && menuOnly.length ? <MoreMenu items={menuOnly} /> : null}
       <button type="button" ref={v.calBtnRef} className={cx("plg-timeline-btn", "plg-timeline-calbtn", v.calOpen && "is-active")} aria-expanded={v.calOpen} aria-haspopup="dialog" onClick={v.toggleCal}>{LBL.calendar}</button>
       {gantt ? <button type="button" className={cx("plg-timeline-btn", v.sort === "start" && "is-active")} aria-pressed={v.sort === "start"} onClick={() => v.setSort(v.sort === "start" ? "wbs" : "start")}>{LBL.sort}</button> : null}
       {gantt && v.compact ? <button type="button" className={cx("plg-timeline-btn", v.cols && "is-active")} aria-pressed={v.cols} onClick={() => v.setCols(!v.cols)}>{LBL.cols}</button> : null}
       {v.narrow ? seg([["gantt", LBL.gantt], ["list", LBL.list]], v.mode, v.setMode, LBL.mode) : null}
-      {sum && sum.end !== null ? (
+      {showEnd || ev ? (
         <div className="plg-timeline-toolbar-end">
-          <span className="plg-timeline-finish">{"Selesai " + TLCal.fmtShort(sum.end)}</span>
-          {sum.late > 0 ? <span className="plg-timeline-latechip">{sum.late + " lewat tenggat"}</span> : null}
+          {ev ? <span className="plg-timeline-ev" role="img" aria-label={ev.text + " · " + ev.tip} title={ev.tip}>{ev.text}</span> : null}
+          {showEnd ? <span className="plg-timeline-finish">{"Selesai " + TLCal.fmtShort(sum.end)}</span> : null}
+          {showEnd && sum.late > 0 ? <span className="plg-timeline-latechip">{sum.late + " lewat tenggat"}</span> : null}
         </div>
       ) : null}
     </div>
@@ -3262,8 +3342,10 @@ function menuAlign(rect, viewW, menuW) {
   return rect.left + menuW > viewW - MORE_GAP && rect.right - menuW >= MORE_GAP ? "end" : "start";
 }
 
-// Menu "Lainnya" (HP ≤ 640 px / Live Edit): items = [{id, text, role: "menuitem"|"menuitemcheckbox", checked, disabled,
-// haspopup, onSelect}]. Memilih item menutup menu lalu menjalankan onSelect.
+// Menu "Lainnya" (HP ≤ 640 px / Live Edit: semua extras + Ekspor; layar lebar sejak 1d-2 R6: hanya Ekspor): items =
+// [{id, text, role: "menuitem"|"menuitemcheckbox", checked, disabled, haspopup, onSelect}]. Memilih item menutup menu
+// lalu menjalankan onSelect (item nonaktif: tidak dijalankan). onSelect dipanggil SINKRON di handler klik (gestur
+// pengguna — ekspor memanggil api.ui.saveFile di dalamnya).
 function MoreMenu(props) {
   const items = Array.isArray(props.items) ? props.items : [];
   const [open, setOpen] = React.useState(false);
@@ -4589,9 +4671,30 @@ function TimelineViewBody(props) {
   // SATU pemuat se-scope untuk semua unit (useBaselines larik). blDec = baseline aktif tergabung (activeBaseline) — sumber
   // pembanding T6 (bar, lewat v.bl) dan T7; hanya baca (R25).
   const blPage = React.useMemo(() => pageUnits(lay, pageKind, context.projectName, groupNames), [lay, pageKind, context.projectName, groupNames]);
-  const bls = useBaselines(api, blPage.map((x) => x.unit));
+  // 1d-2 Task 4 (R2): unit DAFTAR LENGKAP mesin (eng.ctx.tasks) untuk earned value/ekspor. Pemuat baseline tetap SATU list
+  // se-scope: unit halaman (urutan kelompok, unit pertama = bentuk satu unit useBaselines) + unit daftar lengkap yang
+  // tersaring panel (scope sama). Tanpa filter keduanya sama → kunci muat tidak berubah saat mesin siap.
+  const evUnits = React.useMemo(() => taskUnits(engTasks), [engTasks]);
+  const blUnitsAll = blPage.map((x) => x.unit);
+  for (const u of evUnits) {
+    if (blUnitsAll.some((x) => x.recId === u.recId)) continue;
+    if (!blUnitsAll.length || blUnitsAll[0].scope === u.scope) blUnitsAll.push(u);
+  }
+  const bls = useBaselines(api, blUnitsAll);
   const blIdsKey = blPage.map((x) => x.unit.recId).join("\u0000");
   const blDec = React.useMemo(() => activeBaseline(bls.byUnit, blPage.map((x) => x.unit.recId), blPref), [bls.byUnit, blIdsKey, blPref]);
+  // Baseline aktif atas unit daftar lengkap (R2): kunci baris memuat s/f/d/w sehingga muat ulang baseline tanpa perubahan
+  // isi (identitas byUnit baru) tidak menghitung EV ulang. Nama: blNameFor.
+  const evIds = evUnits.map((u) => u.recId);
+  const evIdsKey = evIds.join("\u0000");
+  const evBl = React.useMemo(() => activeBaseline(bls.byUnit, evIds, blPref), [bls.byUnit, evIdsKey, blPref]);
+  const evName = React.useMemo(() => (evBl ? blNameFor(bls.byUnit, evIds, evBl.n) : ""), [bls.byUnit, evIdsKey, evBl]);
+  const blRowsKey = React.useMemo(() => {
+    if (!evBl) return "";
+    const out = [];
+    for (const [k, r] of evBl.rows) out.push([k, r.s, r.f, r.d, r.w]);
+    return evBl.n + "\u0000" + JSON.stringify(out);
+  }, [evBl]);
   // 1c-1 (R18, R19): overlay mesin dalam memo TERPISAH. Belum siap → NO_OVERLAY.
   // eng.ctx berasal dari keluaran run yang sama dengan eng.result, jadi kunci [lay, engResult] cukup.
   const ov = React.useMemo(() => engineOverlay(lay, engResult, eng.ctx), [lay, engResult]);
@@ -4601,6 +4704,25 @@ function TimelineViewBody(props) {
   const blOv = React.useMemo(() => baselineOverlay(blDec, engResult, eng.ctx), [blDec, engResult]);
   const actOv = React.useMemo(() => actualOverlay(lay, extOf, todayDn), [lay, extOf, todayDn]);
   const legendX = { bl: blOv !== null && blDec !== null && blDec.rows.size > 0, act: actOv.size > 0 };
+  // 1d-2 Task 4 (R1, R2, R10; K51, K57): earned value 🍅 dari baseline aktif — dihitung (engine.ev = satu pintu TLLoad.ev)
+  // HANYA setelah mesin siap (render awal tidak berubah), atas daftar lengkap + kalender + hasil mesin yang sama, hari ini.
+  // Memo [engResult, eng.ctx, blRowsKey, todayDn]: pilihan/isi baseline, data mesin, atau hari berganti → hitung ulang.
+  // Tanpa baseline aktif / tanpa baris / BAC 0 (ev → null) → null (ringkasan tidak dirender). Lempar → null + satu
+  // peringatan. Hanya baca (R25).
+  const evWarned = React.useRef(false);
+  const evRes = React.useMemo(() => {
+    if (!engResult || !eng.ctx || !Number.isInteger(todayDn) || !evBl || evBl.rows.size === 0) return null;
+    try {
+      return engine.ev(evBl, { tasks: eng.ctx.tasks, cal: eng.ctx.cal, result: engResult }, todayDn);
+    } catch (e) {
+      if (!evWarned.current) {
+        evWarned.current = true;
+        logWarn(api, "earned value gagal dihitung:", e);
+      }
+      return null;
+    }
+  }, [engResult, eng.ctx, blRowsKey, todayDn]);
+  const evView = React.useMemo(() => (evRes && evRes.bac > 0 ? { text: TLLoad.evText(evRes), tip: TLLoad.evTip(evRes, evName) } : null), [evRes, evName]);
 
   const compact = narrow || !!context.liveEdit;
   const colDefs = !compact || cols ? COLS_FULL : COLS_COMPACT;
@@ -5241,11 +5363,61 @@ function TimelineViewBody(props) {
     ? { value: blPref, open: blOpen, btnRef: blBtnRef, onPick: () => { setCalOpen(false); setUnitOpen(false); setBlOpen(!blOpen); }, onSave: openSaveBl }
     : null;
 
+  // ── 1d-2 Task 5 (R5, R6, R9; K53, K54; Q7 (a), P2 (a)): Ekspor ke Microsoft Project (.xml) — HANYA BACA (R25) ──
+  // Dipanggil dari onSelect item menu (gestur pengguna; api.ui.saveFile dipanggil sinkron di dalamnya, tanpa await
+  // sebelumnya). Aplikasi native (api.env.platform "tauri") → petunjuk ke browser TANPA membangun XML. Web: masukan =
+  // mesin AKTIF (engRef: daftar lengkap halaman, kalender, readExt, hasil, unit — bukan baris tersaring panel), judul R9,
+  // nama orang (peopleNames), pemilik halaman pribadi (resource tunggal), baseline aktif atas unit daftar lengkap (R2),
+  // hari ini. build melempar → "Ekspor gagal" tanpa unduhan; saveFile → true: "Berkas {nama} diunduh" (+ catatan stats),
+  // false (native): petunjuk browser, reject/lempar: "Ekspor gagal". Galat dicatat api.log.warn.
+  const exportXml = () => {
+    const e = engRef.current;
+    if (!e || e.status !== "ready" || !e.result || !e.ctx) return;
+    if (api.env && api.env.platform === "tauri") {
+      toastSafe(api, MSG_EXPORT_NATIVE, "info");
+      return;
+    }
+    let fileName;
+    let out;
+    try {
+      const title = exportTitle(pageKind, context);
+      fileName = TLMspdi.fileNameOf(title, todayDn);
+      out = engine.mspdi({
+        tasks: e.ctx.tasks, cal: e.ctx.cal, readExt: e.ctx.readExt, result: e.result, units: e.ctx.units,
+        pageKind, title, fileName,
+        people: peopleNames({ currentUser: context.currentUser, collaborators: context.collaborators, userId: meUid }),
+        ownerUid: pageKind === "workspace" ? null : meUid,
+        baseline: evBl && evBl.rows.size > 0 ? { rows: evBl.rows } : null,
+        D: todayDn,
+      });
+    } catch (err) {
+      logWarn(api, "ekspor gagal dibangun:", err);
+      toastSafe(api, MSG_EXPORT_FAIL, "error");
+      return;
+    }
+    let saved;
+    try {
+      saved = Promise.resolve(api.ui.saveFile(fileName, out.xml, EXPORT_MIME));
+    } catch (err) {
+      saved = Promise.reject(err);
+    }
+    saved.then((ok) => {
+      if (ok === true) toastSafe(api, exportDoneText(fileName, out.stats), "success");
+      else toastSafe(api, MSG_EXPORT_NATIVE, "info");
+    }, (err) => {
+      logWarn(api, "ekspor gagal diunduh:", err);
+      toastSafe(api, MSG_EXPORT_FAIL, "error");
+    });
+  };
+  const exportItem = { id: "export", text: LBL.export, role: "menuitem", disabled: !ov.ready, onSelect: exportXml };
+
   const toolbar = renderToolbar({
     zoom, pickZoom, goToday, sort, setSort, compact, cols, setCols, narrow, mode, setMode, listMode,
     engReady: ov.ready, crit, setCrit, calOpen, toggleCal: () => { setUnitOpen(false); setBlOpen(false); setCalOpen(!calOpen); }, calBtnRef,
     auto, autoBtnRef, collapse: compact, summary, onReschedule: openResched, bl: blTool,
     loadOn, setLoadOn: toggleLoad, // 1d-1 T4 (R10); review akhir I1: gestur → gulir ke panel
+    ev: evView, // 1d-2 T4 (K57): ringkasan earned value sebelum "Selesai {tgl}"
+    exportItem, // 1d-2 T5 (R6): item "Ekspor ke Microsoft Project (.xml)" di menu Lainnya
   });
   // Popover berhook → elemen (bukan panggilan fungsi). key = id kalender: pindah halaman memasang ulang. Esc / tombol tutup
   // mengembalikan fokus ke tombol "Kalender kerja"; klik di luar tidak (fokus sudah pindah ke target klik).
@@ -7211,9 +7383,11 @@ const pure = {
   MSG_CHANGED, MSG_UNDO, MSG_SAVE_FAIL, MSG_CYCLE, MSG_MAX_DEPS, MSG_SUMMARY_DEP, MSG_DUP_DEP, MSG_SUMMARY_SCHED,
   TimelineViewBody, ScheduleSection, ScheduleBody, CalendarPopover, ListFallback,
   BaselinePicker, SaveBaselineDialog, activeBaseline, blNameOf,
+  unitIdsOf, taskUnits, blNameFor, // 1d-2 Task 4 (R2)
+  peopleNames, exportTitle, exportDoneText, MSG_EXPORT_FAIL, MSG_EXPORT_NATIVE, EXPORT_MIME, EXPORT_TITLE, // 1d-2 Task 5
   MoreMenu, menuAlign, UnitPopover, PreviewDialog, PreviewCard, whyText, dialogModel, toolbarSummary, pageUnits, unitCaption, signedHk, scopeFilter, flowItems,
 };
-if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLCpm, TLPlan, TLLoad, TLLayout, TLDrag }, pure);
+if (typeof module !== "undefined" && module.exports) module.exports = Object.assign({}, { TLHolidays, TLCal, TLSched, TLCpm, TLPlan, TLLoad, TLLayout, TLMspdi, TLDrag }, pure);
 
 const host = typeof window !== "undefined" ? window : null;
 if (host && host.TF && host.TF.plugins) {

@@ -4455,6 +4455,12 @@
 - **Files Touch:** docs/superpowers/plans/2026-11-10-plugin-fase1-pr-1d-2.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** In Progress — menunggu jawaban pemilik P1–P2. Tanpa kode.
 
+## [2026-11-10 17:20] - Claude (Opus 5.5)
+- **Task:** Eksekusi PR 1d-2 Timeline 1.4 earned value 🍅 + ekspor MSPDI (pemilik menjawab P1a P2a).
+- **Changes:** `TLLoad.ev` + `baselineDecode` `w`; `api.ui.saveFile`; `mspdi.js` (`TLMspdi`) dengan paritas mesin (Exceptions 2007 + WeekDays, `result.pred`, jangkar SNET/MSO/aktual, milestone rantai, `HonorConstraints 1`); manifest 1.4.0; ringkasan EV toolbar; "Lainnya" desktop + item Ekspor; host `listName` (+1 baris); SW v502 + whatsnew P1 + README + ADR-050; E2E `e2e_plugin_fase1_1d2.py` 37/37 + MPXJ pada unduhan nyata; skrip 1c1/1c2/1d1 disesuaikan; catatan implementasi spec. Review per tugas: F1 (saveFile reject TypeError bukan `denied`, progress `Number()`, W_MAX 99), F2 (C1 Exceptions + I1–I6 paritas MS Project), F2b; review akhir tanpa temuan wajib (minor dicatat sebagai residual).
+- **Files Touch:** static/plugins/timeline/{load.js,plan.js,mspdi.js,plugin.jsx,plugin.js,style.css,manifest.json}, static/plugin-runtime.js, static/plugins/index.json, static/sw.js, static/index.html (2 string versi + listName), static/whatsnew.json, tests/** (timeline_mspdi baru, timeline_load/plan/ui/runtime, plugin_api, plugin_host_wiring, build-plugins, 26 tes versi, test_plugins_node), temporary_files/{e2e_plugin_fase1_1d2*,mspdi_check.py,mspdi_sample.xml,e2e 1c1/1c2/1d1}, docs/plugins/README.md, docs/superpowers/{plans,specs}/*1d*, .agents/*
+- **Status:** Needs Review (PR DRAFT #131; merge hanya setelah pemilik membuka contoh XML di MS Project/ProjectLibre dan bilang "merge dan deploy"; statis tanpa restart). pytest 1636/1 skip; npm 4709/4710 (pra-ada `draw_local_reactive`).
+
 ## [2026-11-10 19:30] - Claude (Opus 5.5)
 - **Task:** PR B checklist bertingkat (tampilan) — rencana + eksekusi lewat subagent implementer/reviewer (PROTOCOL §2.4). Pemilik mengonfirmasi restart PR A.
 - **Changes:** rencana `docs/superpowers/plans/2026-11-10-checklist-bertingkat-pr-b-ui.md`; `static/offline/checklist.js` (baru), `syncpull.js`, `syncpush.js`, `hydrate.js`; `ChecklistTree`/`ChecklistGlyph` + kunci Progress + Fokus di `static/index.html`; CSS; SW v502 + whatsnew; tes (vektor pohon bersama Node/Python, `checklist*.test.js`, tes lama diselaraskan); E2E `e2e_checklist_tree.py` 152/152 + E2E lama diselaraskan; catatan implementasi PR B di spec.
@@ -4467,14 +4473,50 @@
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Done (checklist bertingkat Fase 1 selesai). Verifikasi pasca-deploy dikonfirmasi pemilik 00.18 WIB.
 
+## [2026-11-11 01:30] - Claude (Opus 5.5)
+- **Task:** Tindak lanjut uji pemilik PR 1d-2 (#131) di Microsoft Project (tangkapan: dialog Materi Natal + Gantt).
+- **Changes:** Diagnosis: tanggal task semua utuh; (A) resource tanpa kalender → MSP memakai "Standard" tanpa libur; (B) MSO 08:00 milestone berkonflik dengan FF 17:00; (C) placeholder Manual+Estimated → "0 days?". F4 `a995e34` (kalender resource turunan, tanggal MSP per simpul tanpa MSO/konflik, placeholder Otomatis `DurationFormat 39`) + review → F5 `7f0c345` (koreksi lag dibatalkan — lag asli; Units 6 desimal dibulatkan ke atas). Asersi MPXJ baru Units × menit kalender resource ≈ Work (gagal di XML lama). Contoh XML diregenerasi lewat E2E (38/38).
+- **Files Touch:** static/plugins/timeline/{mspdi.js,plugin.js}, static/plugins/index.json, static/sw.js (blok hash), tests/offline/timeline_mspdi.test.js, temporary_files/{mspdi_check.py,mspdi_sample.xml,e2e_plugin_fase1_1d2.py,e2e_plugin_fase1_1d2/contoh-ekspor-workspace.xml}, docs/plugins/README.md, .agents/DECISIONS.md (ADR-050), docs/superpowers/{plans,specs}/*1d*, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — pemilik membuka contoh XML baru di MS Project; merge hanya atas "merge dan deploy". npm 4715/4716 (pra-ada `draw_local_reactive`).
+
 ## [2026-11-11 05:30] - Claude (Opus 5.5)
 - **Task:** Checklist offline (Fase 2): brainstorming → spec → rencana PR A2 → eksekusi PR A2 (server) lewat subagent implementer/reviewer.
 - **Changes:** spec Fase 2 (F1–F7, pendekatan A, E1–E7) disetujui pemilik; rencana PR A2; `repository.py` (`checklist_rev`, `_bump_rev`, `rev`/`rev_bumped`, `update_subtask`, `client_id` per task, `heal_checklists` `rev_init`, `get_checklists`), `webapp.py` (`PATCH` judul/centang, `GET /api/checklists`, notifikasi hanya bila `rev_bumped`), `merge_db.py`; ADR-051; tes `test_checklist_rev.py`, `test_checklist_offline_api.py` + tes Fase 1 diselaraskan.
 - **Files Touch:** repository.py, webapp.py, merge_db.py, tests/test_checklist_{rev,offline_api,repo,migrate,api,…}.py, tests/test_merge_db_checklist.py, docs/superpowers/{specs,plans}/*checklist-offline*, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review (PR DRAFT; backup DB sebelum merge; restart `taskflow` + `taskflow-web`). pytest 1765/1; E2E v502 152/152.
 
+## [2026-11-11 07:45] - Claude (Fable 5.2)
+- **Task:** Tindak lanjut uji pemilik #2 PR 1d-2 (#131) di Microsoft Project (dialog Materi Natal masih muncul; "Uji tampilan" masih "0 days?"; task 100 % tanpa centang).
+- **Changes:** Riset bentuk MSPDI yang ditulis MPXJ dari nol (RemainingDuration/RemainingWork selalu diturunkan, assignment semu -65535, kalender "Standard"; MPXJ bug #240 fixed duration tanpa assignee). F6 `89ffda0` (RemainingDuration/ActualDuration/Work task, aktual + sisa assignment, assignment semu, kalender "Standard", asersi "tanpa turunan MPXJ", seed + 3 task tanpa penanggung jawab) → review → F7 `c4ae709` (`SplitsInProgressTasks 0`, Type 0 tanpa assignment nyata, aktual placeholder ≤ hari ini, seed "Unggah materi"). Berkas uji pemilik #3: A (contoh F7) + varian B (TimephasedData) dan C (assignment penuh waktu) dari scratchpad.
+- **Files Touch:** static/plugins/timeline/{mspdi.js,plugin.js}, static/plugins/index.json, static/sw.js (blok hash), tests/offline/timeline_mspdi.test.js, temporary_files/{mspdi_check.py,mspdi_sample.xml,e2e_plugin_fase1_1d2.py,e2e_plugin_fase1_1d2/contoh-ekspor-workspace.xml}, docs/plugins/README.md, .agents/DECISIONS.md (ADR-050), docs/superpowers/{plans,specs}/*1d*, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — menunggu uji pemilik #3 di MS Project (A, lalu B/C bila A belum bersih); penyebab dialog belum terbukti. Merge hanya atas "merge dan deploy". npm 4721/4722 (pra-ada `draw_local_reactive`); E2E 40/40.
+
+## [2026-11-11 08:20] - Claude (Fable 5.2)
+- **Task:** Gabung `origin/main` (`155ee07`, #132 checklist bertingkat PR B memakai v502) ke `claude/timeline-ev-ekspor` dan rilis ulang PR 1d-2 (#131) sebagai v503.
+- **Changes:** Merge `ccb4b48` (bukan rebase): `index.html`/`sw.js`/26 tes versi → milik `main`, `index.html` + baris `listName` + `title` di deps (47.123 baris), `whatsnew.json` milik `main`, `SESSION_LOG.md` kedua sisi urut waktu, anggaran `plugin_host_wiring` 1d-2 + `CHECKLIST_PRB_EXTRA`. Commit rilis: SW `taskflow-v503-ev-ekspor` (sw.js, 2 string `index.html`, 26 tes), entri whatsnew P1 (a) kembali paling atas (v503, 2026-11-11), dokumen dinomori ulang (ADR-050 tetap, rencana, spec, CURRENT_STATE; `app.css?v=385` milik `main`).
+- **Files Touch:** static/sw.js, static/index.html, static/whatsnew.json, tests/offline/*.test.js (26 versi + plugin_host_wiring), .agents/{DECISIONS,CURRENT_STATE,SESSION_LOG}.md, docs/superpowers/plans/2026-11-10-plugin-fase1-pr-1d-2.md, docs/superpowers/specs/2026-11-06-plugin-fase1-1d-beban-tim-design.md
+- **Status:** Needs Review — dua commit lokal, BELUM di-push; menunggu uji pemilik #3 lalu "merge dan deploy". pytest 1674/1 skip; npm 4883/4884 (pra-ada `draw_local_reactive`); CI sim 1672/3; E2E 1d2 40/40 + regresi 1d1–1a1 dan `e2e_checklist_tree` 152/152 tanpa kegagalan; contoh XML identik byte.
+
+## [2026-11-11 13:25] - Claude (Fable 5.2)
+- **Task:** Hasil uji pemilik #3 PR 1d-2 (#131): berkas A dibuka di Microsoft Project.
+- **Changes:** Tanpa perubahan kode. Dicocokkan dengan tangkapan: tanpa dialog, 21 baris tanggal/durasi = mesin, tautan + lag benar, "Uji tampilan" 1 day?, "Rapat evaluasi" 2 days, "Unggah materi" tidak dipecah. Temuan dari piksel tangkapan: garis progres hanya pada task Manual 100 %; task Otomatis dan task ber-% sebagian tanpa garis (penyebab belum diketahui). Dicatat di ADR-050 (Verification + residual), CURRENT_STATE, deskripsi PR.
+- **Files Touch:** .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — menunggu keputusan pemilik: "merge dan deploy" dengan keterbatasan progres tercatat, atau perbaiki progres dulu (butuh nilai kolom % Complete di A dan B).
+
+## [2026-11-11 14:50] - Claude (Fable 5.2)
+- **Task:** PR 1d-2 (#131): pemilik memutuskan progres di Microsoft Project dibereskan sebelum merge.
+- **Changes:** Riset: kepala berkas tidak memuat `ProjectExternallyEdited 0` (yeroo/docxy #111/#222, Project 2021: tanpa itu Project menghitung ulang berkas). F8 `cbeb690`: sembilan bendera kepala Project (bentuk MPXJ) + asersi `mspdi_check.py` + E2E 41/41. Berkas uji progres `temporary_files/mspdi_uji_progres.py` → `uji-progres-P2.xml` (kepala F8) dan `uji-progres-P3-kepala-lama.xml`: sembilan bentuk penulisan progres berdampingan (sekarang, +Stop/Resume, +TimephasedData, keduanya, minimal MPXJ, penuh waktu, tanpa batasan, tanpa assignment, assignment semu) × 100 %/50 % + 2 Manual; 0 pelanggaran urutan XSD.
+- **Files Touch:** static/plugins/timeline/{mspdi.js,plugin.js}, static/plugins/index.json, static/sw.js (blok hash), tests/offline/timeline_mspdi.test.js, temporary_files/{mspdi_check.py,mspdi_sample.xml,mspdi_uji_progres.py,e2e_plugin_fase1_1d2.py,e2e_plugin_fase1_1d2/{contoh-ekspor-workspace.xml,uji-progres-P2.xml,uji-progres-P3-kepala-lama.xml}}, docs/plugins/README.md, .agents/DECISIONS.md, docs/superpowers/{plans,specs}/*1d*, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review — menunggu uji pemilik #4 (P1, P2, P3 dengan kolom % Complete). Efek F8 pada progres/dialog belum terverifikasi. Merge hanya atas "merge dan deploy". npm 4884/4885 (pra-ada `draw_local_reactive`).
+
 ## [2026-11-12 01:50] - Claude (Opus 5.5)
 - **Task:** Merge + deploy PR #133 (checklist offline Fase 2, PR A2 server) atas "backup done, merge dan deploy".
 - **Changes:** PR ditandai ready lalu di-merge (`f293bcb`); CI Tests + Deploy sukses (01.46 WIB, `migrate_db` tanpa galat). Pemilik diminta `sudo systemctl restart taskflow taskflow-web`.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Done kecuali restart (menunggu pemilik). Berikutnya: rencana + eksekusi PR B2 (aplikasi).
+
+## [2026-11-12 02:00] - Claude (Fable 5.2)
+- **Task:** Hasil uji pemilik #4 PR 1d-2 (#131) di Microsoft Project (P1, P2, P3 dengan kolom % Complete) → merge.
+- **Changes:** Tanpa perubahan kode. P1 (kode F8): tanpa dialog, % Complete semua task = Timeline, tanggal tetap. P2 (kepala F8): semua bentuk progres terbaca. P3 (kepala lama): dialog + 0 % untuk bentuk ber-assignment nyata → akar terbukti: `ProjectExternallyEdited 0`. Dicatat di ADR-050 (Verification + residual), README §6.2, catatan spec; tanggal whatsnew v503 → 2026-11-12.
+- **Files Touch:** .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md, docs/plugins/README.md, docs/superpowers/specs/2026-11-06-plugin-fase1-1d-beban-tim-design.md, static/whatsnew.json
+- **Status:** Completed (siap merge; pemilik: "bereskan progres dulu, setelah itu kita merge"). Deploy statis, tanpa restart.

@@ -1,5 +1,9 @@
 {
   "entries": [
+    {"version": "taskflow-v503-ev-ekspor", "date": "2026-11-12", "title": "Timeline: kinerja jadwal dan ekspor",
+     "new": ["Bandingkan kemajuan dengan baseline: toolbar Gantt kini menampilkan “Jadwal 92% · Efisiensi 🍅 108%”.",
+             "Ekspor Timeline ke Microsoft Project (.xml) dari menu Lainnya.",
+             "Di aplikasi desktop dan Android, ekspor dilakukan lewat browser di alurik.com."]},
     {"version": "taskflow-v502-checklist-bertingkat", "date": "2026-11-10", "title": "Checklist bertingkat",
      "new": ["Butir checklist kini bisa punya sub checklist. Tekan Tab saat mengetik untuk menjadikannya sub.",
              "Seret ⠿ untuk mengubah urutan; sub checklist ikut pindah bersama butir induknya.",
