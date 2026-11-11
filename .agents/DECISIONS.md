@@ -465,9 +465,10 @@
   - `task_progress` mendapat `rev` dan `rev_bumped` (operasi ini sendiri — bukan pemulihan — menaikkan rev). Aturan klien: rev tersimpan dimajukan hanya bila `rev_bumped` dan `rev` = tersimpan + 1; `rev` = tersimpan → tetap; selain itu dikosongkan (ambil ulang).
   - `PATCH /api/subtasks/{id}` menerima `title` dan/atau `is_done` (set; `true` berantai ke turunan) dalam satu transaksi — dipakai antrean klien sebagai pengganti toggle.
   - `GET /api/checklists?task_ids=` (≤ 200, baca saja, akses setara `_can_access_task` lewat satu kueri, `def` di threadpool).
-  - Idempotensi tambah per task; `client_id` yang bertabrakan dengan task lain disimpan berprefiks `"<task_id>:"` (indeks unik global `idx_subtasks_client_id` tidak diubah).
+  - Idempotensi tambah per task; `client_id` yang bertabrakan dengan task lain disimpan berprefiks `"<task_id>:"` (indeks unik global `idx_subtasks_client_id` tidak diubah); bila bentuk berprefiks pun sudah dipakai task lain, butir disimpan tanpa `client_id` (tidak idempoten; hanya bila klien mengirim id berbentuk itu secara harfiah). `client_id` kosong/spasi = tanpa `client_id`.
 - **Consequences:**
   - Aplikasi v502 tidak terpengaruh (field tambahan diabaikan; `PATCH {title}` dan toggle tetap; E2E `e2e_checklist_tree.py` 152/152 terhadap server baru).
   - PR B2 mengambil `checklist_rev` lewat `TASK_DERIVED` dan mengunduh lewat batch; aturan majukan rev memakai `rev_bumped`.
-  - Rollback: revert sebagai rilis baru; kolom `checklist_rev` dibiarkan (kode lama mengabaikannya). `client_id` berprefiks tetap unik secara global.
+  - Rollback: aman **hanya sebelum PR B2 rilis** — revert sebagai rilis baru; kolom `checklist_rev` dibiarkan (kode lama mengabaikannya); `client_id` berprefiks tetap unik secara global. Setelah B2 rilis, rollback A2 harus disertai rollback B2 (server lama menolak `PATCH {is_done}` dengan 422 sehingga B2 membuang centang offline, dan `/api/checklists` 404). Saat A2 di-deploy ulang setelah rollback, jalankan sekali `UPDATE tasks SET checklist_rev = COALESCE(checklist_rev,0) + 1 WHERE id IN (SELECT DISTINCT task_id FROM subtasks)` karena kode lama tidak menaikkan rev.
+  - Kirim ulang tambah butir (`client_id` sama, `rev_bumped` False) tidak mengirim notifikasi workspace lagi.
   - Deploy: cadangkan `taskflow.db` sebelum merge (migrasi mengisi `checklist_rev`), lalu `sudo systemctl restart taskflow taskflow-web`.

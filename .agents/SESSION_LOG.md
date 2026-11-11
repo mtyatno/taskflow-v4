@@ -4466,3 +4466,9 @@
 - **Changes:** PR ditandai ready lalu di-merge (`66c7ad1`); CI Tests + Deploy sukses (00.11 WIB; statis, tanpa restart). v502 dipakai checklist → PR 1d-2 harus memakai v503.
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Done (checklist bertingkat Fase 1 selesai). Verifikasi pasca-deploy dikonfirmasi pemilik 00.18 WIB.
+
+## [2026-11-11 05:30] - Claude (Opus 5.5)
+- **Task:** Checklist offline (Fase 2): brainstorming → spec → rencana PR A2 → eksekusi PR A2 (server) lewat subagent implementer/reviewer.
+- **Changes:** spec Fase 2 (F1–F7, pendekatan A, E1–E7) disetujui pemilik; rencana PR A2; `repository.py` (`checklist_rev`, `_bump_rev`, `rev`/`rev_bumped`, `update_subtask`, `client_id` per task, `heal_checklists` `rev_init`, `get_checklists`), `webapp.py` (`PATCH` judul/centang, `GET /api/checklists`, notifikasi hanya bila `rev_bumped`), `merge_db.py`; ADR-051; tes `test_checklist_rev.py`, `test_checklist_offline_api.py` + tes Fase 1 diselaraskan.
+- **Files Touch:** repository.py, webapp.py, merge_db.py, tests/test_checklist_{rev,offline_api,repo,migrate,api,…}.py, tests/test_merge_db_checklist.py, docs/superpowers/{specs,plans}/*checklist-offline*, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (PR DRAFT; backup DB sebelum merge; restart `taskflow` + `taskflow-web`). pytest 1765/1; E2E v502 152/152.

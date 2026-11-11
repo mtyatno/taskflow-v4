@@ -2,7 +2,7 @@
 
 - **Tanggal:** 2026-11-11
 - **Basis kode:** `main` @ `155ee07` (SW `taskflow-v502-checklist-bertingkat`; ADR terakhir ADR-049; ADR-050 dipesan rencana PR 1d-2).
-- **Status:** **DISETUJUI pemilik 2026-11-11** — pertanyaan klarifikasi, pendekatan A, dan ketiga bagian desain (Server; Penyimpanan lokal, antrean, sinkron; Tampilan, pengujian, rilis) disetujui satu per satu dalam sesi brainstorming. Berikutnya: rencana PR A2 (server) lalu PR B2 (aplikasi).
+- **Status:** **DISETUJUI pemilik 2026-11-11** — pertanyaan klarifikasi, pendekatan A, dan ketiga bagian desain disetujui satu per satu dalam sesi brainstorming. **PR A2 (server) diimplementasikan 2026-11-11** di branch `claude/checklist-offline-server` (lihat "Catatan implementasi PR A2"); berikutnya PR B2 (aplikasi).
 - **Fase 1:** `docs/superpowers/specs/2026-11-06-checklist-bertingkat-design.md` (K1–K17, D1–D11, catatan implementasi PR A/PR B), ADR-048. Fase 2 = K4 Fase 1 ("checklist local-first lewat outbox dan sinkron, spec terpisah").
 - **Istilah:** sama dengan Fase 1 (*butir*, *level atas*, *turunan*, *saudara*, *pre-order*), ditambah:
   - *antrean* = outbox lokal (`_outbox`, `static/offline/outbox.js`);
@@ -53,7 +53,7 @@ Checklist (dengan semua kemampuan Fase 1: tambah, Tab/Shift+Tab, seret, Alt+↑/
 
 ### 3.1 Data
 - `tasks.checklist_rev INTEGER DEFAULT 0` (migrasi kolom di `_init_db`, pola `checklist_total`).
-- Naik sesuai E2 di setiap operasi repository: `add_subtask`, `rename_subtask`, `move_subtask`, `toggle_subtask`, `set_subtask_done` (baru), `delete_subtask`, dan `heal_checklists` (per task yang dipulihkan). Termasuk aksi dari bot (bot memakai repository yang sama).
+- Naik sesuai E2 di setiap operasi repository: `add_subtask`, `rename_subtask`, `move_subtask`, `toggle_subtask`, `update_subtask` (baru; judul dan/atau centang set), `delete_subtask`, dan `heal_checklists` (per task yang dipulihkan). Termasuk aksi dari bot (bot memakai repository yang sama).
 - `migrate_db()`: task yang punya butir tetapi `checklist_rev = 0` → `1` (idempoten; tanpa `updated_at`). `recompute_all` tidak menyentuh rev.
 - Ikut di semua respons task (`dict(row)`), dan `task_progress` mendapat field `rev` (nilai kolom sesudah operasi) dan `rev_bumped` (bool: operasi itu sendiri menaikkan rev; pemulihan pohon tidak dihitung; `false` untuk tambah dengan `client_id` yang sudah ada, teks sama, posisi sama, centang set tanpa perubahan).
 
@@ -80,6 +80,7 @@ Checklist (dengan semua kemampuan Fase 1: tambah, Tab/Shift+Tab, seret, Alt+↑/
 ### 4.2 Mengambil dari server (`pullChecklists`, langkah sinkron baru setelah pull task, sebelum push)
 1. Task lokal yang punya `server_id`, `checklist_rev` server ≠ rev tersimpan, dan **tanpa** aksi checklist di antrean (E5).
 2. Ambil lewat `GET /api/checklists` (200 per permintaan). Unduhan awal = jalur yang sama (rev tersimpan kosong).
+   - **Rev server 0 dan belum ada rev tersimpan → simpan 0 tanpa mengunduh** (server menjamin task yang punya butir selalu rev ≥ 1). Task yang baru terkirim dari perangkat ini (dibuat offline) langsung disimpan rev 0 supaya respons aksi pertamanya bisa memajukan rev tanpa ambil ulang.
 3. Ganti isi checklist task itu dalam **satu transaksi**: butir yang sudah dikenal (`server_id` di idmap) mempertahankan `cid`; butir baru mendapat `cid` baru; butir lokal yang tidak ada lagi di server dihapus. Lalu rev tersimpan = rev server.
 4. Gagal jaringan/5xx → dilewati tanpa menggagalkan siklus sinkron; dicoba lagi siklus berikutnya.
 5. Task yang hilang dari server (dihapus/akses dicabut, dideteksi pull task) → butir lokal dan aksi antreannya dibuang.
@@ -148,4 +149,5 @@ Branch `claude/checklist-offline-server`; rencana `docs/superpowers/plans/2026-1
 - **Akses batch** memakai satu kueri dengan aturan setara `_can_access_task` (diuji kesetaraannya untuk semua kombinasi akses); endpoint `def` (threadpool). 200 task × 30 butir ≈ 90–160 ms.
 - **Kenaikan rev pemulihan** ada di dalam `_heal_task_tree` (semua pemanggil ikut); gagal 422 me-rollback kenaikannya.
 - **`merge_db.py`** menaikkan `checklist_rev` task penerima butir (tujuan wajib sudah dimigrasi).
-- **Angka:** pytest 1762 passed / 1 skipped (basis 1674 / 1); `import webapp, bot` OK; E2E klien v502 `e2e_checklist_tree.py` 152/152 terhadap server baru.
+- **Sesudah review akhir:** kirim ulang tambah butir tidak mengirim notifikasi workspace lagi (hanya bila `rev_bumped`); `client_id` kosong/spasi = tanpa `client_id` (sebelumnya 500); ADR-051 memuat aturan rollback (aman hanya sebelum B2; deploy ulang menaikkan rev semua task bercheklist sekali).
+- **Angka:** pytest 1765 passed / 1 skipped (basis 1674 / 1); `import webapp, bot` OK; E2E klien v502 `e2e_checklist_tree.py` 152/152 terhadap server baru.

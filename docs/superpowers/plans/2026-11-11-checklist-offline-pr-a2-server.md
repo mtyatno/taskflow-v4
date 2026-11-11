@@ -19,7 +19,7 @@
 | Kolom task | `_init_db` migrasi `checklist_total` `repository.py:1012` | tanpa `checklist_rev` |
 | Progress | `_recompute_progress(conn, task_id)` `:631` → `{done, total, progress}` | tanpa `rev` |
 | Pemulihan | `_heal_task_tree(conn, task_id) -> int` `:654` (dipanggil di awal setiap operasi tulis), `_heal_for_subtask` `:679`, `heal_checklists()` `:1273` (dari `webapp.migrate_db` `:354`) | tidak menaikkan versi |
-| Operasi | `add_subtask` `:1650` (idempotensi `client_id` GLOBAL `:1662`, tanpa indeks unik di `subtasks.client_id`), `get_subtasks` `:1685`, `rename_subtask` `:1690`, `move_subtask` `:1704`, `toggle_subtask` `:1747`, `delete_subtask` `:1769`; `_subtask_with_progress` | – |
+| Operasi | `add_subtask` `:1650` (idempotensi `client_id` GLOBAL `:1662`; **ada** indeks unik global `idx_subtasks_client_id` — dikoreksi saat eksekusi, lihat catatan implementasi spec), `get_subtasks` `:1685`, `rename_subtask` `:1690`, `move_subtask` `:1704`, `toggle_subtask` `:1747`, `delete_subtask` `:1769`; `_subtask_with_progress` | – |
 | API | `_CHECKLIST_ERRORS` `webapp.py:3516`; `SubtaskRename {title}` `:3506`; `GET /api/tasks/{id}/subtasks` `:3536`; `PATCH /api/subtasks/{id}` `:3563` (judul saja); toggle `:3587`; batas batch pola `child-counts` (`CHILD_COUNTS_MAX_*` `:2328–2356`) | tanpa batch checklist, tanpa set centang |
 | Hitung ulang | `checklist_tree.recompute_all(conn)` `checklist_tree.py:103` | tidak menyentuh rev (tetap) |
 | Serialisasi task | `task_row_to_dict` = `dict(row)` | kolom baru otomatis ikut |
