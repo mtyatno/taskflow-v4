@@ -31,6 +31,7 @@ const STATIC = [
   "/static/offline/tasklogic.js",
   "/static/offline/taskdetail.js",
   "/static/offline/checklist.js",
+  "/static/offline/checklistrepo.js",
   "/static/offline/focusfilter.js",
   "/static/offline/tagrepo.js",
   "/static/offline/taskrepo.js",

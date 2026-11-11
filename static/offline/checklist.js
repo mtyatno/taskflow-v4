@@ -72,6 +72,8 @@
   //   true = ditulis; id tidak dikenal, record tidak ada, `tp` tidak sah, nilai sama, atau galat IndexedDB → false.
   //   Setiap tulis juga mencatat `checklist_adopted_at = Date.now()` (kolom bantu lokal, tidak ikut payload push):
   //   pull yang GET daftarnya dimulai pada/sebelum cap itu tidak menimpa progress/checklist_total (daftar basi).
+  //   `writeTaskProgress(taskCid, tp)` = inti yang sama dengan cid task lokal (Fase 2: progress hasil aksi lokal di
+  //   checklistrepo, termasuk task yang belum tersinkron).
 
   const isNode = typeof module !== "undefined" && module.exports;
   const req = (m, g) => (isNode ? require(m) : g);
@@ -550,28 +552,44 @@
   function idmapMod() { return req("./idmap.js", root.TF && root.TF.idmap); }
   function dbMod() { return req("./db.js", root.TF && root.TF.db); }
 
-  function adoptTaskProgress(serverTaskId, tp) {
-    if (serverTaskId == null || serverTaskId === "" || !tp || typeof tp !== "object") return Promise.resolve(false);
+  // `task_progress` sah → {total, progress|null}; selain itu null.
+  function cleanTp(tp) {
+    if (!tp || typeof tp !== "object") return null;
     const total = tp.total;
-    if (typeof total !== "number" || !Number.isInteger(total) || total < 0) return Promise.resolve(false);
-    const progress = typeof tp.progress === "number" && Number.isFinite(tp.progress) ? tp.progress : null;
+    if (typeof total !== "number" || !Number.isInteger(total) || total < 0) return null;
+    return { total, progress: typeof tp.progress === "number" && Number.isFinite(tp.progress) ? tp.progress : null };
+  }
+
+  // Inti adopsi dengan cid task lokal (Fase 2, rencana PR B2 R2): dipakai adoptTaskProgress (respons server) dan
+  // checklistrepo (progress hasil aksi lokal, termasuk task yang belum tersinkron). Aturan sama: hanya bila berbeda,
+  // dirty/rev/base_rev/updated_at/ext tidak disentuh, cap checklist_adopted_at. → Promise<boolean>.
+  function writeTaskProgress(taskCid, tp) {
+    const v = cleanTp(tp);
+    if (taskCid == null || taskCid === "" || !v) return Promise.resolve(false);
+    return Promise.resolve()
+      .then(() => {
+        const TFdb = dbMod();
+        if (!TFdb || typeof TFdb.mutate !== "function") return null;
+        return TFdb.mutate("tasks", taskCid, (cur) => {
+          if (!cur) return undefined;
+          const patch = {};
+          if (cur.checklist_total !== v.total) patch.checklist_total = v.total;
+          if (v.progress != null && cur.progress !== v.progress) patch.progress = v.progress;
+          if (!Object.keys(patch).length) return undefined;
+          patch.checklist_adopted_at = Date.now(); // penjaga pull basi (syncpull adoptedSince); bukan field server
+          return Object.assign({}, cur, patch);
+        });
+      })
+      .then((saved) => !!saved, () => false);
+  }
+
+  function adoptTaskProgress(serverTaskId, tp) {
+    if (serverTaskId == null || serverTaskId === "" || !cleanTp(tp)) return Promise.resolve(false);
     return Promise.resolve()
       .then(() => {
         const idmap = idmapMod();
-        const TFdb = dbMod();
-        if (!idmap || !TFdb || typeof TFdb.mutate !== "function") return null;
-        return idmap.cidOf("task", serverTaskId).then((cid) => {
-          if (!cid) return null;
-          return TFdb.mutate("tasks", cid, (cur) => {
-            if (!cur) return undefined;
-            const patch = {};
-            if (cur.checklist_total !== total) patch.checklist_total = total;
-            if (progress != null && cur.progress !== progress) patch.progress = progress;
-            if (!Object.keys(patch).length) return undefined;
-            patch.checklist_adopted_at = Date.now(); // penjaga pull basi (syncpull adoptedSince); bukan field server
-            return Object.assign({}, cur, patch);
-          });
-        });
+        if (!idmap) return false;
+        return idmap.cidOf("task", serverTaskId).then((cid) => (cid ? writeTaskProgress(cid, tp) : false));
       })
       .then((saved) => !!saved, () => false);
   }
@@ -582,5 +600,6 @@
     indentTarget, outdentTarget, siblingMoveTarget, dropRange, dropTarget, applyMove,
     applyCreate, applySetDone, applyRename, applyDelete, moveError,
     maxAddDepth, addParentFor, autoScrollDelta, loadCollapsed, saveCollapsed, lockFor, adoptTaskProgress,
+    writeTaskProgress,
   };
 });

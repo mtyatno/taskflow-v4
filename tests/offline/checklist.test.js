@@ -46,7 +46,7 @@ test("modul: di browser terpasang sebagai TF.checklist (pola UMD taskdetail.js)"
   for (const k of ["percent", "preorder", "topLevelCounts", "childCounts", "descendantIds", "visibleRows",
     "indentTarget", "outdentTarget", "siblingMoveTarget", "dropRange", "dropTarget", "applyMove", "maxAddDepth",
     "addParentFor", "autoScrollDelta", "loadCollapsed", "saveCollapsed", "lockFor", "adoptTaskProgress", "childCountsAll",
-    "applyCreate", "applySetDone", "applyRename", "applyDelete", "moveError"]) {
+    "applyCreate", "applySetDone", "applyRename", "applyDelete", "moveError", "writeTaskProgress"]) {
     assert.equal(typeof api[k], "function", k);
   }
   assert.equal(api.COLLAPSE_KEY, "tf_check_collapsed");
@@ -868,6 +868,38 @@ test("adoptTaskProgress saat push berjalan: setelah respons PUT record bersih da
   const r = await bacaTask("q1");
   assert.deepEqual([r.dirty, r.rev, r.progress, r.checklist_total, r.base_rev], [0, 4, 67, 3, "2026-11-02T00:00:00"]);
   assert.equal((await outboxAll()).length, 0);
+});
+
+// writeTaskProgress (Fase 2, rencana PR B2 R2): inti adoptTaskProgress dengan cid task lokal — dipakai checklistrepo
+// untuk progress hasil aksi lokal (task belum tersinkron tidak punya id server). Satu-satunya penulis store tasks di
+// checklist.js tetap satu (pagar penulis).
+
+test("writeTaskProgress: menulis progress/checklist_total + cap checklist_adopted_at lewat cid, tanpa dirty/rev/base_rev", async () => {
+  await siapkanTask(rekam({ server_id: null, dirty: 1, rev: 4 }), null);
+  const sebelum = Date.now();
+  assert.equal(await C.writeTaskProgress("t1", { done: 1, total: 2, progress: 50 }), true);
+  const r = await bacaTask("t1");
+  assert.deepEqual([r.progress, r.checklist_total, r.dirty, r.rev, r.base_rev, r.updated_at],
+    [50, 2, 1, 4, "2026-11-01T00:00:00", "2026-11-01T00:00:00"]);
+  assert.ok(r.checklist_adopted_at >= sebelum);
+  assert.equal(await C.writeTaskProgress("t1", { done: 1, total: 2, progress: 50 }), false, "nilai sama → tanpa tulis");
+});
+
+test("writeTaskProgress: cid tidak ada / tp tidak sah → false; progress null → hanya checklist_total", async () => {
+  await siapkanTask(rekam({ progress: 42, checklist_total: 2 }), 7);
+  assert.equal(await C.writeTaskProgress("nihil", { done: 0, total: 1, progress: 0 }), false);
+  assert.equal(await C.writeTaskProgress(null, { done: 0, total: 1, progress: 0 }), false);
+  assert.equal(await C.writeTaskProgress("t1", { done: 0, total: -1, progress: 0 }), false);
+  assert.equal(await C.writeTaskProgress("t1", null), false);
+  assert.equal(await C.writeTaskProgress("t1", { done: 0, total: 0, progress: null }), true);
+  const r = await bacaTask("t1");
+  assert.deepEqual([r.progress, r.checklist_total], [42, 0]);
+});
+
+test("writeTaskProgress: adoptTaskProgress memakainya (satu penulis store tasks di checklist.js)", () => {
+  const kode = fs.readFileSync(SRC, "utf8").replace(/^\s*\/\/.*$/gm, "");
+  assert.equal((kode.match(/TFdb\.mutate\(/g) || []).length, 1);
+  assert.match(kode, /function adoptTaskProgress[\s\S]*?writeTaskProgress\(/);
 });
 
 test("adoptTaskProgress: record task tidak ada walau idmap ada → false", async () => {
