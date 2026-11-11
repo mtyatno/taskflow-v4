@@ -3503,8 +3503,10 @@ class SubtaskCreate(BaseModel):
     index: Optional[int] = Field(default=None, ge=0)   # posisi di antara saudara; None = paling akhir
 
 
-class SubtaskRename(BaseModel):
-    title: str
+class SubtaskPatch(BaseModel):
+    """PATCH butir (spec checklist offline §3.2, E3): minimal satu dari `title` / `is_done` (centang SET)."""
+    title: Optional[str] = None
+    is_done: Optional[bool] = None
 
 
 class SubtaskMove(BaseModel):
@@ -3512,12 +3514,18 @@ class SubtaskMove(BaseModel):
     index: Optional[int] = Field(default=None, ge=0)
 
 
-# Teks galat checklist persis spec checklist bertingkat §4 (rencana PR A R4).
+# Teks galat checklist persis spec checklist bertingkat §4 (rencana PR A R4) + Fase 2 (rencana PR A2 R6).
 _CHECKLIST_ERRORS = {
     "PARENT_NOT_FOUND": "Induk checklist tidak ditemukan",
     "CYCLE": "Butir tidak bisa dipindah ke dalam dirinya sendiri",
     "EMPTY_TITLE": "Teks butir tidak boleh kosong",
+    "NO_CHANGE": "Tidak ada perubahan",
 }
+
+CHECKLISTS_MAX_IDS = 200
+# 200 id × 18 digit + pemisah (boleh berspasi) < 5000; batas mentah ini dicek sebelum string dipecah.
+CHECKLISTS_MAX_CHARS = 5000
+_CHECKLISTS_TOO_MANY = f"Maksimal {CHECKLISTS_MAX_IDS} id task per request"
 
 
 def _checklist_422(e: "repository.ChecklistError") -> HTTPException:
@@ -3531,6 +3539,54 @@ def _subtask_task_access(subtask_id: int, uid: int, write: bool = False):
         if not sub:
             raise HTTPException(status_code=404, detail="Subtask not found")
         return _can_access_task(conn, sub["task_id"], uid, write=write)
+
+
+def _readable_task_ids(conn, task_ids: list[int], uid: int) -> list[int]:
+    """Id dari `task_ids` (urutan dipertahankan) yang boleh dibaca `uid`. Aturan SAMA dengan `_can_access_task`:
+    pemilik task, atau pemilik/anggota workspace (shared list) task itu — satu kueri (pola child-counts), karena
+    `_can_access_task` membuat `TaskRepository` (= `_init_db`) per task workspace; 200 kali di event loop terlalu
+    mahal. Task yang tidak ada / tanpa akses tidak ikut (tanpa 403/404)."""
+    marks = ",".join("?" * len(task_ids))
+    ok = {r[0] for r in conn.execute(
+        f"SELECT id FROM tasks WHERE id IN ({marks}) AND (user_id = ? OR list_id IN ("
+        "  SELECT id FROM shared_lists WHERE owner_id = ?"
+        "  UNION SELECT list_id FROM list_members WHERE user_id = ?"
+        "))",
+        [*task_ids, uid, uid, uid],
+    ).fetchall()}
+    return [t for t in task_ids if t in ok]
+
+
+# Unduhan checklist banyak task sekaligus untuk aplikasi offline (spec checklist offline §3.2, F1; rencana PR A2
+# R5): `{"<task_id>": {"rev": n, "items": [...]}}`, `items` = bentuk GET /api/tasks/{id}/subtasks. Baca saja.
+# `def` (bukan `async def`): kueri sinkron sampai 200 task berjalan di threadpool, tidak menahan event loop
+# (dependency async `get_current_user` tetap dijalankan FastAPI di event loop; pola plugin_states.get_state).
+@app.get("/api/checklists")
+def get_checklists(task_ids: str = "", user=Depends(get_current_user)):
+    if len(task_ids) > CHECKLISTS_MAX_CHARS:
+        raise HTTPException(status_code=400, detail=_CHECKLISTS_TOO_MANY)
+    wanted, seen = [], set()
+    for tok in task_ids.split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        # Hanya bilangan bulat ASCII; > 18 digit di luar INTEGER SQLite (dan bukan id task).
+        if not tok.isascii() or not tok.isdigit() or len(tok) > 18:
+            raise HTTPException(status_code=400, detail="task_ids tidak valid")
+        tid = int(tok)
+        if tid in seen:
+            continue
+        seen.add(tid)
+        wanted.append(tid)
+        if len(wanted) > CHECKLISTS_MAX_IDS:
+            raise HTTPException(status_code=400, detail=_CHECKLISTS_TOO_MANY)
+    if not wanted:
+        return {}
+    with get_db() as conn:
+        readable = _readable_task_ids(conn, wanted, user["sub"])
+    if not readable:
+        return {}
+    return {str(tid): c for tid, c in TaskRepository(DB_PATH).get_checklists(readable).items()}
 
 
 @app.get("/api/tasks/{task_id}/subtasks")
@@ -3551,7 +3607,9 @@ async def create_subtask(task_id: int, req: SubtaskCreate, background_tasks: Bac
                                   parent_id=req.parent_id, index=req.index)
     except repository.ChecklistError as e:
         raise _checklist_422(e)
-    if row["list_id"]:
+    # Kirim ulang dengan `client_id` yang sudah ada (antrean offline) mengembalikan butir lama dengan
+    # `rev_bumped` False → tanpa notifikasi ganda.
+    if row["list_id"] and result["task_progress"]["rev_bumped"]:
         actor = user.get("username", f"user#{uid}")
         background_tasks.add_task(
             _notify_members_bg, row["list_id"], uid,
@@ -3561,11 +3619,13 @@ async def create_subtask(task_id: int, req: SubtaskCreate, background_tasks: Bac
     return result
 
 @app.patch("/api/subtasks/{subtask_id}")
-async def rename_subtask(subtask_id: int, req: SubtaskRename, user=Depends(get_current_user)):
-    """Ubah teks butir (K12): butir + `task_progress`. Tanpa notifikasi."""
+async def patch_subtask(subtask_id: int, req: SubtaskPatch, user=Depends(get_current_user)):
+    """Ubah teks (K12) dan/atau centang SET (spec checklist offline §3.2, E3) dalam satu transaksi: butir +
+    `changed_ids` + `task_progress` (dengan `rev`). `is_done` true → butir + turunan selesai, false → hanya
+    butir; aman diulang. Body tanpa keduanya → 422 "Tidak ada perubahan". Tanpa notifikasi."""
     _subtask_task_access(subtask_id, user["sub"], write=True)
     try:
-        result = TaskRepository(DB_PATH).rename_subtask(subtask_id, req.title)
+        result = TaskRepository(DB_PATH).update_subtask(subtask_id, title=req.title, is_done=req.is_done)
     except repository.ChecklistError as e:
         raise _checklist_422(e)
     if result is None:

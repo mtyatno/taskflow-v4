@@ -164,3 +164,58 @@ def test_tujuan_tanpa_kolom_parent_id_galat_jelas_tanpa_menulis(tmp_path):
     assert r.returncode != 0
     assert "parent_id" in r.stdout + r.stderr and "migrate_db" in r.stdout + r.stderr
     assert _dump_hash(cur) == sebelum
+
+
+# ── Perbaikan review S2: task penerima butir hasil merge menaikkan checklist_rev (spec checklist offline E2) ──
+# Tanpa ini perangkat checklist offline (PR B2) tidak pernah mengambil ulang butir yang ditambahkan merge.
+
+def _rev_task(path, title):
+    c = _conn(path)
+    try:
+        return tuple(c.execute("SELECT checklist_rev, updated_at FROM tasks WHERE title = ?", (title,)).fetchone())
+    finally:
+        c.close()
+
+
+def test_task_penerima_butir_rev_naik_1_termasuk_task_duplikat_tanpa_updated_at(tmp_path):
+    cur = _tujuan(tmp_path)
+    c = _conn(cur)
+    c.execute("UPDATE tasks SET checklist_rev = 4 WHERE title = 'sudah ada'")
+    _task(c, c.execute("SELECT id FROM users WHERE username = 'lama'").fetchone()[0], "kosong di tujuan")
+    c.commit()
+    c.close()
+    bak = tmp_path / "backup.db"
+    TaskRepository(str(bak))
+    c = _conn(bak)
+    uid = _user(c, "lama")
+    dup = _task(c, uid, "sudah ada")              # duplikat (judul + created_at + pemilik sama)
+    _sub(c, dup, "dari cadangan 1", sort_order=10)
+    _sub(c, dup, "dari cadangan 2", sort_order=11)
+    baru = _task(c, uid, "baru")
+    _sub(c, baru, "isi baru")
+    _task(c, uid, "kosong di tujuan")             # duplikat tanpa butir
+    c.commit()
+    c.close()
+
+    r = _run(bak, cur)
+    assert r.returncode == 0, r.stderr
+    assert _rev_task(cur, "sudah ada") == (5, T0)          # +1 per task penerima, bukan per butir
+    assert _rev_task(cur, "baru") == (1, T0)
+    assert _rev_task(cur, "kosong di tujuan") == (0, T0)
+    t, rows = _merged(cur, "sudah ada")
+    assert len(rows) == 7
+
+
+def test_tujuan_tanpa_kolom_checklist_rev_galat_jelas_tanpa_menulis(tmp_path):
+    cur = _tujuan(tmp_path)
+    c = _conn(cur)
+    c.execute("ALTER TABLE tasks DROP COLUMN checklist_rev")
+    c.commit()
+    c.close()
+    bak, _, _ = _cadangan_tiga_tingkat(tmp_path)
+    sebelum = _dump_hash(cur)
+    r = _run(bak, cur)
+    assert r.returncode != 0
+    out = r.stdout + r.stderr
+    assert "checklist_rev" in out and "migrate_db" in out
+    assert _dump_hash(cur) == sebelum

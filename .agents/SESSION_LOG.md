@@ -4479,6 +4479,12 @@
 - **Files Touch:** static/plugins/timeline/{mspdi.js,plugin.js}, static/plugins/index.json, static/sw.js (blok hash), tests/offline/timeline_mspdi.test.js, temporary_files/{mspdi_check.py,mspdi_sample.xml,e2e_plugin_fase1_1d2.py,e2e_plugin_fase1_1d2/contoh-ekspor-workspace.xml}, docs/plugins/README.md, .agents/DECISIONS.md (ADR-050), docs/superpowers/{plans,specs}/*1d*, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Needs Review — pemilik membuka contoh XML baru di MS Project; merge hanya atas "merge dan deploy". npm 4715/4716 (pra-ada `draw_local_reactive`).
 
+## [2026-11-11 05:30] - Claude (Opus 5.5)
+- **Task:** Checklist offline (Fase 2): brainstorming → spec → rencana PR A2 → eksekusi PR A2 (server) lewat subagent implementer/reviewer.
+- **Changes:** spec Fase 2 (F1–F7, pendekatan A, E1–E7) disetujui pemilik; rencana PR A2; `repository.py` (`checklist_rev`, `_bump_rev`, `rev`/`rev_bumped`, `update_subtask`, `client_id` per task, `heal_checklists` `rev_init`, `get_checklists`), `webapp.py` (`PATCH` judul/centang, `GET /api/checklists`, notifikasi hanya bila `rev_bumped`), `merge_db.py`; ADR-051; tes `test_checklist_rev.py`, `test_checklist_offline_api.py` + tes Fase 1 diselaraskan.
+- **Files Touch:** repository.py, webapp.py, merge_db.py, tests/test_checklist_{rev,offline_api,repo,migrate,api,…}.py, tests/test_merge_db_checklist.py, docs/superpowers/{specs,plans}/*checklist-offline*, .agents/DECISIONS.md, .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
+- **Status:** Needs Review (PR DRAFT; backup DB sebelum merge; restart `taskflow` + `taskflow-web`). pytest 1765/1; E2E v502 152/152.
+
 ## [2026-11-11 07:45] - Claude (Fable 5.2)
 - **Task:** Tindak lanjut uji pemilik #2 PR 1d-2 (#131) di Microsoft Project (dialog Materi Natal masih muncul; "Uji tampilan" masih "0 days?"; task 100 % tanpa centang).
 - **Changes:** Riset bentuk MSPDI yang ditulis MPXJ dari nol (RemainingDuration/RemainingWork selalu diturunkan, assignment semu -65535, kalender "Standard"; MPXJ bug #240 fixed duration tanpa assignee). F6 `89ffda0` (RemainingDuration/ActualDuration/Work task, aktual + sisa assignment, assignment semu, kalender "Standard", asersi "tanpa turunan MPXJ", seed + 3 task tanpa penanggung jawab) → review → F7 `c4ae709` (`SplitsInProgressTasks 0`, Type 0 tanpa assignment nyata, aktual placeholder ≤ hari ini, seed "Unggah materi"). Berkas uji pemilik #3: A (contoh F7) + varian B (TimephasedData) dan C (assignment penuh waktu) dari scratchpad.
