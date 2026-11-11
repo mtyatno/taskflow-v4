@@ -806,3 +806,28 @@ test("W1 kaskade: centang U (berantai ke anak C), C dikeluarkan, U dihapus → c
   ]);
   await tanpaYatim();
 });
+
+// setRevs (rencana PR B2 R5, pullChecklists): aturan rev 0 untuk banyak task sekaligus — satu transaksi _meta (bukan
+// satu transaksi + salinan objek checklist_revs per task), `onlyIfAbsent` tidak menimpa kunci yang ada (null = ambil ulang).
+test("setRevs: banyak rev dalam satu transaksi _meta; onlyIfAbsent tidak menimpa kunci yang ada (termasuk null); id server task dicatat", async () => {
+  await putTask(task());
+  await putTask(task({ cid: "t2", server_id: 8 }));
+  await metaPut("checklist_revs", { t1: null });
+  await R.start();
+  const asli = TFdb.openDB;
+  let tulis = 0;
+  TFdb.openDB = () => asli().then((db) => new Proxy(db, { get(o, k) {
+    if (k === "transaction") return (s, m) => { if (m === "readwrite") tulis++; return o.transaction(s, m); };
+    const v = o[k]; return typeof v === "function" ? v.bind(o) : v;
+  } }));
+  let n;
+  try { n = await R.setRevs([["t1", 0], ["t2", 0], ["t3", 0]], { onlyIfAbsent: true }); } finally { TFdb.openDB = asli; }
+  assert.equal(n, 2);
+  assert.equal(tulis, 1, "satu transaksi readwrite");
+  assert.deepEqual(await R.getRevs(), { t1: null, t2: 0, t3: 0 });
+  assert.equal(R.knowsTask(8), true);
+  assert.equal(R.knowsTask("t3"), true);
+  assert.equal(await R.setRevs([["t1", 4]]), 1);
+  assert.equal((await R.getRevs()).t1, 4);
+  assert.equal(await R.setRevs([]), 0);
+});

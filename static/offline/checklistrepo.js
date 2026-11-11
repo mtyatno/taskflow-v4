@@ -32,8 +32,8 @@
   //   dihitung dengan butir yang kini batal), rev tersimpan dikosongkan di transaksi yang sama → diambil ulang setelah
   //   antrean kosong.
   // - Rev tersimpan: _meta `checklist_revs` {task_cid: rev | null}; null = dikenal tetapi perlu diambil ulang
-  //   (ADR-051 "dikosongkan"); kunci tidak ada = belum pernah diunduh. Unduhan awal selesai: _meta
-  //   `checklists_hydrated` = true.
+  //   (ADR-051 "dikosongkan"); kunci tidak ada = belum pernah diunduh (setRevs: banyak kunci dalam satu transaksi).
+  //   Unduhan awal selesai: _meta `checklists_hydrated` = true.
   // - Kesiapan SINKRON untuk routing (taskroutes.shouldRouteLocally): isReady(), knowsTask(id), knowsItem(id) dibaca
   //   dari memori yang dimuat async saat start (otomatis di browser; idempoten — api.fetch menunggunya sebelum
   //   keputusan routing checklist; refresh() memaksa muat ulang) dan diperbarui setiap tulis modul ini. Perubahan
@@ -629,6 +629,49 @@
   }
   const clearRev = (taskCid) => setRev(taskCid, null);
 
+  // Banyak rev sekaligus (pullChecklists: aturan rev 0 tanpa unduh untuk semua task tanpa checklist) dalam SATU
+  // transaksi _meta. `pairs` = [[task_cid, rev], …]; opts.onlyIfAbsent → kunci yang sudah ada (termasuk null = ambil
+  // ulang) tidak ditimpa, dicek di transaksi yang sama. Id server task dicatat di memori seperti setRev.
+  // → jumlah kunci yang ditulis.
+  function setRevs(pairs, opts) {
+    const onlyIfAbsent = !!(opts && opts.onlyIfAbsent);
+    const list = (Array.isArray(pairs) ? pairs : []).filter((p) => Array.isArray(p) && p[0] != null && p[0] !== "");
+    if (!list.length) return Promise.resolve(0);
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const written = [];
+      const t = db.transaction("_meta", "readwrite");
+      const os = t.objectStore("_meta");
+      const r = os.get(REVS_KEY);
+      r.onsuccess = () => {
+        const o = Object.assign({}, isObj(r.result) ? r.result : {});
+        for (const [cid, rev] of list) {
+          if (onlyIfAbsent && Object.prototype.hasOwnProperty.call(o, cid)) continue;
+          o[cid] = revVal(rev);
+          written.push([cid, o[cid]]);
+        }
+        if (written.length) os.put(o, REVS_KEY);
+      };
+      t.oncomplete = () => resolve(written);
+      t.onerror = () => reject(t.error);
+    })).then((written) => {
+      if (!written.length) return 0;
+      memApply((m) => { for (const [cid, v] of written) m.revs.set(cid, v); });
+      return readTasks(written.map((w) => w[0]))
+        .then((tasks) => { memApply((m) => { for (const tk of tasks) noteTask(m, tk); }); }, () => {})
+        .then(() => written.length);
+    });
+  }
+  function readTasks(cids) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const out = [];
+      const t = db.transaction("tasks", "readonly");
+      const os = t.objectStore("tasks");
+      for (const c of cids) { const r = os.get(c); r.onsuccess = () => { if (r.result) out.push(r.result); }; }
+      t.oncomplete = () => resolve(out);
+      t.onerror = () => reject(t.error);
+    }));
+  }
+
   // Id server task baru diketahui di luar modul ini (create task terkirim, syncpush): catat di memori supaya
   // GET/POST checklist ber-id server langsung dikenal tanpa menunggu pull / muat ulang. Sinkron, tanpa IndexedDB.
   function noteTaskServerId(taskCid, serverId) {
@@ -805,7 +848,7 @@
     start, refresh, reset, isReady, knowsTask, knowsItem,
     resolveTask, findItem, recordsForTask, itemsForTask, pendingTaskCids,
     create, setDone, toggle, patch, move, remove,
-    getRevs, setRev, clearRev, markHydrated, replaceTaskChecklist, purgeTask, adoptServerId, noteTaskServerId,
+    getRevs, setRev, setRevs, clearRev, markHydrated, replaceTaskChecklist, purgeTask, adoptServerId, noteTaskServerId,
   };
   // Browser: memori kesiapan dimuat saat modul dimuat (Node/tes memanggil start() sendiri).
   if (!isNode) { try { start(); } catch (_) {} }

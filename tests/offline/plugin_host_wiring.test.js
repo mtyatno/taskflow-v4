@@ -24,9 +24,9 @@ const HOST_1D0_EXTRA = 162;
 // Diperbarui per tugas PR B supaya anggaran plugin tetap ketat; anggaran historis di bawah ikut naik.
 const CHECKLIST_PRB_EXTRA = 886;
 // Checklist offline Fase 2 PR B2 (fitur host; rencana docs/superpowers/plans/2026-11-12-checklist-offline-pr-b2-ui.md):
-// <script> modul checklist offline (2) + tunggu memori checklist di api.fetch (3) — baris yang ditambahkan PR B2 terhadap
-// main cdb5fe5 (47122 baris), diperbarui per tugas.
-const CHECKLIST_PRB2_EXTRA = 5;
+// <script> modul checklist offline (2) + tunggu memori checklist di api.fetch (3) + langkah sinkron pullChecklists (2) —
+// baris yang ditambahkan PR B2 terhadap main cdb5fe5 (47122 baris), diperbarui per tugas.
+const CHECKLIST_PRB2_EXTRA = 7;
 
 function fnSource(name) {
   const s = html.indexOf(`function ${name}(`);

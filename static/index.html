@@ -1318,6 +1318,8 @@ function sync() {
       window.dispatchEvent(new CustomEvent("tf:contexts-changed", { detail: { source: "sync" } }));
       return res;
     }).catch(stepFailed)
+    // Checklist offline (Fase 2): unduh checklist yang versinya berubah — sesudah pull task (checklist_rev terbaru), sebelum push
+    .then(() => step(() => (window.TF.syncpull.pullChecklists ? window.TF.syncpull.pullChecklists(__syncRawFetch) : null)))
     // T8: penanda occurrence task berulang (jendela ±60 hari) — setelah tasks supaya idmap task sudah terisi
     .then(() => step(() => (window.TF.syncpull.pullRecurringExceptions ? window.TF.syncpull.pullRecurringExceptions(__syncRawFetch) : null)))
     .then(() => step(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null)))

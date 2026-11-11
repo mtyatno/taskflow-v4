@@ -4,7 +4,9 @@
 // (taskroutes + checklistroutes + checklistrepo di atas fake-indexeddb) dan membalas satu baris JSON.
 // Perintah `push` menjalankan syncpush.pushOutbox SUNGGUHAN; setiap request transport-nya dikirim ke pytest sebagai
 // baris {"req": {method, path, body}} dan jawaban pytest (satu baris {status, data}, dari TaskRepository) menjadi
-// respons transport — antrean diputar ulang oleh kode push aplikasi, bukan tiruan Python.
+// respons transport — antrean diputar ulang oleh kode push aplikasi, bukan tiruan Python. Perintah `pull` menulis
+// `checklist_rev` server ke record task (seperti pull task / TASK_DERIVED) lalu menjalankan syncpull.pullChecklists
+// SUNGGUHAN dengan rawFetch yang dijembatani dengan cara yang sama (GET /api/checklists).
 // Bukan berkas tes node (tidak berakhiran .test.js).
 require("./setup.js");
 const path = require("node:path");
@@ -17,6 +19,7 @@ const { outboxAll } = require(path.join(OFF, "outbox.js"));
 const CR = require(path.join(OFF, "checklistrepo.js"));
 const T = require(path.join(OFF, "taskroutes.js"));
 const SP = require(path.join(OFF, "syncpush.js"));
+const SL = require(path.join(OFF, "syncpull.js"));
 const { deleteDB } = require("./setup.js");
 
 // Jembatan transport push → pytest: satu request menunggu satu baris jawaban.
@@ -74,6 +77,12 @@ async function handle(c) {
   if (c.cmd === "queue") return { queue: (await outboxAll()).filter((o) => o.entity_type === "subtasks") };
   if (c.cmd === "revs") return { revs: await CR.getRevs() };
   if (c.cmd === "push") return { result: await SP.pushOutbox(transport) };
+  if (c.cmd === "pull") {
+    await TFdb.mutate("tasks", c.task || "t1", (cur) => (cur ? Object.assign({}, cur, { checklist_rev: c.checklist_rev }) : undefined));
+    const rawFetch = (u) => transport.request("GET", u, undefined)
+      .then((r) => ({ ok: r.status >= 200 && r.status < 300, status: r.status, json: () => Promise.resolve(r.data) }));
+    return { result: await SL.pullChecklists(rawFetch) };
+  }
   if (c.cmd === "task") {
     const db = await TFdb.openDB();
     return { task: await new Promise((res) => { const r = db.transaction("tasks").objectStore("tasks").get(c.task || "t1"); r.onsuccess = () => res(r.result || null); }) };

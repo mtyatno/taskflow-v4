@@ -123,3 +123,17 @@ test("coreFromServer menyalin checklist_total hanya bila dikirim (null → 0)", 
   assert.equal(coreFromServer({ id: 1, checklist_total: null }).checklist_total, 0);
   assert.equal("checklist_total" in coreFromServer({ id: 1, progress: 10 }), false);
 });
+
+// Checklist offline Fase 2 (spec §4.1, rencana PR B2 R5): checklist_rev disalin seperti field turunan lain.
+test("taskFromServer menyalin checklist_rev (bawaan 0 bila tidak dikirim / null)", () => {
+  assert.equal(taskFromServer(serverTask({ id: 1, checklist_rev: 7 }), () => "c").checklist_rev, 7);
+  assert.equal(taskFromServer(serverTask({ id: 2 }), () => "c").checklist_rev, 0);
+  assert.equal(taskFromServer(serverTask({ id: 3, checklist_rev: null }), () => "c").checklist_rev, 0);
+});
+
+test("coreFromServer menyalin checklist_rev hanya bila dikirim (null → 0)", () => {
+  const { coreFromServer } = require("../../static/offline/hydrate.js");
+  assert.equal(coreFromServer({ id: 1, checklist_rev: 4 }).checklist_rev, 4);
+  assert.equal(coreFromServer({ id: 1, checklist_rev: null }).checklist_rev, 0);
+  assert.equal("checklist_rev" in coreFromServer({ id: 1, progress: 10 }), false);
+});

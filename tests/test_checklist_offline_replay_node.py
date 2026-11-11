@@ -280,11 +280,13 @@ def test_putar_ulang_antrean_acak_sama_dengan_lokal(node, tmp_path):
     assert gagal == [], json.dumps(gagal[:3], default=str)[:3000]
 
 
-# ── push aplikasi sungguhan (syncpush.pushOutbox) ke TaskRepository (rencana PR B2 R4) ─────────────────────────────
+# ── push + pull aplikasi sungguhan (syncpush.pushOutbox, syncpull.pullChecklists) ke TaskRepository (rencana PR B2
+# R4–R5) ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 # Penggerak menjalankan pushOutbox; setiap request dijawab `_http` di atas TaskRepository (pemetaan galat sama dengan
 # webapp: ChecklistError → 422, butir/task tidak ada → 404). Invarian ADR-051: sesudah push antrean kosong (tidak ada
 # yang tersangkut), dan bila rev tersimpan masih angka maka rev itu = rev server DAN pohon lokal = pohon server
-# (pre-order lengkap). Rev dikosongkan (None) = perangkat mengambil ulang (Task 5: pullChecklists).
+# (pre-order lengkap). Rev dikosongkan (None) = perangkat mengambil ulang: sesudah pullChecklists pohon lokal = pohon
+# server persis dan rev tersimpan = rev server (konvergen), dengan maupun tanpa perubahan perangkat lain.
 
 def _http(repo, db_path):
     def task_exists(tid):
@@ -297,6 +299,11 @@ def _http(repo, db_path):
     def handle(method, path, body):
         body = body or {}
         try:
+            m = re.fullmatch(r"/api/checklists\?task_ids=([\d,]*)", path)
+            if m and method == "GET":
+                ids = [int(x) for x in m.group(1).split(",") if x]
+                assert 0 < len(ids) <= 200, ids
+                return 200, {str(t): c for t, c in repo.get_checklists(ids).items()}
             m = re.fullmatch(r"/api/tasks/(\d+)/subtasks", path)
             if m and method == "POST":
                 tid = int(m.group(1))
@@ -397,6 +404,18 @@ def _push_seed(node, tmp_path, seed, interfere):
     return rows, repo, db_path, res
 
 
+def _pull_converges(node, repo, db_path, seed, gagal):
+    """pullChecklists sesudah push (rev server ditulis ke record task seperti pull task) → lokal = server persis,
+    rev tersimpan = rev server, antrean kosong."""
+    srev = _server_rev(db_path)[0]
+    res = node(cmd="pull", checklist_rev=srev, server=_http(repo, db_path))["result"]
+    local, server = _local_tree(node), _server_tree(repo)
+    stored = node(cmd="revs")["revs"].get("t1")
+    if res is None or res.get("failed") or local != server or stored != srev:
+        gagal.append((seed, "sesudah pull belum sama", res, stored, srev, local, server))
+    return (res or {}).get("replaced") or 0
+
+
 def test_push_aplikasi_ke_server_sama_dengan_lokal(node, tmp_path):
     """Tanpa perangkat lain: semua aksi diterima, antrean kosong, isi server = lokal, dan rev tersimpan (bila masih
     angka) = rev server dengan pohon lengkap sama; progress task lokal = server."""
@@ -427,6 +446,7 @@ def test_push_aplikasi_ke_server_sama_dengan_lokal(node, tmp_path):
             gagal.append((seed, "progress berbeda", [t["progress"], t["checklist_total"]], [sprog, stotal]))
         if stored is not None:
             maju += 1
+        _pull_converges(node, repo, db_path, seed, gagal)
     assert gagal == [], json.dumps(gagal[:3], default=str)[:3000]
     assert maju > len(SEEDS) // 2, "rev tersimpan seharusnya maju di sebagian besar skenario (%d)" % maju
 
@@ -437,6 +457,7 @@ def test_push_aplikasi_bentrok_perangkat_lain_tidak_tersangkut(node, tmp_path):
     rev server ⇒ pohon sama (tersimpan < rev server → pullChecklists mengambil ulang)."""
     gagal = []
     ditolak = 0
+    diunduh = 0
     for seed in SEEDS:
         rows, repo, db_path, res = _push_seed(node, tmp_path, seed, True)
         ditolak += res.get("checklistRejected") or 0
@@ -450,5 +471,7 @@ def test_push_aplikasi_bentrok_perangkat_lain_tidak_tersangkut(node, tmp_path):
             local, server = _local_tree(node), _server_tree(repo)
             if stored > srev or (stored == srev and local != server):
                 gagal.append((seed, "rev tersimpan menyembunyikan perbedaan", stored, srev, local, server))
+        diunduh += _pull_converges(node, repo, db_path, seed, gagal)
     assert gagal == [], json.dumps(gagal[:3], default=str)[:3000]
     assert ditolak > 0, "skenario bentrok seharusnya menghasilkan penolakan"
+    assert diunduh > len(SEEDS) // 2, "skenario bentrok seharusnya mengambil ulang checklist (%d)" % diunduh
