@@ -2,6 +2,9 @@
 // Penggerak JSONL untuk tests/test_checklist_offline_replay_node.py (uji putar ulang antrean checklist offline,
 // perbaikan review W1): pytest mengirim satu perintah JSON per baris, berkas ini menjalankan rute lokal checklist
 // (taskroutes + checklistroutes + checklistrepo di atas fake-indexeddb) dan membalas satu baris JSON.
+// Perintah `push` menjalankan syncpush.pushOutbox SUNGGUHAN; setiap request transport-nya dikirim ke pytest sebagai
+// baris {"req": {method, path, body}} dan jawaban pytest (satu baris {status, data}, dari TaskRepository) menjadi
+// respons transport — antrean diputar ulang oleh kode push aplikasi, bukan tiruan Python.
 // Bukan berkas tes node (tidak berakhiran .test.js).
 require("./setup.js");
 const path = require("node:path");
@@ -13,7 +16,19 @@ const { mapPut } = require(path.join(OFF, "idmap.js"));
 const { outboxAll } = require(path.join(OFF, "outbox.js"));
 const CR = require(path.join(OFF, "checklistrepo.js"));
 const T = require(path.join(OFF, "taskroutes.js"));
+const SP = require(path.join(OFF, "syncpush.js"));
 const { deleteDB } = require("./setup.js");
+
+// Jembatan transport push → pytest: satu request menunggu satu baris jawaban.
+let waiter = null;
+const transport = {
+  request(method, p, body) {
+    return new Promise((resolve) => {
+      waiter = resolve;
+      process.stdout.write(JSON.stringify({ req: { method, path: p, body: body === undefined ? null : body } }) + "\n");
+    });
+  },
+};
 
 function put(store, recs) {
   return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
@@ -58,12 +73,18 @@ async function handle(c) {
   if (c.cmd === "records") return { records: await getAll("subtasks") };
   if (c.cmd === "queue") return { queue: (await outboxAll()).filter((o) => o.entity_type === "subtasks") };
   if (c.cmd === "revs") return { revs: await CR.getRevs() };
+  if (c.cmd === "push") return { result: await SP.pushOutbox(transport) };
+  if (c.cmd === "task") {
+    const db = await TFdb.openDB();
+    return { task: await new Promise((res) => { const r = db.transaction("tasks").objectStore("tasks").get(c.task || "t1"); r.onsuccess = () => res(r.result || null); }) };
+  }
   return { error: "perintah tidak dikenal: " + c.cmd };
 }
 
 const rl = readline.createInterface({ input: process.stdin });
 let chain = Promise.resolve();
 rl.on("line", (line) => {
+  if (waiter) { const w = waiter; waiter = null; w(JSON.parse(line)); return; }
   chain = chain.then(async () => {
     let out;
     try { out = await handle(JSON.parse(line)); } catch (e) { out = { crash: String((e && e.stack) || e) }; }

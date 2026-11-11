@@ -15,12 +15,14 @@ ulang saudaranya di server, jadi angkanya bisa berbeda walau urutannya sama. Ske
 import json
 import os
 import random
+import re
 import shutil
 import sqlite3
 import subprocess
 
 import pytest
 
+import checklist_tree
 from repository import ChecklistError, TaskRepository
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -36,14 +38,25 @@ class Driver:
         self.p = subprocess.Popen(["node", DRIVER], cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   text=True, bufsize=1)
 
-    def __call__(self, **cmd):
-        self.p.stdin.write(json.dumps(cmd) + "\n")
+    def __call__(self, server=None, **cmd):
+        """Satu perintah → satu jawaban. Selama perintah berjalan, baris {"req": …} (request transport push) dijawab
+        `server(method, path, body)` → (status, data)."""
+        self._send(cmd)
+        while True:
+            line = self.p.stdout.readline()
+            assert line, "penggerak node berhenti"
+            out = json.loads(line)
+            if "req" in out:
+                assert server is not None, out
+                status, data = server(out["req"]["method"], out["req"]["path"], out["req"]["body"])
+                self._send({"status": status, "data": data})
+                continue
+            assert "crash" not in out, out.get("crash")
+            return out
+
+    def _send(self, obj):
+        self.p.stdin.write(json.dumps(obj) + "\n")
         self.p.stdin.flush()
-        line = self.p.stdout.readline()
-        assert line, "penggerak node berhenti"
-        out = json.loads(line)
-        assert "crash" not in out, out.get("crash")
-        return out
 
     def close(self):
         try:
@@ -75,10 +88,11 @@ def _repo(path, rows):
 
 
 def _init(node, rows, rev=1):
+    prog, total = _counts(rows)
     recs = [{"cid": "k%d" % r["id"], "server_id": r["id"], "task_cid": "t1",
              "parent_cid": None if r["parent_id"] is None else "k%d" % r["parent_id"],
              "title": r["title"], "is_done": r["is_done"], "sort_order": r["sort_order"], "created_at": None} for r in rows]
-    node(cmd="init", tasks=[{"cid": "t1", "server_id": TASK, "title": "T", "progress": 0, "checklist_total": 0,
+    node(cmd="init", tasks=[{"cid": "t1", "server_id": TASK, "title": "T", "progress": prog, "checklist_total": total,
                              "dirty": 0, "deleted": False}],
          records=recs, idmap=[[r["id"], "k%d" % r["id"]] for r in rows], revs=[["t1", rev]])
 
@@ -264,3 +278,177 @@ def test_putar_ulang_antrean_acak_sama_dengan_lokal(node, tmp_path):
         elif local != server and node(cmd="revs")["revs"].get("t1") is not None:
             gagal.append((seed, "urutan berbeda tanpa ambil ulang", local, server))
     assert gagal == [], json.dumps(gagal[:3], default=str)[:3000]
+
+
+# ── push aplikasi sungguhan (syncpush.pushOutbox) ke TaskRepository (rencana PR B2 R4) ─────────────────────────────
+# Penggerak menjalankan pushOutbox; setiap request dijawab `_http` di atas TaskRepository (pemetaan galat sama dengan
+# webapp: ChecklistError → 422, butir/task tidak ada → 404). Invarian ADR-051: sesudah push antrean kosong (tidak ada
+# yang tersangkut), dan bila rev tersimpan masih angka maka rev itu = rev server DAN pohon lokal = pohon server
+# (pre-order lengkap). Rev dikosongkan (None) = perangkat mengambil ulang (Task 5: pullChecklists).
+
+def _http(repo, db_path):
+    def task_exists(tid):
+        conn = sqlite3.connect(str(db_path))
+        try:
+            return conn.execute("SELECT 1 FROM tasks WHERE id = ?", (tid,)).fetchone() is not None
+        finally:
+            conn.close()
+
+    def handle(method, path, body):
+        body = body or {}
+        try:
+            m = re.fullmatch(r"/api/tasks/(\d+)/subtasks", path)
+            if m and method == "POST":
+                tid = int(m.group(1))
+                if not task_exists(tid):
+                    return 404, {"detail": "Task not found"}
+                return 200, repo.add_subtask(tid, body["title"], client_id=body.get("client_id"),
+                                             parent_id=body.get("parent_id"), index=body.get("index"))
+            m = re.fullmatch(r"/api/subtasks/(\d+)(/move)?", path)
+            assert m, (method, path)
+            sid = int(m.group(1))
+            if method == "PATCH":
+                r = repo.update_subtask(sid, title=body.get("title"), is_done=body.get("is_done"))
+            elif method == "POST" and m.group(2):
+                r = repo.move_subtask(sid, body["parent_id"], body.get("index"))
+            elif method == "DELETE":
+                r = repo.delete_subtask(sid)
+                r = r and {"ok": True, **r}
+            else:
+                raise AssertionError((method, path))
+            if r is None:
+                return 404, {"detail": "Subtask not found"}
+            return 200, r
+        except ChecklistError as e:
+            return 422, {"detail": e.code}
+    return handle
+
+
+def _server_rev(db_path):
+    conn = sqlite3.connect(str(db_path))
+    try:
+        row = conn.execute("SELECT COALESCE(checklist_rev, 0), progress, checklist_total FROM tasks WHERE id = ?",
+                           (TASK,)).fetchone()
+        return row
+    finally:
+        conn.close()
+
+
+def _counts(rows):
+    """(progress, checklist_total) seperti _recompute_progress: butir level atas; tanpa butir → progress 0."""
+    top = [r for r in rows if r["parent_id"] is None]
+    done = sum(1 for r in top if r["is_done"])
+    return (checklist_tree.percent(done, len(top)) if top else 0), len(top)
+
+
+def _repo_rev(path, rows, rev):
+    repo = _repo(path, rows)
+    conn = sqlite3.connect(str(path))
+    prog, total = _counts(rows)
+    conn.execute("UPDATE tasks SET checklist_rev = ?, progress = ?, checklist_total = ? WHERE id = ?",
+                 (rev, prog, total, TASK))
+    conn.commit()
+    conn.close()
+    return repo
+
+
+def _local_tree(node):
+    """Pohon lokal dengan id server (semua butir sudah terkirim)."""
+    return [[i["id"], i["parent_id"], i["depth"], bool(i["is_done"]), i["title"]] for i in node(cmd="items")["items"]]
+
+
+def _server_tree(repo):
+    return [[i["id"], i["parent_id"], i["depth"], bool(i["is_done"]), i["title"]] for i in repo.get_subtasks(TASK)]
+
+
+def _interfere(repo, rnd):
+    """Perangkat lain mengubah checklist di server (sebelum push perangkat ini)."""
+    items = repo.get_subtasks(TASK)
+    kind = rnd.choice(["add", "delete", "rename", "toggle", "move"] if items else ["add"])
+    if kind == "add":
+        repo.add_subtask(TASK, "lain", parent_id=rnd.choice([None] + [i["id"] for i in items]), index=0)
+    elif kind == "delete":
+        repo.delete_subtask(rnd.choice(items)["id"])
+    elif kind == "rename":
+        repo.update_subtask(rnd.choice(items)["id"], title="lain")
+    elif kind == "toggle":
+        repo.toggle_subtask(rnd.choice(items)["id"])
+    else:
+        it = rnd.choice(items)
+        try:
+            repo.move_subtask(it["id"], None, 0)
+        except ChecklistError:
+            pass
+
+
+def _push_seed(node, tmp_path, seed, interfere):
+    rnd = random.Random(seed)
+    rows = _rows(rnd)
+    rev = rnd.randint(1, 3)
+    _init(node, rows, rev=rev)
+    for _ in range(rnd.randint(3, 14)):
+        _step(node, rnd)
+    db_path = tmp_path / ("push%d_%s.db" % (seed, interfere))
+    repo = _repo_rev(db_path, rows, rev)
+    if interfere:
+        for _ in range(rnd.randint(1, 2)):
+            _interfere(repo, rnd)
+    res = node(cmd="push", server=_http(repo, db_path))["result"]
+    return rows, repo, db_path, res
+
+
+def test_push_aplikasi_ke_server_sama_dengan_lokal(node, tmp_path):
+    """Tanpa perangkat lain: semua aksi diterima, antrean kosong, isi server = lokal, dan rev tersimpan (bila masih
+    angka) = rev server dengan pohon lengkap sama; progress task lokal = server."""
+    gagal = []
+    maju = 0
+    for seed in SEEDS:
+        rows, repo, db_path, res = _push_seed(node, tmp_path, seed, False)
+        queue = node(cmd="queue")["queue"]
+        if queue or res.get("checklistRejected") or res.get("failed"):
+            gagal.append((seed, "antrean/ditolak", res, [(o["op"], o.get("payload")) for o in queue]))
+            continue
+        records = node(cmd="records")["records"]
+        if any(r["server_id"] is None for r in records):
+            gagal.append((seed, "butir tanpa id server", records))
+            continue
+        local, server = _local_tree(node), _server_tree(repo)
+        isi = lambda t: sorted(([x[0], x[1], x[3], x[4]] for x in t), key=str)  # noqa: E731
+        stored = node(cmd="revs")["revs"].get("t1")
+        srev, sprog, stotal = _server_rev(db_path)
+        t = node(cmd="task")["task"]
+        if isi(local) != isi(server):
+            gagal.append((seed, "isi berbeda (data hilang)", local, server))
+        elif stored is not None and (stored != srev or local != server):
+            gagal.append((seed, "rev tersimpan angka padahal berbeda", stored, srev, local, server))
+        elif stored is None and node(cmd="queue")["queue"]:
+            gagal.append((seed, "rev kosong dengan antrean tersisa"))
+        elif t["checklist_total"] != stotal or (stotal and t["progress"] != sprog):
+            gagal.append((seed, "progress berbeda", [t["progress"], t["checklist_total"]], [sprog, stotal]))
+        if stored is not None:
+            maju += 1
+    assert gagal == [], json.dumps(gagal[:3], default=str)[:3000]
+    assert maju > len(SEEDS) // 2, "rev tersimpan seharusnya maju di sebagian besar skenario (%d)" % maju
+
+
+def test_push_aplikasi_bentrok_perangkat_lain_tidak_tersangkut(node, tmp_path):
+    """Perangkat lain mengubah checklist sebelum push: antrean tetap habis (diterima atau ditolak, tidak tersangkut),
+    dan rev tersimpan tidak pernah menyembunyikan perbedaan dengan server: tersimpan ≤ rev server, dan tersimpan =
+    rev server ⇒ pohon sama (tersimpan < rev server → pullChecklists mengambil ulang)."""
+    gagal = []
+    ditolak = 0
+    for seed in SEEDS:
+        rows, repo, db_path, res = _push_seed(node, tmp_path, seed, True)
+        ditolak += res.get("checklistRejected") or 0
+        queue = node(cmd="queue")["queue"]
+        if queue:
+            gagal.append((seed, "antrean tersangkut", [(o["op"], o.get("payload")) for o in queue]))
+            continue
+        stored = node(cmd="revs")["revs"].get("t1")
+        srev = _server_rev(db_path)[0]
+        if stored is not None:
+            local, server = _local_tree(node), _server_tree(repo)
+            if stored > srev or (stored == srev and local != server):
+                gagal.append((seed, "rev tersimpan menyembunyikan perbedaan", stored, srev, local, server))
+    assert gagal == [], json.dumps(gagal[:3], default=str)[:3000]
+    assert ditolak > 0, "skenario bentrok seharusnya menghasilkan penolakan"
