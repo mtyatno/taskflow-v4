@@ -313,5 +313,5 @@ test("1d-2 P2 (a): extCtx memuat listName = title (nama workspace) di halaman wo
 
 test("anggaran PR 1d-2: index.html ≤ main (setelah 1d-1 + checklist PR B) + 1 baris (P2 (a) listName)", () => {
   const lines = (html.match(/\n/g) || []).length;
-  assert.ok(lines - MAIN_LINES_AFTER_1D1 <= HOST_1D2_EXTRA + CHECKLIST_PRB_EXTRA, `index.html ${lines} baris (+${lines - MAIN_LINES_AFTER_1D1} dari ${MAIN_LINES_AFTER_1D1}; batas +${HOST_1D2_EXTRA} + ${CHECKLIST_PRB_EXTRA} checklist PR B)`);
+  assert.ok(lines - MAIN_LINES_AFTER_1D1 <= HOST_1D2_EXTRA + CHECKLIST_PRB_EXTRA + CHECKLIST_PRB2_EXTRA, `index.html ${lines} baris (+${lines - MAIN_LINES_AFTER_1D1} dari ${MAIN_LINES_AFTER_1D1}; batas +${HOST_1D2_EXTRA} + ${CHECKLIST_PRB_EXTRA} checklist PR B + ${CHECKLIST_PRB2_EXTRA} checklist PR B2)`);
 });
