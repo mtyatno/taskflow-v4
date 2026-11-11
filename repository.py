@@ -1739,6 +1739,22 @@ class TaskRepository:
         with self._connect() as conn:
             return _subtask_items(conn, task_id)
 
+    def get_checklists(self, task_ids: list[int]) -> dict[int, dict]:
+        """Checklist banyak task sekaligus (spec checklist offline §3.2, rencana PR A2 R5):
+        `{task_id: {"rev", "items"}}` dalam urutan `task_ids` (id ganda sekali); `items` = bentuk `get_subtasks`.
+        Task yang tidak ada dilewati; task tanpa butir → `items` kosong. Baca saja (tanpa pemulihan pohon, tanpa
+        tulis); akses dan batas jumlah id dicek pemanggil (webapp: 200)."""
+        ids = list(dict.fromkeys(task_ids))
+        if not ids:
+            return {}
+        with self._connect() as conn:
+            # rev dibaca SEBELUM butir: tulis yang menyelinap di antaranya hanya membuat butir lebih baru dari rev
+            # (klien mengambil ulang di sinkron berikutnya), tidak pernah rev baru dengan butir lama.
+            marks = ",".join("?" * len(ids))
+            revs = {r[0]: r[1] for r in conn.execute(
+                f"SELECT id, COALESCE(checklist_rev, 0) FROM tasks WHERE id IN ({marks})", ids).fetchall()}
+            return {tid: {"rev": revs[tid], "items": _subtask_items(conn, tid)} for tid in ids if tid in revs}
+
     def rename_subtask(self, subtask_id: int, title: str) -> Optional[dict]:
         """Ubah teks butir (K12). Judul di-trim; kosong → ChecklistError("EMPTY_TITLE"); sama → tanpa tulis.
         Mengembalikan butir + `task_progress`, atau None bila butir tidak ada."""

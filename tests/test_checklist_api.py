@@ -120,7 +120,9 @@ def test_ubah_teks_sukses_kosong_422_dan_404(client):
     a = _add(u, tid, "a")["id"]
     r = u.patch(f"/api/subtasks/{a}", json={"title": "  baru  "})
     assert r.status_code == 200, r.text
-    assert set(r.json()) == KEYS | {"task_progress"} and r.json()["title"] == "baru"
+    # Fase 2 (rencana PR A2 R2): field lama tetap, ditambah `changed_ids` (kosong untuk ubah teks saja).
+    assert set(r.json()) == KEYS | {"task_progress", "changed_ids"} and r.json()["title"] == "baru"
+    assert r.json()["changed_ids"] == []
     assert _list(u, tid)[0]["title"] == "baru"
     for kosong in ("", "   "):
         r = u.patch(f"/api/subtasks/{a}", json={"title": kosong})
