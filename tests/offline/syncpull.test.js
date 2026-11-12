@@ -818,3 +818,97 @@ test("pullTasks: record tanpa checklist_adopted_at tetap mengadopsi progress tan
   await pullTasks([srv({ id: 95, progress: 33, checklist_total: 3 })]);
   assert.equal((await getTask("sf")).progress, 33);
 });
+
+// Checklist offline Fase 2 (spec §4.1/§4.2, E1/E5; rencana PR B2 R5): checklist_rev = field turunan server (TASK_DERIVED,
+// only-if-sent). Task yang masih punya entri antrean `subtasks` tidak mengadopsi progress/checklist_total dari server
+// (hasil aksi lokal yang belum terkirim tidak "melompat" balik) — checklist_rev tetap diadopsi.
+const subtaskOp = (taskCid) => ({ op: "rename", entity_type: "subtasks", cid: "b1", task_cid: taskCid, payload: { title: "x" } });
+
+test("pullTasks mengadopsi checklist_rev sebagai field turunan (updated_at sama); tidak dikirim → tidak berubah", async () => {
+  await putTasks([
+    local({ cid: "cr1", quadrant: "Q4", project: "", server_id: 120, checklist_rev: 2, base_rev: B, updated_at: B }),
+    local({ cid: "cr2", quadrant: "Q4", project: "", server_id: 121, checklist_rev: 2, base_rev: B, updated_at: B }),
+  ]);
+  await mapPut("task", 120, "cr1");
+  await mapPut("task", 121, "cr2");
+  const r = await pullTasks([srv({ id: 120, checklist_rev: 5 }), srv({ id: 121 })]);
+  assert.equal((await getTask("cr1")).checklist_rev, 5);
+  assert.equal((await getTask("cr2")).checklist_rev, 2);
+  assert.equal(r.derived, 1);
+});
+
+test("pullTasks: checklist_rev lokal yang belum ada setara 0 (tanpa tulis ulang massal)", async () => {
+  await putTasks([local({ cid: "cr3", quadrant: "Q4", project: "", server_id: 122, base_rev: B, updated_at: B })]);
+  await mapPut("task", 122, "cr3");
+  const r = await pullTasks([srv({ id: 122, checklist_rev: 0 })]);
+  assert.equal(r.derived, 0);
+});
+
+test("E5: task berantrean subtasks → progress/checklist_total tidak diadopsi (updated_at sama), checklist_rev diadopsi", async () => {
+  await putTasks([local({ cid: "cr4", quadrant: "Q4", project: "", server_id: 123, progress: 50, checklist_total: 2, checklist_rev: 3, base_rev: B, updated_at: B })]);
+  await mapPut("task", 123, "cr4");
+  await outboxAdd(subtaskOp("cr4"));
+  await pullTasks([srv({ id: 123, progress: 0, checklist_total: 1, checklist_rev: 4 })]);
+  const rec = await getTask("cr4");
+  assert.deepEqual([rec.progress, rec.checklist_total, rec.checklist_rev, rec.dirty], [50, 2, 4, 0]);
+});
+
+test("E5: tulis penuh (updated_at berbeda) task berantrean subtasks mempertahankan progress/checklist_total lokal", async () => {
+  await putTasks([local({ cid: "cr5", quadrant: "Q4", project: "", server_id: 124, progress: 50, checklist_total: 2, checklist_rev: 3, base_rev: B, updated_at: B })]);
+  await mapPut("task", 124, "cr5");
+  await outboxAdd(subtaskOp("cr5"));
+  await pullTasks([srv({ id: 124, title: "Baru", progress: 0, checklist_total: 1, checklist_rev: 6, updated_at: "2026-06-05T00:00:00" })]);
+  const rec = await getTask("cr5");
+  assert.deepEqual([rec.title, rec.progress, rec.checklist_total, rec.checklist_rev], ["Baru", 50, 2, 6]);
+});
+
+test("E5: antrean subtasks task LAIN tidak menghalangi adopsi progress", async () => {
+  await putTasks([local({ cid: "cr6", quadrant: "Q4", project: "", server_id: 125, progress: 50, checklist_total: 2, base_rev: B, updated_at: B })]);
+  await mapPut("task", 125, "cr6");
+  await outboxAdd(subtaskOp("lain"));
+  await pullTasks([srv({ id: 125, progress: 0, checklist_total: 1 })]);
+  const rec = await getTask("cr6");
+  assert.deepEqual([rec.progress, rec.checklist_total], [0, 1]);
+});
+
+test("checklist_rev diadopsi juga untuk task dirty berantrean (edit lokal tertunda), tanpa mengubah dirty/rev/field lain", async () => {
+  await putTasks([local({ cid: "cr7", quadrant: "Q4", project: "", title: "Lokal", server_id: 126, progress: 10, checklist_total: 1, checklist_rev: 3, dirty: 1, rev: 4, base_rev: B, updated_at: B })]);
+  await mapPut("task", 126, "cr7");
+  await outboxAdd({ op: "update", entity_type: "task", cid: "cr7", payload: {} });
+  await pullTasks([srv({ id: 126, title: "Server", progress: 90, checklist_total: 5, checklist_rev: 8 })]);
+  const rec = await getTask("cr7");
+  assert.deepEqual([rec.title, rec.progress, rec.checklist_total, rec.checklist_rev, rec.dirty, rec.rev], ["Lokal", 10, 1, 8, 1, 4]);
+});
+
+test("checklist_rev diadopsi untuk task ber-sync_error / konflik (pull dilewati) tanpa menyentuh field lain", async () => {
+  await putTasks([
+    local({ cid: "cr8", quadrant: "Q4", project: "", title: "L", server_id: 127, checklist_rev: 1, dirty: 1, rev: 2, sync_error: { status: 422 }, base_rev: B, updated_at: B }),
+    local({ cid: "cr9", quadrant: "Q4", project: "", title: "L", server_id: 128, checklist_rev: 1, conflict: "access_lost", base_rev: B, updated_at: B }),
+  ]);
+  await mapPut("task", 127, "cr8");
+  await mapPut("task", 128, "cr9");
+  await pullTasks([srv({ id: 127, title: "S", checklist_rev: 4, updated_at: "2026-06-06T00:00:00" }), srv({ id: 128, title: "S", checklist_rev: 6 })]);
+  const a = await getTask("cr8");
+  const b = await getTask("cr9");
+  assert.deepEqual([a.title, a.checklist_rev, a.dirty, a.rev], ["L", 4, 1, 2]);
+  assert.deepEqual([b.title, b.checklist_rev], ["L", 6]);
+});
+
+test("pullTasks: salinan hantu (server id yang sama dipetakan ke cid lain) dibuang beserta checklist-nya", async () => {
+  const TFrepo = require("../../static/offline/checklistrepo.js");
+  TFrepo._reset();
+  await putTasks([
+    local({ cid: "asli", server_id: 130, base_rev: B, updated_at: B }),
+    local({ cid: "hantu", server_id: 130, base_rev: B, updated_at: B }),
+  ]);
+  await mapPut("task", 130, "asli");
+  const db = await openDB();
+  await new Promise((res) => {
+    const t = db.transaction("subtasks", "readwrite");
+    t.objectStore("subtasks").put({ cid: "h1", server_id: null, task_cid: "hantu", parent_cid: null, title: "x", is_done: false, sort_order: 0 });
+    t.oncomplete = () => res();
+  });
+  await pullTasks([srv({ id: 130 })]);
+  assert.equal(await getTask("hantu"), undefined);
+  assert.deepEqual(await TFrepo.recordsForTask("hantu"), []);
+});

@@ -42,6 +42,25 @@ test("resolveConflict discard removes the record, its outbox ops, and idmap entr
   assert.equal(await cidOf("task", 10), undefined);
 });
 
+test("resolveConflict discard / discard_local (task belum terkirim) membuang checklist task itu — checklist offline Fase 2", async () => {
+  const CR = require("../../static/offline/checklistrepo.js");
+  CR._reset();
+  await putTasks([
+    { cid: "a", server_id: 10, title: "A", conflict: "remote_deleted", dirty: 1, deleted: false },
+    { cid: "b", server_id: null, title: "B", dirty: 1, deleted: false, sync_error: { status: 422 } },
+    { cid: "c", server_id: 12, title: "C", dirty: 1, deleted: false, sync_error: { status: 422 } },
+  ]);
+  for (const cid of ["a", "b", "c"]) await CR.create(cid, { title: "Butir " + cid });
+  await resolveConflict("task", "a", "discard");
+  await resolveConflict("task", "b", "discard_local");
+  await resolveConflict("task", "c", "discard_local");
+  assert.deepEqual(await CR.recordsForTask("a"), []);
+  assert.deepEqual(await CR.recordsForTask("b"), []);
+  assert.equal((await CR.recordsForTask("c")).length, 1, "task tersinkron yang hanya membuang edit lokal: checklist tetap");
+  const ops = (await outboxAll()).filter((o) => o.entity_type === "subtasks");
+  assert.deepEqual(ops.map((o) => o.task_cid), ["c"]);
+});
+
 test("resolveConflict keep_as_new clears server_id, drops idmap, and queues a create", async () => {
   await putTasks([{ cid: "a", server_id: 10, title: "A", conflict: "remote_deleted", dirty: 1 }]);
   await mapPut("task", 10, "a");

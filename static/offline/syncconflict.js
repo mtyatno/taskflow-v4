@@ -19,6 +19,15 @@
     try { return isNode ? require("./drawingrepo.js") : (root.TF && root.TF.drawingrepo); } catch (_) { return null; }
   }
   // taskext dibaca malas (PR 1c-0 R10): hanya untuk nama kunci penanda ext saja; modul tidak ada → kunci dibiarkan.
+  // Checklist offline (Fase 2): task yang dibuang dari perangkat (Buang / Buang perubahan lokal pada task yang belum
+  // pernah terkirim) → butir + antrean checklist-nya ikut dibuang. Modul lama tanpa checklistrepo / gagal → diabaikan.
+  function purgeTaskChecklist(entity, cid) {
+    if (entity !== "task") return Promise.resolve();
+    let CR = null;
+    try { CR = isNode ? require("./checklistrepo.js") : (root.TF && root.TF.checklistrepo); } catch (_) { CR = null; }
+    if (!CR || typeof CR.purgeTask !== "function") return Promise.resolve();
+    return Promise.resolve().then(() => CR.purgeTask(cid)).catch(() => null);
+  }
   function taskExtMod() {
     try { return isNode ? require("./taskext.js") : (root.TF && root.TF.taskext) || null; } catch (_) { return null; }
   }
@@ -142,7 +151,8 @@
         // "Buang perubahan lokal": ambil versi server. Belum pernah di-push (server_id null) → tidak ada versi server → hapus.
         // Entitas anak (log habit / occurrence) tidak punya server_id: hapus lokal → pull berikutnya memulihkan versi server bila ada.
         if (rec.server_id == null || CHILD[entity]) {
-          return dropOutbox(entity, cid).then(() => deleteRaw(store, cid)).then(() => ({ ok: true }));
+          return dropOutbox(entity, cid).then(() => deleteRaw(store, cid))
+            .then(() => (rec.server_id == null ? purgeTaskChecklist(entity, cid) : null)).then(() => ({ ok: true }));
         }
         // base_rev null → pull berikutnya melihat revisi server "lebih baru" dan menimpa record ini. ext_dirty ikut
         // dibuang (field plugin di task, spec plugin Fase 1 K5): kunci yang ditolak server tidak ditempel lagi oleh pull.
@@ -158,7 +168,7 @@
       const cleanup = dropOutbox(entity, cid)
         .then(() => (rec.server_id != null ? TFidmap.mapDelete(entity, rec.server_id) : null));
       if (choice === "discard") {
-        return cleanup.then(() => deleteRaw(store, cid)).then(() => ({ ok: true }));
+        return cleanup.then(() => deleteRaw(store, cid)).then(() => purgeTaskChecklist(entity, cid)).then(() => ({ ok: true }));
       }
       if (choice === "keep_as_new" || choice === "keep_as_personal") {
         // Dibuat ulang sebagai entitas baru: server_id dikosongkan, op create diantre. `client_id` SEGAR (T11):

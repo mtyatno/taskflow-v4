@@ -1,0 +1,316 @@
+{
+  "_doc": "Vektor aksi checklist bersama (checklist offline Fase 2, rencana PR B2 R1). Diuji di tests/offline/checklist.test.js (TF.checklist.applyCreate/applySetDone/applyRename/applyDelete) DAN tests/test_checklist_repo.py (TaskRepository.add_subtask/update_subtask/delete_subtask), sehingga rute lokal = server. Baris: {id, parent_id, sort_order, is_done?, title? (bawaan \"v<id>\"), task_id? (bawaan 1)}. Butir: [id, depth, parent_id, sort_order]. Butir baru = id \"new\" (JS: id string; Python: id autoincrement). counts = [done, total] level atas sesudah aksi.",
+  "create": [
+    {
+      "name": "level atas tanpa index paling akhir, judul di-trim",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": null, "sort_order": 1},
+        {"id": 3, "parent_id": null, "sort_order": 2},
+        {"id": 4, "parent_id": 1, "sort_order": 0}
+      ],
+      "action": {"title": "  baru  ", "parent_id": null, "index": null},
+      "expected": {
+        "items": [[1, 0, null, 0], [4, 1, 1, 0], [2, 0, null, 1], [3, 0, null, 2], ["new", 0, null, 3]],
+        "item": ["new", 0, null, 3],
+        "title": "baru",
+        "counts": [0, 4]
+      }
+    },
+    {
+      "name": "index 0 di level atas menomori ulang saudara",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": null, "sort_order": 1},
+        {"id": 3, "parent_id": null, "sort_order": 2}
+      ],
+      "action": {"title": "n", "parent_id": null, "index": 0},
+      "expected": {
+        "items": [["new", 0, null, 0], [1, 0, null, 1], [2, 0, null, 2], [3, 0, null, 3]],
+        "item": ["new", 0, null, 0],
+        "title": "n",
+        "counts": [0, 4]
+      }
+    },
+    {
+      "name": "anak di tengah saudara (index 1)",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": 1, "sort_order": 0},
+        {"id": 3, "parent_id": 1, "sort_order": 1},
+        {"id": 4, "parent_id": null, "sort_order": 1, "is_done": true}
+      ],
+      "action": {"title": "n", "parent_id": 1, "index": 1},
+      "expected": {
+        "items": [[1, 0, null, 0], [2, 1, 1, 0], ["new", 1, 1, 1], [3, 1, 1, 2], [4, 0, null, 1]],
+        "item": ["new", 1, 1, 1],
+        "title": "n",
+        "counts": [1, 2]
+      }
+    },
+    {
+      "name": "index melebihi jumlah saudara paling akhir",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": null, "sort_order": 1}
+      ],
+      "action": {"title": "n", "parent_id": null, "index": 99},
+      "expected": {
+        "items": [[1, 0, null, 0], [2, 0, null, 1], ["new", 0, null, 2]],
+        "item": ["new", 0, null, 2],
+        "title": "n",
+        "counts": [0, 3]
+      }
+    },
+    {
+      "name": "sort_order kembar dan NULL dinomori ulang menurut urutan tampil",
+      "rows": [
+        {"id": 5, "parent_id": null, "sort_order": 1},
+        {"id": 2, "parent_id": null, "sort_order": 0},
+        {"id": 3, "parent_id": null, "sort_order": 1},
+        {"id": 7, "parent_id": null, "sort_order": null}
+      ],
+      "action": {"title": "n", "parent_id": null, "index": 2},
+      "expected": {
+        "items": [[2, 0, null, 0], [7, 0, null, 1], ["new", 0, null, 2], [3, 0, null, 3], [5, 0, null, 4]],
+        "item": ["new", 0, null, 2],
+        "title": "n",
+        "counts": [0, 5]
+      }
+    },
+    {
+      "name": "anak terakhir butir yang punya anak (tanpa index)",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": 1, "sort_order": 0},
+        {"id": 3, "parent_id": 2, "sort_order": 0}
+      ],
+      "action": {"title": "n", "parent_id": 2, "index": null},
+      "expected": {
+        "items": [[1, 0, null, 0], [2, 1, 1, 0], [3, 2, 2, 0], ["new", 2, 2, 1]],
+        "item": ["new", 2, 2, 1],
+        "title": "n",
+        "counts": [0, 1]
+      }
+    },
+    {
+      "name": "kelompok saudara lain tidak disentuh",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 5},
+        {"id": 2, "parent_id": null, "sort_order": 5},
+        {"id": 3, "parent_id": 1, "sort_order": 9},
+        {"id": 4, "parent_id": 1, "sort_order": 9}
+      ],
+      "action": {"title": "n", "parent_id": 1, "index": 0},
+      "expected": {
+        "items": [[1, 0, null, 5], ["new", 1, 1, 0], [3, 1, 1, 1], [4, 1, 1, 2], [2, 0, null, 5]],
+        "item": ["new", 1, 1, 0],
+        "title": "n",
+        "counts": [0, 2]
+      }
+    },
+    {
+      "name": "yatim ikut level atas: index menurut posisi tampil",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": 999, "sort_order": 1},
+        {"id": 3, "parent_id": null, "sort_order": 2}
+      ],
+      "action": {"title": "n", "parent_id": null, "index": 2},
+      "expected": {
+        "items": [[1, 0, null, 0], [2, 0, null, 1], ["new", 0, null, 2], [3, 0, null, 3]],
+        "item": ["new", 0, null, 2],
+        "title": "n",
+        "counts": [0, 4]
+      }
+    },
+    {
+      "name": "checklist kosong",
+      "rows": [],
+      "action": {"title": "pertama", "parent_id": null, "index": null},
+      "expected": {
+        "items": [["new", 0, null, 0]],
+        "item": ["new", 0, null, 0],
+        "title": "pertama",
+        "counts": [0, 1]
+      }
+    }
+  ],
+  "create_invalid": [
+    {
+      "name": "judul hanya spasi",
+      "rows": [{"id": 1, "parent_id": null, "sort_order": 0}],
+      "action": {"title": "   ", "parent_id": null, "index": null},
+      "error": "EMPTY_TITLE"
+    },
+    {
+      "name": "judul kosong diperiksa sebelum induk",
+      "rows": [{"id": 1, "parent_id": null, "sort_order": 0}],
+      "action": {"title": " ", "parent_id": 999, "index": null},
+      "error": "EMPTY_TITLE"
+    },
+    {
+      "name": "induk tidak ada",
+      "rows": [{"id": 1, "parent_id": null, "sort_order": 0}],
+      "action": {"title": "n", "parent_id": 999, "index": 0},
+      "error": "PARENT_NOT_FOUND"
+    },
+    {
+      "name": "induk di task lain",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 9, "task_id": 2, "parent_id": null, "sort_order": 0}
+      ],
+      "action": {"title": "n", "parent_id": 9, "index": null},
+      "error": "PARENT_NOT_FOUND"
+    }
+  ],
+  "set_done": [
+    {
+      "name": "centang induk: induk dan turunan yang belum selesai, pre-order",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": 1, "sort_order": 0, "is_done": true},
+        {"id": 3, "parent_id": 2, "sort_order": 0},
+        {"id": 4, "parent_id": 1, "sort_order": 1},
+        {"id": 5, "parent_id": null, "sort_order": 1}
+      ],
+      "action": {"id": 1, "is_done": true},
+      "expected": {"changed_ids": [1, 3, 4], "done": [1, 2, 3, 4], "counts": [1, 2]}
+    },
+    {
+      "name": "centang butir tengah hanya turunannya",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": 1, "sort_order": 0},
+        {"id": 3, "parent_id": 2, "sort_order": 0},
+        {"id": 4, "parent_id": 1, "sort_order": 1}
+      ],
+      "action": {"id": 2, "is_done": true},
+      "expected": {"changed_ids": [2, 3], "done": [2, 3], "counts": [0, 1]}
+    },
+    {
+      "name": "buka induk: turunan tetap selesai",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0, "is_done": true},
+        {"id": 2, "parent_id": 1, "sort_order": 0, "is_done": true},
+        {"id": 3, "parent_id": null, "sort_order": 1, "is_done": true}
+      ],
+      "action": {"id": 1, "is_done": false},
+      "expected": {"changed_ids": [1], "done": [2, 3], "counts": [1, 2]}
+    },
+    {
+      "name": "buka anak: induk tetap selesai",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0, "is_done": true},
+        {"id": 2, "parent_id": 1, "sort_order": 0, "is_done": true}
+      ],
+      "action": {"id": 2, "is_done": false},
+      "expected": {"changed_ids": [2], "done": [1], "counts": [1, 1]}
+    },
+    {
+      "name": "buka butir yang belum selesai: tanpa perubahan",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": null, "sort_order": 1, "is_done": true}
+      ],
+      "action": {"id": 1, "is_done": false},
+      "expected": {"changed_ids": [], "done": [2], "counts": [1, 2]}
+    },
+    {
+      "name": "centang ulang butir yang sudah selesai beserta turunannya: tanpa perubahan",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0, "is_done": true},
+        {"id": 2, "parent_id": 1, "sort_order": 0, "is_done": true}
+      ],
+      "action": {"id": 1, "is_done": true},
+      "expected": {"changed_ids": [], "done": [1, 2], "counts": [1, 1]}
+    },
+    {
+      "name": "centang ulang induk yang sudah selesai melengkapi turunan yang belum",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0, "is_done": true},
+        {"id": 2, "parent_id": 1, "sort_order": 0},
+        {"id": 3, "parent_id": 1, "sort_order": 1, "is_done": true}
+      ],
+      "action": {"id": 1, "is_done": true},
+      "expected": {"changed_ids": [2], "done": [1, 2, 3], "counts": [1, 1]}
+    },
+    {
+      "name": "centang mengikuti pohon tampil (siklus diputus)",
+      "rows": [
+        {"id": 1, "parent_id": 2, "sort_order": 0},
+        {"id": 2, "parent_id": 1, "sort_order": 1}
+      ],
+      "action": {"id": 1, "is_done": true},
+      "expected": {"changed_ids": [1, 2], "done": [1, 2], "counts": [1, 1]}
+    }
+  ],
+  "rename": [
+    {
+      "name": "judul di-trim",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": 1, "sort_order": 0}
+      ],
+      "action": {"id": 2, "title": "  teks baru  "},
+      "expected": {"title": "teks baru", "changed": true}
+    },
+    {
+      "name": "judul sama: tanpa perubahan",
+      "rows": [{"id": 1, "parent_id": null, "sort_order": 0, "title": "sama"}],
+      "action": {"id": 1, "title": " sama "},
+      "expected": {"title": "sama", "changed": false}
+    }
+  ],
+  "rename_invalid": [
+    {
+      "name": "judul hanya spasi",
+      "rows": [{"id": 1, "parent_id": null, "sort_order": 0}],
+      "action": {"id": 1, "title": "   "},
+      "error": "EMPTY_TITLE"
+    }
+  ],
+  "delete": [
+    {
+      "name": "hapus induk tiga tingkat: turunan ikut, saudara tidak dinomori ulang",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": 1, "sort_order": 0},
+        {"id": 3, "parent_id": 2, "sort_order": 0},
+        {"id": 4, "parent_id": 1, "sort_order": 1},
+        {"id": 5, "parent_id": null, "sort_order": 1, "is_done": true},
+        {"id": 6, "parent_id": null, "sort_order": 2}
+      ],
+      "action": {"id": 1},
+      "expected": {"deleted_ids": [1, 2, 3, 4], "items": [[5, 0, null, 1], [6, 0, null, 2]], "counts": [1, 2]}
+    },
+    {
+      "name": "hapus sub butir hanya cabangnya",
+      "rows": [
+        {"id": 1, "parent_id": null, "sort_order": 0},
+        {"id": 2, "parent_id": 1, "sort_order": 0},
+        {"id": 3, "parent_id": 2, "sort_order": 0},
+        {"id": 4, "parent_id": 1, "sort_order": 1},
+        {"id": 5, "parent_id": null, "sort_order": 1}
+      ],
+      "action": {"id": 2},
+      "expected": {"deleted_ids": [2, 3], "items": [[1, 0, null, 0], [4, 1, 1, 1], [5, 0, null, 1]], "counts": [0, 2]}
+    },
+    {
+      "name": "hapus anggota siklus mengikuti pohon tampil",
+      "rows": [
+        {"id": 1, "parent_id": 2, "sort_order": 0},
+        {"id": 2, "parent_id": 1, "sort_order": 1}
+      ],
+      "action": {"id": 2},
+      "expected": {"deleted_ids": [2], "items": [[1, 0, null, 0]], "counts": [0, 1]}
+    },
+    {
+      "name": "hapus level atas terakhir",
+      "rows": [{"id": 1, "parent_id": null, "sort_order": 0}],
+      "action": {"id": 1},
+      "expected": {"deleted_ids": [1], "items": [], "counts": [0, 0]}
+    }
+  ]
+}

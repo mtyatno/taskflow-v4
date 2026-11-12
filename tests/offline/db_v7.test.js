@@ -49,7 +49,7 @@ async function dumpStore(db, name) {
 }
 
 test("skema v7: plugin_records keyPath + empat indeks, plugin_kv keyPath; ENTITY_STORE_NAMES tidak memuat store plugin", async () => {
-  assert.equal(DB_VERSION, 7);
+  assert.equal(DB_VERSION, 8); // v8 (pagar tab lama, db_v8.test.js) tanpa perubahan skema: skema v7 tetap
   assert.deepEqual(PLUGIN_STORES, {
     plugin_records: {
       keyPath: ["plugin_id", "entity", "id"],
@@ -66,7 +66,7 @@ test("skema v7: plugin_records keyPath + empat indeks, plugin_kv keyPath; ENTITY
   assert.ok(!ENTITY_STORE_NAMES.includes("plugin_kv"));
   assert.ok(!("plugin_records" in ENTITY_STORES));
   const db = await openDB();
-  assert.equal(db.version, 7);
+  assert.equal(db.version, DB_VERSION);
   const tx = db.transaction(["plugin_records", "plugin_kv"], "readonly");
   const rec = tx.objectStore("plugin_records");
   assert.deepEqual(rec.keyPath, ["plugin_id", "entity", "id"]);
@@ -90,7 +90,7 @@ test("fixture idb_v6_schema.json cocok dengan ENTITY_STORES + store sistem v6", 
   assert.equal(V6.stores._outbox.keyPath, "qid");
 });
 
-test("upgrade v6 → v7 mempertahankan seluruh data lama", async () => {
+test("upgrade v6 → versi sekarang (v7 + v8 tanpa skema) mempertahankan seluruh data lama", async () => {
   const v6 = await openV6();
   const seed = {
     tasks: [{ cid: "t-1", server_id: 11, title: "A", gtd_status: "inbox", list_cid: "l-1", parent_cid: null, updated_at: "2026-10-01T00:00:00Z", dirty: 1, ext: { "demo-ext": { x: 1 } }, ext_dirty: { "demo-ext": true } },
@@ -116,7 +116,7 @@ test("upgrade v6 → v7 mempertahankan seluruh data lama", async () => {
 
   _reset();
   const db = await openDB();
-  assert.equal(db.version, 7);
+  assert.equal(db.version, DB_VERSION);
   for (const n of names) {
     assert.ok(db.objectStoreNames.contains(n), "store hilang: " + n);
     const after = await dumpStore(db, n);
@@ -134,7 +134,7 @@ test("upgrade v6 → v7 mempertahankan seluruh data lama", async () => {
   }
 });
 
-test("upgrade v1 legacy → v7: queue dipindah, cache dihapus, store plugin ada", async () => {
+test("upgrade v1 legacy → versi sekarang: queue dipindah, cache dihapus, store plugin ada", async () => {
   const v1 = await rawOpen(1, { upgrade: (db) => {
     db.createObjectStore("cache");
     db.createObjectStore("queue", { keyPath: "qid", autoIncrement: true });
@@ -144,7 +144,7 @@ test("upgrade v1 legacy → v7: queue dipindah, cache dihapus, store plugin ada"
   await done(tx);
   v1.close();
   const db = await openDB();
-  assert.equal(db.version, 7);
+  assert.equal(db.version, DB_VERSION);
   assert.equal(db.objectStoreNames.contains("queue"), false);
   assert.equal(db.objectStoreNames.contains("cache"), false);
   const all = await req(db.transaction("_outbox", "readonly").objectStore("_outbox").getAll());
@@ -177,7 +177,7 @@ test("dirty 0/1 dan indeks majemuk: dirty 1 muncul di entity_dirty only([pid, en
   assert.equal(upd.length, 3);
 });
 
-test("tab lain (koneksi v6 tanpa handler) menahan upgrade → event blocked; ditutup → openDB resolve v7 + unblocked", async () => {
+test("tab lain (koneksi v6 tanpa handler) menahan upgrade → event blocked; ditutup → openDB resolve versi sekarang + unblocked", async () => {
   const events = [];
   const off = subscribe((ev) => events.push(ev.type));
   const old = await openV6(); // tab pra-1a-1: tanpa onversionchange
@@ -189,20 +189,20 @@ test("tab lain (koneksi v6 tanpa handler) menahan upgrade → event blocked; dit
   assert.equal(resolved, false);
   old.close();
   const db = await p;
-  assert.equal(db.version, 7);
+  assert.equal(db.version, DB_VERSION);
   assert.ok(db.objectStoreNames.contains("plugin_records"));
   assert.deepEqual(events, ["blocked", "unblocked"]);
   assert.deepEqual(upgradeState(), { blocked: false, upgradedElsewhere: false });
   off();
 });
 
-test("koneksi v7 menerima versionchange dari tab lain (open mentah v8) → DB_UPGRADED_ELSEWHERE", async () => {
+test("koneksi versi sekarang menerima versionchange dari tab lain (open mentah versi berikutnya) → DB_UPGRADED_ELSEWHERE", async () => {
   const events = [];
   const off = subscribe((ev) => events.push(ev.type));
   await openDB();
   let rawBlocked = false;
-  const raw = await rawOpen(8, { onblocked: () => { rawBlocked = true; } });
-  assert.equal(raw.version, 8);
+  const raw = await rawOpen(DB_VERSION + 1, { onblocked: () => { rawBlocked = true; } });
+  assert.equal(raw.version, DB_VERSION + 1);
   assert.equal(rawBlocked, false);
   await assert.rejects(openDB(), { code: "DB_UPGRADED_ELSEWHERE" });
   assert.deepEqual(events, ["upgraded-elsewhere"]);
@@ -210,19 +210,19 @@ test("koneksi v7 menerima versionchange dari tab lain (open mentah v8) → DB_UP
   off();
 });
 
-test("rollback: kode yang membuka v6 pada DB v7 → VersionError", async () => {
+test("rollback: kode yang membuka v6 pada DB versi sekarang → VersionError", async () => {
   const db = await openDB();
-  assert.equal(db.version, 7);
+  assert.equal(db.version, DB_VERSION);
   db.close();
   _reset();
   await assert.rejects(rawOpen(6), (err) => err && err.name === "VersionError");
 });
 
-test("sumber db.js tidak pernah DB_VERSION < 7", () => {
+test("sumber db.js tidak pernah DB_VERSION < 8", () => {
   const src = fs.readFileSync(path.join(__dirname, "../../static/offline/db.js"), "utf8");
   const m = src.match(/const\s+DB_VERSION\s*=\s*(\d+)\s*;/);
   assert.ok(m, "deklarasi DB_VERSION tidak ditemukan");
-  assert.ok(Number(m[1]) >= 7, "DB_VERSION diturunkan di bawah 7: " + m[1]);
+  assert.ok(Number(m[1]) >= 8, "DB_VERSION diturunkan di bawah 8: " + m[1]);
   assert.match(src, /jangan pernah diturunkan/i);
   assert.match(src, /Revert fitur ≠ turunkan versi/);
 });

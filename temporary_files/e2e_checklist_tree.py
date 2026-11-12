@@ -29,10 +29,12 @@ Fokus 375 px tema gelap (konteks HP: is_mobile + has_touch). Tiap kelompok memak
     M    menu ⋯ (portal body): item "Ubah teks", "Tambah sub butir", "Jadikan sub", "Naikkan level", "Hapus"; aturan
          nonaktif (butir pertama di antara saudara / level atas); setiap aksi; Escape mengembalikan fokus ke ⋯; Tab di
          kotak sub butir tidak ditangkap; ubah teks kosong → teks lama; Escape membatalkan ubah teks
-  galat  (1280 px terang, panel Live Edit; spec §7.7)
-    G    offline: Alt+↑ tampil langsung lalu kembali ke versi server + toast "Gagal memindah butir"; centang →
-         "Gagal mencentang butir"; online lagi → centang berhasil; GET daftar gagal pada task bercheklist → pill tetap
-         terkunci ("Otomatis dari checklist" tanpa d/t); galat konsol hanya jaringan terputus / GET yang digagalkan
+  galat  (1280 px terang, panel Live Edit; spec §7.7, diperbarui checklist offline Fase 2 PR B2)
+    G    checklist yang sudah diunduh dilayani rute lokal: offline → Alt+↑ dan centang berhasil lokal (tanpa kembali ke
+         versi lama, tanpa toast "Gagal memindah/mencentang butir"), server belum berubah, antrean berisi aksinya; online
+         → antrean terkirim, server = tampilan; centang online berhasil; task yang checklist-nya BELUM diunduh (unduhan
+         /api/checklists digagalkan) → GET daftar lewat jaringan, digagalkan → pill tetap terkunci ("Otomatis dari
+         checklist" tanpa d/t); galat konsol hanya jaringan terputus / request yang digagalkan
   focus  (Fokus Hari Ini 375 px gelap)
     C-8  badge level atas; centang → badge + server; kotak tambah Fokus + Tab; pembaruan 15 dtk ditunda selama kotak ubah
          teks terbuka (tanpa GET daftar, teks utuh); butir dari "perangkat lain" (API) muncul setelah kotak ditutup
@@ -43,7 +45,10 @@ Fokus 375 px tema gelap (konteks HP: is_mobile + has_touch). Tiap kelompok memak
          0%) → setelah satu siklus refresh otomatis 30 dtk (tanpa panggilan manual) baris "67%"; record D2 diadopsi
          dengan updated_at/rev tetap dan server updated_at tidak naik (bukti TASK_DERIVED)
   Z  per kelompok: tanpa galat konsol/pageerror; aksi checklist tidak memicu PUT /api/tasks/{id} (pantau jaringan) dan
-     _outbox tetap 0; akhir: tanpa respons >= 400 dari server lokal
+     _outbox habis terkirim; akhir: tanpa respons >= 400 dari server lokal
+
+Checklist offline Fase 2 (PR B2): setiap aksi checklist dilayani rute lokal (IndexedDB) lalu dikirim lewat antrean
+(_outbox, jeda 1,5 dtk) — cek server sesudah aksi menunggu antrean kosong dulu (settle).
 
 Server lokal dijalankan sendiri (uvicorn webapp:app, DB sementara, port bebas > 8700, python E2E_PYTHON bila diset).
 Host luar diblokir, SW diblokir, tf_whatsnew_seen diisi. Screenshot: temporary_files/e2e_checklist_tree/ (atau
@@ -264,6 +269,12 @@ def outbox(p):
     return d.outbox_count(p)
 
 
+def settle(p, timeout=20):
+    """Checklist offline Fase 2: aksi checklist masuk antrean lalu dikirim (jeda 1,5 dtk) → tunggu antrean kosong
+    sebelum membaca server."""
+    return wait_until(lambda: outbox(p) == 0, timeout)
+
+
 def close_modal(p):
     if d.modal_count(p):
         d.close_btn(p).click()
@@ -410,8 +421,9 @@ def z_checks(tag, dev):
     check("%s Z tanpa galat konsol/pageerror" % tag, not dev.errors, "; ".join(dev.errors[:5]))
     check("%s Z aksi checklist tanpa PUT /api/tasks/{id} (jaringan)" % tag, not dev.puts, repr(dev.puts[:8]))
     try:
+        settle(dev.p)
         n = outbox(dev.p)
-        check("%s Z _outbox tetap 0 (record task tidak jadi dirty)" % tag, n == 0, repr(n))
+        check("%s Z _outbox habis terkirim (aksi checklist lewat antrean, record task tidak jadi dirty)" % tag, n == 0, repr(n))
     except Exception as e:  # noqa: BLE001
         check("%s Z _outbox terbaca" % tag, False, str(e)[:200])
 
@@ -471,6 +483,7 @@ def c1_add_tab(dev, scope, kind, base, user, tid, title):
     check("%s ul > li bersarang (sub butir di dalam li induknya)" % tag,
           nest == [["Siapkan bahan", None, "UL"], ["Susun jadwal", None, "UL"], ["Pesan ruang", "Susun jadwal", "UL"],
                    ["Kirim undangan", "Susun jadwal", "UL"], ["Evaluasi acara", None, "UL"]], repr(nest))
+    settle(p)
     srv = srv_tree(base, user, tid)
     check("%s server: pohon sama (depth, induk)" % tag, [(t, dep) for t, dep, _ in srv] == want, repr(srv))
     box.press("Escape")
@@ -482,12 +495,14 @@ def c1_add_tab(dev, scope, kind, base, user, tid, title):
     checkbox(p, scope, "Pesan ruang").click()
     wait_until(lambda: dict((r[2], r[3]) for r in rows(p, scope)).get("Pesan ruang") is True, 5)
     p.wait_for_timeout(700)
+    settle(p)
     check("%s centang sub butir: bar tetap '0/3', pill tetap 0%%, server progress 0" % tag,
           bar_text(p, scope) == "0/3" and pill_label(p, scope) == "Progress 0%, otomatis dari checklist"
           and srv_task(base, user, tid)["progress"] == 0,
           "bar=%r pill=%r" % (bar_text(p, scope), pill_label(p, scope)))
     checkbox(p, scope, "Siapkan bahan").click()
     ok = wait_until(lambda: pill_label(p, scope) == "Progress 33%, otomatis dari checklist" and bar_text(p, scope) == "1/3", 6)
+    settle(p)
     st = srv_task(base, user, tid)
     check("%s centang level atas: bar '1/3', pill '33%%' (bukan kelipatan 5), server 33 / checklist_total 3" % tag,
           ok and pill(p, scope).inner_text().strip() == "33%" and st["progress"] == 33 and st["checklist_total"] == 3,
@@ -745,6 +760,7 @@ def c5_lock(dev, scope, kind, base, user, tid, ids, title):
           ok and struck(p, scope, ids["c1"]) and struck(p, scope, ids["c2"])
           and checkbox(p, scope, "Cetak agenda").get_attribute("aria-checked") == "true",
           repr(rows(p, scope)))
+    settle(p)
     check("%s server: induk + turunan selesai" % tag,
           srv_tree(base, user, tid) == [("Siapkan ruang", 0, False), ("Uji proyektor", 0, False), ("Cetak materi", 0, True),
                                         ("Cetak agenda", 1, True), ("Cetak daftar hadir", 1, True)], repr(srv_tree(base, user, tid)))
@@ -804,6 +820,7 @@ def c6_delete(dev, base, user, tid, ids, title):
     more_btn(p, scope, "Bab 1").click()
     menu_pick(p, "Hapus")
     ok = wait_until(lambda: titles(p, scope) == ["Bab 2", "Bab 3"], 6)
+    settle(p)
     check("%s konfirmasi diterima → induk + 3 turunan terhapus (UI dan server)" % tag,
           ok and dev.dialogs[n + 1:] == ["Hapus «Bab 1» beserta 3 sub butir?"]
           and srv_tree(base, user, tid) == [("Bab 2", 0, True), ("Bab 3", 0, False)],
@@ -816,6 +833,7 @@ def c6_delete(dev, base, user, tid, ids, title):
         menu_pick(p, "Hapus")
         wait_until(lambda: t not in titles(p, scope), 5)
         wait_until(lambda: pill_label(p, scope) == want_pill, 5)
+    settle(p)
     st = srv_task(base, user, tid)
     check("%s level atas terakhir dihapus: pill manual 'Progress 100%%' (nilai terakhir, bukan 40 awal / 0); server "
           "progress 100, checklist_total 0" % tag,
@@ -1115,10 +1133,15 @@ def group_focus(browser, base):
         ed.wait_for(timeout=3000)
         ed.press("End")
         ed.type(" diubah")
+        # Checklist offline Fase 2: GET daftar dilayani rute lokal (tidak terlihat di jaringan) → catat panggilan api.get.
+        p.evaluate("""() => { if (window.__ckGets) return; window.__ckGets = []; const g = api.get;
+            api.get = function (u, ...a) { if (/\\/api\\/tasks\\/[^/]+\\/subtasks$/.test(String(u))) window.__ckGets.push(Date.now());
+                return g.call(this, u, ...a); }; }""")
         api(base, user, "POST", "/api/tasks/%d/subtasks" % tid, json={"title": "Dari perangkat lain"})
         t0 = time.time()
+        g0 = p.evaluate("() => window.__ckGets.length")
         p.wait_for_timeout(16500)
-        gets = [g for g in dev.list_gets if g[0] >= t0]
+        gets = [g for g in dev.list_gets if g[0] >= t0] + p.evaluate("(n) => window.__ckGets.slice(n)", g0)
         check("%s 16,5 dtk dengan kotak ubah teks terbuka: tanpa GET daftar, teks utuh, tetap terfokus, butir baru belum muncul" % tag,
               not gets and ed.count() == 1 and ed.input_value() == "Alpha diubah" and active(p) == [ids["a"], "edit"]
               and "Dari perangkat lain" not in titles(p, FOCUS), repr((gets, ed.count(), active(p))))
@@ -1127,9 +1150,13 @@ def group_focus(browser, base):
         check("%s Enter menyimpan teks (server)" % tag,
               wait_until(lambda: srv_tree(base, user, tid)[0][0] == "Alpha diubah", 5), repr(srv_tree(base, user, tid)[:1]))
         t1 = time.time()
-        ok = wait_until(lambda: ("Dari perangkat lain", 0) in view(p, FOCUS), 18, 0.5)
+        # Butir dari perangkat lain masuk IndexedDB lewat unduhan checklist di siklus sinkron (30 dtk), lalu tampil di
+        # pembaruan berkala 15 dtk berikutnya.
+        g1 = p.evaluate("() => window.__ckGets.length")
+        ok = wait_until(lambda: ("Dari perangkat lain", 0) in view(p, FOCUS), 35, 0.5)
         check("%s setelah kotak ditutup: pembaruan berkala memuat butir dari perangkat lain (%.1f dtk)" % (tag, time.time() - t1),
-              ok and view(p, FOCUS)[-1] == ("Dari perangkat lain", 0), repr(view(p, FOCUS)))
+              ok and view(p, FOCUS)[-1] == ("Dari perangkat lain", 0) and p.evaluate("() => window.__ckGets.length") > g1,
+              repr(view(p, FOCUS)))
         check("%s badge ikut '1/4'" % tag, wait_until(lambda: btxt() == "1/4", 5), repr(btxt()))
         shot(p, "c8_fokus_setelah_pembaruan.png")
         z_checks("fokus375", dev)
@@ -1194,6 +1221,7 @@ def group_sync(browser, base):
               rec1 and rec1["progress"] == 33 and rec1["checklist_total"] == 3 and rec1["updated_at"] == rec1_0["updated_at"]
               and rec1["rev"] == rec1_0["rev"] and rec1["base_rev"] == rec1_0["base_rev"] and not rec1["dirty"],
               "sebelum=%r sesudah=%r" % (rec1_0, rec1))
+        settle(p)
         srv1 = srv_task(base, user, tid)
         check("%s server progress 33, updated_at tidak naik" % tag,
               srv1["progress"] == 33 and srv1["updated_at"] == srv0["updated_at"], repr((srv1["progress"], srv1["updated_at"])))
@@ -1226,6 +1254,7 @@ def group_sync(browser, base):
         close_modal(p)
         check("%s modal ditutup: Timeline '67%%'" % tag, tl_pct(p, title) == "67%", repr(tl_pct(p, title)))
         shot(p, "c9_timeline_67.png")
+        settle(p)
         srv2 = srv_task(base, user, tid)
         check("%s server progress 67, updated_at tetap" % tag,
               srv2["progress"] == 67 and srv2["updated_at"] == srv0["updated_at"], repr((srv2["progress"], srv2["updated_at"])))
@@ -1260,70 +1289,93 @@ SAMPLER_JS = """(s) => { window.__ckSamples = []; let last = '';
 
 
 def group_galat(browser, base):
-    """G (spec §7.7): offline → pindah optimistis kembali ke versi server + toast; centang gagal + toast; online lagi
-    → centang berhasil. Galat konsol yang diharapkan hanya jaringan terputus."""
+    """G (spec §7.7 Fase 1; diperbarui checklist offline Fase 2 PR B2): checklist yang sudah diunduh dilayani rute lokal,
+    jadi offline → pindah dan centang BERHASIL lokal (tanpa toast gagal) lalu terkirim saat online. Jalur galat Fase 1
+    (pill tetap terkunci saat GET daftar gagal) kini berlaku untuk task yang checklist-nya belum diunduh. Galat konsol
+    yang diharapkan hanya jaringan terputus / request yang sengaja digagalkan."""
     tag = "G[panel 1280 offline]"
     user = d.register(base, "ckg")
     title = "Uji galat jaringan"
     tid = mk_task(base, user, title)
     mk_items(base, user, tid, [("s", "Satu", None, False), ("d", "Dua", None, False), ("t", "Tiga", None, False)])
     title2 = "Uji gagal muat checklist"
-    tid2 = mk_task(base, user, title2)
-    mk_items(base, user, tid2, [("a", "Butir A", None, True), ("b", "Butir B", None, False)])
     dev = open_app(browser, base, user, "galat1280", 1280, 860, "light", "1")
     p = dev.p
     toast = p.locator(".toast.toast-error")
+    pat_cl = re.compile(r"^http://127\.0\.0\.1:\d+/api/checklists(\?.*)?$")
     try:
         d.go_all_tasks(p, False)
         wait_until(lambda: p.locator(".task-row", has_text=title).count() > 0, 15)
+        check("%s unduhan awal checklist selesai (rute lokal siap)" % tag,
+              wait_until(lambda: p.evaluate("() => !!(window.TF && TF.checklistrepo && TF.checklistrepo.isReady())"), 20))
         open_checklist(dev, PANEL, title)
         dev.ctx.set_offline(True)
         p.wait_for_function("() => navigator.onLine === false", timeout=5000)
         p.evaluate(SAMPLER_JS, PANEL)
         checkbox(p, PANEL, "Tiga").focus()
         p.keyboard.press("Alt+ArrowUp")
-        ok_toast = wait_until(lambda: toast.count() > 0 and toast.first.inner_text().strip() == "Gagal memindah butir", 6)
-        ok_back = wait_until(lambda: titles(p, PANEL) == ["Satu", "Dua", "Tiga"], 5)
-        p.wait_for_timeout(300)
+        ok = wait_until(lambda: titles(p, PANEL) == ["Satu", "Tiga", "Dua"], 5)
+        p.wait_for_timeout(1200)
         samples = p.evaluate("() => { cancelAnimationFrame(window.__ckRaf); return window.__ckSamples; }")
-        check("%s Alt+↑ offline: tampil langsung (optimistis), gagal → toast 'Gagal memindah butir', daftar kembali ke "
-              "versi server" % tag, ok_toast and ok_back and "Satu,Tiga,Dua" in samples and samples[-1] == "Satu,Dua,Tiga",
+        check("%s Alt+↑ offline: berhasil lokal, tidak kembali ke versi lama, tanpa toast 'Gagal memindah butir'" % tag,
+              ok and samples == ["Satu,Dua,Tiga", "Satu,Tiga,Dua"] and toast.count() == 0,
               repr((samples, toast.all_inner_texts())))
         checkbox(p, PANEL, "Satu").click()
-        ok = wait_until(lambda: toast.count() > 0 and toast.first.inner_text().strip() == "Gagal mencentang butir", 6)
-        check("%s centang offline: toast 'Gagal mencentang butir', butir tetap belum selesai" % tag,
-              ok and checkbox(p, PANEL, "Satu").get_attribute("aria-checked") == "false", repr(toast.all_inner_texts()))
-        check("%s server tidak berubah" % tag,
-              srv_tree(base, user, tid) == [("Satu", 0, False), ("Dua", 0, False), ("Tiga", 0, False)], repr(srv_tree(base, user, tid)))
+        ok = wait_until(lambda: checkbox(p, PANEL, "Satu").get_attribute("aria-checked") == "true"
+                        and pill_label(p, PANEL) == "Progress 33%, otomatis dari checklist", 6)
+        p.wait_for_timeout(800)
+        check("%s centang offline: berhasil lokal, pill 33%%, tanpa toast 'Gagal mencentang butir'" % tag,
+              ok and toast.count() == 0, repr((pill_label(p, PANEL), toast.all_inner_texts())))
+        check("%s server belum berubah selama offline; antrean berisi 2 aksi checklist" % tag,
+              srv_tree(base, user, tid) == [("Satu", 0, False), ("Dua", 0, False), ("Tiga", 0, False)] and outbox(p) == 2,
+              repr((srv_tree(base, user, tid), outbox(p))))
         dev.ctx.set_offline(False)
         p.wait_for_function("() => navigator.onLine === true", timeout=5000)
-        checkbox(p, PANEL, "Satu").click()
-        ok = wait_until(lambda: checkbox(p, PANEL, "Satu").get_attribute("aria-checked") == "true"
-                        and pill_label(p, PANEL) == "Progress 33%, otomatis dari checklist", 8)
-        check("%s online lagi: centang berhasil, pill 33%%, server selesai" % tag,
-              ok and srv_tree(base, user, tid)[0] == ("Satu", 0, True), repr((pill_label(p, PANEL), srv_tree(base, user, tid))))
-        # Muat daftar gagal pada task bercheklist (checklist_total > 0 di record lokal) → pill tetap terkunci tanpa d/t.
+        ok = settle(p)
+        check("%s online lagi: antrean terkirim, server = tampilan (Tiga naik, Satu selesai), progress 33" % tag,
+              ok and srv_tree(base, user, tid) == [("Satu", 0, True), ("Tiga", 0, False), ("Dua", 0, False)]
+              and srv_task(base, user, tid)["progress"] == 33 and titles(p, PANEL) == ["Satu", "Tiga", "Dua"],
+              repr(srv_tree(base, user, tid)))
+        checkbox(p, PANEL, "Dua").click()
+        ok = wait_until(lambda: checkbox(p, PANEL, "Dua").get_attribute("aria-checked") == "true"
+                        and pill_label(p, PANEL) == "Progress 67%, otomatis dari checklist", 8)
+        settle(p)
+        check("%s online: centang berhasil, pill 67%%, server selesai" % tag,
+              ok and srv_tree(base, user, tid)[2] == ("Dua", 0, True) and toast.count() == 0,
+              repr((pill_label(p, PANEL), srv_tree(base, user, tid))))
+        # Task bercheklist yang checklist-nya BELUM diunduh (unduhan /api/checklists digagalkan) → GET daftar lewat
+        # jaringan (perilaku v502), digagalkan → pill tetap terkunci tanpa d/t (Fase 1 lockFor "failed").
+        dev.ctx.route(pat_cl, lambda r: r.abort())
+        tid2 = mk_task(base, user, title2)
+        mk_items(base, user, tid2, [("a", "Butir A", None, True), ("b", "Butir B", None, False)])
         pat = re.compile(r"^http://127\.0\.0\.1:\d+/api/tasks/%d/subtasks$" % tid2)
         dev.ctx.route(pat, lambda r: r.abort())
+        p.evaluate("() => window.__refreshTasks && window.__refreshTasks()")
+        ok = wait_until(lambda: p.locator(".task-row", has_text=title2).count() > 0, 20)
+        cid2 = p.evaluate("async (sid) => await TF.idmap.cidOf('task', sid)", tid2) if ok else None
+        revs = p.evaluate("async () => await TF.checklistrepo.getRevs()")
+        check("%s task baru dari perangkat lain tampil, checklist-nya belum diunduh (tanpa rev tersimpan)" % tag,
+              ok and cid2 and cid2 not in revs, repr((cid2, revs.get(cid2) if cid2 else None)))
         open_checklist(dev, PANEL, title2)
         ok = wait_until(lambda: pill_label(p, PANEL) == "Progress 50%, otomatis dari checklist", 5)
         pill(p, PANEL).click()
         pop = p.locator(PROGRESS_POP)
         pop.wait_for(timeout=3000)
         note = pop.locator(".td-progress-note")
-        check("%s GET daftar gagal: pill tetap terkunci 50%% (checklist_total lokal), keterangan 'Otomatis dari checklist' "
-              "tanpa d/t, slider nonaktif" % tag,
+        check("%s checklist belum diunduh + GET daftar gagal: pill tetap terkunci 50%% (checklist_total lokal), keterangan "
+              "'Otomatis dari checklist' tanpa d/t, slider nonaktif" % tag,
               ok and note.count() == 1 and note.inner_text().strip() == "Otomatis dari checklist"
               and pop.locator('input[type="range"]').is_disabled() and pop.locator(".td-presets").count() == 0,
               repr((pill_label(p, PANEL), pop.inner_text())))
         p.keyboard.press("Escape")
         dev.ctx.unroute(pat)
+        dev.ctx.unroute(pat_cl)
         unexpected = [e for e in dev.errors if "ERR_INTERNET_DISCONNECTED" not in e and "Failed to fetch" not in e
-                      and not ("ERR_FAILED" in e and "/subtasks" in e)]
-        check("%s Z galat konsol hanya jaringan terputus (%d diharapkan)" % (tag, len(dev.errors) - len(unexpected)),
-              not unexpected, "; ".join(unexpected[:5]))
+                      and not ("ERR_FAILED" in e and ("/subtasks" in e or "/api/checklists" in e))]
+        check("%s Z galat konsol hanya jaringan terputus / request yang digagalkan (%d diharapkan)" % (
+            tag, len(dev.errors) - len(unexpected)), not unexpected, "; ".join(unexpected[:5]))
         check("%s Z tanpa PUT /api/tasks/{id}" % tag, not dev.puts, repr(dev.puts[:8]))
-        check("%s Z _outbox tetap 0" % tag, wait_until(lambda: outbox(p) == 0, 5), repr(outbox(p)))
+        check("%s Z _outbox habis terkirim" % tag, settle(p), repr(outbox(p)))
     except Exception as e:  # noqa: BLE001
         fail_exc(tag, e, p)
     finally:

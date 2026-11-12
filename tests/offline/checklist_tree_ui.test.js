@@ -13,6 +13,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const C = require("../../static/offline/checklist.js");
+// Tes yang memakai ./setup.js (paket npm fake-indexeddb) dilewati bila paketnya tidak ada: berkas ini ikut dijalankan
+// CI lewat tests/test_taskdetail_node.py yang kontraknya "tanpa node_modules" (workflow tidak menjalankan npm install).
+const hasFakeIdb = (() => { try { require.resolve("fake-indexeddb/auto"); return true; } catch (_) { return false; } })();
+const IDB = { skip: hasFakeIdb ? false : "paket npm fake-indexeddb tidak terpasang (CI tanpa npm install)" };
 const indexHtml = fs.readFileSync(path.resolve(__dirname, "../../static/index.html"), "utf8").replace(/\r\n/g, "\n");
 const appCss = fs.readFileSync(path.resolve(__dirname, "../../static/app.css"), "utf8").replace(/\r\n/g, "\n");
 
@@ -357,11 +361,235 @@ test("S3: gagal muat lalu berhasil → hitungan biasa tanpa failed; lockFor gaga
   assert.deepEqual(h2.counts, [{ done: 0, total: 0, loaded: true, failed: true }, { done: 0, total: 0, loaded: true }]);
 });
 
-test("ChecklistTree: task belum tersinkron (id = cid) → tanpa permintaan, daftar kosong, 0/0", async () => {
-  const h = await mountTree({ taskId: "c-abc", task: { id: "c-abc", cid: "c-abc" } });
-  assert.deepEqual(h.srv.calls, []);
+test("ChecklistTree: task belum tersinkron (id = cid) → tetap memuat lewat /api/tasks/<cid>/subtasks (rute lokal, Fase 2)", async () => {
+  const srv = fakeServer([]);
+  const get = srv.api.get;
+  srv.api.get = url => (url === "/api/tasks/c-abc/subtasks" ? (srv.calls.push({ method: "GET", url }), Promise.resolve([])) : get(url));
+  const h = await mountTree({ taskId: "c-abc", task: { id: "c-abc", cid: "c-abc" } }, { server: srv });
+  assert.deepEqual(h.srv.calls.map(c => c.method + " " + c.url), ["GET /api/tasks/c-abc/subtasks"]);
   assert.deepEqual(rowsOf(h.out), []);
   assert.deepEqual(h.counts, [{ done: 0, total: 0, loaded: true }]);
+});
+
+test("ChecklistTree: penjaga 'id bukan angka' dihapus (checklist offline Fase 2 R6) — hanya id kosong yang tidak memuat", () => {
+  const s = fnSource("ChecklistTree");
+  assert.doesNotMatch(s, /\\d\+\$\/\.test\(String\(taskId\)\)/);
+  assert.doesNotMatch(s, /\bsynced\b/);
+  assert.match(s, /const hasId = taskId != null && String\(taskId\) !== "";/);
+  assert.doesNotMatch(s, /Task belum tersinkron \(id bukan angka\): daftar kosong/);
+});
+
+// Checklist offline Fase 2 (rencana PR B2 R6): ChecklistTree asli + rute lokal asli (taskroutes + checklistroutes +
+// checklistrepo di fake-indexeddb) untuk task yang belum tersinkron — semua permintaan dilayani lokal dan masuk antrean.
+test("ChecklistTree + rute lokal: task belum tersinkron (id = cid) — muat, tambah, centang, ubah teks, hapus tanpa jaringan", IDB, async () => {
+  const { deleteDB } = require("./setup.js");
+  const TFdb = require("../../static/offline/db.js");
+  const CR = require("../../static/offline/checklistrepo.js");
+  const T = require("../../static/offline/taskroutes.js");
+  const { outboxAll } = require("../../static/offline/outbox.js");
+  CR._reset();
+  TFdb._reset();
+  await deleteDB(TFdb.DB_NAME);
+  const db = await TFdb.openDB();
+  await new Promise(res => {
+    const t = db.transaction("tasks", "readwrite");
+    t.objectStore("tasks").put({ cid: "c-abc", server_id: null, title: "T", progress: 0, checklist_total: 0, dirty: 1, rev: 1, deleted: false });
+    t.oncomplete = () => res();
+  });
+  await CR.start();
+  await CR.markHydrated();
+  const router = T.buildTaskRouter();
+  const calls = [];
+  const via = method => (url, body) => {
+    calls.push({ method, url, body, local: T.shouldRouteLocally(router, method, url) });
+    return router.dispatch(method, url, body);
+  };
+  const srv = { calls, api: { get: via("GET"), post: via("POST"), patch: via("PATCH"), put: via("PUT"), del: via("DELETE") } };
+  srv.mutations = () => calls.filter(c => c.method !== "GET");
+  const h = await mountTree({ taskId: "c-abc", task: { id: "c-abc", cid: "c-abc", server_id: null, progress: 0, checklist_total: 0 } }, { server: srv });
+  assert.deepEqual(h.counts, [{ done: 0, total: 0, loaded: true }]);
+  h.add.setOpen(true); await h.settle();
+  h.add.setText("Satu"); await h.settle();
+  h.add.onKeyDown(key({ key: "Enter" })); await h.settle();
+  const rows = rowsOf(h.out);
+  assert.equal(rows.length, 1);
+  const id = rows[0].id;
+  assert.equal(typeof id, "string", "id butir = cid");
+  one(h.out, "Satu").props.onClick(); await h.settle();
+  assert.equal(rowsOf(h.out)[0].done, true);
+  textBtn(h.out, id).props.onClick(); await h.settle();
+  editBox(h.out).props.onChange({ target: { value: "Satu baru" } }); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  assert.equal(textOf(textBtn(h.out, id)), "Satu baru");
+  const antre = (await outboxAll()).filter(o => o.entity_type === "subtasks").map(o => [o.op, o.cid, o.task_cid]);
+  assert.deepEqual(antre, [["create", id, "c-abc"], ["set_done", id, "c-abc"], ["rename", id, "c-abc"]]);
+  assert.deepEqual(h.counts.at(-1), { done: 1, total: 1, loaded: true });
+  await pick(h, "Satu baru", "Hapus");
+  assert.deepEqual(rowsOf(h.out), []);
+  assert.deepEqual((await outboxAll()).filter(o => o.entity_type === "subtasks"), [], "butir belum terkirim dihapus → antreannya dibuang");
+  assert.deepEqual(calls.map(c => c.method + " " + c.url.replace(id, "<cid>")), [
+    "GET /api/tasks/c-abc/subtasks", "POST /api/tasks/c-abc/subtasks", "POST /api/subtasks/<cid>/toggle",
+    "PATCH /api/subtasks/<cid>", "DELETE /api/subtasks/<cid>"]);
+  assert.ok(calls.every(c => c.local), "semua dilayani rute lokal");
+  assert.deepEqual(h.toasts, []);
+  assert.ok(h.adopted.every(([sid]) => sid === "c-abc"), "adoptTaskProgress aman dipanggil dengan cid (respons lokal tanpa rev)");
+  const tk = await new Promise(res => { const r = db.transaction("tasks").objectStore("tasks").get("c-abc"); r.onsuccess = () => res(r.result); });
+  assert.deepEqual([tk.checklist_total, tk.dirty, tk.rev], [0, 1, 1], "progress lokal ditulis tanpa dirty/rev");
+});
+
+// Perbaikan uji coba Task 6 (E2E C-1 regresi): butir yang dibuat lewat tampilan lalu dikirim push (id server diadopsi)
+// selagi ChecklistTree terbuka tetap ber-id cid di respons lokal — centang, ubah teks + Tab (pindah) tetap mengenai baris
+// yang sama, kotak ubah teks tetap terbuka.
+test("ChecklistTree + rute lokal: id butir tetap sesudah push mengadopsi id server (centang, ubah teks + Tab)", IDB, async () => {
+  const { deleteDB } = require("./setup.js");
+  const TFdb = require("../../static/offline/db.js");
+  const CR = require("../../static/offline/checklistrepo.js");
+  const T = require("../../static/offline/taskroutes.js");
+  CR._reset();
+  TFdb._reset();
+  await deleteDB(TFdb.DB_NAME);
+  const db = await TFdb.openDB();
+  await new Promise(res => {
+    const t = db.transaction("tasks", "readwrite");
+    t.objectStore("tasks").put({ cid: "t7", server_id: 7, title: "T", progress: 0, checklist_total: 0, dirty: 0, rev: 1, deleted: false });
+    t.oncomplete = () => res();
+  });
+  await CR.start();
+  await CR.setRev("t7", 0);
+  await CR.markHydrated();
+  const router = T.buildTaskRouter();
+  const calls = [];
+  const via = method => (url, body) => {
+    calls.push({ method, url, body, local: T.shouldRouteLocally(router, method, url) });
+    return router.dispatch(method, url, body);
+  };
+  const srv = { calls, api: { get: via("GET"), post: via("POST"), patch: via("PATCH"), put: via("PUT"), del: via("DELETE") } };
+  srv.mutations = () => calls.filter(c => c.method !== "GET");
+  const h = await mountTree({ taskId: 7, task: { id: 7, server_id: 7, progress: 0, checklist_total: 0 } }, { server: srv });
+  h.add.setOpen(true); await h.settle();
+  for (const t of ["Satu", "Dua"]) { h.add.setText(t); await h.settle(); h.add.onKeyDown(key({ key: "Enter" })); await h.settle(); }
+  const [a, b] = rowsOf(h.out).map(r => r.id);
+  // push mengirim kedua create → id server diadopsi (tampilan tetap terbuka)
+  await CR.adoptServerId(a, 501);
+  await CR.adoptServerId(b, 502);
+  one(h.out, "Satu").props.onClick(); await h.settle();
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.done]), [[a, true], [b, false]], "centang mengenai baris yang sama");
+  assert.deepEqual(h.counts.at(-1), { done: 1, total: 2, loaded: true });
+  textBtn(h.out, b).props.onClick(); await h.settle();
+  editBox(h.out).props.onChange({ target: { value: "Dua baru" } }); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Tab" })); await h.settle();
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.depth]), [[a, 0], [b, 1]], "Tab → sub butir Satu");
+  assert.ok(editBox(h.out), "kotak ubah teks tetap terbuka");
+  assert.ok(rowNode(h.out, b).children.some(c => c && c.type === "MentionInput"), "di baris yang sama");
+  assert.deepEqual(h.toasts, []);
+  assert.ok(calls.every(c => c.local));
+});
+
+// CATATAN-4 review Task 4–6: pohon dimuat lewat jaringan (id server) sebelum unduhan awal selesai, lalu rute lokal
+// menjawab mutasi dengan id stabil (cid) butir buatan perangkat ini → id respons tidak dikenal daftar → daftar dimuat ulang
+// (GET) sekali di antrean yang sama, supaya tampilan selaras dengan rute lokal.
+test("ChecklistTree: respons centang ber-id yang tidak dikenal daftar → daftar dimuat ulang sekali; id selaras → tanpa muat ulang", async () => {
+  // butir yang sama: id server 501/502 (muat pertama lewat jaringan) = cid "c1"/"c2" (rute lokal)
+  const st = { local: false, done: { c1: false, c2: false }, title: { c1: "Satu", c2: "Dua" }, gone: new Set(), calls: [] };
+  const idOf = c => (st.local ? c : { c1: 501, c2: 502 }[c]);
+  const row = c => ({ id: idOf(c), task_id: 7, parent_id: null, depth: 0, title: st.title[c], is_done: st.done[c], sort_order: c === "c1" ? 0 : 1 });
+  const list = () => ["c1", "c2"].filter(c => !st.gone.has(c)).map(row);
+  const tp = { done: 0, total: 2, progress: 0 };
+  const api = {
+    get: url => { st.calls.push("GET " + url); const out = list(); st.local = true; return Promise.resolve(out); },
+    post: (url, body) => {
+      st.calls.push("POST " + url);
+      if (/\/toggle$/.test(url)) { st.done.c1 = !st.done.c1; return Promise.resolve(Object.assign(row("c1"), { changed_ids: ["c1"], task_progress: tp })); }
+      return Promise.resolve({ id: "c9", task_id: 7, parent_id: "c1", depth: 1, title: body.title, is_done: false, sort_order: 0, task_progress: tp });
+    },
+    patch: (url, body) => { st.calls.push("PATCH " + url); st.title.c2 = body.title; return Promise.resolve(Object.assign(row("c2"), { changed_ids: [], task_progress: tp })); },
+    del: url => { st.calls.push("DELETE " + url); st.gone.add("c2"); return Promise.resolve({ ok: true, deleted_ids: ["c2"], task_progress: tp }); },
+    put: () => Promise.reject(new Error("tidak dipakai")),
+  };
+  const srv = { calls: st.calls, api };
+  const h = await mountTree({}, { server: srv });
+  assert.deepEqual(rowsOf(h.out).map(r => r.id), [501, 502], "muat pertama lewat jaringan: id server");
+  one(h.out, "Satu").props.onClick(); await h.settle();
+  assert.deepEqual(st.calls.slice(-2), ["POST /api/subtasks/501/toggle", "GET /api/tasks/7/subtasks"], "id respons c1 tidak dikenal → muat ulang");
+  assert.deepEqual(rowsOf(h.out).map(r => [r.id, r.done]), [["c1", true], ["c2", false]]);
+  const n = st.calls.length;
+  one(h.out, "Satu").props.onClick(); await h.settle();
+  assert.equal(st.calls.length, n + 1, "id sudah selaras → tanpa muat ulang");
+  assert.deepEqual(h.toasts, []);
+  const g0 = st.calls.length;
+  textBtn(h.out, "c2").props.onClick(); await h.settle();
+  editBox(h.out).props.onChange({ target: { value: "Dua baru" } }); await h.settle();
+  editBox(h.out).props.onKeyDown(key({ key: "Enter" })); await h.settle();
+  assert.equal(st.calls.length, g0 + 1, "respons ubah teks ber-id dikenal (c2) → tanpa muat ulang");
+});
+
+test("ChecklistTree: respons hapus / tambah / pindah ber-id tak dikenal → muat ulang sekali", async () => {
+  for (const kind of ["hapus", "tambah", "pindah"]) {
+    const st = { calls: [], n: 0 };
+    const rows0 = [{ id: 501, task_id: 7, parent_id: null, depth: 0, title: "Satu", is_done: false, sort_order: 0 },
+      { id: 502, task_id: 7, parent_id: null, depth: 0, title: "Dua", is_done: false, sort_order: 1 }];
+    const asCid = r => Object.assign({}, r, { id: r.id === 501 ? "c1" : "c2" });
+    const tp = { done: 0, total: 2, progress: 0 };
+    const api = {
+      get: url => { st.calls.push("GET"); return Promise.resolve(st.n++ === 0 ? rows0 : rows0.map(asCid)); },
+      post: (url, body) => {
+        st.calls.push("POST " + url);
+        if (/\/move$/.test(url)) return Promise.resolve({ items: [rows0[1], rows0[0]].map(asCid), task_progress: tp });
+        return Promise.resolve({ id: "c9", task_id: 7, parent_id: "c1", depth: 1, title: body.title, is_done: false, sort_order: 0, task_progress: tp });
+      },
+      del: url => { st.calls.push("DELETE " + url); return Promise.resolve({ ok: true, deleted_ids: ["c2"], task_progress: tp }); },
+      patch: () => Promise.reject(new Error("x")), put: () => Promise.reject(new Error("x")),
+    };
+    const h = await mountTree({}, { server: { calls: st.calls, api } });
+    if (kind === "hapus") await pick(h, "Dua", "Hapus");
+    if (kind === "tambah") await pick(h, "Satu", "Tambah sub butir").then(async () => {
+      const box = findAll(h.out, nd => nd.type === "MentionInput" && nd.props["aria-label"] === "Sub butir baru")[0];
+      box.props.onChange({ target: { value: "Anak" } }); await h.settle();
+      findAll(h.out, nd => nd.type === "MentionInput" && nd.props["aria-label"] === "Sub butir baru")[0].props.onKeyDown(key({ key: "Enter" }));
+      await h.settle();
+    });
+    if (kind === "pindah") {
+      rowNode(h.out, 502).props.onKeyDown(key({ key: "ArrowUp", altKey: true, target: { getAttribute: () => "check" } }));
+      await h.settle();
+    }
+    assert.ok(st.calls.some(c => c.startsWith(kind === "hapus" ? "DELETE" : "POST")), kind + ": mutasi terkirim " + st.calls.join(", "));
+    assert.equal(st.calls.filter(c => c === "GET").length, 2, kind + ": " + st.calls.join(", "));
+    assert.ok(rowsOf(h.out).every(r => typeof r.id === "string"), kind + ": id selaras dengan rute lokal");
+  }
+});
+
+test("App: pendengar tf:checklist-rejected sekali → satu toast error berteks persis + sinkron ulang dan daftar task dimuat ulang (spec §4.4, F3)", () => {
+  const app = fnSource("App");
+  const n = app.split('"tf:checklist-rejected"').length - 1;
+  assert.equal(n, 2, "addEventListener + removeEventListener di satu efek App");
+  assert.equal(indexHtml.split('"tf:checklist-rejected"').length - 1, 2, "tidak didaftarkan di tempat lain");
+  const i = app.indexOf('window.addEventListener("tf:checklist-rejected"');
+  const eff = app.slice(app.lastIndexOf("useEffect(() => {", i), app.indexOf("}, []);", i) + 7);
+  assert.match(eff, /window\.__showToast\?\.\(`\$\{n\} perubahan checklist dibatalkan karena checklist sudah berubah di perangkat lain\.`, "error"\)/);
+  assert.match(eff, /if \(!\(n > 0\)\) return;/);
+  assert.match(eff, /\(window\.__refreshTasks \|\| window\.__syncNow\)\?\.\(\)/);
+  assert.match(eff, /\}, \[\]\);$/);
+  // perilaku: jalankan efeknya dengan window palsu. E2E (temporary_files/e2e_checklist_offline.py S3): sinkron saja
+  // tidak memuat ulang daftar task → progress yang dibatalkan tetap tampil sampai refresh 30 dtk berikutnya. Maka
+  // __refreshTasks (fetchAll = sinkron + muat ulang daftar, pola tombol konflik task) dipakai bila ada; __syncNow cadangan.
+  const run = (withRefresh) => {
+    const seen = [];
+    const handlers = {};
+    const win = { addEventListener: (t, f) => { handlers[t] = f; }, removeEventListener: (t) => { delete handlers[t]; },
+      __showToast: (m, k) => seen.push(["toast", m, k]), __syncNow: () => seen.push(["sync"]) };
+    if (withRefresh) win.__refreshTasks = () => seen.push(["refresh"]);
+    const body = eff.slice(eff.indexOf("{") + 1, eff.lastIndexOf("}, []);"));
+    const cleanup = new Function("window", body)(win);
+    handlers["tf:checklist-rejected"]({ detail: { count: 3 } });
+    handlers["tf:checklist-rejected"]({ detail: { count: 0 } });
+    handlers["tf:checklist-rejected"]({});
+    cleanup();
+    assert.equal(handlers["tf:checklist-rejected"], undefined);
+    return seen;
+  };
+  const toast = ["toast", "3 perubahan checklist dibatalkan karena checklist sudah berubah di perangkat lain.", "error"];
+  assert.deepEqual(run(true), [toast, ["refresh"]], "daftar task dimuat ulang (fetchAll sudah termasuk sinkron), tanpa sinkron kedua");
+  assert.deepEqual(run(false), [toast, ["sync"]], "tanpa __refreshTasks (belum login) → sinkron saja");
 });
 
 test("centang induk → menunggu respons, semua changed_ids dicoret; progress diadopsi lalu onProgress", async () => {

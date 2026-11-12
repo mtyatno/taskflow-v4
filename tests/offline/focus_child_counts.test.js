@@ -171,6 +171,27 @@ test("useFocusTaskCounts: id lokal (cid) tetap 3 GET per task tanpa opsi network
   assert.deepEqual(counts["7"], { subTotal: 2, subDone: 0, notes: 1, atts: 0 });
 });
 
+// Checklist offline (review akhir C1 PR B2): task yang belum tersinkron dihitung dari GET /subtasks rute lokal yang kini
+// berisi sub butir; child-counts server hanya menghitung level atas (parent_id IS NULL, K1) → sama di sini.
+test("useFocusTaskCounts: id lokal (cid) menghitung butir level atas saja, seperti child-counts server", async () => {
+  const { api } = fakeApi(url => {
+    if (url.endsWith("/subtasks")) return Promise.resolve([
+      { id: "a", parent_id: null, depth: 0, is_done: true },
+      { id: "a1", parent_id: "a", depth: 1, is_done: true },
+      { id: "a2", parent_id: "a", depth: 1, is_done: false },
+      { id: 9, parent_id: null, depth: 0, is_done: false },
+      { id: "b1", parent_id: 9, depth: 1, is_done: true },
+    ]);
+    if (url.endsWith("/notes") || url.endsWith("/attachments")) return Promise.resolve([]);
+    throw new Error("unexpected " + url);
+  });
+  const render = loadHook(api);
+  render(["c_new"]);
+  await flush();
+  const [counts] = render(["c_new"]);
+  assert.deepEqual(counts.c_new, { subTotal: 2, subDone: 1, notes: 0, atts: 0 });
+});
+
 test("useFocusTaskCounts (sumber): tanpa network: true, id diurutkan, ukuran potongan 200, peta sub_total/sub_done", () => {
   const src = fnSource("useFocusTaskCounts");
   assert.ok(src.includes("/api/tasks/child-counts?ids="));

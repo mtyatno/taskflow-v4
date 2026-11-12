@@ -1,5 +1,8 @@
 {
   "entries": [
+    {"version": "taskflow-v504-checklist-offline", "date": "2026-11-12", "title": "Checklist offline",
+     "new": ["Checklist kini bisa dipakai saat offline. Perubahan terkirim otomatis begitu tersambung lagi.",
+             "Jika checklist yang sama sudah diubah di perangkat lain, perubahan yang bentrok dibatalkan dan kamu diberi tahu."]},
     {"version": "taskflow-v503-ev-ekspor", "date": "2026-11-12", "title": "Timeline: kinerja jadwal dan ekspor",
      "new": ["Bandingkan kemajuan dengan baseline: toolbar Gantt kini menampilkan “Jadwal 92% · Efisiensi 🍅 108%”.",
              "Ekspor Timeline ke Microsoft Project (.xml) dari menu Lainnya.",

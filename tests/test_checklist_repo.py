@@ -973,3 +973,105 @@ def test_move_subtask_menolak_vektor_tidak_sah_tanpa_menulis(repo, u, tid, vec):
         repo.move_subtask(to_db[m["id"]], parent, m["index"])
     assert ei.value.code == vec["error"]
     assert _rows(tid) == sebelum
+
+
+# ── Vektor aksi lintas bahasa (checklist offline Fase 2, rencana PR B2 R1) ──
+# Rute lokal aplikasi (`TF.checklist.applyCreate/applySetDone/applyRename/applyDelete`) harus sama dengan
+# repository server untuk aksi yang sama. Butir baru di Python = id autoincrement (lebih besar dari semua id lain);
+# di JS = id string "new" (pembanding id campuran: angka sebelum teks) — keduanya dipetakan ke "new".
+
+ACTION_VECTORS = json.loads(
+    (Path(__file__).resolve().parent / "fixtures" / "checklist_action_vectors.json").read_text(encoding="utf-8"))
+
+
+def _muat_aksi(u, tid, rows):
+    """Seperti `_muat_vektor` + `is_done`/`title` per baris (bawaan judul "v<id>")."""
+    tasks = {1: tid}
+    to_db, to_vec = {}, {}
+    for r in sorted(rows, key=lambda r: r["id"]):
+        t = r.get("task_id", 1)
+        if t not in tasks:
+            tasks[t] = _mk(u, title=f"lain {t}")["id"]
+        sid = _ins(tasks[t], r.get("title", f"v{r['id']}"), sort_order=r["sort_order"],
+                   is_done=1 if r.get("is_done") else 0)
+        to_db[r["id"]], to_vec[sid] = sid, r["id"]
+    for r in rows:
+        p = r["parent_id"]
+        if p is not None:
+            _set_parent(to_db[r["id"]], to_db.get(p, 987654321))
+    return to_db, to_vec
+
+
+def _bentuk_aksi(items, to_vec):
+    return [[to_vec[s["id"]], s["depth"], to_vec.get(s["parent_id"]), s["sort_order"]] for s in items]
+
+
+def _induk_vektor(to_db, p):
+    return None if p is None else to_db.get(p, 987654321)
+
+
+@pytest.mark.parametrize("vec", ACTION_VECTORS["create"], ids=lambda v: v["name"])
+def test_add_subtask_sesuai_vektor_aksi_bersama(repo, u, tid, vec):
+    to_db, to_vec = _muat_aksi(u, tid, vec["rows"])
+    a = vec["action"]
+    r = repo.add_subtask(tid, a["title"], parent_id=_induk_vektor(to_db, a["parent_id"]), index=a["index"])
+    to_vec[r["id"]] = "new"
+    exp = vec["expected"]
+    assert _bentuk_aksi(repo.get_subtasks(tid), to_vec) == exp["items"]
+    assert _bentuk_aksi([r], to_vec) == [exp["item"]]
+    assert r["title"] == exp["title"] and r["is_done"] is False
+    assert [r["task_progress"]["done"], r["task_progress"]["total"]] == exp["counts"]
+
+
+@pytest.mark.parametrize("vec", ACTION_VECTORS["create_invalid"], ids=lambda v: v["name"])
+def test_add_subtask_menolak_vektor_aksi_tidak_sah_tanpa_menulis(repo, u, tid, vec):
+    to_db, _ = _muat_aksi(u, tid, vec["rows"])
+    a = vec["action"]
+    sebelum = _rows(tid)
+    with pytest.raises(ChecklistError) as ei:
+        repo.add_subtask(tid, a["title"], parent_id=_induk_vektor(to_db, a["parent_id"]), index=a["index"])
+    assert ei.value.code == vec["error"]
+    assert _rows(tid) == sebelum
+
+
+@pytest.mark.parametrize("vec", ACTION_VECTORS["set_done"], ids=lambda v: v["name"])
+def test_update_subtask_is_done_sesuai_vektor_aksi_bersama(repo, u, tid, vec):
+    to_db, to_vec = _muat_aksi(u, tid, vec["rows"])
+    a = vec["action"]
+    r = repo.update_subtask(to_db[a["id"]], is_done=a["is_done"])
+    exp = vec["expected"]
+    assert [to_vec[i] for i in r["changed_ids"]] == exp["changed_ids"]
+    assert [to_vec[s["id"]] for s in repo.get_subtasks(tid) if s["is_done"]] == exp["done"]
+    assert [r["task_progress"]["done"], r["task_progress"]["total"]] == exp["counts"]
+    assert r["task_progress"]["rev_bumped"] is bool(exp["changed_ids"])
+
+
+@pytest.mark.parametrize("vec", ACTION_VECTORS["rename"], ids=lambda v: v["name"])
+def test_update_subtask_title_sesuai_vektor_aksi_bersama(repo, u, tid, vec):
+    to_db, to_vec = _muat_aksi(u, tid, vec["rows"])
+    a = vec["action"]
+    sebelum = _bentuk_aksi(repo.get_subtasks(tid), to_vec)
+    r = repo.update_subtask(to_db[a["id"]], title=a["title"])
+    assert r["title"] == vec["expected"]["title"]
+    assert r["task_progress"]["rev_bumped"] is vec["expected"]["changed"]
+    assert _bentuk_aksi(repo.get_subtasks(tid), to_vec) == sebelum
+
+
+@pytest.mark.parametrize("vec", ACTION_VECTORS["rename_invalid"], ids=lambda v: v["name"])
+def test_update_subtask_title_menolak_vektor_aksi_tidak_sah(repo, u, tid, vec):
+    to_db, _ = _muat_aksi(u, tid, vec["rows"])
+    sebelum = _rows(tid)
+    with pytest.raises(ChecklistError) as ei:
+        repo.update_subtask(to_db[vec["action"]["id"]], title=vec["action"]["title"])
+    assert ei.value.code == vec["error"]
+    assert _rows(tid) == sebelum
+
+
+@pytest.mark.parametrize("vec", ACTION_VECTORS["delete"], ids=lambda v: v["name"])
+def test_delete_subtask_sesuai_vektor_aksi_bersama(repo, u, tid, vec):
+    to_db, to_vec = _muat_aksi(u, tid, vec["rows"])
+    r = repo.delete_subtask(to_db[vec["action"]["id"]])
+    exp = vec["expected"]
+    assert [to_vec[i] for i in r["deleted_ids"]] == exp["deleted_ids"]
+    assert _bentuk_aksi(repo.get_subtasks(tid), to_vec) == exp["items"]
+    assert [r["task_progress"]["done"], r["task_progress"]["total"]] == exp["counts"]

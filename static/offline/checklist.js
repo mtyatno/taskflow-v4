@@ -15,6 +15,13 @@
   //
   // Butir = bentuk API `{id, task_id, parent_id, depth, title, is_done, sort_order}` (field lain ikut tersalin).
   //
+  // - Id campuran (Fase 2, spec checklist offline §4.3, rencana PR B2 R1): `id`/`parent_id` boleh angka (id server)
+  //   atau teks (cid butir yang belum tersinkron); pembanding id: angka sebelum teks, teks menurut `<` biasa.
+  // - Aksi murni untuk rute lokal (hasil = repository server; vektor bersama tests/fixtures/checklist_action_vectors.json):
+  //   `applyCreate(items, {id, task_id, title, parent_id, index})` → {items, item}; `applySetDone(items, id, done)` →
+  //   {items, changed_ids}; `applyRename(items, id, title)` → {items, item, changed}; `applyDelete(items, id)` →
+  //   {items, deleted_ids}; `moveError(items, id, parent_id)` → kode galat pindah | null. Id tidak dikenal → null;
+  //   galat validasi → {error: "PARENT_NOT_FOUND"|"CYCLE"|"EMPTY_TITLE"}.
   // - Pohon efektif: saudara urut `(sort_order NULL→0, id)`. Induk yang tidak ada atau di task lain → level atas.
   //   Dalam setiap siklus, anggota dengan `(sort_order, id)` terkecil naik ke level atas. `parent_id` efektif = null
   //   untuk butir depth 0 (sama dengan `GET …/subtasks`), selain itu = `parent_id` tersimpan.
@@ -52,7 +59,7 @@
   //   sendiri bila depth = depth-nya + 1), null untuk 0; `depth` di-clamp ke `0..maxAddDepth`.
   // - `autoScrollDelta(pointerY, rect)`: < 40 px dari `rect.top` → negatif, < 40 px dari `rect.bottom` → positif,
   //   besarnya `max(1, round(16 × (40 − jarak) / 40))` maks 16; 0 selain itu (pola kanbanAutoScrollDelta).
-  // - Lipat per perangkat: `loadCollapsed(storage)` → Set id angka (urutan penambahan); `saveCollapsed(storage, ids)`
+  // - Lipat per perangkat: `loadCollapsed(storage)` → Set id angka / cid (urutan penambahan); `saveCollapsed(storage, ids)`
   //   menyimpan array maks `COLLAPSE_MAX` (yang paling lama ditambahkan dibuang dulu) dan mengembalikan array itu.
   //   Setiap akses `try/catch`; JSON rusak / bukan array / storage null → kosong tanpa galat.
   // - `lockFor(task, counts)`: `counts.loaded && counts.total > 0` → `{done, total, percent}`; hitungan belum dimuat
@@ -65,12 +72,15 @@
   //   true = ditulis; id tidak dikenal, record tidak ada, `tp` tidak sah, nilai sama, atau galat IndexedDB → false.
   //   Setiap tulis juga mencatat `checklist_adopted_at = Date.now()` (kolom bantu lokal, tidak ikut payload push):
   //   pull yang GET daftarnya dimulai pada/sebelum cap itu tidak menimpa progress/checklist_total (daftar basi).
+  //   `writeTaskProgress(taskCid, tp)` = inti yang sama dengan cid task lokal (Fase 2: progress hasil aksi lokal di
+  //   checklistrepo, termasuk task yang belum tersinkron).
 
   const isNode = typeof module !== "undefined" && module.exports;
   const req = (m, g) => (isNode ? require(m) : g);
 
   const COLLAPSE_KEY = "tf_check_collapsed";
   const COLLAPSE_MAX = 500;
+  const CID_MAX = 64;
   const SCROLL_EDGE = 40;
   const SCROLL_MAX = 16;
 
@@ -83,7 +93,15 @@
   // ── pohon efektif ──────────────────────────────────────────────────────────
 
   const soOf = (it) => Number(it.sort_order) || 0;
-  function cmpId(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+  // Id campuran (Fase 2, rencana PR B2 R1): butir yang belum tersinkron memakai cid (string) sebagai id. Angka
+  // sebelum teks (cid ≈ butir terbaru, sama dengan id autoincrement server yang selalu terbesar); sesama angka /
+  // sesama teks menurut `<` biasa. Hanya relevan lokal — server selalu berisi angka.
+  function cmpId(a, b) {
+    const na = typeof a === "number";
+    const nb = typeof b === "number";
+    if (na !== nb) return na ? -1 : 1;
+    return a < b ? -1 : a > b ? 1 : 0;
+  }
   function cmpItem(a, b) { return (soOf(a) - soOf(b)) || cmpId(a.id, b.id); }
   const taskOf = (it) => (it.task_id == null ? null : it.task_id);
 
@@ -357,6 +375,101 @@
     return preorder(next);
   }
 
+  // ── aksi murni untuk rute lokal (Fase 2, rencana PR B2 R1) ──────────────────
+  // Hasil HARUS sama dengan repository server untuk aksi yang sama (vektor bersama
+  // tests/fixtures/checklist_action_vectors.json diuji di JS dan pytest). Masukan tidak diubah; `items` hasil =
+  // daftar pre-order baru (bentuk `preorder`). Id tidak dikenal → null (rute: 404); galat validasi → {error: kode}
+  // dengan kode ChecklistError server.
+
+  // Posisi di antara `n` saudara seperti `_clamp_index` repository: null/undefined = akhir; selain itu int(index)
+  // di-clamp ke 0..n (kontrak HTTP `index ≥ 0` dicek rute, bukan di sini).
+  function clampIndex(index, n) {
+    if (index == null) return n;
+    return Math.max(0, Math.min(Math.trunc(Number(index)) || 0, n));
+  }
+
+  // `add_subtask`: judul di-trim (kosong → EMPTY_TITLE, dicek sebelum induk); induk tidak ada / task lain →
+  // PARENT_NOT_FOUND; butir baru `{id, task_id, parent_id, title, is_done: false}` disisipkan di posisi `index`
+  // di antara saudara (task yang sama) lalu seluruh kelompok saudara itu dinomori ulang 0..n (kelompok lain tidak
+  // disentuh). `task_id` bawaan = task butir pertama pre-order (null bila kosong). Prasyarat: `id` belum dipakai.
+  // → {items, item} | {error}.
+  function applyCreate(items, spec) {
+    const s = spec || {};
+    const title = typeof s.title === "string" ? s.title.trim() : "";
+    if (!title) return { error: "EMPTY_TITLE" };
+    const flat = preorder(items);
+    const task = s.task_id !== undefined ? s.task_id : (flat.length ? taskOf(flat[0]) : null);
+    const parent = s.parent_id == null ? null : s.parent_id;
+    if (parent != null) {
+      const pi = indexOfId(flat, parent);
+      if (pi < 0 || taskOf(flat[pi]) !== task) return { error: "PARENT_NOT_FOUND" };
+    }
+    const sibs = flat.filter((r) => r.parent_id === parent && taskOf(r) === task);
+    const pos = clampIndex(s.index, sibs.length);
+    const fresh = { id: s.id, task_id: task, parent_id: parent, title, is_done: false, sort_order: pos };
+    const group = sibs.slice();
+    group.splice(pos, 0, fresh);
+    const order = new Map(group.map((r, i) => [r.id, i]));
+    const next = flat.map((r) => (order.has(r.id) && r.sort_order !== order.get(r.id)
+      ? Object.assign({}, r, { sort_order: order.get(r.id) }) : r));
+    next.push(fresh);
+    const out = preorder(next);
+    return { items: out, item: out[indexOfId(out, s.id)] };
+  }
+
+  // Centang SET (`_set_done`): true → butir + semua turunan yang belum selesai; false → hanya butir itu (bila
+  // selesai). `changed_ids` = id yang berubah (pre-order; kosong = tanpa perubahan). → {items, changed_ids} | null.
+  function applySetDone(items, id, done) {
+    const flat = preorder(items);
+    const i = indexOfId(flat, id);
+    if (i < 0) return null;
+    let changed;
+    if (done) changed = flat.slice(i, subtreeEnd(flat, i)).filter((r) => !r.is_done).map((r) => r.id);
+    else changed = flat[i].is_done ? [id] : [];
+    const set = new Set(changed);
+    const val = !!done;
+    return { items: flat.map((r) => (set.has(r.id) ? Object.assign({}, r, { is_done: val }) : r)), changed_ids: changed };
+  }
+
+  // Ubah teks (`rename_subtask` / `update_subtask` title): id tidak dikenal → null (dicek lebih dulu, seperti server);
+  // judul di-trim, kosong / bukan string → EMPTY_TITLE; sama → `changed` false dan daftar tidak berubah.
+  // → {items, item, changed} | null | {error}.
+  function applyRename(items, id, title) {
+    const flat = preorder(items);
+    const i = indexOfId(flat, id);
+    if (i < 0) return null;
+    const clean = typeof title === "string" ? title.trim() : "";
+    if (!clean) return { error: "EMPTY_TITLE" };
+    const changed = clean !== flat[i].title;
+    const out = changed ? flat.map((r, k) => (k === i ? Object.assign({}, r, { title: clean }) : r)) : flat;
+    return { items: out, item: out[i], changed };
+  }
+
+  // Hapus berantai (`delete_subtask`): butir + semua turunannya; saudara yang tersisa TIDAK dinomori ulang.
+  // `deleted_ids` = butir lalu turunannya (pre-order). → {items, deleted_ids} | null.
+  function applyDelete(items, id) {
+    const flat = preorder(items);
+    const i = indexOfId(flat, id);
+    if (i < 0) return null;
+    const end = subtreeEnd(flat, i);
+    return { items: flat.slice(0, i).concat(flat.slice(end)), deleted_ids: flat.slice(i, end).map((r) => r.id) };
+  }
+
+  // Kode galat `move_subtask` untuk tujuan pindah (urutan cek sama dengan server): induk = diri → CYCLE; induk tidak
+  // ada / task lain → PARENT_NOT_FOUND; induk = turunan → CYCLE. Tujuan sah, level atas, atau id tidak dikenal → null.
+  // Rute lokal memakainya untuk teks 422 sebelum `applyMove` (yang hanya mengembalikan null).
+  function moveError(items, id, parentId) {
+    if (parentId == null) return null;
+    const L = locate(items, id);
+    if (!L) return null;
+    if (parentId === id) return "CYCLE";
+    const pi = indexOfId(L.flat, parentId);
+    if (pi < 0 || taskOf(L.flat[pi]) !== taskOf(L.it)) return "PARENT_NOT_FOUND";
+    const di = indexOfId(L.flat, id);
+    if (pi >= di && pi < subtreeEnd(L.flat, di)) return "CYCLE";
+    return null;
+  }
+
   // ── kotak tambah bawah ─────────────────────────────────────────────────────
 
   function maxAddDepth(items) {
@@ -386,12 +499,16 @@
 
   // ── lipat per perangkat ────────────────────────────────────────────────────
 
+  // Id butir tersimpan: bilangan bulat (teks angka → angka, seperti id server) atau cid (teks bukan angka, 1–64
+  // karakter setelah trim; Fase 2: butir yang belum tersinkron). Selain itu null.
   function idOrNull(x) {
     if (typeof x === "number") return Number.isInteger(x) ? x : null;
-    if (typeof x === "string" && /^-?\d+$/.test(x.trim())) return Number(x);
-    return null;
+    if (typeof x !== "string") return null;
+    const t = x.trim();
+    if (/^-?\d+$/.test(t)) return Number(t);
+    return t && t.length <= CID_MAX ? t : null;
   }
-  // Id unik (urutan pertama kali muncul), hanya bilangan bulat; maks COLLAPSE_MAX terakhir.
+  // Id unik (urutan pertama kali muncul), bilangan bulat atau cid; maks COLLAPSE_MAX terakhir.
   function cleanIds(list) {
     const seen = new Set();
     for (const x of list) {
@@ -440,28 +557,50 @@
   function idmapMod() { return req("./idmap.js", root.TF && root.TF.idmap); }
   function dbMod() { return req("./db.js", root.TF && root.TF.db); }
 
-  function adoptTaskProgress(serverTaskId, tp) {
-    if (serverTaskId == null || serverTaskId === "" || !tp || typeof tp !== "object") return Promise.resolve(false);
+  // `task_progress` sah → {total, progress|null}; selain itu null.
+  function cleanTp(tp) {
+    if (!tp || typeof tp !== "object") return null;
     const total = tp.total;
-    if (typeof total !== "number" || !Number.isInteger(total) || total < 0) return Promise.resolve(false);
-    const progress = typeof tp.progress === "number" && Number.isFinite(tp.progress) ? tp.progress : null;
+    if (typeof total !== "number" || !Number.isInteger(total) || total < 0) return null;
+    return { total, progress: typeof tp.progress === "number" && Number.isFinite(tp.progress) ? tp.progress : null };
+  }
+
+  // Inti adopsi dengan cid task lokal (Fase 2, rencana PR B2 R2): dipakai adoptTaskProgress (respons server) dan
+  // checklistrepo (progress hasil aksi lokal, termasuk task yang belum tersinkron). Aturan sama: hanya bila berbeda,
+  // dirty/rev/base_rev/updated_at/ext tidak disentuh, cap checklist_adopted_at. → Promise<boolean>.
+  // Record task berikutnya sesudah mengadopsi task_progress `tp` (murni; dipakai writeTaskProgress dan
+  // checklistrepo.adoptProgressIfIdle yang menulisnya di transaksi bersama _outbox). Tidak ada record / tp tidak sah /
+  // tidak ada yang berbeda → undefined.
+  function progressPatch(cur, tp) {
+    const v = cleanTp(tp);
+    if (!cur || !v) return undefined;
+    const patch = {};
+    if (cur.checklist_total !== v.total) patch.checklist_total = v.total;
+    if (v.progress != null && cur.progress !== v.progress) patch.progress = v.progress;
+    if (!Object.keys(patch).length) return undefined;
+    patch.checklist_adopted_at = Date.now(); // penjaga pull basi (syncpull adoptedSince); bukan field server
+    return Object.assign({}, cur, patch);
+  }
+
+  function writeTaskProgress(taskCid, tp) {
+    const v = cleanTp(tp);
+    if (taskCid == null || taskCid === "" || !v) return Promise.resolve(false);
+    return Promise.resolve()
+      .then(() => {
+        const TFdb = dbMod();
+        if (!TFdb || typeof TFdb.mutate !== "function") return null;
+        return TFdb.mutate("tasks", taskCid, (cur) => progressPatch(cur, tp));
+      })
+      .then((saved) => !!saved, () => false);
+  }
+
+  function adoptTaskProgress(serverTaskId, tp) {
+    if (serverTaskId == null || serverTaskId === "" || !cleanTp(tp)) return Promise.resolve(false);
     return Promise.resolve()
       .then(() => {
         const idmap = idmapMod();
-        const TFdb = dbMod();
-        if (!idmap || !TFdb || typeof TFdb.mutate !== "function") return null;
-        return idmap.cidOf("task", serverTaskId).then((cid) => {
-          if (!cid) return null;
-          return TFdb.mutate("tasks", cid, (cur) => {
-            if (!cur) return undefined;
-            const patch = {};
-            if (cur.checklist_total !== total) patch.checklist_total = total;
-            if (progress != null && cur.progress !== progress) patch.progress = progress;
-            if (!Object.keys(patch).length) return undefined;
-            patch.checklist_adopted_at = Date.now(); // penjaga pull basi (syncpull adoptedSince); bukan field server
-            return Object.assign({}, cur, patch);
-          });
-        });
+        if (!idmap) return false;
+        return idmap.cidOf("task", serverTaskId).then((cid) => (cid ? writeTaskProgress(cid, tp) : false));
       })
       .then((saved) => !!saved, () => false);
   }
@@ -470,6 +609,8 @@
     COLLAPSE_KEY, COLLAPSE_MAX,
     percent, preorder, topLevelCounts, childCounts, childCountsAll, descendantIds, visibleRows,
     indentTarget, outdentTarget, siblingMoveTarget, dropRange, dropTarget, applyMove,
+    applyCreate, applySetDone, applyRename, applyDelete, moveError,
     maxAddDepth, addParentFor, autoScrollDelta, loadCollapsed, saveCollapsed, lockFor, adoptTaskProgress,
+    writeTaskProgress, progressPatch,
   };
 });

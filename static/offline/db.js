@@ -12,7 +12,11 @@
   // Jangan pernah diturunkan: membuka DB yang sudah lebih tinggi memakai versi lebih rendah = VersionError
   // → semua rute offline mati. Rollback fitur = revert kode, versi dan store tetap (spec plugin Fase 1 §4).
   // v7 = plugin_records/plugin_kv (PR 1a-2). Revert fitur ≠ turunkan versi.
-  const DB_VERSION = 7;
+  // v8 = pagar tab lama (checklist offline Fase 2, PR B2): tanpa perubahan skema. `processOp` aplikasi v502 membuang
+  // diam-diam entri _outbox entitas yang tidak dikenalnya (termasuk `subtasks`); dengan v8 tab lama yang masih terbuka
+  // menerima versionchange dan menutup koneksinya SEBELUM tab baru bisa menulis antrean checklist, dan JS lama yang
+  // dibuka sesudahnya (v7 pada DB v8) mendapat VersionError — keduanya tidak bisa lagi membaca / membuang antrean.
+  const DB_VERSION = 8;
   // K2 / R12: tab lain menaikkan versi DB → koneksi tab ini ditutup dan openDB berikutnya ditolak dengan kode ini.
   const UPGRADED_ELSEWHERE = "DB_UPGRADED_ELSEWHERE";
 

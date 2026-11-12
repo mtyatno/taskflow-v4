@@ -267,7 +267,7 @@
   <script>
     // Versi SW di-set sebelum render React mana pun: AppErrorBoundary mencatatnya di tf_last_crash, juga saat
     // render pertama crash.
-    window.__SW_VERSION = "taskflow-v503-ev-ekspor";
+    window.__SW_VERSION = "taskflow-v504-checklist-offline";
     // Sudah login sebelum halaman ini dimuat? Login di halaman ini tidak dihitung: perangkat baru tidak disuguhi
     // modal "Apa yang baru" (TF.whatsnew.pickUnseen, hadUser).
     try {
@@ -318,6 +318,8 @@
   <script src="/static/offline/focusfilter.js"></script>
   <script src="/static/offline/taskdetail.js"></script>
   <script src="/static/offline/checklist.js"></script>
+  <script src="/static/offline/checklistrepo.js"></script>
+  <script src="/static/offline/checklistroutes.js"></script>
   <script src="/static/offline/tagrepo.js"></script>
   <script src="/static/offline/taskrepo.js"></script>
   <script src="/static/offline/taskquery.js"></script>
@@ -821,6 +823,9 @@ const api = {
       try { _router = api._localRouter || (api._localRouter = _R.buildTaskRouter()); } catch (_) { _router = null; }
       if (_router) {
         const _method = (opts.method || "GET").toUpperCase();
+        // Checklist offline: keputusan routing checklist dibaca dari memori TF.checklistrepo → tunggu memori dimuat (langsung bila sudah; modul lama/tidak ada → dilewati).
+        const _CL = window.TF.checklistroutes, _CR = window.TF.checklistrepo;
+        if (_CL && _CR && typeof _CL.parseCall === "function" && typeof _CR.start === "function" && _CL.parseCall(_method, url)) await Promise.resolve().then(() => _CR.start()).catch(() => null);
         // shouldRouteLocally: /api/tags?entity_type=note, /api/scratchpad/trash..., /api/tasks/child-counts selalu ke jaringan.
         // Fallback untuk taskroutes.js lama dari cache SW (index.html bisa lebih baru dari modulnya). child-counts
         // dicek di luar keduanya: taskroutes.js lama (dengan shouldRouteLocally, tanpa isTaskChildCountsCall)
@@ -1001,7 +1006,7 @@ function schedulePush() {
       .catch(() => {});
   }, 1500);
 }
-window.__pushNow = () => (window.TF && window.TF.syncpush) ? runSyncExclusive(() => window.TF.syncpush.pushOutbox(__syncTransport)) : Promise.resolve(null);
+window.__pushNow = () => (window.TF && window.TF.syncpush) ? runSyncExclusive(() => window.TF.syncpush.pushOutbox(__syncTransport, { waitLock: true })) : Promise.resolve(null);
 // Op outbox diantre di luar mutasi API (mis. heal drawing saat dibuka) → tetap dijadwalkan push
 window.addEventListener("tf:outbox-queued", () => schedulePush());
 const __syncRawFetch = (u, timeoutMs) => {
@@ -1313,6 +1318,8 @@ function sync() {
       window.dispatchEvent(new CustomEvent("tf:contexts-changed", { detail: { source: "sync" } }));
       return res;
     }).catch(stepFailed)
+    // Checklist offline (Fase 2): unduh checklist yang versinya berubah — sesudah pull task (checklist_rev terbaru), sebelum push
+    .then(() => step(() => (window.TF.syncpull.pullChecklists ? window.TF.syncpull.pullChecklists(__syncRawFetch) : null)))
     // T8: penanda occurrence task berulang (jendela ±60 hari) — setelah tasks supaya idmap task sudah terisi
     .then(() => step(() => (window.TF.syncpull.pullRecurringExceptions ? window.TF.syncpull.pullRecurringExceptions(__syncRawFetch) : null)))
     .then(() => step(() => (window.TF.listsync ? window.TF.listsync.pullAndReconcileLists(__syncRawFetch) : null)))
@@ -9764,7 +9771,8 @@ function ChecklistGlyph({
 //   memuat ulang daftar task.
 // - autoRefreshMs (Fokus) memuat ulang berkala, dilewati selama sibuk (seret, kotak isian berisi teks, menu terbuka,
 //   antrean belum kosong).
-// - Task belum tersinkron (id bukan angka): daftar kosong, tanpa GET dan tanpa /api/subtasks/*.
+// - Task belum tersinkron (id = cid) dan butir belum terkirim (id = cid): dilayani rute lokal seperti id server
+//   (checklist offline Fase 2, E6/E7); hanya id kosong yang tidak memuat. Respons lokal tanpa rev (adoptTaskProgress aman).
 // - Kotak tambah bawah dirender pemanggil lewat renderAdd(add) (teks persis milik pemanggil); add = {text, setText,
 //   depth, open, setOpen, busy, onKeyDown, onBlur, submit, style}. Tab/Shift+Tab mengubah depth (0..maxAddDepth) dan
 //   hanya ditangkap bila depth benar-benar berubah, supaya fokus tetap bisa keluar dari kotak (K14).
@@ -9779,7 +9787,7 @@ function ChecklistTree({
   renderAdd
 }) {
   const C = window.TF.checklist;
-  const synced = /^\d+$/.test(String(taskId));
+  const hasId = taskId != null && String(taskId) !== "";
   const listUrl = `/api/tasks/${taskId}/subtasks`;
   const storage = () => {
     let s = null;
@@ -9789,7 +9797,7 @@ function ChecklistTree({
     return s;
   };
   const [items, setItemsState] = useState([]);
-  const [loadState, setLoadState] = useState(synced ? "loading" : "ok"); // "loading" | "ok" | "failed" (muat pertama gagal)
+  const [loadState, setLoadState] = useState(hasId ? "loading" : "ok"); // "loading" | "ok" | "failed" (muat pertama gagal)
   const loaded = loadState !== "loading";
   const [collapsed, setCollapsedState] = useState(() => C.loadCollapsed(storage()));
   const [addText, setAddText] = useState("");
@@ -9845,7 +9853,7 @@ function ChecklistTree({
     setEditing(next);
   };
   const load = force => {
-    if (!synced) return Promise.resolve();
+    if (!hasId) return Promise.resolve();
     const seq = ++loadSeqRef.current;
     const mut = mutSeqRef.current;
     return api.get(listUrl).then(data => {
@@ -9896,6 +9904,13 @@ function ChecklistTree({
     C.adoptTaskProgress(sid, tp).then(() => {
       if (changed) cbRef.current.onProgress?.(tp);
     });
+  };
+  // CATATAN-4 (review PR B2): respons mutasi yang menyebut id yang tidak ada di daftar (pohon dimuat lewat jaringan, id
+  // server, sebelum unduhan awal selesai, lalu rute lokal menjawab dengan id stabil cid butir buatan perangkat ini, atau
+  // sebaliknya) → daftar dimuat ulang (GET) di antrean yang sama supaya id tampilan selaras dengan rute.
+  const stale = ids => {
+    const known = new Set(itemsRef.current.map(r => r.id));
+    return ids.some(x => x != null && !known.has(x));
   };
   // Perubahan yang sudah diterima server: ke daftar server dan ke tampilan.
   const applyServer = fn => {
@@ -9954,21 +9969,23 @@ function ChecklistTree({
     if (changed) setCollapsed(next);
   };
   const toggle = id => {
-    if (!synced || toggleBusyRef.current.has(id)) return;
+    if (!hasId || toggleBusyRef.current.has(id)) return;
     toggleBusyRef.current.add(id);
     enqueue(() => api.post(`/api/subtasks/${id}/toggle`).then(resp => {
       const ids = new Set(Array.isArray(resp.changed_ids) ? resp.changed_ids : []);
       ids.add(resp.id != null ? resp.id : id);
       const done = !!resp.is_done;
+      const resync = stale([...ids]);
       applyServer(list => list.map(r => ids.has(r.id) ? Object.assign({}, r, { is_done: done }) : r));
       adopt(resp);
+      if (resync) return load(true);
     }), "Gagal mencentang butir").then(() => toggleBusyRef.current.delete(id));
   };
   // Pindah optimistis + antrean (keyboard, menu, seret). target = {parent_id, index} dari TF.checklist; null atau
   // tujuan tidak sah (applyMove null) → tidak terjadi apa-apa. Fokus kembali ke bagian `part` baris yang sama setelah
   // render (dicari menurut id, karena li bisa dipasang ulang di ul lain).
   const moveItem = (id, target, part) => {
-    if (!synced || !target) return false;
+    if (!hasId || !target) return false;
     const next = C.applyMove(itemsRef.current, id, target.parent_id, target.index);
     if (!next) return false;
     if (target.parent_id != null) expandChain(target.parent_id);
@@ -9987,10 +10004,12 @@ function ChecklistTree({
     }).then(resp => {
       if (!resp || !Array.isArray(resp.items)) throw new Error("Respons pindah tidak sah");
       const list = C.preorder(resp.items);
+      const resync = !list.some(r => r.id === id);
       confirmedRef.current = list;
       // Daftar server menggantikan tampilan hanya bila tidak ada perubahan lain yang masih menunggu.
       if (pendingRef.current === 1) setItems(list);
       adopt(resp);
+      if (resync) return load(true);
     }), "Gagal memindah butir");
     return true;
   };
@@ -10009,14 +10028,16 @@ function ChecklistTree({
     }).then(resp => {
       const saved = resp && typeof resp.title === "string" ? resp.title : title;
       const put = list => list.map(r => r.id === ed.id ? Object.assign({}, r, { title: saved }) : r);
+      const resync = !!resp && stale([resp.id]);
       confirmedRef.current = put(confirmedRef.current);
       if (pendingRef.current === 1) setItems(put(itemsRef.current));
       adopt(resp);
+      if (resync) return load(true);
     }), "Gagal menyimpan teks butir");
   };
   const startEdit = id => {
     const it = itemsRef.current.find(r => r.id === id);
-    if (!it || !synced) return;
+    if (!it || !hasId) return;
     if (editRef.current && editRef.current.id !== id) commitEdit(false);
     setMenuFor(null);
     pendingFocusRef.current = {
@@ -10067,7 +10088,7 @@ function ChecklistTree({
   const remove = id => {
     const flat = itemsRef.current;
     const it = flat.find(r => r.id === id);
-    if (!it || !synced) return;
+    if (!it || !hasId) return;
     const title = it.title || "";
     const n = C.descendantIds(flat, id).length;
     if (n > 0 && !window.confirm("Hapus «" + title + "» beserta " + n + " sub butir?")) return;
@@ -10081,8 +10102,10 @@ function ChecklistTree({
         id: near.item.id,
         part: "check"
       };
+      const resync = stale([...gone]);
       applyServer(list => list.filter(r => !gone.has(r.id)));
       adopt(resp);
+      if (resync) return load(true);
     }), "Gagal menghapus butir");
   };
   // Tambah butir di akhir saudara (tanpa index); true bila tersimpan.
@@ -10093,10 +10116,12 @@ function ChecklistTree({
       client_id: clientId,
       parent_id: parentId
     }).then(resp => {
+      const resync = stale([resp.parent_id]);
       applyServer(list => withAdded(list, itemOf(resp)));
       if (parentId != null) expandChain(parentId);
       adopt(resp);
       ok = true;
+      if (resync) return load(true);
     }), "Gagal menambah butir").then(() => ok);
   };
   const closeAdd = () => {
@@ -10204,7 +10229,7 @@ function ChecklistTree({
     return document.scrollingElement || document.documentElement;
   };
   const onGripDown = (e, id) => {
-    if (!synced || dragRef.current) return;
+    if (!hasId || dragRef.current) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     const el = e.currentTarget;
     const start = kanbanDragStart(e, Date.now());
@@ -10385,7 +10410,7 @@ function ChecklistTree({
     };
   }, []);
   useEffect(() => {
-    if (!autoRefreshMs || !synced) return undefined;
+    if (!autoRefreshMs || !hasId) return undefined;
     const h = setInterval(() => {
       if (!busyRef.current()) load(false);
     }, autoRefreshMs);
@@ -12339,8 +12364,8 @@ function useFocusTaskCounts(taskIds) {
       Promise.all([api.get(`/api/tasks/${id}/subtasks`).catch(() => null), api.get(`/api/tasks/${id}/notes`).catch(() => null), api.get(`/api/tasks/${id}/attachments`).catch(() => null)]).then(([subs, notes, atts]) => {
         const patch = {};
         if (Array.isArray(subs)) {
-          patch.subTotal = subs.length;
-          patch.subDone = subs.filter(s => s.is_done).length;
+          patch.subTotal = subs.filter(s => s.parent_id == null).length; // level atas saja (K1), sama dengan child-counts server
+          patch.subDone = subs.filter(s => s.parent_id == null && s.is_done).length;
         }
         if (Array.isArray(notes)) patch.notes = notes.length;
         if (Array.isArray(atts)) patch.atts = atts.length;
@@ -29052,7 +29077,7 @@ function SettingsPage({
       color: "var(--text-secondary)",
       marginBottom: 10
     }
-  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v503-ev-ekspor"), ")"), /*#__PURE__*/React.createElement("p", {
+  }, "Versi Aplikasi: ", /*#__PURE__*/React.createElement("strong", null, window.__APP_VERSION || "4.0.0"), " (SW: ", /*#__PURE__*/React.createElement("code", { style: { fontSize: 12 } }, window.__SW_VERSION || "taskflow-v504-checklist-offline"), ")"), /*#__PURE__*/React.createElement("p", {
     style: {
       fontSize: 13,
       color: "var(--text-secondary)",
@@ -45238,6 +45263,19 @@ function App() {
       window.removeEventListener("tf:contexts-changed", reloadContextItems);
     };
   }, [user]);
+
+  // Checklist offline (spec §4.4, F3): perubahan checklist yang ditolak server → satu pesan per drain push (syncpush
+  // memancarkan tf:checklist-rejected sekali dengan jumlahnya); sinkron ulang + muat ulang daftar task (fetchAll) supaya checklist dan progress kembali ke versi server.
+  useEffect(() => {
+    const onRejected = e => {
+      const n = Number(e && e.detail && e.detail.count) || 0;
+      if (!(n > 0)) return;
+      window.__showToast?.(`${n} perubahan checklist dibatalkan karena checklist sudah berubah di perangkat lain.`, "error");
+      (window.__refreshTasks || window.__syncNow)?.();
+    };
+    window.addEventListener("tf:checklist-rejected", onRejected);
+    return () => window.removeEventListener("tf:checklist-rejected", onRejected);
+  }, []);
 
   // Auto-refresh every 30 seconds (skip saat sedang sync queue)
   useEffect(() => {

@@ -7,7 +7,8 @@ const { buildTaskRouter, isNoteTagsCall } = require("../../static/offline/taskro
 const { setEntityTags } = require("../../static/offline/tagrepo.js");
 
 const TODAY = "2026-06-03";
-beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
+const CR = require("../../static/offline/checklistrepo.js");
+beforeEach(async () => { CR._reset(); _reset(); await deleteDB(DB_NAME); });
 
 async function seedTasks(recs) {
   const db = await openDB();
@@ -383,7 +384,7 @@ test("K6: GET /api/tasks/:id/subtasks|notes|attachments go to the network for nu
   // rute task lain tidak terpengaruh
   assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/501"), true);
   assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/501/child-tasks"), true);
-  assert.equal(shouldRouteLocally(R, "POST", "/api/tasks/501/subtasks"), false); // tidak terdaftar → jaringan
+  assert.equal(shouldRouteLocally(R, "POST", "/api/tasks/501/subtasks"), false); // checklist belum siap → jaringan (v502)
   assert.deepEqual(isTaskChildListCall("GET", "/api/tasks/12/notes"), { id: "12", kind: "notes", numeric: true });
   assert.equal(isTaskChildListCall("GET", "/api/tasks/12/tags"), null);
 });
@@ -465,4 +466,82 @@ test("POST /api/tasks/:id/pomodoros rejects a bad or missing client_id / payload
   // 64 karakter tepat masih diterima
   const ok = await R.dispatch("POST", "/api/tasks/10/pomodoros", Object.assign({ client_id: "y".repeat(64) }, base));
   assert.equal(ok.pomodoros_done, 3);
+});
+
+// ── Checklist offline Fase 2 (rencana PR B2 R3): routing checklist ─────────────────────────────────────────────
+// Sebelum unduhan awal checklist selesai (checklistrepo.isReady() false) perilaku = v502: GET task numerik dan semua
+// /api/subtasks/* ke jaringan, GET task cid lokal. Sesudah siap: lokal bila task/butir dikenal lokal atau belum
+// tersinkron; task yang dikenal tanpa rev tersimpan dan tanpa butir (mis. akses baru) tetap ke jaringan.
+
+async function seedChecklist() {
+  await seedTasks([task({ cid: "t_a", server_id: 501 }), task({ cid: "t_b", server_id: 502 }), task({ cid: "t_c" })]);
+  await seedSubtasks([
+    { cid: "s1", server_id: 61, task_cid: "t_a", parent_cid: null, title: "s1", is_done: false, sort_order: 0 },
+    { cid: "s2", server_id: null, task_cid: "t_a", parent_cid: "s1", title: "s2", is_done: false, sort_order: 0 },
+  ]);
+}
+
+test("checklist: sebelum siap id angka sama dengan v502 (jaringan); id cid selalu lokal", async () => {
+  await seedChecklist();
+  await CR.start();
+  const R = buildTaskRouter();
+  for (const [m, p] of [["GET", "/api/tasks/501/subtasks"], ["POST", "/api/tasks/501/subtasks"], ["PATCH", "/api/subtasks/61"],
+    ["POST", "/api/subtasks/61/toggle"], ["POST", "/api/subtasks/61/move"], ["DELETE", "/api/subtasks/61"]]) {
+    assert.equal(shouldRouteLocally(R, m, p), false, m + " " + p);
+  }
+  for (const [m, p] of [["GET", "/api/tasks/t_c/subtasks"], ["POST", "/api/tasks/t_c/subtasks"], ["PATCH", "/api/subtasks/s2"],
+    ["DELETE", "/api/subtasks/s2"]]) {
+    assert.equal(shouldRouteLocally(R, m, p), true, m + " " + p);
+  }
+});
+
+test("checklist: sesudah siap — task/butir dikenal atau belum tersinkron lokal, selain itu jaringan", async () => {
+  await seedChecklist();
+  await CR.start();
+  await CR.markHydrated();
+  const R = buildTaskRouter();
+  for (const [m, p] of [["GET", "/api/tasks/501/subtasks"], ["GET", "/api/tasks/501/subtasks?x=1"], ["GET", "/api/tasks/t_c/subtasks"],
+    ["POST", "/api/tasks/501/subtasks"], ["POST", "/api/tasks/t_c/subtasks"], ["PATCH", "/api/subtasks/61"], ["PATCH", "/api/subtasks/s2"],
+    ["POST", "/api/subtasks/61/toggle"], ["POST", "/api/subtasks/s2/move"], ["DELETE", "/api/subtasks/61"]]) {
+    assert.equal(shouldRouteLocally(R, m, p), true, m + " " + p);
+  }
+  // 502: task ada di store lokal, tanpa rev tersimpan dan tanpa butir → jaringan; 999 / butir 77 tidak dikenal → jaringan
+  for (const [m, p] of [["GET", "/api/tasks/502/subtasks"], ["POST", "/api/tasks/502/subtasks"], ["GET", "/api/tasks/999/subtasks"],
+    ["PATCH", "/api/subtasks/77"], ["DELETE", "/api/subtasks/77"]]) {
+    assert.equal(shouldRouteLocally(R, m, p), false, m + " " + p);
+  }
+  await CR.setRev("t_b", 0); // rev 0 tersimpan (server tanpa checklist) → dikenal
+  assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/502/subtasks"), true);
+  // notes/attachments tetap K6
+  assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/501/notes"), false);
+  assert.equal(shouldRouteLocally(R, "GET", "/api/tasks/t_c/attachments"), true);
+});
+
+test("checklist: GET lokal lewat router memakai bentuk server (id server / cid, parent_id, depth)", async () => {
+  await seedChecklist();
+  const R = buildTaskRouter();
+  const list = await R.dispatch("GET", "/api/tasks/501/subtasks", undefined);
+  assert.deepEqual(list.map((x) => [x.id, x.parent_id, x.depth, x.task_id]), [[61, null, 0, 501], ["s2", 61, 1, 501]]);
+});
+
+test("checklist: modul checklistroutes tidak ada → taskroutes tetap berjalan dengan perilaku v502 (K6)", () => {
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const vm = require("node:vm");
+  const ctx = { self: {} };
+  vm.createContext(ctx);
+  const dir = path.join(__dirname, "../../static/offline");
+  // stub minimal modul yang di-req taskroutes.js di browser (kecuali checklistroutes)
+  ctx.self.TF = { router: require("../../static/offline/router.js"), db: {}, taskrepo: {}, taskquery: {}, tagrepo: {}, recurrence: {},
+    listsync: {}, projectcache: {}, contextcache: {}, outbox: {}, pomolog: {}, taskext: {},
+    habitroutes: { registerHabitRoutes() {} }, noteroutes: { registerNoteRoutes() {} }, drawingroutes: { registerDrawingRoutes() {} },
+    mindmaproutes: { registerMindmapRoutes() {} }, chatroutes: { registerChatRoutes() {} }, commentroutes: { registerCommentRoutes() {} } };
+  vm.runInContext(fs.readFileSync(path.join(dir, "taskroutes.js"), "utf8"), ctx);
+  const T = ctx.self.TF.taskroutes;
+  const R = T.buildTaskRouter();
+  assert.equal(R.hasRoute("GET", "/api/tasks/5/subtasks"), true);
+  assert.equal(T.shouldRouteLocally(R, "GET", "/api/tasks/5/subtasks"), false);
+  assert.equal(T.shouldRouteLocally(R, "GET", "/api/tasks/c1/subtasks"), true);
+  assert.equal(T.shouldRouteLocally(R, "PATCH", "/api/subtasks/5"), false);
+  assert.equal(T.shouldRouteLocally(R, "POST", "/api/tasks/c1/subtasks"), false);
 });

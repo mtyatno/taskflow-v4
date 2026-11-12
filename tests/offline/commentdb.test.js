@@ -6,9 +6,9 @@ const { DB_NAME, openDB, clearAll, _reset } = require("../../static/offline/db.j
 
 beforeEach(async () => { _reset(); await deleteDB(DB_NAME); });
 
-test("db v7 punya store note_comments dengan index", async () => {
+test("db versi sekarang (v8) punya store note_comments dengan index", async () => {
   const db = await openDB();
-  assert.equal(db.version, 7);
+  assert.equal(db.version, 8);
   assert.equal(db.objectStoreNames.contains("note_comments"), true);
   const store = db.transaction("note_comments", "readonly").objectStore("note_comments");
   assert.equal(store.keyPath, "cid");

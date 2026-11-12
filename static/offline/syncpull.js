@@ -105,6 +105,19 @@
       tx.onerror = () => reject(tx.error);
     }));
   }
+  // Checklist offline (Fase 2): checklistrepo dibaca malas — modul lama dari cache SW tanpa checklistrepo → null.
+  function checklistRepo() {
+    try { return isNode ? require("./checklistrepo.js") : (root.TF && root.TF.checklistrepo) || null; } catch (_) { return null; }
+  }
+  // Task dihapus lokal oleh pull (hilang dari server / salinan hantu) → checklist lokal + antreannya ikut dibuang
+  // (spec §4.2 butir 5). Gagal membuang checklist tidak menggagalkan pull task.
+  function deleteTaskAndChecklist(cid) {
+    return deleteTask(cid).then(() => {
+      const CR = checklistRepo();
+      if (!CR || typeof CR.purgeTask !== "function") return null;
+      return Promise.resolve().then(() => CR.purgeTask(cid)).catch(() => null);
+    });
+  }
   // T11 (klien): baris server yang dibuat oleh POST kita sendiri (client_id = cid / client_id lokal) tetapi
   // responsnya hilang (timeout) harus dikenali sebagai record lokal yang sama — bukan dibuatkan cid baru
   // (duplikat hantu yang bertahan setelah retry POST mengembalikan baris yang sama).
@@ -200,15 +213,17 @@
   // menaikkan updated_at. Kanban tahap: context/context_id ikut (server melepas/mengganti tahap tanpa bump).
   // Checklist bertingkat (ADR-048, spec §9): progress dan checklist_total ditulis server saat checklist berubah tanpa
   // menaikkan updated_at; only-if-sent (server lama tidak mengirim checklist_total; dict parsial tanpa progress tidak
-  // menolkan nilai lokal).
+  // menolkan nilai lokal). Checklist offline Fase 2 (E1, ADR-051): checklist_rev (versi checklist server) ikut —
+  // dibandingkan pullChecklists dengan rev tersimpan checklistrepo.
   const TASK_DERIVED = ["quadrant", "recurrence_end_date", "recurrence_notif_level", "completed_at", "project", "project_id",
-    "context", "context_id", "pomodoros_done", "progress", "checklist_total"];
+    "context", "context_id", "pomodoros_done", "progress", "checklist_total", "checklist_rev"];
   // pomodoros_done: milik server (tanpa bump updated_at) → diadopsi tiap pull bila server mengirimnya.
-  const ONLY_IF_SENT = ["project", "project_id", "context", "context_id", "pomodoros_done", "progress", "checklist_total"];
+  const ONLY_IF_SENT = ["project", "project_id", "context", "context_id", "pomodoros_done", "progress", "checklist_total",
+    "checklist_rev"];
   // context: null dan "" setara (record lama/lokal memakai "", server bisa null) → tanpa tulis ulang massal.
-  // progress/checklist_total: null/tidak ada setara 0 (bawaan hydrate) → record lama tanpa checklist_total tidak
-  // ditulis ulang massal pada pull pertama setelah pembaruan.
-  const ZERO_DEFAULT = { progress: 1, checklist_total: 1 };
+  // progress/checklist_total/checklist_rev: null/tidak ada setara 0 (bawaan hydrate) → record lama tanpa kunci itu
+  // tidak ditulis ulang massal pada pull pertama setelah pembaruan.
+  const ZERO_DEFAULT = { progress: 1, checklist_total: 1, checklist_rev: 1 };
   function derivedVal(k, v) { return v != null ? v : (k === "context" ? "" : ZERO_DEFAULT[k] ? 0 : null); }
   function derivedDiffers(k, s, local) {
     if (k === "context") return nocaseKey(derivedVal(k, s[k])) !== nocaseKey(derivedVal(k, local[k])) || derivedVal(k, s[k]) !== derivedVal(k, local[k]);
@@ -226,16 +241,22 @@
     const at = cur ? cur.checklist_adopted_at : null;
     return typeof at === "number" && (requestedAt == null || at >= requestedAt);
   }
-  // Tulis penuh dari daftar: pertahankan progress/checklist_total (dan cap waktunya) hasil adopsi yang lebih baru.
-  function keepAdopted(rec, cur, requestedAt) {
-    if (!adoptedSince(cur, requestedAt)) return rec;
+  // Tulis penuh dari daftar: pertahankan progress/checklist_total (dan cap waktunya) hasil adopsi yang lebih baru, dan
+  // milik task yang masih punya entri antrean checklist (`checklistPending`, E5: hasil aksi lokal yang belum terkirim).
+  function keepAdopted(rec, cur, requestedAt, checklistPending) {
+    const queued = !!(cur && checklistPending && checklistPending.has(cur.cid));
+    if (!queued && !adoptedSince(cur, requestedAt)) return rec;
     return Object.assign({}, rec, {
       progress: cur.progress, checklist_total: cur.checklist_total, checklist_adopted_at: cur.checklist_adopted_at,
     });
   }
-  function adoptTaskDerived(s, local, requestedAt) {
+  // opts.checklistPending (Set cid task berantrean `subtasks`, E5) → progress/checklist_total tidak diadopsi untuk
+  // task itu (checklist_rev tetap); opts.only → hanya kunci itu (task yang pull-nya dilewati: checklist_rev saja).
+  function adoptTaskDerived(s, local, requestedAt, opts) {
     // project/context(+id) hanya bila server mengirimnya (dict lama/parsial tidak mengosongkan nilai lokal)
     let keys = TASK_DERIVED.filter((k) => ONLY_IF_SENT.indexOf(k) < 0 || k in s);
+    if (opts && Array.isArray(opts.only)) keys = keys.filter((k) => opts.only.indexOf(k) >= 0);
+    if (opts && opts.checklistPending && opts.checklistPending.has(local.cid)) keys = keys.filter((k) => !CHECKLIST_KEYS[k]);
     // Tahap pending (context_id lokal = cid non-angka, belum di-push/dipetakan): server belum mengenalnya, jadi
     // context_id null dengan teks sama (NOCASE) bukan bukti tautan dilepas → pertahankan tautan lokal.
     if (local.context_id != null && !/^\d+$/.test(String(local.context_id)) && keys.indexOf("context_id") >= 0
@@ -351,7 +372,11 @@
   function pullTasks(serverList, fetchOne, opts) {
     const list = serverList || [];
     const requestedAt = opts && typeof opts.requestedAt === "number" ? opts.requestedAt : null;
-    const keep = (rec, cur) => keepAdopted(rec, cur, requestedAt);
+    let checklistPending = null; // E5: cid task yang masih punya entri antrean `subtasks` (diisi dari outbox di bawah)
+    const keep = (rec, cur) => keepAdopted(rec, cur, requestedAt, checklistPending);
+    // Pull yang dilewati (edit lokal tertunda, sync_error, konflik): versi checklist server tetap diadopsi supaya
+    // pullChecklists tidak tertinggal satu siklus (field turunan; dirty/rev tidak disentuh, CAS seperti adopsi lain).
+    const adoptChecklistRev = (s, localRec) => adoptTaskDerived(s, localRec, requestedAt, { only: ["checklist_rev"] });
     const cache = {}; // serverId -> cid
     return getAllTasks()
       .then((pre) => {
@@ -362,6 +387,7 @@
       .then(() => Promise.all([getAllTasks(), TFoutbox.outboxAll()]))
       .then(([localAll, outboxOps]) => {
         const pendingTaskOps = new Set(outboxOps.filter((o) => o.entity_type === "task").map((o) => o.cid));
+        checklistPending = new Set(outboxOps.filter((o) => o.entity_type === "subtasks").map((o) => o.task_cid));
         const localByCid = {};
         for (const r of localAll) localByCid[r.cid] = r;
         const getCid = (sid) => cache[sid] || null;
@@ -383,7 +409,7 @@
           const localRec = localByCid[cid];
           chain = chain.then(() => {
             if (!localRec || (localRec.deleted && !pendingTaskOps.has(cid))) { return write(s, localRec, "created"); }
-            if (localRec.conflict || localRec.sync_error) { result.skipped++; return; } // sync_error: tunggu "Coba lagi"/"Buang"
+            if (localRec.conflict || localRec.sync_error) { result.skipped++; return adoptChecklistRev(s, localRec); } // sync_error: tunggu "Coba lagi"/"Buang"
             if (localRec.dirty && pendingTaskOps.has(cid)) {
               // base_rev null = belum pernah sinkron: baris server berasal dari POST kita sendiri yang responsnya
               // hilang (dikenali lewat client_id) → bukan edit-vs-edit; lokal menang, op create (upsert idempoten
@@ -429,14 +455,14 @@
                       return requeueOp("task", rec);
                     });
                 }
-                return; // local wins — keep dirty, push will send
+                return adoptChecklistRev(s, localRec); // local wins — keep dirty, push will send
               }
-              result.skipped++; return; // local pending, server unchanged
+              result.skipped++; return adoptChecklistRev(s, localRec); // local pending, server unchanged
             }
             // dirty tanpa op sudah diantre ulang di atas (ada di pendingTaskOps) → tidak pernah sampai sini
             if (s.updated_at !== localRec.base_rev || localRec.deleted) { return write(s, localRec, "updated"); }
             // updated_at sama → hanya field turunan (kuadran cron, dsb.) yang mungkin berubah (K2)
-            return adoptTaskDerived(s, localRec, requestedAt).then((adopted) => { if (adopted) result.derived++; });
+            return adoptTaskDerived(s, localRec, requestedAt, { checklistPending }).then((adopted) => { if (adopted) result.derived++; });
           });
         }
         const serverIds = new Set(list.map((s) => String(s.id)));
@@ -446,7 +472,7 @@
           // buang salinan yang bersih; yang punya edit tertunda dibiarkan (sudah diantre ulang) sampai terkirim
           const expectedCid = cache[r.server_id];
           if (expectedCid && r.cid !== expectedCid) {
-            if (!(r.dirty && !r.deleted)) chain = chain.then(() => deleteTask(r.cid));
+            if (!(r.dirty && !r.deleted)) chain = chain.then(() => deleteTaskAndChecklist(r.cid));
             else chain = chain.then(() => { result.skipped++; });
             continue;
           }
@@ -460,7 +486,7 @@
             return confirmGone(fetchOne, r.server_id).then((gone) => {
               if (!gone) { result.skipped++; return; }
               result.deleted++;
-              return deleteTask(r.cid);
+              return deleteTaskAndChecklist(r.cid);
             });
           });
         }
@@ -2070,6 +2096,84 @@
     return res && typeof res.json === "function" ? res.json() : res;
   }
 
+  // ── Checklist offline (Fase 2) — unduh checklist yang berubah (spec checklist offline §4.2; rencana PR B2 R5) ──
+  // Langkah sinkron sesudah pullAndReconcile (checklist_rev record task sudah terbaru), sebelum push. Untuk setiap task
+  // lokal ber-server_id (tidak terhapus, tidak sedang konflik) `checklist_rev` record dibandingkan dengan rev tersimpan:
+  //   - rev server 0 dan kunci rev tersimpan tidak ada → simpan 0 tanpa unduh (server menjamin task yang punya butir
+  //     selalu rev ≥ 1); satu transaksi untuk semua (setRevs onlyIfAbsent);
+  //   - rev server ≠ tersimpan (termasuk null = dikosongkan, kunci tidak ada = belum pernah diunduh) dan task tanpa entri
+  //     antrean `subtasks` (E5) → diunduh; rev server tidak diketahui (record tanpa checklist_rev): diunduh bila kunci
+  //     belum ada atau null (tidak pernah dianggap 0 — tidak pernah melayani checklist kosong untuk task yang punya butir);
+  //   - selain itu dilewati.
+  // Unduhan: GET /api/checklists?task_ids= (≤ 200 id per permintaan, berurutan) → replaceTaskChecklist (menolak sendiri
+  // bila antrean muncul di antaranya); task tanpa kunci di respons (tidak ada / tanpa akses) → purgeTask; entri bukan
+  // {items: [...]} dilewati. Gagal jaringan / status ≥ 400 / body bukan objek → berhenti tanpa melempar (batch yang
+  // sudah sukses tetap tersimpan; dicoba lagi siklus berikutnya). Semua batch sukses (termasuk tanpa batch) →
+  // markHydrated() (routing checklist lokal aktif). Selalu checklistrepo.refresh() di akhir (memori routing ikut
+  // perubahan tab ini dan tab lain). checklistrepo tidak ada (modul lama) → null.
+  const CHECKLISTS_MAX_IDS = 200;
+  function objectJsonIfOk(res) {
+    if (!res || res.ok === false || (typeof res.status === "number" && res.status >= 400)) return null;
+    return Promise.resolve(typeof res.json === "function" ? res.json() : res)
+      .then((b) => (b && typeof b === "object" && !Array.isArray(b) ? b : null));
+  }
+  function pullChecklists(rawFetch) {
+    const CR = checklistRepo();
+    if (!CR || typeof CR.replaceTaskChecklist !== "function" || typeof CR.setRevs !== "function") return Promise.resolve(null);
+    const result = { zero: 0, fetched: 0, replaced: 0, skipped: 0, purged: 0, failed: false, hydrated: false };
+    const body = () => Promise.all([getAllTasks(), CR.getRevs(), CR.pendingTaskCids()]).then(([tasks, revs, pending]) => {
+      const zero = [];
+      const want = [];
+      for (const t of tasks) {
+        if (!t || t.deleted || t.server_id == null || t.conflict) continue;
+        const has = Object.prototype.hasOwnProperty.call(revs, t.cid);
+        const srv = typeof t.checklist_rev === "number" && Number.isFinite(t.checklist_rev) ? t.checklist_rev : null;
+        if (srv === 0 && !has) { zero.push([t.cid, 0]); continue; }
+        // rev server tidak diketahui: dilewati hanya bila rev tersimpan berupa angka; null (dikosongkan) SELALU diambil
+        // ulang (CATATAN-1: rev server 0 tidak pernah ditulis ke record lama karena setara bawaan 0).
+        if (srv == null ? (has && revs[t.cid] !== null) : revs[t.cid] === srv) continue;
+        if (pending.has(t.cid)) { result.skipped++; continue; }
+        want.push(t);
+      }
+      const batches = [];
+      for (let i = 0; i < want.length; i += CHECKLISTS_MAX_IDS) batches.push(want.slice(i, i + CHECKLISTS_MAX_IDS));
+      let ok = true;
+      const fetchBatch = (batch) => Promise.resolve()
+        .then(() => rawFetch("/api/checklists?task_ids=" + batch.map((t) => t.server_id).join(",")))
+        .then(objectJsonIfOk)
+        .catch(() => null)
+        .then((body) => {
+          if (!body) { ok = false; return null; }
+          result.fetched += batch.length;
+          return batch.reduce((p, t) => p.then(() => {
+            const key = String(t.server_id);
+            if (!Object.prototype.hasOwnProperty.call(body, key)) return CR.purgeTask(t.cid).then(() => { result.purged++; });
+            const c = body[key];
+            if (!c || typeof c !== "object" || !Array.isArray(c.items)) { result.skipped++; return null; }
+            return CR.replaceTaskChecklist(t.cid, c.items, c.rev).then((done) => { if (done) result.replaced++; else result.skipped++; });
+          }), Promise.resolve());
+        });
+      return CR.setRevs(zero, { onlyIfAbsent: true })
+        .then((n) => { result.zero = n; })
+        .then(() => batches.reduce((p, batch) => p.then(() => (ok ? fetchBatch(batch) : null)), Promise.resolve()))
+        .then(() => {
+          result.failed = !ok;
+          if (!ok) return null;
+          return CR.markHydrated().then(() => { result.hydrated = true; });
+        });
+    });
+    // Kunci lintas tab yang sama dengan pushOutbox (TF.outbox.withQueueLock, review akhir W2 PR B2): unduhan yang
+    // berjalan saat tab lain mengirim antrean bisa menulis snapshot lama di atas hasil kirim tab itu. Kunci dipegang tab
+    // lain → dilewati ({locked: true}; siklus berikutnya mengunduh) tanpa menggagalkan sync; memori kesiapan tetap dimuat
+    // ulang (tab lain mungkin baru menyelesaikan unduhan awal).
+    const lockFn = TFoutbox && typeof TFoutbox.withQueueLock === "function" ? TFoutbox.withQueueLock : null;
+    const run = lockFn
+      ? lockFn(body).then((r) => { if (!r.ran) result.locked = true; })
+      : body();
+    const refresh = () => Promise.resolve().then(() => (typeof CR.refresh === "function" ? CR.refresh() : null)).catch(() => null);
+    return run.then(() => refresh().then(() => result), (e) => refresh().then(() => { throw e; }));
+  }
+
   function pullDrawingsAndReconcile(rawFetch) {
     const fetchOne = (sid) => Promise.resolve(rawFetch("/api/drawings/" + sid))
       .then(jsonIfOk)
@@ -2103,7 +2207,7 @@
   }
 
   const exported = {
-    pullTasks, pullAndReconcile,
+    pullTasks, pullAndReconcile, pullChecklists,
     reconcileRecurringExceptions, pullRecurringExceptions,
     pullHabits, pullHabitLogs, pullHabitsAndLogs,
     pullNotes, pullNotesAndReconcile, pullComments,

@@ -87,8 +87,8 @@ test("CSS kartu email: ada blok .admin-email, tanpa border-left, ada media 768px
 
 test("cache bust v453 + app.css?v=385", () => {
   const py = fs.readFileSync(path.join(__dirname, "../../webapp.py"), "utf8");
-  assert.match(sw, /^const CACHE = "taskflow-v503-ev-ekspor";/m);
-  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v503-ev-ekspor";/);
-  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v503-ev-ekspor"/);
+  assert.match(sw, /^const CACHE = "taskflow-v504-checklist-offline";/m);
+  assert.match(html, /window\.__SW_VERSION\s*=\s*"taskflow-v504-checklist-offline";/);
+  assert.match(html, /window\.__SW_VERSION\s*\|\|\s*"taskflow-v504-checklist-offline"/);
   assert.match(html, /<link rel="stylesheet" href="\/static\/app\.css\?v=385">/);
 });

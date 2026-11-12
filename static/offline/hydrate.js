@@ -20,12 +20,18 @@
     "deadline", "waiting_for", "completed_at", "progress", "is_focused", "assigned_to",
     "recurrence_type", "recurrence_days", "recurrence_end_date", "recurrence_notif_level",
     "created_at", "updated_at", "estimated_pomodoros", "pomodoros_done", "checklist_total",
+    // Checklist offline Fase 2 (spec §4.1, E1): versi checklist server — field turunan, dibandingkan pullChecklists
+    // dengan rev tersimpan checklistrepo.
+    "checklist_rev",
   ];
+  // Nilai bawaan bila server tidak mengirim / null.
+  const ZERO = { is_focused: 1, progress: 1, pomodoros_done: 1, checklist_total: 1, checklist_rev: 1 };
+  const dflt = (k) => (ZERO[k] ? 0 : k === "estimated_pomodoros" ? 1 : null);
 
   // Pure: server task dict → local record. `getCid(serverId)` returns the cid for any server id.
   function taskFromServer(dict, getCid) {
     const rec = { cid: getCid(dict.id), server_id: dict.id };
-    for (const k of COPY) rec[k] = dict[k] != null ? dict[k] : (k === "is_focused" || k === "progress" || k === "pomodoros_done" || k === "checklist_total" ? 0 : k === "estimated_pomodoros" ? 1 : null);
+    for (const k of COPY) rec[k] = dict[k] != null ? dict[k] : dflt(k);
     rec.title = dict.title;
     rec.parent_cid = dict.parent_id != null ? getCid(dict.parent_id) : null;
     rec.list_cid = null;
@@ -56,7 +62,7 @@
     const has = (k) => Object.prototype.hasOwnProperty.call(dict, k);
     for (const k of COPY) {
       if (CORE_SKIP[k] || !has(k)) continue;
-      out[k] = dict[k] != null ? dict[k] : (k === "is_focused" || k === "progress" || k === "pomodoros_done" || k === "checklist_total" ? 0 : k === "estimated_pomodoros" ? 1 : null);
+      out[k] = dict[k] != null ? dict[k] : dflt(k);
     }
     if (has("project_id") || has("project")) {
       const pid = out.project_id != null ? out.project_id : null;

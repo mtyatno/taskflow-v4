@@ -648,6 +648,7 @@
               .then(() => rewriteNoteTaskLinks(op.cid, sid)) // S15
               .then(() => rewriteTaskExtRefs(op.cid, sid)) // K7: {"$task": cid} → id server di task lain
               .then(() => rewritePluginTaskRefs(op.cid, sid)) // R13: ... dan di data record plugin
+              .then(() => noteChecklistTask(op.cid, sid, res.data)) // checklist offline: id server task + rev 0
               .then(() => { result.pushed++; });
           }
           if (classify(res) === "forbidden") { return accessLost("tasks", op.cid, op, result); }
@@ -655,6 +656,24 @@
         });
       });
     });
+  }
+
+  // Checklist offline (spec §4.2, rencana PR B2 R4; SEBAIKNYA-1 review Task 4–6): SETIAP task yang baru terkirim →
+  // id server-nya dicatat di memori checklistrepo dan rev 0 dari respons (task baru = checklist kosong di server)
+  // disimpan atomik bila kunci rev belum ada (null = ambil ulang tidak ditimpa): routing langsung mengenalnya (offline
+  // sesudahnya tetap bisa menambah checklist) dan respons aksi pertamanya memajukan rev tanpa ambil ulang. Rev respons
+  // > 0 (POST idempoten untuk task yang sudah punya butir di server) → tidak disimpan; pullChecklists mengunduhnya.
+  // Respons tanpa checklist_rev (server lama) → 0. Gagal di sini tidak menggagalkan create task.
+  function noteChecklistTask(taskCid, sid, data) {
+    const CR = checklistRepo();
+    if (!CR) return Promise.resolve();
+    const rev = data && typeof data.checklist_rev === "number" ? data.checklist_rev : 0;
+    return Promise.resolve()
+      .then(() => {
+        if (typeof CR.noteTaskServerId === "function") CR.noteTaskServerId(taskCid, sid);
+        return rev === 0 && typeof CR.setRevs === "function" ? CR.setRevs([[taskCid, 0]], { onlyIfAbsent: true }) : null;
+      })
+      .catch(() => {});
   }
 
   function opUpdate(op, transport, tagsFor, result, pending) {
@@ -688,7 +707,16 @@
           if (ext) payload.ext_patch = ext.value;
         }
         const sentAt = Date.now(); // sebelum PUT dikirim (penjaga respons basi progress checklist)
+        let checklistQueued = false;
         return send(transport, "PUT", "/api/tasks/" + sid, payload).then((res) => {
+          if (!ok(res) || !extOnly) return res;
+          // CATATAN-3 (E5): task yang masih punya entri antrean checklist → progress/checklist_total respons (milik server
+          // sebelum entri itu terkirim) tidak diadopsi; aksi lokal sesudahnya dijaga cap checklist_adopted_at.
+          return TFoutbox.outboxAll().then((all) => {
+            checklistQueued = all.some((o) => o && o.entity_type === SUBTASKS && o.task_cid === op.cid);
+            return res;
+          });
+        }).then((res) => {
           if (ok(res)) {
             // R5: payload ext saja → field inti respons diadopsi selama tidak ada edit inti lokal sejak payload
             // dibaca (penanda masih sah di record terkini, termasuk bila rev naik karena edit ext lain).
@@ -701,8 +729,9 @@
                 if (!X.extOnlyNow(cur)) return;
                 if (respAt != null && tsPrecise(respAt) && tsNewer(cur.base_rev, respAt)) return;
                 const core = H.coreFromServer(res.data);
-                // progress/checklist_total diadopsi dari respons checklist sesudah PUT ini dikirim → respons basi
-                if (adoptedSince(cur, sentAt)) { delete core.progress; delete core.checklist_total; }
+                // progress/checklist_total diadopsi dari respons checklist sesudah PUT ini dikirim → respons basi; task
+                // masih berantrean checklist (E5) → nilai lokal tetap
+                if (adoptedSince(cur, sentAt) || checklistQueued) { delete core.progress; delete core.checklist_total; }
                 Object.assign(next, core);
               }
               : null;
@@ -2321,6 +2350,208 @@
     });
   }
 
+  // ── Checklist offline (Fase 2) — antrean `subtasks` (spec checklist offline §4.4; rencana PR B2 R4; ADR-051) ──
+  // Entri {entity_type: "subtasks", cid (butir), task_cid, op, payload} ditulis checklistrepo (aksi lokal) dan
+  // dikirim berurutan PER TASK:
+  //   create   → POST /api/tasks/{tsid}/subtasks {title, client_id: cid, parent_id: <id server induk>|null, index}
+  //   rename   → PATCH /api/subtasks/{sid} {title}
+  //   set_done → PATCH /api/subtasks/{sid} {is_done} (centang SET, aman diulang; `cascade_cids` hanya lokal)
+  //   move     → POST /api/subtasks/{sid}/move {parent_id, index}
+  //   delete   → DELETE /api/subtasks/{sid} (404 = sukses); sid dari payload.server_id (hantu) / record / _idmap
+  // - Entri dibaca ULANG dari _outbox: aksi lokal selama drain bisa membuang / menulis ulang entri (snapshot basi).
+  // - Ditahan (entri tetap; entri task itu sesudahnya di drain ini ikut ditahan supaya urutan per task terjaga):
+  //   modul checklistrepo belum dimuat, task belum punya id server (create task antre, sync_error) atau sedang konflik
+  //   (remote_deleted / access_lost: menunggu keputusan pengguna, seperti op task), butir /
+  //   induk belum punya id server tetapi create-nya masih antre, atau galat sementara pada entri task itu sebelumnya.
+  //   Task tidak ada / terhapus lokal → checklist-nya dibuang (purgeTask).
+  // - Sukses: create → adoptServerId (false = butir dihapus lokal saat create-nya terkirim → entri ditulis ulang
+  //   menjadi delete {server_id} di qid yang sama lalu langsung dikirim); rev tersimpan menurut ADR-051
+  //   (settleChecklistRev); progress diadopsi hanya bila task tidak punya entri tersisa (E5).
+  // - Ditolak (403/404/422/4xx lain; delete 404 = sukses; butir / induk tanpa id server dan tanpa create antre) →
+  //   entri dibuang, entri lain task itu untuk butir tanpa id server dan tanpa create antre ikut dibuang, rev
+  //   tersimpan dikosongkan (ambil ulang), result.checklistRejected++ (pushOutbox → satu event tf:checklist-rejected).
+  // - Galat sementara (jaringan/401/429/5xx/timeout): seperti entitas lain (entri tetap, send melempar).
+  // checklistrepo / checklist dibaca malas: modul lama dari cache SW bisa belum memuatnya → entri tetap antre.
+  const SUBTASKS = "subtasks";
+  function checklistRepo() {
+    try { return isNode ? require("./checklistrepo.js") : (root.TF && root.TF.checklistrepo); } catch (_) { return null; }
+  }
+  function checklistLogic() {
+    try { return isNode ? require("./checklist.js") : (root.TF && root.TF.checklist); } catch (_) { return null; }
+  }
+  const hasOwn = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
+
+  // Id server butir: record → _idmap (record butir yang sudah dihapus lokal tetap terpetakan sampai delete terkirim).
+  function subtaskSidOf(CR, cid) {
+    if (cid == null) return Promise.resolve(null);
+    return CR.findItem(cid).then((r) => (r && r.cid === cid && r.server_id != null ? r.server_id
+      : TFidmap.serverIdOf(cid).then((sid) => (sid != null ? sid : null))));
+  }
+
+  // ADR-051: rev tersimpan maju hanya bila aksi ini sendiri menaikkan rev (`rev_bumped`) dan rev = tersimpan + 1;
+  // rev = tersimpan → tetap; selain itu dikosongkan (ambil ulang sesudah antrean task itu kosong). Tersimpan null
+  // (sudah dikosongkan) tidak pernah dimajukan; respons tanpa rev (delete 404) → dikosongkan. Baca-bandingkan-tulis
+  // dalam SATU transaksi (CR.settleRev, review akhir S1): pengosongan rev oleh aksi lokal di tengahnya tidak tertimpa.
+  function settleChecklistRev(CR, taskCid, tp) {
+    return CR.settleRev(taskCid, tp);
+  }
+
+  // progress/checklist_total dari respons diadopsi hanya bila task itu tidak punya entri checklist tersisa (E5):
+  // respons entri antara mencerminkan server SEBELUM entri sesudahnya → progress lokal tidak "melompat" sesaat. Cek
+  // antrean dan tulis progress dalam satu transaksi (CR.adoptProgressIfIdle): aksi lokal yang mengantre di tengahnya
+  // tidak tertimpa progress server yang lebih lama.
+  function adoptChecklistProgress(CR, taskCid, tp) {
+    if (!tp) return Promise.resolve(false);
+    return CR.adoptProgressIfIdle(taskCid, tp);
+  }
+
+  // Sesudah penolakan: entri lain task itu untuk butir yang tidak punya id server dan tidak punya create antre (yatim)
+  // dibuang — butir lokalnya dibereskan ambil ulang (rev dikosongkan). → jumlah entri yang dibuang (ikut dihitung
+  // sebagai perubahan yang dibatalkan, CATATAN-2 review Task 4–6).
+  function dropOrphanSubtaskOps(CR, taskCid) {
+    return Promise.all([TFoutbox.outboxAll(), CR.recordsForTask(taskCid)]).then(([ops, recs]) => {
+      const mine = ops.filter((o) => o && o.entity_type === SUBTASKS && o.task_cid === taskCid);
+      const creating = new Set(mine.filter((o) => o.op === "create").map((o) => o.cid));
+      const synced = new Set(recs.filter((r) => r.server_id != null).map((r) => r.cid));
+      const cand = mine.filter((o) => !creating.has(o.cid) && !synced.has(o.cid) && !(o.payload && o.payload.server_id != null));
+      return cand.reduce((p, o) => p.then((n) => TFidmap.serverIdOf(o.cid)
+        .then((sid) => (sid != null ? n : TFoutbox.outboxRemove(o.qid).then(() => n + 1)))), Promise.resolve(0));
+    });
+  }
+
+  // `counted` false: create ulang butir nisan (pengguna sudah menghapusnya) — dibuang tanpa masuk hitungan pesan.
+  function subtaskRejected(CR, op, result, counted) {
+    const add = (n) => { if (n > 0) result.checklistRejected = (result.checklistRejected || 0) + n; };
+    if (counted !== false) add(1);
+    return TFoutbox.outboxRemove(op.qid)
+      .then(() => dropOrphanSubtaskOps(CR, op.task_cid))
+      .then(add)
+      .then(() => CR.clearRev(op.task_cid));
+  }
+
+  function subtaskRequest(op, tsid, sid, psid) {
+    const pl = op.payload || {};
+    const index = pl.index == null ? null : pl.index;
+    if (op.op === "create") {
+      return { method: "POST", path: "/api/tasks/" + tsid + "/subtasks", body: { title: pl.title, client_id: op.cid, parent_id: psid, index: index } };
+    }
+    if (op.op === "rename") return { method: "PATCH", path: "/api/subtasks/" + sid, body: { title: pl.title } };
+    if (op.op === "set_done") return { method: "PATCH", path: "/api/subtasks/" + sid, body: { is_done: !!pl.is_done } };
+    if (op.op === "move") return { method: "POST", path: "/api/subtasks/" + sid + "/move", body: { parent_id: psid, index: index } };
+    if (op.op === "delete") return { method: "DELETE", path: "/api/subtasks/" + sid, body: undefined };
+    return null;
+  }
+
+  // WAJIB-1 (review Task 4–6): tandai entri create `attempted` SEBELUM request dikirim (respons bisa hilang padahal
+  // server menerapkannya; checklistrepo.remove lalu mempertahankan create-nya + nisan, bukan membuangnya tanpa jejak).
+  // Satu transaksi: entri harus masih ada dengan payload yang sama dengan yang akan dikirim. → "ok" | "gone" (dibuang
+  // aksi lokal: jangan kirim) | "changed" (ditulis ulang aksi lokal: proses ulang dengan entri terbaru).
+  function markCreateAttempted(op) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let out = "gone";
+      const t = db.transaction("_outbox", "readwrite");
+      const os = t.objectStore("_outbox");
+      const r = os.get(op.qid);
+      r.onsuccess = () => {
+        const cur = r.result;
+        if (!cur || cur.entity_type !== SUBTASKS || cur.op !== "create" || cur.cid !== op.cid) return;
+        if (JSON.stringify(cur.payload || {}) !== JSON.stringify(op.payload || {})) { out = "changed"; return; }
+        out = "ok";
+        if (!cur.attempted) os.put(Object.assign({}, cur, { attempted: true }));
+      };
+      t.oncomplete = () => resolve(out);
+      t.onerror = () => reject(t.error);
+    }));
+  }
+
+  function putOutboxEntry(entry) {
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      const t = db.transaction("_outbox", "readwrite");
+      t.objectStore("_outbox").put(entry);
+      t.oncomplete = () => resolve();
+      t.onerror = () => reject(t.error);
+    }));
+  }
+
+  function subtaskSucceeded(CR, op, res, sid, transport, result, drain) {
+    const data = ok(res) && res.data && typeof res.data === "object" ? res.data : {};
+    const tp = data.task_progress && typeof data.task_progress === "object" ? data.task_progress : null;
+    const settle = () => settleChecklistRev(CR, op.task_cid, tp)
+      .then(() => adoptChecklistProgress(CR, op.task_cid, tp))
+      .then(() => { result.pushed++; });
+    if (op.op === "create") {
+      const newSid = data.id;
+      if (newSid == null) { result.failed++; if (drain) drain.heldTasks.add(op.task_cid); return null; } // 2xx tak sah: coba lagi
+      return CR.adoptServerId(op.cid, newSid).then((adopted) => {
+        if (adopted) return TFoutbox.outboxRemove(op.qid).then(settle);
+        // Hantu: butir dihapus lokal saat create-nya terkirim → server punya butir yang tidak dikenal perangkat ini.
+        // Entri ditulis ulang menjadi delete {server_id} di qid yang sama (gagal sementara → tetap antre) lalu dikirim.
+        const ghost = Object.assign({}, op, { op: "delete", payload: { server_id: newSid } });
+        return putOutboxEntry(ghost).then(settle).then(() => processSubtaskOp(ghost, transport, result, drain));
+      });
+    }
+    let cleanup = Promise.resolve();
+    if (op.op === "delete") {
+      const gone = Array.isArray(data.deleted_ids) ? data.deleted_ids : [sid];
+      cleanup = gone.reduce((p, id) => p.then(() => TFidmap.mapDelete(CR.MAP_TYPE || "subtask", id)), Promise.resolve());
+    }
+    return TFoutbox.outboxRemove(op.qid).then(() => cleanup).then(settle);
+  }
+
+  function processSubtaskOp(op0, transport, result, drain) {
+    const CR = checklistRepo();
+    const taskCid = op0.task_cid;
+    const held = drain ? drain.heldTasks : null;
+    const hold = () => { if (held) held.add(taskCid); return null; };
+    if (!CR || (held && held.has(taskCid))) return Promise.resolve(hold());
+    return TFoutbox.outboxAll().then((ops) => {
+      const op = ops.find((o) => o.qid === op0.qid);
+      if (!op || op.entity_type !== SUBTASKS) return null; // dibuang aksi lokal / entri lain selama drain ini
+      if (op.task_cid == null || op.task_cid === "") return TFoutbox.outboxRemove(op.qid); // entri rusak: jangan macet
+      const createQueued = (entity, cid) => cid != null
+        && ops.some((o) => o.entity_type === entity && o.op === "create" && o.cid === cid && o.qid !== op.qid);
+      return getTaskRaw(taskCid).then((task) => {
+        if (!task || task.deleted) return CR.purgeTask(taskCid); // task tidak ada lagi lokal → checklist-nya dibuang
+        if (task.conflict) return hold(); // seperti op task: tunggu keputusan pengguna di conflict bar
+        const tsidP = task.server_id != null ? Promise.resolve(task.server_id) : TFidmap.serverIdOf(taskCid);
+        return tsidP.then((tsid) => {
+          if (tsid == null) return hold(); // task belum terkirim (create antre / sync_error)
+          const pl = op.payload || {};
+          const withParent = (op.op === "create" || op.op === "move") && pl.parent_cid != null;
+          const itemP = op.op === "create" ? CR.findItem(op.cid).then((r) => (r && r.cid === op.cid ? r : null)) : Promise.resolve(null);
+          const sidP = op.op === "create" ? Promise.resolve(null)
+            : (pl.server_id != null ? Promise.resolve(pl.server_id) : subtaskSidOf(CR, op.cid));
+          const psidP = withParent ? subtaskSidOf(CR, pl.parent_cid) : Promise.resolve(null);
+          return Promise.all([itemP, sidP, psidP]).then(([item, sid, psid]) => {
+            if (op.op === "create" && (!item || item.server_id != null)) return TFoutbox.outboxRemove(op.qid); // sudah terkirim / tidak ada
+            if (op.op !== "create" && sid == null) {
+              if (createQueued(SUBTASKS, op.cid)) return hold();
+              return subtaskRejected(CR, op, result); // butir yatim
+            }
+            if (withParent && psid == null) {
+              if (createQueued(SUBTASKS, pl.parent_cid)) return hold();
+              return subtaskRejected(CR, op, result); // induk yatim (tidak terjadi lagi sesudah perbaikan W1)
+            }
+            const req = subtaskRequest(op, tsid, sid, psid);
+            if (!req) return TFoutbox.outboxRemove(op.qid); // jenis aksi tidak dikenal
+            const tomb = op.op === "create" && !!item.deleted; // create ulang butir yang sudah dihapus lokal (nisan)
+            const marked = op.op === "create" ? markCreateAttempted(op) : Promise.resolve("ok");
+            return marked.then((m) => {
+              if (m === "gone") return null;
+              if (m === "changed") return processSubtaskOp(op0, transport, result, drain);
+              return send(transport, req.method, req.path, req.body).then((res) => {
+                if (ok(res) || (op.op === "delete" && res.status === 404)) {
+                  return subtaskSucceeded(CR, op, res, sid, transport, result, drain);
+                }
+                return subtaskRejected(CR, op, result, !tomb);
+              });
+            });
+          });
+        });
+      });
+    }).catch((err) => { hold(); throw err; });
+  }
+
   function opHabitDelete(op, transport, result) {
     return TFidmap.serverIdOf(op.cid).then((sid) => {
       if (sid == null) {
@@ -2344,7 +2575,8 @@
     return new Set((ops || []).filter((o) => o.op === "create" || o.op === "send").map((o) => o.cid));
   }
 
-  function processOp(op, transport, tagsFor, habitTagsFor, result, pending) {
+  function processOp(op, transport, tagsFor, habitTagsFor, result, pending, drain) {
+    if (op.entity_type === SUBTASKS) return processSubtaskOp(op, transport, result, drain);
     if (op.entity_type === "task" && op.op === "create") return opCreate(op, transport, tagsFor, result, pending);
     if (op.entity_type === "task" && op.op === "update") return opUpdate(op, transport, tagsFor, result, pending);
     if (op.entity_type === "task" && op.op === "delete") return opDelete(op, transport, result);
@@ -2472,16 +2704,30 @@
   }
 
   let _running = false;
+  // `_running` mencegah dua pengurasan di tab yang sama; TFoutbox.withQueueLock (navigator.locks) mencegah dua tab
+  // menguras antrean bersama bersamaan (review akhir W2 PR B2). Kunci dipegang tab lain: sinkron latar → busy (pemanggil
+  // menjadwalkan ulang push; tab pemegang kunci yang mengirim isinya); opts.waitLock (__pushNow) → menunggu kunci lalu
+  // menguras sisa antrean. Modul outbox lama tanpa withQueueLock → tanpa kunci.
   function pushOutbox(transport, opts) {
     if (_running) return Promise.resolve({ pushed: 0, failed: 0, remaining: -1, busy: true });
     _running = true;
     opts = opts || {};
+    const locked = typeof TFoutbox.withQueueLock === "function"
+      ? TFoutbox.withQueueLock(() => drainOutbox(transport, opts), { wait: !!opts.waitLock })
+      : drainOutbox(transport, opts).then((value) => ({ ran: true, value }));
+    return locked
+      .then((r) => (r.ran ? r.value : { pushed: 0, failed: 0, remaining: -1, busy: true, lockedElsewhere: true }))
+      .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
+  }
+
+  function drainOutbox(transport, opts) {
     const tagsFor = opts.tagsFor || ((cid) => TFtag.getEntityTags("task", cid).then((ts) => ts.map((t) => t.name)));
     const habitTagsFor = opts.habitTagsFor || ((cid) => TFtag.getEntityTags("habit", cid).then((ts) => ts.map((t) => t.name)));
     const result = { pushed: 0, failed: 0, remaining: 0, requeued: 0, merged: 0 };
     let stopped = false;
     let timeouts = 0;
     let pending = null; // T10: Set cid dengan op create/send saat drain dimulai
+    const drain = { heldTasks: new Set() }; // checklist: task yang entrinya ditahan di drain ini (urutan per task)
     return Promise.resolve()
       .then(() => (TFrepo && TFrepo.upgradeLegacyDrawingOps ? TFrepo.upgradeLegacyDrawingOps().catch(() => 0) : 0))
       .then(() => healStrandedNotes())
@@ -2492,7 +2738,7 @@
       .then((ops) => { pending = pendingCreateCids(ops); return ops.slice().sort((a, b) => a.qid - b.qid); })
       .then((ops) => ops.reduce((chain, op) => chain.then(() => {
         if (stopped) return;
-        return processOp(op, transport, tagsFor, habitTagsFor, result, pending).catch((err) => {
+        return processOp(op, transport, tagsFor, habitTagsFor, result, pending, drain).catch((err) => {
           if (err && err.__auth) {
             stopped = true; // 401: sesi berakhir → hentikan drain, op tetap antre (dikirim setelah login ulang)
             result.authExpired = true;
@@ -2506,8 +2752,12 @@
         });
       }), Promise.resolve()))
       .then(() => TFoutbox.outboxAll())
-      .then((rem) => { result.remaining = rem.length; return result; })
-      .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
+      .then((rem) => {
+        result.remaining = rem.length;
+        // Checklist offline (spec §4.4, F3): perubahan yang ditolak server → SATU event per drain → satu pesan.
+        if (result.checklistRejected > 0) dispatchWindowEvent("tf:checklist-rejected", { count: result.checklistRejected });
+        return result;
+      });
   }
 
   const exported = {
