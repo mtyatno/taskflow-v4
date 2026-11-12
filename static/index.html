@@ -12364,8 +12364,8 @@ function useFocusTaskCounts(taskIds) {
       Promise.all([api.get(`/api/tasks/${id}/subtasks`).catch(() => null), api.get(`/api/tasks/${id}/notes`).catch(() => null), api.get(`/api/tasks/${id}/attachments`).catch(() => null)]).then(([subs, notes, atts]) => {
         const patch = {};
         if (Array.isArray(subs)) {
-          patch.subTotal = subs.length;
-          patch.subDone = subs.filter(s => s.is_done).length;
+          patch.subTotal = subs.filter(s => s.parent_id == null).length; // level atas saja (K1), sama dengan child-counts server
+          patch.subDone = subs.filter(s => s.parent_id == null && s.is_done).length;
         }
         if (Array.isArray(notes)) patch.notes = notes.length;
         if (Array.isArray(atts)) patch.atts = atts.length;
