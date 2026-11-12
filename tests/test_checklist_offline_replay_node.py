@@ -30,7 +30,24 @@ DRIVER = os.path.join(ROOT, "tests", "offline", "checklist_replay_driver.js")
 TASK = 7
 SEEDS = range(1, 201)
 
-pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node tidak ada di PATH")
+
+
+def _has_fake_indexeddb():
+    """Penggerak memuat tests/offline/setup.js (paket npm `fake-indexeddb`). Workflow CI (test.yml) tidak menjalankan
+    `npm install` → tes ini dilewati di sana dengan alasan eksplisit (pola tests/test_tag_node.py); lokal setelah
+    `npm install` tetap berjalan."""
+    if shutil.which("node") is None:
+        return False
+    r = subprocess.run(["node", "-e", "require.resolve('fake-indexeddb/auto')"], cwd=ROOT,
+                       capture_output=True, text=True, timeout=60)
+    return r.returncode == 0
+
+
+pytestmark = [
+    pytest.mark.skipif(shutil.which("node") is None, reason="node tidak ada di PATH"),
+    pytest.mark.skipif(not _has_fake_indexeddb(), reason="paket npm fake-indexeddb tidak terpasang (CI tidak menjalankan "
+                                                       "npm install); jalankan `npm install` untuk tes putar ulang ini"),
+]
 
 
 class Driver:

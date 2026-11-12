@@ -13,6 +13,10 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const C = require("../../static/offline/checklist.js");
+// Tes yang memakai ./setup.js (paket npm fake-indexeddb) dilewati bila paketnya tidak ada: berkas ini ikut dijalankan
+// CI lewat tests/test_taskdetail_node.py yang kontraknya "tanpa node_modules" (workflow tidak menjalankan npm install).
+const hasFakeIdb = (() => { try { require.resolve("fake-indexeddb/auto"); return true; } catch (_) { return false; } })();
+const IDB = { skip: hasFakeIdb ? false : "paket npm fake-indexeddb tidak terpasang (CI tanpa npm install)" };
 const indexHtml = fs.readFileSync(path.resolve(__dirname, "../../static/index.html"), "utf8").replace(/\r\n/g, "\n");
 const appCss = fs.readFileSync(path.resolve(__dirname, "../../static/app.css"), "utf8").replace(/\r\n/g, "\n");
 
@@ -377,7 +381,7 @@ test("ChecklistTree: penjaga 'id bukan angka' dihapus (checklist offline Fase 2 
 
 // Checklist offline Fase 2 (rencana PR B2 R6): ChecklistTree asli + rute lokal asli (taskroutes + checklistroutes +
 // checklistrepo di fake-indexeddb) untuk task yang belum tersinkron — semua permintaan dilayani lokal dan masuk antrean.
-test("ChecklistTree + rute lokal: task belum tersinkron (id = cid) — muat, tambah, centang, ubah teks, hapus tanpa jaringan", async () => {
+test("ChecklistTree + rute lokal: task belum tersinkron (id = cid) — muat, tambah, centang, ubah teks, hapus tanpa jaringan", IDB, async () => {
   const { deleteDB } = require("./setup.js");
   const TFdb = require("../../static/offline/db.js");
   const CR = require("../../static/offline/checklistrepo.js");
@@ -436,7 +440,7 @@ test("ChecklistTree + rute lokal: task belum tersinkron (id = cid) — muat, tam
 // Perbaikan uji coba Task 6 (E2E C-1 regresi): butir yang dibuat lewat tampilan lalu dikirim push (id server diadopsi)
 // selagi ChecklistTree terbuka tetap ber-id cid di respons lokal — centang, ubah teks + Tab (pindah) tetap mengenai baris
 // yang sama, kotak ubah teks tetap terbuka.
-test("ChecklistTree + rute lokal: id butir tetap sesudah push mengadopsi id server (centang, ubah teks + Tab)", async () => {
+test("ChecklistTree + rute lokal: id butir tetap sesudah push mengadopsi id server (centang, ubah teks + Tab)", IDB, async () => {
   const { deleteDB } = require("./setup.js");
   const TFdb = require("../../static/offline/db.js");
   const CR = require("../../static/offline/checklistrepo.js");
