@@ -530,3 +530,19 @@
   - Rollback: aman **hanya sebelum PR B2 rilis** — revert sebagai rilis baru; kolom `checklist_rev` dibiarkan (kode lama mengabaikannya); `client_id` berprefiks tetap unik secara global. Setelah B2 rilis, rollback A2 harus disertai rollback B2 (server lama menolak `PATCH {is_done}` dengan 422 sehingga B2 membuang centang offline, dan `/api/checklists` 404). Saat A2 di-deploy ulang setelah rollback, jalankan sekali `UPDATE tasks SET checklist_rev = COALESCE(checklist_rev,0) + 1 WHERE id IN (SELECT DISTINCT task_id FROM subtasks)` karena kode lama tidak menaikkan rev.
   - Kirim ulang tambah butir (`client_id` sama, `rev_bumped` False) tidak mengirim notifikasi workspace lagi.
   - Deploy: cadangkan `taskflow.db` sebelum merge (migrasi mengisi `checklist_rev`), lalu `sudo systemctl restart taskflow taskflow-web`.
+
+### ADR-052: Checklist Fase 2 (aplikasi) — antrean aksi `subtasks`, nisan create, kunci antrean lintas tab, IndexedDB v8
+- **Date:** 2026-11-12
+- **Agent:** Claude (Opus 5.5)
+- **Context:** Spec `docs/superpowers/specs/2026-11-11-checklist-offline-fase2-design.md` §4 dan rencana `docs/superpowers/plans/2026-11-12-checklist-offline-pr-b2-ui.md`. Server PR A2 (ADR-051) sudah di main. Klien harus menyimpan semua checklist di perangkat, melayani aksi checklist secara lokal, dan mengirimnya saat tersambung tanpa butir ganda, tanpa kehilangan aksi, dan tanpa menimpa perubahan perangkat lain diam-diam.
+- **Decision:**
+  - Checklist disimpan di store `subtasks`; aksi dicatat sebagai entri antrean `entity_type: "subtasks"` (`create`/`rename`/`set_done`/`move`/`delete`) dalam transaksi yang sama dengan record. Rute lokal dipakai bila repo siap dan task/butir dikenal (atau task belum tersinkron); selain itu jaringan (perilaku v502).
+  - Rev per task di `_meta` mengikuti ADR-051 (`settleRev` satu transaksi). Task yang punya entri antrean checklist tidak diambil ulang dan tidak mengadopsi progress dari server (E5).
+  - `create` ditandai `attempted` sebelum dikirim; menghapus butir yang create-nya sudah dicoba → nisan sampai create dikirim ulang lalu `DELETE` (respons create bisa hilang padahal server menerapkannya).
+  - `pushOutbox` (semua entitas) dan `pullChecklists` memakai kunci Web Locks `tf-antrean-sinkron:<DB>`; tab lain yang sinkron latar mendapat `busy` dan menjadwalkan ulang; `__pushNow` menunggu. Tanpa `navigator.locks` → tanpa kunci.
+  - `DB_VERSION` 7 → 8 tanpa perubahan skema, agar tab v502 yang masih terbuka (yang membuang entri antrean entitas tak dikenal) menutup DB sebelum entri `subtasks` pertama ditulis.
+- **Consequences:**
+  - Rollback B2 = rilis baru yang tetap memakai `DB_VERSION` 8 (versi IndexedDB tidak bisa diturunkan; membuka v7 di atas v8 → `VersionError`). Kode rollback harus mengenali dan **tidak membuang** entri `subtasks` yang tersisa di antrean (atau membuangnya dengan sadar setelah mengirimnya ke server).
+  - Kunci antrean mengurangi pengiriman ganda lintas tab untuk semua entitas tanpa mengubah hasil sinkronnya; selama unduhan checklist besar, push latar tab lain tertunda.
+  - Toast bentrok tampil di tab pemegang kunci, belum tentu tab yang sedang dilihat.
+  - Rilis v504; deploy statis tanpa restart.

@@ -4533,3 +4533,9 @@
 - **Files Touch:** .agents/CURRENT_STATE.md, .agents/SESSION_LOG.md
 - **Status:** Completed — PR 1d-2 dan Fase 1 plugin Timeline selesai.
 
+
+## [2026-11-12 07:50] - Claude (Opus 5.5)
+- **Task:** Checklist offline (Fase 2) — PR B2 (aplikasi): eksekusi Task 1–8 lewat subagent implementer + reviewer.
+- **Changes:** `TF.checklist` id campuran + aksi murni (vektor bersama server), `checklistrepo.js`, `checklistroutes.js`, push/pull `subtasks`, UI (`ChecklistTree`, toast bentrok), perbaikan review (yatim, rev atomik, nisan create, rev task baru, rev null, E5 PUT ext, IndexedDB v8, kunci antrean lintas tab, `settleRev`, hitungan Fokus level atas, CI tanpa fake-indexeddb), merge `origin/main` (#131), E2E baru 75/75 + penyesuaian `e2e_checklist_tree.py`, rilis v504 + whatsnew. Dokumen: catatan implementasi PR B2 di spec, ADR-052.
+- **Files Touch:** static/offline/{checklist,checklistrepo,checklistroutes,db,hydrate,outbox,syncconflict,syncpull,syncpush,taskrepo,taskroutes}.js, static/{index.html,sw.js,whatsnew.json}, tests/offline/*, tests/fixtures/checklist_action_vectors.json, tests/test_checklist_offline_replay_node.py, temporary_files/{e2e_checklist_offline.py,e2e_checklist_tree.py}, docs/superpowers/specs/2026-11-11-checklist-offline-fase2-design.md, .agents/{DECISIONS,CURRENT_STATE,SESSION_LOG}.md
+- **Status:** Needs Review — PR DRAFT; merge hanya atas "merge dan deploy" (statis, tanpa restart). npm 5112/5111 (pra-ada `draw_local_reactive`), pytest 1804/1 skip.
