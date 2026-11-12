@@ -665,6 +665,71 @@
   }
   const clearRev = (taskCid) => setRev(taskCid, null);
 
+  // Selesaikan rev tersimpan sesudah respons aksi checklist terkirim (ADR-051; syncpush) — baca, bandingkan, tulis
+  // dalam SATU transaksi _meta (review akhir S1 PR B2: getRevs lalu setRev di dua transaksi menimpa pengosongan rev oleh
+  // aksi lokal yang jatuh di antaranya). Maju hanya bila aksi ini sendiri menaikkan rev (`rev_bumped`) dan rev =
+  // tersimpan + 1; rev = tersimpan → tetap; tersimpan null (sudah dikosongkan) → tetap null; selain itu (termasuk belum
+  // pernah diunduh, respons tanpa rev) → dikosongkan. → "advanced" | "same" | "cleared" | "kept-null".
+  function settleRev(taskCid, tp) {
+    const rev = tp && typeof tp.rev === "number" && Number.isFinite(tp.rev) ? tp.rev : null;
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let out = null;
+      let val;
+      const t = db.transaction("_meta", "readwrite");
+      const os = t.objectStore("_meta");
+      const r = os.get(REVS_KEY);
+      r.onsuccess = () => {
+        const o = Object.assign({}, isObj(r.result) ? r.result : {});
+        const stored = Object.prototype.hasOwnProperty.call(o, taskCid) ? o[taskCid] : undefined;
+        if (typeof stored === "number" && rev != null && rev === stored) { out = "same"; return; }
+        if (typeof stored === "number" && rev != null && tp.rev_bumped === true && rev === stored + 1) {
+          out = "advanced";
+          val = rev;
+        } else if (stored === null) {
+          out = "kept-null";
+          return;
+        } else {
+          out = "cleared";
+          val = null;
+        }
+        o[taskCid] = val;
+        os.put(o, REVS_KEY);
+      };
+      t.oncomplete = () => resolve([out, val]);
+      t.onerror = () => reject(t.error);
+    })).then(([out, val]) => {
+      if (out !== "advanced" && out !== "cleared") return out;
+      memApply((m) => { m.revs.set(taskCid, val); });
+      return readTask(taskCid).then((task) => { memApply((m) => noteTask(m, task)); }, () => {}).then(() => out);
+    });
+  }
+
+  // Adopsi task_progress respons push ke record task lokal hanya bila task itu tidak punya entri antrean subtasks
+  // (E5) — dicek di transaksi yang SAMA dengan penulisan (["tasks", "_outbox"]), sehingga aksi lokal yang mengantre di
+  // tengahnya tidak tertimpa progress server yang lebih lama. Aturan tulis = TF.checklist.progressPatch (tanpa
+  // dirty/rev/base_rev, cap checklist_adopted_at). → true bila ditulis.
+  function adoptProgressIfIdle(taskCid, tp) {
+    if (taskCid == null || taskCid === "" || typeof C.progressPatch !== "function") return Promise.resolve(false);
+    return TFdb.openDB().then((db) => new Promise((resolve, reject) => {
+      let saved = false;
+      const t = db.transaction(["tasks", "_outbox"], "readwrite");
+      const q = t.objectStore("_outbox").getAll();
+      q.onsuccess = () => {
+        if ((q.result || []).some((o) => o && o.entity_type === ENTITY && o.task_cid === taskCid)) return;
+        const ts = t.objectStore("tasks");
+        const r = ts.get(taskCid);
+        r.onsuccess = () => {
+          const next = C.progressPatch(r.result || null, tp);
+          if (!next) return;
+          ts.put(next);
+          saved = true;
+        };
+      };
+      t.oncomplete = () => resolve(saved);
+      t.onerror = () => reject(t.error);
+    }));
+  }
+
   // Banyak rev sekaligus (pullChecklists: aturan rev 0 tanpa unduh untuk semua task tanpa checklist) dalam SATU
   // transaksi _meta. `pairs` = [[task_cid, rev], …]; opts.onlyIfAbsent → kunci yang sudah ada (termasuk null = ambil
   // ulang) tidak ditimpa, dicek di transaksi yang sama. Id server task dicatat di memori seperti setRev.
@@ -886,7 +951,8 @@
     start, refresh, reset, isReady, knowsTask, knowsItem,
     resolveTask, findItem, recordsForTask, itemsForTask, pendingTaskCids,
     create, setDone, toggle, patch, move, remove,
-    getRevs, setRev, setRevs, clearRev, markHydrated, replaceTaskChecklist, purgeTask, adoptServerId, noteTaskServerId,
+    getRevs, setRev, setRevs, clearRev, settleRev, adoptProgressIfIdle, markHydrated, replaceTaskChecklist, purgeTask,
+    adoptServerId, noteTaskServerId,
   };
   // Browser: memori kesiapan dimuat saat modul dimuat (Node/tes memanggil start() sendiri).
   if (!isNode) { try { start(); } catch (_) {} }

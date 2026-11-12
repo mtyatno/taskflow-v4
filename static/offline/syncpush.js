@@ -2390,27 +2390,19 @@
 
   // ADR-051: rev tersimpan maju hanya bila aksi ini sendiri menaikkan rev (`rev_bumped`) dan rev = tersimpan + 1;
   // rev = tersimpan → tetap; selain itu dikosongkan (ambil ulang sesudah antrean task itu kosong). Tersimpan null
-  // (sudah dikosongkan) tidak pernah dimajukan; respons tanpa rev (delete 404) → dikosongkan.
+  // (sudah dikosongkan) tidak pernah dimajukan; respons tanpa rev (delete 404) → dikosongkan. Baca-bandingkan-tulis
+  // dalam SATU transaksi (CR.settleRev, review akhir S1): pengosongan rev oleh aksi lokal di tengahnya tidak tertimpa.
   function settleChecklistRev(CR, taskCid, tp) {
-    return CR.getRevs().then((revs) => {
-      const stored = hasOwn(revs, taskCid) ? revs[taskCid] : undefined;
-      const rev = tp && typeof tp.rev === "number" ? tp.rev : null;
-      if (typeof stored === "number" && rev != null) {
-        if (rev === stored) return null;
-        if (tp.rev_bumped === true && rev === stored + 1) return CR.setRev(taskCid, rev);
-      }
-      if (stored === null) return null;
-      return CR.clearRev(taskCid);
-    });
+    return CR.settleRev(taskCid, tp);
   }
 
   // progress/checklist_total dari respons diadopsi hanya bila task itu tidak punya entri checklist tersisa (E5):
-  // respons entri antara mencerminkan server SEBELUM entri sesudahnya → progress lokal tidak "melompat" sesaat.
-  function adoptChecklistProgress(taskCid, tp) {
-    const C = checklistLogic();
-    if (!tp || !C || typeof C.writeTaskProgress !== "function") return Promise.resolve(false);
-    return TFoutbox.outboxAll().then((ops) => (ops.some((o) => o && o.entity_type === SUBTASKS && o.task_cid === taskCid)
-      ? false : C.writeTaskProgress(taskCid, tp)));
+  // respons entri antara mencerminkan server SEBELUM entri sesudahnya → progress lokal tidak "melompat" sesaat. Cek
+  // antrean dan tulis progress dalam satu transaksi (CR.adoptProgressIfIdle): aksi lokal yang mengantre di tengahnya
+  // tidak tertimpa progress server yang lebih lama.
+  function adoptChecklistProgress(CR, taskCid, tp) {
+    if (!tp) return Promise.resolve(false);
+    return CR.adoptProgressIfIdle(taskCid, tp);
   }
 
   // Sesudah penolakan: entri lain task itu untuk butir yang tidak punya id server dan tidak punya create antre (yatim)
@@ -2485,7 +2477,7 @@
     const data = ok(res) && res.data && typeof res.data === "object" ? res.data : {};
     const tp = data.task_progress && typeof data.task_progress === "object" ? data.task_progress : null;
     const settle = () => settleChecklistRev(CR, op.task_cid, tp)
-      .then(() => adoptChecklistProgress(op.task_cid, tp))
+      .then(() => adoptChecklistProgress(CR, op.task_cid, tp))
       .then(() => { result.pushed++; });
     if (op.op === "create") {
       const newSid = data.id;

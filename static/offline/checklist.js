@@ -568,6 +568,20 @@
   // Inti adopsi dengan cid task lokal (Fase 2, rencana PR B2 R2): dipakai adoptTaskProgress (respons server) dan
   // checklistrepo (progress hasil aksi lokal, termasuk task yang belum tersinkron). Aturan sama: hanya bila berbeda,
   // dirty/rev/base_rev/updated_at/ext tidak disentuh, cap checklist_adopted_at. → Promise<boolean>.
+  // Record task berikutnya sesudah mengadopsi task_progress `tp` (murni; dipakai writeTaskProgress dan
+  // checklistrepo.adoptProgressIfIdle yang menulisnya di transaksi bersama _outbox). Tidak ada record / tp tidak sah /
+  // tidak ada yang berbeda → undefined.
+  function progressPatch(cur, tp) {
+    const v = cleanTp(tp);
+    if (!cur || !v) return undefined;
+    const patch = {};
+    if (cur.checklist_total !== v.total) patch.checklist_total = v.total;
+    if (v.progress != null && cur.progress !== v.progress) patch.progress = v.progress;
+    if (!Object.keys(patch).length) return undefined;
+    patch.checklist_adopted_at = Date.now(); // penjaga pull basi (syncpull adoptedSince); bukan field server
+    return Object.assign({}, cur, patch);
+  }
+
   function writeTaskProgress(taskCid, tp) {
     const v = cleanTp(tp);
     if (taskCid == null || taskCid === "" || !v) return Promise.resolve(false);
@@ -575,15 +589,7 @@
       .then(() => {
         const TFdb = dbMod();
         if (!TFdb || typeof TFdb.mutate !== "function") return null;
-        return TFdb.mutate("tasks", taskCid, (cur) => {
-          if (!cur) return undefined;
-          const patch = {};
-          if (cur.checklist_total !== v.total) patch.checklist_total = v.total;
-          if (v.progress != null && cur.progress !== v.progress) patch.progress = v.progress;
-          if (!Object.keys(patch).length) return undefined;
-          patch.checklist_adopted_at = Date.now(); // penjaga pull basi (syncpull adoptedSince); bukan field server
-          return Object.assign({}, cur, patch);
-        });
+        return TFdb.mutate("tasks", taskCid, (cur) => progressPatch(cur, tp));
       })
       .then((saved) => !!saved, () => false);
   }
@@ -605,6 +611,6 @@
     indentTarget, outdentTarget, siblingMoveTarget, dropRange, dropTarget, applyMove,
     applyCreate, applySetDone, applyRename, applyDelete, moveError,
     maxAddDepth, addParentFor, autoScrollDelta, loadCollapsed, saveCollapsed, lockFor, adoptTaskProgress,
-    writeTaskProgress,
+    writeTaskProgress, progressPatch,
   };
 });

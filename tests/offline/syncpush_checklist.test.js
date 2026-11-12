@@ -604,3 +604,130 @@ test("WAJIB-1: create ulang butir nisan ditolak server → dibuang tanpa dihitun
   assert.deepEqual(seen, []);
   assert.equal((await revs()).t1, null, "rev tetap dikosongkan (ambil ulang)");
 });
+
+// ── review akhir S1: rev tersimpan diselesaikan dalam SATU transaksi ─────────────────────────────────────────
+// settleChecklistRev dulu membaca rev (getRevs) lalu menulis (setRev) di dua transaksi: pengosongan rev oleh aksi lokal
+// (remove: create belum terkirim dibuang padahal entri lebih baru masih antre → rev dikosongkan atomik) yang jatuh di
+// antaranya tertimpa → rev tersimpan maju sampai = rev server padahal urutan server ≠ lokal (tidak pernah diambil ulang).
+// Probe reviewer probe_settle_race.js: aksi hapus disuntikkan tepat saat settle untuk respons rename dimulai.
+
+// Server mini level atas (dari probe): create di akhir, PATCH judul, move (clamp); rev +1 per perubahan.
+function settleServer() {
+  const S = { order: [11], title: { 11: "a" }, rev: 3, next: 20 };
+  const tpS = (bumped) => { if (bumped) S.rev++; return { done: 0, total: S.order.length, progress: 0, rev: S.rev, rev_bumped: bumped }; };
+  S.serve = (method, p, body) => {
+    let m;
+    if (method === "POST" && /^\/api\/tasks\/7\/subtasks$/.test(p)) {
+      const id = S.next++; S.order.push(id); S.title[id] = body.title;
+      return { status: 200, data: { id, task_id: 7, parent_id: null, title: body.title, is_done: false, sort_order: S.order.length - 1, task_progress: tpS(true) } };
+    }
+    if (method === "PATCH" && (m = /^\/api\/subtasks\/(\d+)$/.exec(p))) {
+      const id = Number(m[1]); const ch = S.title[id] !== body.title; S.title[id] = body.title;
+      return { status: 200, data: { id, title: body.title, changed_ids: [], task_progress: tpS(ch) } };
+    }
+    if (method === "POST" && (m = /^\/api\/subtasks\/(\d+)\/move$/.exec(p))) {
+      const id = Number(m[1]); const before = S.order.join();
+      const rest = S.order.filter((x) => x !== id);
+      const i = body.index == null ? rest.length : Math.max(0, Math.min(body.index, rest.length));
+      rest.splice(i, 0, id); S.order = rest;
+      return { status: 200, data: { items: [], task_progress: tpS(before !== S.order.join()) } };
+    }
+    return { status: 404, data: { detail: "?" } };
+  };
+  return S;
+}
+
+test("S1: hapus butir buatan offline tepat saat rev diselesaikan → pengosongan rev tidak tertimpa (lokal = server atau diambil ulang)", async () => {
+  await put("tasks", [task({ checklist_total: 1, progress: 0 })]);
+  await put("subtasks", [rec("a", { server_id: 11, title: "a" })]);
+  await mapPut("task", 7, "t1");
+  await mapPut("subtask", 11, "a");
+  await setRevs({ t1: 3 });
+  await CR.start();
+  await CR.patch("a", { title: "a2" });
+  const x = await CR.create("t1", { title: "x" });
+  await CR.create("t1", { title: "y" });
+  await CR.move("a", null, 1);
+  const S = settleServer();
+  let renamed = false;
+  let injected = false;
+  const inject = async () => {
+    if (!renamed || injected) return;
+    injected = true;
+    await CR.remove(x.item.id); // pengguna menghapus x tepat saat respons rename diselesaikan
+  };
+  // Titik suntik = awal penyelesaian rev, apa pun bentuknya (dua transaksi getRevs → setRev, atau satu settleRev).
+  const realGet = CR.getRevs;
+  const realSettle = CR.settleRev;
+  CR.getRevs = function () { return realGet.call(CR).then(async (r) => { await inject(); return r; }); };
+  if (typeof realSettle === "function") CR.settleRev = async function (...a) { await inject(); return realSettle.apply(CR, a); };
+  try {
+    await pushOutbox({ request: (m, p, b) => Promise.resolve(S.serve(m, p, b)).then((res) => { if (m === "PATCH") renamed = true; return res; }) });
+  } finally {
+    CR.getRevs = realGet;
+    if (typeof realSettle === "function") CR.settleRev = realSettle;
+  }
+  assert.equal(injected, true, "hapus tersuntik di tengah push");
+  const local = (await CR.itemsForTask("t1")).map((i) => i.title);
+  const server = S.order.map((id) => S.title[id]);
+  const stored = (await revs()).t1;
+  assert.ok(local.join() === server.join() || stored === null,
+    `lokal ${local} ≠ server ${server} padahal rev tersimpan ${stored} = rev server ${S.rev} (tidak akan diambil ulang)`);
+  assert.equal((await subtaskOps()).length, 0);
+});
+
+test("S1: CR.settleRev — aturan ADR-051 dalam satu transaksi _meta readwrite", async () => {
+  await put("tasks", [task()]);
+  await mapPut("task", 7, "t1");
+  await CR.start();
+  const cases = [
+    // [tersimpan awal, task_progress, tersimpan akhir]
+    [3, tp(4, true), 4],          // aksi ini menaikkan rev tepat 1 → maju
+    [3, tp(3, false), 3],         // tidak ada perubahan di server → tetap
+    [3, tp(5, true), null],       // ada kenaikan milik perangkat lain → kosongkan
+    [3, tp(4, false), null],      // rev = tersimpan + 1 tapi bukan milik aksi ini (S1 review A2) → kosongkan
+    [null, tp(4, true), null],    // sudah dikosongkan → tidak pernah dimajukan
+    [undefined, tp(4, true), null], // belum pernah diunduh → dikosongkan (ambil ulang)
+    [3, null, null],              // respons tanpa task_progress (delete 404) → kosongkan
+    [3, { done: 0, total: 1, progress: 0 }, null], // tanpa rev → kosongkan
+  ];
+  const db = await TFdb.openDB();
+  const realTx = db.transaction;
+  for (const [awal, tpv, akhir] of cases) {
+    await setRevs(awal === undefined ? {} : { t1: awal });
+    const seen = [];
+    db.transaction = function (stores, mode) { seen.push([[].concat(stores).join(","), mode || "readonly"]); return realTx.apply(this, arguments); };
+    try {
+      await CR.settleRev("t1", tpv);
+    } finally { db.transaction = realTx; }
+    const now = await revs();
+    assert.equal(Object.prototype.hasOwnProperty.call(now, "t1") ? now.t1 : undefined, akhir, JSON.stringify([awal, tpv]));
+    assert.deepEqual(seen.filter(([s]) => s.includes("_meta")), [["_meta", "readwrite"]], "baca + bandingkan + tulis dalam satu transaksi: " + JSON.stringify(seen));
+  }
+});
+
+test("S1: CR.adoptProgressIfIdle — antrean subtasks task itu dicek di transaksi yang sama dengan penulisan progress", async () => {
+  await put("tasks", [task({ progress: 10, checklist_total: 2 }), task({ cid: "t2", server_id: 8, progress: 0, checklist_total: 1 })]);
+  await mapPut("task", 7, "t1");
+  await CR.start();
+  const db = await TFdb.openDB();
+  const realTx = db.transaction;
+  const seen = [];
+  db.transaction = function (stores, mode) { seen.push([[].concat(stores).sort().join(","), mode || "readonly"]); return realTx.apply(this, arguments); };
+  let saved;
+  try { saved = await CR.adoptProgressIfIdle("t1", { done: 1, total: 2, progress: 50 }); } finally { db.transaction = realTx; }
+  assert.equal(saved, true);
+  assert.deepEqual(seen, [["_outbox,tasks", "readwrite"]], "satu transaksi tasks + _outbox");
+  const t1 = await get("tasks", "t1");
+  assert.deepEqual([t1.progress, t1.checklist_total, t1.dirty, t1.rev, t1.updated_at], [50, 2, 0, 3, "2026-11-01T00:00:00"]);
+  assert.equal(typeof t1.checklist_adopted_at, "number");
+  // entri subtasks task itu masih antre → tidak diadopsi (E5); entri task LAIN tidak menghalangi
+  await put("_outbox", [entri("set_done", "k1", { is_done: true }, { task_cid: "t1" })]);
+  assert.equal(await CR.adoptProgressIfIdle("t1", { done: 2, total: 2, progress: 100 }), false);
+  assert.equal((await get("tasks", "t1")).progress, 50);
+  assert.equal(await CR.adoptProgressIfIdle("t2", { done: 1, total: 1, progress: 100 }), true);
+  assert.equal((await get("tasks", "t2")).progress, 100);
+  // tanpa perubahan → tidak ditulis; task tidak ada → false
+  assert.equal(await CR.adoptProgressIfIdle("t2", { done: 1, total: 1, progress: 100 }), false);
+  assert.equal(await CR.adoptProgressIfIdle("tx", { done: 1, total: 1, progress: 100 }), false);
+});
