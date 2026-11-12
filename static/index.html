@@ -1006,7 +1006,7 @@ function schedulePush() {
       .catch(() => {});
   }, 1500);
 }
-window.__pushNow = () => (window.TF && window.TF.syncpush) ? runSyncExclusive(() => window.TF.syncpush.pushOutbox(__syncTransport)) : Promise.resolve(null);
+window.__pushNow = () => (window.TF && window.TF.syncpush) ? runSyncExclusive(() => window.TF.syncpush.pushOutbox(__syncTransport, { waitLock: true })) : Promise.resolve(null);
 // Op outbox diantre di luar mutasi API (mis. heal drawing saat dibuka) → tetap dijadwalkan push
 window.addEventListener("tf:outbox-queued", () => schedulePush());
 const __syncRawFetch = (u, timeoutMs) => {

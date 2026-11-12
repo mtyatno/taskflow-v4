@@ -2712,10 +2712,23 @@
   }
 
   let _running = false;
+  // `_running` mencegah dua pengurasan di tab yang sama; TFoutbox.withQueueLock (navigator.locks) mencegah dua tab
+  // menguras antrean bersama bersamaan (review akhir W2 PR B2). Kunci dipegang tab lain: sinkron latar → busy (pemanggil
+  // menjadwalkan ulang push; tab pemegang kunci yang mengirim isinya); opts.waitLock (__pushNow) → menunggu kunci lalu
+  // menguras sisa antrean. Modul outbox lama tanpa withQueueLock → tanpa kunci.
   function pushOutbox(transport, opts) {
     if (_running) return Promise.resolve({ pushed: 0, failed: 0, remaining: -1, busy: true });
     _running = true;
     opts = opts || {};
+    const locked = typeof TFoutbox.withQueueLock === "function"
+      ? TFoutbox.withQueueLock(() => drainOutbox(transport, opts), { wait: !!opts.waitLock })
+      : drainOutbox(transport, opts).then((value) => ({ ran: true, value }));
+    return locked
+      .then((r) => (r.ran ? r.value : { pushed: 0, failed: 0, remaining: -1, busy: true, lockedElsewhere: true }))
+      .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
+  }
+
+  function drainOutbox(transport, opts) {
     const tagsFor = opts.tagsFor || ((cid) => TFtag.getEntityTags("task", cid).then((ts) => ts.map((t) => t.name)));
     const habitTagsFor = opts.habitTagsFor || ((cid) => TFtag.getEntityTags("habit", cid).then((ts) => ts.map((t) => t.name)));
     const result = { pushed: 0, failed: 0, remaining: 0, requeued: 0, merged: 0 };
@@ -2752,8 +2765,7 @@
         // Checklist offline (spec §4.4, F3): perubahan yang ditolak server → SATU event per drain → satu pesan.
         if (result.checklistRejected > 0) dispatchWindowEvent("tf:checklist-rejected", { count: result.checklistRejected });
         return result;
-      })
-      .then((r) => { _running = false; return r; }, (e) => { _running = false; throw e; });
+      });
   }
 
   const exported = {

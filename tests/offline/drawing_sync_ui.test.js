@@ -353,7 +353,8 @@ test("index.html: sync(), push terjadwal & __pushNow lewat runSyncExclusive; dra
   assert.match(sync, /drawRes\.merged > 0/);
   const sp = indexHtml.match(/function schedulePush\(\) \{[\s\S]*?\n\}/)[0];
   assert.match(sp, /runSyncExclusive\(\(\) => window\.TF\.syncpush\.pushOutbox\(__syncTransport\)\)/);
-  assert.match(indexHtml, /window\.__pushNow = \(\) => \(window\.TF && window\.TF\.syncpush\) \? runSyncExclusive\(\(\) => window\.TF\.syncpush\.pushOutbox\(__syncTransport\)\)/);
+  // __pushNow menunggu kunci antrean lintas tab (checklist offline review akhir W2, tests/offline/sync_lock_tabs.test.js)
+  assert.match(indexHtml, /window\.__pushNow = \(\) => \(window\.TF && window\.TF\.syncpush\) \? runSyncExclusive\(\(\) => window\.TF\.syncpush\.pushOutbox\(__syncTransport, \{ waitLock: true \}\)\)/);
   assert.match(indexHtml, /const SYNC_TASK_MAX_MS = \d+;/);
 });
 

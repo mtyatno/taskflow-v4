@@ -2121,7 +2121,7 @@
     const CR = checklistRepo();
     if (!CR || typeof CR.replaceTaskChecklist !== "function" || typeof CR.setRevs !== "function") return Promise.resolve(null);
     const result = { zero: 0, fetched: 0, replaced: 0, skipped: 0, purged: 0, failed: false, hydrated: false };
-    const run = Promise.all([getAllTasks(), CR.getRevs(), CR.pendingTaskCids()]).then(([tasks, revs, pending]) => {
+    const body = () => Promise.all([getAllTasks(), CR.getRevs(), CR.pendingTaskCids()]).then(([tasks, revs, pending]) => {
       const zero = [];
       const want = [];
       for (const t of tasks) {
@@ -2162,6 +2162,14 @@
           return CR.markHydrated().then(() => { result.hydrated = true; });
         });
     });
+    // Kunci lintas tab yang sama dengan pushOutbox (TF.outbox.withQueueLock, review akhir W2 PR B2): unduhan yang
+    // berjalan saat tab lain mengirim antrean bisa menulis snapshot lama di atas hasil kirim tab itu. Kunci dipegang tab
+    // lain → dilewati ({locked: true}; siklus berikutnya mengunduh) tanpa menggagalkan sync; memori kesiapan tetap dimuat
+    // ulang (tab lain mungkin baru menyelesaikan unduhan awal).
+    const lockFn = TFoutbox && typeof TFoutbox.withQueueLock === "function" ? TFoutbox.withQueueLock : null;
+    const run = lockFn
+      ? lockFn(body).then((r) => { if (!r.ran) result.locked = true; })
+      : body();
     const refresh = () => Promise.resolve().then(() => (typeof CR.refresh === "function" ? CR.refresh() : null)).catch(() => null);
     return run.then(() => refresh().then(() => result), (e) => refresh().then(() => { throw e; }));
   }
