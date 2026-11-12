@@ -25,7 +25,11 @@ docs/superpowers/plans/2026-11-12-checklist-offline-pr-b2-ui.md Task 7. Offline 
       + tab baru (v8) di konteks yang sama → banner "Alurik diperbarui di tab lain. Muat ulang tab ini." di tab lama;
       entri antrean `subtasks` dari tab baru utuh saat tab lama mencoba push; online → tab baru mengirimnya
   S7  galat konsol / respons >= 400 hanya yang terkait jaringan terputus (offline, 503 jawaban SW saat offline,
-      koneksi yang sengaja diputus di S2) dan PATCH 404 milik bentrok S3
+      koneksi yang sengaja diputus di S2) dan PATCH 404 milik bentrok S3 / S8
+  S8  dua tab online bersamaan (review akhir W2): dua page dalam SATU context (IndexedDB + navigator.locks bersama);
+      offline → di tab 1 centang/buka centang butir X berulang, ubah teks Y, ubah teks Z yang lalu dihapus "perangkat
+      lain" → online → kedua tab sinkron (event online) → setiap aksi terkirim TEPAT SEKALI (request diamati di level
+      context), server = lokal (kedua tab), toast bentrok paling banyak sekali per tab dan sekali total
 
 Server lokal dijalankan sendiri (uvicorn webapp:app, DB sementara; pola e2e_checklist_tree.py). Host luar diblokir,
 tf_whatsnew_seen diisi. Screenshot: temporary_files/e2e_checklist_offline/ (atau $E2E_SHOTS_DIR). Ringkasan "N/M
@@ -33,6 +37,7 @@ lulus"; keluar non-zero bila ada cek gagal. E2E_ONLY=utama (S1–S5, S7) atau E2
 
     E2E_PYTHON=$(which python3) TZ=Asia/Jakarta python3 temporary_files/e2e_checklist_offline.py
 """
+import json
 import mimetypes
 import os
 import re
@@ -713,6 +718,109 @@ def s4_new_device(browser, base, user):
         C.ctx.close()
 
 
+# ── S8 dua tab online bersamaan ───────────────────────────────────────────────
+
+S8_TITLE = "Dua tab sekaligus"
+S8_INIT = [("X satu", 0, None, False), ("Y dua", 0, None, False), ("Z tiga", 0, None, False)]
+S8_WANT = [("X satu", 0, None, False), ("Y dua diubah", 0, None, False)]
+
+
+def s8_two_tabs_online(browser, base, user, tid, z_id):
+    tag = "S8"
+    ctx = browser.new_context(service_workers="block", viewport={"width": 1280, "height": 860}, device_scale_factor=1,
+                              timezone_id="Asia/Jakarta")
+    ctx.add_cookies([{"name": "token", "value": user["token"], "url": base, "httpOnly": True, "sameSite": "Lax"}])
+    ctx.route(re.compile(r"^(?!http://127\.0\.0\.1).*$"), lambda r: r.abort())
+    ctx.add_init_script(TOAST_INIT)
+    sent = []  # (method, path, body) mutasi checklist yang keluar dari tab mana pun (level context)
+
+    def on_req(r):
+        if not r.url.startswith(base):
+            return
+        pth = r.url[len(base):].split("?")[0]
+        if r.method != "GET" and (pth.startswith("/api/subtasks/") or re.fullmatch(r"/api/tasks/\d+/subtasks", pth)):
+            sent.append((r.method, pth, r.post_data))
+    ctx.on("request", on_req)
+    try:
+        tabs = []
+        for i in (1, 2):
+            p = ctx.new_page()
+            dv = Dev("S8-tab%d" % i, ctx, p, base)
+            devices.append(dv)
+            attach(dv, p)
+            if i == 1:
+                p.goto(base + "/manifest.json")
+                seed_storage(p, user, "light", "0", d.SW_VERSION)
+            p.goto(base + "/")
+            wait_shell(p)
+            tabs.append(dv)
+        t1, t2 = tabs
+        ok = all(wait_until(lambda dv=dv: is_ready(dv.p), 30) for dv in tabs)
+        check("%s dua tab satu context: unduhan awal selesai di keduanya" % tag, ok)
+        check("%s navigator.locks tersedia (Chromium)" % tag, t1.p.evaluate("() => !!(navigator.locks && navigator.locks.request)"))
+        d.go_all_tasks(t1.p, False)
+        ctx.set_offline(True)
+        for dv in tabs:
+            dv.offline = True
+        for dv in tabs:
+            dv.p.wait_for_function("() => navigator.onLine === false", timeout=5000)
+        open_checklist(t1, MODAL, S8_TITLE)
+        p = t1.p
+        for _ in range(4):  # centang / buka centang berulang → set_done true, false, true, false
+            want_done = not dict((r[0], r[2]) for r in view(p, MODAL))["X satu"]
+            ck.checkbox(p, MODAL, "X satu").click()
+            wait_until(lambda: dict((r[0], r[2]) for r in view(p, MODAL))["X satu"] is want_done, 5)
+        ok1 = edit_text(p, MODAL, "Y dua", "Y dua diubah")
+        ok2 = edit_text(p, MODAL, "Z tiga", "Z tiga diubah")
+        ck.close_modal(p)
+        q = outbox_subtasks(p)
+        check("%s offline di tab 1: antrean set_done ×4 + rename ×2" % tag,
+              ok1 and ok2 and [o[0] for o in q] == ["set_done"] * 4 + ["rename"] * 2, repr(q))
+        api(base, user, "DELETE", "/api/subtasks/%d" % z_id)  # perangkat lain menghapus Z
+        for dv in tabs:
+            dv.p.evaluate("() => { window.__toasts = []; window.__rejected = []; }")
+            # Catat hasil pushOutbox per tab (dipanggil index.html lewat properti → pembungkus berlaku): busy karena kunci
+            # dipegang tab lain = bukti kedua tab memang mencoba menguras bersamaan.
+            dv.p.evaluate("""() => { const sp = TF.syncpush, orig = sp.pushOutbox; window.__pushRes = [];
+                sp.pushOutbox = (...a) => orig(...a).then((r) => { window.__pushRes.push(r ? {pushed: r.pushed,
+                    locked: !!r.lockedElsewhere} : null); return r; }); }""")
+        ctx.set_offline(False)
+        for dv in tabs:
+            dv.offline = False
+        ok = wait_drain(p, 40)
+        wait_until(lambda: sum(len(checklist_toasts(dv.p)) for dv in tabs) > 0, 15)
+        p.wait_for_timeout(6000)  # sinkron ulang / push susulan kedua tab selesai: tidak boleh ada kiriman/pesan kedua
+        check("%s online: antrean kosong" % tag, ok and outbox_n(p) == 0, repr(outbox_subtasks(p)))
+        push_res = [dv.p.evaluate("() => window.__pushRes") for dv in tabs]
+        print("  hasil pushOutbox per tab:", push_res, flush=True)
+        patches = [x for x in sent if x[0] == "PATCH"]
+        bodies = [json.loads(x[2] or "{}") for x in patches]
+        n_locked = sum(1 for res in push_res for x in res if x and x["locked"])
+        check("%s setiap aksi terkirim tepat sekali walau dua tab sinkron bersamaan (6 PATCH: centang ×4, ubah teks ×2; "
+              "push dilewati karena kunci dipegang tab lain: %d×)" % (tag, n_locked),
+              len(sent) == 6 and [b.get("is_done") for b in bodies[:4]] == [True, False, True, False]
+              and [b.get("title") for b in bodies[4:]] == ["Y dua diubah", "Z tiga diubah"], repr(sent))
+        srv = srv_tree(base, user, tid)
+        check("%s server: X belum dicentang (aksi terakhir), Y diubah, Z terhapus (perubahan Z dibatalkan)" % tag,
+              srv == S8_WANT, repr(srv))
+        cid = task_cid(p, tid)
+        ok = wait_until(lambda: local_items(t1.p, cid) == strip(S8_WANT) and local_items(t2.p, cid) == strip(S8_WANT)
+                        and revs(t1.p).get(cid) == srv_task(base, user, tid)["checklist_rev"], 45, 0.5)
+        check("%s lokal kedua tab = server, rev tersimpan = rev server" % tag, ok,
+              repr((local_items(t1.p, cid), local_items(t2.p, cid), revs(t1.p).get(cid), srv_task(base, user, tid)["checklist_rev"])))
+        per_tab = [len(checklist_toasts(dv.p)) for dv in tabs]
+        texts = [t[1] for dv in tabs for t in checklist_toasts(dv.p)]
+        check("%s toast bentrok paling banyak sekali per tab, sekali total (tab pemegang kunci): %s" % (tag, per_tab),
+              all(n <= 1 for n in per_tab) and sum(per_tab) == 1 and texts == [TOAST_TEXT % 1], repr(texts))
+        d.go_all_tasks(t2.p, False)
+        open_checklist(t2, MODAL, S8_TITLE)
+        check("%s tab 2: checklist = server" % tag, with_parent(view(t2.p, MODAL)) == S8_WANT, repr(view(t2.p, MODAL)))
+        shot(t2.p, "s8_tab2.png")
+        ck.close_modal(t2.p)
+    finally:
+        ctx.close()
+
+
 # ── S6 tab lama ───────────────────────────────────────────────────────────────
 
 def main_static(tmp):
@@ -811,10 +919,10 @@ def s6_old_tab(browser, base, user, tmp):
 
 # ── S7 ────────────────────────────────────────────────────────────────────────
 
-def s7_errors(s3_ids):
+def s7_errors(conflict_ids, n_conflict):
     """Galat konsol / respons >= 400 yang diharapkan: jaringan terputus (offline), 503 jawaban SW saat offline, koneksi
-    yang sengaja diputus di S2, dan PATCH 404 bentrok S3 (butir X yang dihapus perangkat lain)."""
-    x_paths = {"/api/subtasks/%d" % i for i in s3_ids}
+    yang sengaja diputus di S2, dan PATCH 404 bentrok S3 / S8 (butir yang dihapus perangkat lain)."""
+    x_paths = {"/api/subtasks/%d" % i for i in conflict_ids}
     unexpected, expected = [], 0
     for dev in devices:
         for kind, text, pth, off in dev.events:
@@ -826,10 +934,11 @@ def s7_errors(s3_ids):
                 expected += 1
             else:
                 unexpected.append((dev.label, kind, text, pth))
-    check("S7 galat konsol / respons >= 400 hanya jaringan terputus + PATCH 404 bentrok S3 (%d diharapkan)" % expected,
+    check("S7 galat konsol / respons >= 400 hanya jaringan terputus + PATCH 404 bentrok S3/S8 (%d diharapkan)" % expected,
           not unexpected, repr(unexpected[:8]))
     conflict404 = [(dv.label, k) for dv in devices for k, _t, pth, _o in dv.events if pth in x_paths and k.startswith("response")]
-    check("S7 PATCH 404 bentrok tepat 2 (ubah teks + centang X)", len(conflict404) == 2, repr(conflict404))
+    check("S7 PATCH 404 bentrok tepat %d (S3: ubah teks + centang X; S8: ubah teks Z, sekali walau dua tab)" % n_conflict,
+          len(conflict404) == n_conflict, repr(conflict404))
 
 
 # ── main ──────────────────────────────────────────────────────────────────────
@@ -859,6 +968,8 @@ def main():
     t4 = ck.mk_task(base, user, S4_TITLE)
     ck.mk_items(base, user, t4, [("a", "Bab A", None, False), ("a1", "Bab A.1", "a", True), ("a2", "Bab A.2", "a", False),
                                  ("a2x", "Bab A.2.x", "a2", False), ("b", "Bab B", None, True)])
+    t8 = ck.mk_task(base, user, S8_TITLE)
+    ids8 = ck.mk_items(base, user, t8, [("x", "X satu", None, False), ("y", "Y dua", None, False), ("z", "Z tiga", None, False)])
     try:
         with sync_playwright() as pw:
             browser = pw.chromium.launch()
@@ -886,11 +997,16 @@ def main():
                         s4_new_device(browser, base, user)
                     except Exception as e:  # noqa: BLE001
                         fail_exc("S4", e)
+                    print("== S8 ==", flush=True)
+                    try:
+                        s8_two_tabs_online(browser, base, user, t8, ids8["z"])
+                    except Exception as e:  # noqa: BLE001
+                        fail_exc("S8", e)
                 finally:
                     A.ctx.close()
                     if B:
                         B.ctx.close()
-                s7_errors([ids["m"]])
+                s7_errors([ids["m"], ids8["z"]], 3)
             if want("tab"):
                 print("== S6 ==", flush=True)
                 try:
